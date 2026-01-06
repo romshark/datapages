@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"datapages/app"
-	"datapages/app/domain"
 	"datapages/datapagesgen"
 	"errors"
 	"flag"
@@ -31,7 +30,7 @@ func main() {
 	opts = withStaticFS(opts)
 	opts = withMessageBroker(opts, *fMsgBrokerMem)
 
-	repo := domain.NewRepository(mainCategories)
+	repo := NewRepository()
 
 	s := datapagesgen.NewServer(app.NewApp(repo), opts...)
 

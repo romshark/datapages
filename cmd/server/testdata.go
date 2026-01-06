@@ -37,166 +37,145 @@ func NewRepository() *domain.Repository {
 	ctx := context.Background()
 	repo := domain.NewRepository(mainCategories)
 
-	users := []domain.User{
-		{
-			DisplayName:    "autohandel-maerz-regensburg",
+	users := map[string]domain.User{
+		"autohandel-maerz-regensburg": {
 			PasswordHash:   "pass-autohandel",
 			AccountCreated: timestamp("2024-02-10T09:15:00Z"),
 			Email:          "autohandel@autohaus-fake.de",
 		},
-		{
-			DisplayName:    "julianf92",
+		"julianf92": {
 			PasswordHash:   "julian123",
 			AccountCreated: timestamp("2024-03-05T14:22:00Z"),
 			Email:          "julianf92@mailbox.test",
 		},
-		{
-			DisplayName:    "fabiberg",
+		"fabiberg": {
 			PasswordHash:   "fabipass",
 			AccountCreated: timestamp("2024-04-18T08:00:00Z"),
 			Email:          "fabiberg@users.fake",
 		},
-		{
-			DisplayName:    "moritz-keilmann",
+		"moritz-keilmann": {
 			PasswordHash:   "moritzpw",
 			AccountCreated: timestamp("2024-06-01T19:45:00Z"),
 			Email:          "moritz.keilmann@post.example",
 		},
-		{
-			DisplayName:    "johaness2442",
+		"johaness2442": {
 			PasswordHash:   "johannespw",
 			AccountCreated: timestamp("2024-07-12T11:30:00Z"),
 			Email:          "johaness2442@inbox.fake",
 		},
-		{
-			DisplayName:    "karl-heinz-schmidt",
+		"karl-heinz-schmidt": {
 			PasswordHash:   "karlheinz",
 			AccountCreated: timestamp("2024-08-03T16:10:00Z"),
 			Email:          "karl.schmidt@private.test",
 		},
-		{
-			DisplayName:    "peter-lobert-mayer",
+		"peter-lobert-mayer": {
 			PasswordHash:   "petermayer",
 			AccountCreated: timestamp("2024-09-20T07:55:00Z"),
 			Email:          "peter.mayer@secure.fake",
 		},
-		{
-			DisplayName:    "osna2",
+		"osna2": {
 			PasswordHash:   "osnaosna",
 			AccountCreated: timestamp("2024-10-11T21:40:00Z"),
 			Email:          "osna2@chat.test",
 		},
-		{
-			DisplayName:    "gretschen",
+		"gretschen": {
 			PasswordHash:   "gretschpw",
 			AccountCreated: timestamp("2024-11-02T10:05:00Z"),
 			Email:          "gretschen@people.fake",
 		},
-		{
-			DisplayName:    "hans-schwab90",
+		"hans-schwab90": {
 			PasswordHash:   "hansschwab",
 			AccountCreated: timestamp("2024-12-15T18:25:00Z"),
 			Email:          "hans.schwab90@users.test",
 		},
-		{
-			DisplayName:    "patricia-haas2",
+		"patricia-haas2": {
 			PasswordHash:   "patriciahaas",
 			AccountCreated: timestamp("2025-01-09T13:00:00Z"),
 			Email:          "patricia.haas@contacts.fake",
 		},
-		{
-			DisplayName:    "kaiy",
+		"kaiy": {
 			PasswordHash:   "kaiypass1",
 			AccountCreated: timestamp("2025-02-14T09:35:00Z"),
 			Email:          "kaiy@alpha.test",
 		},
-		{
-			DisplayName:    "kaiy",
-			PasswordHash:   "kaiypass2",
+		"KFCFan": {
+			PasswordHash:   "kfcfan123",
 			AccountCreated: timestamp("2025-03-01T17:50:00Z"),
-			Email:          "kaiy@beta.fake",
+			Email:          "kfcfan@fake.test",
 		},
-		{
-			DisplayName:    "gehlert_gmbh",
+		"gehlert_gmbh": {
 			PasswordHash:   "gehlertgmbh",
 			AccountCreated: timestamp("2025-04-22T06:45:00Z"),
 			Email:          "info@gehlert-gmbh.fake",
 		},
-		{
-			DisplayName:    "lorentz553",
+		"lorentz553": {
 			PasswordHash:   "lorentzpw",
 			AccountCreated: timestamp("2025-05-30T12:20:00Z"),
 			Email:          "lorentz553@members.test",
 		},
-		{
-			DisplayName:    "margarita-lehmann",
+		"margarita-lehmann": {
 			PasswordHash:   "margaritapw",
 			AccountCreated: timestamp("2025-06-18T15:10:00Z"),
 			Email:          "margarita.lehmann@profiles.fake",
 		},
-		{
-			DisplayName:    "jjk-331",
+		"jjk-331": {
 			PasswordHash:   "jjk331pw",
 			AccountCreated: timestamp("2025-07-07T08:40:00Z"),
 			Email:          "jjk331@gaming.test",
 		},
-		{
-			DisplayName:    "laura-freimann66224",
+		"laura-freimann66224": {
 			PasswordHash:   "laurapw",
 			AccountCreated: timestamp("2025-08-19T20:00:00Z"),
 			Email:          "laura.freimann@social.fake",
 		},
-		{
-			DisplayName:    "ines-schwarz",
+		"ines-schwarz": {
 			PasswordHash:   "inesschwarz",
 			AccountCreated: timestamp("2025-09-03T11:55:00Z"),
 			Email:          "ines.schwarz@work.test",
 		},
-		{
-			DisplayName:    "hoa-nguyen",
+		"hoa-nguyen": {
 			PasswordHash:   "hoanguyen",
 			AccountCreated: timestamp("2025-10-14T07:10:00Z"),
 			Email:          "hoa.nguyen@asia.fake",
 		},
-		{
-			DisplayName:    "tilll",
+		"tilll": {
 			PasswordHash:   "tilllpw",
 			AccountCreated: timestamp("2025-11-01T16:30:00Z"),
 			Email:          "tilll@shortname.test",
 		},
-		{
-			DisplayName:    "paola-fra",
+		"paola-fra": {
 			PasswordHash:   "paolapw",
 			AccountCreated: timestamp("2025-11-20T09:00:00Z"),
 			Email:          "paola.fra@eu.fake",
 		},
-		{
-			DisplayName:    "pipboy42",
+		"pipboy42": {
 			PasswordHash:   "pipboypw",
 			AccountCreated: timestamp("2025-12-05T22:15:00Z"),
 			Email:          "pipboy42@games.test",
 		},
-		{
-			DisplayName:    "kerzer-j",
+		"kerzer-j": {
 			PasswordHash:   "kerzerpw",
 			AccountCreated: timestamp("2025-12-20T05:35:00Z"),
 			Email:          "kerzer.j@tools.fake",
 		},
-		{
-			DisplayName:    "maroni",
+		"maroni": {
 			PasswordHash:   "maronipw",
 			AccountCreated: timestamp("2025-12-31T23:59:00Z"),
 			Email:          "maroni@lastday.test",
 		},
 	}
-	for i, u := range users {
+	for displayName, u := range users {
 		id, err := repo.NewUser(
-			ctx, u.DisplayName, u.AvatarImageURL, u.Email, u.PasswordHash,
+			ctx, displayName, u.AvatarImageURL, u.Email, u.PasswordHash,
 		)
 		if err != nil {
 			panic(err)
 		}
-		users[i].ID = id
+		newUser, err := repo.UserByID(ctx, id)
+		if err != nil {
+			panic(err)
+		}
+		users[displayName] = newUser
 	}
 
 	// https://picsum.photos/400/300
@@ -528,7 +507,7 @@ func NewRepository() *domain.Repository {
 	}
 	for i, p := range posts {
 		id, err := repo.NewPost(
-			ctx, p.MerchantUserID, p.MerchantUserID, p.Description, p.CategoryID,
+			ctx, users[p.MerchantUserID].ID, p.Title, p.Description, p.CategoryID,
 			p.ImageURL, p.Price, p.Location,
 		)
 		if err != nil {
@@ -540,32 +519,32 @@ func NewRepository() *domain.Repository {
 	chats := []domain.Chat{
 		{
 			PostID:       posts[0].ID,
-			SenderUserID: users[3].ID,
+			SenderUserID: users["lorentz553"].ID,
 			Messages: []domain.Message{
 				{
 					Text:         "Hello, is this one still available?",
-					SenderUserID: users[3].ID,
+					SenderUserID: users["lorentz553"].ID,
 					TimeSent:     posts[0].TimePosted.Add(2 * time.Minute),
 				},
 				{
 					Text:         "Can you do a 5 percent discount?",
-					SenderUserID: users[3].ID,
+					SenderUserID: users["lorentz553"].ID,
 					TimeSent:     posts[0].TimePosted.Add(2*time.Minute + 30*time.Second),
 				},
 			},
 		},
 		{
 			PostID:       posts[1].ID,
-			SenderUserID: users[1].ID,
+			SenderUserID: users["kaiy"].ID,
 			Messages: []domain.Message{
 				{
 					Text:         "I'd like to buy this",
-					SenderUserID: users[1].ID,
+					SenderUserID: users["kaiy"].ID,
 					TimeSent:     posts[1].TimePosted.Add(5 * time.Minute),
 				},
 				{
 					Text:         "Alright, meet me at 6 PM after work!",
-					SenderUserID: posts[1].MerchantUserID,
+					SenderUserID: users[posts[1].MerchantUserID].ID,
 					TimeSent:     posts[1].TimePosted.Add(6 * time.Minute),
 				},
 			},

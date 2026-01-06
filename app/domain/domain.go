@@ -123,9 +123,11 @@ func NewRepository(categories []Category) *Repository {
 	{
 		names := make(map[string]struct{}, len(categories))
 		for _, c := range categories {
-			c.ID = newID()
 			if _, ok := names[c.Name]; ok {
 				panic(fmt.Errorf("redeclared category name %q", c.Name))
+			}
+			if _, ok := r.categoriesByID[c.ID]; ok {
+				panic(fmt.Errorf("redeclared category id %q", c.ID))
 			}
 			r.categoriesByID[c.ID] = &category{
 				ID:       c.ID,
