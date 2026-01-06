@@ -1,0 +1,243 @@
+package app
+
+import (
+	"datapages/app/domain"
+	"fmt"
+)
+
+templ head() {
+	<title>Datapages Demo</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<meta name="description" content="This is a datapages demo app"/>
+	<meta property="og:title" content="A datapages demo app"/>
+	<meta property="og:description" content="Demo - Go + Templ + Datastar + Datapages"/>
+	<link rel="icon" href="/static/favicon.ico"/>
+	<link rel="stylesheet" href="/static/style.css"/>
+}
+
+templ wrapper(session SessionJWT, searchTerm string, baseData baseData) {
+	<nav id="navbar" data-signals:searchinput={ searchTerm }>
+		<a href="/">Home</a>
+		// pageshow handles the browser form restoration on page navigation.
+		<input
+			data-bind="searchinput"
+			data-on:pageshow__window="$searchinput = el.value"
+			placeholder="What are you looking for?"
+		/>
+		<a
+			data-attr:href="'/search?t=' + $searchinput"
+			data-style:pointer-events="$searchinput === '' ? 'none' : 'auto'"
+			data-style:cursor="$searchinput === '' ? 'default' : 'pointer'"
+		>Search</a>
+		@fragmentMessagesLink(baseData.UnreadChats)
+		if session.UserID != "" {
+			<a href="/settings">Settings</a>
+		} else {
+			<a href="/login">Sign in</a>
+		}
+	</nav>
+	<div id="content">
+		{ children... }
+	</div>
+}
+
+templ fragmentMessagesLink(unreadChats int) {
+	<a id="messages" href="/messages">
+		if unreadChats > 0 {
+			<b>Messages ({ fmt.Sprintf("%d ", unreadChats) })</b>
+		} else {
+			Messages
+		}
+	</a>
+}
+
+templ page500() {
+	<h1>Oh no!</h1>
+	<p>Something went wrong on our side.</p>
+	<a href="/">Try to go back to the homepage.</a>
+}
+
+templ page404(session SessionJWT, baseData baseData) {
+	@wrapper(session, "", baseData) {
+		<h1>Oh-oh!</h1>
+		<p>This page doesn't exist.</p>
+		<a href="/">Go back to homepage.</a>
+	}
+}
+
+templ pageIndex(
+	session SessionJWT, mainCategories []domain.Category, recentlyPosted []domain.Post,
+	baseData baseData,
+) {
+	@wrapper(session, "", baseData) {
+		<div>
+			// <button
+			// 	data-attr:disabled="$searchtext == ''"
+			// 	data-on:click="@get('/search')"
+			// >Search</button>
+			<ul>
+				for _, category := range mainCategories {
+					<li>
+						<a href={ fmt.Sprintf("/search/?c=%q", category.ID) }>
+							<img height="16px" src={ category.ImageURL }/>
+							{ category.Name }
+						</a>
+					</li>
+				}
+			</ul>
+			<h2>Recently Posted</h2>
+			@fragmentPosts(recentlyPosted)
+			@fragmentFooter()
+		</div>
+	}
+}
+
+templ pageLogin(wrongCreds bool) {
+	<h1>Login</h1>
+	<input data-bind="email" type="email" placeholder="E-mail"/>
+	<input data-bind="password" type="password" placeholder="password"/>
+	<button data-on:click="@post('/login/submit')">Sign in</button>
+	if wrongCreds {
+		<p>Wrong credentials, please try again.</p>
+	}
+}
+
+templ pageMessages(
+	session SessionJWT, chats []Chat, openChat Chat, messages []domain.Message,
+	baseData baseData,
+) {
+	@wrapper(session, "", baseData) {
+		<div data-signals:chatselected={ fmt.Sprintf("'%s'", openChat.PostID) }>
+			if len(chats) == 0 {
+				<p>No chats available yet.</p>
+			} else {
+				<ul>
+					for _, chat := range chats {
+						<li>
+							<a href={ fmt.Sprintf("/messages/chat/%s", chat.ID) }>
+								<p>{ chat.Title }</p>
+								<p>{ chat.LastMessageText }</p>
+							</a>
+						</li>
+					}
+				</ul>
+			}
+		</div>
+		<div>
+			if len(chats) == 0 {
+				<p>
+					<span>You will see chats here once you contact someone </span>
+					<span>or somebody contacts you.</span>
+				</p>
+			} else if openChat.ID == "" {
+				<p>Select any chat.</p>
+			} else {
+				<a target="_blank" href={ hrefPost(openChat.PostID) }>
+					<h1>{ openChat.Title }</h1>
+				</a>
+				<ul>
+					for _, msg := range messages {
+						<li>
+							if msg.SenderUserID == session.UserID {
+								<p><b>Me</b> at { msg.TimeSent.String() }</p>
+							} else {
+								<p>{ msg.SenderUserID } at { msg.TimeSent.String() }</p>
+							}
+							<p>{ msg.Text }</p>
+						</li>
+					}
+				</ul>
+			}
+		</div>
+		<div>
+			<input data-bind="messagetext" placeholder="Message"/>
+			<button data-on:click="@post('/messages/sendmessage')"></button>
+		</div>
+	}
+}
+
+templ pageSettings(session SessionJWT, baseData baseData) {
+	@wrapper(session, "", baseData) {
+		<h1>Settings</h1>
+		<p>Some user profile settings.</p>
+		<input data-bind="username"/>
+		<p>TODO...</p>
+		<button data-on:click="@post('/settings/save')">Save</button>
+		<button>Sign Out</button>
+	}
+}
+
+templ pageSearch(
+	session SessionJWT, query SearchParams, posts []domain.Post,
+	baseData baseData,
+) {
+	@wrapper(session, "", baseData) {
+		<h1>Search Page</h1>
+		<div data-on:change="@post('/search/paramchange')">
+			<label>
+				Location
+				<input value={ query.Location } placeholder="Location"/>
+			</label>
+			<label>
+				Minimum Price
+				<input value={ query.PriceMin } type="number" placeholder="Minimum price"/>
+			</label>
+			<label>
+				Maximum Price
+				<input value={ query.PriceMax } type="number" placeholder="Maximum price"/>
+			</label>
+		</div>
+		if len(posts) < 1 {
+			<p>Nothing found 🤷‍♂️</p>
+		} else {
+			@fragmentPosts(posts)
+		}
+		@fragmentFooter()
+	}
+}
+
+templ headPost(title, description, imageURL string) {
+	<meta name="description" content={ description }/>
+	<meta property="og:type" content="website"/>
+	<meta property="og:title" content={ title }/>
+	<meta property="og:description" content={ description }/>
+	<meta property="og:image" content={ imageURL }/>
+}
+
+templ pagePost(
+	session SessionJWT, post domain.Post, similarPosts []domain.Post, baseData baseData,
+) {
+	@wrapper(session, "", baseData) {
+		<h1>{ post.Title }</h1>
+		<img class="post-image" src={ post.ImageURL }/>
+		<p>{ post.Description }</p>
+		<p>By { post.MerchantUserID }</p>
+		<p>{ post.Location } - { post.Price }€ - { post.TimePosted.String() }</p>
+		<h3>Similar Posts</h3>
+		@fragmentPosts(similarPosts)
+		@fragmentFooter()
+	}
+}
+
+templ fragmentPosts(posts []domain.Post) {
+	<ul>
+		for _, post := range posts {
+			<li>
+				<img class="similar-post-image" src={ post.ImageURL }/>
+				<a href={ templ.URL(fmt.Sprintf("/post/%s", post.ID)) }>
+					{ post.Title }
+				</a>
+				<p>{ post.Price }€</p>
+				<p>{ post.Location }</p>
+			</li>
+		}
+	</ul>
+}
+
+templ fragmentFooter() {
+	<p>This is a <a target="_blank" href="https://github.com/romshark/datapages">Datapages</a> demo.</p>
+	<p>
+		by
+		<a target="_blank" href="https://github.com/romshark/">github.com/romshark</a>
+	</p>
+}

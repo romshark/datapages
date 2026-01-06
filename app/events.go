@@ -1,0 +1,30 @@
+package app
+
+// EventMessagingSent is "messaging.sent"
+type EventMessagingSent struct {
+	TargetUserIDs []string `json:"-"`
+
+	ChatID string `json:"chat-id"`
+	UserID string `json:"user-id"`
+}
+
+// EventMessagingWriting is "messaging.writing"
+type EventMessagingWriting struct {
+	TargetUserIDs []string `json:"-"`
+
+	ChatID string `json:"chat-id"`
+	UserID string `json:"user-id"`
+}
+
+// EventMessagingWritingStopped is "messaging.writing-stopped"
+type EventMessagingWritingStopped struct {
+	TargetUserIDs []string `json:"-"`
+
+	ChatID string `json:"chat-id"`
+	UserID string `json:"user-id"`
+}
+
+// EventPostArchived is "posts.archived"
+type EventPostArchived struct {
+	PostID string `json:"post-id"`
+}

@@ -1,0 +1,658 @@
+package domain
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/oklog/ulid/v2"
+	"golang.org/x/crypto/bcrypt"
+)
+
+type user struct {
+	ID             string
+	DisplayName    string
+	AvatarImageURL string
+	AccountCreated time.Time
+	Email          string
+	PasswordHash   string
+
+	Posts []*post
+}
+
+type post struct {
+	ID          string
+	Title       string
+	Description string
+	Category    *category
+	ImageURL    string
+	Merchant    *user
+	Price       int64
+	TimePosted  time.Time
+	Location    string
+}
+
+type category struct {
+	ID       string
+	Name     string
+	ImageURL string
+}
+
+type chat struct {
+	ID       string
+	Post     *post
+	Sender   *user
+	Messages []*message
+}
+
+type message struct {
+	ID       string
+	Text     string
+	Sender   *user
+	TimeSent time.Time
+	TimeRead time.Time
+}
+
+type User struct {
+	ID             string
+	DisplayName    string
+	AvatarImageURL string
+	AccountCreated time.Time
+	Email          string
+	PasswordHash   string
+}
+
+type Post struct {
+	ID             string
+	Title          string
+	Description    string
+	CategoryID     string
+	ImageURL       string
+	MerchantUserID string
+	Price          int64
+	TimePosted     time.Time
+	Location       string
+}
+
+type Category struct {
+	ID       string
+	Name     string
+	ImageURL string
+}
+
+type Chat struct {
+	ID     string
+	PostID string
+	// SenderUserID is the id of the user who initiated the chat.
+	SenderUserID string
+	Messages     []Message
+}
+
+type Message struct {
+	ID           string
+	Text         string
+	SenderUserID string
+	TimeSent     time.Time
+	TimeRead     time.Time
+}
+
+type chatKey struct{ PostID, SenderUserID string }
+
+// Repository is a simple in-memory messaging repository.
+type Repository struct {
+	chatsByKey     map[chatKey]*chat
+	chatsByID      map[string]*chat
+	postsByID      map[string]*post
+	usersByID      map[string]*user
+	categoriesByID map[string]*category
+	lock           sync.RWMutex
+}
+
+func NewRepository(categories []Category) *Repository {
+	r := &Repository{
+		chatsByKey:     map[chatKey]*chat{},
+		chatsByID:      map[string]*chat{},
+		postsByID:      map[string]*post{},
+		usersByID:      map[string]*user{},
+		categoriesByID: map[string]*category{},
+	}
+	{
+		names := make(map[string]struct{}, len(categories))
+		for _, c := range categories {
+			c.ID = newID()
+			if _, ok := names[c.Name]; ok {
+				panic(fmt.Errorf("redeclared category name %q", c.Name))
+			}
+			r.categoriesByID[c.ID] = &category{
+				ID:       c.ID,
+				Name:     c.Name,
+				ImageURL: c.ImageURL,
+			}
+			names[c.Name] = struct{}{}
+		}
+	}
+	return r
+}
+
+var (
+	ErrPasswordEmpty           = errors.New("password must not be empty")
+	ErrChatExists              = errors.New("chat already exists")
+	ErrChatNotFound            = errors.New("chat not found")
+	ErrMessageNotFound         = errors.New("message not found")
+	ErrNotAChatParticipant     = errors.New("not a chat participant")
+	ErrPostNotFound            = errors.New("post not found")
+	ErrUserNotFound            = errors.New("user not found")
+	ErrCategoryNotFound        = errors.New("category not found")
+	ErrMarchantIsMessageSender = errors.New("merchant is message sender")
+	ErrUserEmailReserved       = errors.New("user email is already reserved")
+	ErrUserDisplayNameReserved = errors.New("user display name is already reserved")
+)
+
+func newID() string {
+	return ulid.Make().String()
+}
+
+func (r *Repository) MainCategories(_ context.Context) ([]Category, error) {
+	main := make([]Category, 0, len(r.categoriesByID))
+	for _, c := range r.categoriesByID {
+		main = append(main, Category{
+			ID:       c.ID,
+			Name:     c.Name,
+			ImageURL: c.ImageURL,
+		})
+	}
+	return main, nil
+}
+
+func (r *Repository) NewChat(
+	_ context.Context,
+	postID string,
+	senderUserID string,
+	text string,
+) (id string, err error) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	post, ok := r.postsByID[postID]
+	if !ok {
+		return "", ErrPostNotFound
+	}
+	if post.Merchant.ID == senderUserID {
+		return "", ErrMarchantIsMessageSender
+	}
+
+	sender, ok := r.usersByID[senderUserID]
+	if !ok {
+		return "", ErrUserNotFound
+	}
+
+	key := chatKey{PostID: postID, SenderUserID: senderUserID}
+	if _, ok := r.chatsByKey[key]; ok {
+		return "", ErrChatExists
+	}
+
+	c := &chat{
+		ID:     newID(),
+		Post:   post,
+		Sender: sender,
+		Messages: []*message{
+			{
+				ID:       newID(),
+				Text:     text,
+				Sender:   sender,
+				TimeSent: time.Now(),
+			},
+		},
+	}
+	r.chatsByKey[key] = c
+	r.chatsByID[c.ID] = c
+
+	return c.ID, nil
+}
+
+func hashPasswordBcrypt(plain string) (string, error) {
+	if plain == "" {
+		return "", ErrPasswordEmpty
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(plain), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+func (r *Repository) NewUser(
+	_ context.Context, displayName, avatarImageURL, email, passwordPlainText string,
+) (id string, err error) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	for _, u := range r.usersByID {
+		if u.DisplayName == displayName {
+			return "", ErrUserDisplayNameReserved
+		}
+		if u.Email == email {
+			return "", ErrUserEmailReserved
+		}
+	}
+
+	pwHash, err := hashPasswordBcrypt(passwordPlainText)
+	if err != nil {
+		return "", err
+	}
+
+	u := user{
+		ID:             newID(),
+		DisplayName:    displayName,
+		AvatarImageURL: avatarImageURL,
+		AccountCreated: time.Now(),
+		Email:          email,
+		PasswordHash:   pwHash,
+	}
+	r.usersByID[u.ID] = &u
+
+	return u.ID, nil
+}
+
+func (r *Repository) NewMessage(
+	_ context.Context, chatID, senderUserID string, text string,
+) (id string, err error) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	sender, ok := r.usersByID[senderUserID]
+	if !ok {
+		return "", ErrUserNotFound
+	}
+
+	c, ok := r.chatsByID[chatID]
+	if !ok {
+		return "", ErrChatNotFound
+	}
+
+	m := &message{
+		ID:       newID(),
+		Text:     text,
+		Sender:   sender,
+		TimeSent: time.Now(),
+	}
+	c.Messages = append(c.Messages, m)
+
+	return m.ID, nil
+}
+
+func (r *Repository) MarkMessageRead(
+	_ context.Context, userID, chatID, messageID string,
+) error {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	c, ok := r.chatsByID[chatID]
+	if !ok {
+		return ErrChatNotFound
+	}
+
+	isSender := c.Sender.ID == userID
+	isReceiver := c.Post.Merchant.ID == userID
+	if !isSender && !isReceiver {
+		return ErrNotAChatParticipant
+	}
+
+	now := time.Now()
+	for _, m := range c.Messages {
+		if m.ID == messageID {
+			if m.Sender.ID == userID {
+				return nil // No-op
+			}
+			if m.TimeRead.IsZero() {
+				m.TimeRead = now
+			}
+			return nil
+		}
+	}
+
+	return ErrMessageNotFound
+}
+
+func (r *Repository) NewPost(
+	_ context.Context,
+	merchantID string,
+	title string,
+	description string,
+	categoryID string,
+	imageURL string,
+	price int64,
+	location string,
+) (id string, err error) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	cat, ok := r.categoriesByID[categoryID]
+	if !ok {
+		return "", ErrCategoryNotFound
+	}
+
+	merchant, ok := r.usersByID[merchantID]
+	if !ok {
+		return "", ErrUserNotFound
+	}
+
+	p := post{
+		ID:          newID(),
+		Title:       title,
+		Description: description,
+		Category:    cat,
+		Merchant:    merchant,
+		ImageURL:    imageURL,
+		Price:       price,
+		TimePosted:  time.Now(),
+		Location:    location,
+	}
+	r.postsByID[p.ID] = &p
+
+	return p.ID, nil
+}
+
+func (r *Repository) ChatsWithUnreadMessages(
+	_ context.Context, userID string,
+) (int, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	if _, ok := r.usersByID[userID]; !ok {
+		return 0, ErrUserNotFound
+	}
+
+	unreadChats := 0
+
+	for _, c := range r.chatsByID {
+		isSender := c.Sender.ID == userID
+		isReceiver := c.Post.Merchant.ID == userID
+		if !isSender && !isReceiver {
+			continue
+		}
+
+		for _, m := range c.Messages {
+			// Ignore messages sent by the user
+			if m.Sender.ID == userID {
+				continue
+			}
+
+			// Zero TimeRead means unread
+			if m.TimeRead.IsZero() {
+				unreadChats++
+				break
+			}
+		}
+	}
+
+	return unreadChats, nil
+}
+
+func (r *Repository) ChatByID(_ context.Context, chatID string) (Chat, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	c, ok := r.chatsByID[chatID]
+	if !ok {
+		return Chat{}, ErrChatNotFound
+	}
+
+	m := make([]Message, len(c.Messages))
+	for i, msg := range c.Messages {
+		m[i] = Message{
+			ID:           msg.ID,
+			Text:         msg.Text,
+			SenderUserID: msg.Sender.ID,
+			TimeSent:     msg.TimeSent,
+			TimeRead:     msg.TimeRead,
+		}
+	}
+
+	return Chat{
+		ID:           c.ID,
+		PostID:       c.Post.ID,
+		SenderUserID: c.Sender.ID,
+		Messages:     m,
+	}, nil
+}
+
+// Chats returns all chats of the given user sorted by most recently active.
+func (r *Repository) Chats(_ context.Context, userID string) ([]Chat, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	type chatWithTime struct {
+		c    *chat
+		last time.Time
+	}
+
+	var tmp []chatWithTime
+
+	for _, c := range r.chatsByID {
+		if c.Sender.ID != userID && c.Post.Merchant.ID != userID {
+			continue
+		}
+
+		var last time.Time
+		if n := len(c.Messages); n > 0 {
+			last = c.Messages[n-1].TimeSent
+		}
+
+		tmp = append(tmp, chatWithTime{
+			c:    c,
+			last: last,
+		})
+	}
+
+	slices.SortFunc(tmp, func(a, b chatWithTime) int {
+		switch {
+		case a.last.After(b.last):
+			return -1
+		case a.last.Before(b.last):
+			return 1
+		}
+		return 0
+	})
+
+	chats := make([]Chat, len(tmp))
+	for i, t := range tmp {
+		chats[i] = Chat{
+			ID:           t.c.ID,
+			PostID:       t.c.Post.ID,
+			SenderUserID: t.c.Sender.ID,
+		}
+	}
+
+	return chats, nil
+}
+
+func (r *Repository) UserByID(_ context.Context, id string) (User, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	p, ok := r.usersByID[id]
+	if !ok {
+		return User{}, ErrUserNotFound
+	}
+	return User{
+		ID:             p.ID,
+		DisplayName:    p.DisplayName,
+		AvatarImageURL: p.AvatarImageURL,
+		AccountCreated: p.AccountCreated,
+		Email:          p.Email,
+		PasswordHash:   p.PasswordHash,
+	}, nil
+}
+
+func (r *Repository) PostByID(_ context.Context, id string) (Post, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	p, ok := r.postsByID[id]
+	if !ok {
+		return Post{}, ErrPostNotFound
+	}
+	return Post{
+		ID:             p.ID,
+		Title:          p.Title,
+		Description:    p.Description,
+		CategoryID:     p.Category.ID,
+		ImageURL:       p.ImageURL,
+		MerchantUserID: p.Merchant.ID,
+		Price:          p.Price,
+		TimePosted:     p.TimePosted,
+		Location:       p.Location,
+	}, nil
+}
+
+type PostSearchParams struct {
+	Term     string
+	Category string
+	PriceMin int64
+	PriceMax int64
+	Location string
+}
+
+func (r *Repository) SearchPosts(_ context.Context, q PostSearchParams) ([]Post, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	// Start with all posts
+	results := make([]Post, 0, len(r.postsByID))
+
+	for _, post := range r.postsByID {
+		// Filter by search term (check title and description)
+		if q.Term != "" {
+			termMatch := false
+			term := strings.ToLower(q.Term)
+			if strings.Contains(strings.ToLower(post.Title), term) ||
+				strings.Contains(strings.ToLower(post.Description), term) {
+				termMatch = true
+			}
+			if !termMatch {
+				continue
+			}
+		}
+
+		// Filter by category
+		if q.Category != "" && post.Category.ID != q.Category {
+			continue
+		}
+
+		// Filter by price range
+		if q.PriceMin > 0 && post.Price < q.PriceMin {
+			continue
+		}
+		if q.PriceMax > 0 && post.Price > q.PriceMax {
+			continue
+		}
+
+		// Filter by location
+		if q.Location != "" {
+			if !strings.Contains(
+				strings.ToLower(post.Location),
+				strings.ToLower(q.Location),
+			) {
+				continue
+			}
+		}
+
+		results = append(results, Post{
+			ID:             post.ID,
+			Title:          post.Title,
+			Description:    post.Description,
+			CategoryID:     post.Category.ID,
+			ImageURL:       post.ImageURL,
+			MerchantUserID: post.Merchant.ID,
+			Price:          post.Price,
+			TimePosted:     post.TimePosted,
+			Location:       post.Location,
+		})
+	}
+
+	return results, nil
+}
+
+func (r *Repository) RecentlyPosted(_ context.Context) ([]Post, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	// Sort posts by TimePosted (most recent first)
+	posts := make([]Post, 0, len(r.postsByID))
+	for _, p := range r.postsByID {
+		posts = append(posts, Post{
+			ID:             p.ID,
+			Title:          p.Title,
+			Description:    p.Description,
+			CategoryID:     p.Category.ID,
+			ImageURL:       p.ImageURL,
+			MerchantUserID: p.Merchant.ID,
+			Price:          p.Price,
+			TimePosted:     p.TimePosted,
+			Location:       p.Location,
+		})
+	}
+
+	slices.SortFunc(posts, func(a, b Post) int {
+		// Assuming TimePosted is in a comparable format like RFC3339 or similar
+		// For descending order (most recent first), compare b to a
+		if a.TimePosted.Unix() > b.TimePosted.Unix() {
+			return -1
+		}
+		if a.TimePosted.Unix() < b.TimePosted.Unix() {
+			return 1
+		}
+		return 0
+	})
+
+	// Return top N posts (e.g., 10 most recent)
+	limit := 10
+	if len(posts) < limit {
+		return posts, nil
+	}
+
+	return posts[:limit], nil
+}
+
+func (r *Repository) SimilarPosts(
+	_ context.Context, postID string, limit int,
+) ([]Post, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	post, ok := r.postsByID[postID]
+	if !ok {
+		return nil, ErrPostNotFound
+	}
+
+	// Find posts in the same category, excluding the current post
+	similar := make([]Post, 0)
+	for _, p := range r.postsByID {
+		if p.ID == postID {
+			continue // Skip the current post
+		}
+		if p.Category.ID == post.Category.ID {
+			similar = append(similar, Post{
+				ID:             p.ID,
+				Title:          p.Title,
+				Description:    p.Description,
+				CategoryID:     p.Category.ID,
+				ImageURL:       p.ImageURL,
+				MerchantUserID: p.Merchant.ID,
+				Price:          p.Price,
+				TimePosted:     p.TimePosted,
+				Location:       p.Location,
+			})
+		}
+	}
+
+	if len(similar) > limit {
+		similar = similar[:limit]
+	}
+	return similar, nil
+}

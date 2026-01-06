@@ -1,0 +1,49 @@
+# This configures Templier to run webedit on examples/simple
+# for webedit development purposes.
+
+proxy-timeout: 10s
+format: true
+lint: true
+templier-host: "localhost:7331"
+
+log:
+  level: erronly
+  clear-on:
+  print-js-debug-logs: true
+
+debounce: 50ms
+
+tls:
+
+app:
+  dir-src-root: "./"
+  exclude:
+    - ".*" # All hidden files.
+    - "*~" # Any temporary backup files IDEs might use.
+  dir-cmd: "./cmd/server/"
+  dir-work: "."
+  host: "http://localhost:52000"
+  flags: -host localhost:52000
+
+custom-watchers:
+  - name: "Go mod update"
+    cmd:
+    include:
+      - "go.mod"
+      - "go.sum"
+    exclude:
+    debounce:
+    fail-on-error: true
+    requires: rebuild
+
+compiler:
+  gcflags:
+  ldflags:
+  asmflags:
+  race:
+  msan:
+  tags:
+  trimpath:
+  p:
+  env:
+    CGO_ENABLED: 0
