@@ -348,7 +348,7 @@ This parameter provides a function for dispatching events and
 only accepts `EventXXX` types as parameters. These events can be handled
 by `OnXXX` page methods.
 
-An event type must use json struct field tags, and be stricly commented with
+An event type must use json struct field tags, and be strictly commented with
 `// EventXXX is "xxx"` (where `"xxx"` is the NATS subject prefix):
 
 ```go
