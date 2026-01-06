@@ -23,7 +23,8 @@ and performance.
 ## Demo
 
 This repository presents a demo application resembling an online classifieds marketplace.
-The code you'd write is in [/app](https://github.com/romshark/datapages/tree/main/app).
+The code you'd write is in [/app](https://github.com/romshark/datapages/tree/main/app)
+(this is what we'll later call the "source package").
 The code the code generator would generate is in
 [/datapagesgen](https://github.com/romshark/datapages/tree/main/datapagesgen).
 
