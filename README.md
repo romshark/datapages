@@ -197,6 +197,7 @@ same as concrete page types.
     <summary>Example</summary>
 
 ```go
+// EventSomethingHappened is "something.happened"
 type EventSomethingHappened struct {
     WhoCausedIt string `json:"who-caused-it"`
 }
@@ -340,14 +341,36 @@ This gives you a handle to patch page elements, execute scripts, etc.
 #### 🧩 Parameter `dispatch func(...) error`
 
 ```go
-dispatch func(EventType) error
+dispatch func(EventXXX, /*...*/) error
 ```
 
-This parameter provides a function for dispatching system wide events and
+This parameter provides a function for dispatching events and
 only accepts `EventXXX` types as parameters. These events can be handled
 by `OnXXX` page methods.
 
-May provide multiple event types which are dispatched in the order of definition:
+An event type must use json struct field tags, and be stricly commented with
+`// EventXXX is "xxx"` (where `"xxx"` is the NATS subject prefix):
+
+```go
+// EventExample is "example"
+type EventExample struct {
+    Information string `json:"info"`
+}
+```
+
+Events that are targeted as specific user groups only, must declare the `TargetUserIDs`
+field:
+
+```go
+type EventMessageSent struct {
+    TargetUserIDs []string `json:"-"`
+
+    Message string `json:"message"`
+    Sender  string `json:"sender"`
+}
+```
+
+You may provide multiple event types which are dispatched in the order of definition:
 
 ```go
 dispatch func(EventTypeA, EventTypeB, EventTypeC) error
