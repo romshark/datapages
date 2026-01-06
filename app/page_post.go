@@ -49,12 +49,10 @@ func (p PagePost) GET(
 	return body, head, redirect, nil
 }
 
-func (PagePost) OnPostArchived(
+func (p PagePost) OnPostArchived(
 	sse *datastar.ServerSentEventGenerator,
 	event EventPostArchived,
 	session SessionJWT,
 ) error {
-	// TODO
-	// use SSE to patch the page
-	return nil
+	return sse.ExecuteScript("location.replace(location.href);")
 }
