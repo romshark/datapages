@@ -20,7 +20,13 @@ Being primarily a code generator, Datapages allows your application code to take
 full advantage of Go's strong static typing and achieve a higher level of efficiency
 and performance.
 
-This repository presents a demo application resembling an online classifieds marketplace. To run the demo, install Templ and Templier, and run `templier`:
+This repository presents a demo application resembling an online classifieds marketplace.
+The code you'd write is in [/app](https://github.com/romshark/datapages/tree/main/app).
+The code the code generator would generate is in
+[/datapagesgen](https://github.com/romshark/datapages/tree/main/datapagesgen).
+
+
+To run the demo, install Templ and Templier, and run `templier`:
 
 ```sh
 go install github.com/a-h/templ/cmd/templ@latest
