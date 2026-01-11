@@ -8,12 +8,16 @@ import (
 	"datapages/app"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/a-h/templ"
 	"github.com/nats-io/nats.go"
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -154,6 +158,9 @@ func NewServer(app *app.App, opts ...ServerOption) *Server {
 		}
 	}
 
+	// Reverse handlers such that they're invoked in the order of definition.
+	slices.Reverse(s.middleware)
+
 	// package app is using JWT authentication, hence WithAuthJWTConfig is required.
 	if s.authJWTOpts == nil {
 		panic("missing option WithAuthJWTConfig")
@@ -240,9 +247,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Build handler chain from middleware
 	handler := http.Handler(s.mux)
 
+	// Normalize trailing slashes: ensure all paths end with /
+	// except for static file paths
+
+	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
+		// Skip normalization for static file paths
+		if s.staticURLPath == "" || !strings.HasPrefix(p, s.staticURLPath) {
+			// Add trailing slash for non-static paths
+			r.URL.Path = p + "/"
+			// Update the raw path as well if it exists
+			if r.URL.RawPath != "" {
+				r.URL.RawPath = r.URL.RawPath + "/"
+			}
+		}
+	}
+
 	// Apply middleware in reverse order so they execute in the order they were added
-	for i := len(s.middleware) - 1; i >= 0; i-- {
-		handler = s.middleware[i](handler)
+	for _, h := range s.middleware {
+		handler = h(handler)
 	}
 
 	handler.ServeHTTP(w, r)
@@ -258,6 +280,42 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 		return false
 	}
 	return true
+}
+
+func writeHTML(
+	w http.ResponseWriter,
+	r *http.Request,
+	headGeneric, head, body templ.Component,
+	writeBodyAttrs func(w http.ResponseWriter) error,
+) error {
+	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+		<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js"></script>`)
+	if headGeneric != nil {
+		if err := headGeneric.Render(r.Context(), w); err != nil {
+			return err
+		}
+	}
+	if head != nil {
+		if err := head.Render(r.Context(), w); err != nil {
+			return err
+		}
+	}
+	if _, err := io.WriteString(w, "</head><body "); err != nil {
+		return err
+	}
+	if writeBodyAttrs != nil {
+		if err := writeBodyAttrs(w); err != nil {
+			return err
+		}
+	}
+	if _, err := io.WriteString(w, ">"); err != nil {
+		return err
+	}
+	if err := body.Render(r.Context(), w); err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, "</body></html>")
+	return err
 }
 
 func (s *Server) handleStreamRequest(
@@ -307,7 +365,7 @@ func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request, msg string, err error,
 ) {
 	if !isDSReq(r) {
-		s.render500(w, r)
+		s.handlePage500GET(w, r)
 		return
 	}
 
@@ -427,7 +485,12 @@ func (s *natsSub) C() <-chan Message {
 }
 
 func (s *natsSub) Close() error {
-	return s.close()
+	if s.close == nil {
+		return nil
+	}
+	err := s.close()
+	s.close = nil // Prevent double-close
+	return err
 }
 
 // --- MESSAGE BROKER: IN-MEM ---

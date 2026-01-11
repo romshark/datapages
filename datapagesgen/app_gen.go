@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/a-h/templ"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -313,14 +312,13 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h := page404(genericHead, nil, body, nil)
-	if err := h.Render(r.Context(), w); err != nil {
+	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
 		s.logErr("rendering Page404", err)
 		return
 	}
 }
 
-func (s *Server) render500(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePage500GET(w http.ResponseWriter, r *http.Request) {
 	p := app.Page500{App: s.app}
 
 	body, err := p.GET(r)
@@ -336,8 +334,7 @@ func (s *Server) render500(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h := page500(genericHead, nil, body, nil)
-	if err := h.Render(r.Context(), w); err != nil {
+	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
 		s.logErr("rendering Page500", err)
 		return
 	}
@@ -370,12 +367,12 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := templ.Attributes{
-		"data-init": "@get('/search/_$')",
+	bodyAttrs := func(w http.ResponseWriter) error {
+		io.WriteString(w, `data-init="@get('/search/_$')"`)
+		return nil
 	}
 
-	h := pageIndex(genericHead, nil, body, bodyAttrs)
-	if err := h.Render(r.Context(), w); err != nil {
+	if err := writeHTML(w, r, genericHead, nil, body, bodyAttrs); err != nil {
 		s.logErr("rendering PageIndex", err)
 		return
 	}
@@ -436,30 +433,8 @@ func (s *Server) handlePage404GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h := page404(genericHead, nil, body, nil)
-	if err := h.Render(r.Context(), w); err != nil {
+	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
 		s.logErr("rendering Page404", err)
-		return
-	}
-}
-
-func (s *Server) handlePage500GET(w http.ResponseWriter, r *http.Request) {
-	p := app.Page500{App: s.app}
-
-	body, err := p.GET(r)
-	if err != nil {
-		s.httpErrIntern(w, r, "generating Page500", err)
-		return
-	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, "generating generic head for Page500", err)
-		return
-	}
-
-	h := page500(genericHead, nil, body, nil)
-	if err := h.Render(r.Context(), w); err != nil {
-		s.logErr("rendering Page500", err)
 		return
 	}
 }
@@ -485,8 +460,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, "generating generic head for PageLogin", err)
 		return
 	}
-	h := pageLogin(genericHead, body)
-	if err := h.Render(r.Context(), w); err != nil {
+	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
 		s.logErr("rendering PageLogin", err)
 		return
 	}
@@ -545,8 +519,7 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, "generating generic head for PageSettings", err)
 		return
 	}
-	h := pageSettings(genericHead, body)
-	if err := h.Render(r.Context(), w); err != nil {
+	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
 		s.logErr("rendering PageSettings", err)
 		return
 	}
@@ -622,8 +595,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, "generating generic head for PageMessages", err)
 		return
 	}
-	h := pageMessages(genericHead, body)
-	if err := h.Render(r.Context(), w); err != nil {
+	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
 		s.logErr("rendering PageMessages", err)
 		return
 	}
@@ -780,17 +752,42 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := templ.Attributes{
-		"data-signals:term":     query.Term,
-		"data-signals:category": query.Category,
-		"data-signals:pmin":     query.PriceMin,
-		"data-signals:pmax":     query.PriceMax,
-		"data-signals:location": query.Location,
-		"data-init":             "@get('/search/_$')",
+	bodyAttrs := func(w http.ResponseWriter) error {
+		_, _ = io.WriteString(w, `data-signals:term="'`)
+		_, _ = io.WriteString(w, query.Term)
+		_, _ = io.WriteString(w, `'"`)
+
+		_, _ = io.WriteString(w, `data-signals:category="'`)
+		_, _ = io.WriteString(w, query.Category)
+		_, _ = io.WriteString(w, `'"`)
+
+		_, _ = io.WriteString(w, `data-signals:pmin="`)
+		_, _ = io.WriteString(w, strconv.FormatInt(query.PriceMin, 10))
+		_, _ = io.WriteString(w, `"`)
+
+		_, _ = io.WriteString(w, `data-signals:pmax="`)
+		_, _ = io.WriteString(w, strconv.FormatInt(query.PriceMax, 10))
+		_, _ = io.WriteString(w, `"`)
+
+		_, _ = io.WriteString(w, `data-signals:location="'`)
+		_, _ = io.WriteString(w, query.Location)
+		_, _ = io.WriteString(w, `'"`)
+
+		_, _ = io.WriteString(w, `data-init="@get('/search/_$')"`)
+
+		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
+			params.set('t', $term);
+			params.set('c', $category);
+			params.set('pmin', $pmin);
+			params.set('pmax', $pmax);
+			params.set('l', $location);
+			const query = params.toString();
+			window.history.replaceState(null, '', query ? '/search?' + query : '/search');
+		"`)
+		return nil
 	}
 
-	h := pageSearch(genericHead, nil, body, bodyAttrs)
-	if err := h.Render(r.Context(), w); err != nil {
+	if err := writeHTML(w, r, genericHead, nil, body, bodyAttrs); err != nil {
 		s.logErr("rendering PageSearch", err)
 		return
 	}
@@ -858,8 +855,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, "generating generic head for PagePost", err)
 		return
 	}
-	h := pagePost_id(genericHead, head, body, nil)
-	if err := h.Render(r.Context(), w); err != nil {
+	if err := writeHTML(w, r, genericHead, head, body, nil); err != nil {
 		s.logErr("rendering PagePost", err)
 		return
 	}
