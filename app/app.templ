@@ -71,14 +71,10 @@ templ pageIndex(
 ) {
 	@wrapper(session, "", baseData) {
 		<div>
-			// <button
-			// 	data-attr:disabled="$searchtext == ''"
-			// 	data-on:click="@get('/search')"
-			// >Search</button>
 			<ul>
 				for _, category := range mainCategories {
 					<li>
-						<a href={ fmt.Sprintf("/search/?c=%q", category.ID) }>
+						<a href={ fmt.Sprintf("/search/?c=%s", category.ID) }>
 							<img height="16px" src={ category.ImageURL }/>
 							{ category.Name }
 						</a>
