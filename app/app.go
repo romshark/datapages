@@ -103,7 +103,7 @@ type Page404 struct {
 func (p Page404) GET(
 	r *http.Request,
 	session SessionJWT,
-) (templ.Component, error) {
+) (body templ.Component, err error) {
 	baseData, err := p.baseData(r.Context(), session)
 	if err != nil {
 		return nil, err
