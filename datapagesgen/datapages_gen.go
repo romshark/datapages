@@ -290,6 +290,9 @@ func writeHTML(
 ) error {
 	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
 		<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js"></script>`)
+	if err != nil {
+		return err
+	}
 	if headGeneric != nil {
 		if err := headGeneric.Render(r.Context(), w); err != nil {
 			return err

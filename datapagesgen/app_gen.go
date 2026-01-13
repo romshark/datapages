@@ -367,8 +367,11 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) error {
-		io.WriteString(w, `data-init="@get('/search/_$')"`)
+	bodyAttrs := func(w http.ResponseWriter) (err error) {
+		_, err = io.WriteString(w, `data-init="@get('/search/_$')"`)
+		if err != nil {
+			return err
+		}
 		return nil
 	}
 
