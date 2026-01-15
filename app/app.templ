@@ -17,7 +17,7 @@ templ head() {
 }
 
 templ wrapper(session SessionJWT, searchTerm string, baseData baseData) {
-	<nav id="navbar" data-signals:searchinput={ searchTerm }>
+	<nav id="navbar" data-signals:searchinput={ fmt.Sprintf("%q", searchTerm) }>
 		<a href="/">Home</a>
 		// pageshow handles the browser form restoration on page navigation.
 		<input
@@ -209,7 +209,7 @@ templ pageSearch(
 	session SessionJWT, query SearchParams, posts []domain.Post,
 	baseData baseData,
 ) {
-	@wrapper(session, "", baseData) {
+	@wrapper(session, query.Term, baseData) {
 		<div data-on:change="@post('/search/paramchange')">
 			<label>
 				Location
