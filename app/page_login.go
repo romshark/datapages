@@ -1,11 +1,12 @@
 package app
 
 import (
+	"datapages/app/domain"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 // PageLogin is /login
@@ -21,20 +22,40 @@ func (PageLogin) GET(r *http.Request, session SessionJWT) (
 	return pageLogin(false), redirect, nil
 }
 
-// POSTSubmit is /login/submit/{$}
-func (PageLogin) POSTSubmit(
-	_ *http.Request,
-	sse *datastar.ServerSentEventGenerator,
-	setSessionJWT func(userID string, expire time.Time, claims map[string]any),
+// POSTSubmit is /login/submit
+func (p PageLogin) POSTSubmit(
+	r *http.Request,
+	session SessionJWT,
 	signals struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	},
-) error {
-	if signals.Email != "user@test.net" || signals.Password != "testuser" {
-		return sse.PatchElementTempl(pageLogin(true))
+) (
+	body templ.Component,
+	redirect Redirect,
+	newSession SessionJWT,
+	err error,
+) {
+	if session.UserID != "" {
+		// Already logged in.
+		redirect = Redirect{Target: "/", Status: http.StatusSeeOther}
+		return
 	}
+	uid, err := p.App.repo.Login(signals.Email, signals.Password)
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidCredentials) {
+			// Re-render page with feedback
+			body = pageLogin(true)
+			return
+		}
+	}
+
 	now := time.Now()
-	setSessionJWT("testuser", now.Add(24*time.Hour), nil)
-	return sse.Redirect("/")
+	newSession = SessionJWT{
+		UserID:     uid,
+		IssuedAt:   now,
+		Expiration: now.Add(24 * time.Hour),
+	}
+	redirect = Redirect{Target: "/", Status: http.StatusSeeOther}
+	return
 }

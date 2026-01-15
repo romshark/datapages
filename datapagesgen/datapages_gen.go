@@ -103,10 +103,10 @@ func WithHTTPServer(server *http.Server) ServerOption {
 // development environments. If fsDev it automatically falls back to fsProd.
 func WithStaticFS(urlPath string, fsProd, fsDev http.FileSystem) ServerOption {
 	return func(s *Server) error {
+		s.staticFS = fsProd
 		if IsDevMode() && fsDev != nil {
 			s.staticFS = fsDev
 		}
-		s.staticFS = fsProd
 		s.staticURLPath = urlPath
 		return nil
 	}
@@ -214,6 +214,7 @@ func NewServer(app *app.App, opts ...ServerOption) *Server {
 // Accepted connections are configured to enable TCP keep-alives.
 func (s *Server) ListenAndServe(hostAddress string) error {
 	s.httpServer.Addr = hostAddress
+	s.enabledTLS = false
 	return s.httpServer.ListenAndServe()
 }
 
@@ -221,6 +222,7 @@ func (s *Server) ListenAndServe(hostAddress string) error {
 // except that it expects HTTPS connections.
 func (s *Server) ListenAndServeTLS(hostAddress, certFile, keyFile string) error {
 	s.httpServer.Addr = hostAddress
+	s.enabledTLS = true
 	return s.httpServer.ListenAndServeTLS(certFile, keyFile)
 }
 
@@ -239,6 +241,7 @@ type Server struct {
 	middleware    []func(http.Handler) http.Handler
 	staticURLPath string
 	staticFS      http.FileSystem
+	enabledTLS    bool
 
 	authJWTOpts *AuthJWTConfig
 }

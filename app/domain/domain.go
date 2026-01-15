@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -26,6 +28,7 @@ type user struct {
 
 type post struct {
 	ID          string
+	Slug        string
 	Title       string
 	Description string
 	Category    *category
@@ -67,15 +70,17 @@ type User struct {
 }
 
 type Post struct {
-	ID             string
-	Title          string
-	Description    string
-	CategoryID     string
-	ImageURL       string
-	MerchantUserID string
-	Price          int64
-	TimePosted     time.Time
-	Location       string
+	ID                  string
+	Slug                string
+	Title               string
+	Description         string
+	CategoryID          string
+	ImageURL            string
+	MerchantUserID      string
+	MerchantDisplayName string
+	Price               int64
+	TimePosted          time.Time
+	Location            string
 }
 
 type Category struct {
@@ -104,19 +109,28 @@ type chatKey struct{ PostID, SenderUserID string }
 
 // Repository is a simple in-memory messaging repository.
 type Repository struct {
+	slugNonceGen SlugNonceGenerator
+
+	lock           sync.RWMutex
 	chatsByKey     map[chatKey]*chat
 	chatsByID      map[string]*chat
 	postsByID      map[string]*post
+	postsBySlug    map[string]*post
 	usersByID      map[string]*user
 	categoriesByID map[string]*category
-	lock           sync.RWMutex
 }
 
-func NewRepository(categories []Category) *Repository {
+func NewRepository(
+	categories []Category,
+	slugNonceGen SlugNonceGenerator,
+) *Repository {
 	r := &Repository{
+		slugNonceGen: slugNonceGen,
+
 		chatsByKey:     map[chatKey]*chat{},
 		chatsByID:      map[string]*chat{},
 		postsByID:      map[string]*post{},
+		postsBySlug:    map[string]*post{},
 		usersByID:      map[string]*user{},
 		categoriesByID: map[string]*category{},
 	}
@@ -144,6 +158,7 @@ var (
 	ErrPasswordEmpty           = errors.New("password must not be empty")
 	ErrChatExists              = errors.New("chat already exists")
 	ErrChatNotFound            = errors.New("chat not found")
+	ErrPostTitleInvalid        = errors.New("invalid post title")
 	ErrMessageNotFound         = errors.New("message not found")
 	ErrNotAChatParticipant     = errors.New("not a chat participant")
 	ErrPostNotFound            = errors.New("post not found")
@@ -152,10 +167,31 @@ var (
 	ErrMarchantIsMessageSender = errors.New("merchant is message sender")
 	ErrUserEmailReserved       = errors.New("user email is already reserved")
 	ErrUserDisplayNameReserved = errors.New("user display name is already reserved")
+	ErrInvalidCredentials      = errors.New("invalid credentials")
 )
 
 func newID() string {
 	return ulid.Make().String()
+}
+
+func (r *Repository) Login(email, passwordPlaintext string) (userID string, err error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	for _, u := range r.usersByID {
+		if u.Email != email {
+			continue
+		}
+		if err := bcrypt.CompareHashAndPassword(
+			[]byte(u.PasswordHash),
+			[]byte(passwordPlaintext),
+		); err != nil {
+			return "", ErrInvalidCredentials
+		}
+		return u.ID, nil
+	}
+
+	return "", ErrUserNotFound
 }
 
 func (r *Repository) MainCategories(_ context.Context) ([]Category, error) {
@@ -248,7 +284,7 @@ func (r *Repository) NewUser(
 	}
 
 	u := user{
-		ID:             newID(),
+		ID:             displayName,
 		DisplayName:    displayName,
 		AvatarImageURL: avatarImageURL,
 		AccountCreated: time.Now(),
@@ -343,8 +379,14 @@ func (r *Repository) NewPost(
 		return "", ErrUserNotFound
 	}
 
+	title, slug, err := PrepareTitle(r.slugNonceGen, title)
+	if err != nil {
+		return "", err
+	}
+
 	p := post{
 		ID:          newID(),
+		Slug:        slug,
 		Title:       title,
 		Description: description,
 		Category:    cat,
@@ -355,6 +397,7 @@ func (r *Repository) NewPost(
 		Location:    location,
 	}
 	r.postsByID[p.ID] = &p
+	r.postsBySlug[p.Slug] = &p
 
 	return p.ID, nil
 }
@@ -499,17 +542,18 @@ func (r *Repository) PostByID(_ context.Context, id string) (Post, error) {
 	if !ok {
 		return Post{}, ErrPostNotFound
 	}
-	return Post{
-		ID:             p.ID,
-		Title:          p.Title,
-		Description:    p.Description,
-		CategoryID:     p.Category.ID,
-		ImageURL:       p.ImageURL,
-		MerchantUserID: p.Merchant.ID,
-		Price:          p.Price,
-		TimePosted:     p.TimePosted,
-		Location:       p.Location,
-	}, nil
+	return convertPost(p), nil
+}
+
+func (r *Repository) PostBySlug(_ context.Context, slug string) (Post, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	p, ok := r.postsBySlug[slug]
+	if !ok {
+		return Post{}, ErrPostNotFound
+	}
+	return convertPost(p), nil
 }
 
 type PostSearchParams struct {
@@ -564,17 +608,7 @@ func (r *Repository) SearchPosts(_ context.Context, q PostSearchParams) ([]Post,
 			}
 		}
 
-		results = append(results, Post{
-			ID:             post.ID,
-			Title:          post.Title,
-			Description:    post.Description,
-			CategoryID:     post.Category.ID,
-			ImageURL:       post.ImageURL,
-			MerchantUserID: post.Merchant.ID,
-			Price:          post.Price,
-			TimePosted:     post.TimePosted,
-			Location:       post.Location,
-		})
+		results = append(results, convertPost(post))
 	}
 
 	return results, nil
@@ -587,17 +621,7 @@ func (r *Repository) RecentlyPosted(_ context.Context) ([]Post, error) {
 	// Sort posts by TimePosted (most recent first)
 	posts := make([]Post, 0, len(r.postsByID))
 	for _, p := range r.postsByID {
-		posts = append(posts, Post{
-			ID:             p.ID,
-			Title:          p.Title,
-			Description:    p.Description,
-			CategoryID:     p.Category.ID,
-			ImageURL:       p.ImageURL,
-			MerchantUserID: p.Merchant.ID,
-			Price:          p.Price,
-			TimePosted:     p.TimePosted,
-			Location:       p.Location,
-		})
+		posts = append(posts, convertPost(p))
 	}
 
 	slices.SortFunc(posts, func(a, b Post) int {
@@ -639,17 +663,7 @@ func (r *Repository) SimilarPosts(
 			continue // Skip the current post
 		}
 		if p.Category.ID == post.Category.ID {
-			similar = append(similar, Post{
-				ID:             p.ID,
-				Title:          p.Title,
-				Description:    p.Description,
-				CategoryID:     p.Category.ID,
-				ImageURL:       p.ImageURL,
-				MerchantUserID: p.Merchant.ID,
-				Price:          p.Price,
-				TimePosted:     p.TimePosted,
-				Location:       p.Location,
-			})
+			similar = append(similar, convertPost(p))
 		}
 	}
 
@@ -657,4 +671,93 @@ func (r *Repository) SimilarPosts(
 		similar = similar[:limit]
 	}
 	return similar, nil
+}
+
+type SlugNonceGenerator interface {
+	GenerateSlugNonce() string
+}
+
+type SeededSlugNonceGenerator struct{ r *rand.Rand }
+
+func NewSeededSlugNonceGenerator(seed1, seed2 uint64) *SeededSlugNonceGenerator {
+	return &SeededSlugNonceGenerator{
+		r: rand.New(rand.NewPCG(seed1, seed2)),
+	}
+}
+
+func (g *SeededSlugNonceGenerator) GenerateSlugNonce() string {
+	n := g.r.IntN(1_000_000)
+	return fmt.Sprintf("%06x", n)
+}
+
+func PrepareTitle(
+	slugNonceGen SlugNonceGenerator, s string,
+) (title, slug string, err error) {
+	const minLength = 4
+	const maxLength = 256
+
+	s = strings.TrimSpace(s)
+
+	// Build slug and clean title at the same time
+	var slugBuilder strings.Builder
+	var titleBuilder strings.Builder
+	slugBuilder.Grow(len(s))
+	titleBuilder.Grow(len(s))
+
+	lastWasDash := false
+
+	for _, r := range s {
+		titleBuilder.WriteRune(r) // preserve full title content, including punctuation
+
+		switch {
+		case r >= 'A' && r <= 'Z':
+			slugBuilder.WriteRune(r + ('a' - 'A'))
+			lastWasDash = false
+
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			slugBuilder.WriteRune(r)
+			lastWasDash = false
+
+		case r == ' ', r == '-':
+			if !lastWasDash {
+				slugBuilder.WriteRune('-')
+				lastWasDash = true
+			}
+
+		default:
+			// all other characters skipped for slug
+		}
+	}
+
+	title = strings.TrimSpace(titleBuilder.String())
+
+	if len(title) < minLength || len(title) > maxLength {
+		return "", "", ErrPostTitleInvalid
+	}
+
+	slugBuilder.WriteByte('-')
+	slugBuilder.WriteString(slugNonceGen.GenerateSlugNonce())
+	slug = slugBuilder.String()
+	slug = strings.Trim(slug, "-")
+
+	// URL escape slug
+	slug = url.PathEscape(slug)
+
+	return title, slug, nil
+}
+
+func convertPost(p *post) Post {
+	return Post{
+		ID:                  p.ID,
+		Slug:                p.Slug,
+		Title:               p.Title,
+		Description:         p.Description,
+		CategoryID:          p.Category.ID,
+		ImageURL:            p.ImageURL,
+		MerchantUserID:      p.Merchant.ID,
+		MerchantDisplayName: p.Merchant.DisplayName,
+		Price:               p.Price,
+		TimePosted:          p.TimePosted,
+		Location:            p.Location,
+	}
 }

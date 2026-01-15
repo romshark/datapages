@@ -3,6 +3,7 @@ package app
 import (
 	"datapages/app/domain"
 	"fmt"
+	"time"
 )
 
 templ head() {
@@ -20,14 +21,15 @@ templ wrapper(session SessionJWT, searchTerm string, baseData baseData) {
 		<a href="/">Home</a>
 		// pageshow handles the browser form restoration on page navigation.
 		<input
+			id="search-input"
 			data-bind="searchinput"
 			data-on:pageshow__window="$searchinput = el.value"
+			data-on:keydown="if (evt.key === 'Enter') $searchanchor.click()"
 			placeholder="What are you looking for?"
 		/>
 		<a
+			data-ref:searchanchor
 			data-attr:href="'/search?t=' + $searchinput"
-			data-style:pointer-events="$searchinput === '' ? 'none' : 'auto'"
-			data-style:cursor="$searchinput === '' ? 'default' : 'pointer'"
 		>Search</a>
 		@fragmentMessagesLink(baseData.UnreadChats)
 		if session.UserID != "" {
@@ -69,87 +71,127 @@ templ pageIndex(
 	session SessionJWT, mainCategories []domain.Category, recentlyPosted []domain.Post,
 	baseData baseData,
 ) {
-	@wrapper(session, "", baseData) {
-		<div>
-			<ul>
-				for _, category := range mainCategories {
-					<li>
-						<a href={ fmt.Sprintf("/search/?c=%s", category.ID) }>
-							<img height="16px" src={ category.ImageURL }/>
-							{ category.Name }
-						</a>
-					</li>
-				}
-			</ul>
-			<h2>Recently Posted</h2>
-			@fragmentPosts(recentlyPosted)
-			@fragmentFooter()
-		</div>
-	}
+	<div id="page-index">
+		@wrapper(session, "", baseData) {
+			<div>
+				<ul id="main-categories">
+					for _, category := range mainCategories {
+						<li>
+							<a href={ fmt.Sprintf("/search/?c=%s", category.ID) }>
+								<img height="16px" src={ category.ImageURL }/>
+								{ category.Name }
+							</a>
+						</li>
+					}
+				</ul>
+				<h2>Recently Posted</h2>
+				@fragmentPosts(recentlyPosted)
+				@fragmentFooter()
+			</div>
+		}
+	</div>
 }
 
 templ pageLogin(wrongCreds bool) {
-	<h1>Login</h1>
-	<input data-bind="email" type="email" placeholder="E-mail"/>
-	<input data-bind="password" type="password" placeholder="password"/>
-	<button data-on:click="@post('/login/submit')">Sign in</button>
-	if wrongCreds {
-		<p>Wrong credentials, please try again.</p>
-	}
+	<div id="page-login" data-signals:_wobbleTip="false">
+		<div class="box">
+			<h1>Sign in</h1>
+			<input
+				id="elInEmail"
+				data-bind="email"
+				type="email"
+				placeholder="E-mail"
+			/>
+			<input
+				id="elInPass"
+				data-bind="password"
+				type="password"
+				placeholder="password"
+			/>
+			<button
+				data-attr:disabled="$email == '' || $password == ''"
+				data-on:click="@post('/login/submit')"
+			>Sign in</button>
+			if wrongCreds {
+				<p>Wrong credentials, please try again.</p>
+			}
+			<a
+				href="/forgot-password"
+				data-on:click="
+					evt.preventDefault();
+					$_wobbleTip = true;
+					setTimeout(() => $_wobbleTip = false, 600);
+				"
+			>Forgot password</a>
+		</div>
+		<div class="hint">
+			<i data-class:wobble="$_wobbleTip">
+				Psst, try <b>user@test.net</b> and <b>testuser</b>
+			</i>
+			<button
+				data-on:click="
+					$email = 'user@test.net';
+					$password = 'testuser';
+				"
+			>Let me fill it in for you</button>
+		</div>
+	</div>
 }
 
 templ pageMessages(
 	session SessionJWT, chats []Chat, openChat Chat, messages []domain.Message,
 	baseData baseData,
 ) {
-	@wrapper(session, "", baseData) {
-		<div data-signals:chatselected={ fmt.Sprintf("'%s'", openChat.PostID) }>
-			if len(chats) == 0 {
-				<p>No chats available yet.</p>
-			} else {
-				<ul>
-					for _, chat := range chats {
-						<li>
-							<a href={ fmt.Sprintf("/messages/chat/%s", chat.ID) }>
-								<p>{ chat.Title }</p>
-								<p>{ chat.LastMessageText }</p>
-							</a>
-						</li>
-					}
-				</ul>
-			}
-		</div>
-		<div>
-			if len(chats) == 0 {
-				<p>
-					<span>You will see chats here once you contact someone </span>
-					<span>or somebody contacts you.</span>
-				</p>
-			} else if openChat.ID == "" {
-				<p>Select any chat.</p>
-			} else {
-				<a target="_blank" href={ hrefPost(openChat.PostID) }>
-					<h1>{ openChat.Title }</h1>
-				</a>
-				<ul>
-					for _, msg := range messages {
-						<li>
-							if msg.SenderUserID == session.UserID {
-								<p><b>Me</b> at { msg.TimeSent.String() }</p>
-							} else {
-								<p>{ msg.SenderUserID } at { msg.TimeSent.String() }</p>
-							}
-							<p>{ msg.Text }</p>
-						</li>
-					}
-				</ul>
-			}
-		</div>
-		<div>
-			<input data-bind="messagetext" placeholder="Message"/>
-			<button data-on:click="@post('/messages/sendmessage')"></button>
-		</div>
-	}
+	<div id="page-messages">
+		@wrapper(session, "", baseData) {
+			<div class="chat-list" data-signals:chatselected={ fmt.Sprintf("'%s'", openChat.PostID) }>
+				if len(chats) == 0 {
+					<p>No chats available yet.</p>
+				} else {
+					<ul>
+						for _, chat := range chats {
+							<li>
+								<a href={ fmt.Sprintf("/messages/chat/%s", chat.ID) }>
+									<p>{ chat.Title }</p>
+									<p>{ chat.LastMessageText }</p>
+								</a>
+							</li>
+						}
+					</ul>
+				}
+			</div>
+			<div class="chat-messages">
+				if len(chats) == 0 {
+					<p>
+						<span>You will see chats here once you contact someone </span>
+						<span>or somebody contacts you.</span>
+					</p>
+				} else if openChat.ID == "" {
+					<p>Select any chat.</p>
+				} else {
+					<a target="_blank" href={ hrefPost(openChat.PostID) }>
+						<h1>{ openChat.Title }</h1>
+					</a>
+					<ul>
+						for _, msg := range messages {
+							<li>
+								if msg.SenderUserID == session.UserID {
+									<p><b>Me</b> at { msg.TimeSent.String() }</p>
+								} else {
+									<p>{ msg.SenderUserID } at { msg.TimeSent.String() }</p>
+								}
+								<p>{ msg.Text }</p>
+							</li>
+						}
+					</ul>
+					<div class="chat-input">
+						<input data-bind="messagetext" placeholder="Message"/>
+						<button data-on:click="@post('/messages/sendmessage')">Send</button>
+					</div>
+				}
+			</div>
+		}
+	</div>
 }
 
 templ pageSettings(session SessionJWT, baseData baseData) {
@@ -168,7 +210,6 @@ templ pageSearch(
 	baseData baseData,
 ) {
 	@wrapper(session, "", baseData) {
-		<h1>Search Page</h1>
 		<div data-on:change="@post('/search/paramchange')">
 			<label>
 				Location
@@ -184,7 +225,7 @@ templ pageSearch(
 			</label>
 		</div>
 		if len(posts) < 1 {
-			<p>Nothing found 🤷‍♂️</p>
+			<p class="ok 6">Nothing found 🤷‍♂️</p>
 		} else {
 			@fragmentPosts(posts)
 		}
@@ -203,37 +244,70 @@ templ headPost(title, description, imageURL string) {
 templ pagePost(
 	session SessionJWT, post domain.Post, similarPosts []domain.Post, baseData baseData,
 ) {
-	@wrapper(session, "", baseData) {
-		<h1>{ post.Title }</h1>
-		<img class="post-image" src={ post.ImageURL }/>
-		<p>{ post.Description }</p>
-		<p>By { post.MerchantUserID }</p>
-		<p>{ post.Location } - { post.Price }€ - { post.TimePosted.String() }</p>
-		<h3>Similar Posts</h3>
-		@fragmentPosts(similarPosts)
-		@fragmentFooter()
-	}
+	<div
+		id="page-post"
+		data-signals:_compactheader="false"
+	>
+		@wrapper(session, "", baseData) {
+			<div
+				id="post-header"
+				data-class:hidden="$_compactheader"
+				data-on-intersect__half="$_compactheader = false"
+				data-on-intersect__exit__half="$_compactheader = true"
+			>
+				<h1 class="post-title">{ post.Title }</h1>
+				<div class="post-meta">
+					<p class="post-merchant">By { post.MerchantDisplayName }</p>
+					<p class="post-location">{ post.Location }</p>
+					<p class="post-price">{ post.Price }€</p>
+				</div>
+			</div>
+			<div
+				id="post-header-compact"
+				data-class:hidden="!$_compactheader"
+			>
+				<div>
+					<h1 class="post-title">{ post.Title }</h1>
+					<div class="post-meta">
+						<p class="post-merchant">By { post.MerchantDisplayName }</p>
+						<p class="post-location">{ post.Location }</p>
+						<p class="post-price">{ post.Price }€</p>
+					</div>
+				</div>
+			</div>
+			<img class="post-image" src={ post.ImageURL }/>
+			<p class="post-time">Posted on { post.TimePosted.Format(time.RFC1123) }</p>
+			<p class="post-description">{ post.Description }</p>
+			<h3 class="similar-heading">Similar Posts</h3>
+			@fragmentPosts(similarPosts)
+			@fragmentFooter()
+		}
+	</div>
 }
 
 templ fragmentPosts(posts []domain.Post) {
-	<ul>
+	<ul class="post-cards">
 		for _, post := range posts {
-			<li>
-				<img class="similar-post-image" src={ post.ImageURL }/>
-				<a href={ templ.URL(fmt.Sprintf("/post/%s", post.ID)) }>
-					{ post.Title }
-				</a>
-				<p>{ post.Price }€</p>
-				<p>{ post.Location }</p>
+			<li class="post-card">
+				<img src={ post.ImageURL }/>
+				<div class="body">
+					<a class="title" href={ templ.URL(fmt.Sprintf("/post/%s", post.Slug)) }>
+						{ post.Title }
+					</a>
+					<p class="price">{ post.Price }€</p>
+					<p class="location">{ post.Location }</p>
+				</div>
 			</li>
 		}
 	</ul>
 }
 
 templ fragmentFooter() {
-	<p>This is a <a target="_blank" href="https://github.com/romshark/datapages">Datapages</a> demo.</p>
-	<p>
-		by
-		<a target="_blank" href="https://github.com/romshark/">github.com/romshark</a>
-	</p>
+	<div id="footer">
+		<p>This is a <a target="_blank" href="https://github.com/romshark/datapages">Datapages</a> demo.</p>
+		<p>
+			by
+			<a target="_blank" href="https://github.com/romshark/">github.com/romshark</a>
+		</p>
+	</div>
 }

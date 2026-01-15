@@ -16,15 +16,16 @@ type Redirect struct {
 	Status int
 }
 
-type App struct {
-	// db, etc.
-	repo *domain.Repository
-}
-
 type SessionJWT struct {
 	UserID     string    `json:"sub"` // Subject.
 	IssuedAt   time.Time `json:"iat"`
 	Expiration time.Time `json:"exp"`
+	Issuer     string    `json:"iss"`
+}
+
+type App struct {
+	// db, etc.
+	repo *domain.Repository
 }
 
 func NewApp(repo *domain.Repository) *App { return &App{repo: repo} }

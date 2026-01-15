@@ -4,6 +4,8 @@ A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) server r
 web app framework prototype (currently referred to as "Datapages" and "dp" as CLI tool.) 
 that is supposed to work as a code generator and code linter.
 
+**You write code according to the generator's expectations, and the generator generates all the boilerplate in the background so you can focus on your business logic.**
+
 - Run `dp init` which creates an application template in the current folder and
   prompts for preset configs (such as whether to use
   [TailwindCSS](https://tailwindcss.com/), etc.).
@@ -97,27 +99,28 @@ func (PageIndex) GET(
     path struct{...}, // Required only when path variables are used in the URL
     query struct{...}, // Optional
     signals struct {...}, // Optional
-    setSessionJWT func(userID string, expire time.Time, claims map[string]any), // Optional
     dispatch(
         EventSomethingHappened,
         EventSomethingElseHappened,
         //...
     ) error // Optional
-    err error,
 ) (
     body templ.Component,
     head templ.Component, // Optional
     redirect Redirect, // Optional
+    newSession SessionJWT, // Optional
+    removeSessionJWT bool, // Optional
     err error
 ) {
     // ...
 } 
 ```
 
-The action handlers `POSTXXX`, `DELETEXXX` and `PUTXXX` method parameter lists must
+The SSE action handlers `POSTXXX`, `DELETEXXX` and `PUTXXX` method parameter lists must
 always start with `r *http.Request`, followed by other parameters:
 
 ```go
+// POSTActionName is <path>
 func (PageIndex) POSTActionName(
     r *http.Request,
     sse *datastar.ServerSentEventGenerator, // Optional
@@ -125,14 +128,40 @@ func (PageIndex) POSTActionName(
     path struct{...}, // Required only when path variables are used in the URL
     query struct{...}, // Optional
     signals struct {...}, // Optional
-    setSessionJWT func(userID string, expire time.Time, claims map[string]any), // Optional
     dispatch(
         EventSomethingHappened,
         EventSomethingElseHappened,
         //...
     ) error // Optional
-    err error,
 ) error {
+    // ...
+}
+```
+
+Action handler may omit the `sse` parameter and instead redirect,
+return HTML, set/remove sessions.
+
+```go
+// POSTActionName is <path>
+func (PageIndex) POSTActionName(
+    r *http.Request,
+    session SessionJWT, // Optional
+    path struct{...}, // Required only when path variables are used in the URL
+    query struct{...}, // Optional
+    signals struct {...}, // Optional
+    dispatch(
+        EventSomethingHappened,
+        EventSomethingElseHappened,
+        //...
+    ) error // Optional
+) (
+    body templ.Component, // Optional
+    head templ.Component, // Optional
+    redirect Redirect, // Optional
+    newSession SessionJWT, // Optional
+    removeSessionJWT bool, // Optional
+    err error,
+) {
     // ...
 }
 ```
@@ -319,14 +348,6 @@ type SessionJWT struct {
 }
 ```
 
-#### 🧩 Parameter `setSessionJWT func(...)`
-
-```go
-setSessionJWT func(userID string, expire time.Time, claims map[string]any)
-```
-
-Provides a function for setting a JWT-based session cookie.
-
 #### 🧩 Parameter `sse *datastar.ServerSentEventGenerator`
 
 ```go
@@ -449,6 +470,24 @@ type Redirect struct {
 	Status int
 }
 ```
+
+#### 🧩 Return Value `newSession SessionJWT`
+
+```go
+newSession SessionJWT
+```
+
+Adds response headers to set a JWT session cookie if `newSession.UserID` is not empty,
+otherwise no-op.
+
+#### 🧩 Return Value `removeSessionJWT bool`
+
+```go
+removeSessionJWT bool
+```
+
+Removes any JWT session cookie if `true`, otherwise no-op.
+
 
 #### 🧩 Return Value `error` or `err error`
 

@@ -4,7 +4,7 @@
 proxy-timeout: 10s
 format: true
 lint: true
-templier-host: "localhost:7331"
+templier-host: "127.0.0.1:7331"
 
 log:
   level: erronly
@@ -35,6 +35,14 @@ custom-watchers:
     debounce:
     fail-on-error: true
     requires: rebuild
+  - name: "CSS"
+    cmd:
+    include:
+      - "app/static/style.css"
+    exclude:
+    debounce:
+    fail-on-error:
+    requires: reload
 
 compiler:
   gcflags:

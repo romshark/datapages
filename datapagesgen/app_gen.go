@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -110,52 +109,50 @@ func WithAuthJWTConfig(o AuthJWTConfig) ServerOption {
 
 func (s *Server) mustSetSessionJWT(
 	w http.ResponseWriter,
-	userID, audience, issuer string,
-	now, expire, notBefore time.Time, claims map[string]any,
+	userID, issuer, audience string,
+	issuedAt time.Time,
+	expire time.Time,
 ) {
-	mSize := 3 + len(claims)
+	mSize := 4
 	if audience != "" {
 		mSize++
 	}
-	if issuer != "" {
-		mSize++
-	}
-	if !notBefore.IsZero() {
-		mSize++
-	}
-
 	jwtClaims := make(jwt.MapClaims, mSize)
-	maps.Copy(jwtClaims, claims)
 	jwtClaims["sub"] = userID
 	jwtClaims["exp"] = expire.Unix()
-	jwtClaims["iat"] = now.Unix()
-
+	jwtClaims["iat"] = issuedAt.Unix()
+	jwtClaims["iss"] = issuer
 	if audience != "" {
 		jwtClaims["aud"] = audience
-	}
-	if issuer != "" {
-		jwtClaims["iss"] = issuer
-	}
-	if !notBefore.IsZero() {
-		jwtClaims["nbf"] = notBefore.Unix()
 	}
 
 	token := jwt.NewWithClaims(s.authJWTOpts.SigningMethod, jwtClaims)
 
-	signed, err := token.SignedString(s.authJWTOpts)
+	signed, err := token.SignedString(s.authJWTOpts.Secret)
 	if err != nil {
 		panic(err)
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
+		Name:     s.authJWTOpts.CookieName,
 		Value:    signed,
 		Path:     "/",
 		Expires:  expire,
 		HttpOnly: true,
 		Domain:   s.authJWTOpts.CookieDomain,
-		Secure:   true,
+		Secure:   s.enabledTLS,
 		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (s *Server) removeSessionJWT(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     s.authJWTOpts.CookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
 	})
 }
 
@@ -177,7 +174,17 @@ func (s *Server) readSessionJWT(
 		}
 		return s.authJWTOpts.Secret, nil
 	})
-	if err != nil || !token.Valid {
+	if err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			// Clear the expired token
+			s.removeSessionJWT(w)
+			return sess, true
+		}
+		s.httpErrUnauth(w, "invalid JWT")
+		return sess, false
+	}
+
+	if !token.Valid {
 		s.httpErrUnauth(w, "invalid JWT")
 		return sess, false
 	}
@@ -264,6 +271,9 @@ func setupHandlers(s *Server) {
 		"POST /settings/save/{$}",
 		s.handlePageSettingsPOSTSave)
 	s.mux.HandleFunc(
+		"POST /ssettings/sign-out/{$}",
+		s.handlePageSettingsPOSTSignOut)
+	s.mux.HandleFunc(
 		"GET /messages/{$}",
 		s.handlePageMessagesGET)
 	s.mux.HandleFunc(
@@ -282,10 +292,10 @@ func setupHandlers(s *Server) {
 		"POST /search/paramchange/{$}",
 		s.handlePageSearchPOSTParamChange)
 	s.mux.HandleFunc(
-		"GET /post/{id}/{$}",
+		"GET /post/{slug}/{$}",
 		s.handlePagePostGET)
 	s.mux.HandleFunc(
-		"GET /post/{id}/_$/{$}",
+		"GET /post/{slug}/_$/{$}",
 		s.handlePagePostGETStream)
 }
 
@@ -473,6 +483,10 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
+	sess, ok := s.readSessionJWT(w, r)
+	if !ok {
+		return
+	}
 	var sig struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -483,17 +497,28 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 
 	p := app.PageLogin{App: s.app}
 
-	setSessionJWT := func(userID string, expire time.Time, claims map[string]any) {
+	body, redirect, newSessionJWT, err := p.POSTSubmit(r, sess, sig)
+	if err != nil {
+		s.httpErrIntern(w, r, "handling action PageLogin.POSTSubmit", err)
+		return
+	}
+	if j := newSessionJWT; j.UserID != "" {
 		s.mustSetSessionJWT(
-			w, userID, s.authJWTOpts.Audience, s.authJWTOpts.Issuer,
-			time.Now(), expire, time.Time{}, claims,
+			w, j.UserID, s.authJWTOpts.Audience, s.authJWTOpts.Issuer,
+			j.IssuedAt, j.Expiration,
 		)
 	}
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-
-	if err := p.POSTSubmit(r, sse, setSessionJWT, sig); err != nil {
-		s.httpErrIntern(w, r, "handling action PageLogin.POSTSubmit", err)
+	if httpRedirect(w, r, redirect) {
+		return
+	}
+	genericHead, err := s.app.Head(r)
+	if err != nil {
+		s.httpErrIntern(w, r, "generating generic head for PageSettings", err)
+		return
+	}
+	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
+		s.logErr("rendering PageSettings", err)
 		return
 	}
 }
@@ -565,7 +590,48 @@ func (s *Server) handlePageSettingsPOSTSave(w http.ResponseWriter, r *http.Reque
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	panic("TODO")
+	sess, ok := s.readSessionJWT(w, r)
+	if !ok {
+		return
+	}
+	var sig struct {
+		Username string `json:"username"`
+	}
+	if err := datastar.ReadSignals(r, &sig); err != nil {
+		s.httpErrBad(w, "reading signals")
+	}
+	p := app.PageSettings{
+		App:  s.app,
+		Base: app.Base{App: s.app},
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	err := p.POSTSave(r, sse, sess, sig)
+	if err != nil {
+		s.httpErrIntern(w, r, "generating POSTSave", err)
+		return
+	}
+}
+
+func (s *Server) handlePageSettingsPOSTSignOut(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	p := app.PageSettings{
+		App:  s.app,
+		Base: app.Base{App: s.app},
+	}
+	redirect, removeSessionJWT, err := p.POSTSignOut(r)
+	if err != nil {
+		s.httpErrIntern(w, r, "generating PostSignOut", err)
+		return
+	}
+	if removeSessionJWT {
+		s.removeSessionJWT(w)
+	}
+	if httpRedirect(w, r, redirect) {
+		return
+	}
 }
 
 func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
@@ -836,9 +902,9 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var path struct {
-		ID string `path:"id"`
+		Slug string `path:"slug"`
 	}
-	path.ID = r.PathValue("id")
+	path.Slug = r.PathValue("slug")
 
 	p := app.PagePost{
 		App:  s.app,

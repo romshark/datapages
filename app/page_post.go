@@ -9,7 +9,7 @@ import (
 	"github.com/starfederation/datastar-go/datastar"
 )
 
-// PagePost is /post/{id}/{$}
+// PagePost is /post/{slug}/{$}
 type PagePost struct {
 	App *App
 	Base
@@ -19,14 +19,14 @@ func (p PagePost) GET(
 	r *http.Request,
 	session SessionJWT,
 	path struct {
-		ID string `path:"id"`
+		Slug string `path:"slug"`
 	},
 ) (
 	body, head templ.Component,
 	redirect Redirect,
 	err error,
 ) {
-	post, err := p.App.repo.PostByID(r.Context(), path.ID)
+	post, err := p.App.repo.PostBySlug(r.Context(), path.Slug)
 	if err != nil {
 		if errors.Is(err, domain.ErrPostNotFound) {
 			// Redirect to 404 page.
@@ -34,7 +34,7 @@ func (p PagePost) GET(
 		}
 	}
 
-	similarPosts, err := p.App.repo.SimilarPosts(r.Context(), path.ID, 4)
+	similarPosts, err := p.App.repo.SimilarPosts(r.Context(), post.ID, 4)
 	if err != nil {
 		return nil, nil, redirect, err
 	}

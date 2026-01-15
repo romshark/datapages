@@ -12,7 +12,7 @@ var embedFS embed.FS
 // FSStaticDev returns an http.FileSystem that reads from the filesystem.
 // Use this in development mode for live reloading without server recompilation.
 func FSStaticDev() http.FileSystem {
-	return http.Dir("./static")
+	return http.Dir("./app/static")
 }
 
 // FSStatic returns an http.FileSystem from the embedded filesystem.

@@ -35,9 +35,15 @@ var mainCategories = []domain.Category{
 
 func NewRepository() *domain.Repository {
 	ctx := context.Background()
-	repo := domain.NewRepository(mainCategories)
+	slugNonceGen := domain.NewSeededSlugNonceGenerator(1, 2)
+	repo := domain.NewRepository(mainCategories, slugNonceGen)
 
 	users := map[string]domain.User{
+		"testuser": {
+			PasswordHash:   "testuser",
+			AccountCreated: timestamp("2023-10-10T10:10:10Z"),
+			Email:          "user@test.net",
+		},
 		"autohandel-maerz-regensburg": {
 			PasswordHash:   "pass-autohandel",
 			AccountCreated: timestamp("2024-02-10T09:15:00Z"),
@@ -454,7 +460,7 @@ func NewRepository() *domain.Repository {
 			CategoryID:     "electronics",
 			ImageURL:       "https://images.pexels.com/photos/821749/pexels-photo-821749.jpeg",
 			MerchantUserID: "tilll",
-			Title:          "Professional Camera Equipment Bundle – Cameras, Lenses, Tripod and Accessories",
+			Title:          "Professional Camera Equipment Bundle - Cameras, Lenses, Tripod and Accessories",
 			Description:    "Complete professional camera kit sold as one set. Includes multiple camera bodies, several interchangeable lenses, external flash unit, sturdy Manfrotto tripod, camera bags, batteries, memory cards, and assorted accessories. Lenses cover different focal lengths for wide-angle, standard, and telephoto shooting, suitable for portraits, landscapes, events, and travel photography. Camera bodies are in used but well-maintained condition with normal cosmetic wear, all controls and dials intact. Tripod is solid and stable, ideal for long exposures, video work, or studio use. Accessories include protective pouches, chargers, cables, and storage boxes as pictured. This is a ready-to-use setup for enthusiasts or professionals looking for a versatile all-in-one photography solution. Sold only as a complete bundle, exactly as shown in the photos.",
 			Price:          1850,
 			TimePosted:     timestamp("2025-11-29T18:10:00Z"),
@@ -498,7 +504,7 @@ func NewRepository() *domain.Repository {
 			CategoryID:     "electronics",
 			ImageURL:       "https://images.pexels.com/photos/7641488/pexels-photo-7641488.jpeg",
 			MerchantUserID: "maroni",
-			Title:          "Robot Vacuumer",
+			Title:          " Robot Vacuumer",
 			Description:    "Robot vacuum cleaner. Sold as seen. Original receipt and warranty included (1 year left)",
 			Price:          170,
 			TimePosted:     timestamp("2025-11-21T11:00:00Z"),
