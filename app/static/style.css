@@ -258,7 +258,6 @@ body {
             background: white;
             border-bottom: 1px solid #ddd;
             padding: 1rem 1rem 0.5rem;
-            max-width: 768px;
             margin: 0 auto;
         }
 
@@ -430,6 +429,7 @@ body {
     flex-direction: column;
     gap: .5rem;
     align-items: center;
+    align-self: flex-end;
 
     & p {
         margin: 0;

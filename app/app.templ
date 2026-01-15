@@ -61,9 +61,11 @@ templ page500() {
 
 templ page404(session SessionJWT, baseData baseData) {
 	@wrapper(session, "", baseData) {
-		<h1>Oh-oh!</h1>
-		<p>This page doesn't exist.</p>
-		<a href="/">Go back to homepage.</a>
+		<div id="page-404">
+			<h1>Oh-oh!</h1>
+			<p>This page doesn't exist.</p>
+			<a href="/">Go back to homepage.</a>
+		</div>
 	}
 }
 
@@ -71,8 +73,8 @@ templ pageIndex(
 	session SessionJWT, mainCategories []domain.Category, recentlyPosted []domain.Post,
 	baseData baseData,
 ) {
-	<div id="page-index">
-		@wrapper(session, "", baseData) {
+	@wrapper(session, "", baseData) {
+		<div id="page-index">
 			<div>
 				<ul id="main-categories">
 					for _, category := range mainCategories {
@@ -88,8 +90,8 @@ templ pageIndex(
 				@fragmentPosts(recentlyPosted)
 				@fragmentFooter()
 			</div>
-		}
-	</div>
+		</div>
+	}
 }
 
 templ pageLogin(wrongCreds bool) {
@@ -142,8 +144,8 @@ templ pageMessages(
 	session SessionJWT, chats []Chat, openChat Chat, messages []domain.Message,
 	baseData baseData,
 ) {
-	<div id="page-messages">
-		@wrapper(session, "", baseData) {
+	@wrapper(session, "", baseData) {
+		<div id="page-messages">
 			<div class="chat-list" data-signals:chatselected={ fmt.Sprintf("'%s'", openChat.PostID) }>
 				if len(chats) == 0 {
 					<p>No chats available yet.</p>
@@ -190,18 +192,20 @@ templ pageMessages(
 					</div>
 				}
 			</div>
-		}
-	</div>
+		</div>
+	}
 }
 
 templ pageSettings(session SessionJWT, baseData baseData) {
 	@wrapper(session, "", baseData) {
-		<h1>Settings</h1>
-		<p>Some user profile settings.</p>
-		<input data-bind="username"/>
-		<p>TODO...</p>
-		<button data-on:click="@post('/settings/save')">Save</button>
-		<button>Sign Out</button>
+		<div id="page-settings">
+			<h1>Settings</h1>
+			<p>Some user profile settings.</p>
+			<input data-bind="username"/>
+			<p>TODO...</p>
+			<button data-on:click="@post('/settings/save')">Save</button>
+			<button>Sign Out</button>
+		</div>
 	}
 }
 
@@ -289,11 +293,11 @@ templ headPost(title, description, imageURL string) {
 templ pagePost(
 	session SessionJWT, post domain.Post, similarPosts []domain.Post, baseData baseData,
 ) {
-	<div
-		id="page-post"
-		data-signals:_compactheader="false"
-	>
-		@wrapper(session, "", baseData) {
+	@wrapper(session, "", baseData) {
+		<div
+			id="page-post"
+			data-signals:_compactheader="false"
+		>
 			<div
 				id="post-header"
 				data-class:hidden="$_compactheader"
@@ -326,8 +330,8 @@ templ pagePost(
 			<h3 class="similar-heading">Similar Posts</h3>
 			@fragmentPosts(similarPosts)
 			@fragmentFooter()
-		}
-	</div>
+		</div>
+	}
 }
 
 templ fragmentPosts(posts []domain.Post) {
