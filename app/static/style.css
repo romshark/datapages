@@ -1,15 +1,17 @@
 html,
 body {
     margin: 0 auto;
-    max-width: 768px;
     padding: 0rem;
     height: 100%;
+    overflow: auto;
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
 }
 
 #content {
     padding-left: 1rem;
     padding-right: 1rem;
+    max-width: 1400px;
+    margin: 0 auto;
 }
 
 .post-cards {
@@ -96,6 +98,8 @@ body {
     padding: 1rem;
     background-color: white;
     view-transition-name: navbar;
+    max-width: 1400px;
+    margin: 0 auto;
 
     & a {
         text-decoration: none;
@@ -159,6 +163,66 @@ body {
         display: inline-block;
         transform-origin: center bottom;
         animation: wobble 0.6s ease-in-out;
+    }
+}
+
+#page-search {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+
+    @media (min-width: 768px) {
+        flex-direction: row;
+        align-items: flex-start;
+    }
+
+    & #search-filters {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        background: #f9f9f9;
+        padding: 1rem;
+        border-radius: 12px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+
+        @media (min-width: 768px) {
+            width: 250px;
+            flex-shrink: 0;
+            position: sticky;
+            top: 3.5rem;
+            align-self: flex-start;
+        }
+
+        & label {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            font-weight: 600;
+            color: #333;
+
+            & input,
+            & select {
+                padding: 0.5rem 0.75rem;
+                border: 1px solid #ccc;
+                border-radius: 8px;
+                font-size: 1rem;
+            }
+        }
+    }
+
+    & .search-results {
+        flex: 1;
+        min-width: 0;
+    }
+
+    & .search-empty {
+        padding: 2rem 1rem;
+        background: #fff8dc;
+        color: #444;
+        text-align: center;
+        border-radius: 8px;
+        border: 1px solid #ffe58f;
+        font-size: 1.1rem;
     }
 }
 

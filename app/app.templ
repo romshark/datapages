@@ -206,29 +206,74 @@ templ pageSettings(session SessionJWT, baseData baseData) {
 }
 
 templ pageSearch(
-	session SessionJWT, query SearchParams, posts []domain.Post,
-	baseData baseData,
+	session SessionJWT, query SearchParams, categories []domain.Category,
+	posts []domain.Post, baseData baseData,
 ) {
 	@wrapper(session, query.Term, baseData) {
-		<div data-on:change="@post('/search/paramchange')">
-			<label>
-				Location
-				<input value={ query.Location } placeholder="Location"/>
-			</label>
-			<label>
-				Minimum Price
-				<input value={ query.PriceMin } type="number" placeholder="Minimum price"/>
-			</label>
-			<label>
-				Maximum Price
-				<input value={ query.PriceMax } type="number" placeholder="Maximum price"/>
-			</label>
+		<div id="page-search">
+			<div
+				id="search-filters"
+				data-on:change="@post('/search/paramchange')"
+			>
+				<label>
+					Category
+					<select
+						name="category"
+						placeholder="Category"
+						data-bind="category"
+					>
+						<option
+							value=""
+							data-attr:selected={ query.Category == "" }
+						>All</option>
+						for _, category := range categories {
+							<option
+								value={ category.ID }
+								data-attr:selected={ category.ID == query.Category }
+							>
+								{ category.Name }
+							</option>
+						}
+					</select>
+				</label>
+				<label>
+					Location
+					<input
+						name="location"
+						value={ query.Location }
+						placeholder="Location"
+						data-bind="location"
+					/>
+				</label>
+				<label>
+					Minimum Price
+					<input
+						name="minimum-price"
+						value={ query.PriceMin }
+						type="number"
+						data-bind="pmin"
+						placeholder="Minimum price"
+					/>
+				</label>
+				<label>
+					Maximum Price
+					<input
+						name="maximum-price"
+						value={ query.PriceMax }
+						type="number"
+						data-bind="pmax"
+						placeholder="Maximum price"
+					/>
+				</label>
+			</div>
+			<div class="search-results">
+				if len(posts) < 1 {
+					<p class="search-empty">Nothing found 🤷‍♂️</p>
+				} else {
+					@fragmentPosts(posts)
+				}
+			</div>
 		</div>
-		if len(posts) < 1 {
-			<p class="ok 6">Nothing found 🤷‍♂️</p>
-		} else {
-			@fragmentPosts(posts)
-		}
 		@fragmentFooter()
 	}
 }

@@ -492,7 +492,7 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 		Password string `json:"password"`
 	}
 	if err := datastar.ReadSignals(r, &sig); err != nil {
-		s.httpErrBad(w, "reading signals")
+		s.httpErrBad(w, "reading signals", err)
 	}
 
 	p := app.PageLogin{App: s.app}
@@ -598,7 +598,7 @@ func (s *Server) handlePageSettingsPOSTSave(w http.ResponseWriter, r *http.Reque
 		Username string `json:"username"`
 	}
 	if err := datastar.ReadSignals(r, &sig); err != nil {
-		s.httpErrBad(w, "reading signals")
+		s.httpErrBad(w, "reading signals", err)
 	}
 	p := app.PageSettings{
 		App:  s.app,
@@ -716,7 +716,7 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 	}
 	b, err := io.ReadAll(r.Body)
 	if err != nil {
-		s.httpErrBad(w, "reading JSON body")
+		s.httpErrBad(w, "reading JSON body", err)
 		return
 	}
 
@@ -725,7 +725,7 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 		MessageText string `json:"messagetext"`
 	}
 	if err := json.Unmarshal(b, &v); err != nil {
-		s.httpErrBad(w, fmt.Sprintf("unexpected body, expected JSON signals: %v", err))
+		s.httpErrBad(w, "unexpected body, expected JSON signals", err)
 		return
 	}
 
@@ -787,7 +787,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		if q := q.Get("pmin"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 64)
 			if err != nil {
-				s.httpErrBad(w, "unexpected value for query parameter: pmin")
+				s.httpErrBad(w, "unexpected value for query parameter: pmin", err)
 				return
 			}
 			query.PriceMin = i
@@ -797,7 +797,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		if q := q.Get("pmax"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 64)
 			if err != nil {
-				s.httpErrBad(w, "unexpected value for query parameter: pmax")
+				s.httpErrBad(w, "unexpected value for query parameter: pmax", err)
 				return
 			}
 			query.PriceMin = i
@@ -942,17 +942,13 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	}
 	b, err := io.ReadAll(r.Body)
 	if err != nil {
-		s.httpErrBad(w, "reading JSON body")
+		s.httpErrBad(w, "reading JSON body", err)
 		return
 	}
 
 	var v app.SearchParams
 	if err := json.Unmarshal(b, &v); err != nil {
-		s.httpErrBad(w, fmt.Sprintf("unexpected body, expected JSON signals: %v", err))
-		return
-	}
-	if err := v.Validate(); err != nil {
-		s.httpErrBad(w, "invalid signals")
+		s.httpErrBad(w, "unexpected body, expected JSON signals", err)
 		return
 	}
 

@@ -35,7 +35,12 @@ func (p PageSearch) GET(
 		return nil, err
 	}
 
-	return pageSearch(session, query, posts, baseData), nil
+	categories, err := p.App.repo.MainCategories(r.Context())
+	if err != nil {
+		return nil, err
+	}
+
+	return pageSearch(session, query, categories, posts, baseData), nil
 }
 
 // POSTParamChange is /search/paramchange/{$}
@@ -61,7 +66,12 @@ func (p PageSearch) POSTParamChange(
 		return err
 	}
 
-	ps := pageSearch(session, signals, posts, baseData)
+	categories, err := p.App.repo.MainCategories(r.Context())
+	if err != nil {
+		return err
+	}
+
+	ps := pageSearch(session, signals, categories, posts, baseData)
 	// Re-render the page (fat morph) and close stream.
 	return sse.PatchElementTempl(ps)
 }

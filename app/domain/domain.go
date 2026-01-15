@@ -203,6 +203,9 @@ func (r *Repository) MainCategories(_ context.Context) ([]Category, error) {
 			ImageURL: c.ImageURL,
 		})
 	}
+	slices.SortFunc(main, func(a, b Category) int {
+		return strings.Compare(a.Name, b.Name)
+	})
 	return main, nil
 }
 

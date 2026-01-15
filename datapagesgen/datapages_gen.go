@@ -279,7 +279,7 @@ func isDSReq(r *http.Request) bool {
 
 func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
 	if !isDSReq(r) {
-		s.httpErrBad(w, "not a ds request")
+		s.httpErrBad(w, "not a ds request", nil)
 		return false
 	}
 	return true
@@ -385,8 +385,8 @@ func (s *Server) httpErrUnauth(w http.ResponseWriter, msg string) {
 	http.Error(w, msg, http.StatusUnauthorized)
 }
 
-func (s *Server) httpErrBad(w http.ResponseWriter, msg string) {
-	s.logger.Debug("bad request", slog.String("cause", msg))
+func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
+	s.logger.Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
 	http.Error(w, msg, http.StatusBadRequest)
 }
 

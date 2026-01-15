@@ -33,16 +33,9 @@ func NewApp(repo *domain.Repository) *App { return &App{repo: repo} }
 type SearchParams struct {
 	Term     string `json:"term" query:"t" reflectsignal:"term"`
 	Category string `json:"category" query:"c" reflectsignal:"category"`
-	PriceMin int64  `json:"pmin,omitempty,string" query:"pmin" reflectsignal:"pmin"`
-	PriceMax int64  `json:"pmax,omitempty,string" query:"pmax" reflectsignal:"pmax"`
+	PriceMin int64  `json:"pmin,omitempty" query:"pmin" reflectsignal:"pmin"`
+	PriceMax int64  `json:"pmax,omitempty" query:"pmax" reflectsignal:"pmax"`
 	Location string `json:"location" query:"l" reflectsignal:"location"`
-}
-
-func (s SearchParams) Validate() error {
-	if s.PriceMin > s.PriceMax {
-		return fmt.Errorf("price min (%d) > price max (%d)", s.PriceMin, s.PriceMax)
-	}
-	return nil
 }
 
 // Page render funcs
