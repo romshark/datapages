@@ -196,15 +196,39 @@ templ pageMessages(
 	}
 }
 
-templ pageSettings(session SessionJWT, baseData baseData) {
+templ pageSettings(session SessionJWT, user domain.User, baseData baseData) {
 	@wrapper(session, "", baseData) {
-		<div id="page-settings">
+		<div
+			id="page-settings"
+			data-signals:_usernameorig={ fmt.Sprintf("%q", user.DisplayName) }
+			data-signals:username={ fmt.Sprintf("%q", user.DisplayName) }
+			data-computed:_haschanges="$username != $_usernameorig"
+		>
 			<h1>Settings</h1>
-			<p>Some user profile settings.</p>
-			<input data-bind="username"/>
-			<p>TODO...</p>
-			<button data-on:click="@post('/settings/save')">Save</button>
-			<button>Sign Out</button>
+			<section>
+				<h2>User Information</h2>
+				<label>
+					Display Name
+					<input
+						data-bind="username"
+						placeholder="New display name"
+					/>
+					<p data-show="$username != $_usernameorig">
+						⚠️ Display name will change from
+						<b data-text="$_usernameorig"></b>
+						to
+						<b data-text="$username"></b>
+					</p>
+				</label>
+				<button
+					data-attr:disabled="!$_haschanges"
+					data-on:click="@post('/settings/save')"
+				>Save</button>
+			</section>
+			<section>
+				<h2>Session</h2>
+				<button data-on:click="@post('/settings/sign-out')">Sign Out</button>
+			</section>
 		</div>
 	}
 }

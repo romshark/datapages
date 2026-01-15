@@ -21,12 +21,17 @@ func (p PageSettings) GET(
 		return nil, Redirect{Target: "/login"}, nil
 	}
 
+	u, err := p.App.repo.UserByID(r.Context(), session.UserID)
+	if err != nil {
+		return nil, redirect, err
+	}
+
 	baseData, err := p.baseData(r.Context(), session)
 	if err != nil {
 		return nil, redirect, err
 	}
 
-	return pageSettings(session, baseData), redirect, nil
+	return pageSettings(session, u, baseData), redirect, nil
 }
 
 // POSTSave is /settings/save/{$}

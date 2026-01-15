@@ -271,7 +271,7 @@ func setupHandlers(s *Server) {
 		"POST /settings/save/{$}",
 		s.handlePageSettingsPOSTSave)
 	s.mux.HandleFunc(
-		"POST /ssettings/sign-out/{$}",
+		"POST /settings/sign-out/{$}",
 		s.handlePageSettingsPOSTSignOut)
 	s.mux.HandleFunc(
 		"GET /messages/{$}",
