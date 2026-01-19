@@ -292,6 +292,9 @@ func setupHandlers(s *Server) {
 		"POST /search/paramchange/{$}",
 		s.handlePageSearchPOSTParamChange)
 	s.mux.HandleFunc(
+		"GET /user/{name}/{$}",
+		s.handlePageUserGET)
+	s.mux.HandleFunc(
 		"GET /post/{slug}/{$}",
 		s.handlePagePostGET)
 	s.mux.HandleFunc(
@@ -893,6 +896,41 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 			}
 		}
 	})
+}
+
+func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
+	sess, ok := s.readSessionJWT(w, r)
+	if !ok {
+		return
+	}
+
+	var path struct {
+		Name string `path:"name"`
+	}
+	path.Name = r.PathValue("name")
+
+	p := app.PageUser{
+		App:  s.app,
+		Base: app.Base{App: s.app},
+	}
+
+	body, head, redirect, err := p.GET(r, sess, path)
+	if err != nil {
+		s.httpErrIntern(w, r, "generating PageUser", err)
+		return
+	}
+	if httpRedirect(w, r, redirect) {
+		return
+	}
+	genericHead, err := s.app.Head(r)
+	if err != nil {
+		s.httpErrIntern(w, r, "generating generic head for PageUser", err)
+		return
+	}
+	if err := writeHTML(w, r, genericHead, head, body, nil); err != nil {
+		s.logErr("rendering PageUser", err)
+		return
+	}
 }
 
 func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {

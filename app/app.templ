@@ -75,21 +75,19 @@ templ pageIndex(
 ) {
 	@wrapper(session, "", baseData) {
 		<div id="page-index">
-			<div>
-				<ul id="main-categories">
-					for _, category := range mainCategories {
-						<li>
-							<a href={ fmt.Sprintf("/search/?c=%s", category.ID) }>
-								<img height="16px" src={ category.ImageURL }/>
-								{ category.Name }
-							</a>
-						</li>
-					}
-				</ul>
-				<h2>Recently Posted</h2>
-				@fragmentPosts(recentlyPosted)
-				@fragmentFooter()
-			</div>
+			<ul id="main-categories">
+				for _, category := range mainCategories {
+					<li>
+						<a href={ fmt.Sprintf("/search/?c=%s", category.ID) }>
+							<img height="16px" src={ category.ImageURL }/>
+							{ category.Name }
+						</a>
+					</li>
+				}
+			</ul>
+			<h2>Recently Posted</h2>
+			@fragmentPosts(recentlyPosted)
+			@fragmentFooter()
 		</div>
 	}
 }
@@ -195,7 +193,7 @@ templ pageMessages(
 						for _, msg := range messages {
 							{{
 								classes := templ.CSSClasses{"message"}
-								fromCounterpart := msg.SenderUserID != session.UserID
+								fromCounterpart := msg.SenderUserName != session.UserID
 								if fromCounterpart {
 									classes = append(classes, "from-counterpart")
 								}
@@ -206,7 +204,12 @@ templ pageMessages(
 							<li class={ classes }>
 								if fromCounterpart {
 									<p class="message-header">
-										{ msg.SenderUserID }
+										<a
+											target="_blank"
+											href={ hrefUser(msg.SenderUserName) }
+										>
+											{ msg.SenderUserName }
+										</a>
 										at
 										{ msg.TimeSent.Format(time.RFC1123) }
 									</p>
@@ -238,21 +241,21 @@ templ pageSettings(session SessionJWT, user domain.User, baseData baseData) {
 	@wrapper(session, "", baseData) {
 		<div
 			id="page-settings"
-			data-signals:_usernameorig={ fmt.Sprintf("%q", user.DisplayName) }
-			data-signals:username={ fmt.Sprintf("%q", user.DisplayName) }
+			data-signals:_usernameorig={ fmt.Sprintf("%q", user.Name) }
+			data-signals:username={ fmt.Sprintf("%q", user.Name) }
 			data-computed:_haschanges="$username != $_usernameorig"
 		>
 			<h1>Settings</h1>
 			<section>
 				<h2>User Information</h2>
 				<label>
-					Display Name
+					Name
 					<input
 						data-bind="username"
-						placeholder="New display name"
+						placeholder="New user name"
 					/>
 					<p data-show="$username != $_usernameorig">
-						⚠️ Display name will change from
+						⚠️ User name will change from
 						<b data-text="$_usernameorig"></b>
 						to
 						<b data-text="$username"></b>
@@ -339,9 +342,22 @@ templ pageSearch(
 					@fragmentPosts(posts)
 				}
 			</div>
+			@fragmentFooter()
 		</div>
-		@fragmentFooter()
 	}
+}
+
+templ headUser(user domain.User) {
+	{{
+		desc := fmt.Sprintf(
+			"Account created: %s", user.AccountCreated.Format(time.RFC1123),
+		)
+	}}
+	<meta name="description" content={ desc }/>
+	<meta property="og:type" content="website"/>
+	<meta property="og:title" content={ user.Name }/>
+	<meta property="og:description" content={ desc }/>
+	<meta property="og:image" content={ user.AvatarImageURL }/>
 }
 
 templ headPost(title, description, imageURL string) {
@@ -369,7 +385,10 @@ templ pagePost(
 			>
 				<h1 class="post-title">{ post.Title }</h1>
 				<div class="post-meta">
-					<p class="post-merchant">By { post.MerchantDisplayName }</p>
+					<a
+						href={ hrefUser(post.MerchantUserName) }
+						class="post-merchant"
+					>By { post.MerchantUserName }</a>
 					<p class="post-location">{ post.Location }</p>
 					<p class="post-price">{ post.Price }€</p>
 				</div>
@@ -381,7 +400,10 @@ templ pagePost(
 				<div>
 					<h1 class="post-title">{ post.Title }</h1>
 					<div class="post-meta">
-						<p class="post-merchant">By { post.MerchantDisplayName }</p>
+						<a
+							href={ hrefUser(post.MerchantUserName) }
+							class="post-merchant"
+						>By { post.MerchantUserName }</a>
 						<p class="post-location">{ post.Location }</p>
 						<p class="post-price">{ post.Price }€</p>
 					</div>
@@ -391,23 +413,44 @@ templ pagePost(
 			<p class="post-time">
 				Posted on { post.TimePosted.Format(time.RFC1123) }
 			</p>
-			<button
-				data-show="!$_showsendmessage"
-				data-on:click="$_showsendmessage = true"
-			>Send a message</button>
-			<div class="message-form" data-show="$_showsendmessage">
-				<textarea
-					data-bind="messagetext"
-					placeholder="Write a message to the seller to get more information or to arrange the transaction..."
-				></textarea>
+			if session.UserID != "" {
 				<button
-					data-on:click="@post('/post/')"
-					data-attr:disabled="$messagetext === ''"
-				>Send</button>
-			</div>
+					data-show="!$_showsendmessage"
+					data-on:click="$_showsendmessage = true"
+				>Send a message</button>
+				<div class="message-form" data-show="$_showsendmessage">
+					<textarea
+						data-bind="messagetext"
+						placeholder="Write a message to the seller to get more information or to arrange the transaction..."
+					></textarea>
+					<button
+						data-on:click="@post('/post/')"
+						data-attr:disabled="$messagetext === ''"
+					>Send</button>
+				</div>
+			} else {
+				<a href="/login">Login to send a message</a>
+			}
 			<p class="post-description">{ post.Description }</p>
 			<h3 class="similar-heading">Similar Posts</h3>
 			@fragmentPosts(similarPosts)
+			@fragmentFooter()
+		</div>
+	}
+}
+
+templ pageUser(
+	session SessionJWT, baseData baseData, user domain.User, posts []domain.Post,
+) {
+	@wrapper(session, "", baseData) {
+		<div id="page-user">
+			<h1>{ user.Name }</h1>
+			if user.AvatarImageURL != "" {
+				<img src={ user.AvatarImageURL }/>
+			}
+			<p>Account created: { user.AccountCreated.Format(time.RFC1123) }</p>
+			<h2>Posts</h2>
+			@fragmentPosts(posts)
 			@fragmentFooter()
 		</div>
 	}

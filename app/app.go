@@ -49,7 +49,7 @@ type Chat struct {
 	PostID                  string
 	PostSlug                string
 	UnreadMessages          int
-	LastMessageSenderUserID string
+	LastMessageSenderUserName string
 	LastMessageText         string
 }
 

@@ -9,3 +9,7 @@ import (
 func hrefPost(postSlug string) templ.SafeURL {
 	return templ.URL(fmt.Sprintf("/post/%s", postSlug))
 }
+
+func hrefUser(name string) templ.SafeURL {
+	return templ.URL(fmt.Sprintf("/user/%s", name))
+}

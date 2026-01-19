@@ -16,8 +16,7 @@ import (
 )
 
 type user struct {
-	ID             string
-	DisplayName    string
+	Name           string
 	AvatarImageURL string
 	AccountCreated time.Time
 	Email          string
@@ -61,8 +60,7 @@ type message struct {
 }
 
 type User struct {
-	ID             string
-	DisplayName    string
+	Name           string
 	AvatarImageURL string
 	AccountCreated time.Time
 	Email          string
@@ -70,17 +68,16 @@ type User struct {
 }
 
 type Post struct {
-	ID                  string
-	Slug                string
-	Title               string
-	Description         string
-	CategoryID          string
-	ImageURL            string
-	MerchantUserID      string
-	MerchantDisplayName string
-	Price               int64
-	TimePosted          time.Time
-	Location            string
+	ID               string
+	Slug             string
+	Title            string
+	Description      string
+	CategoryID       string
+	ImageURL         string
+	MerchantUserName string
+	Price            int64
+	TimePosted       time.Time
+	Location         string
 }
 
 type Category struct {
@@ -92,21 +89,21 @@ type Category struct {
 type Chat struct {
 	ID     string
 	PostID string
-	// SenderUserID is the id of the user who initiated the chat.
-	SenderUserID   string
+	// SenderUserName is the id of the user who initiated the chat.
+	SenderUserName string
 	Messages       []Message
 	UnreadMessages int
 }
 
 type Message struct {
-	ID           string
-	Text         string
-	SenderUserID string
-	TimeSent     time.Time
-	TimeRead     time.Time
+	ID             string
+	Text           string
+	SenderUserName string
+	TimeSent       time.Time
+	TimeRead       time.Time
 }
 
-type chatKey struct{ PostID, SenderUserID string }
+type chatKey struct{ PostID, SenderUserName string }
 
 // Repository is a simple in-memory messaging repository.
 type Repository struct {
@@ -117,7 +114,7 @@ type Repository struct {
 	chatsByID      map[string]*chat
 	postsByID      map[string]*post
 	postsBySlug    map[string]*post
-	usersByID      map[string]*user
+	usersByName    map[string]*user
 	categoriesByID map[string]*category
 }
 
@@ -132,7 +129,7 @@ func NewRepository(
 		chatsByID:      map[string]*chat{},
 		postsByID:      map[string]*post{},
 		postsBySlug:    map[string]*post{},
-		usersByID:      map[string]*user{},
+		usersByName:    map[string]*user{},
 		categoriesByID: map[string]*category{},
 	}
 	{
@@ -167,7 +164,7 @@ var (
 	ErrCategoryNotFound        = errors.New("category not found")
 	ErrMarchantIsMessageSender = errors.New("merchant is message sender")
 	ErrUserEmailReserved       = errors.New("user email is already reserved")
-	ErrUserDisplayNameReserved = errors.New("user display name is already reserved")
+	ErrUserNameReserved        = errors.New("user name is already reserved")
 	ErrInvalidCredentials      = errors.New("invalid credentials")
 )
 
@@ -175,11 +172,11 @@ func newID() string {
 	return ulid.Make().String()
 }
 
-func (r *Repository) Login(email, passwordPlaintext string) (userID string, err error) {
+func (r *Repository) Login(email, passwordPlaintext string) (userName string, err error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	for _, u := range r.usersByID {
+	for _, u := range r.usersByName {
 		if u.Email != email {
 			continue
 		}
@@ -189,7 +186,7 @@ func (r *Repository) Login(email, passwordPlaintext string) (userID string, err 
 		); err != nil {
 			return "", ErrInvalidCredentials
 		}
-		return u.ID, nil
+		return u.Name, nil
 	}
 
 	return "", ErrUserNotFound
@@ -213,7 +210,7 @@ func (r *Repository) MainCategories(_ context.Context) ([]Category, error) {
 func (r *Repository) NewChat(
 	_ context.Context,
 	postID string,
-	senderUserID string,
+	senderUserName string,
 	text string,
 ) (id string, err error) {
 	r.lock.Lock()
@@ -223,16 +220,16 @@ func (r *Repository) NewChat(
 	if !ok {
 		return "", ErrPostNotFound
 	}
-	if post.Merchant.ID == senderUserID {
+	if post.Merchant.Name == senderUserName {
 		return "", ErrMarchantIsMessageSender
 	}
 
-	sender, ok := r.usersByID[senderUserID]
+	sender, ok := r.usersByName[senderUserName]
 	if !ok {
 		return "", ErrUserNotFound
 	}
 
-	key := chatKey{PostID: postID, SenderUserID: senderUserID}
+	key := chatKey{PostID: postID, SenderUserName: senderUserName}
 	if _, ok := r.chatsByKey[key]; ok {
 		return "", ErrChatExists
 	}
@@ -268,15 +265,15 @@ func hashPasswordBcrypt(plain string) (string, error) {
 }
 
 func (r *Repository) NewUser(
-	_ context.Context, displayName, avatarImageURL, email, passwordPlainText string,
+	_ context.Context, name, avatarImageURL, email, passwordPlainText string,
 ) (id string, err error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
-	for _, u := range r.usersByID {
-		if u.DisplayName == displayName {
-			return "", ErrUserDisplayNameReserved
-		}
+	if _, ok := r.usersByName[name]; ok {
+		return "", ErrUserNameReserved
+	}
+	for _, u := range r.usersByName {
 		if u.Email == email {
 			return "", ErrUserEmailReserved
 		}
@@ -288,25 +285,24 @@ func (r *Repository) NewUser(
 	}
 
 	u := user{
-		ID:             displayName,
-		DisplayName:    displayName,
+		Name:           name,
 		AvatarImageURL: avatarImageURL,
 		AccountCreated: time.Now(),
 		Email:          email,
 		PasswordHash:   pwHash,
 	}
-	r.usersByID[u.ID] = &u
+	r.usersByName[u.Name] = &u
 
-	return u.ID, nil
+	return u.Name, nil
 }
 
 func (r *Repository) NewMessage(
-	_ context.Context, chatID, senderUserID string, text string,
+	_ context.Context, chatID, senderUserName string, text string,
 ) (id string, err error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
-	sender, ok := r.usersByID[senderUserID]
+	sender, ok := r.usersByName[senderUserName]
 	if !ok {
 		return "", ErrUserNotFound
 	}
@@ -328,7 +324,7 @@ func (r *Repository) NewMessage(
 }
 
 func (r *Repository) MarkMessageRead(
-	_ context.Context, userID, chatID, messageID string,
+	_ context.Context, userName, chatID, messageID string,
 ) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -338,8 +334,8 @@ func (r *Repository) MarkMessageRead(
 		return ErrChatNotFound
 	}
 
-	isSender := c.Sender.ID == userID
-	isReceiver := c.Post.Merchant.ID == userID
+	isSender := c.Sender.Name == userName
+	isReceiver := c.Post.Merchant.Name == userName
 	if !isSender && !isReceiver {
 		return ErrNotAChatParticipant
 	}
@@ -347,7 +343,7 @@ func (r *Repository) MarkMessageRead(
 	now := time.Now()
 	for _, m := range c.Messages {
 		if m.ID == messageID {
-			if m.Sender.ID == userID {
+			if m.Sender.Name == userName {
 				return nil // No-op
 			}
 			if m.TimeRead.IsZero() {
@@ -362,7 +358,7 @@ func (r *Repository) MarkMessageRead(
 
 func (r *Repository) NewPost(
 	_ context.Context,
-	merchantID string,
+	merchantName string,
 	title string,
 	description string,
 	categoryID string,
@@ -378,7 +374,7 @@ func (r *Repository) NewPost(
 		return "", ErrCategoryNotFound
 	}
 
-	merchant, ok := r.usersByID[merchantID]
+	merchant, ok := r.usersByName[merchantName]
 	if !ok {
 		return "", ErrUserNotFound
 	}
@@ -407,27 +403,27 @@ func (r *Repository) NewPost(
 }
 
 func (r *Repository) ChatsWithUnreadMessages(
-	_ context.Context, userID string,
+	_ context.Context, userName string,
 ) (int, error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	if _, ok := r.usersByID[userID]; !ok {
+	if _, ok := r.usersByName[userName]; !ok {
 		return 0, ErrUserNotFound
 	}
 
 	unreadChats := 0
 
 	for _, c := range r.chatsByID {
-		isSender := c.Sender.ID == userID
-		isReceiver := c.Post.Merchant.ID == userID
+		isSender := c.Sender.Name == userName
+		isReceiver := c.Post.Merchant.Name == userName
 		if !isSender && !isReceiver {
 			continue
 		}
 
 		for _, m := range c.Messages {
 			// Ignore messages sent by the user
-			if m.Sender.ID == userID {
+			if m.Sender.Name == userName {
 				continue
 			}
 
@@ -454,24 +450,24 @@ func (r *Repository) ChatByID(_ context.Context, chatID string) (Chat, error) {
 	m := make([]Message, len(c.Messages))
 	for i, msg := range c.Messages {
 		m[i] = Message{
-			ID:           msg.ID,
-			Text:         msg.Text,
-			SenderUserID: msg.Sender.ID,
-			TimeSent:     msg.TimeSent,
-			TimeRead:     msg.TimeRead,
+			ID:             msg.ID,
+			Text:           msg.Text,
+			SenderUserName: msg.Sender.Name,
+			TimeSent:       msg.TimeSent,
+			TimeRead:       msg.TimeRead,
 		}
 	}
 
 	return Chat{
-		ID:           c.ID,
-		PostID:       c.Post.ID,
-		SenderUserID: c.Sender.ID,
-		Messages:     m,
+		ID:             c.ID,
+		PostID:         c.Post.ID,
+		SenderUserName: c.Sender.Name,
+		Messages:       m,
 	}, nil
 }
 
 // Chats returns all chats of the given user sorted by most recently active.
-func (r *Repository) Chats(_ context.Context, userID string) ([]Chat, error) {
+func (r *Repository) Chats(_ context.Context, userName string) ([]Chat, error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
@@ -483,7 +479,7 @@ func (r *Repository) Chats(_ context.Context, userID string) ([]Chat, error) {
 	var tmp []chatWithTime
 
 	for _, c := range r.chatsByID {
-		if c.Sender.ID != userID && c.Post.Merchant.ID != userID {
+		if c.Sender.Name != userName && c.Post.Merchant.Name != userName {
 			continue
 		}
 
@@ -515,10 +511,10 @@ func (r *Repository) Chats(_ context.Context, userID string) ([]Chat, error) {
 		for i, m := range t.c.Messages {
 			msgs[i].ID = m.ID
 			msgs[i].Text = m.Text
-			msgs[i].SenderUserID = m.Sender.ID
+			msgs[i].SenderUserName = m.Sender.Name
 			msgs[i].TimeSent = m.TimeSent
 			msgs[i].TimeRead = m.TimeRead
-			if msgs[i].SenderUserID != userID && msgs[i].TimeRead.IsZero() {
+			if msgs[i].SenderUserName != userName && msgs[i].TimeRead.IsZero() {
 				unread++
 			}
 		}
@@ -526,7 +522,7 @@ func (r *Repository) Chats(_ context.Context, userID string) ([]Chat, error) {
 		chats[i] = Chat{
 			ID:             t.c.ID,
 			PostID:         t.c.Post.ID,
-			SenderUserID:   t.c.Sender.ID,
+			SenderUserName: t.c.Sender.Name,
 			Messages:       msgs,
 			UnreadMessages: unread,
 		}
@@ -547,18 +543,22 @@ func (r *Repository) UserByID(_ context.Context, id string) (User, error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	p, ok := r.usersByID[id]
+	u, ok := r.usersByName[id]
 	if !ok {
 		return User{}, ErrUserNotFound
 	}
-	return User{
-		ID:             p.ID,
-		DisplayName:    p.DisplayName,
-		AvatarImageURL: p.AvatarImageURL,
-		AccountCreated: p.AccountCreated,
-		Email:          p.Email,
-		PasswordHash:   p.PasswordHash,
-	}, nil
+	return convertUser(u), nil
+}
+
+func (r *Repository) UserByName(_ context.Context, id string) (User, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	u, ok := r.usersByName[id]
+	if !ok {
+		return User{}, ErrUserNotFound
+	}
+	return convertUser(u), nil
 }
 
 func (r *Repository) PostByID(_ context.Context, id string) (Post, error) {
@@ -584,30 +584,31 @@ func (r *Repository) PostBySlug(_ context.Context, slug string) (Post, error) {
 }
 
 type PostSearchParams struct {
-	Term     string
-	Category string
-	PriceMin int64
-	PriceMax int64
-	Location string
+	Term         string
+	Category     string
+	PriceMin     int64
+	PriceMax     int64
+	Location     string
+	MerchantName string
 }
 
 func (r *Repository) SearchPosts(_ context.Context, q PostSearchParams) ([]Post, error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	// Start with all posts
 	results := make([]Post, 0, len(r.postsByID))
 
 	for _, post := range r.postsByID {
-		// Filter by search term (check title and description)
+		// Filter by merchant
+		if q.MerchantName != "" && post.Merchant.Name != q.MerchantName {
+			continue
+		}
+
+		// Filter by search term
 		if q.Term != "" {
-			termMatch := false
 			term := strings.ToLower(q.Term)
-			if strings.Contains(strings.ToLower(post.Title), term) ||
-				strings.Contains(strings.ToLower(post.Description), term) {
-				termMatch = true
-			}
-			if !termMatch {
+			if !strings.Contains(strings.ToLower(post.Title), term) &&
+				!strings.Contains(strings.ToLower(post.Description), term) {
 				continue
 			}
 		}
@@ -626,13 +627,9 @@ func (r *Repository) SearchPosts(_ context.Context, q PostSearchParams) ([]Post,
 		}
 
 		// Filter by location
-		if q.Location != "" {
-			if !strings.Contains(
-				strings.ToLower(post.Location),
-				strings.ToLower(q.Location),
-			) {
-				continue
-			}
+		if q.Location != "" &&
+			!strings.Contains(strings.ToLower(post.Location), strings.ToLower(q.Location)) {
+			continue
 		}
 
 		results = append(results, convertPost(post))
@@ -775,16 +772,25 @@ func PrepareTitle(
 
 func convertPost(p *post) Post {
 	return Post{
-		ID:                  p.ID,
-		Slug:                p.Slug,
-		Title:               p.Title,
-		Description:         p.Description,
-		CategoryID:          p.Category.ID,
-		ImageURL:            p.ImageURL,
-		MerchantUserID:      p.Merchant.ID,
-		MerchantDisplayName: p.Merchant.DisplayName,
-		Price:               p.Price,
-		TimePosted:          p.TimePosted,
-		Location:            p.Location,
+		ID:               p.ID,
+		Slug:             p.Slug,
+		Title:            p.Title,
+		Description:      p.Description,
+		CategoryID:       p.Category.ID,
+		ImageURL:         p.ImageURL,
+		MerchantUserName: p.Merchant.Name,
+		Price:            p.Price,
+		TimePosted:       p.TimePosted,
+		Location:         p.Location,
+	}
+}
+
+func convertUser(u *user) User {
+	return User{
+		Name:           u.Name,
+		AvatarImageURL: u.AvatarImageURL,
+		AccountCreated: u.AccountCreated,
+		Email:          u.Email,
+		PasswordHash:   u.PasswordHash,
 	}
 }

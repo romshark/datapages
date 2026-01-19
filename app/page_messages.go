@@ -51,7 +51,7 @@ func (p PageMessages) GET(
 		// Only set last message if messages exist
 		if len(c.Messages) > 0 {
 			lastMessage := c.Messages[len(c.Messages)-1]
-			chat.LastMessageSenderUserID = lastMessage.SenderUserID
+			chat.LastMessageSenderUserName = lastMessage.SenderUserName
 			chat.LastMessageText = lastMessage.Text
 		}
 
@@ -94,7 +94,7 @@ func (p PageMessages) POSTSendMessage(
 		return err
 	}
 
-	targetUsers := []string{chat.SenderUserID, post.MerchantUserID}
+	targetUsers := []string{chat.SenderUserName, post.MerchantUserName}
 
 	return dispatch(
 		EventMessagingWritingStopped{
