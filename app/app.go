@@ -47,6 +47,8 @@ type Chat struct {
 	ID                      string
 	Title                   string
 	PostID                  string
+	PostSlug                string
+	UnreadMessages          int
 	LastMessageSenderUserID string
 	LastMessageText         string
 }

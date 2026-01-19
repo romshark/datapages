@@ -41,17 +41,24 @@ func (p PageMessages) GET(
 			return nil, redirect, fmt.Errorf("gettting post %s: %w", c.PostID, err)
 		}
 
-		lastMessage := c.Messages[len(c.Messages)-1]
-
-		chats[i] = Chat{
-			ID:                      c.ID,
-			Title:                   p.Title,
-			PostID:                  c.PostID,
-			LastMessageSenderUserID: lastMessage.SenderUserID,
-			LastMessageText:         lastMessage.Text,
+		chat := Chat{
+			ID:             c.ID,
+			Title:          p.Title,
+			PostSlug:       p.Slug,
+			UnreadMessages: c.UnreadMessages,
 		}
+
+		// Only set last message if messages exist
+		if len(c.Messages) > 0 {
+			lastMessage := c.Messages[len(c.Messages)-1]
+			chat.LastMessageSenderUserID = lastMessage.SenderUserID
+			chat.LastMessageText = lastMessage.Text
+		}
+
+		chats[i] = chat
 		if c.ID == query.Chat {
-			openChat = chats[i]
+			openChat = chat
+			messages = c.Messages
 		}
 	}
 
@@ -60,6 +67,7 @@ func (p PageMessages) GET(
 		return nil, redirect, err
 	}
 
+	fmt.Printf("OPEN CAHT: %#v\n", openChat)
 	return pageMessages(session, chats, openChat, messages, baseData), redirect, nil
 }
 
@@ -68,15 +76,15 @@ func (p PageMessages) POSTSendMessage(
 	r *http.Request,
 	session SessionJWT,
 	signals struct {
-		Chat        string `json:"chatselected"`
-		MessageText string `json:"messagetext"`
+		ChatSelected string `json:"chatselected"`
+		MessageText  string `json:"messagetext"`
 	},
 	dispatch func(
 		EventMessagingWritingStopped,
 		EventMessagingSent,
 	) error,
 ) error {
-	chat, err := p.App.repo.ChatByID(r.Context(), signals.Chat)
+	chat, err := p.App.repo.ChatByID(r.Context(), signals.ChatSelected)
 	if err != nil {
 		return err
 	}
@@ -91,12 +99,12 @@ func (p PageMessages) POSTSendMessage(
 	return dispatch(
 		EventMessagingWritingStopped{
 			TargetUserIDs: targetUsers,
-			ChatID:        signals.Chat,
+			ChatID:        signals.ChatSelected,
 			UserID:        session.UserID,
 		},
 		EventMessagingSent{
 			TargetUserIDs: targetUsers,
-			ChatID:        signals.Chat,
+			ChatID:        signals.ChatSelected,
 			UserID:        session.UserID,
 		},
 	)

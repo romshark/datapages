@@ -1,7 +1,11 @@
 package app
 
-import "fmt"
+import (
+	"fmt"
 
-func hrefPost(postID string) string {
-	return fmt.Sprintf("/posts/%s", postID)
+	"github.com/a-h/templ"
+)
+
+func hrefPost(postSlug string) templ.SafeURL {
+	return templ.URL(fmt.Sprintf("/post/%s", postSlug))
 }

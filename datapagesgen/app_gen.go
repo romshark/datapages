@@ -644,7 +644,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 	var query struct {
 		Chat string `query:"chat" reflectsignal:"selected"`
 	}
-	query.Chat = q.Get("t")
+	query.Chat = q.Get("chat")
 
 	p := app.PageMessages{
 		App:  s.app,
@@ -721,8 +721,8 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 	}
 
 	var v struct {
-		Chat        string `json:"chatselected"`
-		MessageText string `json:"messagetext"`
+		ChatSelected string `json:"chatselected"`
+		MessageText  string `json:"messagetext"`
 	}
 	if err := json.Unmarshal(b, &v); err != nil {
 		s.httpErrBad(w, "unexpected body, expected JSON signals", err)

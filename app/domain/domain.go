@@ -93,8 +93,9 @@ type Chat struct {
 	ID     string
 	PostID string
 	// SenderUserID is the id of the user who initiated the chat.
-	SenderUserID string
-	Messages     []Message
+	SenderUserID   string
+	Messages       []Message
+	UnreadMessages int
 }
 
 type Message struct {
@@ -509,12 +510,35 @@ func (r *Repository) Chats(_ context.Context, userID string) ([]Chat, error) {
 
 	chats := make([]Chat, len(tmp))
 	for i, t := range tmp {
+		unread := 0
+		msgs := make([]Message, len(t.c.Messages))
+		for i, m := range t.c.Messages {
+			msgs[i].ID = m.ID
+			msgs[i].Text = m.Text
+			msgs[i].SenderUserID = m.Sender.ID
+			msgs[i].TimeSent = m.TimeSent
+			msgs[i].TimeRead = m.TimeRead
+			if msgs[i].SenderUserID != userID && msgs[i].TimeRead.IsZero() {
+				unread++
+			}
+		}
+
 		chats[i] = Chat{
-			ID:           t.c.ID,
-			PostID:       t.c.Post.ID,
-			SenderUserID: t.c.Sender.ID,
+			ID:             t.c.ID,
+			PostID:         t.c.Post.ID,
+			SenderUserID:   t.c.Sender.ID,
+			Messages:       msgs,
+			UnreadMessages: unread,
 		}
 	}
+
+	slices.SortFunc(chats, func(a, b Chat) int {
+		switch {
+		case a.UnreadMessages > b.UnreadMessages:
+			return -1
+		}
+		return 0
+	})
 
 	return chats, nil
 }

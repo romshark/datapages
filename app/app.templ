@@ -46,7 +46,7 @@ templ wrapper(session SessionJWT, searchTerm string, baseData baseData) {
 templ fragmentMessagesLink(unreadChats int) {
 	<a id="messages" href="/messages">
 		if unreadChats > 0 {
-			<b>Messages ({ fmt.Sprintf("%d ", unreadChats) })</b>
+			<b>Messages ({ fmt.Sprintf("%d", unreadChats) })</b>
 		} else {
 			Messages
 		}
@@ -146,17 +146,34 @@ templ pageMessages(
 ) {
 	@wrapper(session, "", baseData) {
 		<div id="page-messages">
-			<div class="chat-list" data-signals:chatselected={ fmt.Sprintf("'%s'", openChat.PostID) }>
+			<div
+				class="chat-list"
+				data-signals:chatselected={ fmt.Sprintf("'%s'", openChat.PostID) }
+			>
 				if len(chats) == 0 {
 					<p>No chats available yet.</p>
 				} else {
 					<ul>
 						for _, chat := range chats {
-							<li>
-								<a href={ fmt.Sprintf("/messages/chat/%s", chat.ID) }>
-									<p>{ chat.Title }</p>
-									<p>{ chat.LastMessageText }</p>
+							{{
+								classes := templ.CSSClasses{"chat"}
+								if chat.ID == openChat.ID {
+									classes = append(classes, "selected")
+								}
+								if chat.UnreadMessages != 0 {
+									classes = append(classes, "unread")
+								}
+							}}
+							<li class={ classes }>
+								<a href={ fmt.Sprintf("/messages?chat=%s", chat.ID) }>
+									<p>
+										{ chat.Title }
+										if chat.UnreadMessages != 0 {
+											{ fmt.Sprintf("(%d)", chat.UnreadMessages) }
+										}
+									</p>
 								</a>
+								<p class="last-message">{ chat.LastMessageText }</p>
 							</li>
 						}
 					</ul>
@@ -171,16 +188,33 @@ templ pageMessages(
 				} else if openChat.ID == "" {
 					<p>Select any chat.</p>
 				} else {
-					<a target="_blank" href={ hrefPost(openChat.PostID) }>
+					<a target="_blank" href={ hrefPost(openChat.PostSlug) }>
 						<h1>{ openChat.Title }</h1>
 					</a>
 					<ul>
 						for _, msg := range messages {
-							<li>
-								if msg.SenderUserID == session.UserID {
-									<p><b>Me</b> at { msg.TimeSent.String() }</p>
+							{{
+								classes := templ.CSSClasses{"message"}
+								fromCounterpart := msg.SenderUserID != session.UserID
+								if fromCounterpart {
+									classes = append(classes, "from-counterpart")
+								}
+								if fromCounterpart && msg.TimeRead.IsZero() {
+									classes = append(classes, "new")
+								}
+							}}
+							<li class={ classes }>
+								if fromCounterpart {
+									<p class="message-header">
+										{ msg.SenderUserID }
+										at
+										{ msg.TimeSent.Format(time.RFC1123) }
+									</p>
 								} else {
-									<p>{ msg.SenderUserID } at { msg.TimeSent.String() }</p>
+									<p class="message-header">
+										<b>Me</b>
+										at { msg.TimeSent.Format(time.RFC1123) }
+									</p>
 								}
 								<p>{ msg.Text }</p>
 							</li>
@@ -188,7 +222,11 @@ templ pageMessages(
 					</ul>
 					<div class="chat-input">
 						<input data-bind="messagetext" placeholder="Message"/>
-						<button data-on:click="@post('/messages/sendmessage')">Send</button>
+						<button
+							data-on:click="@post('/messages/sendmessage')"
+						>
+							Send
+						</button>
 					</div>
 				}
 			</div>
@@ -321,6 +359,7 @@ templ pagePost(
 		<div
 			id="page-post"
 			data-signals:_compactheader="false"
+			data-signals:_showsendmessage="false"
 		>
 			<div
 				id="post-header"
@@ -349,7 +388,23 @@ templ pagePost(
 				</div>
 			</div>
 			<img class="post-image" src={ post.ImageURL }/>
-			<p class="post-time">Posted on { post.TimePosted.Format(time.RFC1123) }</p>
+			<p class="post-time">
+				Posted on { post.TimePosted.Format(time.RFC1123) }
+			</p>
+			<button
+				data-show="!$_showsendmessage"
+				data-on:click="$_showsendmessage = true"
+			>Send a message</button>
+			<div class="message-form" data-show="$_showsendmessage">
+				<textarea
+					data-bind="messagetext"
+					placeholder="Write a message to the seller to get more information or to arrange the transaction..."
+				></textarea>
+				<button
+					data-on:click="@post('/post/')"
+					data-attr:disabled="$messagetext === ''"
+				>Send</button>
+			</div>
 			<p class="post-description">{ post.Description }</p>
 			<h3 class="similar-heading">Similar Posts</h3>
 			@fragmentPosts(similarPosts)
@@ -364,7 +419,10 @@ templ fragmentPosts(posts []domain.Post) {
 			<li class="post-card">
 				<img src={ post.ImageURL }/>
 				<div class="body">
-					<a class="title" href={ templ.URL(fmt.Sprintf("/post/%s", post.Slug)) }>
+					<a
+						class="title"
+						href={ hrefPost(post.Slug) }
+					>
 						{ post.Title }
 					</a>
 					<p class="price">{ post.Price }€</p>
@@ -377,10 +435,18 @@ templ fragmentPosts(posts []domain.Post) {
 
 templ fragmentFooter() {
 	<div id="footer">
-		<p>This is a <a target="_blank" href="https://github.com/romshark/datapages">Datapages</a> demo.</p>
+		<p>
+			This is a
+			<a target="_blank" href="https://github.com/romshark/datapages">
+				Datapages
+			</a>
+			demo.
+		</p>
 		<p>
 			by
-			<a target="_blank" href="https://github.com/romshark/">github.com/romshark</a>
+			<a target="_blank" href="https://github.com/romshark/">
+				github.com/romshark
+			</a>
 		</p>
 	</div>
 }

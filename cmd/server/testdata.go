@@ -531,6 +531,7 @@ func NewRepository() *domain.Repository {
 					Text:         "Hello, is this one still available?",
 					SenderUserID: users["lorentz553"].ID,
 					TimeSent:     posts[0].TimePosted.Add(2 * time.Minute),
+					TimeRead:     posts[0].TimePosted.Add(2*time.Minute + 10*time.Second),
 				},
 				{
 					Text:         "Can you do a 5 percent discount?",
@@ -547,6 +548,7 @@ func NewRepository() *domain.Repository {
 					Text:         "I'd like to buy this",
 					SenderUserID: users["kaiy"].ID,
 					TimeSent:     posts[1].TimePosted.Add(5 * time.Minute),
+					TimeRead:     posts[1].TimePosted.Add(5 * time.Minute),
 				},
 				{
 					Text:         "Alright, meet me at 6 PM after work!",
@@ -555,20 +557,109 @@ func NewRepository() *domain.Repository {
 				},
 			},
 		},
+		{
+			PostID:       posts[2].ID,
+			SenderUserID: users["testuser"].ID,
+			Messages: []domain.Message{
+				{
+					Text:         "When was the last inspection?",
+					SenderUserID: users["testuser"].ID,
+					TimeSent:     posts[2].TimePosted.Add(10 * time.Minute),
+					TimeRead:     posts[2].TimePosted.Add(75 * time.Minute),
+				},
+				{
+					Text:         "2 Months ago. Everything was fine.",
+					SenderUserID: users[posts[2].MerchantUserID].ID,
+					TimeSent:     posts[2].TimePosted.Add(80 * time.Minute),
+				},
+			},
+		},
+		{
+			PostID:       posts[3].ID,
+			SenderUserID: users["testuser"].ID,
+			Messages: []domain.Message{
+				{
+					Text:         "Hello, I see there is some paint damage, right?",
+					SenderUserID: users["testuser"].ID,
+					TimeSent:     posts[3].TimePosted.Add(1 * time.Minute),
+				},
+			},
+		},
+		{ // With response, all read
+			PostID:       posts[4].ID,
+			SenderUserID: users["testuser"].ID,
+			Messages: []domain.Message{
+				{
+					Text:         "How about a small discount?",
+					SenderUserID: users["testuser"].ID,
+					TimeSent:     posts[4].TimePosted.Add(61 * time.Minute),
+					TimeRead:     posts[4].TimePosted.Add(121 * time.Minute),
+				},
+				{
+					Text:         "Sorry mate, can't do.",
+					SenderUserID: users[posts[4].MerchantUserID].ID,
+					TimeSent:     posts[4].TimePosted.Add(122 * time.Minute),
+					TimeRead:     posts[4].TimePosted.Add(160 * time.Minute),
+				},
+				{
+					Text:         "How about 200€?",
+					SenderUserID: users["testuser"].ID,
+					TimeSent:     posts[4].TimePosted.Add(162 * time.Minute),
+					TimeRead:     posts[4].TimePosted.Add(162 * time.Minute),
+				},
+			},
+		},
 	}
-	for i, c := range chats {
-		id, err := repo.NewChat(
-			ctx, c.PostID, c.SenderUserID, c.Messages[0].Text,
-		)
+	for _, c := range chats {
+		chatID, err := repo.NewChat(ctx, c.PostID, c.SenderUserID, c.Messages[0].Text)
 		if err != nil {
 			panic(err)
 		}
-		posts[i].ID = id
 
-		for _, m := range c.Messages[1:] {
-			_, err := repo.NewMessage(ctx, id, m.SenderUserID, m.Text)
+		// Need merchant id to compute who is the reader (recipient)
+		p, err := repo.PostByID(ctx, c.PostID)
+		if err != nil {
+			panic(err)
+		}
+		merchantID := p.MerchantUserID
+
+		// If the first seeded message is marked as read, mark it read in repo.
+		// (Repo will set TimeRead to time.Now(); it does not support custom timestamps.)
+		if !c.Messages[0].TimeRead.IsZero() {
+			ch, err := repo.ChatByID(ctx, chatID)
 			if err != nil {
 				panic(err)
+			}
+			firstMsgID := ch.Messages[0].ID
+
+			readerID := merchantID
+			if c.Messages[0].SenderUserID == merchantID {
+				readerID = c.SenderUserID
+			}
+
+			if err := repo.MarkMessageRead(ctx, readerID, chatID, firstMsgID); err != nil {
+				panic(err)
+			}
+		}
+
+		for _, m := range c.Messages[1:] {
+			msgID, err := repo.NewMessage(ctx, chatID, m.SenderUserID, m.Text)
+			if err != nil {
+				panic(err)
+			}
+
+			if !m.TimeRead.IsZero() {
+				// Recipient reads:
+				// - if sender is chat sender -> merchant reads
+				// - if sender is merchant -> chat sender reads
+				readerID := merchantID
+				if m.SenderUserID == merchantID {
+					readerID = c.SenderUserID
+				}
+
+				if err := repo.MarkMessageRead(ctx, readerID, chatID, msgID); err != nil {
+					panic(err)
+				}
 			}
 		}
 	}

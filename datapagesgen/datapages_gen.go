@@ -101,6 +101,7 @@ func WithHTTPServer(server *http.Server) ServerOption {
 //
 // You may also optionally provide fsDev to use another filesystem for
 // development environments. If fsDev it automatically falls back to fsProd.
+// fsDev always serves static files with caching disabled.
 func WithStaticFS(urlPath string, fsProd, fsDev http.FileSystem) ServerOption {
 	return func(s *Server) error {
 		s.staticFS = fsProd
@@ -110,6 +111,15 @@ func WithStaticFS(urlPath string, fsProd, fsDev http.FileSystem) ServerOption {
 		s.staticURLPath = urlPath
 		return nil
 	}
+}
+
+func devNoCache(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // WithMessageBrokerNATS sets the default message broker.
@@ -142,6 +152,7 @@ func WithMessageBroker(b MessageBroker) ServerOption {
 //   - WithCustomSessionIDGenerator
 //   - WithHTTPServer
 //   - WithMessageBroker
+//   - WithMessageBrokerNATS
 func NewServer(app *app.App, opts ...ServerOption) *Server {
 	s := &Server{
 		shutdownCh: make(chan struct{}),
@@ -202,8 +213,11 @@ func NewServer(app *app.App, opts ...ServerOption) *Server {
 
 	setupHandlers(s)
 	if s.staticFS != nil {
-		s.mux.Handle("GET /static/",
-			http.StripPrefix("/static/", http.FileServer(s.staticFS)))
+		h := http.StripPrefix("/static/", http.FileServer(s.staticFS))
+		if IsDevMode() {
+			h = devNoCache(h)
+		}
+		s.mux.Handle("GET /static/", h)
 	}
 
 	return s
@@ -292,7 +306,7 @@ func writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter) error,
 ) error {
 	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js"></script>`)
+		<script type="module" src="/static/ds.min.js"></script>`)
 	if err != nil {
 		return err
 	}
