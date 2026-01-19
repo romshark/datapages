@@ -67,7 +67,6 @@ func (p PageMessages) GET(
 		return nil, redirect, err
 	}
 
-	fmt.Printf("OPEN CAHT: %#v\n", openChat)
 	return pageMessages(session, chats, openChat, messages, baseData), redirect, nil
 }
 
