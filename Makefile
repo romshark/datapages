@@ -3,7 +3,7 @@ NATS_PORT := 4222
 NATS_HTTP_PORT := 8222
 NATS_IMAGE := nats:latest
 
-dev: nats-up
+dev: nats-stop nats-up
 	go run github.com/romshark/templier@latest
 
 test: lint

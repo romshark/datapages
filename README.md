@@ -33,12 +33,10 @@ The code that the *code generator* would generate is in
 [/datapagesgen](https://github.com/romshark/datapages/tree/main/datapagesgen).
 
 
-To run the demo, install Templ and Templier, and run `templier`:
+To run the demo, use:
 
 ```sh
-go install github.com/a-h/templ/cmd/templ@latest
-go install github.com/romshark/templier@latest
-templier
+make dev
 ```
 
 🚧👷‍♂️ Due to several design iterations and frequent changes,
