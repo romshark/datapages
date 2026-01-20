@@ -117,7 +117,8 @@ type Chat struct {
 type Base struct{ App *App }
 
 type baseData struct {
-	UnreadChats int
+	UnreadChats   int
+	UserAvatarURL string
 }
 
 func (b Base) baseData(
@@ -132,8 +133,13 @@ func (b Base) baseData(
 			"fetching number of unread chats with unread messages: %w", err,
 		)
 	}
+	user, err := b.App.repo.UserByID(ctx, session.UserID)
+	if err != nil {
+		return baseData{}, err
+	}
 	return baseData{
-		UnreadChats: unreadChats,
+		UnreadChats:   unreadChats,
+		UserAvatarURL: user.AvatarImageURL,
 	}, nil
 }
 
@@ -146,7 +152,36 @@ func (b Base) OnMessagingSent(
 	if err != nil {
 		return err
 	}
+	if err := sse.PatchElementTempl(fragmentMessagesLink(unreadChats)); err != nil {
+		return err
+	}
+	if err := sse.MarshalAndPatchSignals(struct {
+		MessageText string `json:"messagetext"`
+	}{
+		MessageText: "",
+	}); err != nil {
+		return err
+	}
+	if session.UserID != event.UserID {
+		return sse.ExecuteScript(`
+			(() => {
+				const audio = new Audio("/static/message-notification.mp3");
+				audio.play();
+			})();
+		`)
+	}
+	return nil
+}
 
+func (b Base) OnMessagingRead(
+	sse *datastar.ServerSentEventGenerator,
+	event EventMessagingRead,
+	session SessionJWT,
+) error {
+	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID)
+	if err != nil {
+		return err
+	}
 	return sse.PatchElementTempl(fragmentMessagesLink(unreadChats))
 }
 

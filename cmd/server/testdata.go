@@ -53,11 +53,13 @@ func NewRepository() *domain.Repository {
 			PasswordHash:   "julian123",
 			AccountCreated: timestamp("2024-03-05T14:22:00Z"),
 			Email:          "julianf92@mailbox.test",
+			AvatarImageURL: "https://images.pexels.com/photos/34074202/pexels-photo-34074202.jpeg",
 		},
 		"fabiberg": {
 			PasswordHash:   "fabipass",
 			AccountCreated: timestamp("2024-04-18T08:00:00Z"),
 			Email:          "fabiberg@users.fake",
+			AvatarImageURL: "https://images.pexels.com/photos/35520938/pexels-photo-35520938.jpeg",
 		},
 		"moritz-keilmann": {
 			PasswordHash:   "moritzpw",
@@ -168,6 +170,11 @@ func NewRepository() *domain.Repository {
 			PasswordHash:   "maronipw",
 			AccountCreated: timestamp("2025-12-31T23:59:00Z"),
 			Email:          "maroni@lastday.test",
+		},
+		"naaaaaaaaaamus-loooooooooongus-veryus": {
+			PasswordHash:   "namuslongus",
+			AccountCreated: timestamp("2025-11-11T01:01:01Z"),
+			Email:          "very@names.long",
 		},
 	}
 	for name, u := range users {
@@ -562,9 +569,33 @@ func NewRepository() *domain.Repository {
 			SenderUserName: users["testuser"].Name,
 			Messages: []domain.Message{
 				{
-					Text:           "When was the last inspection?",
+					Text:           "Hello!",
+					SenderUserName: users["testuser"].Name,
+					TimeSent:       posts[2].TimePosted.Add(9*time.Minute + 40*time.Second),
+					TimeRead:       posts[2].TimePosted.Add(75 * time.Minute),
+				},
+				{
+					Text:           "quick question",
+					SenderUserName: users["testuser"].Name,
+					TimeSent:       posts[2].TimePosted.Add(9*time.Minute + 50*time.Second),
+					TimeRead:       posts[2].TimePosted.Add(75 * time.Minute),
+				},
+				{
+					Text:           "When was the last inpection?",
 					SenderUserName: users["testuser"].Name,
 					TimeSent:       posts[2].TimePosted.Add(10 * time.Minute),
+					TimeRead:       posts[2].TimePosted.Add(75 * time.Minute),
+				},
+				{
+					Text:           "insection*",
+					SenderUserName: users["testuser"].Name,
+					TimeSent:       posts[2].TimePosted.Add(10*time.Minute + 5*time.Second),
+					TimeRead:       posts[2].TimePosted.Add(75 * time.Minute),
+				},
+				{
+					Text:           "inspection* sorry 😄",
+					SenderUserName: users["testuser"].Name,
+					TimeSent:       posts[2].TimePosted.Add(10*time.Minute + 15*time.Second),
 					TimeRead:       posts[2].TimePosted.Add(75 * time.Minute),
 				},
 				{
@@ -626,7 +657,8 @@ func NewRepository() *domain.Repository {
 		// If the first seeded message is marked as read, mark it read in repo.
 		// (Repo will set TimeRead to time.Now(); it does not support custom timestamps.)
 		if !c.Messages[0].TimeRead.IsZero() {
-			ch, err := repo.ChatByID(ctx, chatID)
+			sender := c.Messages[0].SenderUserName
+			ch, err := repo.ChatByID(ctx, chatID, sender)
 			if err != nil {
 				panic(err)
 			}
@@ -637,7 +669,9 @@ func NewRepository() *domain.Repository {
 				readerID = c.SenderUserName
 			}
 
-			if err := repo.MarkMessageRead(ctx, readerID, chatID, firstMsgID); err != nil {
+			if err := repo.MarkMessageRead(
+				ctx, readerID, chatID, firstMsgID,
+			); err != nil {
 				panic(err)
 			}
 		}

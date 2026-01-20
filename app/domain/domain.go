@@ -112,6 +112,7 @@ type Repository struct {
 	lock           sync.RWMutex
 	chatsByKey     map[chatKey]*chat
 	chatsByID      map[string]*chat
+	chatsByPostID  map[string]*chat
 	postsByID      map[string]*post
 	postsBySlug    map[string]*post
 	usersByName    map[string]*user
@@ -127,6 +128,7 @@ func NewRepository(
 
 		chatsByKey:     map[chatKey]*chat{},
 		chatsByID:      map[string]*chat{},
+		chatsByPostID:  map[string]*chat{},
 		postsByID:      map[string]*post{},
 		postsBySlug:    map[string]*post{},
 		usersByName:    map[string]*user{},
@@ -153,6 +155,7 @@ func NewRepository(
 }
 
 var (
+	ErrUnauthorized            = errors.New("unauthorized")
 	ErrPasswordEmpty           = errors.New("password must not be empty")
 	ErrChatExists              = errors.New("chat already exists")
 	ErrChatNotFound            = errors.New("chat not found")
@@ -251,6 +254,7 @@ func (r *Repository) NewChat(
 	}
 	r.chatsByKey[key] = c
 	r.chatsByID[c.ID] = c
+	r.chatsByPostID[post.ID] = c
 
 	return c.ID, nil
 }
@@ -440,7 +444,7 @@ func (r *Repository) ChatsWithUnreadMessages(
 	return unreadChats, nil
 }
 
-func (r *Repository) ChatByID(_ context.Context, chatID string) (Chat, error) {
+func (r *Repository) ChatByID(_ context.Context, chatID, userName string) (Chat, error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
@@ -460,12 +464,28 @@ func (r *Repository) ChatByID(_ context.Context, chatID string) (Chat, error) {
 		}
 	}
 
-	return Chat{
-		ID:             c.ID,
-		PostID:         c.Post.ID,
-		SenderUserName: c.Sender.Name,
-		Messages:       m,
-	}, nil
+	return convertChat(c, userName), nil
+}
+
+func (r *Repository) ChatByPostID(
+	_ context.Context, userName, postID string,
+) (Chat, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	c, ok := r.chatsByPostID[postID]
+	if !ok {
+		return Chat{}, ErrChatNotFound
+	}
+
+	if userName == c.Post.Merchant.Name {
+		return Chat{}, ErrChatNotFound
+	}
+	if userName != c.Sender.Name {
+		return Chat{}, ErrChatNotFound
+	}
+
+	return convertChat(c, userName), nil
 }
 
 // Chats returns all chats of the given user sorted by most recently active.
@@ -521,13 +541,7 @@ func (r *Repository) Chats(_ context.Context, userName string) ([]Chat, error) {
 			}
 		}
 
-		chats[i] = Chat{
-			ID:             t.c.ID,
-			PostID:         t.c.Post.ID,
-			SenderUserName: t.c.Sender.Name,
-			Messages:       msgs,
-			UnreadMessages: unread,
-		}
+		chats[i] = convertChat(t.c, userName)
 	}
 
 	slices.SortFunc(chats, func(a, b Chat) int {
@@ -784,6 +798,29 @@ func convertPost(p *post) Post {
 		Price:            p.Price,
 		TimePosted:       p.TimePosted,
 		Location:         p.Location,
+	}
+}
+
+func convertChat(c *chat, userName string) Chat {
+	unread := 0
+	msgs := make([]Message, len(c.Messages))
+	for i, m := range c.Messages {
+		msgs[i].ID = m.ID
+		msgs[i].Text = m.Text
+		msgs[i].SenderUserName = m.Sender.Name
+		msgs[i].TimeSent = m.TimeSent
+		msgs[i].TimeRead = m.TimeRead
+		if msgs[i].SenderUserName != userName && msgs[i].TimeRead.IsZero() {
+			unread++
+		}
+	}
+
+	return Chat{
+		ID:             c.ID,
+		PostID:         c.Post.ID,
+		SenderUserName: c.Sender.Name,
+		Messages:       msgs,
+		UnreadMessages: unread,
 	}
 }
 

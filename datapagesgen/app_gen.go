@@ -20,22 +20,27 @@ import (
 
 // --- Message Broker ---
 
+const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
+
 const (
-	EvSubjMessagingSent           = "messaging.sent"
-	EvSubjMessagingWriting        = "messaging.writing"
-	EvSubjMessagingWritingStopped = "messaging.writing-stopped"
+	EvSubjMessagingSent           = "messaging.sent.*"
+	EvSubjMessagingRead           = "messaging.read.*"
+	EvSubjMessagingWriting        = "messaging.writing.*"
+	EvSubjMessagingWritingStopped = "messaging.writing-stopped.*"
 	EvSubjPostArchived            = "posts.archived"
 )
 
 const (
-	EvSubjPrefMessagingSent           = EvSubjMessagingSent + "."
-	EvSubjPrefMessagingWriting        = EvSubjMessagingWriting + "."
-	EvSubjPrefMessagingWritingStopped = EvSubjMessagingWritingStopped + "."
+	EvSubjPrefMessagingSent           = "messaging.sent."
+	EvSubjPrefMessagingRead           = "messaging.read."
+	EvSubjPrefMessagingWriting        = "messaging.writing."
+	EvSubjPrefMessagingWritingStopped = "messaging.writing-stopped."
 )
 
 func MessageBrokerStreamSubjects() []string {
 	return []string{
 		EvSubjMessagingSent,
+		EvSubjMessagingRead,
 		EvSubjMessagingWriting,
 		EvSubjMessagingWritingStopped,
 		EvSubjPostArchived,
@@ -43,32 +48,40 @@ func MessageBrokerStreamSubjects() []string {
 }
 
 func evSubjPageIndex(userID string) []string {
-	return []string{EvSubjPrefMessagingSent + userID}
+	return []string{
+		EvSubjPrefMessagingSent + userID,
+		EvSubjPrefMessagingRead + userID,
+	}
 }
 
 func evSubjPageMessages(userID string) []string {
 	return []string{
-		EvSubjMessagingSent + userID,
-		EvSubjMessagingWriting + userID,
-		EvSubjMessagingWritingStopped + userID,
+		EvSubjPrefMessagingSent + userID,
+		EvSubjPrefMessagingRead + userID,
+		EvSubjPrefMessagingWriting + userID,
+		EvSubjPrefMessagingWritingStopped + userID,
 	}
 }
 
 func evSubjPagePost(userID string) []string {
 	return []string{
 		EvSubjPostArchived,
+		EvSubjPrefMessagingSent + userID,
+		EvSubjPrefMessagingRead + userID,
 	}
 }
 
 func evSubjPageSearch(userID string) []string {
 	return []string{
-		EvSubjMessagingSent + userID,
+		EvSubjPrefMessagingSent + userID,
+		EvSubjPrefMessagingRead + userID,
 	}
 }
 
 func evSubjPageSettings(userID string) []string {
 	return []string{
-		EvSubjMessagingSent + userID,
+		EvSubjPrefMessagingSent + userID,
+		EvSubjPrefMessagingRead + userID,
 	}
 }
 
@@ -268,10 +281,10 @@ func setupHandlers(s *Server) {
 		"GET /_$/{$}",
 		s.handlePageIndexGETStream)
 	s.mux.HandleFunc(
-		"GET /not-found",
+		"GET /not-found/{$}",
 		s.handlePage404GET)
 	s.mux.HandleFunc(
-		"GET /whoops",
+		"GET /whoops/{$}",
 		s.handlePage500GET)
 	s.mux.HandleFunc(
 		"GET /login/{$}",
@@ -295,6 +308,15 @@ func setupHandlers(s *Server) {
 		"GET /messages/_$/{$}",
 		s.handlePageMessagesGETStream)
 	s.mux.HandleFunc(
+		"POST /messages/read/{$}",
+		s.handlePageMessagesPOSTRead)
+	s.mux.HandleFunc(
+		"POST /messages/writing/{$}",
+		s.handlePageMessagesPOSTWriting)
+	s.mux.HandleFunc(
+		"POST /messages/writing-stopped/{$}",
+		s.handlePageMessagesPOSTWritingStopped)
+	s.mux.HandleFunc(
 		"POST /messages/sendmessage/{$}",
 		s.handlePageMessagesPOSTSendMessage)
 	s.mux.HandleFunc(
@@ -315,6 +337,9 @@ func setupHandlers(s *Server) {
 	s.mux.HandleFunc(
 		"GET /post/{slug}/_$/{$}",
 		s.handlePagePostGETStream)
+	s.mux.HandleFunc(
+		"POST /post/{slug}/send-message/{$}",
+		s.handlePagePostPOSTSendMessage)
 }
 
 func (s *Server) httpErrIntern(
@@ -444,7 +469,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) (err error) {
-		_, err = io.WriteString(w, `data-init="@get('/search/_$')"`)
+		_, err = io.WriteString(w, `data-init="@get('/_$')"`)
 		if err != nil {
 			return err
 		}
@@ -466,6 +491,10 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if sess.UserID == "" {
+		return
+	}
+
 	p := app.PageIndex{
 		App:  s.app,
 		Base: app.Base{App: s.app},
@@ -476,14 +505,23 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	) {
 		for msg := range ch {
 			switch {
-			case strings.HasPrefix(msg.Subject, EvSubjMessagingSent):
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
 				var e app.EventMessagingSent
 				if err := json.Unmarshal(msg.Data, &e); err != nil {
 					s.logErr("unmarshaling EventMessagingSent JSON", err)
 					continue
 				}
 				if err := p.OnMessagingSent(sse, e, sess); err != nil {
-					s.logErr("handling PageIndex.OnMessagingSent", err)
+					s.logErr("handling PageIndex.Base.OnMessagingSent", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
+				var e app.EventMessagingRead
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingRead JSON", err)
+					continue
+				}
+				if err := p.OnMessagingRead(sse, e, sess); err != nil {
+					s.logErr("handling PageIndex.Base.OnMessagingRead", err)
 				}
 			}
 		}
@@ -612,7 +650,16 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "generating generic head for PageSettings", err)
 		return
 	}
-	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
+
+	bodyAttrs := func(w http.ResponseWriter) (err error) {
+		_, err = io.WriteString(w, `data-init="@get('/settings/_$')"`)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if err := writeHTML(w, r, genericHead, nil, body, bodyAttrs); err != nil {
 		s.logErr("rendering PageSettings", err)
 		return
 	}
@@ -627,6 +674,10 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if sess.UserID == "" {
+		return
+	}
+
 	p := app.PageSettings{
 		App:  s.app,
 		Base: app.Base{App: s.app},
@@ -637,14 +688,23 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 	) {
 		for msg := range ch {
 			switch {
-			case strings.HasPrefix(msg.Subject, EvSubjMessagingSent):
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
 				var e app.EventMessagingSent
 				if err := json.Unmarshal(msg.Data, &e); err != nil {
 					s.logErr("unmarshaling EventMessagingSent JSON", err)
 					continue
 				}
 				if err := p.OnMessagingSent(sse, e, sess); err != nil {
-					s.logErr("handling PageSettings.OnMessagingSent", err)
+					s.logErr("handling PageSettings.Base.OnMessagingSent", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
+				var e app.EventMessagingRead
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingRead JSON", err)
+					continue
+				}
+				if err := p.OnMessagingRead(sse, e, sess); err != nil {
+					s.logErr("handling PageSettings.Base.OnMessagingRead", err)
 				}
 			}
 		}
@@ -703,7 +763,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
 	var query struct {
-		Chat string `query:"chat" reflectsignal:"selected"`
+		Chat string `query:"chat" reflectsignal:"chatselected"`
 	}
 	query.Chat = q.Get("chat")
 
@@ -725,7 +785,23 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "generating generic head for PageMessages", err)
 		return
 	}
-	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
+
+	bodyAttrs := func(w http.ResponseWriter) error {
+		_, _ = io.WriteString(w, `data-signals:chatselected="'`)
+		_, _ = io.WriteString(w, query.Chat)
+		_, _ = io.WriteString(w, `'"`)
+
+		_, _ = io.WriteString(w, `data-init="@get('/messages/_$')"`)
+
+		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
+			if ($chatselected) params.set('chat', $chatselected);
+			const query = params.toString();
+			window.history.replaceState(null, '', query ? '/messages?' + query : '/messages');
+		"`)
+		return nil
+	}
+
+	if err := writeHTML(w, r, genericHead, nil, body, bodyAttrs); err != nil {
 		s.logErr("rendering PageMessages", err)
 		return
 	}
@@ -740,6 +816,18 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if sess.UserID == "" {
+		return
+	}
+
+	var signals struct {
+		Chat string `json:"chatselected"`
+	}
+	if err := datastar.ReadSignals(r, &signals); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+		return
+	}
+
 	p := app.PageMessages{
 		App:  s.app,
 		Base: app.Base{App: s.app},
@@ -750,22 +838,54 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 	) {
 		for msg := range ch {
 			switch {
-			case strings.HasPrefix(msg.Subject,
-				EvSubjMessagingSent):
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
 				var e app.EventMessagingSent
 				if err := json.Unmarshal(msg.Data, &e); err != nil {
 					s.logErr("unmarshaling EventMessagingSent JSON", err)
 					continue
 				}
-				if err := p.OnMessagingSent(sse, e, sess); err != nil {
+				if err := p.Base.OnMessagingSent(sse, e, sess); err != nil {
+					s.logErr("handling PageMessages.Base.OnMessagingSent", err)
+				}
+				if err := p.OnMessagingSent(sse, e, sess, signals); err != nil {
 					s.logErr("handling PageMessages.OnMessagingSent", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
+				var e app.EventMessagingRead
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingRead JSON", err)
+					continue
+				}
+				if err := p.Base.OnMessagingRead(sse, e, sess); err != nil {
+					s.logErr("handling PageMessages.Base.OnMessagingSent", err)
+				}
+				if err := p.OnMessagingRead(sse, e, sess, signals); err != nil {
+					s.logErr("handling PageMessages.OnMessagingSent", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingWriting):
+				var e app.EventMessagingWriting
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingWriting JSON", err)
+					continue
+				}
+				if err := p.OnMessagingWriting(sse, e, sess); err != nil {
+					s.logErr("handling PageMessages.OnMessagingWriting", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingWritingStopped):
+				var e app.EventMessagingWritingStopped
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingWritingStopped JSON", err)
+					continue
+				}
+				if err := p.OnMessagingWritingStopped(sse, e, sess); err != nil {
+					s.logErr("handling PageMessages.OnMessagingWritingStopped", err)
 				}
 			}
 		}
 	})
 }
 
-func (s *Server) handlePageMessagesPOSTSendMessage(
+func (s *Server) handlePageMessagesPOSTRead(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.checkIsDSReq(w, r) {
@@ -775,45 +895,33 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 	if !ok {
 		return
 	}
-	b, err := io.ReadAll(r.Body)
-	if err != nil {
-		s.httpErrBad(w, "reading JSON body", err)
-		return
-	}
 
-	var v struct {
-		ChatSelected string `json:"chatselected"`
-		MessageText  string `json:"messagetext"`
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+
+	q := r.URL.Query()
+	var query struct {
+		MessageID string `query:"msgid"`
 	}
-	if err := json.Unmarshal(b, &v); err != nil {
+	query.MessageID = q.Get("msgid")
+
+	var signals struct {
+		ChatSelected string `json:"chatselected"`
+	}
+	if err := datastar.ReadSignals(r, &signals); err != nil {
 		s.httpErrBad(w, "unexpected body, expected JSON signals", err)
 		return
 	}
 
 	dispatch := func(
-		e1 app.EventMessagingWritingStopped,
-		e2 app.EventMessagingSent,
+		e1 app.EventMessagingRead,
 	) error {
 		{
 			j, err := json.Marshal(e1)
 			if err != nil {
-				return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
+				return fmt.Errorf("marshaling EventMessagingRead JSON: %w", err)
 			}
 			for _, uid := range e1.TargetUserIDs {
-				subj := "messaging.writing-stopped." + uid
-				err = s.messageBroker.Publish(r.Context(), subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
-		}
-		{
-			j, err := json.Marshal(e2)
-			if err != nil {
-				return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
-			}
-			for _, uid := range e2.TargetUserIDs {
-				subj := "messaging.sent." + uid
+				subj := EvSubjPrefMessagingRead + uid
 				err = s.messageBroker.Publish(r.Context(), subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
@@ -828,8 +936,176 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 		Base: app.Base{App: s.app},
 	}
 
-	if err := p.POSTSendMessage(r, sess, v, dispatch); err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageSearch.POSTParamChange", err)
+	if err := p.POSTRead(r, sess, signals, query, dispatch); err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTRead", err)
+		return
+	}
+}
+
+func (s *Server) handlePageMessagesPOSTWriting(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, ok := s.readSessionJWT(w, r)
+	if !ok {
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+
+	var signals struct {
+		ChatSelected string `json:"chatselected"`
+	}
+	if err := datastar.ReadSignals(r, &signals); err != nil {
+		s.httpErrBad(w, "unexpected body, expected JSON signals", err)
+		return
+	}
+
+	dispatch := func(
+		e1 app.EventMessagingWriting,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventMessagingWriting JSON: %w", err)
+			}
+			for _, uid := range e1.TargetUserIDs {
+				subj := EvSubjPrefMessagingWriting + uid
+				err = s.messageBroker.Publish(r.Context(), subj, j)
+				if err != nil {
+					return fmt.Errorf("publishing subject %q: %w", subj, err)
+				}
+			}
+		}
+		return nil
+	}
+
+	p := app.PageMessages{
+		App:  s.app,
+		Base: app.Base{App: s.app},
+	}
+
+	if err := p.POSTWriting(r, sess, signals, dispatch); err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTWriting", err)
+		return
+	}
+}
+
+func (s *Server) handlePageMessagesPOSTWritingStopped(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, ok := s.readSessionJWT(w, r)
+	if !ok {
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+
+	var signals struct {
+		ChatSelected string `json:"chatselected"`
+	}
+	if err := datastar.ReadSignals(r, &signals); err != nil {
+		s.httpErrBad(w, "unexpected body, expected JSON signals", err)
+		return
+	}
+
+	dispatch := func(
+		e1 app.EventMessagingWritingStopped,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
+			}
+			for _, uid := range e1.TargetUserIDs {
+				subj := EvSubjPrefMessagingWritingStopped + uid
+				err = s.messageBroker.Publish(r.Context(), subj, j)
+				if err != nil {
+					return fmt.Errorf("publishing subject %q: %w", subj, err)
+				}
+			}
+		}
+		return nil
+	}
+
+	p := app.PageMessages{
+		App:  s.app,
+		Base: app.Base{App: s.app},
+	}
+
+	if err := p.POSTWritingStopped(r, sess, signals, dispatch); err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTWritingStopped", err)
+		return
+	}
+}
+
+func (s *Server) handlePageMessagesPOSTSendMessage(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, ok := s.readSessionJWT(w, r)
+	if !ok {
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+
+	var signals struct {
+		ChatSelected string `json:"chatselected"`
+		MessageText  string `json:"messagetext"`
+	}
+	if err := datastar.ReadSignals(r, &signals); err != nil {
+		s.httpErrBad(w, "unexpected body, expected JSON signals", err)
+		return
+	}
+
+	dispatch := func(
+		e1 app.EventMessagingWritingStopped,
+		e2 app.EventMessagingSent,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
+			}
+			for _, uid := range e1.TargetUserIDs {
+				subj := EvSubjPrefMessagingWritingStopped + uid
+				err = s.messageBroker.Publish(r.Context(), subj, j)
+				if err != nil {
+					return fmt.Errorf("publishing subject %q: %w", subj, err)
+				}
+			}
+		}
+		{
+			j, err := json.Marshal(e2)
+			if err != nil {
+				return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
+			}
+			for _, uid := range e2.TargetUserIDs {
+				subj := EvSubjPrefMessagingSent + uid
+				err = s.messageBroker.Publish(r.Context(), subj, j)
+				if err != nil {
+					return fmt.Errorf("publishing subject %q: %w", subj, err)
+				}
+			}
+		}
+		return nil
+	}
+
+	p := app.PageMessages{
+		App:  s.app,
+		Base: app.Base{App: s.app},
+	}
+
+	if err := p.POSTSendMessage(r, sess, signals, dispatch); err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTSendMessage", err)
 		return
 	}
 }
@@ -906,11 +1182,11 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `data-init="@get('/search/_$')"`)
 
 		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
-			params.set('t', $term);
-			params.set('c', $category);
-			params.set('pmin', $pmin);
-			params.set('pmax', $pmax);
-			params.set('l', $location);
+			if ($term) params.set('t', $term);
+			if ($category) params.set('c', $category);
+			if ($pmin) params.set('pmin', $pmin);
+			if ($pmax) params.set('pmax', $pmax);
+			if ($location) params.set('l', $location);
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/search?' + query : '/search');
 		"`)
@@ -932,6 +1208,10 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if sess.UserID == "" {
+		return
+	}
+
 	p := app.PageSearch{
 		App:  s.app,
 		Base: app.Base{App: s.app},
@@ -942,14 +1222,23 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 	) {
 		for msg := range ch {
 			switch {
-			case strings.HasPrefix(msg.Subject, EvSubjMessagingSent):
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
 				var e app.EventMessagingSent
 				if err := json.Unmarshal(msg.Data, &e); err != nil {
 					s.logErr("unmarshaling EventMessagingSent JSON", err)
 					continue
 				}
 				if err := p.OnMessagingSent(sse, e, sess); err != nil {
-					s.logErr("handling PageSearch.OnMessagingSent", err)
+					s.logErr("handling PageSearch.Base.OnMessagingSent", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
+				var e app.EventMessagingRead
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingRead JSON", err)
+					continue
+				}
+				if err := p.OnMessagingRead(sse, e, sess); err != nil {
+					s.logErr("handling PageSearch.Base.OnMessagingRead", err)
 				}
 			}
 		}
@@ -1020,7 +1309,24 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "generating generic head for PagePost", err)
 		return
 	}
-	if err := writeHTML(w, r, genericHead, head, body, nil); err != nil {
+
+	bodyAttrs := func(w http.ResponseWriter) (err error) {
+		_, err = io.WriteString(w, `data-init="@get('/post/`)
+		if err != nil {
+			return err
+		}
+		_, err = io.WriteString(w, path.Slug)
+		if err != nil {
+			return err
+		}
+		_, err = io.WriteString(w, `/_$')"`)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if err := writeHTML(w, r, genericHead, head, body, bodyAttrs); err != nil {
 		s.logErr("rendering PagePost", err)
 		return
 	}
@@ -1036,14 +1342,11 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	if !ok {
 		return
 	}
-	b, err := io.ReadAll(r.Body)
-	if err != nil {
-		s.httpErrBad(w, "reading JSON body", err)
-		return
-	}
 
-	var v app.SearchParams
-	if err := json.Unmarshal(b, &v); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+
+	var signals app.SearchParams
+	if err := datastar.ReadSignals(r, &signals); err != nil {
 		s.httpErrBad(w, "unexpected body, expected JSON signals", err)
 		return
 	}
@@ -1054,7 +1357,7 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	if err := p.POSTParamChange(r, sse, sess, v); err != nil {
+	if err := p.POSTParamChange(r, sse, sess, signals); err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageSearch.POSTParamChange", err)
 		return
 	}
@@ -1069,6 +1372,10 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if sess.UserID == "" {
+		return
+	}
+
 	p := app.PagePost{
 		App:  s.app,
 		Base: app.Base{App: s.app},
@@ -1079,16 +1386,92 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 	) {
 		for msg := range ch {
 			switch {
-			case strings.HasPrefix(msg.Subject, EvSubjMessagingSent):
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
 				var e app.EventMessagingSent
 				if err := json.Unmarshal(msg.Data, &e); err != nil {
 					s.logErr("unmarshaling EventMessagingSent JSON", err)
 					continue
 				}
 				if err := p.OnMessagingSent(sse, e, sess); err != nil {
-					s.logErr("handling PagePost.OnMessagingSent", err)
+					s.logErr("handling PagePost.Base.OnMessagingSent", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
+
+				var e app.EventMessagingRead
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingRead JSON", err)
+					continue
+				}
+				if err := p.OnMessagingRead(sse, e, sess); err != nil {
+					s.logErr("handling PagePost.Base.OnMessagingRead", err)
+				}
+			case msg.Subject == EvSubjPostArchived:
+				var e app.EventPostArchived
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventPostArchived JSON", err)
+					continue
+				}
+				if err := p.OnPostArchived(sse, e, sess); err != nil {
+					s.logErr("handling PagePost.OnPostArchived", err)
 				}
 			}
 		}
 	})
+}
+
+func (s *Server) handlePagePostPOSTSendMessage(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, ok := s.readSessionJWT(w, r)
+	if !ok {
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+
+	var signals struct {
+		MessageText string `json:"messagetext"`
+	}
+	if err := datastar.ReadSignals(r, &signals); err != nil {
+		s.httpErrBad(w, "unexpected body, expected JSON signals", err)
+		return
+	}
+
+	var path struct {
+		Slug string `json:"slug"`
+	}
+	path.Slug = r.PathValue("slug")
+
+	dispatch := func(
+		e1 app.EventMessagingSent,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
+			}
+			for _, uid := range e1.TargetUserIDs {
+				subj := EvSubjPrefMessagingSent + uid
+				err = s.messageBroker.Publish(r.Context(), subj, j)
+				if err != nil {
+					return fmt.Errorf("publishing subject %q: %w", subj, err)
+				}
+			}
+		}
+		return nil
+	}
+
+	p := app.PagePost{
+		App:  s.app,
+		Base: app.Base{App: s.app},
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	if err := p.POSTSendMessage(r, sse, sess, path, signals, dispatch); err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTSendMessage", err)
+		return
+	}
 }

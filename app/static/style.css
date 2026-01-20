@@ -30,8 +30,32 @@ body {
 }
 
 #navbar {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 1400px;
+
+    & .avatar {
+        flex-shrink: 0;
+    }
+
     & #messages {
         text-wrap: nowrap;
+    }
+
+    & #navbar-menu {
+        & .username {
+            max-width: 8rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        & .avatar {
+            height: 1.5rem;
+            width: 1.5rem;
+            object-fit: cover;
+            border-radius: 1rem;
+        }
     }
 }
 
@@ -176,9 +200,10 @@ body {
     }
 
     & .hint {
-        justify-self: flex-end;
         display: flex;
         flex-direction: column;
+        justify-self: flex-end;
+        align-items: center;
         gap: 1rem;
     }
 
@@ -404,16 +429,16 @@ body {
             border-bottom: 1px solid #eee;
             padding: 0.5rem 0;
             border-radius: .5rem;
+            align-items: flex-end;
 
             & .message-header {
                 display: flex;
                 flex-direction: row;
                 gap: .5rem;
-                opacity: .7;
             }
 
             &.from-counterpart {
-                align-items: flex-end;
+                align-items: flex-start;
             }
 
             &.new {
@@ -526,6 +551,13 @@ body {
 }
 
 #page-settings {
+    & .avatar {
+        height: 12rem;
+        width: 12rem;
+        object-fit: cover;
+        border-radius: 6rem;
+    }
+
     & section {
         margin-top: 1rem;
         display: flex;

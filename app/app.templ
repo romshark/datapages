@@ -41,7 +41,7 @@ templ fragmentNavbar(session SessionJWT, searchTerm string, baseData baseData) {
 		</a>
 		@fragmentMessagesLink(baseData.UnreadChats)
 		if session.UserID != "" {
-			@menuBase("dropdown-menu-checkboxes", session.UserID)
+			@menuBase("navbar-menu", session.UserID, baseData.UserAvatarURL)
 		} else {
 			<button class="btn-secondary">
 				<a href="/login">Sign in</a>
@@ -138,8 +138,8 @@ templ pageIndex(
 		</ul>
 		<h2>Recently Posted</h2>
 		@fragmentPosts(recentlyPosted)
-		@fragmentFooter()
 	}
+	@fragmentFooter()
 }
 
 templ pageLogin(wrongCreds bool) {
@@ -190,15 +190,31 @@ templ pageLogin(wrongCreds bool) {
 		</div>
 		<div class="hint">
 			<i data-class:wobble="$_wobbleTip">
-				Psst, try <b>user@test.net</b> and <b>testuser</b>
+				Try these:
 			</i>
-			<button
-				class="btn-secondary"
-				data-on:click="
-					$emailorusername = 'user@test.net';
-					$password = 'testuser';
-				"
-			>Let me fill it in for you</button>
+			<div role="group" class="button-group">
+				<button
+					class="btn-secondary"
+					data-on:click="
+						$emailorusername = 'user@test.net';
+						$password = 'testuser';
+					"
+				>testuser</button>
+				<button
+					class="btn-secondary"
+					data-on:click="
+						$emailorusername = 'julianf92';
+						$password = 'julian123';
+					"
+				>julianf92</button>
+				<button
+					class="btn-secondary"
+					data-on:click="
+						$emailorusername = 'very@names.long';
+						$password = 'namuslongus';
+					"
+				>very@names.long</button>
+			</div>
 		</div>
 	}
 }
@@ -211,7 +227,6 @@ templ pageMessages(
 	@page("page-messages") {
 		<div
 			class="chat-list"
-			data-signals:chatselected={ fmt.Sprintf("'%s'", openChat.PostID) }
 		>
 			if len(chats) == 0 {
 				<p>No chats available yet.</p>
@@ -250,7 +265,11 @@ templ pageMessages(
 				</ul>
 			}
 		</div>
-		<div class="chat-messages">
+		<div
+			class="chat-messages"
+			data-signals:writinguser=""
+			data-signals:_sessionuser={ fmt.Sprintf("%q", session.UserID) }
+		>
 			if len(chats) == 0 {
 				<p>
 					<span>You will see chats here once you contact someone </span>
@@ -264,45 +283,20 @@ templ pageMessages(
 				</a>
 				<ul>
 					for _, msg := range messages {
-						{{
-							classes := templ.CSSClasses{"message"}
-							fromCounterpart := msg.SenderUserName != session.UserID
-							if fromCounterpart {
-								classes = append(classes, "from-counterpart")
-							}
-							if fromCounterpart && msg.TimeRead.IsZero() {
-								classes = append(classes, "new")
-							}
-						}}
-						<li class={ classes }>
-							if fromCounterpart {
-								<p class="message-header">
-									<a
-										target="_blank"
-										href={ hrefUser(msg.SenderUserName) }
-									>
-										{ msg.SenderUserName }
-									</a>
-									if !msg.TimeRead.IsZero() {
-										@iconCheck()
-									}
-									at
-									{ msg.TimeSent.Format(time.RFC1123) }
-								</p>
-							} else {
-								<p class="message-header">
-									<b>Me</b>
-									if !msg.TimeRead.IsZero() {
-										@iconCheck()
-									}
-									at { msg.TimeSent.Format(time.RFC1123) }
-								</p>
-							}
-							<p>{ msg.Text }</p>
-						</li>
+						@fragmentMessage(session, msg)
 					}
 				</ul>
-				<div class="chat-input">
+				<div id="chat-writing">
+					<p data-show="$writinguser != '' && $writinguser != $_sessionuser">
+						<span data-text="$writinguser"></span> is writing...
+					</p>
+				</div>
+				<div
+					class="chat-input"
+					data-on:input__throttle.300ms="
+					if ($messagetext != '') @post('/messages/writing')
+					else @post('/messages/writing-stopped')"
+				>
 					<textarea
 						class="textarea"
 						type="text"
@@ -332,6 +326,14 @@ templ pageSettings(session SessionJWT, user domain.User, baseData baseData) {
 		<h1>Settings</h1>
 		<section>
 			<h2>User Information</h2>
+			if user.AvatarImageURL != "" {
+				<img src={ user.AvatarImageURL } class="avatar"/>
+			} else {
+				<p>
+					@iconUser()
+					No avatar image
+				</p>
+			}
 			<label>
 				Name
 				<input
@@ -458,8 +460,8 @@ templ pageSearch(
 				@fragmentPosts(posts)
 			}
 		</div>
-		@fragmentFooter()
 	}
+	@fragmentFooter()
 }
 
 templ headUser(user domain.User) {
@@ -485,6 +487,7 @@ templ headPost(title, description, imageURL string) {
 
 templ pagePost(
 	session SessionJWT, post domain.Post, similarPosts []domain.Post, baseData baseData,
+	chatID string,
 ) {
 	@fragmentNavbar(session, "", baseData)
 	@page("page-post") {
@@ -528,7 +531,9 @@ templ pagePost(
 		<p class="post-time">
 			Posted on { post.TimePosted.Format(time.RFC1123) }
 		</p>
-		if session.UserID != "" {
+		if chatID != "" {
+			@fragmentMessageFormLinkToChat(chatID)
+		} else if session.UserID != "" && post.MerchantUserName != session.UserID {
 			<button
 				class="btn"
 				id="sendmessage"
@@ -536,16 +541,16 @@ templ pagePost(
 				data-on:click="$_showsendmessage = true"
 			>Send a message</button>
 			<div data-show="$_showsendmessage">
-				@fragmentMessageForm()
+				@fragmentMessageForm(post.Slug)
 			</div>
-		} else {
+		} else if session.UserID == "" {
 			<a href="/login">Login to send a message</a>
 		}
 		<p class="post-description">{ post.Description }</p>
 		<h3 class="similar-heading">Similar Posts</h3>
 		@fragmentPosts(similarPosts)
-		@fragmentFooter()
 	}
+	@fragmentFooter()
 }
 
 templ pageUser(
@@ -560,8 +565,8 @@ templ pageUser(
 		<p>Account created: { user.AccountCreated.Format(time.RFC1123) }</p>
 		<h2>Posts</h2>
 		@fragmentPosts(posts)
-		@fragmentFooter()
 	}
+	@fragmentFooter()
 }
 
 templ fragmentPosts(posts []domain.Post) {
@@ -602,7 +607,7 @@ templ fragmentFooter() {
 	</div>
 }
 
-templ fragmentMessageForm() {
+templ fragmentMessageForm(slug string) {
 	<div id="message-form">
 		<textarea
 			class="textarea"
@@ -611,7 +616,7 @@ templ fragmentMessageForm() {
 		></textarea>
 		<button
 			class="btn"
-			data-on:click="@post('/post/')"
+			data-on:click={ fmt.Sprintf("@post('/post/%s/send-message')", slug) }
 			data-attr:disabled="$messagetext === ''"
 		>Send</button>
 	</div>
@@ -623,16 +628,15 @@ templ fragmentMessageFormSending() {
 	</div>
 }
 
-templ fragmentMessageFormSent(chatID string) {
+templ fragmentMessageFormLinkToChat(chatID string) {
 	<div id="message-form">
-		<p>Message sent!</p>
-		<a href={ hrefChat(chatID) }>Open the chat</a>
+		<a href={ hrefChat(chatID) }>Go to the chat</a>
 	</div>
 }
 
-templ menuBase(id, userName string) {
+templ menuBase(id, userName, userAvatarURL string) {
 	<div
-		id="dropdown-menu-checkboxes"
+		id={ id }
 		class="dropdown-menu"
 	>
 		<button
@@ -641,10 +645,14 @@ templ menuBase(id, userName string) {
 			aria-haspopup="menu"
 			aria-controls={ id + "-menu" }
 			aria-expanded="false"
-			class="btn-outline"
+			class="btn-ghost"
 		>
-			@iconUser()
-			{ userName }
+			if userAvatarURL != "" {
+				<img src={ userAvatarURL } class="avatar"/>
+			} else {
+				@iconUser()
+			}
+			<span class="username">{ userName }</span>
 		</button>
 		<div
 			id={ id + "-popover" }
@@ -679,4 +687,71 @@ templ menuBase(id, userName string) {
 			</div>
 		</div>
 	</div>
+}
+
+templ fragmentMessage(session SessionJWT, msg domain.Message) {
+	{{
+		classes := templ.CSSClasses{"message"}
+		fromCounterpart := msg.SenderUserName != session.UserID
+		if fromCounterpart {
+			classes = append(classes, "from-counterpart")
+		}
+		if fromCounterpart && msg.TimeRead.IsZero() {
+			classes = append(classes, "new")
+		}
+	}}
+	<li
+		id={ fmt.Sprintf("message-%s", msg.ID) }
+		class={ classes }
+	>
+		if fromCounterpart {
+			<p
+				class="message-header"
+				if msg.TimeRead.IsZero() {
+					data-on-intersect={ fmt.Sprintf(
+						"@post('/messages/read?msgid=%s')",
+						msg.ID,
+					) }
+				}
+			>
+				<a
+					target="_blank"
+					href={ hrefUser(msg.SenderUserName) }
+				>
+					{ msg.SenderUserName }
+				</a>
+				if !msg.TimeRead.IsZero() {
+					<span
+						data-tooltip={ "Read on " + msg.TimeRead.Format(time.RFC1123) }
+						data-side="bottom"
+						data-align="start"
+					>
+						@iconCheck()
+					</span>
+				}
+			</p>
+		} else {
+			<p class="message-header">
+				<b>Me</b>
+				if !msg.TimeRead.IsZero() {
+					<span
+						data-tooltip={ "Read on " + msg.TimeRead.Format(time.RFC1123) }
+						data-side="bottom"
+						data-align="start"
+					>
+						@iconCheck()
+					</span>
+				} else {
+					<span
+						data-tooltip={ "Sent on " + msg.TimeSent.Format(time.RFC1123) }
+						data-side="bottom"
+						data-align="start"
+					>
+						@iconCheckLight()
+					</span>
+				}
+			</p>
+		}
+		<p>{ msg.Text }</p>
+	</li>
 }

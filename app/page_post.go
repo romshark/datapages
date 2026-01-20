@@ -44,7 +44,18 @@ func (p PagePost) GET(
 		return nil, nil, redirect, err
 	}
 
-	body = pagePost(session, post, similarPosts, baseData)
+	var chatID string
+	if session.UserID != "" {
+		chat, err := p.App.repo.ChatByPostID(r.Context(), session.UserID, post.ID)
+		if err != nil {
+			if !errors.Is(err, domain.ErrChatNotFound) {
+				return body, head, redirect, err
+			}
+		}
+		chatID = chat.ID
+	}
+
+	body = pagePost(session, post, similarPosts, baseData, chatID)
 	head = headPost(post.Title, post.Description, post.ImageURL)
 	return body, head, redirect, nil
 }
@@ -54,6 +65,9 @@ func (p PagePost) POSTSendMessage(
 	r *http.Request,
 	sse *datastar.ServerSentEventGenerator,
 	session SessionJWT,
+	path struct {
+		Slug string `json:"slug"`
+	},
 	signals struct {
 		MessageText string `json:"messagetext"`
 	},
@@ -61,11 +75,37 @@ func (p PagePost) POSTSendMessage(
 ) error {
 	_ = sse.PatchElementTempl(fragmentMessageFormSending())
 
-	if err := dispatch(EventMessagingSent{}); err != nil {
-		return sse.PatchElementTempl(fragmentMessageForm())
+	if session.UserID == "" {
+		return domain.ErrUnauthorized
 	}
-	chatID := "" // TODO
-	return sse.PatchElementTempl(fragmentMessageFormSent(chatID))
+
+	if err := dispatch(EventMessagingSent{}); err != nil {
+		return sse.PatchElementTempl(fragmentMessageForm(path.Slug))
+	}
+
+	post, err := p.App.repo.PostBySlug(r.Context(), path.Slug)
+	if err != nil {
+		return err
+	}
+
+	if session.UserID == post.MerchantUserName {
+		return domain.ErrUnauthorized
+	}
+
+	chatID, err := p.App.repo.NewChat(
+		r.Context(), post.ID, session.UserID, signals.MessageText,
+	)
+	if err != nil {
+		return err
+	}
+
+	if err := dispatch(EventMessagingSent{
+		TargetUserIDs: []string{post.MerchantUserName, session.UserID},
+	}); err != nil {
+		return err
+	}
+
+	return sse.PatchElementTempl(fragmentMessageFormLinkToChat(chatID))
 }
 
 func (p PagePost) OnPostArchived(

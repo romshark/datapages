@@ -1,8 +1,8 @@
 package app
 
 import (
+	"context"
 	"datapages/app/domain"
-	"fmt"
 	"net/http"
 
 	"github.com/a-h/templ"
@@ -19,26 +19,37 @@ func (p PageMessages) GET(
 	r *http.Request,
 	session SessionJWT,
 	query struct {
-		Chat string `query:"chat" reflectsignal:"selected"`
+		Chat string `query:"chat" reflectsignal:"chatselected"`
 	},
 ) (body templ.Component, redirect Redirect, err error) {
 	if session.UserID == "" {
 		return nil, Redirect{Target: "/login"}, nil
 	}
 
-	c, err := p.App.repo.Chats(r.Context(), session.UserID)
+	baseData, chats, openChat, messages, err := p.getPageData(
+		r.Context(), session, query.Chat,
+	)
 	if err != nil {
-		return nil, redirect, err
+		return body, redirect, err
 	}
 
-	chats := make([]Chat, len(c))
-	var openChat Chat
-	var messages []domain.Message
+	return pageMessages(session, chats, openChat, messages, baseData), redirect, nil
+}
+
+func (p PageMessages) getPageData(
+	ctx context.Context, session SessionJWT, selectedChat string,
+) (base baseData, chats []Chat, openChat Chat, messages []domain.Message, err error) {
+	c, err := p.App.repo.Chats(ctx, session.UserID)
+	if err != nil {
+		return base, chats, openChat, messages, err
+	}
+
+	chats = make([]Chat, len(c))
 
 	for i, c := range c {
-		p, err := p.App.repo.PostByID(r.Context(), c.PostID)
+		p, err := p.App.repo.PostByID(ctx, c.PostID)
 		if err != nil {
-			return nil, redirect, fmt.Errorf("gettting post %s: %w", c.PostID, err)
+			return base, chats, openChat, messages, err
 		}
 
 		chat := Chat{
@@ -56,18 +67,141 @@ func (p PageMessages) GET(
 		}
 
 		chats[i] = chat
-		if c.ID == query.Chat {
+		if c.ID == selectedChat {
 			openChat = chat
 			messages = c.Messages
 		}
 	}
 
-	baseData, err := p.baseData(r.Context(), session)
+	base, err = p.baseData(ctx, session)
+	return base, chats, openChat, messages, err
+}
+
+func (p PageMessages) getChat(
+	ctx context.Context, session SessionJWT, selectedChat string,
+) (domain.Post, domain.Chat, error) {
+	chat, err := p.App.repo.ChatByID(ctx, selectedChat, session.UserID)
 	if err != nil {
-		return nil, redirect, err
+		return domain.Post{}, domain.Chat{}, err
 	}
 
-	return pageMessages(session, chats, openChat, messages, baseData), redirect, nil
+	post, err := p.App.repo.PostByID(ctx, chat.PostID)
+	if err != nil {
+		return domain.Post{}, domain.Chat{}, err
+	}
+
+	return post, chat, nil
+}
+
+// POSTRead is /messages/read/{$}
+func (p PageMessages) POSTRead(
+	r *http.Request,
+	session SessionJWT,
+	signals struct {
+		ChatSelected string `json:"chatselected"`
+	},
+	query struct {
+		MessageID string `query:"msgid"`
+	},
+	dispatch func(EventMessagingRead) error,
+) error {
+	post, chat, err := p.getChat(r.Context(), session, signals.ChatSelected)
+	if err != nil {
+		return err
+	}
+
+	var message domain.Message
+	for _, m := range chat.Messages {
+		if m.ID == query.MessageID {
+			message = m
+		}
+	}
+	if message.ID == "" {
+		return domain.ErrMessageNotFound
+	}
+
+	if session.UserID != chat.SenderUserName && session.UserID != post.MerchantUserName {
+		return domain.ErrUnauthorized
+	}
+
+	if message.SenderUserName == session.UserID {
+		return domain.ErrUnauthorized
+	}
+
+	err = p.App.repo.MarkMessageRead(r.Context(), session.UserID, chat.ID, message.ID)
+	if err != nil {
+		return err
+	}
+
+	return dispatch(
+		EventMessagingRead{
+			TargetUserIDs: []string{chat.SenderUserName, post.MerchantUserName},
+			ChatID:        signals.ChatSelected,
+			UserID:        session.UserID,
+		},
+	)
+}
+
+// POSTWriting is /messages/writing/{$}
+func (p PageMessages) POSTWriting(
+	r *http.Request,
+	session SessionJWT,
+	signals struct {
+		ChatSelected string `json:"chatselected"`
+	},
+	dispatch func(
+		EventMessagingWriting,
+	) error,
+) error {
+	post, chat, err := p.getChat(r.Context(), session, signals.ChatSelected)
+	if err != nil {
+		return err
+	}
+
+	if session.UserID != chat.SenderUserName && session.UserID != post.MerchantUserName {
+		return domain.ErrUnauthorized
+	}
+
+	targetUsers := []string{chat.SenderUserName, post.MerchantUserName}
+
+	return dispatch(
+		EventMessagingWriting{
+			TargetUserIDs: targetUsers,
+			ChatID:        signals.ChatSelected,
+			UserID:        session.UserID,
+		},
+	)
+}
+
+// POSTWritingStopped is /messages/writing-stopped/{$}
+func (p PageMessages) POSTWritingStopped(
+	r *http.Request,
+	session SessionJWT,
+	signals struct {
+		ChatSelected string `json:"chatselected"`
+	},
+	dispatch func(
+		EventMessagingWritingStopped,
+	) error,
+) error {
+	post, chat, err := p.getChat(r.Context(), session, signals.ChatSelected)
+	if err != nil {
+		return err
+	}
+
+	if session.UserID != chat.SenderUserName && session.UserID != post.MerchantUserName {
+		return domain.ErrUnauthorized
+	}
+
+	targetUsers := []string{chat.SenderUserName, post.MerchantUserName}
+
+	return dispatch(
+		EventMessagingWritingStopped{
+			TargetUserIDs: targetUsers,
+			ChatID:        signals.ChatSelected,
+			UserID:        session.UserID,
+		},
+	)
 }
 
 // POSTSendMessage is /messages/sendmessage/{$}
@@ -83,17 +217,23 @@ func (p PageMessages) POSTSendMessage(
 		EventMessagingSent,
 	) error,
 ) error {
-	chat, err := p.App.repo.ChatByID(r.Context(), signals.ChatSelected)
+	post, chat, err := p.getChat(r.Context(), session, signals.ChatSelected)
 	if err != nil {
 		return err
 	}
 
-	post, err := p.App.repo.PostByID(r.Context(), chat.PostID)
-	if err != nil {
-		return err
+	if session.UserID != chat.SenderUserName && session.UserID != post.MerchantUserName {
+		return domain.ErrUnauthorized
 	}
 
 	targetUsers := []string{chat.SenderUserName, post.MerchantUserName}
+
+	_, err = p.App.repo.NewMessage(
+		r.Context(), signals.ChatSelected, session.UserID, signals.MessageText,
+	)
+	if err != nil {
+		return err
+	}
 
 	return dispatch(
 		EventMessagingWritingStopped{
@@ -109,14 +249,33 @@ func (p PageMessages) POSTSendMessage(
 	)
 }
 
+func (p PageMessages) OnMessagingRead(
+	sse *datastar.ServerSentEventGenerator,
+	event EventMessagingRead,
+	session SessionJWT,
+	signals struct {
+		Chat string `json:"chatselected"`
+	},
+) error {
+	base, chats, openChat, messages, err := p.getPageData(
+		sse.Context(), session, signals.Chat,
+	)
+	if err != nil {
+		return err
+	}
+	return sse.PatchElementTempl(pageMessages(session, chats, openChat, messages, base))
+}
+
 func (PageMessages) OnMessagingWriting(
 	sse *datastar.ServerSentEventGenerator,
 	event EventMessagingWriting,
 	session SessionJWT,
 ) error {
-	// TODO
-	// use SSE to patch the page
-	return nil
+	return sse.MarshalAndPatchSignals(struct {
+		WritingUser string `json:"writinguser"`
+	}{
+		WritingUser: event.UserID,
+	})
 }
 
 func (PageMessages) OnMessagingWritingStopped(
@@ -124,17 +283,26 @@ func (PageMessages) OnMessagingWritingStopped(
 	event EventMessagingWritingStopped,
 	session SessionJWT,
 ) error {
-	// TODO
-	// use SSE to patch the page
-	return nil
+	return sse.MarshalAndPatchSignals(struct {
+		WritingUser string `json:"writinguser"`
+	}{
+		WritingUser: "",
+	})
 }
 
-func (PageMessages) OnMessagingSent(
+func (p PageMessages) OnMessagingSent(
 	sse *datastar.ServerSentEventGenerator,
 	event EventMessagingSent,
 	session SessionJWT,
+	signals struct {
+		Chat string `json:"chatselected"`
+	},
 ) error {
-	// TODO
-	// use SSE to patch the page
-	return nil
+	base, chats, openChat, messages, err := p.getPageData(
+		sse.Context(), session, signals.Chat,
+	)
+	if err != nil {
+		return err
+	}
+	return sse.PatchElementTempl(pageMessages(session, chats, openChat, messages, base))
 }

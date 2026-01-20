@@ -1,10 +1,12 @@
 # Datapages (Proof of Concept)
 
-A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) server rendered
-web frontend framework prototype (currently referred to as "Datapages" and "dp" as CLI tool.) 
-that is supposed to work as a code generator and code linter.
+A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) web frontend
+framework prototype (currently referred to as "Datapages" and "dp" as CLI tool.)
+for dynamic and modern web applications in pure Go that is supposed to work as a code
+generator and code linter.
 
-**You write code according to the generator's expectations, and the generator generates all the boilerplate in the background so you can focus on your business logic.**
+**You write code according to the generator's expectations, and the generator generates
+all the boilerplate in the background so you can focus on your business logic.**
 
 - Run `dp init` which creates an application template in the current folder and
   prompts for preset configs (such as whether to use

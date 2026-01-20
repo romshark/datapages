@@ -15,5 +15,5 @@ func hrefUser(name string) templ.SafeURL {
 }
 
 func hrefChat(chatID string) templ.SafeURL {
-	return templ.URL(fmt.Sprintf("/messaging?chat=%s", chatID))
+	return templ.URL(fmt.Sprintf("/messages?chat=%s", chatID))
 }

@@ -8,6 +8,15 @@ type EventMessagingSent struct {
 	UserID string `json:"user-id"`
 }
 
+// EventMessagingRead is "messaging.read"
+type EventMessagingRead struct {
+	TargetUserIDs []string `json:"-"`
+
+	ChatID    string `json:"chat-id"`
+	UserID    string `json:"user-id"`
+	MessageID string `json:"message-id"`
+}
+
 // EventMessagingWriting is "messaging.writing"
 type EventMessagingWriting struct {
 	TargetUserIDs []string `json:"-"`
