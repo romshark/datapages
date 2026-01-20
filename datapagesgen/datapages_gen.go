@@ -350,9 +350,10 @@ func (s *Server) handleStreamRequest(
 		return
 	}
 
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	sub, err := s.messageBroker.Subscribe(r.Context(), subjects...)
 	if err != nil {
-		s.httpErrIntern(w, r, "subscribing to message broker", err)
+		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
 	}
 	defer func() {
 		if err := sub.Close(); err != nil {
@@ -360,7 +361,6 @@ func (s *Server) handleStreamRequest(
 		}
 	}()
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	subC := sub.C()
 
 	go func() {
@@ -379,19 +379,6 @@ func (s *Server) handleStreamRequest(
 
 func (s *Server) logErr(msg string, err error) {
 	s.logger.Error(msg, slog.Any("err", err))
-}
-
-func (s *Server) httpErrIntern(
-	w http.ResponseWriter, r *http.Request, msg string, err error,
-) {
-	if !isDSReq(r) {
-		s.handlePage500GET(w, r)
-		return
-	}
-
-	s.logErr(msg, err)
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
 }
 
 func (s *Server) httpErrUnauth(w http.ResponseWriter, msg string) {

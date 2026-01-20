@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -225,6 +226,14 @@ func httpRedirect(
 	if re.Target == "" {
 		return false
 	}
+
+	if isDSReq(r) {
+		// Force client-side navigation via JS for Datastar requests.
+		w.Header().Set("Content-Type", "text/javascript")
+		_, _ = fmt.Fprintf(w, "window.location = %q;", re.Target)
+		return true
+	}
+
 	switch re.Status {
 	case http.StatusMovedPermanently,
 		http.StatusFound,
@@ -243,6 +252,15 @@ func httpRedirect(
 
 func setupHandlers(s *Server) {
 	// Pages
+	s.mux.HandleFunc(
+		"POST /cause-500-internal-error/{$}",
+		s.handlePOSTCause500)
+	s.mux.HandleFunc(
+		"POST /expire-session-jwt/{$}",
+		s.handlePOSTExpireSessionJWT)
+	s.mux.HandleFunc(
+		"POST /sign-out/{$}",
+		s.handlePageSettingsPOSTSignOut)
 	s.mux.HandleFunc(
 		"GET /",
 		s.handlePageIndexGET)
@@ -270,9 +288,6 @@ func setupHandlers(s *Server) {
 	s.mux.HandleFunc(
 		"POST /settings/save/{$}",
 		s.handlePageSettingsPOSTSave)
-	s.mux.HandleFunc(
-		"POST /settings/sign-out/{$}",
-		s.handlePageSettingsPOSTSignOut)
 	s.mux.HandleFunc(
 		"GET /messages/{$}",
 		s.handlePageMessagesGET)
@@ -302,6 +317,31 @@ func setupHandlers(s *Server) {
 		s.handlePagePostGETStream)
 }
 
+func (s *Server) httpErrIntern(
+	w http.ResponseWriter, r *http.Request,
+	sse *datastar.ServerSentEventGenerator, msg string, err error,
+) {
+	s.logErr(msg, err)
+	if !isDSReq(r) {
+		s.handlePage500GET(w, r)
+		return
+	}
+	if sse == nil {
+		sse = datastar.NewSSE(w, r, datastar.WithCompression())
+	}
+	errRecover := s.app.Recover500(err, sse)
+	if errRecover == nil {
+		return // Feedback delivered gracefully.
+	}
+	// Fallback to ugly 500
+	s.logger.Error("recovering 500",
+		slog.Any("orig.msg", msg),
+		slog.Any("orig.err", err),
+		slog.Any("err", errRecover))
+	const code = http.StatusInternalServerError
+	http.Error(w, http.StatusText(code), code)
+}
+
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	sess, ok := s.readSessionJWT(w, r)
 	if !ok {
@@ -315,13 +355,13 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 
 	body, err := p.GET(r, sess)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating Page404", err)
+		s.httpErrIntern(w, r, nil, "handling Page404.GET", err)
 		return
 	}
 
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating generic head for Page404", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for Page404", err)
 		return
 	}
 
@@ -331,19 +371,42 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handlePOSTCause500(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.POSTCause500(r); err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.POSTCause500", err)
+	}
+}
+
+func (s *Server) handlePOSTExpireSessionJWT(w http.ResponseWriter, r *http.Request) {
+	sess, ok := s.readSessionJWT(w, r)
+	if !ok {
+		return
+	}
+	newSessionJWT, err := s.app.POSTExpireSessionJWT(r, sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.POSTExpireSessionJWT", err)
+	}
+	if j := newSessionJWT; j.UserID != "" {
+		s.mustSetSessionJWT(
+			w, j.UserID, s.authJWTOpts.Audience, s.authJWTOpts.Issuer,
+			j.IssuedAt, j.Expiration,
+		)
+	}
+}
+
 func (s *Server) handlePage500GET(w http.ResponseWriter, r *http.Request) {
 	p := app.Page500{App: s.app}
 
 	body, err := p.GET(r)
 	if err != nil {
 		// Fall back to basic 500 error page.
-		s.httpErrIntern(w, r, "generating Page500", err)
+		s.httpErrIntern(w, r, nil, "handling Page500.GET", err)
 		return
 	}
 
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating generic head for Page500", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for Page500", err)
 		return
 	}
 
@@ -371,12 +434,12 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 	body, err := p.GET(r, sess)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating PageIndex", err)
+		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
 	}
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating generic head for PageIndex", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for PageIndex", err)
 		return
 	}
 
@@ -440,12 +503,12 @@ func (s *Server) handlePage404GET(w http.ResponseWriter, r *http.Request) {
 
 	body, err := p.GET(r, sess)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating Page404", err)
+		s.httpErrIntern(w, r, nil, "handling Page404.GET", err)
 		return
 	}
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating generic head for Page404", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for Page404", err)
 		return
 	}
 
@@ -465,7 +528,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 
 	body, redirect, err := p.GET(r, sess)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating PageLogin", err)
+		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
 		return
 	}
 	if httpRedirect(w, r, redirect) {
@@ -473,7 +536,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating generic head for PageLogin", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for PageLogin", err)
 		return
 	}
 	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
@@ -491,8 +554,8 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var sig struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		EmailOrUsername string `json:"emailorusername"`
+		Password        string `json:"password"`
 	}
 	if err := datastar.ReadSignals(r, &sig); err != nil {
 		s.httpErrBad(w, "reading signals", err)
@@ -502,7 +565,7 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 
 	body, redirect, newSessionJWT, err := p.POSTSubmit(r, sess, sig)
 	if err != nil {
-		s.httpErrIntern(w, r, "handling action PageLogin.POSTSubmit", err)
+		s.httpErrIntern(w, r, nil, "handling action PageLogin.POSTSubmit", err)
 		return
 	}
 	if j := newSessionJWT; j.UserID != "" {
@@ -511,13 +574,12 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 			j.IssuedAt, j.Expiration,
 		)
 	}
-
 	if httpRedirect(w, r, redirect) {
 		return
 	}
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating generic head for PageSettings", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for PageSettings", err)
 		return
 	}
 	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
@@ -539,7 +601,7 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 
 	body, redirect, err := p.GET(r, sess)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating PageSettings", err)
+		s.httpErrIntern(w, r, nil, "handling PageSettings.GET", err)
 		return
 	}
 	if httpRedirect(w, r, redirect) {
@@ -547,7 +609,7 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating generic head for PageSettings", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for PageSettings", err)
 		return
 	}
 	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
@@ -611,7 +673,7 @@ func (s *Server) handlePageSettingsPOSTSave(w http.ResponseWriter, r *http.Reque
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	err := p.POSTSave(r, sse, sess, sig)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating POSTSave", err)
+		s.httpErrIntern(w, r, sse, "handling action PageSettings.POSTSave", err)
 		return
 	}
 }
@@ -620,13 +682,9 @@ func (s *Server) handlePageSettingsPOSTSignOut(w http.ResponseWriter, r *http.Re
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	p := app.PageSettings{
-		App:  s.app,
-		Base: app.Base{App: s.app},
-	}
-	redirect, removeSessionJWT, err := p.POSTSignOut(r)
+	removeSessionJWT, redirect, err := s.app.POSTSignOut(r)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating PostSignOut", err)
+		s.httpErrIntern(w, r, nil, "handling action PageSettings.PostSignOut", err)
 		return
 	}
 	if removeSessionJWT {
@@ -656,7 +714,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 
 	body, redirect, err := p.GET(r, sess, query)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating PageMessages", err)
+		s.httpErrIntern(w, r, nil, "handling PageMessages.GET", err)
 		return
 	}
 	if httpRedirect(w, r, redirect) {
@@ -664,7 +722,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating generic head for PageMessages", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for PageMessages", err)
 		return
 	}
 	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
@@ -771,7 +829,7 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 	}
 
 	if err := p.POSTSendMessage(r, sess, v, dispatch); err != nil {
-		s.httpErrIntern(w, r, "handling action PageSearch.POSTParamChange", err)
+		s.httpErrIntern(w, r, nil, "handling action PageSearch.POSTParamChange", err)
 		return
 	}
 }
@@ -815,12 +873,12 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 
 	body, err := p.GET(r, sess, query)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating PageSearch", err)
+		s.httpErrIntern(w, r, nil, "handling PageSearch.GET", err)
 		return
 	}
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating generic head for PageSearch", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for PageSearch", err)
 		return
 	}
 
@@ -916,7 +974,7 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 
 	body, head, redirect, err := p.GET(r, sess, path)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating PageUser", err)
+		s.httpErrIntern(w, r, nil, "handling PageUser.GET", err)
 		return
 	}
 	if httpRedirect(w, r, redirect) {
@@ -924,7 +982,7 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating generic head for PageUser", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for PageUser", err)
 		return
 	}
 	if err := writeHTML(w, r, genericHead, head, body, nil); err != nil {
@@ -951,7 +1009,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 
 	body, head, redirect, err := p.GET(r, sess, path)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating PagePost", err)
+		s.httpErrIntern(w, r, nil, "handling PagePost.GET", err)
 		return
 	}
 	if httpRedirect(w, r, redirect) {
@@ -959,7 +1017,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, "generating generic head for PagePost", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for PagePost", err)
 		return
 	}
 	if err := writeHTML(w, r, genericHead, head, body, nil); err != nil {
@@ -997,7 +1055,7 @@ func (s *Server) handlePageSearchPOSTParamChange(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	if err := p.POSTParamChange(r, sse, sess, v); err != nil {
-		s.httpErrIntern(w, r, "handling action PageSearch.POSTParamChange", err)
+		s.httpErrIntern(w, r, sse, "handling action PageSearch.POSTParamChange", err)
 		return
 	}
 }

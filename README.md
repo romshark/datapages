@@ -1,7 +1,7 @@
 # Datapages (Proof of Concept)
 
 A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) server rendered
-web app framework prototype (currently referred to as "Datapages" and "dp" as CLI tool.) 
+web frontend framework prototype (currently referred to as "Datapages" and "dp" as CLI tool.) 
 that is supposed to work as a code generator and code linter.
 
 **You write code according to the generator's expectations, and the generator generates all the boilerplate in the background so you can focus on your business logic.**
@@ -59,6 +59,17 @@ func (*App) Head(
     session SessionJWT,
 ) (templ.Component, error) {
     return globalHeadTags(session.UserID), error
+}
+```
+
+The `Recover500` method allows you to recover `500 Internal Server` errors to improve UX by giving better feedback. If `Recover500` returns an error the server falls back to the ugly standard procedure.
+
+```go
+func (*App) Recover500() error {
+    err error,
+	sse *datastar.ServerSentEventGenerator,
+} error {
+    return sse.
 }
 ```
 

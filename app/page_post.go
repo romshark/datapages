@@ -49,6 +49,25 @@ func (p PagePost) GET(
 	return body, head, redirect, nil
 }
 
+// POSTSendMessage is /post/{slug}/send-message/{$}
+func (p PagePost) POSTSendMessage(
+	r *http.Request,
+	sse *datastar.ServerSentEventGenerator,
+	session SessionJWT,
+	signals struct {
+		MessageText string `json:"messagetext"`
+	},
+	dispatch func(EventMessagingSent) error,
+) error {
+	_ = sse.PatchElementTempl(fragmentMessageFormSending())
+
+	if err := dispatch(EventMessagingSent{}); err != nil {
+		return sse.PatchElementTempl(fragmentMessageForm())
+	}
+	chatID := "" // TODO
+	return sse.PatchElementTempl(fragmentMessageFormSent(chatID))
+}
+
 func (p PagePost) OnPostArchived(
 	sse *datastar.ServerSentEventGenerator,
 	event EventPostArchived,

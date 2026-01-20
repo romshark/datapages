@@ -14,13 +14,18 @@ templ head() {
 	<meta property="og:description" content="Demo - Go + Templ + Datastar + Datapages"/>
 	<link rel="icon" href="/static/favicon.ico"/>
 	<link rel="stylesheet" href="/static/style.css"/>
+	// Basecoat UI
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/basecoat-css@0.3.10/dist/basecoat.cdn.min.css"/>
+	<script src="https://cdn.jsdelivr.net/npm/basecoat-css@0.3.10/dist/js/all.min.js" defer></script>
 }
 
-templ wrapper(session SessionJWT, searchTerm string, baseData baseData) {
+templ fragmentNavbar(session SessionJWT, searchTerm string, baseData baseData) {
 	<nav id="navbar" data-signals:searchinput={ fmt.Sprintf("%q", searchTerm) }>
 		<a href="/">Home</a>
 		// pageshow handles the browser form restoration on page navigation.
 		<input
+			class="input"
+			type="text"
 			id="search-input"
 			data-bind="searchinput"
 			data-on:pageshow__window="$searchinput = el.value"
@@ -30,27 +35,74 @@ templ wrapper(session SessionJWT, searchTerm string, baseData baseData) {
 		<a
 			data-ref:searchanchor
 			data-attr:href="'/search?t=' + $searchinput"
-		>Search</a>
+		>
+			@iconSearch()
+			Search
+		</a>
 		@fragmentMessagesLink(baseData.UnreadChats)
 		if session.UserID != "" {
-			<a href="/settings">Settings</a>
+			@menuBase("dropdown-menu-checkboxes", session.UserID)
 		} else {
-			<a href="/login">Sign in</a>
+			<button class="btn-secondary">
+				<a href="/login">Sign in</a>
+			</button>
 		}
 	</nav>
+}
+
+// page is a wrapper for all pages
+templ page(id string) {
+	<div id="toaster" class="toaster"></div>
 	<div id="content">
-		{ children... }
+		<div id={ id }>
+			{ children... }
+		</div>
+	</div>
+}
+
+templ toastInternalError() {
+	<div
+		class="toast"
+		role="status"
+		aria-atomic="true"
+		aria-hidden="false"
+		data-category="error"
+	>
+		<div class="toast-content">
+			@iconError()
+			<section>
+				Whoops, error on our side.
+				<br/>
+				The error was reported,
+				<br/>
+				please try again later.
+			</section>
+			<footer>
+				<button type="button" class="btn" data-toast-action>Dismiss</button>
+			</footer>
+		</div>
 	</div>
 }
 
 templ fragmentMessagesLink(unreadChats int) {
 	<a id="messages" href="/messages">
 		if unreadChats > 0 {
-			<b>Messages ({ fmt.Sprintf("%d", unreadChats) })</b>
+			@iconMessages()
+			<b>
+				Messages
+				<span class="badge-outline">
+					{ fmt.Sprintf("%d", unreadChats) }
+				</span>
+			</b>
 		} else {
+			@iconMessages()
 			Messages
 		}
 	</a>
+}
+
+templ fragmentInternalError() {
+	<p>Internal error</p>
 }
 
 templ page500() {
@@ -60,12 +112,11 @@ templ page500() {
 }
 
 templ page404(session SessionJWT, baseData baseData) {
-	@wrapper(session, "", baseData) {
-		<div id="page-404">
-			<h1>Oh-oh!</h1>
-			<p>This page doesn't exist.</p>
-			<a href="/">Go back to homepage.</a>
-		</div>
+	@fragmentNavbar(session, "", baseData)
+	@page("page-404") {
+		<h1>Oh-oh!</h1>
+		<p>This page doesn't exist.</p>
+		<a href="/">Go back to homepage.</a>
 	}
 }
 
@@ -73,204 +124,263 @@ templ pageIndex(
 	session SessionJWT, mainCategories []domain.Category, recentlyPosted []domain.Post,
 	baseData baseData,
 ) {
-	@wrapper(session, "", baseData) {
-		<div id="page-index">
-			<ul id="main-categories">
-				for _, category := range mainCategories {
-					<li>
-						<a href={ fmt.Sprintf("/search/?c=%s", category.ID) }>
-							<img height="16px" src={ category.ImageURL }/>
-							{ category.Name }
-						</a>
-					</li>
-				}
-			</ul>
-			<h2>Recently Posted</h2>
-			@fragmentPosts(recentlyPosted)
-			@fragmentFooter()
-		</div>
+	@fragmentNavbar(session, "", baseData)
+	@page("page-index") {
+		<ul id="main-categories">
+			for _, category := range mainCategories {
+				<li>
+					<a href={ fmt.Sprintf("/search/?c=%s", category.ID) }>
+						<img height="16px" src={ category.ImageURL }/>
+						{ category.Name }
+					</a>
+				</li>
+			}
+		</ul>
+		<h2>Recently Posted</h2>
+		@fragmentPosts(recentlyPosted)
+		@fragmentFooter()
 	}
 }
 
 templ pageLogin(wrongCreds bool) {
-	<div id="page-login" data-signals:_wobbleTip="false">
-		<div class="box">
-			<h1>Sign in</h1>
-			<input
-				id="elInEmail"
-				data-bind="email"
-				type="email"
-				placeholder="E-mail"
-			/>
-			<input
-				id="elInPass"
-				data-bind="password"
-				type="password"
-				placeholder="password"
-			/>
-			<button
-				data-attr:disabled="$email == '' || $password == ''"
-				data-on:click="@post('/login/submit')"
-			>Sign in</button>
-			if wrongCreds {
-				<p>Wrong credentials, please try again.</p>
-			}
-			<a
-				href="/forgot-password"
-				data-on:click="
-					evt.preventDefault();
-					$_wobbleTip = true;
-					setTimeout(() => $_wobbleTip = false, 600);
-				"
-			>Forgot password</a>
+	@page("page-login") {
+		<div data-signals:_wobbleTip="false"></div>
+		<div class="card">
+			<header>
+				<h1>Sign in</h1>
+				<a href="/">continue as guest</a>
+			</header>
+			<section>
+				<input
+					class="input"
+					id="elInEmail"
+					data-bind="emailorusername"
+					type="text"
+					placeholder="email or username"
+				/>
+				<input
+					class="input"
+					id="elInPass"
+					data-bind="password"
+					type="password"
+					placeholder="password"
+				/>
+				if wrongCreds {
+					<div class="alert">
+						@iconClose()
+						<section>Wrong credentials, please try again</section>
+					</div>
+				}
+				<button
+					class="btn"
+					data-attr:disabled="$emailorusername == '' || $password == ''"
+					data-on:click="@post('/login/submit')"
+				>Sign in</button>
+				<a
+					class="btn-ghost"
+					id="forgot-password"
+					href="/forgot-password"
+					data-on:click="
+							evt.preventDefault();
+							$_wobbleTip = true;
+							setTimeout(() => $_wobbleTip = false, 600);
+						"
+				>Forgot password</a>
+			</section>
 		</div>
 		<div class="hint">
 			<i data-class:wobble="$_wobbleTip">
 				Psst, try <b>user@test.net</b> and <b>testuser</b>
 			</i>
 			<button
+				class="btn-secondary"
 				data-on:click="
-					$email = 'user@test.net';
+					$emailorusername = 'user@test.net';
 					$password = 'testuser';
 				"
 			>Let me fill it in for you</button>
 		</div>
-	</div>
+	}
 }
 
 templ pageMessages(
 	session SessionJWT, chats []Chat, openChat Chat, messages []domain.Message,
 	baseData baseData,
 ) {
-	@wrapper(session, "", baseData) {
-		<div id="page-messages">
-			<div
-				class="chat-list"
-				data-signals:chatselected={ fmt.Sprintf("'%s'", openChat.PostID) }
-			>
-				if len(chats) == 0 {
-					<p>No chats available yet.</p>
-				} else {
-					<ul>
-						for _, chat := range chats {
-							{{
-								classes := templ.CSSClasses{"chat"}
-								if chat.ID == openChat.ID {
-									classes = append(classes, "selected")
-								}
-								if chat.UnreadMessages != 0 {
-									classes = append(classes, "unread")
-								}
-							}}
-							<li class={ classes }>
-								<a href={ fmt.Sprintf("/messages?chat=%s", chat.ID) }>
-									<p>
-										{ chat.Title }
-										if chat.UnreadMessages != 0 {
-											{ fmt.Sprintf("(%d)", chat.UnreadMessages) }
-										}
-									</p>
-								</a>
-								<p class="last-message">{ chat.LastMessageText }</p>
-							</li>
-						}
-					</ul>
-				}
-			</div>
-			<div class="chat-messages">
-				if len(chats) == 0 {
-					<p>
-						<span>You will see chats here once you contact someone </span>
-						<span>or somebody contacts you.</span>
-					</p>
-				} else if openChat.ID == "" {
-					<p>Select any chat.</p>
-				} else {
-					<a target="_blank" href={ hrefPost(openChat.PostSlug) }>
-						<h1>{ openChat.Title }</h1>
-					</a>
-					<ul>
-						for _, msg := range messages {
-							{{
-								classes := templ.CSSClasses{"message"}
-								fromCounterpart := msg.SenderUserName != session.UserID
-								if fromCounterpart {
-									classes = append(classes, "from-counterpart")
-								}
-								if fromCounterpart && msg.TimeRead.IsZero() {
-									classes = append(classes, "new")
-								}
-							}}
-							<li class={ classes }>
-								if fromCounterpart {
-									<p class="message-header">
-										<a
-											target="_blank"
-											href={ hrefUser(msg.SenderUserName) }
-										>
-											{ msg.SenderUserName }
-										</a>
-										at
-										{ msg.TimeSent.Format(time.RFC1123) }
-									</p>
-								} else {
-									<p class="message-header">
-										<b>Me</b>
-										at { msg.TimeSent.Format(time.RFC1123) }
-									</p>
-								}
-								<p>{ msg.Text }</p>
-							</li>
-						}
-					</ul>
-					<div class="chat-input">
-						<input data-bind="messagetext" placeholder="Message"/>
-						<button
-							data-on:click="@post('/messages/sendmessage')"
-						>
-							Send
-						</button>
-					</div>
-				}
-			</div>
+	@fragmentNavbar(session, "", baseData)
+	@page("page-messages") {
+		<div
+			class="chat-list"
+			data-signals:chatselected={ fmt.Sprintf("'%s'", openChat.PostID) }
+		>
+			if len(chats) == 0 {
+				<p>No chats available yet.</p>
+			} else {
+				<ul>
+					for _, chat := range chats {
+						{{
+							classes := templ.CSSClasses{"chat"}
+							if chat.ID == openChat.ID {
+								classes = append(classes, "selected")
+							}
+							if chat.UnreadMessages != 0 {
+								classes = append(classes, "unread")
+							}
+						}}
+						<li class={ classes }>
+							<a href={ fmt.Sprintf("/messages?chat=%s", chat.ID) }>
+								<p>
+									{ chat.Title }
+								</p>
+							</a>
+							<div>
+								<div class="last-message">
+									if chat.UnreadMessages != 0 {
+										<span class="badge-outline">
+											{ chat.UnreadMessages }
+										</span>
+									} else {
+										@iconCheck()
+									}
+									<p>{ chat.LastMessageText }</p>
+								</div>
+							</div>
+						</li>
+					}
+				</ul>
+			}
+		</div>
+		<div class="chat-messages">
+			if len(chats) == 0 {
+				<p>
+					<span>You will see chats here once you contact someone </span>
+					<span>or somebody contacts you.</span>
+				</p>
+			} else if openChat.ID == "" {
+				<p>Select any chat.</p>
+			} else {
+				<a target="_blank" href={ hrefPost(openChat.PostSlug) }>
+					<h1>{ openChat.Title }</h1>
+				</a>
+				<ul>
+					for _, msg := range messages {
+						{{
+							classes := templ.CSSClasses{"message"}
+							fromCounterpart := msg.SenderUserName != session.UserID
+							if fromCounterpart {
+								classes = append(classes, "from-counterpart")
+							}
+							if fromCounterpart && msg.TimeRead.IsZero() {
+								classes = append(classes, "new")
+							}
+						}}
+						<li class={ classes }>
+							if fromCounterpart {
+								<p class="message-header">
+									<a
+										target="_blank"
+										href={ hrefUser(msg.SenderUserName) }
+									>
+										{ msg.SenderUserName }
+									</a>
+									if !msg.TimeRead.IsZero() {
+										@iconCheck()
+									}
+									at
+									{ msg.TimeSent.Format(time.RFC1123) }
+								</p>
+							} else {
+								<p class="message-header">
+									<b>Me</b>
+									if !msg.TimeRead.IsZero() {
+										@iconCheck()
+									}
+									at { msg.TimeSent.Format(time.RFC1123) }
+								</p>
+							}
+							<p>{ msg.Text }</p>
+						</li>
+					}
+				</ul>
+				<div class="chat-input">
+					<textarea
+						class="textarea"
+						type="text"
+						data-bind="messagetext"
+						placeholder="Message"
+					></textarea>
+					<button
+						class="btn"
+						data-on:click="@post('/messages/sendmessage')"
+					>
+						Send
+					</button>
+				</div>
+			}
 		</div>
 	}
 }
 
 templ pageSettings(session SessionJWT, user domain.User, baseData baseData) {
-	@wrapper(session, "", baseData) {
+	@fragmentNavbar(session, "", baseData)
+	@page("page-settings") {
 		<div
-			id="page-settings"
 			data-signals:_usernameorig={ fmt.Sprintf("%q", user.Name) }
 			data-signals:username={ fmt.Sprintf("%q", user.Name) }
 			data-computed:_haschanges="$username != $_usernameorig"
-		>
-			<h1>Settings</h1>
-			<section>
-				<h2>User Information</h2>
-				<label>
-					Name
-					<input
-						data-bind="username"
-						placeholder="New user name"
-					/>
-					<p data-show="$username != $_usernameorig">
-						⚠️ User name will change from
-						<b data-text="$_usernameorig"></b>
-						to
-						<b data-text="$username"></b>
-					</p>
-				</label>
-				<button
-					data-attr:disabled="!$_haschanges"
-					data-on:click="@post('/settings/save')"
-				>Save</button>
-			</section>
-			<section>
-				<h2>Session</h2>
-				<button data-on:click="@post('/settings/sign-out')">Sign Out</button>
-			</section>
-		</div>
+		></div>
+		<h1>Settings</h1>
+		<section>
+			<h2>User Information</h2>
+			<label>
+				Name
+				<input
+					class="input"
+					type="text"
+					data-bind="username"
+					placeholder="New user name"
+				/>
+				<p data-show="$username != $_usernameorig">
+					⚠️ User name will change from
+					<b data-text="$_usernameorig"></b>
+					to
+					<b data-text="$username"></b>
+				</p>
+			</label>
+			<button
+				class="btn"
+				data-attr:disabled="!$_haschanges"
+				data-on:click="@post('/settings/save')"
+			>Save</button>
+		</section>
+		<section>
+			<h2>Debug Stuff</h2>
+			<p>
+				Simulate a 500 internal server error
+				to demonstrate the graceful feedback via a toast.
+			</p>
+			<button
+				class="btn"
+				data-on:click="@post('/cause-500-internal-error')"
+			>Cause Internal Error</button>
+			<p>
+				Expire session immediately
+			</p>
+			<button
+				class="btn"
+				data-on:click="@post('/expire-session-jwt')"
+			>Expire Session</button>
+		</section>
+		<section>
+			<h2>Session</h2>
+			<button
+				class="btn-destructive"
+				data-on:click="
+					@post('/sign-out');
+					window.location.href = '/login';
+				"
+			>Sign Out</button>
+		</section>
 	}
 }
 
@@ -278,72 +388,77 @@ templ pageSearch(
 	session SessionJWT, query SearchParams, categories []domain.Category,
 	posts []domain.Post, baseData baseData,
 ) {
-	@wrapper(session, query.Term, baseData) {
-		<div id="page-search">
-			<div
-				id="search-filters"
-				data-on:change="@post('/search/paramchange')"
-			>
-				<label>
-					Category
-					<select
-						name="category"
-						placeholder="Category"
-						data-bind="category"
-					>
+	@fragmentNavbar(session, query.Term, baseData)
+	@page("page-search") {
+		<div
+			class="card"
+			id="search-filters"
+			data-on:change="@post('/search/paramchange')"
+		>
+			<label>
+				Category
+				<select
+					class="select"
+					name="category"
+					placeholder="Category"
+					data-bind="category"
+				>
+					<option
+						value=""
+						data-attr:selected={ query.Category == "" }
+					>All</option>
+					for _, category := range categories {
 						<option
-							value=""
-							data-attr:selected={ query.Category == "" }
-						>All</option>
-						for _, category := range categories {
-							<option
-								value={ category.ID }
-								data-attr:selected={ category.ID == query.Category }
-							>
-								{ category.Name }
-							</option>
-						}
-					</select>
-				</label>
-				<label>
-					Location
-					<input
-						name="location"
-						value={ query.Location }
-						placeholder="Location"
-						data-bind="location"
-					/>
-				</label>
-				<label>
-					Minimum Price
-					<input
-						name="minimum-price"
-						value={ query.PriceMin }
-						type="number"
-						data-bind="pmin"
-						placeholder="Minimum price"
-					/>
-				</label>
-				<label>
-					Maximum Price
-					<input
-						name="maximum-price"
-						value={ query.PriceMax }
-						type="number"
-						data-bind="pmax"
-						placeholder="Maximum price"
-					/>
-				</label>
-			</div>
-			<div class="search-results">
-				if len(posts) < 1 {
-					<p class="search-empty">Nothing found 🤷‍♂️</p>
-				} else {
-					@fragmentPosts(posts)
-				}
-			</div>
-			@fragmentFooter()
+							value={ category.ID }
+							data-attr:selected={ category.ID == query.Category }
+						>
+							{ category.Name }
+						</option>
+					}
+				</select>
+			</label>
+			<label>
+				Location
+				<input
+					class="input"
+					name="location"
+					type="text"
+					value={ query.Location }
+					placeholder="Location"
+					data-bind="location"
+				/>
+			</label>
+			<label>
+				Minimum Price
+				<input
+					class="input"
+					name="minimum-price"
+					value={ query.PriceMin }
+					type="number"
+					data-bind="pmin"
+					placeholder="Minimum price"
+				/>
+			</label>
+			<label>
+				Maximum Price
+				<input
+					class="input"
+					name="maximum-price"
+					value={ query.PriceMax }
+					type="number"
+					data-bind="pmax"
+					placeholder="Maximum price"
+				/>
+			</label>
 		</div>
+		<div class="search-results">
+			if len(posts) < 1 {
+				<p class="search-empty">Nothing found 🤷‍♂️</p>
+			} else {
+				@fragmentPosts(posts)
+			}
+		</div>
+		@fragmentFooter()
 	}
 }
 
@@ -371,18 +486,33 @@ templ headPost(title, description, imageURL string) {
 templ pagePost(
 	session SessionJWT, post domain.Post, similarPosts []domain.Post, baseData baseData,
 ) {
-	@wrapper(session, "", baseData) {
+	@fragmentNavbar(session, "", baseData)
+	@page("page-post") {
 		<div
-			id="page-post"
 			data-signals:_compactheader="false"
 			data-signals:_showsendmessage="false"
+		></div>
+		<div
+			id="post-header"
+			data-class:hidden="$_compactheader"
+			data-on-intersect__half="$_compactheader = false"
+			data-on-intersect__exit__half="$_compactheader = true"
 		>
-			<div
-				id="post-header"
-				data-class:hidden="$_compactheader"
-				data-on-intersect__half="$_compactheader = false"
-				data-on-intersect__exit__half="$_compactheader = true"
-			>
+			<h1 class="post-title">{ post.Title }</h1>
+			<div class="post-meta">
+				<a
+					href={ hrefUser(post.MerchantUserName) }
+					class="post-merchant"
+				>By { post.MerchantUserName }</a>
+				<p class="post-location">{ post.Location }</p>
+				<p class="post-price">{ post.Price }€</p>
+			</div>
+		</div>
+		<div
+			id="post-header-compact"
+			data-class:hidden="!$_compactheader"
+		>
+			<div>
 				<h1 class="post-title">{ post.Title }</h1>
 				<div class="post-meta">
 					<a
@@ -393,73 +523,51 @@ templ pagePost(
 					<p class="post-price">{ post.Price }€</p>
 				</div>
 			</div>
-			<div
-				id="post-header-compact"
-				data-class:hidden="!$_compactheader"
-			>
-				<div>
-					<h1 class="post-title">{ post.Title }</h1>
-					<div class="post-meta">
-						<a
-							href={ hrefUser(post.MerchantUserName) }
-							class="post-merchant"
-						>By { post.MerchantUserName }</a>
-						<p class="post-location">{ post.Location }</p>
-						<p class="post-price">{ post.Price }€</p>
-					</div>
-				</div>
-			</div>
-			<img class="post-image" src={ post.ImageURL }/>
-			<p class="post-time">
-				Posted on { post.TimePosted.Format(time.RFC1123) }
-			</p>
-			if session.UserID != "" {
-				<button
-					data-show="!$_showsendmessage"
-					data-on:click="$_showsendmessage = true"
-				>Send a message</button>
-				<div class="message-form" data-show="$_showsendmessage">
-					<textarea
-						data-bind="messagetext"
-						placeholder="Write a message to the seller to get more information or to arrange the transaction..."
-					></textarea>
-					<button
-						data-on:click="@post('/post/')"
-						data-attr:disabled="$messagetext === ''"
-					>Send</button>
-				</div>
-			} else {
-				<a href="/login">Login to send a message</a>
-			}
-			<p class="post-description">{ post.Description }</p>
-			<h3 class="similar-heading">Similar Posts</h3>
-			@fragmentPosts(similarPosts)
-			@fragmentFooter()
 		</div>
+		<img class="post-image" src={ post.ImageURL }/>
+		<p class="post-time">
+			Posted on { post.TimePosted.Format(time.RFC1123) }
+		</p>
+		if session.UserID != "" {
+			<button
+				class="btn"
+				id="sendmessage"
+				data-show="!$_showsendmessage"
+				data-on:click="$_showsendmessage = true"
+			>Send a message</button>
+			<div data-show="$_showsendmessage">
+				@fragmentMessageForm()
+			</div>
+		} else {
+			<a href="/login">Login to send a message</a>
+		}
+		<p class="post-description">{ post.Description }</p>
+		<h3 class="similar-heading">Similar Posts</h3>
+		@fragmentPosts(similarPosts)
+		@fragmentFooter()
 	}
 }
 
 templ pageUser(
 	session SessionJWT, baseData baseData, user domain.User, posts []domain.Post,
 ) {
-	@wrapper(session, "", baseData) {
-		<div id="page-user">
-			<h1>{ user.Name }</h1>
-			if user.AvatarImageURL != "" {
-				<img src={ user.AvatarImageURL }/>
-			}
-			<p>Account created: { user.AccountCreated.Format(time.RFC1123) }</p>
-			<h2>Posts</h2>
-			@fragmentPosts(posts)
-			@fragmentFooter()
-		</div>
+	@fragmentNavbar(session, "", baseData)
+	@page("page-user") {
+		<h1>{ user.Name }</h1>
+		if user.AvatarImageURL != "" {
+			<img src={ user.AvatarImageURL }/>
+		}
+		<p>Account created: { user.AccountCreated.Format(time.RFC1123) }</p>
+		<h2>Posts</h2>
+		@fragmentPosts(posts)
+		@fragmentFooter()
 	}
 }
 
 templ fragmentPosts(posts []domain.Post) {
 	<ul class="post-cards">
 		for _, post := range posts {
-			<li class="post-card">
+			<li class="card">
 				<img src={ post.ImageURL }/>
 				<div class="body">
 					<a
@@ -491,5 +599,84 @@ templ fragmentFooter() {
 				github.com/romshark
 			</a>
 		</p>
+	</div>
+}
+
+templ fragmentMessageForm() {
+	<div id="message-form">
+		<textarea
+			class="textarea"
+			data-bind="messagetext"
+			placeholder="Write a message to the seller to get more information or to arrange the transaction..."
+		></textarea>
+		<button
+			class="btn"
+			data-on:click="@post('/post/')"
+			data-attr:disabled="$messagetext === ''"
+		>Send</button>
+	</div>
+}
+
+templ fragmentMessageFormSending() {
+	<div id="message-form">
+		<p>Sending...</p>
+	</div>
+}
+
+templ fragmentMessageFormSent(chatID string) {
+	<div id="message-form">
+		<p>Message sent!</p>
+		<a href={ hrefChat(chatID) }>Open the chat</a>
+	</div>
+}
+
+templ menuBase(id, userName string) {
+	<div
+		id="dropdown-menu-checkboxes"
+		class="dropdown-menu"
+	>
+		<button
+			type="button"
+			id={ id + "-trigger" }
+			aria-haspopup="menu"
+			aria-controls={ id + "-menu" }
+			aria-expanded="false"
+			class="btn-outline"
+		>
+			@iconUser()
+			{ userName }
+		</button>
+		<div
+			id={ id + "-popover" }
+			data-popover
+			aria-hidden="true"
+			class="min-w-56"
+		>
+			<div
+				role="menu"
+				id={ id + "-menu" }
+				aria-labelledby={ id + "-trigger" }
+			>
+				<div
+					role="group"
+					aria-labelledby="account-options"
+				>
+					<a
+						href="/posts"
+						role="menuitem"
+					>
+						@iconShop()
+						My Posts
+					</a>
+					<a
+						href="/settings"
+						role="menuitem"
+					>
+						@iconSettings()
+						Settings
+					</a>
+				</div>
+			</div>
+		</div>
 	</div>
 }

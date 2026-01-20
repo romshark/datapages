@@ -49,12 +49,3 @@ func (p PageSettings) POSTSave(
 	// TODO
 	return nil
 }
-
-// POSTSignOut is /settings/sign-out/{$}
-func (p PageSettings) POSTSignOut(r *http.Request) (
-	redirect Redirect,
-	removeSessionJWT bool,
-	err error,
-) {
-	return Redirect{Target: "/login"}, true, nil
-}

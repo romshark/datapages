@@ -27,8 +27,8 @@ func (p PageLogin) POSTSubmit(
 	r *http.Request,
 	session SessionJWT,
 	signals struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		EmailOrUsername string `json:"emailorusername"`
+		Password        string `json:"password"`
 	},
 ) (
 	body templ.Component,
@@ -41,11 +41,12 @@ func (p PageLogin) POSTSubmit(
 		redirect = Redirect{Target: "/", Status: http.StatusSeeOther}
 		return
 	}
-	uid, err := p.App.repo.Login(signals.Email, signals.Password)
+	uid, err := p.App.repo.Login(signals.EmailOrUsername, signals.Password)
 	if err != nil {
-		if errors.Is(err, domain.ErrInvalidCredentials) {
+		if errors.Is(err, domain.ErrInvalidCredentials) ||
+			errors.Is(err, domain.ErrUserNotFound) {
 			// Re-render page with feedback
-			body = pageLogin(true)
+			err, body = nil, pageLogin(true)
 			return
 		}
 	}

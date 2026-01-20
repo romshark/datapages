@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"datapages/app/domain"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -38,19 +39,78 @@ type SearchParams struct {
 	Location string `json:"location" query:"l" reflectsignal:"location"`
 }
 
+// POSTSignOut is /sign-out/{$}
+func (*App) POSTSignOut(r *http.Request) (
+	removeSessionJWT bool,
+	redirect Redirect,
+	err error,
+) {
+	return true, Redirect{Target: "/login"}, nil
+}
+
+// POSTCause500 is /cause-500-internal-error/{$}
+func (*App) POSTCause500(r *http.Request) error {
+	return fmt.Errorf("this is an intentional 500 internal error")
+}
+
+// POSTExpireSessionJWT is /expire-session-jwt/{$}
+func (*App) POSTExpireSessionJWT(
+	r *http.Request,
+	session SessionJWT,
+) (
+	newSession SessionJWT,
+	err error,
+) {
+	if session.UserID == "" {
+		err = errors.New("not logged in")
+		return
+	}
+	now := time.Now()
+	return SessionJWT{
+		UserID:     session.UserID,
+		IssuedAt:   now,
+		Expiration: now.Add(1 * time.Millisecond),
+	}, nil
+}
+
+func (*App) Recover500(
+	err error,
+	sse *datastar.ServerSentEventGenerator,
+) error {
+	return sse.PatchElementTempl(toastInternalError(),
+		datastar.WithSelectorID("toaster"),
+		datastar.WithModeAppend())
+	// Or use script execution:
+	//
+	// 	return sse.ExecuteScript(`
+	// 		document.dispatchEvent(new CustomEvent('basecoat:toast', {
+	// 			detail: {
+	// 				config: {
+	// 					category: 'error',
+	// 					title: 'Error',
+	// 					description: 'Something went wrong on our side.',
+	// 					cancel: {
+	// 						label: 'Dismiss'
+	// 					}
+	// 				}
+	// 			}
+	// 		}))
+	// 	`)
+}
+
 // Page render funcs
 func (*App) Head(r *http.Request) (body templ.Component, err error) {
 	return head(), nil
 }
 
 type Chat struct {
-	ID                      string
-	Title                   string
-	PostID                  string
-	PostSlug                string
-	UnreadMessages          int
+	ID                        string
+	Title                     string
+	PostID                    string
+	PostSlug                  string
+	UnreadMessages            int
 	LastMessageSenderUserName string
-	LastMessageText         string
+	LastMessageText           string
 }
 
 // Base is the main page wrapper

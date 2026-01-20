@@ -13,3 +13,7 @@ func hrefPost(postSlug string) templ.SafeURL {
 func hrefUser(name string) templ.SafeURL {
 	return templ.URL(fmt.Sprintf("/user/%s", name))
 }
+
+func hrefChat(chatID string) templ.SafeURL {
+	return templ.URL(fmt.Sprintf("/messaging?chat=%s", chatID))
+}

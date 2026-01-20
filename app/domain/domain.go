@@ -172,12 +172,14 @@ func newID() string {
 	return ulid.Make().String()
 }
 
-func (r *Repository) Login(email, passwordPlaintext string) (userName string, err error) {
+func (r *Repository) Login(
+	emailOrUsername, passwordPlaintext string,
+) (userName string, err error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
 	for _, u := range r.usersByName {
-		if u.Email != email {
+		if u.Email != emailOrUsername && u.Name != emailOrUsername {
 			continue
 		}
 		if err := bcrypt.CompareHashAndPassword(
