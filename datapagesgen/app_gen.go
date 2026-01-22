@@ -390,7 +390,9 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
+	if err := s.writeHTML(
+		w, r, app.SessionJWT{}, genericHead, nil, body, nil,
+	); err != nil {
 		s.logErr("rendering Page404", err)
 		return
 	}
@@ -407,13 +409,24 @@ func (s *Server) handlePOSTExpireSessionJWT(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
+
+	var sig struct {
+		CSRFToken string `json:"dp_csrf"`
+	}
+	if err := datastar.ReadSignals(r, &sig); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+	}
+	if !s.checkCSRF(w, sig.CSRFToken, sess) {
+		return
+	}
+
 	newSessionJWT, err := s.app.POSTExpireSessionJWT(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.POSTExpireSessionJWT", err)
 	}
 	if j := newSessionJWT; j.UserID != "" {
 		s.mustSetSessionJWT(
-			w, j.UserID, s.authJWTOpts.Audience, s.authJWTOpts.Issuer,
+			w, j.UserID, s.authJWTOpts.Issuer, s.authJWTOpts.Audience,
 			j.IssuedAt, j.Expiration,
 		)
 	}
@@ -435,7 +448,9 @@ func (s *Server) handlePage500GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
+	if err := s.writeHTML(
+		w, r, app.SessionJWT{}, genericHead, nil, body, nil,
+	); err != nil {
 		s.logErr("rendering Page500", err)
 		return
 	}
@@ -476,7 +491,9 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
-	if err := writeHTML(w, r, genericHead, nil, body, bodyAttrs); err != nil {
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs,
+	); err != nil {
 		s.logErr("rendering PageIndex", err)
 		return
 	}
@@ -500,7 +517,8 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		Base: app.Base{App: s.app},
 	}
 
-	s.handleStreamRequest(w, r, evSubjPageIndex(sess.UserID), func(
+	ttl := time.Until(sess.Expiration)
+	s.handleStreamRequest(w, r, evSubjPageIndex(sess.UserID), ttl, func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
 		for msg := range ch {
@@ -550,7 +568,9 @@ func (s *Server) handlePage404GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, nil,
+	); err != nil {
 		s.logErr("rendering Page404", err)
 		return
 	}
@@ -577,7 +597,9 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "generating generic head for PageLogin", err)
 		return
 	}
-	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, nil,
+	); err != nil {
 		s.logErr("rendering PageLogin", err)
 		return
 	}
@@ -592,23 +614,35 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var sig struct {
+		CSRFToken string `json:"dp_csrf"`
+
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`
 	}
 	if err := datastar.ReadSignals(r, &sig); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 	}
+	if !s.checkCSRF(w, sig.CSRFToken, sess) {
+		return
+	}
 
 	p := app.PageLogin{App: s.app}
 
-	body, redirect, newSessionJWT, err := p.POSTSubmit(r, sess, sig)
+	signals := struct {
+		EmailOrUsername string `json:"emailorusername"`
+		Password        string `json:"password"`
+	}{
+		EmailOrUsername: sig.EmailOrUsername,
+		Password:        sig.Password,
+	}
+	body, redirect, newSessionJWT, err := p.POSTSubmit(r, sess, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.POSTSubmit", err)
 		return
 	}
 	if j := newSessionJWT; j.UserID != "" {
 		s.mustSetSessionJWT(
-			w, j.UserID, s.authJWTOpts.Audience, s.authJWTOpts.Issuer,
+			w, j.UserID, s.authJWTOpts.Issuer, s.authJWTOpts.Audience,
 			j.IssuedAt, j.Expiration,
 		)
 	}
@@ -620,8 +654,10 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 		s.httpErrIntern(w, r, nil, "generating generic head for PageSettings", err)
 		return
 	}
-	if err := writeHTML(w, r, genericHead, nil, body, nil); err != nil {
-		s.logErr("rendering PageSettings", err)
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, nil,
+	); err != nil {
+		s.logErr("rendering response of PageLoginPOSTSubmit", err)
 		return
 	}
 }
@@ -659,7 +695,9 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
-	if err := writeHTML(w, r, genericHead, nil, body, bodyAttrs); err != nil {
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs,
+	); err != nil {
 		s.logErr("rendering PageSettings", err)
 		return
 	}
@@ -683,7 +721,8 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 		Base: app.Base{App: s.app},
 	}
 
-	s.handleStreamRequest(w, r, evSubjPageSettings(sess.UserID), func(
+	ttl := time.Until(sess.Expiration)
+	s.handleStreamRequest(w, r, evSubjPageSettings(sess.UserID), ttl, func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
 		for msg := range ch {
@@ -720,18 +759,29 @@ func (s *Server) handlePageSettingsPOSTSave(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var sig struct {
+		CSRFToken string `json:"dp_csrf"`
+
 		Username string `json:"username"`
 	}
 	if err := datastar.ReadSignals(r, &sig); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 	}
+	if !s.checkCSRF(w, sig.CSRFToken, sess) {
+		return
+	}
+
 	p := app.PageSettings{
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	err := p.POSTSave(r, sse, sess, sig)
+	signals := struct {
+		Username string `json:"username"`
+	}{
+		Username: sig.Username,
+	}
+	err := p.POSTSave(r, sse, sess, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageSettings.POSTSave", err)
 		return
@@ -801,7 +851,9 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
-	if err := writeHTML(w, r, genericHead, nil, body, bodyAttrs); err != nil {
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs,
+	); err != nil {
 		s.logErr("rendering PageMessages", err)
 		return
 	}
@@ -833,7 +885,8 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 		Base: app.Base{App: s.app},
 	}
 
-	s.handleStreamRequest(w, r, evSubjPageMessages(sess.UserID), func(
+	ttl := time.Until(sess.Expiration)
+	s.handleStreamRequest(w, r, evSubjPageMessages(sess.UserID), ttl, func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
 		for msg := range ch {
@@ -895,22 +948,24 @@ func (s *Server) handlePageMessagesPOSTRead(
 	if !ok {
 		return
 	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	var sig struct {
+		CSRFToken string `json:"dp_csrf"`
+
+		ChatSelected string `json:"chatselected"`
+	}
+	if err := datastar.ReadSignals(r, &sig); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+	}
+	if !s.checkCSRF(w, sig.CSRFToken, sess) {
+		return
+	}
 
 	q := r.URL.Query()
 	var query struct {
 		MessageID string `query:"msgid"`
 	}
 	query.MessageID = q.Get("msgid")
-
-	var signals struct {
-		ChatSelected string `json:"chatselected"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
-		s.httpErrBad(w, "unexpected body, expected JSON signals", err)
-		return
-	}
 
 	dispatch := func(
 		e1 app.EventMessagingRead,
@@ -936,6 +991,11 @@ func (s *Server) handlePageMessagesPOSTRead(
 		Base: app.Base{App: s.app},
 	}
 
+	signals := struct {
+		ChatSelected string `json:"chatselected"`
+	}{
+		ChatSelected: sig.ChatSelected,
+	}
 	if err := p.POSTRead(r, sess, signals, query, dispatch); err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTRead", err)
 		return
@@ -952,14 +1012,16 @@ func (s *Server) handlePageMessagesPOSTWriting(
 	if !ok {
 		return
 	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	var sig struct {
+		CSRFToken string `json:"dp_csrf"`
 
-	var signals struct {
 		ChatSelected string `json:"chatselected"`
 	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
-		s.httpErrBad(w, "unexpected body, expected JSON signals", err)
+	if err := datastar.ReadSignals(r, &sig); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+	}
+	if !s.checkCSRF(w, sig.CSRFToken, sess) {
 		return
 	}
 
@@ -987,6 +1049,11 @@ func (s *Server) handlePageMessagesPOSTWriting(
 		Base: app.Base{App: s.app},
 	}
 
+	signals := struct {
+		ChatSelected string `json:"chatselected"`
+	}{
+		ChatSelected: sig.ChatSelected,
+	}
 	if err := p.POSTWriting(r, sess, signals, dispatch); err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTWriting", err)
 		return
@@ -1003,14 +1070,16 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 	if !ok {
 		return
 	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	var sig struct {
+		CSRFToken string `json:"dp_csrf"`
 
-	var signals struct {
 		ChatSelected string `json:"chatselected"`
 	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
-		s.httpErrBad(w, "unexpected body, expected JSON signals", err)
+	if err := datastar.ReadSignals(r, &sig); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+	}
+	if !s.checkCSRF(w, sig.CSRFToken, sess) {
 		return
 	}
 
@@ -1038,6 +1107,11 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 		Base: app.Base{App: s.app},
 	}
 
+	signals := struct {
+		ChatSelected string `json:"chatselected"`
+	}{
+		ChatSelected: sig.ChatSelected,
+	}
 	if err := p.POSTWritingStopped(r, sess, signals, dispatch); err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTWritingStopped", err)
 		return
@@ -1054,15 +1128,17 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 	if !ok {
 		return
 	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	var sig struct {
+		CSRFToken string `json:"dp_csrf"`
 
-	var signals struct {
 		ChatSelected string `json:"chatselected"`
 		MessageText  string `json:"messagetext"`
 	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
-		s.httpErrBad(w, "unexpected body, expected JSON signals", err)
+	if err := datastar.ReadSignals(r, &sig); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+	}
+	if !s.checkCSRF(w, sig.CSRFToken, sess) {
 		return
 	}
 
@@ -1104,6 +1180,13 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 		Base: app.Base{App: s.app},
 	}
 
+	signals := struct {
+		ChatSelected string `json:"chatselected"`
+		MessageText  string `json:"messagetext"`
+	}{
+		ChatSelected: sig.ChatSelected,
+		MessageText:  sig.MessageText,
+	}
 	if err := p.POSTSendMessage(r, sess, signals, dispatch); err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTSendMessage", err)
 		return
@@ -1193,7 +1276,9 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
-	if err := writeHTML(w, r, genericHead, nil, body, bodyAttrs); err != nil {
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs,
+	); err != nil {
 		s.logErr("rendering PageSearch", err)
 		return
 	}
@@ -1217,7 +1302,8 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 		Base: app.Base{App: s.app},
 	}
 
-	s.handleStreamRequest(w, r, evSubjPageSearch(sess.UserID), func(
+	ttl := time.Until(sess.Expiration)
+	s.handleStreamRequest(w, r, evSubjPageSearch(sess.UserID), ttl, func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
 		for msg := range ch {
@@ -1274,7 +1360,9 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "generating generic head for PageUser", err)
 		return
 	}
-	if err := writeHTML(w, r, genericHead, head, body, nil); err != nil {
+	if err := s.writeHTML(
+		w, r, sess, genericHead, head, body, nil,
+	); err != nil {
 		s.logErr("rendering PageUser", err)
 		return
 	}
@@ -1326,7 +1414,9 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
-	if err := writeHTML(w, r, genericHead, head, body, bodyAttrs); err != nil {
+	if err := s.writeHTML(
+		w, r, sess, genericHead, head, body, bodyAttrs,
+	); err != nil {
 		s.logErr("rendering PagePost", err)
 		return
 	}
@@ -1342,12 +1432,20 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	if !ok {
 		return
 	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	var sig struct {
+		CSRFToken string `json:"dp_csrf"`
 
-	var signals app.SearchParams
-	if err := datastar.ReadSignals(r, &signals); err != nil {
-		s.httpErrBad(w, "unexpected body, expected JSON signals", err)
+		Term     string `json:"term"`
+		Category string `json:"category"`
+		PriceMin int64  `json:"pmin,omitempty"`
+		PriceMax int64  `json:"pmax,omitempty"`
+		Location string `json:"location"`
+	}
+	if err := datastar.ReadSignals(r, &sig); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+	}
+	if !s.checkCSRF(w, sig.CSRFToken, sess) {
 		return
 	}
 
@@ -1357,6 +1455,13 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	signals := app.SearchParams{
+		Term:     sig.Term,
+		Category: sig.Category,
+		PriceMin: sig.PriceMin,
+		PriceMax: sig.PriceMax,
+		Location: sig.Location,
+	}
 	if err := p.POSTParamChange(r, sse, sess, signals); err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageSearch.POSTParamChange", err)
 		return
@@ -1381,7 +1486,8 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 		Base: app.Base{App: s.app},
 	}
 
-	s.handleStreamRequest(w, r, evSubjPagePost(sess.UserID), func(
+	ttl := time.Until(sess.Expiration)
+	s.handleStreamRequest(w, r, evSubjPagePost(sess.UserID), ttl, func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
 		for msg := range ch {
@@ -1396,7 +1502,6 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 					s.logErr("handling PagePost.Base.OnMessagingSent", err)
 				}
 			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-
 				var e app.EventMessagingRead
 				if err := json.Unmarshal(msg.Data, &e); err != nil {
 					s.logErr("unmarshaling EventMessagingRead JSON", err)
@@ -1429,14 +1534,16 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	if !ok {
 		return
 	}
-
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	var sig struct {
+		CSRFToken string `json:"dp_csrf"`
 
-	var signals struct {
 		MessageText string `json:"messagetext"`
 	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
-		s.httpErrBad(w, "unexpected body, expected JSON signals", err)
+	if err := datastar.ReadSignals(r, &sig); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+	}
+	if !s.checkCSRF(w, sig.CSRFToken, sess) {
 		return
 	}
 
@@ -1470,6 +1577,11 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	signals := struct {
+		MessageText string `json:"messagetext"`
+	}{
+		MessageText: sig.MessageText,
+	}
 	if err := p.POSTSendMessage(r, sse, sess, path, signals, dispatch); err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTSendMessage", err)
 		return

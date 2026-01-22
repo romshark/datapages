@@ -4,6 +4,7 @@ NATS_HTTP_PORT := 8222
 NATS_IMAGE := nats:latest
 
 dev: nats-stop nats-up
+	@if [ -f .env ]; then export $$(cat .env | xargs); fi && \
 	go run github.com/romshark/templier@latest
 
 test: lint

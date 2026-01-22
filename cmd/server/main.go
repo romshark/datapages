@@ -25,10 +25,11 @@ func main() {
 
 	var opts []datapagesgen.ServerOption
 
-	opts = withAccessLogger(opts)
-	opts = withAuthJWT(opts)
-	opts = withStaticFS(opts)
-	opts = withMessageBroker(opts, *fMsgBrokerMem)
+	withAccessLogger(&opts)
+	withAuthJWT(&opts)
+	withCSRFProtection(&opts)
+	withStaticFS(&opts)
+	withMessageBroker(&opts, *fMsgBrokerMem)
 
 	repo := NewRepository()
 
@@ -44,7 +45,7 @@ func main() {
 	slog.Info("server shut down")
 }
 
-func withAccessLogger(opts []datapagesgen.ServerOption) []datapagesgen.ServerOption {
+func withAccessLogger(opts *[]datapagesgen.ServerOption) {
 	loggerAccess := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
@@ -56,33 +57,39 @@ func withAccessLogger(opts []datapagesgen.ServerOption) []datapagesgen.ServerOpt
 			next.ServeHTTP(w, r)
 		})
 	})
-	return append(opts, o)
+	*opts = append(*opts, o)
 }
 
-func withAuthJWT(opts []datapagesgen.ServerOption) []datapagesgen.ServerOption {
+func withAuthJWT(opts *[]datapagesgen.ServerOption) {
 	o := datapagesgen.WithAuthJWTConfig(datapagesgen.AuthJWTConfig{
-		Secret: []byte("myjwtsecret"),
+		Secret: []byte(os.Getenv("JWT_SECRET")),
 	})
-	return append(opts, o)
+	*opts = append(*opts, o)
 }
 
-func withStaticFS(opts []datapagesgen.ServerOption) []datapagesgen.ServerOption {
+func withStaticFS(opts *[]datapagesgen.ServerOption) {
 	fsStatic, err := app.FSStatic()
 	if err != nil {
 		slog.Error("preparing static fs", slog.Any("err", err))
 		os.Exit(1)
 	}
-	return append(opts,
+	*opts = append(*opts,
 		datapagesgen.WithStaticFS("/static/", fsStatic, app.FSStaticDev()))
 }
 
+func withCSRFProtection(opts *[]datapagesgen.ServerOption) {
+	*opts = append(*opts, datapagesgen.WithCSRFProtection(datapagesgen.CSRFConfig{
+		Secret: []byte(os.Getenv("CSRF_SECRET")),
+	}))
+}
+
 func withMessageBroker(
-	opts []datapagesgen.ServerOption,
+	opts *[]datapagesgen.ServerOption,
 	forceInmem bool,
-) []datapagesgen.ServerOption {
+) {
 	if forceInmem {
 		slog.Info("forced in-memory message broker")
-		return opts
+		return
 	}
 
 	// If NATS URL is set then enable NATS message broker.
@@ -92,7 +99,7 @@ func withMessageBroker(
 		slog.Error("opening NATS connection", slog.Any("err", err))
 		os.Exit(1)
 	}
-	opts = append(opts, datapagesgen.WithMessageBrokerNATS(
+	*opts = append(*opts, datapagesgen.WithMessageBrokerNATS(
 		conn, datapagesgen.MessageBrokerNATSConfig{
 			StreamConfig: &nats.StreamConfig{
 				Name:    "DATAPAGES_DEMO",
@@ -101,7 +108,6 @@ func withMessageBroker(
 		},
 	))
 	slog.Info("using NATS message broker")
-	return opts
 }
 
 func listenAndServe(s *datapagesgen.Server, host string) {

@@ -5,7 +5,11 @@ package datapagesgen
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
 	"datapages/app"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -144,6 +149,23 @@ func WithMessageBroker(b MessageBroker) ServerOption {
 	}
 }
 
+type CSRFConfig struct {
+	Secret []byte
+}
+
+// WithCSRFProtection enables Cross-Site-Request-Forgery protection on
+// POST/PUT/PATCH/DELETE action endpoints. By default CSRF protection is disabled
+// but will log a warning during server initialization time.
+func WithCSRFProtection(conf CSRFConfig) ServerOption {
+	return func(s *Server) error {
+		if len(conf.Secret) < 1 {
+			return errors.New("empty CSRF secret")
+		}
+		s.csrfConf = &conf
+		return nil
+	}
+}
+
 // NewServer creates a new server instance.
 // Supported options:
 //
@@ -229,6 +251,9 @@ func NewServer(app *app.App, opts ...ServerOption) *Server {
 func (s *Server) ListenAndServe(hostAddress string) error {
 	s.httpServer.Addr = hostAddress
 	s.enabledTLS = false
+	if s.csrfConf == nil {
+		s.logger.Warn("CSRF protection disabled")
+	}
 	return s.httpServer.ListenAndServe()
 }
 
@@ -258,6 +283,7 @@ type Server struct {
 	enabledTLS    bool
 
 	authJWTOpts *AuthJWTConfig
+	csrfConf    *CSRFConfig
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -299,9 +325,23 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 	return true
 }
 
-func writeHTML(
+func (s *Server) checkCSRF(
+	w http.ResponseWriter, csrfToken string, sess app.SessionJWT,
+) (ok bool) {
+	if sess.UserID == "" || s.csrfConf == nil {
+		return true
+	}
+	if csrfToken == "" {
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return false
+	}
+	return validateCSRFTokenJWT(sess, csrfToken, s.csrfConf.Secret)
+}
+
+func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	sess app.SessionJWT,
 	headGeneric, head, body templ.Component,
 	writeBodyAttrs func(w http.ResponseWriter) error,
 ) error {
@@ -320,8 +360,21 @@ func writeHTML(
 			return err
 		}
 	}
-	if _, err := io.WriteString(w, "</head><body "); err != nil {
-		return err
+	if s.csrfConf == nil || sess.UserID == "" {
+		if _, err := io.WriteString(w, "</head><body "); err != nil {
+			return err
+		}
+	} else {
+		csrfToken := generateCSRFTokenJWT(sess, s.csrfConf.Secret)
+		if _, err := io.WriteString(w, `</head><body data-signals:dp_csrf="'`); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, csrfToken); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, `'" `); err != nil {
+			return err
+		}
 	}
 	if writeBodyAttrs != nil {
 		if err := writeBodyAttrs(w); err != nil {
@@ -341,6 +394,7 @@ func writeHTML(
 func (s *Server) handleStreamRequest(
 	w http.ResponseWriter, r *http.Request,
 	subjects []string,
+	sessionTTL time.Duration,
 	fn func(
 		sse *datastar.ServerSentEventGenerator,
 		ch <-chan Message,
@@ -355,17 +409,20 @@ func (s *Server) handleStreamRequest(
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
 	}
-	defer func() {
-		if err := sub.Close(); err != nil {
-			s.logErr("closing message broker subscription", err)
-		}
-	}()
 
 	subC := sub.C()
 
 	go func() {
-		// Close the subscription when the request is canceled.
+		var expirationC <-chan time.Time
+		if sessionTTL != 0 {
+			t := time.NewTimer(sessionTTL)
+			defer t.Stop()
+			expirationC = t.C
+		}
+
+		// Close the subscription when the request is canceled or TTL expires.
 		select {
+		case <-expirationC:
 		case <-r.Context().Done():
 		case <-s.shutdownCh:
 		}
@@ -389,6 +446,33 @@ func (s *Server) httpErrUnauth(w http.ResponseWriter, msg string) {
 func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	s.logger.Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
 	http.Error(w, msg, http.StatusBadRequest)
+}
+
+// --- CSRF ---
+
+func generateCSRFTokenJWT(sess app.SessionJWT, secretKey []byte) string {
+	h := hmac.New(sha256.New, secretKey)
+	// hash.Writer never returns an error, ignore it.
+	// See: https://pkg.go.dev/hash#Hash
+	_, _ = io.WriteString(h, sess.UserID)
+	_, _ = io.WriteString(h, "\x00")
+	_, _ = io.WriteString(h, strconv.FormatInt(sess.IssuedAt.Unix(), 16))
+	_, _ = io.WriteString(h, "\x00")
+	_, _ = io.WriteString(h, strconv.FormatInt(sess.Expiration.Unix(), 16))
+	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+}
+
+func validateCSRFTokenJWT(sess app.SessionJWT, token string, secretKey []byte) bool {
+	expected := generateCSRFTokenJWT(sess, secretKey)
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return false
+	}
+	expectedBytes, err := base64.RawURLEncoding.DecodeString(expected)
+	if err != nil {
+		return false
+	}
+	return subtle.ConstantTimeCompare(decoded, expectedBytes) == 1
 }
 
 // --- MESSAGE BROKER: NATS ---
