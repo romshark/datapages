@@ -2,11 +2,14 @@ module datapages
 
 go 1.25.6
 
+// Required by the demo application
+require github.com/oklog/ulid/v2 v2.1.1
+
+// Required by Datapages
 require (
 	github.com/a-h/templ v0.3.977
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/nats-io/nats.go v1.48.0
-	github.com/oklog/ulid/v2 v2.1.1
 	github.com/starfederation/datastar-go v1.1.0
 	golang.org/x/crypto v0.47.0
 )
