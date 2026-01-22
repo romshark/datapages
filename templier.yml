@@ -23,7 +23,7 @@ app:
   dir-cmd: "./cmd/server/"
   dir-work: "."
   host: "http://localhost:52000"
-  flags: -host localhost:52000
+  flags:
 
 custom-watchers:
   - name: "Go mod update"
