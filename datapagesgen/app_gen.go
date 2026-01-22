@@ -1452,12 +1452,11 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	ttl := time.Until(sess.Expiration)
 	p := app.PagePost{
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-	s.handleStreamRequest(w, r, evSubjPagePost(sess.UserID), ttl, func(
+	s.handleStreamRequest(w, r, evSubjPagePost(sess.UserID), 0, func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
 		for msg := range ch {
