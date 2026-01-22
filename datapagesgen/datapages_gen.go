@@ -6,12 +6,14 @@ package datapagesgen
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"datapages/app"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"log/slog"
 	"net/http"
@@ -55,8 +57,8 @@ type MessageBrokerSubscription interface {
 	// C returns the channel to receive messages.
 	C() <-chan Message
 
-	// Closer closes and removes the subscription.
-	Close() error
+	// Close closes and removes the subscription.
+	Close()
 }
 
 // Message represents a received message
@@ -109,6 +111,13 @@ func WithHTTPServer(server *http.Server) ServerOption {
 // fsDev always serves static files with caching disabled.
 func WithStaticFS(urlPath string, fsProd, fsDev http.FileSystem) ServerOption {
 	return func(s *Server) error {
+		if urlPath == "" || urlPath[0] != '/' {
+			return fmt.Errorf("static urlPath must start with '/': %q", urlPath)
+		}
+		if !strings.HasSuffix(urlPath, "/") {
+			urlPath += "/"
+		}
+
 		s.staticFS = fsProd
 		if IsDevMode() && fsDev != nil {
 			s.staticFS = fsDev
@@ -178,7 +187,17 @@ func WithCSRFProtection(conf CSRFConfig) ServerOption {
 func NewServer(app *app.App, opts ...ServerOption) *Server {
 	s := &Server{
 		shutdownCh: make(chan struct{}),
-		httpServer: &http.Server{},
+		httpServer: &http.Server{
+			// Time to read request headers + body
+			ReadTimeout: DefaultHTTPReadTimeout,
+			// Time to read just headers (helps prevent Slowloris attacks)
+			ReadHeaderTimeout: DefaultHTTPReadHeaderTimeout,
+			// Time to write response
+			WriteTimeout: DefaultHTTPWriteTimeout,
+			// Time to wait for next request when using keep-alive
+			IdleTimeout:    DefaultHTTPIdleTimeout,
+			MaxHeaderBytes: DefaultHTTPMaxHeaderBytes,
+		},
 		app:        app,
 		mux:        http.NewServeMux(),
 		middleware: []func(http.Handler) http.Handler{},
@@ -209,19 +228,6 @@ func NewServer(app *app.App, opts ...ServerOption) *Server {
 		}
 		s.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
 	}
-	if s.httpServer == nil {
-		s.httpServer = &http.Server{
-			// Time to read request headers + body
-			ReadTimeout: DefaultHTTPReadTimeout,
-			// Time to read just headers (helps prevent Slowloris attacks)
-			ReadHeaderTimeout: DefaultHTTPReadHeaderTimeout,
-			// Time to write response
-			WriteTimeout: DefaultHTTPWriteTimeout,
-			// Time to wait for next request when using keep-alive
-			IdleTimeout:    DefaultHTTPIdleTimeout,
-			MaxHeaderBytes: DefaultHTTPMaxHeaderBytes,
-		}
-	}
 	s.httpServer.Handler = s
 	if s.httpServer.ErrorLog == nil {
 		s.httpServer.ErrorLog = slog.NewLogLogger(
@@ -231,6 +237,20 @@ func NewServer(app *app.App, opts ...ServerOption) *Server {
 	}
 	if s.messageBroker == nil {
 		s.messageBroker = newMessageBrokerMem()
+	}
+
+	if s.csrfConf != nil {
+		s.csrfHMACPool.New = func() any {
+			return &csrfGenerationContext{
+				hmac:         hmac.New(sha256.New, s.csrfConf.Secret),
+				decodedToken: make([]byte, 64),
+				issuedAtHex:  make([]byte, 16),
+				base:         make([]byte, 32),
+				expectedBase: make([]byte, 32),
+				mask:         make([]byte, 32),
+				out:          make([]byte, 64),
+			}
+		}
 	}
 
 	setupHandlers(s)
@@ -265,13 +285,17 @@ func (s *Server) ListenAndServeTLS(hostAddress, certFile, keyFile string) error 
 	return s.httpServer.ListenAndServeTLS(certFile, keyFile)
 }
 
+// Closes all SSE subscriptions and shuts down the underlying HTTP server.
 func (s *Server) Shutdown(ctx context.Context) error {
-	close(s.shutdownCh) // Close all SSE subscriptions.
+	s.shutdownOnce.Do(func() {
+		close(s.shutdownCh) // Close all SSE subscriptions.
+	})
 	return s.httpServer.Shutdown(ctx)
 }
 
 type Server struct {
 	shutdownCh    chan struct{} // Closed when shutting down.
+	shutdownOnce  sync.Once
 	httpServer    *http.Server
 	messageBroker MessageBroker
 	app           *app.App
@@ -282,8 +306,19 @@ type Server struct {
 	staticFS      http.FileSystem
 	enabledTLS    bool
 
-	authJWTOpts *AuthJWTConfig
-	csrfConf    *CSRFConfig
+	authJWTOpts  *AuthJWTConfig
+	csrfConf     *CSRFConfig
+	csrfHMACPool sync.Pool
+}
+
+type csrfGenerationContext struct {
+	hmac         hash.Hash
+	decodedToken []byte
+	issuedAtHex  []byte
+	base         []byte
+	expectedBase []byte
+	mask         []byte
+	out          []byte
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -319,23 +354,35 @@ func isDSReq(r *http.Request) bool {
 
 func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
 	if !isDSReq(r) {
-		s.httpErrBad(w, "not a ds request", nil)
+		s.logger.Debug("not a datastar request",
+			slog.Any("method", r.Method),
+			slog.String("path", r.URL.Path))
+		http.Error(w, http.StatusText(http.StatusNotAcceptable), http.StatusNotAcceptable)
 		return false
 	}
 	return true
 }
 
 func (s *Server) checkCSRF(
-	w http.ResponseWriter, csrfToken string, sess app.SessionJWT,
+	w http.ResponseWriter, r *http.Request, sess app.SessionJWT,
 ) (ok bool) {
-	if sess.UserID == "" || s.csrfConf == nil {
+	if sess.UserID == "" ||
+		r.Method == http.MethodGet ||
+		r.Method == http.MethodOptions ||
+		r.Method == http.MethodHead ||
+		s.csrfConf == nil {
 		return true
 	}
-	if csrfToken == "" {
+	t := r.Header.Get("X-CSRF-Token")
+	if t == "" {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return false
 	}
-	return validateCSRFTokenJWT(sess, csrfToken, s.csrfConf.Secret)
+	if !s.validateCSRFToken(sess.UserID, sess.IssuedAt, t) {
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return false
+	}
+	return true
 }
 
 func (s *Server) writeHTML(
@@ -360,21 +407,40 @@ func (s *Server) writeHTML(
 			return err
 		}
 	}
-	if s.csrfConf == nil || sess.UserID == "" {
-		if _, err := io.WriteString(w, "</head><body "); err != nil {
-			return err
+	if s.csrfConf != nil && sess.UserID != "" {
+		csrfToken := s.generateCSRFToken(sess.UserID, sess.IssuedAt)
+		if csrfToken != "" {
+			// Write the fetch X-CSRF-Token header injector.
+			if _, err := io.WriteString(w, `
+	<script type="module">
+		const o = globalThis.fetch.bind(globalThis)
+		globalThis.fetch=(i,init={}) => {
+			const isReq=i instanceof Request
+			const r=isReq ? i:new Request(i,init)
+			if (r.headers.get("Datastar-Request")!=="true" ||
+				r.method=="GET"||r.method=="HEAD"||r.method=="OPTIONS"
+			) return isReq ? o(r,init):o(r)
+			const h=new Headers(r.headers)
+			h.set("X-CSRF-Token",'`); err != nil {
+				return err
+			}
+			if _, err := io.WriteString(w, csrfToken); err != nil {
+				return err
+			}
+			if _, err := io.WriteString(w, `')
+			return o(new Request(r,{...init,headers:h}))
 		}
-	} else {
-		csrfToken := generateCSRFTokenJWT(sess, s.csrfConf.Secret)
-		if _, err := io.WriteString(w, `</head><body data-signals:dp_csrf="'`); err != nil {
-			return err
+	</script>`); err != nil {
+				return err
+			}
+		} else {
+			s.logger.Warn("generated empty CSRF token",
+				slog.String("user-id", sess.UserID),
+				slog.Time("issued-at", sess.IssuedAt))
 		}
-		if _, err := io.WriteString(w, csrfToken); err != nil {
-			return err
-		}
-		if _, err := io.WriteString(w, `'" `); err != nil {
-			return err
-		}
+	}
+	if _, err := io.WriteString(w, "</head><body "); err != nil {
+		return err
 	}
 	if writeBodyAttrs != nil {
 		if err := writeBodyAttrs(w); err != nil {
@@ -408,6 +474,7 @@ func (s *Server) handleStreamRequest(
 	sub, err := s.messageBroker.Subscribe(r.Context(), subjects...)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
+		return
 	}
 
 	subC := sub.C()
@@ -426,9 +493,7 @@ func (s *Server) handleStreamRequest(
 		case <-r.Context().Done():
 		case <-s.shutdownCh:
 		}
-		if err := sub.Close(); err != nil {
-			s.logErr("closing message broker subscription", err)
-		}
+		sub.Close()
 	}()
 
 	fn(sse, subC)
@@ -450,29 +515,79 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 
 // --- CSRF ---
 
-func generateCSRFTokenJWT(sess app.SessionJWT, secretKey []byte) string {
-	h := hmac.New(sha256.New, secretKey)
-	// hash.Writer never returns an error, ignore it.
-	// See: https://pkg.go.dev/hash#Hash
-	_, _ = io.WriteString(h, sess.UserID)
-	_, _ = io.WriteString(h, "\x00")
-	_, _ = io.WriteString(h, strconv.FormatInt(sess.IssuedAt.Unix(), 16))
-	_, _ = io.WriteString(h, "\x00")
-	_, _ = io.WriteString(h, strconv.FormatInt(sess.Expiration.Unix(), 16))
-	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+// withNewCSRFCtx derives a stable, per-session base secret value in the context.
+func (s *Server) withNewCSRFCtx(
+	userID string, sessIssuedAtUnix int64,
+	withContext func(*csrfGenerationContext),
+) {
+	cgc := s.csrfHMACPool.Get().(*csrfGenerationContext)
+	defer s.csrfHMACPool.Put(cgc)
+
+	cgc.hmac.Reset()
+	// Ensures the CSRF token is only valid for this user.
+	_, _ = cgc.hmac.Write([]byte(userID))
+	// Separator avoids ambiguity ("ab"+"12" vs "a"+"b12").
+	_, _ = cgc.hmac.Write([]byte{0})
+	// Bind token to a specific session preventing reuse across re-authentication.
+	cgc.issuedAtHex = strconv.AppendInt(cgc.issuedAtHex[:0], sessIssuedAtUnix, 16)
+	_, _ = cgc.hmac.Write(cgc.issuedAtHex)
+
+	cgc.base = cgc.hmac.Sum(cgc.base[:0])
+	withContext(cgc)
 }
 
-func validateCSRFTokenJWT(sess app.SessionJWT, token string, secretKey []byte) bool {
-	expected := generateCSRFTokenJWT(sess, secretKey)
-	decoded, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil {
+// generateCSRFToken returns the value sent to the browser.
+// This uses the same masking technique as gorilla/csrf to prevent BREACH attacks:
+//   - A random mask is generated per response.
+//   - The real token is XORed with the mask.
+//   - The mask is prepended so the server can reverse it.
+func (s *Server) generateCSRFToken(userID string, sessIssuedAt time.Time) (t string) {
+	u := sessIssuedAt.Unix()
+	if u < 0 {
+		return ""
+	}
+	s.withNewCSRFCtx(userID, u, func(cgc *csrfGenerationContext) {
+		if _, err := rand.Read(cgc.mask); err != nil {
+			panic(err) // rand.Read should never fail on a healthy system.
+		}
+
+		// [ mask | masked_token ]
+		copy(cgc.out, cgc.mask)
+
+		// XOR hides the real token while remaining reversible
+		for i := range 32 {
+			cgc.out[32+i] = cgc.base[i] ^ cgc.mask[i]
+		}
+		t = base64.RawURLEncoding.EncodeToString(cgc.out)
+	})
+	return t
+}
+
+// validateCSRFToken verifies a client-supplied token.
+func (s *Server) validateCSRFToken(
+	userID string, sessIssuedAt time.Time, token string,
+) (ok bool) {
+	u := sessIssuedAt.Unix()
+	if len(token) != 86 || u < 0 {
 		return false
 	}
-	expectedBytes, err := base64.RawURLEncoding.DecodeString(expected)
-	if err != nil {
-		return false
-	}
-	return subtle.ConstantTimeCompare(decoded, expectedBytes) == 1
+	s.withNewCSRFCtx(userID, u, func(cgc *csrfGenerationContext) {
+		n, err := base64.RawURLEncoding.Decode(cgc.decodedToken, []byte(token))
+		if err != nil || n != 64 {
+			ok = false
+			return
+		}
+
+		// [ mask | masked_token ]
+		mask, enc := cgc.decodedToken[:32], cgc.decodedToken[32:]
+		// Reverse XOR to recover the real token
+		for i := range 32 {
+			cgc.expectedBase[i] = enc[i] ^ mask[i]
+		}
+		// Recompute what the token SHOULD be for this session and compare.
+		ok = subtle.ConstantTimeCompare(cgc.expectedBase, cgc.base) == 1
+	})
+	return ok
 }
 
 // --- MESSAGE BROKER: NATS ---
@@ -495,7 +610,7 @@ type messageBrokerNATS struct {
 type natsSub struct {
 	ch    chan Message
 	subs  []*nats.Subscription
-	close func() error
+	close func()
 }
 
 func newMessageBrokerNATS(
@@ -532,24 +647,57 @@ func (b *messageBrokerNATS) Publish(
 }
 
 func (b *messageBrokerNATS) Subscribe(
-	ctx context.Context, subjects ...string,
+	_ context.Context, subjects ...string,
 ) (MessageBrokerSubscription, error) {
 	ch := make(chan Message, MessageBrokerChanBuffer)
 	subs := make([]*nats.Subscription, 0, len(subjects))
 
-	for _, subject := range subjects {
-		sub, err := b.nc.Subscribe(subject, func(m *nats.Msg) {
-			select {
-			case ch <- Message{Subject: m.Subject, Data: m.Data}:
-			default:
-				// drop if subscriber is slow
-			}
-		})
-		if err != nil {
+	var (
+		lock     sync.Mutex
+		closing  bool
+		inflight sync.WaitGroup
+		once     sync.Once
+	)
+
+	closeAll := func() {
+		once.Do(func() {
+			// After this, no callback can call wg.Add(1).
+			lock.Lock()
+			closing = true
+			lock.Unlock()
+			// Stop NATS deliveries.
 			for _, s := range subs {
 				_ = s.Unsubscribe()
 			}
+			// Wait until all callbacks that already registered complete.
+			inflight.Wait()
 			close(ch)
+		})
+	}
+
+	for _, subject := range subjects {
+		sub, err := b.nc.Subscribe(subject, func(m *nats.Msg) {
+			// Registration is serialized with closeAll() so Add never races with Wait.
+			lock.Lock()
+			if closing {
+				lock.Unlock()
+				return
+			}
+			// Add must be done under lock to prevent it from racing with wg.Wait.
+			// WaitGroup requires that no new Add happens once Wait may be running.
+			inflight.Add(1)
+			lock.Unlock()
+
+			defer inflight.Done()
+
+			select {
+			case ch <- Message{Subject: m.Subject, Data: m.Data}:
+			default: // drop if subscriber is slow
+			}
+		})
+		if err != nil {
+			// Undo already-created subscriptions safely (no send-to-closed-ch races).
+			closeAll()
 			return nil, err
 		}
 		subs = append(subs, sub)
@@ -559,15 +707,7 @@ func (b *messageBrokerNATS) Subscribe(
 		ch:   ch,
 		subs: subs,
 	}
-
-	ns.close = func() error {
-		for _, s := range subs {
-			_ = s.Unsubscribe()
-		}
-		close(ch)
-		return nil
-	}
-
+	ns.close = closeAll
 	return ns, nil
 }
 
@@ -575,13 +715,12 @@ func (s *natsSub) C() <-chan Message {
 	return s.ch
 }
 
-func (s *natsSub) Close() error {
+func (s *natsSub) Close() {
 	if s.close == nil {
-		return nil
+		return
 	}
-	err := s.close()
+	s.close()
 	s.close = nil // Prevent double-close
-	return err
 }
 
 // --- MESSAGE BROKER: IN-MEM ---
@@ -615,8 +754,8 @@ func (b *messageBrokerMem) Publish(
 	data []byte,
 ) error {
 	b.lock.RLock()
+	defer b.lock.RUnlock()
 	subs := b.subs[subject]
-	b.lock.RUnlock()
 
 	if len(subs) == 0 {
 		return nil
@@ -666,12 +805,12 @@ func (s *memSub) C() <-chan Message {
 	return s.ch
 }
 
-func (s *memSub) Close() error {
+func (s *memSub) Close() {
 	s.closeMu.Lock()
 	defer s.closeMu.Unlock()
 
 	if s.closed {
-		return nil
+		return
 	}
 	s.closed = true
 
@@ -688,5 +827,4 @@ func (s *memSub) Close() error {
 	b.lock.Unlock()
 
 	close(s.ch)
-	return nil
 }

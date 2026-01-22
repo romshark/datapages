@@ -4,6 +4,7 @@ import (
 	"datapages/app/domain"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/a-h/templ"
 	"github.com/starfederation/datastar-go/datastar"
@@ -26,6 +27,11 @@ func (p PagePost) GET(
 	redirect Redirect,
 	err error,
 ) {
+	if strings.TrimSpace(path.Slug) == "" {
+		err = domain.ErrUnauthorized
+		return
+	}
+
 	post, err := p.App.repo.PostBySlug(r.Context(), path.Slug)
 	if err != nil {
 		if errors.Is(err, domain.ErrPostNotFound) {
@@ -73,11 +79,15 @@ func (p PagePost) POSTSendMessage(
 	},
 	dispatch func(EventMessagingSent) error,
 ) error {
-	_ = sse.PatchElementTempl(fragmentMessageFormSending())
-
 	if session.UserID == "" {
 		return domain.ErrUnauthorized
 	}
+
+	if strings.TrimSpace(path.Slug) == "" {
+		return domain.ErrUnauthorized
+	}
+
+	_ = sse.PatchElementTempl(fragmentMessageFormSending())
 
 	if err := dispatch(EventMessagingSent{}); err != nil {
 		return sse.PatchElementTempl(fragmentMessageForm(path.Slug))

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,7 +16,14 @@ import (
 )
 
 func main() {
-	fHost := flag.String("host", "localhost:8080", "HTTP host address")
+	host, port := "localhost", "8080"
+	if d := os.Getenv("HOST"); d != "" {
+		host = d
+	}
+	if p := os.Getenv("PORT"); p != "" {
+		port = p
+	}
+
 	fMsgBrokerMem := flag.Bool("msg-broker-inmem", false,
 		"Forces in-memory message broker instead of NATS")
 	flag.Parse()
@@ -35,7 +43,7 @@ func main() {
 
 	s := datapagesgen.NewServer(app.NewApp(repo), opts...)
 
-	go listenAndServe(s, *fHost)
+	go listenAndServe(s, net.JoinHostPort(host, port))
 
 	<-ctx.Done()
 	slog.Info("shutting down server")

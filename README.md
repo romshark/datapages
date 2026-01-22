@@ -32,11 +32,16 @@ The code you'd write is in [/app](https://github.com/romshark/datapages/tree/mai
 The code that the *code generator* would generate is in
 [/datapagesgen](https://github.com/romshark/datapages/tree/main/datapagesgen).
 
-
-To run the demo, use:
+To run the demo in development mode, use:
 
 ```sh
 make dev
+```
+
+To run the demo in production mode, use:
+
+```sh
+make stage
 ```
 
 🚧👷‍♂️ Due to several design iterations and frequent changes,
@@ -503,3 +508,10 @@ Removes any JWT session cookie if `true`, otherwise no-op.
 #### 🧩 Return Value `error` or `err error`
 
 Regular error values that will be logged and followed by the error handling procedure.
+
+## Technical Limitations
+
+- For now, with CSRF protection enabled, you will not be able to use plain HTML forms,
+  since the CSRF token is auto-injected for Datastar `fetch` requests
+  (where `Datastar-Request` header is `true`).
+  You must use Datastar actions for any sort of server interactivity.

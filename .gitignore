@@ -8,6 +8,9 @@
 *.so
 *.dylib
 
+# staging executable
+server
+
 # Test binary, built with `go test -c`
 *.test
 
@@ -24,9 +27,12 @@ profile.cov
 go.work
 go.work.sum
 
-# env file
+# env file (excluding `.env.dev` and `.env.stage`)
 .env
 
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Certificates
+certs/*

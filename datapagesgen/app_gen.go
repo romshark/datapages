@@ -27,7 +27,10 @@ const (
 	EvSubjMessagingRead           = "messaging.read.*"
 	EvSubjMessagingWriting        = "messaging.writing.*"
 	EvSubjMessagingWritingStopped = "messaging.writing-stopped.*"
-	EvSubjPostArchived            = "posts.archived"
+
+	// Public events:
+
+	EvSubjPostArchived = "posts.archived"
 )
 
 const (
@@ -64,6 +67,11 @@ func evSubjPageMessages(userID string) []string {
 }
 
 func evSubjPagePost(userID string) []string {
+	if userID == "" {
+		return []string{
+			EvSubjPostArchived,
+		}
+	}
 	return []string{
 		EvSubjPostArchived,
 		EvSubjPrefMessagingSent + userID,
@@ -170,7 +178,8 @@ func (s *Server) removeSessionJWT(w http.ResponseWriter) {
 	})
 }
 
-func (s *Server) readSessionJWT(
+// authJWT reads the auth JWT from r and checks CSRF when necessary.
+func (s *Server) authJWT(
 	w http.ResponseWriter, r *http.Request,
 ) (sess app.SessionJWT, ok bool) {
 	c, err := r.Cookie(s.authJWTOpts.CookieName)
@@ -226,6 +235,10 @@ func (s *Server) readSessionJWT(
 		return sess, false
 	} else {
 		sess.Expiration = exp.Time
+	}
+
+	if !s.checkCSRF(w, r, sess) {
+		return sess, false
 	}
 
 	return sess, true
@@ -338,6 +351,9 @@ func setupHandlers(s *Server) {
 		"GET /post/{slug}/_$/{$}",
 		s.handlePagePostGETStream)
 	s.mux.HandleFunc(
+		"GET /post/{slug}/_$/anon/{$}",
+		s.handlePagePostGETStreamAnon)
+	s.mux.HandleFunc(
 		"POST /post/{slug}/send-message/{$}",
 		s.handlePagePostPOSTSendMessage)
 }
@@ -368,7 +384,7 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
@@ -377,7 +393,6 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
 	body, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling Page404.GET", err)
@@ -405,24 +420,15 @@ func (s *Server) handlePOSTCause500(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePOSTExpireSessionJWT(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
-		return
-	}
-
-	var sig struct {
-		CSRFToken string `json:"dp_csrf"`
-	}
-	if err := datastar.ReadSignals(r, &sig); err != nil {
-		s.httpErrBad(w, "reading signals", err)
-	}
-	if !s.checkCSRF(w, sig.CSRFToken, sess) {
 		return
 	}
 
 	newSessionJWT, err := s.app.POSTExpireSessionJWT(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.POSTExpireSessionJWT", err)
+		return
 	}
 	if j := newSessionJWT; j.UserID != "" {
 		s.mustSetSessionJWT(
@@ -434,7 +440,6 @@ func (s *Server) handlePOSTExpireSessionJWT(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handlePage500GET(w http.ResponseWriter, r *http.Request) {
 	p := app.Page500{App: s.app}
-
 	body, err := p.GET(r)
 	if err != nil {
 		// Fall back to basic 500 error page.
@@ -457,7 +462,7 @@ func (s *Server) handlePage500GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
@@ -471,7 +476,6 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
 	body, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -484,9 +488,11 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) (err error) {
-		_, err = io.WriteString(w, `data-init="@get('/_$')"`)
-		if err != nil {
-			return err
+		if sess.UserID != "" {
+			_, err = io.WriteString(w, `data-init="@get('/_$')"`)
+			if err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -503,21 +509,21 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
 
 	if sess.UserID == "" {
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
 
+	ttl := time.Until(sess.Expiration)
 	p := app.PageIndex{
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
-	ttl := time.Until(sess.Expiration)
 	s.handleStreamRequest(w, r, evSubjPageIndex(sess.UserID), ttl, func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
@@ -547,7 +553,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handlePage404GET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
@@ -556,7 +562,6 @@ func (s *Server) handlePage404GET(w http.ResponseWriter, r *http.Request) {
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
 	body, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling Page404.GET", err)
@@ -577,13 +582,12 @@ func (s *Server) handlePage404GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
 
 	p := app.PageLogin{App: s.app}
-
 	body, redirect, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
@@ -609,32 +613,20 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
-	var sig struct {
-		CSRFToken string `json:"dp_csrf"`
-
+	var signals struct {
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`
 	}
-	if err := datastar.ReadSignals(r, &sig); err != nil {
+	if err := datastar.ReadSignals(r, &signals); err != nil {
 		s.httpErrBad(w, "reading signals", err)
-	}
-	if !s.checkCSRF(w, sig.CSRFToken, sess) {
 		return
 	}
 
 	p := app.PageLogin{App: s.app}
-
-	signals := struct {
-		EmailOrUsername string `json:"emailorusername"`
-		Password        string `json:"password"`
-	}{
-		EmailOrUsername: sig.EmailOrUsername,
-		Password:        sig.Password,
-	}
 	body, redirect, newSessionJWT, err := p.POSTSubmit(r, sess, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.POSTSubmit", err)
@@ -663,7 +655,7 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
@@ -672,7 +664,6 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
 	body, redirect, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageSettings.GET", err)
@@ -688,9 +679,11 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) (err error) {
-		_, err = io.WriteString(w, `data-init="@get('/settings/_$')"`)
-		if err != nil {
-			return err
+		if sess.UserID != "" {
+			_, err = io.WriteString(w, `data-init="@get('/settings/_$')"`)
+			if err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -707,21 +700,21 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
 
 	if sess.UserID == "" {
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
 
+	ttl := time.Until(sess.Expiration)
 	p := app.PageSettings{
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
-	ttl := time.Until(sess.Expiration)
 	s.handleStreamRequest(w, r, evSubjPageSettings(sess.UserID), ttl, func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
@@ -754,32 +747,22 @@ func (s *Server) handlePageSettingsPOSTSave(w http.ResponseWriter, r *http.Reque
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
-	var sig struct {
-		CSRFToken string `json:"dp_csrf"`
-
+	var signals struct {
 		Username string `json:"username"`
 	}
-	if err := datastar.ReadSignals(r, &sig); err != nil {
+	if err := datastar.ReadSignals(r, &signals); err != nil {
 		s.httpErrBad(w, "reading signals", err)
-	}
-	if !s.checkCSRF(w, sig.CSRFToken, sess) {
 		return
 	}
 
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	p := app.PageSettings{
 		App:  s.app,
 		Base: app.Base{App: s.app},
-	}
-
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	signals := struct {
-		Username string `json:"username"`
-	}{
-		Username: sig.Username,
 	}
 	err := p.POSTSave(r, sse, sess, signals)
 	if err != nil {
@@ -806,7 +789,7 @@ func (s *Server) handlePageSettingsPOSTSignOut(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
@@ -821,7 +804,6 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
 	body, redirect, err := p.GET(r, sess, query)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageMessages.GET", err)
@@ -841,7 +823,9 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, query.Chat)
 		_, _ = io.WriteString(w, `'"`)
 
-		_, _ = io.WriteString(w, `data-init="@get('/messages/_$')"`)
+		if sess.UserID != "" {
+			_, _ = io.WriteString(w, `data-init="@get('/messages/_$')"`)
+		}
 
 		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
 			if ($chatselected) params.set('chat', $chatselected);
@@ -863,12 +847,13 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
 
 	if sess.UserID == "" {
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
 
@@ -880,12 +865,11 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	ttl := time.Until(sess.Expiration)
 	p := app.PageMessages{
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
-	ttl := time.Until(sess.Expiration)
 	s.handleStreamRequest(w, r, evSubjPageMessages(sess.UserID), ttl, func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
@@ -944,20 +928,16 @@ func (s *Server) handlePageMessagesPOSTRead(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var sig struct {
-		CSRFToken string `json:"dp_csrf"`
-
+	var signals struct {
 		ChatSelected string `json:"chatselected"`
 	}
-	if err := datastar.ReadSignals(r, &sig); err != nil {
+	if err := datastar.ReadSignals(r, &signals); err != nil {
 		s.httpErrBad(w, "reading signals", err)
-	}
-	if !s.checkCSRF(w, sig.CSRFToken, sess) {
 		return
 	}
 
@@ -990,12 +970,6 @@ func (s *Server) handlePageMessagesPOSTRead(
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
-	signals := struct {
-		ChatSelected string `json:"chatselected"`
-	}{
-		ChatSelected: sig.ChatSelected,
-	}
 	if err := p.POSTRead(r, sess, signals, query, dispatch); err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTRead", err)
 		return
@@ -1008,20 +982,16 @@ func (s *Server) handlePageMessagesPOSTWriting(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var sig struct {
-		CSRFToken string `json:"dp_csrf"`
-
+	var signals struct {
 		ChatSelected string `json:"chatselected"`
 	}
-	if err := datastar.ReadSignals(r, &sig); err != nil {
+	if err := datastar.ReadSignals(r, &signals); err != nil {
 		s.httpErrBad(w, "reading signals", err)
-	}
-	if !s.checkCSRF(w, sig.CSRFToken, sess) {
 		return
 	}
 
@@ -1048,12 +1018,6 @@ func (s *Server) handlePageMessagesPOSTWriting(
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
-	signals := struct {
-		ChatSelected string `json:"chatselected"`
-	}{
-		ChatSelected: sig.ChatSelected,
-	}
 	if err := p.POSTWriting(r, sess, signals, dispatch); err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTWriting", err)
 		return
@@ -1066,20 +1030,16 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var sig struct {
-		CSRFToken string `json:"dp_csrf"`
-
+	var signals struct {
 		ChatSelected string `json:"chatselected"`
 	}
-	if err := datastar.ReadSignals(r, &sig); err != nil {
+	if err := datastar.ReadSignals(r, &signals); err != nil {
 		s.httpErrBad(w, "reading signals", err)
-	}
-	if !s.checkCSRF(w, sig.CSRFToken, sess) {
 		return
 	}
 
@@ -1106,12 +1066,6 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
-	signals := struct {
-		ChatSelected string `json:"chatselected"`
-	}{
-		ChatSelected: sig.ChatSelected,
-	}
 	if err := p.POSTWritingStopped(r, sess, signals, dispatch); err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTWritingStopped", err)
 		return
@@ -1124,21 +1078,17 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var sig struct {
-		CSRFToken string `json:"dp_csrf"`
-
+	var signals struct {
 		ChatSelected string `json:"chatselected"`
 		MessageText  string `json:"messagetext"`
 	}
-	if err := datastar.ReadSignals(r, &sig); err != nil {
+	if err := datastar.ReadSignals(r, &signals); err != nil {
 		s.httpErrBad(w, "reading signals", err)
-	}
-	if !s.checkCSRF(w, sig.CSRFToken, sess) {
 		return
 	}
 
@@ -1179,14 +1129,6 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
-	signals := struct {
-		ChatSelected string `json:"chatselected"`
-		MessageText  string `json:"messagetext"`
-	}{
-		ChatSelected: sig.ChatSelected,
-		MessageText:  sig.MessageText,
-	}
 	if err := p.POSTSendMessage(r, sess, signals, dispatch); err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTSendMessage", err)
 		return
@@ -1194,7 +1136,7 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 }
 
 func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
@@ -1220,7 +1162,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: pmax", err)
 				return
 			}
-			query.PriceMin = i
+			query.PriceMax = i
 		}
 	}
 	query.Location = q.Get("l")
@@ -1229,7 +1171,6 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
 	body, err := p.GET(r, sess, query)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageSearch.GET", err)
@@ -1262,7 +1203,9 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, query.Location)
 		_, _ = io.WriteString(w, `'"`)
 
-		_, _ = io.WriteString(w, `data-init="@get('/search/_$')"`)
+		if sess.UserID != "" {
+			_, _ = io.WriteString(w, `data-init="@get('/search/_$')"`)
+		}
 
 		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
 			if ($term) params.set('t', $term);
@@ -1288,21 +1231,21 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
 
 	if sess.UserID == "" {
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
 
+	ttl := time.Until(sess.Expiration)
 	p := app.PageSearch{
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
-	ttl := time.Until(sess.Expiration)
 	s.handleStreamRequest(w, r, evSubjPageSearch(sess.UserID), ttl, func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
@@ -1332,7 +1275,7 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
@@ -1346,7 +1289,6 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
 	body, head, redirect, err := p.GET(r, sess, path)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageUser.GET", err)
@@ -1369,7 +1311,7 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
@@ -1383,7 +1325,6 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
 	body, head, redirect, err := p.GET(r, sess, path)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PagePost.GET", err)
@@ -1399,18 +1340,9 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) (err error) {
-		_, err = io.WriteString(w, `data-init="@get('/post/`)
-		if err != nil {
-			return err
-		}
-		_, err = io.WriteString(w, path.Slug)
-		if err != nil {
-			return err
-		}
-		_, err = io.WriteString(w, `/_$')"`)
-		if err != nil {
-			return err
-		}
+		_, _ = io.WriteString(w, `data-init="@get('/post/`)
+		_, _ = io.WriteString(w, path.Slug)
+		_, _ = io.WriteString(w, `/_$')"`)
 		return nil
 	}
 
@@ -1428,39 +1360,21 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var sig struct {
-		CSRFToken string `json:"dp_csrf"`
-
-		Term     string `json:"term"`
-		Category string `json:"category"`
-		PriceMin int64  `json:"pmin,omitempty"`
-		PriceMax int64  `json:"pmax,omitempty"`
-		Location string `json:"location"`
-	}
-	if err := datastar.ReadSignals(r, &sig); err != nil {
+	var signals app.SearchParams
+	if err := datastar.ReadSignals(r, &signals); err != nil {
 		s.httpErrBad(w, "reading signals", err)
-	}
-	if !s.checkCSRF(w, sig.CSRFToken, sess) {
 		return
 	}
 
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	p := app.PageSearch{
 		App:  s.app,
 		Base: app.Base{App: s.app},
-	}
-
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	signals := app.SearchParams{
-		Term:     sig.Term,
-		Category: sig.Category,
-		PriceMin: sig.PriceMin,
-		PriceMax: sig.PriceMax,
-		Location: sig.Location,
 	}
 	if err := p.POSTParamChange(r, sse, sess, signals); err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageSearch.POSTParamChange", err)
@@ -1472,21 +1386,21 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
 
 	if sess.UserID == "" {
+		http.Redirect(w, r, r.URL.Path+"/anon", http.StatusSeeOther)
 		return
 	}
 
+	ttl := time.Until(sess.Expiration)
 	p := app.PagePost{
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-
-	ttl := time.Until(sess.Expiration)
 	s.handleStreamRequest(w, r, evSubjPagePost(sess.UserID), ttl, func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
@@ -1524,26 +1438,59 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, ok := s.authJWT(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID != "" {
+		s.httpErrBad(w, "authenticated client on anonymous stream", nil)
+		return
+	}
+
+	ttl := time.Until(sess.Expiration)
+	p := app.PagePost{
+		App:  s.app,
+		Base: app.Base{App: s.app},
+	}
+	s.handleStreamRequest(w, r, evSubjPagePost(sess.UserID), ttl, func(
+		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
+	) {
+		for msg := range ch {
+			if msg.Subject == EvSubjPostArchived {
+				var e app.EventPostArchived
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventPostArchived JSON", err)
+					continue
+				}
+				if err := p.OnPostArchived(sse, e, sess); err != nil {
+					s.logErr("handling PagePost.OnPostArchived", err)
+				}
+			}
+		}
+	})
+}
+
 func (s *Server) handlePagePostPOSTSendMessage(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.readSessionJWT(w, r)
+	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var sig struct {
-		CSRFToken string `json:"dp_csrf"`
-
+	var signals struct {
 		MessageText string `json:"messagetext"`
 	}
-	if err := datastar.ReadSignals(r, &sig); err != nil {
+	if err := datastar.ReadSignals(r, &signals); err != nil {
 		s.httpErrBad(w, "reading signals", err)
-	}
-	if !s.checkCSRF(w, sig.CSRFToken, sess) {
 		return
 	}
 
@@ -1571,16 +1518,10 @@ func (s *Server) handlePagePostPOSTSendMessage(
 		return nil
 	}
 
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	p := app.PagePost{
 		App:  s.app,
 		Base: app.Base{App: s.app},
-	}
-
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	signals := struct {
-		MessageText string `json:"messagetext"`
-	}{
-		MessageText: sig.MessageText,
 	}
 	if err := p.POSTSendMessage(r, sse, sess, path, signals, dispatch); err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTSendMessage", err)
