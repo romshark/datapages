@@ -21,19 +21,25 @@ func (p PageMessages) GET(
 	query struct {
 		Chat string `query:"chat" reflectsignal:"chatselected"`
 	},
-) (body templ.Component, redirect Redirect, err error) {
+) (
+	body templ.Component,
+	redirect Redirect,
+	refreshAfterInactive bool,
+	err error,
+) {
 	if session.UserID == "" {
-		return nil, Redirect{Target: "/login"}, nil
+		return nil, Redirect{Target: "/login"}, false, nil
 	}
 
 	baseData, chats, openChat, messages, err := p.getPageData(
 		r.Context(), session, query.Chat,
 	)
 	if err != nil {
-		return body, redirect, err
+		return body, redirect, false, err
 	}
 
-	return pageMessages(session, chats, openChat, messages, baseData), redirect, nil
+	body = pageMessages(session, chats, openChat, messages, baseData)
+	return body, redirect, true, nil
 }
 
 func (p PageMessages) getPageData(

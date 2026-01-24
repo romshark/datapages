@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	DefaultHTTPReadTimeout       = 15 * time.Second
+	DefaultHTTPReadTimeout       = 30 * time.Second
 	DefaultHTTPReadHeaderTimeout = 5 * time.Second
 	DefaultHTTPWriteTimeout      = 0 // SSE needs this disabled.
 	DefaultHTTPIdleTimeout       = 60 * time.Second

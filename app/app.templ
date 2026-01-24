@@ -2,6 +2,8 @@ package app
 
 import (
 	"datapages/app/domain"
+	"datapages/datapagesgen/action"
+	"datapages/datapagesgen/href"
 	"fmt"
 	"time"
 )
@@ -21,7 +23,7 @@ templ head() {
 
 templ fragmentNavbar(session SessionJWT, searchTerm string, baseData baseData) {
 	<nav id="navbar" data-signals:searchinput={ fmt.Sprintf("%q", searchTerm) }>
-		<a href="/">Home</a>
+		<a href={ href.PageIndex() }>Home</a>
 		// pageshow handles the browser form restoration on page navigation.
 		<input
 			class="input"
@@ -32,6 +34,7 @@ templ fragmentNavbar(session SessionJWT, searchTerm string, baseData baseData) {
 			data-on:keydown="if (evt.key === 'Enter') $searchanchor.click()"
 			placeholder="What are you looking for?"
 		/>
+		//datapages-lint:nolint
 		<a
 			data-ref:searchanchor
 			data-attr:href="'/search?t=' + $searchinput"
@@ -44,7 +47,7 @@ templ fragmentNavbar(session SessionJWT, searchTerm string, baseData baseData) {
 			@menuBase("navbar-menu", session.UserID, baseData.UserAvatarURL)
 		} else {
 			<button class="btn-secondary">
-				<a href="/login">Sign in</a>
+				<a href={ href.PageLogin() }>Sign in</a>
 			</button>
 		}
 	</nav>
@@ -85,7 +88,7 @@ templ toastInternalError() {
 }
 
 templ fragmentMessagesLink(unreadChats int) {
-	<a id="messages" href="/messages">
+	<a id="messages" href={ href.PageMessages(href.QueryPageMessages{}) }>
 		if unreadChats > 0 {
 			@iconMessages()
 			<b>
@@ -108,7 +111,7 @@ templ fragmentInternalError() {
 templ page500() {
 	<h1>Oh no!</h1>
 	<p>Something went wrong on our side.</p>
-	<a href="/">Try to go back to the homepage.</a>
+	<a href={ href.PageIndex() }>Try to go back to the homepage.</a>
 }
 
 templ page404(session SessionJWT, baseData baseData) {
@@ -116,7 +119,7 @@ templ page404(session SessionJWT, baseData baseData) {
 	@page("page-404") {
 		<h1>Oh-oh!</h1>
 		<p>This page doesn't exist.</p>
-		<a href="/">Go back to homepage.</a>
+		<a href={ href.PageIndex() }>Go back to homepage.</a>
 	}
 }
 
@@ -129,7 +132,11 @@ templ pageIndex(
 		<ul id="main-categories">
 			for _, category := range mainCategories {
 				<li>
-					<a href={ fmt.Sprintf("/search/?c=%s", category.ID) }>
+					<a
+						href={ href.PageSearch(href.QueryPageSearch{
+							Category: category.ID,
+						}) }
+					>
 						<img height="16px" src={ category.ImageURL }/>
 						{ category.Name }
 					</a>
@@ -148,7 +155,7 @@ templ pageLogin(wrongCreds bool) {
 		<div class="card">
 			<header>
 				<h1>Sign in</h1>
-				<a href="/">continue as guest</a>
+				<a href={ href.PageIndex() }>continue as guest</a>
 			</header>
 			<section>
 				<input
@@ -174,12 +181,11 @@ templ pageLogin(wrongCreds bool) {
 				<button
 					class="btn"
 					data-attr:disabled="$emailorusername == '' || $password == ''"
-					data-on:click="@post('/login/submit')"
+					data-on:click={ action.POSTPageLoginSubmit() }
 				>Sign in</button>
 				<a
 					class="btn-ghost"
 					id="forgot-password"
-					href="/forgot-password"
 					data-on:click="
 							evt.preventDefault();
 							$_wobbleTip = true;
@@ -243,7 +249,11 @@ templ pageMessages(
 							}
 						}}
 						<li class={ classes }>
-							<a href={ fmt.Sprintf("/messages?chat=%s", chat.ID) }>
+							<a
+								href={ href.PageMessages(href.QueryPageMessages{
+									Chat: chat.ID,
+								}) }
+							>
 								<p>
 									{ chat.Title }
 								</p>
@@ -278,7 +288,7 @@ templ pageMessages(
 			} else if openChat.ID == "" {
 				<p>Select any chat.</p>
 			} else {
-				<a target="_blank" href={ hrefPost(openChat.PostSlug) }>
+				<a target="_blank" href={ href.PagePost(openChat.PostSlug) }>
 					<h1>{ openChat.Title }</h1>
 				</a>
 				<ul>
@@ -293,9 +303,11 @@ templ pageMessages(
 				</div>
 				<div
 					class="chat-input"
-					data-on:input__throttle.300ms="
-					if ($messagetext != '') @post('/messages/writing')
-					else @post('/messages/writing-stopped')"
+					data-on:input__throttle.300ms={ "if ($messagetext != '') {" +
+							action.POSTPageMessagesWriting() +
+							"} else {" +
+							action.POSTPageMessagesWritingStopped() +
+							"}" }
 				>
 					<textarea
 						class="textarea"
@@ -305,7 +317,7 @@ templ pageMessages(
 					></textarea>
 					<button
 						class="btn"
-						data-on:click="@post('/messages/sendmessage')"
+						data-on:click={ action.POSTPageMessagesSendMessage() }
 					>
 						Send
 					</button>
@@ -352,7 +364,7 @@ templ pageSettings(session SessionJWT, user domain.User, baseData baseData) {
 			<button
 				class="btn"
 				data-attr:disabled="!$_haschanges"
-				data-on:click="@post('/settings/save')"
+				data-on:click={ action.POSTPageSettingsSave() }
 			>Save</button>
 		</section>
 		<section>
@@ -363,24 +375,22 @@ templ pageSettings(session SessionJWT, user domain.User, baseData baseData) {
 			</p>
 			<button
 				class="btn"
-				data-on:click="@post('/cause-500-internal-error')"
+				data-on:click={ action.POSTAppCause500() }
 			>Cause Internal Error</button>
 			<p>
 				Expire session immediately
 			</p>
 			<button
 				class="btn"
-				data-on:click="@post('/expire-session-jwt')"
+				data-on:click={ action.POSTAppExpireSessionJWT() }
 			>Expire Session</button>
 		</section>
 		<section>
 			<h2>Session</h2>
 			<button
 				class="btn-destructive"
-				data-on:click="
-					@post('/sign-out');
-					window.location.href = '/login';
-				"
+				data-on:click={ action.POSTAppSignOut() +
+					";window.location.href = '/login'" }
 			>Sign Out</button>
 		</section>
 	}
@@ -395,7 +405,7 @@ templ pageSearch(
 		<div
 			class="card"
 			id="search-filters"
-			data-on:change="@post('/search/paramchange')"
+			data-on:change={ action.POSTPageSearchParamChange() }
 		>
 			<label>
 				Category
@@ -504,7 +514,7 @@ templ pagePost(
 			<h1 class="post-title">{ post.Title }</h1>
 			<div class="post-meta">
 				<a
-					href={ hrefUser(post.MerchantUserName) }
+					href={ href.PageUser(post.MerchantUserName) }
 					class="post-merchant"
 				>By { post.MerchantUserName }</a>
 				<p class="post-location">{ post.Location }</p>
@@ -519,7 +529,7 @@ templ pagePost(
 				<h1 class="post-title">{ post.Title }</h1>
 				<div class="post-meta">
 					<a
-						href={ hrefUser(post.MerchantUserName) }
+						href={ href.PageUser(post.MerchantUserName) }
 						class="post-merchant"
 					>By { post.MerchantUserName }</a>
 					<p class="post-location">{ post.Location }</p>
@@ -534,17 +544,9 @@ templ pagePost(
 		if chatID != "" {
 			@fragmentMessageFormLinkToChat(chatID)
 		} else if session.UserID != "" && post.MerchantUserName != session.UserID {
-			<button
-				class="btn"
-				id="sendmessage"
-				data-show="!$_showsendmessage"
-				data-on:click="$_showsendmessage = true"
-			>Send a message</button>
-			<div data-show="$_showsendmessage">
-				@fragmentMessageForm(post.Slug)
-			</div>
+			@fragmentMessageForm(post.Slug)
 		} else if session.UserID == "" {
-			<a href="/login">Login to send a message</a>
+			<a href={ href.PageLogin() }>Login to send a message</a>
 		}
 		<p class="post-description">{ post.Description }</p>
 		<h3 class="similar-heading">Similar Posts</h3>
@@ -577,7 +579,7 @@ templ fragmentPosts(posts []domain.Post) {
 				<div class="body">
 					<a
 						class="title"
-						href={ hrefPost(post.Slug) }
+						href={ href.PagePost(post.Slug) }
 					>
 						{ post.Title }
 					</a>
@@ -616,7 +618,7 @@ templ fragmentMessageForm(slug string) {
 		></textarea>
 		<button
 			class="btn"
-			data-on:click={ fmt.Sprintf("@post('/post/%s/send-message')", slug) }
+			data-on:click={ action.POSTPagePostSendMessage(slug) }
 			data-attr:disabled="$messagetext === ''"
 		>Send</button>
 	</div>
@@ -630,7 +632,11 @@ templ fragmentMessageFormSending() {
 
 templ fragmentMessageFormLinkToChat(chatID string) {
 	<div id="message-form">
-		<a href={ hrefChat(chatID) }>Go to the chat</a>
+		<a
+			href={ href.PageMessages(href.QueryPageMessages{
+				Chat: chatID,
+			}) }
+		>Go to the chat</a>
 	</div>
 }
 
@@ -669,15 +675,19 @@ templ menuBase(id, userName, userAvatarURL string) {
 					role="group"
 					aria-labelledby="account-options"
 				>
+					// TODO: This page doesn't exist yet. That would be a hard foul.
+					// <a
+					// 	href="/posts"
+					// 	role="menuitem"
+					// >
 					<a
-						href="/posts"
 						role="menuitem"
 					>
 						@iconShop()
 						My Posts
 					</a>
 					<a
-						href="/settings"
+						href={ href.PageSettings() }
 						role="menuitem"
 					>
 						@iconSettings()
@@ -708,15 +718,14 @@ templ fragmentMessage(session SessionJWT, msg domain.Message) {
 			<p
 				class="message-header"
 				if msg.TimeRead.IsZero() {
-					data-on-intersect={ fmt.Sprintf(
-						"@post('/messages/read?msgid=%s')",
-						msg.ID,
+					data-on-intersect={ action.POSTPageMessagesRead(
+						action.QueryPOSTPageMessagesRead{MessageID: msg.ID},
 					) }
 				}
 			>
 				<a
 					target="_blank"
-					href={ hrefUser(msg.SenderUserName) }
+					href={ href.PageUser(msg.SenderUserName) }
 				>
 					{ msg.SenderUserName }
 				</a>

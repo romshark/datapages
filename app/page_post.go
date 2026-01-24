@@ -25,6 +25,7 @@ func (p PagePost) GET(
 ) (
 	body, head templ.Component,
 	redirect Redirect,
+	refreshAfterInactive bool,
 	err error,
 ) {
 	if strings.TrimSpace(path.Slug) == "" {
@@ -36,18 +37,18 @@ func (p PagePost) GET(
 	if err != nil {
 		if errors.Is(err, domain.ErrPostNotFound) {
 			// Redirect to 404 page.
-			return nil, nil, Redirect{Target: "/not-found"}, nil
+			return nil, nil, Redirect{Target: "/not-found"}, false, nil
 		}
 	}
 
 	similarPosts, err := p.App.repo.SimilarPosts(r.Context(), post.ID, 4)
 	if err != nil {
-		return nil, nil, redirect, err
+		return nil, nil, redirect, false, err
 	}
 
 	baseData, err := p.baseData(r.Context(), session)
 	if err != nil {
-		return nil, nil, redirect, err
+		return nil, nil, redirect, false, err
 	}
 
 	var chatID string
@@ -55,7 +56,7 @@ func (p PagePost) GET(
 		chat, err := p.App.repo.ChatByPostID(r.Context(), session.UserID, post.ID)
 		if err != nil {
 			if !errors.Is(err, domain.ErrChatNotFound) {
-				return body, head, redirect, err
+				return body, head, redirect, false, err
 			}
 		}
 		chatID = chat.ID
@@ -63,7 +64,7 @@ func (p PagePost) GET(
 
 	body = pagePost(session, post, similarPosts, baseData, chatID)
 	head = headPost(post.Title, post.Description, post.ImageURL)
-	return body, head, redirect, nil
+	return body, head, redirect, true, nil
 }
 
 // POSTSendMessage is /post/{slug}/send-message/{$}
@@ -89,11 +90,7 @@ func (p PagePost) POSTSendMessage(
 
 	_ = sse.PatchElementTempl(fragmentMessageFormSending())
 
-	if err := dispatch(EventMessagingSent{}); err != nil {
-		return sse.PatchElementTempl(fragmentMessageForm(path.Slug))
-	}
-
-	post, err := p.App.repo.PostBySlug(r.Context(), path.Slug)
+	post, err := p.App.repo.PostBySlug(sse.Context(), path.Slug)
 	if err != nil {
 		return err
 	}
@@ -103,7 +100,7 @@ func (p PagePost) POSTSendMessage(
 	}
 
 	chatID, err := p.App.repo.NewChat(
-		r.Context(), post.ID, session.UserID, signals.MessageText,
+		sse.Context(), post.ID, session.UserID, signals.MessageText,
 	)
 	if err != nil {
 		return err
@@ -111,6 +108,8 @@ func (p PagePost) POSTSendMessage(
 
 	if err := dispatch(EventMessagingSent{
 		TargetUserIDs: []string{post.MerchantUserName, session.UserID},
+		ChatID:        chatID,
+		UserID:        session.UserID,
 	}); err != nil {
 		return err
 	}

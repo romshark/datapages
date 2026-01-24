@@ -804,7 +804,8 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-	body, redirect, err := p.GET(r, sess, query)
+	body, redirect, refreshAfterInactive, err := p.GET(r, sess, query)
+	_ = refreshAfterInactive
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageMessages.GET", err)
 		return
@@ -819,6 +820,10 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) error {
+		if refreshAfterInactive {
+			_, _ = io.WriteString(w, `data-on:visibilitychange__window="if (!document.hidden) window.location.replace(window.location.href);"`)
+		}
+
 		_, _ = io.WriteString(w, `data-signals:chatselected="'`)
 		_, _ = io.WriteString(w, query.Chat)
 		_, _ = io.WriteString(w, `'"`)
@@ -832,6 +837,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/messages?' + query : '/messages');
 		"`)
+
 		return nil
 	}
 
@@ -1325,7 +1331,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-	body, head, redirect, err := p.GET(r, sess, path)
+	body, head, redirect, refreshAfterInactive, err := p.GET(r, sess, path)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PagePost.GET", err)
 		return
@@ -1343,6 +1349,12 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `data-init="@get('/post/`)
 		_, _ = io.WriteString(w, path.Slug)
 		_, _ = io.WriteString(w, `/_$')"`)
+
+		if refreshAfterInactive {
+			_, _ = io.WriteString(w, `data-on:visibilitychange="if (!document.hidden) { 
+			 console.log('VISIBILITY') }`)
+		}
+
 		return nil
 	}
 

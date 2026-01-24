@@ -396,6 +396,7 @@ body {
         background: #fff;
         border-radius: 12px;
         padding: 1rem;
+        view-transition-name: chat-list;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 
         @media (min-width: 768px) {
@@ -614,5 +615,37 @@ body {
     to {
         opacity: 1;
         transform: translateX(0);
+    }
+}
+
+::view-transition-old(chat-list) {
+    animation: chat-list-out 0.25s ease;
+}
+
+::view-transition-new(chat-list) {
+    animation: chat-list-in 0.25s ease;
+}
+
+@keyframes chat-list-out {
+    from {
+        opacity: 1;
+        transform: translateZ(0);
+    }
+
+    to {
+        opacity: 0;
+        transform: translateZ(-16px);
+    }
+}
+
+@keyframes chat-list-in {
+    from {
+        opacity: 0;
+        transform: translateZ(16px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateZ(0);
     }
 }
