@@ -47,8 +47,8 @@ func (p PageLogin) POSTSubmit(
 			errors.Is(err, domain.ErrUserNotFound) {
 			// Re-render page with feedback
 			err, body = nil, pageLogin(true)
-			return
 		}
+		return
 	}
 
 	now := time.Now()
