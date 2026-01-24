@@ -205,6 +205,10 @@ func (p Page404) GET(
 // Page500 is /whoops
 type Page500 struct{ App *App }
 
-func (Page500) GET(r *http.Request) (body templ.Component, err error) {
-	return page500(), nil
+func (Page500) GET(r *http.Request) (
+	body templ.Component,
+	disableRefreshAfterHidden bool,
+	err error,
+) {
+	return page500(), true, nil
 }

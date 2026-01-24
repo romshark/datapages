@@ -126,6 +126,8 @@ func (PageIndex) GET(
     redirect Redirect, // Optional
     newSession SessionJWT, // Optional
     removeSessionJWT bool, // Optional
+    enableBackgroundStreaming bool, // Optional
+    disableRefreshAfterHidden bool, // Optional
     err error
 ) {
     // ...
@@ -464,15 +466,15 @@ func (PageChat) OnMessageSent(
 
 </details>
 
-#### 🧩 Return Value `body templ.Component`
+#### 🧩 Return Value: `body templ.Component`
 
 Specifies the [Templ](https://templ.guide/) template to use for the contents of the page.
 
-#### 🧩 Return Value `head templ.Component`
+#### 🧩 Return Value: `head templ.Component`
 
 Specifies the [Templ](https://templ.guide/) template to use for `<head>` tag of the page.
 
-#### 🧩 Return Value `redirect Redirect`
+#### 🧩 Return Value: `redirect Redirect`
 
 Allows for redirecting to different URLs.
 
@@ -487,7 +489,7 @@ type Redirect struct {
 }
 ```
 
-#### 🧩 Return Value `newSession SessionJWT`
+#### 🧩 Return Value: `newSession SessionJWT`
 
 ```go
 newSession SessionJWT
@@ -496,7 +498,7 @@ newSession SessionJWT
 Adds response headers to set a JWT session cookie if `newSession.UserID` is not empty,
 otherwise no-op.
 
-#### 🧩 Return Value `removeSessionJWT bool`
+#### 🧩 Return Value: `removeSessionJWT bool`
 
 ```go
 removeSessionJWT bool
@@ -508,6 +510,38 @@ Removes any JWT session cookie if `true`, otherwise no-op.
 #### 🧩 Return Value `error` or `err error`
 
 Regular error values that will be logged and followed by the error handling procedure.
+
+#### 🧩 `GET` Return Value: `enableBackgroundStreaming bool`
+
+Can only be used for `GET` methods.
+
+```go
+enableBackgroundStreaming bool
+```
+
+By default, `OnXXX` event handlers can't deliver updates to background tabs.
+If `true`, the SSE stream is always kept open. This prevents missed updates when the tab
+is inactive, but increases battery and resource usage, especially on mobile devices.
+
+This is equivalent to datastar's [`openWhenHidden`](https://data-star.dev/reference/actions)).
+
+#### 🧩 `GET` Return Value: `disableRefreshAfterHidden bool`
+
+Can only be used for `GET` methods.
+
+```go
+disableRefreshAfterHidden bool
+```
+
+By default, Datapages refreshes the page when it becomes active again after being in the
+background (for example, when switching back from another tab).
+This is useful when `enableBackgroundStreaming` is `false`, since SSE events may be missed
+while the tab is inactive and the page state can become stale.
+You can disable this behavior by returning `disableRefreshAfterHidden=true`. 
+
+ℹ️ Datapages relies on the
+[`visibilitychange`](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event)
+event to perform the automatic refresh.
 
 ## Technical Limitations
 

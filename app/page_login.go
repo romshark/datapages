@@ -13,13 +13,16 @@ import (
 type PageLogin struct{ App *App }
 
 func (PageLogin) GET(r *http.Request, session SessionJWT) (
-	body templ.Component, redirect Redirect, err error,
+	body templ.Component,
+	redirect Redirect,
+	disableRefreshAfterHidden bool,
+	err error,
 ) {
 	if session.UserID != "" {
 		// Already logged in
-		return nil, Redirect{Target: "/"}, nil
+		return nil, Redirect{Target: "/"}, false, nil
 	}
-	return pageLogin(false), redirect, nil
+	return pageLogin(false), redirect, true, nil
 }
 
 // POSTSubmit is /login/submit

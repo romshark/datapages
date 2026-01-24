@@ -25,7 +25,6 @@ func (p PagePost) GET(
 ) (
 	body, head templ.Component,
 	redirect Redirect,
-	refreshAfterInactive bool,
 	err error,
 ) {
 	if strings.TrimSpace(path.Slug) == "" {
@@ -37,18 +36,18 @@ func (p PagePost) GET(
 	if err != nil {
 		if errors.Is(err, domain.ErrPostNotFound) {
 			// Redirect to 404 page.
-			return nil, nil, Redirect{Target: "/not-found"}, false, nil
+			return nil, nil, Redirect{Target: "/not-found"}, nil
 		}
 	}
 
 	similarPosts, err := p.App.repo.SimilarPosts(r.Context(), post.ID, 4)
 	if err != nil {
-		return nil, nil, redirect, false, err
+		return nil, nil, redirect, err
 	}
 
 	baseData, err := p.baseData(r.Context(), session)
 	if err != nil {
-		return nil, nil, redirect, false, err
+		return nil, nil, redirect, err
 	}
 
 	var chatID string
@@ -56,7 +55,7 @@ func (p PagePost) GET(
 		chat, err := p.App.repo.ChatByPostID(r.Context(), session.UserID, post.ID)
 		if err != nil {
 			if !errors.Is(err, domain.ErrChatNotFound) {
-				return body, head, redirect, false, err
+				return body, head, redirect, err
 			}
 		}
 		chatID = chat.ID
@@ -64,7 +63,7 @@ func (p PagePost) GET(
 
 	body = pagePost(session, post, similarPosts, baseData, chatID)
 	head = headPost(post.Title, post.Description, post.ImageURL)
-	return body, head, redirect, true, nil
+	return body, head, redirect, nil
 }
 
 // POSTSendMessage is /post/{slug}/send-message/{$}

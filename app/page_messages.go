@@ -24,22 +24,26 @@ func (p PageMessages) GET(
 ) (
 	body templ.Component,
 	redirect Redirect,
-	refreshAfterInactive bool,
+	enableBackgroundStreaming bool,
 	err error,
 ) {
 	if session.UserID == "" {
-		return nil, Redirect{Target: "/login"}, false, nil
+		redirect = Redirect{Target: "/login"}
+		return
 	}
 
 	baseData, chats, openChat, messages, err := p.getPageData(
 		r.Context(), session, query.Chat,
 	)
 	if err != nil {
-		return body, redirect, false, err
+		return
 	}
 
 	body = pageMessages(session, chats, openChat, messages, baseData)
-	return body, redirect, true, nil
+	// When on the messages page, we want the page to be awake even in the background
+	// to notify about new messages coming in.
+	enableBackgroundStreaming = true
+	return
 }
 
 func (p PageMessages) getPageData(

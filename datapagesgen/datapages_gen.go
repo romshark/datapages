@@ -390,7 +390,7 @@ func (s *Server) writeHTML(
 	r *http.Request,
 	sess app.SessionJWT,
 	headGeneric, head, body templ.Component,
-	writeBodyAttrs func(w http.ResponseWriter) error,
+	writeBodyAttrs func(w http.ResponseWriter),
 ) error {
 	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
 		<script type="module" src="/static/ds.min.js"></script>`)
@@ -443,9 +443,7 @@ func (s *Server) writeHTML(
 		return err
 	}
 	if writeBodyAttrs != nil {
-		if err := writeBodyAttrs(w); err != nil {
-			return err
-		}
+		writeBodyAttrs(w)
 	}
 	if _, err := io.WriteString(w, ">"); err != nil {
 		return err
