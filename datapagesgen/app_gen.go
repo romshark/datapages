@@ -836,7 +836,9 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		if !enableBackgroundStreaming {
+			writeBodyAttrOnVisibilityChange(w)
+		}
 
 		_, _ = io.WriteString(w, `data-signals:chatselected="'`)
 		_, _ = io.WriteString(w, query.Chat)

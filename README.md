@@ -525,6 +525,10 @@ is inactive, but increases battery and resource usage, especially on mobile devi
 
 This is equivalent to datastar's [`openWhenHidden`](https://data-star.dev/reference/actions)).
 
+ℹ️ `enableBackgroundStreaming=true` will automaticaly disable the auto-refresh after
+hidden. If you want to prevent this, you have to explicitly add
+`disableRefreshAfterHidden` to the return values and set it to `false`.
+
 #### 🧩 `GET` Return Value: `disableRefreshAfterHidden bool`
 
 Can only be used for `GET` methods.
