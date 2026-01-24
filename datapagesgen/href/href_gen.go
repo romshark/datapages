@@ -9,21 +9,21 @@ import (
 	"strings"
 )
 
-// PageIndex references /
-func PageIndex() string { return "/" }
+// Index references /
+func Index() string { return "/" }
 
-// PageSettings references /settings/
-func PageSettings() string {
+// Settings references /settings/
+func Settings() string {
 	return "/settings/"
 }
 
-// PageLogin references /login/
-func PageLogin() string {
+// Login references /login/
+func Login() string {
 	return "/login/"
 }
 
-// PageMessages references /messages/?chat
-func PageMessages(query QueryPageMessages) string {
+// Messages references /messages/?chat
+func Messages(query QueryMessages) string {
 	var b strings.Builder
 	l := len("/messages/")
 	if query.Chat != "" {
@@ -45,12 +45,12 @@ func PageMessages(query QueryPageMessages) string {
 	return b.String()
 }
 
-type QueryPageMessages struct {
+type QueryMessages struct {
 	Chat string `query:"chat"`
 }
 
-// PageSearch references /search/
-func PageSearch(query QueryPageSearch) string {
+// Search references /search/
+func Search(query QuerySearch) string {
 	var (
 		pminStr string
 		pmaxStr string
@@ -167,8 +167,8 @@ func PageSearch(query QueryPageSearch) string {
 	return b.String()
 }
 
-// QueryPageSearch is the query parameters for PageSearch
-type QueryPageSearch struct {
+// QuerySearch is the query parameters for Search
+type QuerySearch struct {
 	Term     string `query:"t"`
 	Category string `query:"c"`
 	PriceMin int64  `query:"pmin"`
@@ -176,8 +176,8 @@ type QueryPageSearch struct {
 	Location string `query:"l"`
 }
 
-// PagePost references /post/{slug}/
-func PagePost(slug string) string {
+// Post references /post/{slug}/
+func Post(slug string) string {
 	var b strings.Builder
 	b.Grow(
 		len("/post/") +
@@ -190,8 +190,8 @@ func PagePost(slug string) string {
 	return b.String()
 }
 
-// PageUser references /user/{name}/
-func PageUser(name string) string {
+// User references /user/{name}/
+func User(name string) string {
 	var b strings.Builder
 	b.Grow(
 		len("/user/") +
