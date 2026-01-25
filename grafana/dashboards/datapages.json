@@ -17,7 +17,7 @@
     },
     "editable": true,
     "fiscalYearStartMonth": 0,
-    "graphTooltip": 0,
+    "graphTooltip": 1,
     "id": 2,
     "links": [],
     "panels": [
@@ -1329,10 +1329,16 @@
             "type": "row"
         },
         {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
             "fieldConfig": {
                 "defaults": {
                     "color": {
-                        "mode": "palette-classic"
+                        "fixedColor": "dark-red",
+                        "mode": "fixed",
+                        "seriesBy": "last"
                     },
                     "custom": {
                         "axisBorderShow": false,
@@ -1343,7 +1349,7 @@
                         "barAlignment": 0,
                         "barWidthFactor": 0.6,
                         "drawStyle": "line",
-                        "fillOpacity": 0,
+                        "fillOpacity": 50,
                         "gradientMode": "none",
                         "hideFrom": {
                             "legend": false,
@@ -1352,8 +1358,11 @@
                         },
                         "insertNulls": false,
                         "lineInterpolation": "linear",
-                        "lineWidth": 1,
-                        "pointSize": 5,
+                        "lineStyle": {
+                            "fill": "solid"
+                        },
+                        "lineWidth": 4,
+                        "pointSize": 6,
                         "scaleDistribution": {
                             "type": "linear"
                         },
@@ -1418,10 +1427,15 @@
             "type": "timeseries"
         },
         {
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
             "fieldConfig": {
                 "defaults": {
                     "color": {
-                        "mode": "palette-classic"
+                        "fixedColor": "dark-red",
+                        "mode": "fixed"
                     },
                     "custom": {
                         "axisBorderShow": false,
@@ -1432,7 +1446,7 @@
                         "barAlignment": 0,
                         "barWidthFactor": 0.6,
                         "drawStyle": "line",
-                        "fillOpacity": 0,
+                        "fillOpacity": 50,
                         "gradientMode": "none",
                         "hideFrom": {
                             "legend": false,
@@ -1441,8 +1455,8 @@
                         },
                         "insertNulls": false,
                         "lineInterpolation": "linear",
-                        "lineWidth": 1,
-                        "pointSize": 5,
+                        "lineWidth": 4,
+                        "pointSize": 6,
                         "scaleDistribution": {
                             "type": "linear"
                         },
@@ -1687,5 +1701,5 @@
     "timezone": "",
     "title": "Datapages - Core Metrics",
     "uid": "datapages-core",
-    "version": 75
+    "version": 76
 }
