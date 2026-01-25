@@ -296,11 +296,23 @@
             "pluginVersion": "12.3.0",
             "targets": [
                 {
-                    "expr": "histogram_quantile(0.95, sum by (le) (rate(datapages_http_request_duration_seconds_bucket{path!~\".*/_\\\\$/.*\"}[$__rate_interval]))) * 1000",
+                    "expr": "histogram_quantile(0.5, sum by (le) (rate(datapages_http_request_duration_seconds_bucket{path!~\".*/_\\\\$/.*\"}[$__rate_interval]))) * 1000",
+                    "legendFormat": "p50 (median)",
                     "refId": "A"
+                },
+                {
+                    "expr": "histogram_quantile(0.95, sum by (le) (rate(datapages_http_request_duration_seconds_bucket{path!~\".*/_\\\\$/.*\"}[$__rate_interval]))) * 1000",
+                    "legendFormat": "p95 (slow requests)",
+                    "refId": "B"
+                },
+                {
+                    "expr": "histogram_quantile(0.99, sum by (le) (rate(datapages_http_request_duration_seconds_bucket{path!~\".*/_\\\\$/.*\"}[$__rate_interval]))) * 1000",
+                    "legendFormat": "p99 (tail latency)",
+                    "refId": "C"
                 }
             ],
-            "title": "HTTP P95 Latency",
+            "title": "HTTP Latency",
+            "description": "P50 = typical request latency. P95 = latency for the slowest 5% of requests (user-visible slowness). P99 = worst-case tail latency (near-breakage).",
             "type": "timeseries"
         },
         {
