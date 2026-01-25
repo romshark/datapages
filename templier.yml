@@ -7,7 +7,7 @@ lint: true
 templier-host: "127.0.0.1:7331"
 
 log:
-  level: erronly
+  level: debug
   clear-on:
   print-js-debug-logs: true
 
@@ -20,6 +20,7 @@ app:
   exclude:
     - ".*" # All hidden files.
     - "*~" # Any temporary backup files IDEs might use.
+    - "grafana/*"
   dir-cmd: "./cmd/server/"
   dir-work: "."
   host: "http://localhost:52000"
