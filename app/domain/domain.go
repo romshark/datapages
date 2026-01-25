@@ -651,6 +651,10 @@ func (r *Repository) SearchPosts(_ context.Context, q PostSearchParams) ([]Post,
 		results = append(results, convertPost(post))
 	}
 
+	slices.SortFunc(results, func(a, b Post) int {
+		return b.TimePosted.Compare(a.TimePosted)
+	})
+
 	return results, nil
 }
 
@@ -665,15 +669,7 @@ func (r *Repository) RecentlyPosted(_ context.Context) ([]Post, error) {
 	}
 
 	slices.SortFunc(posts, func(a, b Post) int {
-		// Assuming TimePosted is in a comparable format like RFC3339 or similar
-		// For descending order (most recent first), compare b to a
-		if a.TimePosted.Unix() > b.TimePosted.Unix() {
-			return -1
-		}
-		if a.TimePosted.Unix() < b.TimePosted.Unix() {
-			return 1
-		}
-		return 0
+		return b.TimePosted.Compare(a.TimePosted)
 	})
 
 	// Return top N posts (e.g., 10 most recent)
@@ -710,6 +706,11 @@ func (r *Repository) SimilarPosts(
 	if len(similar) > limit {
 		similar = similar[:limit]
 	}
+
+	slices.SortFunc(similar, func(a, b Post) int {
+		return b.TimePosted.Compare(a.TimePosted)
+	})
+
 	return similar, nil
 }
 
