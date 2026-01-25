@@ -303,17 +303,20 @@ templ pageMessages(
 				</div>
 				<div
 					class="chat-input"
-					data-on:input__throttle.300ms={ "if ($messagetext != '') {" +
-							action.POSTPageMessagesWriting() +
-							"} else {" +
-							action.POSTPageMessagesWritingStopped() +
-							"}" }
 				>
 					<textarea
 						class="textarea"
 						type="text"
 						data-bind="messagetext"
 						placeholder="Message"
+						data-on:input__throttle.300ms={ "if ($messagetext != '') {" +
+							action.POSTPageMessagesWriting() +
+							"} else {" +
+							action.POSTPageMessagesWritingStopped() +
+							"}" }
+						data-on:keydown={ "if (evt.key === 'Enter' && !evt.shiftKey) { "+
+							"evt.preventDefault();"+
+							action.POSTPageMessagesSendMessage() + "}" }
 					></textarea>
 					<button
 						class="btn"
