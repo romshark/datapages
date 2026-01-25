@@ -3,6 +3,11 @@ NATS_PORT := 4222
 NATS_HTTP_PORT := 8222
 NATS_IMAGE := nats:2.12.3
 
+PROM_CONTAINER_NAME := prometheus-datapages-demo
+PROM_PORT := 9091
+PROM_IMAGE := prom/prometheus:v3.5.1
+PROM_CONFIG := ./prometheus.yml
+
 STAGE_SERVER_BIN := ./server
 STAGE_ENV := ./.env.stage
 
@@ -17,12 +22,12 @@ STAGE_HOST ?= $(shell awk -F= '$$1=="HOST"{print $$2}' $(STAGE_ENV) 2>/dev/null)
 # Hosts to include in the cert: stage host + local loopbacks for convenience
 MKCERT_HOSTS := $(STAGE_HOST) localhost 127.0.0.1 ::1
 
-dev: nats-stop nats-up
+dev: nats-stop nats-up prom-stop prom-up
 	@set -a; [ -f .env.dev ] && . .env.dev; set +a; \
 	go run github.com/romshark/templier@latest
 
 # make stage runs the server in a production-grade mode for QA testing.
-stage: check-hosts nats-stop nats-up certstage build
+stage: check-hosts nats-stop nats-up prom-stop prom-up certstage build
 	@set -a; [ -f $(STAGE_ENV) ] && . $(STAGE_ENV); set +a; \
 	sudo -E $(STAGE_SERVER_BIN); status=$$?; rm -f $(STAGE_SERVER_BIN); exit $$status
 
@@ -61,6 +66,18 @@ nats-up:
 		-p $(NATS_HTTP_PORT):8222 \
 		$(NATS_IMAGE) \
 		-js
+
+prom-stop:
+	@docker stop $(PROM_CONTAINER_NAME) 2>/dev/null || true
+
+prom-up: $(PROM_CONFIG)
+	@docker ps --format '{{.Names}}' | grep -qx '$(PROM_CONTAINER_NAME)' || \
+	docker run -d --rm \
+		--name $(PROM_CONTAINER_NAME) \
+		-p $(PROM_PORT):9090 \
+		-v $(abspath $(PROM_CONFIG)):/etc/prometheus/prometheus.yml:ro \
+		$(PROM_IMAGE)
+
 
 certstage: $(STAGE_CERT_FILE) $(STAGE_KEY_FILE)
 

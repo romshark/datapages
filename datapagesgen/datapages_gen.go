@@ -4,10 +4,9 @@
 package datapagesgen
 
 import (
+	"bytes"
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"datapages/app"
 	"encoding/base64"
@@ -16,9 +15,9 @@ import (
 	"hash"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,7 +25,10 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/nats-io/nats.go"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/starfederation/datastar-go/datastar"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -175,127 +177,172 @@ func WithCSRFProtection(conf CSRFConfig) ServerOption {
 	}
 }
 
-// NewServer creates a new server instance.
-// Supported options:
-//
-//   - WithMiddleware
-//   - WithCustomErrLogger
-//   - WithCustomSessionIDGenerator
-//   - WithHTTPServer
-//   - WithMessageBroker
-//   - WithMessageBrokerNATS
-func NewServer(app *app.App, opts ...ServerOption) *Server {
-	s := &Server{
-		shutdownCh: make(chan struct{}),
-		httpServer: &http.Server{
-			// Time to read request headers + body
-			ReadTimeout: DefaultHTTPReadTimeout,
-			// Time to read just headers (helps prevent Slowloris attacks)
-			ReadHeaderTimeout: DefaultHTTPReadHeaderTimeout,
-			// Time to write response
-			WriteTimeout: DefaultHTTPWriteTimeout,
-			// Time to wait for next request when using keep-alive
-			IdleTimeout:    DefaultHTTPIdleTimeout,
-			MaxHeaderBytes: DefaultHTTPMaxHeaderBytes,
-		},
-		app:        app,
-		mux:        http.NewServeMux(),
-		middleware: []func(http.Handler) http.Handler{},
-	}
+// datapagesgen/server.go (generated)
 
-	// Apply options
-	for _, opt := range opts {
-		if err := opt(s); err != nil {
-			panic(fmt.Errorf("applying server option: %w", err))
+// WithPrometheus starts a dedicated HTTP server exposing /metrics.
+// Example host address: "127.0.0.1:9091" or ":9091".
+func WithPrometheus(conf PrometheusConfig) ServerOption {
+	return func(s *Server) error {
+		if conf.Host == "" {
+			return errors.New("prometheus host address must not be empty")
 		}
-	}
 
-	// Reverse handlers such that they're invoked in the order of definition.
-	slices.Reverse(s.middleware)
-
-	// package app is using JWT authentication, hence WithAuthJWTConfig is required.
-	if s.authJWTOpts == nil {
-		panic("missing option WithAuthJWTConfig")
-	}
-
-	// Use defaults if not set.
-	if s.logger == nil {
-		opt := &slog.HandlerOptions{
-			Level: slog.LevelInfo,
+		// Defaults
+		if conf.Registerer == nil {
+			conf.Registerer = prometheus.DefaultRegisterer
 		}
-		if IsDevMode() {
-			opt.Level = slog.LevelDebug
+		if conf.Gatherer == nil {
+			conf.Gatherer = prometheus.DefaultGatherer
 		}
-		s.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
-	}
-	s.httpServer.Handler = s
-	if s.httpServer.ErrorLog == nil {
-		s.httpServer.ErrorLog = slog.NewLogLogger(
-			slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}),
-			slog.LevelInfo,
-		)
-	}
-	if s.messageBroker == nil {
-		s.messageBroker = newMessageBrokerMem()
-	}
 
-	if s.csrfConf != nil {
-		s.csrfHMACPool.New = func() any {
-			return &csrfGenerationContext{
-				hmac:         hmac.New(sha256.New, s.csrfConf.Secret),
-				decodedToken: make([]byte, 64),
-				issuedAtHex:  make([]byte, 16),
-				base:         make([]byte, 32),
-				expectedBase: make([]byte, 32),
-				mask:         make([]byte, 32),
-				out:          make([]byte, 64),
-			}
+		// Register built-in metrics on the configured registerer exactly once.
+		registerPrometheusMetricsOnce.Do(func() {
+			registerMetricsWith(conf.Registerer)
+		})
+
+		var h http.Handler
+		if conf.Handler != nil {
+			h = conf.Handler
+		} else {
+			h = promhttp.HandlerFor(conf.Gatherer, promhttp.HandlerOpts{})
 		}
-	}
 
-	setupHandlers(s)
-	if s.staticFS != nil {
-		h := http.StripPrefix("/static/", http.FileServer(s.staticFS))
-		if IsDevMode() {
-			h = devNoCache(h)
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", h)
+
+		s.metricsServer = &http.Server{
+			Addr:    conf.Host,
+			Handler: mux,
 		}
-		s.mux.Handle("GET /static/", h)
+		return nil
 	}
-
-	return s
 }
 
-// ListenAndServe listens on the TCP network address addr and then calls Serve with
-// handler to handle requests on incoming connections.
-// Accepted connections are configured to enable TCP keep-alives.
-func (s *Server) ListenAndServe(hostAddress string) error {
-	s.httpServer.Addr = hostAddress
-	s.enabledTLS = false
+type PrometheusConfig struct {
+	Host       string
+	Registerer prometheus.Registerer // Optional, default: prometheus.DefaultRegisterer
+	Gatherer   prometheus.Gatherer   // Optional, default: prometheus.DefaultGatherer
+	Handler    http.Handler          // Optional override
+}
+
+var registerPrometheusMetricsOnce sync.Once
+
+func (s *Server) listenAndServe(
+	ctx context.Context,
+	listenAndServe func() error,
+) error {
+	ctx, cancel := context.WithCancel(ctx)
+	s.runCancel = cancel
+
 	if s.csrfConf == nil {
 		s.logger.Warn("CSRF protection disabled")
 	}
-	return s.httpServer.ListenAndServe()
+
+	g, ctx := errgroup.WithContext(ctx)
+
+	// Main frontend server
+	g.Go(func() error {
+		if err := listenAndServe(); err != nil &&
+			!errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	})
+
+	// Metrics server
+	if s.metricsServer != nil {
+		s.metricsServer.BaseContext = func(net.Listener) context.Context {
+			return ctx
+		}
+		g.Go(func() error {
+			err := s.metricsServer.ListenAndServe()
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return fmt.Errorf("metrics server failed: %w", err)
+			}
+			return nil
+		})
+	}
+
+	// Coordinated shutdown
+	g.Go(func() error {
+		<-ctx.Done()
+
+		shutdownCtx, cancel := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+		defer cancel()
+
+		_ = s.Shutdown(shutdownCtx)
+		return nil
+	})
+
+	return g.Wait()
+}
+
+// ListenAndServe starts the main HTTP server and, if configured, a dedicated
+// Prometheus metrics server.
+//
+// Both servers run concurrently and share the same lifecycle.
+// If either server fails to start or exits unexpectedly, the other is
+// shut down and the error is returned.
+//
+// The provided context controls graceful shutdown for both servers.
+func (s *Server) ListenAndServe(
+	ctx context.Context,
+	addr string,
+) error {
+	s.httpServer.Addr = addr
+	s.enabledTLS = false
+	return s.listenAndServe(ctx, func() error {
+		s.logger.Info("listening HTTP", slog.String("addr", addr))
+		return s.httpServer.ListenAndServe()
+	})
 }
 
 // ListenAndServeTLS acts identically to ListenAndServe,
 // except that it expects HTTPS connections.
-func (s *Server) ListenAndServeTLS(hostAddress, certFile, keyFile string) error {
-	s.httpServer.Addr = hostAddress
+func (s *Server) ListenAndServeTLS(
+	ctx context.Context,
+	addr, certFile, keyFile string,
+) error {
+	s.httpServer.Addr = addr
 	s.enabledTLS = true
-	return s.httpServer.ListenAndServeTLS(certFile, keyFile)
+	return s.listenAndServe(ctx, func() error {
+		s.logger.Info("listening HTTP",
+			slog.String("addr", addr),
+			slog.String("tls.cert", certFile),
+			slog.String("tls.key", keyFile))
+		return s.httpServer.ListenAndServeTLS(certFile, keyFile)
+	})
 }
 
-// Closes all SSE subscriptions and shuts down the underlying HTTP server.
+// Shutdown gracefully shuts down all server components,
+// including the main HTTP server and the Prometheus metrics server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.shutdownOnce.Do(func() {
-		close(s.shutdownCh) // Close all SSE subscriptions.
+		s.logger.Info("server shutdown initiated")
+		if s.runCancel != nil {
+			s.runCancel()
+		}
+		close(s.shutdownCh)
 	})
-	return s.httpServer.Shutdown(ctx)
+	var errs []error
+	if s.metricsServer != nil {
+		if err := s.metricsServer.Shutdown(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := s.httpServer.Shutdown(ctx); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
 type Server struct {
 	shutdownCh    chan struct{} // Closed when shutting down.
 	shutdownOnce  sync.Once
+	runCancel     context.CancelFunc
 	httpServer    *http.Server
 	messageBroker MessageBroker
 	app           *app.App
@@ -306,9 +353,10 @@ type Server struct {
 	staticFS      http.FileSystem
 	enabledTLS    bool
 
-	authJWTOpts  *AuthJWTConfig
-	csrfConf     *CSRFConfig
-	csrfHMACPool sync.Pool
+	metricsServer *http.Server
+	authJWTOpts   *AuthJWTConfig
+	csrfConf      *CSRFConfig
+	csrfHMACPool  sync.Pool
 }
 
 type csrfGenerationContext struct {
@@ -469,6 +517,10 @@ func (s *Server) handleStreamRequest(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	mSSEConnections.Inc()
+	defer mSSEConnections.Dec()
+	start := time.Now()
+
 	sub, err := s.messageBroker.Subscribe(r.Context(), subjects...)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
@@ -488,9 +540,13 @@ func (s *Server) handleStreamRequest(
 		// Close the subscription when the request is canceled or TTL expires.
 		select {
 		case <-expirationC:
+			mSSEDisconnects.WithLabelValues("ttl").Inc()
 		case <-r.Context().Done():
+			mSSEDisconnects.WithLabelValues("client").Inc()
 		case <-s.shutdownCh:
+			mSSEDisconnects.WithLabelValues("shutdown").Inc()
 		}
+		mSSEConnectionDuration.Observe(time.Since(start).Seconds())
 		sub.Close()
 	}()
 
@@ -641,6 +697,9 @@ func (b *messageBrokerNATS) Publish(
 	data []byte,
 ) error {
 	_, err := b.js.Publish(subject, data, nats.Context(ctx))
+	if err == nil {
+		mBrokerEventPublishes.WithLabelValues(brokerSubjectKind(subject)).Inc()
+	}
 	return err
 }
 
@@ -689,8 +748,12 @@ func (b *messageBrokerNATS) Subscribe(
 			defer inflight.Done()
 
 			select {
-			case ch <- Message{Subject: m.Subject, Data: m.Data}:
+			case ch <- Message{
+				Subject: m.Subject,
+				Data:    bytes.Clone(m.Data),
+			}:
 			default: // drop if subscriber is slow
+				mBrokerDeliveriesDropped.WithLabelValues("nats").Inc()
 			}
 		})
 		if err != nil {
@@ -761,14 +824,15 @@ func (b *messageBrokerMem) Publish(
 
 	msg := Message{
 		Subject: subject,
-		Data:    data,
+		Data:    bytes.Clone(data),
 	}
+	mBrokerEventPublishes.WithLabelValues(brokerSubjectKind(subject)).Inc()
 
 	for sub := range subs {
 		select {
 		case sub.ch <- msg:
-		default:
-			// drop if subscriber is slow (matches NATS core semantics)
+		default: // drop if subscriber is slow (matches NATS core semantics)
+			mBrokerDeliveriesDropped.WithLabelValues("mem").Inc()
 		}
 	}
 

@@ -3,20 +3,126 @@
 package datapagesgen
 
 import (
+	"bufio"
+	"crypto/hmac"
+	"crypto/sha256"
 	"datapages/app"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/starfederation/datastar-go/datastar"
 )
+
+// NewServer creates a new server instance.
+// Supported options:
+//
+//   - WithMiddleware
+//   - WithHTTPServer
+//   - WithStaticFS
+//   - WithMessageBroker
+//   - WithMessageBrokerNATS
+//   - WithCSRFProtection
+//   - WithPrometheus
+func NewServer(app *app.App, opts ...ServerOption) *Server {
+	s := &Server{
+		shutdownCh: make(chan struct{}),
+		httpServer: &http.Server{
+			// Time to read request headers + body
+			ReadTimeout: DefaultHTTPReadTimeout,
+			// Time to read just headers (helps prevent Slowloris attacks)
+			ReadHeaderTimeout: DefaultHTTPReadHeaderTimeout,
+			// Time to write response
+			WriteTimeout: DefaultHTTPWriteTimeout,
+			// Time to wait for next request when using keep-alive
+			IdleTimeout:    DefaultHTTPIdleTimeout,
+			MaxHeaderBytes: DefaultHTTPMaxHeaderBytes,
+		},
+		app:        app,
+		mux:        http.NewServeMux(),
+		middleware: []func(http.Handler) http.Handler{},
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		if err := opt(s); err != nil {
+			panic(fmt.Errorf("applying server option: %w", err))
+		}
+	}
+
+	// Reverse handlers such that they're invoked in the order of definition.
+	slices.Reverse(s.middleware)
+
+	if s.authJWTOpts == nil {
+		// package app is using JWT authentication, hence WithAuthJWTConfig is required.
+		panic("missing option WithAuthJWTConfig")
+	}
+	if s.metricsServer == nil {
+		// package app is using prometheus metrics, hence WithPrometheus is required.
+		panic("missing option WithPrometheus")
+	}
+
+	// Use defaults if not set.
+	if s.logger == nil {
+		opt := &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		}
+		if IsDevMode() {
+			opt.Level = slog.LevelDebug
+		}
+		s.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
+	}
+	s.httpServer.Handler = s
+	if s.httpServer.ErrorLog == nil {
+		s.httpServer.ErrorLog = slog.NewLogLogger(
+			slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}),
+			slog.LevelInfo,
+		)
+	}
+	if s.messageBroker == nil {
+		s.messageBroker = newMessageBrokerMem()
+	}
+
+	if s.metricsServer != nil {
+		s.middleware = append(s.middleware, s.metricsMiddleware)
+	}
+
+	if s.csrfConf != nil {
+		s.csrfHMACPool.New = func() any {
+			return &csrfGenerationContext{
+				hmac:         hmac.New(sha256.New, s.csrfConf.Secret),
+				decodedToken: make([]byte, 64),
+				issuedAtHex:  make([]byte, 16),
+				base:         make([]byte, 32),
+				expectedBase: make([]byte, 32),
+				mask:         make([]byte, 32),
+				out:          make([]byte, 64),
+			}
+		}
+	}
+
+	setupHandlers(s)
+	if s.staticFS != nil {
+		h := http.StripPrefix("/static/", http.FileServer(s.staticFS))
+		if IsDevMode() {
+			h = devNoCache(h)
+		}
+		s.mux.Handle("GET /static/", h)
+	}
+
+	return s
+}
 
 // --- Message Broker ---
 
@@ -135,7 +241,10 @@ func (s *Server) mustSetSessionJWT(
 	issuedAt time.Time,
 	expire time.Time,
 ) {
-	mSize := 4
+	mSize := 3
+	if issuer != "" {
+		mSize++
+	}
 	if audience != "" {
 		mSize++
 	}
@@ -143,7 +252,9 @@ func (s *Server) mustSetSessionJWT(
 	jwtClaims["sub"] = userID
 	jwtClaims["exp"] = expire.Unix()
 	jwtClaims["iat"] = issuedAt.Unix()
-	jwtClaims["iss"] = issuer
+	if issuer != "" {
+		jwtClaims["iss"] = issuer
+	}
 	if audience != "" {
 		jwtClaims["aud"] = audience
 	}
@@ -172,9 +283,12 @@ func (s *Server) removeSessionJWT(w http.ResponseWriter) {
 		Name:     s.authJWTOpts.CookieName,
 		Value:    "",
 		Path:     "/",
+		Domain:   s.authJWTOpts.CookieDomain,
 		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   true,
+		Expires:  time.Unix(0, 0),
+		HttpOnly: !s.authJWTOpts.DisableHTTPOnly,
+		Secure:   s.enabledTLS,
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 
@@ -225,7 +339,7 @@ func (s *Server) authJWT(
 		sess.UserID = sub
 	}
 	if iss, err := claims.GetIssuedAt(); err != nil {
-		s.httpErrUnauth(w, "invalid JWT iss field")
+		s.httpErrUnauth(w, fmt.Sprintf("invalid JWT iss field: %q", iss))
 		return sess, false
 	} else {
 		sess.IssuedAt = iss.Time
@@ -242,6 +356,231 @@ func (s *Server) authJWT(
 	}
 
 	return sess, true
+}
+
+// --- Prometheus Metrics ---
+
+// Datapages metrics
+var (
+	mHTTPRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "datapages",
+			Subsystem: "http",
+			Name:      "requests_total",
+			Help:      "Total HTTP requests",
+		},
+		[]string{"method", "path", "status"},
+	)
+
+	mHTTPRequestDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "datapages",
+			Subsystem: "http",
+			Name:      "request_duration_seconds",
+			Help:      "HTTP request latency",
+			Buckets:   prometheus.DefBuckets,
+		},
+		[]string{"method", "path"},
+	)
+
+	mInFlightRequests = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "datapages",
+			Subsystem: "http",
+			Name:      "in_flight_requests",
+			Help:      "Current in-flight HTTP requests",
+		},
+	)
+
+	mSSEConnections = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "datapages",
+			Subsystem: "sse",
+			Name:      "sse_connections",
+			Help:      "Active SSE connections",
+		},
+	)
+
+	// By-kind (low-cardinality) publish counters. Useful because subjects include user IDs
+	// (high-cardinality), so we collapse to event kinds.
+	mBrokerEventPublishes = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "datapages",
+			Subsystem: "event_broker",
+			Name:      "publishes_by_kind_total",
+			Help:      "Published events by kind (low-cardinality)",
+		},
+		[]string{"kind"},
+	)
+
+	// Dropped broker deliveries (slow consumers).
+	mBrokerDeliveriesDropped = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "datapages",
+			Subsystem: "event_broker",
+			Name:      "deliveries_dropped_total",
+			Help:      "Dropped broker deliveries due to slow consumers",
+		},
+		[]string{"broker"}, // "nats" | "mem"
+	)
+
+	// SSE connection lifetime + disconnect reasons.
+	mSSEConnectionDuration = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: "datapages",
+			Subsystem: "sse",
+			Name:      "connection_duration_seconds",
+			Help:      "SSE connection lifetime in seconds",
+			Buckets:   prometheus.DefBuckets,
+		},
+	)
+
+	mSSEDisconnects = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "datapages",
+			Subsystem: "sse",
+			Name:      "disconnects_total",
+			Help:      "SSE disconnects by reason",
+		},
+		[]string{"reason"}, // "ttl" | "client" | "shutdown"
+	)
+)
+
+// User defined metrics
+var (
+	mPageLoginAuthLoginSubmissionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "app",
+			Subsystem: "auth",
+			Name:      "login_submissions_total",
+			Help:      "Number of login submissions",
+		},
+		[]string{"result"},
+	)
+	mPageMessagesMessagingChatMessagesSentTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "app",
+			Subsystem: "messaging",
+			Name:      "chat_messages_sent_total",
+			Help:      "Total number of chat message send attempts",
+		},
+		[]string{"result"},
+	)
+)
+
+type mIPageLoginAuthLoginSubmissionsTotal struct{}
+
+func (m mIPageLoginAuthLoginSubmissionsTotal) CounterAdd(
+	delta float64, result string,
+) {
+	mPageLoginAuthLoginSubmissionsTotal.WithLabelValues(result).Add(delta)
+}
+
+type mIPageMessagesMessagingChatMessagesSentTotal struct{}
+
+func (m mIPageMessagesMessagingChatMessagesSentTotal) CounterAdd(
+	delta float64, result string,
+) {
+	mPageMessagesMessagingChatMessagesSentTotal.WithLabelValues(result).Add(delta)
+}
+
+// registerMetricsWith registers the built-in datapages metrics on r.
+// (Replaces the old registerMetrics that used the global default registry.)
+func registerMetricsWith(r prometheus.Registerer) {
+	r.MustRegister(
+		mHTTPRequestsTotal,
+		mHTTPRequestDuration,
+		mInFlightRequests,
+		mSSEConnections,
+		mSSEConnectionDuration,
+		mSSEDisconnects,
+		mBrokerEventPublishes,
+		mBrokerDeliveriesDropped,
+
+		mPageLoginAuthLoginSubmissionsTotal,
+		mPageMessagesMessagingChatMessagesSentTotal,
+	)
+}
+
+// brokerSubjectKind collapses high-cardinality subjects (per-user) into stable kinds.
+func brokerSubjectKind(subject string) string {
+	switch {
+	case strings.HasPrefix(subject, EvSubjPrefMessagingSent):
+		return "messaging.sent"
+	case strings.HasPrefix(subject, EvSubjPrefMessagingRead):
+		return "messaging.read"
+	case strings.HasPrefix(subject, EvSubjPrefMessagingWriting):
+		return "messaging.writing"
+	case strings.HasPrefix(subject, EvSubjPrefMessagingWritingStopped):
+		return "messaging.writing-stopped"
+	case subject == EvSubjPostArchived:
+		return "posts.archived"
+	default:
+		return "unknown"
+	}
+}
+
+type statusRW struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusRW) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusRW) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *statusRW) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New(
+			"underlying ResponseWriter does not implement http.Hijacker",
+		)
+	}
+	return h.Hijack()
+}
+
+func (w *statusRW) Push(target string, opts *http.PushOptions) error {
+	p, ok := w.ResponseWriter.(http.Pusher)
+	if !ok {
+		return http.ErrNotSupported
+	}
+	return p.Push(target, opts)
+}
+
+// routeLabel returns a low-cardinality label for the route.
+// Prefer r.Pattern (Go 1.22 ServeMux patterns) and fall back to the raw path.
+func routeLabel(r *http.Request) string {
+	if p := r.Pattern; p != "" {
+		return p
+	}
+	return r.URL.Path
+}
+
+// metricsMiddleware must be the very first middleware in the chain (outermost),
+// so it measures everything, including other middleware work.
+func (s *Server) metricsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		mInFlightRequests.Inc()
+		defer mInFlightRequests.Dec()
+
+		rw := &statusRW{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rw, r)
+
+		path := routeLabel(r)
+		mHTTPRequestsTotal.WithLabelValues(r.Method, path, strconv.Itoa(rw.status)).Inc()
+
+		reqDur := time.Since(start).Seconds()
+		mHTTPRequestDuration.WithLabelValues(r.Method, path).Observe(reqDur)
+	})
 }
 
 // --- HTTP Handlers ---
@@ -646,7 +985,14 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 	}
 
 	p := app.PageLogin{App: s.app}
-	body, redirect, newSessionJWT, err := p.POSTSubmit(r, sess, signals)
+	metrics := struct {
+		LoginSubmissions interface {
+			CounterAdd(delta float64, result string)
+		} `name:"login_submissions_total" subsystem:"auth"`
+	}{
+		LoginSubmissions: mIPageLoginAuthLoginSubmissionsTotal{},
+	}
+	body, redirect, newSessionJWT, err := p.POSTSubmit(r, sess, signals, metrics)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.POSTSubmit", err)
 		return
@@ -662,13 +1008,13 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 	}
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageSettings", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for PageLogin.PostSubmit", err)
 		return
 	}
 	if err := s.writeHTML(
 		w, r, sess, genericHead, nil, body, nil,
 	); err != nil {
-		s.logErr("rendering response of PageLoginPOSTSubmit", err)
+		s.logErr("rendering response of PageLogin.POSTSubmit", err)
 		return
 	}
 }
@@ -1154,7 +1500,10 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-	if err := p.POSTSendMessage(r, sess, signals, dispatch); err != nil {
+	metrics := app.MessagingChatMessagesSent{
+		ChatMessagesSent: mIPageMessagesMessagingChatMessagesSentTotal{},
+	}
+	if err := p.POSTSendMessage(r, sess, signals, dispatch, metrics); err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTSendMessage", err)
 		return
 	}

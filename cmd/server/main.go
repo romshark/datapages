@@ -38,19 +38,12 @@ func main() {
 	withCSRFProtection(&opts)
 	withStaticFS(&opts)
 	withMessageBroker(&opts, *fMsgBrokerMem)
+	withPrometheus(&opts)
 
 	repo := NewRepository()
 
 	s := datapagesgen.NewServer(app.NewApp(repo), opts...)
-
-	go listenAndServe(s, net.JoinHostPort(host, port))
-
-	<-ctx.Done()
-	slog.Info("shutting down server")
-	if err := s.Shutdown(context.Background()); err != nil {
-		slog.Error("shutting down server", slog.Any("err", err))
-	}
-	slog.Info("server shut down")
+	listenAndServe(ctx, s, net.JoinHostPort(host, port))
 }
 
 func withAccessLogger(opts *[]datapagesgen.ServerOption) {
@@ -99,9 +92,12 @@ func withMessageBroker(
 		slog.Info("forced in-memory message broker")
 		return
 	}
-
 	// If NATS URL is set then enable NATS message broker.
 	u := os.Getenv("NATS_URL")
+	if u == "" {
+		slog.Warn("NATS_URL not set; using in-memory message broker")
+		return
+	}
 	conn, err := nats.Connect(u)
 	if err != nil {
 		slog.Error("opening NATS connection", slog.Any("err", err))
@@ -118,20 +114,33 @@ func withMessageBroker(
 	slog.Info("using NATS message broker")
 }
 
-func listenAndServe(s *datapagesgen.Server, host string) {
+func withPrometheus(opts *[]datapagesgen.ServerOption) {
+	host := os.Getenv("HOST_METRICS")
+	port := os.Getenv("PORT_METRICS")
+
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	if port == "" {
+		port = "9090"
+	}
+
+	addr := net.JoinHostPort(host, port)
+	*opts = append(*opts, datapagesgen.WithPrometheus(datapagesgen.PrometheusConfig{
+		Host: addr,
+		// Registerer/Gatherer left nil => defaults
+	}))
+}
+
+func listenAndServe(ctx context.Context, s *datapagesgen.Server, host string) {
 	var err error
 	pathCert := os.Getenv("PATH_TLS_CERT")
 	pathKey := os.Getenv("PATH_TLS_KEY")
 
 	if pathCert == "" && pathKey == "" {
-		slog.Info("listening HTTP", slog.String("host", host))
-		err = s.ListenAndServe(host)
+		err = s.ListenAndServe(ctx, host)
 	} else {
-		slog.Info("listening HTTPS",
-			slog.String("host", host),
-			slog.String("cert", pathCert),
-			slog.String("key", pathKey))
-		err = s.ListenAndServeTLS(host, pathCert, pathKey)
+		err = s.ListenAndServeTLS(ctx, host, pathCert, pathKey)
 	}
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("listening", slog.Any("err", err))

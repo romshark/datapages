@@ -298,7 +298,7 @@ func (p PageExample) OnSomethingHappened(
 
 </details>
 
-#### 🧩 Parameter `signals struct {...}`
+#### 🧩 Parameter: `signals struct {...}`
 
 ```go
 signals struct {
@@ -312,7 +312,7 @@ from the page.
 Any named or anonymous struct is accepted,
 but every field must have a json struct field tag.
 
-#### 🧩 Parameter `path struct {...}`
+#### 🧩 Parameter: `path struct {...}`
 
 ```go
 path struct {
@@ -322,7 +322,7 @@ path struct {
 
 Provides URL path parameters. These parameters must be defined in the URL comment.
 
-#### 🧩 Parameter `query struct {...}`
+#### 🧩 Parameter: `query struct {...}`
 
 ```go
 query struct {
@@ -348,7 +348,7 @@ query struct {
 The above example will automatically synchronize the query parameter `s` with the
 signal `selecteditem`.
 
-#### 🧩 Parameter `session SessionJWT`
+#### 🧩 Parameter: `session SessionJWT`
 
 ```go
 session SessionJWT
@@ -366,7 +366,7 @@ type SessionJWT struct {
 }
 ```
 
-#### 🧩 Parameter `sse *datastar.ServerSentEventGenerator`
+#### 🧩 Parameter: `sse *datastar.ServerSentEventGenerator`
 
 ```go
 sse *datastar.ServerSentEventGenerator
@@ -377,7 +377,7 @@ This parameter is allowed only on `POSTXXX` page methods handling
 `OnXXX` event handler page methods.
 This gives you a handle to patch page elements, execute scripts, etc.
 
-#### 🧩 Parameter `dispatch func(...) error`
+#### 🧩 Parameter: `dispatch func(...) error`
 
 ```go
 dispatch func(EventXXX, /*...*/) error
@@ -465,6 +465,60 @@ func (PageChat) OnMessageSent(
 ```
 
 </details>
+
+#### 🧩 Parameter: `metrics struct {...}`
+
+```go
+metrics struct {
+    // Help description goes in this comment
+    ExampleRequestsTotal interface {
+        CounterAdd(delta float64, result string)
+    } `name:"example_requests_total"`
+
+    ExampleConnectionsOpen interface {
+        GaugeSet(value float64)
+    } `name:"example_connections_open" subsystem:"network"`
+
+    ExampleOrderSize interface {
+        HistogramObserve(value float64, )
+    } `name:"order_size", buckets:"0,1,5,50,100,1000"``
+
+    //...
+},
+```
+
+Datapages can inject typed metric handles into page/action/event handlers,
+similar to `signals`, `dispatch`, etc.
+You declare what you need at the handler boundary, and the generator automatically
+defines the Prometheus collectors and registers them.
+
+The methods of the interface define the metric kind:
+
+##### Counter
+
+```go
+interface {
+    CounterAdd(label1, label2 string, /* ... */)
+}
+```
+
+##### Gauge
+
+```go
+interface {
+    GaugeSet(value float64, label1, label2 string, /* ... */)
+}
+```
+
+##### Histogram
+
+```go
+interface {
+    HistogramObserve(value float64, label1, label2 string, /* ... */)
+}
+```
+
+Buckets can be defined using the `bucket` struct tag as a comma-separated list of values.
 
 #### 🧩 Return Value: `body templ.Component`
 

@@ -212,3 +212,10 @@ func (Page500) GET(r *http.Request) (
 ) {
 	return page500(), true, nil
 }
+
+type MessagingChatMessagesSent struct {
+	// Total number of chat message send attempts
+	ChatMessagesSent interface {
+		CounterAdd(delta float64, result string) // result=success|failure
+	} `name:"chat_messages_sent_total" subsystem:"messaging"`
+}

@@ -226,21 +226,38 @@ func (p PageMessages) POSTSendMessage(
 		EventMessagingWritingStopped,
 		EventMessagingSent,
 	) error,
+	metrics MessagingChatMessagesSent,
 ) error {
-	post, chat, err := p.getChat(r.Context(), session, signals.ChatSelected)
-	if err != nil {
-		return err
-	}
+	var targetUsers []string
+	err := func() (err error) {
+		defer func() {
+			if err != nil {
+				metrics.ChatMessagesSent.CounterAdd(1, "failure")
+				return
+			}
+			metrics.ChatMessagesSent.CounterAdd(1, "success")
+		}()
 
-	if session.UserID != chat.SenderUserName && session.UserID != post.MerchantUserName {
-		return domain.ErrUnauthorized
-	}
+		post, chat, err := p.getChat(r.Context(), session, signals.ChatSelected)
+		if err != nil {
+			return err
+		}
 
-	targetUsers := []string{chat.SenderUserName, post.MerchantUserName}
+		if session.UserID != chat.SenderUserName && session.UserID != post.MerchantUserName {
+			return domain.ErrUnauthorized
+		}
 
-	_, err = p.App.repo.NewMessage(
-		r.Context(), signals.ChatSelected, session.UserID, signals.MessageText,
-	)
+		targetUsers = []string{chat.SenderUserName, post.MerchantUserName}
+
+		_, err = p.App.repo.NewMessage(
+			r.Context(), signals.ChatSelected, session.UserID, signals.MessageText,
+		)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}()
 	if err != nil {
 		return err
 	}
