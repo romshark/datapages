@@ -231,9 +231,7 @@ templ pageMessages(
 ) {
 	@fragmentNavbar(session, "", baseData)
 	@page("page-messages") {
-		<div
-			class="chat-list"
-		>
+		<div class="chat-list">
 			if len(chats) == 0 {
 				<p>No chats available yet.</p>
 			} else {
@@ -667,6 +665,8 @@ templ menuBase(id, userName, userAvatarURL string) {
 		<div
 			id={ id + "-popover" }
 			data-popover
+			data-side="bottom"
+			data-align="end"
 			aria-hidden="true"
 			class="min-w-56"
 		>
