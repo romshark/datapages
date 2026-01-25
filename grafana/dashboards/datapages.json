@@ -1,373 +1,1284 @@
 {
-    "uid": "datapages-core",
-    "title": "Datapages – Core Metrics",
-    "schemaVersion": 38,
-    "version": 6,
-    "refresh": "10s",
-    "tags": [
-        "datapages"
-    ],
+    "annotations": {
+        "list": [
+            {
+                "builtIn": 1,
+                "datasource": {
+                    "type": "grafana",
+                    "uid": "-- Grafana --"
+                },
+                "enable": true,
+                "hide": true,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "type": "dashboard"
+            }
+        ]
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "id": 0,
+    "links": [],
     "panels": [
         {
-            "type": "row",
-            "title": "HTTP",
             "collapsed": false,
             "gridPos": {
-                "x": 0,
-                "y": 0,
+                "h": 1,
                 "w": 24,
-                "h": 1
-            }
+                "x": 0,
+                "y": 0
+            },
+            "id": 1,
+            "panels": [],
+            "title": "HTTP",
+            "type": "row"
         },
         {
-            "type": "timeseries",
-            "title": "HTTP Request Rate",
-            "gridPos": {
-                "x": 0,
-                "y": 1,
-                "w": 12,
-                "h": 5
-            },
             "fieldConfig": {
                 "defaults": {
-                    "unit": "req/s",
-                    "decimals": 2
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "decimals": 2,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "req/s"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 5,
+                "w": 8,
+                "x": 0,
+                "y": 1
+            },
+            "id": 2,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
                 }
             },
+            "pluginVersion": "12.3.0",
             "targets": [
                 {
-                    "expr": "sum by (method) (rate(datapages_http_requests_total{path!~\".*/_\\\\$/.*\"}[1m]))",
+                    "expr": "sum by (method) (rate(datapages_http_requests_total{path!~\".*/_\\\\$/.*\"}[$__rate_interval]))",
                     "legendFormat": "{{method}}",
                     "refId": "A"
                 }
-            ]
+            ],
+            "title": "HTTP Request Rate",
+            "type": "timeseries"
         },
         {
-            "type": "timeseries",
-            "title": "HTTP Error Rate",
-            "gridPos": {
-                "x": 12,
-                "y": 1,
-                "w": 12,
-                "h": 5
-            },
             "fieldConfig": {
                 "defaults": {
-                    "unit": "req/s",
-                    "decimals": 2
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "decimals": 2,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "req/s"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 5,
+                "w": 8,
+                "x": 8,
+                "y": 1
+            },
+            "id": 3,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
                 }
             },
+            "pluginVersion": "12.3.0",
             "targets": [
                 {
-                    "expr": "sum by (status) (rate(datapages_http_requests_total{status=~\"4..|5..\",path!~\".*/_\\\\$/.*\"}[1m]))",
+                    "expr": "sum by (status) (rate(datapages_http_requests_total{status=~\"4..|5..\",path!~\".*/_\\\\$/.*\"}[$__rate_interval]))",
                     "legendFormat": "{{status}}",
                     "refId": "A"
                 }
-            ]
+            ],
+            "title": "HTTP Error Rate",
+            "type": "timeseries"
         },
         {
-            "type": "timeseries",
-            "title": "HTTP P95 Latency",
-            "gridPos": {
-                "x": 0,
-                "y": 6,
-                "w": 12,
-                "h": 5
-            },
             "fieldConfig": {
                 "defaults": {
-                    "unit": "ms",
-                    "decimals": 0
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "decimals": 0,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 5,
+                "w": 8,
+                "x": 16,
+                "y": 1
+            },
+            "id": 4,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
                 }
             },
+            "pluginVersion": "12.3.0",
             "targets": [
                 {
-                    "expr": "histogram_quantile(0.95, sum by (le) (rate(datapages_http_request_duration_seconds_bucket{path!~\".*/_\\\\$/.*\"}[5m]))) * 1000",
+                    "expr": "histogram_quantile(0.95, sum by (le) (rate(datapages_http_request_duration_seconds_bucket{path!~\".*/_\\\\$/.*\"}[$__rate_interval]))) * 1000",
                     "refId": "A"
                 }
-            ]
+            ],
+            "title": "HTTP P95 Latency",
+            "type": "timeseries"
         },
         {
-            "type": "stat",
-            "title": "Active SSE Connections",
-            "gridPos": {
-                "x": 12,
-                "y": 6,
-                "w": 6,
-                "h": 5
-            },
             "fieldConfig": {
                 "defaults": {
-                    "unit": "none",
-                    "decimals": 0
-                }
+                    "decimals": 0,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "none"
+                },
+                "overrides": []
             },
+            "gridPos": {
+                "h": 5,
+                "w": 8,
+                "x": 0,
+                "y": 6
+            },
+            "id": 5,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.3.0",
             "targets": [
                 {
                     "expr": "datapages_http_sse_connections",
                     "refId": "A"
                 }
-            ]
+            ],
+            "title": "Active SSE Connections",
+            "type": "stat"
         },
         {
-            "type": "timeseries",
-            "title": "SSE Disconnect Rate",
-            "gridPos": {
-                "x": 18,
-                "y": 6,
-                "w": 6,
-                "h": 5
-            },
             "fieldConfig": {
                 "defaults": {
-                    "unit": "req/s",
-                    "decimals": 3
-                }
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "decimals": 1,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "s"
+                },
+                "overrides": []
             },
-            "targets": [
-                {
-                    "expr": "sum by (reason) (rate(datapages_sse_disconnects_total[1m]))",
-                    "legendFormat": "{{reason}}",
-                    "refId": "A"
-                }
-            ]
-        },
-        {
-            "type": "timeseries",
-            "title": "SSE Connection Lifetime (P50)",
             "gridPos": {
-                "x": 0,
-                "y": 11,
-                "w": 12,
-                "h": 5
+                "h": 5,
+                "w": 8,
+                "x": 8,
+                "y": 6
             },
-            "fieldConfig": {
-                "defaults": {
-                    "unit": "s",
-                    "decimals": 1
+            "id": 7,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
                 }
             },
+            "pluginVersion": "12.3.0",
             "targets": [
                 {
-                    "expr": "histogram_quantile(0.5, rate(datapages_sse_connection_duration_seconds_bucket[5m]))",
+                    "expr": "histogram_quantile(0.5, rate(datapages_sse_connection_duration_seconds_bucket[$__rate_interval]))",
                     "legendFormat": "p50",
                     "refId": "A"
                 }
-            ]
+            ],
+            "title": "SSE Connection Lifetime (P50)",
+            "type": "timeseries"
         },
         {
-            "type": "row",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "decimals": 3,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "req/s"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 5,
+                "w": 8,
+                "x": 16,
+                "y": 6
+            },
+            "id": 6,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "expr": "sum by (reason) (rate(datapages_sse_disconnects_total[$__rate_interval]))",
+                    "legendFormat": "{{reason}}",
+                    "refId": "A"
+                }
+            ],
+            "title": "SSE Disconnect Rate",
+            "type": "timeseries"
+        },
+        {
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 11
+            },
+            "id": 8,
+            "panels": [],
             "title": "Pages (GET)",
-            "collapsed": false,
-            "gridPos": {
-                "x": 0,
-                "y": 16,
-                "w": 24,
-                "h": 1
-            }
+            "type": "row"
         },
         {
-            "type": "timeseries",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "decimals": 2,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "req/s"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 5,
+                "w": 12,
+                "x": 0,
+                "y": 12
+            },
+            "id": 9,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
+                }
+            },
+            "pluginVersion": "12.3.0",
+            "targets": [
+                {
+                    "expr": "sum by (path) (rate(datapages_http_requests_total{method=\"GET\",path!~\".*/_\\\\$/.*\"}[$__rate_interval]))",
+                    "legendFormat": "{{path}}",
+                    "refId": "A"
+                }
+            ],
             "title": "Page Request Rate",
-            "gridPos": {
-                "x": 0,
-                "y": 17,
-                "w": 12,
-                "h": 5
-            },
-            "fieldConfig": {
-                "defaults": {
-                    "unit": "req/s",
-                    "decimals": 2
-                }
-            },
-            "targets": [
-                {
-                    "expr": "sum by (path) (rate(datapages_http_requests_total{method=\"GET\",path!~\".*/_\\\\$/.*\"}[1m]))",
-                    "legendFormat": "{{path}}",
-                    "refId": "A"
-                }
-            ]
+            "type": "timeseries"
         },
         {
-            "type": "timeseries",
-            "title": "Page P95 Latency",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "decimals": 0,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
             "gridPos": {
+                "h": 5,
+                "w": 12,
                 "x": 12,
-                "y": 17,
-                "w": 12,
-                "h": 5
+                "y": 12
             },
-            "fieldConfig": {
-                "defaults": {
-                    "unit": "ms",
-                    "decimals": 0
+            "id": 10,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
                 }
             },
+            "pluginVersion": "12.3.0",
             "targets": [
                 {
-                    "expr": "histogram_quantile(0.95, sum by (le, path) (rate(datapages_http_request_duration_seconds_bucket{method=\"GET\",path!~\".*/_\\\\$/.*\"}[5m]))) * 1000",
+                    "expr": "histogram_quantile(0.95, sum by (le, path) (rate(datapages_http_request_duration_seconds_bucket{method=\"GET\",path!~\".*/_\\\\$/.*\"}[$__rate_interval]))) * 1000",
                     "legendFormat": "{{path}}",
                     "refId": "A"
                 }
-            ]
+            ],
+            "title": "Page P95 Latency",
+            "type": "timeseries"
         },
         {
-            "type": "row",
-            "title": "Actions (non-GET)",
             "collapsed": false,
             "gridPos": {
-                "x": 0,
-                "y": 22,
+                "h": 1,
                 "w": 24,
-                "h": 1
-            }
+                "x": 0,
+                "y": 17
+            },
+            "id": 11,
+            "panels": [],
+            "title": "Actions (non-GET)",
+            "type": "row"
         },
         {
-            "type": "timeseries",
-            "title": "Action Request Rate",
-            "gridPos": {
-                "x": 0,
-                "y": 23,
-                "w": 12,
-                "h": 5
-            },
             "fieldConfig": {
                 "defaults": {
-                    "unit": "req/s",
-                    "decimals": 2
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "decimals": 2,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "req/s"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 5,
+                "w": 12,
+                "x": 0,
+                "y": 18
+            },
+            "id": 12,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
                 }
             },
+            "pluginVersion": "12.3.0",
             "targets": [
                 {
-                    "expr": "sum by (method, path) (rate(datapages_http_requests_total{method!=\"GET\"}[1m]))",
+                    "expr": "sum by (method, path) (rate(datapages_http_requests_total{method!=\"GET\"}[$__rate_interval]))",
                     "legendFormat": "{{method}} {{path}}",
                     "refId": "A"
                 }
-            ]
+            ],
+            "title": "Action Request Rate",
+            "type": "timeseries"
         },
         {
-            "type": "timeseries",
-            "title": "Action P95 Latency",
-            "gridPos": {
-                "x": 12,
-                "y": 23,
-                "w": 12,
-                "h": 5
-            },
             "fieldConfig": {
                 "defaults": {
-                    "unit": "ms",
-                    "decimals": 0
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "decimals": 0,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "ms"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 5,
+                "w": 12,
+                "x": 12,
+                "y": 18
+            },
+            "id": 13,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
                 }
             },
+            "pluginVersion": "12.3.0",
             "targets": [
                 {
-                    "expr": "histogram_quantile(0.95, sum by (le, path) (rate(datapages_http_request_duration_seconds_bucket{method!=\"GET\"}[5m]))) * 1000",
+                    "expr": "histogram_quantile(0.95, sum by (le, path) (rate(datapages_http_request_duration_seconds_bucket{method!=\"GET\"}[$__rate_interval]))) * 1000",
                     "legendFormat": "{{path}}",
                     "refId": "A"
                 }
-            ]
+            ],
+            "title": "Action P95 Latency",
+            "type": "timeseries"
         },
         {
-            "type": "timeseries",
-            "title": "Internal Errors Recovered",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "decimals": 3,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "err/s"
+                },
+                "overrides": []
+            },
             "gridPos": {
+                "h": 5,
+                "w": 12,
                 "x": 0,
-                "y": 28,
-                "w": 6,
-                "h": 4
+                "y": 23
             },
-            "fieldConfig": {
-                "defaults": {
-                    "unit": "err/s",
-                    "decimals": 3
+            "id": 14,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
                 }
             },
+            "pluginVersion": "12.3.0",
             "targets": [
                 {
-                    "expr": "rate(datapages_internal_errors_recovered_total[1m])",
+                    "expr": "rate(datapages_internal_errors_recovered_total[$__rate_interval])",
                     "refId": "A"
                 }
-            ]
+            ],
+            "title": "Internal Errors Recovered",
+            "type": "timeseries"
         },
         {
-            "type": "timeseries",
-            "title": "Internal Errors (HTTP 500)",
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 0.6,
+                        "drawStyle": "line",
+                        "fillOpacity": 0,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 5,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "none"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "decimals": 3,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "err/s"
+                },
+                "overrides": []
+            },
             "gridPos": {
-                "x": 6,
-                "y": 28,
-                "w": 6,
-                "h": 4
+                "h": 5,
+                "w": 12,
+                "x": 12,
+                "y": 23
             },
-            "fieldConfig": {
-                "defaults": {
-                    "unit": "err/s",
-                    "decimals": 3
+            "id": 15,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
                 }
             },
+            "pluginVersion": "12.3.0",
             "targets": [
                 {
-                    "expr": "rate(datapages_internal_errors_not_recovered_total[1m])",
+                    "expr": "rate(datapages_internal_errors_not_recovered_total[$__rate_interval])",
                     "refId": "A"
                 }
-            ]
+            ],
+            "title": "Internal Errors (HTTP 500)",
+            "type": "timeseries"
         },
         {
-            "type": "row",
-            "title": "Message Broker",
             "collapsed": false,
             "gridPos": {
-                "x": 0,
-                "y": 32,
+                "h": 1,
                 "w": 24,
-                "h": 1
-            }
+                "x": 0,
+                "y": 28
+            },
+            "id": 16,
+            "panels": [],
+            "title": "Message Broker",
+            "type": "row"
         },
         {
-            "type": "timeseries",
-            "title": "Broker Events by Kind",
-            "gridPos": {
-                "x": 0,
-                "y": 33,
-                "w": 12,
-                "h": 6
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
             },
             "fieldConfig": {
                 "defaults": {
-                    "unit": "events/s",
-                    "decimals": 2
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "",
+                        "axisPlacement": "auto",
+                        "barAlignment": 0,
+                        "barWidthFactor": 1,
+                        "drawStyle": "bars",
+                        "fillOpacity": 50,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "insertNulls": false,
+                        "lineInterpolation": "linear",
+                        "lineWidth": 1,
+                        "pointSize": 6,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        },
+                        "showPoints": "auto",
+                        "showValues": false,
+                        "spanNulls": false,
+                        "stacking": {
+                            "group": "A",
+                            "mode": "normal"
+                        },
+                        "thresholdsStyle": {
+                            "mode": "off"
+                        }
+                    },
+                    "decimals": 2,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "events/s"
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 6,
+                "w": 12,
+                "x": 0,
+                "y": 29
+            },
+            "id": 17,
+            "options": {
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": true
+                },
+                "tooltip": {
+                    "hideZeros": false,
+                    "mode": "single",
+                    "sort": "none"
                 }
             },
+            "pluginVersion": "12.3.0",
             "targets": [
                 {
-                    "expr": "sum by (kind) (rate(datapages_event_broker_publishes_by_kind_total[1m]))",
+                    "expr": "sum by (kind) (rate(datapages_event_broker_publishes_by_kind_total[$__rate_interval]))",
                     "legendFormat": "{{kind}}",
                     "refId": "A"
                 }
-            ]
+            ],
+            "title": "Broker Events by Kind",
+            "type": "timeseries"
         },
         {
-            "type": "stat",
-            "title": "Dropped Broker Deliveries",
-            "gridPos": {
-                "x": 12,
-                "y": 33,
-                "w": 6,
-                "h": 4
-            },
             "fieldConfig": {
                 "defaults": {
-                    "unit": "events/s",
-                    "decimals": 3
-                }
+                    "decimals": 3,
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": 0
+                            },
+                            {
+                                "color": "red",
+                                "value": 80
+                            }
+                        ]
+                    },
+                    "unit": "events/s"
+                },
+                "overrides": []
             },
+            "gridPos": {
+                "h": 6,
+                "w": 12,
+                "x": 12,
+                "y": 29
+            },
+            "id": 18,
+            "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+            },
+            "pluginVersion": "12.3.0",
             "targets": [
                 {
-                    "expr": "sum(rate(datapages_event_broker_deliveries_dropped_total[5m]))",
+                    "expr": "sum(rate(datapages_event_broker_deliveries_dropped_total[$__rate_interval]))",
                     "refId": "A"
                 }
-            ]
+            ],
+            "title": "Dropped Broker Deliveries",
+            "type": "stat"
         }
-    ]
+    ],
+    "preload": false,
+    "refresh": "5s",
+    "schemaVersion": 42,
+    "tags": [
+        "datapages"
+    ],
+    "templating": {
+        "list": []
+    },
+    "timepicker": {},
+    "timezone": "",
+    "title": "Datapages – Core Metrics",
+    "uid": "datapages-core",
+    "version": 47
 }
