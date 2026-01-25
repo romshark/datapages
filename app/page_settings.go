@@ -1,6 +1,7 @@
 package app
 
 import (
+	"datapages/datapagesgen/href"
 	"net/http"
 
 	"github.com/a-h/templ"
@@ -18,7 +19,7 @@ func (p PageSettings) GET(
 	session SessionJWT,
 ) (body templ.Component, redirect Redirect, err error) {
 	if session.UserID == "" {
-		return nil, Redirect{Target: "/login"}, nil
+		return nil, Redirect{Target: href.Login()}, nil
 	}
 
 	u, err := p.App.repo.UserByID(r.Context(), session.UserID)

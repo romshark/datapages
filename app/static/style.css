@@ -568,6 +568,16 @@ body {
     }
 }
 
+#page-user {
+    & .avatar-image {
+        max-width: 100%;
+        width: 6rem;
+        height: 6rem;
+        border-radius: 3rem;
+        object-fit: cover;
+    }
+}
+
 #footer {
     margin-top: 3rem;
     padding-bottom: 2rem;

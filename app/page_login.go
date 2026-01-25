@@ -2,6 +2,7 @@ package app
 
 import (
 	"datapages/app/domain"
+	"datapages/datapagesgen/href"
 	"errors"
 	"net/http"
 	"time"
@@ -20,7 +21,7 @@ func (PageLogin) GET(r *http.Request, session SessionJWT) (
 ) {
 	if session.UserID != "" {
 		// Already logged in
-		return nil, Redirect{Target: "/"}, false, nil
+		return nil, Redirect{Target: href.Index()}, false, nil
 	}
 	return pageLogin(false), redirect, true, nil
 }
@@ -47,7 +48,7 @@ func (p PageLogin) POSTSubmit(
 ) {
 	if session.UserID != "" {
 		// Already logged in.
-		redirect = Redirect{Target: "/", Status: http.StatusSeeOther}
+		redirect = Redirect{Target: href.Index(), Status: http.StatusSeeOther}
 		return
 	}
 	uid, err := p.App.repo.Login(signals.EmailOrUsername, signals.Password)
@@ -68,6 +69,6 @@ func (p PageLogin) POSTSubmit(
 		IssuedAt:   now,
 		Expiration: now.Add(24 * time.Hour),
 	}
-	redirect = Redirect{Target: "/", Status: http.StatusSeeOther}
+	redirect = Redirect{Target: href.Index(), Status: http.StatusSeeOther}
 	return
 }

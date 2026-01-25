@@ -2,6 +2,7 @@ package app
 
 import (
 	"datapages/app/domain"
+	"datapages/datapagesgen/href"
 	"errors"
 	"net/http"
 	"strings"
@@ -36,7 +37,7 @@ func (p PagePost) GET(
 	if err != nil {
 		if errors.Is(err, domain.ErrPostNotFound) {
 			// Redirect to 404 page.
-			return nil, nil, Redirect{Target: "/not-found"}, nil
+			return nil, nil, Redirect{Target: href.NotFound()}, nil
 		}
 	}
 

@@ -2,6 +2,7 @@ package app
 
 import (
 	"datapages/app/domain"
+	"datapages/datapagesgen/href"
 	"errors"
 	"net/http"
 
@@ -28,9 +29,9 @@ func (p PageUser) GET(
 ) {
 	user, err := p.App.repo.UserByName(r.Context(), path.Name)
 	if err != nil {
-		if errors.Is(err, domain.ErrPostNotFound) {
+		if errors.Is(err, domain.ErrUserNotFound) {
 			// Redirect to 404 page.
-			return nil, nil, Redirect{Target: "/not-found"}, nil
+			return nil, nil, Redirect{Target: href.NotFound()}, nil
 		}
 	}
 

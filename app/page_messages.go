@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"datapages/app/domain"
+	"datapages/datapagesgen/href"
 	"net/http"
 
 	"github.com/a-h/templ"
@@ -28,7 +29,7 @@ func (p PageMessages) GET(
 	err error,
 ) {
 	if session.UserID == "" {
-		redirect = Redirect{Target: "/login"}
+		redirect = Redirect{Target: href.Login()}
 		return
 	}
 

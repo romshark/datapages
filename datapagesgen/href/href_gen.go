@@ -9,20 +9,23 @@ import (
 	"strings"
 )
 
-// Index references /
+// Index references /{$}
 func Index() string { return "/" }
 
-// Settings references /settings/
+// NotFound references /not-found/{$}
+func NotFound() string { return "/not-found/" }
+
+// Settings references /settings/{$}
 func Settings() string {
 	return "/settings/"
 }
 
-// Login references /login/
+// Login references /login/{$}
 func Login() string {
 	return "/login/"
 }
 
-// Messages references /messages/?chat
+// Messages references /messages/{$}
 func Messages(query QueryMessages) string {
 	var b strings.Builder
 	l := len("/messages/")
@@ -49,7 +52,7 @@ type QueryMessages struct {
 	Chat string `query:"chat"`
 }
 
-// Search references /search/
+// Search references /search/{$}
 func Search(query QuerySearch) string {
 	var (
 		pminStr string
@@ -176,7 +179,7 @@ type QuerySearch struct {
 	Location string `query:"l"`
 }
 
-// Post references /post/{slug}/
+// Post references /post/{slug}/{$}
 func Post(slug string) string {
 	var b strings.Builder
 	b.Grow(
@@ -190,7 +193,7 @@ func Post(slug string) string {
 	return b.String()
 }
 
-// User references /user/{name}/
+// User references /user/{name}/{$}
 func User(name string) string {
 	var b strings.Builder
 	b.Grow(
@@ -202,4 +205,9 @@ func User(name string) string {
 	b.WriteString(name)
 	b.WriteString("/")
 	return b.String()
+}
+
+// MyPosts references /my-posts/{$}
+func MyPosts() string {
+	return "/my-posts/"
 }

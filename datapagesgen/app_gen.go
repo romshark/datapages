@@ -649,10 +649,10 @@ func setupHandlers(s *Server) {
 		s.handlePageIndexGETStream)
 	s.mux.HandleFunc(
 		"GET /not-found/{$}",
-		s.handlePage404GET)
+		s.handlePageError404GET)
 	s.mux.HandleFunc(
 		"GET /whoops/{$}",
-		s.handlePage500GET)
+		s.handlePageError500GET)
 	s.mux.HandleFunc(
 		"GET /login/{$}",
 		s.handlePageLoginGET)
@@ -699,6 +699,9 @@ func setupHandlers(s *Server) {
 		"GET /user/{name}/{$}",
 		s.handlePageUserGET)
 	s.mux.HandleFunc(
+		"GET /my-posts/{$}",
+		s.handlePageMyPostsGET)
+	s.mux.HandleFunc(
 		"GET /post/{slug}/{$}",
 		s.handlePagePostGET)
 	s.mux.HandleFunc(
@@ -718,7 +721,7 @@ func (s *Server) httpErrIntern(
 ) {
 	s.logErr(msg, err)
 	if !isDSReq(r) {
-		s.handlePage500GET(w, r)
+		s.handlePageError500GET(w, r)
 		return
 	}
 	if sse == nil {
@@ -745,19 +748,19 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := app.Page404{
+	p := app.PageError404{
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
 	body, err := p.GET(r, sess)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling Page404.GET", err)
+		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
 		return
 	}
 
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for Page404", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for PageError404", err)
 		return
 	}
 
@@ -768,7 +771,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	if err := s.writeHTML(
 		w, r, app.SessionJWT{}, genericHead, nil, body, bodyAttrs,
 	); err != nil {
-		s.logErr("rendering Page404", err)
+		s.logErr("rendering PageError404", err)
 		return
 	}
 }
@@ -798,18 +801,18 @@ func (s *Server) handlePOSTExpireSessionJWT(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-func (s *Server) handlePage500GET(w http.ResponseWriter, r *http.Request) {
-	p := app.Page500{App: s.app}
+func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
+	p := app.PageError500{App: s.app}
 	body, disableRefreshAfterHidden, err := p.GET(r)
 	if err != nil {
 		// Fall back to basic 500 error page.
-		s.httpErrIntern(w, r, nil, "handling Page500.GET", err)
+		s.httpErrIntern(w, r, nil, "handling PageError500.GET", err)
 		return
 	}
 
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for Page500", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for PageError500", err)
 		return
 	}
 
@@ -822,7 +825,7 @@ func (s *Server) handlePage500GET(w http.ResponseWriter, r *http.Request) {
 	if err := s.writeHTML(
 		w, r, app.SessionJWT{}, genericHead, nil, body, bodyAttrs,
 	); err != nil {
-		s.logErr("rendering Page500", err)
+		s.logErr("rendering PageError500", err)
 		return
 	}
 }
@@ -916,24 +919,24 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	})
 }
 
-func (s *Server) handlePage404GET(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 	sess, ok := s.authJWT(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.Page404{
+	p := app.PageError404{
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
 	body, err := p.GET(r, sess)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling Page404.GET", err)
+		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
 		return
 	}
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for Page404", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for PageError404", err)
 		return
 	}
 
@@ -944,7 +947,7 @@ func (s *Server) handlePage404GET(w http.ResponseWriter, r *http.Request) {
 	if err := s.writeHTML(
 		w, r, sess, genericHead, nil, body, bodyAttrs,
 	); err != nil {
-		s.logErr("rendering Page404", err)
+		s.logErr("rendering PageError404", err)
 		return
 	}
 }
@@ -1703,6 +1706,42 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 		w, r, sess, genericHead, head, body, bodyAttrs,
 	); err != nil {
 		s.logErr("rendering PageUser", err)
+		return
+	}
+}
+
+func (s *Server) handlePageMyPostsGET(w http.ResponseWriter, r *http.Request) {
+	sess, ok := s.authJWT(w, r)
+	if !ok {
+		return
+	}
+
+	p := app.PageMyPosts{
+		App:  s.app,
+		Base: app.Base{App: s.app},
+	}
+	body, head, redirect, err := p.GET(r, sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageMyPosts.GET", err)
+		return
+	}
+	if httpRedirect(w, r, redirect) {
+		return
+	}
+	genericHead, err := s.app.Head(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "generating generic head for PageMyPosts", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, genericHead, head, body, bodyAttrs,
+	); err != nil {
+		s.logErr("rendering PageMyPosts", err)
 		return
 	}
 }

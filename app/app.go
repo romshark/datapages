@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"datapages/app/domain"
+	"datapages/datapagesgen/href"
 	"errors"
 	"fmt"
 	"net/http"
@@ -45,7 +46,7 @@ func (*App) POSTSignOut(r *http.Request) (
 	redirect Redirect,
 	err error,
 ) {
-	return true, Redirect{Target: "/login"}, nil
+	return true, Redirect{Target: href.Login()}, nil
 }
 
 // POSTCause500 is /cause-500-internal-error/{$}
@@ -77,7 +78,7 @@ func (*App) Recover500(
 	err error,
 	sse *datastar.ServerSentEventGenerator,
 ) error {
-	return sse.PatchElementTempl(toastInternalError(),
+	return sse.PatchElementTempl(toastError500(),
 		datastar.WithSelectorID("toaster"),
 		datastar.WithModeAppend())
 	// Or use script execution:
@@ -185,13 +186,13 @@ func (b Base) OnMessagingRead(
 	return sse.PatchElementTempl(fragmentMessagesLink(unreadChats))
 }
 
-// Page404 is /not-found
-type Page404 struct {
+// PageError404 is /not-found
+type PageError404 struct {
 	App *App
 	Base
 }
 
-func (p Page404) GET(
+func (p PageError404) GET(
 	r *http.Request,
 	session SessionJWT,
 ) (body templ.Component, err error) {
@@ -199,18 +200,18 @@ func (p Page404) GET(
 	if err != nil {
 		return nil, err
 	}
-	return page404(session, baseData), nil
+	return pageError404(session, baseData), nil
 }
 
-// Page500 is /whoops
-type Page500 struct{ App *App }
+// PageError500 is /whoops/{$}
+type PageError500 struct{ App *App }
 
-func (Page500) GET(r *http.Request) (
+func (PageError500) GET(r *http.Request) (
 	body templ.Component,
 	disableRefreshAfterHidden bool,
 	err error,
 ) {
-	return page500(), true, nil
+	return pageError500(), true, nil
 }
 
 type MessagingChatMessagesSent struct {

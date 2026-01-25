@@ -105,8 +105,9 @@ in [net/http Mux pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns-ServeM
 
 The page type `PageIndex` (for URL `/`) is required.
 
-Page types `Page500` and `Page404` are optional special error pages for the response
-codes `500` and `404` respectively. Otherwise datapages will use its own defaults.
+Page types `PageError500` and `PageError404` are optional special error pages for the
+response codes `500` and `404` respectively.
+Otherwise datapages will use its own defaults.
 
 Handler method parameters and their order are defined and enforced by datapages.
 Using unsupported parameter names and types will result in generator errors.

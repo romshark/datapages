@@ -63,7 +63,7 @@ templ page(id string) {
 	</div>
 }
 
-templ toastInternalError() {
+templ toastError500() {
 	<div
 		class="toast"
 		role="status"
@@ -108,15 +108,15 @@ templ fragmentInternalError() {
 	<p>Internal error</p>
 }
 
-templ page500() {
+templ pageError500() {
 	<h1>Oh no!</h1>
 	<p>Something went wrong on our side.</p>
 	<a href={ href.Index() }>Try to go back to the homepage.</a>
 }
 
-templ page404(session SessionJWT, baseData baseData) {
+templ pageError404(session SessionJWT, baseData baseData) {
 	@fragmentNavbar(session, "", baseData)
-	@page("page-404") {
+	@page("page-not-found") {
 		<h1>Oh-oh!</h1>
 		<p>This page doesn't exist.</p>
 		<a href={ href.Index() }>Go back to homepage.</a>
@@ -564,11 +564,28 @@ templ pageUser(
 	@page("page-user") {
 		<h1>{ user.Name }</h1>
 		if user.AvatarImageURL != "" {
-			<img src={ user.AvatarImageURL }/>
+			<img src={ user.AvatarImageURL } class="avatar-image"/>
+		} else {
+			@iconUser()
 		}
 		<p>Account created: { user.AccountCreated.Format(time.RFC1123) }</p>
 		<h2>Posts</h2>
 		@fragmentPosts(posts)
+	}
+	@fragmentFooter()
+}
+
+templ pageMyPosts(
+	session SessionJWT, baseData baseData, user domain.User, posts []domain.Post,
+) {
+	@fragmentNavbar(session, "", baseData)
+	@page("page-my-posts") {
+		<h2>My Posts</h2>
+		if len(posts) != 0 {
+			@fragmentPosts(posts)
+		} else {
+			<p>No posts just yet 🤷‍♂️</p>
+		}
 	}
 	@fragmentFooter()
 }
@@ -679,12 +696,8 @@ templ menuBase(id, userName, userAvatarURL string) {
 					role="group"
 					aria-labelledby="account-options"
 				>
-					// TODO: This page doesn't exist yet. That would be a hard foul.
-					// <a
-					// 	href="/posts"
-					// 	role="menuitem"
-					// >
 					<a
+						href={ href.MyPosts() }
 						role="menuitem"
 					>
 						@iconShop()
