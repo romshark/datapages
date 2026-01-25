@@ -301,9 +301,7 @@ templ pageMessages(
 						<span data-text="$writinguser"></span> is writing...
 					</p>
 				</div>
-				<div
-					class="chat-input"
-				>
+				<div class="chat-input">
 					<textarea
 						class="textarea"
 						type="text"
@@ -314,13 +312,16 @@ templ pageMessages(
 							"} else {" +
 							action.POSTPageMessagesWritingStopped() +
 							"}" }
-						data-on:keydown={ "if (evt.key === 'Enter' && !evt.shiftKey) { "+
-							"evt.preventDefault();"+
-							action.POSTPageMessagesSendMessage() + "}" }
+						data-on:keydown={ "if (evt.key === 'Enter' && !evt.shiftKey) { " +
+							"evt.preventDefault();" +
+							"if ($messagetext.trim() !== '') {" +
+							action.POSTPageMessagesSendMessage() +
+							"}}" }
 					></textarea>
 					<button
 						class="btn"
 						data-on:click={ action.POSTPageMessagesSendMessage() }
+						data-attr:disabled="$messagetext.trim() === ''"
 					>
 						Send
 					</button>
