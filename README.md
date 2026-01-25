@@ -44,6 +44,10 @@ You can then access:
 - Grafana Dashboards: http://localhost:3000/
 - Prometheus UI: http://localhost:9091/
 
+ℹ️ You can install [k6](https://k6.io/) and run `make load` in the background
+to generate random traffic.
+Increase the number of virtual users (`VU`) to apply more load to the server when needed.
+
 To run the demo in production mode, use:
 
 ```sh

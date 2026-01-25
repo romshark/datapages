@@ -7,7 +7,7 @@ lint: true
 templier-host: "127.0.0.1:7331"
 
 log:
-  level: debug
+  level: erronly
   clear-on:
   print-js-debug-logs: true
 

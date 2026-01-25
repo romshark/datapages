@@ -29,6 +29,10 @@ STAGE_HOST ?= $(shell awk -F= '$$1=="HOST"{print $$2}' $(STAGE_ENV) 2>/dev/null)
 # Hosts to include in the cert: stage host + local loopbacks for convenience
 MKCERT_HOSTS := $(STAGE_HOST) localhost 127.0.0.1 ::1
 
+K6 := k6
+LOAD_SCRIPT := ./k6/load.js
+LOAD_ENV ?= ./.env.dev
+
 dev: nats-stop nats-up prom-stop prom-up grafana-stop grafana-up
 	@set -a; [ -f .env.dev ] && . .env.dev; set +a; \
 	go run github.com/romshark/templier@latest
@@ -116,3 +120,10 @@ $(STAGE_CERT_FILE) $(STAGE_KEY_FILE): | $(STAGE_CERT_DIR)
 	test -f $(STAGE_CERT_FILE) -a -f $(STAGE_KEY_FILE) || \
 	mkcert -cert-file $(STAGE_CERT_FILE) -key-file $(STAGE_KEY_FILE) \
 		$$HOST localhost 127.0.0.1 ::1
+
+load:
+	@command -v $(K6) >/dev/null 2>&1 || { \
+		echo "k6 not found. Install from https://k6.io"; exit 1; }
+	@echo "Running load test using $(LOAD_ENV)"
+	@set -a; [ -f $(LOAD_ENV) ] && . $(LOAD_ENV); set +a; \
+	$(K6) run $(LOAD_SCRIPT)
