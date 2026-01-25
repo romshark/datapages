@@ -1,0 +1,373 @@
+{
+    "uid": "datapages-core",
+    "title": "Datapages – Core Metrics",
+    "schemaVersion": 38,
+    "version": 6,
+    "refresh": "10s",
+    "tags": [
+        "datapages"
+    ],
+    "panels": [
+        {
+            "type": "row",
+            "title": "HTTP",
+            "collapsed": false,
+            "gridPos": {
+                "x": 0,
+                "y": 0,
+                "w": 24,
+                "h": 1
+            }
+        },
+        {
+            "type": "timeseries",
+            "title": "HTTP Request Rate",
+            "gridPos": {
+                "x": 0,
+                "y": 1,
+                "w": 12,
+                "h": 5
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "req/s",
+                    "decimals": 2
+                }
+            },
+            "targets": [
+                {
+                    "expr": "sum by (method) (rate(datapages_http_requests_total{path!~\".*/_\\\\$/.*\"}[1m]))",
+                    "legendFormat": "{{method}}",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "HTTP Error Rate",
+            "gridPos": {
+                "x": 12,
+                "y": 1,
+                "w": 12,
+                "h": 5
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "req/s",
+                    "decimals": 2
+                }
+            },
+            "targets": [
+                {
+                    "expr": "sum by (status) (rate(datapages_http_requests_total{status=~\"4..|5..\",path!~\".*/_\\\\$/.*\"}[1m]))",
+                    "legendFormat": "{{status}}",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "HTTP P95 Latency",
+            "gridPos": {
+                "x": 0,
+                "y": 6,
+                "w": 12,
+                "h": 5
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ms",
+                    "decimals": 0
+                }
+            },
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.95, sum by (le) (rate(datapages_http_request_duration_seconds_bucket{path!~\".*/_\\\\$/.*\"}[5m]))) * 1000",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "type": "stat",
+            "title": "Active SSE Connections",
+            "gridPos": {
+                "x": 12,
+                "y": 6,
+                "w": 6,
+                "h": 5
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "none",
+                    "decimals": 0
+                }
+            },
+            "targets": [
+                {
+                    "expr": "datapages_http_sse_connections",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "SSE Disconnect Rate",
+            "gridPos": {
+                "x": 18,
+                "y": 6,
+                "w": 6,
+                "h": 5
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "req/s",
+                    "decimals": 3
+                }
+            },
+            "targets": [
+                {
+                    "expr": "sum by (reason) (rate(datapages_sse_disconnects_total[1m]))",
+                    "legendFormat": "{{reason}}",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "SSE Connection Lifetime (P50)",
+            "gridPos": {
+                "x": 0,
+                "y": 11,
+                "w": 12,
+                "h": 5
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "decimals": 1
+                }
+            },
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.5, rate(datapages_sse_connection_duration_seconds_bucket[5m]))",
+                    "legendFormat": "p50",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "type": "row",
+            "title": "Pages (GET)",
+            "collapsed": false,
+            "gridPos": {
+                "x": 0,
+                "y": 16,
+                "w": 24,
+                "h": 1
+            }
+        },
+        {
+            "type": "timeseries",
+            "title": "Page Request Rate",
+            "gridPos": {
+                "x": 0,
+                "y": 17,
+                "w": 12,
+                "h": 5
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "req/s",
+                    "decimals": 2
+                }
+            },
+            "targets": [
+                {
+                    "expr": "sum by (path) (rate(datapages_http_requests_total{method=\"GET\",path!~\".*/_\\\\$/.*\"}[1m]))",
+                    "legendFormat": "{{path}}",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "Page P95 Latency",
+            "gridPos": {
+                "x": 12,
+                "y": 17,
+                "w": 12,
+                "h": 5
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ms",
+                    "decimals": 0
+                }
+            },
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.95, sum by (le, path) (rate(datapages_http_request_duration_seconds_bucket{method=\"GET\",path!~\".*/_\\\\$/.*\"}[5m]))) * 1000",
+                    "legendFormat": "{{path}}",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "type": "row",
+            "title": "Actions (non-GET)",
+            "collapsed": false,
+            "gridPos": {
+                "x": 0,
+                "y": 22,
+                "w": 24,
+                "h": 1
+            }
+        },
+        {
+            "type": "timeseries",
+            "title": "Action Request Rate",
+            "gridPos": {
+                "x": 0,
+                "y": 23,
+                "w": 12,
+                "h": 5
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "req/s",
+                    "decimals": 2
+                }
+            },
+            "targets": [
+                {
+                    "expr": "sum by (method, path) (rate(datapages_http_requests_total{method!=\"GET\"}[1m]))",
+                    "legendFormat": "{{method}} {{path}}",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "Action P95 Latency",
+            "gridPos": {
+                "x": 12,
+                "y": 23,
+                "w": 12,
+                "h": 5
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ms",
+                    "decimals": 0
+                }
+            },
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.95, sum by (le, path) (rate(datapages_http_request_duration_seconds_bucket{method!=\"GET\"}[5m]))) * 1000",
+                    "legendFormat": "{{path}}",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "Internal Errors Recovered",
+            "gridPos": {
+                "x": 0,
+                "y": 28,
+                "w": 6,
+                "h": 4
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "err/s",
+                    "decimals": 3
+                }
+            },
+            "targets": [
+                {
+                    "expr": "rate(datapages_internal_errors_recovered_total[1m])",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "Internal Errors (HTTP 500)",
+            "gridPos": {
+                "x": 6,
+                "y": 28,
+                "w": 6,
+                "h": 4
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "err/s",
+                    "decimals": 3
+                }
+            },
+            "targets": [
+                {
+                    "expr": "rate(datapages_internal_errors_not_recovered_total[1m])",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "type": "row",
+            "title": "Message Broker",
+            "collapsed": false,
+            "gridPos": {
+                "x": 0,
+                "y": 32,
+                "w": 24,
+                "h": 1
+            }
+        },
+        {
+            "type": "timeseries",
+            "title": "Broker Events by Kind",
+            "gridPos": {
+                "x": 0,
+                "y": 33,
+                "w": 12,
+                "h": 6
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "events/s",
+                    "decimals": 2
+                }
+            },
+            "targets": [
+                {
+                    "expr": "sum by (kind) (rate(datapages_event_broker_publishes_by_kind_total[1m]))",
+                    "legendFormat": "{{kind}}",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "type": "stat",
+            "title": "Dropped Broker Deliveries",
+            "gridPos": {
+                "x": 12,
+                "y": 33,
+                "w": 6,
+                "h": 4
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "events/s",
+                    "decimals": 3
+                }
+            },
+            "targets": [
+                {
+                    "expr": "sum(rate(datapages_event_broker_deliveries_dropped_total[5m]))",
+                    "refId": "A"
+                }
+            ]
+        }
+    ]
+}

@@ -38,6 +38,12 @@ To run the demo in development mode, use:
 make dev
 ```
 
+You can then access:
+- Preview with live-reload: http://localhost:7331/
+- Preview without live-reload: http://localhost:52000/
+- Grafana Dashboards: http://localhost:3000/
+- Prometheus UI: http://localhost:9091/
+
 To run the demo in production mode, use:
 
 ```sh

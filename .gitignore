@@ -36,3 +36,6 @@ go.work.sum
 
 # Certificates
 certs/*
+
+# Grafana runtime data
+grafana/data/

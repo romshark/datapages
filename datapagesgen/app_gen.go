@@ -371,7 +371,6 @@ var (
 		},
 		[]string{"method", "path", "status"},
 	)
-
 	mHTTPRequestDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: "datapages",
@@ -382,7 +381,21 @@ var (
 		},
 		[]string{"method", "path"},
 	)
-
+	mInternalErrorsRecovered = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "datapages",
+			Name:      "internal_errors_recovered_total",
+			Help:      "Internal errors recovered without HTTP failure",
+		},
+	)
+	mInternalErrorsNotRecovered = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "datapages",
+			Name:      "internal_errors_not_recovered_total",
+			Help: "Internal errors that could not be recovered and " +
+				"resulted in an HTTP error response",
+		},
+	)
 	mInFlightRequests = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: "datapages",
@@ -395,7 +408,7 @@ var (
 	mSSEConnections = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: "datapages",
-			Subsystem: "sse",
+			Subsystem: "http",
 			Name:      "sse_connections",
 			Help:      "Active SSE connections",
 		},
@@ -491,6 +504,8 @@ func registerMetricsWith(r prometheus.Registerer) {
 		mHTTPRequestsTotal,
 		mHTTPRequestDuration,
 		mInFlightRequests,
+		mInternalErrorsRecovered,
+		mInternalErrorsNotRecovered,
 		mSSEConnections,
 		mSSEConnectionDuration,
 		mSSEDisconnects,
@@ -711,9 +726,11 @@ func (s *Server) httpErrIntern(
 	}
 	errRecover := s.app.Recover500(err, sse)
 	if errRecover == nil {
+		mInternalErrorsRecovered.Inc()
 		return // Feedback delivered gracefully.
 	}
 	// Fallback to ugly 500
+	mInternalErrorsNotRecovered.Inc()
 	s.logger.Error("recovering 500",
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),

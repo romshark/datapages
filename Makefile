@@ -8,6 +8,13 @@ PROM_PORT := 9091
 PROM_IMAGE := prom/prometheus:v3.5.1
 PROM_CONFIG := ./prometheus.yml
 
+GRAFANA_CONTAINER_NAME := grafana-datapages-demo
+GRAFANA_PORT := 3000
+GRAFANA_IMAGE := grafana/grafana:12.3.0
+
+GRAFANA_DATA := ./grafana/data
+GRAFANA_PROVISIONING := ./grafana/provisioning
+
 STAGE_SERVER_BIN := ./server
 STAGE_ENV := ./.env.stage
 
@@ -22,12 +29,12 @@ STAGE_HOST ?= $(shell awk -F= '$$1=="HOST"{print $$2}' $(STAGE_ENV) 2>/dev/null)
 # Hosts to include in the cert: stage host + local loopbacks for convenience
 MKCERT_HOSTS := $(STAGE_HOST) localhost 127.0.0.1 ::1
 
-dev: nats-stop nats-up prom-stop prom-up
+dev: nats-stop nats-up prom-stop prom-up grafana-stop grafana-up
 	@set -a; [ -f .env.dev ] && . .env.dev; set +a; \
 	go run github.com/romshark/templier@latest
 
 # make stage runs the server in a production-grade mode for QA testing.
-stage: check-hosts nats-stop nats-up prom-stop prom-up certstage build
+stage: check-hosts nats-stop nats-up prom-stop prom-up grafana-stop grafana-up certstage build
 	@set -a; [ -f $(STAGE_ENV) ] && . $(STAGE_ENV); set +a; \
 	sudo -E $(STAGE_SERVER_BIN); status=$$?; rm -f $(STAGE_SERVER_BIN); exit $$status
 
@@ -78,6 +85,23 @@ prom-up: $(PROM_CONFIG)
 		-v $(abspath $(PROM_CONFIG)):/etc/prometheus/prometheus.yml:ro \
 		$(PROM_IMAGE)
 
+grafana-stop:
+	@docker stop $(GRAFANA_CONTAINER_NAME) 2>/dev/null || true
+
+grafana-up: $(GRAFANA_DATA)
+	@docker ps --format '{{.Names}}' | grep -qx '$(GRAFANA_CONTAINER_NAME)' || \
+	docker run -d --rm \
+		--name $(GRAFANA_CONTAINER_NAME) \
+		-p $(GRAFANA_PORT):3000 \
+		-v $(abspath $(GRAFANA_DATA)):/var/lib/grafana \
+		-v $(abspath $(GRAFANA_PROVISIONING)):/etc/grafana/provisioning:ro \
+		-v $(abspath ./grafana/dashboards):/etc/grafana/dashboards:ro \
+		-e GF_SECURITY_ADMIN_USER=admin \
+		-e GF_SECURITY_ADMIN_PASSWORD=admin \
+		$(GRAFANA_IMAGE)
+
+$(GRAFANA_DATA):
+	mkdir -p $(GRAFANA_DATA)
 
 certstage: $(STAGE_CERT_FILE) $(STAGE_KEY_FILE)
 
