@@ -12,8 +12,8 @@ import (
 // Index references /{$}
 func Index() string { return "/" }
 
-// NotFound references /not-found/{$}
-func NotFound() string { return "/not-found/" }
+// Error404 references /not-found/{$}
+func Error404() string { return "/not-found/" }
 
 // Settings references /settings/{$}
 func Settings() string {

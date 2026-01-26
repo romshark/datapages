@@ -11,7 +11,7 @@ import (
 	"github.com/starfederation/datastar-go/datastar"
 )
 
-// PagePost is /post/{slug}/{$}
+// PagePost is /post/{slug}
 type PagePost struct {
 	App *App
 	Base
@@ -37,7 +37,7 @@ func (p PagePost) GET(
 	if err != nil {
 		if errors.Is(err, domain.ErrPostNotFound) {
 			// Redirect to 404 page.
-			return nil, nil, Redirect{Target: href.NotFound()}, nil
+			return nil, nil, Redirect{Target: href.Error404()}, nil
 		}
 	}
 

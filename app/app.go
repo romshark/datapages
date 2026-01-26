@@ -203,7 +203,7 @@ func (p PageError404) GET(
 	return pageError404(session, baseData), nil
 }
 
-// PageError500 is /whoops/{$}
+// PageError500 is /whoops
 type PageError500 struct{ App *App }
 
 func (PageError500) GET(r *http.Request) (

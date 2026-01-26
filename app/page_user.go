@@ -31,7 +31,7 @@ func (p PageUser) GET(
 	if err != nil {
 		if errors.Is(err, domain.ErrUserNotFound) {
 			// Redirect to 404 page.
-			return nil, nil, Redirect{Target: href.NotFound()}, nil
+			return nil, nil, Redirect{Target: href.Error404()}, nil
 		}
 	}
 

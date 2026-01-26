@@ -8,7 +8,7 @@ import (
 	"github.com/a-h/templ"
 )
 
-// PageMyPosts is /my-posts/{$}
+// PageMyPosts is /my-posts
 type PageMyPosts struct {
 	App *App
 	Base
