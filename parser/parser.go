@@ -57,8 +57,10 @@ var (
 	ErrMissingTypeApp       = errors.New(`missing required type "App"`)
 	ErrMissingTypePageIndex = errors.New(`missing required page type "PageIndex"`)
 	ErrMissingTypeInfo      = errors.New(`missing source package type information`)
-	ErrMultipleErrorReturns = errors.New(`multiple error return values`)
+	ErrSignatureMissingReq  = errors.New(`missing the *http.Request parameter`)
+	ErrSignatureMultiErrRet = errors.New(`multiple error return values`)
 	ErrMissingPageFieldApp  = errors.New(`page is missing the "App *App" field`)
+	ErrPageMissingGET       = errors.New(`page is missing the GET handler`)
 )
 
 func Parse(appPackagePath string) (*model.App, Errors) {
@@ -239,6 +241,14 @@ func Parse(appPackagePath string) (*model.App, Errors) {
 					ap.Methods = append(ap.Methods, h)
 				}
 			}
+		}
+	}
+
+	// --- Validate required handlers
+	// Every page type must have a GET handler.
+	for name, p := range pages {
+		if p.GET == nil {
+			errs.Err(fmt.Errorf("%w: %s", ErrPageMissingGET, name))
 		}
 	}
 
@@ -606,10 +616,12 @@ func parseHandler(
 
 	params := fd.Type.Params
 	if params == nil || len(params.List) == 0 {
-		return h, nil
+		return h, fmt.Errorf("%w in %s", ErrSignatureMissingReq, fd.Name.Name)
 	}
-
-	// First param is always *http.Request
+	// First param must be *http.Request
+	if !isPtrToNetHTTPReq(params.List[0].Type, info) {
+		return h, fmt.Errorf("%w in %s", ErrSignatureMissingReq, fd.Name.Name)
+	}
 	h.InputRequest = parseInput(params.List[0], info)
 
 	// Remaining params are plugins
@@ -670,7 +682,28 @@ func parseHandler(
 	}
 
 	if multiErr {
-		return h, fmt.Errorf("%w in %s", ErrMultipleErrorReturns, fd.Name.Name)
+		return h, fmt.Errorf("%w in %s", ErrSignatureMultiErrRet, fd.Name.Name)
 	}
 	return h, nil
+}
+
+func isPtrToNetHTTPReq(expr ast.Expr, info *types.Info) bool {
+	t := info.TypeOf(expr)
+	if t == nil {
+		return false
+	}
+	ptr, ok := t.(*types.Pointer)
+	if !ok {
+		return false
+	}
+	named, ok := ptr.Elem().(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	if obj == nil || obj.Pkg() == nil {
+		return false
+	}
+	// Require exactly net/http.Request
+	return obj.Pkg().Path() == "net/http" && obj.Name() == "Request"
 }

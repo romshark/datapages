@@ -157,7 +157,10 @@ func TestParse_ErrSignatures(t *testing.T) {
 	_, err := parse(t, "err_signatures")
 	require.NotZero(err.Error())
 
-	require.Equal(2, err.Len())
+	require.Equal(5, err.Len())
 	require.ErrorIs(err.At(0), parser.ErrMissingPageFieldApp)
-	require.ErrorIs(err.At(1), parser.ErrMultipleErrorReturns)
+	require.ErrorIs(err.At(1), parser.ErrMissingPageFieldApp)
+	require.ErrorIs(err.At(2), parser.ErrSignatureMultiErrRet)
+	require.ErrorIs(err.At(3), parser.ErrSignatureMissingReq)
+	require.ErrorIs(err.At(4), parser.ErrPageMissingGET)
 }
