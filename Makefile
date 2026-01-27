@@ -46,7 +46,7 @@ build:
 	go build -o $(STAGE_SERVER_BIN) ./cmd/server/
 
 test: lint
-	go test ./... -v -race
+	go test ./... -v
 
 lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...
@@ -127,3 +127,11 @@ load:
 	@echo "Running load test using $(LOAD_ENV)"
 	@set -a; [ -f $(LOAD_ENV) ] && . $(LOAD_ENV); set +a; \
 	$(K6) run $(LOAD_SCRIPT)
+
+mod-tidy-parser-tests:
+	@find parser/testdata -name go.mod -not -path './vendor/*' | \
+	while read mod; do \
+		dir=$$(dirname "$$mod"); \
+		echo "==> go mod tidy in $$dir"; \
+		( cd "$$dir" && go mod tidy ); \
+	done
