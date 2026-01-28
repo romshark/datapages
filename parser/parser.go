@@ -815,20 +815,35 @@ func isErrorType(t types.Type) bool {
 }
 
 func classifyMethodName(name string) (kind methodKind, suffix string) {
+	if name == "" {
+		return 0, ""
+	}
+	// Only treat exported identifiers as framework-reserved handlers.
+	// This makes pOST / postX / onFoo etc. normal methods.
+	if name[0] < 'A' || name[0] > 'Z' {
+		return 0, ""
+	}
+
 	switch {
 	case name == "GET":
 		return methodKindGETHandler, ""
-	case strings.HasPrefix(name, "POST") && len(name) > 4:
+
+	case strings.HasPrefix(name, "POST"):
+		// Always classify; validation will decide if it's valid (incl. missing suffix).
 		return methodKindActionPOSTHandler, name[len("POST"):]
-	case strings.HasPrefix(name, "PUT") && len(name) > 3:
+
+	case strings.HasPrefix(name, "PUT"):
 		return methodKindActionPUTHandler, name[len("PUT"):]
-	case strings.HasPrefix(name, "DELETE") && len(name) > 6:
+
+	case strings.HasPrefix(name, "DELETE"):
 		return methodKindActionDELETEHandler, name[len("DELETE"):]
-	case strings.HasPrefix(name, "On") && len(name) > 2:
-		// Keep classifying even if invalid; validation happens at usage site.
+
+	case strings.HasPrefix(name, "On"):
 		return methodKindEventHandler, name[len("On"):]
+
+	default:
+		return 0, ""
 	}
-	return 0, ""
 }
 
 func parseHandler(
