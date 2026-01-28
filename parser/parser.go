@@ -2,6 +2,7 @@ package parser
 
 import (
 	"datapages/parser/model"
+	"datapages/parser/validate"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -19,9 +20,7 @@ import (
 
 type Parser struct{}
 
-func New() *Parser {
-	return &Parser{}
-}
+func New() *Parser { return &Parser{} }
 
 func (p *Parser) Parse(appPackagePath string) (app *model.App, errs Errors) {
 	defer sortErrors(&errs)
@@ -41,11 +40,61 @@ func (p *Parser) Parse(appPackagePath string) (app *model.App, errs Errors) {
 		return nil, errs
 	}
 
-	typeSpecByName := map[string]*ast.TypeSpec{}
-	docByType := map[string]*ast.CommentGroup{}
-	genDocByType := map[string]*ast.CommentGroup{}
+	ctx := p.newParseCtx(pkg)
+	p.indexTypes(&ctx)
+	p.collectEventTypeNames(&ctx)
+	p.initApp(&ctx, &errs)
+	p.firstPassTypes(&ctx, &errs)
+	p.secondPassEmbeds(&ctx, &errs)
+	p.thirdPassMethods(&ctx, &errs)
+	p.validateRequiredHandlers(&ctx, &errs)
+	p.finalizePages(&ctx)
+	p.assignSpecialPages(&ctx, &errs)
 
-	for _, f := range pkg.Syntax {
+	if !ctx.appTypeFound {
+		return nil, errs
+	}
+	return ctx.app, errs
+}
+
+type parseCtx struct {
+	pkg *packages.Package
+
+	typeSpecByName map[string]*ast.TypeSpec
+	docByType      map[string]*ast.CommentGroup
+	genDocByType   map[string]*ast.CommentGroup
+
+	// Set of declared valid EventXXX names (same package),
+	// used for validating OnXXX param types.
+	eventTypeNames map[string]struct{}
+
+	pages     map[string]*model.Page
+	abstracts map[string]*model.AbstractPage
+
+	// recv -> event type name -> first handler position
+	seenEvHandlerByRecv map[string]map[string]token.Pos
+
+	app          *model.App
+	appTypeFound bool
+	basePos      token.Position
+}
+
+func (p *Parser) newParseCtx(pkg *packages.Package) parseCtx {
+	return parseCtx{
+		pkg:                 pkg,
+		typeSpecByName:      map[string]*ast.TypeSpec{},
+		docByType:           map[string]*ast.CommentGroup{},
+		genDocByType:        map[string]*ast.CommentGroup{},
+		eventTypeNames:      map[string]struct{}{},
+		pages:               map[string]*model.Page{},
+		abstracts:           map[string]*model.AbstractPage{},
+		seenEvHandlerByRecv: map[string]map[string]token.Pos{},
+		basePos:             earliestPkgPos(pkg),
+	}
+}
+
+func (p *Parser) indexTypes(ctx *parseCtx) {
+	for _, f := range ctx.pkg.Syntax {
 		for _, d := range f.Decls {
 			gd, ok := d.(*ast.GenDecl)
 			if !ok || gd.Tok != token.TYPE {
@@ -56,158 +105,204 @@ func (p *Parser) Parse(appPackagePath string) (app *model.App, errs Errors) {
 				if !ok {
 					continue
 				}
-				typeSpecByName[ts.Name.Name] = ts
+				name := ts.Name.Name
+				ctx.typeSpecByName[name] = ts
 				if ts.Doc != nil {
-					docByType[ts.Name.Name] = ts.Doc
+					ctx.docByType[name] = ts.Doc
 				} else if gd.Doc != nil {
-					genDocByType[ts.Name.Name] = gd.Doc
+					ctx.genDocByType[name] = gd.Doc
 				}
 			}
 		}
 	}
+}
 
-	// Collect all event type names (EventXXX) declared in the package.
-	// Used for validating OnXXX(event EventYYY) handlers.
-	eventTypeNames := map[string]struct{}{}
-	for name := range typeSpecByName {
-		if strings.HasPrefix(name, "Event") {
-			eventTypeNames[name] = struct{}{}
+func (p *Parser) collectEventTypeNames(ctx *parseCtx) {
+	for name := range ctx.typeSpecByName {
+		if err := validate.EventTypeName(name); err == nil {
+			ctx.eventTypeNames[name] = struct{}{}
 		}
 	}
+}
 
-	// Build an App model even if App type is missing, so we can still parse pages/events
-	// and collect all errors. We'll return nil if App is missing.
-	app = &model.App{
-		Fset: pkg.Fset,
+func (p *Parser) initApp(ctx *parseCtx, errs *Errors) {
+	ctx.app = &model.App{Fset: ctx.pkg.Fset}
+	if appTS, ok := ctx.typeSpecByName["App"]; ok {
+		ctx.app.Expr = appTS.Name
+		ctx.appTypeFound = true
+		return
 	}
-	var appTypeFound bool
+	errs.ErrAt(ctx.basePos, ErrAppMissingTypeApp)
+}
 
-	basePos := earliestPkgPos(pkg)
-	if appTS, ok := typeSpecByName["App"]; ok {
-		app.Expr = appTS.Name
-		appTypeFound = true
-	} else {
-		errs.ErrAt(basePos, ErrAppMissingTypeApp)
-	}
-
-	pages := map[string]*model.Page{}
-	abstracts := map[string]*model.AbstractPage{}
-
-	// --- First pass: collect types
-	typeNames := make([]string, 0, len(typeSpecByName))
-	for name := range typeSpecByName {
+func (p *Parser) firstPassTypes(ctx *parseCtx, errs *Errors) {
+	typeNames := make([]string, 0, len(ctx.typeSpecByName))
+	for name := range ctx.typeSpecByName {
 		typeNames = append(typeNames, name)
 	}
 	slices.Sort(typeNames)
+
 	for _, name := range typeNames {
-		ts := typeSpecByName[name]
-		if strings.HasPrefix(name, "Event") {
-			typePos := pkg.Fset.Position(ts.Name.Pos())
-			doc := pickDoc(name, docByType, genDocByType)
-			if doc == nil {
-				errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventMissingComm, name))
-				continue
-			}
-			if subj, ok := parseEventSubject(name, doc); ok {
-				app.Events = append(app.Events, &model.Event{
-					Expr:             ts.Name,
-					TypeName:         name,
-					Subject:          subj,
-					HasTargetUserIDs: hasTargetUserIDs(ts, pkg.TypesInfo),
-				})
-			} else {
-				errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventInvalidComm, name))
-			}
+		ts := ctx.typeSpecByName[name]
+
+		// Only treat valid EventXXX as event types.
+		if err := validate.EventTypeName(name); err == nil {
+			p.firstPassEventType(ctx, errs, name, ts)
 			continue
 		}
 
-		st, ok := ts.Type.(*ast.StructType)
-		if !ok {
-			continue
-		}
+		// Pages / abstracts are structs only.
+		p.firstPassPageOrAbstractType(ctx, errs, name, ts)
+	}
+}
 
-		if strings.HasPrefix(name, "Page") {
-			typePos := pkg.Fset.Position(ts.Name.Pos())
-			if !isValidPageTypeName(name) {
-				errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageNameInvalid, name))
-				// keep going; still register it (or choose to skip; see note below)
-			}
-			if !hasRequiredAppField(st, pkg.TypesInfo) {
-				errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageMissingFieldApp, name))
-				// Keep registering the page so PageIndex is still "found".
-			}
-			if hasDisallowedNamedFields(st) {
-				errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageHasExtraFields, name))
-			}
-			route, found, ok := parseRoute(name, pickDoc(name, docByType, genDocByType))
-			if !found {
-				errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageMissingPathComm, name))
-			} else if !ok {
-				errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageInvalidPathComm, name))
-			}
-			pages[name] = &model.Page{
-				Expr:               ts.Name,
-				TypeName:           name,
-				Route:              route,
-				PageSpecialization: pageSpecialization(name),
-			}
-		} else {
-			// Abstract pages still require App *App.
-			if !hasRequiredAppField(st, pkg.TypesInfo) {
-				continue
-			}
-			abstracts[name] = &model.AbstractPage{
-				Expr:     ts.Name,
-				TypeName: name,
-			}
+func (p *Parser) firstPassEventType(
+	ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSpec,
+) {
+	typePos := ctx.pkg.Fset.Position(ts.Name.Pos())
+	doc := pickDoc(name, ctx.docByType, ctx.genDocByType)
+
+	subj, err := p.extractEventSubject(name, doc)
+	if err != nil {
+		switch err {
+		case validate.ErrEventSubjectMissing:
+			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventMissingComm, name))
+		case validate.ErrEventSubjectInvalidSyntax, validate.ErrEventSubjectInvalid:
+			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventInvalidComm, name))
+		default:
+			// Defensive fallback: treat as invalid comment.
+			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventInvalidComm, name))
 		}
+		return
 	}
 
-	// --- Second pass: embeds
-	for _, p := range pages {
-		ts := typeSpecByName[p.TypeName]
+	ctx.app.Events = append(ctx.app.Events, &model.Event{
+		Expr:             ts.Name,
+		TypeName:         name,
+		Subject:          subj,
+		HasTargetUserIDs: hasTargetUserIDs(ts, ctx.pkg.TypesInfo),
+	})
+}
+
+func (p *Parser) extractEventSubject(
+	typeName string, doc *ast.CommentGroup,
+) (string, error) {
+	// Validate first (sentinel errors).
+	if err := validate.EventSubjectComment(typeName, doc); err != nil {
+		return "", err
+	}
+
+	// Extract (validated => safe).
+	want := typeName + " is "
+	for _, c := range doc.List {
+		txt := strings.TrimSpace(strings.TrimPrefix(c.Text, "//"))
+		if !strings.HasPrefix(txt, want) {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(txt, want))
+		rest = strings.TrimSpace(rest)
+
+		// validate.EventSubjectCommentSubject guarantees:
+		// - starts/ends with '"'
+		// - non-empty payload
+		if len(rest) >= 2 && rest[0] == '"' && rest[len(rest)-1] == '"' {
+			return rest[1 : len(rest)-1], nil
+		}
+		break
+	}
+	// Should not happen if validation succeeded.
+	return "", validate.ErrEventSubjectInvalid
+}
+
+func (p *Parser) firstPassPageOrAbstractType(
+	ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSpec,
+) {
+	st, ok := ts.Type.(*ast.StructType)
+	if !ok {
+		return
+	}
+
+	if strings.HasPrefix(name, "Page") {
+		typePos := ctx.pkg.Fset.Position(ts.Name.Pos())
+
+		if err := validate.PageTypeName(name); err != nil {
+			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageNameInvalid, name))
+		}
+		if !hasRequiredAppField(st, ctx.pkg.TypesInfo) {
+			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageMissingFieldApp, name))
+		}
+		if hasDisallowedNamedFields(st) {
+			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageHasExtraFields, name))
+		}
+
+		route, found, ok := parseRoute(
+			name, pickDoc(name, ctx.docByType, ctx.genDocByType),
+		)
+		if !found {
+			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageMissingPathComm, name))
+		} else if !ok {
+			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageInvalidPathComm, name))
+		}
+
+		ctx.pages[name] = &model.Page{
+			Expr:               ts.Name,
+			TypeName:           name,
+			Route:              route,
+			PageSpecialization: pageSpecialization(name),
+		}
+		return
+	}
+
+	// Abstract pages still require App *App.
+	if !hasRequiredAppField(st, ctx.pkg.TypesInfo) {
+		return
+	}
+	ctx.abstracts[name] = &model.AbstractPage{
+		Expr:     ts.Name,
+		TypeName: name,
+	}
+}
+
+func (p *Parser) secondPassEmbeds(ctx *parseCtx, errs *Errors) {
+	for _, pg := range ctx.pages {
+		ts := ctx.typeSpecByName[pg.TypeName]
 		st, ok := ts.Type.(*ast.StructType)
 		if !ok {
 			continue
 		}
 		for _, emb := range embeddedTypeNames(st) {
-			if ap, ok := abstracts[emb]; ok {
-				p.Embeds = append(p.Embeds, ap)
+			if ap, ok := ctx.abstracts[emb]; ok {
+				pg.Embeds = append(pg.Embeds, ap)
 				continue
 			}
-			// Embedded types are only allowed for abstract page types.
-			typePos := pkg.Fset.Position(ts.Name.Pos())
+			typePos := ctx.pkg.Fset.Position(ts.Name.Pos())
 			errs.ErrAt(typePos,
-				fmt.Errorf("%w: %s embeds %s", ErrPageHasExtraFields, p.TypeName, emb))
+				fmt.Errorf("%w: %s embeds %s", ErrPageHasExtraFields, pg.TypeName, emb))
 		}
 	}
+}
 
-	// recv -> event type name -> first handler position
-	seenEvHandlerByRecv := map[string]map[string]token.Pos{}
-
-	// --- Third pass: methods
-	for _, f := range pkg.Syntax {
+func (p *Parser) thirdPassMethods(ctx *parseCtx, errs *Errors) {
+	for _, f := range ctx.pkg.Syntax {
 		for _, d := range f.Decls {
 			fd, ok := d.(*ast.FuncDecl)
 			if !ok || fd.Recv == nil || len(fd.Recv.List) == 0 {
 				continue
 			}
-
 			recv := receiverTypeName(fd.Recv.List[0].Type)
 
 			// App hooks: (*App).Head and (*App).Recover500
 			if recv == "App" {
 				switch fd.Name.Name {
 				case "Head":
-					app.GlobalHeadGenerator = fd.Name
+					ctx.app.GlobalHeadGenerator = fd.Name
 				case "Recover500":
-					app.Recover500 = fd.Name
+					ctx.app.Recover500 = fd.Name
 				}
-				// keep scanning; App methods are not also page methods
 			}
 
-			p, isPage := pages[recv]
-			ap, isAbs := abstracts[recv]
+			pg, isPage := ctx.pages[recv]
+			ap, isAbs := ctx.abstracts[recv]
 			if !isPage && !isAbs {
 				continue
 			}
@@ -217,11 +312,14 @@ func (p *Parser) Parse(appPackagePath string) (app *model.App, errs Errors) {
 				continue
 			}
 
-			pos := pkg.Fset.Position(fd.Name.Pos())
+			pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 			// Validate action method names early.
-			if kind.IsAction() && !isValidActionName(fd.Name.Name) {
-				errs.ErrAt(pos, fmt.Errorf("%w: %s", ErrActionNameInvalid, fd.Name.Name))
+			if kind.IsAction() {
+				if err := validate.ActionMethodName(fd.Name.Name); err != nil {
+					errs.ErrAt(pos,
+						fmt.Errorf("%w: %s", ErrActionNameInvalid, fd.Name.Name))
+				}
 			}
 
 			switch kind {
@@ -229,129 +327,157 @@ func (p *Parser) Parse(appPackagePath string) (app *model.App, errs Errors) {
 				if !isPage {
 					break
 				}
-
-				// Invariants for OnXXX handlers:
-				//   - First parameter must be named exactly `event`
-				//   - First parameter type must be an EventXXX type
-				//   - Only one handler per EventXXX per receiver type
-				params := fd.Type.Params
-				if params == nil || len(params.List) == 0 {
-					errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
-						ErrEvHandFirstArgNotEvent, recv, fd.Name.Name))
-				} else {
-					first := params.List[0]
-					if len(first.Names) != 1 || first.Names[0].Name != "event" {
-						errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
-							ErrEvHandFirstArgNotEvent, recv, fd.Name.Name))
-					} else if evName, ok := eventTypeNameOf(first.Type, pkg.TypesInfo, eventTypeNames); !ok {
-						errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
-							ErrEvHandFirstArgTypeNotEvent, recv, fd.Name.Name))
-					} else {
-						m := seenEvHandlerByRecv[recv]
-						if m == nil {
-							m = map[string]token.Pos{}
-							seenEvHandlerByRecv[recv] = m
-						}
-						if prev, dup := m[evName]; dup {
-							errs.ErrAt(pos, fmt.Errorf("%w: %s.%s handles %s (previous at %s)",
-								ErrEvHandDuplicate,
-								recv,
-								fd.Name.Name,
-								evName,
-								pkg.Fset.Position(prev),
-							))
-						} else {
-							m[evName] = fd.Name.Pos()
-						}
-					}
+				if err := validate.EventHandlerMethodName(fd.Name.Name); err != nil {
+					errs.ErrAt(pos,
+						fmt.Errorf("%w: %s.%s",
+							validate.ErrEventHandlerMethodNameInvalid,
+							recv, fd.Name.Name))
 				}
-
-				// Keep parsing/attaching model for now even if invalid (best-effort),
-				// so downstream code can still see it.
-				p.EventHandlers = append(p.EventHandlers,
-					parseEventHandler(fd, pkg.TypesInfo, suffix))
+				p.validateAndAttachEventHandler(ctx, errs, recv, fd, pg, suffix)
 			default:
-				h, herr := parseHandler(recv, fd, pkg.TypesInfo, kind, suffix)
-				if herr != nil {
-					// Keep going; still attach a best-effort handler model.
-					errs.ErrAt(pkg.Fset.Position(fd.Name.Pos()), herr)
-				}
-				if kind.IsAction() {
-					r, found, valid := parseRoute(fd.Name.Name, fd.Doc)
-					h.Route = r
+				p.attachHTTPHandler(ctx, errs, recv, fd, pg, ap, kind, suffix)
+			}
+		}
+	}
+}
 
-					pos := pkg.Fset.Position(fd.Name.Pos())
+func (p *Parser) validateAndAttachEventHandler(
+	ctx *parseCtx,
+	errs *Errors,
+	recv string,
+	fd *ast.FuncDecl,
+	pg *model.Page,
+	suffix string,
+) {
+	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
-					if !found {
-						errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
-							ErrActionMissingPathComm, recv, fd.Name.Name))
-					} else if !valid {
-						errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
-							ErrActionInvalidPathComm, recv, fd.Name.Name))
-					} else if p != nil && p.Route != "" && !isUnderPage(p.Route, r) {
-						// Only check if the page route is known;
-						// if the page route is missing/invalid,
-						// the page-level errors already cover that and
-						// this avoids noisy cascades.
-						errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
-							ErrActionPathNotUnderPage, recv, fd.Name.Name))
-					}
-				} else if kind == methodKindGETHandler {
-					h.Route = p.Route
-				}
-
-				if isPage {
-					if kind == methodKindGETHandler {
-						p.GET = h
-					} else {
-						p.Actions = append(p.Actions, h)
-					}
-				} else {
-					ap.Methods = append(ap.Methods, h)
-				}
+	// Invariants for OnXXX handlers:
+	//   - First parameter must be named exactly `event`
+	//   - First parameter type must be an EventXXX type
+	//   - Only one handler per EventXXX per receiver type
+	params := fd.Type.Params
+	if params == nil || len(params.List) == 0 {
+		errs.ErrAt(pos,
+			fmt.Errorf("%w: %s.%s", ErrEvHandFirstArgNotEvent, recv, fd.Name.Name))
+	} else {
+		first := params.List[0]
+		if len(first.Names) != 1 || first.Names[0].Name != "event" {
+			errs.ErrAt(pos,
+				fmt.Errorf("%w: %s.%s", ErrEvHandFirstArgNotEvent, recv, fd.Name.Name))
+		} else if evName, ok := eventTypeNameOf(
+			first.Type, ctx.pkg.TypesInfo, ctx.eventTypeNames,
+		); !ok {
+			errs.ErrAt(pos,
+				fmt.Errorf("%w: %s.%s",
+					ErrEvHandFirstArgTypeNotEvent, recv, fd.Name.Name))
+		} else {
+			m := ctx.seenEvHandlerByRecv[recv]
+			if m == nil {
+				m = map[string]token.Pos{}
+				ctx.seenEvHandlerByRecv[recv] = m
+			}
+			if prev, dup := m[evName]; dup {
+				errs.ErrAt(pos, fmt.Errorf(
+					"%w: %s.%s handles %s (previous at %s)",
+					ErrEvHandDuplicate,
+					recv,
+					fd.Name.Name,
+					evName,
+					ctx.pkg.Fset.Position(prev),
+				))
+			} else {
+				m[evName] = fd.Name.Pos()
 			}
 		}
 	}
 
-	// --- Validate required handlers
+	// Best-effort attach.
+	pg.EventHandlers = append(pg.EventHandlers,
+		parseEventHandler(fd, ctx.pkg.TypesInfo, suffix))
+}
+
+func (p *Parser) attachHTTPHandler(
+	ctx *parseCtx,
+	errs *Errors,
+	recv string,
+	fd *ast.FuncDecl,
+	pg *model.Page,
+	ap *model.AbstractPage,
+	kind methodKind,
+	suffix string,
+) {
+	h, herr := parseHandler(recv, fd, ctx.pkg.TypesInfo, kind, suffix)
+	if herr != nil {
+		// Keep going; still attach a best-effort handler model.
+		errs.ErrAt(ctx.pkg.Fset.Position(fd.Name.Pos()), herr)
+	}
+
+	if kind.IsAction() {
+		r, found, valid := parseRoute(fd.Name.Name, fd.Doc)
+		h.Route = r
+
+		pos := ctx.pkg.Fset.Position(fd.Name.Pos())
+		if !found {
+			errs.ErrAt(pos,
+				fmt.Errorf("%w: %s.%s", ErrActionMissingPathComm, recv, fd.Name.Name))
+		} else if !valid {
+			errs.ErrAt(pos,
+				fmt.Errorf("%w: %s.%s", ErrActionInvalidPathComm, recv, fd.Name.Name))
+		} else if pg != nil && pg.Route != "" && !isUnderPage(pg.Route, r) {
+			errs.ErrAt(pos,
+				fmt.Errorf("%w: %s.%s", ErrActionPathNotUnderPage, recv, fd.Name.Name))
+		}
+	} else if kind == methodKindGETHandler && pg != nil {
+		h.Route = pg.Route
+	}
+
+	if pg != nil {
+		if kind == methodKindGETHandler {
+			pg.GET = h
+		} else {
+			pg.Actions = append(pg.Actions, h)
+		}
+		return
+	}
+	ap.Methods = append(ap.Methods, h)
+}
+
+func (p *Parser) validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
 	// Every page type must have a GET handler.
-	pageNames := make([]string, 0, len(pages))
-	for name := range pages {
+	pageNames := make([]string, 0, len(ctx.pages))
+	for name := range ctx.pages {
 		pageNames = append(pageNames, name)
 	}
 	slices.Sort(pageNames)
+
 	for _, name := range pageNames {
-		if pages[name].GET == nil {
-			ts := typeSpecByName[name]
-			errs.ErrAt(pkg.Fset.Position(ts.Name.Pos()),
+		if ctx.pages[name].GET == nil {
+			ts := ctx.typeSpecByName[name]
+			errs.ErrAt(ctx.pkg.Fset.Position(ts.Name.Pos()),
 				fmt.Errorf("%w: %s", ErrPageMissingGET, name))
 		}
 	}
+}
 
-	// --- Finalize pages deterministically
-	names := make([]string, 0, len(pages))
-	for name := range pages {
+func (p *Parser) finalizePages(ctx *parseCtx) {
+	names := make([]string, 0, len(ctx.pages))
+	for name := range ctx.pages {
 		names = append(names, name)
 	}
 	slices.Sort(names)
 	for _, name := range names {
-		app.Pages = append(app.Pages, pages[name])
+		ctx.app.Pages = append(ctx.app.Pages, ctx.pages[name])
 	}
+}
 
-	// --- Assign special pages
-	app.PageIndex = pages["PageIndex"]
-	app.PageError404 = pages["PageError404"]
-	app.PageError500 = pages["PageError500"]
+func (p *Parser) assignSpecialPages(ctx *parseCtx, errs *Errors) {
+	ctx.app.PageIndex = ctx.pages["PageIndex"]
+	ctx.app.PageError404 = ctx.pages["PageError404"]
+	ctx.app.PageError500 = ctx.pages["PageError500"]
 
-	if app.PageIndex == nil {
-		errs.ErrAt(basePos, ErrAppMissingPageIndex)
+	if ctx.app.PageIndex == nil {
+		errs.ErrAt(ctx.basePos, ErrAppMissingPageIndex)
 	}
-
-	if !appTypeFound {
-		// Caller wants nil app when App is missing.
-		return nil, errs
-	}
-	return app, errs
 }
 
 // hasDisallowedNamedFields reports whether a page struct contains any named field
@@ -436,7 +562,8 @@ func loadPackage(appPackagePath string) (*packages.Package, error) {
 	// If it looks like a filesystem path but doesn't exist, keep as pattern anyway.
 	pattern := appPackagePath
 	if filepath.IsAbs(appPackagePath) {
-		// go list doesn’t like absolute patterns; fallback to directory load if possible.
+		// go list doesn’t like absolute patterns;
+		// fallback to directory load if possible.
 		dir := filepath.Dir(appPackagePath)
 		if st, err := os.Stat(dir); err == nil && st.IsDir() {
 			cfg.Dir = dir
@@ -461,7 +588,9 @@ func loadPackage(appPackagePath string) (*packages.Package, error) {
 	return pkgs[0], nil
 }
 
-func pickDoc(typeName string, docByType, genDocByType map[string]*ast.CommentGroup) *ast.CommentGroup {
+func pickDoc(
+	typeName string, docByType, genDocByType map[string]*ast.CommentGroup,
+) *ast.CommentGroup {
 	if d := docByType[typeName]; d != nil {
 		return d
 	}
@@ -488,7 +617,9 @@ func pageSpecialization(typeName string) model.PageSpecialization {
 //
 // found=true means there was an attempt to define a route for `symbol`.
 // valid=true means the attempt was well-formed and the route itself is valid.
-func parseRoute(symbol string, cg *ast.CommentGroup) (route string, found bool, valid bool) {
+func parseRoute(
+	symbol string, cg *ast.CommentGroup,
+) (route string, found bool, valid bool) {
 	if cg == nil {
 		return "", false, false
 	}
@@ -522,36 +653,6 @@ func parseRoute(symbol string, cg *ast.CommentGroup) (route string, found bool, 
 	}
 
 	return "", false, false
-}
-
-// parseEventSubject parses:
-//
-//	// EventX is "x.y"
-func parseEventSubject(typeName string, cg *ast.CommentGroup) (string, bool) {
-	if cg == nil {
-		return "", false
-	}
-	prefix := typeName + " is "
-	for _, c := range cg.List {
-		txt := strings.TrimSpace(strings.TrimPrefix(c.Text, "//"))
-		if !strings.HasPrefix(txt, prefix) {
-			continue
-		}
-		rest := strings.TrimSpace(strings.TrimPrefix(txt, prefix))
-		if len(rest) < 2 {
-			return "", false
-		}
-		quote := rest[0]
-		if quote != '"' && quote != '`' {
-			return "", false
-		}
-		end := strings.LastIndexByte(rest[1:], quote)
-		if end < 0 {
-			return "", false
-		}
-		return rest[1 : 1+end], true
-	}
-	return "", false
 }
 
 func hasTargetUserIDs(ts *ast.TypeSpec, info *types.Info) bool {
@@ -724,6 +825,7 @@ func classifyMethodName(name string) (kind methodKind, suffix string) {
 	case strings.HasPrefix(name, "DELETE") && len(name) > 6:
 		return methodKindActionDELETEHandler, name[len("DELETE"):]
 	case strings.HasPrefix(name, "On") && len(name) > 2:
+		// Keep classifying even if invalid; validation happens at usage site.
 		return methodKindEventHandler, name[len("On"):]
 	}
 	return 0, ""
@@ -836,71 +938,11 @@ func isPtrToNetHTTPReq(expr ast.Expr, info *types.Info) bool {
 	return obj.Pkg().Path() == "net/http" && obj.Name() == "Request"
 }
 
-func isValidPageTypeName(name string) bool {
-	s, ok := strings.CutPrefix(name, "Page")
-	if !ok || s == "" {
-		return false
-	}
-	r0 := s[0]
-	if r0 < 'A' || r0 > 'Z' {
-		return false
-	}
-	for i := 1; i < len(s); i++ {
-		c := s[i]
-		if (c >= 'A' && c <= 'Z') ||
-			(c >= 'a' && c <= 'z') ||
-			(c >= '0' && c <= '9') {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func isValidActionName(name string) bool {
-	isValidActionSuffix := func(name string, prefixLen int) bool {
-		if len(name) <= prefixLen {
-			return false
-		}
-		s := name[prefixLen:]
-		// First char must be A-Z.
-		c0 := s[0]
-		if c0 < 'A' || c0 > 'Z' {
-			return false
-		}
-		// Remaining chars must be alnum.
-		for i := 1; i < len(s); i++ {
-			c := s[i]
-			if (c >= 'A' && c <= 'Z') ||
-				(c >= 'a' && c <= 'z') ||
-				(c >= '0' && c <= '9') {
-				continue
-			}
-			return false
-		}
-		return true
-	}
-
-	// Valid action names are:
-	//   POSTX...
-	//   PUTX...
-	//   DELETEX...
-	// where X is [A-Z], followed by [A-Za-z0-9]*.
-	switch {
-	case strings.HasPrefix(name, "POST"):
-		return isValidActionSuffix(name, 4)
-	case strings.HasPrefix(name, "PUT"):
-		return isValidActionSuffix(name, 3)
-	case strings.HasPrefix(name, "DELETE"):
-		return isValidActionSuffix(name, 6)
-	default:
-		return false
-	}
-}
-
 // eventTypeNameOf returns the EventXXX type name for expr if it is (or points to) a
-// named type declared in this package whose name starts with "Event".
-func eventTypeNameOf(expr ast.Expr, info *types.Info, eventTypeNames map[string]struct{}) (string, bool) {
+// named type declared in this package whose name is in eventTypeNames.
+func eventTypeNameOf(
+	expr ast.Expr, info *types.Info, eventTypeNames map[string]struct{},
+) (string, bool) {
 	t := info.TypeOf(expr)
 	if t == nil {
 		return "", false
@@ -918,7 +960,6 @@ func eventTypeNameOf(expr ast.Expr, info *types.Info, eventTypeNames map[string]
 		return "", false
 	}
 	// Ensure the event type is from the same package.
-	// (In practice, name membership already implies this, but keep it explicit.)
 	if named.Obj().Pkg().Path() == "" {
 		return "", false
 	}
