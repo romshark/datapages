@@ -30,7 +30,11 @@ var (
 	ErrActionInvalidPathComm  = errors.New("action handler has invalid path comment")
 	ErrActionPathNotUnderPage = errors.New("action handler path is not under page path")
 
-	ErrEventHandlerDuplicate = errors.New("duplicate event handler for event")
+	ErrEventMissingComm           = errors.New("event type is missing subject comment")
+	ErrEventInvalidComm           = errors.New("event type has invalid subject comment")
+	ErrEvHandFirstArgNotEvent     = errors.New(`event handler first argument must be named "event"`)
+	ErrEvHandFirstArgTypeNotEvent = errors.New("event handler first argument type must be an event type")
+	ErrEvHandDuplicate            = errors.New("duplicate event handler for event")
 )
 
 func normPos(pos token.Position) token.Position {

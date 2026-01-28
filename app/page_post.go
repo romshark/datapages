@@ -118,8 +118,8 @@ func (p PagePost) POSTSendMessage(
 }
 
 func (p PagePost) OnPostArchived(
-	sse *datastar.ServerSentEventGenerator,
 	event EventPostArchived,
+	sse *datastar.ServerSentEventGenerator,
 	session SessionJWT,
 ) error {
 	return sse.ExecuteScript("location.replace(location.href);")

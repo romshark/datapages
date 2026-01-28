@@ -145,8 +145,8 @@ func (b Base) baseData(
 }
 
 func (b Base) OnMessagingSent(
-	sse *datastar.ServerSentEventGenerator,
 	event EventMessagingSent,
+	sse *datastar.ServerSentEventGenerator,
 	session SessionJWT,
 ) error {
 	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID)
@@ -175,8 +175,8 @@ func (b Base) OnMessagingSent(
 }
 
 func (b Base) OnMessagingRead(
-	sse *datastar.ServerSentEventGenerator,
 	event EventMessagingRead,
+	sse *datastar.ServerSentEventGenerator,
 	session SessionJWT,
 ) error {
 	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID)

@@ -55,8 +55,8 @@ func (p PageUser) GET(
 }
 
 func (p PageUser) OnPostArchived(
-	sse *datastar.ServerSentEventGenerator,
 	event EventPostArchived,
+	sse *datastar.ServerSentEventGenerator,
 	session SessionJWT,
 ) error {
 	return sse.ExecuteScript("location.replace(location.href);")

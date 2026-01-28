@@ -1,4 +1,4 @@
-module datapagestest/fixture/errors
+module datapagestest/fixture/err_events
 
 go 1.25
 

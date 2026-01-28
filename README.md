@@ -202,8 +202,8 @@ The `XXX` placeholder must always match the event name after the type's `Event` 
 
 ```go
 func (PageIndex) OnSomethingHappened(
-	sse *datastar.ServerSentEventGenerator,
 	event EventSomethingHappened,
+	sse *datastar.ServerSentEventGenerator,
 	session SessionJWT, // Optional
 ) error {
 	// ...
@@ -218,9 +218,9 @@ Abstract page types can be embedded in page types to share functionality across 
 type Base struct{ App *App }
 
 func (Base) OnSomethingHappened(
-	sse *datastar.ServerSentEventGenerator,
-	session SessionJWT,
 	event EventSomethingHappened,
+    sse *datastar.ServerSentEventGenerator,
+	session SessionJWT,
 ) error {
 	// ...
 }
@@ -298,8 +298,8 @@ func (p PageExample) POSTButtonClicked(
 }
 
 func (p PageExample) OnSomethingHappened(
-    sse *datastar.ServerSentEventGenerator,
 	event EventSomethingHappened,
+    sse *datastar.ServerSentEventGenerator,
 	session SessionJWT,
 ) error {
     // When something happens, patch the page.
@@ -467,9 +467,9 @@ func (PageChat) POSTSendMessage(
 }
 
 func (PageChat) OnMessageSent(
+    event EventMessageSent,
     sse *datastar.ServerSentEventGenerator,
     session SessionJWT,
-    e EventMessageSent,
 ) error {
     // Use sse to patch the new message into view.
 }

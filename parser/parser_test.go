@@ -35,7 +35,8 @@ func fixtureDir(t *testing.T, name string) string {
 func parse(t *testing.T, fixtureName string) (*model.App, parser.Errors) {
 	t.Helper()
 	dir := fixtureDir(t, fixtureName)
-	return parser.Parse(dir)
+	p := parser.New()
+	return p.Parse(dir)
 }
 
 func requireParseErrors(t *testing.T, got parser.Errors, want ...error) {
@@ -108,7 +109,8 @@ func TestParse_SyntaxErr(t *testing.T) {
 		"package app\n\nfunc Broken( { }\n",
 	), 0o644))
 
-	app, err := parser.Parse(tmp)
+	p := parser.New()
+	app, err := p.Parse(tmp)
 	require.Nil(app)
 	require.NotZero(err.Error())
 	require.GreaterOrEqual(err.Len(), 1)
@@ -200,9 +202,9 @@ func TestParse_MissingPageIndex(t *testing.T) {
 		parser.ErrAppMissingPageIndex)
 }
 
-func TestParse_Errors(t *testing.T) {
+func TestParse_ErrPages(t *testing.T) {
 	require := require.New(t)
-	_, err := parse(t, "errors")
+	_, err := parse(t, "err_pages")
 	require.NotZero(err.Error())
 
 	requireParseErrors(t, err,
@@ -223,5 +225,19 @@ func TestParse_Errors(t *testing.T) {
 		parser.ErrActionNameInvalid,
 		parser.ErrActionInvalidPathComm,
 		parser.ErrActionPathNotUnderPage,
+	)
+}
+
+func TestParse_ErrEvents(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_events")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrEventMissingComm,
+		parser.ErrEventInvalidComm,
+		parser.ErrEvHandFirstArgNotEvent,
+		parser.ErrEvHandFirstArgTypeNotEvent,
+		parser.ErrEvHandDuplicate,
 	)
 }

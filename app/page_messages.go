@@ -278,8 +278,8 @@ func (p PageMessages) POSTSendMessage(
 }
 
 func (p PageMessages) OnMessagingRead(
-	sse *datastar.ServerSentEventGenerator,
 	event EventMessagingRead,
+	sse *datastar.ServerSentEventGenerator,
 	session SessionJWT,
 	signals struct {
 		Chat string `json:"chatselected"`
@@ -295,8 +295,8 @@ func (p PageMessages) OnMessagingRead(
 }
 
 func (PageMessages) OnMessagingWriting(
-	sse *datastar.ServerSentEventGenerator,
 	event EventMessagingWriting,
+	sse *datastar.ServerSentEventGenerator,
 	session SessionJWT,
 ) error {
 	return sse.MarshalAndPatchSignals(struct {
@@ -307,8 +307,8 @@ func (PageMessages) OnMessagingWriting(
 }
 
 func (PageMessages) OnMessagingWritingStopped(
-	sse *datastar.ServerSentEventGenerator,
 	event EventMessagingWritingStopped,
+	sse *datastar.ServerSentEventGenerator,
 	session SessionJWT,
 ) error {
 	return sse.MarshalAndPatchSignals(struct {
@@ -319,8 +319,8 @@ func (PageMessages) OnMessagingWritingStopped(
 }
 
 func (p PageMessages) OnMessagingSent(
-	sse *datastar.ServerSentEventGenerator,
 	event EventMessagingSent,
+	sse *datastar.ServerSentEventGenerator,
 	session SessionJWT,
 	signals struct {
 		Chat string `json:"chatselected"`

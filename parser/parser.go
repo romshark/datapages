@@ -17,7 +17,13 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func Parse(appPackagePath string) (app *model.App, errs Errors) {
+type Parser struct{}
+
+func New() *Parser {
+	return &Parser{}
+}
+
+func (p *Parser) Parse(appPackagePath string) (app *model.App, errs Errors) {
 	defer sortErrors(&errs)
 
 	pkg, err := loadPackage(appPackagePath)
@@ -60,6 +66,15 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 		}
 	}
 
+	// Collect all event type names (EventXXX) declared in the package.
+	// Used for validating OnXXX(event EventYYY) handlers.
+	eventTypeNames := map[string]struct{}{}
+	for name := range typeSpecByName {
+		if strings.HasPrefix(name, "Event") {
+			eventTypeNames[name] = struct{}{}
+		}
+	}
+
 	// Build an App model even if App type is missing, so we can still parse pages/events
 	// and collect all errors. We'll return nil if App is missing.
 	app = &model.App{
@@ -87,13 +102,21 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	for _, name := range typeNames {
 		ts := typeSpecByName[name]
 		if strings.HasPrefix(name, "Event") {
-			if subj, ok := parseEventSubject(name, pickDoc(name, docByType, genDocByType)); ok {
+			typePos := pkg.Fset.Position(ts.Name.Pos())
+			doc := pickDoc(name, docByType, genDocByType)
+			if doc == nil {
+				errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventMissingComm, name))
+				continue
+			}
+			if subj, ok := parseEventSubject(name, doc); ok {
 				app.Events = append(app.Events, &model.Event{
 					Expr:             ts.Name,
 					TypeName:         name,
 					Subject:          subj,
 					HasTargetUserIDs: hasTargetUserIDs(ts, pkg.TypesInfo),
 				})
+			} else {
+				errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventInvalidComm, name))
 			}
 			continue
 		}
@@ -159,6 +182,9 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 		}
 	}
 
+	// recv -> event type name -> first handler position
+	seenEvHandlerByRecv := map[string]map[string]token.Pos{}
+
 	// --- Third pass: methods
 	for _, f := range pkg.Syntax {
 		for _, d := range f.Decls {
@@ -200,10 +226,50 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 
 			switch kind {
 			case methodKindEventHandler:
-				if isPage {
-					p.EventHandlers = append(p.EventHandlers,
-						parseEventHandler(fd, pkg.TypesInfo, suffix))
+				if !isPage {
+					break
 				}
+
+				// Invariants for OnXXX handlers:
+				//   - First parameter must be named exactly `event`
+				//   - First parameter type must be an EventXXX type
+				//   - Only one handler per EventXXX per receiver type
+				params := fd.Type.Params
+				if params == nil || len(params.List) == 0 {
+					errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+						ErrEvHandFirstArgNotEvent, recv, fd.Name.Name))
+				} else {
+					first := params.List[0]
+					if len(first.Names) != 1 || first.Names[0].Name != "event" {
+						errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+							ErrEvHandFirstArgNotEvent, recv, fd.Name.Name))
+					} else if evName, ok := eventTypeNameOf(first.Type, pkg.TypesInfo, eventTypeNames); !ok {
+						errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+							ErrEvHandFirstArgTypeNotEvent, recv, fd.Name.Name))
+					} else {
+						m := seenEvHandlerByRecv[recv]
+						if m == nil {
+							m = map[string]token.Pos{}
+							seenEvHandlerByRecv[recv] = m
+						}
+						if prev, dup := m[evName]; dup {
+							errs.ErrAt(pos, fmt.Errorf("%w: %s.%s handles %s (previous at %s)",
+								ErrEvHandDuplicate,
+								recv,
+								fd.Name.Name,
+								evName,
+								pkg.Fset.Position(prev),
+							))
+						} else {
+							m[evName] = fd.Name.Pos()
+						}
+					}
+				}
+
+				// Keep parsing/attaching model for now even if invalid (best-effort),
+				// so downstream code can still see it.
+				p.EventHandlers = append(p.EventHandlers,
+					parseEventHandler(fd, pkg.TypesInfo, suffix))
 			default:
 				h, herr := parseHandler(recv, fd, pkg.TypesInfo, kind, suffix)
 				if herr != nil {
@@ -830,4 +896,31 @@ func isValidActionName(name string) bool {
 	default:
 		return false
 	}
+}
+
+// eventTypeNameOf returns the EventXXX type name for expr if it is (or points to) a
+// named type declared in this package whose name starts with "Event".
+func eventTypeNameOf(expr ast.Expr, info *types.Info, eventTypeNames map[string]struct{}) (string, bool) {
+	t := info.TypeOf(expr)
+	if t == nil {
+		return "", false
+	}
+	// Allow both EventFoo and *EventFoo as the parameter type.
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	named, ok := t.(*types.Named)
+	if !ok || named.Obj() == nil || named.Obj().Pkg() == nil {
+		return "", false
+	}
+	name := named.Obj().Name()
+	if _, ok := eventTypeNames[name]; !ok {
+		return "", false
+	}
+	// Ensure the event type is from the same package.
+	// (In practice, name membership already implies this, but keep it explicit.)
+	if named.Obj().Pkg().Path() == "" {
+		return "", false
+	}
+	return name, true
 }
