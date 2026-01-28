@@ -7,64 +7,18 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
-	"iter"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"golang.org/x/tools/go/packages"
 )
 
-type Errors struct{ errs []error }
-
-func (e *Errors) Err(err error) {
-	if err != nil {
-		e.errs = append(e.errs, err)
-	}
-}
-
-func (e *Errors) Len() int {
-	return len(e.errs)
-}
-
-func (e *Errors) At(index int) error {
-	if index >= len(e.errs) {
-		return nil
-	}
-	return e.errs[index]
-}
-
-func (e *Errors) All() iter.Seq2[int, error] {
-	return func(yield func(int, error) bool) {
-		for i, e := range e.errs {
-			if !yield(i, e) {
-				return
-			}
-		}
-	}
-}
-
-func (e *Errors) Error() string {
-	if e == nil || len(e.errs) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("parsing: %d error(s)", len(e.errs))
-}
-
-var (
-	ErrMissingTypeApp       = errors.New(`missing required type "App"`)
-	ErrMissingTypePageIndex = errors.New(`missing required page type "PageIndex"`)
-	ErrMissingTypeInfo      = errors.New(`missing source package type information`)
-	ErrSignatureMissingReq  = errors.New(`missing the *http.Request parameter`)
-	ErrSignatureMultiErrRet = errors.New(`multiple error return values`)
-	ErrMissingPageFieldApp  = errors.New(`page is missing the "App *App" field`)
-	ErrPageMissingGET       = errors.New(`page is missing the GET handler`)
-)
-
-func Parse(appPackagePath string) (*model.App, Errors) {
-	var errs Errors
+func Parse(appPackagePath string) (app *model.App, errs Errors) {
+	defer sortErrors(&errs)
 
 	pkg, err := loadPackage(appPackagePath)
 	if err != nil {
@@ -72,11 +26,12 @@ func Parse(appPackagePath string) (*model.App, Errors) {
 		return nil, errs
 	}
 	for _, pe := range pkg.Errors {
-		errs.Err(pe)
+		errs.ErrAt(posFromPackagesError(pe), pe)
 	}
 
 	if pkg.Types == nil || pkg.TypesInfo == nil {
-		errs.Err(ErrMissingTypeInfo)
+		errs.ErrAt(earliestPkgPos(pkg),
+			errors.New("missing source package type information"))
 		return nil, errs
 	}
 
@@ -107,25 +62,30 @@ func Parse(appPackagePath string) (*model.App, Errors) {
 
 	// Build an App model even if App type is missing, so we can still parse pages/events
 	// and collect all errors. We'll return nil if App is missing.
-	var (
-		app = &model.App{
-			Fset: pkg.Fset,
-		}
-		appTypeFound bool
-	)
+	app = &model.App{
+		Fset: pkg.Fset,
+	}
+	var appTypeFound bool
 
+	basePos := earliestPkgPos(pkg)
 	if appTS, ok := typeSpecByName["App"]; ok {
 		app.Expr = appTS.Name
 		appTypeFound = true
 	} else {
-		errs.Err(ErrMissingTypeApp)
+		errs.ErrAt(basePos, ErrAppMissingTypeApp)
 	}
 
 	pages := map[string]*model.Page{}
 	abstracts := map[string]*model.AbstractPage{}
 
 	// --- First pass: collect types
-	for name, ts := range typeSpecByName {
+	typeNames := make([]string, 0, len(typeSpecByName))
+	for name := range typeSpecByName {
+		typeNames = append(typeNames, name)
+	}
+	slices.Sort(typeNames)
+	for _, name := range typeNames {
+		ts := typeSpecByName[name]
 		if strings.HasPrefix(name, "Event") {
 			if subj, ok := parseEventSubject(name, pickDoc(name, docByType, genDocByType)); ok {
 				app.Events = append(app.Events, &model.Event{
@@ -144,11 +104,24 @@ func Parse(appPackagePath string) (*model.App, Errors) {
 		}
 
 		if strings.HasPrefix(name, "Page") {
+			typePos := pkg.Fset.Position(ts.Name.Pos())
+			if !isValidPageTypeName(name) {
+				errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageNameInvalid, name))
+				// keep going; still register it (or choose to skip; see note below)
+			}
 			if !hasRequiredAppField(st, pkg.TypesInfo) {
-				errs.Err(fmt.Errorf("%w: %s", ErrMissingPageFieldApp, name))
+				errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageMissingFieldApp, name))
 				// Keep registering the page so PageIndex is still "found".
 			}
-			route, _ := parseRoute(name, pickDoc(name, docByType, genDocByType))
+			if hasDisallowedNamedFields(st) {
+				errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageHasExtraFields, name))
+			}
+			route, found, ok := parseRoute(name, pickDoc(name, docByType, genDocByType))
+			if !found {
+				errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageMissingPathComm, name))
+			} else if !ok {
+				errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageInvalidPathComm, name))
+			}
 			pages[name] = &model.Page{
 				Expr:               ts.Name,
 				TypeName:           name,
@@ -177,7 +150,12 @@ func Parse(appPackagePath string) (*model.App, Errors) {
 		for _, emb := range embeddedTypeNames(st) {
 			if ap, ok := abstracts[emb]; ok {
 				p.Embeds = append(p.Embeds, ap)
+				continue
 			}
+			// Embedded types are only allowed for abstract page types.
+			typePos := pkg.Fset.Position(ts.Name.Pos())
+			errs.ErrAt(typePos,
+				fmt.Errorf("%w: %s embeds %s", ErrPageHasExtraFields, p.TypeName, emb))
 		}
 	}
 
@@ -213,6 +191,13 @@ func Parse(appPackagePath string) (*model.App, Errors) {
 				continue
 			}
 
+			pos := pkg.Fset.Position(fd.Name.Pos())
+
+			// Validate action method names early.
+			if kind.IsAction() && !isValidActionName(fd.Name.Name) {
+				errs.ErrAt(pos, fmt.Errorf("%w: %s", ErrActionNameInvalid, fd.Name.Name))
+			}
+
 			switch kind {
 			case methodKindEventHandler:
 				if isPage {
@@ -220,13 +205,31 @@ func Parse(appPackagePath string) (*model.App, Errors) {
 						parseEventHandler(fd, pkg.TypesInfo, suffix))
 				}
 			default:
-				h, herr := parseHandler(fd, pkg.TypesInfo, kind, suffix)
+				h, herr := parseHandler(recv, fd, pkg.TypesInfo, kind, suffix)
 				if herr != nil {
 					// Keep going; still attach a best-effort handler model.
-					errs.Err(herr)
+					errs.ErrAt(pkg.Fset.Position(fd.Name.Pos()), herr)
 				}
 				if kind.IsAction() {
-					h.Route, _ = parseRoute(fd.Name.Name, fd.Doc)
+					r, found, valid := parseRoute(fd.Name.Name, fd.Doc)
+					h.Route = r
+
+					pos := pkg.Fset.Position(fd.Name.Pos())
+
+					if !found {
+						errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+							ErrActionMissingPathComm, recv, fd.Name.Name))
+					} else if !valid {
+						errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+							ErrActionInvalidPathComm, recv, fd.Name.Name))
+					} else if p != nil && p.Route != "" && !isUnderPage(p.Route, r) {
+						// Only check if the page route is known;
+						// if the page route is missing/invalid,
+						// the page-level errors already cover that and
+						// this avoids noisy cascades.
+						errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+							ErrActionPathNotUnderPage, recv, fd.Name.Name))
+					}
 				} else if kind == methodKindGETHandler {
 					h.Route = p.Route
 				}
@@ -246,9 +249,16 @@ func Parse(appPackagePath string) (*model.App, Errors) {
 
 	// --- Validate required handlers
 	// Every page type must have a GET handler.
-	for name, p := range pages {
-		if p.GET == nil {
-			errs.Err(fmt.Errorf("%w: %s", ErrPageMissingGET, name))
+	pageNames := make([]string, 0, len(pages))
+	for name := range pages {
+		pageNames = append(pageNames, name)
+	}
+	slices.Sort(pageNames)
+	for _, name := range pageNames {
+		if pages[name].GET == nil {
+			ts := typeSpecByName[name]
+			errs.ErrAt(pkg.Fset.Position(ts.Name.Pos()),
+				fmt.Errorf("%w: %s", ErrPageMissingGET, name))
 		}
 	}
 
@@ -268,7 +278,7 @@ func Parse(appPackagePath string) (*model.App, Errors) {
 	app.PageError500 = pages["PageError500"]
 
 	if app.PageIndex == nil {
-		errs.Err(ErrMissingTypePageIndex)
+		errs.ErrAt(basePos, ErrAppMissingPageIndex)
 	}
 
 	if !appTypeFound {
@@ -276,6 +286,33 @@ func Parse(appPackagePath string) (*model.App, Errors) {
 		return nil, errs
 	}
 	return app, errs
+}
+
+// hasDisallowedNamedFields reports whether a page struct contains any named field
+// besides the single allowed `App *App`.
+//
+// Embedded fields are handled separately (and must be abstract page types).
+func hasDisallowedNamedFields(st *ast.StructType) bool {
+	if st == nil || st.Fields == nil {
+		return false
+	}
+	appCount := 0
+	for _, f := range st.Fields.List {
+		// Embedded field: allowed only if it’s an abstract page type (validated later)
+		if len(f.Names) == 0 {
+			continue
+		}
+		// Any multi-name field is disallowed.
+		if len(f.Names) != 1 {
+			return true
+		}
+		if f.Names[0].Name != "App" {
+			return true
+		}
+		appCount++
+	}
+	// More than one App field is disallowed (the missing case is handled elsewhere).
+	return appCount > 1
 }
 
 func parseEventHandler(
@@ -382,19 +419,43 @@ func pageSpecialization(typeName string) model.PageSpecialization {
 //
 //	// PageFoo is /foo
 //	// POSTDoThing is /foo/do-thing
-func parseRoute(symbol string, cg *ast.CommentGroup) (string, bool) {
+//
+// found=true means there was an attempt to define a route for `symbol`.
+// valid=true means the attempt was well-formed and the route itself is valid.
+func parseRoute(symbol string, cg *ast.CommentGroup) (route string, found bool, valid bool) {
 	if cg == nil {
-		return "", false
+		return "", false, false
 	}
-	prefix := symbol + " is "
+
+	want := symbol + " is "
+	attemptPrefix := symbol + " "
+
 	for _, c := range cg.List {
 		txt := strings.TrimSpace(strings.TrimPrefix(c.Text, "//"))
-		if strings.HasPrefix(txt, prefix) {
-			route := strings.TrimSpace(strings.TrimPrefix(txt, prefix))
-			return route, route != ""
+
+		if !strings.HasPrefix(txt, attemptPrefix) {
+			continue
 		}
+
+		// We *will* return found=true from here on.
+		if !strings.HasPrefix(txt, want) {
+			return "", true, false
+		}
+
+		route = strings.TrimSpace(strings.TrimPrefix(txt, want))
+		if route == "" {
+			return route, true, false
+		}
+		if !strings.HasPrefix(route, "/") {
+			return route, true, false
+		}
+		if strings.IndexFunc(route, unicode.IsSpace) >= 0 {
+			return route, true, false
+		}
+		return route, true, true
 	}
-	return "", false
+
+	return "", false, false
 }
 
 // parseEventSubject parses:
@@ -603,6 +664,7 @@ func classifyMethodName(name string) (kind methodKind, suffix string) {
 }
 
 func parseHandler(
+	recv string,
 	fd *ast.FuncDecl,
 	info *types.Info,
 	kind methodKind,
@@ -616,11 +678,11 @@ func parseHandler(
 
 	params := fd.Type.Params
 	if params == nil || len(params.List) == 0 {
-		return h, fmt.Errorf("%w in %s", ErrSignatureMissingReq, fd.Name.Name)
+		return h, fmt.Errorf("%w in %s.%s", ErrSignatureMissingReq, recv, fd.Name.Name)
 	}
 	// First param must be *http.Request
 	if !isPtrToNetHTTPReq(params.List[0].Type, info) {
-		return h, fmt.Errorf("%w in %s", ErrSignatureMissingReq, fd.Name.Name)
+		return h, fmt.Errorf("%w in %s.%s", ErrSignatureMissingReq, recv, fd.Name.Name)
 	}
 	h.InputRequest = parseInput(params.List[0], info)
 
@@ -682,7 +744,7 @@ func parseHandler(
 	}
 
 	if multiErr {
-		return h, fmt.Errorf("%w in %s", ErrSignatureMultiErrRet, fd.Name.Name)
+		return h, fmt.Errorf("%w in %s.%s", ErrSignatureMultiErrRet, recv, fd.Name.Name)
 	}
 	return h, nil
 }
@@ -706,4 +768,66 @@ func isPtrToNetHTTPReq(expr ast.Expr, info *types.Info) bool {
 	}
 	// Require exactly net/http.Request
 	return obj.Pkg().Path() == "net/http" && obj.Name() == "Request"
+}
+
+func isValidPageTypeName(name string) bool {
+	s, ok := strings.CutPrefix(name, "Page")
+	if !ok || s == "" {
+		return false
+	}
+	r0 := s[0]
+	if r0 < 'A' || r0 > 'Z' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'A' && c <= 'Z') ||
+			(c >= 'a' && c <= 'z') ||
+			(c >= '0' && c <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func isValidActionName(name string) bool {
+	isValidActionSuffix := func(name string, prefixLen int) bool {
+		if len(name) <= prefixLen {
+			return false
+		}
+		s := name[prefixLen:]
+		// First char must be A-Z.
+		c0 := s[0]
+		if c0 < 'A' || c0 > 'Z' {
+			return false
+		}
+		// Remaining chars must be alnum.
+		for i := 1; i < len(s); i++ {
+			c := s[i]
+			if (c >= 'A' && c <= 'Z') ||
+				(c >= 'a' && c <= 'z') ||
+				(c >= '0' && c <= '9') {
+				continue
+			}
+			return false
+		}
+		return true
+	}
+
+	// Valid action names are:
+	//   POSTX...
+	//   PUTX...
+	//   DELETEX...
+	// where X is [A-Z], followed by [A-Za-z0-9]*.
+	switch {
+	case strings.HasPrefix(name, "POST"):
+		return isValidActionSuffix(name, 4)
+	case strings.HasPrefix(name, "PUT"):
+		return isValidActionSuffix(name, 3)
+	case strings.HasPrefix(name, "DELETE"):
+		return isValidActionSuffix(name, 6)
+	default:
+		return false
+	}
 }

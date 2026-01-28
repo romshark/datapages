@@ -1,4 +1,4 @@
-module datapagestest/fixture/err_signatures
+module datapagestest/fixture/errors
 
 go 1.25
 

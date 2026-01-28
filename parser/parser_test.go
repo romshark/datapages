@@ -3,10 +3,13 @@ package parser_test
 import (
 	"datapages/parser"
 	"datapages/parser/model"
+	"errors"
+	"fmt"
 	"go/ast"
 	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -35,6 +38,62 @@ func parse(t *testing.T, fixtureName string) (*model.App, parser.Errors) {
 	return parser.Parse(dir)
 }
 
+func requireParseErrors(t *testing.T, got parser.Errors, want ...error) {
+	t.Helper()
+
+	// Build pretty lists.
+	wantLines := make([]string, 0, len(want))
+	for i, w := range want {
+		wantLines = append(wantLines, fmt.Sprintf("%2d) %s", i, errLabel(w)))
+	}
+
+	gotLines := make([]string, got.Len())
+	for i := 0; i < got.Len(); i++ {
+		pos, err := got.Entry(i)
+		gotLines[i] = fmt.Sprintf("%2d) %s:%d:%d %s", i,
+			pos.Filename, pos.Line, pos.Column, errLabel(err))
+	}
+
+	// Compare length first with a readable dump.
+	if got.Len() != len(want) {
+		require.Failf(t, "unexpected number of errors",
+			"want=%d got=%d\n\nEXPECTED:\n%s\n\nACTUAL:\n%s\n",
+			len(want), got.Len(),
+			strings.Join(wantLines, "\n"),
+			strings.Join(gotLines, "\n"),
+		)
+		return
+	}
+
+	// Per-index mismatch report.
+	var mismatches []string
+	for i, w := range want {
+		_, a := got.Entry(i)
+		if !errors.Is(a, w) {
+			mismatches = append(mismatches, fmt.Sprintf(
+				"%2d) want Is(%s) got %s",
+				i, errLabel(w), errLabel(a),
+			))
+		}
+	}
+	if len(mismatches) > 0 {
+		require.Failf(t, "error mismatch",
+			"\nMISMATCHES:\n%s\n\nEXPECTED:\n%s\n\nACTUAL:\n%s\n",
+			strings.Join(mismatches, "\n"),
+			strings.Join(wantLines, "\n"),
+			strings.Join(gotLines, "\n"),
+		)
+	}
+}
+
+func errLabel(err error) string {
+	if err == nil {
+		return "<nil>"
+	}
+	// Keep the concrete message, but also include the type for quick scanning.
+	return fmt.Sprintf("%T: %q", err, err.Error())
+}
+
 func TestParse_SyntaxErr(t *testing.T) {
 	require := require.New(t)
 
@@ -53,23 +112,12 @@ func TestParse_SyntaxErr(t *testing.T) {
 	require.Nil(app)
 	require.NotZero(err.Error())
 	require.GreaterOrEqual(err.Len(), 1)
-
-	// packages.Load typically reports parse/type errors here.
-	// We don't assert exact error text because it varies across Go versions.
-	var hasAny bool
-	for _, e := range err.All() {
-		if e != nil {
-			hasAny = true
-			break
-		}
-	}
-	require.True(hasAny, "expected at least one error collected")
 }
 
 func TestParse_Minimal(t *testing.T) {
 	app, err := parse(t, "minimal")
 	require := require.New(t)
-	require.Zero(err.Error())
+	requireParseErrors(t, err /*none*/)
 	require.NotNil(app)
 
 	{
@@ -95,7 +143,7 @@ func TestParse_Minimal(t *testing.T) {
 func TestParse_Basic(t *testing.T) {
 	app, err := parse(t, "basic")
 	require := require.New(t)
-	require.Zero(err.Error())
+	requireParseErrors(t, err /*none*/)
 	require.NotNil(app)
 
 	{
@@ -147,20 +195,33 @@ func TestParse_MissingPageIndex(t *testing.T) {
 	_, err := parse(t, "err_missing_essentials")
 	require.NotZero(err.Error())
 
-	require.Equal(2, err.Len())
-	require.ErrorIs(err.At(0), parser.ErrMissingTypeApp)
-	require.ErrorIs(err.At(1), parser.ErrMissingTypePageIndex)
+	requireParseErrors(t, err,
+		parser.ErrAppMissingTypeApp,
+		parser.ErrAppMissingPageIndex)
 }
 
-func TestParse_ErrSignatures(t *testing.T) {
+func TestParse_Errors(t *testing.T) {
 	require := require.New(t)
-	_, err := parse(t, "err_signatures")
+	_, err := parse(t, "errors")
 	require.NotZero(err.Error())
 
-	require.Equal(5, err.Len())
-	require.ErrorIs(err.At(0), parser.ErrMissingPageFieldApp)
-	require.ErrorIs(err.At(1), parser.ErrMissingPageFieldApp)
-	require.ErrorIs(err.At(2), parser.ErrSignatureMultiErrRet)
-	require.ErrorIs(err.At(3), parser.ErrSignatureMissingReq)
-	require.ErrorIs(err.At(4), parser.ErrPageMissingGET)
+	requireParseErrors(t, err,
+		parser.ErrSignatureMultiErrRet,
+		parser.ErrPageMissingFieldApp,
+		parser.ErrSignatureMissingReq,
+		parser.ErrPageMissingGET,
+		parser.ErrPageHasExtraFields,
+		parser.ErrSignatureMissingReq,
+		parser.ErrPageNameInvalid,
+		parser.ErrPageNameInvalid,
+		parser.ErrPageNameInvalid,
+		parser.ErrPageNameInvalid,
+		parser.ErrPageInvalidPathComm,
+		parser.ErrPageMissingPathComm,
+		parser.ErrPageMissingGET,
+		parser.ErrActionMissingPathComm,
+		parser.ErrActionNameInvalid,
+		parser.ErrActionInvalidPathComm,
+		parser.ErrActionPathNotUnderPage,
+	)
 }
