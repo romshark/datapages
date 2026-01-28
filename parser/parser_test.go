@@ -15,6 +15,225 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestParse_Minimal(t *testing.T) {
+	app, err := parse(t, "minimal")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	{
+		require.NotNil(app.PageIndex)
+		p := app.PageIndex
+		require.Equal("/", p.Route)
+		require.NotNil(p.GET)
+		require.Equal("GET", p.GET.HTTPMethod)
+
+		require.Empty(p.Actions)
+		require.Empty(p.EventHandlers)
+	}
+	require.Contains(app.Pages, app.PageIndex)
+	require.Len(app.Pages, 1)
+
+	require.Empty(app.Events)
+	require.Nil(app.PageError404)
+	require.Nil(app.PageError500)
+	require.Nil(app.Recover500)
+	require.Nil(app.GlobalHeadGenerator)
+}
+
+func TestParse_Basic(t *testing.T) {
+	app, err := parse(t, "basic")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	{
+		require.NotNil(app.PageIndex)
+		requireExprLineCol(t, app, app.PageIndex.Expr, "app.go", 13, 6)
+		p := app.PageIndex
+		require.Equal("/", p.Route)
+		require.NotNil(p.GET)
+		require.Equal("GET", p.GET.HTTPMethod)
+
+		require.Empty(p.Actions)
+		require.Empty(p.EventHandlers)
+		require.Empty(p.Embeds)
+	}
+	require.Contains(app.Pages, app.PageIndex)
+	require.Len(app.Pages, 3)
+
+	require.Empty(app.Events)
+	{
+		require.NotNil(app.GlobalHeadGenerator)
+		requireExprLineCol(t, app, app.GlobalHeadGenerator, "app.go", 19, 13)
+	}
+	{
+		require.NotNil(app.Recover500)
+		requireExprLineCol(t, app, app.Recover500, "app.go", 23, 13)
+	}
+	{
+		require.NotNil(app.PageError404)
+		requireExprLineCol(t, app, app.PageError404.Expr, "app.go", 31, 6)
+		require.Equal("/the-not-found-page", app.PageError404.Route)
+		require.Empty(app.PageError404.EventHandlers)
+		require.Empty(app.PageError404.Embeds)
+		require.Empty(app.PageError404.Actions)
+		requireExprLineCol(t, app, app.PageError404.GET.Expr, "app.go", 33, 21)
+	}
+	{
+		require.NotNil(app.PageError500)
+		requireExprLineCol(t, app, app.PageError500.Expr, "app.go", 38, 6)
+		require.Equal("/the-internal-error-page", app.PageError500.Route)
+		require.Empty(app.PageError500.EventHandlers)
+		require.Empty(app.PageError500.Embeds)
+		require.Empty(app.PageError500.Actions)
+		requireExprLineCol(t, app, app.PageError500.GET.Expr, "app.go", 40, 21)
+	}
+}
+
+func TestParse_Embed(t *testing.T) {
+	app, err := parse(t, "embed")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+
+	require.NotNil(app)
+
+	// PageConcrete
+	// - Own: OnC
+	// - Level2: OnB
+	// - Level1: OnA
+	{
+		p := findPage(app, "PageConcrete")
+		require.NotNil(p)
+
+		// Ensure exact set of handlers.
+		handlerNames := getHandlerNames(p.EventHandlers)
+		require.ElementsMatch([]string{"C", "B", "A"}, handlerNames)
+
+		// Should have inherited GET
+		require.NotNil(p.GET)
+		// Should have no other actions
+		require.Empty(p.Actions)
+	}
+
+	// PageOverride
+	// - Own: OnA (override)
+	// - Level1: OnA (shadowed) -> we expect only 1 handler for A
+	{
+		p := findPage(app, "PageOverride")
+		require.NotNil(p)
+
+		// Ensure exact set of handlers.
+		handlerNames := getHandlerNames(p.EventHandlers)
+		require.ElementsMatch([]string{"A"}, handlerNames)
+
+		// Should have its own GET
+		require.NotNil(p.GET)
+		require.Empty(p.Actions)
+	}
+
+	// PageOverrideEvent
+	// - Own: OnNewA (handles A)
+	// - Level1: OnA (handles A) -> shadowed by Event Type
+	{
+		p := findPage(app, "PageOverrideEvent")
+		require.NotNil(p)
+
+		// Expectation: logic says "handledEvents[h.EventTypeName]".
+		// OnNewA handles A. So OnA should NOT be imported.
+		handlerNames := getHandlerNames(p.EventHandlers)
+		require.ElementsMatch([]string{"NewA"}, handlerNames)
+
+		require.NotNil(p.GET)
+		require.Empty(p.Actions)
+	}
+
+	// PageMulti
+	// - Level1: OnA
+	// - Level3: OnD
+	{
+		p := findPage(app, "PageMulti")
+		require.NotNil(p)
+
+		handlerNames := getHandlerNames(p.EventHandlers)
+		require.ElementsMatch([]string{"A", "D"}, handlerNames)
+
+		require.NotNil(p.GET)
+		require.Empty(p.Actions)
+	}
+}
+
+func TestParse_SyntaxErr(t *testing.T) {
+	require := require.New(t)
+
+	tmp := t.TempDir()
+
+	// Minimal module + package with a syntax error.
+	require.NoError(os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(
+		"module example.com/syntaxerr\n\ngo 1.22\n",
+	), 0o644))
+
+	require.NoError(os.WriteFile(filepath.Join(tmp, "app.go"), []byte(
+		"package app\n\nfunc Broken( { }\n",
+	), 0o644))
+
+	p := parser.New()
+	app, err := p.Parse(tmp)
+	require.Nil(app)
+	require.NotZero(err.Error())
+	require.GreaterOrEqual(err.Len(), 1)
+}
+
+func TestParse_ErrMissingPageIndex(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_missing_essentials")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrAppMissingTypeApp,
+		parser.ErrAppMissingPageIndex)
+}
+
+func TestParse_ErrPages(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_pages")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrSignatureMultiErrRet,
+		parser.ErrPageMissingFieldApp,
+		parser.ErrSignatureMissingReq,
+		parser.ErrPageMissingGET,
+		parser.ErrPageHasExtraFields,
+		parser.ErrSignatureMissingReq,
+		parser.ErrPageNameInvalid,
+		parser.ErrPageNameInvalid,
+		parser.ErrPageNameInvalid,
+		parser.ErrPageNameInvalid,
+		parser.ErrPageInvalidPathComm,
+		parser.ErrPageMissingPathComm,
+		parser.ErrPageMissingGET,
+		parser.ErrActionMissingPathComm,
+		parser.ErrActionNameInvalid,
+		parser.ErrActionInvalidPathComm,
+		parser.ErrActionPathNotUnderPage,
+	)
+}
+
+func TestParse_ErrEvents(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_events")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrEventMissingComm,
+		parser.ErrEventInvalidComm,
+		parser.ErrEvHandFirstArgNotEvent,
+		parser.ErrEvHandFirstArgTypeNotEvent,
+		parser.ErrEvHandDuplicate,
+	)
+}
+
 func requireExprLineCol(
 	t *testing.T, app *model.App, e ast.Expr, wantFile string, wantLine, wantCol int,
 ) token.Position {
@@ -95,149 +314,36 @@ func errLabel(err error) string {
 	return fmt.Sprintf("%T: %q", err, err.Error())
 }
 
-func TestParse_SyntaxErr(t *testing.T) {
-	require := require.New(t)
-
-	tmp := t.TempDir()
-
-	// Minimal module + package with a syntax error.
-	require.NoError(os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(
-		"module example.com/syntaxerr\n\ngo 1.22\n",
-	), 0o644))
-
-	require.NoError(os.WriteFile(filepath.Join(tmp, "app.go"), []byte(
-		"package app\n\nfunc Broken( { }\n",
-	), 0o644))
-
-	p := parser.New()
-	app, err := p.Parse(tmp)
-	require.Nil(app)
-	require.NotZero(err.Error())
-	require.GreaterOrEqual(err.Len(), 1)
+func getHandlerNames(hs []*model.EventHandler) []string {
+	names := make([]string, 0, len(hs))
+	for _, h := range hs {
+		names = append(names, h.Name)
+	}
+	return names
 }
 
-func TestParse_Minimal(t *testing.T) {
-	app, err := parse(t, "minimal")
-	require := require.New(t)
-	requireParseErrors(t, err /*none*/)
-	require.NotNil(app)
-
-	{
-		require.NotNil(app.PageIndex)
-		p := app.PageIndex
-		require.Equal("/", p.Route)
-		require.NotNil(p.GET)
-		require.Equal("GET", p.GET.HTTPMethod)
-
-		require.Empty(p.Actions)
-		require.Empty(p.EventHandlers)
+func findPage(app *model.App, name string) *model.Page {
+	for _, p := range app.Pages {
+		if p.TypeName == name {
+			return p
+		}
 	}
-	require.Contains(app.Pages, app.PageIndex)
-	require.Len(app.Pages, 1)
-
-	require.Empty(app.Events)
-	require.Nil(app.PageError404)
-	require.Nil(app.PageError500)
-	require.Nil(app.Recover500)
-	require.Nil(app.GlobalHeadGenerator)
+	return nil
 }
 
-func TestParse_Basic(t *testing.T) {
-	app, err := parse(t, "basic")
-	require := require.New(t)
-	requireParseErrors(t, err /*none*/)
-	require.NotNil(app)
-
-	{
-		require.NotNil(app.PageIndex)
-		requireExprLineCol(t, app, app.PageIndex.Expr, "app.go", 13, 6)
-		p := app.PageIndex
-		require.Equal("/", p.Route)
-		require.NotNil(p.GET)
-		require.Equal("GET", p.GET.HTTPMethod)
-
-		require.Empty(p.Actions)
-		require.Empty(p.EventHandlers)
-		require.Empty(p.Embeds)
+func findHandler(p *model.Page, name string) *model.EventHandler {
+	for _, h := range p.EventHandlers {
+		if h.Name == name {
+			return h
+		}
 	}
-	require.Contains(app.Pages, app.PageIndex)
-	require.Len(app.Pages, 3)
-
-	require.Empty(app.Events)
-	{
-		require.NotNil(app.GlobalHeadGenerator)
-		requireExprLineCol(t, app, app.GlobalHeadGenerator, "app.go", 19, 13)
-	}
-	{
-		require.NotNil(app.Recover500)
-		requireExprLineCol(t, app, app.Recover500, "app.go", 23, 13)
-	}
-	{
-		require.NotNil(app.PageError404)
-		requireExprLineCol(t, app, app.PageError404.Expr, "app.go", 31, 6)
-		require.Equal("/the-not-found-page", app.PageError404.Route)
-		require.Empty(app.PageError404.EventHandlers)
-		require.Empty(app.PageError404.Embeds)
-		require.Empty(app.PageError404.Actions)
-		requireExprLineCol(t, app, app.PageError404.GET.Expr, "app.go", 33, 21)
-	}
-	{
-		require.NotNil(app.PageError500)
-		requireExprLineCol(t, app, app.PageError500.Expr, "app.go", 38, 6)
-		require.Equal("/the-internal-error-page", app.PageError500.Route)
-		require.Empty(app.PageError500.EventHandlers)
-		require.Empty(app.PageError500.Embeds)
-		require.Empty(app.PageError500.Actions)
-		requireExprLineCol(t, app, app.PageError500.GET.Expr, "app.go", 40, 21)
-	}
+	return nil
 }
 
-func TestParse_MissingPageIndex(t *testing.T) {
-	require := require.New(t)
-	_, err := parse(t, "err_missing_essentials")
-	require.NotZero(err.Error())
-
-	requireParseErrors(t, err,
-		parser.ErrAppMissingTypeApp,
-		parser.ErrAppMissingPageIndex)
-}
-
-func TestParse_ErrPages(t *testing.T) {
-	require := require.New(t)
-	_, err := parse(t, "err_pages")
-	require.NotZero(err.Error())
-
-	requireParseErrors(t, err,
-		parser.ErrSignatureMultiErrRet,
-		parser.ErrPageMissingFieldApp,
-		parser.ErrSignatureMissingReq,
-		parser.ErrPageMissingGET,
-		parser.ErrPageHasExtraFields,
-		parser.ErrSignatureMissingReq,
-		parser.ErrPageNameInvalid,
-		parser.ErrPageNameInvalid,
-		parser.ErrPageNameInvalid,
-		parser.ErrPageNameInvalid,
-		parser.ErrPageInvalidPathComm,
-		parser.ErrPageMissingPathComm,
-		parser.ErrPageMissingGET,
-		parser.ErrActionMissingPathComm,
-		parser.ErrActionNameInvalid,
-		parser.ErrActionInvalidPathComm,
-		parser.ErrActionPathNotUnderPage,
-	)
-}
-
-func TestParse_ErrEvents(t *testing.T) {
-	require := require.New(t)
-	_, err := parse(t, "err_events")
-	require.NotZero(err.Error())
-
-	requireParseErrors(t, err,
-		parser.ErrEventMissingComm,
-		parser.ErrEventInvalidComm,
-		parser.ErrEvHandFirstArgNotEvent,
-		parser.ErrEvHandFirstArgTypeNotEvent,
-		parser.ErrEvHandDuplicate,
-	)
+func dumpHandlers(hs []*model.EventHandler) string {
+	names := make([]string, 0, len(hs))
+	for _, h := range hs {
+		names = append(names, h.Name)
+	}
+	return strings.Join(names, ", ")
 }

@@ -47,6 +47,7 @@ func (p *Parser) Parse(appPackagePath string) (app *model.App, errs Errors) {
 	p.firstPassTypes(&ctx, &errs)
 	p.secondPassEmbeds(&ctx, &errs)
 	p.thirdPassMethods(&ctx, &errs)
+	p.flattenPages(&ctx)
 	p.validateRequiredHandlers(&ctx, &errs)
 	p.finalizePages(&ctx)
 	p.assignSpecialPages(&ctx, &errs)
@@ -265,20 +266,33 @@ func (p *Parser) firstPassPageOrAbstractType(
 
 func (p *Parser) secondPassEmbeds(ctx *parseCtx, errs *Errors) {
 	for _, pg := range ctx.pages {
-		ts := ctx.typeSpecByName[pg.TypeName]
-		st, ok := ts.Type.(*ast.StructType)
-		if !ok {
+		p.resolveEmbedsForStruct(ctx, errs, pg.TypeName, func(ap *model.AbstractPage) {
+			pg.Embeds = append(pg.Embeds, ap)
+		})
+	}
+	for _, ap := range ctx.abstracts {
+		p.resolveEmbedsForStruct(ctx, errs, ap.TypeName, func(sub *model.AbstractPage) {
+			ap.Embeds = append(ap.Embeds, sub)
+		})
+	}
+}
+
+func (p *Parser) resolveEmbedsForStruct(
+	ctx *parseCtx, errs *Errors, typeName string, add func(*model.AbstractPage),
+) {
+	ts := ctx.typeSpecByName[typeName]
+	st, ok := ts.Type.(*ast.StructType)
+	if !ok {
+		return
+	}
+	for _, emb := range embeddedTypeNames(st) {
+		if ap, ok := ctx.abstracts[emb]; ok {
+			add(ap)
 			continue
 		}
-		for _, emb := range embeddedTypeNames(st) {
-			if ap, ok := ctx.abstracts[emb]; ok {
-				pg.Embeds = append(pg.Embeds, ap)
-				continue
-			}
-			typePos := ctx.pkg.Fset.Position(ts.Name.Pos())
-			errs.ErrAt(typePos,
-				fmt.Errorf("%w: %s embeds %s", ErrPageHasExtraFields, pg.TypeName, emb))
-		}
+		typePos := ctx.pkg.Fset.Position(ts.Name.Pos())
+		errs.ErrAt(typePos,
+			fmt.Errorf("%w: %s embeds %s", ErrPageHasExtraFields, typeName, emb))
 	}
 }
 
@@ -324,7 +338,7 @@ func (p *Parser) thirdPassMethods(ctx *parseCtx, errs *Errors) {
 
 			switch kind {
 			case methodKindEventHandler:
-				if !isPage {
+				if !isPage && !isAbs {
 					break
 				}
 				if err := validate.EventHandlerMethodName(fd.Name.Name); err != nil {
@@ -333,7 +347,7 @@ func (p *Parser) thirdPassMethods(ctx *parseCtx, errs *Errors) {
 							validate.ErrEventHandlerMethodNameInvalid,
 							recv, fd.Name.Name))
 				}
-				p.validateAndAttachEventHandler(ctx, errs, recv, fd, pg, suffix)
+				p.validateAndAttachEventHandler(ctx, errs, recv, fd, pg, ap, suffix)
 			default:
 				p.attachHTTPHandler(ctx, errs, recv, fd, pg, ap, kind, suffix)
 			}
@@ -347,6 +361,7 @@ func (p *Parser) validateAndAttachEventHandler(
 	recv string,
 	fd *ast.FuncDecl,
 	pg *model.Page,
+	ap *model.AbstractPage,
 	suffix string,
 ) {
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
@@ -356,6 +371,8 @@ func (p *Parser) validateAndAttachEventHandler(
 	//   - First parameter type must be an EventXXX type
 	//   - Only one handler per EventXXX per receiver type
 	params := fd.Type.Params
+	var evName string
+
 	if params == nil || len(params.List) == 0 {
 		errs.ErrAt(pos,
 			fmt.Errorf("%w: %s.%s", ErrEvHandFirstArgNotEvent, recv, fd.Name.Name))
@@ -364,36 +381,48 @@ func (p *Parser) validateAndAttachEventHandler(
 		if len(first.Names) != 1 || first.Names[0].Name != "event" {
 			errs.ErrAt(pos,
 				fmt.Errorf("%w: %s.%s", ErrEvHandFirstArgNotEvent, recv, fd.Name.Name))
-		} else if evName, ok := eventTypeNameOf(
-			first.Type, ctx.pkg.TypesInfo, ctx.eventTypeNames,
-		); !ok {
-			errs.ErrAt(pos,
-				fmt.Errorf("%w: %s.%s",
-					ErrEvHandFirstArgTypeNotEvent, recv, fd.Name.Name))
 		} else {
-			m := ctx.seenEvHandlerByRecv[recv]
-			if m == nil {
-				m = map[string]token.Pos{}
-				ctx.seenEvHandlerByRecv[recv] = m
-			}
-			if prev, dup := m[evName]; dup {
-				errs.ErrAt(pos, fmt.Errorf(
-					"%w: %s.%s handles %s (previous at %s)",
-					ErrEvHandDuplicate,
-					recv,
-					fd.Name.Name,
-					evName,
-					ctx.pkg.Fset.Position(prev),
-				))
+			var ok bool
+			evName, ok = eventTypeNameOf(
+				first.Type, ctx.pkg.TypesInfo, ctx.eventTypeNames,
+			)
+			if !ok {
+				errs.ErrAt(pos,
+					fmt.Errorf("%w: %s.%s",
+						ErrEvHandFirstArgTypeNotEvent, recv, fd.Name.Name))
 			} else {
-				m[evName] = fd.Name.Pos()
+				m := ctx.seenEvHandlerByRecv[recv]
+				if m == nil {
+					m = map[string]token.Pos{}
+					ctx.seenEvHandlerByRecv[recv] = m
+				}
+				if prev, dup := m[evName]; dup {
+					errs.ErrAt(pos, fmt.Errorf(
+						"%w: %s.%s handles %s (previous at %s)",
+						ErrEvHandDuplicate,
+						recv,
+						fd.Name.Name,
+						evName,
+						ctx.pkg.Fset.Position(prev),
+					))
+				} else {
+					m[evName] = fd.Name.Pos()
+				}
 			}
 		}
 	}
 
-	// Best-effort attach.
-	pg.EventHandlers = append(pg.EventHandlers,
-		parseEventHandler(fd, ctx.pkg.TypesInfo, suffix))
+	h := parseEventHandler(fd, ctx.pkg.TypesInfo, suffix, evName)
+
+	// If it was valid, or best-effort (even if invalid arguments), we attach it.
+	// But if evName is empty, it won't be useful for flattening override checks.
+	// We attach it anyway so that AST info is there.
+
+	if pg != nil {
+		pg.EventHandlers = append(pg.EventHandlers, h)
+	} else {
+		ap.EventHandlers = append(ap.EventHandlers, h)
+	}
 }
 
 func (p *Parser) attachHTTPHandler(
@@ -440,6 +469,76 @@ func (p *Parser) attachHTTPHandler(
 		return
 	}
 	ap.Methods = append(ap.Methods, h)
+}
+
+func (p *Parser) flattenPages(ctx *parseCtx) {
+	for _, pg := range ctx.pages {
+		p.flattenPage(pg)
+	}
+}
+
+func (p *Parser) flattenPage(pg *model.Page) {
+	if len(pg.Embeds) == 0 {
+		return
+	}
+
+	visited := map[string]bool{}
+	ownedMethods := map[string]bool{}
+	handledEvents := map[string]bool{}
+
+	// Register own methods
+	if pg.GET != nil {
+		ownedMethods["GET"] = true
+	}
+	for _, a := range pg.Actions {
+		ownedMethods[a.Name] = true
+	}
+	for _, h := range pg.EventHandlers {
+		ownedMethods[h.Name] = true
+		handledEvents[h.EventTypeName] = true
+	}
+
+	queue := make([]*model.AbstractPage, len(pg.Embeds))
+	copy(queue, pg.Embeds)
+
+	for len(queue) > 0 {
+		ap := queue[0]
+		queue = queue[1:]
+
+		if visited[ap.TypeName] {
+			continue
+		}
+		visited[ap.TypeName] = true
+
+		// Add children to queue
+		queue = append(queue, ap.Embeds...)
+
+		// Methods
+		for _, m := range ap.Methods {
+			if ownedMethods[m.Name] {
+				continue
+			}
+			ownedMethods[m.Name] = true
+			if m.HTTPMethod == "GET" {
+				pg.GET = m
+			} else {
+				pg.Actions = append(pg.Actions, m)
+			}
+		}
+
+		// EventHandlers
+		for _, h := range ap.EventHandlers {
+			if ownedMethods[h.Name] {
+				continue
+			}
+			if handledEvents[h.EventTypeName] {
+				continue
+			}
+			ownedMethods[h.Name] = true
+			handledEvents[h.EventTypeName] = true
+			pg.EventHandlers = append(pg.EventHandlers, h)
+		}
+	}
 }
 
 func (p *Parser) validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
@@ -508,13 +607,14 @@ func hasDisallowedNamedFields(st *ast.StructType) bool {
 }
 
 func parseEventHandler(
-	fd *ast.FuncDecl, info *types.Info, name string,
+	fd *ast.FuncDecl, info *types.Info, name, eventTypeName string,
 ) *model.EventHandler {
 	params := fd.Type.Params.List
 
 	h := &model.EventHandler{
-		Expr: fd.Name,
-		Name: name,
+		Expr:          fd.Name,
+		Name:          name,
+		EventTypeName: eventTypeName,
 	}
 
 	if len(params) > 0 {
@@ -620,39 +720,46 @@ func pageSpecialization(typeName string) model.PageSpecialization {
 func parseRoute(
 	symbol string, cg *ast.CommentGroup,
 ) (route string, found bool, valid bool) {
-	if cg == nil {
+	if cg == nil || len(cg.List) == 0 {
 		return "", false, false
 	}
+
+	// The definition MUST be on the first line.
+	c := cg.List[0]
+	txt := strings.TrimSpace(strings.TrimPrefix(c.Text, "//"))
 
 	want := symbol + " is "
 	attemptPrefix := symbol + " "
 
-	for _, c := range cg.List {
-		txt := strings.TrimSpace(strings.TrimPrefix(c.Text, "//"))
-
-		if !strings.HasPrefix(txt, attemptPrefix) {
-			continue
-		}
-
-		// We *will* return found=true from here on.
-		if !strings.HasPrefix(txt, want) {
-			return "", true, false
-		}
-
-		route = strings.TrimSpace(strings.TrimPrefix(txt, want))
-		if route == "" {
-			return route, true, false
-		}
-		if !strings.HasPrefix(route, "/") {
-			return route, true, false
-		}
-		if strings.IndexFunc(route, unicode.IsSpace) >= 0 {
-			return route, true, false
-		}
-		return route, true, true
+	if !strings.HasPrefix(txt, attemptPrefix) {
+		return "", false, false
 	}
 
-	return "", false, false
+	// We *will* return found=true from here on.
+	if !strings.HasPrefix(txt, want) {
+		return "", true, false
+	}
+
+	route = strings.TrimSpace(strings.TrimPrefix(txt, want))
+	if route == "" {
+		return route, true, false
+	}
+	if !strings.HasPrefix(route, "/") {
+		return route, true, false
+	}
+	if strings.IndexFunc(route, unicode.IsSpace) >= 0 {
+		return route, true, false
+	}
+
+	// The empty // line between the is comment and the description is mandatory.
+	if len(cg.List) > 1 {
+		second := strings.TrimSpace(strings.TrimPrefix(cg.List[1].Text, "//"))
+		if second != "" {
+			return route, true, false
+		}
+	}
+
+	return route, true, true
 }
 
 func hasTargetUserIDs(ts *ast.TypeSpec, info *types.Info) bool {

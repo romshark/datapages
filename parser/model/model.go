@@ -47,7 +47,9 @@ type AbstractPage struct {
 	Expr     ast.Expr
 	TypeName string
 
-	Methods []*Handler
+	Methods       []*Handler
+	EventHandlers []*EventHandler
+	Embeds        []*AbstractPage
 }
 
 type Handler struct {
@@ -68,7 +70,8 @@ type Handler struct {
 type EventHandler struct {
 	Expr ast.Expr
 
-	Name string
+	Name          string
+	EventTypeName string
 
 	InputSSE *Input
 	Inputs   []*Input
