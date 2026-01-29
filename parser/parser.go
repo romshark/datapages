@@ -48,7 +48,7 @@ func (p *Parser) Parse(appPackagePath string) (app *model.App, errs Errors) {
 	p.validateEvents(&ctx, &errs)
 	p.secondPassEmbeds(&ctx, &errs)
 	p.thirdPassMethods(&ctx, &errs)
-	p.flattenPages(&ctx)
+	p.flattenPages(&ctx, &errs)
 	p.validateRequiredHandlers(&ctx, &errs)
 	p.finalizePages(&ctx)
 	p.assignSpecialPages(&ctx, &errs)
@@ -506,20 +506,23 @@ func (p *Parser) attachHTTPHandler(
 	ap.Methods = append(ap.Methods, h)
 }
 
-func (p *Parser) flattenPages(ctx *parseCtx) {
+func (p *Parser) flattenPages(ctx *parseCtx, errs *Errors) {
 	for _, pg := range ctx.pages {
-		p.flattenPage(pg)
+		p.flattenPage(ctx, errs, pg)
 	}
 }
 
-func (p *Parser) flattenPage(pg *model.Page) {
+func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	if len(pg.Embeds) == 0 {
 		return
 	}
 
 	visited := map[string]bool{}
 	ownedMethods := map[string]bool{}
-	handledEvents := map[string]bool{}
+	// EventTypeName -> owner ("page" or abstract type name)
+	handledEvents := map[string]string{}
+	// EventTypeName -> pos (best-effort)
+	handledEventPos := map[string]token.Pos{}
 
 	// Register own methods
 	if pg.GET != nil {
@@ -529,8 +532,15 @@ func (p *Parser) flattenPage(pg *model.Page) {
 		ownedMethods[a.Name] = true
 	}
 	for _, h := range pg.EventHandlers {
-		ownedMethods[h.Name] = true
-		handledEvents[h.EventTypeName] = true
+		if h.EventTypeName != "" {
+			handledEvents[h.EventTypeName] = "page"
+			if h.Expr != nil {
+				handledEventPos[h.EventTypeName] = h.Expr.Pos()
+			}
+		} else {
+			// Invalid handler: fall back to name-based dedup.
+			ownedMethods[h.Name] = true
+		}
 	}
 
 	queue := make([]*model.AbstractPage, len(pg.Embeds))
@@ -563,14 +573,55 @@ func (p *Parser) flattenPage(pg *model.Page) {
 
 		// EventHandlers
 		for _, h := range ap.EventHandlers {
-			if ownedMethods[h.Name] {
+			ev := h.EventTypeName
+			if ev == "" {
+				// Invalid handler: name-based dedup only.
+				if ownedMethods[h.Name] {
+					continue
+				}
+				ownedMethods[h.Name] = true
+				pg.EventHandlers = append(pg.EventHandlers, h)
 				continue
 			}
-			if handledEvents[h.EventTypeName] {
+
+			// Valid handler: dedup/override/conflict by EventTypeName.
+			if prevOwner, exists := handledEvents[ev]; exists {
+				// Page overrides any embedded handler.
+				if prevOwner == "page" {
+					continue
+				}
+				// Same abstract encountered again => ignore.
+				if prevOwner == ap.TypeName {
+					continue
+				}
+
+				// Two different embedded abstracts handle same event => error.
+				pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
+				if h.Expr != nil {
+					pos = ctx.pkg.Fset.Position(h.Expr.Pos())
+				}
+				prevPos := token.Position{}
+				if ppos, ok := handledEventPos[ev]; ok && ppos != token.NoPos {
+					prevPos = ctx.pkg.Fset.Position(ppos)
+				}
+				errs.ErrAt(pos, fmt.Errorf(
+					"%w: %s inherits %s and %s which both handle %s (previous at %s)",
+					ErrEvHandDuplicateEmbed,
+					pg.TypeName,
+					prevOwner,
+					ap.TypeName,
+					ev,
+					prevPos,
+				))
 				continue
 			}
-			ownedMethods[h.Name] = true
-			handledEvents[h.EventTypeName] = true
+
+			// Accept handler
+			handledEvents[ev] = ap.TypeName
+			if h.Expr != nil {
+				handledEventPos[ev] = h.Expr.Pos()
+			}
+
 			pg.EventHandlers = append(pg.EventHandlers, h)
 		}
 	}

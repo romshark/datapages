@@ -252,6 +252,15 @@ func TestParse_ErrEventHandler(t *testing.T) {
 	)
 }
 
+func TestParse_ErrEmbedDuplicateEventHandler(t *testing.T) {
+	_, err := parse(t, "err_embed_duplicate_event_handler")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrEvHandDuplicateEmbed,
+	)
+}
+
 func requireExprLineCol(
 	t *testing.T, app *model.App, e ast.Expr, wantFile string, wantLine, wantCol int,
 ) token.Position {

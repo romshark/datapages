@@ -36,6 +36,7 @@ var (
 	ErrEvHandFirstArgNotEvent     = errors.New(`event handler first argument must be named "event"`)
 	ErrEvHandFirstArgTypeNotEvent = errors.New("event handler first argument type must be an event type")
 	ErrEvHandDuplicate            = errors.New("duplicate event handler for event")
+	ErrEvHandDuplicateEmbed       = errors.New("duplicate event handler for event in embedded")
 	ErrEvHandReturnMustBeError    = errors.New("event handler must return only error")
 
 	ErrEventFieldUnexported = errors.New("event field must be exported")
