@@ -46,7 +46,7 @@ build:
 	go build -o $(STAGE_SERVER_BIN) ./cmd/server/
 
 test: lint
-	go test ./... -v
+	go test ./... -cover
 
 lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...

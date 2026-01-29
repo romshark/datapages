@@ -7,13 +7,13 @@ import (
 )
 
 var (
-	ErrPageTypeNameInvalid           = errors.New("invalid page type name")
-	ErrActionMethodNameInvalid       = errors.New("invalid action method name")
-	ErrEventTypeNameInvalid          = errors.New("invalid event type name")
-	ErrEventSubjectMissing           = errors.New("missing event subject comment")
-	ErrEventSubjectInvalidSyntax     = errors.New("invalid event subject comment syntax")
-	ErrEventSubjectInvalid           = errors.New("invalid event subject")
-	ErrEventHandlerMethodNameInvalid = errors.New("invalid event handler method name")
+	ErrPageTypeNameInvalid     = errors.New("invalid page type name")
+	ErrActionMethodNameInvalid = errors.New("invalid action method name")
+	ErrEventTypeNameInvalid    = errors.New("invalid event type name")
+	ErrEventCommMissing        = errors.New("missing event subject comment")
+	ErrEventCommInvalid        = errors.New("invalid event subject comment syntax")
+	ErrEventSubjectInvalid     = errors.New("invalid event subject")
+	ErrEventHandlerNameInvalid = errors.New("invalid event handler method name")
 )
 
 // PageTypeName validates page type names: "Page" + Uppercase letter + [A-Za-z0-9]*.
@@ -126,39 +126,55 @@ func EventSubjectCommentSubject(s string) error {
 	return nil
 }
 
-// EventSubjectComment validates event subject comments in the exact form:
+// EventSubjectComment validates an event subject comment.
+//
+// Expected header (must be the first doc line):
 //
 //	// EventFoo is "foo.bar"
 //
-// Returns nil if valid, otherwise a sentinel error:
-//   - ErrEventSubjectMissing (no matching subject line found)
-//   - ErrEventSubjectInvalidSyntax (matching attempt exists but wrong syntax)
-//   - ErrEventSubjectInvalid (matching syntax but invalid subject payload)
+// If there are more doc lines, an empty comment line is mandatory:
+//
+//	// EventFoo is "foo.bar"
+//	//
+//	// description...
+//
+// Errors:
+//   - ErrEventCommMissing: no doc comment.
+//   - ErrEventCommInvalid: doc exists, but header/spacing is wrong.
+//   - ErrEventSubjectInvalid: header ok, but quoted subject invalid.
 func EventSubjectComment(typeName string, doc *ast.CommentGroup) error {
-	if doc == nil {
-		return ErrEventSubjectMissing
-	}
-	prefix := typeName + " "
-	want := typeName + " is "
-
-	for _, c := range doc.List {
-		txt := strings.TrimSpace(strings.TrimPrefix(c.Text, "//"))
-
-		if !strings.HasPrefix(txt, prefix) {
-			continue
-		}
-		// Attempt exists for this symbol.
-		if !strings.HasPrefix(txt, want) {
-			return ErrEventSubjectInvalidSyntax
-		}
-		rest := strings.TrimSpace(strings.TrimPrefix(txt, want))
-		if err := EventSubjectCommentSubject(rest); err != nil {
-			return ErrEventSubjectInvalid
-		}
-		return nil
+	if doc == nil || len(doc.List) == 0 {
+		return ErrEventCommMissing
 	}
 
-	return ErrEventSubjectMissing
+	first := cleanLine(doc.List[0].Text)
+	want := typeName + ` is `
+
+	// Any existing doc comment must start with the exact header for this symbol.
+	if !strings.HasPrefix(first, want) {
+		return ErrEventCommInvalid
+	}
+
+	rest := strings.TrimSpace(strings.TrimPrefix(first, want))
+	if err := EventSubjectCommentSubject(rest); err != nil {
+		return ErrEventSubjectInvalid
+	}
+
+	// Mandatory empty comment line between header and description.
+	if len(doc.List) > 1 {
+		second := cleanLine(doc.List[1].Text)
+		if second != "" {
+			return ErrEventCommInvalid
+		}
+	}
+
+	return nil
+}
+
+func cleanLine(raw string) string {
+	s := strings.TrimSpace(raw)
+	s = strings.TrimPrefix(s, "//")
+	return strings.TrimSpace(s)
 }
 
 // EventHandlerMethodName validates event handler method names:
@@ -166,11 +182,11 @@ func EventSubjectComment(typeName string, doc *ast.CommentGroup) error {
 func EventHandlerMethodName(name string) error {
 	s, ok := strings.CutPrefix(name, "On")
 	if !ok || s == "" {
-		return ErrEventHandlerMethodNameInvalid
+		return ErrEventHandlerNameInvalid
 	}
 	c0 := s[0]
 	if c0 < 'A' || c0 > 'Z' {
-		return ErrEventHandlerMethodNameInvalid
+		return ErrEventHandlerNameInvalid
 	}
 	for i := 1; i < len(s); i++ {
 		c := s[i]
@@ -179,7 +195,7 @@ func EventHandlerMethodName(name string) error {
 			(c >= '0' && c <= '9') {
 			continue
 		}
-		return ErrEventHandlerMethodNameInvalid
+		return ErrEventHandlerNameInvalid
 	}
 	return nil
 }

@@ -174,7 +174,6 @@ func TestEventSubjectComment(t *testing.T) {
 		t.Helper()
 		require.ErrorIs(t, validate.EventSubjectComment(typeName, doc), expect)
 	}
-
 	cg := func(lines ...string) *ast.CommentGroup {
 		out := &ast.CommentGroup{}
 		for _, l := range lines {
@@ -183,24 +182,38 @@ func TestEventSubjectComment(t *testing.T) {
 		return out
 	}
 
+	// ok: header only
 	f(nil, "EventFoo", cg(`EventFoo is "foo.bar"`))
-	f(nil, "EventFoo", cg("other", `EventFoo is "foo.bar"`, "more"))
 
-	// backticks not supported
-	f(validate.ErrEventSubjectInvalid, "EventFoo", cg("EventFoo is `foo.bar`"))
+	// ok: header + mandatory blank + description
+	f(nil, "EventFoo", cg(`EventFoo is "foo.bar"`, ``, `something else`))
 
-	// missing quotes
-	f(validate.ErrEventSubjectInvalid, "EventFoo", cg("EventFoo is foo.bar"))
-	// unterminated
-	f(validate.ErrEventSubjectInvalid, "EventFoo", cg(`EventFoo is "foo.bar`))
-	// wrong form
-	f(validate.ErrEventSubjectInvalidSyntax, "EventFoo", cg(`EventFoo foo`))
-	// wrong symbol
-	f(validate.ErrEventSubjectMissing, "EventFoo", cg(`EventBar is "foo.bar"`))
-	// no matching line
-	f(validate.ErrEventSubjectMissing, "EventFoo", cg("something else"))
-	// nil doc
-	f(validate.ErrEventSubjectMissing, "EventFoo", (*ast.CommentGroup)(nil))
+	// missing: no comment group
+	f(validate.ErrEventCommMissing, "EventFoo", (*ast.CommentGroup)(nil))
+
+	// invalid comment: doc exists but header not first line / wrong
+	f(validate.ErrEventCommInvalid, "EventFoo",
+		cg("other", `EventFoo is "foo.bar"`))
+	f(validate.ErrEventCommInvalid, "EventFoo",
+		cg(`EventBar is "foo.bar"`))
+	f(validate.ErrEventCommInvalid, "EventFoo",
+		cg(`foo bar blabla`))
+	f(validate.ErrEventCommInvalid, "EventFoo",
+		cg(`EventFoo handles "foo.bar"`))
+
+	// invalid comment: missing mandatory blank line after header when more lines exist
+	f(validate.ErrEventCommInvalid, "EventFoo",
+		cg(`EventFoo is "foo.bar"`, `not blank`, `desc`))
+
+	// invalid subject: header ok, quoted payload invalid
+	f(validate.ErrEventSubjectInvalid, "EventFoo",
+		cg(`EventFoo is ""`))
+	f(validate.ErrEventSubjectInvalid, "EventFoo",
+		cg(`EventFoo is foo.bar`))
+	f(validate.ErrEventSubjectInvalid, "EventFoo",
+		cg(`EventFoo is "foo.bar`))
+	f(validate.ErrEventSubjectInvalid, "EventFoo",
+		cg("EventFoo is `foo.bar`"))
 }
 
 func TestEventHandlerMethodName(t *testing.T) {
@@ -209,37 +222,34 @@ func TestEventHandlerMethodName(t *testing.T) {
 		require.ErrorIs(t, validate.EventHandlerMethodName(input), expect)
 	}
 
-	f(nil, "OnFoo")
+	// ok
 	f(nil, "OnA")
+	f(nil, "OnFoo")
 	f(nil, "OnA1")
 	f(nil, "OnA1b2")
+	f(nil, "OnDoThing99")
 
 	// missing suffix
-	f(validate.ErrEventHandlerMethodNameInvalid, "On")
-	// wrong prefix case
-	f(validate.ErrEventHandlerMethodNameInvalid, "onFoo")
+	f(validate.ErrEventHandlerNameInvalid, "On")
+
+	// wrong prefix case / wrong prefix
+	f(validate.ErrEventHandlerNameInvalid, "onFoo")
+	f(validate.ErrEventHandlerNameInvalid, "XOnFoo")
+
 	// suffix must start with A-Z
-	f(validate.ErrEventHandlerMethodNameInvalid, "Onfoo")
-	// invalid char
-	f(validate.ErrEventHandlerMethodNameInvalid, "On_Foo")
-	// invalid char
-	f(validate.ErrEventHandlerMethodNameInvalid, "On-Foo")
-	// whitespace
-	f(validate.ErrEventHandlerMethodNameInvalid, "On Foo")
-	// non-ascii
-	f(validate.ErrEventHandlerMethodNameInvalid, "OnÄBC")
-	// non-ascii
-	f(validate.ErrEventHandlerMethodNameInvalid, "On💥")
-	// wrong prefix
-	f(validate.ErrEventHandlerMethodNameInvalid, "XOnFoo")
+	f(validate.ErrEventHandlerNameInvalid, "Onfoo")
+
+	// invalid chars / whitespace / non-ascii
+	f(validate.ErrEventHandlerNameInvalid, "On_Foo")
+	f(validate.ErrEventHandlerNameInvalid, "On-Foo")
+	f(validate.ErrEventHandlerNameInvalid, "On Foo")
+	f(validate.ErrEventHandlerNameInvalid, "OnÄBC")
+	f(validate.ErrEventHandlerNameInvalid, "On💥")
+
 	// invalid char after valid start
-	f(validate.ErrEventHandlerMethodNameInvalid, "OnA_B")
-	// invalid char after valid start
-	f(validate.ErrEventHandlerMethodNameInvalid, "OnA-B")
-	// whitespace after valid start
-	f(validate.ErrEventHandlerMethodNameInvalid, "OnA B")
-	// non-ascii after valid start
-	f(validate.ErrEventHandlerMethodNameInvalid, "OnAÄ")
-	// non-ascii after valid start
-	f(validate.ErrEventHandlerMethodNameInvalid, "OnA💥")
+	f(validate.ErrEventHandlerNameInvalid, "OnA_B")
+	f(validate.ErrEventHandlerNameInvalid, "OnA-B")
+	f(validate.ErrEventHandlerNameInvalid, "OnA B")
+	f(validate.ErrEventHandlerNameInvalid, "OnAÄ")
+	f(validate.ErrEventHandlerNameInvalid, "OnA💥")
 }

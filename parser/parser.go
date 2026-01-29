@@ -45,6 +45,7 @@ func (p *Parser) Parse(appPackagePath string) (app *model.App, errs Errors) {
 	p.collectEventTypeNames(&ctx)
 	p.initApp(&ctx, &errs)
 	p.firstPassTypes(&ctx, &errs)
+	p.validateEvents(&ctx, &errs)
 	p.secondPassEmbeds(&ctx, &errs)
 	p.thirdPassMethods(&ctx, &errs)
 	p.flattenPages(&ctx)
@@ -166,13 +167,15 @@ func (p *Parser) firstPassEventType(
 	subj, err := p.extractEventSubject(name, doc)
 	if err != nil {
 		switch err {
-		case validate.ErrEventSubjectMissing:
-			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventMissingComm, name))
-		case validate.ErrEventSubjectInvalidSyntax, validate.ErrEventSubjectInvalid:
-			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventInvalidComm, name))
+		case validate.ErrEventCommMissing:
+			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventCommMissing, name))
+		case validate.ErrEventCommInvalid:
+			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventCommInvalid, name))
+		case validate.ErrEventSubjectInvalid:
+			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventSubjectInvalid, name))
 		default:
 			// Defensive fallback: treat as invalid comment.
-			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventInvalidComm, name))
+			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventCommInvalid, name))
 		}
 		return
 	}
@@ -344,7 +347,7 @@ func (p *Parser) thirdPassMethods(ctx *parseCtx, errs *Errors) {
 				if err := validate.EventHandlerMethodName(fd.Name.Name); err != nil {
 					errs.ErrAt(pos,
 						fmt.Errorf("%w: %s.%s",
-							validate.ErrEventHandlerMethodNameInvalid,
+							validate.ErrEventHandlerNameInvalid,
 							recv, fd.Name.Name))
 				}
 				p.validateAndAttachEventHandler(ctx, errs, recv, fd, pg, ap, suffix)

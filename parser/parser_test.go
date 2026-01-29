@@ -222,15 +222,24 @@ func TestParse_ErrPages(t *testing.T) {
 
 func TestParse_ErrEvents(t *testing.T) {
 	require := require.New(t)
-	_, err := parse(t, "err_events")
+
+	p := parser.New()
+	_, err := p.Parse(fixtureDir(t, "err_events"))
 	require.NotZero(err.Error())
 
 	requireParseErrors(t, err,
-		parser.ErrEventMissingComm,
-		parser.ErrEventInvalidComm,
+		parser.ErrEventCommMissing,
+		parser.ErrEventSubjectInvalid,
 		parser.ErrEvHandFirstArgNotEvent,
 		parser.ErrEvHandFirstArgTypeNotEvent,
 		parser.ErrEvHandDuplicate,
+		parser.ErrEventFieldUnexported,
+		parser.ErrEventFieldMissingTag,
+		parser.ErrEventFieldUnexported,
+		parser.ErrEventCommInvalid,
+		parser.ErrEventCommInvalid,
+		parser.ErrEventSubjectInvalid,
+		parser.ErrEventSubjectInvalid,
 	)
 }
 
@@ -329,21 +338,4 @@ func findPage(app *model.App, name string) *model.Page {
 		}
 	}
 	return nil
-}
-
-func findHandler(p *model.Page, name string) *model.EventHandler {
-	for _, h := range p.EventHandlers {
-		if h.Name == name {
-			return h
-		}
-	}
-	return nil
-}
-
-func dumpHandlers(hs []*model.EventHandler) string {
-	names := make([]string, 0, len(hs))
-	for _, h := range hs {
-		names = append(names, h.Name)
-	}
-	return strings.Join(names, ", ")
 }
