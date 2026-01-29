@@ -221,11 +221,8 @@ func TestParse_ErrPages(t *testing.T) {
 }
 
 func TestParse_ErrEvents(t *testing.T) {
-	require := require.New(t)
-
-	p := parser.New()
-	_, err := p.Parse(fixtureDir(t, "err_events"))
-	require.NotZero(err.Error())
+	_, err := parse(t, "err_events")
+	require.NotZero(t, err.Error())
 
 	requireParseErrors(t, err,
 		parser.ErrEventCommMissing,
@@ -240,6 +237,18 @@ func TestParse_ErrEvents(t *testing.T) {
 		parser.ErrEventCommInvalid,
 		parser.ErrEventSubjectInvalid,
 		parser.ErrEventSubjectInvalid,
+	)
+}
+
+func TestParse_ErrEventHandler(t *testing.T) {
+	_, err := parse(t, "err_event_handler")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrEvHandReturnMustBeError,
+		parser.ErrEvHandReturnMustBeError,
+		parser.ErrEvHandReturnMustBeError,
+		parser.ErrEvHandReturnMustBeError,
 	)
 }
 

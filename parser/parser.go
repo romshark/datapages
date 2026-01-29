@@ -415,6 +415,11 @@ func (p *Parser) validateAndAttachEventHandler(
 		}
 	}
 
+	// OnXXX must return exactly one result of type error.
+	if !eventHandlerReturnsOnlyError(fd, ctx.pkg.TypesInfo) {
+		errs.ErrAt(pos, fmt.Errorf("%w: %s.%s", ErrEvHandReturnMustBeError, recv, fd.Name.Name))
+	}
+
 	h := parseEventHandler(fd, ctx.pkg.TypesInfo, suffix, evName)
 
 	// If it was valid, or best-effort (even if invalid arguments), we attach it.
@@ -426,6 +431,33 @@ func (p *Parser) validateAndAttachEventHandler(
 	} else {
 		ap.EventHandlers = append(ap.EventHandlers, h)
 	}
+}
+
+func eventHandlerReturnsOnlyError(fd *ast.FuncDecl, info *types.Info) bool {
+	if fd == nil || fd.Type == nil || fd.Type.Results == nil {
+		return false
+	}
+	results := fd.Type.Results.List
+	if len(results) == 0 {
+		return false
+	}
+
+	// Count actual result values (a single field can declare multiple named results).
+	total := 0
+	for _, f := range results {
+		n := len(f.Names)
+		if n == 0 {
+			n = 1
+		}
+		total += n
+	}
+	if total != 1 {
+		return false
+	}
+
+	// The sole result type must be `error`.
+	t := info.TypeOf(results[0].Type)
+	return isErrorType(t)
 }
 
 func (p *Parser) attachHTTPHandler(
