@@ -196,8 +196,8 @@ func (PageIndex) POSTActionName(
 ```
 
 All `OnXXX` method parameter lists must always start with
-`sse *datastar.ServerSentEventGenerator`, followed by other parameters and must end
-with the `event EventXXX` parameter specifying the event to be handled.
+the `event` parameter of an event type, followed by
+`sse *datastar.ServerSentEventGenerator` and other parameters.
 The `XXX` placeholder must always match the event name after the type's `Event` prefix.
 
 ```go
