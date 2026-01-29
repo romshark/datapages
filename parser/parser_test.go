@@ -261,16 +261,35 @@ func TestParse_ErrEmbedDuplicateEventHandler(t *testing.T) {
 	)
 }
 
+func TestParse_ErrEmbedConflictingGET(t *testing.T) {
+	_, err := parse(t, "err_embed_conflicting_get")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrPageConflictingGETEmbed,
+	)
+
+	pos, _ := err.Entry(0)
+	requirePosEqual(t, "app.go", 11, 2, pos)
+}
+
 func requireExprLineCol(
 	t *testing.T, app *model.App, e ast.Expr, wantFile string, wantLine, wantCol int,
 ) token.Position {
 	t.Helper()
 	p := app.Fset.Position(e.Pos())
+	requirePosEqual(t, wantFile, wantLine, wantCol, p)
+	return p
+}
+
+func requirePosEqual(
+	t *testing.T, wantFile string, wantLine, wantCol int, p token.Position,
+) {
+	t.Helper()
 	fName := filepath.Base(p.Filename)
 	require.True(t, wantFile == fName && wantLine == p.Line && wantCol == p.Column,
 		"expected %s:%d:%d; received %s:%d:%d",
 		wantFile, wantLine, wantCol, fName, p.Line, p.Column)
-	return p
 }
 
 func fixtureDir(t *testing.T, name string) string {

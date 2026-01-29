@@ -507,8 +507,14 @@ func (p *Parser) attachHTTPHandler(
 }
 
 func (p *Parser) flattenPages(ctx *parseCtx, errs *Errors) {
-	for _, pg := range ctx.pages {
-		p.flattenPage(ctx, errs, pg)
+	// deterministic iteration
+	names := make([]string, 0, len(ctx.pages))
+	for name := range ctx.pages {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		p.flattenPage(ctx, errs, ctx.pages[name])
 	}
 }
 
@@ -519,14 +525,20 @@ func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 
 	visited := map[string]bool{}
 	ownedMethods := map[string]bool{}
-	// EventTypeName -> owner ("page" or abstract type name)
 	handledEvents := map[string]string{}
-	// EventTypeName -> pos (best-effort)
 	handledEventPos := map[string]token.Pos{}
+
+	// GET ownership tracking
+	getOwner := ""             // "page" or abstract type name
+	getOwnerPos := token.NoPos // IMPORTANT: now points to embed site for embedded GET
 
 	// Register own methods
 	if pg.GET != nil {
 		ownedMethods["GET"] = true
+		getOwner = "page"
+		if pg.GET.Expr != nil {
+			getOwnerPos = pg.GET.Expr.Pos() // page GET -> method pos is fine
+		}
 	}
 	for _, a := range pg.Actions {
 		ownedMethods[a.Name] = true
@@ -538,44 +550,97 @@ func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				handledEventPos[h.EventTypeName] = h.Expr.Pos()
 			}
 		} else {
-			// Invalid handler: fall back to name-based dedup.
 			ownedMethods[h.Name] = true
 		}
 	}
 
-	queue := make([]*model.AbstractPage, len(pg.Embeds))
-	copy(queue, pg.Embeds)
+	// Queue items carry the embed site position that introduced this abstract.
+	type qitem struct {
+		ap       *model.AbstractPage
+		embedPos token.Pos // position of the embedded field identifier
+	}
+
+	// seed queue from the page's struct embed sites
+	pageEmbPos := embeddedFieldPosMap(typeStruct(ctx, pg.TypeName))
+	queue := make([]qitem, 0, len(pg.Embeds))
+	for _, ap := range pg.Embeds {
+		queue = append(queue, qitem{
+			ap:       ap,
+			embedPos: pageEmbPos[ap.TypeName],
+		})
+	}
 
 	for len(queue) > 0 {
-		ap := queue[0]
+		it := queue[0]
 		queue = queue[1:]
+		ap := it.ap
 
 		if visited[ap.TypeName] {
 			continue
 		}
 		visited[ap.TypeName] = true
 
-		// Add children to queue
-		queue = append(queue, ap.Embeds...)
+		// enqueue children, carrying THEIR embed positions (in the parent abstract)
+		apEmbPos := embeddedFieldPosMap(typeStruct(ctx, ap.TypeName))
+		for _, child := range ap.Embeds {
+			queue = append(queue, qitem{
+				ap:       child,
+				embedPos: apEmbPos[child.TypeName],
+			})
+		}
 
 		// Methods
 		for _, m := range ap.Methods {
+			if m.HTTPMethod == "GET" {
+				// Page's own GET always wins; no conflict in that case.
+				if getOwner == "page" {
+					continue
+				}
+				// First embedded GET wins (record embed site).
+				if getOwner == "" {
+					pg.GET = m
+					getOwner = ap.TypeName
+					getOwnerPos = it.embedPos // <<< embed site, not method site
+					continue
+				}
+				if getOwner == ap.TypeName {
+					continue
+				}
+
+				// Conflicting embedded GETs -> report at embed site of the second one.
+				pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
+				if it.embedPos != token.NoPos {
+					pos = ctx.pkg.Fset.Position(it.embedPos) // <<< THIS is line 11 col 5
+				}
+
+				prevPos := token.Position{}
+				if getOwnerPos != token.NoPos {
+					prevPos = ctx.pkg.Fset.Position(getOwnerPos) // <<< previous embed site
+				}
+
+				errs.ErrAt(pos, fmt.Errorf(
+					"%w: %s inherits %s and %s which both define GET (previous at %s)",
+					ErrPageConflictingGETEmbed,
+					pg.TypeName,
+					getOwner,
+					ap.TypeName,
+					prevPos,
+				))
+				continue
+			}
+
+			// Non-GET methods: name-based dedup.
 			if ownedMethods[m.Name] {
 				continue
 			}
 			ownedMethods[m.Name] = true
-			if m.HTTPMethod == "GET" {
-				pg.GET = m
-			} else {
-				pg.Actions = append(pg.Actions, m)
-			}
+			pg.Actions = append(pg.Actions, m)
 		}
 
-		// EventHandlers
+		// EventHandlers (unchanged)
 		for _, h := range ap.EventHandlers {
 			ev := h.EventTypeName
 			if ev == "" {
-				// Invalid handler: name-based dedup only.
 				if ownedMethods[h.Name] {
 					continue
 				}
@@ -584,18 +649,14 @@ func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				continue
 			}
 
-			// Valid handler: dedup/override/conflict by EventTypeName.
 			if prevOwner, exists := handledEvents[ev]; exists {
-				// Page overrides any embedded handler.
 				if prevOwner == "page" {
 					continue
 				}
-				// Same abstract encountered again => ignore.
 				if prevOwner == ap.TypeName {
 					continue
 				}
 
-				// Two different embedded abstracts handle same event => error.
 				pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
 				if h.Expr != nil {
 					pos = ctx.pkg.Fset.Position(h.Expr.Pos())
@@ -616,12 +677,10 @@ func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				continue
 			}
 
-			// Accept handler
 			handledEvents[ev] = ap.TypeName
 			if h.Expr != nil {
 				handledEventPos[ev] = h.Expr.Pos()
 			}
-
 			pg.EventHandlers = append(pg.EventHandlers, h)
 		}
 	}
@@ -1172,4 +1231,36 @@ func eventTypeNameOf(
 		return "", false
 	}
 	return name, true
+}
+
+// embeddedFieldPosMap returns embedded type name -> position of the embed identifier.
+func embeddedFieldPosMap(st *ast.StructType) map[string]token.Pos {
+	out := map[string]token.Pos{}
+	if st == nil || st.Fields == nil {
+		return out
+	}
+	for _, f := range st.Fields.List {
+		// only embedded fields
+		if len(f.Names) != 0 {
+			continue
+		}
+		switch t := f.Type.(type) {
+		case *ast.Ident:
+			out[t.Name] = t.Pos()
+		case *ast.StarExpr:
+			if id, ok := t.X.(*ast.Ident); ok {
+				out[id.Name] = id.Pos()
+			}
+		}
+	}
+	return out
+}
+
+func typeStruct(ctx *parseCtx, typeName string) *ast.StructType {
+	ts := ctx.typeSpecByName[typeName]
+	if ts == nil {
+		return nil
+	}
+	st, _ := ts.Type.(*ast.StructType)
+	return st
 }
