@@ -15,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const TypeNameTemplComponent = "github.com/a-h/templ.Component"
+
 func TestParse_Minimal(t *testing.T) {
 	app, err := parse(t, "minimal")
 	require := require.New(t)
@@ -26,7 +28,8 @@ func TestParse_Minimal(t *testing.T) {
 		p := app.PageIndex
 		require.Equal("/", p.Route)
 		require.NotNil(p.GET)
-		require.Equal("GET", p.GET.HTTPMethod)
+		require.NotNil(p.GET.Handler)
+		require.Equal("GET", p.GET.Handler.HTTPMethod)
 
 		require.Empty(p.Actions)
 		require.Empty(p.EventHandlers)
@@ -49,45 +52,114 @@ func TestParse_Basic(t *testing.T) {
 
 	{
 		require.NotNil(app.PageIndex)
-		requireExprLineCol(t, app, app.PageIndex.Expr, "app.go", 13, 6)
+		requireExprLineCol(t, app, app.PageIndex.Expr, "app.go", 14, 6)
 		p := app.PageIndex
 		require.Equal("/", p.Route)
 		require.NotNil(p.GET)
-		require.Equal("GET", p.GET.HTTPMethod)
+		require.NotNil(p.GET.Handler)
+		require.Equal("GET", p.GET.Handler.HTTPMethod)
 
 		require.Empty(p.Actions)
 		require.Empty(p.EventHandlers)
 		require.Empty(p.Embeds)
 	}
 	require.Contains(app.Pages, app.PageIndex)
-	require.Len(app.Pages, 3)
+	require.Len(app.Pages, 4)
 
 	require.Empty(app.Events)
 	{
 		require.NotNil(app.GlobalHeadGenerator)
-		requireExprLineCol(t, app, app.GlobalHeadGenerator, "app.go", 19, 13)
+		requireExprLineCol(t, app, app.GlobalHeadGenerator, "app.go", 26, 13)
 	}
 	{
 		require.NotNil(app.Recover500)
-		requireExprLineCol(t, app, app.Recover500, "app.go", 23, 13)
+		requireExprLineCol(t, app, app.Recover500, "app.go", 30, 13)
+	}
+	{
+		p := app.Pages[3]
+		require.NotNil(p)
+		require.Equal("PageIndex", p.TypeName)
+		require.Equal("/", p.Route)
+		requireExprLineCol(t, app, p.Expr, "app.go", 14, 6)
+		require.Empty(p.EventHandlers)
+		require.Empty(p.Embeds)
+		require.Empty(p.Actions)
+		require.Equal(model.PageTypeIndex, p.PageSpecialization)
+		{
+			get := p.GET
+			require.NotNil(get.Handler)
+			requireExprLineCol(t, app, get.Handler.Expr, "app.go", 16, 18)
+			require.NotNil(get.Handler.InputRequest)
+			require.Equal("r", get.Handler.InputRequest.Name)
+			require.Equal("err", get.Handler.OutputErr.Name)
+			require.Equal("error", get.Handler.OutputErr.Type.Resolved.String())
+			require.NotNil(get.OutputBody)
+			require.Equal("body", get.OutputBody.Output.Name)
+		}
 	}
 	{
 		require.NotNil(app.PageError404)
-		requireExprLineCol(t, app, app.PageError404.Expr, "app.go", 31, 6)
+		requireExprLineCol(t, app, app.PageError404.Expr, "app.go", 38, 6)
 		require.Equal("/the-not-found-page", app.PageError404.Route)
+		require.NotNil(app.PageError404.GET.Handler)
+		require.Equal("r", app.PageError404.GET.Handler.InputRequest.Name)
 		require.Empty(app.PageError404.EventHandlers)
 		require.Empty(app.PageError404.Embeds)
 		require.Empty(app.PageError404.Actions)
-		requireExprLineCol(t, app, app.PageError404.GET.Expr, "app.go", 33, 21)
+		require.Equal(model.PageTypeError404, app.PageError404.PageSpecialization)
+		{
+			get := app.PageError404.GET
+			require.NotNil(get.Handler)
+			requireExprLineCol(t, app, get.Handler.Expr, "app.go", 40, 21)
+			require.NotNil(get.Handler.InputRequest)
+			require.Equal("r", get.Handler.InputRequest.Name)
+			require.Equal("err", get.Handler.OutputErr.Name)
+			require.Equal("error", get.Handler.OutputErr.Type.Resolved.String())
+			require.NotNil(get.OutputBody)
+			require.Equal("body", get.OutputBody.Output.Name)
+		}
 	}
 	{
 		require.NotNil(app.PageError500)
-		requireExprLineCol(t, app, app.PageError500.Expr, "app.go", 38, 6)
+		requireExprLineCol(t, app, app.PageError500.Expr, "app.go", 45, 6)
 		require.Equal("/the-internal-error-page", app.PageError500.Route)
 		require.Empty(app.PageError500.EventHandlers)
 		require.Empty(app.PageError500.Embeds)
 		require.Empty(app.PageError500.Actions)
-		requireExprLineCol(t, app, app.PageError500.GET.Expr, "app.go", 40, 21)
+		require.Equal(model.PageTypeError500, app.PageError500.PageSpecialization)
+		{
+			get := app.PageError500.GET
+			require.NotNil(get.Handler)
+			requireExprLineCol(t, app, get.Handler.Expr, "app.go", 47, 21)
+			require.NotNil(get.Handler.InputRequest)
+			require.Equal("r", get.Handler.InputRequest.Name)
+			require.Equal("err", get.Handler.OutputErr.Name)
+			require.Equal("error", get.Handler.OutputErr.Type.Resolved.String())
+			require.NotNil(get.OutputBody)
+			require.Equal("body", get.OutputBody.Output.Name)
+		}
+	}
+	{
+		p := app.Pages[2]
+		require.NotNil(p)
+		require.Equal("PageExample", p.TypeName)
+		require.Equal("/example", p.Route)
+		requireExprLineCol(t, app, p.Expr, "app.go", 52, 6)
+		require.Empty(p.EventHandlers)
+		require.Empty(p.Embeds)
+		require.Empty(p.Actions)
+		require.Zero(p.PageSpecialization)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.Handler)
+		requireExprLineCol(t, app, p.GET.Handler.Expr, "app.go", 54, 20)
+		require.NotNil(p.GET.OutputBody)
+		require.Equal("body", p.GET.OutputBody.Output.Name)
+		require.Equal(TypeNameTemplComponent,
+			p.GET.OutputBody.Output.Type.Resolved.String())
+		require.NotNil(p.GET.OutputHead)
+		require.Equal("head", p.GET.OutputHead.Output.Name)
+		require.Equal(TypeNameTemplComponent,
+			p.GET.OutputHead.Output.Type.Resolved.String())
 	}
 }
 

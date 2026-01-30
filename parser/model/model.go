@@ -37,7 +37,7 @@ type Page struct {
 
 	PageSpecialization PageSpecialization
 
-	GET           *Handler
+	GET           *HandlerGET
 	Actions       []*Handler
 	EventHandlers []*EventHandler
 	Embeds        []*AbstractPage
@@ -50,6 +50,16 @@ type AbstractPage struct {
 	Methods       []*Handler
 	EventHandlers []*EventHandler
 	Embeds        []*AbstractPage
+}
+
+type TemplComponent struct {
+	*Output
+}
+
+type HandlerGET struct {
+	*Handler
+	OutputBody *TemplComponent
+	OutputHead *TemplComponent
 }
 
 type Handler struct {

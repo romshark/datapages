@@ -18,9 +18,13 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-type Parser struct{}
+type Parser struct {
+	plugins []Plugin
+}
 
-func New() *Parser { return &Parser{} }
+func New(plugins ...Plugin) *Parser {
+	return &Parser{plugins: plugins}
+}
 
 func (p *Parser) Parse(appPackagePath string) (app *model.App, errs Errors) {
 	defer sortErrors(&errs)
@@ -422,6 +426,9 @@ func (p *Parser) validateAndAttachEventHandler(
 
 	h := parseEventHandler(fd, ctx.pkg.TypesInfo, suffix, evName)
 
+	// Apply plugins
+	p.applyEventHandlerPlugins(h, pg, ap, recv, ctx.pkg.TypesInfo)
+
 	// If it was valid, or best-effort (even if invalid arguments), we attach it.
 	// But if evName is empty, it won't be useful for flattening override checks.
 	// We attach it anyway so that AST info is there.
@@ -495,9 +502,12 @@ func (p *Parser) attachHTTPHandler(
 		h.Route = pg.Route
 	}
 
+	// Apply plugins
+	p.applyHandlerPlugins(h, pg, ap, recv, ctx.pkg.TypesInfo)
+
 	if pg != nil {
 		if kind == methodKindGETHandler {
-			pg.GET = h
+			pg.GET = p.buildHandlerGET(h, ctx.pkg.TypesInfo)
 		} else {
 			pg.Actions = append(pg.Actions, h)
 		}
@@ -536,8 +546,8 @@ func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	if pg.GET != nil {
 		ownedMethods["GET"] = true
 		getOwner = "page"
-		if pg.GET.Expr != nil {
-			getOwnerPos = pg.GET.Expr.Pos() // page GET -> method pos is fine
+		if pg.GET.Handler != nil && pg.GET.Handler.Expr != nil {
+			getOwnerPos = pg.GET.Handler.Expr.Pos() // page GET -> method pos is fine
 		}
 	}
 	for _, a := range pg.Actions {
@@ -598,7 +608,7 @@ func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				}
 				// First embedded GET wins (record embed site).
 				if getOwner == "" {
-					pg.GET = m
+					pg.GET = p.buildHandlerGET(m, ctx.pkg.TypesInfo)
 					getOwner = ap.TypeName
 					getOwnerPos = it.embedPos // <<< embed site, not method site
 					continue
@@ -1064,6 +1074,48 @@ func isErrorType(t types.Type) bool {
 	}
 	// builtin "error" is a named interface in Universe.
 	return t.String() == "error"
+}
+
+func isTemplComponent(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	named, ok := t.(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	if obj == nil || obj.Pkg() == nil {
+		return false
+	}
+	// Check for github.com/a-h/templ.Component
+	return obj.Pkg().Path() == "github.com/a-h/templ" && obj.Name() == "Component"
+}
+
+func (p *Parser) buildHandlerGET(h *model.Handler, info *types.Info) *model.HandlerGET {
+	get := &model.HandlerGET{
+		Handler: h,
+	}
+
+	// Scan outputs for templ.Component types
+	for _, out := range h.Outputs {
+		if isTemplComponent(out.Type.Resolved) {
+			tc := &model.TemplComponent{Output: out}
+			if out.Name == "body" || (out.Name == "" && get.OutputBody == nil) {
+				get.OutputBody = tc
+			} else if out.Name == "head" {
+				get.OutputHead = tc
+			} else if get.OutputBody == nil {
+				// First unnamed or unrecognized component becomes body
+				get.OutputBody = tc
+			} else if get.OutputHead == nil {
+				// Second unnamed or unrecognized component becomes head
+				get.OutputHead = tc
+			}
+		}
+	}
+
+	return get
 }
 
 func classifyMethodName(name string) (kind methodKind, suffix string) {
