@@ -546,8 +546,8 @@ func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	if pg.GET != nil {
 		ownedMethods["GET"] = true
 		getOwner = "page"
-		if pg.GET.Handler != nil && pg.GET.Handler.Expr != nil {
-			getOwnerPos = pg.GET.Handler.Expr.Pos() // page GET -> method pos is fine
+		if pg.GET.Handler != nil && pg.GET.Expr != nil {
+			getOwnerPos = pg.GET.Expr.Pos()
 		}
 	}
 	for _, a := range pg.Actions {

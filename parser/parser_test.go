@@ -29,7 +29,7 @@ func TestParse_Minimal(t *testing.T) {
 		require.Equal("/", p.Route)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.Handler)
-		require.Equal("GET", p.GET.Handler.HTTPMethod)
+		require.Equal("GET", p.GET.HTTPMethod)
 
 		require.Empty(p.Actions)
 		require.Empty(p.EventHandlers)
@@ -57,7 +57,7 @@ func TestParse_Basic(t *testing.T) {
 		require.Equal("/", p.Route)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.Handler)
-		require.Equal("GET", p.GET.Handler.HTTPMethod)
+		require.Equal("GET", p.GET.HTTPMethod)
 
 		require.Empty(p.Actions)
 		require.Empty(p.EventHandlers)
@@ -88,13 +88,13 @@ func TestParse_Basic(t *testing.T) {
 		{
 			get := p.GET
 			require.NotNil(get.Handler)
-			requireExprLineCol(t, app, get.Handler.Expr, "app.go", 16, 18)
-			require.NotNil(get.Handler.InputRequest)
-			require.Equal("r", get.Handler.InputRequest.Name)
-			require.Equal("err", get.Handler.OutputErr.Name)
-			require.Equal("error", get.Handler.OutputErr.Type.Resolved.String())
+			requireExprLineCol(t, app, get.Expr, "app.go", 16, 18)
+			require.NotNil(get.InputRequest)
+			require.Equal("r", get.InputRequest.Name)
+			require.Equal("err", get.OutputErr.Name)
+			require.Equal("error", get.OutputErr.Type.Resolved.String())
 			require.NotNil(get.OutputBody)
-			require.Equal("body", get.OutputBody.Output.Name)
+			require.Equal("body", get.OutputBody.Name)
 		}
 	}
 	{
@@ -102,7 +102,7 @@ func TestParse_Basic(t *testing.T) {
 		requireExprLineCol(t, app, app.PageError404.Expr, "app.go", 38, 6)
 		require.Equal("/the-not-found-page", app.PageError404.Route)
 		require.NotNil(app.PageError404.GET.Handler)
-		require.Equal("r", app.PageError404.GET.Handler.InputRequest.Name)
+		require.Equal("r", app.PageError404.GET.InputRequest.Name)
 		require.Empty(app.PageError404.EventHandlers)
 		require.Empty(app.PageError404.Embeds)
 		require.Empty(app.PageError404.Actions)
@@ -110,13 +110,13 @@ func TestParse_Basic(t *testing.T) {
 		{
 			get := app.PageError404.GET
 			require.NotNil(get.Handler)
-			requireExprLineCol(t, app, get.Handler.Expr, "app.go", 40, 21)
-			require.NotNil(get.Handler.InputRequest)
-			require.Equal("r", get.Handler.InputRequest.Name)
-			require.Equal("err", get.Handler.OutputErr.Name)
-			require.Equal("error", get.Handler.OutputErr.Type.Resolved.String())
+			requireExprLineCol(t, app, get.Expr, "app.go", 40, 21)
+			require.NotNil(get.InputRequest)
+			require.Equal("r", get.InputRequest.Name)
+			require.Equal("err", get.OutputErr.Name)
+			require.Equal("error", get.OutputErr.Type.Resolved.String())
 			require.NotNil(get.OutputBody)
-			require.Equal("body", get.OutputBody.Output.Name)
+			require.Equal("body", get.OutputBody.Name)
 		}
 	}
 	{
@@ -130,13 +130,13 @@ func TestParse_Basic(t *testing.T) {
 		{
 			get := app.PageError500.GET
 			require.NotNil(get.Handler)
-			requireExprLineCol(t, app, get.Handler.Expr, "app.go", 47, 21)
-			require.NotNil(get.Handler.InputRequest)
-			require.Equal("r", get.Handler.InputRequest.Name)
-			require.Equal("err", get.Handler.OutputErr.Name)
-			require.Equal("error", get.Handler.OutputErr.Type.Resolved.String())
+			requireExprLineCol(t, app, get.Expr, "app.go", 47, 21)
+			require.NotNil(get.InputRequest)
+			require.Equal("r", get.InputRequest.Name)
+			require.Equal("err", get.OutputErr.Name)
+			require.Equal("error", get.OutputErr.Type.Resolved.String())
 			require.NotNil(get.OutputBody)
-			require.Equal("body", get.OutputBody.Output.Name)
+			require.Equal("body", get.OutputBody.Name)
 		}
 	}
 	{
@@ -151,15 +151,15 @@ func TestParse_Basic(t *testing.T) {
 		require.Zero(p.PageSpecialization)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.Handler)
-		requireExprLineCol(t, app, p.GET.Handler.Expr, "app.go", 54, 20)
+		requireExprLineCol(t, app, p.GET.Expr, "app.go", 54, 20)
 		require.NotNil(p.GET.OutputBody)
-		require.Equal("body", p.GET.OutputBody.Output.Name)
+		require.Equal("body", p.GET.OutputBody.Name)
 		require.Equal(TypeNameTemplComponent,
-			p.GET.OutputBody.Output.Type.Resolved.String())
+			p.GET.OutputBody.Type.Resolved.String())
 		require.NotNil(p.GET.OutputHead)
-		require.Equal("head", p.GET.OutputHead.Output.Name)
+		require.Equal("head", p.GET.OutputHead.Name)
 		require.Equal(TypeNameTemplComponent,
-			p.GET.OutputHead.Output.Type.Resolved.String())
+			p.GET.OutputHead.Type.Resolved.String())
 	}
 }
 
