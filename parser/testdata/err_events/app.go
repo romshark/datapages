@@ -44,6 +44,7 @@ func (PageEventTest) GET(r *http.Request) (body templ.Component, err error) {
 }
 
 /* ErrEvHandFirstArgNotEvent */
+/* ErrEvHandSecondArgNotSSE */
 
 func (PageEventTest) OnFirstArgNotNamed(
 	notEvent EventFoo,
@@ -52,12 +53,15 @@ func (PageEventTest) OnFirstArgNotNamed(
 }
 
 /* ErrEvHandFirstArgTypeNotEvent */
+/* ErrEvHandSecondArgNotSSE */
 
 func (PageEventTest) OnFirstArgWrongType(
 	event int,
 ) error {
 	return nil
 }
+
+/* ErrEvHandSecondArgNotSSE */
 
 func (PageEventTest) OnFirstDuplicate(
 	event EventFoo,
@@ -66,6 +70,7 @@ func (PageEventTest) OnFirstDuplicate(
 }
 
 /* ErrEvHandDuplicate */
+/* ErrEvHandSecondArgNotSSE */
 
 func (PageEventTest) OnSecondDuplicate(
 	event EventFoo,

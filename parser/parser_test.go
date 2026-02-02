@@ -235,6 +235,62 @@ func TestParse_Embed(t *testing.T) {
 	}
 }
 
+func TestParse_ActionHandlerSSE(t *testing.T) {
+	app, err := parse(t, "action_handler")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// Verify PageIndex - GET without SSE
+	{
+		require.NotNil(app.PageIndex)
+		p := app.PageIndex
+		require.Equal("/", p.Route)
+		require.NotNil(p.GET)
+		require.Nil(p.GET.InputSSE)
+	}
+
+	// Verify PageActions has action handlers with and without SSE
+	{
+		p := findPage(app, "PageActions")
+		require.NotNil(p)
+		require.Equal("/actions", p.Route)
+		require.Len(p.Actions, 4)
+		require.Len(p.EventHandlers, 1)
+
+		// POST without SSE
+		actionWithout := findAction(p.Actions, "WithoutSse")
+		require.NotNil(actionWithout)
+		require.Equal("POST", actionWithout.HTTPMethod)
+		require.Nil(actionWithout.InputSSE)
+
+		// POST with SSE
+		actionWith := findAction(p.Actions, "WithSse")
+		require.NotNil(actionWith)
+		require.Equal("POST", actionWith.HTTPMethod)
+		require.NotNil(actionWith.InputSSE)
+		require.Equal("sse", actionWith.InputSSE.Name)
+
+		// PUT with SSE
+		putWith := findActionByMethod(p.Actions, "PUT", "WithSse")
+		require.NotNil(putWith)
+		require.Equal("PUT", putWith.HTTPMethod)
+		require.NotNil(putWith.InputSSE)
+
+		// DELETE without SSE
+		deleteWithout := findActionByMethod(p.Actions, "DELETE", "WithoutSse")
+		require.NotNil(deleteWithout)
+		require.Equal("DELETE", deleteWithout.HTTPMethod)
+		require.Nil(deleteWithout.InputSSE)
+
+		// Event handler MUST have SSE
+		evHandler := p.EventHandlers[0]
+		require.Equal("EventFoo", evHandler.Name)
+		require.NotNil(evHandler.InputSSE)
+		require.Equal("sse", evHandler.InputSSE.Name)
+	}
+}
+
 func TestParse_SyntaxErr(t *testing.T) {
 	require := require.New(t)
 
@@ -299,9 +355,13 @@ func TestParse_ErrEvents(t *testing.T) {
 	requireParseErrors(t, err,
 		parser.ErrEventCommMissing,
 		parser.ErrEventSubjectInvalid,
-		parser.ErrEvHandFirstArgNotEvent,
-		parser.ErrEvHandFirstArgTypeNotEvent,
+		parser.ErrSignatureEvHandFirstArgNotEvent,
+		parser.ErrSignatureSecondArgNotSSE,
+		parser.ErrSignatureEvHandFirstArgTypeNotEvent,
+		parser.ErrSignatureSecondArgNotSSE,
+		parser.ErrSignatureSecondArgNotSSE,
 		parser.ErrEvHandDuplicate,
+		parser.ErrSignatureSecondArgNotSSE,
 		parser.ErrEventFieldUnexported,
 		parser.ErrEventFieldMissingTag,
 		parser.ErrEventFieldUnexported,
@@ -317,10 +377,13 @@ func TestParse_ErrEventHandler(t *testing.T) {
 	require.NotZero(t, err.Error())
 
 	requireParseErrors(t, err,
-		parser.ErrEvHandReturnMustBeError,
-		parser.ErrEvHandReturnMustBeError,
-		parser.ErrEvHandReturnMustBeError,
-		parser.ErrEvHandReturnMustBeError,
+		parser.ErrSignatureSecondArgNotSSE,
+		parser.ErrSignatureUnknownInput,
+		parser.ErrSignatureSecondArgNotSSE,
+		parser.ErrSignatureEvHandReturnMustBeError,
+		parser.ErrSignatureEvHandReturnMustBeError,
+		parser.ErrSignatureEvHandReturnMustBeError,
+		parser.ErrSignatureEvHandReturnMustBeError,
 	)
 }
 
@@ -444,6 +507,24 @@ func findPage(app *model.App, name string) *model.Page {
 	for _, p := range app.Pages {
 		if p.TypeName == name {
 			return p
+		}
+	}
+	return nil
+}
+
+func findAction(actions []*model.Handler, nameSuffix string) *model.Handler {
+	for _, a := range actions {
+		if strings.HasSuffix(a.Name, nameSuffix) {
+			return a
+		}
+	}
+	return nil
+}
+
+func findActionByMethod(actions []*model.Handler, method, nameSuffix string) *model.Handler {
+	for _, a := range actions {
+		if a.HTTPMethod == method && strings.HasSuffix(a.Name, nameSuffix) {
+			return a
 		}
 	}
 	return nil

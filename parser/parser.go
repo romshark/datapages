@@ -382,12 +382,14 @@ func (p *Parser) validateAndAttachEventHandler(
 
 	if params == nil || len(params.List) == 0 {
 		errs.ErrAt(pos,
-			fmt.Errorf("%w: %s.%s", ErrEvHandFirstArgNotEvent, recv, fd.Name.Name))
+			fmt.Errorf("%w: %s.%s",
+				ErrSignatureEvHandFirstArgNotEvent, recv, fd.Name.Name))
 	} else {
 		first := params.List[0]
 		if len(first.Names) != 1 || first.Names[0].Name != "event" {
 			errs.ErrAt(pos,
-				fmt.Errorf("%w: %s.%s", ErrEvHandFirstArgNotEvent, recv, fd.Name.Name))
+				fmt.Errorf("%w: %s.%s",
+					ErrSignatureEvHandFirstArgNotEvent, recv, fd.Name.Name))
 		} else {
 			var ok bool
 			evName, ok = eventTypeNameOf(
@@ -396,7 +398,7 @@ func (p *Parser) validateAndAttachEventHandler(
 			if !ok {
 				errs.ErrAt(pos,
 					fmt.Errorf("%w: %s.%s",
-						ErrEvHandFirstArgTypeNotEvent, recv, fd.Name.Name))
+						ErrSignatureEvHandFirstArgTypeNotEvent, recv, fd.Name.Name))
 			} else {
 				m := ctx.seenEvHandlerByRecv[recv]
 				if m == nil {
@@ -419,9 +421,28 @@ func (p *Parser) validateAndAttachEventHandler(
 		}
 	}
 
+	// Second param must be *datastar.ServerSentEventGenerator.
+	if params != nil && len(params.List) > 0 {
+		if len(params.List) < 2 {
+			errs.ErrAt(pos,
+				fmt.Errorf("%w: %s.%s", ErrSignatureSecondArgNotSSE, recv, fd.Name.Name))
+		} else if !isPtrToDatastarSSE(params.List[1].Type, ctx.pkg.TypesInfo) {
+			errs.ErrAt(pos,
+				fmt.Errorf("%w: %s.%s", ErrSignatureSecondArgNotSSE, recv, fd.Name.Name))
+		}
+	}
+
+	// No additional parameters beyond event and SSE are allowed.
+	if params != nil && len(params.List) > 2 {
+		errs.ErrAt(pos,
+			fmt.Errorf("%w: %s.%s (params beyond event and SSE are not allowed)",
+				ErrSignatureUnknownInput, recv, fd.Name.Name))
+	}
+
 	// OnXXX must return exactly one result of type error.
 	if !eventHandlerReturnsOnlyError(fd, ctx.pkg.TypesInfo) {
-		errs.ErrAt(pos, fmt.Errorf("%w: %s.%s", ErrEvHandReturnMustBeError, recv, fd.Name.Name))
+		errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+			ErrSignatureEvHandReturnMustBeError, recv, fd.Name.Name))
 	}
 
 	h := parseEventHandler(fd, ctx.pkg.TypesInfo, suffix, evName)
@@ -610,7 +631,7 @@ func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				if getOwner == "" {
 					pg.GET = p.buildHandlerGET(m, ctx.pkg.TypesInfo)
 					getOwner = ap.TypeName
-					getOwnerPos = it.embedPos // <<< embed site, not method site
+					getOwnerPos = it.embedPos
 					continue
 				}
 				if getOwner == ap.TypeName {
@@ -620,12 +641,12 @@ func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				// Conflicting embedded GETs -> report at embed site of the second one.
 				pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
 				if it.embedPos != token.NoPos {
-					pos = ctx.pkg.Fset.Position(it.embedPos) // <<< THIS is line 11 col 5
+					pos = ctx.pkg.Fset.Position(it.embedPos)
 				}
 
 				prevPos := token.Position{}
 				if getOwnerPos != token.NoPos {
-					prevPos = ctx.pkg.Fset.Position(getOwnerPos) // <<< previous embed site
+					prevPos = ctx.pkg.Fset.Position(getOwnerPos)
 				}
 
 				errs.ErrAt(pos, fmt.Errorf(
@@ -772,11 +793,14 @@ func parseEventHandler(
 		EventTypeName: eventTypeName,
 	}
 
+	// First param is the event
 	if len(params) > 0 {
-		h.InputSSE = parseInput(params[0], info)
+		h.InputEvent = parseInput(params[0], info)
 	}
-	for _, p := range params[1:] {
-		h.Inputs = append(h.Inputs, parseInput(p, info))
+
+	// Second param is sse (required for event handlers)
+	if len(params) > 1 && isPtrToDatastarSSE(params[1].Type, info) {
+		h.InputSSE = parseInput(params[1], info)
 	}
 
 	if fd.Type.Results != nil && len(fd.Type.Results.List) > 0 {
@@ -1173,21 +1197,19 @@ func parseHandler(
 	}
 	h.InputRequest = parseInput(params.List[0], info)
 
-	// Remaining params are plugins
-	for _, p := range params.List[1:] {
-		if len(p.Names) == 0 {
-			h.Inputs = append(h.Inputs, &model.Input{
-				Type: makeType(p.Type, info),
-			})
-			continue
-		}
-		for _, n := range p.Names {
-			h.Inputs = append(h.Inputs, &model.Input{
-				Expr: n,
-				Name: n.Name,
-				Type: makeType(p.Type, info),
-			})
-		}
+	// Check if second param is sse (built-in feature for actions)
+	remainingParams := params.List[1:]
+	if len(remainingParams) > 0 && isPtrToDatastarSSE(remainingParams[0].Type, info) {
+		h.InputSSE = parseInput(remainingParams[0], info)
+		remainingParams = remainingParams[1:]
+	}
+
+	// No additional parameters allowed in handler signature.
+	// Plugins can add inputs programmatically, but user-declared params beyond
+	// *http.Request and optional SSE are not supported.
+	if len(remainingParams) > 0 {
+		return h, fmt.Errorf("%w in %s.%s (params beyond *http.Request and optional SSE are not allowed)",
+			ErrSignatureUnknownInput, recv, fd.Name.Name)
 	}
 
 	// Results
@@ -1255,6 +1277,27 @@ func isPtrToNetHTTPReq(expr ast.Expr, info *types.Info) bool {
 	}
 	// Require exactly net/http.Request
 	return obj.Pkg().Path() == "net/http" && obj.Name() == "Request"
+}
+
+func isPtrToDatastarSSE(expr ast.Expr, info *types.Info) bool {
+	t := info.TypeOf(expr)
+	if t == nil {
+		return false
+	}
+	ptr, ok := t.(*types.Pointer)
+	if !ok {
+		return false
+	}
+	named, ok := ptr.Elem().(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	if obj == nil || obj.Pkg() == nil {
+		return false
+	}
+	// Require exactly datastar.ServerSentEventGenerator
+	return obj.Pkg().Path() == "github.com/starfederation/datastar-go/datastar" && obj.Name() == "ServerSentEventGenerator"
 }
 
 // eventTypeNameOf returns the EventXXX type name for expr if it is (or points to) a

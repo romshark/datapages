@@ -14,10 +14,24 @@ import (
 )
 
 var (
-	ErrAppMissingTypeApp       = errors.New(`missing required type "App"`)
-	ErrAppMissingPageIndex     = errors.New(`missing required page type "PageIndex"`)
-	ErrSignatureMissingReq     = errors.New(`missing the *http.Request parameter`)
-	ErrSignatureMultiErrRet    = errors.New(`multiple error return values`)
+	ErrAppMissingTypeApp        = errors.New(`missing required type "App"`)
+	ErrAppMissingPageIndex      = errors.New(`missing required page type "PageIndex"`)
+	ErrSignatureMissingReq      = errors.New(`missing the *http.Request parameter`)
+	ErrSignatureMultiErrRet     = errors.New(`multiple error return values`)
+	ErrSignatureUnknownInput    = errors.New(`handler has unknown input parameter type`)
+	ErrSignatureSecondArgNotSSE = errors.New(
+		"event handler second argument must be *datastar.ServerSentEventGenerator",
+	)
+	ErrSignatureEvHandReturnMustBeError = errors.New(
+		"event handler must return only error",
+	)
+	ErrSignatureEvHandFirstArgNotEvent = errors.New(
+		`event handler first argument must be named "event"`,
+	)
+	ErrSignatureEvHandFirstArgTypeNotEvent = errors.New(
+		"event handler first argument type must be an event type",
+	)
+
 	ErrPageMissingFieldApp     = errors.New(`page is missing the "App *App" field`)
 	ErrPageHasExtraFields      = errors.New(`page struct has unsupported fields`)
 	ErrPageMissingGET          = errors.New(`page is missing the GET handler`)
@@ -31,14 +45,13 @@ var (
 	ErrActionInvalidPathComm  = errors.New("action handler has invalid path comment")
 	ErrActionPathNotUnderPage = errors.New("action handler path is not under page path")
 
-	ErrEventCommMissing           = errors.New("event type is missing subject comment")
-	ErrEventCommInvalid           = errors.New("event type has invalid subject comment")
-	ErrEventSubjectInvalid        = errors.New("event subject is invalid")
-	ErrEvHandFirstArgNotEvent     = errors.New(`event handler first argument must be named "event"`)
-	ErrEvHandFirstArgTypeNotEvent = errors.New("event handler first argument type must be an event type")
-	ErrEvHandDuplicate            = errors.New("duplicate event handler for event")
-	ErrEvHandDuplicateEmbed       = errors.New("duplicate event handler for event in embedded")
-	ErrEvHandReturnMustBeError    = errors.New("event handler must return only error")
+	ErrEventCommMissing     = errors.New("event type is missing subject comment")
+	ErrEventCommInvalid     = errors.New("event type has invalid subject comment")
+	ErrEventSubjectInvalid  = errors.New("event subject is invalid")
+	ErrEvHandDuplicate      = errors.New("duplicate event handler for event")
+	ErrEvHandDuplicateEmbed = errors.New(
+		"duplicate event handler for event in embedded",
+	)
 
 	ErrEventFieldUnexported = errors.New("event field must be exported")
 	ErrEventFieldMissingTag = errors.New("event field must have json tag")

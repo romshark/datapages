@@ -71,6 +71,7 @@ type Handler struct {
 	Route      string
 
 	InputRequest *Input
+	InputSSE     *Input
 	Inputs       []*Input
 
 	OutputErr *Output
@@ -83,8 +84,9 @@ type EventHandler struct {
 	Name          string
 	EventTypeName string
 
-	InputSSE *Input
-	Inputs   []*Input
+	InputEvent *Input
+	InputSSE   *Input
+	Inputs     []*Input
 
 	OutputErr *Output
 }

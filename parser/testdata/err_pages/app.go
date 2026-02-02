@@ -23,6 +23,8 @@ type PageNoAppField struct {
 	/* ErrPageMissingFieldApp */
 }
 
+/* ErrSignatureMissingReq */
+
 func (PageNoAppField) GET() (body templ.Component, err error) { return body, err }
 
 // PageNoGET is /this-page-is-missing-a-get-handler

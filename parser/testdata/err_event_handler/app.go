@@ -39,6 +39,54 @@ type EventFuzz struct {
 	Fuzz string `json:"fuzz"`
 }
 
+// EventQux is "qux"
+type EventQux struct {
+	Qux string `json:"qux"`
+}
+
+// EventQuux is "quux"
+type EventQuux struct {
+	Quux string `json:"quux"`
+}
+
+// EventCorge is "corge"
+type EventCorge struct {
+	Corge string `json:"corge"`
+}
+
+/* ErrEvHandSecondArgNotSSE */
+
+func (PageIndex) OnEventQux(
+	event EventQux,
+) error {
+	_ = event
+	return nil
+}
+
+/* ErrSignatureUnknownInput */
+
+func (PageIndex) OnEventCorge(
+	event EventCorge,
+	sse *datastar.ServerSentEventGenerator,
+	unknownParam string,
+) error {
+	_ = event
+	_ = sse
+	_ = unknownParam
+	return nil
+}
+
+/* ErrEvHandSecondArgNotSSE */
+
+func (PageIndex) OnEventQuux(
+	event EventQuux,
+	notSSE int,
+) error {
+	_ = event
+	_ = notSSE
+	return nil
+}
+
 func (PageIndex) OnEvent(
 	event EventFoo,
 	sse *datastar.ServerSentEventGenerator,
