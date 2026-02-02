@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
-	"datapages/app"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -22,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/romshark/datapages/example/classifieds/app"
 
 	"github.com/a-h/templ"
 	"github.com/nats-io/nats.go"

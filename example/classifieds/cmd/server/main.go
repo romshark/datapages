@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"datapages/app"
-	"datapages/datapagesgen"
 	"errors"
 	"flag"
 	"log/slog"
@@ -11,6 +9,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+
+	"github.com/romshark/datapages/example/classifieds/app"
+	"github.com/romshark/datapages/example/classifieds/datapagesgen"
 
 	"github.com/nats-io/nats.go"
 )

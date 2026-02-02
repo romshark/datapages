@@ -26,7 +26,8 @@ and performance.
 
 ## Demo
 
-This repository presents a demo application resembling an online classifieds marketplace.
+This repository features a demo application resembling an online classifieds marketplace
+under `example/classifieds`.
 The code you'd write is in [/app](https://github.com/romshark/datapages/tree/main/app)
 (this is what we'll later call the "source package").
 The code that the *code generator* would generate is in
@@ -35,6 +36,7 @@ The code that the *code generator* would generate is in
 To run the demo in development mode, use:
 
 ```sh
+cd example/classifieds
 make dev
 ```
 

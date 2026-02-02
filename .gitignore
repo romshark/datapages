@@ -9,7 +9,7 @@
 *.dylib
 
 # staging executable
-server
+example/classifieds/server
 
 # Test binary, built with `go test -c`
 *.test
@@ -27,7 +27,7 @@ profile.cov
 go.work
 go.work.sum
 
-# env file (excluding `.env.dev` and `.env.stage`)
+# env file (excluding env files in example)
 .env
 
 # Editor/IDE
@@ -35,7 +35,7 @@ go.work.sum
 # .vscode/
 
 # Certificates
-certs/*
+example/**/certs/*
 
 # Grafana runtime data
-grafana/data/
+example/**/grafana/data/

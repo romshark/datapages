@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"crypto/hmac"
 	"crypto/sha256"
-	"datapages/app"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/romshark/datapages/example/classifieds/app"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus"

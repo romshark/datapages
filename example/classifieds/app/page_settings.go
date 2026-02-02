@@ -1,8 +1,9 @@
 package app
 
 import (
-	"datapages/datapagesgen/href"
 	"net/http"
+
+	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 
 	"github.com/a-h/templ"
 	"github.com/starfederation/datastar-go/datastar"

@@ -2,12 +2,13 @@ package app
 
 import (
 	"context"
-	"datapages/app/domain"
-	"datapages/datapagesgen/href"
 	"errors"
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/romshark/datapages/example/classifieds/app/domain"
+	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 
 	"github.com/a-h/templ"
 	"github.com/starfederation/datastar-go/datastar"

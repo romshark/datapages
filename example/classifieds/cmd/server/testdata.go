@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
-	"datapages/app/domain"
 	"time"
+
+	"github.com/romshark/datapages/example/classifieds/app/domain"
 )
 
 func timestamp(value string) time.Time {
