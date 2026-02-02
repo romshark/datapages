@@ -528,7 +528,13 @@ func (p *Parser) attachHTTPHandler(
 
 	if pg != nil {
 		if kind == methodKindGETHandler {
-			pg.GET = p.buildHandlerGET(h, ctx.pkg.TypesInfo)
+			get, getErr := p.buildHandlerGET(h)
+			pg.GET = get
+			// Only report GET validation errors if handler parsing succeeded
+			if getErr != nil && herr == nil {
+				errs.ErrAt(ctx.pkg.Fset.Position(fd.Name.Pos()),
+					fmt.Errorf("%w in %s.%s", getErr, recv, fd.Name.Name))
+			}
 		} else {
 			pg.Actions = append(pg.Actions, h)
 		}
@@ -629,7 +635,13 @@ func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				}
 				// First embedded GET wins (record embed site).
 				if getOwner == "" {
-					pg.GET = p.buildHandlerGET(m, ctx.pkg.TypesInfo)
+					get, getErr := p.buildHandlerGET(m)
+					pg.GET = get
+					if getErr != nil {
+						pos := ctx.pkg.Fset.Position(m.Expr.Pos())
+						errs.ErrAt(pos, fmt.Errorf("%w in %s.%s",
+							getErr, ap.TypeName, m.Name))
+					}
 					getOwner = ap.TypeName
 					getOwnerPos = it.embedPos
 					continue
@@ -1116,30 +1128,41 @@ func isTemplComponent(t types.Type) bool {
 	return obj.Pkg().Path() == "github.com/a-h/templ" && obj.Name() == "Component"
 }
 
-func (p *Parser) buildHandlerGET(h *model.Handler, info *types.Info) *model.HandlerGET {
+func (p *Parser) buildHandlerGET(h *model.Handler) (*model.HandlerGET, error) {
 	get := &model.HandlerGET{
 		Handler: h,
 	}
 
-	// Scan outputs for templ.Component types
+	// Collect all templ.Component outputs
+	var templComponents []*model.Output
 	for _, out := range h.Outputs {
 		if isTemplComponent(out.Type.Resolved) {
-			tc := &model.TemplComponent{Output: out}
-			if out.Name == "body" || (out.Name == "" && get.OutputBody == nil) {
-				get.OutputBody = tc
-			} else if out.Name == "head" {
-				get.OutputHead = tc
-			} else if get.OutputBody == nil {
-				// First unnamed or unrecognized component becomes body
-				get.OutputBody = tc
-			} else if get.OutputHead == nil {
-				// Second unnamed or unrecognized component becomes head
-				get.OutputHead = tc
-			}
+			templComponents = append(templComponents, out)
 		}
 	}
 
-	return get
+	// Validate: GET must have at least one templ.Component return (body)
+	if len(templComponents) == 0 {
+		return get, ErrSignatureGETMissingBody
+	}
+
+	// Validate: First templ.Component must be named "body"
+	firstComp := templComponents[0]
+	if firstComp.Name != "body" {
+		return get, ErrSignatureGETBodyWrongName
+	}
+	get.OutputBody = &model.TemplComponent{Output: firstComp}
+
+	// Validate: If there's a second templ.Component, it must be named "head"
+	if len(templComponents) > 1 {
+		secondComp := templComponents[1]
+		if secondComp.Name != "head" {
+			return get, ErrSignatureGETHeadWrongName
+		}
+		get.OutputHead = &model.TemplComponent{Output: secondComp}
+	}
+
+	return get, nil
 }
 
 func classifyMethodName(name string) (kind methodKind, suffix string) {
@@ -1208,7 +1231,8 @@ func parseHandler(
 	// Plugins can add inputs programmatically, but user-declared params beyond
 	// *http.Request and optional SSE are not supported.
 	if len(remainingParams) > 0 {
-		return h, fmt.Errorf("%w in %s.%s (params beyond *http.Request and optional SSE are not allowed)",
+		return h, fmt.Errorf("%w in %s.%s "+
+			"(params beyond *http.Request and optional SSE are not allowed)",
 			ErrSignatureUnknownInput, recv, fd.Name.Name)
 	}
 
@@ -1297,7 +1321,8 @@ func isPtrToDatastarSSE(expr ast.Expr, info *types.Info) bool {
 		return false
 	}
 	// Require exactly datastar.ServerSentEventGenerator
-	return obj.Pkg().Path() == "github.com/starfederation/datastar-go/datastar" && obj.Name() == "ServerSentEventGenerator"
+	return obj.Pkg().Path() == "github.com/starfederation/datastar-go/datastar" &&
+		obj.Name() == "ServerSentEventGenerator"
 }
 
 // eventTypeNameOf returns the EventXXX type name for expr if it is (or points to) a

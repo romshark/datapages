@@ -328,7 +328,6 @@ func TestParse_ErrPages(t *testing.T) {
 	require.NotZero(err.Error())
 
 	requireParseErrors(t, err,
-		parser.ErrSignatureMultiErrRet,
 		parser.ErrPageMissingFieldApp,
 		parser.ErrSignatureMissingReq,
 		parser.ErrPageMissingGET,
@@ -345,6 +344,21 @@ func TestParse_ErrPages(t *testing.T) {
 		parser.ErrActionNameInvalid,
 		parser.ErrActionInvalidPathComm,
 		parser.ErrActionPathNotUnderPage,
+	)
+}
+
+func TestParse_ErrGET(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_get")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrSignatureMissingReq,
+		parser.ErrSignatureMultiErrRet,
+		parser.ErrSignatureUnknownInput,
+		parser.ErrSignatureGETMissingBody,
+		parser.ErrSignatureGETBodyWrongName,
+		parser.ErrSignatureGETHeadWrongName,
 	)
 }
 
@@ -405,7 +419,7 @@ func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 	)
 
 	pos, _ := err.Entry(0)
-	requirePosEqual(t, "app.go", 11, 2, pos)
+	requirePosEqual(t, "app.go", 15, 2, pos)
 }
 
 func requireExprLineCol(

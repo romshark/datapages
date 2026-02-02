@@ -2,7 +2,10 @@ module datapagestest/fixture/err_embed_duplicate_event_handler
 
 go 1.25
 
-require github.com/starfederation/datastar-go v1.1.0
+require (
+	github.com/a-h/templ v0.3.977
+	github.com/starfederation/datastar-go v1.1.0
+)
 
 require (
 	github.com/CAFxX/httpcompression v0.0.9 // indirect

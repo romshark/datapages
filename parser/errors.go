@@ -31,6 +31,15 @@ var (
 	ErrSignatureEvHandFirstArgTypeNotEvent = errors.New(
 		"event handler first argument type must be an event type",
 	)
+	ErrSignatureGETMissingBody = errors.New(
+		"GET handler must return body templ.Component",
+	)
+	ErrSignatureGETBodyWrongName = errors.New(
+		"GET handler first templ.Component return must be named \"body\"",
+	)
+	ErrSignatureGETHeadWrongName = errors.New(
+		"GET handler second templ.Component return must be named \"head\"",
+	)
 
 	ErrPageMissingFieldApp     = errors.New(`page is missing the "App *App" field`)
 	ErrPageHasExtraFields      = errors.New(`page struct has unsupported fields`)

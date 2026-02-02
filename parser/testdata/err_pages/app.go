@@ -11,11 +11,8 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (
-	body templ.Component, err error,
-	err2 error, /* ErrSignatureMultiErrRet */
-) {
-	return body, err, err2
+func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+	return body, err
 }
 
 // PageNoAppField is /no-app-field

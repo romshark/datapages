@@ -1,6 +1,10 @@
 package app
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/a-h/templ"
+)
 
 type App struct{}
 
@@ -16,5 +20,5 @@ type (
 	BaseB struct{ App *App }
 )
 
-func (BaseA) GET(r *http.Request) error { return nil }
-func (BaseB) GET(r *http.Request) error { return nil }
+func (BaseA) GET(r *http.Request) (body templ.Component, err error) { return nil, nil }
+func (BaseB) GET(r *http.Request) (body templ.Component, err error) { return nil, nil }

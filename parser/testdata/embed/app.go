@@ -12,7 +12,7 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (templ.Component, error) {
+func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
 	return nil, nil
 }
 
@@ -39,7 +39,7 @@ type EventD struct {
 // AbstractLevel1 defines OnEventA and GET
 type AbstractLevel1 struct{ App *App }
 
-func (AbstractLevel1) GET(r *http.Request) (templ.Component, error) {
+func (AbstractLevel1) GET(r *http.Request) (body templ.Component, err error) {
 	return nil, nil
 }
 
@@ -90,7 +90,7 @@ type PageOverride struct {
 	AbstractLevel1
 }
 
-func (PageOverride) GET(r *http.Request) (templ.Component, error) {
+func (PageOverride) GET(r *http.Request) (body templ.Component, err error) {
 	return nil, nil
 }
 
@@ -111,7 +111,7 @@ type PageOverrideEvent struct {
 	AbstractLevel1
 }
 
-func (PageOverrideEvent) GET(r *http.Request) (templ.Component, error) {
+func (PageOverrideEvent) GET(r *http.Request) (body templ.Component, err error) {
 	return nil, nil
 }
 
