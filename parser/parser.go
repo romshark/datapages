@@ -34,11 +34,12 @@ func (p *Parser) Parse(appPackagePath string) (app *model.App, errs Errors) {
 		errs.Err(err)
 		return nil, errs
 	}
-	for _, pe := range pkg.Errors {
-		errs.ErrAt(posFromPackagesError(pe), pe)
-	}
 
 	if pkg.Types == nil || pkg.TypesInfo == nil {
+		// Include package errors only when we don't have type information
+		for _, pe := range pkg.Errors {
+			errs.ErrAt(posFromPackagesError(pe), pe)
+		}
 		errs.ErrAt(earliestPkgPos(pkg),
 			errors.New("missing source package type information"))
 		return nil, errs
