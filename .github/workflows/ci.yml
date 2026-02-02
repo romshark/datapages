@@ -1,0 +1,68 @@
+on: [push, pull_request]
+name: CI
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project:
+          - path: "."
+            name: "root"
+            has_templ: false
+          - path: "example/classifieds"
+            name: "classifieds"
+            has_templ: true
+    steps:
+      - name: Install Go 1.25.6
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.6"
+          check-latest: true
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # Test and report coverage
+      - name: Run tests with coverage
+        working-directory: ${{ matrix.project.path }}
+        run: go test -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2.3.6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          file: ${{ matrix.project.path }}/coverage.out
+          flag-name: ${{ matrix.project.name }}
+          parallel: true
+
+      # Make sure templ generate was executed before commit (only for examples)
+      - name: Generate templates
+        if: matrix.project.has_templ
+        working-directory: ${{ matrix.project.path }}
+        run: go run github.com/a-h/templ/cmd/templ@v0.3.977 generate
+      - name: Check file changes after templ generate
+        if: matrix.project.has_templ
+        working-directory: ${{ matrix.project.path }}
+        run: |
+          git diff --exit-code
+        id: diff_files_after_templ_generate
+        continue-on-error: true
+      - name: Fail if changes are detected
+        if: matrix.project.has_templ && steps.diff_files_after_templ_generate.outcome == 'failure'
+        run: |
+          echo "Detected uncommitted changes after running templ generate." \
+          "Please regenerate .templ templates and commit changes." && exit 1
+
+      # Try compile
+      - name: Compile
+        working-directory: ${{ matrix.project.path }}
+        run: go build -o /dev/null ./...
+
+  finish:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Coveralls Finished
+        uses: coverallsapp/github-action@v2.3.6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel-finished: true
