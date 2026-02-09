@@ -1,6 +1,6 @@
 module github.com/romshark/datapages/example/classifieds
 
-go 1.25.6
+go 1.25.7
 
 // Required by the demo application
 require github.com/oklog/ulid/v2 v2.1.1
