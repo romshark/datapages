@@ -287,9 +287,10 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 }
 
 func (s *Server) createSession(
-	w http.ResponseWriter, r *http.Request, token string, session app.Session,
+	w http.ResponseWriter, r *http.Request, session app.Session,
 ) error {
-	if err := s.sessionManager.CreateSession(r.Context(), token, session); err != nil {
+	token, err := s.sessionManager.CreateSession(r.Context(), session)
+	if err != nil {
 		return err
 	}
 	s.setSessionCookie(w, session.UserID+"."+token)
@@ -1077,11 +1078,7 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if j := newSession; j.UserID != "" {
-		tok, err := s.sessionTokenGenerator.Generate()
-		if err != nil {
-			s.httpErrIntern(w, r, nil, "generating session token", err)
-		}
-		if err := s.createSession(w, r, tok, newSession); err != nil {
+		if err := s.createSession(w, r, newSession); err != nil {
 			s.httpErrIntern(w, r, nil, "creating session", err)
 		}
 	}

@@ -99,6 +99,7 @@ func withNATS(opts *[]datapagesgen.ServerOption) *datapagesgen.SessionManagerNAT
 
 	m, err := datapagesgen.NewSessionManagerNATSKV(
 		conn,
+		datapagesgen.DefaultSessionTokenGenerator{},
 		datapagesgen.ConfigSessionManagerNATSKV{},
 	)
 	if err != nil {

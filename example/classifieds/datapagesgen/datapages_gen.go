@@ -884,8 +884,9 @@ type SessionManager interface {
 	// and therefore the cookie must be removed.
 	ReadSessionFromCookie(c *http.Cookie) (session app.Session, token string, ok bool)
 
-	// CreateSession creates a new session.
-	CreateSession(ctx context.Context, token string, session app.Session) error
+	// CreateSession creates a new session identified by a unique token.
+	// The returned token will be put into HTTP-only cookies.
+	CreateSession(ctx context.Context, session app.Session) (token string, err error)
 
 	// NotifyClosed sets up a listener that calls fn when session with key is closed.
 	// The listener shall be stopped once ctx is canceled.
@@ -894,7 +895,7 @@ type SessionManager interface {
 	NotifyClosed(ctx context.Context, key string, fn func())
 
 	// CloseSession closes a session identified by token.
-	// No-op if that session doesn't exist.
+	// No-op and no error if that session doesn't exist.
 	CloseSession(ctx context.Context, token string) error
 }
 
@@ -923,7 +924,7 @@ type DefaultSessionTokenGenerator struct {
 // encoded as URL-safe base64 without padding.
 func (g DefaultSessionTokenGenerator) Generate() (string, error) {
 	length := g.Length
-	if length <= 0 {
+	if length <= 24 {
 		length = DefaultSessionTokenLength
 	}
 	b := make([]byte, length)
@@ -938,6 +939,7 @@ func (g DefaultSessionTokenGenerator) Generate() (string, error) {
 // NewSessionManagerNATSKV creates a new NATS KV-backed session manager.
 func NewSessionManagerNATSKV(
 	conn *nats.Conn,
+	sessionTokenGenerator SessionTokenGenerator,
 	conf ConfigSessionManagerNATSKV,
 ) (*SessionManagerNATSKV, error) {
 	js, err := conn.JetStream()
@@ -972,8 +974,9 @@ func NewSessionManagerNATSKV(
 	}
 
 	return &SessionManagerNATSKV{
-		conf: conf,
-		kv:   kv,
+		conf:                  conf,
+		kv:                    kv,
+		sessionTokenGenerator: sessionTokenGenerator,
 	}, nil
 }
 
@@ -998,8 +1001,9 @@ type sessionManagerNATSKVData struct {
 }
 
 type SessionManagerNATSKV struct {
-	conf ConfigSessionManagerNATSKV
-	kv   nats.KeyValue
+	conf                  ConfigSessionManagerNATSKV
+	kv                    nats.KeyValue
+	sessionTokenGenerator SessionTokenGenerator
 }
 
 func (s *SessionManagerNATSKV) ReadSessionFromCookie(
@@ -1092,10 +1096,16 @@ func (s *SessionManagerNATSKV) SaveSession(
 
 // CreateSession creates a new session in NATS KV.
 func (s *SessionManagerNATSKV) CreateSession(
-	ctx context.Context, token string, session app.Session,
-) error {
-	_, err := s.SaveSession(ctx, token, session)
-	return err
+	ctx context.Context, session app.Session,
+) (token string, err error) {
+	token, err = s.sessionTokenGenerator.Generate()
+	if err != nil {
+		return "", err
+	}
+	if _, err := s.SaveSession(ctx, token, session); err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 // CloseSession deletes a session from NATS KV. Watchers will be triggered.
