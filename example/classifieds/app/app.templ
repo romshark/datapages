@@ -7,6 +7,7 @@ import (
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/action"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
+	"slices"
 )
 
 templ head() {
@@ -22,7 +23,7 @@ templ head() {
 	<script src="https://cdn.jsdelivr.net/npm/basecoat-css@0.3.10/dist/js/all.min.js" defer></script>
 }
 
-templ fragmentNavbar(session SessionJWT, searchTerm string, baseData baseData) {
+templ fragmentNavbar(session Session, searchTerm string, baseData baseData) {
 	<nav id="navbar" data-signals:searchinput={ fmt.Sprintf("%q", searchTerm) }>
 		<a href={ href.Index() }>Home</a>
 		// pageshow handles the browser form restoration on page navigation.
@@ -115,7 +116,7 @@ templ pageError500() {
 	<a href={ href.Index() }>Try to go back to the homepage.</a>
 }
 
-templ pageError404(session SessionJWT, baseData baseData) {
+templ pageError404(session Session, baseData baseData) {
 	@fragmentNavbar(session, "", baseData)
 	@page("page-not-found") {
 		<h1>Oh-oh!</h1>
@@ -125,7 +126,7 @@ templ pageError404(session SessionJWT, baseData baseData) {
 }
 
 templ pageIndex(
-	session SessionJWT, mainCategories []domain.Category, recentlyPosted []domain.Post,
+	session Session, mainCategories []domain.Category, recentlyPosted []domain.Post,
 	baseData baseData,
 ) {
 	@fragmentNavbar(session, "", baseData)
@@ -227,7 +228,7 @@ templ pageLogin(wrongCreds bool) {
 }
 
 templ pageMessages(
-	session SessionJWT, chats []Chat, openChat Chat, messages []domain.Message,
+	session Session, chats []Chat, openChat Chat, messages []domain.Message,
 	baseData baseData,
 ) {
 	@fragmentNavbar(session, "", baseData)
@@ -330,7 +331,9 @@ templ pageMessages(
 	}
 }
 
-templ pageSettings(session SessionJWT, user domain.User, baseData baseData) {
+templ pageSettings(
+	session Session, sessions map[string]Session, user domain.User, baseData baseData,
+) {
 	@fragmentNavbar(session, "", baseData)
 	@page("page-settings") {
 		<div
@@ -380,27 +383,51 @@ templ pageSettings(session SessionJWT, user domain.User, baseData baseData) {
 				class="btn"
 				data-on:click={ action.POSTAppCause500() }
 			>Cause Internal Error</button>
+		</section>
+		<section>
+			<h2>Sessions</h2>
+			<ul>
+				{{
+					sorted := make([]string, 0, len(sessions))
+					for token := range sessions {
+						sorted = append(sorted, token)
+					}
+					slices.SortFunc(sorted, func(a, b string) int {
+						return sessions[a].IssuedAt.Compare(sessions[b].IssuedAt)
+					})
+				}}
+				for _, token := range sorted {
+					{{ sess := sessions[token] }}
+					<li>
+						<p><b>Session </b></p>
+						<p>{ sess.IssuedAt.String() }</p>
+						<button
+							class="btn-destructive"
+							data-on:click={ action.POSTPageSettingsCloseSession(token) }
+						>Terminate</button>
+					</li>
+				}
+			</ul>
 			<p>
-				Expire session immediately
+				Close all sessions immediately
 			</p>
 			<button
 				class="btn"
-				data-on:click={ action.POSTAppExpireSessionJWT() }
-			>Expire Session</button>
-		</section>
-		<section>
-			<h2>Session</h2>
+				data-on:click={ action.POSTPageSettingsCloseAllSessions() }
+			>Close All Sessions</button>
+			<p>
+				Close only current session
+			</p>
 			<button
 				class="btn-destructive"
-				data-on:click={ action.POSTAppSignOut() +
-					";window.location.href = '/login'" }
+				data-on:click={ action.POSTAppSignOut() }
 			>Sign Out</button>
 		</section>
 	}
 }
 
 templ pageSearch(
-	session SessionJWT, query SearchParams, categories []domain.Category,
+	session Session, query SearchParams, categories []domain.Category,
 	posts []domain.Post, baseData baseData,
 ) {
 	@fragmentNavbar(session, query.Term, baseData)
@@ -499,7 +526,7 @@ templ headPost(title, description, imageURL string) {
 }
 
 templ pagePost(
-	session SessionJWT, post domain.Post, similarPosts []domain.Post, baseData baseData,
+	session Session, post domain.Post, similarPosts []domain.Post, baseData baseData,
 	chatID string,
 ) {
 	@fragmentNavbar(session, "", baseData)
@@ -559,7 +586,7 @@ templ pagePost(
 }
 
 templ pageUser(
-	session SessionJWT, baseData baseData, user domain.User, posts []domain.Post,
+	session Session, baseData baseData, user domain.User, posts []domain.Post,
 ) {
 	@fragmentNavbar(session, "", baseData)
 	@page("page-user") {
@@ -577,7 +604,7 @@ templ pageUser(
 }
 
 templ pageMyPosts(
-	session SessionJWT, baseData baseData, user domain.User, posts []domain.Post,
+	session Session, baseData baseData, user domain.User, posts []domain.Post,
 ) {
 	@fragmentNavbar(session, "", baseData)
 	@page("page-my-posts") {
@@ -717,7 +744,7 @@ templ menuBase(id, userName, userAvatarURL string) {
 	</div>
 }
 
-templ fragmentMessage(session SessionJWT, msg domain.Message) {
+templ fragmentMessage(session Session, msg domain.Message) {
 	{{
 		classes := templ.CSSClasses{"message"}
 		fromCounterpart := msg.SenderUserName != session.UserID

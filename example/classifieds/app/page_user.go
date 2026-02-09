@@ -19,7 +19,7 @@ type PageUser struct {
 
 func (p PageUser) GET(
 	r *http.Request,
-	session SessionJWT,
+	session Session,
 	path struct {
 		Name string `path:"name"`
 	},
@@ -58,7 +58,7 @@ func (p PageUser) GET(
 func (p PageUser) OnPostArchived(
 	event EventPostArchived,
 	sse *datastar.ServerSentEventGenerator,
-	session SessionJWT,
+	session Session,
 ) error {
 	return sse.ExecuteScript("location.replace(location.href);")
 }

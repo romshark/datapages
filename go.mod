@@ -1,12 +1,10 @@
 module datapages
 
-go 1.25.6
-
-// Required by Datapages
-require golang.org/x/sync v0.19.0 // indirect
+go 1.25.7
 
 require (
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/tools v0.35.0
 )
 

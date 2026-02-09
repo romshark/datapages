@@ -20,7 +20,7 @@ type PagePost struct {
 
 func (p PagePost) GET(
 	r *http.Request,
-	session SessionJWT,
+	session Session,
 	path struct {
 		Slug string `path:"slug"`
 	},
@@ -72,7 +72,7 @@ func (p PagePost) GET(
 func (p PagePost) POSTSendMessage(
 	r *http.Request,
 	sse *datastar.ServerSentEventGenerator,
-	session SessionJWT,
+	session Session,
 	path struct {
 		Slug string `json:"slug"`
 	},
@@ -121,7 +121,7 @@ func (p PagePost) POSTSendMessage(
 func (p PagePost) OnPostArchived(
 	event EventPostArchived,
 	sse *datastar.ServerSentEventGenerator,
-	session SessionJWT,
+	session Session,
 ) error {
 	return sse.ExecuteScript("location.replace(location.href);")
 }

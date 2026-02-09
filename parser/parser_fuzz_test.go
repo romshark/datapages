@@ -79,7 +79,7 @@ func (PageIndex) ` + handlerSignature + ` {
 
 		// The goal is to ensure the parser doesn't panic, regardless of input
 		// We don't care if it returns errors - that's expected for invalid signatures
-		p := parser.New()
+
 		defer func() {
 			if r := recover(); r != nil {
 				t.Errorf("Parser panicked on input %q: %v", handlerSignature, r)
@@ -87,7 +87,7 @@ func (PageIndex) ` + handlerSignature + ` {
 		}()
 
 		// Parse the code - we expect errors for invalid signatures, but never panics
-		_, _ = p.Parse(tmpDir)
+		_, _ = parser.Parse(tmpDir)
 	})
 }
 
@@ -167,14 +167,13 @@ func (PageIndex) OnEventFoo(` + params + `) error {
 			t.Skip("failed to write app.go")
 		}
 
-		p := parser.New()
 		defer func() {
 			if r := recover(); r != nil {
 				t.Errorf("Parser panicked with %d params: %v", paramCount, r)
 			}
 		}()
 
-		_, _ = p.Parse(tmpDir)
+		_, _ = parser.Parse(tmpDir)
 	})
 }
 
@@ -257,13 +256,12 @@ func (PageActions) POSTAction(` + params + `) error {
 			t.Skip("failed to write app.go")
 		}
 
-		p := parser.New()
 		defer func() {
 			if r := recover(); r != nil {
 				t.Errorf("Parser panicked with %d params: %v", paramCount, r)
 			}
 		}()
 
-		_, _ = p.Parse(tmpDir)
+		_, _ = parser.Parse(tmpDir)
 	})
 }

@@ -17,7 +17,7 @@ type PageSearch struct {
 
 func (p PageSearch) GET(
 	r *http.Request,
-	session SessionJWT,
+	session Session,
 	query SearchParams,
 ) (body templ.Component, err error) {
 	posts, err := p.App.repo.SearchPosts(r.Context(), domain.PostSearchParams{
@@ -48,7 +48,7 @@ func (p PageSearch) GET(
 func (p PageSearch) POSTParamChange(
 	r *http.Request,
 	sse *datastar.ServerSentEventGenerator,
-	session SessionJWT,
+	session Session,
 	signals SearchParams,
 ) error {
 	posts, err := p.App.repo.SearchPosts(sse.Context(), domain.PostSearchParams{

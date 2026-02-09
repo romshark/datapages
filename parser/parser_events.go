@@ -7,14 +7,21 @@ import (
 	"strings"
 )
 
-func (p *Parser) validateEvents(ctx *parseCtx, errs *Errors) {
+func validateEvents(ctx *parseCtx, errs *Errors) {
 	for name := range ctx.eventTypeNames {
 		ts := ctx.typeSpecByName[name]
-		p.validateEventType(ctx, errs, ts.Pos(), name, ctx.pkg.TypesInfo.TypeOf(ts.Type), map[types.Type]bool{})
+		validateEventType(
+			ctx, errs, ts.Pos(), name,
+			ctx.pkg.TypesInfo.TypeOf(ts.Type), map[types.Type]bool{},
+		)
+
 	}
 }
 
-func (p *Parser) validateEventType(ctx *parseCtx, errs *Errors, pos token.Pos, name string, t types.Type, visited map[types.Type]bool) {
+func validateEventType(
+	ctx *parseCtx, errs *Errors, pos token.Pos, name string,
+	t types.Type, visited map[types.Type]bool,
+) {
 	if t == nil {
 		return
 	}
@@ -25,7 +32,7 @@ func (p *Parser) validateEventType(ctx *parseCtx, errs *Errors, pos token.Pos, n
 
 	// If pointer, unwrap
 	if ptr, ok := t.(*types.Pointer); ok {
-		p.validateEventType(ctx, errs, pos, name, ptr.Elem(), visited)
+		validateEventType(ctx, errs, pos, name, ptr.Elem(), visited)
 		return
 	}
 
@@ -45,16 +52,18 @@ func (p *Parser) validateEventType(ctx *parseCtx, errs *Errors, pos token.Pos, n
 
 		// 1. Must be exported
 		if !f.Exported() {
-			errs.ErrAt(ctx.pkg.Fset.Position(pos), fmt.Errorf("%w: field %s in %s", ErrEventFieldUnexported, f.Name(), name))
+			errs.ErrAt(ctx.pkg.Fset.Position(pos),
+				fmt.Errorf("%w: field %s in %s", ErrEventFieldUnexported, f.Name(), name))
 		}
 
 		// 2. Must have json tag
 		// Minimal check: verify `json:"..."` exists.
 		if !strings.Contains(tag, "json:\"") {
-			errs.ErrAt(ctx.pkg.Fset.Position(pos), fmt.Errorf("%w: field %s in %s", ErrEventFieldMissingTag, f.Name(), name))
+			errs.ErrAt(ctx.pkg.Fset.Position(pos),
+				fmt.Errorf("%w: field %s in %s", ErrEventFieldMissingTag, f.Name(), name))
 		}
 
 		// Recurse
-		p.validateEventType(ctx, errs, pos, name, f.Type(), visited)
+		validateEventType(ctx, errs, pos, name, f.Type(), visited)
 	}
 }

@@ -37,3 +37,10 @@ type EventMessagingWritingStopped struct {
 type EventPostArchived struct {
 	PostID string `json:"post-id"`
 }
+
+// EventSessionClosed is "sessions.closed"
+type EventSessionClosed struct {
+	TargetUserIDs []string `json:"-"`
+
+	Token string `json:"token"`
+}

@@ -18,15 +18,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-type Parser struct {
-	plugins []Plugin
-}
-
-func New(plugins ...Plugin) *Parser {
-	return &Parser{plugins: plugins}
-}
-
-func (p *Parser) Parse(appPackagePath string) (app *model.App, errs Errors) {
+func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	defer sortErrors(&errs)
 
 	pkg, err := loadPackage(appPackagePath)
@@ -45,18 +37,18 @@ func (p *Parser) Parse(appPackagePath string) (app *model.App, errs Errors) {
 		return nil, errs
 	}
 
-	ctx := p.newParseCtx(pkg)
-	p.indexTypes(&ctx)
-	p.collectEventTypeNames(&ctx)
-	p.initApp(&ctx, &errs)
-	p.firstPassTypes(&ctx, &errs)
-	p.validateEvents(&ctx, &errs)
-	p.secondPassEmbeds(&ctx, &errs)
-	p.thirdPassMethods(&ctx, &errs)
-	p.flattenPages(&ctx, &errs)
-	p.validateRequiredHandlers(&ctx, &errs)
-	p.finalizePages(&ctx)
-	p.assignSpecialPages(&ctx, &errs)
+	ctx := newParseCtx(pkg)
+	indexTypes(&ctx)
+	collectEventTypeNames(&ctx)
+	initApp(&ctx, &errs)
+	firstPassTypes(&ctx, &errs)
+	validateEvents(&ctx, &errs)
+	secondPassEmbeds(&ctx, &errs)
+	thirdPassMethods(&ctx, &errs)
+	flattenPages(&ctx, &errs)
+	validateRequiredHandlers(&ctx, &errs)
+	finalizePages(&ctx)
+	assignSpecialPages(&ctx, &errs)
 
 	if !ctx.appTypeFound {
 		return nil, errs
@@ -86,7 +78,7 @@ type parseCtx struct {
 	basePos      token.Position
 }
 
-func (p *Parser) newParseCtx(pkg *packages.Package) parseCtx {
+func newParseCtx(pkg *packages.Package) parseCtx {
 	return parseCtx{
 		pkg:                 pkg,
 		typeSpecByName:      map[string]*ast.TypeSpec{},
@@ -100,7 +92,7 @@ func (p *Parser) newParseCtx(pkg *packages.Package) parseCtx {
 	}
 }
 
-func (p *Parser) indexTypes(ctx *parseCtx) {
+func indexTypes(ctx *parseCtx) {
 	for _, f := range ctx.pkg.Syntax {
 		for _, d := range f.Decls {
 			gd, ok := d.(*ast.GenDecl)
@@ -124,7 +116,7 @@ func (p *Parser) indexTypes(ctx *parseCtx) {
 	}
 }
 
-func (p *Parser) collectEventTypeNames(ctx *parseCtx) {
+func collectEventTypeNames(ctx *parseCtx) {
 	for name := range ctx.typeSpecByName {
 		if err := validate.EventTypeName(name); err == nil {
 			ctx.eventTypeNames[name] = struct{}{}
@@ -132,7 +124,7 @@ func (p *Parser) collectEventTypeNames(ctx *parseCtx) {
 	}
 }
 
-func (p *Parser) initApp(ctx *parseCtx, errs *Errors) {
+func initApp(ctx *parseCtx, errs *Errors) {
 	ctx.app = &model.App{Fset: ctx.pkg.Fset}
 	if appTS, ok := ctx.typeSpecByName["App"]; ok {
 		ctx.app.Expr = appTS.Name
@@ -142,7 +134,7 @@ func (p *Parser) initApp(ctx *parseCtx, errs *Errors) {
 	errs.ErrAt(ctx.basePos, ErrAppMissingTypeApp)
 }
 
-func (p *Parser) firstPassTypes(ctx *parseCtx, errs *Errors) {
+func firstPassTypes(ctx *parseCtx, errs *Errors) {
 	typeNames := make([]string, 0, len(ctx.typeSpecByName))
 	for name := range ctx.typeSpecByName {
 		typeNames = append(typeNames, name)
@@ -154,22 +146,22 @@ func (p *Parser) firstPassTypes(ctx *parseCtx, errs *Errors) {
 
 		// Only treat valid EventXXX as event types.
 		if err := validate.EventTypeName(name); err == nil {
-			p.firstPassEventType(ctx, errs, name, ts)
+			firstPassEventType(ctx, errs, name, ts)
 			continue
 		}
 
 		// Pages / abstracts are structs only.
-		p.firstPassPageOrAbstractType(ctx, errs, name, ts)
+		firstPassPageOrAbstractType(ctx, errs, name, ts)
 	}
 }
 
-func (p *Parser) firstPassEventType(
+func firstPassEventType(
 	ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSpec,
 ) {
 	typePos := ctx.pkg.Fset.Position(ts.Name.Pos())
 	doc := pickDoc(name, ctx.docByType, ctx.genDocByType)
 
-	subj, err := p.extractEventSubject(name, doc)
+	subj, err := extractEventSubject(name, doc)
 	if err != nil {
 		switch err {
 		case validate.ErrEventCommMissing:
@@ -193,7 +185,7 @@ func (p *Parser) firstPassEventType(
 	})
 }
 
-func (p *Parser) extractEventSubject(
+func extractEventSubject(
 	typeName string, doc *ast.CommentGroup,
 ) (string, error) {
 	// Validate first (sentinel errors).
@@ -223,7 +215,7 @@ func (p *Parser) extractEventSubject(
 	return "", validate.ErrEventSubjectInvalid
 }
 
-func (p *Parser) firstPassPageOrAbstractType(
+func firstPassPageOrAbstractType(
 	ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSpec,
 ) {
 	st, ok := ts.Type.(*ast.StructType)
@@ -272,20 +264,20 @@ func (p *Parser) firstPassPageOrAbstractType(
 	}
 }
 
-func (p *Parser) secondPassEmbeds(ctx *parseCtx, errs *Errors) {
+func secondPassEmbeds(ctx *parseCtx, errs *Errors) {
 	for _, pg := range ctx.pages {
-		p.resolveEmbedsForStruct(ctx, errs, pg.TypeName, func(ap *model.AbstractPage) {
+		resolveEmbedsForStruct(ctx, errs, pg.TypeName, func(ap *model.AbstractPage) {
 			pg.Embeds = append(pg.Embeds, ap)
 		})
 	}
 	for _, ap := range ctx.abstracts {
-		p.resolveEmbedsForStruct(ctx, errs, ap.TypeName, func(sub *model.AbstractPage) {
+		resolveEmbedsForStruct(ctx, errs, ap.TypeName, func(sub *model.AbstractPage) {
 			ap.Embeds = append(ap.Embeds, sub)
 		})
 	}
 }
 
-func (p *Parser) resolveEmbedsForStruct(
+func resolveEmbedsForStruct(
 	ctx *parseCtx, errs *Errors, typeName string, add func(*model.AbstractPage),
 ) {
 	ts := ctx.typeSpecByName[typeName]
@@ -304,7 +296,7 @@ func (p *Parser) resolveEmbedsForStruct(
 	}
 }
 
-func (p *Parser) thirdPassMethods(ctx *parseCtx, errs *Errors) {
+func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 	for _, f := range ctx.pkg.Syntax {
 		for _, d := range f.Decls {
 			fd, ok := d.(*ast.FuncDecl)
@@ -355,15 +347,15 @@ func (p *Parser) thirdPassMethods(ctx *parseCtx, errs *Errors) {
 							validate.ErrEventHandlerNameInvalid,
 							recv, fd.Name.Name))
 				}
-				p.validateAndAttachEventHandler(ctx, errs, recv, fd, pg, ap, suffix)
+				validateAndAttachEventHandler(ctx, errs, recv, fd, pg, ap, suffix)
 			default:
-				p.attachHTTPHandler(ctx, errs, recv, fd, pg, ap, kind, suffix)
+				attachHTTPHandler(ctx, errs, recv, fd, pg, ap, kind, suffix)
 			}
 		}
 	}
 }
 
-func (p *Parser) validateAndAttachEventHandler(
+func validateAndAttachEventHandler(
 	ctx *parseCtx,
 	errs *Errors,
 	recv string,
@@ -448,9 +440,6 @@ func (p *Parser) validateAndAttachEventHandler(
 
 	h := parseEventHandler(fd, ctx.pkg.TypesInfo, suffix, evName)
 
-	// Apply plugins
-	p.applyEventHandlerPlugins(h, pg, ap, recv, ctx.pkg.TypesInfo)
-
 	// If it was valid, or best-effort (even if invalid arguments), we attach it.
 	// But if evName is empty, it won't be useful for flattening override checks.
 	// We attach it anyway so that AST info is there.
@@ -489,7 +478,7 @@ func eventHandlerReturnsOnlyError(fd *ast.FuncDecl, info *types.Info) bool {
 	return isErrorType(t)
 }
 
-func (p *Parser) attachHTTPHandler(
+func attachHTTPHandler(
 	ctx *parseCtx,
 	errs *Errors,
 	recv string,
@@ -524,12 +513,9 @@ func (p *Parser) attachHTTPHandler(
 		h.Route = pg.Route
 	}
 
-	// Apply plugins
-	p.applyHandlerPlugins(h, pg, ap, recv, ctx.pkg.TypesInfo)
-
 	if pg != nil {
 		if kind == methodKindGETHandler {
-			get, getErr := p.buildHandlerGET(h)
+			get, getErr := buildHandlerGET(h)
 			pg.GET = get
 			// Only report GET validation errors if handler parsing succeeded
 			if getErr != nil && herr == nil {
@@ -544,7 +530,7 @@ func (p *Parser) attachHTTPHandler(
 	ap.Methods = append(ap.Methods, h)
 }
 
-func (p *Parser) flattenPages(ctx *parseCtx, errs *Errors) {
+func flattenPages(ctx *parseCtx, errs *Errors) {
 	// deterministic iteration
 	names := make([]string, 0, len(ctx.pages))
 	for name := range ctx.pages {
@@ -552,11 +538,11 @@ func (p *Parser) flattenPages(ctx *parseCtx, errs *Errors) {
 	}
 	slices.Sort(names)
 	for _, name := range names {
-		p.flattenPage(ctx, errs, ctx.pages[name])
+		flattenPage(ctx, errs, ctx.pages[name])
 	}
 }
 
-func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
+func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	if len(pg.Embeds) == 0 {
 		return
 	}
@@ -636,7 +622,7 @@ func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				}
 				// First embedded GET wins (record embed site).
 				if getOwner == "" {
-					get, getErr := p.buildHandlerGET(m)
+					get, getErr := buildHandlerGET(m)
 					pg.GET = get
 					if getErr != nil {
 						pos := ctx.pkg.Fset.Position(m.Expr.Pos())
@@ -681,7 +667,7 @@ func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 			pg.Actions = append(pg.Actions, m)
 		}
 
-		// EventHandlers (unchanged)
+		// EventHandlers
 		for _, h := range ap.EventHandlers {
 			ev := h.EventTypeName
 			if ev == "" {
@@ -730,7 +716,7 @@ func (p *Parser) flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	}
 }
 
-func (p *Parser) validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
+func validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
 	// Every page type must have a GET handler.
 	pageNames := make([]string, 0, len(ctx.pages))
 	for name := range ctx.pages {
@@ -747,7 +733,7 @@ func (p *Parser) validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
 	}
 }
 
-func (p *Parser) finalizePages(ctx *parseCtx) {
+func finalizePages(ctx *parseCtx) {
 	names := make([]string, 0, len(ctx.pages))
 	for name := range ctx.pages {
 		names = append(names, name)
@@ -758,7 +744,7 @@ func (p *Parser) finalizePages(ctx *parseCtx) {
 	}
 }
 
-func (p *Parser) assignSpecialPages(ctx *parseCtx, errs *Errors) {
+func assignSpecialPages(ctx *parseCtx, errs *Errors) {
 	ctx.app.PageIndex = ctx.pages["PageIndex"]
 	ctx.app.PageError404 = ctx.pages["PageError404"]
 	ctx.app.PageError500 = ctx.pages["PageError500"]
@@ -1129,7 +1115,7 @@ func isTemplComponent(t types.Type) bool {
 	return obj.Pkg().Path() == "github.com/a-h/templ" && obj.Name() == "Component"
 }
 
-func (p *Parser) buildHandlerGET(h *model.Handler) (*model.HandlerGET, error) {
+func buildHandlerGET(h *model.Handler) (*model.HandlerGET, error) {
 	get := &model.HandlerGET{
 		Handler: h,
 	}

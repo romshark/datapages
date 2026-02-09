@@ -19,7 +19,7 @@ type PageMessages struct {
 
 func (p PageMessages) GET(
 	r *http.Request,
-	session SessionJWT,
+	session Session,
 	query struct {
 		Chat string `query:"chat" reflectsignal:"chatselected"`
 	},
@@ -49,7 +49,7 @@ func (p PageMessages) GET(
 }
 
 func (p PageMessages) getPageData(
-	ctx context.Context, session SessionJWT, selectedChat string,
+	ctx context.Context, session Session, selectedChat string,
 ) (base baseData, chats []Chat, openChat Chat, messages []domain.Message, err error) {
 	c, err := p.App.repo.Chats(ctx, session.UserID)
 	if err != nil {
@@ -90,7 +90,7 @@ func (p PageMessages) getPageData(
 }
 
 func (p PageMessages) getChat(
-	ctx context.Context, session SessionJWT, selectedChat string,
+	ctx context.Context, session Session, selectedChat string,
 ) (domain.Post, domain.Chat, error) {
 	chat, err := p.App.repo.ChatByID(ctx, selectedChat, session.UserID)
 	if err != nil {
@@ -108,7 +108,7 @@ func (p PageMessages) getChat(
 // POSTRead is /messages/read/{$}
 func (p PageMessages) POSTRead(
 	r *http.Request,
-	session SessionJWT,
+	session Session,
 	signals struct {
 		ChatSelected string `json:"chatselected"`
 	},
@@ -157,7 +157,7 @@ func (p PageMessages) POSTRead(
 // POSTWriting is /messages/writing/{$}
 func (p PageMessages) POSTWriting(
 	r *http.Request,
-	session SessionJWT,
+	session Session,
 	signals struct {
 		ChatSelected string `json:"chatselected"`
 	},
@@ -188,7 +188,7 @@ func (p PageMessages) POSTWriting(
 // POSTWritingStopped is /messages/writing-stopped/{$}
 func (p PageMessages) POSTWritingStopped(
 	r *http.Request,
-	session SessionJWT,
+	session Session,
 	signals struct {
 		ChatSelected string `json:"chatselected"`
 	},
@@ -219,7 +219,7 @@ func (p PageMessages) POSTWritingStopped(
 // POSTSendMessage is /messages/sendmessage/{$}
 func (p PageMessages) POSTSendMessage(
 	r *http.Request,
-	session SessionJWT,
+	session Session,
 	signals struct {
 		ChatSelected string `json:"chatselected"`
 		MessageText  string `json:"messagetext"`
@@ -281,7 +281,7 @@ func (p PageMessages) POSTSendMessage(
 func (p PageMessages) OnMessagingRead(
 	event EventMessagingRead,
 	sse *datastar.ServerSentEventGenerator,
-	session SessionJWT,
+	session Session,
 	signals struct {
 		Chat string `json:"chatselected"`
 	},
@@ -298,7 +298,7 @@ func (p PageMessages) OnMessagingRead(
 func (PageMessages) OnMessagingWriting(
 	event EventMessagingWriting,
 	sse *datastar.ServerSentEventGenerator,
-	session SessionJWT,
+	session Session,
 ) error {
 	return sse.MarshalAndPatchSignals(struct {
 		WritingUser string `json:"writinguser"`
@@ -310,7 +310,7 @@ func (PageMessages) OnMessagingWriting(
 func (PageMessages) OnMessagingWritingStopped(
 	event EventMessagingWritingStopped,
 	sse *datastar.ServerSentEventGenerator,
-	session SessionJWT,
+	session Session,
 ) error {
 	return sse.MarshalAndPatchSignals(struct {
 		WritingUser string `json:"writinguser"`
@@ -322,7 +322,7 @@ func (PageMessages) OnMessagingWritingStopped(
 func (p PageMessages) OnMessagingSent(
 	event EventMessagingSent,
 	sse *datastar.ServerSentEventGenerator,
-	session SessionJWT,
+	session Session,
 	signals struct {
 		Chat string `json:"chatselected"`
 	},

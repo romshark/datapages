@@ -17,7 +17,7 @@ type PageMyPosts struct {
 
 func (p PageMyPosts) GET(
 	r *http.Request,
-	session SessionJWT,
+	session Session,
 ) (
 	body, head templ.Component,
 	redirect Redirect,

@@ -14,7 +14,7 @@ import (
 // PageLogin is /login
 type PageLogin struct{ App *App }
 
-func (PageLogin) GET(r *http.Request, session SessionJWT) (
+func (PageLogin) GET(r *http.Request, session Session) (
 	body templ.Component,
 	redirect Redirect,
 	disableRefreshAfterHidden bool,
@@ -30,7 +30,7 @@ func (PageLogin) GET(r *http.Request, session SessionJWT) (
 // POSTSubmit is /login/submit
 func (p PageLogin) POSTSubmit(
 	r *http.Request,
-	session SessionJWT,
+	session Session,
 	signals struct {
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`
@@ -44,7 +44,7 @@ func (p PageLogin) POSTSubmit(
 ) (
 	body templ.Component,
 	redirect Redirect,
-	newSession SessionJWT,
+	newSession Session,
 	err error,
 ) {
 	if session.UserID != "" {
@@ -65,10 +65,9 @@ func (p PageLogin) POSTSubmit(
 
 	metrics.LoginSubmissions.CounterAdd(1, "success")
 	now := time.Now()
-	newSession = SessionJWT{
-		UserID:     uid,
-		IssuedAt:   now,
-		Expiration: now.Add(24 * time.Hour),
+	newSession = Session{
+		UserID:   uid,
+		IssuedAt: now,
 	}
 	redirect = Redirect{Target: href.Index(), Status: http.StatusSeeOther}
 	return

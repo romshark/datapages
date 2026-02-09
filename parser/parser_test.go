@@ -297,19 +297,21 @@ func TestParse_SyntaxErr(t *testing.T) {
 	tmp := t.TempDir()
 
 	// Minimal module + package with a syntax error.
-	require.NoError(os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(
+	err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(
 		"module example.com/syntaxerr\n\ngo 1.22\n",
-	), 0o644))
+	), 0o644)
+	require.NoError(err)
 
-	require.NoError(os.WriteFile(filepath.Join(tmp, "app.go"), []byte(
+	err = os.WriteFile(filepath.Join(tmp, "app.go"), []byte(
 		"package app\n\nfunc Broken( { }\n",
-	), 0o644))
+	), 0o644)
+	require.NoError(err)
 
-	p := parser.New()
-	app, err := p.Parse(tmp)
+	require.NoError(err)
+	app, errs := parser.Parse(tmp)
 	require.Nil(app)
-	require.NotZero(err.Error())
-	require.GreaterOrEqual(err.Len(), 1)
+	require.NotZero(errs.Error())
+	require.GreaterOrEqual(errs.Len(), 1)
 }
 
 func TestParse_ErrMissingPageIndex(t *testing.T) {
@@ -449,8 +451,7 @@ func fixtureDir(t *testing.T, name string) string {
 func parse(t *testing.T, fixtureName string) (*model.App, parser.Errors) {
 	t.Helper()
 	dir := fixtureDir(t, fixtureName)
-	p := parser.New()
-	return p.Parse(dir)
+	return parser.Parse(dir)
 }
 
 func requireParseErrors(t *testing.T, got parser.Errors, want ...error) {

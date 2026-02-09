@@ -14,7 +14,7 @@ type PageIndex struct {
 
 func (p PageIndex) GET(
 	r *http.Request,
-	session SessionJWT,
+	session Session,
 ) (body templ.Component, err error) {
 	mainCategories, err := p.App.repo.MainCategories(r.Context())
 	if err != nil {

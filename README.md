@@ -73,7 +73,7 @@ The `App` type may optionally provide a method for custom global HTML `<head>` t
 ```go
 func (*App) Head(
     r *http.Request,
-    session SessionJWT,
+    session Session,
 ) (templ.Component, error) {
     return globalHeadTags(session.UserID), error
 }
@@ -124,7 +124,8 @@ followed by other parameters:
 ```go
 func (PageIndex) GET(
     r *http.Request,
-    session SessionJWT, // Optional
+    sessionToken string, // Optional
+    session Session, // Optional
     path struct{...}, // Required only when path variables are used in the URL
     query struct{...}, // Optional
     signals struct {...}, // Optional
@@ -137,8 +138,8 @@ func (PageIndex) GET(
     body templ.Component,
     head templ.Component, // Optional
     redirect Redirect, // Optional
-    newSession SessionJWT, // Optional
-    removeSessionJWT bool, // Optional
+    newSession Session, // Optional
+    removeSession bool, // Optional
     enableBackgroundStreaming bool, // Optional
     disableRefreshAfterHidden bool, // Optional
     err error
@@ -155,7 +156,7 @@ always start with `r *http.Request`, followed by other parameters:
 func (PageIndex) POSTActionName(
     r *http.Request,
     sse *datastar.ServerSentEventGenerator, // Optional
-    session SessionJWT, // Optional
+    session Session, // Optional
     path struct{...}, // Required only when path variables are used in the URL
     query struct{...}, // Optional
     signals struct {...}, // Optional
@@ -176,7 +177,7 @@ return HTML, set/remove sessions.
 // POSTActionName is <path>
 func (PageIndex) POSTActionName(
     r *http.Request,
-    session SessionJWT, // Optional
+    session Session, // Optional
     path struct{...}, // Required only when path variables are used in the URL
     query struct{...}, // Optional
     signals struct {...}, // Optional
@@ -189,8 +190,8 @@ func (PageIndex) POSTActionName(
     body templ.Component, // Optional
     head templ.Component, // Optional
     redirect Redirect, // Optional
-    newSession SessionJWT, // Optional
-    removeSessionJWT bool, // Optional
+    newSession Session, // Optional
+    removeSession bool, // Optional
     err error,
 ) {
     // ...
@@ -206,7 +207,7 @@ The `XXX` placeholder must always match the event name after the type's `Event` 
 func (PageIndex) OnSomethingHappened(
 	event EventSomethingHappened,
 	sse *datastar.ServerSentEventGenerator,
-	session SessionJWT, // Optional
+	session Session, // Optional
 ) error {
 	// ...
 }
@@ -222,7 +223,7 @@ type Base struct{ App *App }
 func (Base) OnSomethingHappened(
 	event EventSomethingHappened,
     sse *datastar.ServerSentEventGenerator,
-	session SessionJWT,
+	session Session,
 ) error {
 	// ...
 }
@@ -276,7 +277,7 @@ func (p PageExample) GET(r *http.Request) (body templ.Component, err error) {
 // POSTInputChanged is /example/input-changed
 func (p PageExample) POSTInputChanged(
     r *http.Request,
-    session SessionJWT,
+    session Session,
     signals struct {
         InputValue string `json:"inputvalue"`
     }
@@ -292,7 +293,7 @@ func (p PageExample) POSTInputChanged(
 // POSTButtonClicked is /example/button-clicked
 func (p PageExample) POSTButtonClicked(
     r *http.Request,
-    session SessionJWT,
+    session Session,
     dispatch(EventSomethingHappened) error,
 ) error {
     // Update everyone that something happened.
@@ -302,7 +303,7 @@ func (p PageExample) POSTButtonClicked(
 func (p PageExample) OnSomethingHappened(
 	event EventSomethingHappened,
     sse *datastar.ServerSentEventGenerator,
-	session SessionJWT,
+	session Session,
 ) error {
     // When something happens, patch the page.
     return sse.PatchElementTempl(updateTemplate())
@@ -361,18 +362,42 @@ query struct {
 The above example will automatically synchronize the query parameter `s` with the
 signal `selecteditem`.
 
-#### 🧩 Parameter: `session SessionJWT`
+#### 🧩 Parameter: `session Session`
 
 ```go
-session SessionJWT
+session Session
 ```
 
-Provides [JWT](https://www.jwt.io/)-based authentication information from cookies.
+Provides authentication information from cookies.
 
 If used, must be defined at the source package level as:
 
 ```go
-type SessionJWT struct {
+type Session struct {
+    UserID string
+    
+    // Custom metadata.
+    IssuedAt time.Time `json:"iat"`
+    FooBar   Bazz      `json:"foo-bar"`
+}
+```
+
+The `Session` type must have the `UserID string` field.
+Any other field is treated as a custom payload.
+
+#### 🧩 Parameter: `sessionToken string`
+
+```go
+sessionToken string
+```
+
+Provides the session token from cookies.
+Empty string if the request doesn't contain an authentication cookie.
+
+If used `type Session struct` must be defined at the source package level.
+
+```go
+type Session struct {
     UserID     string    `json:"sub"` // Required.
     IssuedAt   time.Time `json:"iat"` // Optional.
     Expiration time.Time `json:"exp"` // Optional.
@@ -448,7 +473,7 @@ type PageChat struct { App *App }
 func (PageChat) POSTSendMessage(
     r *http.Request,
     e EventMessageSent,
-    session SessionJWT,
+    session Session,
     signals struct {
         InputText string `json:"inputtext"`
         ChatRoom  string `json:"chatroom"`
@@ -471,7 +496,7 @@ func (PageChat) POSTSendMessage(
 func (PageChat) OnMessageSent(
     event EventMessageSent,
     sse *datastar.ServerSentEventGenerator,
-    session SessionJWT,
+    session Session,
 ) error {
     // Use sse to patch the new message into view.
 }
@@ -556,23 +581,22 @@ type Redirect struct {
 }
 ```
 
-#### 🧩 Return Value: `newSession SessionJWT`
+#### 🧩 Return Value: `newSession Session`
 
 ```go
-newSession SessionJWT
+newSession Session
 ```
 
-Adds response headers to set a JWT session cookie if `newSession.UserID` is not empty,
+Adds response headers to set a session cookie if `newSession.UserID` is not empty,
 otherwise no-op.
 
-#### 🧩 Return Value: `removeSessionJWT bool`
+#### 🧩 Return Value: `removeSession bool`
 
 ```go
-removeSessionJWT bool
+removeSession bool
 ```
 
-Removes any JWT session cookie if `true`, otherwise no-op.
-
+Closes the session and removes any session cookie if `true`, otherwise no-op.
 
 #### 🧩 Return Value `error` or `err error`
 

@@ -11,11 +11,6 @@ func POSTAppCause500() string {
 	return "@post('/cause-500-internal-error/')"
 }
 
-// POSTAppExpireSessionJWT references /expire-session-jwt/
-func POSTAppExpireSessionJWT() string {
-	return "@post('/expire-session-jwt/')"
-}
-
 // POSTAppSignOut references /sign-out/
 func POSTAppSignOut() string {
 	return "@post('/sign-out/')"
@@ -29,6 +24,21 @@ func POSTPageLoginSubmit() string {
 // POSTPageSettingsSave references /settings/save/
 func POSTPageSettingsSave() string {
 	return "@post('/settings/save/')"
+}
+
+// POSTPageSettingsCloseSession references /close-session/{token}/
+func POSTPageSettingsCloseSession(token string) string {
+	var b strings.Builder
+	b.Grow(len("@post('/settings/close-session/") + len(token) + len("/')"))
+	b.WriteString("@post('/settings/close-session/")
+	b.WriteString(token)
+	b.WriteString("/')")
+	return b.String()
+}
+
+// POSTPageSettingsCloseAllSessions references /close-all-sessions/
+func POSTPageSettingsCloseAllSessions() string {
+	return "@post('/settings/close-all-sessions/')"
 }
 
 // POSTPageMessagesRead references /messages/read/

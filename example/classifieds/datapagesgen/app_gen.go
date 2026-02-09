@@ -4,6 +4,7 @@ package datapagesgen
 
 import (
 	"bufio"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/json"
@@ -17,14 +18,36 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/romshark/datapages/example/classifieds/app"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/starfederation/datastar-go/datastar"
 )
+
+type Server struct {
+	shutdownCh    chan struct{} // Closed when shutting down.
+	shutdownOnce  sync.Once
+	runCancel     context.CancelFunc
+	httpServer    *http.Server
+	messageBroker MessageBroker
+	app           *app.App
+	mux           *http.ServeMux
+	logger        *slog.Logger
+	middleware    []func(http.Handler) http.Handler
+	staticURLPath string
+	staticFS      http.FileSystem
+	enabledTLS    bool
+
+	metricsServer         *http.Server
+	authConf              *AuthConfig
+	sessionTokenGenerator SessionTokenGenerator
+	sessionManager        SessionManager
+	csrfConf              *CSRFConfig
+	csrfHMACPool          sync.Pool
+}
 
 // NewServer creates a new server instance.
 // Supported options:
@@ -65,13 +88,18 @@ func NewServer(app *app.App, opts ...ServerOption) *Server {
 	// Reverse handlers such that they're invoked in the order of definition.
 	slices.Reverse(s.middleware)
 
-	if s.authJWTOpts == nil {
-		// package app is using JWT authentication, hence WithAuthJWTConfig is required.
-		panic("missing option WithAuthJWTConfig")
-	}
 	if s.metricsServer == nil {
 		// package app is using prometheus metrics, hence WithPrometheus is required.
 		panic("missing option WithPrometheus")
+	}
+
+	if s.sessionManager == nil {
+		panic("missing SessionManager; provide a session manager using WithAuth")
+	}
+	if s.sessionTokenGenerator == nil {
+		s.sessionTokenGenerator = DefaultSessionTokenGenerator{
+			Length: DefaultSessionTokenLength,
+		}
 	}
 
 	// Use defaults if not set.
@@ -134,6 +162,7 @@ const (
 	EvSubjMessagingRead           = "messaging.read.*"
 	EvSubjMessagingWriting        = "messaging.writing.*"
 	EvSubjMessagingWritingStopped = "messaging.writing-stopped.*"
+	EvSubjSessionsClosed          = "sessions.closed.*"
 
 	// Public events:
 
@@ -145,6 +174,7 @@ const (
 	EvSubjPrefMessagingRead           = "messaging.read."
 	EvSubjPrefMessagingWriting        = "messaging.writing."
 	EvSubjPrefMessagingWritingStopped = "messaging.writing-stopped."
+	EvSubjPrefSessionsClosed          = "sessions.closed."
 )
 
 func MessageBrokerStreamSubjects() []string {
@@ -154,6 +184,7 @@ func MessageBrokerStreamSubjects() []string {
 		EvSubjMessagingWriting,
 		EvSubjMessagingWritingStopped,
 		EvSubjPostArchived,
+		EvSubjSessionsClosed,
 	}
 }
 
@@ -197,166 +228,109 @@ func evSubjPageSettings(userID string) []string {
 	return []string{
 		EvSubjPrefMessagingSent + userID,
 		EvSubjPrefMessagingRead + userID,
+		EvSubjPrefSessionsClosed + userID,
 	}
 }
 
-// --- Auth: JWT ---
+// --- Auth ---
 
-const DefaultAuthJWTCookieName = "sessjwt"
+const DefaultAuthSessionCookieName = "sessiontoken"
 
-type AuthJWTConfig struct {
-	Secret []byte
+type AuthConfig struct {
+	SessionManager SessionManager
 
-	Audience        string            // Optional; Not set by default.
-	Issuer          string            // Optional; Not set by default.
-	CookieName      string            // Optional; Default is DefaultAuthJWTCookieName
-	CookieDomain    string            // Optional; Not set by default.
-	DisableHTTPOnly bool              // Optional; By default, httponly is enabled.
-	SigningMethod   jwt.SigningMethod // Optional; Default is jwt.SigningMethodHS256.
+	// SessionTokenGenerator is optional; defaults to DefaultSessionTokenGenerator
+	SessionTokenGenerator SessionTokenGenerator
+
+	// TokenCookie is optional; defaults to DefaultAuthSessionCookieName
+	TokenCookie AuthSessionConfigTokenCookie
+
+	// DisableHTTPOnly is optional; By default, httponly is enabled.
+	DisableHTTPOnly bool
 }
 
-var ErrAuthJWTMissingSecret = errors.New("missing JWT secret")
+type AuthSessionConfigTokenCookie struct {
+	// Name is optional; Default is DefaultAuthSessionCookieName
+	Name string
+	// Domain is optional; Not set by default.
+	Domain string
+}
 
-// WithAuthJWTConfig sets JWT configuration.
-// This option is required if the app is using JWT authentication.
-// NewServer will panic if JWT authentication is used but this option isn't set.
-func WithAuthJWTConfig(o AuthJWTConfig) ServerOption {
+// WithAuth sets session-based authentication configuration.
+func WithAuth(o AuthConfig) ServerOption {
 	return func(s *Server) error {
-		if o.CookieName == "" {
-			o.CookieName = DefaultAuthJWTCookieName
+		if o.TokenCookie.Name == "" {
+			o.TokenCookie.Name = DefaultAuthSessionCookieName
 		}
-		if len(o.Secret) < 1 {
-			return ErrAuthJWTMissingSecret
-		}
-		if o.SigningMethod == nil {
-			o.SigningMethod = jwt.SigningMethodHS256
-		}
-		s.authJWTOpts = &o
+		s.authConf = &o
+		s.sessionTokenGenerator = o.SessionTokenGenerator
+		s.sessionManager = o.SessionManager
 		return nil
 	}
 }
 
-func (s *Server) mustSetSessionJWT(
-	w http.ResponseWriter,
-	userID, issuer, audience string,
-	issuedAt time.Time,
-	expire time.Time,
-) {
-	mSize := 3
-	if issuer != "" {
-		mSize++
-	}
-	if audience != "" {
-		mSize++
-	}
-	jwtClaims := make(jwt.MapClaims, mSize)
-	jwtClaims["sub"] = userID
-	jwtClaims["exp"] = expire.Unix()
-	jwtClaims["iat"] = issuedAt.Unix()
-	if issuer != "" {
-		jwtClaims["iss"] = issuer
-	}
-	if audience != "" {
-		jwtClaims["aud"] = audience
-	}
-
-	token := jwt.NewWithClaims(s.authJWTOpts.SigningMethod, jwtClaims)
-
-	signed, err := token.SignedString(s.authJWTOpts.Secret)
-	if err != nil {
-		panic(err)
-	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     s.authJWTOpts.CookieName,
-		Value:    signed,
+func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
+	cookie := http.Cookie{
+		Name:     s.authConf.TokenCookie.Name,
+		Value:    value,
 		Path:     "/",
-		Expires:  expire,
-		HttpOnly: true,
-		Domain:   s.authJWTOpts.CookieDomain,
+		Domain:   s.authConf.TokenCookie.Domain,
+		HttpOnly: !s.authConf.DisableHTTPOnly,
 		Secure:   s.enabledTLS,
 		SameSite: http.SameSiteLaxMode,
-	})
+	}
+	if value == "" {
+		cookie.MaxAge = -1
+		cookie.Expires = time.Unix(0, 0)
+	}
+	http.SetCookie(w, &cookie)
 }
 
-func (s *Server) removeSessionJWT(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     s.authJWTOpts.CookieName,
-		Value:    "",
-		Path:     "/",
-		Domain:   s.authJWTOpts.CookieDomain,
-		MaxAge:   -1,
-		Expires:  time.Unix(0, 0),
-		HttpOnly: !s.authJWTOpts.DisableHTTPOnly,
-		Secure:   s.enabledTLS,
-		SameSite: http.SameSiteLaxMode,
-	})
+func (s *Server) createSession(
+	w http.ResponseWriter, r *http.Request, token string, session app.Session,
+) error {
+	if err := s.sessionManager.CreateSession(r.Context(), token, session); err != nil {
+		return err
+	}
+	s.setSessionCookie(w, session.UserID+"."+token)
+	return nil
 }
 
-// authJWT reads the auth JWT from r and checks CSRF when necessary.
-func (s *Server) authJWT(
+func (s *Server) removeSession(
+	w http.ResponseWriter, r *http.Request, token string,
+) error {
+	if err := s.sessionManager.CloseSession(r.Context(), token); err != nil {
+		return err
+	}
+	s.setSessionCookie(w, "")
+	return nil
+}
+
+// authSess reads the session token from r and checks CSRF when necessary.
+// If onClose != nil it will be closed once the session is closed.
+func (s *Server) auth(
 	w http.ResponseWriter, r *http.Request,
-) (sess app.SessionJWT, ok bool) {
-	c, err := r.Cookie(s.authJWTOpts.CookieName)
+) (sess app.Session, token string, ok bool) {
+	c, err := r.Cookie(s.authConf.TokenCookie.Name)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {
-			return sess, true
+			return sess, "", true
 		}
-		return sess, false
+		return sess, "", false
 	}
 
-	token, err := jwt.Parse(c.Value, func(t *jwt.Token) (any, error) {
-		// Hard fail on alg mismatch
-		if t.Method.Alg() != s.authJWTOpts.SigningMethod.Alg() {
-			return nil, jwt.ErrTokenInvalidClaims
-		}
-		return s.authJWTOpts.Secret, nil
-	})
-	if err != nil {
-		if errors.Is(err, jwt.ErrTokenExpired) {
-			// Clear the expired token
-			s.removeSessionJWT(w)
-			return sess, true
-		}
-		s.httpErrUnauth(w, "invalid JWT")
-		return sess, false
-	}
-
-	if !token.Valid {
-		s.httpErrUnauth(w, "invalid JWT")
-		return sess, false
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
+	sess, token, ok = s.sessionManager.ReadSessionFromCookie(c)
 	if !ok {
-		s.httpErrUnauth(w, "invalid JWT")
-		return sess, false
-	}
-
-	if sub, err := claims.GetSubject(); err != nil {
-		s.httpErrUnauth(w, "invalid JWT subject")
-		return sess, false
-	} else {
-		sess.UserID = sub
-	}
-	if iss, err := claims.GetIssuedAt(); err != nil {
-		s.httpErrUnauth(w, fmt.Sprintf("invalid JWT iss field: %q", iss))
-		return sess, false
-	} else {
-		sess.IssuedAt = iss.Time
-	}
-	if exp, err := claims.GetExpirationTime(); err != nil {
-		s.httpErrUnauth(w, "invalid JWT exp field")
-		return sess, false
-	} else {
-		sess.Expiration = exp.Time
+		// Cookie is stale or malformed; clear it and continue as unauthenticated.
+		s.setSessionCookie(w, "")
+		return app.Session{}, "", true
 	}
 
 	if !s.checkCSRF(w, r, sess) {
-		return sess, false
+		return sess, token, false
 	}
 
-	return sess, true
+	return sess, token, true
 }
 
 // --- Prometheus Metrics ---
@@ -415,8 +389,9 @@ var (
 		},
 	)
 
-	// By-kind (low-cardinality) publish counters. Useful because subjects include user IDs
-	// (high-cardinality), so we collapse to event kinds.
+	// By-kind (low-cardinality) publish counters.
+	// Useful because subjects include user IDs (high-cardinality),
+	// so we collapse to event kinds.
 	mBrokerEventPublishes = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "datapages",
@@ -531,6 +506,8 @@ func brokerSubjectKind(subject string) string {
 		return "messaging.writing-stopped"
 	case subject == EvSubjPostArchived:
 		return "posts.archived"
+	case strings.HasPrefix(subject, EvSubjPrefSessionsClosed):
+		return "sessions.closed"
 	default:
 		return "unknown"
 	}
@@ -634,20 +611,17 @@ func httpRedirect(
 func setupHandlers(s *Server) {
 	// Pages
 	s.mux.HandleFunc(
-		"POST /cause-500-internal-error/{$}",
-		s.handlePOSTCause500)
-	s.mux.HandleFunc(
-		"POST /expire-session-jwt/{$}",
-		s.handlePOSTExpireSessionJWT)
-	s.mux.HandleFunc(
-		"POST /sign-out/{$}",
-		s.handlePageSettingsPOSTSignOut)
-	s.mux.HandleFunc(
 		"GET /",
 		s.handlePageIndexGET)
 	s.mux.HandleFunc(
 		"GET /_$/{$}",
 		s.handlePageIndexGETStream)
+	s.mux.HandleFunc(
+		"POST /cause-500-internal-error/{$}",
+		s.handlePOSTCause500)
+	s.mux.HandleFunc(
+		"POST /sign-out/{$}",
+		s.handlePageSettingsPOSTSignOut)
 	s.mux.HandleFunc(
 		"GET /not-found/{$}",
 		s.handlePageError404GET)
@@ -669,6 +643,12 @@ func setupHandlers(s *Server) {
 	s.mux.HandleFunc(
 		"POST /settings/save/{$}",
 		s.handlePageSettingsPOSTSave)
+	s.mux.HandleFunc(
+		"POST /settings/close-session/{token}/{$}",
+		s.handlePageSettingsPOSTCloseSession)
+	s.mux.HandleFunc(
+		"POST /settings/close-all-sessions/{$}",
+		s.handlePageSettingsPOSTCloseAllSessions)
 	s.mux.HandleFunc(
 		"GET /messages/{$}",
 		s.handlePageMessagesGET)
@@ -716,6 +696,11 @@ func setupHandlers(s *Server) {
 		s.handlePagePostPOSTSendMessage)
 }
 
+func (s *Server) httpErrUnauth(w http.ResponseWriter) {
+	const code = http.StatusUnauthorized
+	http.Error(w, http.StatusText(code), code)
+}
+
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
@@ -744,7 +729,7 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -770,7 +755,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, app.SessionJWT{}, genericHead, nil, body, bodyAttrs,
+		w, r, app.Session{}, genericHead, nil, body, bodyAttrs,
 	); err != nil {
 		s.logErr("rendering PageError404", err)
 		return
@@ -783,22 +768,96 @@ func (s *Server) handlePOSTCause500(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePOSTExpireSessionJWT(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.authJWT(w, r)
+func (s *Server) handlePageSettingsPOSTCloseSession(
+	w http.ResponseWriter, r *http.Request,
+) {
+	sess, sessToken, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
 
-	newSessionJWT, err := s.app.POSTExpireSessionJWT(r, sess)
+	var path struct {
+		Token string `path:"token"`
+	}
+	path.Token = r.PathValue("token")
+
+	dispatch := func(
+		e1 app.EventSessionClosed,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
+			}
+			for _, uid := range e1.TargetUserIDs {
+				subj := EvSubjPrefSessionsClosed + uid
+				err = s.messageBroker.Publish(r.Context(), subj, j)
+				if err != nil {
+					return fmt.Errorf("publishing subject %q: %w", subj, err)
+				}
+			}
+		}
+		return nil
+	}
+
+	p := app.PageSettings{
+		App:  s.app,
+		Base: app.Base{App: s.app},
+	}
+	closeSession, redirect, err := p.POSTCloseSession(r, sessToken, sess, path, dispatch)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action App.POSTExpireSessionJWT", err)
+		s.httpErrIntern(w, r, nil, "handling PageUser.GET", err)
 		return
 	}
-	if j := newSessionJWT; j.UserID != "" {
-		s.mustSetSessionJWT(
-			w, j.UserID, s.authJWTOpts.Issuer, s.authJWTOpts.Audience,
-			j.IssuedAt, j.Expiration,
-		)
+	if closeSession {
+		if err := s.removeSession(w, r, sessToken); err != nil {
+			s.httpErrIntern(w, r, nil, "removing session", err)
+			return
+		}
+	}
+	if httpRedirect(w, r, redirect) {
+		return
+	}
+}
+
+func (s *Server) handlePageSettingsPOSTCloseAllSessions(
+	w http.ResponseWriter, r *http.Request,
+) {
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	dispatch := func(
+		e1 app.EventSessionClosed,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
+			}
+			for _, uid := range e1.TargetUserIDs {
+				subj := EvSubjPrefSessionsClosed + uid
+				err = s.messageBroker.Publish(r.Context(), subj, j)
+				if err != nil {
+					return fmt.Errorf("publishing subject %q: %w", subj, err)
+				}
+			}
+		}
+		return nil
+	}
+
+	p := app.PageSettings{
+		App:  s.app,
+		Base: app.Base{App: s.app},
+	}
+	redirect, err := p.POSTCloseAllSessions(r, sess, dispatch)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.POSTCloseAllSessions", err)
+		return
+	}
+	if httpRedirect(w, r, redirect) {
+		return
 	}
 }
 
@@ -824,7 +883,7 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, app.SessionJWT{}, genericHead, nil, body, bodyAttrs,
+		w, r, app.Session{}, genericHead, nil, body, bodyAttrs,
 	); err != nil {
 		s.logErr("rendering PageError500", err)
 		return
@@ -832,7 +891,7 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -877,7 +936,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.authJWT(w, r)
+	sess, sessToken, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -887,12 +946,11 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ttl := time.Until(sess.Expiration)
 	p := app.PageIndex{
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-	s.handleStreamRequest(w, r, evSubjPageIndex(sess.UserID), ttl, func(
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex(sess.UserID), func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
 		for msg := range ch {
@@ -921,7 +979,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -954,7 +1012,7 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -992,7 +1050,7 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1013,16 +1071,19 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 	}{
 		LoginSubmissions: mIPageLoginAuthLoginSubmissionsTotal{},
 	}
-	body, redirect, newSessionJWT, err := p.POSTSubmit(r, sess, signals, metrics)
+	body, redirect, newSession, err := p.POSTSubmit(r, sess, signals, metrics)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.POSTSubmit", err)
 		return
 	}
-	if j := newSessionJWT; j.UserID != "" {
-		s.mustSetSessionJWT(
-			w, j.UserID, s.authJWTOpts.Issuer, s.authJWTOpts.Audience,
-			j.IssuedAt, j.Expiration,
-		)
+	if j := newSession; j.UserID != "" {
+		tok, err := s.sessionTokenGenerator.Generate()
+		if err != nil {
+			s.httpErrIntern(w, r, nil, "generating session token", err)
+		}
+		if err := s.createSession(w, r, tok, newSession); err != nil {
+			s.httpErrIntern(w, r, nil, "creating session", err)
+		}
 	}
 	if httpRedirect(w, r, redirect) {
 		return
@@ -1041,7 +1102,7 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1084,7 +1145,7 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.authJWT(w, r)
+	sess, sessToken, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1094,16 +1155,24 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	ttl := time.Until(sess.Expiration)
 	p := app.PageSettings{
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-	s.handleStreamRequest(w, r, evSubjPageSettings(sess.UserID), ttl, func(
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageSettings(sess.UserID), func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
 		for msg := range ch {
 			switch {
+			case strings.HasPrefix(msg.Subject, EvSubjPrefSessionsClosed):
+				var e app.EventSessionClosed
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventSessionClosed JSON", err)
+					continue
+				}
+				if err := p.OnSessionClosed(e, sse, sessToken, sess); err != nil {
+					s.logErr("handling PageSettings.OnSessionClosed", err)
+				}
 			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
 				var e app.EventMessagingSent
 				if err := json.Unmarshal(msg.Data, &e); err != nil {
@@ -1131,7 +1200,7 @@ func (s *Server) handlePageSettingsPOSTSave(w http.ResponseWriter, r *http.Reque
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1148,9 +1217,12 @@ func (s *Server) handlePageSettingsPOSTSave(w http.ResponseWriter, r *http.Reque
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-	err := p.POSTSave(r, sse, sess, signals)
+	redirect, err := p.POSTSave(r, sse, sess, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageSettings.POSTSave", err)
+		return
+	}
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 }
@@ -1159,13 +1231,23 @@ func (s *Server) handlePageSettingsPOSTSignOut(w http.ResponseWriter, r *http.Re
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	removeSessionJWT, redirect, err := s.app.POSTSignOut(r)
+
+	sess, sessToken, ok := s.auth(w, r)
+	if !ok {
+		s.httpErrUnauth(w)
+		return
+	}
+
+	removeSession, redirect, err := s.app.POSTSignOut(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageSettings.PostSignOut", err)
 		return
 	}
-	if removeSessionJWT {
-		s.removeSessionJWT(w)
+	if removeSession {
+		if err := s.removeSession(w, r, sessToken); err != nil {
+			s.httpErrIntern(w, r, nil, "removing session", err)
+			return
+		}
 	}
 	if httpRedirect(w, r, redirect) {
 		return
@@ -1173,7 +1255,7 @@ func (s *Server) handlePageSettingsPOSTSignOut(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1239,7 +1321,7 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.authJWT(w, r)
+	sess, sessToken, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1257,12 +1339,11 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	ttl := time.Until(sess.Expiration)
 	p := app.PageMessages{
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-	s.handleStreamRequest(w, r, evSubjPageMessages(sess.UserID), ttl, func(
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageMessages(sess.UserID), func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
 		for msg := range ch {
@@ -1320,7 +1401,7 @@ func (s *Server) handlePageMessagesPOSTRead(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1374,7 +1455,7 @@ func (s *Server) handlePageMessagesPOSTWriting(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1422,7 +1503,7 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1470,7 +1551,7 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1531,7 +1612,7 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 }
 
 func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1627,7 +1708,7 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.authJWT(w, r)
+	sess, sessToken, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1637,12 +1718,11 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	ttl := time.Until(sess.Expiration)
 	p := app.PageSearch{
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-	s.handleStreamRequest(w, r, evSubjPageSearch(sess.UserID), ttl, func(
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageSearch(sess.UserID), func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
 		for msg := range ch {
@@ -1671,7 +1751,7 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1712,7 +1792,7 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePageMyPostsGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1748,7 +1828,7 @@ func (s *Server) handlePageMyPostsGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1798,7 +1878,7 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1824,7 +1904,7 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.authJWT(w, r)
+	sess, sessToken, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1834,12 +1914,11 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ttl := time.Until(sess.Expiration)
 	p := app.PagePost{
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-	s.handleStreamRequest(w, r, evSubjPagePost(sess.UserID), ttl, func(
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID), func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
 		for msg := range ch {
@@ -1880,7 +1959,7 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.authJWT(w, r)
+	sess, sessToken, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -1894,7 +1973,7 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-	s.handleStreamRequest(w, r, evSubjPagePost(sess.UserID), 0, func(
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID), func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
 	) {
 		for msg := range ch {
@@ -1918,7 +1997,7 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	sess, ok := s.authJWT(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}

@@ -25,8 +25,6 @@ func main() {
 		port = p
 	}
 
-	fMsgBrokerMem := flag.Bool("msg-broker-inmem", false,
-		"Forces in-memory message broker instead of NATS")
 	flag.Parse()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -35,15 +33,14 @@ func main() {
 	var opts []datapagesgen.ServerOption
 
 	withAccessLogger(&opts)
-	withAuthJWT(&opts)
 	withCSRFProtection(&opts)
 	withStaticFS(&opts)
-	withMessageBroker(&opts, *fMsgBrokerMem)
+	sessionManager := withNATS(&opts)
 	withPrometheus(&opts)
 
 	repo := NewRepository()
 
-	s := datapagesgen.NewServer(app.NewApp(repo), opts...)
+	s := datapagesgen.NewServer(app.NewApp(sessionManager, repo), opts...)
 	listenAndServe(ctx, s, net.JoinHostPort(host, port))
 }
 
@@ -58,13 +55,6 @@ func withAccessLogger(opts *[]datapagesgen.ServerOption) {
 				slog.String("path", r.URL.Path))
 			next.ServeHTTP(w, r)
 		})
-	})
-	*opts = append(*opts, o)
-}
-
-func withAuthJWT(opts *[]datapagesgen.ServerOption) {
-	o := datapagesgen.WithAuthJWTConfig(datapagesgen.AuthJWTConfig{
-		Secret: []byte(os.Getenv("JWT_SECRET")),
 	})
 	*opts = append(*opts, o)
 }
@@ -85,19 +75,12 @@ func withCSRFProtection(opts *[]datapagesgen.ServerOption) {
 	}))
 }
 
-func withMessageBroker(
-	opts *[]datapagesgen.ServerOption,
-	forceInmem bool,
-) {
-	if forceInmem {
-		slog.Info("forced in-memory message broker")
-		return
-	}
+func withNATS(opts *[]datapagesgen.ServerOption) *datapagesgen.SessionManagerNATSKV {
 	// If NATS URL is set then enable NATS message broker.
 	u := os.Getenv("NATS_URL")
 	if u == "" {
 		slog.Warn("NATS_URL not set; using in-memory message broker")
-		return
+		return nil
 	}
 	conn, err := nats.Connect(u)
 	if err != nil {
@@ -113,6 +96,22 @@ func withMessageBroker(
 		},
 	))
 	slog.Info("using NATS message broker")
+
+	m, err := datapagesgen.NewSessionManagerNATSKV(
+		conn,
+		datapagesgen.ConfigSessionManagerNATSKV{},
+	)
+	if err != nil {
+		slog.Error("preparing NATS KV session manager", slog.Any("err", err))
+		os.Exit(1)
+	}
+	o := datapagesgen.WithAuth(datapagesgen.AuthConfig{
+		SessionManager: m,
+	})
+	*opts = append(*opts, o)
+	slog.Info("using NATS KV session manager")
+
+	return m
 }
 
 func withPrometheus(opts *[]datapagesgen.ServerOption) {

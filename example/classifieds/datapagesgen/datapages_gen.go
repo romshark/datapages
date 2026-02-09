@@ -9,10 +9,12 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash"
 	"io"
+	"iter"
 	"log/slog"
 	"net"
 	"net/http"
@@ -340,26 +342,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-type Server struct {
-	shutdownCh    chan struct{} // Closed when shutting down.
-	shutdownOnce  sync.Once
-	runCancel     context.CancelFunc
-	httpServer    *http.Server
-	messageBroker MessageBroker
-	app           *app.App
-	mux           *http.ServeMux
-	logger        *slog.Logger
-	middleware    []func(http.Handler) http.Handler
-	staticURLPath string
-	staticFS      http.FileSystem
-	enabledTLS    bool
-
-	metricsServer *http.Server
-	authJWTOpts   *AuthJWTConfig
-	csrfConf      *CSRFConfig
-	csrfHMACPool  sync.Pool
-}
-
 type csrfGenerationContext struct {
 	hmac         hash.Hash
 	decodedToken []byte
@@ -413,7 +395,7 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 }
 
 func (s *Server) checkCSRF(
-	w http.ResponseWriter, r *http.Request, sess app.SessionJWT,
+	w http.ResponseWriter, r *http.Request, sess app.Session,
 ) (ok bool) {
 	if sess.UserID == "" ||
 		r.Method == http.MethodGet ||
@@ -437,7 +419,7 @@ func (s *Server) checkCSRF(
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess app.SessionJWT,
+	sess app.Session,
 	headGeneric, head, body templ.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 ) error {
@@ -505,9 +487,8 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, r *http.Request, sessKey string, sess app.Session,
 	subjects []string,
-	sessionTTL time.Duration,
 	fn func(
 		sse *datastar.ServerSentEventGenerator,
 		ch <-chan Message,
@@ -522,26 +503,29 @@ func (s *Server) handleStreamRequest(
 	defer mSSEConnections.Dec()
 	start := time.Now()
 
-	sub, err := s.messageBroker.Subscribe(r.Context(), subjects...)
+	ctx := r.Context()
+	sub, err := s.messageBroker.Subscribe(ctx, subjects...)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
 		return
 	}
 
 	subC := sub.C()
+	sessionClosed := make(chan struct{})
+
+	if sess.UserID != "" {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		s.sessionManager.NotifyClosed(ctx, sessKey, func() {
+			close(sessionClosed)
+		})
+	}
 
 	go func() {
-		var expirationC <-chan time.Time
-		if sessionTTL != 0 {
-			t := time.NewTimer(sessionTTL)
-			defer t.Stop()
-			expirationC = t.C
-		}
-
-		// Close the subscription when the request is canceled or TTL expires.
+		// Close the subscription when the request is canceled or the session is closed.
 		select {
-		case <-expirationC:
-			mSSEDisconnects.WithLabelValues("ttl").Inc()
+		case <-sessionClosed:
+			mSSEDisconnects.WithLabelValues("close").Inc()
 		case <-r.Context().Done():
 			mSSEDisconnects.WithLabelValues("client").Inc()
 		case <-s.shutdownCh:
@@ -556,11 +540,6 @@ func (s *Server) handleStreamRequest(
 
 func (s *Server) logErr(msg string, err error) {
 	s.logger.Error(msg, slog.Any("err", err))
-}
-
-func (s *Server) httpErrUnauth(w http.ResponseWriter, msg string) {
-	s.logger.Debug("unauthorized request", slog.String("cause", msg))
-	http.Error(w, msg, http.StatusUnauthorized)
 }
 
 func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
@@ -890,4 +869,325 @@ func (s *memSub) Close() {
 	b.lock.Unlock()
 
 	close(s.ch)
+}
+
+// --- SESSION MANAGER ---
+
+type SessionTokenGenerator interface {
+	// Generates a cryptographically random session token.
+	Generate() (string, error)
+}
+
+type SessionManager interface {
+	// ReadSessionFromCookie returns the resolved session and
+	// the raw authentication token. Returns ok=false if auth information is malformed
+	// and therefore the cookie must be removed.
+	ReadSessionFromCookie(c *http.Cookie) (session app.Session, token string, ok bool)
+
+	// CreateSession creates a new session.
+	CreateSession(ctx context.Context, token string, session app.Session) error
+
+	// NotifyClosed sets up a listener that calls fn when session with key is closed.
+	// The listener shall be stopped once ctx is canceled.
+	// If the session manager implementation doesn't support dynamic closure notification
+	// then NotifyClosed is a no-op.
+	NotifyClosed(ctx context.Context, key string, fn func())
+
+	// CloseSession closes a session identified by token.
+	// No-op if that session doesn't exist.
+	CloseSession(ctx context.Context, token string) error
+}
+
+// WithSessionManager sets a custom session manager.
+func WithSessionManager(sm SessionManager) ServerOption {
+	return func(s *Server) error {
+		s.sessionManager = sm
+		return nil
+	}
+}
+
+// --- SESSION TOKEN GENERATOR: Default ---
+
+// DefaultSessionTokenLength is the number of random bytes used to generate
+// session tokens. 32 bytes provides 256 bits of entropy.
+const DefaultSessionTokenLength = 32
+
+// DefaultSessionTokenGenerator generates cryptographically secure session tokens.
+type DefaultSessionTokenGenerator struct {
+	// Length is the number of random bytes to generate.
+	// Defaults to DefaultSessionTokenLength if zero.
+	Length int
+}
+
+// Generate returns a new cryptographically random session token
+// encoded as URL-safe base64 without padding.
+func (g DefaultSessionTokenGenerator) Generate() (string, error) {
+	length := g.Length
+	if length <= 0 {
+		length = DefaultSessionTokenLength
+	}
+	b := make([]byte, length)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// --- SESSION MANAGER: NATS KV ---
+
+// NewSessionManagerNATSKV creates a new NATS KV-backed session manager.
+func NewSessionManagerNATSKV(
+	conn *nats.Conn,
+	conf ConfigSessionManagerNATSKV,
+) (*SessionManagerNATSKV, error) {
+	js, err := conn.JetStream()
+	if err != nil {
+		return nil, fmt.Errorf("creating JetStream context: %w", err)
+	}
+
+	bucketName := conf.BucketName
+	if bucketName == "" {
+		bucketName = DefaultSessionManagerNATSKVBucketName
+	}
+
+	kvConfig := nats.KeyValueConfig{
+		Bucket:  bucketName,
+		Storage: nats.MemoryStorage,
+	}
+	if conf.TTL > 0 {
+		kvConfig.TTL = conf.TTL
+	}
+
+	kv, err := js.CreateKeyValue(&kvConfig)
+	if err != nil {
+		// If the bucket already exists, get it instead
+		if errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
+			kv, err = js.KeyValue(bucketName)
+			if err != nil {
+				return nil, fmt.Errorf("getting existing KV bucket: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("creating KV bucket: %w", err)
+		}
+	}
+
+	return &SessionManagerNATSKV{
+		conf: conf,
+		kv:   kv,
+	}, nil
+}
+
+// DefaultSessionManagerNATSKVBucketName is the default bucket name for the
+// NATS KV Store based session manager.
+const DefaultSessionManagerNATSKVBucketName = "SESSIONS"
+
+type ConfigSessionManagerNATSKV struct {
+	// BucketName is the name of the KV bucket to use for sessions.
+	// Optional; defaults to DefaultSessionManagerNATSKVBucketName.
+	BucketName string
+
+	// TTL is the time-to-live for session entries in the KV store.
+	// Optional; defaults to no expiration.
+	TTL time.Duration
+}
+
+// sessionManagerNATSKVData is the internal representation of session data stored in KV.
+type sessionManagerNATSKVData struct {
+	UserID   string    `json:"user_id"`
+	IssuedAt time.Time `json:"issued_at"`
+}
+
+type SessionManagerNATSKV struct {
+	conf ConfigSessionManagerNATSKV
+	kv   nats.KeyValue
+}
+
+func (s *SessionManagerNATSKV) ReadSessionFromCookie(
+	c *http.Cookie,
+) (session app.Session, token string, ok bool) {
+	token = c.Value
+	if token == "" {
+		return app.Session{}, "", false
+	}
+
+	// Retrieve session data from NATS KV using token as key
+	entry, err := s.kv.Get(token)
+	if err != nil {
+		if errors.Is(err, nats.ErrKeyNotFound) {
+			// Session doesn't exist or expired
+			return app.Session{}, "", false
+		}
+		// Malformed or error - signal cookie removal
+		return app.Session{}, "", false
+	}
+
+	var sess sessionManagerNATSKVData
+	if err := json.Unmarshal(entry.Value(), &sess); err != nil {
+		// Corrupted data - signal cookie removal
+		return app.Session{}, "", false
+	}
+
+	return app.Session{
+		UserID:   sess.UserID,
+		IssuedAt: sess.IssuedAt,
+	}, token, true
+}
+
+func (s *SessionManagerNATSKV) NotifyClosed(
+	ctx context.Context, key string, fn func(),
+) {
+	// Watch for changes to the specific session key
+	watcher, err := s.kv.Watch(key, nats.Context(ctx))
+	if err != nil {
+		// If we can't watch, just return without calling fn
+		return
+	}
+
+	go func() {
+		defer func() { _ = watcher.Stop() }()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case entry := <-watcher.Updates():
+				if entry == nil {
+					// Channel closed
+					return
+				}
+				// Check if the key was deleted (Operation == KeyValueDelete)
+				if entry.Operation() == nats.KeyValueDelete || entry.Operation() == nats.KeyValuePurge {
+					fn()
+					return
+				}
+			}
+		}
+	}()
+}
+
+// SaveSession stores a session in NATS KV.
+// The key is structured as {userID}.{token} to enable efficient prefix-based lookups.
+// Returns the full key to be used as the cookie value.
+func (s *SessionManagerNATSKV) SaveSession(
+	ctx context.Context, token string, sess app.Session,
+) (key string, err error) {
+	data := sessionManagerNATSKVData{
+		UserID:   sess.UserID,
+		IssuedAt: sess.IssuedAt,
+	}
+
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return "", fmt.Errorf("marshaling session data: %w", err)
+	}
+
+	key = sess.UserID + "." + token
+	_, err = s.kv.Put(key, payload)
+	if err != nil {
+		return "", fmt.Errorf("storing session in KV: %w", err)
+	}
+
+	return key, nil
+}
+
+// CreateSession creates a new session in NATS KV.
+func (s *SessionManagerNATSKV) CreateSession(
+	ctx context.Context, token string, session app.Session,
+) error {
+	_, err := s.SaveSession(ctx, token, session)
+	return err
+}
+
+// CloseSession deletes a session from NATS KV. Watchers will be triggered.
+func (s *SessionManagerNATSKV) CloseSession(ctx context.Context, token string) error {
+	return s.kv.Delete(token)
+}
+
+// CloseAllUserSessions closes all sessions for a given user.
+// Uses prefix matching on keys structured as {userID}.{token}.
+// Appends the tokens of the closed sessions to buffer.
+func (s *SessionManagerNATSKV) CloseAllUserSessions(
+	buffer []string, userID string,
+) ([]string, error) {
+	// Watch with prefix pattern to find all sessions for this user.
+	// Watch() first delivers all existing matching keys, then nil to signal completion.
+	watcher, err := s.kv.Watch(userID+".*", nats.IgnoreDeletes(), nats.MetaOnly())
+	if err != nil {
+		return nil, fmt.Errorf("watching user sessions: %w", err)
+	}
+	defer func() { _ = watcher.Stop() }()
+
+	var errs []error
+	for entry := range watcher.Updates() {
+		if entry == nil {
+			break // Initial enumeration complete
+		}
+		k := entry.Key()
+		if err := s.kv.Delete(k); err != nil {
+			errs = append(errs, fmt.Errorf("deleting session %q: %w", k, err))
+		}
+		buffer = append(buffer, k)
+	}
+
+	return buffer, errors.Join(errs...)
+}
+
+var ErrSessionManagerNATSKVNotFound = errors.New("session not found")
+
+// Session retrieves a session by its key.
+// Returns an error if the session doesn't exist or is corrupted.
+func (s *SessionManagerNATSKV) Session(
+	ctx context.Context, token string,
+) (app.Session, error) {
+	entry, err := s.kv.Get(token)
+	if err != nil {
+		if errors.Is(err, nats.ErrKeyNotFound) {
+			return app.Session{}, ErrSessionManagerNATSKVNotFound
+		}
+		return app.Session{}, fmt.Errorf("getting session: %w", err)
+	}
+
+	var data sessionManagerNATSKVData
+	if err := json.Unmarshal(entry.Value(), &data); err != nil {
+		return app.Session{}, fmt.Errorf("unmarshaling session data: %w", err)
+	}
+
+	return app.Session{
+		UserID:   data.UserID,
+		IssuedAt: data.IssuedAt,
+	}, nil
+}
+
+// UserSessions returns an iterator over all sessions for a given user.
+// The iterator yields (key, session) pairs.
+// If an error occurs during iteration, the iterator stops early.
+func (s *SessionManagerNATSKV) UserSessions(
+	userID string,
+) iter.Seq2[string, app.Session] {
+	return func(yield func(string, app.Session) bool) {
+		watcher, err := s.kv.Watch(userID+".*", nats.IgnoreDeletes())
+		if err != nil {
+			return
+		}
+		defer func() { _ = watcher.Stop() }()
+
+		for entry := range watcher.Updates() {
+			if entry == nil {
+				break // Initial enumeration complete
+			}
+
+			var data sessionManagerNATSKVData
+			if err := json.Unmarshal(entry.Value(), &data); err != nil {
+				continue // Skip corrupted entries
+			}
+
+			sess := app.Session{
+				UserID:   data.UserID,
+				IssuedAt: data.IssuedAt,
+			}
+			if !yield(entry.Key(), sess) {
+				return
+			}
+		}
+	}
 }

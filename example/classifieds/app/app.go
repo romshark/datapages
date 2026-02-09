@@ -2,8 +2,8 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"iter"
 	"net/http"
 	"time"
 
@@ -19,19 +19,33 @@ type Redirect struct {
 	Status int
 }
 
-type SessionJWT struct {
-	UserID     string    `json:"sub"` // Subject.
-	IssuedAt   time.Time `json:"iat"`
-	Expiration time.Time `json:"exp"`
-	Issuer     string    `json:"iss"`
+type Session struct {
+	UserID string
+
+	IssuedAt time.Time
+}
+
+type SessionManager interface {
+	Session(ctx context.Context, token string) (Session, error)
+	CloseSession(ctx context.Context, token string) error
+	CloseAllUserSessions(buffer []string, userID string) ([]string, error)
+	UserSessions(userID string) iter.Seq2[string, Session]
 }
 
 type App struct {
-	// db, etc.
-	repo *domain.Repository
+	sessions SessionManager
+	repo     *domain.Repository
 }
 
-func NewApp(repo *domain.Repository) *App { return &App{repo: repo} }
+func NewApp(
+	sessions SessionManager,
+	repo *domain.Repository,
+) *App {
+	return &App{
+		sessions: sessions,
+		repo:     repo,
+	}
+}
 
 type SearchParams struct {
 	Term     string `json:"term" query:"t" reflectsignal:"term"`
@@ -42,8 +56,8 @@ type SearchParams struct {
 }
 
 // POSTSignOut is /sign-out/{$}
-func (*App) POSTSignOut(r *http.Request) (
-	removeSessionJWT bool,
+func (*App) POSTSignOut(r *http.Request, _ Session) (
+	closeSession bool,
 	redirect Redirect,
 	err error,
 ) {
@@ -53,26 +67,6 @@ func (*App) POSTSignOut(r *http.Request) (
 // POSTCause500 is /cause-500-internal-error/{$}
 func (*App) POSTCause500(r *http.Request) error {
 	return fmt.Errorf("this is an intentional 500 internal error")
-}
-
-// POSTExpireSessionJWT is /expire-session-jwt/{$}
-func (*App) POSTExpireSessionJWT(
-	r *http.Request,
-	session SessionJWT,
-) (
-	newSession SessionJWT,
-	err error,
-) {
-	if session.UserID == "" {
-		err = errors.New("not logged in")
-		return
-	}
-	now := time.Now()
-	return SessionJWT{
-		UserID:     session.UserID,
-		IssuedAt:   now,
-		Expiration: now.Add(1 * time.Millisecond),
-	}, nil
 }
 
 func (*App) Recover500(
@@ -124,7 +118,7 @@ type baseData struct {
 }
 
 func (b Base) baseData(
-	ctx context.Context, session SessionJWT,
+	ctx context.Context, session Session,
 ) (baseData, error) {
 	if session.UserID == "" {
 		return baseData{}, nil // Guest
@@ -148,7 +142,7 @@ func (b Base) baseData(
 func (b Base) OnMessagingSent(
 	event EventMessagingSent,
 	sse *datastar.ServerSentEventGenerator,
-	session SessionJWT,
+	session Session,
 ) error {
 	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID)
 	if err != nil {
@@ -178,7 +172,7 @@ func (b Base) OnMessagingSent(
 func (b Base) OnMessagingRead(
 	event EventMessagingRead,
 	sse *datastar.ServerSentEventGenerator,
-	session SessionJWT,
+	session Session,
 ) error {
 	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID)
 	if err != nil {
@@ -195,7 +189,7 @@ type PageError404 struct {
 
 func (p PageError404) GET(
 	r *http.Request,
-	session SessionJWT,
+	session Session,
 ) (body templ.Component, err error) {
 	baseData, err := p.baseData(r.Context(), session)
 	if err != nil {
