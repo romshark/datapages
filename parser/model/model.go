@@ -70,13 +70,21 @@ type Handler struct {
 	HTTPMethod string
 	Route      string
 
-	InputRequest *Input
-	InputSSE     *Input
-	InputPath    *Input
-	InputQuery   *Input
-	InputSignals *Input
+	InputRequest  *Input
+	InputSSE      *Input
+	InputPath     *Input
+	InputQuery    *Input
+	InputSignals  *Input
+	InputDispatch *InputDispatch
 
 	OutputErr *Output
+}
+
+type InputDispatch struct {
+	Expr           ast.Expr
+	Name           string
+	Type           Type
+	EventTypeNames []string
 }
 
 type EventHandler struct {

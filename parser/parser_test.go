@@ -550,6 +550,69 @@ func TestParse_Signals(t *testing.T) {
 	}
 }
 
+func TestParse_Dispatch(t *testing.T) {
+	app, err := parse(t, "dispatch")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	p := app.PageIndex
+	require.NotNil(p)
+	require.Len(p.Actions, 3)
+
+	// POSTSingle - single event dispatch
+	{
+		a := findAction(p.Actions, "Single")
+		require.NotNil(a)
+		require.Equal("POST", a.HTTPMethod)
+		require.NotNil(a.InputDispatch)
+		require.Equal("dispatch", a.InputDispatch.Name)
+		require.Equal(
+			[]string{"EventFoo"},
+			a.InputDispatch.EventTypeNames,
+		)
+	}
+
+	// POSTMulti - multi event dispatch
+	{
+		a := findAction(p.Actions, "Multi")
+		require.NotNil(a)
+		require.Equal("POST", a.HTTPMethod)
+		require.NotNil(a.InputDispatch)
+		require.Equal(
+			[]string{"EventFoo", "EventBar"},
+			a.InputDispatch.EventTypeNames,
+		)
+	}
+
+	// POSTWithSignals - signals before dispatch
+	{
+		a := findAction(p.Actions, "WithSignals")
+		require.NotNil(a)
+		require.Equal("POST", a.HTTPMethod)
+		require.NotNil(a.InputSignals)
+		require.NotNil(a.InputDispatch)
+		require.Equal(
+			[]string{"EventFoo"},
+			a.InputDispatch.EventTypeNames,
+		)
+	}
+}
+
+func TestParse_ErrDispatch(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_dispatch")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrDispatchParamNotFunc,
+		parser.ErrDispatchReturnCount,
+		parser.ErrDispatchMustReturnError,
+		parser.ErrDispatchNoParams,
+		parser.ErrDispatchParamNotEvent,
+	)
+}
+
 func TestParse_ErrSignals(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_signals")

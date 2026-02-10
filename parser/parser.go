@@ -497,7 +497,10 @@ func attachHTTPHandler(
 	kind methodkind.Kind,
 	suffix string,
 ) {
-	h, outputs, herr := parseHandler(recv, fd, ctx.pkg.TypesInfo, kind, suffix)
+	h, outputs, herr := parseHandler(
+		recv, fd, ctx.pkg.TypesInfo,
+		ctx.eventTypeNames, kind, suffix,
+	)
 	if herr != nil {
 		// Keep going; still attach a best-effort handler model.
 		errs.ErrAt(ctx.pkg.Fset.Position(fd.Name.Pos()), herr)
@@ -1000,6 +1003,7 @@ func parseHandler(
 	recv string,
 	fd *ast.FuncDecl,
 	info *types.Info,
+	eventTypeNames map[string]struct{},
 	kind methodkind.Kind,
 	name string,
 ) (*model.Handler, []*model.Output, error) {
@@ -1053,6 +1057,27 @@ func parseHandler(
 			return h, nil, sigErr
 		}
 		h.InputSignals = parseInput(remainingParams[0], info)
+		remainingParams = remainingParams[1:]
+	}
+
+	// Check if next param is dispatch function.
+	if len(remainingParams) > 0 &&
+		paramvalidation.IsDispatchParam(remainingParams[0]) {
+		eventNames, dispErr := paramvalidation.ValidateDispatchFunc(
+			remainingParams[0], info, eventTypeNames,
+			recv, fd.Name.Name,
+		)
+		if dispErr != nil {
+			return h, nil, dispErr
+		}
+		h.InputDispatch = &model.InputDispatch{
+			Expr: remainingParams[0].Names[0],
+			Name: "dispatch",
+			Type: makeType(
+				remainingParams[0].Type, info,
+			),
+			EventTypeNames: eventNames,
+		}
 		remainingParams = remainingParams[1:]
 	}
 

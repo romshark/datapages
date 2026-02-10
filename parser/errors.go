@@ -84,6 +84,12 @@ var (
 	ErrSignalsParamNotStruct  = paramvalidation.ErrSignalsParamNotStruct
 	ErrSignalsFieldUnexported = paramvalidation.ErrSignalsFieldUnexported
 	ErrSignalsFieldMissingTag = paramvalidation.ErrSignalsFieldMissingTag
+
+	ErrDispatchParamNotFunc    = paramvalidation.ErrDispatchParamNotFunc
+	ErrDispatchReturnCount     = paramvalidation.ErrDispatchReturnCount
+	ErrDispatchMustReturnError = paramvalidation.ErrDispatchMustReturnError
+	ErrDispatchNoParams        = paramvalidation.ErrDispatchNoParams
+	ErrDispatchParamNotEvent   = paramvalidation.ErrDispatchParamNotEvent
 )
 
 func normPos(pos token.Position) token.Position {

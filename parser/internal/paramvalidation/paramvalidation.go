@@ -222,6 +222,111 @@ func ValidateSignalsStruct(
 	return nil
 }
 
+// Dispatch parameter errors.
+var (
+	ErrDispatchParamNotFunc = errors.New(
+		"dispatch parameter must be a function type",
+	)
+	ErrDispatchReturnCount = errors.New(
+		"dispatch function must return " +
+			"exactly one value",
+	)
+	ErrDispatchMustReturnError = errors.New(
+		"dispatch function must return error",
+	)
+	ErrDispatchNoParams = errors.New(
+		"dispatch function must have " +
+			"at least one event parameter",
+	)
+	ErrDispatchParamNotEvent = errors.New(
+		"dispatch function parameter " +
+			"must be an event type",
+	)
+)
+
+// IsDispatchParam reports whether the AST field is named
+// "dispatch".
+func IsDispatchParam(f *ast.Field) bool {
+	return len(f.Names) > 0 &&
+		f.Names[0].Name == "dispatch"
+}
+
+// ValidateDispatchFunc validates that a dispatch parameter
+// is a function type with EventXXX parameters and a single
+// error return. Returns the list of event type names.
+func ValidateDispatchFunc(
+	f *ast.Field,
+	info *types.Info,
+	eventTypeNames map[string]struct{},
+	recv, method string,
+) ([]string, error) {
+	ft, ok := f.Type.(*ast.FuncType)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w in %s.%s",
+			ErrDispatchParamNotFunc, recv, method,
+		)
+	}
+
+	// Validate return: exactly one value of type error.
+	if ft.Results == nil || len(ft.Results.List) == 0 {
+		return nil, fmt.Errorf(
+			"%w in %s.%s",
+			ErrDispatchReturnCount, recv, method,
+		)
+	}
+	retCount := 0
+	for _, r := range ft.Results.List {
+		n := len(r.Names)
+		if n == 0 {
+			n = 1
+		}
+		retCount += n
+	}
+	if retCount != 1 {
+		return nil, fmt.Errorf(
+			"%w in %s.%s",
+			ErrDispatchReturnCount, recv, method,
+		)
+	}
+	retType := info.TypeOf(ft.Results.List[0].Type)
+	if !typecheck.IsError(retType) {
+		return nil, fmt.Errorf(
+			"%w in %s.%s",
+			ErrDispatchMustReturnError, recv, method,
+		)
+	}
+
+	// Validate parameters: at least one, all EventXXX.
+	if ft.Params == nil || len(ft.Params.List) == 0 {
+		return nil, fmt.Errorf(
+			"%w in %s.%s",
+			ErrDispatchNoParams, recv, method,
+		)
+	}
+	var eventNames []string
+	for _, p := range ft.Params.List {
+		name, ok := typecheck.EventTypeNameOf(
+			p.Type, info, eventTypeNames,
+		)
+		if !ok {
+			return nil, fmt.Errorf(
+				"%w in %s.%s",
+				ErrDispatchParamNotEvent, recv, method,
+			)
+		}
+		// Account for grouped names (a, b EventFoo).
+		n := len(p.Names)
+		if n == 0 {
+			n = 1
+		}
+		for range n {
+			eventNames = append(eventNames, name)
+		}
+	}
+	return eventNames, nil
+}
+
 // ValidatePathAgainstRoute checks that every path struct
 // field tag matches a route variable and vice versa.
 func ValidatePathAgainstRoute(
