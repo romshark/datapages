@@ -1,9 +1,10 @@
 package validate_test
 
 import (
-	"datapages/parser/validate"
 	"go/ast"
 	"testing"
+
+	"datapages/parser/validate"
 
 	"github.com/stretchr/testify/require"
 )

@@ -1,8 +1,6 @@
 package parser_test
 
 import (
-	"datapages/parser"
-	"datapages/parser/model"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -11,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"datapages/parser"
+	"datapages/parser/model"
 
 	"github.com/stretchr/testify/require"
 )
@@ -422,6 +423,144 @@ func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 
 	pos, _ := err.Entry(0)
 	requirePosEqual(t, "app.go", 15, 2, pos)
+}
+
+func TestParse_Path(t *testing.T) {
+	app, err := parse(t, "path")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// PageIndex - no path param
+	{
+		require.NotNil(app.PageIndex)
+		require.Nil(app.PageIndex.GET.InputPath)
+	}
+
+	// PageItem - GET with path struct
+	{
+		p := findPage(app, "PageItem")
+		require.NotNil(p)
+		require.Equal("/item/{id}", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputPath)
+		require.Equal("path", p.GET.InputPath.Name)
+
+		// Action with path struct
+		require.Len(p.Actions, 1)
+		action := p.Actions[0]
+		require.Equal("POST", action.HTTPMethod)
+		require.NotNil(action.InputPath)
+		require.Equal("path", action.InputPath.Name)
+	}
+}
+
+func TestParse_ErrPath(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_path")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrPathParamNotStruct,
+		parser.ErrPathFieldUnexported,
+		parser.ErrPathFieldNotString,
+		parser.ErrPathFieldMissingTag,
+		parser.ErrPathFieldNotInRoute,
+		parser.ErrPathMissingRouteVar,
+	)
+}
+
+func TestParse_Query(t *testing.T) {
+	app, err := parse(t, "query")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// PageIndex - no query param
+	{
+		require.NotNil(app.PageIndex)
+		require.Nil(app.PageIndex.GET.InputQuery)
+	}
+
+	// PageSearch - GET with query struct (mixed types)
+	{
+		p := findPage(app, "PageSearch")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputQuery)
+		require.Equal("query", p.GET.InputQuery.Name)
+
+		// Action with query struct
+		require.Len(p.Actions, 1)
+		action := p.Actions[0]
+		require.Equal("POST", action.HTTPMethod)
+		require.NotNil(action.InputQuery)
+		require.Equal("query", action.InputQuery.Name)
+	}
+}
+
+func TestParse_ErrQuery(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_query")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrQueryParamNotStruct,
+		parser.ErrQueryFieldUnexported,
+		parser.ErrQueryFieldMissingTag,
+	)
+}
+
+func TestParse_Signals(t *testing.T) {
+	app, err := parse(t, "signals")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// PageIndex - no signals
+	{
+		require.NotNil(app.PageIndex)
+		require.Nil(app.PageIndex.GET.InputSignals)
+	}
+
+	// PageForm - action with signals
+	{
+		p := findPage(app, "PageForm")
+		require.NotNil(p)
+		require.Nil(p.GET.InputSignals)
+		require.Len(p.Actions, 1)
+		action := p.Actions[0]
+		require.NotNil(action.InputSignals)
+		require.Equal("signals", action.InputSignals.Name)
+	}
+
+	// PageSearch - GET with query + signals + reflectsignal
+	{
+		p := findPage(app, "PageSearch")
+		require.NotNil(p)
+		require.NotNil(p.GET.InputQuery)
+		require.NotNil(p.GET.InputSignals)
+		require.Equal("signals", p.GET.InputSignals.Name)
+
+		// Action with both query and signals
+		require.Len(p.Actions, 1)
+		action := p.Actions[0]
+		require.NotNil(action.InputQuery)
+		require.NotNil(action.InputSignals)
+	}
+}
+
+func TestParse_ErrSignals(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_signals")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrSignalsParamNotStruct,
+		parser.ErrSignalsFieldUnexported,
+		parser.ErrSignalsFieldMissingTag,
+		parser.ErrQueryReflectSignalNotInSignals,
+	)
 }
 
 func requireExprLineCol(

@@ -72,10 +72,11 @@ type Handler struct {
 
 	InputRequest *Input
 	InputSSE     *Input
-	Inputs       []*Input
+	InputPath    *Input
+	InputQuery   *Input
+	InputSignals *Input
 
 	OutputErr *Output
-	Outputs   []*Output
 }
 
 type EventHandler struct {
@@ -86,7 +87,6 @@ type EventHandler struct {
 
 	InputEvent *Input
 	InputSSE   *Input
-	Inputs     []*Input
 
 	OutputErr *Output
 }

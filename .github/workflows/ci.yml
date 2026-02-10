@@ -21,6 +21,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Check formatting (gofumpt)
+        run: make check-fmt
+
+      - name: Check go.mod tidy
+        run: make check-mod
+
       # Test and report coverage
       - name: Run tests with coverage
         working-directory: ${{ matrix.project.path }}

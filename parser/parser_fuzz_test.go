@@ -1,10 +1,11 @@
 package parser_test
 
 import (
-	"datapages/parser"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"datapages/parser"
 )
 
 // FuzzParser tests the parser with randomly generated Go code to catch panics and edge cases.
@@ -31,6 +32,14 @@ func FuzzParser(f *testing.F) {
 	f.Add(`POSTAction(r *http.Request) error`)
 	f.Add(`POSTAction(r *http.Request, sse *datastar.ServerSentEventGenerator) error`)
 	f.Add(`POSTAction(r *http.Request, unknown int) error`)
+	f.Add(`GET(r *http.Request, path struct{ ID string ` + "`path:\"id\"`" + ` }) (body templ.Component, err error)`)
+	f.Add(`GET(r *http.Request, path int) (body templ.Component, err error)`)
+	f.Add(`GET(r *http.Request, query struct{ Term string ` + "`query:\"t\"`" + ` }) (body templ.Component, err error)`)
+	f.Add(`GET(r *http.Request, query struct{ Term string }) (body templ.Component, err error)`)
+	f.Add(`GET(r *http.Request, signals struct{ Foo string ` + "`json:\"foo\"`" + ` }) (body templ.Component, err error)`)
+	f.Add(`GET(r *http.Request, signals int) (body templ.Component, err error)`)
+	f.Add(`GET(r *http.Request, query struct{ T string ` + "`query:\"t\" reflectsignal:\"foo\"`" + ` }, signals struct{ Foo string ` + "`json:\"foo\"`" + ` }) (body templ.Component, err error)`)
+	f.Add(`POSTAction(r *http.Request, path struct{ ID string ` + "`path:\"id\"`" + ` }, query struct{ P int ` + "`query:\"p\"`" + ` }, signals struct{ S string ` + "`json:\"s\"`" + ` }) error`)
 
 	f.Fuzz(func(t *testing.T, handlerSignature string) {
 		// Create a temporary directory for the fuzz test
@@ -46,7 +55,7 @@ require (
 	github.com/starfederation/datastar-go v1.1.0
 )
 `
-		if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0o644); err != nil {
 			t.Skip("failed to write go.mod")
 		}
 
@@ -73,7 +82,7 @@ func (PageIndex) ` + handlerSignature + ` {
 	return
 }
 `
-		if err := os.WriteFile(filepath.Join(tmpDir, "app.go"), []byte(appGo), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "app.go"), []byte(appGo), 0o644); err != nil {
 			t.Skip("failed to write app.go")
 		}
 
@@ -117,7 +126,7 @@ require (
 	github.com/starfederation/datastar-go v1.1.0
 )
 `
-		if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0o644); err != nil {
 			t.Skip("failed to write go.mod")
 		}
 
@@ -163,7 +172,7 @@ func (PageIndex) OnEventFoo(` + params + `) error {
 	return nil
 }
 `
-		if err := os.WriteFile(filepath.Join(tmpDir, "app.go"), []byte(appGo), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "app.go"), []byte(appGo), 0o644); err != nil {
 			t.Skip("failed to write app.go")
 		}
 
@@ -184,8 +193,10 @@ func FuzzParserActionHandlerParams(f *testing.F) {
 	f.Add(0) // No params - should error
 	f.Add(1) // Just request
 	f.Add(2) // Request + SSE
-	f.Add(3) // Request + SSE + extra - should error
-	f.Add(5) // Many params - should error
+	f.Add(3) // Request + SSE + path
+	f.Add(4) // Request + SSE + path + query
+	f.Add(5) // Request + SSE + path + query + signals
+	f.Add(6) // Request + SSE + path + query + signals + extra
 
 	f.Fuzz(func(t *testing.T, paramCount int) {
 		if paramCount < 0 || paramCount > 10 {
@@ -203,11 +214,12 @@ require (
 	github.com/starfederation/datastar-go v1.1.0
 )
 `
-		if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0o644); err != nil {
 			t.Skip("failed to write go.mod")
 		}
 
-		// Build parameter list
+		// Build parameter list matching the expected order:
+		// request, sse, path, query, signals, extra...
 		params := ""
 		for i := 0; i < paramCount; i++ {
 			if i > 0 {
@@ -218,8 +230,14 @@ require (
 				params += "r *http.Request"
 			case 1:
 				params += "sse *datastar.ServerSentEventGenerator"
+			case 2:
+				params += "path struct{ ID string `path:\"id\"` }"
+			case 3:
+				params += "query struct{ P int `query:\"p\"` }"
+			case 4:
+				params += "signals struct{ S string `json:\"s\"` }"
 			default:
-				params += "param" + string(rune('A'+i-2)) + " int"
+				params += "param" + string(rune('A'+i-5)) + " int"
 			}
 		}
 
@@ -240,19 +258,19 @@ func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
 	return body, err
 }
 
-// PageActions is /actions
+// PageActions is /actions/{id}
 type PageActions struct{ App *App }
 
 func (PageActions) GET(r *http.Request) (body templ.Component, err error) {
 	return body, err
 }
 
-// POSTAction is /actions/test
+// POSTAction is /actions/{id}/test
 func (PageActions) POSTAction(` + params + `) error {
 	return nil
 }
 `
-		if err := os.WriteFile(filepath.Join(tmpDir, "app.go"), []byte(appGo), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "app.go"), []byte(appGo), 0o644); err != nil {
 			t.Skip("failed to write app.go")
 		}
 

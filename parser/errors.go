@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"strings"
 
+	"datapages/parser/internal/paramvalidation"
+	"datapages/parser/internal/structtag"
+
 	"golang.org/x/tools/go/packages"
 )
 
@@ -64,6 +67,23 @@ var (
 
 	ErrEventFieldUnexported = errors.New("event field must be exported")
 	ErrEventFieldMissingTag = errors.New("event field must have json tag")
+
+	ErrPathParamNotStruct  = paramvalidation.ErrPathParamNotStruct
+	ErrPathFieldUnexported = paramvalidation.ErrPathFieldUnexported
+	ErrPathFieldMissingTag = paramvalidation.ErrPathFieldMissingTag
+	ErrPathFieldNotString  = paramvalidation.ErrPathFieldNotString
+	ErrPathFieldNotInRoute = paramvalidation.ErrPathFieldNotInRoute
+	ErrPathMissingRouteVar = paramvalidation.ErrPathMissingRouteVar
+
+	ErrQueryParamNotStruct  = paramvalidation.ErrQueryParamNotStruct
+	ErrQueryFieldUnexported = paramvalidation.ErrQueryFieldUnexported
+	ErrQueryFieldMissingTag = paramvalidation.ErrQueryFieldMissingTag
+
+	ErrQueryReflectSignalNotInSignals = structtag.ErrQueryReflectSignalNotInSignals
+
+	ErrSignalsParamNotStruct  = paramvalidation.ErrSignalsParamNotStruct
+	ErrSignalsFieldUnexported = paramvalidation.ErrSignalsFieldUnexported
+	ErrSignalsFieldMissingTag = paramvalidation.ErrSignalsFieldMissingTag
 )
 
 func normPos(pos token.Position) token.Position {
@@ -237,28 +257,4 @@ func cleanPath(p string) string {
 		return p
 	}
 	return strings.TrimRight(p, "/")
-}
-
-// isUnderPage reports whether action is under page.
-// Rules:
-//   - page must be prefix of action
-//   - boundary: either page=="/" OR next char after prefix is '/'
-//   - disallow exact equality (action == page) to avoid colliding with GET route
-func isUnderPage(page, action string) bool {
-	page = cleanPath(page)
-	action = cleanPath(action)
-
-	if page == "" || action == "" {
-		return false
-	}
-	if page == "/" {
-		return strings.HasPrefix(action, "/")
-	}
-	if !strings.HasPrefix(action, page) {
-		return false
-	}
-	if len(action) == len(page) {
-		return false // disallow exact match
-	}
-	return action[len(page)] == '/'
 }

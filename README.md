@@ -72,10 +72,10 @@ The `App` type may optionally provide a method for custom global HTML `<head>` t
 
 ```go
 func (*App) Head(
-    r *http.Request,
-    session Session,
+	r *http.Request,
+	session Session,
 ) (templ.Component, error) {
-    return globalHeadTags(session.UserID), error
+	return globalHeadTags(session.UserID), error
 }
 ```
 
@@ -83,10 +83,10 @@ The `Recover500` method allows you to recover `500 Internal Server` errors to im
 
 ```go
 func (*App) Recover500() error {
-    err error,
+	err error,
 	sse *datastar.ServerSentEventGenerator,
 } error {
-    return sse.
+	return sse.
 }
 ```
 
@@ -123,28 +123,28 @@ followed by other parameters:
 
 ```go
 func (PageIndex) GET(
-    r *http.Request,
-    sessionToken string, // Optional
-    session Session, // Optional
-    path struct{...}, // Required only when path variables are used in the URL
-    query struct{...}, // Optional
-    signals struct {...}, // Optional
-    dispatch(
-        EventSomethingHappened,
-        EventSomethingElseHappened,
-        //...
-    ) error // Optional
+	r *http.Request,
+	sessionToken string, // Optional
+	session Session, // Optional
+	path struct{...}, // Required only when path variables are used in the URL
+	query struct{...}, // Optional
+	signals struct {...}, // Optional
+	dispatch(
+		EventSomethingHappened,
+		EventSomethingElseHappened,
+		//...
+	) error // Optional
 ) (
-    body templ.Component,
-    head templ.Component, // Optional
-    redirect Redirect, // Optional
-    newSession Session, // Optional
-    removeSession bool, // Optional
-    enableBackgroundStreaming bool, // Optional
-    disableRefreshAfterHidden bool, // Optional
-    err error
+	body templ.Component,
+	head templ.Component, // Optional
+	redirect Redirect, // Optional
+	newSession Session, // Optional
+	removeSession bool, // Optional
+	enableBackgroundStreaming bool, // Optional
+	disableRefreshAfterHidden bool, // Optional
+	err error
 ) {
-    // ...
+	// ...
 } 
 ```
 
@@ -154,19 +154,19 @@ always start with `r *http.Request`, followed by other parameters:
 ```go
 // POSTActionName is <path>
 func (PageIndex) POSTActionName(
-    r *http.Request,
-    sse *datastar.ServerSentEventGenerator, // Optional
-    session Session, // Optional
-    path struct{...}, // Required only when path variables are used in the URL
-    query struct{...}, // Optional
-    signals struct {...}, // Optional
-    dispatch(
-        EventSomethingHappened,
-        EventSomethingElseHappened,
-        //...
-    ) error // Optional
+	r *http.Request,
+	sse *datastar.ServerSentEventGenerator, // Optional
+	session Session, // Optional
+	path struct{...}, // Required only when path variables are used in the URL
+	query struct{...}, // Optional
+	signals struct {...}, // Optional
+	dispatch(
+		EventSomethingHappened,
+		EventSomethingElseHappened,
+		//...
+	) error // Optional
 ) error {
-    // ...
+	// ...
 }
 ```
 
@@ -176,25 +176,25 @@ return HTML, set/remove sessions.
 ```go
 // POSTActionName is <path>
 func (PageIndex) POSTActionName(
-    r *http.Request,
-    session Session, // Optional
-    path struct{...}, // Required only when path variables are used in the URL
-    query struct{...}, // Optional
-    signals struct {...}, // Optional
-    dispatch(
-        EventSomethingHappened,
-        EventSomethingElseHappened,
-        //...
-    ) error // Optional
+	r *http.Request,
+	session Session, // Optional
+	path struct{...}, // Required only when path variables are used in the URL
+	query struct{...}, // Optional
+	signals struct {...}, // Optional
+	dispatch(
+		EventSomethingHappened,
+		EventSomethingElseHappened,
+		//...
+	) error // Optional
 ) (
-    body templ.Component, // Optional
-    head templ.Component, // Optional
-    redirect Redirect, // Optional
-    newSession Session, // Optional
-    removeSession bool, // Optional
-    err error,
+	body templ.Component, // Optional
+	head templ.Component, // Optional
+	redirect Redirect, // Optional
+	newSession Session, // Optional
+	removeSession bool, // Optional
+	err error,
 ) {
-    // ...
+	// ...
 }
 ```
 
@@ -222,7 +222,7 @@ type Base struct{ App *App }
 
 func (Base) OnSomethingHappened(
 	event EventSomethingHappened,
-    sse *datastar.ServerSentEventGenerator,
+	sse *datastar.ServerSentEventGenerator,
 	session Session,
 ) error {
 	// ...
@@ -230,22 +230,22 @@ func (Base) OnSomethingHappened(
 
 // PageFoo is /foo
 type PageFoo struct {
-    App *App
-    Base
+	App *App
+	Base
 }
 
 func (PageFoo) GET(r *http.Request) (body templ.Component, err error) {
-    return pageFoo(), nil
+	return pageFoo(), nil
 }
 
 // PageBar is /bar
 type PageBar struct {
-    App *App
-    Base
+	App *App
+	Base
 }
 
 func (PageBar) GET(r *http.Request) (body templ.Component, err error) {
-    return pageBar(), nil
+	return pageBar(), nil
 }
 ```
 
@@ -255,58 +255,58 @@ same as concrete page types.
 ---
 
 <details>
-    <summary>Example</summary>
+	<summary>Example</summary>
 
 ```go
 // EventSomethingHappened is "something.happened"
 type EventSomethingHappened struct {
-    WhoCausedIt string `json:"who-caused-it"`
+	WhoCausedIt string `json:"who-caused-it"`
 }
 
 // PageExample is /example
 type PageExample struct { App *App }
 
 func (p PageExample) GET(r *http.Request) (body templ.Component, err error) {
-    data, err := p.App.fetchData("")
-    if err != nil {
-        return nil, err
-    }
-    return examplePageTemplate(data), nil
+	data, err := p.App.fetchData("")
+	if err != nil {
+		return nil, err
+	}
+	return examplePageTemplate(data), nil
 }
 
 // POSTInputChanged is /example/input-changed
 func (p PageExample) POSTInputChanged(
-    r *http.Request,
-    session Session,
-    signals struct {
-        InputValue string `json:"inputvalue"`
-    }
+	r *http.Request,
+	session Session,
+	signals struct {
+		InputValue string `json:"inputvalue"`
+	}
 ) (body templ.Component, err error) {
-    // Patch the page with a fat morph directly on action.
-    data, err := p.App.fetchData(signals.InputValue)
-    if err != nil {
-        return nil, err
-    }
-    return examplePageTemplate(data), nil
+	// Patch the page with a fat morph directly on action.
+	data, err := p.App.fetchData(signals.InputValue)
+	if err != nil {
+		return nil, err
+	}
+	return examplePageTemplate(data), nil
 }
 
 // POSTButtonClicked is /example/button-clicked
 func (p PageExample) POSTButtonClicked(
-    r *http.Request,
-    session Session,
-    dispatch(EventSomethingHappened) error,
+	r *http.Request,
+	session Session,
+	dispatch(EventSomethingHappened) error,
 ) error {
-    // Update everyone that something happened.
-    return dispatch(EventSomethingHappened{WhoCausedIt: session.UserID})
+	// Update everyone that something happened.
+	return dispatch(EventSomethingHappened{WhoCausedIt: session.UserID})
 }
 
 func (p PageExample) OnSomethingHappened(
 	event EventSomethingHappened,
-    sse *datastar.ServerSentEventGenerator,
+	sse *datastar.ServerSentEventGenerator,
 	session Session,
 ) error {
-    // When something happens, patch the page.
-    return sse.PatchElementTempl(updateTemplate())
+	// When something happens, patch the page.
+	return sse.PatchElementTempl(updateTemplate())
 }
 ```
 
@@ -316,8 +316,8 @@ func (p PageExample) OnSomethingHappened(
 
 ```go
 signals struct {
-    Foo string `json:"foo"`
-    Bar int    `json:"bar"`
+	Foo string `json:"foo"`
+	Bar int	`json:"bar"`
 }
 ```
 
@@ -341,7 +341,7 @@ Provides URL path parameters. These parameters must be defined in the URL commen
 ```go
 query struct {
 	Filter string `query:"f"`
-    Limit  int    `query:"l"`
+	Limit  int	`query:"l"`
 }
 ```
 
@@ -352,10 +352,10 @@ into the query parameter:
 
 ```go
 signals struct {
-    SelectedItem string `json:"selecteditem"`
+	SelectedItem string `json:"selecteditem"`
 },
 query struct {
-    SelectedItem string `query:"s" reflectsignal:"selecteditem"`
+	SelectedItem string `query:"s" reflectsignal:"selecteditem"`
 }
 ```
 
@@ -374,11 +374,11 @@ If used, must be defined at the source package level as:
 
 ```go
 type Session struct {
-    UserID string
-    
-    // Custom metadata.
-    IssuedAt time.Time `json:"iat"`
-    FooBar   Bazz      `json:"foo-bar"`
+	UserID string
+
+	// Custom metadata.
+	IssuedAt time.Time `json:"iat"`
+	FooBar   Bazz	  `json:"foo-bar"`
 }
 ```
 
@@ -398,9 +398,9 @@ If used `type Session struct` must be defined at the source package level.
 
 ```go
 type Session struct {
-    UserID     string    `json:"sub"` // Required.
-    IssuedAt   time.Time `json:"iat"` // Optional.
-    Expiration time.Time `json:"exp"` // Optional.
+	UserID	 string	`json:"sub"` // Required.
+	IssuedAt   time.Time `json:"iat"` // Optional.
+	Expiration time.Time `json:"exp"` // Optional.
 }
 ```
 
@@ -431,7 +431,7 @@ An event type must use json struct field tags, and be strictly commented with
 ```go
 // EventExample is "example"
 type EventExample struct {
-    Information string `json:"info"`
+	Information string `json:"info"`
 }
 ```
 
@@ -440,10 +440,10 @@ field:
 
 ```go
 type EventMessageSent struct {
-    TargetUserIDs []string `json:"-"`
+	TargetUserIDs []string `json:"-"`
 
-    Message string `json:"message"`
-    Sender  string `json:"sender"`
+	Message string `json:"message"`
+	Sender  string `json:"sender"`
 }
 ```
 
@@ -456,49 +456,49 @@ dispatch func(EventTypeA, EventTypeB, EventTypeC) error
 ---
 
 <details>
-    <summary>Example</summary>
+<summary>Example</summary>
 
 ```go
 // EventMessageSent is "chat.sent"
 type EventMessageSent struct {
-    TargetUserIDs []string `json:"-"`
+	TargetUserIDs []string `json:"-"`
 
-    Message string `json:"message"`
-    Sender  string `json:"sender"`
+	Message string `json:"message"`
+	Sender  string `json:"sender"`
 }
 
 // PageChat is /chat
 type PageChat struct { App *App }
 
 func (PageChat) POSTSendMessage(
-    r *http.Request,
-    e EventMessageSent,
-    session Session,
-    signals struct {
-        InputText string `json:"inputtext"`
-        ChatRoom  string `json:"chatroom"`
-    },
-    dispatch(EventMessageSent) error,
+	r *http.Request,
+	e EventMessageSent,
+	session Session,
+	signals struct {
+		InputText string `json:"inputtext"`
+		ChatRoom  string `json:"chatroom"`
+	},
+	dispatch(EventMessageSent) error,
 ) error {
-    if !isUserAllowedToSendMessages(session.UserID) {
-        return errors.New("unauthorized")
-    }
-    if signals.InputText == "" {
-        return nil // No-op.
-    }
-    return dispatch(EventMessageSent{
-        TargetUserIDs: chatroom.ParticipantIDs,
-        Message:       signals.InputText,
-        Sender:        session.UserID,
-    })
+	if !isUserAllowedToSendMessages(session.UserID) {
+		return errors.New("unauthorized")
+	}
+	if signals.InputText == "" {
+		return nil // No-op.
+	}
+	return dispatch(EventMessageSent{
+		TargetUserIDs: chatroom.ParticipantIDs,
+		Message:	   signals.InputText,
+		Sender:		session.UserID,
+	})
 }
 
 func (PageChat) OnMessageSent(
-    event EventMessageSent,
-    sse *datastar.ServerSentEventGenerator,
-    session Session,
+	event EventMessageSent,
+	sse *datastar.ServerSentEventGenerator,
+	session Session,
 ) error {
-    // Use sse to patch the new message into view.
+	// Use sse to patch the new message into view.
 }
 ```
 
@@ -508,20 +508,20 @@ func (PageChat) OnMessageSent(
 
 ```go
 metrics struct {
-    // Help description goes in this comment
-    ExampleRequestsTotal interface {
-        CounterAdd(delta float64, result string)
-    } `name:"example_requests_total"`
+	// Help description goes in this comment
+	ExampleRequestsTotal interface {
+		CounterAdd(delta float64, result string)
+	} `name:"example_requests_total"`
 
-    ExampleConnectionsOpen interface {
-        GaugeSet(value float64)
-    } `name:"example_connections_open" subsystem:"network"`
+	ExampleConnectionsOpen interface {
+		GaugeSet(value float64)
+	} `name:"example_connections_open" subsystem:"network"`
 
-    ExampleOrderSize interface {
-        HistogramObserve(value float64, )
-    } `name:"order_size", buckets:"0,1,5,50,100,1000"``
+	ExampleOrderSize interface {
+		HistogramObserve(value float64, )
+	} `name:"order_size", buckets:"0,1,5,50,100,1000"``
 
-    //...
+	//...
 },
 ```
 
@@ -536,7 +536,7 @@ The methods of the interface define the metric kind:
 
 ```go
 interface {
-    CounterAdd(label1, label2 string, /* ... */)
+	CounterAdd(label1, label2 string, /* ... */)
 }
 ```
 
@@ -544,7 +544,7 @@ interface {
 
 ```go
 interface {
-    GaugeSet(value float64, label1, label2 string, /* ... */)
+	GaugeSet(value float64, label1, label2 string, /* ... */)
 }
 ```
 
@@ -552,7 +552,7 @@ interface {
 
 ```go
 interface {
-    HistogramObserve(value float64, label1, label2 string, /* ... */)
+	HistogramObserve(value float64, label1, label2 string, /* ... */)
 }
 ```
 
@@ -644,3 +644,17 @@ event to perform the automatic refresh.
   since the CSRF token is auto-injected for Datastar `fetch` requests
   (where `Datastar-Request` header is `true`).
   You must use Datastar actions for any sort of server interactivity.
+
+## Development
+
+### Prerequisites
+
+- [Go](https://go.dev/dl/) (see version in `go.mod`)
+
+### Contributing
+
+See [CLAUDE.md](CLAUDE.md) for code style, testing
+conventions, commit message format, and project structure.
+
+Use the `example/classifieds/` application as a real-world
+test fixture when developing Datapages.
