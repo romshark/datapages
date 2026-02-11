@@ -767,6 +767,69 @@ func TestParse_ErrRedirect(t *testing.T) {
 	)
 }
 
+func TestParse_SessionOutput(t *testing.T) {
+	app, err := parse(t, "session_output")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// PageIndex - no newSession or closeSession
+	{
+		p := app.PageIndex
+		require.NotNil(p)
+		require.Nil(p.GET.OutputNewSession)
+		require.Nil(p.GET.OutputCloseSession)
+	}
+
+	// PageLogin - GET with newSession
+	{
+		p := findPage(app, "PageLogin")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputNewSession)
+		require.Equal(
+			"newSession",
+			p.GET.OutputNewSession.Name,
+		)
+		require.Nil(p.GET.OutputCloseSession)
+
+		// POSTSubmit - action with newSession
+		submit := findAction(p.Actions, "Submit")
+		require.NotNil(submit)
+		require.NotNil(submit.OutputNewSession)
+		require.Equal(
+			"newSession",
+			submit.OutputNewSession.Name,
+		)
+		require.NotNil(submit.OutputRedirect)
+		require.Nil(submit.OutputCloseSession)
+
+		// POSTSignOut - action with closeSession
+		signOut := findAction(p.Actions, "SignOut")
+		require.NotNil(signOut)
+		require.NotNil(signOut.OutputCloseSession)
+		require.Equal(
+			"closeSession",
+			signOut.OutputCloseSession.Name,
+		)
+		require.NotNil(signOut.OutputRedirect)
+		require.Nil(signOut.OutputNewSession)
+	}
+}
+
+func TestParse_ErrSessionOutput(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_session_output")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrNewSessionNotSessionType,
+		parser.ErrCloseSessionNotBool,
+		parser.ErrNewSessionWithSSE,
+		parser.ErrCloseSessionWithSSE,
+	)
+}
+
 func TestParse_ErrSignals(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_signals")

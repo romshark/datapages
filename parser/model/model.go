@@ -87,6 +87,8 @@ type Handler struct {
 
 	OutputRedirect       *Output
 	OutputRedirectStatus *Output
+	OutputNewSession     *Output
+	OutputCloseSession   *Output
 	OutputErr            *Output
 }
 

@@ -19,6 +19,12 @@ func IsInt(t types.Type) bool {
 	return ok && b.Kind() == types.Int
 }
 
+// IsBool reports whether t's underlying type is bool.
+func IsBool(t types.Type) bool {
+	b, ok := t.Underlying().(*types.Basic)
+	return ok && b.Kind() == types.Bool
+}
+
 // IsError reports whether t is the builtin "error" type.
 func IsError(t types.Type) bool {
 	if t == nil {

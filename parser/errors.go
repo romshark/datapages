@@ -61,9 +61,7 @@ var (
 	ErrEventCommInvalid     = errors.New("event type has invalid subject comment")
 	ErrEventSubjectInvalid  = errors.New("event subject is invalid")
 	ErrEvHandDuplicate      = errors.New("duplicate event handler for event")
-	ErrEvHandDuplicateEmbed = errors.New(
-		"duplicate event handler for event in embedded",
-	)
+	ErrEvHandDuplicateEmbed = errors.New("duplicate event handler for event in embedded")
 
 	ErrEventFieldUnexported = errors.New("event field must be exported")
 	ErrEventFieldMissingTag = errors.New("event field must have json tag")
@@ -91,29 +89,26 @@ var (
 	ErrDispatchNoParams        = paramvalidation.ErrDispatchNoParams
 	ErrDispatchParamNotEvent   = paramvalidation.ErrDispatchParamNotEvent
 
-	ErrSessionNotStruct = errors.New(
-		"session type must be a struct",
-	)
+	ErrSessionNotStruct     = errors.New("session type must be a struct")
 	ErrSessionMissingUserID = errors.New(
-		"session type must have " +
-			"a UserID string field",
+		"session type must have a UserID string field",
 	)
-	ErrSessionParamNotSessionType = errors.New(
-		"session parameter type must be Session",
-	)
+	ErrSessionParamNotSessionType = errors.New("session parameter type must be Session")
 	ErrSessionTokenParamNotString = errors.New(
-		"sessionToken parameter must be " +
-			"of type string",
+		"sessionToken parameter must be of type string",
 	)
 
-	ErrRedirectNotString = errors.New(
-		"redirect must be a string",
+	ErrRedirectNotString             = errors.New("redirect must be a string")
+	ErrRedirectStatusNotInt          = errors.New("redirectStatus must be an int")
+	ErrRedirectStatusWithoutRedirect = errors.New("redirectStatus requires redirect")
+
+	ErrNewSessionNotSessionType = errors.New("newSession must be of type Session")
+	ErrCloseSessionNotBool      = errors.New("closeSession must be of type bool")
+	ErrNewSessionWithSSE        = errors.New(
+		"newSession cannot be used together with with sse parameter",
 	)
-	ErrRedirectStatusNotInt = errors.New(
-		"redirectStatus must be an int",
-	)
-	ErrRedirectStatusWithoutRedirect = errors.New(
-		"redirectStatus requires redirect",
+	ErrCloseSessionWithSSE = errors.New(
+		"closeSession cannot be used together with sse parameter",
 	)
 )
 

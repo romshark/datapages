@@ -1278,6 +1278,30 @@ func parseHandler(
 				h.OutputRedirectStatus = out
 				continue
 			}
+			if n.Name == "newSession" {
+				if !typecheck.IsSessionType(
+					r.Type, info,
+				) {
+					return h, nil, fmt.Errorf(
+						"%w in %s.%s",
+						ErrNewSessionNotSessionType,
+						recv, fd.Name.Name,
+					)
+				}
+				h.OutputNewSession = out
+				continue
+			}
+			if n.Name == "closeSession" {
+				if !typecheck.IsBool(t.Resolved) {
+					return h, nil, fmt.Errorf(
+						"%w in %s.%s",
+						ErrCloseSessionNotBool,
+						recv, fd.Name.Name,
+					)
+				}
+				h.OutputCloseSession = out
+				continue
+			}
 			outputs = append(outputs, out)
 		}
 	}
@@ -1294,6 +1318,21 @@ func parseHandler(
 		return h, outputs, fmt.Errorf(
 			"%w in %s.%s",
 			ErrRedirectStatusWithoutRedirect,
+			recv, fd.Name.Name,
+		)
+	}
+	if h.OutputNewSession != nil && h.InputSSE != nil {
+		return h, outputs, fmt.Errorf(
+			"%w in %s.%s",
+			ErrNewSessionWithSSE,
+			recv, fd.Name.Name,
+		)
+	}
+	if h.OutputCloseSession != nil &&
+		h.InputSSE != nil {
+		return h, outputs, fmt.Errorf(
+			"%w in %s.%s",
+			ErrCloseSessionWithSSE,
 			recv, fd.Name.Name,
 		)
 	}
