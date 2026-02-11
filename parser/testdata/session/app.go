@@ -75,3 +75,44 @@ func (PageProfile) OnEventPing(
 	_ = session
 	return nil
 }
+
+// PageSettings is /settings
+type PageSettings struct{ App *App }
+
+// GET with sessionToken and session.
+func (PageSettings) GET(
+	r *http.Request,
+	sessionToken string,
+	session Session,
+) (body templ.Component, err error) {
+	_ = sessionToken
+	_ = session
+	return body, err
+}
+
+// POSTClose is /settings/close
+//
+// Action with sessionToken and session.
+func (PageSettings) POSTClose(
+	r *http.Request,
+	sessionToken string,
+	session Session,
+) error {
+	_ = sessionToken
+	_ = session
+	return nil
+}
+
+// Event handler with sessionToken and session.
+func (PageSettings) OnEventPing(
+	event EventPing,
+	sse *datastar.ServerSentEventGenerator,
+	sessionToken string,
+	session Session,
+) error {
+	_ = event
+	_ = sse
+	_ = sessionToken
+	_ = session
+	return nil
+}

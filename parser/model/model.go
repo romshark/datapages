@@ -76,13 +76,14 @@ type Handler struct {
 	HTTPMethod string
 	Route      string
 
-	InputRequest  *Input
-	InputSSE      *Input
-	InputSession  *Input
-	InputPath     *Input
-	InputQuery    *Input
-	InputSignals  *Input
-	InputDispatch *InputDispatch
+	InputRequest      *Input
+	InputSSE          *Input
+	InputSessionToken *Input
+	InputSession      *Input
+	InputPath         *Input
+	InputQuery        *Input
+	InputSignals      *Input
+	InputDispatch     *InputDispatch
 
 	OutputRedirect       *Output
 	OutputRedirectStatus *Output
@@ -102,9 +103,10 @@ type EventHandler struct {
 	Name          string
 	EventTypeName string
 
-	InputEvent   *Input
-	InputSSE     *Input
-	InputSession *Input
+	InputEvent        *Input
+	InputSSE          *Input
+	InputSessionToken *Input
+	InputSession      *Input
 
 	OutputErr *Output
 }

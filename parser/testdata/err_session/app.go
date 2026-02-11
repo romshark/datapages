@@ -37,3 +37,16 @@ func (PageBadType) GET(
 	_ = session
 	return body, err
 }
+
+// PageBadToken is /bad-token
+type PageBadToken struct{ App *App }
+
+/* ErrSessionTokenParamNotString: wrong type */
+
+func (PageBadToken) GET(
+	r *http.Request,
+	sessionToken int,
+) (body templ.Component, err error) {
+	_ = sessionToken
+	return body, err
+}

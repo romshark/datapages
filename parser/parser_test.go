@@ -627,17 +627,19 @@ func TestParse_Session(t *testing.T) {
 		require.Nil(p.GET.InputSession)
 	}
 
-	// PageProfile - GET with session
+	// PageProfile - GET with session (no sessionToken)
 	{
 		p := findPage(app, "PageProfile")
 		require.NotNil(p)
 		require.NotNil(p.GET)
+		require.Nil(p.GET.InputSessionToken)
 		require.NotNil(p.GET.InputSession)
 		require.Equal("session", p.GET.InputSession.Name)
 
 		// POSTUpdate - action with session
 		update := findAction(p.Actions, "Update")
 		require.NotNil(update)
+		require.Nil(update.InputSessionToken)
 		require.NotNil(update.InputSession)
 		require.Equal("session", update.InputSession.Name)
 		require.Nil(update.InputSSE)
@@ -646,15 +648,52 @@ func TestParse_Session(t *testing.T) {
 		notify := findAction(p.Actions, "Notify")
 		require.NotNil(notify)
 		require.NotNil(notify.InputSSE)
+		require.Nil(notify.InputSessionToken)
 		require.NotNil(notify.InputSession)
 
 		// Event handler with session
 		require.Len(p.EventHandlers, 1)
 		evh := p.EventHandlers[0]
+		require.Nil(evh.InputSessionToken)
 		require.NotNil(evh.InputSession)
 		require.Equal(
 			"session", evh.InputSession.Name,
 		)
+	}
+
+	// PageSettings - sessionToken + session
+	{
+		p := findPage(app, "PageSettings")
+		require.NotNil(p)
+
+		// GET with sessionToken and session.
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputSessionToken)
+		require.Equal(
+			"sessionToken",
+			p.GET.InputSessionToken.Name,
+		)
+		require.NotNil(p.GET.InputSession)
+
+		// POSTClose - action with sessionToken + session
+		close := findAction(p.Actions, "Close")
+		require.NotNil(close)
+		require.NotNil(close.InputSessionToken)
+		require.Equal(
+			"sessionToken",
+			close.InputSessionToken.Name,
+		)
+		require.NotNil(close.InputSession)
+
+		// Event handler with sessionToken + session
+		require.Len(p.EventHandlers, 1)
+		evh := p.EventHandlers[0]
+		require.NotNil(evh.InputSessionToken)
+		require.Equal(
+			"sessionToken",
+			evh.InputSessionToken.Name,
+		)
+		require.NotNil(evh.InputSession)
 	}
 }
 
@@ -666,6 +705,7 @@ func TestParse_ErrSession(t *testing.T) {
 	requireParseErrors(t, err,
 		parser.ErrSessionMissingUserID,
 		parser.ErrSessionParamNotSessionType,
+		parser.ErrSessionTokenParamNotString,
 	)
 }
 

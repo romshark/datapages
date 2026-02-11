@@ -101,6 +101,10 @@ var (
 	ErrSessionParamNotSessionType = errors.New(
 		"session parameter type must be Session",
 	)
+	ErrSessionTokenParamNotString = errors.New(
+		"sessionToken parameter must be " +
+			"of type string",
+	)
 
 	ErrRedirectNotString = errors.New(
 		"redirect must be a string",

@@ -477,12 +477,34 @@ func validateAndAttachEventHandler(
 		}
 	}
 
-	// Optional session parameter (third position).
-	expectedMax := 2 // event + sse
-	if params != nil && len(params.List) > 2 &&
-		paramvalidation.IsSessionParam(params.List[2]) {
+	// Optional sessionToken parameter (third position).
+	nextIdx := 2
+	if params != nil && len(params.List) > nextIdx &&
+		paramvalidation.IsSessionTokenParam(
+			params.List[nextIdx],
+		) {
+		if !typecheck.IsString(
+			ctx.pkg.TypesInfo.TypeOf(
+				params.List[nextIdx].Type,
+			),
+		) {
+			errs.ErrAt(pos, fmt.Errorf(
+				"%w: %s.%s",
+				ErrSessionTokenParamNotString,
+				recv, fd.Name.Name,
+			))
+		}
+		nextIdx++
+	}
+
+	// Optional session parameter.
+	if params != nil && len(params.List) > nextIdx &&
+		paramvalidation.IsSessionParam(
+			params.List[nextIdx],
+		) {
 		if !typecheck.IsSessionType(
-			params.List[2].Type, ctx.pkg.TypesInfo,
+			params.List[nextIdx].Type,
+			ctx.pkg.TypesInfo,
 		) {
 			errs.ErrAt(pos, fmt.Errorf(
 				"%w: %s.%s",
@@ -490,11 +512,11 @@ func validateAndAttachEventHandler(
 				recv, fd.Name.Name,
 			))
 		}
-		expectedMax = 3
+		nextIdx++
 	}
 
 	// No additional parameters beyond expected.
-	if params != nil && len(params.List) > expectedMax {
+	if params != nil && len(params.List) > nextIdx {
 		errs.ErrAt(pos,
 			fmt.Errorf("%w: %s.%s",
 				ErrSignatureUnknownInput, recv, fd.Name.Name))
@@ -862,10 +884,18 @@ func parseEventHandler(
 		h.InputSSE = parseInput(params[1], info)
 	}
 
-	// Third param is session (optional)
-	if len(params) > 2 &&
-		paramvalidation.IsSessionParam(params[2]) {
-		h.InputSession = parseInput(params[2], info)
+	// Remaining optional params: sessionToken, session
+	idx := 2
+	if len(params) > idx &&
+		paramvalidation.IsSessionTokenParam(params[idx]) {
+		h.InputSessionToken = parseInput(
+			params[idx], info,
+		)
+		idx++
+	}
+	if len(params) > idx &&
+		paramvalidation.IsSessionParam(params[idx]) {
+		h.InputSession = parseInput(params[idx], info)
 	}
 
 	if fd.Type.Results != nil && len(fd.Type.Results.List) > 0 {
@@ -1093,6 +1123,26 @@ func parseHandler(
 	remainingParams := params.List[1:]
 	if len(remainingParams) > 0 && typecheck.IsPtrToDatastarSSE(remainingParams[0].Type, info) {
 		h.InputSSE = parseInput(remainingParams[0], info)
+		remainingParams = remainingParams[1:]
+	}
+
+	// Check if next param is sessionToken.
+	if len(remainingParams) > 0 &&
+		paramvalidation.IsSessionTokenParam(
+			remainingParams[0],
+		) {
+		if !typecheck.IsString(
+			info.TypeOf(remainingParams[0].Type),
+		) {
+			return h, nil, fmt.Errorf(
+				"%w in %s.%s",
+				ErrSessionTokenParamNotString,
+				recv, fd.Name.Name,
+			)
+		}
+		h.InputSessionToken = parseInput(
+			remainingParams[0], info,
+		)
 		remainingParams = remainingParams[1:]
 	}
 
