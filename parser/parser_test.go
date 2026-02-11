@@ -830,6 +830,60 @@ func TestParse_ErrSessionOutput(t *testing.T) {
 	)
 }
 
+func TestParse_GETOptions(t *testing.T) {
+	app, err := parse(t, "get_options")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// PageIndex - no GET options
+	{
+		p := app.PageIndex
+		require.NotNil(p)
+		require.Nil(p.GET.OutputEnableBgStream)
+		require.Nil(p.GET.OutputDisableRefresh)
+	}
+
+	// PageStream - enableBackgroundStreaming
+	{
+		p := findPage(app, "PageStream")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputEnableBgStream)
+		require.Equal(
+			"enableBackgroundStreaming",
+			p.GET.OutputEnableBgStream.Name,
+		)
+		require.Nil(p.GET.OutputDisableRefresh)
+	}
+
+	// PageNoRefresh - disableRefreshAfterHidden
+	{
+		p := findPage(app, "PageNoRefresh")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.Nil(p.GET.OutputEnableBgStream)
+		require.NotNil(p.GET.OutputDisableRefresh)
+		require.Equal(
+			"disableRefreshAfterHidden",
+			p.GET.OutputDisableRefresh.Name,
+		)
+	}
+}
+
+func TestParse_ErrGETOptions(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_get_options")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrEnableBgStreamNotGET,
+		parser.ErrDisableRefreshNotGET,
+		parser.ErrEnableBgStreamNotBool,
+		parser.ErrDisableRefreshNotBool,
+	)
+}
+
 func TestParse_ErrSignals(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_signals")

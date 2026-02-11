@@ -396,8 +396,7 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 				if err := validate.EventHandlerMethodName(fd.Name.Name); err != nil {
 					errs.ErrAt(pos,
 						fmt.Errorf("%w: %s.%s",
-							validate.ErrEventHandlerNameInvalid,
-							recv, fd.Name.Name))
+							validate.ErrEventHandlerNameInvalid, recv, fd.Name.Name))
 				}
 				validateAndAttachEventHandler(ctx, errs, recv, fd, pg, ap, suffix)
 			default:
@@ -499,13 +498,8 @@ func validateAndAttachEventHandler(
 
 	// Optional session parameter.
 	if params != nil && len(params.List) > nextIdx &&
-		paramvalidation.IsSessionParam(
-			params.List[nextIdx],
-		) {
-		if !typecheck.IsSessionType(
-			params.List[nextIdx].Type,
-			ctx.pkg.TypesInfo,
-		) {
+		paramvalidation.IsSessionParam(params.List[nextIdx]) {
+		if !typecheck.IsSessionType(params.List[nextIdx].Type, ctx.pkg.TypesInfo) {
 			errs.ErrAt(pos, fmt.Errorf(
 				"%w: %s.%s",
 				ErrSessionParamNotSessionType,
@@ -517,9 +511,8 @@ func validateAndAttachEventHandler(
 
 	// No additional parameters beyond expected.
 	if params != nil && len(params.List) > nextIdx {
-		errs.ErrAt(pos,
-			fmt.Errorf("%w: %s.%s",
-				ErrSignatureUnknownInput, recv, fd.Name.Name))
+		errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+			ErrSignatureUnknownInput, recv, fd.Name.Name))
 	}
 
 	// OnXXX must return exactly one result of type error.
@@ -579,8 +572,7 @@ func attachHTTPHandler(
 	suffix string,
 ) {
 	h, outputs, herr := parseHandler(
-		recv, fd, ctx.pkg.TypesInfo,
-		ctx.eventTypeNames, kind, suffix,
+		recv, fd, ctx.pkg.TypesInfo, ctx.eventTypeNames, kind, suffix,
 	)
 	if herr != nil {
 		// Keep going; still attach a best-effort handler model.
@@ -609,8 +601,10 @@ func attachHTTPHandler(
 
 	// Validate path struct fields against route variables.
 	if herr == nil && h.Route != "" {
-		if pathErr := paramvalidation.ValidatePathAgainstRoute(h, recv, fd.Name.Name); pathErr != nil {
-			errs.ErrAt(ctx.pkg.Fset.Position(fd.Name.Pos()), pathErr)
+		if err := paramvalidation.ValidatePathAgainstRoute(
+			h, recv, fd.Name.Name,
+		); err != nil {
+			errs.ErrAt(ctx.pkg.Fset.Position(fd.Name.Pos()), err)
 		}
 	}
 
@@ -1111,17 +1105,20 @@ func parseHandler(
 
 	params := fd.Type.Params
 	if params == nil || len(params.List) == 0 {
-		return h, nil, fmt.Errorf("%w in %s.%s", ErrSignatureMissingReq, recv, fd.Name.Name)
+		return h, nil, fmt.Errorf("%w in %s.%s",
+			ErrSignatureMissingReq, recv, fd.Name.Name)
 	}
 	// First param must be *http.Request
 	if !typecheck.IsPtrToNetHTTPReq(params.List[0].Type, info) {
-		return h, nil, fmt.Errorf("%w in %s.%s", ErrSignatureMissingReq, recv, fd.Name.Name)
+		return h, nil, fmt.Errorf("%w in %s.%s",
+			ErrSignatureMissingReq, recv, fd.Name.Name)
 	}
 	h.InputRequest = parseInput(params.List[0], info)
 
 	// Check if second param is sse (built-in feature for actions)
 	remainingParams := params.List[1:]
-	if len(remainingParams) > 0 && typecheck.IsPtrToDatastarSSE(remainingParams[0].Type, info) {
+	isPtrToSSE := typecheck.IsPtrToDatastarSSE(remainingParams[0].Type, info)
+	if len(remainingParams) > 0 && isPtrToSSE {
 		h.InputSSE = parseInput(remainingParams[0], info)
 		remainingParams = remainingParams[1:]
 	}
@@ -1134,11 +1131,8 @@ func parseHandler(
 		if !typecheck.IsString(
 			info.TypeOf(remainingParams[0].Type),
 		) {
-			return h, nil, fmt.Errorf(
-				"%w in %s.%s",
-				ErrSessionTokenParamNotString,
-				recv, fd.Name.Name,
-			)
+			return h, nil, fmt.Errorf("%w in %s.%s",
+				ErrSessionTokenParamNotString, recv, fd.Name.Name)
 		}
 		h.InputSessionToken = parseInput(
 			remainingParams[0], info,
@@ -1149,14 +1143,9 @@ func parseHandler(
 	// Check if next param is session.
 	if len(remainingParams) > 0 &&
 		paramvalidation.IsSessionParam(remainingParams[0]) {
-		if !typecheck.IsSessionType(
-			remainingParams[0].Type, info,
-		) {
-			return h, nil, fmt.Errorf(
-				"%w in %s.%s",
-				ErrSessionParamNotSessionType,
-				recv, fd.Name.Name,
-			)
+		if !typecheck.IsSessionType(remainingParams[0].Type, info) {
+			return h, nil, fmt.Errorf("%w in %s.%s",
+				ErrSessionParamNotSessionType, recv, fd.Name.Name)
 		}
 		h.InputSession = parseInput(remainingParams[0], info)
 		remainingParams = remainingParams[1:]
@@ -1164,7 +1153,9 @@ func parseHandler(
 
 	// Check if next param is path struct.
 	if len(remainingParams) > 0 && paramvalidation.IsPathParam(remainingParams[0]) {
-		pathErr := paramvalidation.ValidatePathStruct(remainingParams[0], info, recv, fd.Name.Name)
+		pathErr := paramvalidation.ValidatePathStruct(
+			remainingParams[0], info, recv, fd.Name.Name,
+		)
 		if pathErr != nil {
 			return h, nil, pathErr
 		}
@@ -1174,7 +1165,9 @@ func parseHandler(
 
 	// Check if next param is query struct.
 	if len(remainingParams) > 0 && paramvalidation.IsQueryParam(remainingParams[0]) {
-		queryErr := paramvalidation.ValidateQueryStruct(remainingParams[0], info, recv, fd.Name.Name)
+		queryErr := paramvalidation.ValidateQueryStruct(
+			remainingParams[0], info, recv, fd.Name.Name,
+		)
 		if queryErr != nil {
 			return h, nil, queryErr
 		}
@@ -1184,7 +1177,9 @@ func parseHandler(
 
 	// Check if next param is signals struct.
 	if len(remainingParams) > 0 && paramvalidation.IsSignalsParam(remainingParams[0]) {
-		sigErr := paramvalidation.ValidateSignalsStruct(remainingParams[0], info, recv, fd.Name.Name)
+		sigErr := paramvalidation.ValidateSignalsStruct(
+			remainingParams[0], info, recv, fd.Name.Name,
+		)
 		if sigErr != nil {
 			return h, nil, sigErr
 		}
@@ -1196,18 +1191,15 @@ func parseHandler(
 	if len(remainingParams) > 0 &&
 		paramvalidation.IsDispatchParam(remainingParams[0]) {
 		eventNames, dispErr := paramvalidation.ValidateDispatchFunc(
-			remainingParams[0], info, eventTypeNames,
-			recv, fd.Name.Name,
+			remainingParams[0], info, eventTypeNames, recv, fd.Name.Name,
 		)
 		if dispErr != nil {
 			return h, nil, dispErr
 		}
 		h.InputDispatch = &model.InputDispatch{
-			Expr: remainingParams[0].Names[0],
-			Name: "dispatch",
-			Type: makeType(
-				remainingParams[0].Type, info,
-			),
+			Expr:           remainingParams[0].Names[0],
+			Name:           "dispatch",
+			Type:           makeType(remainingParams[0].Type, info),
 			EventTypeNames: eventNames,
 		}
 		remainingParams = remainingParams[1:]
@@ -1256,50 +1248,59 @@ func parseHandler(
 				h.OutputErr = out
 				continue
 			}
-			if n.Name == "redirect" {
+			switch n.Name {
+			case "redirect":
 				if !typecheck.IsString(t.Resolved) {
-					return h, nil, fmt.Errorf(
-						"%w in %s.%s",
-						ErrRedirectNotString,
-						recv, fd.Name.Name,
-					)
+					return h, nil, fmt.Errorf("%w in %s.%s",
+						ErrRedirectNotString, recv, fd.Name.Name)
 				}
 				h.OutputRedirect = out
 				continue
-			}
-			if n.Name == "redirectStatus" {
+			case "redirectStatus":
 				if !typecheck.IsInt(t.Resolved) {
-					return h, nil, fmt.Errorf(
-						"%w in %s.%s",
-						ErrRedirectStatusNotInt,
-						recv, fd.Name.Name,
-					)
+					return h, nil, fmt.Errorf("%w in %s.%s",
+						ErrRedirectStatusNotInt, recv, fd.Name.Name)
 				}
 				h.OutputRedirectStatus = out
 				continue
-			}
-			if n.Name == "newSession" {
+			case "newSession":
 				if !typecheck.IsSessionType(
 					r.Type, info,
 				) {
-					return h, nil, fmt.Errorf(
-						"%w in %s.%s",
-						ErrNewSessionNotSessionType,
-						recv, fd.Name.Name,
-					)
+					return h, nil, fmt.Errorf("%w in %s.%s",
+						ErrNewSessionNotSessionType, recv, fd.Name.Name)
 				}
 				h.OutputNewSession = out
 				continue
-			}
-			if n.Name == "closeSession" {
+			case "closeSession":
 				if !typecheck.IsBool(t.Resolved) {
-					return h, nil, fmt.Errorf(
-						"%w in %s.%s",
-						ErrCloseSessionNotBool,
-						recv, fd.Name.Name,
-					)
+					return h, nil, fmt.Errorf("%w in %s.%s",
+						ErrCloseSessionNotBool, recv, fd.Name.Name)
 				}
 				h.OutputCloseSession = out
+				continue
+			case "enableBackgroundStreaming":
+				if kind != methodkind.GETHandler {
+					return h, nil, fmt.Errorf("%w in %s.%s",
+						ErrEnableBgStreamNotGET, recv, fd.Name.Name)
+				}
+				if !typecheck.IsBool(t.Resolved) {
+					return h, nil, fmt.Errorf("%w in %s.%s",
+						ErrEnableBgStreamNotBool, recv, fd.Name.Name)
+				}
+				h.OutputEnableBgStream = out
+				continue
+
+			case "disableRefreshAfterHidden":
+				if kind != methodkind.GETHandler {
+					return h, nil, fmt.Errorf("%w in %s.%s",
+						ErrDisableRefreshNotGET, recv, fd.Name.Name)
+				}
+				if !typecheck.IsBool(t.Resolved) {
+					return h, nil, fmt.Errorf("%w in %s.%s",
+						ErrDisableRefreshNotBool, recv, fd.Name.Name)
+				}
+				h.OutputDisableRefresh = out
 				continue
 			}
 			outputs = append(outputs, out)
@@ -1307,34 +1308,20 @@ func parseHandler(
 	}
 
 	if multiErr {
-		return h, outputs, fmt.Errorf(
-			"%w in %s.%s",
-			ErrSignatureMultiErrRet,
-			recv, fd.Name.Name,
-		)
+		return h, outputs, fmt.Errorf("%w in %s.%s",
+			ErrSignatureMultiErrRet, recv, fd.Name.Name)
 	}
-	if h.OutputRedirectStatus != nil &&
-		h.OutputRedirect == nil {
-		return h, outputs, fmt.Errorf(
-			"%w in %s.%s",
-			ErrRedirectStatusWithoutRedirect,
-			recv, fd.Name.Name,
-		)
+	if h.OutputRedirectStatus != nil && h.OutputRedirect == nil {
+		return h, outputs, fmt.Errorf("%w in %s.%s",
+			ErrRedirectStatusWithoutRedirect, recv, fd.Name.Name)
 	}
 	if h.OutputNewSession != nil && h.InputSSE != nil {
-		return h, outputs, fmt.Errorf(
-			"%w in %s.%s",
-			ErrNewSessionWithSSE,
-			recv, fd.Name.Name,
-		)
+		return h, outputs, fmt.Errorf("%w in %s.%s",
+			ErrNewSessionWithSSE, recv, fd.Name.Name)
 	}
-	if h.OutputCloseSession != nil &&
-		h.InputSSE != nil {
-		return h, outputs, fmt.Errorf(
-			"%w in %s.%s",
-			ErrCloseSessionWithSSE,
-			recv, fd.Name.Name,
-		)
+	if h.OutputCloseSession != nil && h.InputSSE != nil {
+		return h, outputs, fmt.Errorf("%w in %s.%s",
+			ErrCloseSessionWithSSE, recv, fd.Name.Name)
 	}
 	return h, outputs, nil
 }

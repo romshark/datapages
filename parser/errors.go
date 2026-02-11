@@ -110,6 +110,23 @@ var (
 	ErrCloseSessionWithSSE = errors.New(
 		"closeSession cannot be used together with sse parameter",
 	)
+
+	ErrEnableBgStreamNotBool = errors.New(
+		"enableBackgroundStreaming " +
+			"must be of type bool",
+	)
+	ErrEnableBgStreamNotGET = errors.New(
+		"enableBackgroundStreaming can " +
+			"only be used in GET handlers",
+	)
+	ErrDisableRefreshNotBool = errors.New(
+		"disableRefreshAfterHidden " +
+			"must be of type bool",
+	)
+	ErrDisableRefreshNotGET = errors.New(
+		"disableRefreshAfterHidden can " +
+			"only be used in GET handlers",
+	)
 )
 
 func normPos(pos token.Position) token.Position {
