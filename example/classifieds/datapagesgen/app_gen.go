@@ -297,7 +297,7 @@ func (s *Server) createSession(
 	return nil
 }
 
-func (s *Server) removeSession(
+func (s *Server) closeSession(
 	w http.ResponseWriter, r *http.Request, token string,
 ) error {
 	if err := s.sessionManager.CloseSession(r.Context(), token); err != nil {
@@ -808,7 +808,7 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 		return
 	}
 	if closeSession {
-		if err := s.removeSession(w, r, sessToken); err != nil {
+		if err := s.closeSession(w, r, sessToken); err != nil {
 			s.httpErrIntern(w, r, nil, "removing session", err)
 			return
 		}
@@ -1234,13 +1234,13 @@ func (s *Server) handlePageSettingsPOSTSignOut(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	removeSession, redirect, err := s.app.POSTSignOut(r, sess)
+	closeSession, redirect, err := s.app.POSTSignOut(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageSettings.PostSignOut", err)
 		return
 	}
-	if removeSession {
-		if err := s.removeSession(w, r, sessToken); err != nil {
+	if closeSession {
+		if err := s.closeSession(w, r, sessToken); err != nil {
 			s.httpErrIntern(w, r, nil, "removing session", err)
 			return
 		}

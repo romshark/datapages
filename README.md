@@ -140,7 +140,7 @@ func (PageIndex) GET(
 	redirect string, // Optional
 	redirectStatus int, // Optional
 	newSession Session, // Optional
-	removeSession bool, // Optional
+	closeSession bool, // Optional
 	enableBackgroundStreaming bool, // Optional
 	disableRefreshAfterHidden bool, // Optional
 	err error
@@ -193,7 +193,7 @@ func (PageIndex) POSTActionName(
 	redirect string, // Optional
 	redirectStatus int, // Optional
 	newSession Session, // Optional
-	removeSession bool, // Optional
+	closeSession bool, // Optional
 	err error,
 ) {
 	// ...
@@ -586,10 +586,10 @@ newSession Session
 Adds response headers to set a session cookie if `newSession.UserID` is not empty,
 otherwise no-op.
 
-#### 🧩 Return Value: `removeSession bool`
+#### 🧩 Return Value: `closeSession bool`
 
 ```go
-removeSession bool
+closeSession bool
 ```
 
 Closes the session and removes any session cookie if `true`, otherwise no-op.
