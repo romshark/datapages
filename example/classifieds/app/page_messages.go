@@ -25,12 +25,12 @@ func (p PageMessages) GET(
 	},
 ) (
 	body templ.Component,
-	redirect Redirect,
+	redirect string,
 	enableBackgroundStreaming bool,
 	err error,
 ) {
 	if session.UserID == "" {
-		redirect = Redirect{Target: href.Login()}
+		redirect = href.Login()
 		return
 	}
 

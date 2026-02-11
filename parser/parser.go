@@ -153,6 +153,11 @@ func firstPassTypes(ctx *parseCtx, errs *Errors) {
 	for _, name := range typeNames {
 		ts := ctx.typeSpecByName[name]
 
+		if name == "Session" {
+			firstPassSessionType(ctx, errs, ts)
+			continue
+		}
+
 		// Only treat valid EventXXX as event types.
 		if err := validate.EventTypeName(name); err == nil {
 			firstPassEventType(ctx, errs, name, ts)
@@ -162,6 +167,44 @@ func firstPassTypes(ctx *parseCtx, errs *Errors) {
 		// Pages / abstracts are structs only.
 		firstPassPageOrAbstractType(ctx, errs, name, ts)
 	}
+}
+
+func firstPassSessionType(
+	ctx *parseCtx, errs *Errors, ts *ast.TypeSpec,
+) {
+	typePos := ctx.pkg.Fset.Position(ts.Name.Pos())
+
+	st, ok := ts.Type.(*ast.StructType)
+	if !ok {
+		errs.ErrAt(typePos, ErrSessionNotStruct)
+		return
+	}
+
+	info := ctx.pkg.TypesInfo
+	t := info.TypeOf(st)
+	if t == nil {
+		errs.ErrAt(typePos, ErrSessionNotStruct)
+		return
+	}
+	underlying, ok := t.Underlying().(*types.Struct)
+	if !ok {
+		errs.ErrAt(typePos, ErrSessionNotStruct)
+		return
+	}
+
+	hasUserID := false
+	for i := range underlying.NumFields() {
+		f := underlying.Field(i)
+		if f.Name() == "UserID" && typecheck.IsString(f.Type()) {
+			hasUserID = true
+			break
+		}
+	}
+	if !hasUserID {
+		errs.ErrAt(typePos, ErrSessionMissingUserID)
+	}
+
+	ctx.app.Session = &model.SessionType{Expr: ts.Name}
 }
 
 func firstPassEventType(
@@ -434,10 +477,26 @@ func validateAndAttachEventHandler(
 		}
 	}
 
-	// No additional parameters beyond event and SSE are allowed.
-	if params != nil && len(params.List) > 2 {
+	// Optional session parameter (third position).
+	expectedMax := 2 // event + sse
+	if params != nil && len(params.List) > 2 &&
+		paramvalidation.IsSessionParam(params.List[2]) {
+		if !typecheck.IsSessionType(
+			params.List[2].Type, ctx.pkg.TypesInfo,
+		) {
+			errs.ErrAt(pos, fmt.Errorf(
+				"%w: %s.%s",
+				ErrSessionParamNotSessionType,
+				recv, fd.Name.Name,
+			))
+		}
+		expectedMax = 3
+	}
+
+	// No additional parameters beyond expected.
+	if params != nil && len(params.List) > expectedMax {
 		errs.ErrAt(pos,
-			fmt.Errorf("%w: %s.%s (params beyond event and SSE are not allowed)",
+			fmt.Errorf("%w: %s.%s",
 				ErrSignatureUnknownInput, recv, fd.Name.Name))
 	}
 
@@ -798,8 +857,15 @@ func parseEventHandler(
 	}
 
 	// Second param is sse (required for event handlers)
-	if len(params) > 1 && typecheck.IsPtrToDatastarSSE(params[1].Type, info) {
+	if len(params) > 1 &&
+		typecheck.IsPtrToDatastarSSE(params[1].Type, info) {
 		h.InputSSE = parseInput(params[1], info)
+	}
+
+	// Third param is session (optional)
+	if len(params) > 2 &&
+		paramvalidation.IsSessionParam(params[2]) {
+		h.InputSession = parseInput(params[2], info)
 	}
 
 	if fd.Type.Results != nil && len(fd.Type.Results.List) > 0 {
@@ -1030,6 +1096,22 @@ func parseHandler(
 		remainingParams = remainingParams[1:]
 	}
 
+	// Check if next param is session.
+	if len(remainingParams) > 0 &&
+		paramvalidation.IsSessionParam(remainingParams[0]) {
+		if !typecheck.IsSessionType(
+			remainingParams[0].Type, info,
+		) {
+			return h, nil, fmt.Errorf(
+				"%w in %s.%s",
+				ErrSessionParamNotSessionType,
+				recv, fd.Name.Name,
+			)
+		}
+		h.InputSession = parseInput(remainingParams[0], info)
+		remainingParams = remainingParams[1:]
+	}
+
 	// Check if next param is path struct.
 	if len(remainingParams) > 0 && paramvalidation.IsPathParam(remainingParams[0]) {
 		pathErr := paramvalidation.ValidatePathStruct(remainingParams[0], info, recv, fd.Name.Name)
@@ -1124,12 +1206,46 @@ func parseHandler(
 				h.OutputErr = out
 				continue
 			}
+			if n.Name == "redirect" {
+				if !typecheck.IsString(t.Resolved) {
+					return h, nil, fmt.Errorf(
+						"%w in %s.%s",
+						ErrRedirectNotString,
+						recv, fd.Name.Name,
+					)
+				}
+				h.OutputRedirect = out
+				continue
+			}
+			if n.Name == "redirectStatus" {
+				if !typecheck.IsInt(t.Resolved) {
+					return h, nil, fmt.Errorf(
+						"%w in %s.%s",
+						ErrRedirectStatusNotInt,
+						recv, fd.Name.Name,
+					)
+				}
+				h.OutputRedirectStatus = out
+				continue
+			}
 			outputs = append(outputs, out)
 		}
 	}
 
 	if multiErr {
-		return h, outputs, fmt.Errorf("%w in %s.%s", ErrSignatureMultiErrRet, recv, fd.Name.Name)
+		return h, outputs, fmt.Errorf(
+			"%w in %s.%s",
+			ErrSignatureMultiErrRet,
+			recv, fd.Name.Name,
+		)
+	}
+	if h.OutputRedirectStatus != nil &&
+		h.OutputRedirect == nil {
+		return h, outputs, fmt.Errorf(
+			"%w in %s.%s",
+			ErrRedirectStatusWithoutRedirect,
+			recv, fd.Name.Name,
+		)
 	}
 	return h, outputs, nil
 }

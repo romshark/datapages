@@ -90,6 +90,27 @@ var (
 	ErrDispatchMustReturnError = paramvalidation.ErrDispatchMustReturnError
 	ErrDispatchNoParams        = paramvalidation.ErrDispatchNoParams
 	ErrDispatchParamNotEvent   = paramvalidation.ErrDispatchParamNotEvent
+
+	ErrSessionNotStruct = errors.New(
+		"session type must be a struct",
+	)
+	ErrSessionMissingUserID = errors.New(
+		"session type must have " +
+			"a UserID string field",
+	)
+	ErrSessionParamNotSessionType = errors.New(
+		"session parameter type must be Session",
+	)
+
+	ErrRedirectNotString = errors.New(
+		"redirect must be a string",
+	)
+	ErrRedirectStatusNotInt = errors.New(
+		"redirectStatus must be an int",
+	)
+	ErrRedirectStatusWithoutRedirect = errors.New(
+		"redirectStatus requires redirect",
+	)
 )
 
 func normPos(pos token.Position) token.Position {

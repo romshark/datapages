@@ -38,6 +38,7 @@ check-fmt:
 
 lint: check-fmt check-mod
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...
+	(cd example/classifieds/; go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...)
 
 mod-tidy: mod-tidy-parser-tests
 	go mod tidy

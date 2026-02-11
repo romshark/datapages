@@ -65,6 +65,13 @@ var (
 	)
 )
 
+// IsSessionParam reports whether the AST field is named
+// "session".
+func IsSessionParam(f *ast.Field) bool {
+	return len(f.Names) > 0 &&
+		f.Names[0].Name == "session"
+}
+
 // IsPathParam reports whether the AST field is named "path".
 func IsPathParam(f *ast.Field) bool {
 	return len(f.Names) > 0 && f.Names[0].Name == "path"

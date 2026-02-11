@@ -137,7 +137,8 @@ func (PageIndex) GET(
 ) (
 	body templ.Component,
 	head templ.Component, // Optional
-	redirect Redirect, // Optional
+	redirect string, // Optional
+	redirectStatus int, // Optional
 	newSession Session, // Optional
 	removeSession bool, // Optional
 	enableBackgroundStreaming bool, // Optional
@@ -189,7 +190,8 @@ func (PageIndex) POSTActionName(
 ) (
 	body templ.Component, // Optional
 	head templ.Component, // Optional
-	redirect Redirect, // Optional
+	redirect string, // Optional
+	redirectStatus int, // Optional
 	newSession Session, // Optional
 	removeSession bool, // Optional
 	err error,
@@ -566,20 +568,14 @@ Specifies the [Templ](https://templ.guide/) template to use for the contents of 
 
 Specifies the [Templ](https://templ.guide/) template to use for `<head>` tag of the page.
 
-#### 🧩 Return Value: `redirect Redirect`
+#### 🧩 Return Value: `redirect string`
 
 Allows for redirecting to different URLs.
 
-The `Redirect` type must be defined on the source package level as:
+#### 🧩 Return Value: `redirectStatus int`
 
-```go
-package app
-
-type Redirect struct {
-	Target string
-	Status int
-}
-```
+Specifies the redirect status code.
+Can only be used in combination with `redirect`.
 
 #### 🧩 Return Value: `newSession Session`
 

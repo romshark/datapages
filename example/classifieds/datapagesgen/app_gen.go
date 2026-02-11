@@ -579,33 +579,30 @@ func (s *Server) metricsMiddleware(next http.Handler) http.Handler {
 
 // --- HTTP Handlers ---
 
-func httpRedirect(
-	w http.ResponseWriter, r *http.Request, re app.Redirect,
-) (exit bool) {
-	if re.Target == "" {
+func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status int) (exit bool) {
+	if target == "" {
 		return false
 	}
 
 	if isDSReq(r) {
 		// Force client-side navigation via JS for Datastar requests.
-		w.Header().Set("Content-Type", "text/javascript")
-		_, _ = fmt.Fprintf(w, "window.location = %q;", re.Target)
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = fmt.Fprintf(w, "window.location = %q;", target)
 		return true
 	}
 
-	switch re.Status {
+	switch status {
 	case http.StatusMovedPermanently,
 		http.StatusFound,
 		http.StatusSeeOther,
-		http.StatusNotModified,
-		http.StatusUseProxy,
 		http.StatusTemporaryRedirect,
 		http.StatusPermanentRedirect:
 		// OK
 	default:
-		re.Status = http.StatusSeeOther
+		status = http.StatusFound
 	}
-	http.Redirect(w, r, re.Target, re.Status)
+
+	http.Redirect(w, r, target, status)
 	return true
 }
 
@@ -816,7 +813,7 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 			return
 		}
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
 }
@@ -857,7 +854,7 @@ func (s *Server) handlePageSettingsPOSTCloseAllSessions(
 		s.httpErrIntern(w, r, nil, "handling action App.POSTCloseAllSessions", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
 }
@@ -1024,7 +1021,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
 	genericHead, err := s.app.Head(r)
@@ -1072,7 +1069,9 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 	}{
 		LoginSubmissions: mIPageLoginAuthLoginSubmissionsTotal{},
 	}
-	body, redirect, newSession, err := p.POSTSubmit(r, sess, signals, metrics)
+	body, redirect, redirectStatus, newSession, err := p.POSTSubmit(
+		r, sess, signals, metrics,
+	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.POSTSubmit", err)
 		return
@@ -1082,7 +1081,7 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 			s.httpErrIntern(w, r, nil, "creating session", err)
 		}
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpRedirect(w, r, redirect, redirectStatus) {
 		return
 	}
 	genericHead, err := s.app.Head(r)
@@ -1113,7 +1112,7 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageSettings.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
 	genericHead, err := s.app.Head(r)
@@ -1219,7 +1218,7 @@ func (s *Server) handlePageSettingsPOSTSave(w http.ResponseWriter, r *http.Reque
 		s.httpErrIntern(w, r, sse, "handling action PageSettings.POSTSave", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
 }
@@ -1246,7 +1245,7 @@ func (s *Server) handlePageSettingsPOSTSignOut(w http.ResponseWriter, r *http.Re
 			return
 		}
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
 }
@@ -1272,7 +1271,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageMessages.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
 	genericHead, err := s.app.Head(r)
@@ -1767,7 +1766,7 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageUser.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
 	genericHead, err := s.app.Head(r)
@@ -1803,7 +1802,7 @@ func (s *Server) handlePageMyPostsGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageMyPosts.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
 	genericHead, err := s.app.Head(r)
@@ -1844,7 +1843,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PagePost.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
 	genericHead, err := s.app.Head(r)

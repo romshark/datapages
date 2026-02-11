@@ -613,6 +613,120 @@ func TestParse_ErrDispatch(t *testing.T) {
 	)
 }
 
+func TestParse_Session(t *testing.T) {
+	app, err := parse(t, "session")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+	require.NotNil(app.Session)
+
+	// PageIndex - no session
+	{
+		p := app.PageIndex
+		require.NotNil(p)
+		require.Nil(p.GET.InputSession)
+	}
+
+	// PageProfile - GET with session
+	{
+		p := findPage(app, "PageProfile")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputSession)
+		require.Equal("session", p.GET.InputSession.Name)
+
+		// POSTUpdate - action with session
+		update := findAction(p.Actions, "Update")
+		require.NotNil(update)
+		require.NotNil(update.InputSession)
+		require.Equal("session", update.InputSession.Name)
+		require.Nil(update.InputSSE)
+
+		// POSTNotify - action with SSE + session
+		notify := findAction(p.Actions, "Notify")
+		require.NotNil(notify)
+		require.NotNil(notify.InputSSE)
+		require.NotNil(notify.InputSession)
+
+		// Event handler with session
+		require.Len(p.EventHandlers, 1)
+		evh := p.EventHandlers[0]
+		require.NotNil(evh.InputSession)
+		require.Equal(
+			"session", evh.InputSession.Name,
+		)
+	}
+}
+
+func TestParse_ErrSession(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_session")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrSessionMissingUserID,
+		parser.ErrSessionParamNotSessionType,
+	)
+}
+
+func TestParse_ErrSessionWrongType(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_session_wrong_type")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrSessionNotStruct,
+	)
+}
+
+func TestParse_Redirect(t *testing.T) {
+	app, err := parse(t, "redirect")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// PageIndex - no redirect
+	{
+		p := app.PageIndex
+		require.NotNil(p)
+		require.Nil(p.GET.OutputRedirect)
+		require.Nil(p.GET.OutputRedirectStatus)
+	}
+
+	// PageLogin - GET with redirect only
+	{
+		p := findPage(app, "PageLogin")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputRedirect)
+		require.Equal("redirect", p.GET.OutputRedirect.Name)
+		require.Nil(p.GET.OutputRedirectStatus)
+
+		// POSTSignIn - action with redirect + redirectStatus
+		require.Len(p.Actions, 1)
+		a := p.Actions[0]
+		require.NotNil(a.OutputRedirect)
+		require.Equal("redirect", a.OutputRedirect.Name)
+		require.NotNil(a.OutputRedirectStatus)
+		require.Equal(
+			"redirectStatus",
+			a.OutputRedirectStatus.Name,
+		)
+	}
+}
+
+func TestParse_ErrRedirect(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_redirect")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrRedirectNotString,
+		parser.ErrRedirectStatusNotInt,
+		parser.ErrRedirectStatusWithoutRedirect,
+	)
+}
+
 func TestParse_ErrSignals(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_signals")

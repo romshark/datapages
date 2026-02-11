@@ -13,6 +13,12 @@ func IsString(t types.Type) bool {
 	return ok && b.Kind() == types.String
 }
 
+// IsInt reports whether t's underlying type is int.
+func IsInt(t types.Type) bool {
+	b, ok := t.Underlying().(*types.Basic)
+	return ok && b.Kind() == types.Int
+}
+
 // IsError reports whether t is the builtin "error" type.
 func IsError(t types.Type) bool {
 	if t == nil {
@@ -89,6 +95,23 @@ func IsPtrToDatastarSSE(
 	return obj.Pkg().Path() ==
 		"github.com/starfederation/datastar-go/datastar" &&
 		obj.Name() == "ServerSentEventGenerator"
+}
+
+// IsSessionType reports whether expr resolves to a named
+// type called "Session".
+func IsSessionType(
+	expr ast.Expr, info *types.Info,
+) bool {
+	t := info.TypeOf(expr)
+	if t == nil {
+		return false
+	}
+	named, ok := t.(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	return obj != nil && obj.Name() == "Session"
 }
 
 // EventTypeNameOf returns the EventXXX type name for expr

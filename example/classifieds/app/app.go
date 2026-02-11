@@ -14,11 +14,6 @@ import (
 	"github.com/starfederation/datastar-go/datastar"
 )
 
-type Redirect struct {
-	Target string
-	Status int
-}
-
 type Session struct {
 	UserID string
 
@@ -58,10 +53,10 @@ type SearchParams struct {
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request, _ Session) (
 	closeSession bool,
-	redirect Redirect,
+	redirect string,
 	err error,
 ) {
-	return true, Redirect{Target: href.Login()}, nil
+	return true, href.Login(), nil
 }
 
 // POSTCause500 is /cause-500-internal-error/{$}

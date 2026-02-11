@@ -17,8 +17,14 @@ type App struct {
 	Recover500          ast.Expr // Nullable.
 	GlobalHeadGenerator ast.Expr // Nullable.
 
+	Session *SessionType // Nullable.
+
 	Pages  []*Page
 	Events []*Event
+}
+
+type SessionType struct {
+	Expr ast.Expr
 }
 
 type PageSpecialization int8
@@ -72,12 +78,15 @@ type Handler struct {
 
 	InputRequest  *Input
 	InputSSE      *Input
+	InputSession  *Input
 	InputPath     *Input
 	InputQuery    *Input
 	InputSignals  *Input
 	InputDispatch *InputDispatch
 
-	OutputErr *Output
+	OutputRedirect       *Output
+	OutputRedirectStatus *Output
+	OutputErr            *Output
 }
 
 type InputDispatch struct {
@@ -93,8 +102,9 @@ type EventHandler struct {
 	Name          string
 	EventTypeName string
 
-	InputEvent *Input
-	InputSSE   *Input
+	InputEvent   *Input
+	InputSSE     *Input
+	InputSession *Input
 
 	OutputErr *Output
 }

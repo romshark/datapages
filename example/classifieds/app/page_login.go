@@ -16,13 +16,13 @@ type PageLogin struct{ App *App }
 
 func (PageLogin) GET(r *http.Request, session Session) (
 	body templ.Component,
-	redirect Redirect,
+	redirect string,
 	disableRefreshAfterHidden bool,
 	err error,
 ) {
 	if session.UserID != "" {
 		// Already logged in
-		return nil, Redirect{Target: href.Index()}, false, nil
+		return nil, href.Index(), false, nil
 	}
 	return pageLogin(false), redirect, true, nil
 }
@@ -43,13 +43,14 @@ func (p PageLogin) POSTSubmit(
 	},
 ) (
 	body templ.Component,
-	redirect Redirect,
+	redirect string,
+	redirectStatus int,
 	newSession Session,
 	err error,
 ) {
 	if session.UserID != "" {
 		// Already logged in.
-		redirect = Redirect{Target: href.Index(), Status: http.StatusSeeOther}
+		redirect, redirectStatus = href.Index(), http.StatusSeeOther
 		return
 	}
 	uid, err := p.App.repo.Login(signals.EmailOrUsername, signals.Password)
@@ -69,6 +70,6 @@ func (p PageLogin) POSTSubmit(
 		UserID:   uid,
 		IssuedAt: now,
 	}
-	redirect = Redirect{Target: href.Index(), Status: http.StatusSeeOther}
+	redirect, redirectStatus = href.Index(), http.StatusSeeOther
 	return
 }

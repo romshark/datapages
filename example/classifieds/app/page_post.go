@@ -26,7 +26,7 @@ func (p PagePost) GET(
 	},
 ) (
 	body, head templ.Component,
-	redirect Redirect,
+	redirect string,
 	err error,
 ) {
 	if strings.TrimSpace(path.Slug) == "" {
@@ -38,7 +38,7 @@ func (p PagePost) GET(
 	if err != nil {
 		if errors.Is(err, domain.ErrPostNotFound) {
 			// Redirect to 404 page.
-			return nil, nil, Redirect{Target: href.Error404()}, nil
+			return nil, nil, href.Error404(), nil
 		}
 	}
 

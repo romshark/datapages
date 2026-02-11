@@ -41,15 +41,15 @@ func (p PageSettings) render(
 func (p PageSettings) GET(
 	r *http.Request,
 	session Session,
-) (body templ.Component, redirect Redirect, err error) {
+) (body templ.Component, redirect string, err error) {
 	if session.UserID == "" {
-		return nil, Redirect{Target: href.Login()}, nil
+		return nil, href.Login(), nil
 	}
 
 	sessions := make(map[string]Session)
 	maps.Insert(sessions, p.App.sessions.UserSessions(session.UserID))
 	body, err = p.render(r.Context(), session)
-	return body, Redirect{}, err
+	return body, "", err
 }
 
 // POSTSave is /settings/save/{$}
@@ -60,12 +60,12 @@ func (p PageSettings) POSTSave(
 	signals struct {
 		Username string `json:"username"`
 	},
-) (redirect Redirect, err error) {
+) (redirect string, err error) {
 	if session.UserID == "" {
-		return Redirect{Target: href.Login()}, nil
+		return href.Login(), nil
 	}
 	// TODO
-	return Redirect{}, nil
+	return "", nil
 }
 
 // POSTCloseSession is /settings/close-session/{token}/{$}
@@ -79,24 +79,24 @@ func (p PageSettings) POSTCloseSession(
 	dispatch func(EventSessionClosed) error,
 ) (
 	closeSession bool,
-	redirect Redirect,
+	redirect string,
 	err error,
 ) {
 	if session.UserID == "" {
-		return false, Redirect{}, domain.ErrUnauthorized
+		return false, "", domain.ErrUnauthorized
 	}
 	sess, err := p.App.sessions.Session(r.Context(), path.Token)
 	if err != nil {
-		return false, Redirect{}, err
+		return false, "", err
 	}
 	if sess.UserID != session.UserID {
-		return false, Redirect{}, domain.ErrUnauthorized
+		return false, "", domain.ErrUnauthorized
 	}
 	// Even though closeSession=true would close the sessions, let's close it
 	// explicitly before we dispatch the event to make sure it's closed before
 	// we claim it is.
 	if err := p.App.sessions.CloseSession(r.Context(), path.Token); err != nil {
-		return false, Redirect{}, err
+		return false, "", err
 	}
 	_ = dispatch(EventSessionClosed{
 		TargetUserIDs: []string{sess.UserID},
@@ -104,10 +104,10 @@ func (p PageSettings) POSTCloseSession(
 	})
 	if sessionToken == path.Token {
 		// Closed current session
-		return true, Redirect{Target: href.Login()}, nil
+		return true, href.Login(), nil
 	}
 	// Closed another session.
-	return false, Redirect{}, nil
+	return false, "", nil
 }
 
 // POSTCloseAllSessions is /settings/close-all-sessions/{$}
@@ -115,13 +115,13 @@ func (p PageSettings) POSTCloseAllSessions(
 	r *http.Request,
 	session Session,
 	dispatch func(EventSessionClosed) error,
-) (redirect Redirect, err error) {
+) (redirect string, err error) {
 	if session.UserID == "" {
-		return Redirect{}, domain.ErrUnauthorized
+		return "", domain.ErrUnauthorized
 	}
 	closed, err := p.App.sessions.CloseAllUserSessions(nil, session.UserID)
 	if err != nil {
-		return Redirect{}, err
+		return "", err
 	}
 	targetUsers := []string{session.UserID}
 	for _, token := range closed {
@@ -130,7 +130,7 @@ func (p PageSettings) POSTCloseAllSessions(
 			Token:         token,
 		})
 	}
-	return Redirect{Target: href.Login()}, nil
+	return href.Login(), nil
 }
 
 func (p PageSettings) OnSessionClosed(

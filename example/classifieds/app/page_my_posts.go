@@ -20,11 +20,11 @@ func (p PageMyPosts) GET(
 	session Session,
 ) (
 	body, head templ.Component,
-	redirect Redirect,
+	redirect string,
 	err error,
 ) {
 	if session.UserID == "" {
-		return nil, nil, Redirect{Target: href.Login()}, nil
+		return nil, nil, href.Login(), nil
 	}
 
 	user, err := p.App.repo.UserByName(r.Context(), session.UserID)
