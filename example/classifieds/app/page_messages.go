@@ -109,11 +109,11 @@ func (p PageMessages) getChat(
 func (p PageMessages) POSTRead(
 	r *http.Request,
 	session Session,
-	signals struct {
-		ChatSelected string `json:"chatselected"`
-	},
 	query struct {
 		MessageID string `query:"msgid"`
+	},
+	signals struct {
+		ChatSelected string `json:"chatselected"`
 	},
 	dispatch func(EventMessagingRead) error,
 ) error {

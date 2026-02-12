@@ -74,7 +74,7 @@ func (p PagePost) POSTSendMessage(
 	sse *datastar.ServerSentEventGenerator,
 	session Session,
 	path struct {
-		Slug string `json:"slug"`
+		Slug string `path:"slug"`
 	},
 	signals struct {
 		MessageText string `json:"messagetext"`

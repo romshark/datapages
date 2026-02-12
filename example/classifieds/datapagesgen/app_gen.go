@@ -1430,7 +1430,7 @@ func (s *Server) handlePageMessagesPOSTRead(
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-	if err := p.POSTRead(r, sess, signals, query, dispatch); err != nil {
+	if err := p.POSTRead(r, sess, query, signals, dispatch); err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTRead", err)
 		return
 	}
@@ -1999,7 +1999,7 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	}
 
 	var path struct {
-		Slug string `json:"slug"`
+		Slug string `path:"slug"`
 	}
 	path.Slug = r.PathValue("slug")
 

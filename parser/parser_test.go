@@ -1017,3 +1017,398 @@ func findActionByMethod(actions []*model.Handler, method, nameSuffix string) *mo
 	}
 	return nil
 }
+
+func findEventHandler(
+	hs []*model.EventHandler, name string,
+) *model.EventHandler {
+	for _, h := range hs {
+		if h.Name == name {
+			return h
+		}
+	}
+	return nil
+}
+
+func TestParse_ExampleClassifieds(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "example", "classifieds", "app"),
+	)
+	require := require.New(t)
+	// Known parser limitations: named types for query/signals
+	// params and signals params in event handlers are not
+	// yet supported.
+	requireParseErrors(t, errs,
+		parser.ErrSignatureUnknownInput, // OnMessagingRead signals
+		parser.ErrSignatureUnknownInput, // OnMessagingSent signals
+		parser.ErrQueryParamNotStruct,   // PageSearch.GET
+		parser.ErrSignalsParamNotStruct, // PageSearch.POSTParamChange
+	)
+	require.NotNil(app)
+
+	// App-level features
+	require.NotNil(app.GlobalHeadGenerator)
+	require.NotNil(app.Recover500)
+	require.NotNil(app.Session)
+
+	// Events (sorted alphabetically by type name)
+	require.Len(app.Events, 6)
+	events := map[string]*model.Event{}
+	for _, e := range app.Events {
+		events[e.TypeName] = e
+	}
+	for name, tc := range map[string]struct {
+		subject          string
+		hasTargetUserIDs bool
+	}{
+		"EventMessagingRead": {
+			"messaging.read", true,
+		},
+		"EventMessagingSent": {
+			"messaging.sent", true,
+		},
+		"EventMessagingWriting": {
+			"messaging.writing", true,
+		},
+		"EventMessagingWritingStopped": {
+			"messaging.writing-stopped", true,
+		},
+		"EventPostArchived": {
+			"posts.archived", false,
+		},
+		"EventSessionClosed": {
+			"sessions.closed", true,
+		},
+	} {
+		e, ok := events[name]
+		require.True(ok, "missing event: %s", name)
+		require.Equal(tc.subject, e.Subject,
+			"event %s subject", name)
+		require.Equal(tc.hasTargetUserIDs, e.HasTargetUserIDs,
+			"event %s HasTargetUserIDs", name)
+	}
+
+	// Pages (sorted alphabetically)
+	require.Len(app.Pages, 10)
+
+	// Special pages
+	require.NotNil(app.PageIndex)
+	require.NotNil(app.PageError404)
+	require.NotNil(app.PageError500)
+
+	// PageError404
+	{
+		p := app.PageError404
+		require.Equal("PageError404", p.TypeName)
+		require.Equal("/not-found", p.Route)
+		require.Equal(
+			model.PageTypeError404, p.PageSpecialization,
+		)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.Equal("body", p.GET.OutputBody.Name)
+		require.NotNil(p.GET.InputSession)
+		require.Equal("session", p.GET.InputSession.Name)
+		require.Empty(p.Actions)
+		// Inherits OnMessagingSent, OnMessagingRead from Base
+		require.Len(p.EventHandlers, 2)
+	}
+
+	// PageError500
+	{
+		p := app.PageError500
+		require.Equal("PageError500", p.TypeName)
+		require.Equal("/whoops", p.Route)
+		require.Equal(
+			model.PageTypeError500, p.PageSpecialization,
+		)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputDisableRefresh)
+		require.Equal(
+			"disableRefreshAfterHidden",
+			p.GET.OutputDisableRefresh.Name,
+		)
+		require.Empty(p.Actions)
+		require.Empty(p.EventHandlers) // No Base embed
+	}
+
+	// PageIndex
+	{
+		p := app.PageIndex
+		require.Equal("PageIndex", p.TypeName)
+		require.Equal("/", p.Route)
+		require.Equal(
+			model.PageTypeIndex, p.PageSpecialization,
+		)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.InputSession)
+		require.Empty(p.Actions)
+		// Inherits OnMessagingSent, OnMessagingRead from Base
+		require.Len(p.EventHandlers, 2)
+	}
+
+	// PageLogin (no Base embed)
+	{
+		p := findPage(app, "PageLogin")
+		require.NotNil(p)
+		require.Equal("/login", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputRedirect)
+		require.NotNil(p.GET.OutputDisableRefresh)
+		require.NotNil(p.GET.InputSession)
+		require.Len(p.Actions, 1)
+		{
+			a := p.Actions[0]
+			require.Equal("POST", a.HTTPMethod)
+			require.Equal("Submit", a.Name)
+			require.Equal("/login/submit", a.Route)
+			require.NotNil(a.InputSession)
+			require.NotNil(a.InputSignals)
+			require.NotNil(a.OutputRedirect)
+			require.NotNil(a.OutputRedirectStatus)
+			require.NotNil(a.OutputNewSession)
+		}
+		require.Empty(p.EventHandlers)
+	}
+
+	// PageMessages
+	{
+		p := findPage(app, "PageMessages")
+		require.NotNil(p)
+		require.Equal("/messages", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputRedirect)
+		require.NotNil(p.GET.OutputEnableBgStream)
+		require.Equal(
+			"enableBackgroundStreaming",
+			p.GET.OutputEnableBgStream.Name,
+		)
+		require.NotNil(p.GET.InputQuery)
+		require.Equal("query", p.GET.InputQuery.Name)
+
+		// 4 actions: POSTRead, POSTWriting,
+		// POSTWritingStopped, POSTSendMessage
+		require.Len(p.Actions, 4)
+
+		read := findAction(p.Actions, "Read")
+		require.NotNil(read)
+		require.Equal("POST", read.HTTPMethod)
+		require.Equal(
+			"/messages/read/{$}", read.Route,
+		)
+		require.NotNil(read.InputSignals)
+		require.NotNil(read.InputQuery)
+		require.NotNil(read.InputDispatch)
+		require.Equal(
+			[]string{"EventMessagingRead"},
+			read.InputDispatch.EventTypeNames,
+		)
+
+		writing := findAction(p.Actions, "Writing")
+		require.NotNil(writing)
+		require.Equal(
+			"/messages/writing/{$}", writing.Route,
+		)
+		require.NotNil(writing.InputDispatch)
+		require.Equal(
+			[]string{"EventMessagingWriting"},
+			writing.InputDispatch.EventTypeNames,
+		)
+
+		stopped := findAction(
+			p.Actions, "WritingStopped",
+		)
+		require.NotNil(stopped)
+		require.Equal(
+			"/messages/writing-stopped/{$}",
+			stopped.Route,
+		)
+		require.NotNil(stopped.InputDispatch)
+		require.Equal(
+			[]string{"EventMessagingWritingStopped"},
+			stopped.InputDispatch.EventTypeNames,
+		)
+
+		send := findAction(p.Actions, "SendMessage")
+		require.NotNil(send)
+		require.Equal(
+			"/messages/sendmessage/{$}", send.Route,
+		)
+		require.NotNil(send.InputDispatch)
+		require.Equal(
+			[]string{
+				"EventMessagingWritingStopped",
+				"EventMessagingSent",
+			},
+			send.InputDispatch.EventTypeNames,
+		)
+
+		// 4 own event handlers
+		// (override Base's OnMessagingSent, OnMessagingRead)
+		require.Len(p.EventHandlers, 4)
+		require.NotNil(findEventHandler(
+			p.EventHandlers, "MessagingRead",
+		))
+		require.NotNil(findEventHandler(
+			p.EventHandlers, "MessagingSent",
+		))
+		require.NotNil(findEventHandler(
+			p.EventHandlers, "MessagingWriting",
+		))
+		require.NotNil(findEventHandler(
+			p.EventHandlers, "MessagingWritingStopped",
+		))
+	}
+
+	// PageMyPosts
+	{
+		p := findPage(app, "PageMyPosts")
+		require.NotNil(p)
+		require.Equal("/my-posts", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputHead)
+		require.NotNil(p.GET.OutputRedirect)
+		require.Empty(p.Actions)
+		// Inherits OnMessagingSent, OnMessagingRead from Base
+		require.Len(p.EventHandlers, 2)
+	}
+
+	// PagePost
+	{
+		p := findPage(app, "PagePost")
+		require.NotNil(p)
+		require.Equal("/post/{slug}", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputHead)
+		require.NotNil(p.GET.OutputRedirect)
+		require.NotNil(p.GET.InputPath)
+		require.Equal("path", p.GET.InputPath.Name)
+
+		require.Len(p.Actions, 1)
+		send := p.Actions[0]
+		require.Equal("POST", send.HTTPMethod)
+		require.Equal("SendMessage", send.Name)
+		require.Equal(
+			"/post/{slug}/send-message/{$}",
+			send.Route,
+		)
+		require.NotNil(send.InputSSE)
+		require.NotNil(send.InputPath)
+		require.NotNil(send.InputSignals)
+		require.NotNil(send.InputDispatch)
+		require.Equal(
+			[]string{"EventMessagingSent"},
+			send.InputDispatch.EventTypeNames,
+		)
+
+		// Own OnPostArchived + inherited
+		// OnMessagingSent, OnMessagingRead from Base
+		require.Len(p.EventHandlers, 3)
+		require.NotNil(findEventHandler(
+			p.EventHandlers, "PostArchived",
+		))
+	}
+
+	// PageSearch
+	// NOTE: GET.InputQuery and POSTParamChange.InputSignals
+	// are nil due to named-type param limitation.
+	{
+		p := findPage(app, "PageSearch")
+		require.NotNil(p)
+		require.Equal("/search", p.Route)
+		require.NotNil(p.GET)
+		require.Nil(p.GET.OutputBody) // nil: parse err
+		require.Nil(p.GET.InputQuery) // nil: named type
+
+		require.Len(p.Actions, 1)
+		a := p.Actions[0]
+		require.Equal("POST", a.HTTPMethod)
+		require.Equal("ParamChange", a.Name)
+		require.Equal(
+			"/search/paramchange/{$}", a.Route,
+		)
+		require.NotNil(a.InputSSE)
+		require.Nil(a.InputSignals) // nil: named type
+
+		// Inherits OnMessagingSent, OnMessagingRead from Base
+		require.Len(p.EventHandlers, 2)
+	}
+
+	// PageSettings
+	{
+		p := findPage(app, "PageSettings")
+		require.NotNil(p)
+		require.Equal("/settings", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputRedirect)
+
+		// 3 actions: POSTSave, POSTCloseSession,
+		// POSTCloseAllSessions
+		require.Len(p.Actions, 3)
+
+		save := findAction(p.Actions, "Save")
+		require.NotNil(save)
+		require.Equal(
+			"/settings/save/{$}", save.Route,
+		)
+		require.NotNil(save.InputSSE)
+		require.NotNil(save.InputSignals)
+
+		closeSess := findAction(
+			p.Actions, "CloseSession",
+		)
+		require.NotNil(closeSess)
+		require.Equal(
+			"/settings/close-session/{token}/{$}",
+			closeSess.Route,
+		)
+		require.NotNil(closeSess.InputSessionToken)
+		require.NotNil(closeSess.InputPath)
+		require.NotNil(closeSess.InputDispatch)
+		require.NotNil(closeSess.OutputCloseSession)
+
+		closeAll := findAction(
+			p.Actions, "CloseAllSessions",
+		)
+		require.NotNil(closeAll)
+		require.Equal(
+			"/settings/close-all-sessions/{$}",
+			closeAll.Route,
+		)
+		require.NotNil(closeAll.InputDispatch)
+
+		// Own OnSessionClosed + inherited
+		// OnMessagingSent, OnMessagingRead from Base
+		require.Len(p.EventHandlers, 3)
+		require.NotNil(findEventHandler(
+			p.EventHandlers, "SessionClosed",
+		))
+	}
+
+	// PageUser
+	{
+		p := findPage(app, "PageUser")
+		require.NotNil(p)
+		require.Equal("/user/{name}/{$}", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputHead)
+		require.NotNil(p.GET.OutputRedirect)
+		require.NotNil(p.GET.InputPath)
+		require.Equal("path", p.GET.InputPath.Name)
+		require.Empty(p.Actions)
+
+		// Own OnPostArchived + inherited
+		// OnMessagingSent, OnMessagingRead from Base
+		require.Len(p.EventHandlers, 3)
+		require.NotNil(findEventHandler(
+			p.EventHandlers, "PostArchived",
+		))
+	}
+}
