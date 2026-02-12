@@ -92,25 +92,50 @@ func field(name string) *ast.Field {
 	}
 }
 
+func TestIsSessionTokenParam(t *testing.T) {
+	t.Parallel()
+	require.True(t, IsSessionTokenParam(field("sessionToken")))
+	require.False(t, IsSessionTokenParam(field("path")))
+	require.False(t, IsSessionTokenParam(&ast.Field{}))
+}
+
+func TestIsSessionParam(t *testing.T) {
+	t.Parallel()
+	require.True(t, IsSessionParam(field("session")))
+	require.False(t, IsSessionParam(field("path")))
+	require.False(t, IsSessionParam(&ast.Field{}))
+}
+
+func TestIsDispatchParam(t *testing.T) {
+	t.Parallel()
+	require.True(t, IsDispatchParam(field("dispatch")))
+	require.False(t, IsDispatchParam(field("path")))
+	require.False(t, IsDispatchParam(&ast.Field{}))
+}
+
 func TestIsPathParam(t *testing.T) {
+	t.Parallel()
 	require.True(t, IsPathParam(field("path")))
 	require.False(t, IsPathParam(field("query")))
 	require.False(t, IsPathParam(&ast.Field{}))
 }
 
 func TestIsQueryParam(t *testing.T) {
+	t.Parallel()
 	require.True(t, IsQueryParam(field("query")))
 	require.False(t, IsQueryParam(field("path")))
 	require.False(t, IsQueryParam(&ast.Field{}))
 }
 
 func TestIsSignalsParam(t *testing.T) {
+	t.Parallel()
 	require.True(t, IsSignalsParam(field("signals")))
 	require.False(t, IsSignalsParam(field("path")))
 	require.False(t, IsSignalsParam(&ast.Field{}))
 }
 
 func TestValidatePathStruct(t *testing.T) {
+	t.Parallel()
 	tests := map[string]struct {
 		src     string
 		wantErr error
@@ -161,6 +186,7 @@ func f(path struct {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			f, info := typeCheckSrc(t, tt.src)
 			p := firstFuncParam(t, f, 0)
 			err := ValidatePathStruct(
@@ -175,6 +201,7 @@ func f(path struct {
 	}
 
 	t.Run("resolved type not struct", func(t *testing.T) {
+		t.Parallel()
 		f, info := fakeStructInfo()
 		err := ValidatePathStruct(
 			f, info, "Recv", "Method",
@@ -184,6 +211,7 @@ func f(path struct {
 }
 
 func TestValidateQueryStruct(t *testing.T) {
+	t.Parallel()
 	tests := map[string]struct {
 		src     string
 		wantErr error
@@ -220,6 +248,7 @@ func f(query struct {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			f, info := typeCheckSrc(t, tt.src)
 			p := firstFuncParam(t, f, 0)
 			err := ValidateQueryStruct(
@@ -234,6 +263,7 @@ func f(query struct {
 	}
 
 	t.Run("resolved type not struct", func(t *testing.T) {
+		t.Parallel()
 		f, info := fakeStructInfo()
 		err := ValidateQueryStruct(
 			f, info, "Recv", "Method",
@@ -243,6 +273,7 @@ func f(query struct {
 }
 
 func TestValidateSignalsStruct(t *testing.T) {
+	t.Parallel()
 	tests := map[string]struct {
 		src     string
 		wantErr error
@@ -279,6 +310,7 @@ func f(signals struct {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			f, info := typeCheckSrc(t, tt.src)
 			p := firstFuncParam(t, f, 0)
 			err := ValidateSignalsStruct(
@@ -293,6 +325,7 @@ func f(signals struct {
 	}
 
 	t.Run("resolved type not struct", func(t *testing.T) {
+		t.Parallel()
 		f, info := fakeStructInfo()
 		err := ValidateSignalsStruct(
 			f, info, "Recv", "Method",
@@ -304,6 +337,7 @@ func f(signals struct {
 }
 
 func TestValidatePathAgainstRoute(t *testing.T) {
+	t.Parallel()
 	tests := map[string]struct {
 		route   string
 		pathSrc string // empty means nil InputPath
@@ -359,6 +393,7 @@ type P struct {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			h := &model.Handler{Route: tt.route}
 			if tt.pathSrc != "" {
 				h.InputPath = &model.Input{
@@ -381,6 +416,7 @@ type P struct {
 	}
 
 	t.Run("resolved type not struct", func(t *testing.T) {
+		t.Parallel()
 		h := &model.Handler{Route: "/items"}
 		h.InputPath = &model.Input{
 			Type: model.Type{
@@ -392,4 +428,106 @@ type P struct {
 		)
 		require.NoError(t, err)
 	})
+}
+
+func TestValidateDispatchFunc(t *testing.T) {
+	t.Parallel()
+	eventTypes := map[string]struct{}{
+		"EventFoo": {},
+		"EventBar": {},
+	}
+
+	tests := map[string]struct {
+		src        string
+		wantErr    error
+		wantEvents []string
+	}{
+		"valid single event": {
+			src: `package test
+type EventFoo struct{}
+func f(dispatch func(EventFoo) error) {}`,
+			wantEvents: []string{"EventFoo"},
+		},
+		"valid multiple events": {
+			src: `package test
+type EventFoo struct{}
+type EventBar struct{}
+func f(dispatch func(EventFoo, EventBar) error) {}`,
+			wantEvents: []string{
+				"EventFoo", "EventBar",
+			},
+		},
+		"valid pointer event": {
+			src: `package test
+type EventFoo struct{}
+func f(dispatch func(*EventFoo) error) {}`,
+			wantEvents: []string{"EventFoo"},
+		},
+		"grouped event names": {
+			src: `package test
+type EventFoo struct{}
+func f(dispatch func(a, b EventFoo) error) {}`,
+			wantEvents: []string{
+				"EventFoo", "EventFoo",
+			},
+		},
+		"not a func": {
+			src: `package test
+func f(dispatch string) {}`,
+			wantErr: ErrDispatchParamNotFunc,
+		},
+		"no return": {
+			src: `package test
+type EventFoo struct{}
+func f(dispatch func(EventFoo)) {}`,
+			wantErr: ErrDispatchReturnCount,
+		},
+		"two returns": {
+			src: `package test
+type EventFoo struct{}
+func f(dispatch func(EventFoo) (int, error)) {}`,
+			wantErr: ErrDispatchReturnCount,
+		},
+		"named multiple returns": {
+			src: `package test
+type EventFoo struct{}
+func f(dispatch func(EventFoo) (x, y error)) {}`,
+			wantErr: ErrDispatchReturnCount,
+		},
+		"return not error": {
+			src: `package test
+type EventFoo struct{}
+func f(dispatch func(EventFoo) int) {}`,
+			wantErr: ErrDispatchMustReturnError,
+		},
+		"no params": {
+			src: `package test
+func f(dispatch func() error) {}`,
+			wantErr: ErrDispatchNoParams,
+		},
+		"param not event type": {
+			src: `package test
+func f(dispatch func(int) error) {}`,
+			wantErr: ErrDispatchParamNotEvent,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f, info := typeCheckSrc(t, tt.src)
+			p := firstFuncParam(t, f, 0)
+			events, err := ValidateDispatchFunc(
+				p, info, eventTypes,
+				"Recv", "Method",
+			)
+			if tt.wantErr == nil {
+				require.NoError(t, err)
+				require.Equal(
+					t, tt.wantEvents, events,
+				)
+			} else {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
+		})
+	}
 }
