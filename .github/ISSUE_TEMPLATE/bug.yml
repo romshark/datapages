@@ -32,4 +32,4 @@ body:
     id: go-version
     attributes:
       label: Go Version
-      placeholder: e.g. 1.25.7
+      placeholder: e.g. 1.26.0
