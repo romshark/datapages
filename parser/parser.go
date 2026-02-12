@@ -1117,8 +1117,8 @@ func parseHandler(
 
 	// Check if second param is sse (built-in feature for actions)
 	remainingParams := params.List[1:]
-	isPtrToSSE := typecheck.IsPtrToDatastarSSE(remainingParams[0].Type, info)
-	if len(remainingParams) > 0 && isPtrToSSE {
+	if len(remainingParams) > 0 &&
+		typecheck.IsPtrToDatastarSSE(remainingParams[0].Type, info) {
 		h.InputSSE = parseInput(remainingParams[0], info)
 		remainingParams = remainingParams[1:]
 	}
