@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"maps"
 	"slices"
 	"strings"
 	"unicode"
@@ -144,13 +145,7 @@ func initApp(ctx *parseCtx, errs *Errors) {
 }
 
 func firstPassTypes(ctx *parseCtx, errs *Errors) {
-	typeNames := make([]string, 0, len(ctx.typeSpecByName))
-	for name := range ctx.typeSpecByName {
-		typeNames = append(typeNames, name)
-	}
-	slices.Sort(typeNames)
-
-	for _, name := range typeNames {
+	for _, name := range slices.Sorted(maps.Keys(ctx.typeSpecByName)) {
 		ts := ctx.typeSpecByName[name]
 
 		if name == "Session" {
@@ -571,12 +566,14 @@ func attachHTTPHandler(
 	kind methodkind.Kind,
 	suffix string,
 ) {
+	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
+
 	h, outputs, herr := parseHandler(
 		recv, fd, ctx.pkg.TypesInfo, ctx.eventTypeNames, kind, suffix,
 	)
 	if herr != nil {
 		// Keep going; still attach a best-effort handler model.
-		errs.ErrAt(ctx.pkg.Fset.Position(fd.Name.Pos()), herr)
+		errs.ErrAt(pos, herr)
 	}
 	ctx.handlerOutputs[h] = outputs
 
@@ -584,7 +581,6 @@ func attachHTTPHandler(
 		r, found, valid := parseRoute(fd.Name.Name, fd.Doc)
 		h.Route = r
 
-		pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 		if !found {
 			errs.ErrAt(pos,
 				fmt.Errorf("%w: %s.%s", ErrActionMissingPathComm, recv, fd.Name.Name))
@@ -604,14 +600,14 @@ func attachHTTPHandler(
 		if err := paramvalidation.ValidatePathAgainstRoute(
 			h, recv, fd.Name.Name,
 		); err != nil {
-			errs.ErrAt(ctx.pkg.Fset.Position(fd.Name.Pos()), err)
+			errs.ErrAt(pos, err)
 		}
 	}
 
 	// Validate reflectsignal tags on query fields reference actual signals.
 	if herr == nil {
 		if rsErr := structtag.ValidateReflectSignal(h, recv, fd.Name.Name); rsErr != nil {
-			errs.ErrAt(ctx.pkg.Fset.Position(fd.Name.Pos()), rsErr)
+			errs.ErrAt(pos, rsErr)
 		}
 	}
 
@@ -621,7 +617,7 @@ func attachHTTPHandler(
 			pg.GET = get
 			// Only report GET validation errors if handler parsing succeeded
 			if getErr != nil && herr == nil {
-				errs.ErrAt(ctx.pkg.Fset.Position(fd.Name.Pos()),
+				errs.ErrAt(pos,
 					fmt.Errorf("%w in %s.%s", getErr, recv, fd.Name.Name))
 			}
 		} else {
@@ -633,13 +629,7 @@ func attachHTTPHandler(
 }
 
 func flattenPages(ctx *parseCtx, errs *Errors) {
-	// deterministic iteration
-	names := make([]string, 0, len(ctx.pages))
-	for name := range ctx.pages {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	for _, name := range names {
+	for _, name := range slices.Sorted(maps.Keys(ctx.pages)) {
 		flattenPage(ctx, errs, ctx.pages[name])
 	}
 }
@@ -820,13 +810,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 
 func validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
 	// Every page type must have a GET handler.
-	pageNames := make([]string, 0, len(ctx.pages))
-	for name := range ctx.pages {
-		pageNames = append(pageNames, name)
-	}
-	slices.Sort(pageNames)
-
-	for _, name := range pageNames {
+	for _, name := range slices.Sorted(maps.Keys(ctx.pages)) {
 		if ctx.pages[name].GET == nil {
 			ts := ctx.typeSpecByName[name]
 			errs.ErrAt(ctx.pkg.Fset.Position(ts.Name.Pos()),
@@ -836,12 +820,7 @@ func validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
 }
 
 func finalizePages(ctx *parseCtx) {
-	names := make([]string, 0, len(ctx.pages))
-	for name := range ctx.pages {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	for _, name := range names {
+	for _, name := range slices.Sorted(maps.Keys(ctx.pages)) {
 		ctx.app.Pages = append(ctx.app.Pages, ctx.pages[name])
 	}
 }
@@ -917,41 +896,36 @@ func loadPackage(appPackagePath string) (*packages.Package, error) {
 	// Accept either an import path/pattern or a directory.
 	if st, err := os.Stat(appPackagePath); err == nil && st.IsDir() {
 		cfg.Dir = appPackagePath
-		pkgs, err := packages.Load(cfg, ".")
-		if err != nil {
-			return nil, err
-		}
-		if len(pkgs) != 1 {
-			return nil, fmt.Errorf("expected 1 package, got %d", len(pkgs))
-		}
-		return pkgs[0], nil
+		return loadSingle(cfg, ".")
 	}
 
-	// If it looks like a filesystem path but doesn't exist, keep as pattern anyway.
+	// If it looks like a filesystem path but doesn't exist,
+	// keep as pattern anyway.
 	pattern := appPackagePath
 	if filepath.IsAbs(appPackagePath) {
-		// go list doesn’t like absolute patterns;
+		// go list doesn't like absolute patterns;
 		// fallback to directory load if possible.
 		dir := filepath.Dir(appPackagePath)
 		if st, err := os.Stat(dir); err == nil && st.IsDir() {
 			cfg.Dir = dir
-			pkgs, err := packages.Load(cfg, ".")
-			if err != nil {
-				return nil, err
-			}
-			if len(pkgs) != 1 {
-				return nil, fmt.Errorf("expected 1 package, got %d", len(pkgs))
-			}
-			return pkgs[0], nil
+			return loadSingle(cfg, ".")
 		}
 	}
 
+	return loadSingle(cfg, pattern)
+}
+
+func loadSingle(
+	cfg *packages.Config, pattern string,
+) (*packages.Package, error) {
 	pkgs, err := packages.Load(cfg, pattern)
 	if err != nil {
 		return nil, err
 	}
 	if len(pkgs) != 1 {
-		return nil, fmt.Errorf("expected 1 package, got %d", len(pkgs))
+		return nil, fmt.Errorf(
+			"expected 1 package, got %d", len(pkgs),
+		)
 	}
 	return pkgs[0], nil
 }
