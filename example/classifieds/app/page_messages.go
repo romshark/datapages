@@ -228,16 +228,15 @@ func (p PageMessages) POSTSendMessage(
 		EventMessagingWritingStopped,
 		EventMessagingSent,
 	) error,
-	metrics MessagingChatMessagesSent,
 ) error {
 	var targetUsers []string
 	err := func() (err error) {
 		defer func() {
 			if err != nil {
-				metrics.ChatMessagesSent.CounterAdd(1, "failure")
+				p.App.ChatMessagesSent.WithLabelValues("failure").Inc()
 				return
 			}
-			metrics.ChatMessagesSent.CounterAdd(1, "success")
+			p.App.ChatMessagesSent.WithLabelValues("success").Inc()
 		}()
 
 		post, chat, err := p.getChat(r.Context(), session, signals.ChatSelected)

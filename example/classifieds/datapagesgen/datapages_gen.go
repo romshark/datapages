@@ -165,6 +165,11 @@ func WithMessageBroker(b MessageBroker) ServerOption {
 
 type CSRFConfig struct {
 	Secret []byte
+
+	// DevBypassToken, if non-empty, is accepted as a valid
+	// CSRF token for any session. Use this only in development
+	// to allow tools like k6 to exercise POST endpoints.
+	DevBypassToken string
 }
 
 // WithCSRFProtection enables Cross-Site-Request-Forgery protection on
@@ -174,6 +179,9 @@ func WithCSRFProtection(conf CSRFConfig) ServerOption {
 	return func(s *Server) error {
 		if len(conf.Secret) < 1 {
 			return errors.New("empty CSRF secret")
+		}
+		if conf.DevBypassToken != "" && !IsDevMode() {
+			return errors.New("CSRF dev bypass token must not be set in non-dev mode")
 		}
 		s.csrfConf = &conf
 		return nil
@@ -203,6 +211,11 @@ func WithPrometheus(conf PrometheusConfig) ServerOption {
 			registerMetricsWith(conf.Registerer)
 		})
 
+		// Register user-defined collectors.
+		for _, c := range conf.Collectors {
+			conf.Registerer.MustRegister(c)
+		}
+
 		var h http.Handler
 		if conf.Handler != nil {
 			h = conf.Handler
@@ -223,9 +236,10 @@ func WithPrometheus(conf PrometheusConfig) ServerOption {
 
 type PrometheusConfig struct {
 	Host       string
-	Registerer prometheus.Registerer // Optional, default: prometheus.DefaultRegisterer
-	Gatherer   prometheus.Gatherer   // Optional, default: prometheus.DefaultGatherer
-	Handler    http.Handler          // Optional override
+	Registerer prometheus.Registerer  // Optional, default: prometheus.DefaultRegisterer
+	Gatherer   prometheus.Gatherer    // Optional, default: prometheus.DefaultGatherer
+	Handler    http.Handler           // Optional override
+	Collectors []prometheus.Collector // User-defined metrics to register
 }
 
 var registerPrometheusMetricsOnce sync.Once
@@ -406,11 +420,23 @@ func (s *Server) checkCSRF(
 	}
 	t := r.Header.Get("X-CSRF-Token")
 	if t == "" {
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		http.Error(
+			w,
+			http.StatusText(http.StatusForbidden),
+			http.StatusForbidden,
+		)
 		return false
 	}
+	if s.csrfConf.DevBypassToken != "" &&
+		t == s.csrfConf.DevBypassToken {
+		return true
+	}
 	if !s.validateCSRFToken(sess.UserID, sess.IssuedAt, t) {
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		http.Error(
+			w,
+			http.StatusText(http.StatusForbidden),
+			http.StatusForbidden,
+		)
 		return false
 	}
 	return true

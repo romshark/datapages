@@ -11,6 +11,7 @@ import (
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 
 	"github.com/a-h/templ"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/starfederation/datastar-go/datastar"
 )
 
@@ -18,6 +19,11 @@ type Session struct {
 	UserID string
 
 	IssuedAt time.Time
+}
+
+type Metrics struct {
+	LoginSubmissions *prometheus.CounterVec
+	ChatMessagesSent *prometheus.CounterVec
 }
 
 type SessionManager interface {
@@ -28,6 +34,8 @@ type SessionManager interface {
 }
 
 type App struct {
+	Metrics
+
 	sessions SessionManager
 	repo     *domain.Repository
 }
@@ -202,11 +210,4 @@ func (PageError500) GET(r *http.Request) (
 	err error,
 ) {
 	return pageError500(), true, nil
-}
-
-type MessagingChatMessagesSent struct {
-	// Total number of chat message send attempts
-	ChatMessagesSent interface {
-		CounterAdd(delta float64, result string) // result=success|failure
-	} `name:"chat_messages_sent_total" subsystem:"messaging"`
 }

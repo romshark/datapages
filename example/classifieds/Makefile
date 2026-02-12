@@ -123,4 +123,8 @@ load:
 		echo "k6 not found. Install from https://k6.io"; exit 1; }
 	@echo "Running load test using $(LOAD_ENV)"
 	@set -a; [ -f $(LOAD_ENV) ] && . $(LOAD_ENV); set +a; \
-	$(K6) run $(LOAD_SCRIPT)
+	$(K6) run \
+		-e HOST=$$HOST \
+		-e PORT=$$PORT \
+		-e CSRF_DEV_BYPASS=$$CSRF_DEV_BYPASS \
+		$(LOAD_SCRIPT)

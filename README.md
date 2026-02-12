@@ -506,7 +506,9 @@ func (PageChat) OnMessageSent(
 
 </details>
 
-#### 🧩 Parameter: `metrics struct {...}`
+#### 🧩 Parameter: `metrics struct {...}` (Experimental 🧪)
+
+ℹ️ This feature is in it's design phase and not implemented yet.
 
 ```go
 metrics struct {

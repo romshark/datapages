@@ -291,18 +291,23 @@ func (s *Server) createSession(
 ) error {
 	token, err := s.sessionManager.CreateSession(r.Context(), session)
 	if err != nil {
+		mSessionCreations.WithLabelValues("error").Inc()
 		return err
 	}
+	mSessionCreations.WithLabelValues("success").Inc()
 	s.setSessionCookie(w, session.UserID+"."+token)
 	return nil
 }
 
 func (s *Server) closeSession(
-	w http.ResponseWriter, r *http.Request, token string,
+	w http.ResponseWriter, r *http.Request,
+	token string,
 ) error {
 	if err := s.sessionManager.CloseSession(r.Context(), token); err != nil {
+		mSessionClosures.WithLabelValues("error").Inc()
 		return err
 	}
+	mSessionClosures.WithLabelValues("success").Inc()
 	s.setSessionCookie(w, "")
 	return nil
 }
@@ -315,6 +320,7 @@ func (s *Server) auth(
 	c, err := r.Cookie(s.authConf.TokenCookie.Name)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {
+			mSessionReads.WithLabelValues("none").Inc()
 			return sess, "", true
 		}
 		return sess, "", false
@@ -323,9 +329,12 @@ func (s *Server) auth(
 	sess, token, ok = s.sessionManager.ReadSessionFromCookie(c)
 	if !ok {
 		// Cookie is stale or malformed; clear it and continue as unauthenticated.
+		mSessionReads.WithLabelValues("stale").Inc()
 		s.setSessionCookie(w, "")
 		return app.Session{}, "", true
 	}
+
+	mSessionReads.WithLabelValues("valid").Inc()
 
 	if !s.checkCSRF(w, r, sess) {
 		return sess, token, false
@@ -434,48 +443,37 @@ var (
 		},
 		[]string{"reason"}, // "ttl" | "client" | "shutdown"
 	)
-)
 
-// User defined metrics
-var (
-	mPageLoginAuthLoginSubmissionsTotal = prometheus.NewCounterVec(
+	mSessionCreations = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "app",
-			Subsystem: "auth",
-			Name:      "login_submissions_total",
-			Help:      "Number of login submissions",
+			Namespace: "datapages",
+			Subsystem: "session",
+			Name:      "creations_total",
+			Help:      "Session creations",
 		},
-		[]string{"result"},
+		[]string{"result"}, // "success" | "error"
 	)
-	mPageMessagesMessagingChatMessagesSentTotal = prometheus.NewCounterVec(
+	mSessionClosures = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "app",
-			Subsystem: "messaging",
-			Name:      "chat_messages_sent_total",
-			Help:      "Total number of chat message send attempts",
+			Namespace: "datapages",
+			Subsystem: "session",
+			Name:      "closures_total",
+			Help:      "Session closures",
 		},
-		[]string{"result"},
+		[]string{"result"}, // "success" | "error"
+	)
+	mSessionReads = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "datapages",
+			Subsystem: "session",
+			Name:      "reads_total",
+			Help:      "Session reads from cookie",
+		},
+		[]string{"result"}, // "valid" | "none" | "stale"
 	)
 )
-
-type mIPageLoginAuthLoginSubmissionsTotal struct{}
-
-func (m mIPageLoginAuthLoginSubmissionsTotal) CounterAdd(
-	delta float64, result string,
-) {
-	mPageLoginAuthLoginSubmissionsTotal.WithLabelValues(result).Add(delta)
-}
-
-type mIPageMessagesMessagingChatMessagesSentTotal struct{}
-
-func (m mIPageMessagesMessagingChatMessagesSentTotal) CounterAdd(
-	delta float64, result string,
-) {
-	mPageMessagesMessagingChatMessagesSentTotal.WithLabelValues(result).Add(delta)
-}
 
 // registerMetricsWith registers the built-in datapages metrics on r.
-// (Replaces the old registerMetrics that used the global default registry.)
 func registerMetricsWith(r prometheus.Registerer) {
 	r.MustRegister(
 		mHTTPRequestsTotal,
@@ -488,9 +486,9 @@ func registerMetricsWith(r prometheus.Registerer) {
 		mSSEDisconnects,
 		mBrokerEventPublishes,
 		mBrokerDeliveriesDropped,
-
-		mPageLoginAuthLoginSubmissionsTotal,
-		mPageMessagesMessagingChatMessagesSentTotal,
+		mSessionCreations,
+		mSessionClosures,
+		mSessionReads,
 	)
 }
 
@@ -918,7 +916,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 
 		if sess.UserID != "" {
-			_, _ = io.WriteString(w, `data-init="@get('/_$')"`)
+			_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
 		}
 	}
 
@@ -1062,15 +1060,8 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 	}
 
 	p := app.PageLogin{App: s.app}
-	metrics := struct {
-		LoginSubmissions interface {
-			CounterAdd(delta float64, result string)
-		} `name:"login_submissions_total" subsystem:"auth"`
-	}{
-		LoginSubmissions: mIPageLoginAuthLoginSubmissionsTotal{},
-	}
 	body, redirect, redirectStatus, newSession, err := p.POSTSubmit(
-		r, sess, signals, metrics,
+		r, sess, signals,
 	)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.POSTSubmit", err)
@@ -1125,7 +1116,7 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 
 		if sess.UserID != "" {
-			_, _ = io.WriteString(w, `data-init="@get('/settings/_$')"`)
+			_, _ = io.WriteString(w, `data-init="@get('/settings/_$/')"`)
 		}
 	}
 
@@ -1290,7 +1281,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `'"`)
 
 		if sess.UserID != "" {
-			_, _ = io.WriteString(w, `data-init="@get('/messages/_$'`)
+			_, _ = io.WriteString(w, `data-init="@get('/messages/_$/'`)
 			if enableBackgroundStreaming {
 				_, _ = io.WriteString(w, `,{openWhenHidden:true})"`)
 			} else {
@@ -1598,10 +1589,7 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 		App:  s.app,
 		Base: app.Base{App: s.app},
 	}
-	metrics := app.MessagingChatMessagesSent{
-		ChatMessagesSent: mIPageMessagesMessagingChatMessagesSentTotal{},
-	}
-	if err := p.POSTSendMessage(r, sess, signals, dispatch, metrics); err != nil {
+	if err := p.POSTSendMessage(r, sess, signals, dispatch); err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTSendMessage", err)
 		return
 	}
@@ -1678,7 +1666,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `'"`)
 
 		if sess.UserID != "" {
-			_, _ = io.WriteString(w, `data-init="@get('/search/_$')"`)
+			_, _ = io.WriteString(w, `data-init="@get('/search/_$/')"`)
 		}
 
 		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
@@ -1857,7 +1845,11 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, `data-init="@get('/post/`)
 		_, _ = io.WriteString(w, path.Slug)
-		_, _ = io.WriteString(w, `/_$')"`)
+		if sess.UserID != "" {
+			_, _ = io.WriteString(w, `/_$/')"`)
+		} else {
+			_, _ = io.WriteString(w, `/_$/anon/')"`)
+		}
 	}
 
 	if err := s.writeHTML(

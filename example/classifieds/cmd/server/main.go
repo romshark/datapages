@@ -14,10 +14,18 @@ import (
 	"github.com/romshark/datapages/example/classifieds/datapagesgen"
 
 	"github.com/nats-io/nats.go"
+	"github.com/prometheus/client_golang/prometheus"
+)
+
+const (
+	DefaultAppAddr     = "localhost"
+	DefaultAppPort     = "8080"
+	DefaultMetricsAddr = "localhost"
+	DefaultMetricsPort = "9090"
 )
 
 func main() {
-	host, port := "localhost", "8080"
+	host, port := DefaultAppAddr, DefaultAppPort
 	if d := os.Getenv("HOST"); d != "" {
 		host = d
 	}
@@ -36,11 +44,12 @@ func main() {
 	withCSRFProtection(&opts)
 	withStaticFS(&opts)
 	sessionManager := withNATS(&opts)
-	withPrometheus(&opts)
 
 	repo := NewRepository()
+	a := app.NewApp(sessionManager, repo)
+	initMetrics(&a.Metrics, &opts)
 
-	s := datapagesgen.NewServer(app.NewApp(sessionManager, repo), opts...)
+	s := datapagesgen.NewServer(a, opts...)
 	listenAndServe(ctx, s, net.JoinHostPort(host, port))
 }
 
@@ -71,7 +80,8 @@ func withStaticFS(opts *[]datapagesgen.ServerOption) {
 
 func withCSRFProtection(opts *[]datapagesgen.ServerOption) {
 	*opts = append(*opts, datapagesgen.WithCSRFProtection(datapagesgen.CSRFConfig{
-		Secret: []byte(os.Getenv("CSRF_SECRET")),
+		Secret:         []byte(os.Getenv("CSRF_SECRET")),
+		DevBypassToken: os.Getenv("CSRF_DEV_BYPASS"),
 	}))
 }
 
@@ -115,22 +125,46 @@ func withNATS(opts *[]datapagesgen.ServerOption) *datapagesgen.SessionManagerNAT
 	return m
 }
 
-func withPrometheus(opts *[]datapagesgen.ServerOption) {
+func initMetrics(m *app.Metrics, opts *[]datapagesgen.ServerOption) {
+	m.LoginSubmissions = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "app",
+			Subsystem: "auth",
+			Name:      "login_submissions_total",
+			Help:      "Number of login submissions",
+		},
+		[]string{"result"},
+	)
+	m.ChatMessagesSent = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "app",
+			Subsystem: "messaging",
+			Name:      "chat_messages_sent_total",
+			Help: "Total number of chat message " +
+				"send attempts",
+		},
+		[]string{"result"},
+	)
+
 	host := os.Getenv("HOST_METRICS")
 	port := os.Getenv("PORT_METRICS")
-
 	if host == "" {
-		host = "127.0.0.1"
+		host = DefaultMetricsAddr
 	}
 	if port == "" {
-		port = "9090"
+		port = DefaultMetricsPort
 	}
 
 	addr := net.JoinHostPort(host, port)
-	*opts = append(*opts, datapagesgen.WithPrometheus(datapagesgen.PrometheusConfig{
-		Host: addr,
-		// Registerer/Gatherer left nil => defaults
-	}))
+	*opts = append(*opts,
+		datapagesgen.WithPrometheus(datapagesgen.PrometheusConfig{
+			Host: addr,
+			Collectors: []prometheus.Collector{
+				m.LoginSubmissions,
+				m.ChatMessagesSent,
+			},
+		}),
+	)
 }
 
 func listenAndServe(ctx context.Context, s *datapagesgen.Server, host string) {

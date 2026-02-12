@@ -35,12 +35,6 @@ func (p PageLogin) POSTSubmit(
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`
 	},
-	metrics struct {
-		// Number of login submissions
-		LoginSubmissions interface {
-			CounterAdd(delta float64, result string)
-		} `name:"login_submissions_total" subsystem:"auth"`
-	},
 ) (
 	body templ.Component,
 	redirect string,
@@ -57,14 +51,14 @@ func (p PageLogin) POSTSubmit(
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidCredentials) ||
 			errors.Is(err, domain.ErrUserNotFound) {
-			metrics.LoginSubmissions.CounterAdd(1, "failure")
+			p.App.LoginSubmissions.WithLabelValues("failure").Inc()
 			// Re-render page with feedback
 			err, body = nil, pageLogin(true)
 		}
 		return
 	}
 
-	metrics.LoginSubmissions.CounterAdd(1, "success")
+	p.App.LoginSubmissions.WithLabelValues("success").Inc()
 	now := time.Now()
 	newSession = Session{
 		UserID:   uid,
