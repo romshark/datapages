@@ -4,7 +4,7 @@ import (
 	"go/ast"
 	"testing"
 
-	"datapages/parser/validate"
+	"github.com/romshark/datapages/parser/validate"
 
 	"github.com/stretchr/testify/require"
 )

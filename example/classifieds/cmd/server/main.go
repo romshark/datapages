@@ -10,6 +10,10 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/romshark/datapages/modules/msgbroker/natsjs"
+	"github.com/romshark/datapages/modules/sessmanager/natskv"
+	"github.com/romshark/datapages/modules/sesstokgen"
+
 	"github.com/romshark/datapages/example/classifieds/app"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen"
 
@@ -43,13 +47,14 @@ func main() {
 	withAccessLogger(&opts)
 	withCSRFProtection(&opts)
 	withStaticFS(&opts)
-	sessionManager := withNATS(&opts)
+
+	messageBroker, sessionManager := connectNATS()
 
 	repo := NewRepository()
 	a := app.NewApp(sessionManager, repo)
 	initMetrics(&a.Metrics, &opts)
 
-	s := datapagesgen.NewServer(a, opts...)
+	s := datapagesgen.NewServer(a, messageBroker, sessionManager, opts...)
 	listenAndServe(ctx, s, net.JoinHostPort(host, port))
 }
 
@@ -85,44 +90,57 @@ func withCSRFProtection(opts *[]datapagesgen.ServerOption) {
 	}))
 }
 
-func withNATS(opts *[]datapagesgen.ServerOption) *datapagesgen.SessionManagerNATSKV {
+func connectNATS() (
+	messageBroker *natsjs.MessageBroker,
+	sessionManager *natskv.SessionManager[app.Session],
+) {
 	// If NATS URL is set then enable NATS message broker.
 	u := os.Getenv("NATS_URL")
 	if u == "" {
-		slog.Warn("NATS_URL not set; using in-memory message broker")
-		return nil
+		slog.Error("NATS_URL not set")
+		os.Exit(2)
 	}
+
+	sessionEncryptionKey := os.Getenv("SESSION_ENCRYPTION_KEY")
+	if sessionEncryptionKey == "" {
+		slog.Error("SESSION_ENCRYPTION_KEY not set")
+		os.Exit(2)
+	}
+
 	conn, err := nats.Connect(u)
 	if err != nil {
 		slog.Error("opening NATS connection", slog.Any("err", err))
 		os.Exit(1)
 	}
-	*opts = append(*opts, datapagesgen.WithMessageBrokerNATS(
-		conn, datapagesgen.MessageBrokerNATSConfig{
-			StreamConfig: &nats.StreamConfig{
-				Name:    "DATAPAGES_DEMO",
-				Storage: nats.MemoryStorage,
-			},
-		},
-	))
 	slog.Info("using NATS message broker")
 
-	m, err := datapagesgen.NewSessionManagerNATSKV(
+	sessionManager, err = natskv.New[app.Session](
 		conn,
-		datapagesgen.DefaultSessionTokenGenerator{},
-		datapagesgen.ConfigSessionManagerNATSKV{},
+		sesstokgen.Generator{
+			Length: sesstokgen.DefaultLength,
+		},
+		natskv.Config{
+			EncryptionKey: []byte(sessionEncryptionKey),
+		},
 	)
 	if err != nil {
-		slog.Error("preparing NATS KV session manager", slog.Any("err", err))
+		slog.Error("initializing NATS KV session manager", slog.Any("err", err))
 		os.Exit(1)
 	}
-	o := datapagesgen.WithAuth(datapagesgen.AuthConfig{
-		SessionManager: m,
-	})
-	*opts = append(*opts, o)
 	slog.Info("using NATS KV session manager")
 
-	return m
+	messageBroker, err = natsjs.New(conn, natsjs.Config{
+		StreamConfig: &nats.StreamConfig{
+			Name:    "DATAPAGES_DEMO",
+			Storage: nats.MemoryStorage,
+		},
+	})
+	if err != nil {
+		slog.Error("initializing NATS message broker", slog.Any("err", err))
+		os.Exit(1)
+	}
+
+	return messageBroker, sessionManager
 }
 
 func initMetrics(m *app.Metrics, opts *[]datapagesgen.ServerOption) {

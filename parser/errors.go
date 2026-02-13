@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"datapages/parser/internal/paramvalidation"
-	"datapages/parser/internal/structtag"
+	"github.com/romshark/datapages/parser/internal/paramvalidation"
+	"github.com/romshark/datapages/parser/internal/structtag"
 
 	"golang.org/x/tools/go/packages"
 )

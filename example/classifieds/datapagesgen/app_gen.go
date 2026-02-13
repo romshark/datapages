@@ -21,6 +21,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/romshark/datapages/modules/msgbroker"
+	"github.com/romshark/datapages/modules/sessmanager"
+	"github.com/romshark/datapages/modules/sesstokgen"
+
 	"github.com/romshark/datapages/example/classifieds/app"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -28,23 +32,24 @@ import (
 )
 
 type Server struct {
-	shutdownCh    chan struct{} // Closed when shutting down.
-	shutdownOnce  sync.Once
-	runCancel     context.CancelFunc
-	httpServer    *http.Server
-	messageBroker MessageBroker
-	app           *app.App
-	mux           *http.ServeMux
-	logger        *slog.Logger
-	middleware    []func(http.Handler) http.Handler
-	staticURLPath string
-	staticFS      http.FileSystem
-	enabledTLS    bool
+	shutdownCh           chan struct{} // Closed when shutting down.
+	shutdownOnce         sync.Once
+	runCancel            context.CancelFunc
+	httpServer           *http.Server
+	messageBroker        msgbroker.MessageBroker
+	messageBrokerMetrics brokerMetrics
+	app                  *app.App
+	mux                  *http.ServeMux
+	logger               *slog.Logger
+	middleware           []func(http.Handler) http.Handler
+	staticURLPath        string
+	staticFS             http.FileSystem
+	enabledTLS           bool
 
 	metricsServer         *http.Server
 	authConf              *AuthConfig
-	sessionTokenGenerator SessionTokenGenerator
-	sessionManager        SessionManager
+	sessionTokenGenerator sessmanager.TokenGenerator
+	sessionManager        sessmanager.SessionManager[app.Session]
 	csrfConf              *CSRFConfig
 	csrfHMACPool          sync.Pool
 }
@@ -55,11 +60,14 @@ type Server struct {
 //   - WithMiddleware
 //   - WithHTTPServer
 //   - WithStaticFS
-//   - WithMessageBroker
-//   - WithMessageBrokerNATS
 //   - WithCSRFProtection
 //   - WithPrometheus
-func NewServer(app *app.App, opts ...ServerOption) *Server {
+func NewServer(
+	app *app.App,
+	messageBroker msgbroker.MessageBroker,
+	sessionManager sessmanager.SessionManager[app.Session],
+	opts ...ServerOption,
+) *Server {
 	s := &Server{
 		shutdownCh: make(chan struct{}),
 		httpServer: &http.Server{
@@ -73,9 +81,12 @@ func NewServer(app *app.App, opts ...ServerOption) *Server {
 			IdleTimeout:    DefaultHTTPIdleTimeout,
 			MaxHeaderBytes: DefaultHTTPMaxHeaderBytes,
 		},
-		app:        app,
-		mux:        http.NewServeMux(),
-		middleware: []func(http.Handler) http.Handler{},
+		app:                  app,
+		mux:                  http.NewServeMux(),
+		middleware:           []func(http.Handler) http.Handler{},
+		messageBroker:        messageBroker,
+		messageBrokerMetrics: brokerMetrics{},
+		sessionManager:       sessionManager,
 	}
 
 	// Apply options
@@ -94,11 +105,11 @@ func NewServer(app *app.App, opts ...ServerOption) *Server {
 	}
 
 	if s.sessionManager == nil {
-		panic("missing SessionManager; provide a session manager using WithAuth")
+		panic("missing SessionManager")
 	}
 	if s.sessionTokenGenerator == nil {
-		s.sessionTokenGenerator = DefaultSessionTokenGenerator{
-			Length: DefaultSessionTokenLength,
+		s.sessionTokenGenerator = sesstokgen.Generator{
+			Length: sesstokgen.DefaultLength,
 		}
 	}
 
@@ -120,7 +131,7 @@ func NewServer(app *app.App, opts ...ServerOption) *Server {
 		)
 	}
 	if s.messageBroker == nil {
-		s.messageBroker = newMessageBrokerMem()
+		panic("missing message broker")
 	}
 
 	if s.metricsServer != nil {
@@ -237,10 +248,8 @@ func evSubjPageSettings(userID string) []string {
 const DefaultAuthSessionCookieName = "sessiontoken"
 
 type AuthConfig struct {
-	SessionManager SessionManager
-
-	// SessionTokenGenerator is optional; defaults to DefaultSessionTokenGenerator
-	SessionTokenGenerator SessionTokenGenerator
+	// SessionTokenGenerator is optional; defaults to sesstokgen.Generator
+	SessionTokenGenerator sessmanager.TokenGenerator
 
 	// TokenCookie is optional; defaults to DefaultAuthSessionCookieName
 	TokenCookie AuthSessionConfigTokenCookie
@@ -264,7 +273,6 @@ func WithAuth(o AuthConfig) ServerOption {
 		}
 		s.authConf = &o
 		s.sessionTokenGenerator = o.SessionTokenGenerator
-		s.sessionManager = o.SessionManager
 		return nil
 	}
 }
@@ -289,13 +297,13 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 func (s *Server) createSession(
 	w http.ResponseWriter, r *http.Request, session app.Session,
 ) error {
-	token, err := s.sessionManager.CreateSession(r.Context(), session)
+	token, err := s.sessionManager.CreateSession(r.Context(), session.UserID, session)
 	if err != nil {
 		mSessionCreations.WithLabelValues("error").Inc()
 		return err
 	}
 	mSessionCreations.WithLabelValues("success").Inc()
-	s.setSessionCookie(w, session.UserID+"."+token)
+	s.setSessionCookie(w, token)
 	return nil
 }
 
@@ -326,13 +334,20 @@ func (s *Server) auth(
 		return sess, "", false
 	}
 
-	sess, token, ok = s.sessionManager.ReadSessionFromCookie(c)
+	sess, token, userID, ok, err := s.sessionManager.ReadSessionFromCookie(c)
+	if err != nil {
+		// Transient backend failure; keep the cookie, fail the request.
+		mSessionReads.WithLabelValues("error").Inc()
+		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
+		return app.Session{}, "", false
+	}
 	if !ok {
 		// Cookie is stale or malformed; clear it and continue as unauthenticated.
 		mSessionReads.WithLabelValues("stale").Inc()
 		s.setSessionCookie(w, "")
 		return app.Session{}, "", true
 	}
+	sess.UserID = userID
 
 	mSessionReads.WithLabelValues("valid").Inc()
 
@@ -413,14 +428,13 @@ var (
 	)
 
 	// Dropped broker deliveries (slow consumers).
-	mBrokerDeliveriesDropped = prometheus.NewCounterVec(
+	mBrokerDeliveriesDropped = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Namespace: "datapages",
 			Subsystem: "event_broker",
 			Name:      "deliveries_dropped_total",
 			Help:      "Dropped broker deliveries due to slow consumers",
 		},
-		[]string{"broker"}, // "nats" | "mem"
 	)
 
 	// SSE connection lifetime + disconnect reasons.
@@ -490,6 +504,17 @@ func registerMetricsWith(r prometheus.Registerer) {
 		mSessionClosures,
 		mSessionReads,
 	)
+}
+
+// brokerMetrics implements msgbroker.Metrics using the built-in Prometheus counters.
+type brokerMetrics struct{}
+
+func (m brokerMetrics) OnPublish(subject string) {
+	mBrokerEventPublishes.WithLabelValues(brokerSubjectKind(subject)).Inc()
+}
+
+func (m brokerMetrics) OnDeliveryDropped() {
+	mBrokerDeliveriesDropped.Inc()
 }
 
 // brokerSubjectKind collapses high-cardinality subjects (per-user) into stable kinds.
@@ -787,7 +812,7 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 			}
 			for _, uid := range e1.TargetUserIDs {
 				subj := EvSubjPrefSessionsClosed + uid
-				err = s.messageBroker.Publish(r.Context(), subj, j)
+				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
 				}
@@ -834,7 +859,7 @@ func (s *Server) handlePageSettingsPOSTCloseAllSessions(
 			}
 			for _, uid := range e1.TargetUserIDs {
 				subj := EvSubjPrefSessionsClosed + uid
-				err = s.messageBroker.Publish(r.Context(), subj, j)
+				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
 				}
@@ -947,7 +972,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		Base: app.Base{App: s.app},
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex(sess.UserID), func(
-		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 	) {
 		for msg := range ch {
 			switch {
@@ -1147,7 +1172,7 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 		Base: app.Base{App: s.app},
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageSettings(sess.UserID), func(
-		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 	) {
 		for msg := range ch {
 			switch {
@@ -1331,7 +1356,7 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 		Base: app.Base{App: s.app},
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageMessages(sess.UserID), func(
-		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 	) {
 		for msg := range ch {
 			switch {
@@ -1417,7 +1442,7 @@ func (s *Server) handlePageMessagesPOSTRead(
 			}
 			for _, uid := range e1.TargetUserIDs {
 				subj := EvSubjPrefMessagingRead + uid
-				err = s.messageBroker.Publish(r.Context(), subj, j)
+				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
 				}
@@ -1465,7 +1490,7 @@ func (s *Server) handlePageMessagesPOSTWriting(
 			}
 			for _, uid := range e1.TargetUserIDs {
 				subj := EvSubjPrefMessagingWriting + uid
-				err = s.messageBroker.Publish(r.Context(), subj, j)
+				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
 				}
@@ -1513,7 +1538,7 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 			}
 			for _, uid := range e1.TargetUserIDs {
 				subj := EvSubjPrefMessagingWritingStopped + uid
-				err = s.messageBroker.Publish(r.Context(), subj, j)
+				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
 				}
@@ -1563,7 +1588,7 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 			}
 			for _, uid := range e1.TargetUserIDs {
 				subj := EvSubjPrefMessagingWritingStopped + uid
-				err = s.messageBroker.Publish(r.Context(), subj, j)
+				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
 				}
@@ -1576,7 +1601,7 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 			}
 			for _, uid := range e2.TargetUserIDs {
 				subj := EvSubjPrefMessagingSent + uid
-				err = s.messageBroker.Publish(r.Context(), subj, j)
+				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
 				}
@@ -1707,7 +1732,7 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 		Base: app.Base{App: s.app},
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageSearch(sess.UserID), func(
-		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 	) {
 		for msg := range ch {
 			switch {
@@ -1907,7 +1932,7 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 		Base: app.Base{App: s.app},
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID), func(
-		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 	) {
 		for msg := range ch {
 			switch {
@@ -1962,7 +1987,7 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 		Base: app.Base{App: s.app},
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID), func(
-		sse *datastar.ServerSentEventGenerator, ch <-chan Message,
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 	) {
 		for msg := range ch {
 			if msg.Subject == EvSubjPostArchived {
@@ -2013,7 +2038,7 @@ func (s *Server) handlePagePostPOSTSendMessage(
 			}
 			for _, uid := range e1.TargetUserIDs {
 				subj := EvSubjPrefMessagingSent + uid
-				err = s.messageBroker.Publish(r.Context(), subj, j)
+				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
 				}

@@ -8,7 +8,7 @@ import (
 	"go/types"
 	"strings"
 
-	"datapages/parser/model"
+	"github.com/romshark/datapages/parser/model"
 )
 
 // ErrQueryReflectSignalNotInSignals indicates a reflectsignal

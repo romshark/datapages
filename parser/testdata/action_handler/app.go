@@ -32,14 +32,14 @@ func (PageActions) GET(r *http.Request) (body templ.Component, err error) {
 	return body, err
 }
 
-// POSTWithoutSse is /actions/without-sse
-func (PageActions) POSTWithoutSse(r *http.Request) error {
+// POSTWithoutSSE is /actions/without-sse
+func (PageActions) POSTWithoutSSE(r *http.Request) error {
 	_ = r
 	return nil
 }
 
-// POSTWithSse is /actions/with-sse
-func (PageActions) POSTWithSse(
+// POSTWithSSE is /actions/with-sse
+func (PageActions) POSTWithSSE(
 	r *http.Request,
 	sse *datastar.ServerSentEventGenerator,
 ) error {
@@ -48,8 +48,8 @@ func (PageActions) POSTWithSse(
 	return nil
 }
 
-// PUTWithSse is /actions/put-with-sse
-func (PageActions) PUTWithSse(
+// PUTWithSSE is /actions/put-with-sse
+func (PageActions) PUTWithSSE(
 	r *http.Request,
 	sse *datastar.ServerSentEventGenerator,
 ) error {
@@ -58,8 +58,8 @@ func (PageActions) PUTWithSse(
 	return nil
 }
 
-// DELETEWithoutSse is /actions/delete-without-sse
-func (PageActions) DELETEWithoutSse(r *http.Request) error {
+// DELETEWithoutSSE is /actions/delete-without-sse
+func (PageActions) DELETEWithoutSSE(r *http.Request) error {
 	_ = r
 	return nil
 }

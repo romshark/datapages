@@ -9,10 +9,10 @@ import (
 	"go/types"
 	"strings"
 
-	"datapages/parser/internal/routepattern"
-	"datapages/parser/internal/structtag"
-	"datapages/parser/internal/typecheck"
-	"datapages/parser/model"
+	"github.com/romshark/datapages/parser/internal/routepattern"
+	"github.com/romshark/datapages/parser/internal/structtag"
+	"github.com/romshark/datapages/parser/internal/typecheck"
+	"github.com/romshark/datapages/parser/model"
 )
 
 // Path parameter errors.

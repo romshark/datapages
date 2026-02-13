@@ -7,7 +7,7 @@ import (
 	"go/types"
 	"testing"
 
-	"datapages/parser/model"
+	"github.com/romshark/datapages/parser/model"
 
 	"github.com/stretchr/testify/require"
 )

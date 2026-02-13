@@ -1,6 +1,5 @@
 # Code Style
 
-- Lines must not exceed 90 columns.
 - Follow standard Go conventions ([Effective Go](https://go.dev/doc/effective-go)).
 - Use `require` from testify for test assertions, use `assert` only where it makes sense.
 - Use table-driven map-based (to ensure random input ordering) tests where applicable

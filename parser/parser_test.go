@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"datapages/parser"
-	"datapages/parser/model"
+	"github.com/romshark/datapages/parser"
+	"github.com/romshark/datapages/parser/model"
 
 	"github.com/stretchr/testify/require"
 )
@@ -242,8 +242,7 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 	requireParseErrors(t, err /*none*/)
 	require.NotNil(app)
 
-	// Verify PageIndex - GET without SSE
-	{
+	{ // Verify PageIndex - GET without SSE
 		require.NotNil(app.PageIndex)
 		p := app.PageIndex
 		require.Equal("/", p.Route)
@@ -251,8 +250,7 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 		require.Nil(p.GET.InputSSE)
 	}
 
-	// Verify PageActions has action handlers with and without SSE
-	{
+	{ // Verify PageActions has action handlers with and without SSE
 		p := findPage(app, "PageActions")
 		require.NotNil(p)
 		require.Equal("/actions", p.Route)
@@ -260,26 +258,26 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 		require.Len(p.EventHandlers, 1)
 
 		// POST without SSE
-		actionWithout := findAction(p.Actions, "WithoutSse")
+		actionWithout := findAction(p.Actions, "WithoutSSE")
 		require.NotNil(actionWithout)
 		require.Equal("POST", actionWithout.HTTPMethod)
 		require.Nil(actionWithout.InputSSE)
 
 		// POST with SSE
-		actionWith := findAction(p.Actions, "WithSse")
+		actionWith := findAction(p.Actions, "WithSSE")
 		require.NotNil(actionWith)
 		require.Equal("POST", actionWith.HTTPMethod)
 		require.NotNil(actionWith.InputSSE)
 		require.Equal("sse", actionWith.InputSSE.Name)
 
 		// PUT with SSE
-		putWith := findActionByMethod(p.Actions, "PUT", "WithSse")
+		putWith := findActionByMethod(p.Actions, "PUT", "WithSSE")
 		require.NotNil(putWith)
 		require.Equal("PUT", putWith.HTTPMethod)
 		require.NotNil(putWith.InputSSE)
 
 		// DELETE without SSE
-		deleteWithout := findActionByMethod(p.Actions, "DELETE", "WithoutSse")
+		deleteWithout := findActionByMethod(p.Actions, "DELETE", "WithoutSSE")
 		require.NotNil(deleteWithout)
 		require.Equal("DELETE", deleteWithout.HTTPMethod)
 		require.Nil(deleteWithout.InputSSE)
@@ -417,9 +415,7 @@ func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 	_, err := parse(t, "err_embed_conflicting_get")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
-		parser.ErrPageConflictingGETEmbed,
-	)
+	requireParseErrors(t, err, parser.ErrPageConflictingGETEmbed)
 
 	pos, _ := err.Entry(0)
 	requirePosEqual(t, "app.go", 15, 2, pos)
@@ -656,9 +652,7 @@ func TestParse_Session(t *testing.T) {
 		evh := p.EventHandlers[0]
 		require.Nil(evh.InputSessionToken)
 		require.NotNil(evh.InputSession)
-		require.Equal(
-			"session", evh.InputSession.Name,
-		)
+		require.Equal("session", evh.InputSession.Name)
 	}
 
 	// PageSettings - sessionToken + session
@@ -669,30 +663,21 @@ func TestParse_Session(t *testing.T) {
 		// GET with sessionToken and session.
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.InputSessionToken)
-		require.Equal(
-			"sessionToken",
-			p.GET.InputSessionToken.Name,
-		)
+		require.Equal("sessionToken", p.GET.InputSessionToken.Name)
 		require.NotNil(p.GET.InputSession)
 
 		// POSTClose - action with sessionToken + session
 		close := findAction(p.Actions, "Close")
 		require.NotNil(close)
 		require.NotNil(close.InputSessionToken)
-		require.Equal(
-			"sessionToken",
-			close.InputSessionToken.Name,
-		)
+		require.Equal("sessionToken", close.InputSessionToken.Name)
 		require.NotNil(close.InputSession)
 
 		// Event handler with sessionToken + session
 		require.Len(p.EventHandlers, 1)
 		evh := p.EventHandlers[0]
 		require.NotNil(evh.InputSessionToken)
-		require.Equal(
-			"sessionToken",
-			evh.InputSessionToken.Name,
-		)
+		require.Equal("sessionToken", evh.InputSessionToken.Name)
 		require.NotNil(evh.InputSession)
 	}
 }
@@ -748,10 +733,7 @@ func TestParse_Redirect(t *testing.T) {
 		require.NotNil(a.OutputRedirect)
 		require.Equal("redirect", a.OutputRedirect.Name)
 		require.NotNil(a.OutputRedirectStatus)
-		require.Equal(
-			"redirectStatus",
-			a.OutputRedirectStatus.Name,
-		)
+		require.Equal("redirectStatus", a.OutputRedirectStatus.Name)
 	}
 }
 
@@ -787,20 +769,14 @@ func TestParse_SessionOutput(t *testing.T) {
 		require.NotNil(p)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.OutputNewSession)
-		require.Equal(
-			"newSession",
-			p.GET.OutputNewSession.Name,
-		)
+		require.Equal("newSession", p.GET.OutputNewSession.Name)
 		require.Nil(p.GET.OutputCloseSession)
 
 		// POSTSubmit - action with newSession
 		submit := findAction(p.Actions, "Submit")
 		require.NotNil(submit)
 		require.NotNil(submit.OutputNewSession)
-		require.Equal(
-			"newSession",
-			submit.OutputNewSession.Name,
-		)
+		require.Equal("newSession", submit.OutputNewSession.Name)
 		require.NotNil(submit.OutputRedirect)
 		require.Nil(submit.OutputCloseSession)
 
@@ -808,10 +784,7 @@ func TestParse_SessionOutput(t *testing.T) {
 		signOut := findAction(p.Actions, "SignOut")
 		require.NotNil(signOut)
 		require.NotNil(signOut.OutputCloseSession)
-		require.Equal(
-			"closeSession",
-			signOut.OutputCloseSession.Name,
-		)
+		require.Equal("closeSession", signOut.OutputCloseSession.Name)
 		require.NotNil(signOut.OutputRedirect)
 		require.Nil(signOut.OutputNewSession)
 	}
@@ -836,29 +809,23 @@ func TestParse_GETOptions(t *testing.T) {
 	requireParseErrors(t, err /*none*/)
 	require.NotNil(app)
 
-	// PageIndex - no GET options
-	{
+	{ // PageIndex - no GET options
 		p := app.PageIndex
 		require.NotNil(p)
 		require.Nil(p.GET.OutputEnableBgStream)
 		require.Nil(p.GET.OutputDisableRefresh)
 	}
 
-	// PageStream - enableBackgroundStreaming
-	{
+	{ // PageStream - enableBackgroundStreaming
 		p := findPage(app, "PageStream")
 		require.NotNil(p)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.OutputEnableBgStream)
-		require.Equal(
-			"enableBackgroundStreaming",
-			p.GET.OutputEnableBgStream.Name,
-		)
+		require.Equal("enableBackgroundStreaming", p.GET.OutputEnableBgStream.Name)
 		require.Nil(p.GET.OutputDisableRefresh)
 	}
 
-	// PageNoRefresh - disableRefreshAfterHidden
-	{
+	{ // PageNoRefresh - disableRefreshAfterHidden
 		p := findPage(app, "PageNoRefresh")
 		require.NotNil(p)
 		require.NotNil(p.GET)
@@ -959,10 +926,8 @@ func requireParseErrors(t *testing.T, got parser.Errors, want ...error) {
 	for i, w := range want {
 		_, a := got.Entry(i)
 		if !errors.Is(a, w) {
-			mismatches = append(mismatches, fmt.Sprintf(
-				"%2d) want Is(%s) got %s",
-				i, errLabel(w), errLabel(a),
-			))
+			mismatches = append(mismatches, fmt.Sprintf("%2d) want Is(%s) got %s",
+				i, errLabel(w), errLabel(a)))
 		}
 	}
 	if len(mismatches) > 0 {
@@ -1060,29 +1025,16 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		subject          string
 		hasTargetUserIDs bool
 	}{
-		"EventMessagingRead": {
-			"messaging.read", true,
-		},
-		"EventMessagingSent": {
-			"messaging.sent", true,
-		},
-		"EventMessagingWriting": {
-			"messaging.writing", true,
-		},
-		"EventMessagingWritingStopped": {
-			"messaging.writing-stopped", true,
-		},
-		"EventPostArchived": {
-			"posts.archived", false,
-		},
-		"EventSessionClosed": {
-			"sessions.closed", true,
-		},
+		"EventMessagingRead":           {"messaging.read", true},
+		"EventMessagingSent":           {"messaging.sent", true},
+		"EventMessagingWriting":        {"messaging.writing", true},
+		"EventMessagingWritingStopped": {"messaging.writing-stopped", true},
+		"EventPostArchived":            {"posts.archived", false},
+		"EventSessionClosed":           {"sessions.closed", true},
 	} {
 		e, ok := events[name]
 		require.True(ok, "missing event: %s", name)
-		require.Equal(tc.subject, e.Subject,
-			"event %s subject", name)
+		require.Equal(tc.subject, e.Subject, "event %s subject", name)
 		require.Equal(tc.hasTargetUserIDs, e.HasTargetUserIDs,
 			"event %s HasTargetUserIDs", name)
 	}
@@ -1100,9 +1052,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		p := app.PageError404
 		require.Equal("PageError404", p.TypeName)
 		require.Equal("/not-found", p.Route)
-		require.Equal(
-			model.PageTypeError404, p.PageSpecialization,
-		)
+		require.Equal(model.PageTypeError404, p.PageSpecialization)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.OutputBody)
 		require.Equal("body", p.GET.OutputBody.Name)
@@ -1118,16 +1068,11 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		p := app.PageError500
 		require.Equal("PageError500", p.TypeName)
 		require.Equal("/whoops", p.Route)
-		require.Equal(
-			model.PageTypeError500, p.PageSpecialization,
-		)
+		require.Equal(model.PageTypeError500, p.PageSpecialization)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.OutputBody)
 		require.NotNil(p.GET.OutputDisableRefresh)
-		require.Equal(
-			"disableRefreshAfterHidden",
-			p.GET.OutputDisableRefresh.Name,
-		)
+		require.Equal("disableRefreshAfterHidden", p.GET.OutputDisableRefresh.Name)
 		require.Empty(p.Actions)
 		require.Empty(p.EventHandlers) // No Base embed
 	}
@@ -1137,9 +1082,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		p := app.PageIndex
 		require.Equal("PageIndex", p.TypeName)
 		require.Equal("/", p.Route)
-		require.Equal(
-			model.PageTypeIndex, p.PageSpecialization,
-		)
+		require.Equal(model.PageTypeIndex, p.PageSpecialization)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.OutputBody)
 		require.NotNil(p.GET.InputSession)
@@ -1182,10 +1125,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		require.NotNil(p.GET.OutputBody)
 		require.NotNil(p.GET.OutputRedirect)
 		require.NotNil(p.GET.OutputEnableBgStream)
-		require.Equal(
-			"enableBackgroundStreaming",
-			p.GET.OutputEnableBgStream.Name,
-		)
+		require.Equal("enableBackgroundStreaming", p.GET.OutputEnableBgStream.Name)
 		require.NotNil(p.GET.InputQuery)
 		require.Equal("query", p.GET.InputQuery.Name)
 
@@ -1196,9 +1136,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		read := findAction(p.Actions, "Read")
 		require.NotNil(read)
 		require.Equal("POST", read.HTTPMethod)
-		require.Equal(
-			"/messages/read/{$}", read.Route,
-		)
+		require.Equal("/messages/read/{$}", read.Route)
 		require.NotNil(read.InputSignals)
 		require.NotNil(read.InputQuery)
 		require.NotNil(read.InputDispatch)
@@ -1209,9 +1147,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 
 		writing := findAction(p.Actions, "Writing")
 		require.NotNil(writing)
-		require.Equal(
-			"/messages/writing/{$}", writing.Route,
-		)
+		require.Equal("/messages/writing/{$}", writing.Route)
 		require.NotNil(writing.InputDispatch)
 		require.Equal(
 			[]string{"EventMessagingWriting"},
@@ -1222,10 +1158,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 			p.Actions, "WritingStopped",
 		)
 		require.NotNil(stopped)
-		require.Equal(
-			"/messages/writing-stopped/{$}",
-			stopped.Route,
-		)
+		require.Equal("/messages/writing-stopped/{$}", stopped.Route)
 		require.NotNil(stopped.InputDispatch)
 		require.Equal(
 			[]string{"EventMessagingWritingStopped"},
@@ -1234,9 +1167,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 
 		send := findAction(p.Actions, "SendMessage")
 		require.NotNil(send)
-		require.Equal(
-			"/messages/sendmessage/{$}", send.Route,
-		)
+		require.Equal("/messages/sendmessage/{$}", send.Route)
 		require.NotNil(send.InputDispatch)
 		require.Equal(
 			[]string{
@@ -1249,18 +1180,10 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		// 4 own event handlers
 		// (override Base's OnMessagingSent, OnMessagingRead)
 		require.Len(p.EventHandlers, 4)
-		require.NotNil(findEventHandler(
-			p.EventHandlers, "MessagingRead",
-		))
-		require.NotNil(findEventHandler(
-			p.EventHandlers, "MessagingSent",
-		))
-		require.NotNil(findEventHandler(
-			p.EventHandlers, "MessagingWriting",
-		))
-		require.NotNil(findEventHandler(
-			p.EventHandlers, "MessagingWritingStopped",
-		))
+		require.NotNil(findEventHandler(p.EventHandlers, "MessagingRead"))
+		require.NotNil(findEventHandler(p.EventHandlers, "MessagingSent"))
+		require.NotNil(findEventHandler(p.EventHandlers, "MessagingWriting"))
+		require.NotNil(findEventHandler(p.EventHandlers, "MessagingWritingStopped"))
 	}
 
 	// PageMyPosts
@@ -1293,25 +1216,17 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		send := p.Actions[0]
 		require.Equal("POST", send.HTTPMethod)
 		require.Equal("SendMessage", send.Name)
-		require.Equal(
-			"/post/{slug}/send-message/{$}",
-			send.Route,
-		)
+		require.Equal("/post/{slug}/send-message/{$}", send.Route)
 		require.NotNil(send.InputSSE)
 		require.NotNil(send.InputPath)
 		require.NotNil(send.InputSignals)
 		require.NotNil(send.InputDispatch)
-		require.Equal(
-			[]string{"EventMessagingSent"},
-			send.InputDispatch.EventTypeNames,
-		)
+		require.Equal([]string{"EventMessagingSent"}, send.InputDispatch.EventTypeNames)
 
 		// Own OnPostArchived + inherited
 		// OnMessagingSent, OnMessagingRead from Base
 		require.Len(p.EventHandlers, 3)
-		require.NotNil(findEventHandler(
-			p.EventHandlers, "PostArchived",
-		))
+		require.NotNil(findEventHandler(p.EventHandlers, "PostArchived"))
 	}
 
 	// PageSearch
@@ -1329,9 +1244,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		a := p.Actions[0]
 		require.Equal("POST", a.HTTPMethod)
 		require.Equal("ParamChange", a.Name)
-		require.Equal(
-			"/search/paramchange/{$}", a.Route,
-		)
+		require.Equal("/search/paramchange/{$}", a.Route)
 		require.NotNil(a.InputSSE)
 		require.Nil(a.InputSignals) // nil: named type
 
@@ -1354,20 +1267,13 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 
 		save := findAction(p.Actions, "Save")
 		require.NotNil(save)
-		require.Equal(
-			"/settings/save/{$}", save.Route,
-		)
+		require.Equal("/settings/save/{$}", save.Route)
 		require.NotNil(save.InputSSE)
 		require.NotNil(save.InputSignals)
 
-		closeSess := findAction(
-			p.Actions, "CloseSession",
-		)
+		closeSess := findAction(p.Actions, "CloseSession")
 		require.NotNil(closeSess)
-		require.Equal(
-			"/settings/close-session/{token}/{$}",
-			closeSess.Route,
-		)
+		require.Equal("/settings/close-session/{token}/{$}", closeSess.Route)
 		require.NotNil(closeSess.InputSessionToken)
 		require.NotNil(closeSess.InputPath)
 		require.NotNil(closeSess.InputDispatch)
@@ -1377,18 +1283,13 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 			p.Actions, "CloseAllSessions",
 		)
 		require.NotNil(closeAll)
-		require.Equal(
-			"/settings/close-all-sessions/{$}",
-			closeAll.Route,
-		)
+		require.Equal("/settings/close-all-sessions/{$}", closeAll.Route)
 		require.NotNil(closeAll.InputDispatch)
 
 		// Own OnSessionClosed + inherited
 		// OnMessagingSent, OnMessagingRead from Base
 		require.Len(p.EventHandlers, 3)
-		require.NotNil(findEventHandler(
-			p.EventHandlers, "SessionClosed",
-		))
+		require.NotNil(findEventHandler(p.EventHandlers, "SessionClosed"))
 	}
 
 	// PageUser
@@ -1407,8 +1308,6 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		// Own OnPostArchived + inherited
 		// OnMessagingSent, OnMessagingRead from Base
 		require.Len(p.EventHandlers, 3)
-		require.NotNil(findEventHandler(
-			p.EventHandlers, "PostArchived",
-		))
+		require.NotNil(findEventHandler(p.EventHandlers, "PostArchived"))
 	}
 }

@@ -13,13 +13,13 @@ import (
 	"strings"
 	"unicode"
 
-	"datapages/parser/internal/methodkind"
-	"datapages/parser/internal/paramvalidation"
-	"datapages/parser/internal/structinspect"
-	"datapages/parser/internal/structtag"
-	"datapages/parser/internal/typecheck"
-	"datapages/parser/model"
-	"datapages/parser/validate"
+	"github.com/romshark/datapages/parser/internal/methodkind"
+	"github.com/romshark/datapages/parser/internal/paramvalidation"
+	"github.com/romshark/datapages/parser/internal/structinspect"
+	"github.com/romshark/datapages/parser/internal/structtag"
+	"github.com/romshark/datapages/parser/internal/typecheck"
+	"github.com/romshark/datapages/parser/model"
+	"github.com/romshark/datapages/parser/validate"
 
 	"golang.org/x/tools/go/packages"
 )

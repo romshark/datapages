@@ -29,8 +29,12 @@ type Metrics struct {
 type SessionManager interface {
 	Session(ctx context.Context, token string) (Session, error)
 	CloseSession(ctx context.Context, token string) error
-	CloseAllUserSessions(buffer []string, userID string) ([]string, error)
-	UserSessions(userID string) iter.Seq2[string, Session]
+	CloseAllUserSessions(
+		ctx context.Context, buffer []string, userID string,
+	) ([]string, error)
+	UserSessions(
+		ctx context.Context, userID string,
+	) iter.Seq2[string, Session]
 }
 
 type App struct {

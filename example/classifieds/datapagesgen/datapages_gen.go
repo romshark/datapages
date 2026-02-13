@@ -4,17 +4,14 @@
 package datapagesgen
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"hash"
 	"io"
-	"iter"
 	"log/slog"
 	"net"
 	"net/http"
@@ -25,9 +22,9 @@ import (
 	"time"
 
 	"github.com/romshark/datapages/example/classifieds/app"
+	"github.com/romshark/datapages/modules/msgbroker"
 
 	"github.com/a-h/templ"
-	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/starfederation/datastar-go/datastar"
@@ -45,32 +42,6 @@ const (
 // IsDevMode returns true when in the development environment.
 // Returns false for production environments.
 func IsDevMode() bool { return os.Getenv("TEMPL_DEV_MODE") != "" }
-
-// MessageBroker is a common interface for message brokers.
-type MessageBroker interface {
-	// Subscribe creates a new subscription to a subject/stream.
-	Subscribe(
-		ctx context.Context, subjects ...string,
-	) (MessageBrokerSubscription, error)
-
-	// Publish sends a message to a subject (non-blocking)
-	Publish(ctx context.Context, subject string, data []byte) error
-}
-
-// MessageBrokerSubscription represents an active message broker subscription.
-type MessageBrokerSubscription interface {
-	// C returns the channel to receive messages.
-	C() <-chan Message
-
-	// Close closes and removes the subscription.
-	Close()
-}
-
-// Message represents a received message
-type Message struct {
-	Subject string
-	Data    []byte
-}
 
 // ServerOption is a functional option for configuring Server
 type ServerOption func(*Server) error
@@ -139,28 +110,6 @@ func devNoCache(next http.Handler) http.Handler {
 		w.Header().Set("Expires", "0")
 		next.ServeHTTP(w, r)
 	})
-}
-
-// WithMessageBrokerNATS sets the default message broker.
-// By default, an in-memory single-proccess broker implementation is used.
-func WithMessageBrokerNATS(conn *nats.Conn, conf MessageBrokerNATSConfig) ServerOption {
-	return func(s *Server) error {
-		b, err := newMessageBrokerNATS(conn, conf)
-		if err != nil {
-			return fmt.Errorf("initializing NATS message broker: %w", err)
-		}
-		s.messageBroker = b
-		return nil
-	}
-}
-
-// WithMessageBroker sets a custom message broker.
-// By default, an in-memory single-proccess broker implementation is used.
-func WithMessageBroker(b MessageBroker) ServerOption {
-	return func(s *Server) error {
-		s.messageBroker = b
-		return nil
-	}
 }
 
 type CSRFConfig struct {
@@ -517,7 +466,7 @@ func (s *Server) handleStreamRequest(
 	subjects []string,
 	fn func(
 		sse *datastar.ServerSentEventGenerator,
-		ch <-chan Message,
+		ch <-chan msgbroker.Message,
 	),
 ) {
 	if !s.checkIsDSReq(w, r) {
@@ -530,7 +479,7 @@ func (s *Server) handleStreamRequest(
 	start := time.Now()
 
 	ctx := r.Context()
-	sub, err := s.messageBroker.Subscribe(ctx, subjects...)
+	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
 		return
@@ -542,9 +491,12 @@ func (s *Server) handleStreamRequest(
 	if sess.UserID != "" {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		s.sessionManager.NotifyClosed(ctx, sessKey, func() {
+		if err := s.sessionManager.NotifyClosed(ctx, sessKey, func() {
 			close(sessionClosed)
-		})
+		}); err != nil {
+			s.httpErrIntern(w, r, sse, "setting up session closure watcher", err)
+			return
+		}
 	}
 
 	go func() {
@@ -648,582 +600,4 @@ func (s *Server) validateCSRFToken(
 		ok = subtle.ConstantTimeCompare(cgc.expectedBase, cgc.base) == 1
 	})
 	return ok
-}
-
-// --- MESSAGE BROKER: NATS ---
-
-// MessageBrokerChanBuffer allows to decouple publisher/NATS callback from the consumer.
-// Buffer size should be enough to absorb short bursts without blocking delivery,
-// while bounding memory and ensuring slow consumers drop messages instead of
-// backpressuring producers.
-var MessageBrokerChanBuffer = 16
-
-type MessageBrokerNATSConfig struct {
-	StreamConfig *nats.StreamConfig
-}
-
-type messageBrokerNATS struct {
-	nc *nats.Conn
-	js nats.JetStreamContext
-}
-
-type natsSub struct {
-	ch    chan Message
-	subs  []*nats.Subscription
-	close func()
-}
-
-func newMessageBrokerNATS(
-	nc *nats.Conn, conf MessageBrokerNATSConfig,
-) (*messageBrokerNATS, error) {
-	js, err := nc.JetStream()
-	if err != nil {
-		return nil, err
-	}
-
-	if conf.StreamConfig == nil {
-		conf.StreamConfig = new(nats.StreamConfig)
-	}
-	if conf.StreamConfig.Description == "" {
-		conf.StreamConfig.Description = "stream was automatically created by datapages"
-	}
-	conf.StreamConfig.Subjects = MessageBrokerStreamSubjects()
-
-	_, err = js.AddStream(conf.StreamConfig)
-	if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
-		return nil, err
-	}
-
-	return &messageBrokerNATS{nc: nc, js: js}, nil
-}
-
-func (b *messageBrokerNATS) Publish(
-	ctx context.Context,
-	subject string,
-	data []byte,
-) error {
-	_, err := b.js.Publish(subject, data, nats.Context(ctx))
-	if err == nil {
-		mBrokerEventPublishes.WithLabelValues(brokerSubjectKind(subject)).Inc()
-	}
-	return err
-}
-
-func (b *messageBrokerNATS) Subscribe(
-	_ context.Context, subjects ...string,
-) (MessageBrokerSubscription, error) {
-	ch := make(chan Message, MessageBrokerChanBuffer)
-	subs := make([]*nats.Subscription, 0, len(subjects))
-
-	var (
-		lock     sync.Mutex
-		closing  bool
-		inflight sync.WaitGroup
-		once     sync.Once
-	)
-
-	closeAll := func() {
-		once.Do(func() {
-			// After this, no callback can call wg.Add(1).
-			lock.Lock()
-			closing = true
-			lock.Unlock()
-			// Stop NATS deliveries.
-			for _, s := range subs {
-				_ = s.Unsubscribe()
-			}
-			// Wait until all callbacks that already registered complete.
-			inflight.Wait()
-			close(ch)
-		})
-	}
-
-	for _, subject := range subjects {
-		sub, err := b.nc.Subscribe(subject, func(m *nats.Msg) {
-			// Registration is serialized with closeAll() so Add never races with Wait.
-			lock.Lock()
-			if closing {
-				lock.Unlock()
-				return
-			}
-			// Add must be done under lock to prevent it from racing with wg.Wait.
-			// WaitGroup requires that no new Add happens once Wait may be running.
-			inflight.Add(1)
-			lock.Unlock()
-
-			defer inflight.Done()
-
-			select {
-			case ch <- Message{
-				Subject: m.Subject,
-				Data:    bytes.Clone(m.Data),
-			}:
-			default: // drop if subscriber is slow
-				mBrokerDeliveriesDropped.WithLabelValues("nats").Inc()
-			}
-		})
-		if err != nil {
-			// Undo already-created subscriptions safely (no send-to-closed-ch races).
-			closeAll()
-			return nil, err
-		}
-		subs = append(subs, sub)
-	}
-
-	ns := &natsSub{
-		ch:   ch,
-		subs: subs,
-	}
-	ns.close = closeAll
-	return ns, nil
-}
-
-func (s *natsSub) C() <-chan Message {
-	return s.ch
-}
-
-func (s *natsSub) Close() {
-	if s.close == nil {
-		return
-	}
-	s.close()
-	s.close = nil // Prevent double-close
-}
-
-// --- MESSAGE BROKER: IN-MEM ---
-
-type messageBrokerMem struct {
-	lock sync.RWMutex
-	subs map[string]map[*memSub]struct{}
-}
-
-type memSub struct {
-	ch      chan Message
-	topics  []string
-	broker  *messageBrokerMem
-	closed  bool
-	closeMu sync.Mutex
-}
-
-func newMessageBrokerMem() *messageBrokerMem {
-	return &messageBrokerMem{
-		subs: make(map[string]map[*memSub]struct{}),
-	}
-}
-
-func (b *messageBrokerMem) Close() error {
-	return nil
-}
-
-func (b *messageBrokerMem) Publish(
-	ctx context.Context,
-	subject string,
-	data []byte,
-) error {
-	b.lock.RLock()
-	defer b.lock.RUnlock()
-	subs := b.subs[subject]
-
-	if len(subs) == 0 {
-		return nil
-	}
-
-	msg := Message{
-		Subject: subject,
-		Data:    bytes.Clone(data),
-	}
-	mBrokerEventPublishes.WithLabelValues(brokerSubjectKind(subject)).Inc()
-
-	for sub := range subs {
-		select {
-		case sub.ch <- msg:
-		default: // drop if subscriber is slow (matches NATS core semantics)
-			mBrokerDeliveriesDropped.WithLabelValues("mem").Inc()
-		}
-	}
-
-	return nil
-}
-
-func (b *messageBrokerMem) Subscribe(
-	ctx context.Context,
-	subjects ...string,
-) (MessageBrokerSubscription, error) {
-	sub := &memSub{
-		ch:     make(chan Message, MessageBrokerChanBuffer),
-		topics: subjects,
-		broker: b,
-	}
-
-	b.lock.Lock()
-	for _, subject := range subjects {
-		m, ok := b.subs[subject]
-		if !ok {
-			m = make(map[*memSub]struct{})
-			b.subs[subject] = m
-		}
-		m[sub] = struct{}{}
-	}
-	b.lock.Unlock()
-
-	return sub, nil
-}
-
-func (s *memSub) C() <-chan Message {
-	return s.ch
-}
-
-func (s *memSub) Close() {
-	s.closeMu.Lock()
-	defer s.closeMu.Unlock()
-
-	if s.closed {
-		return
-	}
-	s.closed = true
-
-	b := s.broker
-	b.lock.Lock()
-	for _, subject := range s.topics {
-		if m, ok := b.subs[subject]; ok {
-			delete(m, s)
-			if len(m) == 0 {
-				delete(b.subs, subject)
-			}
-		}
-	}
-	b.lock.Unlock()
-
-	close(s.ch)
-}
-
-// --- SESSION MANAGER ---
-
-type SessionTokenGenerator interface {
-	// Generates a cryptographically random session token.
-	Generate() (string, error)
-}
-
-type SessionManager interface {
-	// ReadSessionFromCookie returns the resolved session and
-	// the raw authentication token. Returns ok=false if auth information is malformed
-	// and therefore the cookie must be removed.
-	ReadSessionFromCookie(c *http.Cookie) (session app.Session, token string, ok bool)
-
-	// CreateSession creates a new session identified by a unique token.
-	// The returned token will be put into HTTP-only cookies.
-	CreateSession(ctx context.Context, session app.Session) (token string, err error)
-
-	// NotifyClosed sets up a listener that calls fn when session with key is closed.
-	// The listener shall be stopped once ctx is canceled.
-	// If the session manager implementation doesn't support dynamic closure notification
-	// then NotifyClosed is a no-op.
-	NotifyClosed(ctx context.Context, key string, fn func())
-
-	// CloseSession closes a session identified by token.
-	// No-op and no error if that session doesn't exist.
-	CloseSession(ctx context.Context, token string) error
-}
-
-// WithSessionManager sets a custom session manager.
-func WithSessionManager(sm SessionManager) ServerOption {
-	return func(s *Server) error {
-		s.sessionManager = sm
-		return nil
-	}
-}
-
-// --- SESSION TOKEN GENERATOR: Default ---
-
-// DefaultSessionTokenLength is the number of random bytes used to generate
-// session tokens. 32 bytes provides 256 bits of entropy.
-const DefaultSessionTokenLength = 32
-
-// DefaultSessionTokenGenerator generates cryptographically secure session tokens.
-type DefaultSessionTokenGenerator struct {
-	// Length is the number of random bytes to generate.
-	// Defaults to DefaultSessionTokenLength if zero.
-	Length int
-}
-
-// Generate returns a new cryptographically random session token
-// encoded as URL-safe base64 without padding.
-func (g DefaultSessionTokenGenerator) Generate() (string, error) {
-	length := g.Length
-	if length <= 24 {
-		length = DefaultSessionTokenLength
-	}
-	b := make([]byte, length)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
-}
-
-// --- SESSION MANAGER: NATS KV ---
-
-// NewSessionManagerNATSKV creates a new NATS KV-backed session manager.
-func NewSessionManagerNATSKV(
-	conn *nats.Conn,
-	sessionTokenGenerator SessionTokenGenerator,
-	conf ConfigSessionManagerNATSKV,
-) (*SessionManagerNATSKV, error) {
-	js, err := conn.JetStream()
-	if err != nil {
-		return nil, fmt.Errorf("creating JetStream context: %w", err)
-	}
-
-	bucketName := conf.BucketName
-	if bucketName == "" {
-		bucketName = DefaultSessionManagerNATSKVBucketName
-	}
-
-	kvConfig := nats.KeyValueConfig{
-		Bucket:  bucketName,
-		Storage: nats.MemoryStorage,
-	}
-	if conf.TTL > 0 {
-		kvConfig.TTL = conf.TTL
-	}
-
-	kv, err := js.CreateKeyValue(&kvConfig)
-	if err != nil {
-		// If the bucket already exists, get it instead
-		if errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
-			kv, err = js.KeyValue(bucketName)
-			if err != nil {
-				return nil, fmt.Errorf("getting existing KV bucket: %w", err)
-			}
-		} else {
-			return nil, fmt.Errorf("creating KV bucket: %w", err)
-		}
-	}
-
-	return &SessionManagerNATSKV{
-		conf:                  conf,
-		kv:                    kv,
-		sessionTokenGenerator: sessionTokenGenerator,
-	}, nil
-}
-
-// DefaultSessionManagerNATSKVBucketName is the default bucket name for the
-// NATS KV Store based session manager.
-const DefaultSessionManagerNATSKVBucketName = "SESSIONS"
-
-type ConfigSessionManagerNATSKV struct {
-	// BucketName is the name of the KV bucket to use for sessions.
-	// Optional; defaults to DefaultSessionManagerNATSKVBucketName.
-	BucketName string
-
-	// TTL is the time-to-live for session entries in the KV store.
-	// Optional; defaults to no expiration.
-	TTL time.Duration
-}
-
-// sessionManagerNATSKVData is the internal representation of session data stored in KV.
-type sessionManagerNATSKVData struct {
-	UserID   string    `json:"user_id"`
-	IssuedAt time.Time `json:"issued_at"`
-}
-
-type SessionManagerNATSKV struct {
-	conf                  ConfigSessionManagerNATSKV
-	kv                    nats.KeyValue
-	sessionTokenGenerator SessionTokenGenerator
-}
-
-func (s *SessionManagerNATSKV) ReadSessionFromCookie(
-	c *http.Cookie,
-) (session app.Session, token string, ok bool) {
-	token = c.Value
-	if token == "" {
-		return app.Session{}, "", false
-	}
-
-	// Retrieve session data from NATS KV using token as key
-	entry, err := s.kv.Get(token)
-	if err != nil {
-		if errors.Is(err, nats.ErrKeyNotFound) {
-			// Session doesn't exist or expired
-			return app.Session{}, "", false
-		}
-		// Malformed or error - signal cookie removal
-		return app.Session{}, "", false
-	}
-
-	var sess sessionManagerNATSKVData
-	if err := json.Unmarshal(entry.Value(), &sess); err != nil {
-		// Corrupted data - signal cookie removal
-		return app.Session{}, "", false
-	}
-
-	return app.Session{
-		UserID:   sess.UserID,
-		IssuedAt: sess.IssuedAt,
-	}, token, true
-}
-
-func (s *SessionManagerNATSKV) NotifyClosed(
-	ctx context.Context, key string, fn func(),
-) {
-	// Watch for changes to the specific session key
-	watcher, err := s.kv.Watch(key, nats.Context(ctx))
-	if err != nil {
-		// If we can't watch, just return without calling fn
-		return
-	}
-
-	go func() {
-		defer func() { _ = watcher.Stop() }()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case entry := <-watcher.Updates():
-				if entry == nil {
-					// Channel closed
-					return
-				}
-				// Check if the key was deleted (Operation == KeyValueDelete)
-				if entry.Operation() == nats.KeyValueDelete || entry.Operation() == nats.KeyValuePurge {
-					fn()
-					return
-				}
-			}
-		}
-	}()
-}
-
-// SaveSession stores a session in NATS KV.
-// The key is structured as {userID}.{token} to enable efficient prefix-based lookups.
-// Returns the full key to be used as the cookie value.
-func (s *SessionManagerNATSKV) SaveSession(
-	ctx context.Context, token string, sess app.Session,
-) (key string, err error) {
-	data := sessionManagerNATSKVData{
-		UserID:   sess.UserID,
-		IssuedAt: sess.IssuedAt,
-	}
-
-	payload, err := json.Marshal(data)
-	if err != nil {
-		return "", fmt.Errorf("marshaling session data: %w", err)
-	}
-
-	key = sess.UserID + "." + token
-	_, err = s.kv.Put(key, payload)
-	if err != nil {
-		return "", fmt.Errorf("storing session in KV: %w", err)
-	}
-
-	return key, nil
-}
-
-// CreateSession creates a new session in NATS KV.
-func (s *SessionManagerNATSKV) CreateSession(
-	ctx context.Context, session app.Session,
-) (token string, err error) {
-	token, err = s.sessionTokenGenerator.Generate()
-	if err != nil {
-		return "", err
-	}
-	if _, err := s.SaveSession(ctx, token, session); err != nil {
-		return "", err
-	}
-	return token, nil
-}
-
-// CloseSession deletes a session from NATS KV. Watchers will be triggered.
-func (s *SessionManagerNATSKV) CloseSession(ctx context.Context, token string) error {
-	return s.kv.Delete(token)
-}
-
-// CloseAllUserSessions closes all sessions for a given user.
-// Uses prefix matching on keys structured as {userID}.{token}.
-// Appends the tokens of the closed sessions to buffer.
-func (s *SessionManagerNATSKV) CloseAllUserSessions(
-	buffer []string, userID string,
-) ([]string, error) {
-	// Watch with prefix pattern to find all sessions for this user.
-	// Watch() first delivers all existing matching keys, then nil to signal completion.
-	watcher, err := s.kv.Watch(userID+".*", nats.IgnoreDeletes(), nats.MetaOnly())
-	if err != nil {
-		return nil, fmt.Errorf("watching user sessions: %w", err)
-	}
-	defer func() { _ = watcher.Stop() }()
-
-	var errs []error
-	for entry := range watcher.Updates() {
-		if entry == nil {
-			break // Initial enumeration complete
-		}
-		k := entry.Key()
-		if err := s.kv.Delete(k); err != nil {
-			errs = append(errs, fmt.Errorf("deleting session %q: %w", k, err))
-		}
-		buffer = append(buffer, k)
-	}
-
-	return buffer, errors.Join(errs...)
-}
-
-var ErrSessionManagerNATSKVNotFound = errors.New("session not found")
-
-// Session retrieves a session by its key.
-// Returns an error if the session doesn't exist or is corrupted.
-func (s *SessionManagerNATSKV) Session(
-	ctx context.Context, token string,
-) (app.Session, error) {
-	entry, err := s.kv.Get(token)
-	if err != nil {
-		if errors.Is(err, nats.ErrKeyNotFound) {
-			return app.Session{}, ErrSessionManagerNATSKVNotFound
-		}
-		return app.Session{}, fmt.Errorf("getting session: %w", err)
-	}
-
-	var data sessionManagerNATSKVData
-	if err := json.Unmarshal(entry.Value(), &data); err != nil {
-		return app.Session{}, fmt.Errorf("unmarshaling session data: %w", err)
-	}
-
-	return app.Session{
-		UserID:   data.UserID,
-		IssuedAt: data.IssuedAt,
-	}, nil
-}
-
-// UserSessions returns an iterator over all sessions for a given user.
-// The iterator yields (key, session) pairs.
-// If an error occurs during iteration, the iterator stops early.
-func (s *SessionManagerNATSKV) UserSessions(
-	userID string,
-) iter.Seq2[string, app.Session] {
-	return func(yield func(string, app.Session) bool) {
-		watcher, err := s.kv.Watch(userID+".*", nats.IgnoreDeletes())
-		if err != nil {
-			return
-		}
-		defer func() { _ = watcher.Stop() }()
-
-		for entry := range watcher.Updates() {
-			if entry == nil {
-				break // Initial enumeration complete
-			}
-
-			var data sessionManagerNATSKVData
-			if err := json.Unmarshal(entry.Value(), &data); err != nil {
-				continue // Skip corrupted entries
-			}
-
-			sess := app.Session{
-				UserID:   data.UserID,
-				IssuedAt: data.IssuedAt,
-			}
-			if !yield(entry.Key(), sess) {
-				return
-			}
-		}
-	}
 }

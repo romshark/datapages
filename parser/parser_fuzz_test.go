@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"datapages/parser"
+	"github.com/romshark/datapages/parser"
 )
 
 // FuzzParser tests the parser with randomly generated Go code to catch panics and edge cases.

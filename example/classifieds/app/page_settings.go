@@ -33,7 +33,7 @@ func (p PageSettings) render(
 	}
 
 	sessions := make(map[string]Session)
-	maps.Insert(sessions, p.App.sessions.UserSessions(session.UserID))
+	maps.Insert(sessions, p.App.sessions.UserSessions(ctx, session.UserID))
 
 	return pageSettings(session, sessions, u, baseData), nil
 }
@@ -47,7 +47,7 @@ func (p PageSettings) GET(
 	}
 
 	sessions := make(map[string]Session)
-	maps.Insert(sessions, p.App.sessions.UserSessions(session.UserID))
+	maps.Insert(sessions, p.App.sessions.UserSessions(r.Context(), session.UserID))
 	body, err = p.render(r.Context(), session)
 	return body, "", err
 }
@@ -119,7 +119,7 @@ func (p PageSettings) POSTCloseAllSessions(
 	if session.UserID == "" {
 		return "", domain.ErrUnauthorized
 	}
-	closed, err := p.App.sessions.CloseAllUserSessions(nil, session.UserID)
+	closed, err := p.App.sessions.CloseAllUserSessions(r.Context(), nil, session.UserID)
 	if err != nil {
 		return "", err
 	}
