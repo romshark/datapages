@@ -5,8 +5,6 @@ package datapagesgen
 import (
 	"bufio"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,7 +49,6 @@ type Server struct {
 	sessionTokenGenerator sessmanager.TokenGenerator
 	sessionManager        sessmanager.SessionManager[app.Session]
 	csrfConf              *CSRFConfig
-	csrfHMACPool          sync.Pool
 }
 
 // NewServer creates a new server instance.
@@ -133,23 +130,14 @@ func NewServer(
 	if s.messageBroker == nil {
 		panic("missing message broker")
 	}
+	if s.csrfConf == nil {
+		panic("missing option WithCSRFProtection")
+	} else if s.csrfConf != nil && s.csrfConf.TokenManager == nil {
+		panic("CSRFConfig.TokenManager is nil")
+	}
 
 	if s.metricsServer != nil {
 		s.middleware = append(s.middleware, s.metricsMiddleware)
-	}
-
-	if s.csrfConf != nil {
-		s.csrfHMACPool.New = func() any {
-			return &csrfGenerationContext{
-				hmac:         hmac.New(sha256.New, s.csrfConf.Secret),
-				decodedToken: make([]byte, 64),
-				issuedAtHex:  make([]byte, 16),
-				base:         make([]byte, 32),
-				expectedBase: make([]byte, 32),
-				mask:         make([]byte, 32),
-				out:          make([]byte, 64),
-			}
-		}
 	}
 
 	setupHandlers(s)

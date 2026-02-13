@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 
+	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
 	"github.com/romshark/datapages/modules/msgbroker/natsjs"
 	"github.com/romshark/datapages/modules/sessmanager/natskv"
 	"github.com/romshark/datapages/modules/sesstokgen"
@@ -84,8 +85,13 @@ func withStaticFS(opts *[]datapagesgen.ServerOption) {
 }
 
 func withCSRFProtection(opts *[]datapagesgen.ServerOption) {
+	tm, err := csrfhmac.New([]byte(os.Getenv("CSRF_SECRET")))
+	if err != nil {
+		slog.Error("initializing CSRF token manager", slog.Any("err", err))
+		os.Exit(1)
+	}
 	*opts = append(*opts, datapagesgen.WithCSRFProtection(datapagesgen.CSRFConfig{
-		Secret:         []byte(os.Getenv("CSRF_SECRET")),
+		TokenManager:   tm,
 		DevBypassToken: os.Getenv("CSRF_DEV_BYPASS"),
 	}))
 }

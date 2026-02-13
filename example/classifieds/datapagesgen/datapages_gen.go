@@ -5,23 +5,19 @@ package datapagesgen
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/subtle"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/romshark/datapages/example/classifieds/app"
+	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/msgbroker"
 
 	"github.com/a-h/templ"
@@ -113,7 +109,7 @@ func devNoCache(next http.Handler) http.Handler {
 }
 
 type CSRFConfig struct {
-	Secret []byte
+	TokenManager csrf.TokenManager
 
 	// DevBypassToken, if non-empty, is accepted as a valid
 	// CSRF token for any session. Use this only in development
@@ -126,8 +122,8 @@ type CSRFConfig struct {
 // but will log a warning during server initialization time.
 func WithCSRFProtection(conf CSRFConfig) ServerOption {
 	return func(s *Server) error {
-		if len(conf.Secret) < 1 {
-			return errors.New("empty CSRF secret")
+		if conf.TokenManager == nil {
+			return errors.New("nil CSRF token manager")
 		}
 		if conf.DevBypassToken != "" && !IsDevMode() {
 			return errors.New("CSRF dev bypass token must not be set in non-dev mode")
@@ -305,16 +301,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-type csrfGenerationContext struct {
-	hmac         hash.Hash
-	decodedToken []byte
-	issuedAtHex  []byte
-	base         []byte
-	expectedBase []byte
-	mask         []byte
-	out          []byte
-}
-
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Build handler chain from middleware
 	handler := http.Handler(s.mux)
@@ -380,7 +366,7 @@ func (s *Server) checkCSRF(
 		t == s.csrfConf.DevBypassToken {
 		return true
 	}
-	if !s.validateCSRFToken(sess.UserID, sess.IssuedAt, t) {
+	if !s.csrfConf.TokenManager.ValidateToken(sess.UserID, sess.IssuedAt.Unix(), t) {
 		http.Error(
 			w,
 			http.StatusText(http.StatusForbidden),
@@ -414,7 +400,9 @@ func (s *Server) writeHTML(
 		}
 	}
 	if s.csrfConf != nil && sess.UserID != "" {
-		csrfToken := s.generateCSRFToken(sess.UserID, sess.IssuedAt)
+		csrfToken := s.csrfConf.TokenManager.GenerateToken(
+			sess.UserID, sess.IssuedAt.Unix(),
+		)
 		if csrfToken != "" {
 			// Write the fetch X-CSRF-Token header injector.
 			if _, err := io.WriteString(w, `
@@ -523,81 +511,4 @@ func (s *Server) logErr(msg string, err error) {
 func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	s.logger.Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
 	http.Error(w, msg, http.StatusBadRequest)
-}
-
-// --- CSRF ---
-
-// withNewCSRFCtx derives a stable, per-session base secret value in the context.
-func (s *Server) withNewCSRFCtx(
-	userID string, sessIssuedAtUnix int64,
-	withContext func(*csrfGenerationContext),
-) {
-	cgc := s.csrfHMACPool.Get().(*csrfGenerationContext)
-	defer s.csrfHMACPool.Put(cgc)
-
-	cgc.hmac.Reset()
-	// Ensures the CSRF token is only valid for this user.
-	_, _ = cgc.hmac.Write([]byte(userID))
-	// Separator avoids ambiguity ("ab"+"12" vs "a"+"b12").
-	_, _ = cgc.hmac.Write([]byte{0})
-	// Bind token to a specific session preventing reuse across re-authentication.
-	cgc.issuedAtHex = strconv.AppendInt(cgc.issuedAtHex[:0], sessIssuedAtUnix, 16)
-	_, _ = cgc.hmac.Write(cgc.issuedAtHex)
-
-	cgc.base = cgc.hmac.Sum(cgc.base[:0])
-	withContext(cgc)
-}
-
-// generateCSRFToken returns the value sent to the browser.
-// This uses the same masking technique as gorilla/csrf to prevent BREACH attacks:
-//   - A random mask is generated per response.
-//   - The real token is XORed with the mask.
-//   - The mask is prepended so the server can reverse it.
-func (s *Server) generateCSRFToken(userID string, sessIssuedAt time.Time) (t string) {
-	u := sessIssuedAt.Unix()
-	if u < 0 {
-		return ""
-	}
-	s.withNewCSRFCtx(userID, u, func(cgc *csrfGenerationContext) {
-		if _, err := rand.Read(cgc.mask); err != nil {
-			panic(err) // rand.Read should never fail on a healthy system.
-		}
-
-		// [ mask | masked_token ]
-		copy(cgc.out, cgc.mask)
-
-		// XOR hides the real token while remaining reversible
-		for i := range 32 {
-			cgc.out[32+i] = cgc.base[i] ^ cgc.mask[i]
-		}
-		t = base64.RawURLEncoding.EncodeToString(cgc.out)
-	})
-	return t
-}
-
-// validateCSRFToken verifies a client-supplied token.
-func (s *Server) validateCSRFToken(
-	userID string, sessIssuedAt time.Time, token string,
-) (ok bool) {
-	u := sessIssuedAt.Unix()
-	if len(token) != 86 || u < 0 {
-		return false
-	}
-	s.withNewCSRFCtx(userID, u, func(cgc *csrfGenerationContext) {
-		n, err := base64.RawURLEncoding.Decode(cgc.decodedToken, []byte(token))
-		if err != nil || n != 64 {
-			ok = false
-			return
-		}
-
-		// [ mask | masked_token ]
-		mask, enc := cgc.decodedToken[:32], cgc.decodedToken[32:]
-		// Reverse XOR to recover the real token
-		for i := range 32 {
-			cgc.expectedBase[i] = enc[i] ^ mask[i]
-		}
-		// Recompute what the token SHOULD be for this session and compare.
-		ok = subtle.ConstantTimeCompare(cgc.expectedBase, cgc.base) == 1
-	})
-	return ok
 }
