@@ -13,7 +13,10 @@ import (
 	"github.com/romshark/datapages/modules/msgbroker"
 )
 
-var _ msgbroker.MessageBroker = (*MessageBroker)(nil)
+var (
+	_ msgbroker.MessageBroker     = (*MessageBroker)(nil)
+	_ msgbroker.StreamInitializer = (*MessageBroker)(nil)
+)
 
 type MessageBroker struct {
 	nc   *nats.Conn
@@ -21,12 +24,9 @@ type MessageBroker struct {
 	conf Config
 }
 
-var ErrNoStreamSubjects = errors.New("missing stream subjects")
-
 type Config struct {
-	StreamConfig   *nats.StreamConfig
-	StreamSubjects []string
-	ChanBuffer     int
+	StreamConfig *nats.StreamConfig
+	ChanBuffer   int
 }
 
 type natsSub struct {
@@ -36,9 +36,6 @@ type natsSub struct {
 }
 
 func New(nc *nats.Conn, conf Config) (*MessageBroker, error) {
-	if len(conf.StreamSubjects) == 0 {
-		return nil, ErrNoStreamSubjects
-	}
 	conf.ChanBuffer = min(conf.ChanBuffer, msgbroker.DefaultBrokerChanBuffer)
 
 	js, err := nc.JetStream()
@@ -46,20 +43,25 @@ func New(nc *nats.Conn, conf Config) (*MessageBroker, error) {
 		return nil, fmt.Errorf("initializing jetstream: %w", err)
 	}
 
-	if conf.StreamConfig == nil {
-		conf.StreamConfig = new(nats.StreamConfig)
-	}
-	if conf.StreamConfig.Description == "" {
-		conf.StreamConfig.Description = "stream was automatically created by datapages"
-	}
-	conf.StreamConfig.Subjects = conf.StreamSubjects
+	return &MessageBroker{nc: nc, js: js, conf: conf}, nil
+}
 
-	_, err = js.AddStream(conf.StreamConfig)
+// InitStreams implements msgbroker.StreamInitializer.
+func (b *MessageBroker) InitStreams(subjects []string) error {
+	conf := b.conf.StreamConfig
+	if conf == nil {
+		conf = new(nats.StreamConfig)
+	}
+	if conf.Description == "" {
+		conf.Description = "stream was automatically created by datapages"
+	}
+	conf.Subjects = subjects
+
+	_, err := b.js.AddStream(conf)
 	if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
-		return nil, fmt.Errorf("adding stream: %w", err)
+		return fmt.Errorf("adding stream: %w", err)
 	}
-
-	return &MessageBroker{nc: nc, js: js}, nil
+	return nil
 }
 
 func (b *MessageBroker) Publish(

@@ -130,6 +130,11 @@ func NewServer(
 	if s.messageBroker == nil {
 		panic("missing message broker")
 	}
+	if si, ok := s.messageBroker.(msgbroker.StreamInitializer); ok {
+		if err := si.InitStreams(MessageBrokerStreamSubjects()); err != nil {
+			panic(fmt.Sprintf("initializing message broker streams: %v", err))
+		}
+	}
 	if s.csrfConf == nil {
 		panic("missing option WithCSRFProtection")
 	} else if s.csrfConf != nil && s.csrfConf.TokenManager == nil {

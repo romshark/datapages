@@ -25,6 +25,14 @@ type Metrics interface {
 	OnDeliveryDropped()
 }
 
+// StreamInitializer is an optional interface that message brokers can implement
+// to receive the set of stream subjects during server initialization.
+// Brokers that require stream/subject setup (e.g. NATS JetStream) should
+// implement this; brokers that don't need it (e.g. in-memory) can skip it.
+type StreamInitializer interface {
+	InitStreams(subjects []string) error
+}
+
 // MessageBrokerSubscription represents an active message broker subscription.
 type MessageBrokerSubscription interface {
 	// C returns the channel to receive messages.
