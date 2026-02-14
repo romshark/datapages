@@ -46,6 +46,7 @@ func main() {
 	var opts []datapagesgen.ServerOption
 
 	withAccessLogger(&opts)
+	withAuth(&opts)
 	withCSRFProtection(&opts)
 	withStaticFS(&opts)
 
@@ -82,6 +83,10 @@ func withStaticFS(opts *[]datapagesgen.ServerOption) {
 	}
 	*opts = append(*opts,
 		datapagesgen.WithStaticFS("/static/", fsStatic, app.FSStaticDev()))
+}
+
+func withAuth(opts *[]datapagesgen.ServerOption) {
+	*opts = append(*opts, datapagesgen.WithAuth(datapagesgen.AuthConfig{}))
 }
 
 func withCSRFProtection(opts *[]datapagesgen.ServerOption) {

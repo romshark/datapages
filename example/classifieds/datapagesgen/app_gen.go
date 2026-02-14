@@ -104,6 +104,13 @@ func NewServer(
 	if s.sessionManager == nil {
 		panic("missing SessionManager")
 	}
+	if s.authConf == nil {
+		s.authConf = &AuthConfig{
+			TokenCookie: AuthSessionConfigTokenCookie{
+				Name: DefaultAuthSessionCookieName,
+			},
+		}
+	}
 	if s.sessionTokenGenerator == nil {
 		s.sessionTokenGenerator = sesstokgen.Generator{
 			Length: sesstokgen.DefaultLength,
