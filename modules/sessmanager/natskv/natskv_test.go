@@ -561,8 +561,12 @@ func TestUserSessionsBreakEarly(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	m := maps.Collect(sm.UserSessions(ctx, "breakuser"))
-	require.Len(t, m, 1)
+	var count int
+	for range sm.UserSessions(ctx, "breakuser") {
+		count++
+		break
+	}
+	require.Equal(t, 1, count)
 }
 
 func TestUserSessionsBadJSON(t *testing.T) {
