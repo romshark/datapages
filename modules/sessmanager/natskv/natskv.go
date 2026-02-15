@@ -127,6 +127,12 @@ type SessionManager[S any] struct {
 	sessionTokenGenerator SessionTokenGenerator
 }
 
+// kvRecord wraps session data with its encrypted token for storage.
+type kvRecord struct {
+	Token string          `json:"token"`
+	Data  json.RawMessage `json:"data"`
+}
+
 // ReadSessionFromCookie decrypts the cookie value to
 // recover the composite KV key and retrieves the session.
 // Returns ok=false, err=nil if the cookie is nil, empty,
@@ -159,7 +165,11 @@ func (s *SessionManager[S]) ReadSessionFromCookie(
 		return session, "", "", false, fmt.Errorf("reading session from KV: %w", err)
 	}
 
-	if err := json.Unmarshal(entry.Value(), &session); err != nil {
+	var rec kvRecord
+	if err := json.Unmarshal(entry.Value(), &rec); err != nil {
+		return session, "", "", false, nil
+	}
+	if err := json.Unmarshal(rec.Data, &session); err != nil {
 		return session, "", "", false, nil
 	}
 
@@ -198,13 +208,14 @@ func (s *SessionManager[S]) NotifyClosed(
 				return
 			case entry := <-watcher.Updates():
 				if entry == nil {
-					// Initial replay ended without a delete event.  Re-check in case
+					// Initial replay ended without a delete event. Re-check in case
 					// the key was deleted between our Get and Watch setup.
 					_, err := s.kv.Get(kvKey)
 					if errors.Is(err, nats.ErrKeyNotFound) {
 						fn()
+						return
 					}
-					return
+					continue
 				}
 				op := entry.Operation()
 				if op == nats.KeyValueDelete || op == nats.KeyValuePurge {
@@ -217,36 +228,29 @@ func (s *SessionManager[S]) NotifyClosed(
 	return nil
 }
 
-// SaveSession stores a session in NATS KV under the
-// composite key {encodedUserID}.{uniqueSessionID}.
-// Returns the encrypted token for use as a cookie value.
+// SaveSession overwrites the session data for an existing token.
 func (s *SessionManager[S]) SaveSession(
-	_ context.Context, userID, uniqueSessionID string, session S,
-) (token string, err error) {
-	switch {
-	case userID == "":
-		return "", ErrEmptyUserID
-	case uniqueSessionID == "":
-		return "", ErrEmptySessionID
-	case strings.ContainsAny(uniqueSessionID, ".*>"):
-		return "", ErrUnsafeSessionID
-	}
-
-	payload, err := json.Marshal(session)
+	_ context.Context, token string, session S,
+) error {
+	kvKey, err := decrypt(s.aeads, token)
 	if err != nil {
-		return "", fmt.Errorf("marshaling session data JSON: %w", err)
+		return fmt.Errorf("decrypting token: %w", err)
 	}
 
-	kvKey := compositeKey(userID, uniqueSessionID)
-	if _, err := s.kv.Put(kvKey, payload); err != nil {
-		return "", fmt.Errorf("storing session in KV: %w", err)
-	}
-
-	token, err = encrypt(s.aeads[0], kvKey)
+	data, err := json.Marshal(session)
 	if err != nil {
-		return "", fmt.Errorf("encrypting session token: %w", err)
+		return fmt.Errorf("marshaling session data: %w", err)
 	}
-	return token, nil
+
+	rec, err := json.Marshal(kvRecord{Token: token, Data: data})
+	if err != nil {
+		return fmt.Errorf("marshaling KV record: %w", err)
+	}
+
+	if _, err := s.kv.Put(kvKey, rec); err != nil {
+		return fmt.Errorf("storing session in KV: %w", err)
+	}
+	return nil
 }
 
 // CreateSession creates a new session in NATS KV.
@@ -255,11 +259,25 @@ func (s *SessionManager[S]) SaveSession(
 func (s *SessionManager[S]) CreateSession(
 	ctx context.Context, userID string, session S,
 ) (token string, err error) {
+	if userID == "" {
+		return "", ErrEmptyUserID
+	}
+
 	uniqueSessionID, err := s.sessionTokenGenerator.Generate()
 	if err != nil {
 		return "", err
 	}
-	return s.SaveSession(ctx, userID, uniqueSessionID, session)
+
+	kvKey := compositeKey(userID, uniqueSessionID)
+	token, err = encrypt(s.aeads[0], kvKey)
+	if err != nil {
+		return "", fmt.Errorf("encrypting session token: %w", err)
+	}
+
+	if err := s.SaveSession(ctx, token, session); err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 // CloseSession deletes a session from NATS KV.
@@ -291,8 +309,11 @@ func (s *SessionManager[S]) CloseAllUserSessions(
 		return buffer, ErrEmptyUserID
 	}
 	prefix := encodeUserID(userID) + ".*"
-	watcher, err := s.kv.Watch(prefix,
-		nats.IgnoreDeletes(), nats.MetaOnly(), nats.Context(ctx))
+	opts := []nats.WatchOpt{nats.IgnoreDeletes(), nats.Context(ctx)}
+	if buffer == nil {
+		opts = append(opts, nats.MetaOnly())
+	}
+	watcher, err := s.kv.Watch(prefix, opts...)
 	if err != nil {
 		return buffer, fmt.Errorf("watching user sessions: %w", err)
 	}
@@ -310,13 +331,11 @@ func (s *SessionManager[S]) CloseAllUserSessions(
 			}
 			continue
 		}
-		encrypted, err := encrypt(s.aeads[0], kvKey)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("encrypting token for %q: %w", kvKey, err))
-			continue
-		}
 		if buffer != nil {
-			buffer = append(buffer, encrypted)
+			var rec kvRecord
+			if err := json.Unmarshal(entry.Value(), &rec); err == nil {
+				buffer = append(buffer, rec.Token)
+			}
 		}
 	}
 
@@ -340,8 +359,12 @@ func (s *SessionManager[S]) Session(
 		return session, fmt.Errorf("getting session: %w", err)
 	}
 
-	if err := json.Unmarshal(entry.Value(), &session); err != nil {
-		return session, fmt.Errorf("unmarshaling session data JSON: %w", err)
+	var rec kvRecord
+	if err := json.Unmarshal(entry.Value(), &rec); err != nil {
+		return session, fmt.Errorf("unmarshaling KV record: %w", err)
+	}
+	if err := json.Unmarshal(rec.Data, &session); err != nil {
+		return session, fmt.Errorf("unmarshaling session data: %w", err)
 	}
 
 	return session, nil
@@ -349,7 +372,8 @@ func (s *SessionManager[S]) Session(
 
 // UserSessions returns an iterator over all current
 // sessions for a given user (snapshot, not streaming).
-// Yields (encryptedToken, session) pairs.
+// Yields (token, session) pairs where token is the encrypted
+// session token usable with CloseSession, Session, and NotifyClosed.
 func (s *SessionManager[S]) UserSessions(
 	ctx context.Context, userID string,
 ) iter.Seq2[string, S] {
@@ -369,17 +393,17 @@ func (s *SessionManager[S]) UserSessions(
 				break
 			}
 
+			var rec kvRecord
+			if err := json.Unmarshal(entry.Value(), &rec); err != nil {
+				continue
+			}
+
 			var session S
-			if err := json.Unmarshal(entry.Value(), &session); err != nil {
+			if err := json.Unmarshal(rec.Data, &session); err != nil {
 				continue
 			}
 
-			encrypted, err := encrypt(s.aeads[0], entry.Key())
-			if err != nil {
-				continue
-			}
-
-			if !yield(encrypted, session) {
+			if !yield(rec.Token, session) {
 				return
 			}
 		}
