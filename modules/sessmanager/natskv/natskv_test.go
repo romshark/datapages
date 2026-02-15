@@ -377,6 +377,21 @@ func TestCloseSession(t *testing.T) {
 				tok, err := sm.CreateSession(ctx, "alice", testSession{})
 				require.NoError(t, err)
 				require.NoError(t, sm.CloseSession(ctx, tok))
+				m := maps.Collect(sm.UserSessions(ctx, "alice"))
+				require.Len(t, m, 0)
+				return tok
+			},
+		},
+		"nonexistent session": {
+			setup: func(t *testing.T) string {
+				// Create a token via a different bucket so the KV key
+				// was never written to sm's bucket.
+				other := newManager(t, conn, natskv.Config{
+					EncryptionKey: validKey(),
+					KVConfig:      nats.KeyValueConfig{Bucket: "CLOSE_OTHER"},
+				})
+				tok, err := other.CreateSession(ctx, "alice", testSession{})
+				require.NoError(t, err)
 				return tok
 			},
 		},

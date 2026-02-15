@@ -289,10 +289,9 @@ func (s *SessionManager[S]) CloseSession(
 	if err != nil {
 		return fmt.Errorf("decrypting session token: %w", err)
 	}
+	// Delete publishes a tombstone and never returns ErrKeyNotFound,
+	// so this is inherently a no-op for non-existent keys.
 	if err := s.kv.Delete(kvKey); err != nil {
-		if errors.Is(err, nats.ErrKeyNotFound) {
-			return nil
-		}
 		return fmt.Errorf("deleting session: %w", err)
 	}
 	return nil
@@ -326,9 +325,7 @@ func (s *SessionManager[S]) CloseAllUserSessions(
 		}
 		kvKey := entry.Key()
 		if err := s.kv.Delete(kvKey); err != nil {
-			if !errors.Is(err, nats.ErrKeyNotFound) {
-				errs = append(errs, fmt.Errorf("deleting session %q: %w", kvKey, err))
-			}
+			errs = append(errs, fmt.Errorf("deleting session %q: %w", kvKey, err))
 			continue
 		}
 		if buffer != nil {
