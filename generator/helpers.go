@@ -277,6 +277,42 @@ func (w *Writer) writeEmbedInit(ap *model.AbstractPage, appPkg, indent string) {
 	w.Raw("},\n")
 }
 
+// itoa converts a small non-negative integer to a string without allocation.
+func itoa(i int) string {
+	if i < 10 {
+		return string(rune('0' + i))
+	}
+	return fmt.Sprintf("%d", i)
+}
+
+// writeCommaSep writes items separated by ", ".
+func (w *Writer) writeCommaSep(items []string) {
+	for i, item := range items {
+		if i > 0 {
+			w.Raw(", ")
+		}
+		w.Raw(item)
+	}
+}
+
+// writeCallExpr writes "receiver.method(args...)" to the buffer.
+func (w *Writer) writeCallExpr(receiver, method string, args []string) {
+	w.Raw(receiver)
+	w.Byte('.')
+	w.Raw(method)
+	w.Byte('(')
+	w.writeCommaSep(args)
+	w.Byte(')')
+}
+
+// writeQuoted writes a Go double-quoted string literal to the buffer.
+// Only safe for values that don't contain special characters (backslash, quote, newline).
+func (w *Writer) writeQuoted(s string) {
+	w.Byte('"')
+	w.Raw(s)
+	w.Byte('"')
+}
+
 // writeAnyCheck writes a boolean variable assignment that OR-combines
 // zero-checks for the given fields. E.g.:
 //
@@ -284,21 +320,27 @@ func (w *Writer) writeEmbedInit(ap *model.AbstractPage, appPkg, indent string) {
 //		query.Bar != 0
 func (w *Writer) writeAnyCheck(varName string, fields []structFieldInfo) {
 	if len(fields) == 0 {
-		w.Linef(1, "%s := false", varName)
+		w.Raw("\t")
+		w.Raw(varName)
+		w.Raw(" := false\n")
 		return
 	}
-	first := zeroCheck("query."+fields[0].Name, fields[0].Type)
+	w.Raw("\t")
+	w.Raw(varName)
+	w.Raw(" := ")
+	w.writeZeroCheck("query."+fields[0].Name, fields[0].Type)
 	if len(fields) == 1 {
-		w.Linef(1, "%s := %s", varName, first)
+		w.Byte('\n')
 		return
 	}
-	w.Linef(1, "%s := %s ||", varName, first)
+	w.Raw(" ||\n")
 	for i := 1; i < len(fields); i++ {
-		check := zeroCheck("query."+fields[i].Name, fields[i].Type)
+		w.Raw("\t\t")
+		w.writeZeroCheck("query."+fields[i].Name, fields[i].Type)
 		if i < len(fields)-1 {
-			w.Linef(2, "%s ||", check)
+			w.Raw(" ||\n")
 		} else {
-			w.Linef(2, "%s", check)
+			w.Byte('\n')
 		}
 	}
 }

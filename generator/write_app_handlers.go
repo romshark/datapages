@@ -1,7 +1,6 @@
 package generator
 
 import (
-	"fmt"
 	"go/types"
 	"strings"
 
@@ -10,9 +9,10 @@ import (
 
 // writePageGETHandler generates the GET handler for a page.
 func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string) {
-	funcName := "handle" + p.TypeName + "GET"
 	w.Line(0, "")
-	w.Linef(0, "func (s *Server) %s(w http.ResponseWriter, r *http.Request) {", funcName)
+	w.Raw("func (s *Server) handle")
+	w.Raw(p.TypeName)
+	w.Raw("GET(w http.ResponseWriter, r *http.Request) {\n")
 
 	h := p.GET.Handler
 
@@ -111,11 +111,17 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 		args = append(args, "query")
 	}
 
-	w.Linef(1, "%s := p.GET(%s)", strings.Join(outs, ", "), strings.Join(args, ", "))
+	w.Byte('\t')
+	w.writeCommaSep(outs)
+	w.Raw(" := ")
+	w.writeCallExpr("p", "GET", args)
+	w.Byte('\n')
 
 	if h.OutputErr != nil {
 		w.Line(1, "if err != nil {")
-		w.Linef(2, `s.httpErrIntern(w, r, nil, "handling %s.GET", err)`, p.TypeName)
+		w.Raw("\t\ts.httpErrIntern(w, r, nil, \"handling ")
+		w.Raw(p.TypeName)
+		w.Raw(".GET\", err)\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
@@ -126,7 +132,11 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 		if h.OutputRedirectStatus != nil {
 			statusArg = h.OutputRedirectStatus.Name
 		}
-		w.Linef(1, "if httpRedirect(w, r, %s, %s) {", h.OutputRedirect.Name, statusArg)
+		w.Raw("\tif httpRedirect(w, r, ")
+		w.Raw(h.OutputRedirect.Name)
+		w.Raw(", ")
+		w.Raw(statusArg)
+		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
@@ -135,8 +145,9 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	if m.GlobalHeadGenerator != nil {
 		w.Line(1, "genericHead, err := s.app.Head(r)")
 		w.Line(1, "if err != nil {")
-		w.Linef(2, `s.httpErrIntern(w, r, nil, "generating generic head for %s", err)`,
-			p.TypeName)
+		w.Raw("\t\ts.httpErrIntern(w, r, nil, \"generating generic head for ")
+		w.Raw(p.TypeName)
+		w.Raw("\", err)\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
@@ -167,10 +178,19 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 
 	w.Line(0, "")
 	w.Line(1, "if err := s.writeHTML(")
-	w.Linef(2, "w, r, %s, %s, %s, %s, bodyAttrs,",
-		sessArg, genericHeadArg, headArg, bodyName)
+	w.Raw("\t\tw, r, ")
+	w.Raw(sessArg)
+	w.Raw(", ")
+	w.Raw(genericHeadArg)
+	w.Raw(", ")
+	w.Raw(headArg)
+	w.Raw(", ")
+	w.Raw(bodyName)
+	w.Raw(", bodyAttrs,\n")
 	w.Line(1, "); err != nil {")
-	w.Linef(2, `s.logErr("rendering %s", err)`, p.TypeName)
+	w.Raw("\t\ts.logErr(\"rendering ")
+	w.Raw(p.TypeName)
+	w.Raw("\", err)\n")
 	w.Line(2, "return")
 	w.Line(1, "}")
 }
@@ -209,11 +229,15 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, m *model.App) {
 	w.Line(1, "bodyAttrs := func(w http.ResponseWriter) {")
 
 	if hasDisableRefresh {
-		w.Linef(2, "if !%s {", h.OutputDisableRefresh.Name)
+		w.Raw("\t\tif !")
+		w.Raw(h.OutputDisableRefresh.Name)
+		w.Raw(" {\n")
 		w.Line(3, "writeBodyAttrOnVisibilityChange(w)")
 		w.Line(2, "}")
 	} else if hasEnableBgStream {
-		w.Linef(2, "if !%s {", h.OutputEnableBgStream.Name)
+		w.Raw("\t\tif !")
+		w.Raw(h.OutputEnableBgStream.Name)
+		w.Raw(" {\n")
 		w.Line(3, "writeBodyAttrOnVisibilityChange(w)")
 		w.Line(2, "}")
 	} else {
@@ -224,14 +248,21 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, m *model.App) {
 	for _, f := range reflectFields {
 		if isStringType(f.Type) {
 			w.Line(0, "")
-			w.Linef(2, "_, _ = io.WriteString(w, `data-signals:%s=\"'`)", f.SignalName)
-			w.Linef(2, "_, _ = io.WriteString(w, query.%s)", f.FieldName)
+			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
+			w.Raw(f.SignalName)
+			w.Raw("=\"'`)\n")
+			w.Raw("\t\t_, _ = io.WriteString(w, query.")
+			w.Raw(f.FieldName)
+			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
 		} else if isIntType(f.Type) {
 			w.Line(0, "")
-			w.Linef(2, "_, _ = io.WriteString(w, `data-signals:%s=\"`)", f.SignalName)
-			w.Linef(2, "_, _ = io.WriteString(w, strconv.FormatInt(query.%s, 10))",
-				f.FieldName)
+			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
+			w.Raw(f.SignalName)
+			w.Raw("=\"`)\n")
+			w.Raw("\t\t_, _ = io.WriteString(w, strconv.FormatInt(query.")
+			w.Raw(f.FieldName)
+			w.Raw(", 10))\n")
 			w.Line(2, "_, _ = io.WriteString(w, `\"`)")
 		}
 	}
@@ -257,9 +288,13 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, m *model.App) {
 				w.Line(0, "")
 				w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
 				w.Line(2, `if sess.UserID != "" {`)
-				w.Linef(3, "_, _ = io.WriteString(w, `%s')\"`)", streamPath)
+				w.Raw("\t\t\t_, _ = io.WriteString(w, `")
+				w.Raw(streamPath)
+				w.Raw("')\"`)\n")
 				w.Line(2, "} else {")
-				w.Linef(3, "_, _ = io.WriteString(w, `%sanon/')\"`)", streamPath)
+				w.Raw("\t\t\t_, _ = io.WriteString(w, `")
+				w.Raw(streamPath)
+				w.Raw("anon/')\"`)\n")
 				w.Line(2, "}")
 			}
 		} else {
@@ -267,9 +302,12 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, m *model.App) {
 			if hasEnableBgStream {
 				w.Line(0, "")
 				w.Line(2, `if sess.UserID != "" {`)
-				w.Linef(3, "_, _ = io.WriteString(w, `data-init=\"@get('%s'`)",
-					streamPath)
-				w.Linef(3, "if %s {", h.OutputEnableBgStream.Name)
+				w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+				w.Raw(streamPath)
+				w.Raw("'`)\n")
+				w.Raw("\t\t\tif ")
+				w.Raw(h.OutputEnableBgStream.Name)
+				w.Raw(" {\n")
 				w.Line(4, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
 				w.Line(3, "} else {")
 				w.Line(4, "_, _ = io.WriteString(w, `)\"`)")
@@ -278,8 +316,9 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, m *model.App) {
 			} else {
 				w.Line(0, "")
 				w.Line(2, `if sess.UserID != "" {`)
-				w.Linef(3, "_, _ = io.WriteString(w, `data-init=\"@get('%s')\"`)",
-					streamPath)
+				w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+				w.Raw(streamPath)
+				w.Raw("')\"`)\n")
 				w.Line(2, "}")
 			}
 		}
@@ -296,17 +335,20 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, m *model.App) {
 		w.Line(0, "")
 		w.Line(2, "_, _ = io.WriteString(w, `data-effect=\"const params = new URLSearchParams();")
 		for _, f := range reflectFields {
-			if isStringType(f.Type) {
-				w.Linef(3, "if ($%s) params.set('%s', $%s);",
-					f.SignalName, f.QueryTag, f.SignalName)
-			} else if isIntType(f.Type) {
-				w.Linef(3, "if ($%s) params.set('%s', $%s);",
-					f.SignalName, f.QueryTag, f.SignalName)
-			}
+			w.Raw("\t\t\tif ($")
+			w.Raw(f.SignalName)
+			w.Raw(") params.set('")
+			w.Raw(f.QueryTag)
+			w.Raw("', $")
+			w.Raw(f.SignalName)
+			w.Raw(");\n")
 		}
-		w.Linef(3, "const query = params.toString();")
-		w.Linef(3, "window.history.replaceState(null, '', query ? '%s?' + query : '%s');",
-			route, route)
+		w.Line(3, "const query = params.toString();")
+		w.Raw("\t\t\twindow.history.replaceState(null, '', query ? '")
+		w.Raw(route)
+		w.Raw("?' + query : '")
+		w.Raw(route)
+		w.Raw("');\n")
 		w.Line(2, "\"`)")
 	}
 
@@ -317,10 +359,14 @@ func (w *Writer) writeStreamPathSegments(route string, pathVars []string) {
 	// Build the path prefix up to the variable, then write the variable.
 	literals, _ := routeSegments(route)
 	for i, lit := range literals {
-		w.Linef(2, "_, _ = io.WriteString(w, `%s`)", lit)
+		w.Raw("\t\t_, _ = io.WriteString(w, `")
+		w.Raw(lit)
+		w.Raw("`)\n")
 		if i < len(pathVars) {
-			w.Linef(2, "_, _ = io.WriteString(w, path.%s)",
-				strings.ToUpper(pathVars[i][:1])+pathVars[i][1:])
+			w.Raw("\t\t_, _ = io.WriteString(w, path.")
+			w.Raw(strings.ToUpper(pathVars[i][:1]))
+			w.Raw(pathVars[i][1:])
+			w.Raw(")\n")
 		}
 	}
 }
@@ -329,9 +375,10 @@ func (w *Writer) writeStreamPathSegments(route string, pathVars []string) {
 func (w *Writer) writePageGETStreamHandler(
 	p *model.Page, m *model.App, appPkg string, eventMap map[string]*model.Event,
 ) {
-	funcName := "handle" + p.TypeName + "GETStream"
 	w.Line(0, "")
-	w.Linef(0, "func (s *Server) %s(w http.ResponseWriter, r *http.Request) {", funcName)
+	w.Raw("func (s *Server) handle")
+	w.Raw(p.TypeName)
+	w.Raw("GETStream(w http.ResponseWriter, r *http.Request) {\n")
 
 	w.Line(1, "if !s.checkIsDSReq(w, r) {")
 	w.Line(2, "return")
@@ -369,9 +416,10 @@ func (w *Writer) writePageGETStreamHandler(
 		// Find the signals type from the first event handler that has it.
 		for _, eh := range p.EventHandlers {
 			if eh.InputSignals != nil {
-				sigType := renderSignalsType(eh.InputSignals, m)
 				w.Line(0, "")
-				w.Linef(1, "var signals %s", sigType)
+				w.Raw("\tvar signals ")
+				w.Raw(renderSignalsType(eh.InputSignals, m))
+				w.Byte('\n')
 				w.Line(1, "if err := datastar.ReadSignals(r, &signals); err != nil {")
 				w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
 				w.Line(2, "return")
@@ -397,11 +445,12 @@ func (w *Writer) writePageGETStreamHandler(
 			break
 		}
 	}
+	w.Raw("\ts.handleStreamRequest(w, r, sessToken, sess, ")
+	w.Raw(evSubjName)
 	if hasPrivate {
-		w.Linef(1, "s.handleStreamRequest(w, r, sessToken, sess, %s(sess.UserID), func(",
-			evSubjName)
+		w.Raw("(sess.UserID), func(\n")
 	} else {
-		w.Linef(1, "s.handleStreamRequest(w, r, sessToken, sess, %s(), func(", evSubjName)
+		w.Raw("(), func(\n")
 	}
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")
 	w.Line(1, ") {")
@@ -429,14 +478,24 @@ func (w *Writer) writeStreamEventCase(
 	constName := eventConstName(ev.TypeName)
 
 	if ev.HasTargetUserIDs {
-		w.Linef(3, "case strings.HasPrefix(msg.Subject, EvSubjPref%s):", constName)
+		w.Raw("\t\t\tcase strings.HasPrefix(msg.Subject, EvSubjPref")
+		w.Raw(constName)
+		w.Raw("):\n")
 	} else {
-		w.Linef(3, "case msg.Subject == EvSubj%s:", constName)
+		w.Raw("\t\t\tcase msg.Subject == EvSubj")
+		w.Raw(constName)
+		w.Raw(":\n")
 	}
 
-	w.Linef(4, "var e %s.%s", appPkg, ev.TypeName)
+	w.Raw("\t\t\t\tvar e ")
+	w.Raw(appPkg)
+	w.Byte('.')
+	w.Raw(ev.TypeName)
+	w.Byte('\n')
 	w.Line(4, "if err := json.Unmarshal(msg.Data, &e); err != nil {")
-	w.Linef(5, `s.logErr("unmarshaling %s JSON", err)`, ev.TypeName)
+	w.Raw("\t\t\t\t\ts.logErr(\"unmarshaling ")
+	w.Raw(ev.TypeName)
+	w.Raw(" JSON\", err)\n")
 	w.Line(5, "continue")
 	w.Line(4, "}")
 
@@ -465,16 +524,21 @@ func (w *Writer) writeEventHandlerCall(
 	}
 
 	methodName := "On" + eh.Name
-	logLabel := fmt.Sprintf("%s.%s", ownerLabel, methodName)
-
-	call := fmt.Sprintf("%s.%s(%s)", receiver, methodName, strings.Join(args, ", "))
 
 	if eh.OutputErr != nil {
-		w.Linef(4, "if err := %s; err != nil {", call)
-		w.Linef(5, `s.logErr("handling %s", err)`, logLabel)
+		w.Raw("\t\t\t\tif err := ")
+		w.writeCallExpr(receiver, methodName, args)
+		w.Raw("; err != nil {\n")
+		w.Raw("\t\t\t\t\ts.logErr(\"handling ")
+		w.Raw(ownerLabel)
+		w.Byte('.')
+		w.Raw(methodName)
+		w.Raw("\", err)\n")
 		w.Line(4, "}")
 	} else {
-		w.Linef(4, "%s", call)
+		w.Raw("\t\t\t\t")
+		w.writeCallExpr(receiver, methodName, args)
+		w.Byte('\n')
 	}
 }
 
@@ -482,9 +546,10 @@ func (w *Writer) writeEventHandlerCall(
 func (w *Writer) writePageGETStreamAnonHandler(
 	p *model.Page, appPkg string, eventMap map[string]*model.Event,
 ) {
-	funcName := "handle" + p.TypeName + "GETStreamAnon"
 	w.Line(0, "")
-	w.Linef(0, "func (s *Server) %s(w http.ResponseWriter, r *http.Request) {", funcName)
+	w.Raw("func (s *Server) handle")
+	w.Raw(p.TypeName)
+	w.Raw("GETStreamAnon(w http.ResponseWriter, r *http.Request) {\n")
 
 	w.Line(1, "if !s.checkIsDSReq(w, r) {")
 	w.Line(2, "return")
@@ -505,9 +570,9 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Byte('\n')
 
 	// evSubj call (for anon, pass empty userID to get public-only subjects).
-	evSubjName := "evSubj" + p.TypeName
-	w.Linef(1, "s.handleStreamRequest(w, r, sessToken, sess, %s(sess.UserID), func(",
-		evSubjName)
+	w.Raw("\ts.handleStreamRequest(w, r, sessToken, sess, evSubj")
+	w.Raw(p.TypeName)
+	w.Raw("(sess.UserID), func(\n")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")
 	w.Line(1, ") {")
 	w.Line(2, "for msg := range ch {")
@@ -528,11 +593,18 @@ func (w *Writer) writePageGETStreamAnonHandler(
 			if ev == nil || ev.HasTargetUserIDs {
 				continue
 			}
-			constName := eventConstName(ev.TypeName)
-			w.Linef(3, "if msg.Subject == EvSubj%s {", constName)
-			w.Linef(4, "var e %s.%s", appPkg, ev.TypeName)
+			w.Raw("\t\t\tif msg.Subject == EvSubj")
+			w.Raw(eventConstName(ev.TypeName))
+			w.Raw(" {\n")
+			w.Raw("\t\t\t\tvar e ")
+			w.Raw(appPkg)
+			w.Byte('.')
+			w.Raw(ev.TypeName)
+			w.Byte('\n')
 			w.Line(4, "if err := json.Unmarshal(msg.Data, &e); err != nil {")
-			w.Linef(5, `s.logErr("unmarshaling %s JSON", err)`, ev.TypeName)
+			w.Raw("\t\t\t\t\ts.logErr(\"unmarshaling ")
+			w.Raw(ev.TypeName)
+			w.Raw(" JSON\", err)\n")
 			w.Line(5, "continue")
 			w.Line(4, "}")
 			w.writeEventHandlerCall(p.TypeName, eh, "p")
@@ -559,9 +631,12 @@ func (w *Writer) writePageGETStreamAnonHandler(
 func (w *Writer) writePageActionHandler(
 	p *model.Page, h *model.Handler, m *model.App, appPkg string,
 ) {
-	funcName := "handle" + p.TypeName + strings.ToUpper(h.HTTPMethod) + h.Name
 	w.Line(0, "")
-	w.Linef(0, "func (s *Server) %s(", funcName)
+	w.Raw("func (s *Server) handle")
+	w.Raw(p.TypeName)
+	w.Raw(strings.ToUpper(h.HTTPMethod))
+	w.Raw(h.Name)
+	w.Raw("(\n")
 	w.Line(1, "w http.ResponseWriter, r *http.Request,")
 	w.Line(0, ") {")
 
@@ -591,8 +666,9 @@ func (w *Writer) writePageActionHandler(
 
 	// Read signals.
 	if h.InputSignals != nil {
-		sigType := renderSignalsType(h.InputSignals, m)
-		w.Linef(1, "var signals %s", sigType)
+		w.Raw("\tvar signals ")
+		w.Raw(renderSignalsType(h.InputSignals, m))
+		w.Byte('\n')
 		w.Line(1, "if err := datastar.ReadSignals(r, &signals); err != nil {")
 		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
@@ -683,7 +759,6 @@ func (w *Writer) writeActionMethodCall(
 	}
 
 	methodName := h.HTTPMethod + h.Name
-	callExpr := fmt.Sprintf("p.%s(%s)", methodName, strings.Join(args, ", "))
 
 	if len(outs) == 0 {
 		if h.OutputErr != nil {
@@ -691,18 +766,31 @@ func (w *Writer) writeActionMethodCall(
 			if h.InputSSE != nil {
 				sseRef = "sse"
 			}
-			w.Linef(1, "if err := %s; err != nil {", callExpr)
-			w.Linef(2, `s.httpErrIntern(w, r, %s, "handling action %s.%s", err)`,
-				sseRef, p.TypeName, h.Name)
+			w.Raw("\tif err := ")
+			w.writeCallExpr("p", methodName, args)
+			w.Raw("; err != nil {\n")
+			w.Raw("\t\ts.httpErrIntern(w, r, ")
+			w.Raw(sseRef)
+			w.Raw(", \"handling action ")
+			w.Raw(p.TypeName)
+			w.Byte('.')
+			w.Raw(h.Name)
+			w.Raw("\", err)\n")
 			w.Line(2, "return")
 			w.Line(1, "}")
 		} else {
-			w.Linef(1, "%s", callExpr)
+			w.Byte('\t')
+			w.writeCallExpr("p", methodName, args)
+			w.Byte('\n')
 		}
 		return
 	}
 
-	w.Linef(1, "%s := %s", strings.Join(outs, ", "), callExpr)
+	w.Byte('\t')
+	w.writeCommaSep(outs)
+	w.Raw(" := ")
+	w.writeCallExpr("p", methodName, args)
+	w.Byte('\n')
 
 	if h.OutputErr != nil {
 		sseRef := "nil"
@@ -710,15 +798,22 @@ func (w *Writer) writeActionMethodCall(
 			sseRef = "sse"
 		}
 		w.Line(1, "if err != nil {")
-		w.Linef(2, `s.httpErrIntern(w, r, %s, "handling action %s.%s", err)`,
-			sseRef, p.TypeName, h.Name)
+		w.Raw("\t\ts.httpErrIntern(w, r, ")
+		w.Raw(sseRef)
+		w.Raw(", \"handling action ")
+		w.Raw(p.TypeName)
+		w.Byte('.')
+		w.Raw(h.Name)
+		w.Raw("\", err)\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
 
 	// Close session.
 	if h.OutputCloseSession != nil {
-		w.Linef(1, "if %s {", h.OutputCloseSession.Name)
+		w.Raw("\tif ")
+		w.Raw(h.OutputCloseSession.Name)
+		w.Raw(" {\n")
 		w.Line(2, "if err := s.closeSession(w, r, sessToken); err != nil {")
 		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
 		w.Line(3, "return")
@@ -728,9 +823,12 @@ func (w *Writer) writeActionMethodCall(
 
 	// New session.
 	if h.OutputNewSession != nil {
-		w.Linef(1, `if j := %s; j.UserID != "" {`, h.OutputNewSession.Name)
-		w.Linef(2, "if err := s.createSession(w, r, %s); err != nil {",
-			h.OutputNewSession.Name)
+		w.Raw("\tif j := ")
+		w.Raw(h.OutputNewSession.Name)
+		w.Raw("; j.UserID != \"\" {\n")
+		w.Raw("\t\tif err := s.createSession(w, r, ")
+		w.Raw(h.OutputNewSession.Name)
+		w.Raw("); err != nil {\n")
 		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
 		w.Line(2, "}")
 		w.Line(1, "}")
@@ -742,7 +840,11 @@ func (w *Writer) writeActionMethodCall(
 		if h.OutputRedirectStatus != nil {
 			statusArg = h.OutputRedirectStatus.Name
 		}
-		w.Linef(1, "if httpRedirect(w, r, %s, %s) {", h.OutputRedirect.Name, statusArg)
+		w.Raw("\tif httpRedirect(w, r, ")
+		w.Raw(h.OutputRedirect.Name)
+		w.Raw(", ")
+		w.Raw(statusArg)
+		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
@@ -752,8 +854,12 @@ func (w *Writer) writeActionMethodCall(
 		if m.GlobalHeadGenerator != nil {
 			w.Line(1, "genericHead, err := s.app.Head(r)")
 			w.Line(1, "if err != nil {")
-			w.Linef(2, `s.httpErrIntern(w, r, nil, "generating generic head for %s.%s%s", err)`,
-				p.TypeName, h.HTTPMethod, h.Name)
+			w.Raw("\t\ts.httpErrIntern(w, r, nil, \"generating generic head for ")
+			w.Raw(p.TypeName)
+			w.Byte('.')
+			w.Raw(h.HTTPMethod)
+			w.Raw(h.Name)
+			w.Raw("\", err)\n")
 			w.Line(2, "return")
 			w.Line(1, "}")
 		}
@@ -766,51 +872,74 @@ func (w *Writer) writeActionMethodCall(
 			sessArg = appPkg + ".Session{}"
 		}
 		w.Line(1, "if err := s.writeHTML(")
-		w.Linef(2, "w, r, %s, %s, nil, %s, nil,",
-			sessArg, genericHeadArg, h.OutputBody.Name)
+		w.Raw("\t\tw, r, ")
+		w.Raw(sessArg)
+		w.Raw(", ")
+		w.Raw(genericHeadArg)
+		w.Raw(", nil, ")
+		w.Raw(h.OutputBody.Name)
+		w.Raw(", nil,\n")
 		w.Line(1, "); err != nil {")
-		w.Linef(2, `s.logErr("rendering response of %s.%s%s", err)`,
-			p.TypeName, h.HTTPMethod, h.Name)
+		w.Raw("\t\ts.logErr(\"rendering response of ")
+		w.Raw(p.TypeName)
+		w.Byte('.')
+		w.Raw(h.HTTPMethod)
+		w.Raw(h.Name)
+		w.Raw("\", err)\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
 }
 
 func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
-	queryType := renderQueryType(input, m)
 	w.Line(0, "")
 	w.Line(1, "q := r.URL.Query()")
-	w.Linef(1, "var query %s", queryType)
+	w.Raw("\tvar query ")
+	w.Raw(renderQueryType(input, m))
+	w.Byte('\n')
 	fields := structFields(input.Type.Resolved)
 	for _, f := range fields {
 		tag := queryTagValue(f.Tag)
 		if isIntType(f.Type) {
 			w.Line(1, "{")
-			w.Linef(2, "if q := q.Get(%q); q != \"\" {", tag)
+			w.Raw("\t\tif q := q.Get(")
+			w.writeQuoted(tag)
+			w.Raw("); q != \"\" {\n")
 			w.Line(3, "i, err := strconv.ParseInt(q, 10, 64)")
 			w.Line(3, "if err != nil {")
-			w.Linef(4,
-				"s.httpErrBad(w, \"unexpected value for query parameter: %s\", err)",
-				tag)
+			w.Raw("\t\t\t\ts.httpErrBad(w, \"unexpected value for query parameter: ")
+			w.Raw(tag)
+			w.Raw("\", err)\n")
 			w.Line(4, "return")
 			w.Line(3, "}")
-			w.Linef(3, "query.%s = i", f.Name)
+			w.Raw("\t\t\tquery.")
+			w.Raw(f.Name)
+			w.Raw(" = i\n")
 			w.Line(2, "}")
 			w.Line(1, "}")
 		} else {
-			w.Linef(1, "query.%s = q.Get(%q)", f.Name, tag)
+			w.Raw("\tquery.")
+			w.Raw(f.Name)
+			w.Raw(" = q.Get(")
+			w.writeQuoted(tag)
+			w.Raw(")\n")
 		}
 	}
 }
 
 func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
 	w.Line(0, "")
-	pathType := renderPathType(input, m)
-	w.Linef(1, "var path %s", pathType)
+	w.Raw("\tvar path ")
+	w.Raw(renderPathType(input, m))
+	w.Byte('\n')
 	fields := structFields(input.Type.Resolved)
 	for _, f := range fields {
 		tag := pathTagValue(f.Tag)
-		w.Linef(1, "path.%s = r.PathValue(%q)", f.Name, tag)
+		w.Raw("\tpath.")
+		w.Raw(f.Name)
+		w.Raw(" = r.PathValue(")
+		w.writeQuoted(tag)
+		w.Raw(")\n")
 	}
 }
 

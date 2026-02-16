@@ -12,63 +12,57 @@ import (
 func (w *Writer) WritePkgAction(m *model.App) {
 	needsStrings := false
 
-	// Check if any action uses path or query params (needs "strings" import).
+	// Count total page actions and check if any action uses path or query params.
+	nPageActions := 0
 	for _, a := range m.Actions {
 		if a.InputPath != nil || a.InputQuery != nil {
 			needsStrings = true
-			break
 		}
 	}
-	if !needsStrings {
-		for _, p := range m.Pages {
-			for _, a := range p.Actions {
-				if a.InputPath != nil || a.InputQuery != nil {
-					needsStrings = true
-					break
-				}
-			}
-			if needsStrings {
-				break
+	for _, p := range m.Pages {
+		nPageActions += len(p.Actions)
+		if needsStrings {
+			continue
+		}
+		for _, a := range p.Actions {
+			if a.InputPath != nil || a.InputQuery != nil {
+				needsStrings = true
 			}
 		}
 	}
 
 	w.writeActionHeader(needsStrings)
 
-	// Collect all action entries for sorting.
 	type actionEntry struct {
 		funcName   string
 		httpMethod string
 		route      string
-		pathInput  *model.Input
 		queryInput *model.Input
 	}
 
-	var appActions []actionEntry
-	for _, a := range m.Actions {
-		funcName := strings.ToUpper(a.HTTPMethod) + "App" + a.Name
-		appActions = append(appActions, actionEntry{
-			funcName:   funcName,
+	// Collect and sort app actions.
+	appActions := make([]actionEntry, len(m.Actions))
+	for i, a := range m.Actions {
+		appActions[i] = actionEntry{
+			funcName:   strings.ToUpper(a.HTTPMethod) + "App" + a.Name,
 			httpMethod: a.HTTPMethod,
 			route:      a.Route,
-			pathInput:  a.InputPath,
 			queryInput: a.InputQuery,
-		})
+		}
 	}
 	slices.SortFunc(appActions, func(a, b actionEntry) int {
 		return strings.Compare(a.funcName, b.funcName)
 	})
 
-	var pageActions []actionEntry
+	// Collect and sort page actions.
+	pageActions := make([]actionEntry, 0, nPageActions)
 	for _, p := range m.Pages {
 		pageSuffix := stripPagePrefix(p.TypeName)
 		for _, a := range p.Actions {
-			funcName := strings.ToUpper(a.HTTPMethod) + "Page" + pageSuffix + a.Name
 			pageActions = append(pageActions, actionEntry{
-				funcName:   funcName,
+				funcName:   strings.ToUpper(a.HTTPMethod) + "Page" + pageSuffix + a.Name,
 				httpMethod: a.HTTPMethod,
 				route:      a.Route,
-				pathInput:  a.InputPath,
 				queryInput: a.InputQuery,
 			})
 		}
@@ -165,55 +159,53 @@ func (w *Writer) writeActionFuncPathOnly(
 	pathVars []string,
 ) {
 	literals, _ := routeSegments(route)
-	prefix := "@" + method + "('"
-	suffix := "')"
 
-	w.Linef(0, "func %s(%s) string {", funcName, joinParams(pathVars))
+	// func FuncName(params) string {
+	w.Raw("func ")
+	w.Raw(funcName)
+	w.Byte('(')
+	w.writeJoinParams(pathVars)
+	w.Raw(") string {\n")
 	w.Line(1, "var b strings.Builder")
 
-	// Grow call.
-	w.Line(1, "b.Grow("+
-		"len("+quote(prefix+literals[0])+")"+
-		buildPathGrowAdditions(pathVars, literals[1:], suffix)+
-		")")
-
-	// WriteString calls.
-	w.Linef(1, "b.WriteString(%q)", prefix+literals[0])
+	// b.Grow(len("@method('lit0") + len(v0) + len("lit1") + ... + len("litN')")
+	w.Raw("\tb.Grow(len(\"@")
+	w.Raw(method)
+	w.Raw("('")
+	w.Raw(literals[0])
+	w.Raw("\")")
 	for i, v := range pathVars {
-		w.Linef(1, "b.WriteString(%s)", v)
-		nextLit := literals[i+1]
+		w.Raw(" + len(")
+		w.Raw(v)
+		w.Raw(") + len(\"")
+		w.Raw(literals[i+1])
 		if i == len(pathVars)-1 {
-			w.Linef(1, "b.WriteString(%q)", nextLit+suffix)
-		} else {
-			w.Linef(1, "b.WriteString(%q)", nextLit)
+			w.Raw("')")
 		}
+		w.Raw("\")")
+	}
+	w.Raw(")\n")
+
+	// b.WriteString("@method('lit0")
+	w.Raw("\tb.WriteString(\"@")
+	w.Raw(method)
+	w.Raw("('")
+	w.Raw(literals[0])
+	w.Raw("\")\n")
+	for i, v := range pathVars {
+		w.Raw("\tb.WriteString(")
+		w.Raw(v)
+		w.Raw(")\n")
+		w.Raw("\tb.WriteString(\"")
+		w.Raw(literals[i+1])
+		if i == len(pathVars)-1 {
+			w.Raw("')")
+		}
+		w.Raw("\")\n")
 	}
 
 	w.Line(1, "return b.String()")
 	w.Line(0, "}")
-}
-
-func buildPathGrowAdditions(pathVars []string, nextLits []string, suffix string) string {
-	var b strings.Builder
-	for i, v := range pathVars {
-		b.WriteString(" + len(")
-		b.WriteString(v)
-		b.WriteString(")")
-		lit := nextLits[i]
-		if i == len(pathVars)-1 {
-			lit = lit + suffix
-		}
-		b.WriteString(" + len(")
-		b.WriteString(quote(lit))
-		b.WriteString(")")
-	}
-	return b.String()
-}
-
-func quote(s string) string {
-	// small helper to avoid fmt usage; caller builds valid Go expression strings only
-	// and uses %q elsewhere for emitted code lines.
-	return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
 }
 
 func (w *Writer) writeActionFuncQueryOnly(
@@ -222,7 +214,12 @@ func (w *Writer) writeActionFuncQueryOnly(
 	route string,
 	fields []structFieldInfo,
 ) {
-	w.Linef(0, "func %s(query Query%s) string {", funcName, funcName)
+	// func FuncName(query QueryFuncName) string {
+	w.Raw("func ")
+	w.Raw(funcName)
+	w.Raw("(query Query")
+	w.Raw(funcName)
+	w.Raw(") string {\n")
 
 	// anyQuery check.
 	w.writeAnyCheck("anyQuery", fields)
@@ -243,12 +240,16 @@ func (w *Writer) writeActionFuncQueryOnly(
 	w.Line(1, "n := 0")
 	for _, f := range fields {
 		tag := queryTagValue(f.Tag)
-		w.Linef(1, "if %s {", zeroCheck("query."+f.Name, f.Type))
+		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `l += len("&")`)
 		w.Line(2, "}")
 		w.Line(2, "n++")
-		w.Linef(2, "l += len(%q) + len(query.%s)", tag+"=", f.Name)
+		w.Raw("\t\tl += len(\"")
+		w.Raw(tag)
+		w.Raw("=\") + len(query.")
+		w.Raw(f.Name)
+		w.Raw(")\n")
 		w.Line(1, "}")
 	}
 	w.Line(1, "_ = n")
@@ -270,14 +271,18 @@ func (w *Writer) writeActionFuncQueryOnly(
 	w.Line(1, "n = 0")
 	for _, f := range fields {
 		tag := queryTagValue(f.Tag)
-		w.Linef(1, "if %s {", zeroCheck("query."+f.Name, f.Type))
+		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `b.WriteString("&")`)
 		w.Line(2, "}")
 		w.Line(2, "n++")
 		w.Line(2, "_ = n")
-		w.Linef(2, "b.WriteString(%q)", tag+"=")
-		w.Linef(2, "b.WriteString(query.%s)", f.Name)
+		w.Raw("\t\tb.WriteString(\"")
+		w.Raw(tag)
+		w.Raw("=\")\n")
+		w.Raw("\t\tb.WriteString(query.")
+		w.Raw(f.Name)
+		w.Raw(")\n")
 		w.Line(1, "}")
 	}
 
@@ -295,10 +300,15 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	fields []structFieldInfo,
 ) {
 	literals, _ := routeSegments(route)
-	prefix := "@" + method + "('"
-	suffix := "')"
 
-	w.Linef(0, "func %s(%s, query Query%s) string {", funcName, joinParams(pathVars), funcName)
+	// func FuncName(params, query QueryFuncName) string {
+	w.Raw("func ")
+	w.Raw(funcName)
+	w.Byte('(')
+	w.writeJoinParams(pathVars)
+	w.Raw(", query Query")
+	w.Raw(funcName)
+	w.Raw(") string {\n")
 
 	// anyQuery check.
 	w.writeAnyCheck("anyQuery", fields)
@@ -307,13 +317,20 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	// Builder and length calculation.
 	w.Line(1, "var b strings.Builder")
 
-	// Path literal lengths.
-	expr := "l := len(" + quote(prefix+literals[0]) + ")"
+	// l := len("@method('lit0") + len(v0) + len("lit1") + ... + len("')")
+	w.Raw("\tl := len(\"@")
+	w.Raw(method)
+	w.Raw("('")
+	w.Raw(literals[0])
+	w.Raw("\")")
 	for i, v := range pathVars {
-		expr += " + len(" + v + ") + len(" + quote(literals[i+1]) + ")"
+		w.Raw(" + len(")
+		w.Raw(v)
+		w.Raw(") + len(\"")
+		w.Raw(literals[i+1])
+		w.Raw("\")")
 	}
-	expr += " + len(" + quote(suffix) + ")"
-	w.Line(1, expr)
+	w.Raw(" + len(\"')\")\n")
 
 	w.Line(1, "if anyQuery {")
 	w.Line(2, `l += len("?")`)
@@ -323,12 +340,16 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	w.Line(1, "n := 0")
 	for _, f := range fields {
 		tag := queryTagValue(f.Tag)
-		w.Linef(1, "if %s {", zeroCheck("query."+f.Name, f.Type))
+		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `l += len("&")`)
 		w.Line(2, "}")
 		w.Line(2, "n++")
-		w.Linef(2, "l += len(%q) + len(query.%s)", tag+"=", f.Name)
+		w.Raw("\t\tl += len(\"")
+		w.Raw(tag)
+		w.Raw("=\") + len(query.")
+		w.Raw(f.Name)
+		w.Raw(")\n")
 		w.Line(1, "}")
 	}
 	w.Line(1, "_ = n")
@@ -337,10 +358,18 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	// Grow and write path segments.
 	w.Line(1, "b.Grow(l)")
 	w.Line(0, "")
-	w.Linef(1, "b.WriteString(%q)", prefix+literals[0])
+	w.Raw("\tb.WriteString(\"@")
+	w.Raw(method)
+	w.Raw("('")
+	w.Raw(literals[0])
+	w.Raw("\")\n")
 	for i, v := range pathVars {
-		w.Linef(1, "b.WriteString(%s)", v)
-		w.Linef(1, "b.WriteString(%q)", literals[i+1])
+		w.Raw("\tb.WriteString(")
+		w.Raw(v)
+		w.Raw(")\n")
+		w.Raw("\tb.WriteString(\"")
+		w.Raw(literals[i+1])
+		w.Raw("\")\n")
 	}
 
 	w.Line(1, "if anyQuery {")
@@ -351,18 +380,22 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	w.Line(1, "n = 0")
 	for _, f := range fields {
 		tag := queryTagValue(f.Tag)
-		w.Linef(1, "if %s {", zeroCheck("query."+f.Name, f.Type))
+		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `b.WriteString("&")`)
 		w.Line(2, "}")
 		w.Line(2, "n++")
 		w.Line(2, "_ = n")
-		w.Linef(2, "b.WriteString(%q)", tag+"=")
-		w.Linef(2, "b.WriteString(query.%s)", f.Name)
+		w.Raw("\t\tb.WriteString(\"")
+		w.Raw(tag)
+		w.Raw("=\")\n")
+		w.Raw("\t\tb.WriteString(query.")
+		w.Raw(f.Name)
+		w.Raw(")\n")
 		w.Line(1, "}")
 	}
 
-	w.Linef(1, "b.WriteString(%q)", suffix)
+	w.Line(1, `b.WriteString("')")`)
 	w.Line(0, "")
 	w.Line(1, "return b.String()")
 	w.Line(0, "}")
@@ -370,7 +403,9 @@ func (w *Writer) writeActionFuncPathAndQuery(
 
 func (w *Writer) writeActionQueryType(funcName string, fields []structFieldInfo) {
 	w.Line(0, "")
-	w.Linef(0, "type Query%s struct {", funcName)
+	w.Raw("type Query")
+	w.Raw(funcName)
+	w.Raw(" struct {\n")
 
 	// Find longest field name for alignment.
 	maxNameLen := 0

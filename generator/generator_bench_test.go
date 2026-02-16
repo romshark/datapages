@@ -24,7 +24,7 @@ var emptyApp = &model.App{
 	Fset:    token.NewFileSet(),
 }
 
-func BenchmarkAppendApp(b *testing.B) {
+func BenchmarkWriteApp(b *testing.B) {
 	b.Run("empty", func(b *testing.B) {
 		w := generator.Writer{Buf: make([]byte, 2*1024*1024)} // 2 MiB
 		for b.Loop() {
@@ -42,7 +42,7 @@ func BenchmarkAppendApp(b *testing.B) {
 	})
 }
 
-func BenchmarkAppendPkgAction(b *testing.B) {
+func BenchmarkWritePkgAction(b *testing.B) {
 	b.Run("empty", func(b *testing.B) {
 		w := generator.Writer{Buf: make([]byte, 2*1024*1024)} // 2 MiB
 		for b.Loop() {
@@ -61,7 +61,7 @@ func BenchmarkAppendPkgAction(b *testing.B) {
 	})
 }
 
-func BenchmarkAppendPkgHref(b *testing.B) {
+func BenchmarkWritePkgHref(b *testing.B) {
 	b.Run("empty", func(b *testing.B) {
 		w := generator.Writer{Buf: make([]byte, 2*1024*1024)} // 2 MiB
 		for b.Loop() {

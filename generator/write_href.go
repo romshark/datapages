@@ -184,7 +184,11 @@ func (w *Writer) writeHrefFunc(p *model.Page) {
 
 func (w *Writer) writeHrefFuncPathOnly(funcName, route string, pathVars []string) {
 	// Function signature with path params.
-	w.Linef(0, "func %s(%s) string {", funcName, joinParams(pathVars))
+	w.Raw("func ")
+	w.Raw(funcName)
+	w.Byte('(')
+	w.writeJoinParams(pathVars)
+	w.Raw(") string {\n")
 
 	literals, _ := routeSegments(route)
 
@@ -265,7 +269,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 
 	for _, f := range fields {
 		tag := queryTagValue(f.Tag)
-		w.Linef(1, "if %s {", zeroCheck("query."+f.Name, f.Type))
+		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `l += len("&")`)
 		w.Line(2, "}")
@@ -298,7 +302,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 
 	for i, f := range fields {
 		tag := queryTagValue(f.Tag)
-		w.Linef(1, "if %s {", zeroCheck("query."+f.Name, f.Type))
+		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `b.WriteString("&")`)
 		w.Line(2, "}")
@@ -325,7 +329,13 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	pathVars []string, fields []structFieldInfo,
 ) {
 	// Function signature with path params + query struct.
-	w.Linef(0, "func %s(%s, query Query%s) string {", funcName, joinParams(pathVars), funcName)
+	w.Raw("func ")
+	w.Raw(funcName)
+	w.Byte('(')
+	w.writeJoinParams(pathVars)
+	w.Raw(", query Query")
+	w.Raw(funcName)
+	w.Raw(") string {\n")
 
 	literals, _ := routeSegments(route)
 
@@ -389,7 +399,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 
 	for _, f := range fields {
 		tag := queryTagValue(f.Tag)
-		w.Linef(1, "if %s {", zeroCheck("query."+f.Name, f.Type))
+		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `l += len("&")`)
 		w.Line(2, "}")
@@ -425,7 +435,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 
 	for i, f := range fields {
 		tag := queryTagValue(f.Tag)
-		w.Linef(1, "if %s {", zeroCheck("query."+f.Name, f.Type))
+		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `b.WriteString("&")`)
 		w.Line(2, "}")
@@ -479,25 +489,37 @@ func (w *Writer) writeHrefQueryType(funcName string, st *types.Struct) {
 	w.Line(0, "}")
 }
 
-// joinParams builds a comma-separated parameter list where all params are string type.
-func joinParams(vars []string) string {
-	if len(vars) == 1 {
-		return vars[0] + " string"
-	}
-	parts := make([]string, len(vars))
+// writeJoinParams writes a comma-separated parameter list where all params are string type.
+func (w *Writer) writeJoinParams(vars []string) {
 	for i, v := range vars {
-		parts[i] = v + " string"
+		if i > 0 {
+			w.Raw(", ")
+		}
+		w.Raw(v)
+		w.Raw(" string")
 	}
-	return strings.Join(parts, ", ")
 }
 
-// zeroCheck returns the zero-value check expression for a field.
-func zeroCheck(expr string, t types.Type) string {
+// writeZeroCheck writes the zero-value check expression for a field to the buffer.
+func (w *Writer) writeZeroCheck(expr string, t types.Type) {
+	w.Raw(expr)
 	if isIntType(t) {
-		return expr + " != 0"
+		w.Raw(" != 0")
+	} else {
+		w.Raw(` != ""`)
 	}
-	return expr + " != \"\""
 }
+
+// writeIfZeroCheck writes "if <expr> != <zero> {\n" at the given indent level.
+func (w *Writer) writeIfZeroCheck(indent int, expr string, t types.Type) {
+	for range indent {
+		w.Byte('\t')
+	}
+	w.Raw("if ")
+	w.writeZeroCheck(expr, t)
+	w.Raw(" {\n")
+}
+
 
 // fieldTypeName returns the Go type name for a field type.
 func fieldTypeName(t types.Type) string {

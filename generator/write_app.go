@@ -2,7 +2,6 @@ package generator
 
 import (
 	_ "embed"
-	"fmt"
 	"strings"
 
 	"github.com/romshark/datapages/parser/model"
@@ -86,7 +85,9 @@ func (w *Writer) writeAppHeader(appPkgPath string) {
 	w.Line(1, `"github.com/romshark/datapages/modules/sesstokgen"`)
 	w.Line(1, `"golang.org/x/sync/errgroup"`)
 	w.Line(0, "")
-	w.Linef(1, "%q", appPkgPath)
+	w.Byte('\t')
+	w.writeQuoted(appPkgPath)
+	w.Byte('\n')
 	w.Line(0, "")
 	w.Line(1, `"github.com/prometheus/client_golang/prometheus"`)
 	w.Line(1, `"github.com/prometheus/client_golang/prometheus/promhttp"`)
@@ -95,9 +96,11 @@ func (w *Writer) writeAppHeader(appPkgPath string) {
 }
 
 func (w *Writer) writeAppCheckCSRF(appPkg string) {
-	w.Rawf(`
+	w.Raw(`
 func (s *Server) checkCSRF(
-	w http.ResponseWriter, r *http.Request, sess %s.Session,
+	w http.ResponseWriter, r *http.Request, sess `)
+	w.Raw(appPkg)
+	w.Raw(`.Session,
 ) (ok bool) {
 	if sess.UserID == "" ||
 		r.Method == http.MethodGet ||
@@ -129,24 +132,26 @@ func (s *Server) checkCSRF(
 	}
 	return true
 }
-`, appPkg)
+`)
 }
 
 func (w *Writer) writeAppWriteHTML(m *model.App, appPkg string) {
-	w.Rawf(`
+	w.Raw(`
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess %s.Session,
+	sess `)
+	w.Raw(appPkg)
+	w.Raw(`.Session,
 	headGeneric, head, body templ.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, `+"`"+`<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="/static/ds.min.js"></script>`+"`"+`)
+	_, err := io.WriteString(w, ` + "`" + `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+		<script type="module" src="/static/ds.min.js"></script>` + "`" + `)
 	if err != nil {
 		return err
 	}
-`, appPkg)
+`)
 
 	if m.GlobalHeadGenerator != nil {
 		w.Raw(`	if headGeneric != nil {
@@ -215,9 +220,11 @@ func (s *Server) writeHTML(
 }
 
 func (w *Writer) writeAppHandleStreamRequest(appPkg string) {
-	w.Rawf(`
+	w.Raw(`
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, sessKey string, sess %[1]s.Session,
+	w http.ResponseWriter, r *http.Request, sessKey string, sess `)
+	w.Raw(appPkg)
+	w.Raw(`.Session,
 	subjects []string,
 	fn func(
 		sse *datastar.ServerSentEventGenerator,
@@ -270,11 +277,11 @@ func (s *Server) handleStreamRequest(
 
 	fn(sse, subC)
 }
-`, appPkg)
+`)
 }
 
 func (w *Writer) writeAppServerStruct(appPkg string) {
-	w.Rawf(`
+	w.Raw(`
 type Server struct {
 	shutdownCh           chan struct{} // Closed when shutting down.
 	shutdownOnce         sync.Once
@@ -282,7 +289,9 @@ type Server struct {
 	httpServer           *http.Server
 	messageBroker        msgbroker.MessageBroker
 	messageBrokerMetrics brokerMetrics
-	app                  *%[1]s.App
+	app                  *`)
+	w.Raw(appPkg)
+	w.Raw(`.App
 	mux                  *http.ServeMux
 	logger               *slog.Logger
 	middleware           []func(http.Handler) http.Handler
@@ -293,14 +302,16 @@ type Server struct {
 	metricsServer         *http.Server
 	authConf              *AuthConfig
 	sessionTokenGenerator sessmanager.TokenGenerator
-	sessionManager        sessmanager.SessionManager[%[1]s.Session]
+	sessionManager        sessmanager.SessionManager[`)
+	w.Raw(appPkg)
+	w.Raw(`.Session]
 	csrfConf              *CSRFConfig
 }
-`, appPkg)
+`)
 }
 
 func (w *Writer) writeAppNewServer(appPkg string) {
-	w.Rawf(`
+	w.Raw(`
 // NewServer creates a new server instance.
 // Supported options:
 //
@@ -310,9 +321,13 @@ func (w *Writer) writeAppNewServer(appPkg string) {
 //   - WithCSRFProtection
 //   - WithPrometheus
 func NewServer(
-	app *%[1]s.App,
+	app *`)
+	w.Raw(appPkg)
+	w.Raw(`.App,
 	messageBroker msgbroker.MessageBroker,
-	sessionManager sessmanager.SessionManager[%[1]s.Session],
+	sessionManager sessmanager.SessionManager[`)
+	w.Raw(appPkg)
+	w.Raw(`.Session],
 	opts ...ServerOption,
 ) *Server {
 	s := &Server{
@@ -339,7 +354,7 @@ func NewServer(
 	// Apply options
 	for _, opt := range opts {
 		if err := opt(s); err != nil {
-			panic(fmt.Errorf("applying server option: %%w", err))
+			panic(fmt.Errorf("applying server option: %w", err))
 		}
 	}
 
@@ -389,7 +404,7 @@ func NewServer(
 	}
 	if si, ok := s.messageBroker.(msgbroker.StreamInitializer); ok {
 		if err := si.InitStreams(MessageBrokerStreamSubjects()); err != nil {
-			panic(fmt.Sprintf("initializing message broker streams: %%v", err))
+			panic(fmt.Sprintf("initializing message broker streams: %v", err))
 		}
 	}
 	if s.csrfConf == nil {
@@ -413,7 +428,7 @@ func NewServer(
 
 	return s
 }
-`, appPkg)
+`)
 }
 
 func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
@@ -424,7 +439,11 @@ func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
 	// Private events first.
 	for _, e := range events {
 		if e.HasTargetUserIDs {
-			w.Linef(1, "%s = %q", evSubjConst(e), evSubjValue(e))
+			w.Byte('\t')
+			w.Raw(evSubjConst(e))
+			w.Raw(" = ")
+			w.writeQuoted(evSubjValue(e))
+			w.Byte('\n')
 		}
 	}
 
@@ -434,7 +453,11 @@ func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
 
 	for _, e := range events {
 		if !e.HasTargetUserIDs {
-			w.Linef(1, "%s = %q", evSubjConst(e), evSubjValue(e))
+			w.Byte('\t')
+			w.Raw(evSubjConst(e))
+			w.Raw(" = ")
+			w.writeQuoted(evSubjValue(e))
+			w.Byte('\n')
 		}
 	}
 
@@ -453,7 +476,11 @@ func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
 		w.Line(0, "const (")
 		for _, e := range events {
 			if e.HasTargetUserIDs {
-				w.Linef(1, "%s = %q", evSubjPrefConst(e), evSubjPrefValue(e))
+				w.Byte('\t')
+				w.Raw(evSubjPrefConst(e))
+				w.Raw(" = ")
+				w.writeQuoted(evSubjPrefValue(e))
+				w.Byte('\n')
 			}
 		}
 		w.Line(0, ")")
@@ -465,7 +492,9 @@ func (w *Writer) writeMessageBrokerStreamSubjects(events []*model.Event) {
 	w.Line(0, "func MessageBrokerStreamSubjects() []string {")
 	w.Line(1, "return []string{")
 	for _, e := range events {
-		w.Linef(2, "%s,", evSubjConst(e))
+		w.Raw("\t\t")
+		w.Raw(evSubjConst(e))
+		w.Raw(",\n")
 	}
 	w.Line(1, "}")
 	w.Line(0, "}")
@@ -497,14 +526,18 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page, eventMap map[string]*
 		if hasPrivate && !hasPublic {
 			// All events are per-user, just take userID.
 			w.Line(0, "")
-			w.Linef(0, "func %s(userID string) []string {", name)
+			w.Raw("func ")
+			w.Raw(name)
+			w.Raw("(userID string) []string {\n")
 			w.Line(1, "return []string{")
 			for _, eh := range p.EventHandlers {
 				ev := eventMap[eh.EventTypeName]
 				if ev == nil {
 					continue
 				}
-				w.Linef(2, "%s + userID,", evSubjPrefConst(ev))
+				w.Raw("\t\t")
+				w.Raw(evSubjPrefConst(ev))
+				w.Raw(" + userID,\n")
 			}
 			w.Line(1, "}")
 			w.Line(0, "}")
@@ -514,14 +547,18 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page, eventMap map[string]*
 		if hasPublic && !hasPrivate {
 			// All events are public. No userID needed.
 			w.Line(0, "")
-			w.Linef(0, "func %s() []string {", name)
+			w.Raw("func ")
+			w.Raw(name)
+			w.Raw("() []string {\n")
 			w.Line(1, "return []string{")
 			for _, eh := range p.EventHandlers {
 				ev := eventMap[eh.EventTypeName]
 				if ev == nil {
 					continue
 				}
-				w.Linef(2, "%s,", evSubjConst(ev))
+				w.Raw("\t\t")
+				w.Raw(evSubjConst(ev))
+				w.Raw(",\n")
 			}
 			w.Line(1, "}")
 			w.Line(0, "}")
@@ -530,7 +567,9 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page, eventMap map[string]*
 
 		// Mixed: public + private. Need conditional.
 		w.Line(0, "")
-		w.Linef(0, "func %s(userID string) []string {", name)
+		w.Raw("func ")
+		w.Raw(name)
+		w.Raw("(userID string) []string {\n")
 		w.Line(1, "if userID == \"\" {")
 		w.Line(2, "return []string{")
 		for _, eh := range p.EventHandlers {
@@ -538,7 +577,9 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page, eventMap map[string]*
 			if ev == nil || ev.HasTargetUserIDs {
 				continue
 			}
-			w.Linef(3, "%s,", evSubjConst(ev))
+			w.Raw("\t\t\t")
+			w.Raw(evSubjConst(ev))
+			w.Raw(",\n")
 		}
 		w.Line(2, "}")
 		w.Line(1, "}")
@@ -550,14 +591,18 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page, eventMap map[string]*
 			if ev == nil || ev.HasTargetUserIDs {
 				continue
 			}
-			w.Linef(2, "%s,", evSubjConst(ev))
+			w.Raw("\t\t")
+			w.Raw(evSubjConst(ev))
+			w.Raw(",\n")
 		}
 		for _, eh := range p.EventHandlers {
 			ev := eventMap[eh.EventTypeName]
 			if ev == nil || !ev.HasTargetUserIDs {
 				continue
 			}
-			w.Linef(2, "%s + userID,", evSubjPrefConst(ev))
+			w.Raw("\t\t")
+			w.Raw(evSubjPrefConst(ev))
+			w.Raw(" + userID,\n")
 		}
 
 		w.Line(1, "}")
@@ -566,7 +611,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page, eventMap map[string]*
 }
 
 func (w *Writer) writeAppAuth(appPkg string) {
-	w.Rawf(`
+	w.Raw(`
 // --- Auth ---
 
 const DefaultAuthSessionCookieName = "sessiontoken"
@@ -619,7 +664,9 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 }
 
 func (s *Server) createSession(
-	w http.ResponseWriter, r *http.Request, session %[1]s.Session,
+	w http.ResponseWriter, r *http.Request, session `)
+	w.Raw(appPkg)
+	w.Raw(`.Session,
 ) error {
 	token, err := s.sessionManager.CreateSession(r.Context(), session.UserID, session)
 	if err != nil {
@@ -648,7 +695,9 @@ func (s *Server) closeSession(
 // If onClose != nil it will be closed once the session is closed.
 func (s *Server) auth(
 	w http.ResponseWriter, r *http.Request,
-) (sess %[1]s.Session, token string, ok bool) {
+) (sess `)
+	w.Raw(appPkg)
+	w.Raw(`.Session, token string, ok bool) {
 	c, err := r.Cookie(s.authConf.TokenCookie.Name)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {
@@ -663,13 +712,17 @@ func (s *Server) auth(
 		// Transient backend failure; keep the cookie, fail the request.
 		mSessionReads.WithLabelValues("error").Inc()
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
-		return %[1]s.Session{}, "", false
+		return `)
+	w.Raw(appPkg)
+	w.Raw(`.Session{}, "", false
 	}
 	if !ok {
 		// Cookie is stale or malformed; clear it and continue as unauthenticated.
 		mSessionReads.WithLabelValues("stale").Inc()
 		s.setSessionCookie(w, "")
-		return %[1]s.Session{}, "", true
+		return `)
+	w.Raw(appPkg)
+	w.Raw(`.Session{}, "", true
 	}
 	sess.UserID = userID
 
@@ -681,7 +734,7 @@ func (s *Server) auth(
 
 	return sess, token, true
 }
-`, appPkg)
+`)
 }
 
 func (w *Writer) writeBrokerSubjectKind(events []*model.Event) {
@@ -692,12 +745,17 @@ func brokerSubjectKind(subject string) string {
 `)
 	for _, e := range events {
 		if e.HasTargetUserIDs {
-			w.Linef(1, "case strings.HasPrefix(subject, %s):", evSubjPrefConst(e))
-			w.Linef(2, "return %q", e.Subject)
+			w.Raw("\tcase strings.HasPrefix(subject, ")
+			w.Raw(evSubjPrefConst(e))
+			w.Raw("):\n")
 		} else {
-			w.Linef(1, "case subject == %s:", evSubjConst(e))
-			w.Linef(2, "return %q", e.Subject)
+			w.Raw("\tcase subject == ")
+			w.Raw(evSubjConst(e))
+			w.Raw(":\n")
 		}
+		w.Raw("\t\treturn ")
+		w.writeQuoted(e.Subject)
+		w.Byte('\n')
 	}
 	w.Line(1, "default:")
 	w.Line(2, `return "unknown"`)
@@ -724,11 +782,17 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 			// Index page: GET /
 			w.Line(1, "s.mux.HandleFunc(")
 			w.Line(2, "\"GET /\",")
-			w.Linef(2, "s.handle%sGET)", p.TypeName)
+			w.Raw("\t\ts.handle")
+			w.Raw(p.TypeName)
+			w.Raw("GET)\n")
 		} else {
 			w.Line(1, "s.mux.HandleFunc(")
-			w.Linef(2, "\"GET %s{$}\",", routeForHandler)
-			w.Linef(2, "s.handle%sGET)", p.TypeName)
+			w.Raw("\t\t\"GET ")
+			w.Raw(routeForHandler)
+			w.Raw("{$}\",\n")
+			w.Raw("\t\ts.handle")
+			w.Raw(p.TypeName)
+			w.Raw("GET)\n")
 		}
 
 		// Stream endpoint.
@@ -736,13 +800,21 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 			streamPath := routeStreamPath(p.Route)
 
 			w.Line(1, "s.mux.HandleFunc(")
-			w.Linef(2, "\"GET %s{$}\",", streamPath)
-			w.Linef(2, "s.handle%sGETStream)", p.TypeName)
+			w.Raw("\t\t\"GET ")
+			w.Raw(streamPath)
+			w.Raw("{$}\",\n")
+			w.Raw("\t\ts.handle")
+			w.Raw(p.TypeName)
+			w.Raw("GETStream)\n")
 
 			if pageHasAnonStream(p, eventMap) {
 				w.Line(1, "s.mux.HandleFunc(")
-				w.Linef(2, "\"GET %sanon/{$}\",", streamPath)
-				w.Linef(2, "s.handle%sGETStreamAnon)", p.TypeName)
+				w.Raw("\t\t\"GET ")
+				w.Raw(streamPath)
+				w.Raw("anon/{$}\",\n")
+				w.Raw("\t\ts.handle")
+				w.Raw(p.TypeName)
+				w.Raw("GETStreamAnon)\n")
 			}
 		}
 	}
@@ -750,22 +822,37 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 	// App-level actions.
 	for _, h := range m.Actions {
 		route := routeWithTrailingSlash(h.Route)
-		funcName := "handle" + strings.ToUpper(h.HTTPMethod) + h.Name
+		method := strings.ToUpper(h.HTTPMethod)
 
 		w.Line(1, "s.mux.HandleFunc(")
-		w.Linef(2, "\"%s %s{$}\",", strings.ToUpper(h.HTTPMethod), route)
-		w.Linef(2, "s.%s)", funcName)
+		w.Raw("\t\t\"")
+		w.Raw(method)
+		w.Byte(' ')
+		w.Raw(route)
+		w.Raw("{$}\",\n")
+		w.Raw("\t\ts.handle")
+		w.Raw(method)
+		w.Raw(h.Name)
+		w.Raw(")\n")
 	}
 
 	// Page actions.
 	for _, p := range m.Pages {
 		for _, h := range p.Actions {
 			route := routeWithTrailingSlash(h.Route)
-			funcName := "handle" + p.TypeName + strings.ToUpper(h.HTTPMethod) + h.Name
+			method := strings.ToUpper(h.HTTPMethod)
 
 			w.Line(1, "s.mux.HandleFunc(")
-			w.Linef(2, "\"%s %s{$}\",", strings.ToUpper(h.HTTPMethod), route)
-			w.Linef(2, "s.%s)", funcName)
+			w.Raw("\t\t\"")
+			w.Raw(method)
+			w.Byte(' ')
+			w.Raw(route)
+			w.Raw("{$}\",\n")
+			w.Raw("\t\ts.handle")
+			w.Raw(p.TypeName)
+			w.Raw(method)
+			w.Raw(h.Name)
+			w.Raw(")\n")
 		}
 	}
 
@@ -775,7 +862,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 func (w *Writer) writeAppErrHelpers(m *model.App, appPkg string) {
 	// httpErrIntern calls Recover500 if available.
 	if m.Recover500 != nil && m.PageError500 != nil {
-		w.Rawf(`
+		w.Raw(`
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
@@ -788,7 +875,9 @@ func (s *Server) httpErrIntern(
 	if sse == nil {
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
 	}
-	errRecover := s.%[1]s.Recover500(err, sse)
+	errRecover := s.`)
+		w.Raw(appPkg)
+		w.Raw(`.Recover500(err, sse)
 	if errRecover == nil {
 		mInternalErrorsRecovered.Inc()
 		return // Feedback delivered gracefully.
@@ -802,7 +891,7 @@ func (s *Server) httpErrIntern(
 	const code = http.StatusInternalServerError
 	http.Error(w, http.StatusText(code), code)
 }
-`, appPkg)
+`)
 	} else {
 		w.Raw(`
 func (s *Server) httpErrIntern(
@@ -838,7 +927,13 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 }
 
 func (w *Writer) writePageConstructorStmt(varName string, p *model.Page, appPkg string) {
-	w.Linef(1, "%s := %s.%s{", varName, appPkg, p.TypeName)
+	w.Byte('\t')
+	w.Raw(varName)
+	w.Raw(" := ")
+	w.Raw(appPkg)
+	w.Byte('.')
+	w.Raw(p.TypeName)
+	w.Raw("{\n")
 	w.Line(2, "App: s.app,")
 	for _, embed := range p.Embeds {
 		w.writeEmbedInitStmt(embed, appPkg, 2)
@@ -847,7 +942,15 @@ func (w *Writer) writePageConstructorStmt(varName string, p *model.Page, appPkg 
 }
 
 func (w *Writer) writeEmbedInitStmt(ap *model.AbstractPage, appPkg string, indent int) {
-	w.Linef(indent, "%s: %s.%s{", ap.TypeName, appPkg, ap.TypeName)
+	for range indent {
+		w.Byte('\t')
+	}
+	w.Raw(ap.TypeName)
+	w.Raw(": ")
+	w.Raw(appPkg)
+	w.Byte('.')
+	w.Raw(ap.TypeName)
+	w.Raw("{\n")
 	w.Line(indent+1, "App: s.app,")
 	for _, sub := range ap.Embeds {
 		w.writeEmbedInitStmt(sub, appPkg, indent+1)
@@ -858,10 +961,11 @@ func (w *Writer) writeEmbedInitStmt(ap *model.AbstractPage, appPkg string, inden
 // App-level action handler generation kept here; methodized.
 
 func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg string) {
-	funcName := "handle" + strings.ToUpper(h.HTTPMethod) + h.Name
-
 	w.Line(0, "")
-	w.Linef(0, "func (s *Server) %s(w http.ResponseWriter, r *http.Request) {", funcName)
+	w.Raw("func (s *Server) handle")
+	w.Raw(strings.ToUpper(h.HTTPMethod))
+	w.Raw(h.Name)
+	w.Raw("(w http.ResponseWriter, r *http.Request) {\n")
 
 	if h.InputSSE != nil || h.InputSignals != nil {
 		w.Line(1, "if !s.checkIsDSReq(w, r) {")
@@ -899,8 +1003,9 @@ func (w *Writer) writeHandlerCallAndOutputs(
 
 	// Read signals.
 	if h.InputSignals != nil {
-		sigType := renderSignalsType(h.InputSignals, m)
-		w.Linef(1, "var signals %s", sigType)
+		w.Raw("\tvar signals ")
+		w.Raw(renderSignalsType(h.InputSignals, m))
+		w.Byte('\n')
 		w.Line(1, "if err := datastar.ReadSignals(r, &signals); err != nil {")
 		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
@@ -1000,22 +1105,32 @@ func (w *Writer) writeMethodCall(
 		receiver = "s.app"
 	}
 	methodName := h.HTTPMethod + h.Name
-	callExpr := fmt.Sprintf("%s.%s(%s)", receiver, methodName, strings.Join(args, ", "))
 
 	if len(outs) == 0 {
 		// Void return or only error.
 		if h.OutputErr != nil {
-			w.Linef(1, "if err := %s; err != nil {", callExpr)
-			w.Linef(2, `s.httpErrIntern(w, r, nil, "handling action %s.%s", err)`,
-				actionOwnerName(p, isAppLevel), h.Name)
+			w.Raw("\tif err := ")
+			w.writeCallExpr(receiver, methodName, args)
+			w.Raw("; err != nil {\n")
+			w.Raw("\t\ts.httpErrIntern(w, r, nil, \"handling action ")
+			w.Raw(actionOwnerName(p, isAppLevel))
+			w.Byte('.')
+			w.Raw(h.Name)
+			w.Raw("\", err)\n")
 			w.Line(1, "}")
 		} else {
-			w.Linef(1, "%s", callExpr)
+			w.Byte('\t')
+			w.writeCallExpr(receiver, methodName, args)
+			w.Byte('\n')
 		}
 		return
 	}
 
-	w.Linef(1, "%s := %s", strings.Join(outs, ", "), callExpr)
+	w.Byte('\t')
+	w.writeCommaSep(outs)
+	w.Raw(" := ")
+	w.writeCallExpr(receiver, methodName, args)
+	w.Byte('\n')
 
 	if h.OutputErr != nil {
 		sseRef := "nil"
@@ -1023,15 +1138,26 @@ func (w *Writer) writeMethodCall(
 			sseRef = "sse"
 		}
 		w.Line(1, "if err != nil {")
-		w.Linef(2, `s.httpErrIntern(w, r, %s, "handling %s %s.%s", err)`,
-			sseRef, handlerKind(h), actionOwnerName(p, isAppLevel), h.Name)
+		w.Raw("\t\ts.httpErrIntern(w, r, ")
+		w.Raw(sseRef)
+		w.Raw(", \"handling ")
+		w.Raw(handlerKind(h))
+		if handlerKind(h) != "" {
+			w.Byte(' ')
+		}
+		w.Raw(actionOwnerName(p, isAppLevel))
+		w.Byte('.')
+		w.Raw(h.Name)
+		w.Raw("\", err)\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
 
 	// Close session.
 	if h.OutputCloseSession != nil {
-		w.Linef(1, "if %s {", h.OutputCloseSession.Name)
+		w.Raw("\tif ")
+		w.Raw(h.OutputCloseSession.Name)
+		w.Raw(" {\n")
 		w.Line(2, "if err := s.closeSession(w, r, sessToken); err != nil {")
 		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
 		w.Line(3, "return")
@@ -1041,8 +1167,12 @@ func (w *Writer) writeMethodCall(
 
 	// New session.
 	if h.OutputNewSession != nil {
-		w.Linef(1, `if j := %s; j.UserID != "" {`, h.OutputNewSession.Name)
-		w.Linef(2, "if err := s.createSession(w, r, %s); err != nil {", h.OutputNewSession.Name)
+		w.Raw("\tif j := ")
+		w.Raw(h.OutputNewSession.Name)
+		w.Raw("; j.UserID != \"\" {\n")
+		w.Raw("\t\tif err := s.createSession(w, r, ")
+		w.Raw(h.OutputNewSession.Name)
+		w.Raw("); err != nil {\n")
 		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
 		w.Line(2, "}")
 		w.Line(1, "}")
@@ -1054,7 +1184,11 @@ func (w *Writer) writeMethodCall(
 		if h.OutputRedirectStatus != nil {
 			statusArg = h.OutputRedirectStatus.Name
 		}
-		w.Linef(1, "if httpRedirect(w, r, %s, %s) {", h.OutputRedirect.Name, statusArg)
+		w.Raw("\tif httpRedirect(w, r, ")
+		w.Raw(h.OutputRedirect.Name)
+		w.Raw(", ")
+		w.Raw(statusArg)
+		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
@@ -1066,8 +1200,12 @@ func (w *Writer) writeMethodCall(
 		if m.GlobalHeadGenerator != nil {
 			w.Line(1, "genericHead, err := s.app.Head(r)")
 			w.Line(1, "if err != nil {")
-			w.Linef(2, `s.httpErrIntern(w, r, nil, "generating generic head for %s.%s%s", err)`,
-				ownerName, h.HTTPMethod, h.Name)
+			w.Raw("\t\ts.httpErrIntern(w, r, nil, \"generating generic head for ")
+			w.Raw(ownerName)
+			w.Byte('.')
+			w.Raw(h.HTTPMethod)
+			w.Raw(h.Name)
+			w.Raw("\", err)\n")
 			w.Line(2, "return")
 			w.Line(1, "}")
 		}
@@ -1083,10 +1221,20 @@ func (w *Writer) writeMethodCall(
 		}
 
 		w.Line(1, "if err := s.writeHTML(")
-		w.Linef(2, "w, r, %s, %s, nil, %s, nil,", sessArg, genericHeadArg, h.OutputBody.Name)
+		w.Raw("\t\tw, r, ")
+		w.Raw(sessArg)
+		w.Raw(", ")
+		w.Raw(genericHeadArg)
+		w.Raw(", nil, ")
+		w.Raw(h.OutputBody.Name)
+		w.Raw(", nil,\n")
 		w.Line(1, "); err != nil {")
-		w.Linef(2, `s.logErr("rendering response of %s.%s%s", err)`,
-			ownerName, h.HTTPMethod, h.Name)
+		w.Raw("\t\ts.logErr(\"rendering response of ")
+		w.Raw(ownerName)
+		w.Byte('.')
+		w.Raw(h.HTTPMethod)
+		w.Raw(h.Name)
+		w.Raw("\", err)\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
@@ -1098,30 +1246,49 @@ func (w *Writer) writeDispatchClosure(d *model.InputDispatch, m *model.App, appP
 	w.Line(0, "")
 	w.Line(1, "dispatch := func(")
 	for i, evName := range d.EventTypeNames {
-		w.Linef(2, "e%d %s.%s,", i+1, appPkg, evName)
+		w.Raw("\t\te")
+		w.Raw(itoa(i + 1))
+		w.Byte(' ')
+		w.Raw(appPkg)
+		w.Byte('.')
+		w.Raw(evName)
+		w.Raw(",\n")
 	}
 	w.Line(1, ") error {")
 
 	for i, evName := range d.EventTypeNames {
+		idx := itoa(i + 1)
 		ev := eventMap[evName]
 		w.Line(2, "{")
-		w.Linef(3, "j, err := json.Marshal(e%d)", i+1)
+		w.Raw("\t\t\tj, err := json.Marshal(e")
+		w.Raw(idx)
+		w.Raw(")\n")
 		w.Line(3, "if err != nil {")
-		w.Linef(4, "return fmt.Errorf(\"marshaling %s JSON: %%w\", err)", evName)
+		w.Raw("\t\t\t\treturn fmt.Errorf(\"marshaling ")
+		w.Raw(evName)
+		w.Raw(" JSON: %w\", err)\n")
 		w.Line(3, "}")
 
 		if ev != nil && ev.HasTargetUserIDs {
-			w.Linef(3, "for _, uid := range e%d.TargetUserIDs {", i+1)
-			w.Linef(4, "subj := %s + uid", evSubjPrefConst(ev))
+			w.Raw("\t\t\tfor _, uid := range e")
+			w.Raw(idx)
+			w.Raw(".TargetUserIDs {\n")
+			w.Raw("\t\t\t\tsubj := ")
+			w.Raw(evSubjPrefConst(ev))
+			w.Raw(" + uid\n")
 			w.Line(4, "err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)")
 			w.Line(4, "if err != nil {")
 			w.Line(5, "return fmt.Errorf(\"publishing subject %q: %w\", subj, err)")
 			w.Line(4, "}")
 			w.Line(3, "}")
 		} else if ev != nil {
-			w.Linef(3, "err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, %s, j)", evSubjConst(ev))
+			w.Raw("\t\t\terr = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, ")
+			w.Raw(evSubjConst(ev))
+			w.Raw(", j)\n")
 			w.Line(3, "if err != nil {")
-			w.Linef(4, "return fmt.Errorf(\"publishing subject %%q: %%w\", %s, err)", evSubjConst(ev))
+			w.Raw("\t\t\t\treturn fmt.Errorf(\"publishing subject %q: %w\", ")
+			w.Raw(evSubjConst(ev))
+			w.Raw(", err)\n")
 			w.Line(3, "}")
 		}
 		w.Line(2, "}")
@@ -1212,18 +1379,26 @@ func (w *Writer) writeGETCall(p *model.Page, appPkg string, context string) {
 		args = append(args, "query")
 	}
 
-	w.Linef(1, "%s := p.GET(%s)", strings.Join(outs, ", "), strings.Join(args, ", "))
+	w.Byte('\t')
+	w.writeCommaSep(outs)
+	w.Raw(" := ")
+	w.writeCallExpr("p", "GET", args)
+	w.Byte('\n')
 
 	if h.OutputErr != nil {
 		w.Line(1, "if err != nil {")
-		w.Linef(2, "s.httpErrIntern(w, r, nil, \"handling %s.GET\", err)", p.TypeName)
+		w.Raw("\t\ts.httpErrIntern(w, r, nil, \"handling ")
+		w.Raw(p.TypeName)
+		w.Raw(".GET\", err)\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
 
 	// Redirect.
 	if h.OutputRedirect != nil {
-		w.Linef(1, "if httpRedirect(w, r, %s, 0) {", h.OutputRedirect.Name)
+		w.Raw("\tif httpRedirect(w, r, ")
+		w.Raw(h.OutputRedirect.Name)
+		w.Raw(", 0) {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
@@ -1231,7 +1406,9 @@ func (w *Writer) writeGETCall(p *model.Page, appPkg string, context string) {
 	// Generic head.
 	w.Line(1, "genericHead, err := s.app.Head(r)")
 	w.Line(1, "if err != nil {")
-	w.Linef(2, "s.httpErrIntern(w, r, nil, \"generating generic head for %s\", err)", p.TypeName)
+	w.Raw("\t\ts.httpErrIntern(w, r, nil, \"generating generic head for ")
+	w.Raw(p.TypeName)
+	w.Raw("\", err)\n")
 	w.Line(2, "return")
 	w.Line(1, "}")
 
@@ -1255,9 +1432,15 @@ func (w *Writer) writeGETCall(p *model.Page, appPkg string, context string) {
 	}
 
 	w.Line(1, "if err := s.writeHTML(")
-	w.Linef(2, "w, r, %s, genericHead, %s, body, bodyAttrs,", sessArg, headArg)
+	w.Raw("\t\tw, r, ")
+	w.Raw(sessArg)
+	w.Raw(", genericHead, ")
+	w.Raw(headArg)
+	w.Raw(", body, bodyAttrs,\n")
 	w.Line(1, "); err != nil {")
-	w.Linef(2, "s.logErr(\"rendering %s\", err)", p.TypeName)
+	w.Raw("\t\ts.logErr(\"rendering ")
+	w.Raw(p.TypeName)
+	w.Raw("\", err)\n")
 	w.Line(2, "return")
 	w.Line(1, "}")
 }
