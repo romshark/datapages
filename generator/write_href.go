@@ -10,8 +10,7 @@ import (
 // WritePkgHref generates code for the datapagesgen/href package
 // and appends it to buffer.
 func (w *Writer) WritePkgHref(m *model.App) {
-	needsStrconv := false
-	needsStrings := false
+	needsStrconv, needsStrings := false, false
 	for _, p := range m.Pages {
 		if p.PageSpecialization == model.PageTypeError500 {
 			continue
@@ -74,27 +73,34 @@ func (w *Writer) writeHrefHeader(needsStrconv, needsStrings bool) {
 	}
 }
 
-// routeComment returns the route pattern for the doc comment.
+// writeRouteComment writes a doc comment line like "// FuncName references /route/{$}\n".
 // It ensures the route ends with {$} for exact matching display.
-func routeComment(route string) string {
+func (w *Writer) writeRouteComment(funcName, route string) {
+	w.Raw("// ")
+	w.Raw(funcName)
+	w.Raw(" references ")
 	if strings.HasSuffix(route, "{$}") {
-		return route
+		w.Raw(route)
+	} else if route == "/" {
+		w.Raw("/{$}")
+	} else {
+		w.Raw(route)
+		w.Raw("/{$}")
 	}
-	if route == "/" {
-		return "/{$}"
-	}
-	return route + "/{$}"
+	w.Byte('\n')
 }
 
-// routeURL returns the URL string for a route with no path variables.
+// writeRouteURL writes the URL for a route with no path variables to the buffer.
 // It strips {$} and ensures a trailing slash.
-func routeURL(route string) string {
+func (w *Writer) writeRouteURL(route string) {
 	r := strings.TrimSuffix(route, "{$}")
 	r = strings.TrimSuffix(r, "/")
 	if r == "" {
-		return "/"
+		w.Byte('/')
+		return
 	}
-	return r + "/"
+	w.Raw(r)
+	w.Byte('/')
 }
 
 // routeSegments splits a route with path variables into alternating
@@ -149,12 +155,15 @@ func (w *Writer) writeHrefFunc(p *model.Page) {
 
 	// Doc comment.
 	w.Line(0, "")
-	w.Linef(0, "// %s references %s", funcName, routeComment(p.Route))
+	w.writeRouteComment(funcName, p.Route)
 
 	if !hasPathVars && !hasQuery {
 		// Simple one-liner.
-		url := routeURL(p.Route)
-		w.Linef(0, "func %s() string { return %q }", funcName, url)
+		w.Raw("func ")
+		w.Raw(funcName)
+		w.Raw("() string { return \"")
+		w.writeRouteURL(p.Route)
+		w.Raw("\" }\n")
 		return
 	}
 
@@ -210,8 +219,6 @@ func (w *Writer) writeHrefFuncPathOnly(funcName, route string, pathVars []string
 func (w *Writer) writeHrefFuncQueryOnly(
 	funcName, route string, fields []structFieldInfo,
 ) {
-	url := routeURL(route)
-
 	w.Linef(0, "func %s(query Query%s) string {", funcName, funcName)
 
 	// Pre-convert int64 fields to strings.
@@ -243,7 +250,9 @@ func (w *Writer) writeHrefFuncQueryOnly(
 
 	// Length calculation.
 	w.Line(1, "var b strings.Builder")
-	w.Linef(1, "l := len(%q)", url)
+	w.Raw("\tl := len(\"")
+	w.writeRouteURL(route)
+	w.Raw("\")\n")
 	w.Line(1, "if any {")
 	w.Line(2, `l += len("?")`)
 	w.Line(1, "}")
@@ -275,7 +284,9 @@ func (w *Writer) writeHrefFuncQueryOnly(
 	w.Line(0, "")
 
 	// Write URL base.
-	w.Linef(1, "b.WriteString(%q)", url)
+	w.Raw("\tb.WriteString(\"")
+	w.writeRouteURL(route)
+	w.Raw("\")\n")
 	w.Line(1, "if any {")
 	w.Line(2, `b.WriteString("?")`)
 	w.Line(1, "}")

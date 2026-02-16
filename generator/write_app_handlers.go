@@ -56,12 +56,12 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 
 	// Page constructor.
 	if hasBody {
-		w.Buf = append(w.Buf, "\n\tp := "...)
+		w.Raw("\n\tp := ")
 	} else {
-		w.Buf = append(w.Buf, "\tp := "...)
+		w.Raw("\tp := ")
 	}
 	w.writePageConstructor(p, appPkg)
-	w.Buf = append(w.Buf, '\n')
+	w.Byte('\n')
 
 	// Call GET.
 	w.writeGETMethodCall(p, m, appPkg)
@@ -382,9 +382,9 @@ func (w *Writer) writePageGETStreamHandler(
 	}
 
 	// Page constructor.
-	w.Buf = append(w.Buf, "\n\tp := "...)
+	w.Raw("\n\tp := ")
 	w.writePageConstructor(p, appPkg)
-	w.Buf = append(w.Buf, '\n')
+	w.Byte('\n')
 
 	// evSubj call.
 	evSubjName := "evSubj" + p.TypeName
@@ -500,9 +500,9 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Line(1, "}")
 
 	// Page constructor.
-	w.Buf = append(w.Buf, "\n\tp := "...)
+	w.Raw("\n\tp := ")
 	w.writePageConstructor(p, appPkg)
-	w.Buf = append(w.Buf, '\n')
+	w.Byte('\n')
 
 	// evSubj call (for anon, pass empty userID to get public-only subjects).
 	evSubjName := "evSubj" + p.TypeName
@@ -621,9 +621,9 @@ func (w *Writer) writePageActionHandler(
 	}
 
 	// Page constructor.
-	w.Buf = append(w.Buf, "\tp := "...)
+	w.Raw("\tp := ")
 	w.writePageConstructor(p, appPkg)
-	w.Buf = append(w.Buf, '\n')
+	w.Byte('\n')
 
 	// Build the method call.
 	w.writeActionMethodCall(p, h, m, appPkg)

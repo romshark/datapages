@@ -98,26 +98,15 @@ func (w *Writer) writeActionHeader(needsStrings bool) {
 	}
 }
 
-// actionRouteComment returns the route for the doc comment.
-// Strips {$} and ensures a trailing slash.
-func actionRouteComment(route string) string {
-	r := strings.TrimSuffix(route, "{$}")
-	r = strings.TrimSuffix(r, "/")
-	if r == "" {
-		return "/"
-	}
-	return r + "/"
-}
-
-// actionRouteURL returns the URL for a route with no path variables.
-// Strips {$} and variable placeholders, ensures trailing slash.
-func actionRouteURL(route string) string {
-	r := strings.TrimSuffix(route, "{$}")
-	r = strings.TrimSuffix(r, "/")
-	if r == "" {
-		return "/"
-	}
-	return r + "/"
+// writeActionRouteComment writes a doc comment line like
+// "// FuncName references /route/\n".
+// It strips {$} and ensures a trailing slash.
+func (w *Writer) writeActionRouteComment(funcName, route string) {
+	w.Raw("// ")
+	w.Raw(funcName)
+	w.Raw(" references ")
+	w.writeRouteURL(route)
+	w.Byte('\n')
 }
 
 func (w *Writer) writeActionFunc(
@@ -139,13 +128,16 @@ func (w *Writer) writeActionFunc(
 
 	// Doc comment.
 	w.Line(0, "")
-	w.Linef(0, "// %s references %s", funcName, actionRouteComment(route))
+	w.writeActionRouteComment(funcName, route)
 
 	if !hasPathVars && !hasQuery {
 		// Simple return with literal string.
-		url := actionRouteURL(route)
 		w.Linef(0, "func %s() string {", funcName)
-		w.Linef(1, "return %q", "@"+method+"('"+url+"')")
+		w.Raw("\treturn \"@")
+		w.Raw(method)
+		w.Raw("('")
+		w.writeRouteURL(route)
+		w.Raw("')\"\n")
 		w.Line(0, "}")
 		return
 	}
@@ -230,10 +222,6 @@ func (w *Writer) writeActionFuncQueryOnly(
 	route string,
 	fields []structFieldInfo,
 ) {
-	url := actionRouteURL(route)
-	prefix := "@" + method + "('" + url
-	suffix := "')"
-
 	w.Linef(0, "func %s(query Query%s) string {", funcName, funcName)
 
 	// anyQuery check.
@@ -242,7 +230,11 @@ func (w *Writer) writeActionFuncQueryOnly(
 
 	// Builder and length calculation.
 	w.Line(1, "var b strings.Builder")
-	w.Linef(1, "l := len(%q) + len(%q)", prefix, suffix)
+	w.Raw("\tl := len(\"@")
+	w.Raw(method)
+	w.Raw("('")
+	w.writeRouteURL(route)
+	w.Raw("\") + len(\"')\")\n")
 	w.Line(1, "if anyQuery {")
 	w.Line(2, `l += len("?")`)
 	w.Line(1, "}")
@@ -265,7 +257,11 @@ func (w *Writer) writeActionFuncQueryOnly(
 	// Grow and write.
 	w.Line(1, "b.Grow(l)")
 	w.Line(0, "")
-	w.Linef(1, "b.WriteString(%q)", prefix)
+	w.Raw("\tb.WriteString(\"@")
+	w.Raw(method)
+	w.Raw("('")
+	w.writeRouteURL(route)
+	w.Raw("\")\n")
 	w.Line(1, "if anyQuery {")
 	w.Line(2, `b.WriteString("?")`)
 	w.Line(1, "}")
@@ -285,7 +281,7 @@ func (w *Writer) writeActionFuncQueryOnly(
 		w.Line(1, "}")
 	}
 
-	w.Linef(1, "b.WriteString(%q)", suffix)
+	w.Line(1, `b.WriteString("')")`)
 	w.Line(0, "")
 	w.Line(1, "return b.String()")
 	w.Line(0, "}")

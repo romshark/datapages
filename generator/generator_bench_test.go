@@ -10,7 +10,7 @@ import (
 	"github.com/romshark/datapages/parser/model"
 )
 
-func parseClassifiedsApp(tb testing.TB) *model.App {
+func parseExampleClassifiedsApp(tb testing.TB) *model.App {
 	tb.Helper()
 	app, errs := parser.Parse(filepath.Join("..", "example", "classifieds", "app"))
 	if errs.Len() > 0 {
@@ -33,7 +33,7 @@ func BenchmarkAppendApp(b *testing.B) {
 		}
 	})
 	b.Run("example/classifieds", func(b *testing.B) {
-		m := parseClassifiedsApp(b)
+		m := parseExampleClassifiedsApp(b)
 		w := generator.Writer{Buf: make([]byte, 2*1024*1024)} // 2 MiB
 		for b.Loop() {
 			w.Reset()
@@ -50,9 +50,10 @@ func BenchmarkAppendPkgAction(b *testing.B) {
 			w.WritePkgAction(emptyApp)
 		}
 	})
-	b.Run("classifieds", func(b *testing.B) {
-		m := parseClassifiedsApp(b)
+	b.Run("example/classifieds", func(b *testing.B) {
+		m := parseExampleClassifiedsApp(b)
 		w := generator.Writer{Buf: make([]byte, 2*1024*1024)} // 2 MiB
+		b.ResetTimer()
 		for b.Loop() {
 			w.Reset()
 			w.WritePkgAction(m)
@@ -68,8 +69,8 @@ func BenchmarkAppendPkgHref(b *testing.B) {
 			w.WritePkgHref(emptyApp)
 		}
 	})
-	b.Run("classifieds", func(b *testing.B) {
-		m := parseClassifiedsApp(b)
+	b.Run("example/classifieds", func(b *testing.B) {
+		m := parseExampleClassifiedsApp(b)
 		w := generator.Writer{Buf: make([]byte, 2*1024*1024)} // 2 MiB
 		for b.Loop() {
 			w.Reset()

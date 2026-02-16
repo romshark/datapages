@@ -214,56 +214,67 @@ type Writer struct{ Buf []byte }
 
 func (w *Writer) Reset() { w.Buf = w.Buf[:0] }
 
-// line writes an indented line.
+// Raw appends a string to the buffer.
+func (w *Writer) Raw(s string) { w.Buf = append(w.Buf, s...) }
+
+// Rawf appends a formatted string to the buffer.
+func (w *Writer) Rawf(format string, args ...any) {
+	w.Buf = append(w.Buf, fmt.Sprintf(format, args...)...)
+}
+
+// Byte appends a single byte to the buffer.
+func (w *Writer) Byte(b byte) { w.Buf = append(w.Buf, b) }
+
+// Line writes an indented line.
 // indent is the number of leading tabs.
 func (w *Writer) Line(indent int, s string) {
 	for range indent {
-		w.Buf = append(w.Buf, '\t')
+		w.Byte('\t')
 	}
-	w.Buf = append(w.Buf, s...)
-	w.Buf = append(w.Buf, '\n')
+	w.Raw(s)
+	w.Byte('\n')
 }
 
-// linef writes an indented formatted line.
+// Linef writes an indented formatted line.
 // indent is the number of leading tabs.
 func (w *Writer) Linef(indent int, format string, args ...any) {
 	for range indent {
-		w.Buf = append(w.Buf, '\t')
+		w.Byte('\t')
 	}
-	w.Buf = append(w.Buf, fmt.Sprintf(format, args...)...)
-	w.Buf = append(w.Buf, '\n')
+	w.Rawf(format, args...)
+	w.Byte('\n')
 }
 
 // writePageConstructor appends the page struct literal construction.
 // e.g.: "app.PageSettings{\n\tApp: s.app,\n\tBase: app.Base{App: s.app},\n}"
 func (w *Writer) writePageConstructor(p *model.Page, appPkg string) {
-	w.Buf = append(w.Buf, appPkg...)
-	w.Buf = append(w.Buf, '.')
-	w.Buf = append(w.Buf, p.TypeName...)
-	w.Buf = append(w.Buf, "{\n"...)
-	w.Buf = append(w.Buf, "\tApp: s.app,\n"...)
+	w.Raw(appPkg)
+	w.Byte('.')
+	w.Raw(p.TypeName)
+	w.Raw("{\n")
+	w.Raw("\tApp: s.app,\n")
 	for _, embed := range p.Embeds {
 		w.writeEmbedInit(embed, appPkg, "\t")
 	}
-	w.Buf = append(w.Buf, '}')
+	w.Byte('}')
 }
 
 // writeEmbedInit recursively appends an embed field initialization.
 func (w *Writer) writeEmbedInit(ap *model.AbstractPage, appPkg, indent string) {
-	w.Buf = append(w.Buf, indent...)
-	w.Buf = append(w.Buf, ap.TypeName...)
-	w.Buf = append(w.Buf, ": "...)
-	w.Buf = append(w.Buf, appPkg...)
-	w.Buf = append(w.Buf, '.')
-	w.Buf = append(w.Buf, ap.TypeName...)
-	w.Buf = append(w.Buf, "{\n"...)
-	w.Buf = append(w.Buf, indent...)
-	w.Buf = append(w.Buf, "\tApp: s.app,\n"...)
+	w.Raw(indent)
+	w.Raw(ap.TypeName)
+	w.Raw(": ")
+	w.Raw(appPkg)
+	w.Byte('.')
+	w.Raw(ap.TypeName)
+	w.Raw("{\n")
+	w.Raw(indent)
+	w.Raw("\tApp: s.app,\n")
 	for _, sub := range ap.Embeds {
 		w.writeEmbedInit(sub, appPkg, indent+"\t")
 	}
-	w.Buf = append(w.Buf, indent...)
-	w.Buf = append(w.Buf, "},\n"...)
+	w.Raw(indent)
+	w.Raw("},\n")
 }
 
 // writeAnyCheck writes a boolean variable assignment that OR-combines

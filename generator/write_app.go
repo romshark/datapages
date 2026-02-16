@@ -11,14 +11,6 @@ import (
 //go:embed app_static.go.txt
 var appStaticContent string
 
-func (w *Writer) Raw(s string) {
-	w.Buf = append(w.Buf, s...)
-}
-
-func (w *Writer) Rawf(format string, args ...any) {
-	w.Buf = append(w.Buf, fmt.Sprintf(format, args...)...)
-}
-
 // WriteApp generates code for the datapagesgen package and appends it to buffer.
 func (w *Writer) WriteApp(m *model.App) {
 	appPkg := appPkgName(m.PkgPath)
