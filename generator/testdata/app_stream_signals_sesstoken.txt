@@ -1,0 +1,42 @@
+
+func (s *Server) handlePageChatGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID == "" {
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return
+	}
+
+	var signals 
+	if err := datastar.ReadSignals(r, &signals); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+		return
+	}
+
+	p := testapp.PageChat{
+	App: s.app,
+}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageChat(sess.UserID), func(
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+	) {
+		for msg := range ch {
+			switch {
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
+				var e testapp.EventMessagingSent
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingSent JSON", err)
+					continue
+				}
+				if err := p.OnMessagingSent(e, sse, sessToken, sess, signals); err != nil {
+					s.logErr("handling PageChat.OnMessagingSent", err)
+				}
+			}
+		}
+	})
+}

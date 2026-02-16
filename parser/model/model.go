@@ -7,8 +7,9 @@ import (
 )
 
 type App struct {
-	Fset *token.FileSet
-	Expr ast.Expr
+	Fset    *token.FileSet
+	PkgPath string
+	Expr    ast.Expr
 
 	PageIndex    *Page
 	PageError404 *Page
@@ -19,8 +20,9 @@ type App struct {
 
 	Session *SessionType // Nullable.
 
-	Pages  []*Page
-	Events []*Event
+	Pages   []*Page
+	Events  []*Event
+	Actions []*Handler // App-level POST/PUT/DELETE actions.
 }
 
 type SessionType struct {
@@ -85,6 +87,7 @@ type Handler struct {
 	InputSignals      *Input
 	InputDispatch     *InputDispatch
 
+	OutputBody           *TemplComponent // templ.Component body (actions only)
 	OutputRedirect       *Output
 	OutputRedirectStatus *Output
 	OutputNewSession     *Output
@@ -111,6 +114,7 @@ type EventHandler struct {
 	InputSSE          *Input
 	InputSessionToken *Input
 	InputSession      *Input
+	InputSignals      *Input
 
 	OutputErr *Output
 }

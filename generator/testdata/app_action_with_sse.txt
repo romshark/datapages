@@ -1,0 +1,8 @@
+
+func (s *Server) handlePOSTStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	s.app.POSTStream()
+}

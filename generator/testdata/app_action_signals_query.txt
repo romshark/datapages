@@ -1,0 +1,36 @@
+
+func (s *Server) handlePOSTSearch(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	var signals testapp.SignalsSearch
+	if err := datastar.ReadSignals(r, &signals); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+		return
+	}
+
+	q := r.URL.Query()
+	var query testapp.QuerySearch
+	query.Term = q.Get("t")
+	{
+		if q := q.Get("p"); q != "" {
+			i, err := strconv.ParseInt(q, 10, 64)
+			if err != nil {
+				s.httpErrBad(w, "unexpected value for query parameter: p", err)
+				return
+			}
+			query.Page = i
+		}
+	}
+	err := s.app.POSTSearch(sess, query, signals)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Search", err)
+		return
+	}
+}

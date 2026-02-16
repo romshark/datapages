@@ -1,0 +1,31 @@
+
+func (s *Server) handlePOSTArchive(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	var path testapp.PathArchive
+	path.Slug = r.PathValue("slug")
+
+	dispatch := func(
+		e1 testapp.EventPostsArchived,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventPostsArchived JSON: %w", err)
+			}
+			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, EvSubjPostsArchived, j)
+			if err != nil {
+				return fmt.Errorf("publishing subject %q: %w", EvSubjPostsArchived, err)
+			}
+		}
+		return nil
+	}
+	err := s.app.POSTArchive(sess, path, dispatch)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Archive", err)
+		return
+	}
+}

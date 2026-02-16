@@ -1,0 +1,322 @@
+package generator
+
+import (
+	"bytes"
+	"fmt"
+	"go/format"
+	"go/token"
+	"go/types"
+	"reflect"
+	"strings"
+
+	"github.com/romshark/datapages/parser/model"
+)
+
+// eventConstName strips the "Event" prefix from an event type name.
+// "EventMessagingSent" -> "MessagingSent"
+func eventConstName(typeName string) string {
+	return strings.TrimPrefix(typeName, "Event")
+}
+
+// evSubjConst returns the subscription subject constant name.
+// "EventMessagingSent" -> "EvSubjMessagingSent"
+func evSubjConst(e *model.Event) string {
+	return "EvSubj" + eventConstName(e.TypeName)
+}
+
+// evSubjPrefConst returns the subject prefix constant name for per-user events.
+// Returns "" for public events (no TargetUserIDs).
+// "EventMessagingSent" -> "EvSubjPrefMessagingSent"
+func evSubjPrefConst(e *model.Event) string {
+	if !e.HasTargetUserIDs {
+		return ""
+	}
+	return "EvSubjPref" + eventConstName(e.TypeName)
+}
+
+// evSubjValue returns the subject constant value.
+// For HasTargetUserIDs: "messaging.sent.*"
+// For public: "posts.archived"
+func evSubjValue(e *model.Event) string {
+	if e.HasTargetUserIDs {
+		return e.Subject + ".*"
+	}
+	return e.Subject
+}
+
+// evSubjPrefValue returns the subject prefix value for per-user events.
+// "messaging.sent."
+func evSubjPrefValue(e *model.Event) string {
+	return e.Subject + "."
+}
+
+// stripPagePrefix strips "Page" prefix from type name: "PageSettings" -> "Settings"
+func stripPagePrefix(typeName string) string {
+	return strings.TrimPrefix(typeName, "Page")
+}
+
+// pageNameForHref returns the function name for the href package.
+// "PageIndex" -> "Index", "PageError404" -> "Error404"
+func pageNameForHref(typeName string) string {
+	return stripPagePrefix(typeName)
+}
+
+// pageHasStream returns true if the page has event handlers and needs a stream.
+func pageHasStream(p *model.Page) bool {
+	return len(p.EventHandlers) > 0
+}
+
+// pageHasAnonStream returns true if a page needs an anonymous stream endpoint.
+// This happens when the page has both public (no TargetUserIDs) AND private events.
+func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool {
+	hasPublic := false
+	hasPrivate := false
+	for _, eh := range p.EventHandlers {
+		e, ok := eventByName[eh.EventTypeName]
+		if !ok {
+			continue
+		}
+		if e.HasTargetUserIDs {
+			hasPrivate = true
+		} else {
+			hasPublic = true
+		}
+	}
+	return hasPublic && hasPrivate
+}
+
+// routeStreamPath returns the SSE stream path for a page route.
+// "/settings/" -> "/settings/_$/"
+// "/post/{slug}/" -> "/post/{slug}/_$/"
+// "/" -> "/_$/"
+func routeStreamPath(route string) string {
+	r := routeWithTrailingSlash(route)
+	return r + "_$/"
+}
+
+// routeWithTrailingSlash strips any {$} suffix and ensures the route
+// has a trailing slash.
+// "/settings" -> "/settings/"
+// "/user/{name}/{$}" -> "/user/{name}/"
+// "/" -> "/"
+func routeWithTrailingSlash(route string) string {
+	route = strings.TrimSuffix(route, "{$}")
+	if !strings.HasSuffix(route, "/") {
+		return route + "/"
+	}
+	return route
+}
+
+// renderType renders a Go type using types.TypeString with a qualifier
+// that maps the app package to its short name.
+func renderType(t model.Type, appPkgPath string) string {
+	pkg := appPkgName(appPkgPath)
+	qualifier := func(p *types.Package) string {
+		if p.Path() == appPkgPath {
+			return pkg
+		}
+		return p.Name()
+	}
+	return types.TypeString(t.Resolved, qualifier)
+}
+
+// renderAnonStructType renders an anonymous struct type from its AST expression,
+// preserving struct tags. Uses go/format.Node.
+func renderAnonStructType(t model.Type, fset *token.FileSet) string {
+	var buf bytes.Buffer
+	if err := format.Node(&buf, fset, t.TypeExpr); err != nil {
+		return ""
+	}
+	return buf.String()
+}
+
+// isNamedType returns true if the type is a named type (not anonymous struct).
+func isNamedType(t model.Type) bool {
+	_, ok := t.Resolved.(*types.Named)
+	return ok
+}
+
+// structFieldInfo holds information about a single struct field.
+type structFieldInfo struct {
+	Name string
+	Type types.Type
+	Tag  string // raw struct tag
+}
+
+// structFields returns the fields of a struct type (works for both named and anonymous).
+// Returns field name, type, and raw struct tag for each field.
+func structFields(t types.Type) []structFieldInfo {
+	st, ok := t.Underlying().(*types.Struct)
+	if !ok {
+		return nil
+	}
+	fields := make([]structFieldInfo, st.NumFields())
+	for i := range st.NumFields() {
+		f := st.Field(i)
+		fields[i] = structFieldInfo{
+			Name: f.Name(),
+			Type: f.Type(),
+			Tag:  st.Tag(i),
+		}
+	}
+	return fields
+}
+
+// queryTagValue extracts the value from a `query:"value"` struct tag.
+func queryTagValue(tag string) string {
+	return reflect.StructTag(tag).Get("query")
+}
+
+// reflectSignalTagValue extracts the value from a `reflectsignal:"value"` struct tag.
+func reflectSignalTagValue(tag string) string {
+	return reflect.StructTag(tag).Get("reflectsignal")
+}
+
+// pathTagValue extracts the value from a `path:"value"` struct tag.
+func pathTagValue(tag string) string {
+	return reflect.StructTag(tag).Get("path")
+}
+
+// routeVars returns the path variable names from a route pattern.
+// "/post/{slug}/send-message/{$}" -> ["slug"]
+func routeVars(route string) []string {
+	var vars []string
+	r := route
+	for {
+		i := strings.IndexByte(r, '{')
+		if i < 0 {
+			break
+		}
+		r = r[i+1:]
+		j := strings.IndexByte(r, '}')
+		if j < 0 {
+			break
+		}
+		name := strings.TrimSuffix(r[:j], "...")
+		r = r[j+1:]
+		if name != "$" && name != "" {
+			vars = append(vars, name)
+		}
+	}
+	return vars
+}
+
+// buildEventMap creates a map from event type name to Event.
+func buildEventMap(events []*model.Event) map[string]*model.Event {
+	m := make(map[string]*model.Event, len(events))
+	for _, e := range events {
+		m[e.TypeName] = e
+	}
+	return m
+}
+
+type Writer struct{ Buf []byte }
+
+func (w *Writer) Reset() { w.Buf = w.Buf[:0] }
+
+// line writes an indented line.
+// indent is the number of leading tabs.
+func (w *Writer) Line(indent int, s string) {
+	for range indent {
+		w.Buf = append(w.Buf, '\t')
+	}
+	w.Buf = append(w.Buf, s...)
+	w.Buf = append(w.Buf, '\n')
+}
+
+// linef writes an indented formatted line.
+// indent is the number of leading tabs.
+func (w *Writer) Linef(indent int, format string, args ...any) {
+	for range indent {
+		w.Buf = append(w.Buf, '\t')
+	}
+	w.Buf = append(w.Buf, fmt.Sprintf(format, args...)...)
+	w.Buf = append(w.Buf, '\n')
+}
+
+// writePageConstructor appends the page struct literal construction.
+// e.g.: "app.PageSettings{\n\tApp: s.app,\n\tBase: app.Base{App: s.app},\n}"
+func (w *Writer) writePageConstructor(p *model.Page, appPkg string) {
+	w.Buf = append(w.Buf, appPkg...)
+	w.Buf = append(w.Buf, '.')
+	w.Buf = append(w.Buf, p.TypeName...)
+	w.Buf = append(w.Buf, "{\n"...)
+	w.Buf = append(w.Buf, "\tApp: s.app,\n"...)
+	for _, embed := range p.Embeds {
+		w.writeEmbedInit(embed, appPkg, "\t")
+	}
+	w.Buf = append(w.Buf, '}')
+}
+
+// writeEmbedInit recursively appends an embed field initialization.
+func (w *Writer) writeEmbedInit(ap *model.AbstractPage, appPkg, indent string) {
+	w.Buf = append(w.Buf, indent...)
+	w.Buf = append(w.Buf, ap.TypeName...)
+	w.Buf = append(w.Buf, ": "...)
+	w.Buf = append(w.Buf, appPkg...)
+	w.Buf = append(w.Buf, '.')
+	w.Buf = append(w.Buf, ap.TypeName...)
+	w.Buf = append(w.Buf, "{\n"...)
+	w.Buf = append(w.Buf, indent...)
+	w.Buf = append(w.Buf, "\tApp: s.app,\n"...)
+	for _, sub := range ap.Embeds {
+		w.writeEmbedInit(sub, appPkg, indent+"\t")
+	}
+	w.Buf = append(w.Buf, indent...)
+	w.Buf = append(w.Buf, "},\n"...)
+}
+
+// writeAnyCheck writes a boolean variable assignment that OR-combines
+// zero-checks for the given fields. E.g.:
+//
+//	anyQuery := query.Foo != "" ||
+//		query.Bar != 0
+func (w *Writer) writeAnyCheck(varName string, fields []structFieldInfo) {
+	if len(fields) == 0 {
+		w.Linef(1, "%s := false", varName)
+		return
+	}
+	first := zeroCheck("query."+fields[0].Name, fields[0].Type)
+	if len(fields) == 1 {
+		w.Linef(1, "%s := %s", varName, first)
+		return
+	}
+	w.Linef(1, "%s := %s ||", varName, first)
+	for i := 1; i < len(fields); i++ {
+		check := zeroCheck("query."+fields[i].Name, fields[i].Type)
+		if i < len(fields)-1 {
+			w.Linef(2, "%s ||", check)
+		} else {
+			w.Linef(2, "%s", check)
+		}
+	}
+}
+
+// isStringType returns true if the type is string.
+func isStringType(t types.Type) bool {
+	basic, ok := t.Underlying().(*types.Basic)
+	return ok && basic.Kind() == types.String
+}
+
+// isIntType returns true if the type is int64, int, etc.
+func isIntType(t types.Type) bool {
+	basic, ok := t.Underlying().(*types.Basic)
+	if !ok {
+		return false
+	}
+	switch basic.Kind() {
+	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
+		types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64:
+		return true
+	}
+	return false
+}
+
+// appPkgName returns the short package name from an import path.
+// "github.com/romshark/datapages/example/classifieds/app" -> "app"
+func appPkgName(pkgPath string) string {
+	if i := strings.LastIndex(pkgPath, "/"); i >= 0 {
+		return pkgPath[i+1:]
+	}
+	return pkgPath
+}

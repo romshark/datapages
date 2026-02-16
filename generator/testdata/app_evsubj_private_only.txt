@@ -1,0 +1,6 @@
+
+func evSubjPageMessaging(userID string) []string {
+	return []string{
+		EvSubjPrefMessagingSent + userID,
+	}
+}

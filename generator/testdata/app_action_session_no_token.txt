@@ -1,0 +1,12 @@
+
+func (s *Server) handlePOSTUpdate(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+	err := s.app.POSTUpdate(sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Update", err)
+		return
+	}
+}

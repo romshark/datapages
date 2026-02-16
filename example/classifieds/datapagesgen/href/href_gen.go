@@ -9,47 +9,77 @@ import (
 	"strings"
 )
 
-// Index references /{$}
-func Index() string { return "/" }
-
 // Error404 references /not-found/{$}
 func Error404() string { return "/not-found/" }
 
-// Settings references /settings/{$}
-func Settings() string {
-	return "/settings/"
-}
+// Index references /{$}
+func Index() string { return "/" }
 
 // Login references /login/{$}
-func Login() string {
-	return "/login/"
-}
+func Login() string { return "/login/" }
 
 // Messages references /messages/{$}
 func Messages(query QueryMessages) string {
+	any := query.Chat != ""
+
 	var b strings.Builder
 	l := len("/messages/")
-	if query.Chat != "" {
+	if any {
 		l += len("?")
 	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
 	if query.Chat != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
 		l += len("chat=") + len(query.Chat)
 	}
+	_ = n
+
 	b.Grow(l)
 
 	b.WriteString("/messages/")
-	if query.Chat != "" {
+	if any {
 		b.WriteString("?")
 	}
+
+	n = 0
+
 	if query.Chat != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
 		b.WriteString("chat=")
 		b.WriteString(query.Chat)
 	}
+
 	return b.String()
 }
 
+// QueryMessages is the query parameters for Messages
 type QueryMessages struct {
 	Chat string `query:"chat"`
+}
+
+// MyPosts references /my-posts/{$}
+func MyPosts() string { return "/my-posts/" }
+
+// Post references /post/{slug}/{$}
+func Post(slug string) string {
+	var b strings.Builder
+	b.Grow(
+		len("/post/") +
+			len(slug) +
+			len("/"),
+	)
+	b.WriteString("/post/")
+	b.WriteString(slug)
+	b.WriteString("/")
+	return b.String()
 }
 
 // Search references /search/{$}
@@ -179,19 +209,8 @@ type QuerySearch struct {
 	Location string `query:"l"`
 }
 
-// Post references /post/{slug}/{$}
-func Post(slug string) string {
-	var b strings.Builder
-	b.Grow(
-		len("/post/") +
-			len(slug) +
-			len("/"),
-	)
-	b.WriteString("/post/")
-	b.WriteString(slug)
-	b.WriteString("/")
-	return b.String()
-}
+// Settings references /settings/{$}
+func Settings() string { return "/settings/" }
 
 // User references /user/{name}/{$}
 func User(name string) string {
@@ -205,9 +224,4 @@ func User(name string) string {
 	b.WriteString(name)
 	b.WriteString("/")
 	return b.String()
-}
-
-// MyPosts references /my-posts/{$}
-func MyPosts() string {
-	return "/my-posts/"
 }

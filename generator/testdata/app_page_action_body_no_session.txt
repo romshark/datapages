@@ -1,0 +1,24 @@
+
+func (s *Server) handlePageDashboardPOSTRefresh(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	p := testapp.PageDashboard{
+	App: s.app,
+}
+	body, err := p.POSTRefresh(sse)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageDashboard.Refresh", err)
+		return
+	}
+	if err := s.writeHTML(
+		w, r, testapp.Session{}, nil, nil, body, nil,
+	); err != nil {
+		s.logErr("rendering response of PageDashboard.POSTRefresh", err)
+		return
+	}
+}

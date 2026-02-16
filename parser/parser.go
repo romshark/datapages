@@ -135,7 +135,7 @@ func collectEventTypeNames(ctx *parseCtx) {
 }
 
 func initApp(ctx *parseCtx, errs *Errors) {
-	ctx.app = &model.App{Fset: ctx.pkg.Fset}
+	ctx.app = &model.App{Fset: ctx.pkg.Fset, PkgPath: ctx.pkg.PkgPath}
 	if appTS, ok := ctx.typeSpecByName["App"]; ok {
 		ctx.app.Expr = appTS.Name
 		ctx.appTypeFound = true
@@ -352,14 +352,25 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 			}
 			recv := structinspect.ReceiverTypeName(fd.Recv.List[0].Type)
 
-			// App hooks: (*App).Head and (*App).Recover500
+			// App hooks: (*App).Head, (*App).Recover500, and App-level actions.
 			if recv == "App" {
 				switch fd.Name.Name {
 				case "Head":
 					ctx.app.GlobalHeadGenerator = fd.Name
 				case "Recover500":
 					ctx.app.Recover500 = fd.Name
+				default:
+					kind, suffix := methodkind.Classify(fd.Name.Name)
+					if kind.IsAction() {
+						pos := ctx.pkg.Fset.Position(fd.Name.Pos())
+						if err := validate.ActionMethodName(fd.Name.Name); err != nil {
+							errs.ErrAt(pos,
+								fmt.Errorf("%w: %s", ErrActionNameInvalid, fd.Name.Name))
+						}
+						attachAppAction(ctx, errs, fd, kind, suffix)
+					}
 				}
+				continue
 			}
 
 			pg, isPage := ctx.pages[recv]
@@ -504,6 +515,12 @@ func validateAndAttachEventHandler(
 		nextIdx++
 	}
 
+	// Optional signals parameter.
+	if params != nil && len(params.List) > nextIdx &&
+		paramvalidation.IsSignalsParam(params.List[nextIdx]) {
+		nextIdx++
+	}
+
 	// No additional parameters beyond expected.
 	if params != nil && len(params.List) > nextIdx {
 		errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
@@ -626,6 +643,46 @@ func attachHTTPHandler(
 		return
 	}
 	ap.Methods = append(ap.Methods, h)
+}
+
+func attachAppAction(
+	ctx *parseCtx,
+	errs *Errors,
+	fd *ast.FuncDecl,
+	kind methodkind.Kind,
+	suffix string,
+) {
+	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
+
+	h, outputs, herr := parseHandler(
+		"App", fd, ctx.pkg.TypesInfo, ctx.eventTypeNames, kind, suffix,
+	)
+	if herr != nil {
+		errs.ErrAt(pos, herr)
+	}
+	ctx.handlerOutputs[h] = outputs
+
+	r, found, valid := parseRoute(fd.Name.Name, fd.Doc)
+	h.Route = r
+
+	if !found {
+		errs.ErrAt(pos,
+			fmt.Errorf("%w: App.%s", ErrActionMissingPathComm, fd.Name.Name))
+	} else if !valid {
+		errs.ErrAt(pos,
+			fmt.Errorf("%w: App.%s", ErrActionInvalidPathComm, fd.Name.Name))
+	}
+
+	// Validate path struct fields against route variables.
+	if herr == nil && h.Route != "" {
+		if err := paramvalidation.ValidatePathAgainstRoute(
+			h, "App", fd.Name.Name,
+		); err != nil {
+			errs.ErrAt(pos, err)
+		}
+	}
+
+	ctx.app.Actions = append(ctx.app.Actions, h)
 }
 
 func flattenPages(ctx *parseCtx, errs *Errors) {
@@ -773,6 +830,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 
 			if prevOwner, exists := handledEvents[ev]; exists {
 				if prevOwner == "page" {
+					// The page overrides this inherited handler; skip.
 					continue
 				}
 				if prevOwner == ap.TypeName {
@@ -857,7 +915,7 @@ func parseEventHandler(
 		h.InputSSE = parseInput(params[1], info)
 	}
 
-	// Remaining optional params: sessionToken, session
+	// Remaining optional params: sessionToken, session, signals
 	idx := 2
 	if len(params) > idx &&
 		paramvalidation.IsSessionTokenParam(params[idx]) {
@@ -869,6 +927,11 @@ func parseEventHandler(
 	if len(params) > idx &&
 		paramvalidation.IsSessionParam(params[idx]) {
 		h.InputSession = parseInput(params[idx], info)
+		idx++
+	}
+	if len(params) > idx &&
+		paramvalidation.IsSignalsParam(params[idx]) {
+		h.InputSignals = parseInput(params[idx], info)
 	}
 
 	if fd.Type.Results != nil && len(fd.Type.Results.List) > 0 {
@@ -1297,6 +1360,17 @@ func parseHandler(
 		return h, outputs, fmt.Errorf("%w in %s.%s",
 			ErrCloseSessionWithSSE, recv, fd.Name.Name)
 	}
+
+	// For action handlers, detect templ.Component body output.
+	if kind.IsAction() {
+		for _, out := range outputs {
+			if typecheck.IsTemplComponent(out.Type.Resolved) {
+				h.OutputBody = &model.TemplComponent{Output: out}
+				break
+			}
+		}
+	}
+
 	return h, outputs, nil
 }
 

@@ -226,6 +226,13 @@ func f(query struct {
 			src: `package test
 func f(query struct{}) {}`,
 		},
+		"valid named type": {
+			src: `package test
+type SearchParams struct {
+	Term string ` + "`" + `query:"t"` + "`" + `
+}
+func f(query SearchParams) {}`,
+		},
 		"not a struct": {
 			src: `package test
 func f(query string) {}`,
@@ -287,6 +294,13 @@ func f(signals struct {
 		"empty struct": {
 			src: `package test
 func f(signals struct{}) {}`,
+		},
+		"valid named type": {
+			src: `package test
+type Signals struct {
+	Count int ` + "`" + `json:"count"` + "`" + `
+}
+func f(signals Signals) {}`,
 		},
 		"not a struct": {
 			src: `package test

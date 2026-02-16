@@ -63,7 +63,7 @@ type SearchParams struct {
 }
 
 // POSTSignOut is /sign-out/{$}
-func (*App) POSTSignOut(r *http.Request, _ Session) (
+func (*App) POSTSignOut(r *http.Request, session Session) (
 	closeSession bool,
 	redirect string,
 	err error,

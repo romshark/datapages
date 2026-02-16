@@ -1,0 +1,6 @@
+
+func evSubjPageFeed() []string {
+	return []string{
+		EvSubjPostsArchived,
+	}
+}

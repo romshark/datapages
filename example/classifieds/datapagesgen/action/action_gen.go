@@ -21,26 +21,6 @@ func POSTPageLoginSubmit() string {
 	return "@post('/login/submit/')"
 }
 
-// POSTPageSettingsSave references /settings/save/
-func POSTPageSettingsSave() string {
-	return "@post('/settings/save/')"
-}
-
-// POSTPageSettingsCloseSession references /close-session/{token}/
-func POSTPageSettingsCloseSession(token string) string {
-	var b strings.Builder
-	b.Grow(len("@post('/settings/close-session/") + len(token) + len("/')"))
-	b.WriteString("@post('/settings/close-session/")
-	b.WriteString(token)
-	b.WriteString("/')")
-	return b.String()
-}
-
-// POSTPageSettingsCloseAllSessions references /close-all-sessions/
-func POSTPageSettingsCloseAllSessions() string {
-	return "@post('/settings/close-all-sessions/')"
-}
-
 // POSTPageMessagesRead references /messages/read/
 func POSTPageMessagesRead(query QueryPOSTPageMessagesRead) string {
 	anyQuery := query.MessageID != ""
@@ -85,6 +65,11 @@ type QueryPOSTPageMessagesRead struct {
 	MessageID string `query:"msgid"`
 }
 
+// POSTPageMessagesSendMessage references /messages/sendmessage/
+func POSTPageMessagesSendMessage() string {
+	return "@post('/messages/sendmessage/')"
+}
+
 // POSTPageMessagesWriting references /messages/writing/
 func POSTPageMessagesWriting() string {
 	return "@post('/messages/writing/')"
@@ -95,9 +80,14 @@ func POSTPageMessagesWritingStopped() string {
 	return "@post('/messages/writing-stopped/')"
 }
 
-// POSTPageMessagesSendMessage references /messages/sendmessage/
-func POSTPageMessagesSendMessage() string {
-	return "@post('/messages/sendmessage/')"
+// POSTPagePostSendMessage references /post/{slug}/send-message/
+func POSTPagePostSendMessage(slug string) string {
+	var b strings.Builder
+	b.Grow(len("@post('/post/") + len(slug) + len("/send-message/')"))
+	b.WriteString("@post('/post/")
+	b.WriteString(slug)
+	b.WriteString("/send-message/')")
+	return b.String()
 }
 
 // POSTPageSearchParamChange references /search/paramchange/
@@ -105,12 +95,22 @@ func POSTPageSearchParamChange() string {
 	return "@post('/search/paramchange/')"
 }
 
-// POSTPagePostSendMessage references /post/{slug}/send-message/
-func POSTPagePostSendMessage(slug string) string {
+// POSTPageSettingsCloseAllSessions references /settings/close-all-sessions/
+func POSTPageSettingsCloseAllSessions() string {
+	return "@post('/settings/close-all-sessions/')"
+}
+
+// POSTPageSettingsCloseSession references /settings/close-session/{token}/
+func POSTPageSettingsCloseSession(token string) string {
 	var b strings.Builder
-	b.Grow(len("@post('") + len(slug) + len("/send-message/')"))
-	b.WriteString("@post('/post/")
-	b.WriteString(slug)
-	b.WriteString("/send-message/')")
+	b.Grow(len("@post('/settings/close-session/") + len(token) + len("/')"))
+	b.WriteString("@post('/settings/close-session/")
+	b.WriteString(token)
+	b.WriteString("/')")
 	return b.String()
+}
+
+// POSTPageSettingsSave references /settings/save/
+func POSTPageSettingsSave() string {
+	return "@post('/settings/save/')"
 }

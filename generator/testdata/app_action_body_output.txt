@@ -1,0 +1,14 @@
+
+func (s *Server) handlePOSTRender(w http.ResponseWriter, r *http.Request) {
+	body, enableBgStream, disableRefresh, err := s.app.POSTRender()
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Render", err)
+		return
+	}
+	if err := s.writeHTML(
+		w, r, testapp.Session{}, nil, nil, body, nil,
+	); err != nil {
+		s.logErr("rendering response of App.POSTRender", err)
+		return
+	}
+}

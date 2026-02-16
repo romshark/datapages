@@ -999,21 +999,31 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		filepath.Join("..", "example", "classifieds", "app"),
 	)
 	require := require.New(t)
-	// Known parser limitations: named types for query/signals
-	// params and signals params in event handlers are not
-	// yet supported.
-	requireParseErrors(t, errs,
-		parser.ErrSignatureUnknownInput, // OnMessagingRead signals
-		parser.ErrSignatureUnknownInput, // OnMessagingSent signals
-		parser.ErrQueryParamNotStruct,   // PageSearch.GET
-		parser.ErrSignalsParamNotStruct, // PageSearch.POSTParamChange
-	)
+	requireParseErrors(t, errs)
 	require.NotNil(app)
 
 	// App-level features
 	require.NotNil(app.GlobalHeadGenerator)
 	require.NotNil(app.Recover500)
 	require.NotNil(app.Session)
+
+	// App-level actions
+	require.Len(app.Actions, 2)
+	{
+		signOut := findAction(app.Actions, "SignOut")
+		require.NotNil(signOut)
+		require.Equal("POST", signOut.HTTPMethod)
+		require.Equal("/sign-out/{$}", signOut.Route)
+		require.NotNil(signOut.InputSession)
+		require.NotNil(signOut.OutputCloseSession)
+		require.NotNil(signOut.OutputRedirect)
+
+		cause500 := findAction(app.Actions, "Cause500")
+		require.NotNil(cause500)
+		require.Equal("POST", cause500.HTTPMethod)
+		require.Equal("/cause-500-internal-error/{$}", cause500.Route)
+		require.NotNil(cause500.OutputErr)
+	}
 
 	// Events (sorted alphabetically by type name)
 	require.Len(app.Events, 6)
@@ -1180,8 +1190,12 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		// 4 own event handlers
 		// (override Base's OnMessagingSent, OnMessagingRead)
 		require.Len(p.EventHandlers, 4)
-		require.NotNil(findEventHandler(p.EventHandlers, "MessagingRead"))
-		require.NotNil(findEventHandler(p.EventHandlers, "MessagingSent"))
+		sentEH := findEventHandler(p.EventHandlers, "MessagingSent")
+		require.NotNil(sentEH)
+		require.NotNil(sentEH.InputSignals)
+		readEH := findEventHandler(p.EventHandlers, "MessagingRead")
+		require.NotNil(readEH)
+		require.NotNil(readEH.InputSignals)
 		require.NotNil(findEventHandler(p.EventHandlers, "MessagingWriting"))
 		require.NotNil(findEventHandler(p.EventHandlers, "MessagingWritingStopped"))
 	}
@@ -1230,15 +1244,14 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 	}
 
 	// PageSearch
-	// NOTE: GET.InputQuery and POSTParamChange.InputSignals
-	// are nil due to named-type param limitation.
 	{
 		p := findPage(app, "PageSearch")
 		require.NotNil(p)
 		require.Equal("/search", p.Route)
 		require.NotNil(p.GET)
-		require.Nil(p.GET.OutputBody) // nil: parse err
-		require.Nil(p.GET.InputQuery) // nil: named type
+		require.NotNil(p.GET.OutputBody)
+		require.Equal("body", p.GET.OutputBody.Name)
+		require.NotNil(p.GET.InputQuery)
 
 		require.Len(p.Actions, 1)
 		a := p.Actions[0]
@@ -1246,7 +1259,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		require.Equal("ParamChange", a.Name)
 		require.Equal("/search/paramchange/{$}", a.Route)
 		require.NotNil(a.InputSSE)
-		require.Nil(a.InputSignals) // nil: named type
+		require.NotNil(a.InputSignals)
 
 		// Inherits OnMessagingSent, OnMessagingRead from Base
 		require.Len(p.EventHandlers, 2)

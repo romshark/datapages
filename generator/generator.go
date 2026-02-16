@@ -1,36 +1,70 @@
 package generator
 
-import "github.com/romshark/datapages/parser/model"
+import (
+	"fmt"
+	"go/format"
+	"os"
+	"path/filepath"
 
-// Generate
-func Generate(dst string, m *model.App) error {
-	// TODO
+	"github.com/romshark/datapages/parser/model"
+)
+
+// Generate generates the complete generated Datapages package with subpackages to
+// destination directory dstDir. The buf parameter is a reusable scratch buffer.
+func Generate(dstDir string, m *model.App, perm os.FileMode, buf []byte) error {
+	w := Writer{Buf: buf}
+
+	// Generate app_gen.go
+
+	w.Reset()
+	w.WriteApp(m)
+	var err error
+	w.Buf, err = format.Source(w.Buf)
+	if err != nil {
+		return fmt.Errorf("formatting app_gen.go: %w", err)
+	}
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return fmt.Errorf("creating directory %s: %w", dstDir, err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(dstDir, "app_gen.go"), w.Buf, perm,
+	); err != nil {
+		return fmt.Errorf("writing app_gen.go: %w", err)
+	}
+
+	// Generate action/action_gen.go
+	w.Reset()
+	w.WritePkgAction(m)
+	w.Buf, err = format.Source(w.Buf)
+	if err != nil {
+		return fmt.Errorf("formatting action/action_gen.go: %w", err)
+	}
+	actionDir := filepath.Join(dstDir, "action")
+	if err := os.MkdirAll(actionDir, 0o755); err != nil {
+		return fmt.Errorf("creating directory %s: %w", actionDir, err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(actionDir, "action_gen.go"), w.Buf, perm,
+	); err != nil {
+		return fmt.Errorf("writing action/action_gen.go: %w", err)
+	}
+
+	// Generate href/href_gen.go
+	w.Reset()
+	w.WritePkgHref(m)
+	w.Buf, err = format.Source(w.Buf)
+	if err != nil {
+		return fmt.Errorf("formatting href/href_gen.go: %w", err)
+	}
+	hrefDir := filepath.Join(dstDir, "href")
+	if err := os.MkdirAll(hrefDir, 0o755); err != nil {
+		return fmt.Errorf("creating directory %s: %w", hrefDir, err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(hrefDir, "href_gen.go"), w.Buf, perm,
+	); err != nil {
+		return fmt.Errorf("writing href/href_gen.go: %w", err)
+	}
+
 	return nil
-}
-
-// AppendGenerated generates code
-func AppendGenerated(buffer []byte, m *model.App) ([]byte, error) {
-	// TODO
-	return buffer, nil
-}
-
-// AppendPkg generates code for the datapagesgen/action package
-// and appends it to buffer.
-func AppendPkg(buffer []byte, m *model.App) ([]byte, error) {
-	// TODO
-	return buffer, nil
-}
-
-// AppendPkgAction generates code for the datapagesgen/action package
-// and appends it to buffer.
-func AppendPkgAction(buffer []byte, m *model.App) ([]byte, error) {
-	// TODO
-	return buffer, nil
-}
-
-// AppendPkgHref generates code for the datapagesgen/href package
-// and appends it to buffer.
-func AppendPkgHref(buffer []byte, m *model.App) ([]byte, error) {
-	// TODO
-	return buffer, nil
 }

@@ -1,0 +1,27 @@
+
+func (s *Server) httpErrIntern(
+	w http.ResponseWriter, r *http.Request,
+	sse *datastar.ServerSentEventGenerator, msg string, err error,
+) {
+	s.logErr(msg, err)
+	if !isDSReq(r) {
+		s.handlePageError500GET(w, r)
+		return
+	}
+	if sse == nil {
+		sse = datastar.NewSSE(w, r, datastar.WithCompression())
+	}
+	errRecover := s.testapp.Recover500(err, sse)
+	if errRecover == nil {
+		mInternalErrorsRecovered.Inc()
+		return // Feedback delivered gracefully.
+	}
+	// Fallback to ugly 500
+	mInternalErrorsNotRecovered.Inc()
+	s.logger.Error("recovering 500",
+		slog.Any("orig.msg", msg),
+		slog.Any("orig.err", err),
+		slog.Any("err", errRecover))
+	const code = http.StatusInternalServerError
+	http.Error(w, http.StatusText(code), code)
+}

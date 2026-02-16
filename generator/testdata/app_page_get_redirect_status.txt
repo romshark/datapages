@@ -1,0 +1,30 @@
+
+func (s *Server) handlePageOldRouteGET(w http.ResponseWriter, r *http.Request) {
+	p := testapp.PageOldRoute{
+	App: s.app,
+}
+	body, redirect, redirectStatus, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageOldRoute.GET", err)
+		return
+	}
+	if httpRedirect(w, r, redirect, redirectStatus) {
+		return
+	}
+	genericHead, err := s.app.Head(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "generating generic head for PageOldRoute", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, testapp.Session{}, genericHead, nil, body, bodyAttrs,
+	); err != nil {
+		s.logErr("rendering PageOldRoute", err)
+		return
+	}
+}
