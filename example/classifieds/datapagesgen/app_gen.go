@@ -687,7 +687,7 @@ func (s *Server) writeHTML(
 				r.method=="GET"||r.method=="HEAD"||r.method=="OPTIONS"
 			) return isReq ? o(r,init):o(r)
 			const h=new Headers(r.headers)
-			h.set("X-CSRF-Token","`); err != nil {
+			h.set("X-CSRF-Token",'`); err != nil {
 				return err
 			}
 			if _, err := io.WriteString(w, csrfToken); err != nil {
