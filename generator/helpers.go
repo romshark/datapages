@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/romshark/datapages/parser/model"
 )
@@ -145,21 +146,23 @@ type structFieldInfo struct {
 
 // structFields returns the fields of a struct type (works for both named and anonymous).
 // Returns field name, type, and raw struct tag for each field.
-func structFields(t types.Type) []structFieldInfo {
+// The returned slice is reused across calls; callers must consume it before
+// calling structFields again.
+func (w *Writer) structFields(t types.Type) []structFieldInfo {
+	w.fields = w.fields[:0]
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
-		return nil
+		return w.fields
 	}
-	fields := make([]structFieldInfo, st.NumFields())
 	for i := range st.NumFields() {
 		f := st.Field(i)
-		fields[i] = structFieldInfo{
+		w.fields = append(w.fields, structFieldInfo{
 			Name: f.Name(),
 			Type: f.Type(),
 			Tag:  st.Tag(i),
-		}
+		})
 	}
-	return fields
+	return w.fields
 }
 
 // queryTagValue extracts the value from a `query:"value"` struct tag.
@@ -201,18 +204,37 @@ func routeVars(route string) []string {
 	return vars
 }
 
-// buildEventMap creates a map from event type name to Event.
-func buildEventMap(events []*model.Event) map[string]*model.Event {
-	m := make(map[string]*model.Event, len(events))
-	for _, e := range events {
-		m[e.TypeName] = e
-	}
-	return m
+// writerPool is a package-level pool for reusing Writer instances across Generate calls.
+var writerPool = sync.Pool{
+	New: func() any {
+		return &Writer{
+			Buf:      make([]byte, 0, 512*1024), // 512 KiB
+			eventMap: make(map[string]*model.Event),
+		}
+	},
 }
 
-type Writer struct{ Buf []byte }
+type Writer struct {
+	Buf      []byte
+	eventMap map[string]*model.Event // built once per WriteApp, reused
+	fields   []structFieldInfo       // reusable scratch for structFields
+}
 
-func (w *Writer) Reset() { w.Buf = w.Buf[:0] }
+func (w *Writer) Reset() {
+	w.Buf = w.Buf[:0]
+	clear(w.eventMap)
+	w.fields = w.fields[:0]
+}
+
+// buildEventMap populates w.eventMap from the given events.
+func (w *Writer) buildEventMap(events []*model.Event) {
+	if w.eventMap == nil {
+		w.eventMap = make(map[string]*model.Event, len(events))
+	}
+	for _, e := range events {
+		w.eventMap[e.TypeName] = e
+	}
+}
 
 // Raw appends a string to the buffer.
 func (w *Writer) Raw(s string) { w.Buf = append(w.Buf, s...) }

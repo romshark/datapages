@@ -10,9 +10,10 @@ import (
 )
 
 // Generate generates the complete generated Datapages package with subpackages to
-// destination directory dstDir. The buf parameter is a reusable scratch buffer.
-func Generate(dstDir string, m *model.App, perm os.FileMode, buf []byte) error {
-	w := Writer{Buf: buf}
+// destination directory dstDir.
+func Generate(dstDir string, m *model.App, perm os.FileMode) error {
+	w := writerPool.Get().(*Writer)
+	defer writerPool.Put(w)
 
 	// Generate app_gen.go
 

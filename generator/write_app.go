@@ -13,7 +13,7 @@ var appStaticContent string
 // WriteApp generates code for the datapagesgen package and appends it to buffer.
 func (w *Writer) WriteApp(m *model.App) {
 	appPkg := appPkgName(m.PkgPath)
-	eventMap := buildEventMap(m.Events)
+	w.buildEventMap(m.Events)
 
 	w.writeAppHeader(m.PkgPath)
 	w.Raw(appStaticContent)
@@ -24,7 +24,7 @@ func (w *Writer) WriteApp(m *model.App) {
 	w.writeAppNewServer(appPkg)
 	w.writeEventSubjectConsts(m.Events)
 	w.writeMessageBrokerStreamSubjects(m.Events)
-	w.writeEvSubjPageFuncs(m.Pages, eventMap)
+	w.writeEvSubjPageFuncs(m.Pages)
 	w.writeAppAuth(appPkg)
 	w.writeBrokerSubjectKind(m.Events)
 	w.writeSetupHandlers(m)
@@ -45,9 +45,9 @@ func (w *Writer) WriteApp(m *model.App) {
 			w.writePageGETHandler(p, m, appPkg)
 		}
 		if pageHasStream(p) {
-			w.writePageGETStreamHandler(p, m, appPkg, eventMap)
-			if pageHasAnonStream(p, eventMap) {
-				w.writePageGETStreamAnonHandler(p, appPkg, eventMap)
+			w.writePageGETStreamHandler(p, m, appPkg)
+			if pageHasAnonStream(p, w.eventMap) {
+				w.writePageGETStreamAnonHandler(p, appPkg)
 			}
 		}
 		for _, h := range p.Actions {
@@ -500,7 +500,7 @@ func (w *Writer) writeMessageBrokerStreamSubjects(events []*model.Event) {
 	w.Line(0, "}")
 }
 
-func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page, eventMap map[string]*model.Event) {
+func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 	for _, p := range pages {
 		if !pageHasStream(p) {
 			continue
@@ -510,7 +510,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page, eventMap map[string]*
 		hasPublic := false
 		hasPrivate := false
 		for _, eh := range p.EventHandlers {
-			ev := eventMap[eh.EventTypeName]
+			ev := w.eventMap[eh.EventTypeName]
 			if ev == nil {
 				continue
 			}
@@ -531,7 +531,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page, eventMap map[string]*
 			w.Raw("(userID string) []string {\n")
 			w.Line(1, "return []string{")
 			for _, eh := range p.EventHandlers {
-				ev := eventMap[eh.EventTypeName]
+				ev := w.eventMap[eh.EventTypeName]
 				if ev == nil {
 					continue
 				}
@@ -552,7 +552,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page, eventMap map[string]*
 			w.Raw("() []string {\n")
 			w.Line(1, "return []string{")
 			for _, eh := range p.EventHandlers {
-				ev := eventMap[eh.EventTypeName]
+				ev := w.eventMap[eh.EventTypeName]
 				if ev == nil {
 					continue
 				}
@@ -573,7 +573,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page, eventMap map[string]*
 		w.Line(1, "if userID == \"\" {")
 		w.Line(2, "return []string{")
 		for _, eh := range p.EventHandlers {
-			ev := eventMap[eh.EventTypeName]
+			ev := w.eventMap[eh.EventTypeName]
 			if ev == nil || ev.HasTargetUserIDs {
 				continue
 			}
@@ -587,7 +587,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page, eventMap map[string]*
 
 		// Public first, then private.
 		for _, eh := range p.EventHandlers {
-			ev := eventMap[eh.EventTypeName]
+			ev := w.eventMap[eh.EventTypeName]
 			if ev == nil || ev.HasTargetUserIDs {
 				continue
 			}
@@ -596,7 +596,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page, eventMap map[string]*
 			w.Raw(",\n")
 		}
 		for _, eh := range p.EventHandlers {
-			ev := eventMap[eh.EventTypeName]
+			ev := w.eventMap[eh.EventTypeName]
 			if ev == nil || !ev.HasTargetUserIDs {
 				continue
 			}
@@ -764,9 +764,6 @@ func brokerSubjectKind(subject string) string {
 }
 
 func (w *Writer) writeSetupHandlers(m *model.App) {
-	_ = appPkgName(m.PkgPath) // kept to mirror prior intent; unused here
-	eventMap := buildEventMap(m.Events)
-
 	w.Line(0, "")
 	w.Line(0, "func setupHandlers(s *Server) {")
 	w.Line(1, "// Pages")
@@ -807,7 +804,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 			w.Raw(p.TypeName)
 			w.Raw("GETStream)\n")
 
-			if pageHasAnonStream(p, eventMap) {
+			if pageHasAnonStream(p, w.eventMap) {
 				w.Line(1, "s.mux.HandleFunc(")
 				w.Raw("\t\t\"GET ")
 				w.Raw(streamPath)
@@ -1046,7 +1043,8 @@ func (w *Writer) writeMethodCall(
 	p *model.Page, h *model.Handler, m *model.App, appPkg string, isAppLevel bool,
 ) {
 	// Build output variable list.
-	var outs []string
+	var outsBuf [8]string
+	outs := outsBuf[:0]
 	if h.OutputBody != nil {
 		outs = append(outs, h.OutputBody.Name)
 	}
@@ -1073,7 +1071,8 @@ func (w *Writer) writeMethodCall(
 	}
 
 	// Build input args.
-	var args []string
+	var argsBuf [8]string
+	args := argsBuf[:0]
 	if h.InputRequest != nil {
 		args = append(args, "r")
 	}
@@ -1241,8 +1240,6 @@ func (w *Writer) writeMethodCall(
 }
 
 func (w *Writer) writeDispatchClosure(d *model.InputDispatch, m *model.App, appPkg string) {
-	eventMap := buildEventMap(m.Events)
-
 	w.Line(0, "")
 	w.Line(1, "dispatch := func(")
 	for i, evName := range d.EventTypeNames {
@@ -1258,7 +1255,7 @@ func (w *Writer) writeDispatchClosure(d *model.InputDispatch, m *model.App, appP
 
 	for i, evName := range d.EventTypeNames {
 		idx := itoa(i + 1)
-		ev := eventMap[evName]
+		ev := w.eventMap[evName]
 		w.Line(2, "{")
 		w.Raw("\t\t\tj, err := json.Marshal(e")
 		w.Raw(idx)
@@ -1344,7 +1341,8 @@ func (w *Writer) writeGETCall(p *model.Page, appPkg string, context string) {
 	h := p.GET.Handler
 
 	// Build output list.
-	var outs []string
+	var outsBuf [8]string
+	outs := outsBuf[:0]
 	if p.GET.OutputBody != nil {
 		outs = append(outs, p.GET.OutputBody.Name)
 	}
@@ -1365,7 +1363,8 @@ func (w *Writer) writeGETCall(p *model.Page, appPkg string, context string) {
 	}
 
 	// Build input args.
-	var args []string
+	var argsBuf [8]string
+	args := argsBuf[:0]
 	if h.InputRequest != nil {
 		args = append(args, "r")
 	}

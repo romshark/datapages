@@ -114,7 +114,7 @@ func (w *Writer) writeActionFunc(
 
 	var queryFields []structFieldInfo
 	if queryInput != nil {
-		queryFields = structFields(queryInput.Type.Resolved)
+		queryFields = w.structFields(queryInput.Type.Resolved)
 	}
 	hasQuery := len(queryFields) > 0
 

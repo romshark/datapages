@@ -148,7 +148,7 @@ func (w *Writer) writeHrefFunc(p *model.Page) {
 	if p.GET != nil && p.GET.Handler != nil && p.GET.InputQuery != nil {
 		if st, ok := p.GET.InputQuery.Type.Resolved.Underlying().(*types.Struct); ok {
 			querySt = st
-			queryFields = structFields(querySt)
+			queryFields = w.structFields(querySt)
 		}
 	}
 	hasQuery := len(queryFields) > 0
@@ -226,8 +226,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 	w.Linef(0, "func %s(query Query%s) string {", funcName, funcName)
 
 	// Pre-convert int64 fields to strings.
-	intFields := intFieldNames(fields)
-	if len(intFields) > 0 {
+	if hasIntFields(fields) {
 		w.Line(1, "var (")
 		for _, f := range fields {
 			if isIntType(f.Type) {
@@ -461,7 +460,7 @@ func (w *Writer) writeHrefQueryType(funcName string, st *types.Struct) {
 	w.Linef(0, "// Query%s is the query parameters for %s", funcName, funcName)
 	w.Linef(0, "type Query%s struct {", funcName)
 
-	fields := structFields(st)
+	fields := w.structFields(st)
 
 	// Find longest field name for alignment.
 	maxNameLen := 0
@@ -520,24 +519,12 @@ func (w *Writer) writeIfZeroCheck(indent int, expr string, t types.Type) {
 	w.Raw(" {\n")
 }
 
-
 // fieldTypeName returns the Go type name for a field type.
 func fieldTypeName(t types.Type) string {
 	if isIntType(t) {
 		return "int64"
 	}
 	return "string"
-}
-
-// intFieldNames returns the names of fields with int/int64 type.
-func intFieldNames(fields []structFieldInfo) []string {
-	var names []string
-	for _, f := range fields {
-		if isIntType(f.Type) {
-			names = append(names, f.Name)
-		}
-	}
-	return names
 }
 
 // hasIntFields reports whether any field is an int/int64 type.

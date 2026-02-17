@@ -19,7 +19,7 @@ func TestGenerateClassifieds(t *testing.T) {
 	require.NotNil(t, app, "parser returned nil model")
 
 	tmpDir := t.TempDir()
-	err := generator.Generate(tmpDir, app, 0o644, nil)
+	err := generator.Generate(tmpDir, app, 0o644)
 	require.NoError(t, err)
 
 	compareFile(t, "app_gen.go",

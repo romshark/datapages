@@ -135,7 +135,8 @@ func TestWriteEvSubjPageFuncs(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
-			w.writeEvSubjPageFuncs(tt.pages, tt.eventMap)
+			w.eventMap = tt.eventMap
+			w.writeEvSubjPageFuncs(tt.pages)
 			compareGolden(t, tt.golden, w.Buf)
 		})
 	}
@@ -301,6 +302,7 @@ func TestWriteAppActionHandler(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
+			w.buildEventMap(tt.app.Events)
 			w.writeAppActionHandler(tt.handler, tt.app, testAppPkg)
 			compareGolden(t, tt.golden, w.Buf)
 		})
@@ -350,6 +352,7 @@ func TestWriteSetupHandlers(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
+			w.buildEventMap(tt.app.Events)
 			w.writeSetupHandlers(tt.app)
 			compareGolden(t, tt.golden, w.Buf)
 		})
@@ -612,7 +615,8 @@ func TestWritePageGETStreamHandler(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
-			w.writePageGETStreamHandler(tt.page, tt.app, testAppPkg, tt.eventMap)
+			w.eventMap = tt.eventMap
+			w.writePageGETStreamHandler(tt.page, tt.app, testAppPkg)
 			compareGolden(t, tt.golden, w.Buf)
 		})
 	}
@@ -668,7 +672,8 @@ func TestWritePageGETStreamAnonHandler(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
-			w.writePageGETStreamAnonHandler(tt.page, testAppPkg, tt.eventMap)
+			w.eventMap = tt.eventMap
+			w.writePageGETStreamAnonHandler(tt.page, testAppPkg)
 			compareGolden(t, tt.golden, w.Buf)
 		})
 	}
@@ -851,6 +856,7 @@ func TestWriteGETBodyAttrs(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
+			w.buildEventMap(tt.app.Events)
 			w.writeGETBodyAttrs(tt.page, tt.app)
 			compareGolden(t, tt.golden, w.Buf)
 		})

@@ -73,7 +73,8 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	h := p.GET.Handler
 
 	// Build output list.
-	var outs []string
+	var outsBuf [8]string
+	outs := outsBuf[:0]
 	if p.GET.OutputBody != nil {
 		outs = append(outs, p.GET.OutputBody.Name)
 	}
@@ -97,7 +98,8 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	}
 
 	// Build input args.
-	var args []string
+	var argsBuf [8]string
+	args := argsBuf[:0]
 	if h.InputRequest != nil {
 		args = append(args, "r")
 	}
@@ -201,16 +203,15 @@ func hasSessionInput(h *model.Handler) bool {
 
 func (w *Writer) writeGETBodyAttrs(p *model.Page, m *model.App) {
 	h := p.GET.Handler
-	eventMap := buildEventMap(m.Events)
 
 	hasDisableRefresh := h.OutputDisableRefresh != nil
 	hasEnableBgStream := h.OutputEnableBgStream != nil
 	hasStream := pageHasStream(p)
-	hasAnonStream := pageHasAnonStream(p, eventMap)
+	hasAnonStream := pageHasAnonStream(p, w.eventMap)
 
 	var reflectFields []reflectSignalField
 	if h.InputQuery != nil {
-		fields := structFields(h.InputQuery.Type.Resolved)
+		fields := w.structFields(h.InputQuery.Type.Resolved)
 		for _, f := range fields {
 			rs := reflectSignalTagValue(f.Tag)
 			if rs != "" {
@@ -373,7 +374,7 @@ func (w *Writer) writeStreamPathSegments(route string, pathVars []string) {
 
 // writePageGETStreamHandler generates the authenticated stream handler for a page.
 func (w *Writer) writePageGETStreamHandler(
-	p *model.Page, m *model.App, appPkg string, eventMap map[string]*model.Event,
+	p *model.Page, m *model.App, appPkg string,
 ) {
 	w.Line(0, "")
 	w.Raw("func (s *Server) handle")
@@ -389,7 +390,7 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Line(1, "}")
 
 	// Check if anon stream exists - if so, redirect unauthenticated to anon.
-	hasAnon := pageHasAnonStream(p, eventMap)
+	hasAnon := pageHasAnonStream(p, w.eventMap)
 	if hasAnon {
 		w.Line(0, "")
 		w.Line(1, `if sess.UserID == "" {`)
@@ -439,7 +440,7 @@ func (w *Writer) writePageGETStreamHandler(
 	// Determine if the evSubj function takes a userID.
 	hasPrivate := false
 	for _, eh := range p.EventHandlers {
-		ev := eventMap[eh.EventTypeName]
+		ev := w.eventMap[eh.EventTypeName]
 		if ev != nil && ev.HasTargetUserIDs {
 			hasPrivate = true
 			break
@@ -459,7 +460,7 @@ func (w *Writer) writePageGETStreamHandler(
 
 	// Generate case for each event handler.
 	for _, eh := range p.EventHandlers {
-		ev := eventMap[eh.EventTypeName]
+		ev := w.eventMap[eh.EventTypeName]
 		if ev == nil {
 			continue
 		}
@@ -506,7 +507,8 @@ func (w *Writer) writeEventHandlerCall(
 	ownerLabel string, eh *model.EventHandler, receiver string,
 ) {
 	// Build args.
-	var args []string
+	var argsBuf [8]string
+	args := argsBuf[:0]
 	if eh.InputEvent != nil {
 		args = append(args, "e")
 	}
@@ -544,7 +546,7 @@ func (w *Writer) writeEventHandlerCall(
 
 // writePageGETStreamAnonHandler generates the anonymous stream handler for a page.
 func (w *Writer) writePageGETStreamAnonHandler(
-	p *model.Page, appPkg string, eventMap map[string]*model.Event,
+	p *model.Page, appPkg string,
 ) {
 	w.Line(0, "")
 	w.Raw("func (s *Server) handle")
@@ -580,7 +582,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	// Only handle public events in anon stream.
 	publicHandlers := 0
 	for _, eh := range p.EventHandlers {
-		ev := eventMap[eh.EventTypeName]
+		ev := w.eventMap[eh.EventTypeName]
 		if ev != nil && !ev.HasTargetUserIDs {
 			publicHandlers++
 		}
@@ -589,7 +591,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	if publicHandlers == 1 {
 		// Single event: use if instead of switch.
 		for _, eh := range p.EventHandlers {
-			ev := eventMap[eh.EventTypeName]
+			ev := w.eventMap[eh.EventTypeName]
 			if ev == nil || ev.HasTargetUserIDs {
 				continue
 			}
@@ -613,7 +615,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	} else {
 		w.Line(3, "switch {")
 		for _, eh := range p.EventHandlers {
-			ev := eventMap[eh.EventTypeName]
+			ev := w.eventMap[eh.EventTypeName]
 			if ev == nil || ev.HasTargetUserIDs {
 				continue
 			}
@@ -711,7 +713,8 @@ func (w *Writer) writeActionMethodCall(
 	p *model.Page, h *model.Handler, m *model.App, appPkg string,
 ) {
 	// Build output list.
-	var outs []string
+	var outsBuf [8]string
+	outs := outsBuf[:0]
 	if h.OutputBody != nil {
 		outs = append(outs, h.OutputBody.Name)
 	}
@@ -732,7 +735,8 @@ func (w *Writer) writeActionMethodCall(
 	}
 
 	// Build input args.
-	var args []string
+	var argsBuf [8]string
+	args := argsBuf[:0]
 	if h.InputRequest != nil {
 		args = append(args, "r")
 	}
@@ -897,7 +901,7 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 	w.Raw("\tvar query ")
 	w.Raw(renderQueryType(input, m))
 	w.Byte('\n')
-	fields := structFields(input.Type.Resolved)
+	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
 		tag := queryTagValue(f.Tag)
 		if isIntType(f.Type) {
@@ -932,7 +936,7 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
 	w.Raw("\tvar path ")
 	w.Raw(renderPathType(input, m))
 	w.Byte('\n')
-	fields := structFields(input.Type.Resolved)
+	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
 		tag := pathTagValue(f.Tag)
 		w.Raw("\tpath.")
