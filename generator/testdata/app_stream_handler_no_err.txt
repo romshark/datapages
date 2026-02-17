@@ -1,0 +1,34 @@
+
+func (s *Server) handlePageFeedGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID == "" {
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return
+	}
+
+	p := testapp.PageFeed{
+	App: s.app,
+}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageFeed(), func(
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+	) {
+		for msg := range ch {
+			switch {
+			case msg.Subject == EvSubjPostsCreated:
+				var e testapp.EventPostsCreated
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventPostsCreated JSON", err)
+					continue
+				}
+				p.OnPostsCreated(e, sse)
+			}
+		}
+	})
+}

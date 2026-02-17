@@ -19,344 +19,346 @@ import (
 	"sync"
 	"time"
 
+	"github.com/a-h/templ"
+	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/msgbroker"
 	"github.com/romshark/datapages/modules/sessmanager"
 	"github.com/romshark/datapages/modules/sesstokgen"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/example/classifieds/app"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/starfederation/datastar-go/datastar"
 )
 
-type Server struct {
-	shutdownCh           chan struct{} // Closed when shutting down.
-	shutdownOnce         sync.Once
-	runCancel            context.CancelFunc
-	httpServer           *http.Server
-	messageBroker        msgbroker.MessageBroker
-	messageBrokerMetrics brokerMetrics
-	app                  *app.App
-	mux                  *http.ServeMux
-	logger               *slog.Logger
-	middleware           []func(http.Handler) http.Handler
-	staticURLPath        string
-	staticFS             http.FileSystem
-	enabledTLS           bool
+const (
+	DefaultHTTPReadTimeout       = 30 * time.Second
+	DefaultHTTPReadHeaderTimeout = 5 * time.Second
+	DefaultHTTPWriteTimeout      = 0 // SSE needs this disabled.
+	DefaultHTTPIdleTimeout       = 60 * time.Second
+	DefaultHTTPMaxHeaderBytes    = 1 << 20 // 1 MB
+)
 
-	metricsServer         *http.Server
-	authConf              *AuthConfig
-	sessionTokenGenerator sessmanager.TokenGenerator
-	sessionManager        sessmanager.SessionManager[app.Session]
-	csrfConf              *CSRFConfig
+// IsDevMode returns true when in the development environment.
+// Returns false for production environments.
+func IsDevMode() bool { return os.Getenv("TEMPL_DEV_MODE") != "" }
+
+// ServerOption is a functional option for configuring Server
+type ServerOption func(*Server) error
+
+// WithMiddleware adds a custom middleware.
+func WithMiddleware(middleware func(http.Handler) http.Handler) ServerOption {
+	return func(s *Server) error {
+		s.middleware = append(s.middleware, middleware)
+		return nil
+	}
 }
 
-// NewServer creates a new server instance.
-// Supported options:
+// WithLogger sets a custom error logger.
+// Consider setting level DEBUG when IsDevMode() returns true.
+func WithLogger(l *slog.Logger) ServerOption {
+	return func(s *Server) error {
+		s.logger = l
+		return nil
+	}
+}
+
+// WithHTTPServer sets a custom HTTP server.
+// The Addr and Handler fields are always overwritten.
+func WithHTTPServer(server *http.Server) ServerOption {
+	return func(s *Server) error {
+		s.httpServer = server
+		return nil
+	}
+}
+
+// WithStaticFS sets a custom filesystem for serving static files at the
+// specified URL path. If not provided, static file serving is disabled.
 //
-//   - WithMiddleware
-//   - WithHTTPServer
-//   - WithStaticFS
-//   - WithCSRFProtection
-//   - WithPrometheus
-func NewServer(
-	app *app.App,
-	messageBroker msgbroker.MessageBroker,
-	sessionManager sessmanager.SessionManager[app.Session],
-	opts ...ServerOption,
-) *Server {
-	s := &Server{
-		shutdownCh: make(chan struct{}),
-		httpServer: &http.Server{
-			// Time to read request headers + body
-			ReadTimeout: DefaultHTTPReadTimeout,
-			// Time to read just headers (helps prevent Slowloris attacks)
-			ReadHeaderTimeout: DefaultHTTPReadHeaderTimeout,
-			// Time to write response
-			WriteTimeout: DefaultHTTPWriteTimeout,
-			// Time to wait for next request when using keep-alive
-			IdleTimeout:    DefaultHTTPIdleTimeout,
-			MaxHeaderBytes: DefaultHTTPMaxHeaderBytes,
-		},
-		app:                  app,
-		mux:                  http.NewServeMux(),
-		middleware:           []func(http.Handler) http.Handler{},
-		messageBroker:        messageBroker,
-		messageBrokerMetrics: brokerMetrics{},
-		sessionManager:       sessionManager,
-	}
+//	// This will serve files at URL path "/static/*" from directory "./assets".
+//	subFS, err := fs.Sub(embedFS, "assets")
+//	if err != nil { return err }
+//	fs := http.FS(subFS)
+//	//...
+//	WithStaticFS("/static/", fs, nil)
+//
+// You may also optionally provide fsDev to use another filesystem for
+// development environments. If fsDev it automatically falls back to fsProd.
+// fsDev always serves static files with caching disabled.
+func WithStaticFS(urlPath string, fsProd, fsDev http.FileSystem) ServerOption {
+	return func(s *Server) error {
+		if urlPath == "" || urlPath[0] != '/' {
+			return fmt.Errorf("static urlPath must start with '/': %q", urlPath)
+		}
+		if !strings.HasSuffix(urlPath, "/") {
+			urlPath += "/"
+		}
 
-	// Apply options
-	for _, opt := range opts {
-		if err := opt(s); err != nil {
-			panic(fmt.Errorf("applying server option: %w", err))
+		s.staticFS = fsProd
+		if IsDevMode() && fsDev != nil {
+			s.staticFS = fsDev
 		}
+		s.staticURLPath = urlPath
+		return nil
 	}
+}
 
-	// Reverse handlers such that they're invoked in the order of definition.
-	slices.Reverse(s.middleware)
+func devNoCache(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		next.ServeHTTP(w, r)
+	})
+}
 
-	if s.metricsServer == nil {
-		// package app is using prometheus metrics, hence WithPrometheus is required.
-		panic("missing option WithPrometheus")
-	}
+type CSRFConfig struct {
+	TokenManager csrf.TokenManager
 
-	if s.sessionManager == nil {
-		panic("missing SessionManager")
-	}
-	if s.authConf == nil {
-		s.authConf = &AuthConfig{
-			TokenCookie: AuthSessionConfigTokenCookie{
-				Name: DefaultAuthSessionCookieName,
-			},
-		}
-	}
-	if s.sessionTokenGenerator == nil {
-		s.sessionTokenGenerator = sesstokgen.Generator{
-			Length: sesstokgen.DefaultLength,
-		}
-	}
+	// DevBypassToken, if non-empty, is accepted as a valid
+	// CSRF token for any session. Use this only in development
+	// to allow tools like k6 to exercise POST endpoints.
+	DevBypassToken string
+}
 
-	// Use defaults if not set.
-	if s.logger == nil {
-		opt := &slog.HandlerOptions{
-			Level: slog.LevelInfo,
+// WithCSRFProtection enables Cross-Site-Request-Forgery protection on
+// POST/PUT/PATCH/DELETE action endpoints. By default CSRF protection is disabled
+// but will log a warning during server initialization time.
+func WithCSRFProtection(conf CSRFConfig) ServerOption {
+	return func(s *Server) error {
+		if conf.TokenManager == nil {
+			return errors.New("nil CSRF token manager")
 		}
-		if IsDevMode() {
-			opt.Level = slog.LevelDebug
+		if conf.DevBypassToken != "" && !IsDevMode() {
+			return errors.New("CSRF dev bypass token must not be set in non-dev mode")
 		}
-		s.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
+		s.csrfConf = &conf
+		return nil
 	}
-	s.httpServer.Handler = s
-	if s.httpServer.ErrorLog == nil {
-		s.httpServer.ErrorLog = slog.NewLogLogger(
-			slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}),
-			slog.LevelInfo,
-		)
-	}
-	if s.messageBroker == nil {
-		panic("missing message broker")
-	}
-	if si, ok := s.messageBroker.(msgbroker.StreamInitializer); ok {
-		if err := si.InitStreams(MessageBrokerStreamSubjects()); err != nil {
-			panic(fmt.Sprintf("initializing message broker streams: %v", err))
+}
+
+// WithPrometheus starts a dedicated HTTP server exposing /metrics.
+// Example host address: "127.0.0.1:9091" or ":9091".
+func WithPrometheus(conf PrometheusConfig) ServerOption {
+	return func(s *Server) error {
+		if conf.Host == "" {
+			return errors.New("prometheus host address must not be empty")
 		}
+
+		// Defaults
+		if conf.Registerer == nil {
+			conf.Registerer = prometheus.DefaultRegisterer
+		}
+		if conf.Gatherer == nil {
+			conf.Gatherer = prometheus.DefaultGatherer
+		}
+
+		// Register built-in metrics on the configured registerer exactly once.
+		registerPrometheusMetricsOnce.Do(func() {
+			registerMetricsWith(conf.Registerer)
+		})
+
+		// Register user-defined collectors.
+		for _, c := range conf.Collectors {
+			conf.Registerer.MustRegister(c)
+		}
+
+		var h http.Handler
+		if conf.Handler != nil {
+			h = conf.Handler
+		} else {
+			h = promhttp.HandlerFor(conf.Gatherer, promhttp.HandlerOpts{})
+		}
+
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", h)
+
+		s.metricsServer = &http.Server{
+			Addr:    conf.Host,
+			Handler: mux,
+		}
+		return nil
 	}
+}
+
+type PrometheusConfig struct {
+	Host       string
+	Registerer prometheus.Registerer  // Optional, default: prometheus.DefaultRegisterer
+	Gatherer   prometheus.Gatherer    // Optional, default: prometheus.DefaultGatherer
+	Handler    http.Handler           // Optional override
+	Collectors []prometheus.Collector // User-defined metrics to register
+}
+
+var registerPrometheusMetricsOnce sync.Once
+
+func (s *Server) listenAndServe(
+	ctx context.Context,
+	listenAndServe func() error,
+) error {
+	ctx, cancel := context.WithCancel(ctx)
+	s.runCancel = cancel
+
 	if s.csrfConf == nil {
-		panic("missing option WithCSRFProtection")
-	} else if s.csrfConf != nil && s.csrfConf.TokenManager == nil {
-		panic("CSRFConfig.TokenManager is nil")
+		s.logger.Warn("CSRF protection disabled")
 	}
 
-	if s.metricsServer != nil {
-		s.middleware = append(s.middleware, s.metricsMiddleware)
-	}
+	g, ctx := errgroup.WithContext(ctx)
 
-	setupHandlers(s)
-	if s.staticFS != nil {
-		h := http.StripPrefix("/static/", http.FileServer(s.staticFS))
-		if IsDevMode() {
-			h = devNoCache(h)
+	// Main frontend server
+	g.Go(func() error {
+		if err := listenAndServe(); err != nil &&
+			!errors.Is(err, http.ErrServerClosed) {
+			return err
 		}
-		s.mux.Handle("GET /static/", h)
+		return nil
+	})
+
+	// Metrics server
+	if s.metricsServer != nil {
+		s.metricsServer.BaseContext = func(net.Listener) context.Context {
+			return ctx
+		}
+		g.Go(func() error {
+			err := s.metricsServer.ListenAndServe()
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return fmt.Errorf("metrics server failed: %w", err)
+			}
+			return nil
+		})
 	}
 
-	return s
+	// Coordinated shutdown
+	g.Go(func() error {
+		<-ctx.Done()
+
+		shutdownCtx, cancel := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+		defer cancel()
+
+		_ = s.Shutdown(shutdownCtx)
+		return nil
+	})
+
+	return g.Wait()
+}
+
+// ListenAndServe starts the main HTTP server and, if configured, a dedicated
+// Prometheus metrics server.
+//
+// Both servers run concurrently and share the same lifecycle.
+// If either server fails to start or exits unexpectedly, the other is
+// shut down and the error is returned.
+//
+// The provided context controls graceful shutdown for both servers.
+func (s *Server) ListenAndServe(
+	ctx context.Context,
+	addr string,
+) error {
+	s.httpServer.Addr = addr
+	s.enabledTLS = false
+	return s.listenAndServe(ctx, func() error {
+		s.logger.Info("listening HTTP", slog.String("addr", addr))
+		return s.httpServer.ListenAndServe()
+	})
+}
+
+// ListenAndServeTLS acts identically to ListenAndServe,
+// except that it expects HTTPS connections.
+func (s *Server) ListenAndServeTLS(
+	ctx context.Context,
+	addr, certFile, keyFile string,
+) error {
+	s.httpServer.Addr = addr
+	s.enabledTLS = true
+	return s.listenAndServe(ctx, func() error {
+		s.logger.Info("listening HTTP",
+			slog.String("addr", addr),
+			slog.String("tls.cert", certFile),
+			slog.String("tls.key", keyFile))
+		return s.httpServer.ListenAndServeTLS(certFile, keyFile)
+	})
+}
+
+// Shutdown gracefully shuts down all server components,
+// including the main HTTP server and the Prometheus metrics server.
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.shutdownOnce.Do(func() {
+		s.logger.Info("server shutdown initiated")
+		if s.runCancel != nil {
+			s.runCancel()
+		}
+		close(s.shutdownCh)
+	})
+	var errs []error
+	if s.metricsServer != nil {
+		if err := s.metricsServer.Shutdown(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := s.httpServer.Shutdown(ctx); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Build handler chain from middleware
+	handler := http.Handler(s.mux)
+
+	// Normalize trailing slashes: ensure all paths end with /
+	// except for static file paths
+
+	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
+		// Skip normalization for static file paths
+		if s.staticURLPath == "" || !strings.HasPrefix(p, s.staticURLPath) {
+			// Add trailing slash for non-static paths
+			r.URL.Path = p + "/"
+			// Update the raw path as well if it exists
+			if r.URL.RawPath != "" {
+				r.URL.RawPath = r.URL.RawPath + "/"
+			}
+		}
+	}
+
+	// Apply middleware in reverse order so they execute in the order they were added
+	for _, h := range s.middleware {
+		handler = h(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+func isDSReq(r *http.Request) bool {
+	return r.Header.Get("Datastar-Request") == "true"
+}
+
+func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
+	if !isDSReq(r) {
+		s.logger.Debug("not a datastar request",
+			slog.Any("method", r.Method),
+			slog.String("path", r.URL.Path))
+		http.Error(w, http.StatusText(http.StatusNotAcceptable), http.StatusNotAcceptable)
+		return false
+	}
+	return true
+}
+
+func (s *Server) logErr(msg string, err error) {
+	s.logger.Error(msg, slog.Any("err", err))
+}
+
+func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
+	s.logger.Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
+	http.Error(w, msg, http.StatusBadRequest)
 }
 
 // --- Message Broker ---
 
 const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
-
-const (
-	EvSubjMessagingSent           = "messaging.sent.*"
-	EvSubjMessagingRead           = "messaging.read.*"
-	EvSubjMessagingWriting        = "messaging.writing.*"
-	EvSubjMessagingWritingStopped = "messaging.writing-stopped.*"
-	EvSubjSessionsClosed          = "sessions.closed.*"
-
-	// Public events:
-
-	EvSubjPostArchived = "posts.archived"
-)
-
-const (
-	EvSubjPrefMessagingSent           = "messaging.sent."
-	EvSubjPrefMessagingRead           = "messaging.read."
-	EvSubjPrefMessagingWriting        = "messaging.writing."
-	EvSubjPrefMessagingWritingStopped = "messaging.writing-stopped."
-	EvSubjPrefSessionsClosed          = "sessions.closed."
-)
-
-func MessageBrokerStreamSubjects() []string {
-	return []string{
-		EvSubjMessagingSent,
-		EvSubjMessagingRead,
-		EvSubjMessagingWriting,
-		EvSubjMessagingWritingStopped,
-		EvSubjPostArchived,
-		EvSubjSessionsClosed,
-	}
-}
-
-func evSubjPageIndex(userID string) []string {
-	return []string{
-		EvSubjPrefMessagingSent + userID,
-		EvSubjPrefMessagingRead + userID,
-	}
-}
-
-func evSubjPageMessages(userID string) []string {
-	return []string{
-		EvSubjPrefMessagingSent + userID,
-		EvSubjPrefMessagingRead + userID,
-		EvSubjPrefMessagingWriting + userID,
-		EvSubjPrefMessagingWritingStopped + userID,
-	}
-}
-
-func evSubjPagePost(userID string) []string {
-	if userID == "" {
-		return []string{
-			EvSubjPostArchived,
-		}
-	}
-	return []string{
-		EvSubjPostArchived,
-		EvSubjPrefMessagingSent + userID,
-		EvSubjPrefMessagingRead + userID,
-	}
-}
-
-func evSubjPageSearch(userID string) []string {
-	return []string{
-		EvSubjPrefMessagingSent + userID,
-		EvSubjPrefMessagingRead + userID,
-	}
-}
-
-func evSubjPageSettings(userID string) []string {
-	return []string{
-		EvSubjPrefMessagingSent + userID,
-		EvSubjPrefMessagingRead + userID,
-		EvSubjPrefSessionsClosed + userID,
-	}
-}
-
-// --- Auth ---
-
-const DefaultAuthSessionCookieName = "sessiontoken"
-
-type AuthConfig struct {
-	// SessionTokenGenerator is optional; defaults to sesstokgen.Generator
-	SessionTokenGenerator sessmanager.TokenGenerator
-
-	// TokenCookie is optional; defaults to DefaultAuthSessionCookieName
-	TokenCookie AuthSessionConfigTokenCookie
-
-	// DisableHTTPOnly is optional; By default, httponly is enabled.
-	DisableHTTPOnly bool
-}
-
-type AuthSessionConfigTokenCookie struct {
-	// Name is optional; Default is DefaultAuthSessionCookieName
-	Name string
-	// Domain is optional; Not set by default.
-	Domain string
-}
-
-// WithAuth sets session-based authentication configuration.
-func WithAuth(o AuthConfig) ServerOption {
-	return func(s *Server) error {
-		if o.TokenCookie.Name == "" {
-			o.TokenCookie.Name = DefaultAuthSessionCookieName
-		}
-		s.authConf = &o
-		s.sessionTokenGenerator = o.SessionTokenGenerator
-		return nil
-	}
-}
-
-func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
-	cookie := http.Cookie{
-		Name:     s.authConf.TokenCookie.Name,
-		Value:    value,
-		Path:     "/",
-		Domain:   s.authConf.TokenCookie.Domain,
-		HttpOnly: !s.authConf.DisableHTTPOnly,
-		Secure:   s.enabledTLS,
-		SameSite: http.SameSiteLaxMode,
-	}
-	if value == "" {
-		cookie.MaxAge = -1
-		cookie.Expires = time.Unix(0, 0)
-	}
-	http.SetCookie(w, &cookie)
-}
-
-func (s *Server) createSession(
-	w http.ResponseWriter, r *http.Request, session app.Session,
-) error {
-	token, err := s.sessionManager.CreateSession(r.Context(), session.UserID, session)
-	if err != nil {
-		mSessionCreations.WithLabelValues("error").Inc()
-		return err
-	}
-	mSessionCreations.WithLabelValues("success").Inc()
-	s.setSessionCookie(w, token)
-	return nil
-}
-
-func (s *Server) closeSession(
-	w http.ResponseWriter, r *http.Request,
-	token string,
-) error {
-	if err := s.sessionManager.CloseSession(r.Context(), token); err != nil {
-		mSessionClosures.WithLabelValues("error").Inc()
-		return err
-	}
-	mSessionClosures.WithLabelValues("success").Inc()
-	s.setSessionCookie(w, "")
-	return nil
-}
-
-// authSess reads the session token from r and checks CSRF when necessary.
-// If onClose != nil it will be closed once the session is closed.
-func (s *Server) auth(
-	w http.ResponseWriter, r *http.Request,
-) (sess app.Session, token string, ok bool) {
-	c, err := r.Cookie(s.authConf.TokenCookie.Name)
-	if err != nil {
-		if errors.Is(err, http.ErrNoCookie) {
-			mSessionReads.WithLabelValues("none").Inc()
-			return sess, "", true
-		}
-		return sess, "", false
-	}
-
-	sess, token, userID, ok, err := s.sessionManager.ReadSessionFromCookie(c)
-	if err != nil {
-		// Transient backend failure; keep the cookie, fail the request.
-		mSessionReads.WithLabelValues("error").Inc()
-		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
-		return app.Session{}, "", false
-	}
-	if !ok {
-		// Cookie is stale or malformed; clear it and continue as unauthenticated.
-		mSessionReads.WithLabelValues("stale").Inc()
-		s.setSessionCookie(w, "")
-		return app.Session{}, "", true
-	}
-	sess.UserID = userID
-
-	mSessionReads.WithLabelValues("valid").Inc()
-
-	if !s.checkCSRF(w, r, sess) {
-		return sess, token, false
-	}
-
-	return sess, token, true
-}
 
 // --- Prometheus Metrics ---
 
@@ -517,26 +519,6 @@ func (m brokerMetrics) OnDeliveryDropped() {
 	mBrokerDeliveriesDropped.Inc()
 }
 
-// brokerSubjectKind collapses high-cardinality subjects (per-user) into stable kinds.
-func brokerSubjectKind(subject string) string {
-	switch {
-	case strings.HasPrefix(subject, EvSubjPrefMessagingSent):
-		return "messaging.sent"
-	case strings.HasPrefix(subject, EvSubjPrefMessagingRead):
-		return "messaging.read"
-	case strings.HasPrefix(subject, EvSubjPrefMessagingWriting):
-		return "messaging.writing"
-	case strings.HasPrefix(subject, EvSubjPrefMessagingWritingStopped):
-		return "messaging.writing-stopped"
-	case subject == EvSubjPostArchived:
-		return "posts.archived"
-	case strings.HasPrefix(subject, EvSubjPrefSessionsClosed):
-		return "sessions.closed"
-	default:
-		return "unknown"
-	}
-}
-
 type statusRW struct {
 	http.ResponseWriter
 	status int
@@ -629,8 +611,554 @@ func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status 
 	return true
 }
 
+func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
+	_, _ = io.WriteString(w, `data-on:visibilitychange__window="if (!document.hidden) @get(window.location.href)"`)
+}
+
+func (s *Server) checkCSRF(
+	w http.ResponseWriter, r *http.Request, sess app.Session,
+) (ok bool) {
+	if sess.UserID == "" ||
+		r.Method == http.MethodGet ||
+		r.Method == http.MethodOptions ||
+		r.Method == http.MethodHead ||
+		s.csrfConf == nil {
+		return true
+	}
+	t := r.Header.Get("X-CSRF-Token")
+	if t == "" {
+		http.Error(
+			w,
+			http.StatusText(http.StatusForbidden),
+			http.StatusForbidden,
+		)
+		return false
+	}
+	if s.csrfConf.DevBypassToken != "" &&
+		t == s.csrfConf.DevBypassToken {
+		return true
+	}
+	if !s.csrfConf.TokenManager.ValidateToken(sess.UserID, sess.IssuedAt.Unix(), t) {
+		http.Error(
+			w,
+			http.StatusText(http.StatusForbidden),
+			http.StatusForbidden,
+		)
+		return false
+	}
+	return true
+}
+
+func (s *Server) writeHTML(
+	w http.ResponseWriter,
+	r *http.Request,
+	sess app.Session,
+	headGeneric, head, body templ.Component,
+	writeBodyAttrs func(w http.ResponseWriter),
+) error {
+	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+		<script type="module" src="/static/ds.min.js"></script>`)
+	if err != nil {
+		return err
+	}
+	if headGeneric != nil {
+		if err := headGeneric.Render(r.Context(), w); err != nil {
+			return err
+		}
+	}
+	if head != nil {
+		if err := head.Render(r.Context(), w); err != nil {
+			return err
+		}
+	}
+	if s.csrfConf != nil && sess.UserID != "" {
+		csrfToken := s.csrfConf.TokenManager.GenerateToken(
+			sess.UserID, sess.IssuedAt.Unix(),
+		)
+		if csrfToken != "" {
+			// Write the fetch X-CSRF-Token header injector.
+			if _, err := io.WriteString(w, `
+	<script type="module">
+		const o = globalThis.fetch.bind(globalThis)
+		globalThis.fetch=(i,init={}) => {
+			const isReq=i instanceof Request
+			const r=isReq ? i:new Request(i,init)
+			if (r.headers.get("Datastar-Request")!=="true" ||
+				r.method=="GET"||r.method=="HEAD"||r.method=="OPTIONS"
+			) return isReq ? o(r,init):o(r)
+			const h=new Headers(r.headers)
+			h.set("X-CSRF-Token",'`); err != nil {
+				return err
+			}
+			if _, err := io.WriteString(w, csrfToken); err != nil {
+				return err
+			}
+			if _, err := io.WriteString(w, `')
+			return o(new Request(r,{...init,headers:h}))
+		}
+	</script>`); err != nil {
+				return err
+			}
+		} else {
+			s.logger.Warn("generated empty CSRF token",
+				slog.String("user-id", sess.UserID),
+				slog.Time("issued-at", sess.IssuedAt))
+		}
+	}
+	if _, err := io.WriteString(w, "</head><body "); err != nil {
+		return err
+	}
+	if writeBodyAttrs != nil {
+		writeBodyAttrs(w)
+	}
+	if _, err := io.WriteString(w, ">"); err != nil {
+		return err
+	}
+	if err := body.Render(r.Context(), w); err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, "</body></html>")
+	return err
+}
+
+func (s *Server) handleStreamRequest(
+	w http.ResponseWriter, r *http.Request, sessKey string, sess app.Session,
+	subjects []string,
+	fn func(
+		sse *datastar.ServerSentEventGenerator,
+		ch <-chan msgbroker.Message,
+	),
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	mSSEConnections.Inc()
+	defer mSSEConnections.Dec()
+	start := time.Now()
+
+	ctx := r.Context()
+	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
+		return
+	}
+
+	subC := sub.C()
+	sessionClosed := make(chan struct{})
+
+	if sess.UserID != "" {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		if err := s.sessionManager.NotifyClosed(ctx, sessKey, func() {
+			close(sessionClosed)
+		}); err != nil {
+			s.httpErrIntern(w, r, sse, "setting up session closure watcher", err)
+			return
+		}
+	}
+
+	go func() {
+		// Close the subscription when the request is canceled or the session is closed.
+		select {
+		case <-sessionClosed:
+			mSSEDisconnects.WithLabelValues("close").Inc()
+		case <-r.Context().Done():
+			mSSEDisconnects.WithLabelValues("client").Inc()
+		case <-s.shutdownCh:
+			mSSEDisconnects.WithLabelValues("shutdown").Inc()
+		}
+		mSSEConnectionDuration.Observe(time.Since(start).Seconds())
+		sub.Close()
+	}()
+
+	fn(sse, subC)
+}
+
+type Server struct {
+	shutdownCh           chan struct{} // Closed when shutting down.
+	shutdownOnce         sync.Once
+	runCancel            context.CancelFunc
+	httpServer           *http.Server
+	messageBroker        msgbroker.MessageBroker
+	messageBrokerMetrics brokerMetrics
+	app                  *app.App
+	mux                  *http.ServeMux
+	logger               *slog.Logger
+	middleware           []func(http.Handler) http.Handler
+	staticURLPath        string
+	staticFS             http.FileSystem
+	enabledTLS           bool
+
+	metricsServer         *http.Server
+	authConf              *AuthConfig
+	sessionTokenGenerator sessmanager.TokenGenerator
+	sessionManager        sessmanager.SessionManager[app.Session]
+	csrfConf              *CSRFConfig
+}
+
+// NewServer creates a new server instance.
+// Supported options:
+//
+//   - WithMiddleware
+//   - WithHTTPServer
+//   - WithStaticFS
+//   - WithCSRFProtection
+//   - WithPrometheus
+func NewServer(
+	app *app.App,
+	messageBroker msgbroker.MessageBroker,
+	sessionManager sessmanager.SessionManager[app.Session],
+	opts ...ServerOption,
+) *Server {
+	s := &Server{
+		shutdownCh: make(chan struct{}),
+		httpServer: &http.Server{
+			// Time to read request headers + body
+			ReadTimeout: DefaultHTTPReadTimeout,
+			// Time to read just headers (helps prevent Slowloris attacks)
+			ReadHeaderTimeout: DefaultHTTPReadHeaderTimeout,
+			// Time to write response
+			WriteTimeout: DefaultHTTPWriteTimeout,
+			// Time to wait for next request when using keep-alive
+			IdleTimeout:    DefaultHTTPIdleTimeout,
+			MaxHeaderBytes: DefaultHTTPMaxHeaderBytes,
+		},
+		app:                  app,
+		mux:                  http.NewServeMux(),
+		middleware:           []func(http.Handler) http.Handler{},
+		messageBroker:        messageBroker,
+		messageBrokerMetrics: brokerMetrics{},
+		sessionManager:       sessionManager,
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		if err := opt(s); err != nil {
+			panic(fmt.Errorf("applying server option: %w", err))
+		}
+	}
+
+	// Reverse handlers such that they're invoked in the order of definition.
+	slices.Reverse(s.middleware)
+
+	if s.metricsServer == nil {
+		// package app is using prometheus metrics, hence WithPrometheus is required.
+		panic("missing option WithPrometheus")
+	}
+
+	if s.sessionManager == nil {
+		panic("missing SessionManager")
+	}
+	if s.authConf == nil {
+		s.authConf = &AuthConfig{
+			TokenCookie: AuthSessionConfigTokenCookie{
+				Name: DefaultAuthSessionCookieName,
+			},
+		}
+	}
+	if s.sessionTokenGenerator == nil {
+		s.sessionTokenGenerator = sesstokgen.Generator{
+			Length: sesstokgen.DefaultLength,
+		}
+	}
+
+	// Use defaults if not set.
+	if s.logger == nil {
+		opt := &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		}
+		if IsDevMode() {
+			opt.Level = slog.LevelDebug
+		}
+		s.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
+	}
+	s.httpServer.Handler = s
+	if s.httpServer.ErrorLog == nil {
+		s.httpServer.ErrorLog = slog.NewLogLogger(
+			slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}),
+			slog.LevelInfo,
+		)
+	}
+	if s.messageBroker == nil {
+		panic("missing message broker")
+	}
+	if si, ok := s.messageBroker.(msgbroker.StreamInitializer); ok {
+		if err := si.InitStreams(MessageBrokerStreamSubjects()); err != nil {
+			panic(fmt.Sprintf("initializing message broker streams: %v", err))
+		}
+	}
+	if s.csrfConf == nil {
+		panic("missing option WithCSRFProtection")
+	} else if s.csrfConf != nil && s.csrfConf.TokenManager == nil {
+		panic("CSRFConfig.TokenManager is nil")
+	}
+
+	if s.metricsServer != nil {
+		s.middleware = append(s.middleware, s.metricsMiddleware)
+	}
+
+	setupHandlers(s)
+	if s.staticFS != nil {
+		h := http.StripPrefix("/static/", http.FileServer(s.staticFS))
+		if IsDevMode() {
+			h = devNoCache(h)
+		}
+		s.mux.Handle("GET /static/", h)
+	}
+
+	return s
+}
+
+const (
+	EvSubjMessagingRead           = "messaging.read.*"
+	EvSubjMessagingSent           = "messaging.sent.*"
+	EvSubjMessagingWriting        = "messaging.writing.*"
+	EvSubjMessagingWritingStopped = "messaging.writing-stopped.*"
+	EvSubjSessionClosed           = "sessions.closed.*"
+
+	// Public events:
+
+	EvSubjPostArchived = "posts.archived"
+)
+
+const (
+	EvSubjPrefMessagingRead           = "messaging.read."
+	EvSubjPrefMessagingSent           = "messaging.sent."
+	EvSubjPrefMessagingWriting        = "messaging.writing."
+	EvSubjPrefMessagingWritingStopped = "messaging.writing-stopped."
+	EvSubjPrefSessionClosed           = "sessions.closed."
+)
+
+func MessageBrokerStreamSubjects() []string {
+	return []string{
+		EvSubjMessagingRead,
+		EvSubjMessagingSent,
+		EvSubjMessagingWriting,
+		EvSubjMessagingWritingStopped,
+		EvSubjPostArchived,
+		EvSubjSessionClosed,
+	}
+}
+
+func evSubjPageError404(userID string) []string {
+	return []string{
+		EvSubjPrefMessagingSent + userID,
+		EvSubjPrefMessagingRead + userID,
+	}
+}
+
+func evSubjPageIndex(userID string) []string {
+	return []string{
+		EvSubjPrefMessagingSent + userID,
+		EvSubjPrefMessagingRead + userID,
+	}
+}
+
+func evSubjPageMessages(userID string) []string {
+	return []string{
+		EvSubjPrefMessagingRead + userID,
+		EvSubjPrefMessagingWriting + userID,
+		EvSubjPrefMessagingWritingStopped + userID,
+		EvSubjPrefMessagingSent + userID,
+	}
+}
+
+func evSubjPageMyPosts(userID string) []string {
+	return []string{
+		EvSubjPrefMessagingSent + userID,
+		EvSubjPrefMessagingRead + userID,
+	}
+}
+
+func evSubjPagePost(userID string) []string {
+	if userID == "" {
+		return []string{
+			EvSubjPostArchived,
+		}
+	}
+	return []string{
+		EvSubjPostArchived,
+		EvSubjPrefMessagingSent + userID,
+		EvSubjPrefMessagingRead + userID,
+	}
+}
+
+func evSubjPageSearch(userID string) []string {
+	return []string{
+		EvSubjPrefMessagingSent + userID,
+		EvSubjPrefMessagingRead + userID,
+	}
+}
+
+func evSubjPageSettings(userID string) []string {
+	return []string{
+		EvSubjPrefSessionClosed + userID,
+		EvSubjPrefMessagingSent + userID,
+		EvSubjPrefMessagingRead + userID,
+	}
+}
+
+func evSubjPageUser(userID string) []string {
+	if userID == "" {
+		return []string{
+			EvSubjPostArchived,
+		}
+	}
+	return []string{
+		EvSubjPostArchived,
+		EvSubjPrefMessagingSent + userID,
+		EvSubjPrefMessagingRead + userID,
+	}
+}
+
+// --- Auth ---
+
+const DefaultAuthSessionCookieName = "sessiontoken"
+
+type AuthConfig struct {
+	// SessionTokenGenerator is optional; defaults to sesstokgen.Generator
+	SessionTokenGenerator sessmanager.TokenGenerator
+
+	// TokenCookie is optional; defaults to DefaultAuthSessionCookieName
+	TokenCookie AuthSessionConfigTokenCookie
+
+	// DisableHTTPOnly is optional; By default, httponly is enabled.
+	DisableHTTPOnly bool
+}
+
+type AuthSessionConfigTokenCookie struct {
+	// Name is optional; Default is DefaultAuthSessionCookieName
+	Name string
+	// Domain is optional; Not set by default.
+	Domain string
+}
+
+// WithAuth sets session-based authentication configuration.
+func WithAuth(o AuthConfig) ServerOption {
+	return func(s *Server) error {
+		if o.TokenCookie.Name == "" {
+			o.TokenCookie.Name = DefaultAuthSessionCookieName
+		}
+		s.authConf = &o
+		s.sessionTokenGenerator = o.SessionTokenGenerator
+		return nil
+	}
+}
+
+func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
+	cookie := http.Cookie{
+		Name:     s.authConf.TokenCookie.Name,
+		Value:    value,
+		Path:     "/",
+		Domain:   s.authConf.TokenCookie.Domain,
+		HttpOnly: !s.authConf.DisableHTTPOnly,
+		Secure:   s.enabledTLS,
+		SameSite: http.SameSiteLaxMode,
+	}
+	if value == "" {
+		cookie.MaxAge = -1
+		cookie.Expires = time.Unix(0, 0)
+	}
+	http.SetCookie(w, &cookie)
+}
+
+func (s *Server) createSession(
+	w http.ResponseWriter, r *http.Request, session app.Session,
+) error {
+	token, err := s.sessionManager.CreateSession(r.Context(), session.UserID, session)
+	if err != nil {
+		mSessionCreations.WithLabelValues("error").Inc()
+		return err
+	}
+	mSessionCreations.WithLabelValues("success").Inc()
+	s.setSessionCookie(w, token)
+	return nil
+}
+
+func (s *Server) closeSession(
+	w http.ResponseWriter, r *http.Request,
+	token string,
+) error {
+	if err := s.sessionManager.CloseSession(r.Context(), token); err != nil {
+		mSessionClosures.WithLabelValues("error").Inc()
+		return err
+	}
+	mSessionClosures.WithLabelValues("success").Inc()
+	s.setSessionCookie(w, "")
+	return nil
+}
+
+// authSess reads the session token from r and checks CSRF when necessary.
+// If onClose != nil it will be closed once the session is closed.
+func (s *Server) auth(
+	w http.ResponseWriter, r *http.Request,
+) (sess app.Session, token string, ok bool) {
+	c, err := r.Cookie(s.authConf.TokenCookie.Name)
+	if err != nil {
+		if errors.Is(err, http.ErrNoCookie) {
+			mSessionReads.WithLabelValues("none").Inc()
+			return sess, "", true
+		}
+		return sess, "", false
+	}
+
+	sess, token, userID, ok, err := s.sessionManager.ReadSessionFromCookie(c)
+	if err != nil {
+		// Transient backend failure; keep the cookie, fail the request.
+		mSessionReads.WithLabelValues("error").Inc()
+		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
+		return app.Session{}, "", false
+	}
+	if !ok {
+		// Cookie is stale or malformed; clear it and continue as unauthenticated.
+		mSessionReads.WithLabelValues("stale").Inc()
+		s.setSessionCookie(w, "")
+		return app.Session{}, "", true
+	}
+	sess.UserID = userID
+
+	mSessionReads.WithLabelValues("valid").Inc()
+
+	if !s.checkCSRF(w, r, sess) {
+		return sess, token, false
+	}
+
+	return sess, token, true
+}
+
+// brokerSubjectKind collapses high-cardinality subjects (per-user) into stable kinds.
+func brokerSubjectKind(subject string) string {
+	switch {
+	case strings.HasPrefix(subject, EvSubjPrefMessagingRead):
+		return "messaging.read"
+	case strings.HasPrefix(subject, EvSubjPrefMessagingSent):
+		return "messaging.sent"
+	case strings.HasPrefix(subject, EvSubjPrefMessagingWriting):
+		return "messaging.writing"
+	case strings.HasPrefix(subject, EvSubjPrefMessagingWritingStopped):
+		return "messaging.writing-stopped"
+	case subject == EvSubjPostArchived:
+		return "posts.archived"
+	case strings.HasPrefix(subject, EvSubjPrefSessionClosed):
+		return "sessions.closed"
+	default:
+		return "unknown"
+	}
+}
+
 func setupHandlers(s *Server) {
 	// Pages
+	s.mux.HandleFunc(
+		"GET /not-found/{$}",
+		s.handlePageError404GET)
+	s.mux.HandleFunc(
+		"GET /not-found/_$/{$}",
+		s.handlePageError404GETStream)
+	s.mux.HandleFunc(
+		"GET /whoops/{$}",
+		s.handlePageError500GET)
 	s.mux.HandleFunc(
 		"GET /",
 		s.handlePageIndexGET)
@@ -638,23 +1166,35 @@ func setupHandlers(s *Server) {
 		"GET /_$/{$}",
 		s.handlePageIndexGETStream)
 	s.mux.HandleFunc(
-		"POST /cause-500-internal-error/{$}",
-		s.handlePOSTCause500)
-	s.mux.HandleFunc(
-		"POST /sign-out/{$}",
-		s.handlePageSettingsPOSTSignOut)
-	s.mux.HandleFunc(
-		"GET /not-found/{$}",
-		s.handlePageError404GET)
-	s.mux.HandleFunc(
-		"GET /whoops/{$}",
-		s.handlePageError500GET)
-	s.mux.HandleFunc(
 		"GET /login/{$}",
 		s.handlePageLoginGET)
 	s.mux.HandleFunc(
-		"POST /login/submit/{$}",
-		s.handlePageLoginPOSTSubmit)
+		"GET /messages/{$}",
+		s.handlePageMessagesGET)
+	s.mux.HandleFunc(
+		"GET /messages/_$/{$}",
+		s.handlePageMessagesGETStream)
+	s.mux.HandleFunc(
+		"GET /my-posts/{$}",
+		s.handlePageMyPostsGET)
+	s.mux.HandleFunc(
+		"GET /my-posts/_$/{$}",
+		s.handlePageMyPostsGETStream)
+	s.mux.HandleFunc(
+		"GET /post/{slug}/{$}",
+		s.handlePagePostGET)
+	s.mux.HandleFunc(
+		"GET /post/{slug}/_$/{$}",
+		s.handlePagePostGETStream)
+	s.mux.HandleFunc(
+		"GET /post/{slug}/_$/anon/{$}",
+		s.handlePagePostGETStreamAnon)
+	s.mux.HandleFunc(
+		"GET /search/{$}",
+		s.handlePageSearchGET)
+	s.mux.HandleFunc(
+		"GET /search/_$/{$}",
+		s.handlePageSearchGETStream)
 	s.mux.HandleFunc(
 		"GET /settings/{$}",
 		s.handlePageSettingsGET)
@@ -662,20 +1202,23 @@ func setupHandlers(s *Server) {
 		"GET /settings/_$/{$}",
 		s.handlePageSettingsGETStream)
 	s.mux.HandleFunc(
-		"POST /settings/save/{$}",
-		s.handlePageSettingsPOSTSave)
+		"GET /user/{name}/{$}",
+		s.handlePageUserGET)
 	s.mux.HandleFunc(
-		"POST /settings/close-session/{token}/{$}",
-		s.handlePageSettingsPOSTCloseSession)
+		"GET /user/{name}/_$/{$}",
+		s.handlePageUserGETStream)
 	s.mux.HandleFunc(
-		"POST /settings/close-all-sessions/{$}",
-		s.handlePageSettingsPOSTCloseAllSessions)
+		"GET /user/{name}/_$/anon/{$}",
+		s.handlePageUserGETStreamAnon)
 	s.mux.HandleFunc(
-		"GET /messages/{$}",
-		s.handlePageMessagesGET)
+		"POST /sign-out/{$}",
+		s.handlePOSTSignOut)
 	s.mux.HandleFunc(
-		"GET /messages/_$/{$}",
-		s.handlePageMessagesGETStream)
+		"POST /cause-500-internal-error/{$}",
+		s.handlePOSTCause500)
+	s.mux.HandleFunc(
+		"POST /login/submit/{$}",
+		s.handlePageLoginPOSTSubmit)
 	s.mux.HandleFunc(
 		"POST /messages/read/{$}",
 		s.handlePageMessagesPOSTRead)
@@ -689,37 +1232,20 @@ func setupHandlers(s *Server) {
 		"POST /messages/sendmessage/{$}",
 		s.handlePageMessagesPOSTSendMessage)
 	s.mux.HandleFunc(
-		"GET /search/{$}",
-		s.handlePageSearchGET)
-	s.mux.HandleFunc(
-		"GET /search/_$/{$}",
-		s.handlePageSearchGETStream)
+		"POST /post/{slug}/send-message/{$}",
+		s.handlePagePostPOSTSendMessage)
 	s.mux.HandleFunc(
 		"POST /search/paramchange/{$}",
 		s.handlePageSearchPOSTParamChange)
 	s.mux.HandleFunc(
-		"GET /user/{name}/{$}",
-		s.handlePageUserGET)
+		"POST /settings/save/{$}",
+		s.handlePageSettingsPOSTSave)
 	s.mux.HandleFunc(
-		"GET /my-posts/{$}",
-		s.handlePageMyPostsGET)
+		"POST /settings/close-session/{token}/{$}",
+		s.handlePageSettingsPOSTCloseSession)
 	s.mux.HandleFunc(
-		"GET /post/{slug}/{$}",
-		s.handlePagePostGET)
-	s.mux.HandleFunc(
-		"GET /post/{slug}/_$/{$}",
-		s.handlePagePostGETStream)
-	s.mux.HandleFunc(
-		"GET /post/{slug}/_$/anon/{$}",
-		s.handlePagePostGETStreamAnon)
-	s.mux.HandleFunc(
-		"POST /post/{slug}/send-message/{$}",
-		s.handlePagePostPOSTSendMessage)
-}
-
-func (s *Server) httpErrUnauth(w http.ResponseWriter) {
-	const code = http.StatusUnauthorized
-	http.Error(w, http.StatusText(code), code)
+		"POST /settings/close-all-sessions/{$}",
+		s.handlePageSettingsPOSTCloseAllSessions)
 }
 
 func (s *Server) httpErrIntern(
@@ -756,15 +1282,17 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := app.PageError404{
-		App:  s.app,
-		Base: app.Base{App: s.app},
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
+
 	body, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
 		return
 	}
-
 	genericHead, err := s.app.Head(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "generating generic head for PageError404", err)
@@ -774,7 +1302,6 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
 	}
-
 	if err := s.writeHTML(
 		w, r, app.Session{}, genericHead, nil, body, bodyAttrs,
 	); err != nil {
@@ -783,51 +1310,14 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePOSTCause500(w http.ResponseWriter, r *http.Request) {
-	if err := s.app.POSTCause500(r); err != nil {
-		s.httpErrIntern(w, r, nil, "handling action App.POSTCause500", err)
-	}
-}
-
-func (s *Server) handlePageSettingsPOSTCloseSession(
-	w http.ResponseWriter, r *http.Request,
-) {
+func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 	sess, sessToken, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
-
-	var path struct {
-		Token string `path:"token"`
-	}
-	path.Token = r.PathValue("token")
-
-	dispatch := func(
-		e1 app.EventSessionClosed,
-	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
-			}
-			for _, uid := range e1.TargetUserIDs {
-				subj := EvSubjPrefSessionsClosed + uid
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
-		}
-		return nil
-	}
-
-	p := app.PageSettings{
-		App:  s.app,
-		Base: app.Base{App: s.app},
-	}
-	closeSession, redirect, err := p.POSTCloseSession(r, sessToken, sess, path, dispatch)
+	closeSession, redirect, err := s.app.POSTSignOut(r, sess)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageUser.GET", err)
+		s.httpErrIntern(w, r, nil, "handling action App.SignOut", err)
 		return
 	}
 	if closeSession {
@@ -841,56 +1331,110 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 	}
 }
 
-func (s *Server) handlePageSettingsPOSTCloseAllSessions(
-	w http.ResponseWriter, r *http.Request,
-) {
+func (s *Server) handlePOSTCause500(w http.ResponseWriter, r *http.Request) {
+	err := s.app.POSTCause500(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Cause500", err)
+		return
+	}
+}
+
+func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventSessionClosed,
-	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
-			}
-			for _, uid := range e1.TargetUserIDs {
-				subj := EvSubjPrefSessionsClosed + uid
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
-		}
-		return nil
+	p := app.PageError404{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
-
-	p := app.PageSettings{
-		App:  s.app,
-		Base: app.Base{App: s.app},
-	}
-	redirect, err := p.POSTCloseAllSessions(r, sess, dispatch)
+	body, err := p.GET(r, sess)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action App.POSTCloseAllSessions", err)
+		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect, 0) {
+	genericHead, err := s.app.Head(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "generating generic head for PageError404", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+
+		if sess.UserID != "" {
+			_, _ = io.WriteString(w, `data-init="@get('/not-found/_$/')"`)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs,
+	); err != nil {
+		s.logErr("rendering PageError404", err)
 		return
 	}
 }
 
-func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageError500{App: s.app}
-	body, disableRefreshAfterHidden, err := p.GET(r)
-	if err != nil {
-		// Fall back to basic 500 error page.
-		s.httpErrIntern(w, r, nil, "handling PageError500.GET", err)
+func (s *Server) handlePageError404GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.auth(w, r)
+	if !ok {
 		return
 	}
 
+	if sess.UserID == "" {
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return
+	}
+
+	p := app.PageError404{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageError404(sess.UserID), func(
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+	) {
+		for msg := range ch {
+			switch {
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
+				var e app.EventMessagingSent
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingSent JSON", err)
+					continue
+				}
+				if err := p.OnMessagingSent(e, sse, sess); err != nil {
+					s.logErr("handling PageError404.OnMessagingSent", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
+				var e app.EventMessagingRead
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingRead JSON", err)
+					continue
+				}
+				if err := p.OnMessagingRead(e, sse, sess); err != nil {
+					s.logErr("handling PageError404.OnMessagingRead", err)
+				}
+			}
+		}
+	})
+}
+
+func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
+	p := app.PageError500{
+		App: s.app,
+	}
+	body, disableRefreshAfterHidden, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageError500.GET", err)
+		return
+	}
 	genericHead, err := s.app.Head(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "generating generic head for PageError500", err)
@@ -923,8 +1467,10 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := app.PageIndex{
-		App:  s.app,
-		Base: app.Base{App: s.app},
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
 	body, err := p.GET(r, sess)
 	if err != nil {
@@ -968,8 +1514,10 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	}
 
 	p := app.PageIndex{
-		App:  s.app,
-		Base: app.Base{App: s.app},
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex(sess.UserID), func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
@@ -983,7 +1531,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 					continue
 				}
 				if err := p.OnMessagingSent(e, sse, sess); err != nil {
-					s.logErr("handling PageIndex.Base.OnMessagingSent", err)
+					s.logErr("handling PageIndex.OnMessagingSent", err)
 				}
 			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
 				var e app.EventMessagingRead
@@ -992,44 +1540,11 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 					continue
 				}
 				if err := p.OnMessagingRead(e, sse, sess); err != nil {
-					s.logErr("handling PageIndex.Base.OnMessagingRead", err)
+					s.logErr("handling PageIndex.OnMessagingRead", err)
 				}
 			}
 		}
 	})
-}
-
-func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
-	sess, _, ok := s.auth(w, r)
-	if !ok {
-		return
-	}
-
-	p := app.PageError404{
-		App:  s.app,
-		Base: app.Base{App: s.app},
-	}
-	body, err := p.GET(r, sess)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
-		return
-	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageError404", err)
-		return
-	}
-
-	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
-	}
-
-	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs,
-	); err != nil {
-		s.logErr("rendering PageError404", err)
-		return
-	}
 }
 
 func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
@@ -1038,7 +1553,9 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := app.PageLogin{App: s.app}
+	p := app.PageLogin{
+		App: s.app,
+	}
 	body, redirect, disableRefreshAfterHidden, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
@@ -1067,7 +1584,9 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePageLoginPOSTSubmit(
+	w http.ResponseWriter, r *http.Request,
+) {
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
@@ -1075,6 +1594,7 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
 	var signals struct {
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`
@@ -1083,13 +1603,12 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
-
-	p := app.PageLogin{App: s.app}
-	body, redirect, redirectStatus, newSession, err := p.POSTSubmit(
-		r, sess, signals,
-	)
+	p := app.PageLogin{
+		App: s.app,
+	}
+	body, redirect, redirectStatus, newSession, err := p.POSTSubmit(r, sess, signals)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageLogin.POSTSubmit", err)
+		s.httpErrIntern(w, r, nil, "handling action PageLogin.Submit", err)
 		return
 	}
 	if j := newSession; j.UserID != "" {
@@ -1102,166 +1621,13 @@ func (s *Server) handlePageLoginPOSTSubmit(w http.ResponseWriter, r *http.Reques
 	}
 	genericHead, err := s.app.Head(r)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageLogin.PostSubmit", err)
+		s.httpErrIntern(w, r, nil, "generating generic head for PageLogin.POSTSubmit", err)
 		return
 	}
 	if err := s.writeHTML(
 		w, r, sess, genericHead, nil, body, nil,
 	); err != nil {
 		s.logErr("rendering response of PageLogin.POSTSubmit", err)
-		return
-	}
-}
-
-func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
-	sess, _, ok := s.auth(w, r)
-	if !ok {
-		return
-	}
-
-	p := app.PageSettings{
-		App:  s.app,
-		Base: app.Base{App: s.app},
-	}
-	body, redirect, err := p.GET(r, sess)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageSettings.GET", err)
-		return
-	}
-	if httpRedirect(w, r, redirect, 0) {
-		return
-	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageSettings", err)
-		return
-	}
-
-	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
-
-		if sess.UserID != "" {
-			_, _ = io.WriteString(w, `data-init="@get('/settings/_$/')"`)
-		}
-	}
-
-	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs,
-	); err != nil {
-		s.logErr("rendering PageSettings", err)
-		return
-	}
-}
-
-func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Request) {
-	if !s.checkIsDSReq(w, r) {
-		return
-	}
-	sess, sessToken, ok := s.auth(w, r)
-	if !ok {
-		return
-	}
-
-	if sess.UserID == "" {
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-		return
-	}
-
-	p := app.PageSettings{
-		App:  s.app,
-		Base: app.Base{App: s.app},
-	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageSettings(sess.UserID), func(
-		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
-	) {
-		for msg := range ch {
-			switch {
-			case strings.HasPrefix(msg.Subject, EvSubjPrefSessionsClosed):
-				var e app.EventSessionClosed
-				if err := json.Unmarshal(msg.Data, &e); err != nil {
-					s.logErr("unmarshaling EventSessionClosed JSON", err)
-					continue
-				}
-				if err := p.OnSessionClosed(e, sse, sessToken, sess); err != nil {
-					s.logErr("handling PageSettings.OnSessionClosed", err)
-				}
-			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-				var e app.EventMessagingSent
-				if err := json.Unmarshal(msg.Data, &e); err != nil {
-					s.logErr("unmarshaling EventMessagingSent JSON", err)
-					continue
-				}
-				if err := p.OnMessagingSent(e, sse, sess); err != nil {
-					s.logErr("handling PageSettings.Base.OnMessagingSent", err)
-				}
-			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-				var e app.EventMessagingRead
-				if err := json.Unmarshal(msg.Data, &e); err != nil {
-					s.logErr("unmarshaling EventMessagingRead JSON", err)
-					continue
-				}
-				if err := p.OnMessagingRead(e, sse, sess); err != nil {
-					s.logErr("handling PageSettings.Base.OnMessagingRead", err)
-				}
-			}
-		}
-	})
-}
-
-func (s *Server) handlePageSettingsPOSTSave(w http.ResponseWriter, r *http.Request) {
-	if !s.checkIsDSReq(w, r) {
-		return
-	}
-	sess, _, ok := s.auth(w, r)
-	if !ok {
-		return
-	}
-	var signals struct {
-		Username string `json:"username"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
-		s.httpErrBad(w, "reading signals", err)
-		return
-	}
-
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	p := app.PageSettings{
-		App:  s.app,
-		Base: app.Base{App: s.app},
-	}
-	redirect, err := p.POSTSave(r, sse, sess, signals)
-	if err != nil {
-		s.httpErrIntern(w, r, sse, "handling action PageSettings.POSTSave", err)
-		return
-	}
-	if httpRedirect(w, r, redirect, 0) {
-		return
-	}
-}
-
-func (s *Server) handlePageSettingsPOSTSignOut(w http.ResponseWriter, r *http.Request) {
-	if !s.checkIsDSReq(w, r) {
-		return
-	}
-
-	sess, sessToken, ok := s.auth(w, r)
-	if !ok {
-		s.httpErrUnauth(w)
-		return
-	}
-
-	closeSession, redirect, err := s.app.POSTSignOut(r, sess)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageSettings.PostSignOut", err)
-		return
-	}
-	if closeSession {
-		if err := s.closeSession(w, r, sessToken); err != nil {
-			s.httpErrIntern(w, r, nil, "removing session", err)
-			return
-		}
-	}
-	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
 }
@@ -1279,8 +1645,10 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 	query.Chat = q.Get("chat")
 
 	p := app.PageMessages{
-		App:  s.app,
-		Base: app.Base{App: s.app},
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
 	body, redirect, enableBackgroundStreaming, err := p.GET(r, sess, query)
 	if err != nil {
@@ -1352,37 +1720,24 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 	}
 
 	p := app.PageMessages{
-		App:  s.app,
-		Base: app.Base{App: s.app},
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageMessages(sess.UserID), func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 	) {
 		for msg := range ch {
 			switch {
-			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-				var e app.EventMessagingSent
-				if err := json.Unmarshal(msg.Data, &e); err != nil {
-					s.logErr("unmarshaling EventMessagingSent JSON", err)
-					continue
-				}
-				if err := p.Base.OnMessagingSent(e, sse, sess); err != nil {
-					s.logErr("handling PageMessages.Base.OnMessagingSent", err)
-				}
-				if err := p.OnMessagingSent(e, sse, sess, signals); err != nil {
-					s.logErr("handling PageMessages.OnMessagingSent", err)
-				}
 			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
 				var e app.EventMessagingRead
 				if err := json.Unmarshal(msg.Data, &e); err != nil {
 					s.logErr("unmarshaling EventMessagingRead JSON", err)
 					continue
 				}
-				if err := p.Base.OnMessagingRead(e, sse, sess); err != nil {
-					s.logErr("handling PageMessages.Base.OnMessagingSent", err)
-				}
 				if err := p.OnMessagingRead(e, sse, sess, signals); err != nil {
-					s.logErr("handling PageMessages.OnMessagingSent", err)
+					s.logErr("handling PageMessages.OnMessagingRead", err)
 				}
 			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingWriting):
 				var e app.EventMessagingWriting
@@ -1401,6 +1756,15 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 				}
 				if err := p.OnMessagingWritingStopped(e, sse, sess); err != nil {
 					s.logErr("handling PageMessages.OnMessagingWritingStopped", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
+				var e app.EventMessagingSent
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingSent JSON", err)
+					continue
+				}
+				if err := p.OnMessagingSent(e, sse, sess, signals); err != nil {
+					s.logErr("handling PageMessages.OnMessagingSent", err)
 				}
 			}
 		}
@@ -1450,13 +1814,15 @@ func (s *Server) handlePageMessagesPOSTRead(
 		}
 		return nil
 	}
-
 	p := app.PageMessages{
-		App:  s.app,
-		Base: app.Base{App: s.app},
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
-	if err := p.POSTRead(r, sess, query, signals, dispatch); err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTRead", err)
+	err := p.POSTRead(r, sess, query, signals, dispatch)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageMessages.Read", err)
 		return
 	}
 }
@@ -1498,13 +1864,15 @@ func (s *Server) handlePageMessagesPOSTWriting(
 		}
 		return nil
 	}
-
 	p := app.PageMessages{
-		App:  s.app,
-		Base: app.Base{App: s.app},
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
-	if err := p.POSTWriting(r, sess, signals, dispatch); err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTWriting", err)
+	err := p.POSTWriting(r, sess, signals, dispatch)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageMessages.Writing", err)
 		return
 	}
 }
@@ -1546,13 +1914,15 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 		}
 		return nil
 	}
-
 	p := app.PageMessages{
-		App:  s.app,
-		Base: app.Base{App: s.app},
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
-	if err := p.POSTWritingStopped(r, sess, signals, dispatch); err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTWritingStopped", err)
+	err := p.POSTWritingStopped(r, sess, signals, dispatch)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageMessages.WritingStopped", err)
 		return
 	}
 }
@@ -1609,13 +1979,309 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 		}
 		return nil
 	}
-
 	p := app.PageMessages{
-		App:  s.app,
-		Base: app.Base{App: s.app},
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
-	if err := p.POSTSendMessage(r, sess, signals, dispatch); err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTSendMessage", err)
+	err := p.POSTSendMessage(r, sess, signals, dispatch)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageMessages.SendMessage", err)
+		return
+	}
+}
+
+func (s *Server) handlePageMyPostsGET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	p := app.PageMyPosts{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
+	}
+	body, head, redirect, err := p.GET(r, sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageMyPosts.GET", err)
+		return
+	}
+	if httpRedirect(w, r, redirect, 0) {
+		return
+	}
+	genericHead, err := s.app.Head(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "generating generic head for PageMyPosts", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+
+		if sess.UserID != "" {
+			_, _ = io.WriteString(w, `data-init="@get('/my-posts/_$/')"`)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, genericHead, head, body, bodyAttrs,
+	); err != nil {
+		s.logErr("rendering PageMyPosts", err)
+		return
+	}
+}
+
+func (s *Server) handlePageMyPostsGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID == "" {
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return
+	}
+
+	p := app.PageMyPosts{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageMyPosts(sess.UserID), func(
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+	) {
+		for msg := range ch {
+			switch {
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
+				var e app.EventMessagingSent
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingSent JSON", err)
+					continue
+				}
+				if err := p.OnMessagingSent(e, sse, sess); err != nil {
+					s.logErr("handling PageMyPosts.OnMessagingSent", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
+				var e app.EventMessagingRead
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingRead JSON", err)
+					continue
+				}
+				if err := p.OnMessagingRead(e, sse, sess); err != nil {
+					s.logErr("handling PageMyPosts.OnMessagingRead", err)
+				}
+			}
+		}
+	})
+}
+
+func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	var path struct {
+		Slug string `path:"slug"`
+	}
+	path.Slug = r.PathValue("slug")
+
+	p := app.PagePost{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
+	}
+	body, head, redirect, err := p.GET(r, sess, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PagePost.GET", err)
+		return
+	}
+	if httpRedirect(w, r, redirect, 0) {
+		return
+	}
+	genericHead, err := s.app.Head(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "generating generic head for PagePost", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+
+		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, `/post/`)
+		_, _ = io.WriteString(w, path.Slug)
+		_, _ = io.WriteString(w, `/`)
+		if sess.UserID != "" {
+			_, _ = io.WriteString(w, `/_$/')"`)
+		} else {
+			_, _ = io.WriteString(w, `/_$/anon/')"`)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, genericHead, head, body, bodyAttrs,
+	); err != nil {
+		s.logErr("rendering PagePost", err)
+		return
+	}
+}
+
+func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID == "" {
+		http.Redirect(w, r, r.URL.Path+"/anon", http.StatusSeeOther)
+		return
+	}
+
+	p := app.PagePost{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID), func(
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+	) {
+		for msg := range ch {
+			switch {
+			case msg.Subject == EvSubjPostArchived:
+				var e app.EventPostArchived
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventPostArchived JSON", err)
+					continue
+				}
+				if err := p.OnPostArchived(e, sse, sess); err != nil {
+					s.logErr("handling PagePost.OnPostArchived", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
+				var e app.EventMessagingSent
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingSent JSON", err)
+					continue
+				}
+				if err := p.OnMessagingSent(e, sse, sess); err != nil {
+					s.logErr("handling PagePost.OnMessagingSent", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
+				var e app.EventMessagingRead
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingRead JSON", err)
+					continue
+				}
+				if err := p.OnMessagingRead(e, sse, sess); err != nil {
+					s.logErr("handling PagePost.OnMessagingRead", err)
+				}
+			}
+		}
+	})
+}
+
+func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID != "" {
+		s.httpErrBad(w, "authenticated client on anonymous stream", nil)
+		return
+	}
+
+	p := app.PagePost{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID), func(
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+	) {
+		for msg := range ch {
+			if msg.Subject == EvSubjPostArchived {
+				var e app.EventPostArchived
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventPostArchived JSON", err)
+					continue
+				}
+				if err := p.OnPostArchived(e, sse, sess); err != nil {
+					s.logErr("handling PagePost.OnPostArchived", err)
+				}
+			}
+		}
+	})
+}
+
+func (s *Server) handlePagePostPOSTSendMessage(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+	var signals struct {
+		MessageText string `json:"messagetext"`
+	}
+	if err := datastar.ReadSignals(r, &signals); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+		return
+	}
+
+	var path struct {
+		Slug string `path:"slug"`
+	}
+	path.Slug = r.PathValue("slug")
+
+	dispatch := func(
+		e1 app.EventMessagingSent,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
+			}
+			for _, uid := range e1.TargetUserIDs {
+				subj := EvSubjPrefMessagingSent + uid
+				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
+				if err != nil {
+					return fmt.Errorf("publishing subject %q: %w", subj, err)
+				}
+			}
+		}
+		return nil
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	p := app.PagePost{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
+	}
+	err := p.POSTSendMessage(r, sse, sess, path, signals, dispatch)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PagePost.SendMessage", err)
 		return
 	}
 }
@@ -1653,8 +2319,10 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 	query.Location = q.Get("l")
 
 	p := app.PageSearch{
-		App:  s.app,
-		Base: app.Base{App: s.app},
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
 	body, err := p.GET(r, sess, query)
 	if err != nil {
@@ -1728,8 +2396,10 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 	}
 
 	p := app.PageSearch{
-		App:  s.app,
-		Base: app.Base{App: s.app},
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageSearch(sess.UserID), func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
@@ -1743,7 +2413,7 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 					continue
 				}
 				if err := p.OnMessagingSent(e, sse, sess); err != nil {
-					s.logErr("handling PageSearch.Base.OnMessagingSent", err)
+					s.logErr("handling PageSearch.OnMessagingSent", err)
 				}
 			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
 				var e app.EventMessagingRead
@@ -1752,11 +2422,270 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 					continue
 				}
 				if err := p.OnMessagingRead(e, sse, sess); err != nil {
-					s.logErr("handling PageSearch.Base.OnMessagingRead", err)
+					s.logErr("handling PageSearch.OnMessagingRead", err)
 				}
 			}
 		}
 	})
+}
+
+func (s *Server) handlePageSearchPOSTParamChange(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+	var signals app.SearchParams
+	if err := datastar.ReadSignals(r, &signals); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	p := app.PageSearch{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
+	}
+	err := p.POSTParamChange(r, sse, sess, signals)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageSearch.ParamChange", err)
+		return
+	}
+}
+
+func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	p := app.PageSettings{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
+	}
+	body, redirect, err := p.GET(r, sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageSettings.GET", err)
+		return
+	}
+	if httpRedirect(w, r, redirect, 0) {
+		return
+	}
+	genericHead, err := s.app.Head(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "generating generic head for PageSettings", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+
+		if sess.UserID != "" {
+			_, _ = io.WriteString(w, `data-init="@get('/settings/_$/')"`)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs,
+	); err != nil {
+		s.logErr("rendering PageSettings", err)
+		return
+	}
+}
+
+func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID == "" {
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return
+	}
+
+	p := app.PageSettings{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageSettings(sess.UserID), func(
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+	) {
+		for msg := range ch {
+			switch {
+			case strings.HasPrefix(msg.Subject, EvSubjPrefSessionClosed):
+				var e app.EventSessionClosed
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventSessionClosed JSON", err)
+					continue
+				}
+				if err := p.OnSessionClosed(e, sse, sessToken, sess); err != nil {
+					s.logErr("handling PageSettings.OnSessionClosed", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
+				var e app.EventMessagingSent
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingSent JSON", err)
+					continue
+				}
+				if err := p.OnMessagingSent(e, sse, sess); err != nil {
+					s.logErr("handling PageSettings.OnMessagingSent", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
+				var e app.EventMessagingRead
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingRead JSON", err)
+					continue
+				}
+				if err := p.OnMessagingRead(e, sse, sess); err != nil {
+					s.logErr("handling PageSettings.OnMessagingRead", err)
+				}
+			}
+		}
+	})
+}
+
+func (s *Server) handlePageSettingsPOSTSave(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+	var signals struct {
+		Username string `json:"username"`
+	}
+	if err := datastar.ReadSignals(r, &signals); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	p := app.PageSettings{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
+	}
+	redirect, err := p.POSTSave(r, sse, sess, signals)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageSettings.Save", err)
+		return
+	}
+	if httpRedirect(w, r, redirect, 0) {
+		return
+	}
+}
+
+func (s *Server) handlePageSettingsPOSTCloseSession(
+	w http.ResponseWriter, r *http.Request,
+) {
+	sess, sessToken, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	var path struct {
+		Token string `path:"token"`
+	}
+	path.Token = r.PathValue("token")
+
+	dispatch := func(
+		e1 app.EventSessionClosed,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
+			}
+			for _, uid := range e1.TargetUserIDs {
+				subj := EvSubjPrefSessionClosed + uid
+				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
+				if err != nil {
+					return fmt.Errorf("publishing subject %q: %w", subj, err)
+				}
+			}
+		}
+		return nil
+	}
+	p := app.PageSettings{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
+	}
+	closeSession, redirect, err := p.POSTCloseSession(r, sessToken, sess, path, dispatch)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageSettings.CloseSession", err)
+		return
+	}
+	if closeSession {
+		if err := s.closeSession(w, r, sessToken); err != nil {
+			s.httpErrIntern(w, r, nil, "removing session", err)
+			return
+		}
+	}
+	if httpRedirect(w, r, redirect, 0) {
+		return
+	}
+}
+
+func (s *Server) handlePageSettingsPOSTCloseAllSessions(
+	w http.ResponseWriter, r *http.Request,
+) {
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	dispatch := func(
+		e1 app.EventSessionClosed,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
+			}
+			for _, uid := range e1.TargetUserIDs {
+				subj := EvSubjPrefSessionClosed + uid
+				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
+				if err != nil {
+					return fmt.Errorf("publishing subject %q: %w", subj, err)
+				}
+			}
+		}
+		return nil
+	}
+	p := app.PageSettings{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
+	}
+	redirect, err := p.POSTCloseAllSessions(r, sess, dispatch)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageSettings.CloseAllSessions", err)
+		return
+	}
+	if httpRedirect(w, r, redirect, 0) {
+		return
+	}
 }
 
 func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
@@ -1771,8 +2700,10 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 	path.Name = r.PathValue("name")
 
 	p := app.PageUser{
-		App:  s.app,
-		Base: app.Base{App: s.app},
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
 	body, head, redirect, err := p.GET(r, sess, path)
 	if err != nil {
@@ -1790,86 +2721,11 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
-	}
 
-	if err := s.writeHTML(
-		w, r, sess, genericHead, head, body, bodyAttrs,
-	); err != nil {
-		s.logErr("rendering PageUser", err)
-		return
-	}
-}
-
-func (s *Server) handlePageMyPostsGET(w http.ResponseWriter, r *http.Request) {
-	sess, _, ok := s.auth(w, r)
-	if !ok {
-		return
-	}
-
-	p := app.PageMyPosts{
-		App:  s.app,
-		Base: app.Base{App: s.app},
-	}
-	body, head, redirect, err := p.GET(r, sess)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageMyPosts.GET", err)
-		return
-	}
-	if httpRedirect(w, r, redirect, 0) {
-		return
-	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageMyPosts", err)
-		return
-	}
-
-	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
-	}
-
-	if err := s.writeHTML(
-		w, r, sess, genericHead, head, body, bodyAttrs,
-	); err != nil {
-		s.logErr("rendering PageMyPosts", err)
-		return
-	}
-}
-
-func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
-	sess, _, ok := s.auth(w, r)
-	if !ok {
-		return
-	}
-
-	var path struct {
-		Slug string `path:"slug"`
-	}
-	path.Slug = r.PathValue("slug")
-
-	p := app.PagePost{
-		App:  s.app,
-		Base: app.Base{App: s.app},
-	}
-	body, head, redirect, err := p.GET(r, sess, path)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PagePost.GET", err)
-		return
-	}
-	if httpRedirect(w, r, redirect, 0) {
-		return
-	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PagePost", err)
-		return
-	}
-
-	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
-
-		_, _ = io.WriteString(w, `data-init="@get('/post/`)
-		_, _ = io.WriteString(w, path.Slug)
+		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, `/user/`)
+		_, _ = io.WriteString(w, path.Name)
+		_, _ = io.WriteString(w, `/`)
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `/_$/')"`)
 		} else {
@@ -1880,40 +2736,12 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 	if err := s.writeHTML(
 		w, r, sess, genericHead, head, body, bodyAttrs,
 	); err != nil {
-		s.logErr("rendering PagePost", err)
+		s.logErr("rendering PageUser", err)
 		return
 	}
 }
 
-func (s *Server) handlePageSearchPOSTParamChange(
-	w http.ResponseWriter, r *http.Request,
-) {
-	if !s.checkIsDSReq(w, r) {
-		return
-	}
-	sess, _, ok := s.auth(w, r)
-	if !ok {
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals app.SearchParams
-	if err := datastar.ReadSignals(r, &signals); err != nil {
-		s.httpErrBad(w, "reading signals", err)
-		return
-	}
-
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	p := app.PageSearch{
-		App:  s.app,
-		Base: app.Base{App: s.app},
-	}
-	if err := p.POSTParamChange(r, sse, sess, signals); err != nil {
-		s.httpErrIntern(w, r, sse, "handling action PageSearch.POSTParamChange", err)
-		return
-	}
-}
-
-func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePageUserGETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
@@ -1927,15 +2755,26 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	p := app.PagePost{
-		App:  s.app,
-		Base: app.Base{App: s.app},
+	p := app.PageUser{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID), func(
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageUser(sess.UserID), func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 	) {
 		for msg := range ch {
 			switch {
+			case msg.Subject == EvSubjPostArchived:
+				var e app.EventPostArchived
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventPostArchived JSON", err)
+					continue
+				}
+				if err := p.OnPostArchived(e, sse, sess); err != nil {
+					s.logErr("handling PageUser.OnPostArchived", err)
+				}
 			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
 				var e app.EventMessagingSent
 				if err := json.Unmarshal(msg.Data, &e); err != nil {
@@ -1943,7 +2782,7 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 					continue
 				}
 				if err := p.OnMessagingSent(e, sse, sess); err != nil {
-					s.logErr("handling PagePost.Base.OnMessagingSent", err)
+					s.logErr("handling PageUser.OnMessagingSent", err)
 				}
 			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
 				var e app.EventMessagingRead
@@ -1952,23 +2791,14 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 					continue
 				}
 				if err := p.OnMessagingRead(e, sse, sess); err != nil {
-					s.logErr("handling PagePost.Base.OnMessagingRead", err)
-				}
-			case msg.Subject == EvSubjPostArchived:
-				var e app.EventPostArchived
-				if err := json.Unmarshal(msg.Data, &e); err != nil {
-					s.logErr("unmarshaling EventPostArchived JSON", err)
-					continue
-				}
-				if err := p.OnPostArchived(e, sse, sess); err != nil {
-					s.logErr("handling PagePost.OnPostArchived", err)
+					s.logErr("handling PageUser.OnMessagingRead", err)
 				}
 			}
 		}
 	})
 }
 
-func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePageUserGETStreamAnon(w http.ResponseWriter, r *http.Request) {
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
@@ -1982,11 +2812,13 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	p := app.PagePost{
-		App:  s.app,
-		Base: app.Base{App: s.app},
+	p := app.PageUser{
+		App: s.app,
+		Base: app.Base{
+			App: s.app,
+		},
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID), func(
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageUser(sess.UserID), func(
 		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 	) {
 		for msg := range ch {
@@ -1997,68 +2829,9 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 					continue
 				}
 				if err := p.OnPostArchived(e, sse, sess); err != nil {
-					s.logErr("handling PagePost.OnPostArchived", err)
+					s.logErr("handling PageUser.OnPostArchived", err)
 				}
 			}
 		}
 	})
-}
-
-func (s *Server) handlePagePostPOSTSendMessage(
-	w http.ResponseWriter, r *http.Request,
-) {
-	if !s.checkIsDSReq(w, r) {
-		return
-	}
-	sess, _, ok := s.auth(w, r)
-	if !ok {
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
-		MessageText string `json:"messagetext"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
-		s.httpErrBad(w, "reading signals", err)
-		return
-	}
-
-	var path struct {
-		Slug string `path:"slug"`
-	}
-	path.Slug = r.PathValue("slug")
-
-	dispatch := func(
-		e1 app.EventMessagingSent,
-	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
-			}
-			for _, uid := range e1.TargetUserIDs {
-				subj := EvSubjPrefMessagingSent + uid
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
-		}
-		return nil
-	}
-
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	p := app.PagePost{
-		App:  s.app,
-		Base: app.Base{App: s.app},
-	}
-	if err := p.POSTSendMessage(r, sse, sess, path, signals, dispatch); err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageMessages.POSTSendMessage", err)
-		return
-	}
-}
-
-func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
-	_, _ = io.WriteString(w, `data-on:visibilitychange__window=`+
-		`"if (!document.hidden) @get(window.location.href)"`)
 }

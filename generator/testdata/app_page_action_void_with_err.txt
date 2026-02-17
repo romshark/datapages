@@ -1,0 +1,18 @@
+
+func (s *Server) handlePageSettingsPOSTReset(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	p := testapp.PageSettings{
+	App: s.app,
+}
+	err := p.POSTReset(sse)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageSettings.Reset", err)
+		return
+	}
+}

@@ -1,0 +1,23 @@
+
+func (s *Server) handlePOSTPreview(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+	body, err := s.app.POSTPreview(sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Preview", err)
+		return
+	}
+	genericHead, err := s.app.Head(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "generating generic head for App.POSTPreview", err)
+		return
+	}
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, nil,
+	); err != nil {
+		s.logErr("rendering response of App.POSTPreview", err)
+		return
+	}
+}

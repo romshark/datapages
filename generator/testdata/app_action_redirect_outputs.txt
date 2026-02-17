@@ -1,0 +1,26 @@
+
+func (s *Server) handlePOSTLogin(w http.ResponseWriter, r *http.Request) {
+	sess, sessToken, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+	closeSession, redirect, redirectStatus, newSession, err := s.app.POSTLogin(sessToken, sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Login", err)
+		return
+	}
+	if closeSession {
+		if err := s.closeSession(w, r, sessToken); err != nil {
+			s.httpErrIntern(w, r, nil, "removing session", err)
+			return
+		}
+	}
+	if j := newSession; j.UserID != "" {
+		if err := s.createSession(w, r, newSession); err != nil {
+			s.httpErrIntern(w, r, nil, "creating session", err)
+		}
+	}
+	if httpRedirect(w, r, redirect, redirectStatus) {
+		return
+	}
+}

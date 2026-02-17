@@ -1,0 +1,7 @@
+
+const (
+
+	// Public events:
+
+	EvSubjPostsArchived = "posts.archived"
+)

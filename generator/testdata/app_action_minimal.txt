@@ -1,0 +1,4 @@
+
+func (s *Server) handlePOSTPing(w http.ResponseWriter, r *http.Request) {
+	s.app.POSTPing()
+}

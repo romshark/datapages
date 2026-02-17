@@ -285,6 +285,9 @@ func (p PageMessages) OnMessagingRead(
 		Chat string `json:"chatselected"`
 	},
 ) error {
+	if err := p.Base.OnMessagingRead(event, sse, session); err != nil {
+		return err
+	}
 	base, chats, openChat, messages, err := p.getPageData(
 		sse.Context(), session, signals.Chat,
 	)
@@ -326,6 +329,9 @@ func (p PageMessages) OnMessagingSent(
 		Chat string `json:"chatselected"`
 	},
 ) error {
+	if err := p.Base.OnMessagingSent(event, sse, session); err != nil {
+		return err
+	}
 	base, chats, openChat, messages, err := p.getPageData(
 		sse.Context(), session, signals.Chat,
 	)

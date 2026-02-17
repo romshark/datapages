@@ -1,0 +1,14 @@
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+
+		_, _ = io.WriteString(w, `data-signals:term="'`)
+		_, _ = io.WriteString(w, query.Term)
+		_, _ = io.WriteString(w, `'"`)
+
+		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
+			if ($term) params.set('q', $term);
+			const query = params.toString();
+			window.history.replaceState(null, '', query ? '/?' + query : '/');
+		"`)
+	}

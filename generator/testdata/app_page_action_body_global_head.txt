@@ -1,0 +1,33 @@
+
+func (s *Server) handlePageSettingsPOSTPreview(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	p := testapp.PageSettings{
+	App: s.app,
+}
+	body, err := p.POSTPreview(sse, sess)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageSettings.Preview", err)
+		return
+	}
+	genericHead, err := s.app.Head(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "generating generic head for PageSettings.POSTPreview", err)
+		return
+	}
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, nil,
+	); err != nil {
+		s.logErr("rendering response of PageSettings.POSTPreview", err)
+		return
+	}
+}

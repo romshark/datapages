@@ -1,0 +1,32 @@
+
+func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	p := testapp.PageError404{
+		App: s.app,
+	}
+
+	body, err := p.GET(sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		return
+	}
+	genericHead, err := s.app.Head(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "generating generic head for PageError404", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+	}
+	if err := s.writeHTML(
+		w, r, testapp.Session{}, genericHead, nil, body, bodyAttrs,
+	); err != nil {
+		s.logErr("rendering PageError404", err)
+		return
+	}
+}

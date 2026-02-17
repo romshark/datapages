@@ -42,7 +42,7 @@ var (
 // Query parameter errors.
 var (
 	ErrQueryParamNotStruct = errors.New(
-		"query parameter must be an anonymous struct",
+		"query parameter must be a struct",
 	)
 	ErrQueryFieldUnexported = errors.New(
 		"query struct field must be exported",
@@ -55,7 +55,7 @@ var (
 // Signals parameter errors.
 var (
 	ErrSignalsParamNotStruct = errors.New(
-		"signals parameter must be an anonymous struct",
+		"signals parameter must be a struct",
 	)
 	ErrSignalsFieldUnexported = errors.New(
 		"signals struct field must be exported",
@@ -141,19 +141,11 @@ func IsQueryParam(f *ast.Field) bool {
 	return len(f.Names) > 0 && f.Names[0].Name == "query"
 }
 
-// ValidateQueryStruct validates that a query parameter is an
-// anonymous struct with exported fields each carrying a
-// `query:"..."` tag.
+// ValidateQueryStruct validates that a query parameter is a
+// struct with exported fields each carrying a `query:"..."` tag.
 func ValidateQueryStruct(
 	f *ast.Field, info *types.Info, recv, method string,
 ) error {
-	if _, ok := f.Type.(*ast.StructType); !ok {
-		return fmt.Errorf(
-			"%w in %s.%s",
-			ErrQueryParamNotStruct, recv, method,
-		)
-	}
-
 	t := info.TypeOf(f.Type)
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
@@ -193,18 +185,10 @@ func IsSignalsParam(f *ast.Field) bool {
 }
 
 // ValidateSignalsStruct validates that a signals parameter
-// is an anonymous struct with exported fields each carrying
-// a `json:"..."` tag.
+// is a struct with exported fields each carrying a `json:"..."` tag.
 func ValidateSignalsStruct(
 	f *ast.Field, info *types.Info, recv, method string,
 ) error {
-	if _, ok := f.Type.(*ast.StructType); !ok {
-		return fmt.Errorf(
-			"%w in %s.%s",
-			ErrSignalsParamNotStruct, recv, method,
-		)
-	}
-
 	t := info.TypeOf(f.Type)
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {

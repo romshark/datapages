@@ -1,0 +1,35 @@
+
+func (s *Server) handlePageFeedGETStreamAnon(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID != "" {
+		s.httpErrBad(w, "authenticated client on anonymous stream", nil)
+		return
+	}
+
+	p := testapp.PageFeed{
+	App: s.app,
+}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageFeed(sess.UserID), func(
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+	) {
+		for msg := range ch {
+			if msg.Subject == EvSubjPostsCreated {
+				var e testapp.EventPostsCreated
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventPostsCreated JSON", err)
+					continue
+				}
+				if err := p.OnPostsCreated(e, sse); err != nil {
+					s.logErr("handling PageFeed.OnPostsCreated", err)
+				}
+			}
+		}
+	})
+}

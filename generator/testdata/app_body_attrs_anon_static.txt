@@ -1,0 +1,11 @@
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+
+		_, _ = io.WriteString(w, `data-init="@get('`)
+		if sess.UserID != "" {
+			_, _ = io.WriteString(w, `/feed/_$/')"`)
+		} else {
+			_, _ = io.WriteString(w, `/feed/_$/anon/')"`)
+		}
+	}

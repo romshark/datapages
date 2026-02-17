@@ -1,0 +1,19 @@
+
+func setupHandlers(s *Server) {
+	// Pages
+	s.mux.HandleFunc(
+		"GET /",
+		s.handlePageIndexGET)
+	s.mux.HandleFunc(
+		"GET /post/{slug}/{$}",
+		s.handlePagePostGET)
+	s.mux.HandleFunc(
+		"GET /post/{slug}/_$/{$}",
+		s.handlePagePostGETStream)
+	s.mux.HandleFunc(
+		"POST /sign-out/{$}",
+		s.handlePOSTSignOut)
+	s.mux.HandleFunc(
+		"POST /post/{slug}/comment/{$}",
+		s.handlePagePostPOSTComment)
+}

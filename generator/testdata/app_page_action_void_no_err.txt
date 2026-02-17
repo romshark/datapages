@@ -1,0 +1,9 @@
+
+func (s *Server) handlePageSettingsPOSTReset(
+	w http.ResponseWriter, r *http.Request,
+) {
+	p := testapp.PageSettings{
+	App: s.app,
+}
+	p.POSTReset()
+}
