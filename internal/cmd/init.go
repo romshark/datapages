@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"crypto/rand"
-	_ "embed"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -11,20 +10,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/romshark/datapages/generator/skeleton"
+
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 )
 
 const defaultAutoDir = "datapages-app"
-
-//go:embed default_app.go.txt
-var defaultAppGo string
-
-//go:embed default_compose.yaml.txt
-var defaultCompose string
-
-//go:embed default_makefile.txt
-var defaultMakefile string
 
 func newInitCmd(stderr io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
@@ -364,7 +356,7 @@ func writeAppGoIfMissing(projectDir string, w io.Writer) (bool, error) {
 	if err := os.MkdirAll(appDir, 0o755); err != nil {
 		return false, fmt.Errorf("creating app directory: %w", err)
 	}
-	if err := os.WriteFile(appFile, []byte(defaultAppGo), 0o644); err != nil {
+	if err := os.WriteFile(appFile, []byte(skeleton.AppGo), 0o644); err != nil {
 		return false, fmt.Errorf("writing app/app.go: %w", err)
 	}
 	_, _ = fmt.Fprintln(w, "Created app/app.go")
@@ -399,7 +391,7 @@ func writeComposeIfMissing(projectDir string, w io.Writer) (bool, error) {
 	if _, err := os.Stat(composePath); err == nil {
 		return false, nil
 	}
-	if err := os.WriteFile(composePath, []byte(defaultCompose), 0o644); err != nil {
+	if err := os.WriteFile(composePath, []byte(skeleton.ComposeYAML), 0o644); err != nil {
 		return false, fmt.Errorf("writing compose.yaml: %w", err)
 	}
 	_, _ = fmt.Fprintln(w, "Created compose.yaml")
@@ -411,7 +403,7 @@ func writeMakefileIfMissing(projectDir string, w io.Writer) (bool, error) {
 	if _, err := os.Stat(makefilePath); err == nil {
 		return false, nil
 	}
-	if err := os.WriteFile(makefilePath, []byte(defaultMakefile), 0o644); err != nil {
+	if err := os.WriteFile(makefilePath, []byte(skeleton.Makefile), 0o644); err != nil {
 		return false, fmt.Errorf("writing Makefile: %w", err)
 	}
 	_, _ = fmt.Fprintln(w, "Created Makefile")
