@@ -167,26 +167,26 @@ a {
   font-size: 0.9rem;
   font-weight: 600;
   transition: background 150ms, color 150ms;
+}
 
-  &-primary {
-    background: var(--accent);
+.btn-primary {
+  background: var(--accent);
+  color: var(--bg);
+
+  &:hover {
+    background: var(--accent-hover);
     color: var(--bg);
-
-    &:hover {
-      background: var(--accent-hover);
-      color: var(--bg);
-    }
   }
+}
 
-  &-secondary {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
+.btn-secondary {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+
+  &:hover {
+    border-color: var(--text-muted);
     color: var(--text);
-
-    &:hover {
-      border-color: var(--text-muted);
-      color: var(--text);
-    }
   }
 }
 
