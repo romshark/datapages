@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -9,26 +8,40 @@ import (
 	"github.com/romshark/datapages/generator"
 	datapagesparser "github.com/romshark/datapages/parser"
 	"github.com/romshark/datapages/parser/model"
+	"github.com/spf13/cobra"
 )
 
-func runGen(args []string, stderr io.Writer) error {
-	fs := flag.NewFlagSet("gen", flag.ExitOnError)
-	_ = fs.Parse(args)
+func newGenCmd(stderr io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:   "gen",
+		Short: "Generate the server and helper packages",
+		Long: `Parse the application model from the app package and generate:
+  - Server implementation with request handling, middleware, and sessions
+  - Type-safe URL helpers (href package)
+  - Type-safe action helpers (action package)
+  - Server entry point (cmd package, created only if missing)
 
-	moduleDir, err := findModuleDir()
-	if err != nil {
-		return err
+If no datapages.yaml config file exists, a default one is created.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			moduleDir, err := findModuleDir()
+			if err != nil {
+				return err
+			}
+			config, found, err := loadConfig(moduleDir)
+			if err != nil {
+				return err
+			}
+			if !found {
+				if err := writeDefaultConfig(moduleDir); err != nil {
+					return err
+				}
+			}
+			return runGen(moduleDir, config, stderr)
+		},
 	}
-	config, found, err := loadConfig(moduleDir)
-	if err != nil {
-		return err
-	}
-	if !found {
-		if err := writeDefaultConfig(moduleDir); err != nil {
-			return err
-		}
-	}
+}
 
+func runGen(moduleDir string, config config, stderr io.Writer) error {
 	modulePath, err := readModulePath(moduleDir)
 	if err != nil {
 		return err

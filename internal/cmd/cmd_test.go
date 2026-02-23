@@ -2,11 +2,15 @@ package cmd_test
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/romshark/datapages/internal/cmd"
 	"github.com/stretchr/testify/require"
@@ -16,36 +20,49 @@ func TestRun(t *testing.T) {
 	for name, tc := range map[string]struct {
 		args       []string
 		wantCode   int
+		wantStdout string
 		wantStderr string
 	}{
 		"no command": {
 			args:       []string{"datapages"},
-			wantCode:   1,
-			wantStderr: "usage:",
+			wantCode:   0,
+			wantStdout: "Available Commands:",
 		},
 		"unknown command": {
 			args:       []string{"datapages", "foobar"},
 			wantCode:   1,
-			wantStderr: "unknown command: foobar",
+			wantStderr: `unknown command "foobar"`,
 		},
 		"-h": {
 			args:       []string{"datapages", "-h"},
 			wantCode:   0,
-			wantStderr: "usage:",
+			wantStdout: "Available Commands:",
 		},
 		"--help": {
 			args:       []string{"datapages", "--help"},
 			wantCode:   0,
-			wantStderr: "usage:",
+			wantStdout: "Available Commands:",
+		},
+		"help command": {
+			args:       []string{"datapages", "help"},
+			wantCode:   0,
+			wantStdout: "Available Commands:",
+		},
+		"subcommand help": {
+			args:       []string{"datapages", "gen", "--help"},
+			wantCode:   0,
+			wantStdout: "Type-safe URL helpers",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code := cmd.Run(
-				tc.args, nil, &stdout, &stderr,
-				"", "", "",
+			code := cmd.Run(context.Background(), tc.args, &stdout, &stderr,
+				"0.0.0", "xxxxxxx", "2026-2-23",
 			)
 			require.Equal(t, tc.wantCode, code)
+			if tc.wantStdout != "" {
+				require.Contains(t, stdout.String(), tc.wantStdout)
+			}
 			if tc.wantStderr != "" {
 				require.Contains(t, stderr.String(), tc.wantStderr)
 			}
@@ -63,23 +80,23 @@ func TestVersion(t *testing.T) {
 			args:    []string{"datapages", "version"},
 			version: "1.2.3",
 			commit:  "abc1234",
-			date:    "2025-01-15",
+			date:    "2026-2-23",
 			want:    "1.2.3\n",
 		},
 		"full": {
-			args:    []string{"datapages", "version", "-full"},
+			args:    []string{"datapages", "version", "--full"},
 			version: "1.2.3",
 			commit:  "abc1234",
-			date:    "2025-01-15",
+			date:    "2026-2-23",
 			want: "datapages 1.2.3\n" +
 				"  commit: abc1234\n" +
-				"  built:  2025-01-15\n" +
+				"  built:  2026-2-23\n" +
 				"  go:     " + runtime.Version() + "\n" +
 				"  os:     " + runtime.GOOS + "/" + runtime.GOARCH + "\n" +
 				"\ndependencies:\n",
 		},
 		"full unset": {
-			args: []string{"datapages", "version", "-full"},
+			args: []string{"datapages", "version", "--full"},
 			want: "datapages \n" +
 				"  commit: \n" +
 				"  built:  \n" +
@@ -95,7 +112,7 @@ func TestVersion(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			code := cmd.Run(
-				tc.args, nil, &stdout, &stderr,
+				context.Background(), tc.args, &stdout, &stderr,
 				tc.version, tc.commit, tc.date,
 			)
 			require.Zero(t, code)
@@ -116,6 +133,34 @@ func copyTestdata(t *testing.T, dst, src string) {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(dst), 0o755))
 	require.NoError(t, os.WriteFile(dst, data, 0o644))
+}
+
+// hashDir returns a SHA-256 digest of the directory tree rooted at dir.
+// It hashes file paths and contents so any added, removed, or modified
+// file changes the result.
+func hashDir(t *testing.T, dir string) string {
+	t.Helper()
+	h := sha256.New()
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(h, "%s %d %t\n", rel, info.Size(), info.IsDir())
+		if !info.IsDir() {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			h.Write(data)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 func setupProject(t *testing.T, appGoFile string) string {
@@ -149,31 +194,152 @@ func TestWatch(t *testing.T) {
 
 		var stdout, stderr bytes.Buffer
 		code := cmd.Run(
-			[]string{"datapages", "watch"}, nil, &stdout, &stderr,
-			"", "", "",
+			context.Background(), []string{"datapages", "watch"}, &stdout, &stderr,
+			"0.0.0", "xxxxxxx", "2026-2-23",
 		)
 		require.Equal(t, 1, code)
 		require.Contains(t, stderr.String(), "no go.mod found")
 	})
+
+	t.Run("runs gen", func(t *testing.T) {
+		setupProject(t, "invalid.go")
+
+		var stdout, stderr bytes.Buffer
+		code := cmd.Run(
+			context.Background(), []string{"datapages", "watch"}, &stdout, &stderr,
+			"0.0.0", "xxxxxxx", "2026-2-23",
+		)
+		require.Equal(t, 1, code)
+		require.Contains(t, stderr.String(), "parsing app package")
+	})
+
+	t.Run("writes default config", func(t *testing.T) {
+		dir := setupProject(t, "invalid.go")
+		require.NoError(t, os.Remove(filepath.Join(dir, "datapages.yaml")))
+
+		var stdout, stderr bytes.Buffer
+		code := cmd.Run(
+			context.Background(), []string{"datapages", "watch"}, &stdout, &stderr,
+			"0.0.0", "xxxxxxx", "2026-2-23",
+		)
+		require.Equal(t, 1, code)
+		_, err := os.Stat(filepath.Join(dir, "datapages.yaml"))
+		require.NoError(t, err, "expected default datapages.yaml")
+	})
+
+	t.Run("generates code", func(t *testing.T) {
+		dir := setupProject(t, "valid.go")
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		var stdout, stderr bytes.Buffer
+		done := make(chan int, 1)
+		go func() {
+			done <- cmd.Run(
+				ctx, []string{"datapages", "watch"}, &stdout, &stderr,
+				"0.0.0", "xxxxxxx", "2026-2-23",
+			)
+		}()
+
+		// Gen runs synchronously before the engine; wait for generated files.
+		require.Eventually(t, func() bool {
+			for _, f := range []string{
+				"datapagesgen/app_gen.go",
+				"datapagesgen/action/action_gen.go",
+				"datapagesgen/href/href_gen.go",
+				"cmd/server/main.go",
+			} {
+				if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+					return false
+				}
+			}
+			return true
+		}, 30*time.Second, 100*time.Millisecond)
+
+		cancel()
+
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("watch did not stop after cancel")
+		}
+	})
 }
 
-func TestGenAndLint(t *testing.T) {
+func TestLint(t *testing.T) {
 	for name, tc := range map[string]struct {
-		command    string
+		appGoFile string
+		wantOK    bool
+	}{
+		"ok": {
+			appGoFile: "valid.go",
+			wantOK:    true,
+		},
+		"error": {
+			appGoFile: "invalid.go",
+			wantOK:    false,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := setupProject(t, tc.appGoFile)
+			before := hashDir(t, dir)
+
+			var stdout, stderr bytes.Buffer
+			code := cmd.Run(
+				context.Background(), []string{"datapages", "lint"}, &stdout, &stderr,
+				"0.0.0", "xxxxxxx", "2026-2-23",
+			)
+
+			if tc.wantOK {
+				require.Zero(t, code, "stderr: %s", stderr.String())
+			} else {
+				require.Equal(t, 1, code)
+				require.NotEmpty(t, stderr.String())
+			}
+			require.Equal(t, before, hashDir(t, dir),
+				"lint must not modify the project directory")
+		})
+	}
+}
+
+func TestGenBuild(t *testing.T) {
+	// Resolve the datapages module root before setupProject changes cwd.
+	datapagesRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
+
+	dir := setupProject(t, "valid.go")
+
+	var stdout, stderr bytes.Buffer
+	code := cmd.Run(
+		context.Background(), []string{"datapages", "gen"}, &stdout, &stderr,
+		"0.0.0", "xxxxxxx", "2026-2-23",
+	)
+	require.Zero(t, code, "gen stderr: %s", stderr.String())
+
+	// Add a replace directive so the generated code resolves the local module.
+	goModPath := filepath.Join(dir, "go.mod")
+	f, err := os.OpenFile(goModPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	require.NoError(t, err)
+	_, err = fmt.Fprintf(f, "\nreplace github.com/romshark/datapages => %s\n",
+		datapagesRoot)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	out, err := exec.Command("go", "mod", "tidy").CombinedOutput()
+	require.NoError(t, err, "go mod tidy: %s", out)
+
+	out, err = exec.Command("go", "build", "./...").CombinedOutput()
+	require.NoError(t, err, "go build: %s", out)
+}
+
+func TestGen(t *testing.T) {
+	for name, tc := range map[string]struct {
+		command   string
 		appGoFile string
 		wantOK    bool
 		wantGen   []string // files expected after gen
 	}{
-		"lint ok": {
-			command:   "lint",
-			appGoFile: "valid.go",
-			wantOK:    true,
-		},
-		"lint error": {
-			command:   "lint",
-			appGoFile: "invalid.go",
-			wantOK:    false,
-		},
 		"gen ok": {
 			command:   "gen",
 			appGoFile: "valid.go",
@@ -196,8 +362,8 @@ func TestGenAndLint(t *testing.T) {
 
 			var stdout, stderr bytes.Buffer
 			code := cmd.Run(
-				[]string{"datapages", tc.command}, nil, &stdout, &stderr,
-				"", "", "",
+				context.Background(), []string{"datapages", tc.command}, &stdout, &stderr,
+				"0.0.0", "xxxxxxx", "2026-2-23",
 			)
 
 			if tc.wantOK {

@@ -2,39 +2,57 @@ package cmd
 
 import (
 	"context"
-	"flag"
 	"fmt"
+	"io"
 	"net/url"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/romshark/templier/engine"
+	"github.com/spf13/cobra"
 )
 
-func runWatch(args []string) error {
-	fs := flag.NewFlagSet("watch", flag.ExitOnError)
-	_ = fs.Parse(args)
+func newWatchCmd(stderr io.Writer) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "watch",
+		Short: "Start the live-reloading dev server",
+		Long: `Start a development server that watches for file changes, rebuilds
+the application, and live-reloads the browser tabs. Configuration is read
+from the "watch" section of datapages.yaml; sane defaults are used
+if the section is missing.`,
+	}
+	host := cmd.Flags().String("host", "localhost:7331",
+		"Host address for the dev server proxy")
+	cmd.RunE = func(c *cobra.Command, args []string) error {
+		return runWatch(c.Context(), *host, stderr)
+	}
+	return cmd
+}
 
+func runWatch(ctx context.Context, host string, stderr io.Writer) error {
 	moduleDir, err := findModuleDir()
 	if err != nil {
 		return err
 	}
-	config, _, err := loadConfig(moduleDir)
+	config, found, err := loadConfig(moduleDir)
 	if err != nil {
+		return err
+	}
+	if !found {
+		if err := writeDefaultConfig(moduleDir); err != nil {
+			return err
+		}
+	}
+	if err := runGen(moduleDir, config, stderr); err != nil {
 		return err
 	}
 	w := config.Watch
 	if w == nil {
 		w = &watchConfig{}
 	}
-	if w.Host == "" {
-		w.Host = "localhost:7331"
-	}
 	if w.AppHost == "" {
-		w.AppHost = "http://localhost:7332"
+		w.AppHost = "http://localhost:8080"
 	}
 
 	appHost, err := url.Parse(w.AppHost)
@@ -61,7 +79,7 @@ func runWatch(args []string) error {
 		ProxyTimeout:   w.ProxyTimeout,
 		Lint:           w.Lint,
 		Format:         w.Format,
-		TemplierHost:   w.Host,
+		TemplierHost:   host,
 		CustomWatchers: mapCustomWatchers(w.CustomWatchers),
 		Log: engine.LogConfig{
 			Level:            mapLogLevel(w.Log.Level),
@@ -80,11 +98,6 @@ func runWatch(args []string) error {
 	if err != nil {
 		return fmt.Errorf("initializing watch engine: %w", err)
 	}
-
-	ctx, stop := signal.NotifyContext(
-		context.Background(), syscall.SIGINT, syscall.SIGTERM,
-	)
-	defer stop()
 
 	return e.Run(ctx)
 }

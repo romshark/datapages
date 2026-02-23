@@ -20,7 +20,6 @@ type config struct {
 }
 
 type watchConfig struct {
-	Host           string               `yaml:"host"`
 	AppHost        string               `yaml:"app-host"`
 	ProxyTimeout   time.Duration        `yaml:"proxy-timeout"`
 	Debounce       time.Duration        `yaml:"debounce"`

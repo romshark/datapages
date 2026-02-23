@@ -2,7 +2,6 @@ app: app
 gen: datapagesgen
 cmd: cmd/server
 watch:
-  host: "127.0.0.1:7331"
   app-host: "http://localhost:52000"
   exclude:
     - ".*"

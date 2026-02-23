@@ -1,8 +1,8 @@
 package cmd
 
 import (
+	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -11,59 +11,42 @@ import (
 	"path/filepath"
 
 	"github.com/romshark/yamagiconf"
+	"github.com/spf13/cobra"
 
 	"golang.org/x/mod/modfile"
 )
 
-// Run executes the datapages CLI with the given arguments and environment.
+// Run executes the datapages CLI with the given arguments.
 // It returns the exit code.
 func Run(
-	args, environ []string,
+	ctx context.Context,
+	args []string,
 	stdout, stderr io.Writer,
 	version, commit, buildDate string,
 ) int {
-	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() {
-		_, _ = fmt.Fprintln(stderr, "usage: datapages <command> [flags]")
-		_, _ = fmt.Fprintln(stderr)
-		_, _ = fmt.Fprintln(stderr, "commands:")
-		_, _ = fmt.Fprintln(stderr, "  gen      parse the app and generate code")
-		_, _ = fmt.Fprintln(stderr, "  lint     parse the app and report errors")
-		_, _ = fmt.Fprintln(stderr, "  version  print version information")
-		_, _ = fmt.Fprintln(stderr, "  watch    watch for changes and run the server")
-	}
-	if err := fs.Parse(args[1:]); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 1
-	}
+	root := &cobra.Command{
+		Use:   "datapages",
+		Short: "Datapages code generator and dev server",
+		Long: `Datapages is a framework for building multi-page web applications in Go.
 
-	cmd := fs.Arg(0)
-	if cmd == "" {
-		fs.Usage()
-		return 1
+It parses your application model, generates routing, handler wiring,
+and type-safe href/action helpers, and provides a live-reloading dev server.`,
 	}
+	root.SetContext(ctx)
+	root.SetOut(stdout)
+	root.SetErr(stderr)
+	root.SetArgs(args[1:])
+	root.SilenceErrors = true
+	root.CompletionOptions.DisableDefaultCmd = true
 
-	cmdArgs := fs.Args()[1:]
-	var err error
-	switch cmd {
-	case "gen":
-		err = runGen(cmdArgs, stderr)
-	case "lint":
-		err = runLint(cmdArgs, stderr)
-	case "version":
-		runVersion(cmdArgs, stdout, version, commit, buildDate)
-		return 0
-	case "watch":
-		err = runWatch(cmdArgs)
-	default:
-		_, _ = fmt.Fprintf(stderr, "unknown command: %s\n", cmd)
-		fs.Usage()
-		return 1
-	}
-	if err != nil {
+	root.AddCommand(
+		newGenCmd(stderr),
+		newLintCmd(stderr),
+		newVersionCmd(stdout, version, commit, buildDate),
+		newWatchCmd(stderr),
+	)
+
+	if err := root.Execute(); err != nil {
 		_, _ = fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}

@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/romshark/datapages/internal/cmd"
 )
@@ -10,6 +13,9 @@ import (
 var version, commit, date string
 
 func main() {
-	c := cmd.Run(os.Args, os.Environ(), os.Stdout, os.Stderr, version, commit, date)
+	ctx, stop := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	c := cmd.Run(ctx, os.Args, os.Stdout, os.Stderr, version, commit, date)
 	os.Exit(c)
 }
