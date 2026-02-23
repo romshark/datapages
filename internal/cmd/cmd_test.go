@@ -421,6 +421,9 @@ func TestInit(t *testing.T) {
 				require.FileExists(t, filepath.Join(projectDir, "go.mod"))
 				require.FileExists(t, filepath.Join(projectDir, "datapages.yaml"))
 				require.FileExists(t, filepath.Join(projectDir, "app", "app.go"))
+				require.FileExists(t, filepath.Join(projectDir, ".env"))
+				require.FileExists(t, filepath.Join(projectDir, "compose.yaml"))
+				require.FileExists(t, filepath.Join(projectDir, "Makefile"))
 				require.Contains(t, stdout, "Project initialized successfully.")
 			},
 		},
@@ -499,6 +502,10 @@ func TestInit(t *testing.T) {
 				require.NoError(t, err)
 				require.Contains(t, string(modData), "example.com/existing")
 				require.Contains(t, stdout, "Project already initialized.")
+				// No new files should be generated.
+				require.NoFileExists(t, filepath.Join(startDir, ".env"))
+				require.NoFileExists(t, filepath.Join(startDir, "compose.yaml"))
+				require.NoFileExists(t, filepath.Join(startDir, "Makefile"))
 			},
 		},
 		"auto in git subdirectory": {
@@ -538,6 +545,9 @@ func TestInit(t *testing.T) {
 				require.Contains(t, string(data), "mymod")
 				require.FileExists(t, filepath.Join(projectDir, "datapages.yaml"))
 				require.FileExists(t, filepath.Join(projectDir, "app", "app.go"))
+				require.FileExists(t, filepath.Join(projectDir, ".env"))
+				require.FileExists(t, filepath.Join(projectDir, "compose.yaml"))
+				require.FileExists(t, filepath.Join(projectDir, "Makefile"))
 			},
 		},
 		"interactive decline git": {

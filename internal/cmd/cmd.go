@@ -39,11 +39,12 @@ and type-safe href/action helpers, and provides a live-reloading dev server.`,
 	root.SetErr(stderr)
 	root.SetArgs(args[1:])
 	root.SilenceErrors = true
+	root.SilenceUsage = true
 	root.CompletionOptions.DisableDefaultCmd = true
 
 	root.AddCommand(
 		newGenCmd(stderr),
-		newInitCmd(),
+		newInitCmd(stderr),
 		newLintCmd(stderr),
 		newVersionCmd(stdout, version, commit, buildDate),
 		newWatchCmd(stderr),

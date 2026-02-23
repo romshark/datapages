@@ -59,8 +59,10 @@ func (s *Server) writeHTML(
 	if _, err := io.WriteString(w, ">"); err != nil {
 		return err
 	}
-	if err := body.Render(r.Context(), w); err != nil {
-		return err
+	if body != nil {
+		if err := body.Render(r.Context(), w); err != nil {
+			return err
+		}
 	}
 	_, err = io.WriteString(w, "</body></html>")
 	return err

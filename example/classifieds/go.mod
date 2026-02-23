@@ -10,14 +10,14 @@ require github.com/oklog/ulid/v2 v2.1.1
 // Required by Datapages
 require (
 	github.com/a-h/templ v0.3.977
-	github.com/nats-io/nats.go v1.48.0
+	github.com/nats-io/nats.go v1.49.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/starfederation/datastar-go v1.1.0
 	golang.org/x/crypto v0.48.0
 	golang.org/x/sync v0.19.0
 )
 
-require github.com/romshark/datapages v0.0.0-20260217170657-0c3ef0410809
+require github.com/romshark/datapages v0.0.0-20260223142210-2a71af4c1986
 
 require (
 	github.com/CAFxX/httpcompression v0.0.9 // indirect
