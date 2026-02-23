@@ -7,6 +7,9 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/romshark/datapages.svg)](https://pkg.go.dev/github.com/romshark/datapages)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+> **🧪 Alpha Software:** Datapages is still in early development 🚧.<br>
+> APIs are subject to change and you may encounter bugs.
+
 A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) web framework
 for building dynamic, server-rendered web applications in pure Go.
 
