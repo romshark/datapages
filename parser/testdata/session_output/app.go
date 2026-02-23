@@ -2,6 +2,7 @@ package app
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/a-h/templ"
 )
@@ -9,7 +10,8 @@ import (
 type App struct{}
 
 type Session struct {
-	UserID string
+	UserID   string
+	IssuedAt time.Time
 }
 
 // PageIndex is /

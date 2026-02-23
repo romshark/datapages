@@ -187,16 +187,21 @@ func firstPassSessionType(
 		return
 	}
 
-	hasUserID := false
+	hasUserID, hasIssuedAt := false, false
 	for i := range underlying.NumFields() {
 		f := underlying.Field(i)
-		if f.Name() == "UserID" && typecheck.IsString(f.Type()) {
+		switch {
+		case f.Name() == "UserID" && typecheck.IsString(f.Type()):
 			hasUserID = true
-			break
+		case f.Name() == "IssuedAt" && typecheck.IsTimeTime(f.Type()):
+			hasIssuedAt = true
 		}
 	}
 	if !hasUserID {
 		errs.ErrAt(typePos, ErrSessionMissingUserID)
+	}
+	if !hasIssuedAt {
+		errs.ErrAt(typePos, ErrSessionMissingIssuedAt)
 	}
 
 	ctx.app.Session = &model.SessionType{Expr: ts.Name}

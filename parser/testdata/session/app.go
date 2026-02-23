@@ -2,6 +2,7 @@ package app
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/starfederation/datastar-go/datastar"
@@ -10,7 +11,8 @@ import (
 type App struct{}
 
 type Session struct {
-	UserID string
+	UserID   string
+	IssuedAt time.Time
 }
 
 // EventPing is "ping"

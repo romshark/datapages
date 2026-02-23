@@ -689,8 +689,19 @@ func TestParse_ErrSession(t *testing.T) {
 
 	requireParseErrors(t, err,
 		parser.ErrSessionMissingUserID,
+		parser.ErrSessionMissingIssuedAt,
 		parser.ErrSessionParamNotSessionType,
 		parser.ErrSessionTokenParamNotString,
+	)
+}
+
+func TestParse_ErrSessionMissingIssuedAt(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_session_missing_issued_at")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrSessionMissingIssuedAt,
 	)
 }
 

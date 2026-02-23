@@ -93,6 +93,9 @@ var (
 	ErrSessionMissingUserID = errors.New(
 		"session type must have a UserID string field",
 	)
+	ErrSessionMissingIssuedAt = errors.New(
+		"session type must have an IssuedAt time.Time field",
+	)
 	ErrSessionParamNotSessionType = errors.New("session parameter type must be Session")
 	ErrSessionTokenParamNotString = errors.New(
 		"sessionToken parameter must be of type string",

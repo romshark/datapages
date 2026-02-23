@@ -11,6 +11,7 @@ import (
 type App struct{}
 
 /* ErrSessionMissingUserID: no UserID field */
+/* ErrSessionMissingIssuedAt: no IssuedAt field */
 
 type Session struct {
 	Name string

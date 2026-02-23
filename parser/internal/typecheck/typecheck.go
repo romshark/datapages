@@ -25,6 +25,22 @@ func IsBool(t types.Type) bool {
 	return ok && b.Kind() == types.Bool
 }
 
+// IsTimeTime reports whether t is time.Time from the standard library.
+func IsTimeTime(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	named, ok := t.(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	if obj == nil || obj.Pkg() == nil {
+		return false
+	}
+	return obj.Pkg().Path() == "time" && obj.Name() == "Time"
+}
+
 // IsError reports whether t is the builtin "error" type.
 func IsError(t types.Type) bool {
 	if t == nil {
