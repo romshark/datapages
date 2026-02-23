@@ -10,7 +10,7 @@
 A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) web framework
 for building dynamic, server-rendered web applications in pure Go.
 
-**Focus on your business logic, generate the boilerplate.**
+**Focus on your business logic, generate the boilerplate**
 Datapages parses your app source package and generates all the wiring.
 Routing, sessions and authentication, SSE streams, CSRF protection,
 type-safe URL and action helpers -
@@ -38,9 +38,9 @@ go install github.com/romshark/datapages@latest
 Datapages reads configuration from `datapages.yaml` in the module root:
 
 ```yaml
-app: app              # Path to the app source package (default)
-gen: datapagesgen     # Path to the generated package (default)
-cmd: cmd/server       # Path to the server cmd package (default)
+app: app          # Path to the app source package (default)
+gen: datapagesgen # Path to the generated package (default)
+cmd: cmd/server   # Path to the server cmd package (default)
 ```
 
 The optional `watch` section configures the development server
