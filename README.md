@@ -1,37 +1,60 @@
 # Datapages
 
-A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) web frontend
-framework prototype (currently referred to as "Datapages" and "dp" as CLI tool.)
-for dynamic and modern web applications in pure Go that is supposed to work as a code
-generator and code linter.
+[![CI](https://github.com/romshark/datapages/actions/workflows/ci.yml/badge.svg)](https://github.com/romshark/datapages/actions/workflows/ci.yml)
+[![golangci-lint](https://github.com/romshark/datapages/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/romshark/datapages/actions/workflows/golangci-lint.yml)
+[![Coverage Status](https://coveralls.io/repos/github/romshark/datapages/badge.svg?branch=main)](https://coveralls.io/github/romshark/datapages?branch=main)
+[![Go Report Card](https://goreportcard.com/badge/github.com/romshark/datapages)](https://goreportcard.com/report/github.com/romshark/datapages)
+[![Go Reference](https://pkg.go.dev/badge/github.com/romshark/datapages.svg)](https://pkg.go.dev/github.com/romshark/datapages)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**You write code according to the generator's expectations, and the generator generates
-all the boilerplate in the background so you can focus on your business logic.**
+A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) web framework
+for building dynamic, server-rendered web applications in pure Go.
 
-- Run `dp init` which creates an application template in the current folder and
-  prompts for preset configs (such as whether to use
-  [TailwindCSS](https://tailwindcss.com/), etc.).
-- Then you run `dp dev` which starts a development mode that begins listening for file
-  changes and automatically regenerates the generated app bundle while also
-  reloading the browser tabs.
-- You may also use `dp gen` to report whether there's any logical errors in the code
-  or use this during CI/CD to lint the code and check for whether checked in generated
-  code was regenerated prior to committing.
-- You write the business logic in the `app package` in the form expected by datapages,
-  the rest (routing, auth, and other boilerplate) is generated in a neighboring package.
+**Focus on your business logic, generate the boilerplate.**
+Datapages parses your app source package and generates all the wiring.
+Routing, sessions and authentication, SSE streams, CSRF protection,
+type-safe URL and action helpers -
+so your application code stays clean and takes full advantage of Go's strong
+static typing and high performance.
 
-Being primarily a code generator, Datapages allows your application code to take
-full advantage of Go's strong static typing and achieve a higher level of efficiency
-and performance.
+## Installation
 
-## Demo
+```sh
+go install github.com/romshark/datapages@latest
+```
+
+## CLI Commands
+
+| Command | Description |
+|---|---|
+| `datapages init`    | Initialize a new project with scaffolding and configuration. |
+| `datapages gen`     | Parse the app model and generate the datapages package.      |
+| `datapages watch`   | Start the live-reloading development server.                 |
+| `datapages lint`    | Validate the app model without generating code.              |
+| `datapages version` | Print CLI version information.                               |
+
+## Configuration
+
+Datapages reads configuration from `datapages.yaml` in the module root:
+
+```yaml
+app: app              # Path to the app source package (default)
+gen: datapagesgen     # Path to the generated package (default)
+cmd: cmd/server       # Path to the server cmd package (default)
+```
+
+The optional `watch` section configures the development server
+(host, proxy timeout, TLS, compiler flags, custom watchers, etc.).
+
+## Demo: Classifieds
 
 This repository features a demo application resembling an online classifieds marketplace
 under `example/classifieds`.
-The code you'd write is in [/app](https://github.com/romshark/datapages/tree/main/app)
-(this is what we'll later call the "source package").
-The code that the *code generator* would generate is in
-[/datapagesgen](https://github.com/romshark/datapages/tree/main/datapagesgen).
+The code you'd write is in
+[example/classifieds/app](https://github.com/romshark/datapages/tree/main/example/classifieds/app)
+(the "source package").
+The code that the generator produces is in
+[example/classifieds/datapagesgen](https://github.com/romshark/datapages/tree/main/example/classifieds/datapagesgen).
 
 To run the demo in development mode, use:
 
@@ -45,7 +68,7 @@ You can then access:
 - Grafana Dashboards: http://localhost:3000/
 - Prometheus UI: http://localhost:9091/
 
-ℹ️ You can install [k6](https://k6.io/) and run `make load` in the background
+You can install [k6](https://k6.io/) and run `make load` in the background
 to generate random traffic.
 Increase the number of virtual users (`VU`) to apply more load to the server when needed.
 
@@ -54,11 +77,6 @@ To run the demo in production mode, use:
 ```sh
 make stage
 ```
-
-🚧👷‍♂️ Due to several design iterations and frequent changes,
-so far I've been playing the role of the code generator and the contents
-of `_gen.go` files are hand-written according to the logic
-the code generator would follow.
 
 ## Source Package
 
@@ -145,7 +163,7 @@ func (PageIndex) GET(
 	err error
 ) {
 	// ...
-} 
+}
 ```
 
 The SSE action handlers `POSTXXX`, `DELETEXXX` and `PUTXXX` method parameter lists must
@@ -313,7 +331,7 @@ func (p PageExample) OnSomethingHappened(
 
 </details>
 
-#### 🧩 Parameter: `signals struct {...}`
+#### Parameter: `signals struct {...}`
 
 ```go
 signals struct {
@@ -327,7 +345,7 @@ from the page.
 Any named or anonymous struct is accepted,
 but every field must have a json struct field tag.
 
-#### 🧩 Parameter: `path struct {...}`
+#### Parameter: `path struct {...}`
 
 ```go
 path struct {
@@ -337,7 +355,7 @@ path struct {
 
 Provides URL path parameters. These parameters must be defined in the URL comment.
 
-#### 🧩 Parameter: `query struct {...}`
+#### Parameter: `query struct {...}`
 
 ```go
 query struct {
@@ -363,7 +381,7 @@ query struct {
 The above example will automatically synchronize the query parameter `s` with the
 signal `selecteditem`.
 
-#### 🧩 Parameter: `session Session`
+#### Parameter: `session Session`
 
 ```go
 session Session
@@ -386,7 +404,7 @@ type Session struct {
 The `Session` type must have the `UserID string` field.
 Any other field is treated as a custom payload.
 
-#### 🧩 Parameter: `sessionToken string`
+#### Parameter: `sessionToken string`
 
 ```go
 sessionToken string
@@ -405,7 +423,7 @@ type Session struct {
 }
 ```
 
-#### 🧩 Parameter: `sse *datastar.ServerSentEventGenerator`
+#### Parameter: `sse *datastar.ServerSentEventGenerator`
 
 ```go
 sse *datastar.ServerSentEventGenerator
@@ -416,7 +434,7 @@ This parameter is allowed only on `POSTXXX` page methods handling
 `OnXXX` event handler page methods.
 This gives you a handle to patch page elements, execute scripts, etc.
 
-#### 🧩 Parameter: `dispatch func(...) error`
+#### Parameter: `dispatch func(...) error`
 
 ```go
 dispatch func(EventXXX, /*...*/) error
@@ -505,9 +523,9 @@ func (PageChat) OnMessageSent(
 
 </details>
 
-#### 🧩 Parameter: `metrics struct {...}` (Experimental 🧪)
+#### Parameter: `metrics struct {...}` (Experimental)
 
-ℹ️ This feature is in it's design phase and not implemented yet.
+This feature is in its design phase and not implemented yet.
 
 ```go
 metrics struct {
@@ -561,24 +579,24 @@ interface {
 
 Buckets can be defined using the `bucket` struct tag as a comma-separated list of values.
 
-#### 🧩 Return Value: `body templ.Component`
+#### Return Value: `body templ.Component`
 
 Specifies the [Templ](https://templ.guide/) template to use for the contents of the page.
 
-#### 🧩 Return Value: `head templ.Component`
+#### Return Value: `head templ.Component`
 
 Specifies the [Templ](https://templ.guide/) template to use for `<head>` tag of the page.
 
-#### 🧩 Return Value: `redirect string`
+#### Return Value: `redirect string`
 
 Allows for redirecting to different URLs.
 
-#### 🧩 Return Value: `redirectStatus int`
+#### Return Value: `redirectStatus int`
 
 Specifies the redirect status code.
 Can only be used in combination with `redirect`.
 
-#### 🧩 Return Value: `newSession Session`
+#### Return Value: `newSession Session`
 
 ```go
 newSession Session
@@ -587,7 +605,7 @@ newSession Session
 Adds response headers to set a session cookie if `newSession.UserID` is not empty,
 otherwise no-op.
 
-#### 🧩 Return Value: `closeSession bool`
+#### Return Value: `closeSession bool`
 
 ```go
 closeSession bool
@@ -595,11 +613,11 @@ closeSession bool
 
 Closes the session and removes any session cookie if `true`, otherwise no-op.
 
-#### 🧩 Return Value `error` or `err error`
+#### Return Value `error` or `err error`
 
 Regular error values that will be logged and followed by the error handling procedure.
 
-#### 🧩 `GET` Return Value: `enableBackgroundStreaming bool`
+#### `GET` Return Value: `enableBackgroundStreaming bool`
 
 Can only be used for `GET` methods.
 
@@ -613,11 +631,11 @@ is inactive, but increases battery and resource usage, especially on mobile devi
 
 This is equivalent to datastar's [`openWhenHidden`](https://data-star.dev/reference/actions)).
 
-ℹ️ `enableBackgroundStreaming=true` will automaticaly disable the auto-refresh after
+`enableBackgroundStreaming=true` will automatically disable the auto-refresh after
 hidden. If you want to prevent this, you have to explicitly add
 `disableRefreshAfterHidden` to the return values and set it to `false`.
 
-#### 🧩 `GET` Return Value: `disableRefreshAfterHidden bool`
+#### `GET` Return Value: `disableRefreshAfterHidden bool`
 
 Can only be used for `GET` methods.
 
@@ -629,9 +647,9 @@ By default, Datapages refreshes the page when it becomes active again after bein
 background (for example, when switching back from another tab).
 This is useful when `enableBackgroundStreaming` is `false`, since SSE events may be missed
 while the tab is inactive and the page state can become stale.
-You can disable this behavior by returning `disableRefreshAfterHidden=true`. 
+You can disable this behavior by returning `disableRefreshAfterHidden=true`.
 
-ℹ️ Datapages relies on the
+Datapages relies on the
 [`visibilitychange`](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event)
 event to perform the automatic refresh.
 
