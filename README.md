@@ -6,6 +6,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/romshark/datapages)](https://goreportcard.com/report/github.com/romshark/datapages)
 [![Go Reference](https://pkg.go.dev/badge/github.com/romshark/datapages.svg)](https://pkg.go.dev/github.com/romshark/datapages)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+![Alpha](https://img.shields.io/badge/status-alpha-orange)
 
 > **🧪 Alpha Software:** Datapages is still in early development 🚧.<br>
 > APIs are subject to change and you may encounter bugs.
