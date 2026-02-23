@@ -155,7 +155,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	}
 
 	// Body attrs.
-	w.writeGETBodyAttrs(p, m)
+	w.writeGETBodyAttrs(p)
 
 	// writeHTML call.
 	sessArg := "sess"
@@ -201,7 +201,7 @@ func hasSessionInput(h *model.Handler) bool {
 	return h.InputSession != nil
 }
 
-func (w *Writer) writeGETBodyAttrs(p *model.Page, m *model.App) {
+func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 	h := p.GET.Handler
 
 	hasDisableRefresh := h.OutputDisableRefresh != nil
@@ -689,7 +689,7 @@ func (w *Writer) writePageActionHandler(
 
 	// Dispatch closure.
 	if h.InputDispatch != nil {
-		w.writeDispatchClosure(h.InputDispatch, m, appPkg)
+		w.writeDispatchClosure(h.InputDispatch, appPkg)
 	}
 
 	// SSE for actions that take it.

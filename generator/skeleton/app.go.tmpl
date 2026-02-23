@@ -1,0 +1,48 @@
+package app
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/a-h/templ"
+	"github.com/starfederation/datastar-go/datastar"
+)
+
+type App struct{}
+
+type Session struct {
+	UserID   string
+	IssuedAt time.Time
+}
+
+func (*App) Head(r *http.Request) (head templ.Component, err error) {
+	return nil, nil
+}
+
+func (*App) Recover500(
+	err error,
+	sse *datastar.ServerSentEventGenerator,
+) error {
+	return sse.ExecuteScript(`alert("Something went wrong. Please try again.")`)
+}
+
+// PageIndex is /
+type PageIndex struct{ App *App }
+
+func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+	return pageIndex(), nil
+}
+
+// PageError404 is /not-found
+type PageError404 struct{ App *App }
+
+func (PageError404) GET(r *http.Request, session Session) (body templ.Component, err error) {
+	return nil, nil
+}
+
+// PageError500 is /error
+type PageError500 struct{ App *App }
+
+func (PageError500) GET(r *http.Request) (body templ.Component, err error) {
+	return nil, nil
+}

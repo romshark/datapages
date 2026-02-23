@@ -301,3 +301,39 @@ func TestUnmarshalWatcherRequires(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoteURLToModulePath(t *testing.T) {
+	for name, tc := range map[string]struct {
+		input string
+		want  string
+	}{
+		"https": {
+			input: "https://github.com/user/repo",
+			want:  "github.com/user/repo",
+		},
+		"https with .git": {
+			input: "https://github.com/user/repo.git",
+			want:  "github.com/user/repo",
+		},
+		"ssh": {
+			input: "git@github.com:user/repo.git",
+			want:  "github.com/user/repo",
+		},
+		"ssh without .git": {
+			input: "git@github.com:user/repo",
+			want:  "github.com/user/repo",
+		},
+		"trailing slash": {
+			input: "https://github.com/user/repo/",
+			want:  "github.com/user/repo",
+		},
+		"empty": {
+			input: "",
+			want:  "",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.want, remoteURLToModulePath(tc.input))
+		})
+	}
+}
