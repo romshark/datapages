@@ -21,6 +21,7 @@ import (
 func Run(
 	ctx context.Context,
 	args []string,
+	stdin io.Reader,
 	stdout, stderr io.Writer,
 	version, commit, buildDate string,
 ) int {
@@ -33,6 +34,7 @@ It parses your application model, generates routing, handler wiring,
 and type-safe href/action helpers, and provides a live-reloading dev server.`,
 	}
 	root.SetContext(ctx)
+	root.SetIn(stdin)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	root.SetArgs(args[1:])
@@ -41,6 +43,7 @@ and type-safe href/action helpers, and provides a live-reloading dev server.`,
 
 	root.AddCommand(
 		newGenCmd(stderr),
+		newInitCmd(),
 		newLintCmd(stderr),
 		newVersionCmd(stdout, version, commit, buildDate),
 		newWatchCmd(stderr),
@@ -69,6 +72,21 @@ func findModuleDir() (string, error) {
 			return "", errors.New(
 				"not inside a Go module (no go.mod found in any parent directory)",
 			)
+		}
+		dir = parent
+	}
+}
+
+// findGitDir walks up from dir looking for a .git directory or file.
+// Returns the directory containing .git, or empty string if not found.
+func findGitDir(dir string) string {
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
 		}
 		dir = parent
 	}

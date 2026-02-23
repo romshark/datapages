@@ -16,6 +16,6 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(),
 		os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	c := cmd.Run(ctx, os.Args, os.Stdout, os.Stderr, version, commit, date)
+	c := cmd.Run(ctx, os.Args, os.Stdin, os.Stdout, os.Stderr, version, commit, date)
 	os.Exit(c)
 }

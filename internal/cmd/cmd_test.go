@@ -5,10 +5,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,7 +58,8 @@ func TestRun(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code := cmd.Run(context.Background(), tc.args, &stdout, &stderr,
+			code := cmd.Run(context.Background(), tc.args,
+				nil, &stdout, &stderr,
 				"0.0.0", "xxxxxxx", "2026-2-23",
 			)
 			require.Equal(t, tc.wantCode, code)
@@ -112,7 +115,8 @@ func TestVersion(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			code := cmd.Run(
-				context.Background(), tc.args, &stdout, &stderr,
+				context.Background(), tc.args,
+				nil, &stdout, &stderr,
 				tc.version, tc.commit, tc.date,
 			)
 			require.Zero(t, code)
@@ -168,7 +172,7 @@ func setupProject(t *testing.T, appGoFile string) string {
 
 	dir := t.TempDir()
 
-	copyTestdata(t, filepath.Join(dir, "go.mod"), filepath.Join("testdata", "project", "go.mod"))
+	copyTestdata(t, filepath.Join(dir, "go.mod"), filepath.Join("testdata", "project", "go.mod.txt"))
 	copyTestdata(t, filepath.Join(dir, "datapages.yaml"), filepath.Join("testdata", "project", "datapages.yaml"))
 	copyTestdata(t, filepath.Join(dir, "app", "app.go"), filepath.Join("testdata", "app", appGoFile))
 
@@ -194,7 +198,8 @@ func TestWatch(t *testing.T) {
 
 		var stdout, stderr bytes.Buffer
 		code := cmd.Run(
-			context.Background(), []string{"datapages", "watch"}, &stdout, &stderr,
+			context.Background(), []string{"datapages", "watch"},
+			nil, &stdout, &stderr,
 			"0.0.0", "xxxxxxx", "2026-2-23",
 		)
 		require.Equal(t, 1, code)
@@ -206,7 +211,8 @@ func TestWatch(t *testing.T) {
 
 		var stdout, stderr bytes.Buffer
 		code := cmd.Run(
-			context.Background(), []string{"datapages", "watch"}, &stdout, &stderr,
+			context.Background(), []string{"datapages", "watch"},
+			nil, &stdout, &stderr,
 			"0.0.0", "xxxxxxx", "2026-2-23",
 		)
 		require.Equal(t, 1, code)
@@ -219,7 +225,8 @@ func TestWatch(t *testing.T) {
 
 		var stdout, stderr bytes.Buffer
 		code := cmd.Run(
-			context.Background(), []string{"datapages", "watch"}, &stdout, &stderr,
+			context.Background(), []string{"datapages", "watch"},
+			nil, &stdout, &stderr,
 			"0.0.0", "xxxxxxx", "2026-2-23",
 		)
 		require.Equal(t, 1, code)
@@ -237,7 +244,8 @@ func TestWatch(t *testing.T) {
 		done := make(chan int, 1)
 		go func() {
 			done <- cmd.Run(
-				ctx, []string{"datapages", "watch"}, &stdout, &stderr,
+				ctx, []string{"datapages", "watch"},
+				nil, &stdout, &stderr,
 				"0.0.0", "xxxxxxx", "2026-2-23",
 			)
 		}()
@@ -287,7 +295,8 @@ func TestLint(t *testing.T) {
 
 			var stdout, stderr bytes.Buffer
 			code := cmd.Run(
-				context.Background(), []string{"datapages", "lint"}, &stdout, &stderr,
+				context.Background(), []string{"datapages", "lint"},
+				nil, &stdout, &stderr,
 				"0.0.0", "xxxxxxx", "2026-2-23",
 			)
 
@@ -312,7 +321,8 @@ func TestGenBuild(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := cmd.Run(
-		context.Background(), []string{"datapages", "gen"}, &stdout, &stderr,
+		context.Background(), []string{"datapages", "gen"},
+		nil, &stdout, &stderr,
 		"0.0.0", "xxxxxxx", "2026-2-23",
 	)
 	require.Zero(t, code, "gen stderr: %s", stderr.String())
@@ -362,7 +372,8 @@ func TestGen(t *testing.T) {
 
 			var stdout, stderr bytes.Buffer
 			code := cmd.Run(
-				context.Background(), []string{"datapages", tc.command}, &stdout, &stderr,
+				context.Background(), []string{"datapages", tc.command},
+				nil, &stdout, &stderr,
 				"0.0.0", "xxxxxxx", "2026-2-23",
 			)
 
@@ -375,6 +386,186 @@ func TestGen(t *testing.T) {
 			} else {
 				require.Equal(t, 1, code)
 				require.NotEmpty(t, stderr.String())
+			}
+		})
+	}
+}
+
+// chdirTemp changes the working directory to dir and restores it on cleanup.
+func chdirTemp(t *testing.T, dir string) {
+	t.Helper()
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+}
+
+func TestInit(t *testing.T) {
+	for name, tc := range map[string]struct {
+		setup    func(t *testing.T) string // returns dir to chdir into
+		args     []string
+		stdin    string
+		wantCode int
+		wantErr  string
+		check    func(t *testing.T, startDir string, stdout string)
+	}{
+		"auto no git no module": {
+			setup: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			args:     []string{"datapages", "init", "--auto"},
+			wantCode: 0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				projectDir := filepath.Join(startDir, "datapages-app")
+				require.DirExists(t, filepath.Join(projectDir, ".git"))
+				require.FileExists(t, filepath.Join(projectDir, "go.mod"))
+				require.FileExists(t, filepath.Join(projectDir, "datapages.yaml"))
+				require.FileExists(t, filepath.Join(projectDir, "app", "app.go"))
+				require.Contains(t, stdout, "Project initialized successfully.")
+			},
+		},
+		"auto in git no module": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				return dir
+			},
+			args:     []string{"datapages", "init", "--auto"},
+			wantCode: 0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				require.FileExists(t, filepath.Join(startDir, "go.mod"))
+				require.FileExists(t, filepath.Join(startDir, "datapages.yaml"))
+				require.FileExists(t, filepath.Join(startDir, "app", "app.go"))
+				// Module path should be the directory basename.
+				data, err := os.ReadFile(filepath.Join(startDir, "go.mod"))
+				require.NoError(t, err)
+				require.Contains(t, string(data), filepath.Base(startDir))
+			},
+		},
+		"auto in git with remote": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				c := exec.Command("git", "remote", "add", "origin",
+					"https://github.com/testuser/testrepo.git")
+				c.Dir = dir
+				out, err = c.CombinedOutput()
+				require.NoError(t, err, "git remote add: %s", out)
+				return dir
+			},
+			args:     []string{"datapages", "init", "--auto"},
+			wantCode: 0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				data, err := os.ReadFile(filepath.Join(startDir, "go.mod"))
+				require.NoError(t, err)
+				require.Contains(t, string(data), "github.com/testuser/testrepo")
+			},
+		},
+		"auto already initialized": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				c := exec.Command("go", "mod", "init", "example.com/existing")
+				c.Dir = dir
+				out, err = c.CombinedOutput()
+				require.NoError(t, err, "go mod init: %s", out)
+				appDir := filepath.Join(dir, "app")
+				require.NoError(t, os.MkdirAll(appDir, 0o755))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(appDir, "app.go"),
+					[]byte("package app\n// existing\n"),
+					0o644,
+				))
+				return dir
+			},
+			args:     []string{"datapages", "init", "--auto"},
+			wantCode: 0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				// app.go must not be overwritten.
+				data, err := os.ReadFile(filepath.Join(startDir, "app", "app.go"))
+				require.NoError(t, err)
+				require.Contains(t, string(data), "// existing",
+					"init must not overwrite existing app/app.go")
+				// go.mod module path must remain unchanged.
+				modData, err := os.ReadFile(filepath.Join(startDir, "go.mod"))
+				require.NoError(t, err)
+				require.Contains(t, string(modData), "example.com/existing")
+			},
+		},
+		"interactive create repo": {
+			setup: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			args:     []string{"datapages", "init"},
+			stdin:    "y\nmyapp\ny\nmymod\n",
+			wantCode: 0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				projectDir := filepath.Join(startDir, "myapp")
+				require.DirExists(t, filepath.Join(projectDir, ".git"))
+				require.FileExists(t, filepath.Join(projectDir, "go.mod"))
+				data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
+				require.NoError(t, err)
+				require.Contains(t, string(data), "mymod")
+				require.FileExists(t, filepath.Join(projectDir, "datapages.yaml"))
+				require.FileExists(t, filepath.Join(projectDir, "app", "app.go"))
+			},
+		},
+		"interactive decline git": {
+			setup: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			args:     []string{"datapages", "init"},
+			stdin:    "n\n",
+			wantCode: 1,
+			wantErr:  "without a git repository",
+		},
+		"interactive decline module": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				return dir
+			},
+			args:     []string{"datapages", "init"},
+			stdin:    "n\n",
+			wantCode: 1,
+			wantErr:  "without a Go module",
+		},
+		"interactive empty dir name": {
+			setup: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			args:     []string{"datapages", "init"},
+			stdin:    "y\n\n",
+			wantCode: 1,
+			wantErr:  "directory name is required",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := tc.setup(t)
+			chdirTemp(t, dir)
+
+			var stdin io.Reader
+			if tc.stdin != "" {
+				stdin = strings.NewReader(tc.stdin)
+			}
+
+			var stdout, stderr bytes.Buffer
+			code := cmd.Run(
+				context.Background(), tc.args,
+				stdin, &stdout, &stderr,
+				"0.0.0", "xxxxxxx", "2026-2-23",
+			)
+			require.Equal(t, tc.wantCode, code,
+				"stdout: %s\nstderr: %s", stdout.String(), stderr.String())
+			if tc.wantErr != "" {
+				require.Contains(t, stderr.String(), tc.wantErr)
+			}
+			if tc.check != nil {
+				tc.check(t, dir, stdout.String())
 			}
 		})
 	}

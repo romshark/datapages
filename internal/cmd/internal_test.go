@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"bufio"
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -298,6 +301,96 @@ func TestUnmarshalWatcherRequires(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, tc.want, r)
 			}
+		})
+	}
+}
+
+func TestRemoteURLToModulePath(t *testing.T) {
+	for name, tc := range map[string]struct {
+		input string
+		want  string
+	}{
+		"https": {
+			input: "https://github.com/user/repo",
+			want:  "github.com/user/repo",
+		},
+		"https with .git": {
+			input: "https://github.com/user/repo.git",
+			want:  "github.com/user/repo",
+		},
+		"ssh": {
+			input: "git@github.com:user/repo.git",
+			want:  "github.com/user/repo",
+		},
+		"ssh without .git": {
+			input: "git@github.com:user/repo",
+			want:  "github.com/user/repo",
+		},
+		"trailing slash": {
+			input: "https://github.com/user/repo/",
+			want:  "github.com/user/repo",
+		},
+		"empty": {
+			input: "",
+			want:  "",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.want, remoteURLToModulePath(tc.input))
+		})
+	}
+}
+
+func TestPrompt(t *testing.T) {
+	for name, tc := range map[string]struct {
+		input      string
+		defaultVal string
+		want       string
+	}{
+		"with input": {
+			input: "myvalue\n",
+			want:  "myvalue",
+		},
+		"empty uses default": {
+			input:      "\n",
+			defaultVal: "fallback",
+			want:       "fallback",
+		},
+		"empty no default": {
+			input: "\n",
+			want:  "",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			reader := bufio.NewReader(strings.NewReader(tc.input))
+			var w bytes.Buffer
+			got, err := prompt(reader, &w, "Question", tc.defaultVal)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestPromptYesNo(t *testing.T) {
+	for name, tc := range map[string]struct {
+		input      string
+		defaultYes bool
+		want       bool
+	}{
+		"y":                 {input: "y\n", want: true},
+		"yes":               {input: "yes\n", want: true},
+		"Y":                 {input: "Y\n", want: true},
+		"n":                 {input: "n\n", want: false},
+		"no":                {input: "no\n", want: false},
+		"empty default yes": {input: "\n", defaultYes: true, want: true},
+		"empty default no":  {input: "\n", defaultYes: false, want: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			reader := bufio.NewReader(strings.NewReader(tc.input))
+			var w bytes.Buffer
+			got, err := promptYesNo(reader, &w, "Continue?", tc.defaultYes)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
