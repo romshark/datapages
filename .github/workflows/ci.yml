@@ -1,9 +1,17 @@
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "22 10 * * *"
+  workflow_dispatch:
+
 name: CI
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         project:
           - path: "."
@@ -12,6 +20,12 @@ jobs:
           - path: "example/classifieds"
             name: "classifieds"
             has_templ: true
+        deps: [locked, latest]
+        exclude:
+          # Only run latest-deps for the root module.
+          - project:
+              name: "classifieds"
+            deps: latest
     steps:
       - name: Install Go 1.26.0
         uses: actions/setup-go@v6
@@ -22,10 +36,17 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Check formatting (gofumpt)
+        if: matrix.deps == 'locked'
         run: make check-fmt
 
       - name: Check go.mod tidy
+        if: matrix.deps == 'locked'
         run: make check-mod
+
+      - name: Update to latest deps
+        if: matrix.deps == 'latest'
+        working-directory: ${{ matrix.project.path }}
+        run: go get -u -t ./...
 
       # Test and report coverage
       - name: Run tests with coverage
@@ -33,6 +54,7 @@ jobs:
         run: go test -covermode=atomic -coverprofile=coverage.out ./...
 
       - name: Upload coverage to Coveralls
+        if: matrix.deps == 'locked'
         uses: coverallsapp/github-action@v2.3.6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -42,18 +64,18 @@ jobs:
 
       # Make sure templ generate was executed before commit (only for examples)
       - name: Generate templates
-        if: matrix.project.has_templ
+        if: matrix.project.has_templ && matrix.deps == 'locked'
         working-directory: ${{ matrix.project.path }}
         run: go run github.com/a-h/templ/cmd/templ@v0.3.977 generate
       - name: Check file changes after templ generate
-        if: matrix.project.has_templ
+        if: matrix.project.has_templ && matrix.deps == 'locked'
         working-directory: ${{ matrix.project.path }}
         run: |
           git diff --exit-code
         id: diff_files_after_templ_generate
         continue-on-error: true
       - name: Fail if changes are detected
-        if: matrix.project.has_templ && steps.diff_files_after_templ_generate.outcome == 'failure'
+        if: matrix.project.has_templ && matrix.deps == 'locked' && steps.diff_files_after_templ_generate.outcome == 'failure'
         run: |
           echo "Detected uncommitted changes after running templ generate." \
           "Please regenerate .templ templates and commit changes." && exit 1
