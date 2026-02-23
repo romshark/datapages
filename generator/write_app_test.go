@@ -857,7 +857,7 @@ func TestWriteGETBodyAttrs(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
 			w.buildEventMap(tt.app.Events)
-			w.writeGETBodyAttrs(tt.page, tt.app)
+			w.writeGETBodyAttrs(tt.page)
 			compareGolden(t, tt.golden, w.Buf)
 		})
 	}

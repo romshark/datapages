@@ -1040,7 +1040,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 
 	// Dispatch closure.
 	if h.InputDispatch != nil {
-		w.writeDispatchClosure(h.InputDispatch, m, appPkg)
+		w.writeDispatchClosure(h.InputDispatch, appPkg)
 	}
 
 	// SSE for actions that take it.
@@ -1258,7 +1258,7 @@ func (w *Writer) writeMethodCall(
 	}
 }
 
-func (w *Writer) writeDispatchClosure(d *model.InputDispatch, m *model.App, appPkg string) {
+func (w *Writer) writeDispatchClosure(d *model.InputDispatch, appPkg string) {
 	w.Line(0, "")
 	w.Line(1, "dispatch := func(")
 	for i, evName := range d.EventTypeNames {

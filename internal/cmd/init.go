@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	_ "embed"
 	"fmt"
 	"io"
 	"os"
@@ -14,46 +15,14 @@ import (
 
 const defaultAutoDir = "datapages-app"
 
-const defaultAppGo = `package app
-
-import (
-	"net/http"
-	"time"
-
-	"github.com/a-h/templ"
-)
-
-type App struct{}
-
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
-}
-
-func (*App) Head(r *http.Request) (head templ.Component, err error) {
-	return nil, nil
-}
-
-// PageIndex is /
-type PageIndex struct{ App *App }
-
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
-	return nil, nil
-}
-
-// PageError404 is /not-found
-type PageError404 struct{ App *App }
-
-func (PageError404) GET(r *http.Request, session Session) (body templ.Component, err error) {
-	return nil, nil
-}
-`
+//go:embed default_app.go.txt
+var defaultAppGo string
 
 func newInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize a new datapages project",
-		Long: `Create a new datapages project with the standard directory structure.
+		Short: "Initialize a new Datapages project",
+		Long: `Create a new Datapages project with the standard directory structure.
 
 By default, init runs interactively and prompts for project settings.
 Use --auto for non-interactive mode with sensible defaults.
@@ -134,9 +103,7 @@ func runInit(stdin io.Reader, stdout io.Writer, auto bool) error {
 }
 
 // resolveGitDir prompts for or defaults the directory name for a new git repo.
-func resolveGitDir(
-	reader *bufio.Reader, w io.Writer, auto bool,
-) (string, error) {
+func resolveGitDir(reader *bufio.Reader, w io.Writer, auto bool) (string, error) {
 	if auto {
 		return defaultAutoDir, nil
 	}
