@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"net/http"
 
@@ -140,10 +139,6 @@ func (p PageSettings) OnSessionClosed(
 	session Session,
 ) error {
 	if event.Token == sessionToken {
-		fmt.Println("CURENT SESS TERMINATED")
-		if err := sse.ConsoleLog("REDIRECT TO lOGIN NOW"); err != nil {
-			return err
-		}
 		// Current session was closed
 		return sse.Redirect(href.Login())
 	}
