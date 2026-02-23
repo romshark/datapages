@@ -35,7 +35,7 @@ LOAD_ENV ?= ./.env.dev
 
 dev: nats-stop nats-up prom-stop prom-up grafana-stop grafana-up
 	@set -a; [ -f .env.dev ] && . .env.dev; set +a; \
-	go run github.com/romshark/templier@latest
+	datapages watch
 
 # make stage runs the server in a production-grade mode for QA testing.
 stage: check-hosts nats-stop nats-up prom-stop prom-up grafana-stop grafana-up certstage build

@@ -10,15 +10,16 @@ import (
 )
 
 // Generate generates the complete generated Datapages package with subpackages to
-// destination directory dstDir.
-func Generate(dstDir string, m *model.App, perm os.FileMode) error {
+// destination directory dstDir. pkgName is the Go package name for the generated
+// root package (e.g. "datapagesgen").
+func Generate(dstDir string, pkgName string, m *model.App, perm os.FileMode) error {
 	w := writerPool.Get().(*Writer)
 	defer writerPool.Put(w)
 
 	// Generate app_gen.go
 
 	w.Reset()
-	w.WriteApp(m)
+	w.WriteApp(pkgName, m)
 	var err error
 	w.Buf, err = format.Source(w.Buf)
 	if err != nil {
