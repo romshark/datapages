@@ -1,0 +1,60 @@
+package app
+
+templ pageIndex() {
+	<style>
+		.dp-welcome {
+			max-width: 640px;
+			margin: 3rem auto;
+			padding: 0 1.5rem;
+			font-family: system-ui, -apple-system, sans-serif;
+			line-height: 1.6;
+			color: #1a1a1a;
+			& h1 {
+				font-size: 2rem;
+				margin-bottom: 0.25rem;
+			}
+			& .subtitle {
+				color: #666;
+				margin-top: 0;
+			}
+			& h2 {
+				font-size: 1.25rem;
+				margin-top: 2rem;
+			}
+			& ol {
+				padding-left: 1.5rem;
+			}
+			& li {
+				margin-bottom: 0.75rem;
+			}
+			& code {
+				background: #f0f0f0;
+				padding: 0.15em 0.4em;
+				border-radius: 3px;
+				font-size: 0.9em;
+			}
+			& a {
+				color: #0066cc;
+			}
+		}
+	</style>
+	<div class="dp-welcome">
+		<h1>Welcome to Datapages</h1>
+		<p class="subtitle">Your project is ready. Start building.</p>
+		<h2>Getting Started</h2>
+		<ol>
+			<li>
+				Edit <code>app/app.templ</code> to change this page.
+			</li>
+			<li>
+				Define pages and actions in <code>app/app.go</code>.
+			</li>
+			<li>
+				Run <code>make dev</code> to start the dev server with live reload.
+			</li>
+		</ol>
+		<p>
+			<a href="https://github.com/romshark/datapages" target="_blank">Documentation</a>
+		</p>
+	</div>
+}

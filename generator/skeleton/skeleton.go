@@ -15,6 +15,9 @@ var mainGoTmpl string
 //go:embed app.go.tmpl
 var AppGo string
 
+//go:embed app.templ.tmpl
+var AppTempl string
+
 //go:embed compose.yaml.tmpl
 var ComposeYAML string
 

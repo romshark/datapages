@@ -22,7 +22,7 @@ func (*App) Head(r *http.Request) (head templ.Component, err error) {
 type PageIndex struct{ App *App }
 
 func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
-	return nil, nil
+	return pageIndex(), nil
 }
 
 // PageError404 is /not-found

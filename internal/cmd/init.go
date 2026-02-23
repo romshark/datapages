@@ -159,7 +159,13 @@ func runInit(in io.Reader, out, stderr io.Writer, auto bool) error {
 		return err
 	}
 
-	// Step 10: Run code generation so all imports exist for the final tidy.
+	// Step 10: Run templ generate to produce _templ.go files from .templ
+	// sources so the parser can type-check before code generation.
+	if err := templGenerate(projectDir); err != nil {
+		return err
+	}
+
+	// Step 11: Run code generation so all imports exist for the final tidy.
 	config, _, err := loadConfig(projectDir)
 	if err != nil {
 		return err
@@ -168,7 +174,7 @@ func runInit(in io.Reader, out, stderr io.Writer, auto bool) error {
 		return err
 	}
 
-	// Step 11: Run go mod tidy again to resolve generated code dependencies.
+	// Step 12: Run go mod tidy again to resolve generated code dependencies.
 	if err := goModTidy(projectDir); err != nil {
 		return err
 	}
@@ -325,6 +331,18 @@ func goModInit(dir, modulePath string) error {
 	return nil
 }
 
+func templGenerate(dir string) error {
+	c := exec.Command(
+		"go", "run", "github.com/a-h/templ/cmd/templ@latest",
+		"generate", "./app/",
+	)
+	c.Dir = dir
+	if out, err := c.CombinedOutput(); err != nil {
+		return fmt.Errorf("templ generate: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func goModTidy(dir string) error {
 	c := exec.Command("go", "mod", "tidy")
 	c.Dir = dir
@@ -360,6 +378,11 @@ func writeAppGoIfMissing(projectDir string, w io.Writer) (bool, error) {
 		return false, fmt.Errorf("writing app/app.go: %w", err)
 	}
 	_, _ = fmt.Fprintln(w, "Created app/app.go")
+	templFile := filepath.Join(appDir, "app.templ")
+	if err := os.WriteFile(templFile, []byte(skeleton.AppTempl), 0o644); err != nil {
+		return false, fmt.Errorf("writing app/app.templ: %w", err)
+	}
+	_, _ = fmt.Fprintln(w, "Created app/app.templ")
 	return true, nil
 }
 
