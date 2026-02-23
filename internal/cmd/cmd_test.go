@@ -472,6 +472,11 @@ func TestInit(t *testing.T) {
 				c.Dir = dir
 				out, err = c.CombinedOutput()
 				require.NoError(t, err, "go mod init: %s", out)
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dir, "datapages.yaml"),
+					[]byte("app: app\n"),
+					0o644,
+				))
 				appDir := filepath.Join(dir, "app")
 				require.NoError(t, os.MkdirAll(appDir, 0o755))
 				require.NoError(t, os.WriteFile(
@@ -493,6 +498,28 @@ func TestInit(t *testing.T) {
 				modData, err := os.ReadFile(filepath.Join(startDir, "go.mod"))
 				require.NoError(t, err)
 				require.Contains(t, string(modData), "example.com/existing")
+				require.Contains(t, stdout, "Project already initialized.")
+			},
+		},
+		"auto in git subdirectory": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				sub := filepath.Join(dir, "sub")
+				require.NoError(t, os.MkdirAll(sub, 0o755))
+				return sub
+			},
+			args:     []string{"datapages", "init", "--auto"},
+			wantCode: 0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				// Files must be in startDir (the subdirectory), not the git root.
+				require.FileExists(t, filepath.Join(startDir, "go.mod"))
+				require.FileExists(t, filepath.Join(startDir, "datapages.yaml"))
+				require.FileExists(t, filepath.Join(startDir, "app", "app.go"))
+				// Parent (git root) must not have these files.
+				gitRoot := filepath.Dir(startDir)
+				require.NoFileExists(t, filepath.Join(gitRoot, "datapages.yaml"))
 			},
 		},
 		"interactive create repo": {

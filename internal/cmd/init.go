@@ -53,6 +53,7 @@ func runInit(stdin io.Reader, stdout io.Writer, auto bool) error {
 
 	// Step 1: Ensure git repository.
 	var projectDir string
+	var created bool
 	if gitDir := findGitDir(cwd); gitDir == "" {
 		dirName, err := resolveGitDir(reader, stdout, auto)
 		if err != nil {
@@ -66,8 +67,9 @@ func runInit(stdin io.Reader, stdout io.Writer, auto bool) error {
 			return err
 		}
 		_, _ = fmt.Fprintf(stdout, "Initialized git repository in %s\n", projectDir)
+		created = true
 	} else {
-		projectDir = gitDir
+		projectDir = cwd
 	}
 
 	// Step 2: Ensure Go module.
@@ -81,16 +83,21 @@ func runInit(stdin io.Reader, stdout io.Writer, auto bool) error {
 			return err
 		}
 		_, _ = fmt.Fprintf(stdout, "Initialized Go module %s\n", modulePath)
+		created = true
 	}
 
 	// Step 3: Write datapages.yaml if missing.
-	if err := writeDefaultConfigIfMissing(projectDir, stdout); err != nil {
+	if wrote, err := writeDefaultConfigIfMissing(projectDir, stdout); err != nil {
 		return err
+	} else if wrote {
+		created = true
 	}
 
 	// Step 4: Write app/app.go if missing.
-	if err := writeAppGoIfMissing(projectDir, stdout); err != nil {
+	if wrote, err := writeAppGoIfMissing(projectDir, stdout); err != nil {
 		return err
+	} else if wrote {
+		created = true
 	}
 
 	// Step 5: Run go mod tidy.
@@ -98,7 +105,11 @@ func runInit(stdin io.Reader, stdout io.Writer, auto bool) error {
 		return err
 	}
 
-	_, _ = fmt.Fprintln(stdout, "Project initialized successfully.")
+	if created {
+		_, _ = fmt.Fprintln(stdout, "Project initialized successfully.")
+	} else {
+		_, _ = fmt.Fprintln(stdout, "Project already initialized.")
+	}
 	return nil
 }
 
@@ -253,31 +264,31 @@ func goModTidy(dir string) error {
 	return nil
 }
 
-func writeDefaultConfigIfMissing(projectDir string, w io.Writer) error {
+func writeDefaultConfigIfMissing(projectDir string, w io.Writer) (bool, error) {
 	for _, name := range []string{"datapages.yml", "datapages.yaml"} {
 		if _, err := os.Stat(filepath.Join(projectDir, name)); err == nil {
-			return nil
+			return false, nil
 		}
 	}
 	if err := writeDefaultConfig(projectDir); err != nil {
-		return err
+		return false, err
 	}
 	_, _ = fmt.Fprintln(w, "Created datapages.yaml")
-	return nil
+	return true, nil
 }
 
-func writeAppGoIfMissing(projectDir string, w io.Writer) error {
+func writeAppGoIfMissing(projectDir string, w io.Writer) (bool, error) {
 	appDir := filepath.Join(projectDir, "app")
 	appFile := filepath.Join(appDir, "app.go")
 	if _, err := os.Stat(appFile); err == nil {
-		return nil
+		return false, nil
 	}
 	if err := os.MkdirAll(appDir, 0o755); err != nil {
-		return fmt.Errorf("creating app directory: %w", err)
+		return false, fmt.Errorf("creating app directory: %w", err)
 	}
 	if err := os.WriteFile(appFile, []byte(defaultAppGo), 0o644); err != nil {
-		return fmt.Errorf("writing app/app.go: %w", err)
+		return false, fmt.Errorf("writing app/app.go: %w", err)
 	}
 	_, _ = fmt.Fprintln(w, "Created app/app.go")
-	return nil
+	return true, nil
 }
