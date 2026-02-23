@@ -1,4 +1,4 @@
-# Datapages (Proof of Concept)
+# Datapages
 
 A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) web frontend
 framework prototype (currently referred to as "Datapages" and "dp" as CLI tool.)
@@ -13,7 +13,7 @@ all the boilerplate in the background so you can focus on your business logic.**
   [TailwindCSS](https://tailwindcss.com/), etc.).
 - Then you run `dp dev` which starts a development mode that begins listening for file
   changes and automatically regenerates the generated app bundle while also
-  reloading the browser tabs similar to [Templiér](https://github.com/romshark/templier).
+  reloading the browser tabs.
 - You may also use `dp gen` to report whether there's any logical errors in the code
   or use this during CI/CD to lint the code and check for whether checked in generated
   code was regenerated prior to committing.
@@ -41,8 +41,7 @@ make dev
 ```
 
 You can then access:
-- Preview with live-reload: http://localhost:7331/
-- Preview without live-reload: http://localhost:52000/
+- Preview: http://localhost:52000/
 - Grafana Dashboards: http://localhost:3000/
 - Prometheus UI: http://localhost:9091/
 

@@ -29,7 +29,7 @@ func BenchmarkWriteApp(b *testing.B) {
 		w := generator.Writer{Buf: make([]byte, 2*1024*1024)} // 2 MiB
 		for b.Loop() {
 			w.Reset()
-			w.WriteApp(emptyApp)
+			w.WriteApp("datapagesgen", emptyApp)
 		}
 	})
 	b.Run("example/classifieds", func(b *testing.B) {
@@ -37,7 +37,7 @@ func BenchmarkWriteApp(b *testing.B) {
 		w := generator.Writer{Buf: make([]byte, 2*1024*1024)} // 2 MiB
 		for b.Loop() {
 			w.Reset()
-			w.WriteApp(m)
+			w.WriteApp("datapagesgen", m)
 		}
 	})
 }

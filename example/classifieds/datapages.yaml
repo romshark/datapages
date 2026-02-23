@@ -1,0 +1,27 @@
+app: app
+gen: datapagesgen
+cmd: cmd/server
+watch:
+  host: "127.0.0.1:7331"
+  app-host: "http://localhost:52000"
+  exclude:
+    - ".*"
+    - "*~"
+    - "grafana/*"
+  log:
+    level: erronly
+    print-js-debug-logs: true
+  compiler:
+    env:
+      CGO_ENABLED: "0"
+  custom-watchers:
+    - name: "Go mod update"
+      include:
+        - "go.mod"
+        - "go.sum"
+      fail-on-error: true
+      requires: rebuild
+    - name: "CSS"
+      include:
+        - "app/static/style.css"
+      requires: reload
