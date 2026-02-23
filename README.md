@@ -99,11 +99,11 @@ func (*App) Head(
 The `Recover500` method allows you to recover `500 Internal Server` errors to improve UX by giving better feedback. If `Recover500` returns an error the server falls back to the ugly standard procedure.
 
 ```go
-func (*App) Recover500() error {
+func (*App) Recover500(
 	err error,
 	sse *datastar.ServerSentEventGenerator,
-} error {
-	return sse.
+) error {
+	return sse.PatchElementTempl(errorToast(err))
 }
 ```
 
@@ -393,15 +393,16 @@ If used, must be defined at the source package level as:
 
 ```go
 type Session struct {
-	UserID string
+	UserID   string
+	IssuedAt time.Time
 
 	// Custom metadata.
-	IssuedAt time.Time `json:"iat"`
-	FooBar   Bazz	  `json:"foo-bar"`
+	FooBar Bazz `json:"foo-bar"`
 }
 ```
 
-The `Session` type must have the `UserID string` field.
+The `Session` type must have `UserID string` and `IssuedAt time.Time` fields.
+`IssuedAt` is required because CSRF protection is bound to the session issuance time.
 Any other field is treated as a custom payload.
 
 #### Parameter: `sessionToken string`
@@ -417,8 +418,8 @@ If used `type Session struct` must be defined at the source package level.
 
 ```go
 type Session struct {
-	UserID	 string	`json:"sub"` // Required.
-	IssuedAt   time.Time `json:"iat"` // Optional.
+	UserID     string    `json:"sub"` // Required.
+	IssuedAt   time.Time `json:"iat"` // Required.
 	Expiration time.Time `json:"exp"` // Optional.
 }
 ```
