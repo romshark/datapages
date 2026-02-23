@@ -17,10 +17,18 @@ type-safe URL and action helpers -
 so your application code stays clean and takes full advantage of Go's strong
 static typing and high performance.
 
-## Installation
+## Getting Started
+
+### Install
 
 ```sh
 go install github.com/romshark/datapages@latest
+```
+
+### Initialize New Project
+
+```sh
+datapages init
 ```
 
 ## CLI Commands
