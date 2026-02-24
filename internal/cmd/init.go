@@ -16,8 +16,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultAutoDir = "datapages-app"
-
 func newInitCmd(stderr io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -25,15 +23,20 @@ func newInitCmd(stderr io.Writer) *cobra.Command {
 		Long: `Create a new Datapages project with the standard directory structure.
 
 By default, init runs interactively and prompts for project settings.
-Use --auto for non-interactive mode with sensible defaults.
+Use -n/--non-interactive to disable prompts; when a value is needed
+that would normally be prompted for, pass it via --name or --module.
 
 If not inside a git repository, a new one is created. If not inside
 a Go module, a new one is initialized. Missing datapages.yaml and
 app/app.go files are generated. Code generation is run, and finally
 go mod tidy resolves all dependencies.`,
 	}
-	auto := cmd.Flags().Bool("auto", false,
-		"Non-interactive mode with default settings")
+	nonInteractive := cmd.Flags().BoolP("non-interactive", "n", false,
+		"Disable interactive prompts (requires --name/--module when applicable)")
+	name := cmd.Flags().String("name", "",
+		"Project name (used as directory name)")
+	module := cmd.Flags().String("module", "",
+		"Go module path")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		// Use accessible mode for non-terminal input (tests, piped input).
 		// When stdin is a real terminal, pass nil so huh uses its TUI.
@@ -41,7 +44,7 @@ go mod tidy resolves all dependencies.`,
 		if _, ok := c.InOrStdin().(*os.File); !ok {
 			in = c.InOrStdin()
 		}
-		return runInit(in, c.OutOrStdout(), stderr, *auto)
+		return runInit(in, c.OutOrStdout(), stderr, *nonInteractive, *name, *module)
 	}
 	return cmd
 }
@@ -67,7 +70,7 @@ func runField(f huh.Field, in io.Reader, out io.Writer) error {
 	return f.Run()
 }
 
-func runInit(in io.Reader, out, stderr io.Writer, auto bool) error {
+func runInit(in io.Reader, out, stderr io.Writer, nonInteractive bool, dir, module string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
@@ -83,7 +86,7 @@ func runInit(in io.Reader, out, stderr io.Writer, auto bool) error {
 	var projectDir string
 	var created bool
 	if gitDir := findGitDir(cwd); gitDir == "" {
-		dirName, err := resolveGitDir(in, out, auto)
+		dirName, err := resolveGitDir(in, out, nonInteractive, dir)
 		if err != nil {
 			return err
 		}
@@ -103,7 +106,7 @@ func runInit(in io.Reader, out, stderr io.Writer, auto bool) error {
 	// Step 2: Ensure Go module.
 	goModPath := filepath.Join(projectDir, "go.mod")
 	if _, err := os.Stat(goModPath); os.IsNotExist(err) {
-		modulePath, err := resolveModulePath(in, out, projectDir, auto)
+		modulePath, err := resolveModulePath(in, out, projectDir, nonInteractive, module)
 		if err != nil {
 			return err
 		}
@@ -184,9 +187,14 @@ func runInit(in io.Reader, out, stderr io.Writer, auto bool) error {
 }
 
 // resolveGitDir prompts for or defaults the directory name for a new git repo.
-func resolveGitDir(in io.Reader, out io.Writer, auto bool) (string, error) {
-	if auto {
-		return defaultAutoDir, nil
+// If dir is non-empty, it is used directly without prompting.
+func resolveGitDir(in io.Reader, out io.Writer, nonInteractive bool, dir string) (string, error) {
+	if dir != "" {
+		return dir, nil
+	}
+	if nonInteractive {
+		return "", fmt.Errorf("--name is required in non-interactive mode " +
+			"when not inside a git repository")
 	}
 
 	ok := true
@@ -224,16 +232,21 @@ func resolveGitDir(in io.Reader, out io.Writer, auto bool) (string, error) {
 }
 
 // resolveModulePath prompts for or defaults the Go module path.
+// If module is non-empty, it is used directly without prompting.
 func resolveModulePath(
-	in io.Reader, out io.Writer, projectDir string, auto bool,
+	in io.Reader, out io.Writer, projectDir string, nonInteractive bool, module string,
 ) (string, error) {
+	if module != "" {
+		return module, nil
+	}
+	if nonInteractive {
+		return "", fmt.Errorf("--module is required in non-interactive mode " +
+			"when not inside a Go module")
+	}
+
 	defaultPath := gitRemoteModulePath(projectDir)
 	if defaultPath == "" {
 		defaultPath = filepath.Base(projectDir)
-	}
-
-	if auto {
-		return defaultPath, nil
 	}
 
 	ok := true
