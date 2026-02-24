@@ -673,6 +673,29 @@ event to perform the automatic refresh.
   (where `Datastar-Request` header is `true`).
   You must use Datastar actions for any sort of server interactivity.
 
+## Modules
+
+Datapages ships pluggable modules with swappable implementations:
+
+- [`SessionManager[S]`](modules/sessmanager/sessmanager.go)
+  - [`natskv`](https://pkg.go.dev/github.com/romshark/datapages/modules/sessmanager/natskv) -
+  - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/sessmanager/inmem) -
+    In-memory sessions (lost on restart; single-instance only)
+    NATS KV store with AES-128-GCM encrypted cookies
+- [`MessageBroker`](modules/msgbroker/msgbroker.go)
+  - [`natsjs`](https://pkg.go.dev/github.com/romshark/datapages/modules/msgbroker/natsjs) -
+  - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/msgbroker/inmem) -
+    In-memory fan-out message broker (single-instance only)
+    NATS JetStream backed message broker
+- [`TokenManager`](modules/csrf/csrf.go)
+  - [`hmac`](https://pkg.go.dev/github.com/romshark/datapages/modules/csrf/hmac) -
+    HMAC-SHA256 with BREACH-resistant masking
+- [`TokenGenerator`](modules/sessmanager/sessmanager.go)
+  - [`sesstokgen`](https://pkg.go.dev/github.com/romshark/datapages/modules/sesstokgen) -
+    Cryptographically random session tokens (256-bit)
+
+
+
 ## Development
 
 ### Prerequisites

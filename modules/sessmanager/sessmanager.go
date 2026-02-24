@@ -13,8 +13,8 @@ type TokenGenerator interface {
 
 type SessionManager[Session any] interface {
 	// ReadSessionFromCookie returns the resolved session and
-	// the raw authentication token. Returns ok=false, err=nil if auth information is
-	// malformed and therefore the cookie must be removed.
+	// the raw authentication token. Returns ok=false, err=nil if the cookie is absent,
+	// malformed, or the session no longer exists; the caller should remove the cookie.
 	// Returns (ok=false,err!=nil) on transient backend failures, in which case the
 	// caller should keep the cookie and fail the request.
 	ReadSessionFromCookie(c *http.Cookie) (
