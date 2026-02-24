@@ -9,14 +9,22 @@ type config struct {
 	// App is the path to the app source package (default: "app").
 	App string `yaml:"app"`
 
-	// Gen is the path to the generated package (default: "datapagesgen").
-	Gen string `yaml:"gen"`
+	// Gen configures the generated package.
+	Gen genConfig `yaml:"gen"`
 
 	// Cmd is the path to the server cmd package (default: "cmd/server").
 	Cmd string `yaml:"cmd"`
 
 	// Watch is the Templier watch mode settings (optional).
 	Watch *watchConfig `yaml:"watch"`
+}
+
+type genConfig struct {
+	// Package is the path to the generated package (default: "datapagesgen").
+	Package string `yaml:"package"`
+
+	// Prometheus enables Prometheus metrics generation (default: true).
+	Prometheus *bool `yaml:"prometheus"`
 }
 
 type watchConfig struct {

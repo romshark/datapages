@@ -139,60 +139,6 @@ func WithCSRFProtection(conf CSRFConfig) ServerOption {
 	}
 }
 
-// WithPrometheus starts a dedicated HTTP server exposing /metrics.
-// Example host address: "127.0.0.1:9091" or ":9091".
-func WithPrometheus(conf PrometheusConfig) ServerOption {
-	return func(s *Server) error {
-		if conf.Host == "" {
-			return errors.New("prometheus host address must not be empty")
-		}
-
-		// Defaults
-		if conf.Registerer == nil {
-			conf.Registerer = prometheus.DefaultRegisterer
-		}
-		if conf.Gatherer == nil {
-			conf.Gatherer = prometheus.DefaultGatherer
-		}
-
-		// Register built-in metrics on the configured registerer exactly once.
-		registerPrometheusMetricsOnce.Do(func() {
-			registerMetricsWith(conf.Registerer)
-		})
-
-		// Register user-defined collectors.
-		for _, c := range conf.Collectors {
-			conf.Registerer.MustRegister(c)
-		}
-
-		var h http.Handler
-		if conf.Handler != nil {
-			h = conf.Handler
-		} else {
-			h = promhttp.HandlerFor(conf.Gatherer, promhttp.HandlerOpts{})
-		}
-
-		mux := http.NewServeMux()
-		mux.Handle("/metrics", h)
-
-		s.metricsServer = &http.Server{
-			Addr:    conf.Host,
-			Handler: mux,
-		}
-		return nil
-	}
-}
-
-type PrometheusConfig struct {
-	Host       string
-	Registerer prometheus.Registerer  // Optional, default: prometheus.DefaultRegisterer
-	Gatherer   prometheus.Gatherer    // Optional, default: prometheus.DefaultGatherer
-	Handler    http.Handler           // Optional override
-	Collectors []prometheus.Collector // User-defined metrics to register
-}
-
-var registerPrometheusMetricsOnce sync.Once
-
 func (s *Server) listenAndServe(
 	ctx context.Context,
 	listenAndServe func() error,
@@ -284,7 +230,7 @@ func (s *Server) ListenAndServeTLS(
 }
 
 // Shutdown gracefully shuts down all server components,
-// including the main HTTP server and the Prometheus metrics server.
+// including the main HTTP server and the Prometheus metrics server (if enabled).
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.shutdownOnce.Do(func() {
 		s.logger.Info("server shutdown initiated")
@@ -359,6 +305,93 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 // --- Message Broker ---
 
 const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
+
+// --- HTTP Handlers ---
+
+func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status int) (exit bool) {
+	if target == "" {
+		return false
+	}
+
+	if isDSReq(r) {
+		// Force client-side navigation via JS for Datastar requests.
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = fmt.Fprintf(w, "window.location = %q;", target)
+		return true
+	}
+
+	switch status {
+	case http.StatusMovedPermanently,
+		http.StatusFound,
+		http.StatusSeeOther,
+		http.StatusTemporaryRedirect,
+		http.StatusPermanentRedirect:
+		// OK
+	default:
+		status = http.StatusFound
+	}
+
+	http.Redirect(w, r, target, status)
+	return true
+}
+
+func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
+	_, _ = io.WriteString(w, `data-on:visibilitychange__window="if (!document.hidden) @get(window.location.href)"`)
+}
+
+// WithPrometheus starts a dedicated HTTP server exposing /metrics.
+// Example host address: "127.0.0.1:9091" or ":9091".
+func WithPrometheus(conf PrometheusConfig) ServerOption {
+	return func(s *Server) error {
+		if conf.Host == "" {
+			return errors.New("prometheus host address must not be empty")
+		}
+
+		// Defaults
+		if conf.Registerer == nil {
+			conf.Registerer = prometheus.DefaultRegisterer
+		}
+		if conf.Gatherer == nil {
+			conf.Gatherer = prometheus.DefaultGatherer
+		}
+
+		// Register built-in metrics on the configured registerer exactly once.
+		registerPrometheusMetricsOnce.Do(func() {
+			registerMetricsWith(conf.Registerer)
+		})
+
+		// Register user-defined collectors.
+		for _, c := range conf.Collectors {
+			conf.Registerer.MustRegister(c)
+		}
+
+		var h http.Handler
+		if conf.Handler != nil {
+			h = conf.Handler
+		} else {
+			h = promhttp.HandlerFor(conf.Gatherer, promhttp.HandlerOpts{})
+		}
+
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", h)
+
+		s.metricsServer = &http.Server{
+			Addr:    conf.Host,
+			Handler: mux,
+		}
+		return nil
+	}
+}
+
+type PrometheusConfig struct {
+	Host       string
+	Registerer prometheus.Registerer  // Optional, default: prometheus.DefaultRegisterer
+	Gatherer   prometheus.Gatherer    // Optional, default: prometheus.DefaultGatherer
+	Handler    http.Handler           // Optional override
+	Collectors []prometheus.Collector // User-defined metrics to register
+}
+
+var registerPrometheusMetricsOnce sync.Once
 
 // --- Prometheus Metrics ---
 
@@ -580,39 +613,6 @@ func (s *Server) metricsMiddleware(next http.Handler) http.Handler {
 		reqDur := time.Since(start).Seconds()
 		mHTTPRequestDuration.WithLabelValues(r.Method, path).Observe(reqDur)
 	})
-}
-
-// --- HTTP Handlers ---
-
-func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status int) (exit bool) {
-	if target == "" {
-		return false
-	}
-
-	if isDSReq(r) {
-		// Force client-side navigation via JS for Datastar requests.
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = fmt.Fprintf(w, "window.location = %q;", target)
-		return true
-	}
-
-	switch status {
-	case http.StatusMovedPermanently,
-		http.StatusFound,
-		http.StatusSeeOther,
-		http.StatusTemporaryRedirect,
-		http.StatusPermanentRedirect:
-		// OK
-	default:
-		status = http.StatusFound
-	}
-
-	http.Redirect(w, r, target, status)
-	return true
-}
-
-func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
-	_, _ = io.WriteString(w, `data-on:visibilitychange__window="if (!document.hidden) @get(window.location.href)"`)
 }
 
 func (s *Server) checkCSRF(
@@ -1120,7 +1120,6 @@ func (s *Server) auth(
 		return app.Session{}, "", true
 	}
 	sess.UserID = userID
-
 	mSessionReads.WithLabelValues("valid").Inc()
 
 	if !s.checkCSRF(w, r, sess) {

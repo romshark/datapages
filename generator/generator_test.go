@@ -20,7 +20,7 @@ func TestGenerateClassifieds(t *testing.T) {
 	require.NotNil(t, app, "parser returned nil model")
 
 	tmpDir := t.TempDir()
-	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644)
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{Prometheus: true})
 	require.NoError(t, err)
 
 	compareFile(t, "app_gen.go",
@@ -58,7 +58,7 @@ func TestGenerateCmd(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			err := generator.GenerateCmd(
-				tmpDir, tt.appImport, tt.genImport, tt.genPkgName, 0o644,
+				tmpDir, tt.appImport, tt.genImport, tt.genPkgName, true, 0o644,
 			)
 			require.NoError(t, err)
 

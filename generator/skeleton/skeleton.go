@@ -27,19 +27,21 @@ var Makefile string
 var tmpl = template.Must(template.New("main.go").Parse(mainGoTmpl))
 
 type mainGoData struct {
-	AppImport string
-	GenImport string
-	Gen       string
+	AppImport  string
+	GenImport  string
+	Gen        string
+	Prometheus bool
 }
 
 // MainGo renders the cmd/server/main.go template with the given import paths
 // and returns formatted Go source.
-func MainGo(appImportPath, genImportPath, genPkgName string) ([]byte, error) {
+func MainGo(appImportPath, genImportPath, genPkgName string, prometheus bool) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, mainGoData{
-		AppImport: appImportPath,
-		GenImport: genImportPath,
-		Gen:       genPkgName,
+		AppImport:  appImportPath,
+		GenImport:  genImportPath,
+		Gen:        genPkgName,
+		Prometheus: prometheus,
 	}); err != nil {
 		return nil, fmt.Errorf("executing main.go template: %w", err)
 	}

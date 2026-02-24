@@ -9,16 +9,23 @@ import (
 	"github.com/romshark/datapages/parser/model"
 )
 
+// Options configures code generation.
+type Options struct {
+	// Prometheus enables generation of Prometheus metrics instrumentation.
+	Prometheus bool
+}
+
 // Generate generates the complete generated Datapages package with subpackages to
 // destination directory dstDir. pkgName is the Go package name for the generated
 // root package (e.g. "datapagesgen").
-func Generate(dstDir string, pkgName string, m *model.App, perm os.FileMode) error {
+func Generate(dstDir string, pkgName string, m *model.App, perm os.FileMode, opts Options) error {
 	w := writerPool.Get().(*Writer)
 	defer writerPool.Put(w)
 
 	// Generate app_gen.go
 
 	w.Reset()
+	w.prometheus = opts.Prometheus
 	w.WriteApp(pkgName, m)
 	var err error
 	w.Buf, err = format.Source(w.Buf)

@@ -10,6 +10,12 @@ import (
 //go:embed app_static.go.txt
 var appStaticContent string
 
+//go:embed app_static_prom.go.txt
+var appStaticPromContent string
+
+//go:embed app_static_noprom.go.txt
+var appStaticNoPromContent string
+
 // WriteApp generates code for the generated root package and appends it to buffer.
 // pkgName is the Go package name (e.g. "datapagesgen").
 func (w *Writer) WriteApp(pkgName string, m *model.App) {
@@ -18,6 +24,11 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 
 	w.writeAppHeader(pkgName, m.PkgPath, needsJSON(m))
 	w.Raw(appStaticContent)
+	if w.prometheus {
+		w.Raw(appStaticPromContent)
+	} else {
+		w.Raw(appStaticNoPromContent)
+	}
 	w.writeAppCheckCSRF(appPkg)
 	w.writeAppWriteHTML(m, appPkg)
 	w.writeAppHandleStreamRequest(appPkg)
@@ -108,8 +119,10 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.writeQuoted(appPkgPath)
 	w.Byte('\n')
 	w.Line(0, "")
-	w.Line(1, `"github.com/prometheus/client_golang/prometheus"`)
-	w.Line(1, `"github.com/prometheus/client_golang/prometheus/promhttp"`)
+	if w.prometheus {
+		w.Line(1, `"github.com/prometheus/client_golang/prometheus"`)
+		w.Line(1, `"github.com/prometheus/client_golang/prometheus/promhttp"`)
+	}
 	w.Line(1, `"github.com/starfederation/datastar-go/datastar"`)
 	w.Line(0, ")")
 }
@@ -257,10 +270,14 @@ func (s *Server) handleStreamRequest(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	mSSEConnections.Inc()
+`)
+	if w.prometheus {
+		w.Raw(`	mSSEConnections.Inc()
 	defer mSSEConnections.Dec()
 	start := time.Now()
-
+`)
+	}
+	w.Raw(`
 	ctx := r.Context()
 	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
 	if err != nil {
@@ -286,14 +303,30 @@ func (s *Server) handleStreamRequest(
 		// Close the subscription when the request is canceled or the session is closed.
 		select {
 		case <-sessionClosed:
-			mSSEDisconnects.WithLabelValues("close").Inc()
-		case <-r.Context().Done():
-			mSSEDisconnects.WithLabelValues("client").Inc()
-		case <-s.shutdownCh:
-			mSSEDisconnects.WithLabelValues("shutdown").Inc()
-		}
-		mSSEConnectionDuration.Observe(time.Since(start).Seconds())
-		sub.Close()
+`)
+	if w.prometheus {
+		w.Raw(`			mSSEDisconnects.WithLabelValues("close").Inc()
+`)
+	}
+	w.Raw(`		case <-r.Context().Done():
+`)
+	if w.prometheus {
+		w.Raw(`			mSSEDisconnects.WithLabelValues("client").Inc()
+`)
+	}
+	w.Raw(`		case <-s.shutdownCh:
+`)
+	if w.prometheus {
+		w.Raw(`			mSSEDisconnects.WithLabelValues("shutdown").Inc()
+`)
+	}
+	w.Raw(`		}
+`)
+	if w.prometheus {
+		w.Raw(`		mSSEConnectionDuration.Observe(time.Since(start).Seconds())
+`)
+	}
+	w.Raw(`		sub.Close()
 	}()
 
 	fn(sse, subC)
@@ -319,8 +352,12 @@ type Server struct {
 	staticURLPath        string
 	staticFS             http.FileSystem
 	enabledTLS           bool
-
-	metricsServer         *http.Server
+`)
+	if w.prometheus {
+		w.Raw(`
+	metricsServer         *http.Server`)
+	}
+	w.Raw(`
 	authConf              *AuthConfig
 	sessionTokenGenerator sessmanager.TokenGenerator
 	sessionManager        sessmanager.SessionManager[`)
@@ -339,8 +376,12 @@ func (w *Writer) writeAppNewServer(appPkg string) {
 //   - WithMiddleware
 //   - WithHTTPServer
 //   - WithStaticFS
-//   - WithCSRFProtection
-//   - WithPrometheus
+//   - WithCSRFProtection`)
+	if w.prometheus {
+		w.Raw(`
+//   - WithPrometheus`)
+	}
+	w.Raw(`
 func NewServer(
 	app *`)
 	w.Raw(appPkg)
@@ -382,11 +423,15 @@ func NewServer(
 	// Reverse handlers such that they're invoked in the order of definition.
 	slices.Reverse(s.middleware)
 
-	if s.metricsServer == nil {
+`)
+	if w.prometheus {
+		w.Raw(`	if s.metricsServer == nil {
 		// package app is using prometheus metrics, hence WithPrometheus is required.
 		panic("missing option WithPrometheus")
 	}
-
+`)
+	}
+	w.Raw(`
 	if s.sessionManager == nil {
 		panic("missing SessionManager")
 	}
@@ -434,10 +479,14 @@ func NewServer(
 		panic("CSRFConfig.TokenManager is nil")
 	}
 
-	if s.metricsServer != nil {
+`)
+	if w.prometheus {
+		w.Raw(`	if s.metricsServer != nil {
 		s.middleware = append(s.middleware, s.metricsMiddleware)
 	}
-
+`)
+	}
+	w.Raw(`
 	setupHandlers(s)
 	if s.staticFS != nil {
 		h := http.StripPrefix("/static/", http.FileServer(s.staticFS))
@@ -691,11 +740,19 @@ func (s *Server) createSession(
 ) error {
 	token, err := s.sessionManager.CreateSession(r.Context(), session.UserID, session)
 	if err != nil {
-		mSessionCreations.WithLabelValues("error").Inc()
-		return err
+`)
+	if w.prometheus {
+		w.Raw(`		mSessionCreations.WithLabelValues("error").Inc()
+`)
 	}
-	mSessionCreations.WithLabelValues("success").Inc()
-	s.setSessionCookie(w, token)
+	w.Raw(`		return err
+	}
+`)
+	if w.prometheus {
+		w.Raw(`	mSessionCreations.WithLabelValues("success").Inc()
+`)
+	}
+	w.Raw(`	s.setSessionCookie(w, token)
 	return nil
 }
 
@@ -704,11 +761,19 @@ func (s *Server) closeSession(
 	token string,
 ) error {
 	if err := s.sessionManager.CloseSession(r.Context(), token); err != nil {
-		mSessionClosures.WithLabelValues("error").Inc()
-		return err
+`)
+	if w.prometheus {
+		w.Raw(`		mSessionClosures.WithLabelValues("error").Inc()
+`)
 	}
-	mSessionClosures.WithLabelValues("success").Inc()
-	s.setSessionCookie(w, "")
+	w.Raw(`		return err
+	}
+`)
+	if w.prometheus {
+		w.Raw(`	mSessionClosures.WithLabelValues("success").Inc()
+`)
+	}
+	w.Raw(`	s.setSessionCookie(w, "")
 	return nil
 }
 
@@ -721,8 +786,12 @@ func (s *Server) auth(
 	w.Raw(`.Session, token string, ok bool) {
 	c, err := r.Cookie(s.authConf.TokenCookie.Name)
 	if err != nil {
-		if errors.Is(err, http.ErrNoCookie) {
-			mSessionReads.WithLabelValues("none").Inc()
+		if errors.Is(err, http.ErrNoCookie) {`)
+	if w.prometheus {
+		w.Raw(`
+			mSessionReads.WithLabelValues("none").Inc()`)
+	}
+	w.Raw(`
 			return sess, "", true
 		}
 		return sess, "", false
@@ -730,25 +799,36 @@ func (s *Server) auth(
 
 	sess, token, userID, ok, err := s.sessionManager.ReadSessionFromCookie(c)
 	if err != nil {
-		// Transient backend failure; keep the cookie, fail the request.
-		mSessionReads.WithLabelValues("error").Inc()
+		// Transient backend failure; keep the cookie, fail the request.`)
+	if w.prometheus {
+		w.Raw(`
+		mSessionReads.WithLabelValues("error").Inc()`)
+	}
+	w.Raw(`
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 		return `)
 	w.Raw(appPkg)
 	w.Raw(`.Session{}, "", false
 	}
 	if !ok {
-		// Cookie is stale or malformed; clear it and continue as unauthenticated.
-		mSessionReads.WithLabelValues("stale").Inc()
+		// Cookie is stale or malformed; clear it and continue as unauthenticated.`)
+	if w.prometheus {
+		w.Raw(`
+		mSessionReads.WithLabelValues("stale").Inc()`)
+	}
+	w.Raw(`
 		s.setSessionCookie(w, "")
 		return `)
 	w.Raw(appPkg)
 	w.Raw(`.Session{}, "", true
 	}
 	sess.UserID = userID
-
-	mSessionReads.WithLabelValues("valid").Inc()
-
+`)
+	if w.prometheus {
+		w.Raw(`	mSessionReads.WithLabelValues("valid").Inc()
+`)
+	}
+	w.Raw(`
 	if !s.checkCSRF(w, r, sess) {
 		return sess, token, false
 	}
@@ -897,12 +977,20 @@ func (s *Server) httpErrIntern(
 		w.Raw(appPkg)
 		w.Raw(`.Recover500(err, sse)
 	if errRecover == nil {
-		mInternalErrorsRecovered.Inc()
-		return // Feedback delivered gracefully.
+`)
+		if w.prometheus {
+			w.Raw(`		mInternalErrorsRecovered.Inc()
+`)
+		}
+		w.Raw(`		return // Feedback delivered gracefully.
 	}
 	// Fallback to ugly 500
-	mInternalErrorsNotRecovered.Inc()
-	s.logger.Error("recovering 500",
+`)
+		if w.prometheus {
+			w.Raw(`	mInternalErrorsNotRecovered.Inc()
+`)
+		}
+		w.Raw(`	s.logger.Error("recovering 500",
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))

@@ -38,7 +38,9 @@ func main() {
 	withAccessLogger(&opts)
 	withAuth(&opts)
 	withCSRFProtection(&opts)
+{{- if .Prometheus}}
 	initMetrics(&opts)
+{{- end}}
 
 	messageBroker, sessionManager := connectNATS()
 
@@ -162,6 +164,8 @@ func connectNATS() (
 	return messageBroker, sessionManager
 }
 
+{{- if .Prometheus}}
+
 func initMetrics(opts *[]{{.Gen}}.ServerOption) {
 	host := envOr("HOST_METRICS", "localhost")
 	port := envOr("PORT_METRICS", "9090")
@@ -169,6 +173,7 @@ func initMetrics(opts *[]{{.Gen}}.ServerOption) {
 		Host: net.JoinHostPort(host, port),
 	}))
 }
+{{- end}}
 
 func listenAndServe(ctx context.Context, s *{{.Gen}}.Server, host string) {
 	pathCert := os.Getenv("PATH_TLS_CERT")

@@ -32,7 +32,7 @@ If no datapages.yaml config file exists, a default one is created.`,
 				return err
 			}
 			if !found {
-				if err := writeDefaultConfig(moduleDir); err != nil {
+				if err := writeDefaultConfig(moduleDir, true); err != nil {
 					return err
 				}
 			}
@@ -57,17 +57,20 @@ func runGen(moduleDir string, config config, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	genDir := filepath.Join(moduleDir, config.Gen)
+	prometheus := config.Gen.Prometheus != nil && *config.Gen.Prometheus
+
+	genDir := filepath.Join(moduleDir, config.Gen.Package)
 	genPkgName := filepath.Base(genDir)
-	if err := generator.Generate(genDir, genPkgName, app, 0o644); err != nil {
+	opts := generator.Options{Prometheus: prometheus}
+	if err := generator.Generate(genDir, genPkgName, app, 0o644, opts); err != nil {
 		return fmt.Errorf("generating code: %w", err)
 	}
 
 	if !cmdExists {
 		appImport := modulePath + "/" + config.App
-		genImport := modulePath + "/" + config.Gen
+		genImport := modulePath + "/" + config.Gen.Package
 		if err := generator.GenerateCmd(
-			cmdDir, appImport, genImport, genPkgName, 0o644,
+			cmdDir, appImport, genImport, genPkgName, prometheus, 0o644,
 		); err != nil {
 			return fmt.Errorf("generating cmd: %w", err)
 		}

@@ -37,6 +37,8 @@ go mod tidy resolves all dependencies.`,
 		"Project name (used as directory name)")
 	module := cmd.Flags().String("module", "",
 		"Go module path")
+	prometheus := cmd.Flags().Bool("prometheus", true,
+		"Enable Prometheus metrics generation")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		// Use accessible mode for non-terminal input (tests, piped input).
 		// When stdin is a real terminal, pass nil so huh uses its TUI.
@@ -44,7 +46,7 @@ go mod tidy resolves all dependencies.`,
 		if _, ok := c.InOrStdin().(*os.File); !ok {
 			in = c.InOrStdin()
 		}
-		return runInit(in, c.OutOrStdout(), stderr, *nonInteractive, *name, *module)
+		return runInit(in, c.OutOrStdout(), stderr, *nonInteractive, *name, *module, *prometheus)
 	}
 	return cmd
 }
@@ -70,7 +72,7 @@ func runField(f huh.Field, in io.Reader, out io.Writer) error {
 	return f.Run()
 }
 
-func runInit(in io.Reader, out, stderr io.Writer, nonInteractive bool, dir, module string) error {
+func runInit(in io.Reader, out, stderr io.Writer, nonInteractive bool, dir, module string, prometheus bool) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
@@ -118,7 +120,7 @@ func runInit(in io.Reader, out, stderr io.Writer, nonInteractive bool, dir, modu
 	}
 
 	// Step 3: Write datapages.yaml if missing.
-	if wrote, err := writeDefaultConfigIfMissing(projectDir, out); err != nil {
+	if wrote, err := writeDefaultConfigIfMissing(projectDir, prometheus, out); err != nil {
 		return err
 	} else if wrote {
 		created = true
@@ -365,13 +367,13 @@ func goModTidy(dir string) error {
 	return nil
 }
 
-func writeDefaultConfigIfMissing(projectDir string, w io.Writer) (bool, error) {
+func writeDefaultConfigIfMissing(projectDir string, prometheus bool, w io.Writer) (bool, error) {
 	for _, name := range []string{"datapages.yml", "datapages.yaml"} {
 		if _, err := os.Stat(filepath.Join(projectDir, name)); err == nil {
 			return false, nil
 		}
 	}
-	if err := writeDefaultConfig(projectDir); err != nil {
+	if err := writeDefaultConfig(projectDir, prometheus); err != nil {
 		return false, err
 	}
 	_, _ = fmt.Fprintln(w, "Created datapages.yaml")
