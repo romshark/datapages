@@ -115,20 +115,16 @@ var (
 	)
 
 	ErrEnableBgStreamNotBool = errors.New(
-		"enableBackgroundStreaming " +
-			"must be of type bool",
+		"enableBackgroundStreaming must be of type bool",
 	)
 	ErrEnableBgStreamNotGET = errors.New(
-		"enableBackgroundStreaming can " +
-			"only be used in GET handlers",
+		"enableBackgroundStreaming can only be used in GET handlers",
 	)
 	ErrDisableRefreshNotBool = errors.New(
-		"disableRefreshAfterHidden " +
-			"must be of type bool",
+		"disableRefreshAfterHidden must be of type bool",
 	)
 	ErrDisableRefreshNotGET = errors.New(
-		"disableRefreshAfterHidden can " +
-			"only be used in GET handlers",
+		"disableRefreshAfterHidden can only be used in GET handlers",
 	)
 )
 
