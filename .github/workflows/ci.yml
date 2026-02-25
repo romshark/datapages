@@ -53,14 +53,16 @@ jobs:
         working-directory: ${{ matrix.project.path }}
         run: go test -covermode=atomic -coverprofile=coverage.out ./...
 
-      - name: Upload coverage to Coveralls
-        if: matrix.deps == 'locked'
-        uses: coverallsapp/github-action@v2.3.6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          file: ${{ matrix.project.path }}/coverage.out
-          flag-name: ${{ matrix.project.name }}
-          parallel: true
+      # Temporarily disabled due to coveralls being down
+      #
+      # - name: Upload coverage to Coveralls
+      #   if: matrix.deps == 'locked'
+      #   uses: coverallsapp/github-action@v2.3.6
+      #   with:
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
+      #     file: ${{ matrix.project.path }}/coverage.out
+      #     flag-name: ${{ matrix.project.name }}
+      #     parallel: true
 
       # Make sure templ generate was executed before commit (only for examples)
       - name: Generate templates
@@ -85,12 +87,14 @@ jobs:
         working-directory: ${{ matrix.project.path }}
         run: go build -o /dev/null ./...
 
-  finish:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Coveralls Finished
-        uses: coverallsapp/github-action@v2.3.6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          parallel-finished: true
+  # Temporarily disabled due to coveralls being down
+  #
+  # finish:
+  #   needs: test
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Coveralls Finished
+  #       uses: coverallsapp/github-action@v2.3.6
+  #       with:
+  #         github-token: ${{ secrets.GITHUB_TOKEN }}
+  #         parallel-finished: true
