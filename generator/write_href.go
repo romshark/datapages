@@ -248,7 +248,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 	}
 
 	// anyQuery check.
-	w.writeAnyCheck("any", fields)
+	w.writeAnyCheck("anyQuery", fields)
 	w.Line(0, "")
 
 	// Length calculation.
@@ -256,7 +256,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 	w.Raw("\tl := len(\"")
 	w.writeRouteURL(route)
 	w.Raw("\")\n")
-	w.Line(1, "if any {")
+	w.Line(1, "if anyQuery {")
 	w.Line(2, `l += len("?")`)
 	w.Line(1, "}")
 	w.Line(0, "")
@@ -290,7 +290,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 	w.Raw("\tb.WriteString(\"")
 	w.writeRouteURL(route)
 	w.Raw("\")\n")
-	w.Line(1, "if any {")
+	w.Line(1, "if anyQuery {")
 	w.Line(2, `b.WriteString("?")`)
 	w.Line(1, "}")
 	w.Line(0, "")
@@ -361,7 +361,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	}
 
 	// anyQuery check.
-	w.writeAnyCheck("any", fields)
+	w.writeAnyCheck("anyQuery", fields)
 	w.Line(0, "")
 
 	// Length calculation.
@@ -387,7 +387,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 		w.Line(1, "l := 0")
 	}
 
-	w.Line(1, "if any {")
+	w.Line(1, "if anyQuery {")
 	w.Line(2, `l += len("?")`)
 	w.Line(1, "}")
 	w.Line(0, "")
@@ -424,7 +424,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 		}
 	}
 
-	w.Line(1, "if any {")
+	w.Line(1, "if anyQuery {")
 	w.Line(2, `b.WriteString("?")`)
 	w.Line(1, "}")
 	w.Line(0, "")

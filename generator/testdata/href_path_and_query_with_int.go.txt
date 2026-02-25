@@ -19,14 +19,14 @@ func Catalog(category string, query QueryCatalog) string {
 		pStr = strconv.FormatInt(query.Page, 10)
 	}
 
-	any := query.Page != 0 ||
+	anyQuery := query.Page != 0 ||
 		query.Sort != ""
 
 	var b strings.Builder
 	l := len("/catalog/")
 	+len(category)
 	+len("/")
-	if any {
+	if anyQuery {
 		l += len("?")
 	}
 
@@ -54,7 +54,7 @@ func Catalog(category string, query QueryCatalog) string {
 	b.WriteString("/catalog/")
 	b.WriteString(category)
 	b.WriteString("/")
-	if any {
+	if anyQuery {
 		b.WriteString("?")
 	}
 

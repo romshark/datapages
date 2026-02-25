@@ -8,11 +8,11 @@ import "strings"
 
 // Messages references /messages/{$}
 func Messages(query QueryMessages) string {
-	any := query.Chat != ""
+	anyQuery := query.Chat != ""
 
 	var b strings.Builder
 	l := len("/messages/")
-	if any {
+	if anyQuery {
 		l += len("?")
 	}
 
@@ -31,7 +31,7 @@ func Messages(query QueryMessages) string {
 	b.Grow(l)
 
 	b.WriteString("/messages/")
-	if any {
+	if anyQuery {
 		b.WriteString("?")
 	}
 

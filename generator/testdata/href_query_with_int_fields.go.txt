@@ -19,12 +19,12 @@ func Search(query QuerySearch) string {
 		pminStr = strconv.FormatInt(query.PriceMin, 10)
 	}
 
-	any := query.Term != "" ||
+	anyQuery := query.Term != "" ||
 		query.PriceMin != 0
 
 	var b strings.Builder
 	l := len("/search/")
-	if any {
+	if anyQuery {
 		l += len("?")
 	}
 
@@ -50,7 +50,7 @@ func Search(query QuerySearch) string {
 	b.Grow(l)
 
 	b.WriteString("/search/")
-	if any {
+	if anyQuery {
 		b.WriteString("?")
 	}
 

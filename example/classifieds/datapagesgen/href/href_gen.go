@@ -20,11 +20,11 @@ func Login() string { return "/login/" }
 
 // Messages references /messages/{$}
 func Messages(query QueryMessages) string {
-	any := query.Chat != ""
+	anyQuery := query.Chat != ""
 
 	var b strings.Builder
 	l := len("/messages/")
-	if any {
+	if anyQuery {
 		l += len("?")
 	}
 
@@ -43,7 +43,7 @@ func Messages(query QueryMessages) string {
 	b.Grow(l)
 
 	b.WriteString("/messages/")
-	if any {
+	if anyQuery {
 		b.WriteString("?")
 	}
 
@@ -96,7 +96,7 @@ func Search(query QuerySearch) string {
 		pmaxStr = strconv.FormatInt(query.PriceMax, 10)
 	}
 
-	any := query.Term != "" ||
+	anyQuery := query.Term != "" ||
 		query.Category != "" ||
 		query.PriceMin != 0 ||
 		query.PriceMax != 0 ||
@@ -104,7 +104,7 @@ func Search(query QuerySearch) string {
 
 	var b strings.Builder
 	l := len("/search/")
-	if any {
+	if anyQuery {
 		l += len("?")
 	}
 
@@ -151,7 +151,7 @@ func Search(query QuerySearch) string {
 	b.Grow(l)
 
 	b.WriteString("/search/")
-	if any {
+	if anyQuery {
 		b.WriteString("?")
 	}
 

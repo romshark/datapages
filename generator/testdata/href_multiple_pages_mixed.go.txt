@@ -25,11 +25,11 @@ func Bar(slug string) string {
 
 // Baz references /baz/{$}
 func Baz(query QueryBaz) string {
-	any := query.Q != ""
+	anyQuery := query.Q != ""
 
 	var b strings.Builder
 	l := len("/baz/")
-	if any {
+	if anyQuery {
 		l += len("?")
 	}
 
@@ -48,7 +48,7 @@ func Baz(query QueryBaz) string {
 	b.Grow(l)
 
 	b.WriteString("/baz/")
-	if any {
+	if anyQuery {
 		b.WriteString("?")
 	}
 

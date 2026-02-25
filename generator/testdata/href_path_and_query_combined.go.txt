@@ -8,13 +8,13 @@ import "strings"
 
 // UserPost references /user/{name}/post/{$}
 func UserPost(name string, query QueryUserPost) string {
-	any := query.Sort != ""
+	anyQuery := query.Sort != ""
 
 	var b strings.Builder
 	l := len("/user/")
 	+len(name)
 	+len("/post/")
-	if any {
+	if anyQuery {
 		l += len("?")
 	}
 
@@ -35,7 +35,7 @@ func UserPost(name string, query QueryUserPost) string {
 	b.WriteString("/user/")
 	b.WriteString(name)
 	b.WriteString("/post/")
-	if any {
+	if anyQuery {
 		b.WriteString("?")
 	}
 
