@@ -47,7 +47,7 @@ and type-safe href/action helpers, and provides a live-reloading dev server.`,
 		newInitCmd(stderr),
 		newLintCmd(stderr),
 		newVersionCmd(stdout, version, commit, buildDate),
-		newWatchCmd(stderr),
+		newWatchCmd(stderr, version),
 	)
 
 	if err := root.Execute(); err != nil {
@@ -131,6 +131,11 @@ gen:
   package: datapagesgen
   prometheus: %t
 cmd: cmd/server
+watch:
+  exclude:
+    - ".git/**" # git internals
+    - ".*"      # hidden files/directories
+    - "*~"      # editor backup files
 `, prometheus)
 }
 

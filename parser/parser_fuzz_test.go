@@ -3,6 +3,7 @@ package parser_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/romshark/datapages/parser"
@@ -131,18 +132,18 @@ require (
 		}
 
 		// Build parameter list
-		params := ""
-		for i := 0; i < paramCount; i++ {
+		var params strings.Builder
+		for i := range paramCount {
 			if i > 0 {
-				params += ", "
+				params.WriteString(", ")
 			}
 			switch i {
 			case 0:
-				params += "event EventFoo"
+				params.WriteString("event EventFoo")
 			case 1:
-				params += "sse *datastar.ServerSentEventGenerator"
+				params.WriteString("sse *datastar.ServerSentEventGenerator")
 			default:
-				params += "param" + string(rune('A'+i-2)) + " int"
+				params.WriteString("param" + string(rune('A'+i-2)) + " int")
 			}
 		}
 
@@ -168,7 +169,7 @@ type EventFoo struct {
 	Foo string ` + "`json:\"foo\"`" + `
 }
 
-func (PageIndex) OnEventFoo(` + params + `) error {
+func (PageIndex) OnEventFoo(` + params.String() + `) error {
 	return nil
 }
 `
@@ -220,24 +221,24 @@ require (
 
 		// Build parameter list matching the expected order:
 		// request, sse, path, query, signals, extra...
-		params := ""
-		for i := 0; i < paramCount; i++ {
+		var params strings.Builder
+		for i := range paramCount {
 			if i > 0 {
-				params += ", "
+				params.WriteString(", ")
 			}
 			switch i {
 			case 0:
-				params += "r *http.Request"
+				params.WriteString("r *http.Request")
 			case 1:
-				params += "sse *datastar.ServerSentEventGenerator"
+				params.WriteString("sse *datastar.ServerSentEventGenerator")
 			case 2:
-				params += "path struct{ ID string `path:\"id\"` }"
+				params.WriteString("path struct{ ID string `path:\"id\"` }")
 			case 3:
-				params += "query struct{ P int `query:\"p\"` }"
+				params.WriteString("query struct{ P int `query:\"p\"` }")
 			case 4:
-				params += "signals struct{ S string `json:\"s\"` }"
+				params.WriteString("signals struct{ S string `json:\"s\"` }")
 			default:
-				params += "param" + string(rune('A'+i-5)) + " int"
+				params.WriteString("param" + string(rune('A'+i-5)) + " int")
 			}
 		}
 
@@ -266,7 +267,7 @@ func (PageActions) GET(r *http.Request) (body templ.Component, err error) {
 }
 
 // POSTAction is /actions/{id}/test
-func (PageActions) POSTAction(` + params + `) error {
+func (PageActions) POSTAction(` + params.String() + `) error {
 	return nil
 }
 `

@@ -463,7 +463,7 @@ func gitignoreEnv(projectDir string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("reading .gitignore: %w", err)
 	}
-	for _, line := range strings.Split(string(content), "\n") {
+	for line := range strings.SplitSeq(string(content), "\n") {
 		if strings.TrimSpace(line) == ".env" {
 			return nil
 		}
