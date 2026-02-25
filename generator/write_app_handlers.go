@@ -103,6 +103,9 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	if h.InputRequest != nil {
 		args = append(args, "r")
 	}
+	if h.InputSessionToken != nil {
+		args = append(args, "sessToken")
+	}
 	if h.InputSession != nil {
 		args = append(args, "sess")
 	}

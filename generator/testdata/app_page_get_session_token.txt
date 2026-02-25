@@ -8,7 +8,7 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 	p := testapp.PageSettings{
 	App: s.app,
 }
-	body, err := p.GET(sess)
+	body, err := p.GET(sessToken, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageSettings.GET", err)
 		return
