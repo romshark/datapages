@@ -124,6 +124,11 @@ func loadConfig(moduleDir string) (c config, found bool, _ error) {
 const defaultConfigYAML = `app: app
 gen: datapagesgen
 cmd: cmd/server
+watch:
+  exclude:
+    - ".git/**" # git internals
+    - ".*"      # hidden files/directories
+    - "*~"      # editor backup files
 `
 
 func writeDefaultConfig(moduleDir string) error {
