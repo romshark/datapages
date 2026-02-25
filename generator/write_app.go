@@ -915,18 +915,18 @@ func (s *Server) createSession(
 	token, err := s.sessionManager.CreateSession(r.Context(), session.UserID, session)
 	if err != nil {
 `)
-	if w.prometheus {
-		w.Raw(`		mSessionCreations.WithLabelValues("error").Inc()
+		if w.prometheus {
+			w.Raw(`		mSessionCreations.WithLabelValues("error").Inc()
 `)
-	}
-	w.Raw(`		return err
+		}
+		w.Raw(`		return err
 	}
 `)
-	if w.prometheus {
-		w.Raw(`	mSessionCreations.WithLabelValues("success").Inc()
+		if w.prometheus {
+			w.Raw(`	mSessionCreations.WithLabelValues("success").Inc()
 `)
-	}
-	w.Raw(`	s.setSessionCookie(w, token)
+		}
+		w.Raw(`	s.setSessionCookie(w, token)
 	return nil
 }
 `)
@@ -941,18 +941,18 @@ func (s *Server) closeSession(
 ) error {
 	if err := s.sessionManager.CloseSession(r.Context(), token); err != nil {
 `)
-	if w.prometheus {
-		w.Raw(`		mSessionClosures.WithLabelValues("error").Inc()
+		if w.prometheus {
+			w.Raw(`		mSessionClosures.WithLabelValues("error").Inc()
 `)
-	}
-	w.Raw(`		return err
+		}
+		w.Raw(`		return err
 	}
 `)
-	if w.prometheus {
-		w.Raw(`	mSessionClosures.WithLabelValues("success").Inc()
+		if w.prometheus {
+			w.Raw(`	mSessionClosures.WithLabelValues("success").Inc()
 `)
-	}
-	w.Raw(`	s.setSessionCookie(w, "")
+		}
+		w.Raw(`	s.setSessionCookie(w, "")
 	return nil
 }
 `)
@@ -971,11 +971,11 @@ func (s *Server) auth(
 	c, err := r.Cookie(s.authConf.TokenCookie.Name)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {`)
-	if w.prometheus {
-		w.Raw(`
+		if w.prometheus {
+			w.Raw(`
 			mSessionReads.WithLabelValues("none").Inc()`)
-	}
-	w.Raw(`
+		}
+		w.Raw(`
 			return sess, "", true
 		}
 		return sess, "", false
@@ -984,11 +984,11 @@ func (s *Server) auth(
 	sess, token, userID, ok, err := s.sessionManager.ReadSessionFromCookie(c)
 	if err != nil {
 		// Transient backend failure; keep the cookie, fail the request.`)
-	if w.prometheus {
-		w.Raw(`
+		if w.prometheus {
+			w.Raw(`
 		mSessionReads.WithLabelValues("error").Inc()`)
-	}
-	w.Raw(`
+		}
+		w.Raw(`
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 		return `)
 		w.Raw(appPkg)
@@ -996,11 +996,11 @@ func (s *Server) auth(
 	}
 	if !ok {
 		// Cookie is stale or malformed; clear it and continue as unauthenticated.`)
-	if w.prometheus {
-		w.Raw(`
+		if w.prometheus {
+			w.Raw(`
 		mSessionReads.WithLabelValues("stale").Inc()`)
-	}
-	w.Raw(`
+		}
+		w.Raw(`
 		s.setSessionCookie(w, "")
 		return `)
 		w.Raw(appPkg)
@@ -1008,11 +1008,11 @@ func (s *Server) auth(
 	}
 	sess.UserID = userID
 `)
-	if w.prometheus {
-		w.Raw(`	mSessionReads.WithLabelValues("valid").Inc()
+		if w.prometheus {
+			w.Raw(`	mSessionReads.WithLabelValues("valid").Inc()
 `)
-	}
-	w.Raw(`
+		}
+		w.Raw(`
 	if !s.checkCSRF(w, r, sess) {
 		return sess, token, false
 	}
