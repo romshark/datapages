@@ -48,6 +48,10 @@ jobs:
         working-directory: ${{ matrix.project.path }}
         run: go get -u -t ./...
 
+      - name: Install templ
+        if: matrix.project.name == 'root'
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.977
+
       # Test and report coverage
       - name: Run tests with coverage
         working-directory: ${{ matrix.project.path }}
