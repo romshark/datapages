@@ -47,7 +47,7 @@ and type-safe href/action helpers, and provides a live-reloading dev server.`,
 		newInitCmd(stderr),
 		newLintCmd(stderr),
 		newVersionCmd(stdout, version, commit, buildDate),
-		newWatchCmd(stderr),
+		newWatchCmd(stderr, version),
 	)
 
 	if err := root.Execute(); err != nil {

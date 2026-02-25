@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"strconv"
@@ -13,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newWatchCmd(stderr io.Writer) *cobra.Command {
+func newWatchCmd(stderr io.Writer, version string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "watch",
 		Short: "Start the live-reloading dev server",
@@ -25,12 +26,15 @@ if the section is missing.`,
 	host := cmd.Flags().String("host", "localhost:7331",
 		"Host address for the dev server proxy")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
-		return runWatch(c.Context(), *host, stderr)
+		return runWatch(c.Context(), *host, stderr, version)
 	}
 	return cmd
 }
 
-func runWatch(ctx context.Context, host string, stderr io.Writer) error {
+func runWatch(ctx context.Context, host string, stderr io.Writer, version string) error {
+	// Start the update check immediately so it has maximum time to complete.
+	startUpdateCheck(ctx, version, stderr, http.DefaultClient)
+
 	moduleDir, err := findModuleDir()
 	if err != nil {
 		return err
