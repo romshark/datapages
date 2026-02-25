@@ -222,7 +222,7 @@ func TestWatch(t *testing.T) {
 		done := make(chan int, 1)
 		go func() {
 			done <- cmd.Run(
-				ctx, []string{"datapages", "watch"},
+				ctx, []string{"datapages", "watch", "--host", "localhost:0"},
 				nil, io.Discard, &stderr,
 				"0.0.0", "xxxxxxx", "2026-2-23",
 			)
@@ -251,15 +251,31 @@ func TestWatch(t *testing.T) {
 		dir := setupProject(t, "invalid.go")
 		require.NoError(t, os.Remove(filepath.Join(dir, "datapages.yaml")))
 
-		var stdout, stderr bytes.Buffer
-		code := cmd.Run(
-			context.Background(), []string{"datapages", "watch"},
-			nil, &stdout, &stderr,
-			"0.0.0", "xxxxxxx", "2026-2-23",
-		)
-		require.Equal(t, 1, code)
-		_, err := os.Stat(filepath.Join(dir, "datapages.yaml"))
-		require.NoError(t, err, "expected default datapages.yaml")
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		done := make(chan int, 1)
+		go func() {
+			done <- cmd.Run(
+				ctx, []string{"datapages", "watch", "--host", "localhost:0"},
+				nil, io.Discard, io.Discard,
+				"0.0.0", "xxxxxxx", "2026-2-23",
+			)
+		}()
+
+		// datapages.yaml is written synchronously before the engine starts.
+		require.Eventually(t, func() bool {
+			_, err := os.Stat(filepath.Join(dir, "datapages.yaml"))
+			return err == nil
+		}, 10*time.Second, 100*time.Millisecond)
+
+		cancel()
+
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("watch did not stop after cancel")
+		}
 	})
 
 	t.Run("generates code", func(t *testing.T) {
@@ -272,7 +288,7 @@ func TestWatch(t *testing.T) {
 		done := make(chan int, 1)
 		go func() {
 			done <- cmd.Run(
-				ctx, []string{"datapages", "watch"},
+				ctx, []string{"datapages", "watch", "--host", "localhost:0"},
 				nil, &stdout, &stderr,
 				"0.0.0", "xxxxxxx", "2026-2-23",
 			)
