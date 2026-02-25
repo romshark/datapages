@@ -302,6 +302,63 @@ func TestUnmarshalWatcherRequires(t *testing.T) {
 	}
 }
 
+func TestLoadConfig(t *testing.T) {
+	for name, tc := range map[string]struct {
+		setup     func(t *testing.T) string
+		wantFound bool
+		wantErr   string
+	}{
+		"neither": {
+			setup:     func(t *testing.T) string { return t.TempDir() },
+			wantFound: false,
+		},
+		"yaml only": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dir, "datapages.yaml"), []byte("app: myapp\n"), 0o644,
+				))
+				return dir
+			},
+			wantFound: true,
+		},
+		"yml only": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dir, "datapages.yml"), []byte("app: myapp\n"), 0o644,
+				))
+				return dir
+			},
+			wantFound: true,
+		},
+		"both ambiguous": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dir, "datapages.yaml"), []byte("app: myapp\n"), 0o644,
+				))
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dir, "datapages.yml"), []byte("app: myapp\n"), 0o644,
+				))
+				return dir
+			},
+			wantErr: "ambiguous",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := tc.setup(t)
+			_, found, err := loadConfig(dir)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.wantFound, found)
+		})
+	}
+}
+
 func TestRemoteURLToModulePath(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input string

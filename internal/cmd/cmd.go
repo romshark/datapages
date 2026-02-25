@@ -95,19 +95,27 @@ func findGitDir(dir string) string {
 
 // loadConfig reads datapages.yml or datapages.yaml from moduleDir.
 // If neither file exists, default values are returned and found is false.
+// Returns an error if both files exist simultaneously.
 func loadConfig(moduleDir string) (c config, found bool, _ error) {
+	var foundName string
 	for _, name := range []string{"datapages.yml", "datapages.yaml"} {
-		p := filepath.Join(moduleDir, name)
-		if _, err := os.Stat(p); err != nil {
+		if _, err := os.Stat(filepath.Join(moduleDir, name)); err != nil {
 			continue
 		}
+		if foundName != "" {
+			return config{}, false, fmt.Errorf(
+				"ambiguous config: both %s and %s exist; remove one", foundName, name,
+			)
+		}
+		foundName = name
+	}
+	if foundName != "" {
 		if err := yamagiconf.LoadFile(
-			p, &c, yamagiconf.WithOptionalPresence(),
+			filepath.Join(moduleDir, foundName), &c, yamagiconf.WithOptionalPresence(),
 		); err != nil {
-			return config{}, false, fmt.Errorf("loading %s: %w", name, err)
+			return config{}, false, fmt.Errorf("loading %s: %w", foundName, err)
 		}
 		found = true
-		break
 	}
 	if c.App == "" {
 		c.App = "app"
