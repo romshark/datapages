@@ -215,13 +215,35 @@ func TestWatch(t *testing.T) {
 	t.Run("runs gen", func(t *testing.T) {
 		setupProject(t, "invalid.go")
 
-		var stdout, stderr bytes.Buffer
-		code := cmd.Run(
-			context.Background(), []string{"datapages", "watch"},
-			nil, &stdout, &stderr,
-			"0.0.0", "xxxxxxx", "2026-2-23",
-		)
-		require.Equal(t, 1, code)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		var stderr bytes.Buffer
+		done := make(chan int, 1)
+		go func() {
+			done <- cmd.Run(
+				ctx, []string{"datapages", "watch"},
+				nil, io.Discard, &stderr,
+				"0.0.0", "xxxxxxx", "2026-2-23",
+			)
+		}()
+
+		// Watch must stay alive after the initial gen failure.
+		select {
+		case code := <-done:
+			t.Fatalf("watch exited prematurely with code %d; stderr: %s", code, stderr.String())
+		case <-time.After(2 * time.Second):
+			// Good: watch is still running.
+		}
+
+		cancel()
+
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("watch did not stop after cancel")
+		}
+
 		require.Contains(t, stderr.String(), "parsing app package")
 	})
 
