@@ -929,11 +929,15 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 
 	w.Line(0, "")
 	w.Line(0, "func (s *Server) render404(w http.ResponseWriter, r *http.Request) {")
-	w.Line(1, "sess, _, ok := s.auth(w, r)")
-	w.Line(1, "if !ok {")
-	w.Line(2, "return")
-	w.Line(1, "}")
-	w.Line(0, "")
+
+	h404 := p.GET.Handler
+	if h404.InputSession != nil || h404.InputSessionToken != nil {
+		w.Line(1, "sess, _, ok := s.auth(w, r)")
+		w.Line(1, "if !ok {")
+		w.Line(2, "return")
+		w.Line(1, "}")
+		w.Line(0, "")
+	}
 
 	w.writePageConstructorStmt("p", p, appPkg)
 	w.Line(0, "")
