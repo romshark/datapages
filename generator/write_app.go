@@ -15,12 +15,26 @@ var appStaticContent string
 func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	appPkg := appPkgName(m.PkgPath)
 	w.buildEventMap(m.Events)
+	w.usage = computeAppUsage(m)
 
 	w.writeAppHeader(pkgName, m.PkgPath, needsJSON(m))
 	w.Raw(appStaticContent)
-	w.writeAppCheckCSRF(appPkg)
+	if w.usage.needsIsDSReq() {
+		w.writeIsDSReq()
+	}
+	if w.usage.needsCheckIsDSReq() {
+		w.writeCheckIsDSReq()
+	}
+	if w.usage.httpRedirect {
+		w.writeHTTPRedirect()
+	}
+	if w.usage.auth {
+		w.writeAppCheckCSRF(appPkg)
+	}
 	w.writeAppWriteHTML(m, appPkg)
-	w.writeAppHandleStreamRequest(appPkg)
+	if w.usage.stream {
+		w.writeAppHandleStreamRequest(appPkg)
+	}
 	w.writeAppServerStruct(appPkg)
 	w.writeAppNewServer(appPkg)
 	w.writeEventSubjectConsts(m.Events)
@@ -236,6 +250,60 @@ func (s *Server) writeHTML(
 	}
 	_, err = io.WriteString(w, "</body></html>")
 	return err
+}
+`)
+}
+
+func (w *Writer) writeIsDSReq() {
+	w.Raw(`
+func isDSReq(r *http.Request) bool {
+	return r.Header.Get("Datastar-Request") == "true"
+}
+`)
+}
+
+func (w *Writer) writeCheckIsDSReq() {
+	w.Raw(`
+func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
+	if !isDSReq(r) {
+		s.logger.Debug("not a datastar request",
+			slog.Any("method", r.Method),
+			slog.String("path", r.URL.Path))
+		http.Error(w, http.StatusText(http.StatusNotAcceptable), http.StatusNotAcceptable)
+		return false
+	}
+	return true
+}
+`)
+}
+
+func (w *Writer) writeHTTPRedirect() {
+	w.Raw(`
+func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status int) (exit bool) {
+	if target == "" {
+		return false
+	}
+
+	if isDSReq(r) {
+		// Force client-side navigation via JS for Datastar requests.
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = fmt.Fprintf(w, "window.location = %q;", target)
+		return true
+	}
+
+	switch status {
+	case http.StatusMovedPermanently,
+		http.StatusFound,
+		http.StatusSeeOther,
+		http.StatusTemporaryRedirect,
+		http.StatusPermanentRedirect:
+		// OK
+	default:
+		status = http.StatusFound
+	}
+
+	http.Redirect(w, r, target, status)
+	return true
 }
 `)
 }
@@ -632,6 +700,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 }
 
 func (w *Writer) writeAppAuth(appPkg string) {
+	// Public declarations: always emitted.
 	w.Raw(`
 // --- Auth ---
 
@@ -666,7 +735,11 @@ func WithAuth(o AuthConfig) ServerOption {
 		return nil
 	}
 }
+`)
 
+	// setSessionCookie: needed when auth, createSession, or closeSession is used.
+	if w.usage.needsSetSessionCookie() {
+		w.Raw(`
 func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 	cookie := http.Cookie{
 		Name:     s.authConf.TokenCookie.Name,
@@ -683,11 +756,16 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 	}
 	http.SetCookie(w, &cookie)
 }
+`)
+	}
 
+	// createSession: needed when any handler outputs a new session.
+	if w.usage.createSession {
+		w.Raw(`
 func (s *Server) createSession(
 	w http.ResponseWriter, r *http.Request, session `)
-	w.Raw(appPkg)
-	w.Raw(`.Session,
+		w.Raw(appPkg)
+		w.Raw(`.Session,
 ) error {
 	token, err := s.sessionManager.CreateSession(r.Context(), session.UserID, session)
 	if err != nil {
@@ -698,7 +776,12 @@ func (s *Server) createSession(
 	s.setSessionCookie(w, token)
 	return nil
 }
+`)
+	}
 
+	// closeSession: needed when any handler closes a session.
+	if w.usage.closeSession {
+		w.Raw(`
 func (s *Server) closeSession(
 	w http.ResponseWriter, r *http.Request,
 	token string,
@@ -711,14 +794,19 @@ func (s *Server) closeSession(
 	s.setSessionCookie(w, "")
 	return nil
 }
+`)
+	}
 
+	// auth: needed when any handler reads the session or when stream pages exist.
+	if w.usage.auth {
+		w.Raw(`
 // authSess reads the session token from r and checks CSRF when necessary.
 // If onClose != nil it will be closed once the session is closed.
 func (s *Server) auth(
 	w http.ResponseWriter, r *http.Request,
 ) (sess `)
-	w.Raw(appPkg)
-	w.Raw(`.Session, token string, ok bool) {
+		w.Raw(appPkg)
+		w.Raw(`.Session, token string, ok bool) {
 	c, err := r.Cookie(s.authConf.TokenCookie.Name)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {
@@ -734,16 +822,16 @@ func (s *Server) auth(
 		mSessionReads.WithLabelValues("error").Inc()
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 		return `)
-	w.Raw(appPkg)
-	w.Raw(`.Session{}, "", false
+		w.Raw(appPkg)
+		w.Raw(`.Session{}, "", false
 	}
 	if !ok {
 		// Cookie is stale or malformed; clear it and continue as unauthenticated.
 		mSessionReads.WithLabelValues("stale").Inc()
 		s.setSessionCookie(w, "")
 		return `)
-	w.Raw(appPkg)
-	w.Raw(`.Session{}, "", true
+		w.Raw(appPkg)
+		w.Raw(`.Session{}, "", true
 	}
 	sess.UserID = userID
 
@@ -756,6 +844,7 @@ func (s *Server) auth(
 	return sess, token, true
 }
 `)
+	}
 }
 
 func (w *Writer) writeBrokerSubjectKind(events []*model.Event) {

@@ -204,6 +204,89 @@ func routeVars(route string) []string {
 	return vars
 }
 
+// appUsage tracks which optional helpers are referenced by the generated handler code.
+// It is computed once from the model before any code is emitted, and used to
+// conditionally emit helper functions/methods that would otherwise be dead code.
+type appUsage struct {
+	// auth: func (s *Server) auth(...)
+	auth bool
+	// createSession: func (s *Server) createSession(...)
+	createSession bool
+	// closeSession: func (s *Server) closeSession(...)
+	closeSession bool
+	// httpRedirect: func httpRedirect(...)
+	httpRedirect bool
+	// stream: func (s *Server) handleStreamRequest(...)
+	stream bool
+	// dsRequest: func (s *Server) checkIsDSReq(...)
+	dsRequest bool
+	// recover500: isDSReq called in httpErrIntern when Recover500+PageError500 exist
+	recover500 bool
+}
+
+// needsIsDSReq returns true if the isDSReq helper must be emitted.
+func (u appUsage) needsIsDSReq() bool {
+	return u.stream || u.dsRequest || u.httpRedirect || u.recover500
+}
+
+// needsCheckIsDSReq returns true if the checkIsDSReq method must be emitted.
+func (u appUsage) needsCheckIsDSReq() bool {
+	return u.stream || u.dsRequest
+}
+
+// needsSetSessionCookie returns true if setSessionCookie must be emitted.
+func (u appUsage) needsSetSessionCookie() bool {
+	return u.auth || u.createSession || u.closeSession
+}
+
+// computeAppUsage scans the model to determine which optional helpers are needed.
+func computeAppUsage(m *model.App) appUsage {
+	var u appUsage
+
+	if m.Recover500 != nil && m.PageError500 != nil {
+		u.recover500 = true
+	}
+
+	checkHandler := func(h *model.Handler) {
+		if h.InputSession != nil || h.InputSessionToken != nil {
+			u.auth = true
+		}
+		if h.OutputNewSession != nil {
+			u.createSession = true
+		}
+		if h.OutputCloseSession != nil {
+			u.closeSession = true
+		}
+		if h.OutputRedirect != nil {
+			u.httpRedirect = true
+		}
+		if h.InputSSE != nil || h.InputSignals != nil {
+			u.dsRequest = true
+		}
+	}
+
+	for _, h := range m.Actions {
+		checkHandler(h)
+	}
+	for _, p := range m.Pages {
+		if p.GET != nil {
+			checkHandler(p.GET.Handler)
+		}
+		if len(p.EventHandlers) > 0 {
+			u.stream = true
+			u.auth = true // stream handlers always call s.auth
+		}
+		for _, h := range p.Actions {
+			checkHandler(h)
+		}
+	}
+	if m.PageError404 != nil && m.PageError404.GET != nil {
+		checkHandler(m.PageError404.GET.Handler)
+	}
+
+	return u
+}
+
 // writerPool is a package-level pool for reusing Writer instances across Generate calls.
 var writerPool = sync.Pool{
 	New: func() any {
@@ -218,12 +301,14 @@ type Writer struct {
 	Buf      []byte
 	eventMap map[string]*model.Event // built once per WriteApp, reused
 	fields   []structFieldInfo       // reusable scratch for structFields
+	usage    appUsage                // computed once per WriteApp
 }
 
 func (w *Writer) Reset() {
 	w.Buf = w.Buf[:0]
 	clear(w.eventMap)
 	w.fields = w.fields[:0]
+	w.usage = appUsage{}
 }
 
 // buildEventMap populates w.eventMap from the given events.

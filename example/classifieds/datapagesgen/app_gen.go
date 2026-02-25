@@ -332,21 +332,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	handler.ServeHTTP(w, r)
 }
 
-func isDSReq(r *http.Request) bool {
-	return r.Header.Get("Datastar-Request") == "true"
-}
-
-func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
-	if !isDSReq(r) {
-		s.logger.Debug("not a datastar request",
-			slog.Any("method", r.Method),
-			slog.String("path", r.URL.Path))
-		http.Error(w, http.StatusText(http.StatusNotAcceptable), http.StatusNotAcceptable)
-		return false
-	}
-	return true
-}
-
 func (s *Server) logErr(msg string, err error) {
 	s.logger.Error(msg, slog.Any("err", err))
 }
@@ -582,7 +567,24 @@ func (s *Server) metricsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// --- HTTP Handlers ---
+func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
+	_, _ = io.WriteString(w, `data-on:visibilitychange__window="if (!document.hidden) @get(window.location.href)"`)
+}
+
+func isDSReq(r *http.Request) bool {
+	return r.Header.Get("Datastar-Request") == "true"
+}
+
+func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
+	if !isDSReq(r) {
+		s.logger.Debug("not a datastar request",
+			slog.Any("method", r.Method),
+			slog.String("path", r.URL.Path))
+		http.Error(w, http.StatusText(http.StatusNotAcceptable), http.StatusNotAcceptable)
+		return false
+	}
+	return true
+}
 
 func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status int) (exit bool) {
 	if target == "" {
@@ -609,10 +611,6 @@ func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status 
 
 	http.Redirect(w, r, target, status)
 	return true
-}
-
-func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
-	_, _ = io.WriteString(w, `data-on:visibilitychange__window="if (!document.hidden) @get(window.location.href)"`)
 }
 
 func (s *Server) checkCSRF(
