@@ -381,7 +381,6 @@ func TestNotifyClosedMultipleWatchers(t *testing.T) {
 	const n = 10
 	counters := make([]atomic.Int32, n)
 	for i := range n {
-		i := i
 		require.NoError(t, sm.NotifyClosed(ctx, token, func() {
 			counters[i].Add(1)
 		}))

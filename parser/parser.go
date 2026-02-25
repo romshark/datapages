@@ -188,8 +188,7 @@ func firstPassSessionType(
 	}
 
 	hasUserID, hasIssuedAt := false, false
-	for i := range underlying.NumFields() {
-		f := underlying.Field(i)
+	for f := range underlying.Fields() {
 		switch {
 		case f.Name() == "UserID" && typecheck.IsString(f.Type()):
 			hasUserID = true
