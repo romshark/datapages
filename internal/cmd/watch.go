@@ -104,29 +104,32 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 	// Inject a built-in gen watcher so datapages gen is re-run whenever Go files
 	// in the app package change, keeping app_gen.go in sync before each rebuild.
 	// Parser validation errors (e.g. missing route comment) are shown in the browser.
-	genExe := "datapages"
+	// Skip the gen watcher when running as a test binary: test binaries don't
+	// implement the gen sub-command and datapages may not be in PATH.
+	isTestBinary := false
 	if exe, exeErr := os.Executable(); exeErr == nil {
-		// Don't use the test binary as the watcher command: test binaries
-		// don't implement the gen sub-command and get killed by the engine,
-		// which prevents clean shutdown in tests.
 		base := filepath.Base(exe)
-		if !strings.HasSuffix(base, ".test") && !strings.HasSuffix(base, ".test.exe") {
+		isTestBinary = strings.HasSuffix(base, ".test") || strings.HasSuffix(base, ".test.exe")
+	}
+	if !isTestBinary {
+		genExe := "datapages"
+		if exe, exeErr := os.Executable(); exeErr == nil {
 			genExe = exe
 		}
-	}
-	conf.CustomWatchers = append([]engine.CustomWatcherConfig{
-		{
-			Name: "datapages gen",
-			Include: []string{
-				filepath.ToSlash(filepath.Clean(config.App)) + "/**/*.go",
-				"datapages.yaml",
-				"datapages.yml",
+		conf.CustomWatchers = append([]engine.CustomWatcherConfig{
+			{
+				Name: "datapages gen",
+				Include: []string{
+					filepath.ToSlash(filepath.Clean(config.App)) + "/**/*.go",
+					"datapages.yaml",
+					"datapages.yml",
+				},
+				Cmd:       genExe + " gen",
+				FailOnErr: true,
+				Requires:  engine.ActionRebuild,
 			},
-			Cmd:       genExe + " gen",
-			FailOnErr: true,
-			Requires:  engine.ActionRebuild,
-		},
-	}, conf.CustomWatchers...)
+		}, conf.CustomWatchers...)
+	}
 
 	e, err := engine.New(conf, engine.Options{})
 	if err != nil {
