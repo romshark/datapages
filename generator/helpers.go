@@ -298,10 +298,11 @@ var writerPool = sync.Pool{
 }
 
 type Writer struct {
-	Buf      []byte
-	eventMap map[string]*model.Event // built once per WriteApp, reused
-	fields   []structFieldInfo       // reusable scratch for structFields
-	usage    appUsage                // computed once per WriteApp
+	Buf        []byte
+	eventMap   map[string]*model.Event // built once per WriteApp, reused
+	fields     []structFieldInfo       // reusable scratch for structFields
+	prometheus bool                    // whether to generate Prometheus metrics code
+	usage      appUsage                // computed once per WriteApp
 }
 
 func (w *Writer) Reset() {

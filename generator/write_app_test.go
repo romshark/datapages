@@ -161,7 +161,7 @@ func TestWriteAppErrHelpers(t *testing.T) {
 		},
 	}
 
-	w := Writer{}
+	w := Writer{prometheus: true}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()

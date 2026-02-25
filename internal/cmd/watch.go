@@ -44,7 +44,7 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 		return err
 	}
 	if !found {
-		if err := writeDefaultConfig(moduleDir); err != nil {
+		if err := writeDefaultConfig(moduleDir, true); err != nil {
 			return err
 		}
 	}

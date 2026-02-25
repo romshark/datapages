@@ -1,7 +1,7 @@
 .PHONY: dev up down build gen lint
 
 dev: up
-	go run github.com/romshark/datapages@latest watch
+	datapages watch
 
 up:
 	docker compose up -d
@@ -13,7 +13,7 @@ build:
 	go build -o ./cmd/server/server ./cmd/server/
 
 gen:
-	go run github.com/romshark/datapages@latest gen
+	datapages gen
 
 lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...

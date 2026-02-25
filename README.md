@@ -50,10 +50,16 @@ datapages init
 Datapages reads configuration from `datapages.yaml` in the module root:
 
 ```yaml
-app: app          # Path to the app source package (default)
-gen: datapagesgen # Path to the generated package (default)
-cmd: cmd/server   # Path to the server cmd package (default)
+app: app            # Path to the app source package (default)
+gen:
+  package: datapagesgen # Path to the generated package (default)
+  prometheus: true      # Enable Prometheus metrics generation (default)
+cmd: cmd/server     # Path to the server cmd package (default)
 ```
+
+When `prometheus` is set to `false`, the generated server code will not include
+Prometheus imports, metric variables, or the `WithPrometheus` server option.
+Use `datapages init --prometheus=false` to scaffold a project without Prometheus.
 
 The optional `watch` section configures the development server
 (host, proxy timeout, TLS, compiler flags, custom watchers, etc.).

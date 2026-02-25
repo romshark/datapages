@@ -172,9 +172,15 @@ func setupProject(t *testing.T, appGoFile string) string {
 
 	dir := t.TempDir()
 
-	copyTestdata(t, filepath.Join(dir, "go.mod"), filepath.Join("testdata", "project", "go.mod.txt"))
-	copyTestdata(t, filepath.Join(dir, "datapages.yaml"), filepath.Join("testdata", "project", "datapages.yaml"))
-	copyTestdata(t, filepath.Join(dir, "app", "app.go"), filepath.Join("testdata", "app", appGoFile))
+	copyTestdata(t,
+		filepath.Join(dir, "go.mod"),
+		filepath.Join("testdata", "project", "go.mod.txt"))
+	copyTestdata(t,
+		filepath.Join(dir, "datapages.yaml"),
+		filepath.Join("testdata", "project", "datapages.yaml"))
+	copyTestdata(t,
+		filepath.Join(dir, "app", "app.go"),
+		filepath.Join("testdata", "app", appGoFile))
 
 	// findModuleDir uses os.Getwd, so we must chdir.
 	origDir, err := os.Getwd()
@@ -409,16 +415,19 @@ func TestInit(t *testing.T) {
 		wantErr  string
 		check    func(t *testing.T, startDir string, stdout string)
 	}{
-		"auto no git no module": {
+		"non-interactive no git no module": {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
-			args:     []string{"datapages", "init", "--auto"},
+			args:     []string{"datapages", "init", "-n", "--name", "myapp", "--module", "example.com/myapp"},
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
-				projectDir := filepath.Join(startDir, "datapages-app")
+				projectDir := filepath.Join(startDir, "myapp")
 				require.DirExists(t, filepath.Join(projectDir, ".git"))
 				require.FileExists(t, filepath.Join(projectDir, "go.mod"))
+				data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
+				require.NoError(t, err)
+				require.Contains(t, string(data), "example.com/myapp")
 				require.FileExists(t, filepath.Join(projectDir, "datapages.yaml"))
 				require.FileExists(t, filepath.Join(projectDir, "app", "app.go"))
 				require.FileExists(t, filepath.Join(projectDir, ".env"))
@@ -427,46 +436,44 @@ func TestInit(t *testing.T) {
 				require.Contains(t, stdout, "Project initialized successfully.")
 			},
 		},
-		"auto in git no module": {
+		"non-interactive missing name": {
+			setup: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			args:     []string{"datapages", "init", "-n"},
+			wantCode: 1,
+			wantErr:  "--name is required",
+		},
+		"non-interactive missing module": {
 			setup: func(t *testing.T) string {
 				dir := t.TempDir()
 				out, err := exec.Command("git", "init", dir).CombinedOutput()
 				require.NoError(t, err, "git init: %s", out)
 				return dir
 			},
-			args:     []string{"datapages", "init", "--auto"},
+			args:     []string{"datapages", "init", "-n"},
+			wantCode: 1,
+			wantErr:  "--module is required",
+		},
+		"non-interactive in git no module": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				return dir
+			},
+			args:     []string{"datapages", "init", "-n", "--module", "example.com/test"},
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				require.FileExists(t, filepath.Join(startDir, "go.mod"))
 				require.FileExists(t, filepath.Join(startDir, "datapages.yaml"))
 				require.FileExists(t, filepath.Join(startDir, "app", "app.go"))
-				// Module path should be the directory basename.
 				data, err := os.ReadFile(filepath.Join(startDir, "go.mod"))
 				require.NoError(t, err)
-				require.Contains(t, string(data), filepath.Base(startDir))
+				require.Contains(t, string(data), "example.com/test")
 			},
 		},
-		"auto in git with remote": {
-			setup: func(t *testing.T) string {
-				dir := t.TempDir()
-				out, err := exec.Command("git", "init", dir).CombinedOutput()
-				require.NoError(t, err, "git init: %s", out)
-				c := exec.Command("git", "remote", "add", "origin",
-					"https://github.com/testuser/testrepo.git")
-				c.Dir = dir
-				out, err = c.CombinedOutput()
-				require.NoError(t, err, "git remote add: %s", out)
-				return dir
-			},
-			args:     []string{"datapages", "init", "--auto"},
-			wantCode: 0,
-			check: func(t *testing.T, startDir string, stdout string) {
-				data, err := os.ReadFile(filepath.Join(startDir, "go.mod"))
-				require.NoError(t, err)
-				require.Contains(t, string(data), "github.com/testuser/testrepo")
-			},
-		},
-		"auto already initialized": {
+		"non-interactive already initialized": {
 			setup: func(t *testing.T) string {
 				dir := t.TempDir()
 				out, err := exec.Command("git", "init", dir).CombinedOutput()
@@ -489,7 +496,7 @@ func TestInit(t *testing.T) {
 				))
 				return dir
 			},
-			args:     []string{"datapages", "init", "--auto"},
+			args:     []string{"datapages", "init", "-n"},
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				// app.go must not be overwritten.
@@ -508,7 +515,7 @@ func TestInit(t *testing.T) {
 				require.NoFileExists(t, filepath.Join(startDir, "Makefile"))
 			},
 		},
-		"auto in git subdirectory": {
+		"non-interactive in git subdirectory": {
 			setup: func(t *testing.T) string {
 				dir := t.TempDir()
 				out, err := exec.Command("git", "init", dir).CombinedOutput()
@@ -517,7 +524,7 @@ func TestInit(t *testing.T) {
 				require.NoError(t, os.MkdirAll(sub, 0o755))
 				return sub
 			},
-			args:     []string{"datapages", "init", "--auto"},
+			args:     []string{"datapages", "init", "-n", "--module", "example.com/sub"},
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				// Files must be in startDir (the subdirectory), not the git root.
@@ -534,7 +541,7 @@ func TestInit(t *testing.T) {
 				return t.TempDir()
 			},
 			args:     []string{"datapages", "init"},
-			stdin:    "y\nmyapp\ny\nmymod\n",
+			stdin:    "y\nmyapp\ny\nmymod\nn\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myapp")
@@ -579,6 +586,58 @@ func TestInit(t *testing.T) {
 			stdin:    "y\n\n",
 			wantCode: 1,
 			wantErr:  "directory name is required",
+		},
+		"flag name no git no module": {
+			setup: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			args:     []string{"datapages", "init", "--name", "custom-app", "--module", "example.com/custom"},
+			stdin:    "n\n",
+			wantCode: 0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				projectDir := filepath.Join(startDir, "custom-app")
+				require.DirExists(t, filepath.Join(projectDir, ".git"))
+				require.FileExists(t, filepath.Join(projectDir, "go.mod"))
+				data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
+				require.NoError(t, err)
+				require.Contains(t, string(data), "example.com/custom")
+				require.FileExists(t, filepath.Join(projectDir, "datapages.yaml"))
+				require.FileExists(t, filepath.Join(projectDir, "app", "app.go"))
+				require.Contains(t, stdout, "Project initialized successfully.")
+			},
+		},
+		"flag name skips name prompt": {
+			setup: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			args:     []string{"datapages", "init", "--name", "myproject"},
+			stdin:    "y\nmymod\nn\n",
+			wantCode: 0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				projectDir := filepath.Join(startDir, "myproject")
+				require.DirExists(t, filepath.Join(projectDir, ".git"))
+				require.FileExists(t, filepath.Join(projectDir, "go.mod"))
+				data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
+				require.NoError(t, err)
+				require.Contains(t, string(data), "mymod")
+			},
+		},
+		"flag module skips module prompt": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				out, err := exec.Command("git", "init", dir).CombinedOutput()
+				require.NoError(t, err, "git init: %s", out)
+				return dir
+			},
+			args:     []string{"datapages", "init", "--module", "example.com/flagmod"},
+			stdin:    "n\n",
+			wantCode: 0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				require.FileExists(t, filepath.Join(startDir, "go.mod"))
+				data, err := os.ReadFile(filepath.Join(startDir, "go.mod"))
+				require.NoError(t, err)
+				require.Contains(t, string(data), "example.com/flagmod")
+			},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

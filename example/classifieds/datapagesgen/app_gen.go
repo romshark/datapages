@@ -193,158 +193,6 @@ type PrometheusConfig struct {
 
 var registerPrometheusMetricsOnce sync.Once
 
-func (s *Server) listenAndServe(
-	ctx context.Context,
-	listenAndServe func() error,
-) error {
-	ctx, cancel := context.WithCancel(ctx)
-	s.runCancel = cancel
-
-	if s.csrfConf == nil {
-		s.logger.Warn("CSRF protection disabled")
-	}
-
-	g, ctx := errgroup.WithContext(ctx)
-
-	// Main frontend server
-	g.Go(func() error {
-		if err := listenAndServe(); err != nil &&
-			!errors.Is(err, http.ErrServerClosed) {
-			return err
-		}
-		return nil
-	})
-
-	// Metrics server
-	if s.metricsServer != nil {
-		s.metricsServer.BaseContext = func(net.Listener) context.Context {
-			return ctx
-		}
-		g.Go(func() error {
-			err := s.metricsServer.ListenAndServe()
-			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				return fmt.Errorf("metrics server failed: %w", err)
-			}
-			return nil
-		})
-	}
-
-	// Coordinated shutdown
-	g.Go(func() error {
-		<-ctx.Done()
-
-		shutdownCtx, cancel := context.WithTimeout(
-			context.Background(),
-			10*time.Second,
-		)
-		defer cancel()
-
-		_ = s.Shutdown(shutdownCtx)
-		return nil
-	})
-
-	return g.Wait()
-}
-
-// ListenAndServe starts the main HTTP server and, if configured, a dedicated
-// Prometheus metrics server.
-//
-// Both servers run concurrently and share the same lifecycle.
-// If either server fails to start or exits unexpectedly, the other is
-// shut down and the error is returned.
-//
-// The provided context controls graceful shutdown for both servers.
-func (s *Server) ListenAndServe(
-	ctx context.Context,
-	addr string,
-) error {
-	s.httpServer.Addr = addr
-	s.enabledTLS = false
-	return s.listenAndServe(ctx, func() error {
-		s.logger.Info("listening HTTP", slog.String("addr", addr))
-		return s.httpServer.ListenAndServe()
-	})
-}
-
-// ListenAndServeTLS acts identically to ListenAndServe,
-// except that it expects HTTPS connections.
-func (s *Server) ListenAndServeTLS(
-	ctx context.Context,
-	addr, certFile, keyFile string,
-) error {
-	s.httpServer.Addr = addr
-	s.enabledTLS = true
-	return s.listenAndServe(ctx, func() error {
-		s.logger.Info("listening HTTP",
-			slog.String("addr", addr),
-			slog.String("tls.cert", certFile),
-			slog.String("tls.key", keyFile))
-		return s.httpServer.ListenAndServeTLS(certFile, keyFile)
-	})
-}
-
-// Shutdown gracefully shuts down all server components,
-// including the main HTTP server and the Prometheus metrics server.
-func (s *Server) Shutdown(ctx context.Context) error {
-	s.shutdownOnce.Do(func() {
-		s.logger.Info("server shutdown initiated")
-		if s.runCancel != nil {
-			s.runCancel()
-		}
-		close(s.shutdownCh)
-	})
-	var errs []error
-	if s.metricsServer != nil {
-		if err := s.metricsServer.Shutdown(ctx); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	if err := s.httpServer.Shutdown(ctx); err != nil {
-		errs = append(errs, err)
-	}
-	return errors.Join(errs...)
-}
-
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Build handler chain from middleware
-	handler := http.Handler(s.mux)
-
-	// Normalize trailing slashes: ensure all paths end with /
-	// except for static file paths
-
-	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
-		// Skip normalization for static file paths
-		if s.staticURLPath == "" || !strings.HasPrefix(p, s.staticURLPath) {
-			// Add trailing slash for non-static paths
-			r.URL.Path = p + "/"
-			// Update the raw path as well if it exists
-			if r.URL.RawPath != "" {
-				r.URL.RawPath = r.URL.RawPath + "/"
-			}
-		}
-	}
-
-	// Apply middleware in reverse order so they execute in the order they were added
-	for _, h := range s.middleware {
-		handler = h(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-func (s *Server) logErr(msg string, err error) {
-	s.logger.Error(msg, slog.Any("err", err))
-}
-
-func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
-	s.logger.Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
-	http.Error(w, msg, http.StatusBadRequest)
-}
-
-// --- Message Broker ---
-
-const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
-
 // --- Prometheus Metrics ---
 
 // Datapages metrics
@@ -567,8 +415,154 @@ func (s *Server) metricsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) listenAndServe(
+	ctx context.Context,
+	listenAndServe func() error,
+) error {
+	ctx, cancel := context.WithCancel(ctx)
+	s.runCancel = cancel
+
+	if s.csrfConf == nil {
+		s.logger.Warn("CSRF protection disabled")
+	}
+
+	g, ctx := errgroup.WithContext(ctx)
+
+	// Main frontend server
+	g.Go(func() error {
+		if err := listenAndServe(); err != nil &&
+			!errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	})
+
+	// Metrics server
+	if s.metricsServer != nil {
+		s.metricsServer.BaseContext = func(net.Listener) context.Context {
+			return ctx
+		}
+		g.Go(func() error {
+			err := s.metricsServer.ListenAndServe()
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return fmt.Errorf("metrics server failed: %w", err)
+			}
+			return nil
+		})
+	}
+
+	// Coordinated shutdown
+	g.Go(func() error {
+		<-ctx.Done()
+
+		shutdownCtx, cancel := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+		defer cancel()
+
+		_ = s.Shutdown(shutdownCtx)
+		return nil
+	})
+
+	return g.Wait()
+}
+
+// ListenAndServe starts the HTTP server.
+//
+// The provided context controls graceful shutdown.
+func (s *Server) ListenAndServe(
+	ctx context.Context,
+	addr string,
+) error {
+	s.httpServer.Addr = addr
+	s.enabledTLS = false
+	return s.listenAndServe(ctx, func() error {
+		s.logger.Info("listening HTTP", slog.String("addr", addr))
+		return s.httpServer.ListenAndServe()
+	})
+}
+
+// ListenAndServeTLS acts identically to ListenAndServe,
+// except that it expects HTTPS connections.
+func (s *Server) ListenAndServeTLS(
+	ctx context.Context,
+	addr, certFile, keyFile string,
+) error {
+	s.httpServer.Addr = addr
+	s.enabledTLS = true
+	return s.listenAndServe(ctx, func() error {
+		s.logger.Info("listening HTTP",
+			slog.String("addr", addr),
+			slog.String("tls.cert", certFile),
+			slog.String("tls.key", keyFile))
+		return s.httpServer.ListenAndServeTLS(certFile, keyFile)
+	})
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Build handler chain from middleware
+	handler := http.Handler(s.mux)
+
+	// Normalize trailing slashes: ensure all paths end with /
+	// except for static file paths
+
+	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
+		// Skip normalization for static file paths
+		if s.staticURLPath == "" || !strings.HasPrefix(p, s.staticURLPath) {
+			// Add trailing slash for non-static paths
+			r.URL.Path = p + "/"
+			// Update the raw path as well if it exists
+			if r.URL.RawPath != "" {
+				r.URL.RawPath = r.URL.RawPath + "/"
+			}
+		}
+	}
+
+	// Apply middleware in reverse order so they execute in the order they were added
+	for _, h := range s.middleware {
+		handler = h(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+func (s *Server) logErr(msg string, err error) {
+	s.logger.Error(msg, slog.Any("err", err))
+}
+
+func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
+	s.logger.Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
+	http.Error(w, msg, http.StatusBadRequest)
+}
+
+// --- Message Broker ---
+
+const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
+
 func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
 	_, _ = io.WriteString(w, `data-on:visibilitychange__window="if (!document.hidden) @get(window.location.href)"`)
+}
+
+// Shutdown gracefully shuts down all server components.
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.shutdownOnce.Do(func() {
+		s.logger.Info("server shutdown initiated")
+		if s.runCancel != nil {
+			s.runCancel()
+		}
+		close(s.shutdownCh)
+	})
+	var errs []error
+	if s.metricsServer != nil {
+		if err := s.metricsServer.Shutdown(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := s.httpServer.Shutdown(ctx); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
 func isDSReq(r *http.Request) bool {
@@ -1118,7 +1112,6 @@ func (s *Server) auth(
 		return app.Session{}, "", true
 	}
 	sess.UserID = userID
-
 	mSessionReads.WithLabelValues("valid").Inc()
 
 	if !s.checkCSRF(w, r, sess) {

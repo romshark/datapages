@@ -112,28 +112,36 @@ func loadConfig(moduleDir string) (c config, found bool, _ error) {
 	if c.App == "" {
 		c.App = "app"
 	}
-	if c.Gen == "" {
-		c.Gen = "datapagesgen"
+	if c.Gen.Package == "" {
+		c.Gen.Package = "datapagesgen"
 	}
 	if c.Cmd == "" {
 		c.Cmd = "cmd/server"
 	}
+	if c.Gen.Prometheus == nil {
+		v := true
+		c.Gen.Prometheus = &v
+	}
 	return c, found, nil
 }
 
-const defaultConfigYAML = `app: app
-gen: datapagesgen
+func defaultConfigYAML(prometheus bool) string {
+	return fmt.Sprintf(`app: app
+gen:
+  package: datapagesgen
+  prometheus: %t
 cmd: cmd/server
 watch:
   exclude:
     - ".git/**" # git internals
     - ".*"      # hidden files/directories
     - "*~"      # editor backup files
-`
+`, prometheus)
+}
 
-func writeDefaultConfig(moduleDir string) error {
+func writeDefaultConfig(moduleDir string, prometheus bool) error {
 	p := filepath.Join(moduleDir, "datapages.yaml")
-	return os.WriteFile(p, []byte(defaultConfigYAML), 0o644)
+	return os.WriteFile(p, []byte(defaultConfigYAML(prometheus)), 0o644)
 }
 
 // readModulePath reads go.mod from moduleDir and returns the module path.
