@@ -108,7 +108,7 @@ var (
 	ErrNewSessionNotSessionType = errors.New("newSession must be of type Session")
 	ErrCloseSessionNotBool      = errors.New("closeSession must be of type bool")
 	ErrNewSessionWithSSE        = errors.New(
-		"newSession cannot be used together with with sse parameter",
+		"newSession cannot be used together with sse parameter",
 	)
 	ErrCloseSessionWithSSE = errors.New(
 		"closeSession cannot be used together with sse parameter",
