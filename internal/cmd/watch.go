@@ -106,7 +106,13 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 	// Parser validation errors (e.g. missing route comment) are shown in the browser.
 	genExe := "datapages"
 	if exe, exeErr := os.Executable(); exeErr == nil {
-		genExe = exe
+		// Don't use the test binary as the watcher command: test binaries
+		// don't implement the gen sub-command and get killed by the engine,
+		// which prevents clean shutdown in tests.
+		base := filepath.Base(exe)
+		if !strings.HasSuffix(base, ".test") && !strings.HasSuffix(base, ".test.exe") {
+			genExe = exe
+		}
 	}
 	conf.CustomWatchers = append([]engine.CustomWatcherConfig{
 		{
