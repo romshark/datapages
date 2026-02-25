@@ -180,30 +180,6 @@ func pathTagValue(tag string) string {
 	return reflect.StructTag(tag).Get("path")
 }
 
-// routeVars returns the path variable names from a route pattern.
-// "/post/{slug}/send-message/{$}" -> ["slug"]
-func routeVars(route string) []string {
-	var vars []string
-	r := route
-	for {
-		i := strings.IndexByte(r, '{')
-		if i < 0 {
-			break
-		}
-		r = r[i+1:]
-		j := strings.IndexByte(r, '}')
-		if j < 0 {
-			break
-		}
-		name := strings.TrimSuffix(r[:j], "...")
-		r = r[j+1:]
-		if name != "$" && name != "" {
-			vars = append(vars, name)
-		}
-	}
-	return vars
-}
-
 // appUsage tracks which optional helpers are referenced by the generated handler code.
 // It is computed once from the model before any code is emitted, and used to
 // conditionally emit helper functions/methods that would otherwise be dead code.

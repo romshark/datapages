@@ -2,8 +2,10 @@ package generator
 
 import (
 	"go/types"
+	"slices"
 	"strings"
 
+	"github.com/romshark/datapages/internal/routepattern"
 	"github.com/romshark/datapages/parser/model"
 )
 
@@ -18,7 +20,7 @@ func (w *Writer) WritePkgHref(m *model.App) {
 		if p.GET == nil {
 			continue
 		}
-		pathVars := routeVars(p.Route)
+		pathVars := slices.Collect(routepattern.Vars(p.Route))
 		if len(pathVars) > 0 {
 			needsStrings = true
 		}
@@ -140,7 +142,7 @@ func routeSegments(route string) (literals []string, vars []string) {
 
 func (w *Writer) writeHrefFunc(p *model.Page) {
 	funcName := pageNameForHref(p.TypeName)
-	pathVars := routeVars(p.Route)
+	pathVars := slices.Collect(routepattern.Vars(p.Route))
 	hasPathVars := len(pathVars) > 0
 
 	var querySt *types.Struct

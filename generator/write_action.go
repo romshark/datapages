@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/romshark/datapages/internal/routepattern"
 	"github.com/romshark/datapages/parser/model"
 )
 
@@ -109,7 +110,7 @@ func (w *Writer) writeActionFunc(
 	route string,
 	queryInput *model.Input,
 ) {
-	pathVars := routeVars(route)
+	pathVars := slices.Collect(routepattern.Vars(route))
 	hasPathVars := len(pathVars) > 0
 
 	var queryFields []structFieldInfo

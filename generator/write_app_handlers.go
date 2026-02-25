@@ -2,8 +2,10 @@ package generator
 
 import (
 	"go/types"
+	"slices"
 	"strings"
 
+	"github.com/romshark/datapages/internal/routepattern"
 	"github.com/romshark/datapages/parser/model"
 )
 
@@ -277,7 +279,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 		if hasAnonStream {
 			// Mixed: auth -> /_$/ , anon -> /_$/anon/
 			// Need to handle path variables.
-			pathVars := routeVars(p.Route)
+			pathVars := slices.Collect(routepattern.Vars(p.Route))
 			if len(pathVars) > 0 {
 				// Dynamic path.
 				w.Line(0, "")

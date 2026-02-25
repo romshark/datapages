@@ -9,7 +9,7 @@ import (
 	"go/types"
 	"strings"
 
-	"github.com/romshark/datapages/parser/internal/routepattern"
+	"github.com/romshark/datapages/internal/routepattern"
 	"github.com/romshark/datapages/parser/internal/structtag"
 	"github.com/romshark/datapages/parser/internal/typecheck"
 	"github.com/romshark/datapages/parser/model"
