@@ -16,6 +16,9 @@ var appStaticPromContent string
 //go:embed app_static_noprom.go.txt
 var appStaticNoPromContent string
 
+//go:embed app_static_2.go.txt
+var appStaticContent2 string
+
 // WriteApp generates code for the generated root package and appends it to buffer.
 // pkgName is the Go package name (e.g. "datapagesgen").
 func (w *Writer) WriteApp(pkgName string, m *model.App) {
@@ -29,6 +32,9 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	} else {
 		w.Raw(appStaticNoPromContent)
 	}
+	w.writeListenAndServe()
+	w.Raw(appStaticContent2)
+	w.writeShutdown()
 	w.writeAppCheckCSRF(appPkg)
 	w.writeAppWriteHTML(m, appPkg)
 	w.writeAppHandleStreamRequest(appPkg)
@@ -125,6 +131,96 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	}
 	w.Line(1, `"github.com/starfederation/datastar-go/datastar"`)
 	w.Line(0, ")")
+}
+
+func (w *Writer) writeListenAndServe() {
+	w.Raw(`
+func (s *Server) listenAndServe(
+	ctx context.Context,
+	listenAndServe func() error,
+) error {
+	ctx, cancel := context.WithCancel(ctx)
+	s.runCancel = cancel
+
+	if s.csrfConf == nil {
+		s.logger.Warn("CSRF protection disabled")
+	}
+
+	g, ctx := errgroup.WithContext(ctx)
+
+	// Main frontend server
+	g.Go(func() error {
+		if err := listenAndServe(); err != nil &&
+			!errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	})
+`)
+	if w.prometheus {
+		w.Raw(`
+	// Metrics server
+	if s.metricsServer != nil {
+		s.metricsServer.BaseContext = func(net.Listener) context.Context {
+			return ctx
+		}
+		g.Go(func() error {
+			err := s.metricsServer.ListenAndServe()
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return fmt.Errorf("metrics server failed: %w", err)
+			}
+			return nil
+		})
+	}
+`)
+	}
+	w.Raw(`
+	// Coordinated shutdown
+	g.Go(func() error {
+		<-ctx.Done()
+
+		shutdownCtx, cancel := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+		defer cancel()
+
+		_ = s.Shutdown(shutdownCtx)
+		return nil
+	})
+
+	return g.Wait()
+}
+`)
+}
+
+func (w *Writer) writeShutdown() {
+	w.Raw(`
+// Shutdown gracefully shuts down all server components.
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.shutdownOnce.Do(func() {
+		s.logger.Info("server shutdown initiated")
+		if s.runCancel != nil {
+			s.runCancel()
+		}
+		close(s.shutdownCh)
+	})
+	var errs []error
+`)
+	if w.prometheus {
+		w.Raw(`	if s.metricsServer != nil {
+		if err := s.metricsServer.Shutdown(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+`)
+	}
+	w.Raw(`	if err := s.httpServer.Shutdown(ctx); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+`)
 }
 
 func (w *Writer) writeAppCheckCSRF(appPkg string) {
