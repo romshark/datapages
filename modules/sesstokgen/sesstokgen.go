@@ -17,7 +17,7 @@ const DefaultLength = 32
 // Generator generates cryptographically secure session tokens.
 type Generator struct {
 	// Length is the number of random bytes to generate.
-	// Defaults to DefaultLength if zero.
+	// Defaults to DefaultLength if less than or equal to 24.
 	Length int
 }
 
