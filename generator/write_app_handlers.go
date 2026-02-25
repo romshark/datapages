@@ -275,7 +275,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 	if hasStream && h.InputSession != nil {
 		streamPath := routeStreamPath(p.Route)
 		if hasAnonStream {
-			// Mixed: auth → /_$/ , anon → /_$/anon/
+			// Mixed: auth -> /_$/ , anon -> /_$/anon/
 			// Need to handle path variables.
 			pathVars := routeVars(p.Route)
 			if len(pathVars) > 0 {

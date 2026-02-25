@@ -125,11 +125,9 @@ func ValidatePathStruct(
 			)
 		}
 		if !strings.Contains(tag, `path:"`) {
-			return fmt.Errorf(
-				"%w: field %s in %s.%s",
-				ErrPathFieldMissingTag,
-				field.Name(), recv, method,
-			)
+			return &ErrorPathFieldMissingTag{
+				FieldName: field.Name(), Recv: recv, Method: method,
+			}
 		}
 	}
 	return nil
@@ -167,11 +165,9 @@ func ValidateQueryStruct(
 			)
 		}
 		if !strings.Contains(tag, `query:"`) {
-			return fmt.Errorf(
-				"%w: field %s in %s.%s",
-				ErrQueryFieldMissingTag,
-				field.Name(), recv, method,
-			)
+			return &ErrorQueryFieldMissingTag{
+				FieldName: field.Name(), Recv: recv, Method: method,
+			}
 		}
 	}
 	return nil
@@ -210,15 +206,52 @@ func ValidateSignalsStruct(
 			)
 		}
 		if !strings.Contains(tag, `json:"`) {
-			return fmt.Errorf(
-				"%w: field %s in %s.%s",
-				ErrSignalsFieldMissingTag,
-				field.Name(), recv, method,
-			)
+			return &ErrorSignalsFieldMissingTag{
+				FieldName: field.Name(), Recv: recv, Method: method,
+			}
 		}
 	}
 	return nil
 }
+
+// ErrorPathFieldMissingTag is ErrPathFieldMissingTag with suggestion context.
+type ErrorPathFieldMissingTag struct {
+	FieldName string
+	Recv      string
+	Method    string
+}
+
+func (e *ErrorPathFieldMissingTag) Error() string {
+	return fmt.Sprintf("%v: field %s in %s.%s", ErrPathFieldMissingTag, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *ErrorPathFieldMissingTag) Unwrap() error { return ErrPathFieldMissingTag }
+
+// ErrorQueryFieldMissingTag is ErrQueryFieldMissingTag with suggestion context.
+type ErrorQueryFieldMissingTag struct {
+	FieldName string
+	Recv      string
+	Method    string
+}
+
+func (e *ErrorQueryFieldMissingTag) Error() string {
+	return fmt.Sprintf("%v: field %s in %s.%s", ErrQueryFieldMissingTag, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *ErrorQueryFieldMissingTag) Unwrap() error { return ErrQueryFieldMissingTag }
+
+// ErrorSignalsFieldMissingTag is ErrSignalsFieldMissingTag with suggestion context.
+type ErrorSignalsFieldMissingTag struct {
+	FieldName string
+	Recv      string
+	Method    string
+}
+
+func (e *ErrorSignalsFieldMissingTag) Error() string {
+	return fmt.Sprintf("%v: field %s in %s.%s", ErrSignalsFieldMissingTag, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *ErrorSignalsFieldMissingTag) Unwrap() error { return ErrSignalsFieldMissingTag }
 
 // Dispatch parameter errors.
 var (

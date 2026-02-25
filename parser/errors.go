@@ -300,3 +300,119 @@ func cleanPath(p string) string {
 	}
 	return strings.TrimRight(p, "/")
 }
+
+// ErrorPageMissingFieldApp is ErrPageMissingFieldApp with suggestion context.
+type ErrorPageMissingFieldApp struct {
+	TypeName string // e.g. "PageProfile"
+}
+
+func (e *ErrorPageMissingFieldApp) Error() string {
+	return fmt.Sprintf("%v: %s", ErrPageMissingFieldApp, e.TypeName)
+}
+
+func (e *ErrorPageMissingFieldApp) Unwrap() error { return ErrPageMissingFieldApp }
+
+// ErrorActionPathNotUnderPage is ErrActionPathNotUnderPage with suggestion context.
+type ErrorActionPathNotUnderPage struct {
+	PagePath   string // e.g. "/profile/"
+	Recv       string // e.g. "PageProfile"
+	MethodName string // e.g. "POSTFoo"
+}
+
+func (e *ErrorActionPathNotUnderPage) Error() string {
+	return fmt.Sprintf("%v: %s.%s", ErrActionPathNotUnderPage, e.Recv, e.MethodName)
+}
+
+func (e *ErrorActionPathNotUnderPage) Unwrap() error { return ErrActionPathNotUnderPage }
+
+// ErrorPageMissingPathComm is ErrPageMissingPathComm with suggestion context.
+type ErrorPageMissingPathComm struct {
+	TypeName string // e.g. "PageProfile"
+}
+
+func (e *ErrorPageMissingPathComm) Error() string {
+	return fmt.Sprintf("%v: %s", ErrPageMissingPathComm, e.TypeName)
+}
+
+func (e *ErrorPageMissingPathComm) Unwrap() error { return ErrPageMissingPathComm }
+
+// ErrorActionMissingPathComm is ErrActionMissingPathComm with suggestion context.
+type ErrorActionMissingPathComm struct {
+	PagePath   string // e.g. "/profile/" (empty for App-level actions)
+	Recv       string // e.g. "PageProfile" or "App"
+	MethodName string // e.g. "POSTFoo"
+}
+
+func (e *ErrorActionMissingPathComm) Error() string {
+	return fmt.Sprintf("%v: %s.%s", ErrActionMissingPathComm, e.Recv, e.MethodName)
+}
+
+func (e *ErrorActionMissingPathComm) Unwrap() error { return ErrActionMissingPathComm }
+
+// ErrorPageMissingGET is ErrPageMissingGET with suggestion context.
+type ErrorPageMissingGET struct {
+	TypeName string // e.g. "PageProfile"
+}
+
+func (e *ErrorPageMissingGET) Error() string {
+	return fmt.Sprintf("%v: %s", ErrPageMissingGET, e.TypeName)
+}
+
+func (e *ErrorPageMissingGET) Unwrap() error { return ErrPageMissingGET }
+
+// ErrorPageInvalidPathComm is ErrPageInvalidPathComm with suggestion context.
+type ErrorPageInvalidPathComm struct {
+	TypeName string // e.g. "PageProfile"
+}
+
+func (e *ErrorPageInvalidPathComm) Error() string {
+	return fmt.Sprintf("%v: %s", ErrPageInvalidPathComm, e.TypeName)
+}
+
+func (e *ErrorPageInvalidPathComm) Unwrap() error { return ErrPageInvalidPathComm }
+
+// ErrorActionInvalidPathComm is ErrActionInvalidPathComm with suggestion context.
+type ErrorActionInvalidPathComm struct {
+	Recv       string // e.g. "PageProfile" or "App"
+	MethodName string // e.g. "POSTFoo"
+}
+
+func (e *ErrorActionInvalidPathComm) Error() string {
+	return fmt.Sprintf("%v: %s.%s", ErrActionInvalidPathComm, e.Recv, e.MethodName)
+}
+
+func (e *ErrorActionInvalidPathComm) Unwrap() error { return ErrActionInvalidPathComm }
+
+// ErrorEventCommMissing is ErrEventCommMissing with suggestion context.
+type ErrorEventCommMissing struct {
+	TypeName string // e.g. "EventFoo"
+}
+
+func (e *ErrorEventCommMissing) Error() string {
+	return fmt.Sprintf("%v: %s", ErrEventCommMissing, e.TypeName)
+}
+
+func (e *ErrorEventCommMissing) Unwrap() error { return ErrEventCommMissing }
+
+// ErrorEventCommInvalid is ErrEventCommInvalid with suggestion context.
+type ErrorEventCommInvalid struct {
+	TypeName string // e.g. "EventFoo"
+}
+
+func (e *ErrorEventCommInvalid) Error() string {
+	return fmt.Sprintf("%v: %s", ErrEventCommInvalid, e.TypeName)
+}
+
+func (e *ErrorEventCommInvalid) Unwrap() error { return ErrEventCommInvalid }
+
+// ErrorEventFieldMissingTag is ErrEventFieldMissingTag with suggestion context.
+type ErrorEventFieldMissingTag struct {
+	FieldName string // e.g. "UserID"
+	TypeName  string // e.g. "EventFoo"
+}
+
+func (e *ErrorEventFieldMissingTag) Error() string {
+	return fmt.Sprintf("%v: field %s in %s", ErrEventFieldMissingTag, e.FieldName, e.TypeName)
+}
+
+func (e *ErrorEventFieldMissingTag) Unwrap() error { return ErrEventFieldMissingTag }

@@ -60,7 +60,7 @@ func validateEventType(
 		// Minimal check: verify `json:"..."` exists.
 		if !strings.Contains(tag, "json:\"") {
 			errs.ErrAt(ctx.pkg.Fset.Position(pos),
-				fmt.Errorf("%w: field %s in %s", ErrEventFieldMissingTag, f.Name(), name))
+				&ErrorEventFieldMissingTag{FieldName: f.Name(), TypeName: name})
 		}
 
 		// Recurse

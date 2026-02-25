@@ -7,6 +7,7 @@ import (
 
 	"github.com/romshark/datapages/generator"
 	datapagesparser "github.com/romshark/datapages/parser"
+	"github.com/romshark/datapages/parser/errsuggest"
 	"github.com/romshark/datapages/parser/model"
 	"github.com/spf13/cobra"
 )
@@ -83,6 +84,10 @@ func parseApp(appDir string, stderr io.Writer) (*model.App, error) {
 	if errs.Len() > 0 {
 		for _, err := range errs.All() {
 			_, _ = fmt.Fprintln(stderr, err)
+			if hint := errsuggest.Suggest(err); hint != "" {
+				_, _ = fmt.Fprintln(stderr, "")
+				_, _ = fmt.Fprintln(stderr, hint)
+			}
 		}
 		return nil, fmt.Errorf("parsing app package: %d error(s)", errs.Len())
 	}

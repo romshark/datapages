@@ -216,14 +216,14 @@ func firstPassEventType(
 	if err != nil {
 		switch err {
 		case validate.ErrEventCommMissing:
-			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventCommMissing, name))
+			errs.ErrAt(typePos, &ErrorEventCommMissing{TypeName: name})
 		case validate.ErrEventCommInvalid:
-			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventCommInvalid, name))
+			errs.ErrAt(typePos, &ErrorEventCommInvalid{TypeName: name})
 		case validate.ErrEventSubjectInvalid:
 			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventSubjectInvalid, name))
 		default:
 			// Defensive fallback: treat as invalid comment.
-			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventCommInvalid, name))
+			errs.ErrAt(typePos, &ErrorEventCommInvalid{TypeName: name})
 		}
 		return
 	}
@@ -281,7 +281,7 @@ func firstPassPageOrAbstractType(
 			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageNameInvalid, name))
 		}
 		if !structinspect.HasRequiredAppField(st, ctx.pkg.TypesInfo) {
-			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageMissingFieldApp, name))
+			errs.ErrAt(typePos, &ErrorPageMissingFieldApp{TypeName: name})
 		}
 		if structinspect.HasDisallowedNamedFields(st) {
 			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageHasExtraFields, name))
@@ -291,9 +291,9 @@ func firstPassPageOrAbstractType(
 			name, pickDoc(name, ctx.docByType, ctx.genDocByType),
 		)
 		if !found {
-			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageMissingPathComm, name))
+			errs.ErrAt(typePos, &ErrorPageMissingPathComm{TypeName: name})
 		} else if !ok {
-			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageInvalidPathComm, name))
+			errs.ErrAt(typePos, &ErrorPageInvalidPathComm{TypeName: name})
 		}
 
 		ctx.pages[name] = &model.Page{
@@ -603,14 +603,18 @@ func attachHTTPHandler(
 		h.Route = r
 
 		if !found {
+			pagePath := ""
+			if pg != nil {
+				pagePath = pg.Route
+			}
 			errs.ErrAt(pos,
-				fmt.Errorf("%w: %s.%s", ErrActionMissingPathComm, recv, fd.Name.Name))
+				&ErrorActionMissingPathComm{PagePath: pagePath, Recv: recv, MethodName: fd.Name.Name})
 		} else if !valid {
 			errs.ErrAt(pos,
-				fmt.Errorf("%w: %s.%s", ErrActionInvalidPathComm, recv, fd.Name.Name))
+				&ErrorActionInvalidPathComm{Recv: recv, MethodName: fd.Name.Name})
 		} else if pg != nil && pg.Route != "" && !actionIsUnderPage(pg.Route, r) {
 			errs.ErrAt(pos,
-				fmt.Errorf("%w: %s.%s", ErrActionPathNotUnderPage, recv, fd.Name.Name))
+				&ErrorActionPathNotUnderPage{PagePath: pg.Route, Recv: recv, MethodName: fd.Name.Name})
 		}
 	} else if kind == methodkind.GETHandler && pg != nil {
 		h.Route = pg.Route
@@ -671,10 +675,10 @@ func attachAppAction(
 
 	if !found {
 		errs.ErrAt(pos,
-			fmt.Errorf("%w: App.%s", ErrActionMissingPathComm, fd.Name.Name))
+			&ErrorActionMissingPathComm{Recv: "App", MethodName: fd.Name.Name})
 	} else if !valid {
 		errs.ErrAt(pos,
-			fmt.Errorf("%w: App.%s", ErrActionInvalidPathComm, fd.Name.Name))
+			&ErrorActionInvalidPathComm{Recv: "App", MethodName: fd.Name.Name})
 	}
 
 	// Validate path struct fields against route variables.
@@ -876,7 +880,7 @@ func validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
 		if ctx.pages[name].GET == nil {
 			ts := ctx.typeSpecByName[name]
 			errs.ErrAt(ctx.pkg.Fset.Position(ts.Name.Pos()),
-				fmt.Errorf("%w: %s", ErrPageMissingGET, name))
+				&ErrorPageMissingGET{TypeName: name})
 		}
 	}
 }
