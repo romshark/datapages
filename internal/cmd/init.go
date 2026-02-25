@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -46,7 +47,8 @@ go mod tidy resolves all dependencies.`,
 		if _, ok := c.InOrStdin().(*os.File); !ok {
 			in = c.InOrStdin()
 		}
-		return runInit(in, c.OutOrStdout(), stderr, *nonInteractive, *name, *module, *prometheus)
+		return runInit(c.Context(), in, c.OutOrStdout(), stderr, *nonInteractive,
+			*name, *module, *prometheus)
 	}
 	return cmd
 }
@@ -72,7 +74,9 @@ func runField(f huh.Field, in io.Reader, out io.Writer) error {
 	return f.Run()
 }
 
-func runInit(in io.Reader, out, stderr io.Writer, nonInteractive bool, dir, module string, prometheus bool) error {
+func runInit(
+	ctx context.Context, in io.Reader, out, stderr io.Writer, nonInteractive bool, dir, module string, prometheus bool,
+) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
@@ -120,7 +124,9 @@ func runInit(in io.Reader, out, stderr io.Writer, nonInteractive bool, dir, modu
 	}
 
 	// Step 3: Write datapages.yaml if missing.
-	if wrote, err := writeDefaultConfigIfMissing(projectDir, prometheus, out); err != nil {
+	if wrote, err := writeDefaultConfigIfMissing(
+		projectDir, prometheus, out,
+	); err != nil {
 		return err
 	} else if wrote {
 		created = true
@@ -185,12 +191,36 @@ func runInit(in io.Reader, out, stderr io.Writer, nonInteractive bool, dir, modu
 	}
 
 	_, _ = fmt.Fprintln(out, "Project initialized successfully.")
+
+	if !nonInteractive {
+		runNow := true
+		if err := runField(
+			huh.NewConfirm().
+				Title("Run the app now?").
+				Value(&runNow),
+			in, out,
+		); err != nil {
+			return err
+		}
+		if runNow {
+			if err := os.Chdir(projectDir); err != nil {
+				return fmt.Errorf("changing to project directory: %w", err)
+			}
+			c := exec.CommandContext(ctx, "make", "dev")
+			c.Stdin = os.Stdin
+			c.Stdout = os.Stdout
+			c.Stderr = os.Stderr
+			return c.Run()
+		}
+	}
 	return nil
 }
 
 // resolveGitDir prompts for or defaults the directory name for a new git repo.
 // If dir is non-empty, it is used directly without prompting.
-func resolveGitDir(in io.Reader, out io.Writer, nonInteractive bool, dir string) (string, error) {
+func resolveGitDir(
+	in io.Reader, out io.Writer, nonInteractive bool, dir string,
+) (string, error) {
 	if dir != "" {
 		return dir, nil
 	}
@@ -367,7 +397,9 @@ func goModTidy(dir string) error {
 	return nil
 }
 
-func writeDefaultConfigIfMissing(projectDir string, prometheus bool, w io.Writer) (bool, error) {
+func writeDefaultConfigIfMissing(
+	projectDir string, prometheus bool, w io.Writer,
+) (bool, error) {
 	for _, name := range []string{"datapages.yml", "datapages.yaml"} {
 		if _, err := os.Stat(filepath.Join(projectDir, name)); err == nil {
 			return false, nil

@@ -172,9 +172,15 @@ func setupProject(t *testing.T, appGoFile string) string {
 
 	dir := t.TempDir()
 
-	copyTestdata(t, filepath.Join(dir, "go.mod"), filepath.Join("testdata", "project", "go.mod.txt"))
-	copyTestdata(t, filepath.Join(dir, "datapages.yaml"), filepath.Join("testdata", "project", "datapages.yaml"))
-	copyTestdata(t, filepath.Join(dir, "app", "app.go"), filepath.Join("testdata", "app", appGoFile))
+	copyTestdata(t,
+		filepath.Join(dir, "go.mod"),
+		filepath.Join("testdata", "project", "go.mod.txt"))
+	copyTestdata(t,
+		filepath.Join(dir, "datapages.yaml"),
+		filepath.Join("testdata", "project", "datapages.yaml"))
+	copyTestdata(t,
+		filepath.Join(dir, "app", "app.go"),
+		filepath.Join("testdata", "app", appGoFile))
 
 	// findModuleDir uses os.Getwd, so we must chdir.
 	origDir, err := os.Getwd()
@@ -535,7 +541,7 @@ func TestInit(t *testing.T) {
 				return t.TempDir()
 			},
 			args:     []string{"datapages", "init"},
-			stdin:    "y\nmyapp\ny\nmymod\n",
+			stdin:    "y\nmyapp\ny\nmymod\nn\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myapp")
@@ -586,6 +592,7 @@ func TestInit(t *testing.T) {
 				return t.TempDir()
 			},
 			args:     []string{"datapages", "init", "--name", "custom-app", "--module", "example.com/custom"},
+			stdin:    "n\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "custom-app")
@@ -604,7 +611,7 @@ func TestInit(t *testing.T) {
 				return t.TempDir()
 			},
 			args:     []string{"datapages", "init", "--name", "myproject"},
-			stdin:    "y\nmymod\n",
+			stdin:    "y\nmymod\nn\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myproject")
@@ -623,6 +630,7 @@ func TestInit(t *testing.T) {
 				return dir
 			},
 			args:     []string{"datapages", "init", "--module", "example.com/flagmod"},
+			stdin:    "n\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				require.FileExists(t, filepath.Join(startDir, "go.mod"))
