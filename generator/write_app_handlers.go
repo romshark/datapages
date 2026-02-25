@@ -2,10 +2,8 @@ package generator
 
 import (
 	"go/types"
-	"slices"
 	"strings"
 
-	"github.com/romshark/datapages/internal/routepattern"
 	"github.com/romshark/datapages/parser/model"
 )
 
@@ -279,12 +277,11 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 		if hasAnonStream {
 			// Mixed: auth -> /_$/ , anon -> /_$/anon/
 			// Need to handle path variables.
-			pathVars := slices.Collect(routepattern.Vars(p.Route))
-			if len(pathVars) > 0 {
+			if h.InputPath != nil {
 				// Dynamic path.
 				w.Line(0, "")
 				w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
-				w.writeStreamPathSegments(p.Route, pathVars)
+				w.writeStreamPathSegments(p.Route, h.InputPath)
 				w.Line(2, `if sess.UserID != "" {`)
 				w.Line(3, "_, _ = io.WriteString(w, `/_$/')\"`)")
 				w.Line(2, "} else {")
@@ -361,17 +358,24 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 	w.Line(1, "}")
 }
 
-func (w *Writer) writeStreamPathSegments(route string, pathVars []string) {
+func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
+	// Build a map from path: tag value to Go field name.
+	fields := w.structFields(pathInput.Type.Resolved)
+	tagToField := make(map[string]string, len(fields))
+	for _, f := range fields {
+		if tag := pathTagValue(f.Tag); tag != "" {
+			tagToField[tag] = f.Name
+		}
+	}
 	// Build the path prefix up to the variable, then write the variable.
-	literals, _ := routeSegments(route)
+	literals, vars := routeSegments(route)
 	for i, lit := range literals {
 		w.Raw("\t\t_, _ = io.WriteString(w, `")
 		w.Raw(lit)
 		w.Raw("`)\n")
-		if i < len(pathVars) {
+		if i < len(vars) {
 			w.Raw("\t\t_, _ = io.WriteString(w, path.")
-			w.Raw(strings.ToUpper(pathVars[i][:1]))
-			w.Raw(pathVars[i][1:])
+			w.Raw(tagToField[vars[i]])
 			w.Raw(")\n")
 		}
 	}
