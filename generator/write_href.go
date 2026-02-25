@@ -241,8 +241,22 @@ func (w *Writer) writeHrefFuncQueryOnly(
 		for _, f := range fields {
 			if isIntType(f.Type) {
 				tag := queryTagValue(f.Tag)
+				_, unsigned := intTypeParseInfo(f.Type)
+				typeName := intTypeName(f.Type)
 				w.Linef(1, "if query.%s != 0 {", f.Name)
-				w.Linef(2, "%sStr = strconv.FormatInt(query.%s, 10)", tag, f.Name)
+				if unsigned {
+					if typeName != "uint64" {
+						w.Linef(2, "%sStr = strconv.FormatUint(uint64(query.%s), 10)", tag, f.Name)
+					} else {
+						w.Linef(2, "%sStr = strconv.FormatUint(query.%s, 10)", tag, f.Name)
+					}
+				} else {
+					if typeName != "int64" {
+						w.Linef(2, "%sStr = strconv.FormatInt(int64(query.%s), 10)", tag, f.Name)
+					} else {
+						w.Linef(2, "%sStr = strconv.FormatInt(query.%s, 10)", tag, f.Name)
+					}
+				}
 				w.Line(1, "}")
 			}
 		}
@@ -354,8 +368,22 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 		for _, f := range fields {
 			if isIntType(f.Type) {
 				tag := queryTagValue(f.Tag)
+				_, unsigned := intTypeParseInfo(f.Type)
+				typeName := intTypeName(f.Type)
 				w.Linef(1, "if query.%s != 0 {", f.Name)
-				w.Linef(2, "%sStr = strconv.FormatInt(query.%s, 10)", tag, f.Name)
+				if unsigned {
+					if typeName != "uint64" {
+						w.Linef(2, "%sStr = strconv.FormatUint(uint64(query.%s), 10)", tag, f.Name)
+					} else {
+						w.Linef(2, "%sStr = strconv.FormatUint(query.%s, 10)", tag, f.Name)
+					}
+				} else {
+					if typeName != "int64" {
+						w.Linef(2, "%sStr = strconv.FormatInt(int64(query.%s), 10)", tag, f.Name)
+					} else {
+						w.Linef(2, "%sStr = strconv.FormatInt(query.%s, 10)", tag, f.Name)
+					}
+				}
 				w.Line(1, "}")
 			}
 		}

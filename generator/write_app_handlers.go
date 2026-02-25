@@ -260,11 +260,26 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
 		} else if isIntType(f.Type) {
+			_, unsigned := intTypeParseInfo(f.Type)
+			typeName := intTypeName(f.Type)
 			w.Line(0, "")
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"`)\n")
-			w.Raw("\t\t_, _ = io.WriteString(w, strconv.FormatInt(query.")
+			w.Raw("\t\t_, _ = io.WriteString(w, ")
+			if unsigned {
+				if typeName != "uint64" {
+					w.Raw("strconv.FormatUint(uint64(query.")
+				} else {
+					w.Raw("strconv.FormatUint(query.")
+				}
+			} else {
+				if typeName != "int64" {
+					w.Raw("strconv.FormatInt(int64(query.")
+				} else {
+					w.Raw("strconv.FormatInt(query.")
+				}
+			}
 			w.Raw(f.FieldName)
 			w.Raw(", 10))\n")
 			w.Line(2, "_, _ = io.WriteString(w, `\"`)")
@@ -914,11 +929,17 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 	for _, f := range fields {
 		tag := queryTagValue(f.Tag)
 		if isIntType(f.Type) {
+			bits, unsigned := intTypeParseInfo(f.Type)
+			typeName := intTypeName(f.Type)
 			w.Line(1, "{")
 			w.Raw("\t\tif q := q.Get(")
 			w.writeQuoted(tag)
 			w.Raw("); q != \"\" {\n")
-			w.Line(3, "i, err := strconv.ParseInt(q, 10, 64)")
+			if unsigned {
+				w.Linef(3, "u, err := strconv.ParseUint(q, 10, %d)", bits)
+			} else {
+				w.Linef(3, "i, err := strconv.ParseInt(q, 10, %d)", bits)
+			}
 			w.Line(3, "if err != nil {")
 			w.Raw("\t\t\t\ts.httpErrBad(w, \"unexpected value for query parameter: ")
 			w.Raw(tag)
@@ -927,7 +948,21 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 			w.Line(3, "}")
 			w.Raw("\t\t\tquery.")
 			w.Raw(f.Name)
-			w.Raw(" = i\n")
+			w.Raw(" = ")
+			if unsigned {
+				if typeName != "uint64" {
+					w.Raw(typeName + "(u)")
+				} else {
+					w.Raw("u")
+				}
+			} else {
+				if typeName != "int64" {
+					w.Raw(typeName + "(i)")
+				} else {
+					w.Raw("i")
+				}
+			}
+			w.Raw("\n")
 			w.Line(2, "}")
 			w.Line(1, "}")
 		} else {

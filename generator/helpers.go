@@ -449,6 +449,61 @@ func isIntType(t types.Type) bool {
 	return false
 }
 
+// intTypeName returns the Go identifier for an integer type (e.g. "int", "uint32").
+// Precondition: isIntType(t) must be true.
+func intTypeName(t types.Type) string {
+	switch t.Underlying().(*types.Basic).Kind() {
+	case types.Int:
+		return "int"
+	case types.Int8:
+		return "int8"
+	case types.Int16:
+		return "int16"
+	case types.Int32:
+		return "int32"
+	case types.Int64:
+		return "int64"
+	case types.Uint:
+		return "uint"
+	case types.Uint8:
+		return "uint8"
+	case types.Uint16:
+		return "uint16"
+	case types.Uint32:
+		return "uint32"
+	default: // Uint64
+		return "uint64"
+	}
+}
+
+// intTypeParseInfo returns the strconv bit-size argument and whether the type
+// is unsigned, for use with strconv.ParseInt / strconv.ParseUint.
+// Precondition: isIntType(t) must be true.
+func intTypeParseInfo(t types.Type) (bits int, unsigned bool) {
+	switch t.Underlying().(*types.Basic).Kind() {
+	case types.Int:
+		return 0, false
+	case types.Int8:
+		return 8, false
+	case types.Int16:
+		return 16, false
+	case types.Int32:
+		return 32, false
+	case types.Int64:
+		return 64, false
+	case types.Uint:
+		return 0, true
+	case types.Uint8:
+		return 8, true
+	case types.Uint16:
+		return 16, true
+	case types.Uint32:
+		return 32, true
+	default: // Uint64
+		return 64, true
+	}
+}
+
 // appPkgName returns the short package name from an import path.
 // "github.com/romshark/datapages/example/classifieds/app" -> "app"
 func appPkgName(pkgPath string) string {

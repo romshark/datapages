@@ -176,6 +176,10 @@ func TestWriteAppActionHandler(t *testing.T) {
 		testFieldDef{"Term", types.Typ[types.String], `query:"t"`},
 		testFieldDef{"Page", types.Typ[types.Int64], `query:"p"`},
 	)
+	queryNonInt64St := testStruct(
+		testFieldDef{"Count", types.Typ[types.Int], `query:"n"`},
+		testFieldDef{"Offset", types.Typ[types.Uint32], `query:"o"`},
+	)
 	pathSt := testStruct(
 		testFieldDef{"Slug", types.Typ[types.String], `path:"slug"`},
 	)
@@ -237,6 +241,19 @@ func TestWriteAppActionHandler(t *testing.T) {
 			},
 			app:    &model.App{PkgPath: testAppPkgPath, Fset: token.NewFileSet()},
 			golden: "app_action_signals_query.txt",
+		},
+		"query non-int64 int types": {
+			handler: &model.Handler{
+				HTTPMethod: "GET", Name: "List", Route: "/list/{$}",
+				InputQuery: &model.Input{
+					Name: "query",
+					Type: namedAppType("QueryList", queryNonInt64St),
+				},
+				OutputBody: &model.TemplComponent{Output: &model.Output{Name: "body"}},
+				OutputErr:  &model.Output{Name: "err"},
+			},
+			app:    &model.App{PkgPath: testAppPkgPath, Fset: token.NewFileSet()},
+			golden: "app_action_query_non_int64.txt",
 		},
 		"path and dispatch public": {
 			handler: &model.Handler{

@@ -1,0 +1,37 @@
+
+func (s *Server) handleGETList(w http.ResponseWriter, r *http.Request) {
+
+	q := r.URL.Query()
+	var query testapp.QueryList
+	{
+		if q := q.Get("n"); q != "" {
+			i, err := strconv.ParseInt(q, 10, 0)
+			if err != nil {
+				s.httpErrBad(w, "unexpected value for query parameter: n", err)
+				return
+			}
+			query.Count = int(i)
+		}
+	}
+	{
+		if q := q.Get("o"); q != "" {
+			u, err := strconv.ParseUint(q, 10, 32)
+			if err != nil {
+				s.httpErrBad(w, "unexpected value for query parameter: o", err)
+				return
+			}
+			query.Offset = uint32(u)
+		}
+	}
+	body, err := s.app.GETList(query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling App.List", err)
+		return
+	}
+	if err := s.writeHTML(
+		w, r, testapp.Session{}, nil, nil, body, nil,
+	); err != nil {
+		s.logErr("rendering response of App.GETList", err)
+		return
+	}
+}
