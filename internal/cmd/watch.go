@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -97,6 +98,27 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 			Key:  w.TLS.Key,
 		}
 	}
+
+	// Inject a built-in gen watcher so datapages gen is re-run whenever Go files
+	// in the app package change, keeping app_gen.go in sync before each rebuild.
+	// Parser validation errors (e.g. missing route comment) are shown in the browser.
+	genExe := "datapages"
+	if exe, exeErr := os.Executable(); exeErr == nil {
+		genExe = exe
+	}
+	conf.CustomWatchers = append([]engine.CustomWatcherConfig{
+		{
+			Name: "datapages gen",
+			Include: []string{
+				filepath.ToSlash(filepath.Clean(config.App)) + "/**/*.go",
+				"datapages.yaml",
+				"datapages.yml",
+			},
+			Cmd:       genExe + " gen",
+			FailOnErr: true,
+			Requires:  engine.ActionRebuild,
+		},
+	}, conf.CustomWatchers...)
 
 	e, err := engine.New(conf, engine.Options{})
 	if err != nil {
