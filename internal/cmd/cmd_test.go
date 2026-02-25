@@ -231,7 +231,8 @@ func TestWatch(t *testing.T) {
 		// Watch must stay alive after the initial gen failure.
 		select {
 		case code := <-done:
-			t.Fatalf("watch exited prematurely with code %d; stderr: %s", code, stderr.String())
+			t.Fatalf("watch exited prematurely with code %d; stderr: %s",
+				code, stderr.String())
 		case <-time.After(2 * time.Second):
 			// Good: watch is still running.
 		}
@@ -457,7 +458,12 @@ func TestInit(t *testing.T) {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
-			args:     []string{"datapages", "init", "-n", "--name", "myapp", "--module", "example.com/myapp"},
+			args: []string{
+				"datapages", "init",
+				"-n",
+				"--name", "myapp",
+				"--module", "example.com/myapp",
+			},
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myapp")
@@ -500,7 +506,11 @@ func TestInit(t *testing.T) {
 				require.NoError(t, err, "git init: %s", out)
 				return dir
 			},
-			args:     []string{"datapages", "init", "-n", "--module", "example.com/test"},
+			args: []string{
+				"datapages", "init",
+				"-n",
+				"--module", "example.com/test",
+			},
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				require.FileExists(t, filepath.Join(startDir, "go.mod"))
@@ -629,7 +639,11 @@ func TestInit(t *testing.T) {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
-			args:     []string{"datapages", "init", "--name", "custom-app", "--module", "example.com/custom"},
+			args: []string{
+				"datapages", "init",
+				"--name", "custom-app",
+				"--module", "example.com/custom",
+			},
 			stdin:    "n\n",
 			wantCode: 0,
 			check: func(t *testing.T, startDir string, stdout string) {
