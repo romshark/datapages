@@ -52,6 +52,7 @@ var (
 	ErrPageMissingPathComm     = errors.New("page is missing path comment")
 	ErrPageInvalidPathComm     = errors.New("page has invalid path comment")
 
+	ErrActionNameMissing      = errors.New("action handler must have a name")
 	ErrActionNameInvalid      = errors.New("action has invalid name")
 	ErrActionMissingPathComm  = errors.New("action handler is missing path comment")
 	ErrActionInvalidPathComm  = errors.New("action handler has invalid path comment")

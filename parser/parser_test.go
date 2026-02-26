@@ -290,6 +290,17 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 	}
 }
 
+func TestParse_ErrActionHandlerNoName(t *testing.T) {
+	_, err := parse(t, "err_action_handler_no_name")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrActionNameMissing, // POST
+		parser.ErrActionNameMissing, // DELETE
+		parser.ErrActionNameMissing, // PUT
+	)
+}
+
 func TestParse_SyntaxErr(t *testing.T) {
 	require := require.New(t)
 

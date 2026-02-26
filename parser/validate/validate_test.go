@@ -62,7 +62,6 @@ func TestActionMethodName(t *testing.T) {
 	f(nil, "PUTDoThing2")
 	f(nil, "DELETEA")
 	f(nil, "DELETEThing99")
-
 	// missing suffix
 	f(validate.ErrActionMethodNameInvalid, "POST")
 	// missing suffix

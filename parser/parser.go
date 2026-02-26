@@ -367,7 +367,10 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 					kind, suffix := methodkind.Classify(fd.Name.Name)
 					if kind.IsAction() {
 						pos := ctx.pkg.Fset.Position(fd.Name.Pos())
-						if err := validate.ActionMethodName(fd.Name.Name); err != nil {
+						if suffix == "" {
+							errs.ErrAt(pos,
+								fmt.Errorf("%w: %s", ErrActionNameMissing, fd.Name.Name))
+						} else if err := validate.ActionMethodName(fd.Name.Name); err != nil {
 							errs.ErrAt(pos,
 								fmt.Errorf("%w: %s", ErrActionNameInvalid, fd.Name.Name))
 						}
@@ -392,7 +395,10 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 
 			// Validate action method names early.
 			if kind.IsAction() {
-				if err := validate.ActionMethodName(fd.Name.Name); err != nil {
+				if suffix == "" {
+					errs.ErrAt(pos,
+						fmt.Errorf("%w: %s", ErrActionNameMissing, fd.Name.Name))
+				} else if err := validate.ActionMethodName(fd.Name.Name); err != nil {
 					errs.ErrAt(pos,
 						fmt.Errorf("%w: %s", ErrActionNameInvalid, fd.Name.Name))
 				}
