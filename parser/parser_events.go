@@ -5,6 +5,8 @@ import (
 	"go/token"
 	"go/types"
 	"strings"
+
+	"github.com/romshark/datapages/parser/internal/structtag"
 )
 
 func validateEvents(ctx *parseCtx, errs *Errors) {
@@ -46,6 +48,7 @@ func validateEventType(
 		return
 	}
 
+	seenTags := make(map[string]bool, st.NumFields())
 	for i := 0; i < st.NumFields(); i++ {
 		f := st.Field(i)
 		tag := st.Tag(i)
@@ -61,6 +64,17 @@ func validateEventType(
 		if !strings.Contains(tag, "json:\"") {
 			errs.ErrAt(ctx.pkg.Fset.Position(pos),
 				&ErrorEventFieldMissingTag{FieldName: f.Name(), TypeName: name})
+		} else {
+			// 3. Must not duplicate a json tag value already seen at this level.
+			tagVal := structtag.JSONTagValue(tag)
+			if seenTags[tagVal] {
+				errs.ErrAt(ctx.pkg.Fset.Position(pos),
+					&ErrorEventFieldDuplicateTag{
+						FieldName: f.Name(), TagValue: tagVal, TypeName: name,
+					})
+			} else {
+				seenTags[tagVal] = true
+			}
 		}
 
 		// Recurse

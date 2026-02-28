@@ -64,8 +64,9 @@ var (
 	ErrEvHandDuplicate      = errors.New("duplicate event handler for event")
 	ErrEvHandDuplicateEmbed = errors.New("duplicate event handler for event in embedded")
 
-	ErrEventFieldUnexported = errors.New("event field must be exported")
-	ErrEventFieldMissingTag = errors.New("event field must have json tag")
+	ErrEventFieldUnexported  = errors.New("event field must be exported")
+	ErrEventFieldMissingTag  = errors.New("event field must have json tag")
+	ErrEventFieldDuplicateTag = errors.New("event field has duplicate json tag value")
 
 	ErrPathParamNotStruct    = paramvalidation.ErrPathParamNotStruct
 	ErrPathFieldUnexported   = paramvalidation.ErrPathFieldUnexported
@@ -420,3 +421,17 @@ func (e *ErrorEventFieldMissingTag) Error() string {
 }
 
 func (e *ErrorEventFieldMissingTag) Unwrap() error { return ErrEventFieldMissingTag }
+
+// ErrorEventFieldDuplicateTag is ErrEventFieldDuplicateTag with suggestion context.
+type ErrorEventFieldDuplicateTag struct {
+	FieldName string // e.g. "UserID"
+	TagValue  string // e.g. "user_id"
+	TypeName  string // e.g. "EventFoo"
+}
+
+func (e *ErrorEventFieldDuplicateTag) Error() string {
+	return fmt.Sprintf("%v: %q on field %s in %s",
+		ErrEventFieldDuplicateTag, e.TagValue, e.FieldName, e.TypeName)
+}
+
+func (e *ErrorEventFieldDuplicateTag) Unwrap() error { return ErrEventFieldDuplicateTag }

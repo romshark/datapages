@@ -391,6 +391,7 @@ func TestParse_ErrEvents(t *testing.T) {
 		parser.ErrEventFieldUnexported,
 		parser.ErrEventFieldMissingTag,
 		parser.ErrEventFieldUnexported,
+		parser.ErrEventFieldDuplicateTag,
 		parser.ErrEventCommInvalid,
 		parser.ErrEventCommInvalid,
 		parser.ErrEventSubjectInvalid,

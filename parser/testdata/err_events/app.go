@@ -102,6 +102,14 @@ type EventNested struct {
 	Nested EventUnexported `json:"n"`
 }
 
+/* ErrEventFieldDuplicateTag */
+
+// EventDuplicateTag is "duplicate_tag"
+type EventDuplicateTag struct {
+	A string `json:"x"`
+	B string `json:"x"`
+}
+
 /* ErrEventInvalidComm */
 
 // EventInvalidComm handles "abc"
