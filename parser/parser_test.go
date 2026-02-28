@@ -396,7 +396,7 @@ func TestParse_ErrEvents(t *testing.T) {
 		parser.ErrEventCommInvalid,
 		parser.ErrEventSubjectInvalid,
 		parser.ErrEventSubjectInvalid,
-		parser.ErrEventFieldEmptyTag, // EventEmptyJSONTag: json:"" should be rejected
+		parser.ErrEventFieldEmptyTag,   // EventEmptyJSONTag: json:"" should be rejected
 		parser.ErrEventFieldUnexported, // same-module subpkg.BadFields
 	)
 }
