@@ -78,7 +78,7 @@ To run the demo in development mode, use:
 
 ```sh
 cd example/classifieds
-make dev
+sudo make dev
 ```
 
 You can then access:
