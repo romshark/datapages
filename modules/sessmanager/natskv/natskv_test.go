@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
@@ -32,8 +33,17 @@ func setupNATS(t *testing.T) *nats.Conn {
 
 	url, err := ctr.ConnectionString(ctx)
 	require.NoError(t, err)
-	conn, err := nats.Connect(url)
+
+	// The testcontainers NATS module only waits for the port to be open, not
+	// for the server to be fully initialized. Use nats.RetryOnFailedConnect
+	// so the client keeps retrying until NATS is ready.
+	conn, err := nats.Connect(url,
+		nats.RetryOnFailedConnect(true),
+		nats.MaxReconnects(50),
+		nats.ReconnectWait(200*time.Millisecond),
+	)
 	require.NoError(t, err)
+	require.Eventually(t, conn.IsConnected, 10*time.Second, 100*time.Millisecond)
 	t.Cleanup(conn.Close)
 	return conn
 }
