@@ -56,3 +56,19 @@ func (PageMissingTag) GET(
 	_ = query
 	return body, err
 }
+
+// PageDuplicateTag is /duplicate-tag
+type PageDuplicateTag struct{ App *App }
+
+/* ErrQueryFieldDuplicateTag */
+
+func (PageDuplicateTag) GET(
+	r *http.Request,
+	query struct {
+		Term  string `query:"q"`
+		Other string `query:"q"`
+	},
+) (body templ.Component, err error) {
+	_ = query
+	return body, err
+}

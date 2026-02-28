@@ -66,6 +66,21 @@ func PathTagValue(tag string) string {
 	return before
 }
 
+// QueryTagValue extracts the value from a `query:"value"`
+// struct tag.
+func QueryTagValue(tag string) string {
+	const prefix = `query:"`
+	_, after, ok := strings.Cut(tag, prefix)
+	if !ok {
+		return ""
+	}
+	before, _, ok0 := strings.Cut(after, "\"")
+	if !ok0 {
+		return ""
+	}
+	return before
+}
+
 // ValidateReflectSignal checks that every reflectsignal tag
 // on a query field references a json tag value in the signals
 // struct.

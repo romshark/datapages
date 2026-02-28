@@ -37,6 +37,9 @@ var (
 		"route variable has no matching " +
 			"path struct field",
 	)
+	ErrPathFieldDuplicateTag = errors.New(
+		"path struct field has duplicate path tag value",
+	)
 )
 
 // Query parameter errors.
@@ -50,6 +53,9 @@ var (
 	ErrQueryFieldMissingTag = errors.New(
 		`query struct field must have a query:"..." tag`,
 	)
+	ErrQueryFieldDuplicateTag = errors.New(
+		"query struct field has duplicate query tag value",
+	)
 )
 
 // Signals parameter errors.
@@ -62,6 +68,9 @@ var (
 	)
 	ErrSignalsFieldMissingTag = errors.New(
 		`signals struct field must have a json:"..." tag`,
+	)
+	ErrSignalsFieldDuplicateTag = errors.New(
+		"signals struct field has duplicate json tag value",
 	)
 )
 
@@ -106,6 +115,7 @@ func ValidatePathStruct(
 		)
 	}
 
+	seen := make(map[string]bool, st.NumFields())
 	for i := range st.NumFields() {
 		field := st.Field(i)
 		tag := st.Tag(i)
@@ -129,6 +139,14 @@ func ValidatePathStruct(
 				FieldName: field.Name(), Recv: recv, Method: method,
 			}
 		}
+		tagVal := structtag.PathTagValue(tag)
+		if seen[tagVal] {
+			return &ErrorPathFieldDuplicateTag{
+				FieldName: field.Name(), TagValue: tagVal,
+				Recv: recv, Method: method,
+			}
+		}
+		seen[tagVal] = true
 	}
 	return nil
 }
@@ -153,6 +171,7 @@ func ValidateQueryStruct(
 		)
 	}
 
+	seen := make(map[string]bool, st.NumFields())
 	for i := range st.NumFields() {
 		field := st.Field(i)
 		tag := st.Tag(i)
@@ -169,6 +188,14 @@ func ValidateQueryStruct(
 				FieldName: field.Name(), Recv: recv, Method: method,
 			}
 		}
+		tagVal := structtag.QueryTagValue(tag)
+		if seen[tagVal] {
+			return &ErrorQueryFieldDuplicateTag{
+				FieldName: field.Name(), TagValue: tagVal,
+				Recv: recv, Method: method,
+			}
+		}
+		seen[tagVal] = true
 	}
 	return nil
 }
@@ -194,6 +221,7 @@ func ValidateSignalsStruct(
 		)
 	}
 
+	seen := make(map[string]bool, st.NumFields())
 	for i := range st.NumFields() {
 		field := st.Field(i)
 		tag := st.Tag(i)
@@ -210,6 +238,14 @@ func ValidateSignalsStruct(
 				FieldName: field.Name(), Recv: recv, Method: method,
 			}
 		}
+		tagVal := structtag.JSONTagValue(tag)
+		if seen[tagVal] {
+			return &ErrorSignalsFieldDuplicateTag{
+				FieldName: field.Name(), TagValue: tagVal,
+				Recv: recv, Method: method,
+			}
+		}
+		seen[tagVal] = true
 	}
 	return nil
 }
@@ -227,6 +263,21 @@ func (e *ErrorPathFieldMissingTag) Error() string {
 
 func (e *ErrorPathFieldMissingTag) Unwrap() error { return ErrPathFieldMissingTag }
 
+// ErrorPathFieldDuplicateTag is ErrPathFieldDuplicateTag with suggestion context.
+type ErrorPathFieldDuplicateTag struct {
+	FieldName string
+	TagValue  string
+	Recv      string
+	Method    string
+}
+
+func (e *ErrorPathFieldDuplicateTag) Error() string {
+	return fmt.Sprintf("%v: %q on field %s in %s.%s",
+		ErrPathFieldDuplicateTag, e.TagValue, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *ErrorPathFieldDuplicateTag) Unwrap() error { return ErrPathFieldDuplicateTag }
+
 // ErrorQueryFieldMissingTag is ErrQueryFieldMissingTag with suggestion context.
 type ErrorQueryFieldMissingTag struct {
 	FieldName string
@@ -240,6 +291,21 @@ func (e *ErrorQueryFieldMissingTag) Error() string {
 
 func (e *ErrorQueryFieldMissingTag) Unwrap() error { return ErrQueryFieldMissingTag }
 
+// ErrorQueryFieldDuplicateTag is ErrQueryFieldDuplicateTag with suggestion context.
+type ErrorQueryFieldDuplicateTag struct {
+	FieldName string
+	TagValue  string
+	Recv      string
+	Method    string
+}
+
+func (e *ErrorQueryFieldDuplicateTag) Error() string {
+	return fmt.Sprintf("%v: %q on field %s in %s.%s",
+		ErrQueryFieldDuplicateTag, e.TagValue, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *ErrorQueryFieldDuplicateTag) Unwrap() error { return ErrQueryFieldDuplicateTag }
+
 // ErrorSignalsFieldMissingTag is ErrSignalsFieldMissingTag with suggestion context.
 type ErrorSignalsFieldMissingTag struct {
 	FieldName string
@@ -252,6 +318,21 @@ func (e *ErrorSignalsFieldMissingTag) Error() string {
 }
 
 func (e *ErrorSignalsFieldMissingTag) Unwrap() error { return ErrSignalsFieldMissingTag }
+
+// ErrorSignalsFieldDuplicateTag is ErrSignalsFieldDuplicateTag with suggestion context.
+type ErrorSignalsFieldDuplicateTag struct {
+	FieldName string
+	TagValue  string
+	Recv      string
+	Method    string
+}
+
+func (e *ErrorSignalsFieldDuplicateTag) Error() string {
+	return fmt.Sprintf("%v: %q on field %s in %s.%s",
+		ErrSignalsFieldDuplicateTag, e.TagValue, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *ErrorSignalsFieldDuplicateTag) Unwrap() error { return ErrSignalsFieldDuplicateTag }
 
 // Dispatch parameter errors.
 var (

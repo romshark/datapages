@@ -67,22 +67,25 @@ var (
 	ErrEventFieldUnexported = errors.New("event field must be exported")
 	ErrEventFieldMissingTag = errors.New("event field must have json tag")
 
-	ErrPathParamNotStruct  = paramvalidation.ErrPathParamNotStruct
-	ErrPathFieldUnexported = paramvalidation.ErrPathFieldUnexported
-	ErrPathFieldMissingTag = paramvalidation.ErrPathFieldMissingTag
-	ErrPathFieldNotString  = paramvalidation.ErrPathFieldNotString
-	ErrPathFieldNotInRoute = paramvalidation.ErrPathFieldNotInRoute
-	ErrPathMissingRouteVar = paramvalidation.ErrPathMissingRouteVar
+	ErrPathParamNotStruct    = paramvalidation.ErrPathParamNotStruct
+	ErrPathFieldUnexported   = paramvalidation.ErrPathFieldUnexported
+	ErrPathFieldMissingTag   = paramvalidation.ErrPathFieldMissingTag
+	ErrPathFieldNotString    = paramvalidation.ErrPathFieldNotString
+	ErrPathFieldNotInRoute   = paramvalidation.ErrPathFieldNotInRoute
+	ErrPathMissingRouteVar   = paramvalidation.ErrPathMissingRouteVar
+	ErrPathFieldDuplicateTag = paramvalidation.ErrPathFieldDuplicateTag
 
-	ErrQueryParamNotStruct  = paramvalidation.ErrQueryParamNotStruct
-	ErrQueryFieldUnexported = paramvalidation.ErrQueryFieldUnexported
-	ErrQueryFieldMissingTag = paramvalidation.ErrQueryFieldMissingTag
+	ErrQueryParamNotStruct    = paramvalidation.ErrQueryParamNotStruct
+	ErrQueryFieldUnexported   = paramvalidation.ErrQueryFieldUnexported
+	ErrQueryFieldMissingTag   = paramvalidation.ErrQueryFieldMissingTag
+	ErrQueryFieldDuplicateTag = paramvalidation.ErrQueryFieldDuplicateTag
 
 	ErrQueryReflectSignalNotInSignals = structtag.ErrQueryReflectSignalNotInSignals
 
-	ErrSignalsParamNotStruct  = paramvalidation.ErrSignalsParamNotStruct
-	ErrSignalsFieldUnexported = paramvalidation.ErrSignalsFieldUnexported
-	ErrSignalsFieldMissingTag = paramvalidation.ErrSignalsFieldMissingTag
+	ErrSignalsParamNotStruct    = paramvalidation.ErrSignalsParamNotStruct
+	ErrSignalsFieldUnexported   = paramvalidation.ErrSignalsFieldUnexported
+	ErrSignalsFieldMissingTag   = paramvalidation.ErrSignalsFieldMissingTag
+	ErrSignalsFieldDuplicateTag = paramvalidation.ErrSignalsFieldDuplicateTag
 
 	ErrDispatchParamNotFunc    = paramvalidation.ErrDispatchParamNotFunc
 	ErrDispatchReturnCount     = paramvalidation.ErrDispatchReturnCount

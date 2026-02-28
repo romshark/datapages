@@ -474,6 +474,7 @@ func TestParse_ErrPath(t *testing.T) {
 		parser.ErrPathFieldMissingTag,
 		parser.ErrPathFieldNotInRoute,
 		parser.ErrPathMissingRouteVar,
+		parser.ErrPathFieldDuplicateTag,
 	)
 }
 
@@ -515,6 +516,7 @@ func TestParse_ErrQuery(t *testing.T) {
 		parser.ErrQueryParamNotStruct,
 		parser.ErrQueryFieldUnexported,
 		parser.ErrQueryFieldMissingTag,
+		parser.ErrQueryFieldDuplicateTag,
 	)
 }
 
@@ -882,6 +884,7 @@ func TestParse_ErrSignals(t *testing.T) {
 		parser.ErrSignalsParamNotStruct,
 		parser.ErrSignalsFieldUnexported,
 		parser.ErrSignalsFieldMissingTag,
+		parser.ErrSignalsFieldDuplicateTag,
 		parser.ErrQueryReflectSignalNotInSignals,
 	)
 }

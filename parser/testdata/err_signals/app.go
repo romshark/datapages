@@ -57,6 +57,22 @@ func (PageMissingTag) GET(
 	return body, err
 }
 
+// PageDuplicateTag is /duplicate-tag
+type PageDuplicateTag struct{ App *App }
+
+/* ErrSignalsFieldDuplicateTag */
+
+func (PageDuplicateTag) GET(
+	r *http.Request,
+	signals struct {
+		Name  string `json:"name"`
+		Other string `json:"name"`
+	},
+) (body templ.Component, err error) {
+	_ = signals
+	return body, err
+}
+
 // PageBadReflect is /bad-reflect
 type PageBadReflect struct{ App *App }
 

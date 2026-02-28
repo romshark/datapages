@@ -95,3 +95,19 @@ type PageMissingVar struct{ App *App }
 func (PageMissingVar) GET(r *http.Request) (body templ.Component, err error) {
 	return body, err
 }
+
+// PageDuplicateTag is /duplicate-tag/{id}
+type PageDuplicateTag struct{ App *App }
+
+/* ErrPathFieldDuplicateTag */
+
+func (PageDuplicateTag) GET(
+	r *http.Request,
+	path struct {
+		ID    string `path:"id"`
+		Other string `path:"id"`
+	},
+) (body templ.Component, err error) {
+	_ = path
+	return body, err
+}
