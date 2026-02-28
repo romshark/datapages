@@ -64,8 +64,8 @@ var (
 	ErrEvHandDuplicate      = errors.New("duplicate event handler for event")
 	ErrEvHandDuplicateEmbed = errors.New("duplicate event handler for event in embedded")
 
-	ErrEventFieldUnexported  = errors.New("event field must be exported")
-	ErrEventFieldMissingTag  = errors.New("event field must have json tag")
+	ErrEventFieldUnexported   = errors.New("event field must be exported")
+	ErrEventFieldMissingTag   = errors.New("event field must have json tag")
 	ErrEventFieldDuplicateTag = errors.New("event field has duplicate json tag value")
 
 	ErrPathParamNotStruct    = paramvalidation.ErrPathParamNotStruct
