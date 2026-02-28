@@ -183,6 +183,14 @@ func f(path struct {
 }) {}`,
 			wantErr: ErrPathFieldMissingTag,
 		},
+		"duplicate tag": {
+			src: `package test
+func f(path struct {
+	ID    string ` + "`" + `path:"id"` + "`" + `
+	Other string ` + "`" + `path:"id"` + "`" + `
+}) {}`,
+			wantErr: ErrPathFieldDuplicateTag,
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -252,6 +260,14 @@ func f(query struct {
 }) {}`,
 			wantErr: ErrQueryFieldMissingTag,
 		},
+		"duplicate tag": {
+			src: `package test
+func f(query struct {
+	Term  string ` + "`" + `query:"q"` + "`" + `
+	Other string ` + "`" + `query:"q"` + "`" + `
+}) {}`,
+			wantErr: ErrQueryFieldDuplicateTag,
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -320,6 +336,14 @@ func f(signals struct {
 	Count int
 }) {}`,
 			wantErr: ErrSignalsFieldMissingTag,
+		},
+		"duplicate tag": {
+			src: `package test
+func f(signals struct {
+	Name  string ` + "`" + `json:"name"` + "`" + `
+	Other string ` + "`" + `json:"name"` + "`" + `
+}) {}`,
+			wantErr: ErrSignalsFieldDuplicateTag,
 		},
 	}
 	for name, tt := range tests {

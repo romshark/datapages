@@ -34,6 +34,27 @@ func TestJSONTagValue(t *testing.T) {
 	}
 }
 
+func TestQueryTagValue(t *testing.T) {
+	tests := map[string]struct {
+		tag  string
+		want string
+	}{
+		"simple":         {`query:"q"`, "q"},
+		"multi-tag":      {`json:"x" query:"term"`, "term"},
+		"wrong prefix":   {`json:"x"`, ""},
+		"empty string":   {"", ""},
+		"empty value":    {`query:""`, ""},
+		"unclosed quote": {`query:"term`, ""},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(
+				t, tt.want, QueryTagValue(tt.tag),
+			)
+		})
+	}
+}
+
 func TestReflectSignalTagValue(t *testing.T) {
 	tests := map[string]struct {
 		tag  string

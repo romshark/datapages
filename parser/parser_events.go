@@ -11,7 +11,7 @@ func validateEvents(ctx *parseCtx, errs *Errors) {
 	for name := range ctx.eventTypeNames {
 		ts := ctx.typeSpecByName[name]
 		validateEventType(
-			ctx, errs, ts.Pos(), name,
+			ctx, errs, ts.Name.Pos(), name,
 			ctx.pkg.TypesInfo.TypeOf(ts.Type), map[types.Type]bool{},
 		)
 
