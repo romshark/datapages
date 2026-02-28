@@ -222,16 +222,20 @@ func Suggest(err error) string {
 //   - ErrEvHandDuplicate              — message identifies the duplicate handler
 //   - ErrEvHandDuplicateEmbed         — message identifies the conflicting embeds
 //   - ErrEventFieldUnexported         — fix is obvious: capitalize the field name
+//   - ErrEventFieldDuplicateTag       — message names the duplicate value
 //   - ErrPathParamNotStruct           — type constraint is clear from message
 //   - ErrPathFieldUnexported          — fix is obvious: capitalize the field name
+//   - ErrPathFieldDuplicateTag        — message names the duplicate value
 //   - ErrPathFieldNotString           — type constraint is clear from message
 //   - ErrPathFieldNotInRoute          — message names the tag value missing from route
 //   - ErrPathMissingRouteVar          — message names the route variable without a field
 //   - ErrQueryParamNotStruct          — type constraint is clear from message
 //   - ErrQueryFieldUnexported         — fix is obvious: capitalize the field name
+//   - ErrQueryFieldDuplicateTag       — message names the duplicate value
 //   - ErrQueryReflectSignalNotInSignals — message names the missing signal
 //   - ErrSignalsParamNotStruct        — type constraint is clear from message
 //   - ErrSignalsFieldUnexported       — fix is obvious: capitalize the field name
+//   - ErrSignalsFieldDuplicateTag     — message names the duplicate value
 //   - ErrDispatchParamNotFunc         — type constraint is clear from message
 //   - ErrDispatchReturnCount          — return constraint is clear from message
 //   - ErrDispatchMustReturnError      — type constraint is clear from message
