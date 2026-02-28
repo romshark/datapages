@@ -115,9 +115,13 @@ func validateEventType(
 			errs.ErrAt(ctx.pkg.Fset.Position(pos),
 				&ErrorEventFieldMissingTag{FieldName: f.Name(), TypeName: name})
 		} else {
-			// 3. Must not duplicate a json tag value already seen at this level.
 			tagVal := structtag.JSONTagValue(tag)
-			if seenTags[tagVal] {
+			// 3. Tag name must not be empty (e.g. json:"" or json:",omitempty").
+			if tagVal == "" {
+				errs.ErrAt(ctx.pkg.Fset.Position(pos),
+					&ErrorEventFieldEmptyTag{FieldName: f.Name(), TypeName: name})
+			} else if seenTags[tagVal] {
+				// 4. Must not duplicate a json tag value already seen at this level.
 				errs.ErrAt(ctx.pkg.Fset.Position(pos),
 					&ErrorEventFieldDuplicateTag{
 						FieldName: f.Name(), TagValue: tagVal, TypeName: name,

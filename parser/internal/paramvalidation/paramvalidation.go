@@ -40,6 +40,9 @@ var (
 	ErrPathFieldDuplicateTag = errors.New(
 		"path struct field has duplicate path tag value",
 	)
+	ErrPathFieldEmptyTag = errors.New(
+		`path struct field path tag must have a non-empty name`,
+	)
 )
 
 // Query parameter errors.
@@ -56,6 +59,9 @@ var (
 	ErrQueryFieldDuplicateTag = errors.New(
 		"query struct field has duplicate query tag value",
 	)
+	ErrQueryFieldEmptyTag = errors.New(
+		`query struct field query tag must have a non-empty name`,
+	)
 )
 
 // Signals parameter errors.
@@ -71,6 +77,9 @@ var (
 	)
 	ErrSignalsFieldDuplicateTag = errors.New(
 		"signals struct field has duplicate json tag value",
+	)
+	ErrSignalsFieldEmptyTag = errors.New(
+		`signals struct field json tag must have a non-empty name`,
 	)
 )
 
@@ -140,7 +149,11 @@ func ValidatePathStruct(
 			}
 		}
 		tagVal := structtag.PathTagValue(tag)
-		if seen[tagVal] {
+		if tagVal == "" {
+			return &ErrorPathFieldEmptyTag{
+				FieldName: field.Name(), Recv: recv, Method: method,
+			}
+		} else if seen[tagVal] {
 			return &ErrorPathFieldDuplicateTag{
 				FieldName: field.Name(), TagValue: tagVal,
 				Recv: recv, Method: method,
@@ -189,7 +202,11 @@ func ValidateQueryStruct(
 			}
 		}
 		tagVal := structtag.QueryTagValue(tag)
-		if seen[tagVal] {
+		if tagVal == "" {
+			return &ErrorQueryFieldEmptyTag{
+				FieldName: field.Name(), Recv: recv, Method: method,
+			}
+		} else if seen[tagVal] {
 			return &ErrorQueryFieldDuplicateTag{
 				FieldName: field.Name(), TagValue: tagVal,
 				Recv: recv, Method: method,
@@ -239,7 +256,11 @@ func ValidateSignalsStruct(
 			}
 		}
 		tagVal := structtag.JSONTagValue(tag)
-		if seen[tagVal] {
+		if tagVal == "" {
+			return &ErrorSignalsFieldEmptyTag{
+				FieldName: field.Name(), Recv: recv, Method: method,
+			}
+		} else if seen[tagVal] {
 			return &ErrorSignalsFieldDuplicateTag{
 				FieldName: field.Name(), TagValue: tagVal,
 				Recv: recv, Method: method,
@@ -262,6 +283,19 @@ func (e *ErrorPathFieldMissingTag) Error() string {
 }
 
 func (e *ErrorPathFieldMissingTag) Unwrap() error { return ErrPathFieldMissingTag }
+
+// ErrorPathFieldEmptyTag is ErrPathFieldEmptyTag with suggestion context.
+type ErrorPathFieldEmptyTag struct {
+	FieldName string
+	Recv      string
+	Method    string
+}
+
+func (e *ErrorPathFieldEmptyTag) Error() string {
+	return fmt.Sprintf("%v: field %s in %s.%s", ErrPathFieldEmptyTag, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *ErrorPathFieldEmptyTag) Unwrap() error { return ErrPathFieldEmptyTag }
 
 // ErrorPathFieldDuplicateTag is ErrPathFieldDuplicateTag with suggestion context.
 type ErrorPathFieldDuplicateTag struct {
@@ -291,6 +325,19 @@ func (e *ErrorQueryFieldMissingTag) Error() string {
 
 func (e *ErrorQueryFieldMissingTag) Unwrap() error { return ErrQueryFieldMissingTag }
 
+// ErrorQueryFieldEmptyTag is ErrQueryFieldEmptyTag with suggestion context.
+type ErrorQueryFieldEmptyTag struct {
+	FieldName string
+	Recv      string
+	Method    string
+}
+
+func (e *ErrorQueryFieldEmptyTag) Error() string {
+	return fmt.Sprintf("%v: field %s in %s.%s", ErrQueryFieldEmptyTag, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *ErrorQueryFieldEmptyTag) Unwrap() error { return ErrQueryFieldEmptyTag }
+
 // ErrorQueryFieldDuplicateTag is ErrQueryFieldDuplicateTag with suggestion context.
 type ErrorQueryFieldDuplicateTag struct {
 	FieldName string
@@ -318,6 +365,19 @@ func (e *ErrorSignalsFieldMissingTag) Error() string {
 }
 
 func (e *ErrorSignalsFieldMissingTag) Unwrap() error { return ErrSignalsFieldMissingTag }
+
+// ErrorSignalsFieldEmptyTag is ErrSignalsFieldEmptyTag with suggestion context.
+type ErrorSignalsFieldEmptyTag struct {
+	FieldName string
+	Recv      string
+	Method    string
+}
+
+func (e *ErrorSignalsFieldEmptyTag) Error() string {
+	return fmt.Sprintf("%v: field %s in %s.%s", ErrSignalsFieldEmptyTag, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *ErrorSignalsFieldEmptyTag) Unwrap() error { return ErrSignalsFieldEmptyTag }
 
 // ErrorSignalsFieldDuplicateTag is ErrSignalsFieldDuplicateTag with suggestion context.
 type ErrorSignalsFieldDuplicateTag struct {

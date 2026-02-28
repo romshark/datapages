@@ -5,10 +5,37 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/romshark/datapages/parser"
 	"github.com/romshark/datapages/parser/internal/paramvalidation"
 )
+
+// toSnakeCase converts a PascalCase or camelCase Go identifier to snake_case.
+// Examples: "UserID" → "user_id", "CreatedAt" → "created_at", "HTTPStatus" → "http_status".
+func toSnakeCase(s string) string {
+	runes := []rune(s)
+	var b strings.Builder
+	b.Grow(len(s) + 4)
+	for i, r := range runes {
+		if unicode.IsUpper(r) {
+			if i > 0 {
+				prev := runes[i-1]
+				next := rune(0)
+				if i+1 < len(runes) {
+					next = runes[i+1]
+				}
+				if unicode.IsLower(prev) || (unicode.IsUpper(prev) && unicode.IsLower(next)) {
+					b.WriteByte('_')
+				}
+			}
+			b.WriteRune(unicode.ToLower(r))
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
 
 // Suggest returns an optional fix hint for a parser error, or "" if none is available.
 // The hint is formatted as a short "fix: ..." line meant to be printed after the error.
@@ -97,7 +124,9 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf(
-			`fix: First doc comment line must be `+"`"+`// %s is "subject"`+"`"+`; if there are more lines, the next must be an empty `+"`//`",
+			`fix: First doc comment line must be `+
+				"`"+`// %s is "subject"`+"`"+
+				`; if there are more lines, the next must be an empty `+"`//`",
 			d.TypeName,
 		)
 
@@ -107,7 +136,15 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf("fix: Add `path:\"%s\"` struct tag to field %s",
-			strings.ToLower(d.FieldName), d.FieldName)
+			toSnakeCase(d.FieldName), d.FieldName)
+
+	case errors.Is(err, parser.ErrPathFieldEmptyTag):
+		var d *paramvalidation.ErrorPathFieldEmptyTag
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf("fix: Add a non-empty name to the path tag of field %s, e.g. `path:\"%s\"`",
+			d.FieldName, toSnakeCase(d.FieldName))
 
 	case errors.Is(err, parser.ErrQueryFieldMissingTag):
 		var d *paramvalidation.ErrorQueryFieldMissingTag
@@ -115,7 +152,15 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf("fix: Add `query:\"%s\"` struct tag to field %s",
-			strings.ToLower(d.FieldName), d.FieldName)
+			toSnakeCase(d.FieldName), d.FieldName)
+
+	case errors.Is(err, parser.ErrQueryFieldEmptyTag):
+		var d *paramvalidation.ErrorQueryFieldEmptyTag
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf("fix: Add a non-empty name to the query tag of field %s, e.g. `query:\"%s\"`",
+			d.FieldName, toSnakeCase(d.FieldName))
 
 	case errors.Is(err, parser.ErrSignalsFieldMissingTag):
 		var d *paramvalidation.ErrorSignalsFieldMissingTag
@@ -123,7 +168,15 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf("fix: Add `json:\"%s\"` struct tag to field %s",
-			strings.ToLower(d.FieldName), d.FieldName)
+			toSnakeCase(d.FieldName), d.FieldName)
+
+	case errors.Is(err, parser.ErrSignalsFieldEmptyTag):
+		var d *paramvalidation.ErrorSignalsFieldEmptyTag
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf("fix: Add a non-empty name to the json tag of field %s, e.g. `json:\"%s\"`",
+			d.FieldName, toSnakeCase(d.FieldName))
 
 	case errors.Is(err, parser.ErrEventFieldMissingTag):
 		var d *parser.ErrorEventFieldMissingTag
@@ -131,7 +184,16 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf("fix: Add `json:\"%s\"` struct tag to field %s",
-			strings.ToLower(d.FieldName), d.FieldName)
+			toSnakeCase(d.FieldName), d.FieldName)
+
+	case errors.Is(err, parser.ErrEventFieldEmptyTag):
+		var d *parser.ErrorEventFieldEmptyTag
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Add a non-empty name to the json tag of field %s, e.g. `json:\"%s\"`",
+			d.FieldName, toSnakeCase(d.FieldName))
 	}
 	return ""
 }

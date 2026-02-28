@@ -64,8 +64,11 @@ var (
 	ErrEvHandDuplicate      = errors.New("duplicate event handler for event")
 	ErrEvHandDuplicateEmbed = errors.New("duplicate event handler for event in embedded")
 
-	ErrEventFieldUnexported   = errors.New("event field must be exported")
-	ErrEventFieldMissingTag   = errors.New("event field must have json tag")
+	ErrEventFieldUnexported = errors.New("event field must be exported")
+	ErrEventFieldMissingTag = errors.New("event field must have json tag")
+	ErrEventFieldEmptyTag   = errors.New(
+		"event field json tag must have a non-empty name",
+	)
 	ErrEventFieldDuplicateTag = errors.New("event field has duplicate json tag value")
 
 	ErrPathParamNotStruct    = paramvalidation.ErrPathParamNotStruct
@@ -75,11 +78,13 @@ var (
 	ErrPathFieldNotInRoute   = paramvalidation.ErrPathFieldNotInRoute
 	ErrPathMissingRouteVar   = paramvalidation.ErrPathMissingRouteVar
 	ErrPathFieldDuplicateTag = paramvalidation.ErrPathFieldDuplicateTag
+	ErrPathFieldEmptyTag     = paramvalidation.ErrPathFieldEmptyTag
 
 	ErrQueryParamNotStruct    = paramvalidation.ErrQueryParamNotStruct
 	ErrQueryFieldUnexported   = paramvalidation.ErrQueryFieldUnexported
 	ErrQueryFieldMissingTag   = paramvalidation.ErrQueryFieldMissingTag
 	ErrQueryFieldDuplicateTag = paramvalidation.ErrQueryFieldDuplicateTag
+	ErrQueryFieldEmptyTag     = paramvalidation.ErrQueryFieldEmptyTag
 
 	ErrQueryReflectSignalNotInSignals = structtag.ErrQueryReflectSignalNotInSignals
 
@@ -87,6 +92,7 @@ var (
 	ErrSignalsFieldUnexported   = paramvalidation.ErrSignalsFieldUnexported
 	ErrSignalsFieldMissingTag   = paramvalidation.ErrSignalsFieldMissingTag
 	ErrSignalsFieldDuplicateTag = paramvalidation.ErrSignalsFieldDuplicateTag
+	ErrSignalsFieldEmptyTag     = paramvalidation.ErrSignalsFieldEmptyTag
 
 	ErrDispatchParamNotFunc    = paramvalidation.ErrDispatchParamNotFunc
 	ErrDispatchReturnCount     = paramvalidation.ErrDispatchReturnCount
@@ -421,6 +427,18 @@ func (e *ErrorEventFieldMissingTag) Error() string {
 }
 
 func (e *ErrorEventFieldMissingTag) Unwrap() error { return ErrEventFieldMissingTag }
+
+// ErrorEventFieldEmptyTag is ErrEventFieldEmptyTag with suggestion context.
+type ErrorEventFieldEmptyTag struct {
+	FieldName string // e.g. "UserID"
+	TypeName  string // e.g. "EventFoo"
+}
+
+func (e *ErrorEventFieldEmptyTag) Error() string {
+	return fmt.Sprintf("%v: field %s in %s", ErrEventFieldEmptyTag, e.FieldName, e.TypeName)
+}
+
+func (e *ErrorEventFieldEmptyTag) Unwrap() error { return ErrEventFieldEmptyTag }
 
 // ErrorEventFieldDuplicateTag is ErrEventFieldDuplicateTag with suggestion context.
 type ErrorEventFieldDuplicateTag struct {

@@ -183,6 +183,13 @@ func f(path struct {
 }) {}`,
 			wantErr: ErrPathFieldMissingTag,
 		},
+		"empty tag": {
+			src: `package test
+func f(path struct {
+	ID string ` + "`" + `path:""` + "`" + `
+}) {}`,
+			wantErr: ErrPathFieldEmptyTag,
+		},
 		"duplicate tag": {
 			src: `package test
 func f(path struct {
@@ -260,6 +267,13 @@ func f(query struct {
 }) {}`,
 			wantErr: ErrQueryFieldMissingTag,
 		},
+		"empty tag": {
+			src: `package test
+func f(query struct {
+	Search string ` + "`" + `query:""` + "`" + `
+}) {}`,
+			wantErr: ErrQueryFieldEmptyTag,
+		},
 		"duplicate tag": {
 			src: `package test
 func f(query struct {
@@ -336,6 +350,13 @@ func f(signals struct {
 	Count int
 }) {}`,
 			wantErr: ErrSignalsFieldMissingTag,
+		},
+		"empty tag": {
+			src: `package test
+func f(signals struct {
+	Count int ` + "`" + `json:""` + "`" + `
+}) {}`,
+			wantErr: ErrSignalsFieldEmptyTag,
 		},
 		"duplicate tag": {
 			src: `package test

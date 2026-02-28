@@ -139,6 +139,15 @@ type EventBadSubject2 struct {
 	X int `json:"x"`
 }
 
+/* ErrEventFieldMissingTag */
+
+// EventEmptyJSONTag is "empty_json_tag"
+//
+// json:"" has an empty name — encoding/json binds nothing, so it should be rejected.
+type EventEmptyJSONTag struct {
+	Bad string `json:""`
+}
+
 // EventJSONExcluded is "json_excluded"
 //
 // Fields with json:"-" are intentionally omitted; no errors should be reported.

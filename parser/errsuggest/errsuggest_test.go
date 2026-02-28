@@ -136,7 +136,16 @@ func TestSuggest(t *testing.T) {
 				Recv:      "PageProfile",
 				Method:    "GETProfile",
 			},
-			want: "fix: Add `path:\"userid\"` struct tag to field UserID",
+			want: "fix: Add `path:\"user_id\"` struct tag to field UserID",
+		},
+
+		"ErrPathFieldEmptyTag": {
+			err: &paramvalidation.ErrorPathFieldEmptyTag{
+				FieldName: "UserID",
+				Recv:      "PageProfile",
+				Method:    "GETProfile",
+			},
+			want: "fix: Add a non-empty name to the path tag of field UserID, e.g. `path:\"user_id\"`",
 		},
 
 		"ErrQueryFieldMissingTag": {
@@ -148,13 +157,31 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add `query:\"page\"` struct tag to field Page",
 		},
 
+		"ErrQueryFieldEmptyTag": {
+			err: &paramvalidation.ErrorQueryFieldEmptyTag{
+				FieldName: "Page",
+				Recv:      "PageItems",
+				Method:    "GETItems",
+			},
+			want: "fix: Add a non-empty name to the query tag of field Page, e.g. `query:\"page\"`",
+		},
+
 		"ErrSignalsFieldMissingTag": {
 			err: &paramvalidation.ErrorSignalsFieldMissingTag{
 				FieldName: "SearchQuery",
 				Recv:      "PageSearch",
 				Method:    "POSTSearch",
 			},
-			want: "fix: Add `json:\"searchquery\"` struct tag to field SearchQuery",
+			want: "fix: Add `json:\"search_query\"` struct tag to field SearchQuery",
+		},
+
+		"ErrSignalsFieldEmptyTag": {
+			err: &paramvalidation.ErrorSignalsFieldEmptyTag{
+				FieldName: "SearchQuery",
+				Recv:      "PageSearch",
+				Method:    "POSTSearch",
+			},
+			want: "fix: Add a non-empty name to the json tag of field SearchQuery, e.g. `json:\"search_query\"`",
 		},
 
 		"ErrEventFieldMissingTag": {
@@ -162,7 +189,16 @@ func TestSuggest(t *testing.T) {
 				FieldName: "UserID",
 				TypeName:  "EventUserCreated",
 			},
-			want: "fix: Add `json:\"userid\"` struct tag to field UserID",
+			want: "fix: Add `json:\"user_id\"` struct tag to field UserID",
+		},
+
+		"ErrEventFieldEmptyTag": {
+			err: &parser.ErrorEventFieldEmptyTag{
+				FieldName: "UserID",
+				TypeName:  "EventUserCreated",
+			},
+			want: "fix: Add a non-empty name to the json tag of field UserID, " +
+				"e.g. `json:\"user_id\"`",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
