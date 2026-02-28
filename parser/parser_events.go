@@ -9,6 +9,42 @@ import (
 	"github.com/romshark/datapages/parser/internal/structtag"
 )
 
+// _jsonUnmarshalerIface and _textUnmarshalerIface are synthetic interface types
+// used to check whether a type implements json.Unmarshaler or
+// encoding.TextUnmarshaler via types.Implements.
+var _jsonUnmarshalerIface, _textUnmarshalerIface *types.Interface
+
+func init() {
+	byteSlice := types.NewSlice(types.Typ[types.Byte])
+	errType := types.Universe.Lookup("error").Type()
+	makeIface := func(methodName string) *types.Interface {
+		sig := types.NewSignatureType(nil, nil, nil,
+			types.NewTuple(types.NewVar(token.NoPos, nil, "", byteSlice)),
+			types.NewTuple(types.NewVar(token.NoPos, nil, "", errType)),
+			false,
+		)
+		iface := types.NewInterfaceType(
+			[]*types.Func{types.NewFunc(token.NoPos, nil, methodName, sig)}, nil,
+		)
+		iface.Complete()
+		return iface
+	}
+	_jsonUnmarshalerIface = makeIface("UnmarshalJSON")
+	_textUnmarshalerIface = makeIface("UnmarshalText")
+}
+
+// implementsUnmarshaler reports whether t (or *t) implements json.Unmarshaler
+// or encoding.TextUnmarshaler.
+func implementsUnmarshaler(t *types.Named) bool {
+	for _, typ := range []types.Type{t, types.NewPointer(t)} {
+		if types.Implements(typ, _jsonUnmarshalerIface) ||
+			types.Implements(typ, _textUnmarshalerIface) {
+			return true
+		}
+	}
+	return false
+}
+
 func validateEvents(ctx *parseCtx, errs *Errors) {
 	for name := range ctx.eventTypeNames {
 		ts := ctx.typeSpecByName[name]
@@ -36,6 +72,15 @@ func validateEventType(
 	if ptr, ok := t.(*types.Pointer); ok {
 		validateEventType(ctx, errs, pos, name, ptr.Elem(), visited)
 		return
+	}
+
+	// Don't recurse into named types that implement json.Unmarshaler or
+	// encoding.TextUnmarshaler — they handle their own JSON encoding
+	// (e.g. time.Time). Check both value and pointer receiver method sets.
+	if named, ok := t.(*types.Named); ok {
+		if implementsUnmarshaler(named) {
+			return
+		}
 	}
 
 	// We only care about structs.

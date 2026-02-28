@@ -396,6 +396,7 @@ func TestParse_ErrEvents(t *testing.T) {
 		parser.ErrEventCommInvalid,
 		parser.ErrEventSubjectInvalid,
 		parser.ErrEventSubjectInvalid,
+		parser.ErrEventFieldUnexported, // same-module subpkg.BadFields
 	)
 }
 

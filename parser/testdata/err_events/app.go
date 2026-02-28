@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
+	"datapagestest/fixture/err_events/subpkg"
 )
 
 type (
@@ -136,4 +137,13 @@ type EventBadSubject struct {
 // EventBadSubject2 is ""
 type EventBadSubject2 struct {
 	X int `json:"x"`
+}
+
+/* ErrEventFieldUnexported */
+
+// EventSameModuleSubpkg is "same_module_subpkg"
+//
+// Validator must still recurse into same-module sub-package types.
+type EventSameModuleSubpkg struct {
+	Bad subpkg.BadFields `json:"bad"`
 }

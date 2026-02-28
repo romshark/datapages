@@ -2,6 +2,7 @@ package app
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/a-h/templ"
 )
@@ -10,7 +11,8 @@ type App struct{}
 
 // EventFoo is "foo"
 type EventFoo struct {
-	Data string `json:"data"`
+	Data      string    `json:"data"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // EventBar is "bar"
