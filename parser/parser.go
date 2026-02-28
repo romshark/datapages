@@ -406,9 +406,6 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 
 			switch kind {
 			case methodkind.EventHandler:
-				if !isPage && !isAbs {
-					break
-				}
 				if err := validate.EventHandlerMethodName(fd.Name.Name); err != nil {
 					errs.ErrAt(pos,
 						fmt.Errorf("%w: %s.%s",
