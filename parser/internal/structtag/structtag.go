@@ -18,6 +18,22 @@ var ErrQueryReflectSignalNotInSignals = errors.New(
 		"not in signals parameter",
 )
 
+// JSONTagExcluded reports whether the struct tag is `json:"-"`, which instructs
+// encoding/json to always omit this field. Note: `json:"-,"` is distinct — it
+// names the field "-" and is NOT treated as excluded.
+func JSONTagExcluded(tag string) bool {
+	const prefix = `json:"`
+	_, after, ok := strings.Cut(tag, prefix)
+	if !ok {
+		return false
+	}
+	before, _, ok0 := strings.Cut(after, "\"")
+	if !ok0 {
+		return false
+	}
+	return before == "-"
+}
+
 // JSONTagValue extracts the value from a `json:"value"`
 // struct tag, stripping options like ",omitempty".
 func JSONTagValue(tag string) string {

@@ -139,6 +139,14 @@ type EventBadSubject2 struct {
 	X int `json:"x"`
 }
 
+// EventJSONExcluded is "json_excluded"
+//
+// Fields with json:"-" are intentionally omitted; no errors should be reported.
+type EventJSONExcluded struct {
+	Keep    string `json:"keep"`
+	ignored int    `json:"-"` //nolint:all
+}
+
 /* ErrEventFieldUnexported */
 
 // EventSameModuleSubpkg is "same_module_subpkg"

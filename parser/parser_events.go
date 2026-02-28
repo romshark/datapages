@@ -94,9 +94,14 @@ func validateEventType(
 	}
 
 	seenTags := make(map[string]bool, st.NumFields())
-	for i := 0; i < st.NumFields(); i++ {
+	for i := range st.NumFields() {
 		f := st.Field(i)
 		tag := st.Tag(i)
+
+		// Fields marked json:"-" are intentionally excluded from JSON; skip all checks.
+		if structtag.JSONTagExcluded(tag) {
+			continue
+		}
 
 		// 1. Must be exported
 		if !f.Exported() {
