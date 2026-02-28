@@ -510,13 +510,14 @@ func ValidatePathAgainstRoute(
 	}
 
 	if h.InputPath == nil {
+		var errs []error
 		for v := range varSet {
-			return fmt.Errorf(
+			errs = append(errs, fmt.Errorf(
 				"%w: {%s} in %s.%s",
 				ErrPathMissingRouteVar, v, recv, method,
-			)
+			))
 		}
-		return nil
+		return errors.Join(errs...)
 	}
 
 	st, ok := h.InputPath.Type.Resolved.Underlying().(*types.Struct)
@@ -524,26 +525,27 @@ func ValidatePathAgainstRoute(
 		return nil
 	}
 
+	var errs []error
 	for i := range st.NumFields() {
 		tagVal := structtag.PathTagValue(st.Tag(i))
 		if tagVal == "" {
 			continue
 		}
 		if !varSet[tagVal] {
-			return fmt.Errorf(
+			errs = append(errs, fmt.Errorf(
 				"%w: %q in %s.%s",
 				ErrPathFieldNotInRoute,
 				tagVal, recv, method,
-			)
+			))
+		} else {
+			delete(varSet, tagVal)
 		}
-		delete(varSet, tagVal)
 	}
-
 	for v := range varSet {
-		return fmt.Errorf(
+		errs = append(errs, fmt.Errorf(
 			"%w: {%s} in %s.%s",
 			ErrPathMissingRouteVar, v, recv, method,
-		)
+		))
 	}
-	return nil
+	return errors.Join(errs...)
 }

@@ -474,6 +474,35 @@ type P struct {
 		})
 	}
 
+	t.Run("two extra fields both reported", func(t *testing.T) {
+		t.Parallel()
+		h := &model.Handler{
+			Route: "/items/{id}",
+			InputPath: &model.Input{
+				Type: model.Type{
+					Resolved: namedType(t, `package test
+type P struct {
+	Foo string `+"`"+`path:"foo"`+"`"+`
+	Bar string `+"`"+`path:"bar"`+"`"+`
+}`),
+				},
+			},
+		}
+		err := ValidatePathAgainstRoute(h, "Recv", "Method")
+		require.ErrorIs(t, err, ErrPathFieldNotInRoute)
+		require.Contains(t, err.Error(), `"foo"`)
+		require.Contains(t, err.Error(), `"bar"`)
+	})
+
+	t.Run("two missing route vars both reported", func(t *testing.T) {
+		t.Parallel()
+		h := &model.Handler{Route: "/a/{id}/b/{slug}"}
+		err := ValidatePathAgainstRoute(h, "Recv", "Method")
+		require.ErrorIs(t, err, ErrPathMissingRouteVar)
+		require.Contains(t, err.Error(), "{id}")
+		require.Contains(t, err.Error(), "{slug}")
+	})
+
 	t.Run("resolved type not struct", func(t *testing.T) {
 		t.Parallel()
 		h := &model.Handler{Route: "/items"}
