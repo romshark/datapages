@@ -44,13 +44,59 @@ vulncheck:
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	(cd example/classifieds/; go run golang.org/x/vuln/cmd/govulncheck@latest ./...)
 
-mod-tidy: mod-tidy-parser-tests
+mod-update: mod-update-examples mod-update-parser-tests
+	go get -u -t ./...
+
+mod-update-examples:
+	@find example -name go.mod -not -path '*/vendor/*' | \
+	while read mod; do \
+		dir=$$(dirname "$$mod"); \
+		echo "==> go get -u -t ./... in $$dir"; \
+		( cd "$$dir" && go get -u -t ./... ); \
+	done
+
+mod-update-parser-tests:
+	@find parser/testdata -name go.mod -not -path '*/vendor/*' | \
+	while read mod; do \
+		dir=$$(dirname "$$mod"); \
+		echo "==> go get -u -t ./... in $$dir"; \
+		( cd "$$dir" && go get -u -t ./... ); \
+	done
+
+mod-tidy: mod-tidy-examples mod-tidy-parser-tests
 	go mod tidy
 
-mod-tidy-parser-tests:
-	@find parser/testdata -name go.mod -not -path './vendor/*' | \
+mod-tidy-examples:
+	@find example -name go.mod -not -path '*/vendor/*' | \
 	while read mod; do \
 		dir=$$(dirname "$$mod"); \
 		echo "==> go mod tidy in $$dir"; \
 		( cd "$$dir" && go mod tidy ); \
+	done
+
+mod-tidy-parser-tests:
+	@find parser/testdata -name go.mod -not -path '*/vendor/*' | \
+	while read mod; do \
+		dir=$$(dirname "$$mod"); \
+		echo "==> go mod tidy in $$dir"; \
+		( cd "$$dir" && go mod tidy ); \
+	done
+
+gen-templ: gen-templ-examples gen-templ-parser-tests
+	go run github.com/a-h/templ/cmd/templ@v0.3.1001 generate
+
+gen-templ-examples:
+	@find example -name go.mod -not -path '*/vendor/*' | \
+	while read mod; do \
+		dir=$$(dirname "$$mod"); \
+		echo "==> templ generate in $$dir"; \
+		( cd "$$dir" && go run github.com/a-h/templ/cmd/templ@v0.3.1001 generate ); \
+	done
+
+gen-templ-parser-tests:
+	@find parser/testdata -name go.mod -not -path '*/vendor/*' | \
+	while read mod; do \
+		dir=$$(dirname "$$mod"); \
+		echo "==> templ generate in $$dir"; \
+		( cd "$$dir" && go run github.com/a-h/templ/cmd/templ@v0.3.1001 generate ); \
 	done

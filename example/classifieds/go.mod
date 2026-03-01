@@ -9,7 +9,7 @@ require github.com/oklog/ulid/v2 v2.1.1
 
 // Required by Datapages
 require (
-	github.com/a-h/templ v0.3.977
+	github.com/a-h/templ v0.3.1001
 	github.com/nats-io/nats.go v1.49.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/starfederation/datastar-go v1.1.0
@@ -17,7 +17,7 @@ require (
 	golang.org/x/sync v0.19.0
 )
 
-require github.com/romshark/datapages v0.0.0-20260223142210-2a71af4c1986
+require github.com/romshark/datapages v0.2.3
 
 require (
 	github.com/CAFxX/httpcompression v0.0.9 // indirect
@@ -31,7 +31,7 @@ require (
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.67.5 // indirect
-	github.com/prometheus/procfs v0.19.2 // indirect
+	github.com/prometheus/procfs v0.20.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/sys v0.41.0 // indirect

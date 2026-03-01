@@ -50,7 +50,7 @@ jobs:
 
       - name: Install templ
         if: matrix.project.name == 'root'
-        run: go install github.com/a-h/templ/cmd/templ@v0.3.977
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1001
 
       # Test and report coverage
       - name: Run tests with coverage
@@ -70,7 +70,7 @@ jobs:
       - name: Generate templates
         if: matrix.project.has_templ && matrix.deps == 'locked'
         working-directory: ${{ matrix.project.path }}
-        run: go run github.com/a-h/templ/cmd/templ@v0.3.977 generate
+        run: go run github.com/a-h/templ/cmd/templ@v0.3.1001 generate
       - name: Check file changes after templ generate
         if: matrix.project.has_templ && matrix.deps == 'locked'
         working-directory: ${{ matrix.project.path }}
