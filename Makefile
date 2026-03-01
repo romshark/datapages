@@ -83,7 +83,6 @@ mod-tidy-parser-tests:
 	done
 
 gen-templ: gen-templ-examples gen-templ-parser-tests
-	go run github.com/a-h/templ/cmd/templ@v0.3.1001 generate
 
 gen-templ-examples:
 	@find example -name go.mod -not -path '*/vendor/*' | \
