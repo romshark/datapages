@@ -99,3 +99,8 @@ gen-templ-parser-tests:
 		echo "==> templ generate in $$dir"; \
 		( cd "$$dir" && go run github.com/a-h/templ/cmd/templ@v0.3.1001 generate ); \
 	done
+
+gen-docs:
+	@version="$$(git describe --tags --abbrev=0 2>/dev/null || echo latest)"; \
+	go run github.com/a-h/templ/cmd/templ@v0.3.1001 generate -path ./docs-src && \
+	go run ./scripts/render-pages -version "$$version"

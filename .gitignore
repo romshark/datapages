@@ -40,3 +40,4 @@ example/**/certs/*
 
 # Grafana runtime data
 example/**/grafana/data/
+
