@@ -684,21 +684,15 @@ event to perform the automatic refresh.
 Datapages ships pluggable modules with swappable implementations:
 
 - [`SessionManager[S]`](modules/sessmanager/sessmanager.go)
-  - [`natskv`](https://pkg.go.dev/github.com/romshark/datapages/modules/sessmanager/natskv) -
-  - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/sessmanager/inmem) -
-    In-memory sessions (lost on restart; single-instance only)
-    NATS KV store with AES-128-GCM encrypted cookies
+  - [`natskv`](https://pkg.go.dev/github.com/romshark/datapages/modules/sessmanager/natskv) - NATS KV store with AES-128-GCM encrypted cookies
+  - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/sessmanager/inmem) - In-memory sessions (lost on restart; single-instance only)
 - [`MessageBroker`](modules/msgbroker/msgbroker.go)
-  - [`natsjs`](https://pkg.go.dev/github.com/romshark/datapages/modules/msgbroker/natsjs) -
-  - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/msgbroker/inmem) -
-    In-memory fan-out message broker (single-instance only)
-    NATS JetStream backed message broker
+  - [`natsjs`](https://pkg.go.dev/github.com/romshark/datapages/modules/msgbroker/natsjs) - NATS JetStream backed message broker
+  - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/msgbroker/inmem) - In-memory fan-out message broker (single-instance only)
 - [`TokenManager`](modules/csrf/csrf.go)
-  - [`hmac`](https://pkg.go.dev/github.com/romshark/datapages/modules/csrf/hmac) -
-    HMAC-SHA256 with BREACH-resistant masking
+  - [`hmac`](https://pkg.go.dev/github.com/romshark/datapages/modules/csrf/hmac) - HMAC-SHA256 with BREACH-resistant masking
 - [`TokenGenerator`](modules/sessmanager/sessmanager.go)
-  - [`sesstokgen`](https://pkg.go.dev/github.com/romshark/datapages/modules/sesstokgen) -
-    Cryptographically random session tokens (256-bit)
+  - [`sesstokgen`](https://pkg.go.dev/github.com/romshark/datapages/modules/sesstokgen) - Cryptographically random session tokens (256-bit)
 
 
 
