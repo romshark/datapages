@@ -1,3 +1,5 @@
+all: test vulncheck fmt mod-tidy gen-templ gen-docs
+
 test: lint
 	go test ./... -cover
 
