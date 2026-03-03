@@ -157,6 +157,7 @@ a {
   inline-size: 50%;
   will-change: transform;
   cursor: pointer;
+  user-select: none;
 }
 
 /* ── Alpha badge ─────────────────────────────────── */
