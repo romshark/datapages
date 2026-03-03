@@ -25,7 +25,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "create output file: %v\n", err)
 		os.Exit(1)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if err := docspage.Index(version).Render(context.Background(), f); err != nil {
 		fmt.Fprintf(os.Stderr, "render docs page: %v\n", err)
