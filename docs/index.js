@@ -37,15 +37,17 @@
     // Blink
     const tops = svg.querySelectorAll('.lid-top');
     const bots = svg.querySelectorAll('.lid-bot');
-    function blink() {
+    function blink(twice) {
       tops.forEach(l => l.style.transform = 'translateY(250px)');
       bots.forEach(l => l.style.transform = 'translateY(-250px)');
       setTimeout(() => {
         tops.forEach(l => l.style.transform = '');
         bots.forEach(l => l.style.transform = '');
+        if (twice) setTimeout(() => blink(false), 200 + Math.random() * 150);
       }, 150);
     }
-    svg.addEventListener('click', blink);
+    setTimeout(() => blink(false), 1000);
+    svg.addEventListener('click', () => blink(Math.random() < 0.5));
     (function loop() {
-      setTimeout(() => { blink(); loop(); }, 2500 + Math.random() * 4000);
+      setTimeout(() => { blink(Math.random() < 0.5); loop(); }, 2500 + Math.random() * 4000);
     })();

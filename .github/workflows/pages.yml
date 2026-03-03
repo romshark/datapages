@@ -6,6 +6,9 @@ on:
       - main
     tags:
       - "v*"
+    paths:
+      - "docs/**"
+      - "scripts/render-pages/**"
   workflow_dispatch:
 
 permissions:

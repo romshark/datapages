@@ -32,6 +32,7 @@ body {
   color: var(--text);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
 }
 
 a {
@@ -121,7 +122,17 @@ a {
     display: flex;
     justify-content: center;
     gap: 1rem;
-    flex-wrap: wrap;
+
+    .btn {
+      white-space: nowrap;
+    }
+  }
+
+  @media (width <= 400px) {
+    .cta {
+      flex-direction: column;
+      align-items: stretch;
+    }
   }
 
   @media (width <= 640px) {
@@ -141,7 +152,7 @@ a {
 }
 
 .gopher {
-  block-size: 12rem;
+  block-size: min(12rem, 20vw);
   overflow: hidden;
   margin-block-end: -1rem;
   mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
