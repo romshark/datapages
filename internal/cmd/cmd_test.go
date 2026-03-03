@@ -127,6 +127,13 @@ func TestVersion(t *testing.T) {
 	}
 }
 
+// removeExistingFile asserts that path exists then removes it.
+func removeExistingFile(t *testing.T, path string) {
+	t.Helper()
+	require.FileExists(t, path)
+	require.NoError(t, os.Remove(path))
+}
+
 // setupProject creates a temporary Go module with a datapages app package.
 // It copies the given app source file from testdata into a temporary directory,
 // changes the working directory to the project root and returns
@@ -389,48 +396,102 @@ func TestGenBuild(t *testing.T) {
 }
 
 func TestGen(t *testing.T) {
+	// checkGenPackage checks only the generated package files (no cmd entry point).
+	checkGenPackage := func(t *testing.T, dir string) {
+		t.Helper()
+		for _, f := range []string{
+			"datapagesgen/app_gen.go",
+			"datapagesgen/action/action_gen.go",
+			"datapagesgen/href/href_gen.go",
+		} {
+			require.FileExists(t, filepath.Join(dir, f))
+		}
+	}
+	// checkGenFiles checks the generated package and the cmd entry point.
+	checkGenFiles := func(t *testing.T, dir string) {
+		t.Helper()
+		checkGenPackage(t, dir)
+		require.FileExists(t, filepath.Join(dir, "cmd/server/main.go"))
+	}
+	checkDefaultConfig := func(t *testing.T, dir string) {
+		t.Helper()
+		p := filepath.Join(dir, "datapages.yaml")
+		require.FileExists(t, p)
+		data, err := os.ReadFile(p)
+		require.NoError(t, err)
+		require.Contains(t, string(data), "app: app")
+		require.Contains(t, string(data), "package: datapagesgen")
+	}
+
 	for name, tc := range map[string]struct {
-		command   string
 		appGoFile string
+		prepare   func(t *testing.T, dir string) // optional pre-run setup
 		wantOK    bool
-		wantGen   []string // files expected after gen
+		check     func(t *testing.T, dir string) // optional post-run assertions
 	}{
-		"gen ok": {
-			command:   "gen",
+		"ok": {
 			appGoFile: "valid.go",
 			wantOK:    true,
-			wantGen: []string{
-				"datapagesgen/app_gen.go",
-				"datapagesgen/action/action_gen.go",
-				"datapagesgen/href/href_gen.go",
-				"cmd/server/main.go",
-			},
+			check:     checkGenFiles,
 		},
-		"gen error": {
-			command:   "gen",
+		// App type missing: parser returns nil model, stub package files are generated.
+		"error no app type": {
 			appGoFile: "invalid.go",
 			wantOK:    false,
+			check:     checkGenPackage,
+		},
+		// App type present but errors in other pages: parser returns a partial
+		// model, so gen still writes the generated package.
+		"error partial model": {
+			appGoFile: "invalid_with_app.go",
+			wantOK:    false,
+			check:     checkGenFiles,
+		},
+		// gen writes a default datapages.yaml when none exists, even on parse errors.
+		"writes default config/no app type": {
+			appGoFile: "invalid.go",
+			prepare: func(t *testing.T, dir string) {
+				removeExistingFile(t, filepath.Join(dir, "datapages.yaml"))
+			},
+			wantOK: false,
+			check: func(t *testing.T, dir string) {
+				checkDefaultConfig(t, dir)
+				checkGenPackage(t, dir)
+			},
+		},
+		"writes default config/partial model": {
+			appGoFile: "invalid_with_app.go",
+			prepare: func(t *testing.T, dir string) {
+				removeExistingFile(t, filepath.Join(dir, "datapages.yaml"))
+			},
+			wantOK: false,
+			check: func(t *testing.T, dir string) {
+				checkDefaultConfig(t, dir)
+				checkGenFiles(t, dir)
+			},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := setupProject(t, tc.appGoFile)
+			if tc.prepare != nil {
+				tc.prepare(t, dir)
+			}
 
 			var stdout, stderr bytes.Buffer
 			code := cmd.Run(
-				context.Background(), []string{"datapages", tc.command},
+				context.Background(), []string{"datapages", "gen"},
 				nil, &stdout, &stderr,
 				"0.0.0", "xxxxxxx", "2026-2-23",
 			)
 
 			if tc.wantOK {
 				require.Zero(t, code, "stderr: %s", stderr.String())
-				for _, f := range tc.wantGen {
-					_, err := os.Stat(filepath.Join(dir, f))
-					require.NoError(t, err, "expected generated file %s", f)
-				}
 			} else {
 				require.Equal(t, 1, code)
 				require.NotEmpty(t, stderr.String())
+			}
+			if tc.check != nil {
+				tc.check(t, dir)
 			}
 		})
 	}

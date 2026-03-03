@@ -17,8 +17,15 @@ type Options struct {
 
 // Generate generates the complete generated Datapages package with subpackages to
 // destination directory dstDir. pkgName is the Go package name for the generated
-// root package (e.g. "datapagesgen").
-func Generate(dstDir string, pkgName string, m *model.App, perm os.FileMode, opts Options) error {
+// root package (e.g. "datapagesgen"). When m is nil, minimal stub files containing
+// only the package declaration are written so that IDEs can resolve the import.
+func Generate(
+	dstDir string, pkgName string, m *model.App, perm os.FileMode, opts Options,
+) error {
+	if m == nil {
+		return generateStubs(dstDir, pkgName, perm)
+	}
+
 	w := writerPool.Get().(*Writer)
 	defer writerPool.Put(w)
 
@@ -72,5 +79,25 @@ func Generate(dstDir string, pkgName string, m *model.App, perm os.FileMode, opt
 		return fmt.Errorf("writing href/href_gen.go: %w", err)
 	}
 
+	return nil
+}
+
+// generateStubs writes minimal package declaration files for each generated
+// package so that IDEs can resolve the import even when the app model is nil.
+func generateStubs(dstDir, pkgName string, perm os.FileMode) error {
+	for _, pkg := range []struct{ dir, name, file string }{
+		{dstDir, pkgName, "app_gen.go"},
+		{filepath.Join(dstDir, "action"), "action", "action_gen.go"},
+		{filepath.Join(dstDir, "href"), "href", "href_gen.go"},
+	} {
+		if err := os.MkdirAll(pkg.dir, 0o755); err != nil {
+			return fmt.Errorf("creating directory %s: %w", pkg.dir, err)
+		}
+		content := []byte("package " + pkg.name + "\n")
+		p := filepath.Join(pkg.dir, pkg.file)
+		if err := os.WriteFile(p, content, perm); err != nil {
+			return fmt.Errorf("writing %s: %w", pkg.file, err)
+		}
+	}
 	return nil
 }

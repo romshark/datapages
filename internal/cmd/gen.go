@@ -22,7 +22,12 @@ func newGenCmd(stderr io.Writer) *cobra.Command {
   - Type-safe action helpers (action package)
   - Server entry point (cmd package, created only if missing)
 
-If no datapages.yaml config file exists, a default one is created.`,
+If no datapages.yaml config file exists, a default one is created.
+
+The generated package is always written, even when the app package contains
+errors, so that IDEs can resolve the import while you fix the errors.
+Errors are always reported to stderr and the exit code is non-zero whenever
+parsing fails.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			moduleDir, err := findModuleDir()
 			if err != nil {
@@ -54,20 +59,20 @@ func runGen(moduleDir string, config config, stderr io.Writer) error {
 		return err
 	}
 
-	app, err := parseApp(filepath.Join(moduleDir, config.App), stderr)
-	if err != nil {
-		return err
-	}
-	prometheus := config.Gen.Prometheus != nil && *config.Gen.Prometheus
+	app, parseErr := parseApp(filepath.Join(moduleDir, config.App), stderr)
 
+	// Always generate the package; when app is nil, stub files are written so
+	// that IDEs can resolve the import while errors are fixed.
 	genDir := filepath.Join(moduleDir, config.Gen.Package)
 	genPkgName := filepath.Base(genDir)
-	opts := generator.Options{Prometheus: prometheus}
-	if err := generator.Generate(genDir, genPkgName, app, 0o644, opts); err != nil {
+	prometheus := app != nil && config.Gen.Prometheus != nil && *config.Gen.Prometheus
+	if err := generator.Generate(
+		genDir, genPkgName, app, 0o644, generator.Options{Prometheus: prometheus},
+	); err != nil {
 		return fmt.Errorf("generating code: %w", err)
 	}
 
-	if !cmdExists {
+	if app != nil && !cmdExists {
 		appImport := modulePath + "/" + config.App
 		genImport := modulePath + "/" + config.Gen.Package
 		if err := generator.GenerateCmd(
@@ -76,7 +81,8 @@ func runGen(moduleDir string, config config, stderr io.Writer) error {
 			return fmt.Errorf("generating cmd: %w", err)
 		}
 	}
-	return nil
+
+	return parseErr
 }
 
 func parseApp(appDir string, stderr io.Writer) (*model.App, error) {
@@ -89,7 +95,9 @@ func parseApp(appDir string, stderr io.Writer) (*model.App, error) {
 				_, _ = fmt.Fprintln(stderr, hint)
 			}
 		}
-		return nil, fmt.Errorf("parsing app package: %d error(s)", errs.Len())
+		// Return the partial model alongside the error: callers may still
+		// generate code from whatever was successfully parsed.
+		return app, fmt.Errorf("parsing app package: %d error(s)", errs.Len())
 	}
 	return app, nil
 }
