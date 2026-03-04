@@ -194,6 +194,13 @@ func Suggest(err error) string {
 		return fmt.Sprintf(
 			"fix: Add a non-empty name to the json tag of field %s, e.g. `json:\"%s\"`",
 			d.FieldName, toSnakeCase(d.FieldName))
+
+	case errors.Is(err, parser.ErrEventTargetUserIDsNoSession):
+		var d *parser.ErrorEventTargetUserIDsNoSession
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf("fix: Define a Session type in package %s", d.PkgName)
 	}
 	return ""
 }
