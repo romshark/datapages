@@ -45,7 +45,7 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	if w.usage.httpRedirect {
 		w.writeHTTPRedirect()
 	}
-	if w.usage.auth {
+	if w.usage.auth && w.usage.hasSession {
 		w.writeAppCheckCSRF(appPkg)
 	}
 	w.writeAppWriteHTML(m, appPkg)
@@ -57,7 +57,10 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	w.writeEventSubjectConsts(m.Events)
 	w.writeMessageBrokerStreamSubjects(m.Events)
 	w.writeEvSubjPageFuncs(m.Pages)
-	w.writeAppAuth(appPkg)
+	if w.usage.hasSession {
+		w.writeAppCSRF()
+		w.writeAppAuth(appPkg)
+	}
 	w.writeBrokerSubjectKind(m.Events)
 	w.writeSetupHandlers(m)
 	w.writeAppErrHelpers(m, appPkg)
@@ -155,11 +158,15 @@ func (s *Server) listenAndServe(
 ) error {
 	ctx, cancel := context.WithCancel(ctx)
 	s.runCancel = cancel
-
+`)
+	if w.usage.hasSession {
+		w.Raw(`
 	if s.csrfConf == nil {
 		s.logger.Warn("CSRF protection disabled")
 	}
-
+`)
+	}
+	w.Raw(`
 	g, ctx := errgroup.WithContext(ctx)
 
 	// Main frontend server
@@ -282,10 +289,14 @@ func (w *Writer) writeAppWriteHTML(m *model.App, appPkg string) {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess `)
-	w.Raw(appPkg)
-	w.Raw(`.Session,
-	headGeneric, head, body templ.Component,
+`)
+	if m.Session != nil {
+		w.Raw(`	sess `)
+		w.Raw(appPkg)
+		w.Raw(`.Session,
+`)
+	}
+	w.Raw(`	headGeneric, head, body templ.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 ) error {
 	_, err := io.WriteString(w, ` + "`" + `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
@@ -309,7 +320,9 @@ func (s *Server) writeHTML(
 			return err
 		}
 	}
-	if s.csrfConf != nil && sess.UserID != "" {
+`)
+	if m.Session != nil {
+		w.Raw(`	if s.csrfConf != nil && sess.UserID != "" {
 		csrfToken := s.csrfConf.TokenManager.GenerateToken(
 			sess.UserID, sess.IssuedAt.Unix(),
 		)
@@ -343,7 +356,9 @@ func (s *Server) writeHTML(
 				slog.Time("issued-at", sess.IssuedAt))
 		}
 	}
-	if _, err := io.WriteString(w, "</head><body "); err != nil {
+`)
+	}
+	w.Raw(`	if _, err := io.WriteString(w, "</head><body "); err != nil {
 		return err
 	}
 	if writeBodyAttrs != nil {
@@ -521,13 +536,16 @@ type Server struct {
 		w.Raw(`
 	metricsServer         *http.Server`)
 	}
-	w.Raw(`
+	if w.usage.hasSession {
+		w.Raw(`
 	authConf              *AuthConfig
 	sessionTokenGenerator sessmanager.TokenGenerator
 	sessionManager        sessmanager.SessionManager[`)
-	w.Raw(appPkg)
-	w.Raw(`.Session]
-	csrfConf              *CSRFConfig
+		w.Raw(appPkg)
+		w.Raw(`.Session]
+	csrfConf              *CSRFConfig`)
+	}
+	w.Raw(`
 }
 `)
 }
@@ -539,8 +557,11 @@ func (w *Writer) writeAppNewServer(appPkg string) {
 //
 //   - WithMiddleware
 //   - WithHTTPServer
-//   - WithStaticFS
+//   - WithStaticFS`)
+	if w.usage.hasSession {
+		w.Raw(`
 //   - WithCSRFProtection`)
+	}
 	if w.prometheus {
 		w.Raw(`
 //   - WithPrometheus`)
@@ -550,10 +571,14 @@ func NewServer(
 	app *`)
 	w.Raw(appPkg)
 	w.Raw(`.App,
-	messageBroker msgbroker.MessageBroker,
+	messageBroker msgbroker.MessageBroker,`)
+	if w.usage.hasSession {
+		w.Raw(`
 	sessionManager sessmanager.SessionManager[`)
-	w.Raw(appPkg)
-	w.Raw(`.Session],
+		w.Raw(appPkg)
+		w.Raw(`.Session],`)
+	}
+	w.Raw(`
 	opts ...ServerOption,
 ) *Server {
 	s := &Server{
@@ -573,8 +598,12 @@ func NewServer(
 		mux:                  http.NewServeMux(),
 		middleware:           []func(http.Handler) http.Handler{},
 		messageBroker:        messageBroker,
-		messageBrokerMetrics: brokerMetrics{},
-		sessionManager:       sessionManager,
+		messageBrokerMetrics: brokerMetrics{},`)
+	if w.usage.hasSession {
+		w.Raw(`
+		sessionManager:       sessionManager,`)
+	}
+	w.Raw(`
 	}
 
 	// Apply options
@@ -595,7 +624,8 @@ func NewServer(
 	}
 `)
 	}
-	w.Raw(`
+	if w.usage.hasSession {
+		w.Raw(`
 	if s.sessionManager == nil {
 		panic("missing SessionManager")
 	}
@@ -611,7 +641,9 @@ func NewServer(
 			Length: sesstokgen.DefaultLength,
 		}
 	}
-
+`)
+	}
+	w.Raw(`
 	// Use defaults if not set.
 	if s.logger == nil {
 		opt := &slog.HandlerOptions{
@@ -637,13 +669,15 @@ func NewServer(
 			panic(fmt.Sprintf("initializing message broker streams: %v", err))
 		}
 	}
-	if s.csrfConf == nil {
+`)
+	if w.usage.hasSession {
+		w.Raw(`	if s.csrfConf == nil {
 		panic("missing option WithCSRFProtection")
 	} else if s.csrfConf != nil && s.csrfConf.TokenManager == nil {
 		panic("CSRFConfig.TokenManager is nil")
 	}
-
 `)
+	}
 	if w.prometheus {
 		w.Raw(`	if s.metricsServer != nil {
 		s.middleware = append(s.middleware, s.metricsMiddleware)
@@ -842,6 +876,35 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 		w.Line(1, "}")
 		w.Line(0, "}")
 	}
+}
+
+func (w *Writer) writeAppCSRF() {
+	w.Raw(`
+type CSRFConfig struct {
+	TokenManager csrf.TokenManager
+
+	// DevBypassToken, if non-empty, is accepted as a valid
+	// CSRF token for any session. Use this only in development
+	// to allow tools like k6 to exercise POST endpoints.
+	DevBypassToken string
+}
+
+// WithCSRFProtection enables Cross-Site-Request-Forgery protection on
+// POST/PUT/PATCH/DELETE action endpoints. By default CSRF protection is disabled
+// but will log a warning during server initialization time.
+func WithCSRFProtection(conf CSRFConfig) ServerOption {
+	return func(s *Server) error {
+		if conf.TokenManager == nil {
+			return errors.New("nil CSRF token manager")
+		}
+		if conf.DevBypassToken != "" && !IsDevMode() {
+			return errors.New("CSRF dev bypass token must not be set in non-dev mode")
+		}
+		s.csrfConf = &conf
+		return nil
+	}
+}
+`)
 }
 
 func (w *Writer) writeAppAuth(appPkg string) {
@@ -1216,7 +1279,7 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	w.Line(0, "")
 
 	// Call GET.
-	w.writeGETCall(p, appPkg, "render404")
+	w.writeGETCall(p, m, appPkg, "render404")
 
 	w.Line(0, "}")
 }
@@ -1512,15 +1575,16 @@ func (w *Writer) writeMethodCall(
 			genericHeadArg = "genericHead"
 		}
 
-		sessArg := "sess"
-		if !hasSessionInput(h) {
-			sessArg = appPkg + ".Session{}"
-		}
-
 		w.Line(1, "if err := s.writeHTML(")
 		w.Raw("\t\tw, r, ")
-		w.Raw(sessArg)
-		w.Raw(", ")
+		if m.Session != nil {
+			sessArg := "sess"
+			if !hasSessionInput(h) {
+				sessArg = appPkg + ".Session{}"
+			}
+			w.Raw(sessArg)
+			w.Raw(", ")
+		}
 		w.Raw(genericHeadArg)
 		w.Raw(", nil, ")
 		w.Raw(h.OutputBody.Name)
@@ -1632,7 +1696,7 @@ func actionOwnerName(p *model.Page, isAppLevel bool) string {
 }
 
 // writeGETCall generates the GET method call and HTML rendering for a page.
-func (w *Writer) writeGETCall(p *model.Page, appPkg string, context string) {
+func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, context string) {
 	if p.GET == nil {
 		return
 	}
@@ -1715,14 +1779,6 @@ func (w *Writer) writeGETCall(p *model.Page, appPkg string, context string) {
 	w.Line(2, "writeBodyAttrOnVisibilityChange(w)")
 	w.Line(1, "}")
 
-	// writeHTML call.
-	sessArg := "sess"
-	if p.PageSpecialization == model.PageTypeError500 {
-		sessArg = appPkg + ".Session{}"
-	} else if p.PageSpecialization == model.PageTypeError404 && context == "render404" {
-		sessArg = appPkg + ".Session{}"
-	}
-
 	headArg := "nil"
 	if p.GET.OutputHead != nil {
 		headArg = p.GET.OutputHead.Name
@@ -1730,8 +1786,16 @@ func (w *Writer) writeGETCall(p *model.Page, appPkg string, context string) {
 
 	w.Line(1, "if err := s.writeHTML(")
 	w.Raw("\t\tw, r, ")
-	w.Raw(sessArg)
-	w.Raw(", genericHead, ")
+	if m.Session != nil {
+		sessArg := "sess"
+		if p.PageSpecialization == model.PageTypeError500 ||
+			(p.PageSpecialization == model.PageTypeError404 && context == "render404") {
+			sessArg = appPkg + ".Session{}"
+		}
+		w.Raw(sessArg)
+		w.Raw(", ")
+	}
+	w.Raw("genericHead, ")
 	w.Raw(headArg)
 	w.Raw(", body, bodyAttrs,\n")
 	w.Line(1, "); err != nil {")

@@ -184,6 +184,8 @@ func pathTagValue(tag string) string {
 // It is computed once from the model before any code is emitted, and used to
 // conditionally emit helper functions/methods that would otherwise be dead code.
 type appUsage struct {
+	// hasSession: whether the app defines a Session type.
+	hasSession bool
 	// auth: func (s *Server) auth(...)
 	auth bool
 	// createSession: func (s *Server) createSession(...)
@@ -218,6 +220,8 @@ func (u appUsage) needsSetSessionCookie() bool {
 // computeAppUsage scans the model to determine which optional helpers are needed.
 func computeAppUsage(m *model.App) appUsage {
 	var u appUsage
+
+	u.hasSession = m.Session != nil
 
 	if m.Recover500 != nil && m.PageError500 != nil {
 		u.recover500 = true

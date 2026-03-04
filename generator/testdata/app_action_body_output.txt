@@ -6,7 +6,7 @@ func (s *Server) handlePOSTRender(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.writeHTML(
-		w, r, testapp.Session{}, nil, nil, body, nil,
+		w, r, nil, nil, body, nil,
 	); err != nil {
 		s.logErr("rendering response of App.POSTRender", err)
 		return
