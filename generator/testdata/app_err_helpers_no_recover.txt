@@ -1,7 +1,7 @@
 
 func (s *Server) httpErrIntern(
-	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	w http.ResponseWriter, _ *http.Request,
+	_ *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.logErr(msg, err)
 	const code = http.StatusInternalServerError

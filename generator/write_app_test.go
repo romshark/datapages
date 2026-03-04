@@ -309,6 +309,7 @@ func TestWriteAppActionHandler(t *testing.T) {
 			},
 			app: &model.App{
 				PkgPath: testAppPkgPath, Fset: token.NewFileSet(),
+				Session:             &model.SessionType{},
 				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
 			},
 			golden: "app_action_body_global_head.txt",
@@ -384,6 +385,7 @@ func TestWriteRender404(t *testing.T) {
 		"basic": {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
+				Session:             &model.SessionType{},
 				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
 				PageError404: &model.Page{
 					TypeName:           "PageError404",
@@ -405,6 +407,7 @@ func TestWriteRender404(t *testing.T) {
 		"with head and redirect": {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
+				Session:             &model.SessionType{},
 				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
 				PageError404: &model.Page{
 					TypeName:           "PageError404",
@@ -448,6 +451,7 @@ func TestWriteAppWriteHTML(t *testing.T) {
 		"with global head": {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
+				Session:             &model.SessionType{},
 				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
 			},
 			golden: "app_writehtml_global_head.txt",
@@ -522,6 +526,7 @@ func TestWritePageGETHandler(t *testing.T) {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
 				Fset:                token.NewFileSet(),
+				Session:             &model.SessionType{},
 				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
 			},
 			golden: "app_page_get_session_token.txt",
@@ -733,6 +738,7 @@ func TestWritePageActionHandler(t *testing.T) {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
 				Fset:                token.NewFileSet(),
+				Session:             &model.SessionType{},
 				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
 			},
 			golden: "app_page_action_body_global_head.txt",

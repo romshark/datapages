@@ -164,11 +164,6 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	// Body attrs.
 	w.writeGETBodyAttrs(p)
 
-	genericHeadArg := "nil"
-	if m.GlobalHeadGenerator != nil {
-		genericHeadArg = "genericHead"
-	}
-
 	headArg := "nil"
 	if p.GET.OutputHead != nil {
 		headArg = p.GET.OutputHead.Name
@@ -190,8 +185,9 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 		w.Raw(sessArg)
 		w.Raw(", ")
 	}
-	w.Raw(genericHeadArg)
-	w.Raw(", ")
+	if m.GlobalHeadGenerator != nil {
+		w.Raw("genericHead, ")
+	}
 	w.Raw(headArg)
 	w.Raw(", ")
 	w.Raw(bodyName)
@@ -938,10 +934,6 @@ func (w *Writer) writeActionMethodCall(
 			w.Line(2, "return")
 			w.Line(1, "}")
 		}
-		genericHeadArg := "nil"
-		if m.GlobalHeadGenerator != nil {
-			genericHeadArg = "genericHead"
-		}
 		w.Line(1, "if err := s.writeHTML(")
 		w.Raw("\t\tw, r, ")
 		if m.Session != nil {
@@ -952,8 +944,11 @@ func (w *Writer) writeActionMethodCall(
 			w.Raw(sessArg)
 			w.Raw(", ")
 		}
-		w.Raw(genericHeadArg)
-		w.Raw(", nil, ")
+		if m.GlobalHeadGenerator != nil {
+			w.Raw("genericHead, nil, ")
+		} else {
+			w.Raw("nil, ")
+		}
 		w.Raw(h.OutputBody.Name)
 		w.Raw(", nil,\n")
 		w.Line(1, "); err != nil {")

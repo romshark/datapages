@@ -16,7 +16,7 @@ func (s *Server) handlePageDashboardPOSTRefresh(
 		return
 	}
 	if err := s.writeHTML(
-		w, r, nil, nil, body, nil,
+		w, r, nil, body, nil,
 	); err != nil {
 		s.logErr("rendering response of PageDashboard.POSTRefresh", err)
 		return

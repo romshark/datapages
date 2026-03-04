@@ -2,7 +2,7 @@
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	headGeneric, head, body templ.Component,
+	head, body templ.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 ) error {
 	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>

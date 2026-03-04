@@ -296,7 +296,12 @@ func (s *Server) writeHTML(
 		w.Raw(`.Session,
 `)
 	}
-	w.Raw(`	headGeneric, head, body templ.Component,
+	if m.GlobalHeadGenerator != nil {
+		w.Raw(`	headGeneric, `)
+	} else {
+		w.Raw(`	`)
+	}
+	w.Raw(`head, body templ.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 ) error {
 	_, err := io.WriteString(w, ` + "`" + `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
@@ -1259,8 +1264,8 @@ func (s *Server) httpErrIntern(
 	} else {
 		w.Raw(`
 func (s *Server) httpErrIntern(
-	w http.ResponseWriter, r *http.Request,
-	sse *datastar.ServerSentEventGenerator, msg string, err error,
+	w http.ResponseWriter, _ *http.Request,
+	_ *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.logErr(msg, err)
 	const code = http.StatusInternalServerError
@@ -1580,11 +1585,6 @@ func (w *Writer) writeMethodCall(
 			w.Line(1, "}")
 		}
 
-		genericHeadArg := "nil"
-		if m.GlobalHeadGenerator != nil {
-			genericHeadArg = "genericHead"
-		}
-
 		w.Line(1, "if err := s.writeHTML(")
 		w.Raw("\t\tw, r, ")
 		if m.Session != nil {
@@ -1595,8 +1595,11 @@ func (w *Writer) writeMethodCall(
 			w.Raw(sessArg)
 			w.Raw(", ")
 		}
-		w.Raw(genericHeadArg)
-		w.Raw(", nil, ")
+		if m.GlobalHeadGenerator != nil {
+			w.Raw("genericHead, nil, ")
+		} else {
+			w.Raw("nil, ")
+		}
 		w.Raw(h.OutputBody.Name)
 		w.Raw(", nil,\n")
 		w.Line(1, "); err != nil {")
@@ -1775,13 +1778,15 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, contex
 	}
 
 	// Generic head.
-	w.Line(1, "genericHead, err := s.app.Head(r)")
-	w.Line(1, "if err != nil {")
-	w.Raw("\t\ts.httpErrIntern(w, r, nil, \"generating generic head for ")
-	w.Raw(p.TypeName)
-	w.Raw("\", err)\n")
-	w.Line(2, "return")
-	w.Line(1, "}")
+	if m.GlobalHeadGenerator != nil {
+		w.Line(1, "genericHead, err := s.app.Head(r)")
+		w.Line(1, "if err != nil {")
+		w.Raw("\t\ts.httpErrIntern(w, r, nil, \"generating generic head for ")
+		w.Raw(p.TypeName)
+		w.Raw("\", err)\n")
+		w.Line(2, "return")
+		w.Line(1, "}")
+	}
 
 	// Body attrs - simple for render404/error pages.
 	w.Line(0, "")
@@ -1805,7 +1810,9 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, contex
 		w.Raw(sessArg)
 		w.Raw(", ")
 	}
-	w.Raw("genericHead, ")
+	if m.GlobalHeadGenerator != nil {
+		w.Raw("genericHead, ")
+	}
 	w.Raw(headArg)
 	w.Raw(", body, bodyAttrs,\n")
 	w.Line(1, "); err != nil {")
