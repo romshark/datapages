@@ -37,7 +37,11 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		hasBody = true
 		w.Line(0, "")
 		w.Line(1, `if r.URL.Path != "/" {`)
-		w.Line(2, "s.render404(w, r)")
+		if m.PageError404 != nil {
+			w.Line(2, "s.render404(w, r)")
+		} else {
+			w.Line(2, "http.NotFound(w, r)")
+		}
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
@@ -508,6 +512,10 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Raw("\ts.handleStreamRequest(w, r,")
 	if hasPrivate {
 		w.Raw(" sessToken, sess,")
+	} else if w.usage.streamAuth {
+		w.Raw(` "", `)
+		w.Raw(appPkg)
+		w.Raw(`.Session{},`)
 	}
 	w.Raw(" ")
 	w.Raw(evSubjName)
