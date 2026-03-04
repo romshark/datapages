@@ -37,7 +37,11 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		hasBody = true
 		w.Line(0, "")
 		w.Line(1, `if r.URL.Path != "/" {`)
-		w.Line(2, "s.render404(w, r)")
+		if m.PageError404 != nil {
+			w.Line(2, "s.render404(w, r)")
+		} else {
+			w.Line(2, "http.NotFound(w, r)")
+		}
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
@@ -160,12 +164,6 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	// Body attrs.
 	w.writeGETBodyAttrs(p)
 
-	// writeHTML call.
-	sessArg := "sess"
-	if p.PageSpecialization == model.PageTypeError500 || !hasSessionInput(h) {
-		sessArg = appPkg + ".Session{}"
-	}
-
 	genericHeadArg := "nil"
 	if m.GlobalHeadGenerator != nil {
 		genericHeadArg = "genericHead"
@@ -184,8 +182,14 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	w.Line(0, "")
 	w.Line(1, "if err := s.writeHTML(")
 	w.Raw("\t\tw, r, ")
-	w.Raw(sessArg)
-	w.Raw(", ")
+	if m.Session != nil {
+		sessArg := "sess"
+		if p.PageSpecialization == model.PageTypeError500 || !hasSessionInput(h) {
+			sessArg = appPkg + ".Session{}"
+		}
+		w.Raw(sessArg)
+		w.Raw(", ")
+	}
 	w.Raw(genericHeadArg)
 	w.Raw(", ")
 	w.Raw(headArg)
@@ -287,57 +291,97 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 	}
 
 	// Stream data-init attr.
-	if hasStream && h.InputSession != nil {
+	// Fun fact: this is a writer writing a writer writing an attribute.
+	if hasStream {
+		hasPrivate := pageHasPrivateEvent(p, w.eventMap)
 		streamPath := routeStreamPath(p.Route)
-		if hasAnonStream {
-			// Mixed: auth -> /_$/ , anon -> /_$/anon/
-			// Need to handle path variables.
+		if hasPrivate && h.InputSession != nil {
+			if hasAnonStream {
+				// Mixed: authenticated -> "/_$/"; anonymous -> "/_$/anon/"
+				// Need to handle path variables.
+				if h.InputPath != nil {
+					// Dynamic path.
+					w.Line(0, "")
+					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
+					w.writeStreamPathSegments(p.Route, h.InputPath)
+					w.Line(2, `if sess.UserID != "" {`)
+					w.Line(3, "_, _ = io.WriteString(w, `/_$/')\"`)")
+					w.Line(2, "} else {")
+					w.Line(3, "_, _ = io.WriteString(w, `/_$/anon/')\"`)")
+					w.Line(2, "}")
+				} else {
+					w.Line(0, "")
+					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
+					w.Line(2, `if sess.UserID != "" {`)
+					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
+					w.Raw(streamPath)
+					w.Raw("')\"`)\n")
+					w.Line(2, "} else {")
+					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
+					w.Raw(streamPath)
+					w.Raw("anon/')\"`)\n")
+					w.Line(2, "}")
+				}
+			} else {
+				// Auth-only stream.
+				if hasEnableBgStream {
+					w.Line(0, "")
+					w.Line(2, `if sess.UserID != "" {`)
+					w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+					w.Raw(streamPath)
+					w.Raw("'`)\n")
+					w.Raw("\t\t\tif ")
+					w.Raw(h.OutputEnableBgStream.Name)
+					w.Raw(" {\n")
+					w.Line(4, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+					w.Line(3, "} else {")
+					w.Line(4, "_, _ = io.WriteString(w, `)\"`)")
+					w.Line(3, "}")
+					w.Line(2, "}")
+				} else {
+					w.Line(0, "")
+					w.Line(2, `if sess.UserID != "" {`)
+					w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+					w.Raw(streamPath)
+					w.Raw("')\"`)\n")
+					w.Line(2, "}")
+				}
+			}
+		} else if !hasPrivate {
+			// Public-only stream: always emit data-init unconditionally.
 			if h.InputPath != nil {
-				// Dynamic path.
 				w.Line(0, "")
 				w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
 				w.writeStreamPathSegments(p.Route, h.InputPath)
-				w.Line(2, `if sess.UserID != "" {`)
-				w.Line(3, "_, _ = io.WriteString(w, `/_$/')\"`)")
-				w.Line(2, "} else {")
-				w.Line(3, "_, _ = io.WriteString(w, `/_$/anon/')\"`)")
-				w.Line(2, "}")
-			} else {
+				if hasEnableBgStream {
+					w.Line(2, "_, _ = io.WriteString(w, `/_$/'`)")
+					w.Raw("\t\tif ")
+					w.Raw(h.OutputEnableBgStream.Name)
+					w.Raw(" {\n")
+					w.Line(3, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+					w.Line(2, "} else {")
+					w.Line(3, "_, _ = io.WriteString(w, `)\"`)")
+					w.Line(2, "}")
+				} else {
+					w.Line(2, "_, _ = io.WriteString(w, `/_$/')\"`)")
+				}
+			} else if hasEnableBgStream {
 				w.Line(0, "")
-				w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
-				w.Line(2, `if sess.UserID != "" {`)
-				w.Raw("\t\t\t_, _ = io.WriteString(w, `")
-				w.Raw(streamPath)
-				w.Raw("')\"`)\n")
-				w.Line(2, "} else {")
-				w.Raw("\t\t\t_, _ = io.WriteString(w, `")
-				w.Raw(streamPath)
-				w.Raw("anon/')\"`)\n")
-				w.Line(2, "}")
-			}
-		} else {
-			// Auth-only stream.
-			if hasEnableBgStream {
-				w.Line(0, "")
-				w.Line(2, `if sess.UserID != "" {`)
-				w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+				w.Raw("\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
 				w.Raw(streamPath)
 				w.Raw("'`)\n")
-				w.Raw("\t\t\tif ")
+				w.Raw("\t\tif ")
 				w.Raw(h.OutputEnableBgStream.Name)
 				w.Raw(" {\n")
-				w.Line(4, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
-				w.Line(3, "} else {")
-				w.Line(4, "_, _ = io.WriteString(w, `)\"`)")
-				w.Line(3, "}")
+				w.Line(3, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+				w.Line(2, "} else {")
+				w.Line(3, "_, _ = io.WriteString(w, `)\"`)")
 				w.Line(2, "}")
 			} else {
 				w.Line(0, "")
-				w.Line(2, `if sess.UserID != "" {`)
-				w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+				w.Raw("\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
 				w.Raw(streamPath)
 				w.Raw("')\"`)\n")
-				w.Line(2, "}")
 			}
 		}
 	}
@@ -396,7 +440,7 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 	}
 }
 
-// writePageGETStreamHandler generates the authenticated stream handler for a page.
+// writePageGETStreamHandler generates the stream handler for a page.
 func (w *Writer) writePageGETStreamHandler(
 	p *model.Page, m *model.App, appPkg string,
 ) {
@@ -408,25 +452,29 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Line(1, "if !s.checkIsDSReq(w, r) {")
 	w.Line(2, "return")
 	w.Line(1, "}")
-	w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
-	w.Line(1, "if !ok {")
-	w.Line(2, "return")
-	w.Line(1, "}")
 
-	// Check if anon stream exists - if so, redirect unauthenticated to anon.
-	hasAnon := pageHasAnonStream(p, w.eventMap)
-	if hasAnon {
-		w.Line(0, "")
-		w.Line(1, `if sess.UserID == "" {`)
-		w.Line(2, `http.Redirect(w, r, r.URL.Path+"/anon", http.StatusSeeOther)`)
+	hasPrivate := pageHasPrivateEvent(p, w.eventMap)
+	if hasPrivate {
+		w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
+		w.Line(1, "if !ok {")
 		w.Line(2, "return")
 		w.Line(1, "}")
-	} else {
-		w.Line(0, "")
-		w.Line(1, `if sess.UserID == "" {`)
-		w.Line(2, "http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)")
-		w.Line(2, "return")
-		w.Line(1, "}")
+
+		// Check if anon stream exists - if so, redirect unauthenticated to anon.
+		hasAnon := pageHasAnonStream(p, w.eventMap)
+		if hasAnon {
+			w.Line(0, "")
+			w.Line(1, `if sess.UserID == "" {`)
+			w.Line(2, `http.Redirect(w, r, r.URL.Path+"/anon", http.StatusSeeOther)`)
+			w.Line(2, "return")
+			w.Line(1, "}")
+		} else {
+			w.Line(0, "")
+			w.Line(1, `if sess.UserID == "" {`)
+			w.Line(2, "http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)")
+			w.Line(2, "return")
+			w.Line(1, "}")
+		}
 	}
 
 	// Read signals if any event handler takes signals.
@@ -461,16 +509,15 @@ func (w *Writer) writePageGETStreamHandler(
 
 	// evSubj call.
 	evSubjName := "evSubj" + p.TypeName
-	// Determine if the evSubj function takes a userID.
-	hasPrivate := false
-	for _, eh := range p.EventHandlers {
-		ev := w.eventMap[eh.EventTypeName]
-		if ev != nil && ev.HasTargetUserIDs {
-			hasPrivate = true
-			break
-		}
+	w.Raw("\ts.handleStreamRequest(w, r,")
+	if hasPrivate {
+		w.Raw(" sessToken, sess,")
+	} else if w.usage.streamAuth {
+		w.Raw(` "", `)
+		w.Raw(appPkg)
+		w.Raw(`.Session{},`)
 	}
-	w.Raw("\ts.handleStreamRequest(w, r, sessToken, sess, ")
+	w.Raw(" ")
 	w.Raw(evSubjName)
 	if hasPrivate {
 		w.Raw("(sess.UserID), func(\n")
@@ -895,14 +942,16 @@ func (w *Writer) writeActionMethodCall(
 		if m.GlobalHeadGenerator != nil {
 			genericHeadArg = "genericHead"
 		}
-		sessArg := "sess"
-		if !hasSessionInput(h) {
-			sessArg = appPkg + ".Session{}"
-		}
 		w.Line(1, "if err := s.writeHTML(")
 		w.Raw("\t\tw, r, ")
-		w.Raw(sessArg)
-		w.Raw(", ")
+		if m.Session != nil {
+			sessArg := "sess"
+			if !hasSessionInput(h) {
+				sessArg = appPkg + ".Session{}"
+			}
+			w.Raw(sessArg)
+			w.Raw(", ")
+		}
 		w.Raw(genericHeadArg)
 		w.Raw(", nil, ")
 		w.Raw(h.OutputBody.Name)

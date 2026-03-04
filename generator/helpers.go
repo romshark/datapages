@@ -67,6 +67,17 @@ func pageHasStream(p *model.Page) bool {
 	return len(p.EventHandlers) > 0
 }
 
+// pageHasPrivateEvent returns true if any event handler on the page
+// handles a private event (HasTargetUserIDs).
+func pageHasPrivateEvent(p *model.Page, eventByName map[string]*model.Event) bool {
+	for _, eh := range p.EventHandlers {
+		if e, ok := eventByName[eh.EventTypeName]; ok && e.HasTargetUserIDs {
+			return true
+		}
+	}
+	return false
+}
+
 // pageHasAnonStream returns true if a page needs an anonymous stream endpoint.
 // This happens when the page has both public (no TargetUserIDs) AND private events.
 func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool {
@@ -87,9 +98,9 @@ func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool 
 }
 
 // routeStreamPath returns the SSE stream path for a page route.
-// "/settings/" -> "/settings/_$/"
-// "/post/{slug}/" -> "/post/{slug}/_$/"
-// "/" -> "/_$/"
+//   - "/settings/" -> "/settings/_$/"
+//   - "/post/{slug}/" -> "/post/{slug}/_$/"
+//   - "/" -> "/_$/"
 func routeStreamPath(route string) string {
 	r := routeWithTrailingSlash(route)
 	return r + "_$/"
@@ -97,9 +108,9 @@ func routeStreamPath(route string) string {
 
 // routeWithTrailingSlash strips any {$} suffix and ensures the route
 // has a trailing slash.
-// "/settings" -> "/settings/"
-// "/user/{name}/{$}" -> "/user/{name}/"
-// "/" -> "/"
+//   - "/settings" -> "/settings/"
+//   - "/user/{name}/{$}" -> "/user/{name}/"
+//   - "/" -> "/"
 func routeWithTrailingSlash(route string) string {
 	route = strings.TrimSuffix(route, "{$}")
 	if !strings.HasSuffix(route, "/") {
@@ -184,6 +195,8 @@ func pathTagValue(tag string) string {
 // It is computed once from the model before any code is emitted, and used to
 // conditionally emit helper functions/methods that would otherwise be dead code.
 type appUsage struct {
+	// hasSession: whether the app defines a Session type.
+	hasSession bool
 	// auth: func (s *Server) auth(...)
 	auth bool
 	// createSession: func (s *Server) createSession(...)
@@ -194,6 +207,8 @@ type appUsage struct {
 	httpRedirect bool
 	// stream: func (s *Server) handleStreamRequest(...)
 	stream bool
+	// streamAuth: whether any stream handler needs auth (page has private events).
+	streamAuth bool
 	// dsRequest: func (s *Server) checkIsDSReq(...)
 	dsRequest bool
 	// recover500: isDSReq called in httpErrIntern when Recover500+PageError500 exist
@@ -219,6 +234,8 @@ func (u appUsage) needsSetSessionCookie() bool {
 func computeAppUsage(m *model.App) appUsage {
 	var u appUsage
 
+	u.hasSession = m.Session != nil
+
 	if m.Recover500 != nil && m.PageError500 != nil {
 		u.recover500 = true
 	}
@@ -241,6 +258,12 @@ func computeAppUsage(m *model.App) appUsage {
 		}
 	}
 
+	// Build event map for TargetUserIDs lookup.
+	eventByName := make(map[string]*model.Event, len(m.Events))
+	for _, e := range m.Events {
+		eventByName[e.TypeName] = e
+	}
+
 	for _, h := range m.Actions {
 		checkHandler(h)
 	}
@@ -250,7 +273,10 @@ func computeAppUsage(m *model.App) appUsage {
 		}
 		if len(p.EventHandlers) > 0 {
 			u.stream = true
-			u.auth = true // stream handlers always call s.auth
+			if pageHasPrivateEvent(p, eventByName) {
+				u.streamAuth = true
+				u.auth = true
+			}
 		}
 		for _, h := range p.Actions {
 			checkHandler(h)

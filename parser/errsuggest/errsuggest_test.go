@@ -200,6 +200,11 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add a non-empty name to the json tag of field UserID, " +
 				"e.g. `json:\"user_id\"`",
 		},
+
+		"ErrEventTargetUserIDsNoSession": {
+			err:  &parser.ErrorEventTargetUserIDsNoSession{TypeName: "EventChat", PkgName: "app"},
+			want: "fix: Define a Session type in package app",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, errsuggest.Suggest(tc.err))

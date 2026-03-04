@@ -52,7 +52,21 @@ func validateEvents(ctx *parseCtx, errs *Errors) {
 			ctx, errs, ts.Name.Pos(), name,
 			ctx.pkg.TypesInfo.TypeOf(ts.Type), map[types.Type]bool{},
 		)
+	}
 
+	// Events with TargetUserIDs require a Session type to be defined.
+	if ctx.app.Session == nil {
+		for _, ev := range ctx.app.Events {
+			if ev.HasTargetUserIDs {
+				errs.ErrAt(
+					ctx.pkg.Fset.Position(ev.Expr.Pos()),
+					&ErrorEventTargetUserIDsNoSession{
+						TypeName: ev.TypeName,
+						PkgName:  ctx.pkg.Name,
+					},
+				)
+			}
+		}
 	}
 }
 

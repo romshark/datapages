@@ -75,6 +75,35 @@ func TestGenerateCmd(t *testing.T) {
 	}
 }
 
+// TestGenerateNoSession confirms issue #14: when the source package defines
+// no Session type, the generated app_gen.go must not reference Session at all.
+func TestGenerateNoSession(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "parser", "testdata", "minimal"),
+	)
+	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+	require.NotNil(t, app, "parser returned nil model")
+	require.Nil(t, app.Session, "minimal fixture must have no Session type")
+
+	tmpDir := t.TempDir()
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{})
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, "app_gen.go"))
+	require.NoError(t, err)
+	src := string(data)
+
+	// None of the session or CSRF symbols should appear when Session is absent.
+	require.NotContains(t, src, "SessionManager",
+		"generated code must not reference SessionManager when Session type is absent")
+	require.NotContains(t, src, ".Session",
+		"generated code must not reference .Session when Session type is absent")
+	require.NotContains(t, src, "CSRFConfig",
+		"generated code must not reference CSRFConfig when Session type is absent")
+	require.NotContains(t, src, "WithCSRFProtection",
+		"generated code must not reference WithCSRFProtection when Session type is absent")
+}
+
 func compareFile(t *testing.T, name, gotPath, wantPath string) {
 	t.Helper()
 

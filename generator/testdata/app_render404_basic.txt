@@ -24,7 +24,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 	}
 	if err := s.writeHTML(
-		w, r, testapp.Session{}, genericHead, nil, body, bodyAttrs,
+		w, r, genericHead, nil, body, bodyAttrs,
 	); err != nil {
 		s.logErr("rendering PageError404", err)
 		return

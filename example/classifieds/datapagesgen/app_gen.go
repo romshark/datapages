@@ -114,31 +114,6 @@ func devNoCache(next http.Handler) http.Handler {
 	})
 }
 
-type CSRFConfig struct {
-	TokenManager csrf.TokenManager
-
-	// DevBypassToken, if non-empty, is accepted as a valid
-	// CSRF token for any session. Use this only in development
-	// to allow tools like k6 to exercise POST endpoints.
-	DevBypassToken string
-}
-
-// WithCSRFProtection enables Cross-Site-Request-Forgery protection on
-// POST/PUT/PATCH/DELETE action endpoints. By default CSRF protection is disabled
-// but will log a warning during server initialization time.
-func WithCSRFProtection(conf CSRFConfig) ServerOption {
-	return func(s *Server) error {
-		if conf.TokenManager == nil {
-			return errors.New("nil CSRF token manager")
-		}
-		if conf.DevBypassToken != "" && !IsDevMode() {
-			return errors.New("CSRF dev bypass token must not be set in non-dev mode")
-		}
-		s.csrfConf = &conf
-		return nil
-	}
-}
-
 // WithPrometheus starts a dedicated HTTP server exposing /metrics.
 // Example host address: "127.0.0.1:9091" or ":9091".
 func WithPrometheus(conf PrometheusConfig) ServerOption {
@@ -754,7 +729,6 @@ func (s *Server) handleStreamRequest(
 	}
 
 	go func() {
-		// Close the subscription when the request is canceled or the session is closed.
 		select {
 		case <-sessionClosed:
 			mSSEDisconnects.WithLabelValues("close").Inc()
@@ -888,7 +862,6 @@ func NewServer(
 	} else if s.csrfConf != nil && s.csrfConf.TokenManager == nil {
 		panic("CSRFConfig.TokenManager is nil")
 	}
-
 	if s.metricsServer != nil {
 		s.middleware = append(s.middleware, s.metricsMiddleware)
 	}
@@ -1004,6 +977,31 @@ func evSubjPageUser(userID string) []string {
 		EvSubjPostArchived,
 		EvSubjPrefMessagingSent + userID,
 		EvSubjPrefMessagingRead + userID,
+	}
+}
+
+type CSRFConfig struct {
+	TokenManager csrf.TokenManager
+
+	// DevBypassToken, if non-empty, is accepted as a valid
+	// CSRF token for any session. Use this only in development
+	// to allow tools like k6 to exercise POST endpoints.
+	DevBypassToken string
+}
+
+// WithCSRFProtection enables Cross-Site-Request-Forgery protection on
+// POST/PUT/PATCH/DELETE action endpoints. By default CSRF protection is disabled
+// but will log a warning during server initialization time.
+func WithCSRFProtection(conf CSRFConfig) ServerOption {
+	return func(s *Server) error {
+		if conf.TokenManager == nil {
+			return errors.New("nil CSRF token manager")
+		}
+		if conf.DevBypassToken != "" && !IsDevMode() {
+			return errors.New("CSRF dev bypass token must not be set in non-dev mode")
+		}
+		s.csrfConf = &conf
+		return nil
 	}
 }
 

@@ -137,6 +137,10 @@ var (
 	ErrDisableRefreshNotGET = errors.New(
 		"disableRefreshAfterHidden can only be used in GET handlers",
 	)
+
+	ErrEventTargetUserIDsNoSession = errors.New(
+		"event with TargetUserIDs requires a Session type",
+	)
 )
 
 func normPos(pos token.Position) token.Position {
@@ -453,3 +457,17 @@ func (e *ErrorEventFieldDuplicateTag) Error() string {
 }
 
 func (e *ErrorEventFieldDuplicateTag) Unwrap() error { return ErrEventFieldDuplicateTag }
+
+// ErrorEventTargetUserIDsNoSession is ErrEventTargetUserIDsNoSession with suggestion context.
+type ErrorEventTargetUserIDsNoSession struct {
+	TypeName string // e.g. "EventFoo"
+	PkgName  string // e.g. "app"
+}
+
+func (e *ErrorEventTargetUserIDsNoSession) Error() string {
+	return fmt.Sprintf("%v: %s", ErrEventTargetUserIDsNoSession, e.TypeName)
+}
+
+func (e *ErrorEventTargetUserIDsNoSession) Unwrap() error {
+	return ErrEventTargetUserIDsNoSession
+}

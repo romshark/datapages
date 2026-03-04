@@ -22,7 +22,7 @@ func (s *Server) handlePageOldRouteGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, testapp.Session{}, genericHead, nil, body, bodyAttrs,
+		w, r, genericHead, nil, body, bodyAttrs,
 	); err != nil {
 		s.logErr("rendering PageOldRoute", err)
 		return

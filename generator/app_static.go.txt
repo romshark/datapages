@@ -80,28 +80,4 @@ func devNoCache(next http.Handler) http.Handler {
 	})
 }
 
-type CSRFConfig struct {
-	TokenManager csrf.TokenManager
-
-	// DevBypassToken, if non-empty, is accepted as a valid
-	// CSRF token for any session. Use this only in development
-	// to allow tools like k6 to exercise POST endpoints.
-	DevBypassToken string
-}
-
-// WithCSRFProtection enables Cross-Site-Request-Forgery protection on
-// POST/PUT/PATCH/DELETE action endpoints. By default CSRF protection is disabled
-// but will log a warning during server initialization time.
-func WithCSRFProtection(conf CSRFConfig) ServerOption {
-	return func(s *Server) error {
-		if conf.TokenManager == nil {
-			return errors.New("nil CSRF token manager")
-		}
-		if conf.DevBypassToken != "" && !IsDevMode() {
-			return errors.New("CSRF dev bypass token must not be set in non-dev mode")
-		}
-		s.csrfConf = &conf
-		return nil
-	}
-}
 
