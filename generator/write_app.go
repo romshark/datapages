@@ -435,9 +435,13 @@ func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status 
 func (w *Writer) writeAppHandleStreamRequest(appPkg string) {
 	w.Raw(`
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, sessKey string, sess `)
-	w.Raw(appPkg)
-	w.Raw(`.Session,
+	w http.ResponseWriter, r *http.Request,`)
+	if w.usage.streamAuth {
+		w.Raw(` sessKey string, sess `)
+		w.Raw(appPkg)
+		w.Raw(`.Session,`)
+	}
+	w.Raw(`
 	subjects []string,
 	fn func(
 		sse *datastar.ServerSentEventGenerator,
@@ -465,7 +469,9 @@ func (s *Server) handleStreamRequest(
 	}
 
 	subC := sub.C()
-	sessionClosed := make(chan struct{})
+`)
+	if w.usage.streamAuth {
+		w.Raw(`	sessionClosed := make(chan struct{})
 
 	if sess.UserID != "" {
 		ctx, cancel := context.WithCancel(ctx)
@@ -478,14 +484,18 @@ func (s *Server) handleStreamRequest(
 		}
 	}
 
-	go func() {
-		// Close the subscription when the request is canceled or the session is closed.
+`)
+	}
+	w.Raw(`	go func() {
 		select {
-		case <-sessionClosed:
 `)
-	if w.prometheus {
-		w.Raw(`			mSSEDisconnects.WithLabelValues("close").Inc()
+	if w.usage.streamAuth {
+		w.Raw(`		case <-sessionClosed:
 `)
+		if w.prometheus {
+			w.Raw(`			mSSEDisconnects.WithLabelValues("close").Inc()
+`)
+		}
 	}
 	w.Raw(`		case <-r.Context().Done():
 `)

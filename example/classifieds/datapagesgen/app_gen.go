@@ -729,7 +729,6 @@ func (s *Server) handleStreamRequest(
 	}
 
 	go func() {
-		// Close the subscription when the request is canceled or the session is closed.
 		select {
 		case <-sessionClosed:
 			mSSEDisconnects.WithLabelValues("close").Inc()

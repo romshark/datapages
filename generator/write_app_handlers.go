@@ -396,7 +396,7 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 	}
 }
 
-// writePageGETStreamHandler generates the authenticated stream handler for a page.
+// writePageGETStreamHandler generates the stream handler for a page.
 func (w *Writer) writePageGETStreamHandler(
 	p *model.Page, m *model.App, appPkg string,
 ) {
@@ -408,25 +408,29 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Line(1, "if !s.checkIsDSReq(w, r) {")
 	w.Line(2, "return")
 	w.Line(1, "}")
-	w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
-	w.Line(1, "if !ok {")
-	w.Line(2, "return")
-	w.Line(1, "}")
 
-	// Check if anon stream exists - if so, redirect unauthenticated to anon.
-	hasAnon := pageHasAnonStream(p, w.eventMap)
-	if hasAnon {
-		w.Line(0, "")
-		w.Line(1, `if sess.UserID == "" {`)
-		w.Line(2, `http.Redirect(w, r, r.URL.Path+"/anon", http.StatusSeeOther)`)
+	hasPrivate := pageHasPrivateEvent(p, w.eventMap)
+	if hasPrivate {
+		w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
+		w.Line(1, "if !ok {")
 		w.Line(2, "return")
 		w.Line(1, "}")
-	} else {
-		w.Line(0, "")
-		w.Line(1, `if sess.UserID == "" {`)
-		w.Line(2, "http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)")
-		w.Line(2, "return")
-		w.Line(1, "}")
+
+		// Check if anon stream exists - if so, redirect unauthenticated to anon.
+		hasAnon := pageHasAnonStream(p, w.eventMap)
+		if hasAnon {
+			w.Line(0, "")
+			w.Line(1, `if sess.UserID == "" {`)
+			w.Line(2, `http.Redirect(w, r, r.URL.Path+"/anon", http.StatusSeeOther)`)
+			w.Line(2, "return")
+			w.Line(1, "}")
+		} else {
+			w.Line(0, "")
+			w.Line(1, `if sess.UserID == "" {`)
+			w.Line(2, "http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)")
+			w.Line(2, "return")
+			w.Line(1, "}")
+		}
 	}
 
 	// Read signals if any event handler takes signals.
@@ -461,16 +465,11 @@ func (w *Writer) writePageGETStreamHandler(
 
 	// evSubj call.
 	evSubjName := "evSubj" + p.TypeName
-	// Determine if the evSubj function takes a userID.
-	hasPrivate := false
-	for _, eh := range p.EventHandlers {
-		ev := w.eventMap[eh.EventTypeName]
-		if ev != nil && ev.HasTargetUserIDs {
-			hasPrivate = true
-			break
-		}
+	w.Raw("\ts.handleStreamRequest(w, r,")
+	if hasPrivate {
+		w.Raw(" sessToken, sess,")
 	}
-	w.Raw("\ts.handleStreamRequest(w, r, sessToken, sess, ")
+	w.Raw(" ")
 	w.Raw(evSubjName)
 	if hasPrivate {
 		w.Raw("(sess.UserID), func(\n")

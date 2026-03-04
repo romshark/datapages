@@ -67,6 +67,17 @@ func pageHasStream(p *model.Page) bool {
 	return len(p.EventHandlers) > 0
 }
 
+// pageHasPrivateEvent returns true if any event handler on the page
+// handles a private event (HasTargetUserIDs).
+func pageHasPrivateEvent(p *model.Page, eventByName map[string]*model.Event) bool {
+	for _, eh := range p.EventHandlers {
+		if e, ok := eventByName[eh.EventTypeName]; ok && e.HasTargetUserIDs {
+			return true
+		}
+	}
+	return false
+}
+
 // pageHasAnonStream returns true if a page needs an anonymous stream endpoint.
 // This happens when the page has both public (no TargetUserIDs) AND private events.
 func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool {
@@ -196,6 +207,8 @@ type appUsage struct {
 	httpRedirect bool
 	// stream: func (s *Server) handleStreamRequest(...)
 	stream bool
+	// streamAuth: whether any stream handler needs auth (page has private events).
+	streamAuth bool
 	// dsRequest: func (s *Server) checkIsDSReq(...)
 	dsRequest bool
 	// recover500: isDSReq called in httpErrIntern when Recover500+PageError500 exist
@@ -245,6 +258,12 @@ func computeAppUsage(m *model.App) appUsage {
 		}
 	}
 
+	// Build event map for TargetUserIDs lookup.
+	eventByName := make(map[string]*model.Event, len(m.Events))
+	for _, e := range m.Events {
+		eventByName[e.TypeName] = e
+	}
+
 	for _, h := range m.Actions {
 		checkHandler(h)
 	}
@@ -254,7 +273,10 @@ func computeAppUsage(m *model.App) appUsage {
 		}
 		if len(p.EventHandlers) > 0 {
 			u.stream = true
-			u.auth = true // stream handlers always call s.auth
+			if pageHasPrivateEvent(p, eventByName) {
+				u.streamAuth = true
+				u.auth = true
+			}
 		}
 		for _, h := range p.Actions {
 			checkHandler(h)
