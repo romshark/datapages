@@ -98,9 +98,9 @@ func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool 
 }
 
 // routeStreamPath returns the SSE stream path for a page route.
-// "/settings/" -> "/settings/_$/"
-// "/post/{slug}/" -> "/post/{slug}/_$/"
-// "/" -> "/_$/"
+//   - "/settings/" -> "/settings/_$/"
+//   - "/post/{slug}/" -> "/post/{slug}/_$/"
+//   - "/" -> "/_$/"
 func routeStreamPath(route string) string {
 	r := routeWithTrailingSlash(route)
 	return r + "_$/"
@@ -108,9 +108,9 @@ func routeStreamPath(route string) string {
 
 // routeWithTrailingSlash strips any {$} suffix and ensures the route
 // has a trailing slash.
-// "/settings" -> "/settings/"
-// "/user/{name}/{$}" -> "/user/{name}/"
-// "/" -> "/"
+//   - "/settings" -> "/settings/"
+//   - "/user/{name}/{$}" -> "/user/{name}/"
+//   - "/" -> "/"
 func routeWithTrailingSlash(route string) string {
 	route = strings.TrimSuffix(route, "{$}")
 	if !strings.HasSuffix(route, "/") {

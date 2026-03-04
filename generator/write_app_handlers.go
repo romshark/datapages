@@ -287,57 +287,97 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 	}
 
 	// Stream data-init attr.
-	if hasStream && h.InputSession != nil {
+	// Fun fact: this is a writer writing a writer writing an attribute.
+	if hasStream {
+		hasPrivate := pageHasPrivateEvent(p, w.eventMap)
 		streamPath := routeStreamPath(p.Route)
-		if hasAnonStream {
-			// Mixed: auth -> /_$/ , anon -> /_$/anon/
-			// Need to handle path variables.
+		if hasPrivate && h.InputSession != nil {
+			if hasAnonStream {
+				// Mixed: authenticated -> "/_$/"; anonymous -> "/_$/anon/"
+				// Need to handle path variables.
+				if h.InputPath != nil {
+					// Dynamic path.
+					w.Line(0, "")
+					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
+					w.writeStreamPathSegments(p.Route, h.InputPath)
+					w.Line(2, `if sess.UserID != "" {`)
+					w.Line(3, "_, _ = io.WriteString(w, `/_$/')\"`)")
+					w.Line(2, "} else {")
+					w.Line(3, "_, _ = io.WriteString(w, `/_$/anon/')\"`)")
+					w.Line(2, "}")
+				} else {
+					w.Line(0, "")
+					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
+					w.Line(2, `if sess.UserID != "" {`)
+					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
+					w.Raw(streamPath)
+					w.Raw("')\"`)\n")
+					w.Line(2, "} else {")
+					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
+					w.Raw(streamPath)
+					w.Raw("anon/')\"`)\n")
+					w.Line(2, "}")
+				}
+			} else {
+				// Auth-only stream.
+				if hasEnableBgStream {
+					w.Line(0, "")
+					w.Line(2, `if sess.UserID != "" {`)
+					w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+					w.Raw(streamPath)
+					w.Raw("'`)\n")
+					w.Raw("\t\t\tif ")
+					w.Raw(h.OutputEnableBgStream.Name)
+					w.Raw(" {\n")
+					w.Line(4, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+					w.Line(3, "} else {")
+					w.Line(4, "_, _ = io.WriteString(w, `)\"`)")
+					w.Line(3, "}")
+					w.Line(2, "}")
+				} else {
+					w.Line(0, "")
+					w.Line(2, `if sess.UserID != "" {`)
+					w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+					w.Raw(streamPath)
+					w.Raw("')\"`)\n")
+					w.Line(2, "}")
+				}
+			}
+		} else if !hasPrivate {
+			// Public-only stream: always emit data-init unconditionally.
 			if h.InputPath != nil {
-				// Dynamic path.
 				w.Line(0, "")
 				w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
 				w.writeStreamPathSegments(p.Route, h.InputPath)
-				w.Line(2, `if sess.UserID != "" {`)
-				w.Line(3, "_, _ = io.WriteString(w, `/_$/')\"`)")
-				w.Line(2, "} else {")
-				w.Line(3, "_, _ = io.WriteString(w, `/_$/anon/')\"`)")
-				w.Line(2, "}")
-			} else {
+				if hasEnableBgStream {
+					w.Line(2, "_, _ = io.WriteString(w, `/_$/'`)")
+					w.Raw("\t\tif ")
+					w.Raw(h.OutputEnableBgStream.Name)
+					w.Raw(" {\n")
+					w.Line(3, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+					w.Line(2, "} else {")
+					w.Line(3, "_, _ = io.WriteString(w, `)\"`)")
+					w.Line(2, "}")
+				} else {
+					w.Line(2, "_, _ = io.WriteString(w, `/_$/')\"`)")
+				}
+			} else if hasEnableBgStream {
 				w.Line(0, "")
-				w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
-				w.Line(2, `if sess.UserID != "" {`)
-				w.Raw("\t\t\t_, _ = io.WriteString(w, `")
-				w.Raw(streamPath)
-				w.Raw("')\"`)\n")
-				w.Line(2, "} else {")
-				w.Raw("\t\t\t_, _ = io.WriteString(w, `")
-				w.Raw(streamPath)
-				w.Raw("anon/')\"`)\n")
-				w.Line(2, "}")
-			}
-		} else {
-			// Auth-only stream.
-			if hasEnableBgStream {
-				w.Line(0, "")
-				w.Line(2, `if sess.UserID != "" {`)
-				w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+				w.Raw("\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
 				w.Raw(streamPath)
 				w.Raw("'`)\n")
-				w.Raw("\t\t\tif ")
+				w.Raw("\t\tif ")
 				w.Raw(h.OutputEnableBgStream.Name)
 				w.Raw(" {\n")
-				w.Line(4, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
-				w.Line(3, "} else {")
-				w.Line(4, "_, _ = io.WriteString(w, `)\"`)")
-				w.Line(3, "}")
+				w.Line(3, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+				w.Line(2, "} else {")
+				w.Line(3, "_, _ = io.WriteString(w, `)\"`)")
 				w.Line(2, "}")
 			} else {
 				w.Line(0, "")
-				w.Line(2, `if sess.UserID != "" {`)
-				w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+				w.Raw("\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
 				w.Raw(streamPath)
 				w.Raw("')\"`)\n")
-				w.Line(2, "}")
 			}
 		}
 	}

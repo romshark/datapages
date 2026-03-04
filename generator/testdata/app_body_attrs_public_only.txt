@@ -1,0 +1,6 @@
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+
+		_, _ = io.WriteString(w, `data-init="@get('/feed/_$/')"`)
+	}

@@ -796,6 +796,24 @@ func TestWriteGETBodyAttrs(t *testing.T) {
 			},
 			golden: "app_body_attrs_anon_static.txt",
 		},
+		"public only stream static path": {
+			page: &model.Page{
+				TypeName: "PageFeed",
+				Route:    "/feed/",
+				GET: &model.HandlerGET{
+					Handler: &model.Handler{},
+				},
+				EventHandlers: []*model.EventHandler{
+					testEventHandler("PostsCreated", "EventPostsCreated"),
+				},
+			},
+			app: &model.App{
+				PkgPath: testAppPkgPath,
+				Fset:    token.NewFileSet(),
+				Events:  []*model.Event{publicEvent},
+			},
+			golden: "app_body_attrs_public_only.txt",
+		},
 		"enable bg stream": {
 			page: &model.Page{
 				TypeName: "PageChat",
