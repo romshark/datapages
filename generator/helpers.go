@@ -213,6 +213,8 @@ type appUsage struct {
 	dsRequest bool
 	// recover500: isDSReq called in httpErrIntern when Recover500+PageError500 exist
 	recover500 bool
+	// httpErrBad: whether the httpErrBad helper is needed.
+	httpErrBad bool
 }
 
 // needsIsDSReq returns true if the isDSReq helper must be emitted.
@@ -256,6 +258,12 @@ func computeAppUsage(m *model.App) appUsage {
 		if h.InputSSE != nil || h.InputSignals != nil {
 			u.dsRequest = true
 		}
+		if h.InputSignals != nil {
+			u.httpErrBad = true
+		}
+		if h.InputQuery != nil && queryHasIntField(h.InputQuery.Type.Resolved) {
+			u.httpErrBad = true
+		}
 	}
 
 	// Build event map for TargetUserIDs lookup.
@@ -276,6 +284,14 @@ func computeAppUsage(m *model.App) appUsage {
 			if pageHasPrivateEvent(p, eventByName) {
 				u.streamAuth = true
 				u.auth = true
+			}
+			if pageHasAnonStream(p, eventByName) {
+				u.httpErrBad = true
+			}
+			for _, eh := range p.EventHandlers {
+				if eh.InputSignals != nil {
+					u.httpErrBad = true
+				}
 			}
 		}
 		for _, h := range p.Actions {
@@ -471,6 +487,20 @@ func isIntType(t types.Type) bool {
 	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
 		types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64:
 		return true
+	}
+	return false
+}
+
+// queryHasIntField returns true if the resolved query struct type has any integer fields.
+func queryHasIntField(t types.Type) bool {
+	st, ok := t.Underlying().(*types.Struct)
+	if !ok {
+		return false
+	}
+	for i := range st.NumFields() {
+		if isIntType(st.Field(i).Type()) {
+			return true
+		}
 	}
 	return false
 }

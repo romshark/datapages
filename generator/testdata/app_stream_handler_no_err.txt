@@ -11,8 +11,8 @@ func (s *Server) handlePageFeedGETStream(w http.ResponseWriter, r *http.Request)
 		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 	) {
 		for msg := range ch {
-			switch {
-			case msg.Subject == EvSubjPostsCreated:
+			switch msg.Subject {
+			case EvSubjPostsCreated:
 				var e testapp.EventPostsCreated
 				if err := json.Unmarshal(msg.Data, &e); err != nil {
 					s.logErr("unmarshaling EventPostsCreated JSON", err)

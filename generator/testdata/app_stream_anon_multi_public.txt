@@ -20,8 +20,8 @@ func (s *Server) handlePageFeedGETStreamAnon(w http.ResponseWriter, r *http.Requ
 		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 	) {
 		for msg := range ch {
-			switch {
-			case msg.Subject == EvSubjPostsCreated:
+			switch msg.Subject {
+			case EvSubjPostsCreated:
 				var e testapp.EventPostsCreated
 				if err := json.Unmarshal(msg.Data, &e); err != nil {
 					s.logErr("unmarshaling EventPostsCreated JSON", err)
@@ -30,7 +30,7 @@ func (s *Server) handlePageFeedGETStreamAnon(w http.ResponseWriter, r *http.Requ
 				if err := p.OnPostsCreated(e, sse); err != nil {
 					s.logErr("handling PageFeed.OnPostsCreated", err)
 				}
-			case msg.Subject == EvSubjPostsArchived:
+			case EvSubjPostsArchived:
 				var e testapp.EventPostsArchived
 				if err := json.Unmarshal(msg.Data, &e); err != nil {
 					s.logErr("unmarshaling EventPostsArchived JSON", err)

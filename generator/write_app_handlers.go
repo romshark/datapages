@@ -523,7 +523,11 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")
 	w.Line(1, ") {")
 	w.Line(2, "for msg := range ch {")
-	w.Line(3, "switch {")
+	if hasPrivate {
+		w.Line(3, "switch {")
+	} else {
+		w.Line(3, "switch msg.Subject {")
+	}
 
 	// Generate case for each event handler.
 	for _, eh := range p.EventHandlers {
@@ -531,7 +535,7 @@ func (w *Writer) writePageGETStreamHandler(
 		if ev == nil {
 			continue
 		}
-		w.writeStreamEventCase(p, eh, ev, appPkg)
+		w.writeStreamEventCase(p, eh, ev, appPkg, !hasPrivate)
 	}
 
 	w.Line(3, "}")
@@ -541,7 +545,8 @@ func (w *Writer) writePageGETStreamHandler(
 }
 
 func (w *Writer) writeStreamEventCase(
-	p *model.Page, eh *model.EventHandler, ev *model.Event, appPkg string,
+	p *model.Page, eh *model.EventHandler, ev *model.Event,
+	appPkg string, tagged bool,
 ) {
 	constName := eventConstName(ev.TypeName)
 
@@ -549,6 +554,10 @@ func (w *Writer) writeStreamEventCase(
 		w.Raw("\t\t\tcase strings.HasPrefix(msg.Subject, EvSubjPref")
 		w.Raw(constName)
 		w.Raw("):\n")
+	} else if tagged {
+		w.Raw("\t\t\tcase EvSubj")
+		w.Raw(constName)
+		w.Raw(":\n")
 	} else {
 		w.Raw("\t\t\tcase msg.Subject == EvSubj")
 		w.Raw(constName)
@@ -680,13 +689,13 @@ func (w *Writer) writePageGETStreamAnonHandler(
 			w.Line(3, "}")
 		}
 	} else {
-		w.Line(3, "switch {")
+		w.Line(3, "switch msg.Subject {")
 		for _, eh := range p.EventHandlers {
 			ev := w.eventMap[eh.EventTypeName]
 			if ev == nil || ev.HasTargetUserIDs {
 				continue
 			}
-			w.writeStreamEventCase(p, eh, ev, appPkg)
+			w.writeStreamEventCase(p, eh, ev, appPkg, true)
 		}
 		w.Line(3, "}")
 	}

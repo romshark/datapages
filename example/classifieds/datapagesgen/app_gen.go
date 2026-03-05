@@ -506,17 +506,17 @@ func (s *Server) logErr(msg string, err error) {
 	s.logger.Error(msg, slog.Any("err", err))
 }
 
-func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
-	s.logger.Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
-	http.Error(w, msg, http.StatusBadRequest)
-}
-
 // --- Message Broker ---
 
 const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
 
 func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
 	_, _ = io.WriteString(w, `data-on:visibilitychange__window="if (!document.hidden) @get(window.location.href)"`)
+}
+
+func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
+	s.logger.Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
+	http.Error(w, msg, http.StatusBadRequest)
 }
 
 // Shutdown gracefully shuts down all server components.

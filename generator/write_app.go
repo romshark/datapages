@@ -35,6 +35,14 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	}
 	w.writeListenAndServe()
 	w.Raw(appStaticContent2)
+	if w.usage.httpErrBad {
+		w.Raw(`
+func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
+	s.logger.Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
+	http.Error(w, msg, http.StatusBadRequest)
+}
+`)
+	}
 	w.writeShutdown()
 	if w.usage.needsIsDSReq() {
 		w.writeIsDSReq()
@@ -61,7 +69,9 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 		w.writeAppCSRF()
 		w.writeAppAuth(appPkg)
 	}
-	w.writeBrokerSubjectKind(m.Events)
+	if w.prometheus {
+		w.writeBrokerSubjectKind(m.Events)
+	}
 	w.writeSetupHandlers(m)
 	w.writeAppErrHelpers(m, appPkg)
 
