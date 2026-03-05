@@ -315,7 +315,7 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 ) error {
 	_, err := io.WriteString(w, ` + "`" + `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="/static/ds.min.js"></script>` + "`" + `)
+		<script type="module" src="` + "`" + `+s.datastarJSSrc+` + "`" + `"></script>` + "`" + `)
 	if err != nil {
 		return err
 	}
@@ -555,6 +555,7 @@ type Server struct {
 	middleware           []func(http.Handler) http.Handler
 	staticURLPath        string
 	staticFS             http.FileSystem
+	datastarJSSrc        string
 	enabledTLS           bool
 `)
 	if w.prometheus {
@@ -582,7 +583,8 @@ func (w *Writer) writeAppNewServer(appPkg string) {
 //
 //   - WithMiddleware
 //   - WithHTTPServer
-//   - WithStaticFS`)
+//   - WithStaticFS
+//   - WithDatastarJS`)
 	if w.usage.hasSession {
 		w.Raw(`
 //   - WithCSRFProtection`)
@@ -670,6 +672,9 @@ func NewServer(
 	}
 	w.Raw(`
 	// Use defaults if not set.
+	if s.datastarJSSrc == "" {
+		s.datastarJSSrc = DefaultDatastarJSSrc
+	}
 	if s.logger == nil {
 		opt := &slog.HandlerOptions{
 			Level: slog.LevelInfo,

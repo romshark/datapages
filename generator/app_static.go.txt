@@ -5,6 +5,9 @@ const (
 	DefaultHTTPWriteTimeout      = 0 // SSE needs this disabled.
 	DefaultHTTPIdleTimeout       = 60 * time.Second
 	DefaultHTTPMaxHeaderBytes    = 1 << 20 // 1 MB
+
+	// DefaultDatastarJSSrc is the default URL for the Datastar JavaScript bundle.
+	DefaultDatastarJSSrc = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js"
 )
 
 // IsDevMode returns true when in the development environment.
@@ -67,6 +70,15 @@ func WithStaticFS(urlPath string, fsProd, fsDev http.FileSystem) ServerOption {
 			s.staticFS = fsDev
 		}
 		s.staticURLPath = urlPath
+		return nil
+	}
+}
+
+// WithDatastarJS sets a custom URL for the Datastar JavaScript bundle.
+// Defaults to DefaultDatastarJSSrc if not set.
+func WithDatastarJS(src string) ServerOption {
+	return func(s *Server) error {
+		s.datastarJSSrc = src
 		return nil
 	}
 }

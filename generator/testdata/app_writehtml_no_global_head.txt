@@ -6,7 +6,7 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 ) error {
 	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="/static/ds.min.js"></script>`)
+		<script type="module" src="`+s.datastarJSSrc+`"></script>`)
 	if err != nil {
 		return err
 	}

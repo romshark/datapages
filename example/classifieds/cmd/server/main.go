@@ -82,7 +82,8 @@ func withStaticFS(opts *[]datapagesgen.ServerOption) {
 		os.Exit(1)
 	}
 	*opts = append(*opts,
-		datapagesgen.WithStaticFS("/static/", fsStatic, app.FSStaticDev()))
+		datapagesgen.WithStaticFS("/static/", fsStatic, app.FSStaticDev()),
+		datapagesgen.WithDatastarJS("/static/ds.min.js"))
 }
 
 func withAuth(opts *[]datapagesgen.ServerOption) {

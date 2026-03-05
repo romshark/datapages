@@ -39,6 +39,9 @@ const (
 	DefaultHTTPWriteTimeout      = 0 // SSE needs this disabled.
 	DefaultHTTPIdleTimeout       = 60 * time.Second
 	DefaultHTTPMaxHeaderBytes    = 1 << 20 // 1 MB
+
+	// DefaultDatastarJSSrc is the default URL for the Datastar JavaScript bundle.
+	DefaultDatastarJSSrc = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js"
 )
 
 // IsDevMode returns true when in the development environment.
@@ -101,6 +104,15 @@ func WithStaticFS(urlPath string, fsProd, fsDev http.FileSystem) ServerOption {
 			s.staticFS = fsDev
 		}
 		s.staticURLPath = urlPath
+		return nil
+	}
+}
+
+// WithDatastarJS sets a custom URL for the Datastar JavaScript bundle.
+// Defaults to DefaultDatastarJSSrc if not set.
+func WithDatastarJS(src string) ServerOption {
+	return func(s *Server) error {
+		s.datastarJSSrc = src
 		return nil
 	}
 }
@@ -624,7 +636,7 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 ) error {
 	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="/static/ds.min.js"></script>`)
+		<script type="module" src="`+s.datastarJSSrc+`"></script>`)
 	if err != nil {
 		return err
 	}
@@ -757,6 +769,7 @@ type Server struct {
 	middleware           []func(http.Handler) http.Handler
 	staticURLPath        string
 	staticFS             http.FileSystem
+	datastarJSSrc        string
 	enabledTLS           bool
 
 	metricsServer         *http.Server
@@ -772,6 +785,7 @@ type Server struct {
 //   - WithMiddleware
 //   - WithHTTPServer
 //   - WithStaticFS
+//   - WithDatastarJS
 //   - WithCSRFProtection
 //   - WithPrometheus
 func NewServer(
@@ -833,6 +847,9 @@ func NewServer(
 	}
 
 	// Use defaults if not set.
+	if s.datastarJSSrc == "" {
+		s.datastarJSSrc = DefaultDatastarJSSrc
+	}
 	if s.logger == nil {
 		opt := &slog.HandlerOptions{
 			Level: slog.LevelInfo,
