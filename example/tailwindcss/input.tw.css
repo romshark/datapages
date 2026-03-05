@@ -1,0 +1,5 @@
+@import "tailwindcss";
+@source "./app/**/*.templ";
+
+/* Class-based dark mode: add/remove .dark on <html> via JS */
+@custom-variant dark (&:where(.dark, .dark *));

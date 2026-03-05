@@ -19,6 +19,8 @@ jobs:
             name: "root"
           - path: "example/classifieds"
             name: "classifieds"
+          - path: "example/tailwindcss"
+            name: "tailwindcss"
     steps:
       - uses: actions/checkout@v6
         with:

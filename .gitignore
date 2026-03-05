@@ -12,6 +12,9 @@ datapages
 # staging executable
 example/classifieds/server
 
+# npm
+**/node_modules/
+
 # Test binary, built with `go test -c`
 *.test
 

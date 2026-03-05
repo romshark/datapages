@@ -20,11 +20,17 @@ jobs:
           - path: "example/classifieds"
             name: "classifieds"
             has_templ: true
+          - path: "example/tailwindcss"
+            name: "tailwindcss"
+            has_templ: true
         deps: [locked, latest]
         exclude:
           # Only run latest-deps for the root module.
           - project:
               name: "classifieds"
+            deps: latest
+          - project:
+              name: "tailwindcss"
             deps: latest
     steps:
       - name: Install Go 1.26.0

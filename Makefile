@@ -41,10 +41,12 @@ check-fmt:
 lint: check-fmt check-mod
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...
 	(cd example/classifieds/; go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...)
+	(cd example/tailwindcss/; go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...)
 
 vulncheck:
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	(cd example/classifieds/; go run golang.org/x/vuln/cmd/govulncheck@latest ./...)
+	(cd example/tailwindcss/; go run golang.org/x/vuln/cmd/govulncheck@latest ./...)
 
 mod-update: mod-update-examples mod-update-parser-tests
 	go get -u -t ./...

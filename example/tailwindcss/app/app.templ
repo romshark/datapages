@@ -1,0 +1,150 @@
+package app
+
+templ head() {
+	<title>Datapages + TailwindCSS</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<link rel="stylesheet" href="/static/output.css"/>
+}
+
+templ pageIndex() {
+	<div
+		class="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center
+		justify-center p-6"
+		data-signals:theme="'system'"
+		data-init={ `
+			window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+				const root = document.documentElement;
+				const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+				if ($theme === 'dark' || ($theme === 'system' && prefersDark)) {
+					root.classList.add('dark');
+				} else {
+					root.classList.remove('dark');
+				}
+			});
+		` }
+		data-effect={ `
+			const root = document.documentElement;
+			const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+			if ($theme === 'dark' || ($theme === 'system' && prefersDark)) {
+				root.classList.add('dark');
+			} else {
+				root.classList.remove('dark');
+			}
+		` }
+	>
+		// Theme toggle
+		<div class="fixed top-4 right-4 z-10">
+			<button
+				class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm
+				font-medium bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300
+				border border-gray-200 dark:border-gray-700 shadow-sm
+				hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+				data-on:click="$theme = $theme === 'system' ? 'light' : $theme === 'light' ? 'dark' : 'system'"
+				data-text="$theme === 'system' ? '🖥 System' : $theme === 'light' ? '☀ Light' : '🌙 Dark'"
+			>🖥 System</button>
+		</div>
+		<div class="max-w-lg w-full space-y-5">
+			// Header
+			<div class="text-center space-y-2">
+				<div class="text-3xl">🎨</div>
+				<h1 class="text-4xl font-bold text-gray-900 dark:text-white">
+					Datapages + TailwindCSS v4
+				</h1>
+				<p class="text-gray-500 dark:text-gray-400">
+					A minimal example showing how to wire up a TailwindCSS
+					custom watcher in
+					<code
+						class="text-sm bg-gray-100 dark:bg-gray-800 text-gray-800
+						dark:text-gray-200 px-1.5 py-0.5 rounded"
+					>
+						datapages.yaml
+					</code>.
+				</p>
+			</div>
+			// How it works
+			<div
+				class="
+					bg-white dark:bg-gray-900 rounded-2xl border border-gray-200
+					dark:border-gray-800 p-6 space-y-4"
+			>
+				<h2 class="font-semibold text-gray-900 dark:text-white">
+					How it works
+				</h2>
+				<ol class="space-y-3">
+					<li class="flex gap-3 items-start">
+						@step("1")
+						<span class="text-sm text-gray-600 dark:text-gray-400">
+							<code
+								class="
+									bg-gray-100 dark:bg-gray-800 text-gray-800
+									dark:text-gray-200 px-1.5 py-0.5 rounded"
+							>datapages watch</code>
+							starts the dev server and the TailwindCSS custom watcher.
+						</span>
+					</li>
+					<li class="flex gap-3 items-start">
+						@step("2")
+						<span class="text-sm text-gray-600 dark:text-gray-400">
+							Edit any
+							<code
+								class="
+									bg-gray-100 dark:bg-gray-800 text-gray-800
+									dark:text-gray-200 px-1.5 py-0.5 rounded"
+							>.templ</code>
+							file — TailwindCSS scans it and rebuilds
+							<code
+								class="bg-gray-100 dark:bg-gray-800 text-gray-800
+									dark:text-gray-200 px-1.5 py-0.5 rounded"
+							>output.css</code>.
+						</span>
+					</li>
+					<li class="flex gap-3 items-start">
+						@step("3")
+						<span class="text-sm text-gray-600 dark:text-gray-400">
+							The browser live-reloads automatically.
+						</span>
+					</li>
+					<li class="flex gap-3 items-start">
+						@step("4")
+						<span class="text-sm text-gray-600 dark:text-gray-400">
+							In dev mode, static files are served directly from
+							<code class="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-1.5 py-0.5 rounded">app/static/</code>
+							on disk, so the freshly written
+							<code class="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-1.5 py-0.5 rounded">output.css</code>
+							is picked up immediately without restarting the server.
+						</span>
+					</li>
+					<li class="flex gap-3 items-start">
+						@step("5")
+						<span class="text-sm text-gray-600 dark:text-gray-400">
+							In production, the
+							<code class="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-1.5 py-0.5 rounded">app/static/</code>
+							directory is embedded into the binary at compile time via
+							<code class="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-1.5 py-0.5 rounded">{ "//go:embed" }</code>,
+							so no external files are needed at runtime.
+						</span>
+					</li>
+				</ol>
+			</div>
+			// Footer
+			<p class="text-center text-xs text-gray-400 dark:text-gray-600">
+				This page uses TailwindCSS
+				<code
+					class="bg-gray-100 dark:bg-gray-800 text-gray-600
+					dark:text-gray-400 px-1 rounded"
+				>dark:</code>
+				variants — try switching your OS color scheme.
+			</p>
+		</div>
+	</div>
+}
+
+templ step(n string) {
+	<span
+		class="shrink-0 size-6 rounded-full bg-blue-100 dark:bg-blue-950
+		text-blue-600 dark:text-blue-400 text-xs font-bold flex items-center
+		justify-center"
+	>
+		{ n }
+	</span>
+}

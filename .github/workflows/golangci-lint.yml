@@ -21,6 +21,8 @@ jobs:
             name: "root"
           - path: "example/classifieds"
             name: "example/classifieds"
+          - path: "example/tailwindcss"
+            name: "example/tailwindcss"
     steps:
       - uses: actions/setup-go@v6
         with:
