@@ -25,7 +25,7 @@ func (s *Server) handlePageSettingsPOSTPreview(
 		return
 	}
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, nil,
+		w, r, sess, genericHead, nil, body, nil,
 	); err != nil {
 		s.logErr("rendering response of PageSettings.POSTPreview", err)
 		return

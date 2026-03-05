@@ -2,6 +2,7 @@
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
+	sess testapp.Session,
 	headGeneric, head, body templ.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 ) error {
@@ -18,6 +19,40 @@ func (s *Server) writeHTML(
 	if head != nil {
 		if err := head.Render(r.Context(), w); err != nil {
 			return err
+		}
+	}
+	if s.csrfConf != nil && sess.UserID != "" {
+		csrfToken := s.csrfConf.TokenManager.GenerateToken(
+			sess.UserID, sess.IssuedAt.Unix(),
+		)
+		if csrfToken != "" {
+			// Write the fetch X-CSRF-Token header injector.
+			if _, err := io.WriteString(w, `
+	<script type="module">
+		const o = globalThis.fetch.bind(globalThis)
+		globalThis.fetch=(i,init={}) => {
+			const isReq=i instanceof Request
+			const r=isReq ? i:new Request(i,init)
+			if (r.headers.get("Datastar-Request")!=="true" ||
+				r.method=="GET"||r.method=="HEAD"||r.method=="OPTIONS"
+			) return isReq ? o(r,init):o(r)
+			const h=new Headers(r.headers)
+			h.set("X-CSRF-Token",'`); err != nil {
+				return err
+			}
+			if _, err := io.WriteString(w, csrfToken); err != nil {
+				return err
+			}
+			if _, err := io.WriteString(w, `')
+			return o(new Request(r,{...init,headers:h}))
+		}
+	</script>`); err != nil {
+				return err
+			}
+		} else {
+			s.logger.Warn("generated empty CSRF token",
+				slog.String("user-id", sess.UserID),
+				slog.Time("issued-at", sess.IssuedAt))
 		}
 	}
 	if _, err := io.WriteString(w, "</head><body "); err != nil {
