@@ -1,6 +1,6 @@
 module github.com/romshark/datapages/example/classifieds
 
-go 1.26.0
+go 1.26.1
 
 replace github.com/romshark/datapages => ../../
 
