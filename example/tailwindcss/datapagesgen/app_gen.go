@@ -411,7 +411,6 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
-
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return

@@ -34,8 +34,10 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 
 	// Index page: 404 fallback for non-root paths.
 	if p.PageSpecialization == model.PageTypeIndex {
+		if hasBody {
+			w.Line(0, "")
+		}
 		hasBody = true
-		w.Line(0, "")
 		w.Line(1, `if r.URL.Path != "/" {`)
 		if m.PageError404 != nil {
 			w.Line(2, "s.render404(w, r)")
