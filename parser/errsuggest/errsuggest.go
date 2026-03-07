@@ -85,7 +85,7 @@ func Suggest(err error) string {
 		}
 		recv := strings.ToLower(string(d.TypeName[0]))
 		return fmt.Sprintf(
-			"fix: Add `func (%s *%s) GET(r *http.Request) (body templ.Component, err error) {}`",
+			"fix: Add `func (%s %s) GET(r *http.Request) (body templ.Component, err error) {}`",
 			recv, d.TypeName,
 		)
 

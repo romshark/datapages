@@ -48,11 +48,11 @@ func TestSuggest(t *testing.T) {
 
 		"ErrPageMissingGET/profile": {
 			err:  &parser.ErrorPageMissingGET{TypeName: "PageProfile"},
-			want: "fix: Add `func (p *PageProfile) GET(r *http.Request) (body templ.Component, err error) {}`",
+			want: "fix: Add `func (p PageProfile) GET(r *http.Request) (body templ.Component, err error) {}`",
 		},
 		"ErrPageMissingGET/index": {
 			err:  &parser.ErrorPageMissingGET{TypeName: "PageIndex"},
-			want: "fix: Add `func (p *PageIndex) GET(r *http.Request) (body templ.Component, err error) {}`",
+			want: "fix: Add `func (p PageIndex) GET(r *http.Request) (body templ.Component, err error) {}`",
 		},
 
 		"ErrPageInvalidPathComm/profile": {
