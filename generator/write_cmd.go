@@ -15,10 +15,10 @@ import (
 func GenerateCmd(
 	dstDir string,
 	appImportPath, genImportPath, genPkgName string,
-	prometheus bool,
+	prometheus, hasSession bool,
 	perm os.FileMode,
 ) error {
-	src, err := skeleton.MainGo(appImportPath, genImportPath, genPkgName, prometheus)
+	src, err := skeleton.MainGo(appImportPath, genImportPath, genPkgName, prometheus, hasSession)
 	if err != nil {
 		return fmt.Errorf("generating cmd/main.go: %w", err)
 	}

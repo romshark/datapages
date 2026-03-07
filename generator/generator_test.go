@@ -42,23 +42,27 @@ func TestGenerateCmd(t *testing.T) {
 		appImport  string
 		genImport  string
 		genPkgName string
+		hasSession bool
 	}{
-		"default paths": {
+		"with session": {
 			appImport:  "example.com/myapp/app",
 			genImport:  "example.com/myapp/datapagesgen",
 			genPkgName: "datapagesgen",
+			hasSession: true,
 		},
-		"custom gen package": {
+		"without session": {
 			appImport:  "example.com/myapp/app",
 			genImport:  "example.com/myapp/mygen",
 			genPkgName: "mygen",
+			hasSession: false,
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			err := generator.GenerateCmd(
-				tmpDir, tt.appImport, tt.genImport, tt.genPkgName, true, 0o644,
+				tmpDir, tt.appImport, tt.genImport, tt.genPkgName,
+				true, tt.hasSession, 0o644,
 			)
 			require.NoError(t, err)
 
@@ -70,6 +74,17 @@ func TestGenerateCmd(t *testing.T) {
 			require.Contains(t, src, tt.appImport)
 			require.Contains(t, src, tt.genImport)
 			require.Contains(t, src, tt.genPkgName+".NewServer")
+
+			if tt.hasSession {
+				require.Contains(t, src, "sessionManager")
+				require.Contains(t, src, "WithAuth")
+				require.Contains(t, src, "WithCSRFProtection")
+			} else {
+				require.NotContains(t, src, "sessionManager")
+				require.NotContains(t, src, "WithAuth")
+				require.NotContains(t, src, "WithCSRFProtection")
+				require.NotContains(t, src, "app.Session")
+			}
 		})
 	}
 }
