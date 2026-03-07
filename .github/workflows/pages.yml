@@ -7,8 +7,9 @@ on:
     paths:
       - "docs/**"
       - "scripts/render-pages/**"
-  release:
-    types: [published]
+      - "docs-src/**"
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
