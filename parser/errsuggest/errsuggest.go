@@ -201,6 +201,32 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf("fix: Define a Session type in package %s", d.PkgName)
+
+	case errors.Is(err, parser.ErrTemplHardcodedHref):
+		var d *parser.ErrorTemplHardcodedHref
+		if !errors.As(err, &d) {
+			return ""
+		}
+		if fn := hrefFuncFromURL(d.URL); fn != "" {
+			return fmt.Sprintf("fix: Use href={ href.%s(...) } instead of %q",
+				fn, d.URL)
+		}
+		return fmt.Sprintf(
+			"fix: Use href={ href.Xxx(...) } from the generated href package "+
+				"instead of %q", d.URL)
+
+	case errors.Is(err, parser.ErrTemplHardcodedAction):
+		var d *parser.ErrorTemplHardcodedAction
+		if !errors.As(err, &d) {
+			return ""
+		}
+		if fn := actionFuncFromURL(d.URL); fn != "" {
+			return fmt.Sprintf("fix: Use action={ action.%s(...) } instead of %q",
+				fn, d.URL)
+		}
+		return fmt.Sprintf(
+			"fix: Use action={ action.Xxx(...) } from the generated action package "+
+				"instead of %q", d.URL)
 	}
 	return ""
 }
@@ -288,6 +314,68 @@ func methodPathSuffix(method string) string {
 		}
 	}
 	return strings.ToLower(method)
+}
+
+// actionFuncFromURL derives a likely action package function name from a URL path.
+// Assumes POST (the most common method for form actions).
+// "/submit" → "POSTAppSubmit", "/profile/save" → "POSTPageProfileSave".
+// Returns "" when the URL contains variables or cannot be mapped.
+func actionFuncFromURL(url string) string {
+	// Strip query string.
+	if i := strings.IndexByte(url, '?'); i >= 0 {
+		url = url[:i]
+	}
+	url = strings.Trim(url, "/")
+	if url == "" {
+		return ""
+	}
+	// Skip if it looks like a route variable.
+	if strings.ContainsAny(url, "{}") {
+		return ""
+	}
+
+	parts := strings.Split(url, "/")
+	switch len(parts) {
+	case 1:
+		// Single segment: app-level action, e.g. "/submit" → "POSTAppSubmit"
+		return "POSTApp" + capitalize(parts[0])
+	case 2:
+		// Two segments: page action, e.g. "/profile/save" → "POSTPageProfileSave"
+		return "POSTPage" + capitalize(parts[0]) + capitalize(parts[1])
+	default:
+		return ""
+	}
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// hrefFuncFromURL derives a likely href package function name from a URL path.
+// "/" → "Index", "/login" → "Login", "/profile/" → "Profile".
+// Returns "" when the URL contains path variables or cannot be mapped.
+func hrefFuncFromURL(url string) string {
+	// Strip query string.
+	if i := strings.IndexByte(url, '?'); i >= 0 {
+		url = url[:i]
+	}
+	url = strings.Trim(url, "/")
+	if url == "" {
+		return "Index"
+	}
+	// Take only the first path segment (deeper paths are usually actions).
+	if strings.Contains(url, "/") {
+		return ""
+	}
+	// Skip if it looks like a route variable.
+	if strings.ContainsAny(url, "{}") {
+		return ""
+	}
+	// Capitalize: "login" → "Login", "myposts" → "Myposts"
+	return capitalize(url)
 }
 
 func cleanPath(p string) string {

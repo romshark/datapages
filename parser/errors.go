@@ -141,6 +141,9 @@ var (
 	ErrEventTargetUserIDsNoSession = errors.New(
 		"event with TargetUserIDs requires a Session type",
 	)
+
+	ErrTemplHardcodedHref   = errors.New("template uses hardcoded app-internal href")
+	ErrTemplHardcodedAction = errors.New("template uses hardcoded app-internal action")
 )
 
 func normPos(pos token.Position) token.Position {
@@ -471,3 +474,25 @@ func (e *ErrorEventTargetUserIDsNoSession) Error() string {
 func (e *ErrorEventTargetUserIDsNoSession) Unwrap() error {
 	return ErrEventTargetUserIDsNoSession
 }
+
+// ErrorTemplHardcodedHref is ErrTemplHardcodedHref with context.
+type ErrorTemplHardcodedHref struct {
+	URL string // e.g. "/login"
+}
+
+func (e *ErrorTemplHardcodedHref) Error() string {
+	return fmt.Sprintf("%v: %s", ErrTemplHardcodedHref, e.URL)
+}
+
+func (e *ErrorTemplHardcodedHref) Unwrap() error { return ErrTemplHardcodedHref }
+
+// ErrorTemplHardcodedAction is ErrTemplHardcodedAction with context.
+type ErrorTemplHardcodedAction struct {
+	URL string // e.g. "/login/submit"
+}
+
+func (e *ErrorTemplHardcodedAction) Error() string {
+	return fmt.Sprintf("%v: %s", ErrTemplHardcodedAction, e.URL)
+}
+
+func (e *ErrorTemplHardcodedAction) Unwrap() error { return ErrTemplHardcodedAction }

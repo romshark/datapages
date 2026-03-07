@@ -1,0 +1,12 @@
+package app
+
+templ page() {
+	//datapages-lint:nolint
+	<a
+		data-ref:searchanchor
+		data-attr:href="'/search?t=' + $searchinput"
+	>
+		Search
+	</a>
+	<a href="/should-error">This should error</a>
+}
