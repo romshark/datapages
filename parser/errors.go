@@ -23,20 +23,22 @@ var (
 	ErrSignatureMultiErrRet      = errors.New(`multiple error return values`)
 	ErrSignatureUnsupportedInput = errors.New(`unsupported input parameter`)
 	// Deprecated: use ErrSignatureUnsupportedInput.
-	ErrSignatureUnknownInput    = ErrSignatureUnsupportedInput
-	ErrSignatureSecondArgNotSSE = errors.New(
-		"event handler second argument must be *datastar.ServerSentEventGenerator",
+	ErrSignatureUnknownInput     = ErrSignatureUnsupportedInput
+	ErrSignatureEvHandMissingSSE = errors.New(
+		"event handler must have a *datastar.ServerSentEventGenerator parameter",
 	)
+	// Deprecated: use ErrSignatureEvHandMissingSSE.
+	ErrSignatureSecondArgNotSSE         = ErrSignatureEvHandMissingSSE
 	ErrSignatureEvHandReturnMustBeError = errors.New(
 		"event handler must return only error",
 	)
-	ErrSignatureEvHandFirstArgNotEvent = errors.New(
-		`event handler first argument must be named "event"`,
+	ErrSignatureEvHandMissingEvent = errors.New(
+		`event handler must have a parameter named "event" of an event type`,
 	)
-	ErrSignatureEvHandFirstArgTypeNotEvent = errors.New(
-		"event handler first argument type must be an event type",
-	)
-	ErrSignatureGETMissingBody = errors.New(
+	// Deprecated: use ErrSignatureEvHandMissingEvent.
+	ErrSignatureEvHandFirstArgNotEvent     = ErrSignatureEvHandMissingEvent
+	ErrSignatureEvHandFirstArgTypeNotEvent = ErrSignatureEvHandMissingEvent
+	ErrSignatureGETMissingBody             = errors.New(
 		"GET handler must return body templ.Component",
 	)
 	ErrSignatureGETBodyWrongName = errors.New(

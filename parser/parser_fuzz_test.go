@@ -219,7 +219,8 @@ require (
 			t.Skip("failed to write go.mod")
 		}
 
-		// Build parameter list matching the expected order:
+		// Build parameter list (order doesn't matter, but we use a
+		// consistent order for reproducibility):
 		// request, sse, path, query, signals, extra...
 		var params strings.Builder
 		for i := range paramCount {

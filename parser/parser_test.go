@@ -369,6 +369,8 @@ func TestParse_ErrGET(t *testing.T) {
 		parser.ErrSignatureMultiErrRet,
 		parser.ErrSignatureUnsupportedInput,
 		parser.ErrSignatureUnsupportedInput,
+		parser.ErrSignatureUnsupportedInput, // asd
+		parser.ErrSignatureUnsupportedInput, // asd2
 		parser.ErrSignatureGETMissingBody,
 		parser.ErrSignatureGETBodyWrongName,
 		parser.ErrSignatureGETHeadWrongName,
@@ -382,13 +384,14 @@ func TestParse_ErrEvents(t *testing.T) {
 	requireParseErrors(t, err,
 		parser.ErrEventCommMissing,
 		parser.ErrEventSubjectInvalid,
-		parser.ErrSignatureEvHandFirstArgNotEvent,
-		parser.ErrSignatureSecondArgNotSSE,
-		parser.ErrSignatureEvHandFirstArgTypeNotEvent,
-		parser.ErrSignatureSecondArgNotSSE,
-		parser.ErrSignatureSecondArgNotSSE,
-		parser.ErrEvHandDuplicate,
-		parser.ErrSignatureSecondArgNotSSE,
+		parser.ErrSignatureEvHandMissingEvent, // OnFirstArgNotNamed: no "event" param
+		parser.ErrSignatureEvHandMissingSSE,   // OnFirstArgNotNamed: no SSE param
+		parser.ErrSignatureUnsupportedInput,   // OnFirstArgNotNamed: notEvent is unsupported
+		parser.ErrSignatureEvHandMissingEvent, // OnFirstArgWrongType: event type is int
+		parser.ErrSignatureEvHandMissingSSE,   // OnFirstArgWrongType: no SSE param
+		parser.ErrSignatureEvHandMissingSSE,   // OnFirstDuplicate: no SSE param
+		parser.ErrEvHandDuplicate,             // OnSecondDuplicate
+		parser.ErrSignatureEvHandMissingSSE,   // OnSecondDuplicate: no SSE param
 		parser.ErrEventFieldUnexported,
 		parser.ErrEventFieldMissingTag,
 		parser.ErrEventFieldUnexported,
@@ -407,9 +410,10 @@ func TestParse_ErrEventHandler(t *testing.T) {
 	require.NotZero(t, err.Error())
 
 	requireParseErrors(t, err,
-		parser.ErrSignatureSecondArgNotSSE,
-		parser.ErrSignatureUnsupportedInput,
-		parser.ErrSignatureSecondArgNotSSE,
+		parser.ErrSignatureEvHandMissingSSE, // OnEventQux: no SSE param
+		parser.ErrSignatureUnsupportedInput, // OnEventCorge: unknownParam
+		parser.ErrSignatureEvHandMissingSSE, // OnEventQuux: no SSE param
+		parser.ErrSignatureUnsupportedInput, // OnEventQuux: notSSE is unsupported
 		parser.ErrSignatureEvHandReturnMustBeError,
 		parser.ErrSignatureEvHandReturnMustBeError,
 		parser.ErrSignatureEvHandReturnMustBeError,
@@ -900,6 +904,109 @@ func TestParse_ErrSignals(t *testing.T) {
 		parser.ErrSignalsFieldDuplicateTag,
 		parser.ErrQueryReflectSignalNotInSignals,
 	)
+}
+
+func TestParse_ParamOrder(t *testing.T) {
+	app, err := parse(t, "param_order")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// PageSessionFirst - session before sessionToken before request.
+	{
+		p := findPage(app, "PageSessionFirst")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputRequest)
+		require.NotNil(p.GET.InputSession)
+		require.NotNil(p.GET.InputSessionToken)
+		require.Equal(
+			[]string{
+				model.InputKindSession,
+				model.InputKindSessionToken,
+				model.InputKindRequest,
+			},
+			p.GET.InputOrder,
+		)
+	}
+
+	// PageReversed - all params in reverse order.
+	{
+		p := findPage(app, "PageReversed")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputRequest)
+		require.NotNil(p.GET.InputSessionToken)
+		require.NotNil(p.GET.InputSession)
+		require.NotNil(p.GET.InputPath)
+		require.NotNil(p.GET.InputQuery)
+		require.Equal(
+			[]string{
+				model.InputKindQuery,
+				model.InputKindPath,
+				model.InputKindSession,
+				model.InputKindSessionToken,
+				model.InputKindRequest,
+			},
+			p.GET.InputOrder,
+		)
+	}
+
+	// PageSignalsFirst - signals before request.
+	{
+		p := findPage(app, "PageSignalsFirst")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputRequest)
+		require.NotNil(p.GET.InputSignals)
+		require.Equal(
+			[]string{
+				model.InputKindSignals,
+				model.InputKindRequest,
+			},
+			p.GET.InputOrder,
+		)
+	}
+
+	// PageActionReversed - POSTSubmit with reversed params.
+	{
+		p := findPage(app, "PageActionReversed")
+		require.NotNil(p)
+		require.Len(p.Actions, 1)
+		a := p.Actions[0]
+		require.NotNil(a.InputRequest)
+		require.NotNil(a.InputSSE)
+		require.NotNil(a.InputSession)
+		require.NotNil(a.InputSignals)
+		require.Equal(
+			[]string{
+				model.InputKindSession,
+				model.InputKindSSE,
+				model.InputKindSignals,
+				model.InputKindRequest,
+			},
+			a.InputOrder,
+		)
+	}
+
+	// PageEventReversed - OnEventPing with SSE before event.
+	{
+		p := findPage(app, "PageEventReversed")
+		require.NotNil(p)
+		require.Len(p.EventHandlers, 1)
+		evh := p.EventHandlers[0]
+		require.NotNil(evh.InputEvent)
+		require.NotNil(evh.InputSSE)
+		require.NotNil(evh.InputSession)
+		require.Equal(
+			[]string{
+				model.InputKindSSE,
+				model.InputKindSession,
+				model.InputKindEvent,
+			},
+			evh.InputOrder,
+		)
+	}
 }
 
 func requireExprLineCol(

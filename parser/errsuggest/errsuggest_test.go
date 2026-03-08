@@ -225,6 +225,16 @@ func TestSuggest(t *testing.T) {
 			},
 			want: "fix: Rename parameter sess to session",
 		},
+		"ErrSignatureUnsupportedInput/fuzzy sessionTok": {
+			err: &parser.ErrorSignatureUnsupportedInput{
+				ParamName:    "sessionTok",
+				ParamType:    "string",
+				Recv:         "PageFoo",
+				MethodName:   "GET",
+				ExpectedName: "sessionToken",
+			},
+			want: "fix: Rename parameter sessionTok to sessionToken",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, errsuggest.Suggest(tc.err))

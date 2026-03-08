@@ -232,10 +232,9 @@ func Suggest(err error) string {
 //   - ErrAppMissingPageIndex          — message names the required page type
 //   - ErrSignatureMissingReq          — message names *http.Request
 //   - ErrSignatureMultiErrRet         — message states to remove the duplicate
-//   - ErrSignatureSecondArgNotSSE     — message names the exact required type
+//   - ErrSignatureEvHandMissingSSE    — message names the exact required type
 //   - ErrSignatureEvHandReturnMustBeError — message names the required return type
-//   - ErrSignatureEvHandFirstArgNotEvent — message states the required parameter name
-//   - ErrSignatureEvHandFirstArgTypeNotEvent — no specific valid type to suggest
+//   - ErrSignatureEvHandMissingEvent  — message states the required parameter name and type
 //   - ErrSignatureGETMissingBody      — message states "return body templ.Component"
 //   - ErrSignatureGETBodyWrongName    — message states to name it "body"
 //   - ErrSignatureGETHeadWrongName    — message states to name it "head"

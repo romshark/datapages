@@ -13,6 +13,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/lithammer/fuzzysearch/fuzzy"
 	"github.com/romshark/datapages/parser/internal/methodkind"
 	"github.com/romshark/datapages/parser/internal/paramvalidation"
 	"github.com/romshark/datapages/parser/internal/structinspect"
@@ -431,109 +432,104 @@ func validateAndAttachEventHandler(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	// Invariants for OnXXX handlers:
-	//   - First parameter must be named exactly `event`
-	//   - First parameter type must be an EventXXX type
+	//   - Must have a parameter named "event" of an EventXXX type
+	//   - Must have a *datastar.ServerSentEventGenerator parameter
 	//   - Only one handler per EventXXX per receiver type
+	//   - Parameters may be in any order
 	params := fd.Type.Params
 	var evName string
 
-	if params == nil || len(params.List) == 0 {
-		errs.ErrAt(pos,
-			fmt.Errorf("%w: %s.%s",
-				ErrSignatureEvHandFirstArgNotEvent, recv, fd.Name.Name))
-	} else {
-		first := params.List[0]
-		if len(first.Names) != 1 || first.Names[0].Name != "event" {
-			errs.ErrAt(pos,
-				fmt.Errorf("%w: %s.%s",
-					ErrSignatureEvHandFirstArgNotEvent, recv, fd.Name.Name))
-		} else {
-			var ok bool
-			evName, ok = typecheck.EventTypeNameOf(
-				first.Type, ctx.pkg.TypesInfo, ctx.eventTypeNames,
-			)
-			if !ok {
-				errs.ErrAt(pos,
-					fmt.Errorf("%w: %s.%s",
-						ErrSignatureEvHandFirstArgTypeNotEvent, recv, fd.Name.Name))
-			} else {
-				m := ctx.seenEvHandlerByRecv[recv]
-				if m == nil {
-					m = map[string]token.Pos{}
-					ctx.seenEvHandlerByRecv[recv] = m
+	// Find and validate the event parameter (by name "event").
+	foundEvent := false
+	if params != nil {
+		for _, f := range params.List {
+			if len(f.Names) == 1 && f.Names[0].Name == "event" {
+				var ok bool
+				evName, ok = typecheck.EventTypeNameOf(
+					f.Type, ctx.pkg.TypesInfo, ctx.eventTypeNames,
+				)
+				if !ok {
+					errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+						ErrSignatureEvHandMissingEvent, recv, fd.Name.Name))
 				}
-				if prev, dup := m[evName]; dup {
-					errs.ErrAt(pos, fmt.Errorf(
-						"%w: %s.%s handles %s (previous at %s)",
-						ErrEvHandDuplicate,
-						recv,
-						fd.Name.Name,
-						evName,
-						ctx.pkg.Fset.Position(prev),
-					))
-				} else {
-					m[evName] = fd.Name.Pos()
-				}
+				foundEvent = true
+				break
 			}
 		}
 	}
-
-	// Second param must be *datastar.ServerSentEventGenerator.
-	if params != nil && len(params.List) > 0 {
-		if len(params.List) < 2 {
-			errs.ErrAt(pos,
-				fmt.Errorf("%w: %s.%s", ErrSignatureSecondArgNotSSE, recv, fd.Name.Name))
-		} else if !typecheck.IsPtrToDatastarSSE(params.List[1].Type, ctx.pkg.TypesInfo) {
-			errs.ErrAt(pos,
-				fmt.Errorf("%w: %s.%s", ErrSignatureSecondArgNotSSE, recv, fd.Name.Name))
-		}
+	if !foundEvent {
+		errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+			ErrSignatureEvHandMissingEvent, recv, fd.Name.Name))
 	}
 
-	// Optional sessionToken parameter (third position).
-	nextIdx := 2
-	if params != nil && len(params.List) > nextIdx &&
-		paramvalidation.IsSessionTokenParam(
-			params.List[nextIdx],
-		) {
-		if !typecheck.IsString(
-			ctx.pkg.TypesInfo.TypeOf(
-				params.List[nextIdx].Type,
-			),
-		) {
+	// Check for duplicate event handlers.
+	if evName != "" {
+		m := ctx.seenEvHandlerByRecv[recv]
+		if m == nil {
+			m = map[string]token.Pos{}
+			ctx.seenEvHandlerByRecv[recv] = m
+		}
+		if prev, dup := m[evName]; dup {
 			errs.ErrAt(pos, fmt.Errorf(
-				"%w: %s.%s",
-				ErrSessionTokenParamNotString,
-				recv, fd.Name.Name,
+				"%w: %s.%s handles %s (previous at %s)",
+				ErrEvHandDuplicate,
+				recv,
+				fd.Name.Name,
+				evName,
+				ctx.pkg.Fset.Position(prev),
 			))
+		} else {
+			m[evName] = fd.Name.Pos()
 		}
-		nextIdx++
 	}
 
-	// Optional session parameter.
-	if params != nil && len(params.List) > nextIdx &&
-		paramvalidation.IsSessionParam(params.List[nextIdx]) {
-		if !typecheck.IsSessionType(params.List[nextIdx].Type, ctx.pkg.TypesInfo) {
-			errs.ErrAt(pos, fmt.Errorf(
-				"%w: %s.%s",
-				ErrSessionParamNotSessionType,
-				recv, fd.Name.Name,
-			))
+	// Find SSE parameter (by type).
+	foundSSE := false
+	if params != nil {
+		for _, f := range params.List {
+			if typecheck.IsPtrToDatastarSSE(f.Type, ctx.pkg.TypesInfo) {
+				foundSSE = true
+				break
+			}
 		}
-		nextIdx++
+	}
+	if !foundSSE {
+		errs.ErrAt(pos,
+			fmt.Errorf("%w: %s.%s", ErrSignatureEvHandMissingSSE, recv, fd.Name.Name))
 	}
 
-	// Optional signals parameter.
-	if params != nil && len(params.List) > nextIdx &&
-		paramvalidation.IsSignalsParam(params.List[nextIdx]) {
-		nextIdx++
-	}
-
-	// No additional parameters beyond expected.
-	if params != nil && len(params.List) > nextIdx {
-		f := params.List[nextIdx]
-		errs.ErrAt(pos, unsupportedInputError(
-			f, ctx.pkg.TypesInfo, recv, fd.Name.Name,
-		))
+	// Validate remaining recognized parameters (order-independent).
+	if params != nil {
+		for _, f := range params.List {
+			switch {
+			case len(f.Names) == 1 && f.Names[0].Name == "event":
+				// Already validated above.
+			case typecheck.IsPtrToDatastarSSE(f.Type, ctx.pkg.TypesInfo):
+				// Already validated above.
+			case paramvalidation.IsSessionTokenParam(f):
+				if !typecheck.IsString(ctx.pkg.TypesInfo.TypeOf(f.Type)) {
+					errs.ErrAt(pos, fmt.Errorf(
+						"%w: %s.%s",
+						ErrSessionTokenParamNotString,
+						recv, fd.Name.Name,
+					))
+				}
+			case paramvalidation.IsSessionParam(f):
+				if !typecheck.IsSessionType(f.Type, ctx.pkg.TypesInfo) {
+					errs.ErrAt(pos, fmt.Errorf(
+						"%w: %s.%s",
+						ErrSessionParamNotSessionType,
+						recv, fd.Name.Name,
+					))
+				}
+			case paramvalidation.IsSignalsParam(f):
+				// Valid, no extra validation needed.
+			default:
+				errs.ErrAt(pos, unsupportedInputError(
+					f, nil, ctx.pkg.TypesInfo, recv, fd.Name.Name,
+				))
+			}
+		}
 	}
 
 	// OnXXX must return exactly one result of type error.
@@ -599,7 +595,9 @@ func attachHTTPHandler(
 	)
 	if herr != nil {
 		// Keep going; still attach a best-effort handler model.
-		errs.ErrAt(pos, herr)
+		// herr may contain multiple joined errors (e.g. several
+		// unsupported params); report each one separately.
+		reportErrors(errs, pos, herr)
 	}
 	ctx.handlerOutputs[h] = outputs
 
@@ -677,7 +675,7 @@ func attachAppAction(
 		"App", fd, ctx.pkg.TypesInfo, ctx.eventTypeNames, kind, suffix,
 	)
 	if herr != nil {
-		errs.ErrAt(pos, herr)
+		reportErrors(errs, pos, herr)
 	}
 	ctx.handlerOutputs[h] = outputs
 
@@ -923,34 +921,25 @@ func parseEventHandler(
 		EventTypeName: eventTypeName,
 	}
 
-	// First param is the event
-	if len(params) > 0 {
-		h.InputEvent = parseInput(params[0], info)
-	}
-
-	// Second param is sse (required for event handlers)
-	if len(params) > 1 &&
-		typecheck.IsPtrToDatastarSSE(params[1].Type, info) {
-		h.InputSSE = parseInput(params[1], info)
-	}
-
-	// Remaining optional params: sessionToken, session, signals
-	idx := 2
-	if len(params) > idx &&
-		paramvalidation.IsSessionTokenParam(params[idx]) {
-		h.InputSessionToken = parseInput(
-			params[idx], info,
-		)
-		idx++
-	}
-	if len(params) > idx &&
-		paramvalidation.IsSessionParam(params[idx]) {
-		h.InputSession = parseInput(params[idx], info)
-		idx++
-	}
-	if len(params) > idx &&
-		paramvalidation.IsSignalsParam(params[idx]) {
-		h.InputSignals = parseInput(params[idx], info)
+	// Match parameters by name/type in any order.
+	for _, f := range params {
+		switch {
+		case len(f.Names) == 1 && f.Names[0].Name == "event":
+			h.InputEvent = parseInput(f, info)
+			h.InputOrder = append(h.InputOrder, model.InputKindEvent)
+		case typecheck.IsPtrToDatastarSSE(f.Type, info):
+			h.InputSSE = parseInput(f, info)
+			h.InputOrder = append(h.InputOrder, model.InputKindSSE)
+		case paramvalidation.IsSessionTokenParam(f):
+			h.InputSessionToken = parseInput(f, info)
+			h.InputOrder = append(h.InputOrder, model.InputKindSessionToken)
+		case paramvalidation.IsSessionParam(f):
+			h.InputSession = parseInput(f, info)
+			h.InputOrder = append(h.InputOrder, model.InputKindSession)
+		case paramvalidation.IsSignalsParam(f):
+			h.InputSignals = parseInput(f, info)
+			h.InputOrder = append(h.InputOrder, model.InputKindSignals)
+		}
 	}
 
 	if fd.Type.Results != nil && len(fd.Type.Results.List) > 0 {
@@ -1105,13 +1094,33 @@ func expandFieldList(fields []*ast.Field) []*ast.Field {
 	return out
 }
 
+// reportErrors reports err at pos. If err was created by errors.Join,
+// each wrapped error is reported as a separate entry.
+func reportErrors(errs *Errors, pos token.Position, err error) {
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, e := range joined.Unwrap() {
+			errs.ErrAt(pos, e)
+		}
+		return
+	}
+	errs.ErrAt(pos, err)
+}
+
+// knownParamNames lists the recognized handler parameter names
+// used for fuzzy matching in unsupportedInputError.
+var knownParamNames = []string{
+	"sessionToken", "session", "path", "query", "signals", "dispatch",
+}
+
 // unsupportedInputError builds an ErrorSignatureUnsupportedInput for a
-// remaining parameter that doesn't match any recognized handler input.
+// parameter that doesn't match any recognized handler input.
 // It checks whether the parameter's type matches a known input whose
 // name-based check failed, and if so, sets ExpectedName for a rename
-// suggestion.
+// suggestion. When h is non-nil, it checks whether the expected name
+// would collide with an already-consumed input.
+// As a fallback, it performs fuzzy matching against known parameter names.
 func unsupportedInputError(
-	f *ast.Field, info *types.Info, recv, method string,
+	f *ast.Field, h *model.Handler, info *types.Info, recv, method string,
 ) *ErrorSignatureUnsupportedInput {
 	paramName := "_"
 	if len(f.Names) > 0 {
@@ -1130,19 +1139,77 @@ func unsupportedInputError(
 	}
 
 	// Check if the type matches a known input but the name is wrong.
-	switch {
-	case typecheck.IsPtrToNetHTTPReq(f.Type, info):
-		// Already consumed — this is a duplicate *http.Request.
-	case typecheck.IsPtrToDatastarSSE(f.Type, info):
-		// Already consumed — duplicate SSE parameter.
-	case typecheck.IsSessionType(f.Type, info):
-		e.ExpectedName = "session"
-	case typecheck.IsString(info.TypeOf(f.Type)):
-		// Could be sessionToken if it's a string.
-		e.ExpectedName = "sessionToken"
+	// Only suggest renaming when the slot is not already consumed
+	// and the parameter doesn't already have the expected name.
+	if h != nil {
+		switch {
+		case typecheck.IsPtrToNetHTTPReq(f.Type, info):
+			// Already consumed — this is a duplicate *http.Request.
+		case typecheck.IsPtrToDatastarSSE(f.Type, info):
+			// Already consumed — duplicate SSE parameter.
+		case typecheck.IsSessionType(f.Type, info):
+			if h.InputSession == nil && paramName != "session" {
+				e.ExpectedName = "session"
+			}
+		}
+	}
+
+	// If no type-based suggestion was found, try fuzzy name matching.
+	if e.ExpectedName == "" && paramName != "_" {
+		if best, ok := fuzzyMatchParamName(paramName, h); ok {
+			e.ExpectedName = best
+		}
 	}
 
 	return e
+}
+
+// fuzzyMatchParamName returns the closest known parameter name to name,
+// if one is close enough. It skips names whose slot is already consumed in h.
+func fuzzyMatchParamName(name string, h *model.Handler) (string, bool) {
+	bestName := ""
+	bestDist := -1
+	for _, known := range knownParamNames {
+		if h != nil && isParamConsumed(h, known) {
+			continue
+		}
+		d := fuzzy.LevenshteinDistance(
+			strings.ToLower(name), strings.ToLower(known),
+		)
+		// Accept if distance is at most ~1/3 of the longer name's length.
+		maxDist := max(len(name), len(known)) / 3
+		if maxDist < 1 {
+			maxDist = 1
+		}
+		if d <= maxDist && (bestDist < 0 || d < bestDist) {
+			bestName = known
+			bestDist = d
+		}
+	}
+	if bestDist < 0 {
+		return "", false
+	}
+	return bestName, true
+}
+
+// isParamConsumed reports whether the named parameter slot is already
+// consumed in h.
+func isParamConsumed(h *model.Handler, name string) bool {
+	switch name {
+	case "sessionToken":
+		return h.InputSessionToken != nil
+	case "session":
+		return h.InputSession != nil
+	case "path":
+		return h.InputPath != nil
+	case "query":
+		return h.InputQuery != nil
+	case "signals":
+		return h.InputSignals != nil
+	case "dispatch":
+		return h.InputDispatch != nil
+	}
+	return false
 }
 
 func parseInput(f *ast.Field, info *types.Info) *model.Input {
@@ -1227,107 +1294,134 @@ func parseHandler(
 	// so that each field represents exactly one parameter.
 	expandedParams := expandFieldList(params.List)
 
-	// First param must be *http.Request
-	if !typecheck.IsPtrToNetHTTPReq(expandedParams[0].Type, info) {
+	// Match parameters by name/type in any order.
+	var unsupErrs []error
+	foundReq := false
+	for _, f := range expandedParams {
+		switch {
+		case typecheck.IsPtrToNetHTTPReq(f.Type, info):
+			if h.InputRequest != nil {
+				unsupErrs = append(unsupErrs,
+					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+				continue
+			}
+			h.InputRequest = parseInput(f, info)
+			h.InputOrder = append(h.InputOrder, model.InputKindRequest)
+			foundReq = true
+
+		case typecheck.IsPtrToDatastarSSE(f.Type, info):
+			if h.InputSSE != nil {
+				unsupErrs = append(unsupErrs,
+					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+				continue
+			}
+			h.InputSSE = parseInput(f, info)
+			h.InputOrder = append(h.InputOrder, model.InputKindSSE)
+
+		case paramvalidation.IsSessionTokenParam(f):
+			if h.InputSessionToken != nil {
+				unsupErrs = append(unsupErrs,
+					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+				continue
+			}
+			if !typecheck.IsString(info.TypeOf(f.Type)) {
+				return h, nil, fmt.Errorf("%w in %s.%s",
+					ErrSessionTokenParamNotString, recv, fd.Name.Name)
+			}
+			h.InputSessionToken = parseInput(f, info)
+			h.InputOrder = append(h.InputOrder, model.InputKindSessionToken)
+
+		case paramvalidation.IsSessionParam(f):
+			if h.InputSession != nil {
+				unsupErrs = append(unsupErrs,
+					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+				continue
+			}
+			if !typecheck.IsSessionType(f.Type, info) {
+				return h, nil, fmt.Errorf("%w in %s.%s",
+					ErrSessionParamNotSessionType, recv, fd.Name.Name)
+			}
+			h.InputSession = parseInput(f, info)
+			h.InputOrder = append(h.InputOrder, model.InputKindSession)
+
+		case paramvalidation.IsPathParam(f):
+			if h.InputPath != nil {
+				unsupErrs = append(unsupErrs,
+					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+				continue
+			}
+			pathErr := paramvalidation.ValidatePathStruct(
+				f, info, recv, fd.Name.Name,
+			)
+			if pathErr != nil {
+				return h, nil, pathErr
+			}
+			h.InputPath = parseInput(f, info)
+			h.InputOrder = append(h.InputOrder, model.InputKindPath)
+
+		case paramvalidation.IsQueryParam(f):
+			if h.InputQuery != nil {
+				unsupErrs = append(unsupErrs,
+					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+				continue
+			}
+			queryErr := paramvalidation.ValidateQueryStruct(
+				f, info, recv, fd.Name.Name,
+			)
+			if queryErr != nil {
+				return h, nil, queryErr
+			}
+			h.InputQuery = parseInput(f, info)
+			h.InputOrder = append(h.InputOrder, model.InputKindQuery)
+
+		case paramvalidation.IsSignalsParam(f):
+			if h.InputSignals != nil {
+				unsupErrs = append(unsupErrs,
+					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+				continue
+			}
+			sigErr := paramvalidation.ValidateSignalsStruct(
+				f, info, recv, fd.Name.Name,
+			)
+			if sigErr != nil {
+				return h, nil, sigErr
+			}
+			h.InputSignals = parseInput(f, info)
+			h.InputOrder = append(h.InputOrder, model.InputKindSignals)
+
+		case paramvalidation.IsDispatchParam(f):
+			if h.InputDispatch != nil {
+				unsupErrs = append(unsupErrs,
+					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+				continue
+			}
+			eventNames, dispErr := paramvalidation.ValidateDispatchFunc(
+				f, info, eventTypeNames, recv, fd.Name.Name,
+			)
+			if dispErr != nil {
+				return h, nil, dispErr
+			}
+			h.InputDispatch = &model.InputDispatch{
+				Expr:           f.Names[0],
+				Name:           "dispatch",
+				Type:           makeType(f.Type, info),
+				EventTypeNames: eventNames,
+			}
+			h.InputOrder = append(h.InputOrder, model.InputKindDispatch)
+
+		default:
+			unsupErrs = append(unsupErrs,
+				unsupportedInputError(f, h, info, recv, fd.Name.Name))
+		}
+	}
+
+	if !foundReq {
 		return h, nil, fmt.Errorf("%w in %s.%s",
 			ErrSignatureMissingReq, recv, fd.Name.Name)
 	}
-	h.InputRequest = parseInput(expandedParams[0], info)
 
-	// Check if second param is sse (built-in feature for actions)
-	remainingParams := expandedParams[1:]
-	if len(remainingParams) > 0 &&
-		typecheck.IsPtrToDatastarSSE(remainingParams[0].Type, info) {
-		h.InputSSE = parseInput(remainingParams[0], info)
-		remainingParams = remainingParams[1:]
-	}
-
-	// Check if next param is sessionToken.
-	if len(remainingParams) > 0 &&
-		paramvalidation.IsSessionTokenParam(
-			remainingParams[0],
-		) {
-		if !typecheck.IsString(
-			info.TypeOf(remainingParams[0].Type),
-		) {
-			return h, nil, fmt.Errorf("%w in %s.%s",
-				ErrSessionTokenParamNotString, recv, fd.Name.Name)
-		}
-		h.InputSessionToken = parseInput(
-			remainingParams[0], info,
-		)
-		remainingParams = remainingParams[1:]
-	}
-
-	// Check if next param is session.
-	if len(remainingParams) > 0 &&
-		paramvalidation.IsSessionParam(remainingParams[0]) {
-		if !typecheck.IsSessionType(remainingParams[0].Type, info) {
-			return h, nil, fmt.Errorf("%w in %s.%s",
-				ErrSessionParamNotSessionType, recv, fd.Name.Name)
-		}
-		h.InputSession = parseInput(remainingParams[0], info)
-		remainingParams = remainingParams[1:]
-	}
-
-	// Check if next param is path struct.
-	if len(remainingParams) > 0 && paramvalidation.IsPathParam(remainingParams[0]) {
-		pathErr := paramvalidation.ValidatePathStruct(
-			remainingParams[0], info, recv, fd.Name.Name,
-		)
-		if pathErr != nil {
-			return h, nil, pathErr
-		}
-		h.InputPath = parseInput(remainingParams[0], info)
-		remainingParams = remainingParams[1:]
-	}
-
-	// Check if next param is query struct.
-	if len(remainingParams) > 0 && paramvalidation.IsQueryParam(remainingParams[0]) {
-		queryErr := paramvalidation.ValidateQueryStruct(
-			remainingParams[0], info, recv, fd.Name.Name,
-		)
-		if queryErr != nil {
-			return h, nil, queryErr
-		}
-		h.InputQuery = parseInput(remainingParams[0], info)
-		remainingParams = remainingParams[1:]
-	}
-
-	// Check if next param is signals struct.
-	if len(remainingParams) > 0 && paramvalidation.IsSignalsParam(remainingParams[0]) {
-		sigErr := paramvalidation.ValidateSignalsStruct(
-			remainingParams[0], info, recv, fd.Name.Name,
-		)
-		if sigErr != nil {
-			return h, nil, sigErr
-		}
-		h.InputSignals = parseInput(remainingParams[0], info)
-		remainingParams = remainingParams[1:]
-	}
-
-	// Check if next param is dispatch function.
-	if len(remainingParams) > 0 &&
-		paramvalidation.IsDispatchParam(remainingParams[0]) {
-		eventNames, dispErr := paramvalidation.ValidateDispatchFunc(
-			remainingParams[0], info, eventTypeNames, recv, fd.Name.Name,
-		)
-		if dispErr != nil {
-			return h, nil, dispErr
-		}
-		h.InputDispatch = &model.InputDispatch{
-			Expr:           remainingParams[0].Names[0],
-			Name:           "dispatch",
-			Type:           makeType(remainingParams[0].Type, info),
-			EventTypeNames: eventNames,
-		}
-		remainingParams = remainingParams[1:]
-	}
-
-	// No additional parameters allowed in handler signature.
-	if len(remainingParams) > 0 {
-		f := remainingParams[0]
-		return h, nil, unsupportedInputError(f, info, recv, fd.Name.Name)
+	if len(unsupErrs) > 0 {
+		return h, nil, errors.Join(unsupErrs...)
 	}
 
 	// Results
