@@ -17,24 +17,28 @@ import (
 )
 
 var (
-	ErrAppMissingTypeApp        = errors.New(`missing required type "App"`)
-	ErrAppMissingPageIndex      = errors.New(`missing required page type "PageIndex"`)
-	ErrSignatureMissingReq      = errors.New(`missing the *http.Request parameter`)
-	ErrSignatureMultiErrRet     = errors.New(`multiple error return values`)
-	ErrSignatureUnknownInput    = errors.New(`handler has unknown input parameter type`)
-	ErrSignatureSecondArgNotSSE = errors.New(
-		"event handler second argument must be *datastar.ServerSentEventGenerator",
+	ErrAppMissingTypeApp         = errors.New(`missing required type "App"`)
+	ErrAppMissingPageIndex       = errors.New(`missing required page type "PageIndex"`)
+	ErrSignatureMissingReq       = errors.New(`missing the *http.Request parameter`)
+	ErrSignatureMultiErrRet      = errors.New(`multiple error return values`)
+	ErrSignatureUnsupportedInput = errors.New(`unsupported input parameter`)
+	// Deprecated: use ErrSignatureUnsupportedInput.
+	ErrSignatureUnknownInput     = ErrSignatureUnsupportedInput
+	ErrSignatureEvHandMissingSSE = errors.New(
+		"event handler must have a *datastar.ServerSentEventGenerator parameter",
 	)
+	// Deprecated: use ErrSignatureEvHandMissingSSE.
+	ErrSignatureSecondArgNotSSE         = ErrSignatureEvHandMissingSSE
 	ErrSignatureEvHandReturnMustBeError = errors.New(
 		"event handler must return only error",
 	)
-	ErrSignatureEvHandFirstArgNotEvent = errors.New(
-		`event handler first argument must be named "event"`,
+	ErrSignatureEvHandMissingEvent = errors.New(
+		`event handler must have a parameter named "event" of an event type`,
 	)
-	ErrSignatureEvHandFirstArgTypeNotEvent = errors.New(
-		"event handler first argument type must be an event type",
-	)
-	ErrSignatureGETMissingBody = errors.New(
+	// Deprecated: use ErrSignatureEvHandMissingEvent.
+	ErrSignatureEvHandFirstArgNotEvent     = ErrSignatureEvHandMissingEvent
+	ErrSignatureEvHandFirstArgTypeNotEvent = ErrSignatureEvHandMissingEvent
+	ErrSignatureGETMissingBody             = errors.New(
 		"GET handler must return body templ.Component",
 	)
 	ErrSignatureGETBodyWrongName = errors.New(
@@ -96,7 +100,6 @@ var (
 	ErrSignalsFieldEmptyTag     = paramvalidation.ErrSignalsFieldEmptyTag
 
 	ErrDispatchParamNotFunc    = paramvalidation.ErrDispatchParamNotFunc
-	ErrDispatchReturnCount     = paramvalidation.ErrDispatchReturnCount
 	ErrDispatchMustReturnError = paramvalidation.ErrDispatchMustReturnError
 	ErrDispatchNoParams        = paramvalidation.ErrDispatchNoParams
 	ErrDispatchParamNotEvent   = paramvalidation.ErrDispatchParamNotEvent
@@ -523,3 +526,26 @@ func (e *ErrorTemplActionWrongPage) Error() string {
 }
 
 func (e *ErrorTemplActionWrongPage) Unwrap() error { return ErrTemplActionWrongPage }
+
+// ErrorSignatureUnsupportedInput is ErrSignatureUnsupportedInput with context.
+type ErrorSignatureUnsupportedInput struct {
+	ParamName  string // e.g. "b"
+	ParamType  string // e.g. "*http.Request"
+	Recv       string // e.g. "PageFoo"
+	MethodName string // e.g. "GET"
+	// ExpectedName is set when there is exactly one candidate for the
+	// parameter (e.g. type is Session but name is not "session").
+	ExpectedName string
+	// CandidateNames lists multiple possible parameter names when the
+	// parameter type matches more than one known input slot.
+	CandidateNames []string
+}
+
+func (e *ErrorSignatureUnsupportedInput) Error() string {
+	return fmt.Sprintf("%v %s %s in %s.%s",
+		ErrSignatureUnsupportedInput, e.ParamName, e.ParamType, e.Recv, e.MethodName)
+}
+
+func (e *ErrorSignatureUnsupportedInput) Unwrap() error {
+	return ErrSignatureUnsupportedInput
+}

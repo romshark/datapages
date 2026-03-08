@@ -377,7 +377,10 @@ func TestParse_ErrGET(t *testing.T) {
 	requireParseErrors(t, err,
 		parser.ErrSignatureMissingReq,
 		parser.ErrSignatureMultiErrRet,
-		parser.ErrSignatureUnknownInput,
+		parser.ErrSignatureUnsupportedInput,
+		parser.ErrSignatureUnsupportedInput,
+		parser.ErrSignatureUnsupportedInput, // asd
+		parser.ErrSignatureUnsupportedInput, // asd2
 		parser.ErrSignatureGETMissingBody,
 		parser.ErrSignatureGETBodyWrongName,
 		parser.ErrSignatureGETHeadWrongName,
@@ -391,16 +394,17 @@ func TestParse_ErrEvents(t *testing.T) {
 	requireParseErrors(t, err,
 		parser.ErrEventCommMissing,
 		parser.ErrEventSubjectInvalid,
-		parser.ErrSignatureEvHandFirstArgNotEvent,
-		parser.ErrSignatureSecondArgNotSSE,
-		parser.ErrSignatureEvHandFirstArgTypeNotEvent,
-		parser.ErrSignatureSecondArgNotSSE,
-		parser.ErrSignatureSecondArgNotSSE,
-		parser.ErrEvHandDuplicate,
-		parser.ErrSignatureSecondArgNotSSE,
+		parser.ErrSignatureEvHandMissingEvent, // OnFirstArgNotNamed: no "event" param
+		parser.ErrSignatureEvHandMissingSSE,   // OnFirstArgNotNamed: no SSE param
+		parser.ErrSignatureUnsupportedInput,   // OnFirstArgNotNamed: notEvent is unsupported
+		parser.ErrSignatureEvHandMissingEvent, // OnFirstArgWrongType: event type is int
+		parser.ErrSignatureEvHandMissingSSE,   // OnFirstArgWrongType: no SSE param
+		parser.ErrSignatureEvHandMissingSSE,   // OnFirstDuplicate: no SSE param
+		parser.ErrEvHandDuplicate,             // OnSecondDuplicate
+		parser.ErrSignatureEvHandMissingSSE,   // OnSecondDuplicate: no SSE param
+		parser.ErrEventFieldUnexported,
 		parser.ErrEventFieldUnexported,
 		parser.ErrEventFieldMissingTag,
-		parser.ErrEventFieldUnexported,
 		parser.ErrEventFieldDuplicateTag,
 		parser.ErrEventCommInvalid,
 		parser.ErrEventCommInvalid,
@@ -416,9 +420,10 @@ func TestParse_ErrEventHandler(t *testing.T) {
 	require.NotZero(t, err.Error())
 
 	requireParseErrors(t, err,
-		parser.ErrSignatureSecondArgNotSSE,
-		parser.ErrSignatureUnknownInput,
-		parser.ErrSignatureSecondArgNotSSE,
+		parser.ErrSignatureEvHandMissingSSE, // OnEventQux: no SSE param
+		parser.ErrSignatureUnsupportedInput, // OnEventCorge: unknownParam
+		parser.ErrSignatureEvHandMissingSSE, // OnEventQuux: no SSE param
+		parser.ErrSignatureUnsupportedInput, // OnEventQuux: notSSE is unsupported
 		parser.ErrSignatureEvHandReturnMustBeError,
 		parser.ErrSignatureEvHandReturnMustBeError,
 		parser.ErrSignatureEvHandReturnMustBeError,
@@ -637,8 +642,10 @@ func TestParse_ErrDispatch(t *testing.T) {
 
 	requireParseErrors(t, err,
 		parser.ErrDispatchParamNotFunc,
-		parser.ErrDispatchReturnCount,
 		parser.ErrDispatchMustReturnError,
+		parser.ErrDispatchMustReturnError,
+		parser.ErrDispatchMustReturnError, // PageNoReturnNoParams: no return
+		parser.ErrDispatchNoParams,        // PageNoReturnNoParams: no params
 		parser.ErrDispatchNoParams,
 		parser.ErrDispatchParamNotEvent,
 	)
@@ -909,6 +916,215 @@ func TestParse_ErrSignals(t *testing.T) {
 		parser.ErrSignalsFieldDuplicateTag,
 		parser.ErrQueryReflectSignalNotInSignals,
 	)
+}
+
+func TestParse_ParamOrder(t *testing.T) {
+	app, err := parse(t, "param_order")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// PageSessionFirst - session before sessionToken before request.
+	{
+		p := findPage(app, "PageSessionFirst")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputRequest)
+		require.NotNil(p.GET.InputSession)
+		require.NotNil(p.GET.InputSessionToken)
+		require.Equal(
+			[]string{
+				model.InputKindSession,
+				model.InputKindSessionToken,
+				model.InputKindRequest,
+			},
+			p.GET.InputOrder,
+		)
+	}
+
+	// PageReversed - all params in reverse order.
+	{
+		p := findPage(app, "PageReversed")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputRequest)
+		require.NotNil(p.GET.InputSessionToken)
+		require.NotNil(p.GET.InputSession)
+		require.NotNil(p.GET.InputPath)
+		require.NotNil(p.GET.InputQuery)
+		require.Equal(
+			[]string{
+				model.InputKindQuery,
+				model.InputKindPath,
+				model.InputKindSession,
+				model.InputKindSessionToken,
+				model.InputKindRequest,
+			},
+			p.GET.InputOrder,
+		)
+	}
+
+	// PageSignalsFirst - signals before request.
+	{
+		p := findPage(app, "PageSignalsFirst")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputRequest)
+		require.NotNil(p.GET.InputSignals)
+		require.Equal(
+			[]string{
+				model.InputKindSignals,
+				model.InputKindRequest,
+			},
+			p.GET.InputOrder,
+		)
+	}
+
+	// PageActionReversed - POSTSubmit with reversed params.
+	{
+		p := findPage(app, "PageActionReversed")
+		require.NotNil(p)
+		require.Len(p.Actions, 1)
+		a := p.Actions[0]
+		require.NotNil(a.InputRequest)
+		require.NotNil(a.InputSSE)
+		require.NotNil(a.InputSession)
+		require.NotNil(a.InputSignals)
+		require.Equal(
+			[]string{
+				model.InputKindSession,
+				model.InputKindSSE,
+				model.InputKindSignals,
+				model.InputKindRequest,
+			},
+			a.InputOrder,
+		)
+	}
+
+	// PageEventReversed - OnEventPing with SSE before event.
+	{
+		p := findPage(app, "PageEventReversed")
+		require.NotNil(p)
+		require.Len(p.EventHandlers, 1)
+		evh := p.EventHandlers[0]
+		require.NotNil(evh.InputEvent)
+		require.NotNil(evh.InputSSE)
+		require.NotNil(evh.InputSession)
+		require.Equal(
+			[]string{
+				model.InputKindSSE,
+				model.InputKindSession,
+				model.InputKindEvent,
+			},
+			evh.InputOrder,
+		)
+	}
+}
+
+func TestParse_ErrorPositions(t *testing.T) {
+	type wantPos struct {
+		err       error
+		file      string
+		line, col int
+	}
+
+	for name, tc := range map[string][]wantPos{
+		"err_get": {
+			{parser.ErrSignatureMissingReq, "app.go", 23, 23},
+			{parser.ErrSignatureMultiErrRet, "app.go", 32, 2},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 43, 19},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 54, 5},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 65, 19},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 65, 24},
+			{parser.ErrSignatureGETMissingBody, "app.go", 75, 24},
+			{parser.ErrSignatureGETBodyWrongName, "app.go", 84, 48},
+			{parser.ErrSignatureGETHeadWrongName, "app.go", 95, 2},
+		},
+		"err_dispatch": {
+			{parser.ErrDispatchParamNotFunc, "app.go", 34, 11},
+			{parser.ErrDispatchMustReturnError, "app.go", 47, 11},
+			{parser.ErrDispatchMustReturnError, "app.go", 60, 26},
+			{parser.ErrDispatchMustReturnError, "app.go", 73, 11},
+			{parser.ErrDispatchNoParams, "app.go", 73, 11},
+			{parser.ErrDispatchNoParams, "app.go", 86, 11},
+			{parser.ErrDispatchParamNotEvent, "app.go", 99, 16},
+		},
+		"err_events": {
+			{parser.ErrEventCommMissing, "app.go", 29, 6},
+			{parser.ErrEventSubjectInvalid, "app.go", 35, 24},
+			{parser.ErrSignatureEvHandMissingEvent, "app.go", 50, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 50, 22},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 51, 2},
+			{parser.ErrSignatureEvHandMissingEvent, "app.go", 59, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 59, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 67, 22},
+			{parser.ErrEvHandDuplicate, "app.go", 76, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 76, 22},
+			{parser.ErrEventFieldUnexported, "app.go", 86, 2},
+			{parser.ErrEventFieldUnexported, "app.go", 86, 2},
+			{parser.ErrEventFieldMissingTag, "app.go", 93, 2},
+			{parser.ErrEventFieldDuplicateTag, "app.go", 111, 2},
+			{parser.ErrEventCommInvalid, "app.go", 116, 21},
+			{parser.ErrEventCommInvalid, "app.go", 123, 4},
+			{parser.ErrEventSubjectInvalid, "app.go", 130, 23},
+			{parser.ErrEventSubjectInvalid, "app.go", 137, 24},
+			{parser.ErrEventFieldEmptyTag, "app.go", 148, 2},
+			{parser.ErrEventFieldUnexported, "subpkg.go", 7, 2},
+		},
+		"err_path": {
+			{parser.ErrPathParamNotStruct, "app.go", 25, 48},
+			{parser.ErrPathFieldUnexported, "app.go", 38, 3},
+			{parser.ErrPathFieldNotString, "app.go", 53, 3},
+			{parser.ErrPathFieldMissingTag, "app.go", 68, 3},
+			{parser.ErrPathFieldNotInRoute, "app.go", 83, 3},
+			{parser.ErrPathMissingRouteVar, "app.go", 95, 23},
+			{parser.ErrPathFieldDuplicateTag, "app.go", 108, 3},
+		},
+		"err_query": {
+			{parser.ErrQueryParamNotStruct, "app.go", 25, 49},
+			{parser.ErrQueryFieldUnexported, "app.go", 38, 3},
+			{parser.ErrQueryFieldMissingTag, "app.go", 53, 3},
+			{parser.ErrQueryFieldDuplicateTag, "app.go", 69, 3},
+		},
+		"err_signals": {
+			{parser.ErrSignalsParamNotStruct, "app.go", 25, 51},
+			{parser.ErrSignalsFieldUnexported, "app.go", 38, 3},
+			{parser.ErrSignalsFieldMissingTag, "app.go", 53, 3},
+			{parser.ErrSignalsFieldDuplicateTag, "app.go", 69, 3},
+			{parser.ErrQueryReflectSignalNotInSignals, "app.go", 83, 2},
+		},
+		"err_event_handler": {
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 59, 18},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 71, 2},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 81, 18},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 83, 2},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 90, 18},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 101, 3},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 110, 3},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 121, 3},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, errs := parse(t, name)
+			require.Equal(t, len(tc), errs.Len(),
+				"unexpected number of errors for %s", name)
+			for i, want := range tc {
+				pos, err := errs.Entry(i)
+				require.True(t, errors.Is(err, want.err),
+					"%s[%d]: want Is(%v) got %T: %v", name, i, want.err, err, err)
+				gotFile := filepath.Base(pos.Filename)
+				require.True(t,
+					gotFile == want.file &&
+						pos.Line == want.line &&
+						pos.Column == want.col,
+					"%s[%d] (%v): want %s:%d:%d got %s:%d:%d",
+					name, i, want.err,
+					want.file, want.line, want.col,
+					gotFile, pos.Line, pos.Column,
+				)
+			}
+		})
+	}
 }
 
 func requireExprLineCol(

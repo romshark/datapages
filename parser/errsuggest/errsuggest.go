@@ -12,7 +12,11 @@ import (
 )
 
 // toSnakeCase converts a PascalCase or camelCase Go identifier to snake_case.
-// Examples: "UserID" → "user_id", "CreatedAt" → "created_at", "HTTPStatus" → "http_status".
+// Examples:
+//
+//   - "UserID" -> "user_id"
+//   - "CreatedAt" -> "created_at"
+//   - "HTTPStatus" -> "http_status".
 func toSnakeCase(s string) string {
 	runes := []rune(s)
 	var b strings.Builder
@@ -25,7 +29,8 @@ func toSnakeCase(s string) string {
 				if i+1 < len(runes) {
 					next = runes[i+1]
 				}
-				if unicode.IsLower(prev) || (unicode.IsUpper(prev) && unicode.IsLower(next)) {
+				if unicode.IsLower(prev) ||
+					(unicode.IsUpper(prev) && unicode.IsLower(next)) {
 					b.WriteByte('_')
 				}
 			}
@@ -41,6 +46,34 @@ func toSnakeCase(s string) string {
 // The hint is formatted as a short "fix: ..." line meant to be printed after the error.
 func Suggest(err error) string {
 	switch {
+	case errors.Is(err, parser.ErrAppMissingTypeApp):
+		return "fix: Add `type App struct{}`"
+
+	case errors.Is(err, parser.ErrAppMissingPageIndex):
+		return "fix: Add: \n" +
+			"// PageIndex is /\n" +
+			"type PageIndex struct{ App *App }\n" +
+			"func (p PageIndex) GET(r *http.Request) " +
+			"(body templ.Component, err error) { return nil, nil }"
+
+	case errors.Is(err, parser.ErrSignatureMissingReq):
+		return "fix: Add `r *http.Request` parameter"
+
+	case errors.Is(err, parser.ErrSignatureGETMissingBody):
+		return "fix: Add `body templ.Component` to return values"
+
+	case errors.Is(err, parser.ErrSignatureEvHandMissingSSE):
+		return "fix: Add `sse *datastar.ServerSentEventGenerator` parameter"
+
+	case errors.Is(err, parser.ErrSignatureEvHandMissingEvent):
+		return "fix: Add `event EventName` parameter"
+
+	case errors.Is(err, parser.ErrSessionMissingUserID):
+		return "fix: Add `UserID string` field to Session"
+
+	case errors.Is(err, parser.ErrSessionMissingIssuedAt):
+		return "fix: Add `IssuedAt time.Time` field to Session"
+
 	case errors.Is(err, parser.ErrPageMissingFieldApp):
 		var d *parser.ErrorPageMissingFieldApp
 		if !errors.As(err, &d) {
@@ -99,7 +132,7 @@ func Suggest(err error) string {
 		}
 		path := pageTypePath(d.TypeName)
 		return fmt.Sprintf(
-			"fix: First doc comment line must be `// %s is %s`; if there are more lines, the next must be an empty `//`",
+			"fix: First doc comment line must be `// %s is %s`",
 			d.TypeName, path,
 		)
 
@@ -110,7 +143,7 @@ func Suggest(err error) string {
 		}
 		suffix := methodPathSuffix(d.MethodName)
 		return fmt.Sprintf(
-			"fix: First doc comment line must be `// %s is /%s`; if there are more lines, the next must be an empty `//`",
+			"fix: First doc comment line must be `// %s is /%s`",
 			d.MethodName, suffix,
 		)
 
@@ -127,9 +160,7 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf(
-			`fix: First doc comment line must be `+
-				"`"+`// %s is "subject"`+"`"+
-				`; if there are more lines, the next must be an empty `+"`//`",
+			"fix: First doc comment line must be `// %s is \"subject\"`",
 			d.TypeName,
 		)
 
@@ -146,7 +177,8 @@ func Suggest(err error) string {
 		if !errors.As(err, &d) {
 			return ""
 		}
-		return fmt.Sprintf("fix: Add a non-empty name to the path tag of field %s, e.g. `path:\"%s\"`",
+		return fmt.Sprintf(
+			"fix: Add a non-empty name to the path tag of field %s, e.g. `path:\"%s\"`",
 			d.FieldName, toSnakeCase(d.FieldName))
 
 	case errors.Is(err, parser.ErrQueryFieldMissingTag):
@@ -162,7 +194,8 @@ func Suggest(err error) string {
 		if !errors.As(err, &d) {
 			return ""
 		}
-		return fmt.Sprintf("fix: Add a non-empty name to the query tag of field %s, e.g. `query:\"%s\"`",
+		return fmt.Sprintf(
+			"fix: Add a non-empty name to the query tag of field %s, e.g. `query:\"%s\"`",
 			d.FieldName, toSnakeCase(d.FieldName))
 
 	case errors.Is(err, parser.ErrSignalsFieldMissingTag):
@@ -178,7 +211,8 @@ func Suggest(err error) string {
 		if !errors.As(err, &d) {
 			return ""
 		}
-		return fmt.Sprintf("fix: Add a non-empty name to the json tag of field %s, e.g. `json:\"%s\"`",
+		return fmt.Sprintf(
+			"fix: Add a non-empty name to the json tag of field %s, e.g. `json:\"%s\"`",
 			d.FieldName, toSnakeCase(d.FieldName))
 
 	case errors.Is(err, parser.ErrEventFieldMissingTag):
@@ -240,6 +274,46 @@ func Suggest(err error) string {
 		return fmt.Sprintf(
 			"fix: Use action={ action.Xxx(...) } from the generated action package "+
 				"instead of %q", d.URL)
+
+	case errors.Is(err, parser.ErrSignatureUnsupportedInput):
+		var d *parser.ErrorSignatureUnsupportedInput
+		if !errors.As(err, &d) {
+			return ""
+		}
+		// Filter candidates that differ from ExpectedName.
+		var others []string
+		for _, c := range d.CandidateNames {
+			if c != d.ExpectedName {
+				others = append(others, c)
+			}
+		}
+		if d.ExpectedName != "" {
+			s := fmt.Sprintf(
+				"fix: Rename parameter %s to %s",
+				d.ParamName, d.ExpectedName)
+			if len(others) > 0 {
+				s += fmt.Sprintf(
+					". Other candidates: %s",
+					strings.Join(others, ", "))
+			}
+			return s
+		}
+		if len(d.CandidateNames) > 0 {
+			return fmt.Sprintf(
+				"fix: Potential candidates: %s",
+				strings.Join(d.CandidateNames, ", "))
+		}
+		return fmt.Sprintf("fix: Remove parameter %s", d.ParamName)
+
+	case errors.Is(err, parser.ErrDispatchMustReturnError):
+		var d *paramvalidation.ErrorDispatchMustReturnError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		if d.ParamTypes != "" {
+			return fmt.Sprintf("fix: Use `func(%s) error`", d.ParamTypes)
+		}
+		return "fix: dispatch must return `error`"
 	}
 	return ""
 }
@@ -247,16 +321,8 @@ func Suggest(err error) string {
 // Errors intentionally excluded from Suggest — the error message already states
 // the fix, or there is no specific context available to produce a useful hint:
 //
-//   - ErrAppMissingTypeApp            — message names the required type
-//   - ErrAppMissingPageIndex          — message names the required page type
-//   - ErrSignatureMissingReq          — message names *http.Request
 //   - ErrSignatureMultiErrRet         — message states to remove the duplicate
-//   - ErrSignatureUnknownInput        — no information about which parameter is wrong
-//   - ErrSignatureSecondArgNotSSE     — message names the exact required type
 //   - ErrSignatureEvHandReturnMustBeError — message names the required return type
-//   - ErrSignatureEvHandFirstArgNotEvent — message states the required parameter name
-//   - ErrSignatureEvHandFirstArgTypeNotEvent — no specific valid type to suggest
-//   - ErrSignatureGETMissingBody      — message states "return body templ.Component"
 //   - ErrSignatureGETBodyWrongName    — message states to name it "body"
 //   - ErrSignatureGETHeadWrongName    — message states to name it "head"
 //   - ErrPageHasExtraFields           — message states to remove the fields
@@ -283,13 +349,9 @@ func Suggest(err error) string {
 //   - ErrSignalsFieldUnexported       — fix is obvious: capitalize the field name
 //   - ErrSignalsFieldDuplicateTag     — message names the duplicate value
 //   - ErrDispatchParamNotFunc         — type constraint is clear from message
-//   - ErrDispatchReturnCount          — return constraint is clear from message
-//   - ErrDispatchMustReturnError      — type constraint is clear from message
 //   - ErrDispatchNoParams             — constraint is clear from message
 //   - ErrDispatchParamNotEvent        — constraint is clear from message
 //   - ErrSessionNotStruct             — type constraint is clear from message
-//   - ErrSessionMissingUserID         — message names the required field and type
-//   - ErrSessionMissingIssuedAt       — message names the required field and type
 //   - ErrSessionParamNotSessionType   — constraint is clear from message
 //   - ErrSessionTokenParamNotString   — constraint is clear from message
 //   - ErrRedirectNotString            — constraint is clear from message

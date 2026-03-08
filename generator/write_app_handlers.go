@@ -7,6 +7,109 @@ import (
 	"github.com/romshark/datapages/parser/model"
 )
 
+// handlerArgVar maps an InputKind constant to the local variable name
+// used in generated code. skipSSE causes SSE to be omitted (for app-level actions).
+func handlerArgVar(kind string, skipSSE bool) string {
+	switch kind {
+	case model.InputKindRequest:
+		return "r"
+	case model.InputKindSSE:
+		if skipSSE {
+			return ""
+		}
+		return "sse"
+	case model.InputKindSessionToken:
+		return "sessToken"
+	case model.InputKindSession:
+		return "sess"
+	case model.InputKindPath:
+		return "path"
+	case model.InputKindQuery:
+		return "query"
+	case model.InputKindSignals:
+		return "signals"
+	case model.InputKindDispatch:
+		return "dispatch"
+	case model.InputKindEvent:
+		return "e"
+	default:
+		return ""
+	}
+}
+
+// handlerInputArgs builds the argument list for a handler call
+// in the order defined by h.InputOrder.
+func handlerInputArgs(h *model.Handler, skipSSE bool) []string {
+	if len(h.InputOrder) > 0 {
+		args := make([]string, 0, len(h.InputOrder))
+		for _, kind := range h.InputOrder {
+			if v := handlerArgVar(kind, skipSSE); v != "" {
+				args = append(args, v)
+			}
+		}
+		return args
+	}
+	// Fallback for manually constructed Handler (e.g. in tests).
+	var args []string
+	if h.InputRequest != nil {
+		args = append(args, "r")
+	}
+	if h.InputSSE != nil && !skipSSE {
+		args = append(args, "sse")
+	}
+	if h.InputSessionToken != nil {
+		args = append(args, "sessToken")
+	}
+	if h.InputSession != nil {
+		args = append(args, "sess")
+	}
+	if h.InputPath != nil {
+		args = append(args, "path")
+	}
+	if h.InputQuery != nil {
+		args = append(args, "query")
+	}
+	if h.InputSignals != nil {
+		args = append(args, "signals")
+	}
+	if h.InputDispatch != nil {
+		args = append(args, "dispatch")
+	}
+	return args
+}
+
+// eventHandlerInputArgs builds the argument list for an event handler call
+// in the order defined by eh.InputOrder.
+func eventHandlerInputArgs(eh *model.EventHandler) []string {
+	if len(eh.InputOrder) > 0 {
+		args := make([]string, 0, len(eh.InputOrder))
+		for _, kind := range eh.InputOrder {
+			if v := handlerArgVar(kind, false); v != "" {
+				args = append(args, v)
+			}
+		}
+		return args
+	}
+	// Fallback for manually constructed EventHandler (e.g. in tests).
+	var args []string
+	if eh.InputEvent != nil {
+		args = append(args, "e")
+	}
+	if eh.InputSSE != nil {
+		args = append(args, "sse")
+	}
+	if eh.InputSessionToken != nil {
+		args = append(args, "sessToken")
+	}
+	if eh.InputSession != nil {
+		args = append(args, "sess")
+	}
+	if eh.InputSignals != nil {
+		args = append(args, "signals")
+	}
+	return args
+}
+
 // writePageGETHandler generates the GET handler for a page.
 func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string) {
 	w.Line(0, "")
@@ -60,6 +163,12 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		w.writeReadPath(h.InputPath, m)
 	}
 
+	// Dispatch closure.
+	if h.InputDispatch != nil {
+		hasBody = true
+		w.writeDispatchClosure(h.InputDispatch, appPkg)
+	}
+
 	// Page constructor.
 	if hasBody {
 		w.Raw("\n\tp := ")
@@ -103,24 +212,8 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 		outs = append(outs, "err")
 	}
 
-	// Build input args.
-	var argsBuf [8]string
-	args := argsBuf[:0]
-	if h.InputRequest != nil {
-		args = append(args, "r")
-	}
-	if h.InputSessionToken != nil {
-		args = append(args, "sessToken")
-	}
-	if h.InputSession != nil {
-		args = append(args, "sess")
-	}
-	if h.InputPath != nil {
-		args = append(args, "path")
-	}
-	if h.InputQuery != nil {
-		args = append(args, "query")
-	}
+	// Build input args in user-defined order.
+	args := handlerInputArgs(h, false)
 
 	w.Byte('\t')
 	w.writeCommaSep(outs)
@@ -584,24 +677,8 @@ func (w *Writer) writeStreamEventCase(
 func (w *Writer) writeEventHandlerCall(
 	ownerLabel string, eh *model.EventHandler, receiver string,
 ) {
-	// Build args.
-	var argsBuf [8]string
-	args := argsBuf[:0]
-	if eh.InputEvent != nil {
-		args = append(args, "e")
-	}
-	if eh.InputSSE != nil {
-		args = append(args, "sse")
-	}
-	if eh.InputSessionToken != nil {
-		args = append(args, "sessToken")
-	}
-	if eh.InputSession != nil {
-		args = append(args, "sess")
-	}
-	if eh.InputSignals != nil {
-		args = append(args, "signals")
-	}
+	// Build args in user-defined order.
+	args := eventHandlerInputArgs(eh)
 
 	methodName := "On" + eh.Name
 
@@ -812,33 +889,8 @@ func (w *Writer) writeActionMethodCall(
 		outs = append(outs, "err")
 	}
 
-	// Build input args.
-	var argsBuf [8]string
-	args := argsBuf[:0]
-	if h.InputRequest != nil {
-		args = append(args, "r")
-	}
-	if h.InputSSE != nil {
-		args = append(args, "sse")
-	}
-	if h.InputSessionToken != nil {
-		args = append(args, "sessToken")
-	}
-	if h.InputSession != nil {
-		args = append(args, "sess")
-	}
-	if h.InputPath != nil {
-		args = append(args, "path")
-	}
-	if h.InputQuery != nil {
-		args = append(args, "query")
-	}
-	if h.InputSignals != nil {
-		args = append(args, "signals")
-	}
-	if h.InputDispatch != nil {
-		args = append(args, "dispatch")
-	}
+	// Build input args in user-defined order.
+	args := handlerInputArgs(h, false)
 
 	methodName := h.HTTPMethod + h.Name
 
