@@ -117,26 +117,28 @@ func validateEventType(
 			continue
 		}
 
+		fieldPos := f.Pos() // points at the field name in the struct definition
+
 		// 1. Must be exported
 		if !f.Exported() {
-			errs.ErrAt(ctx.pkg.Fset.Position(pos),
+			errs.ErrAt(ctx.pkg.Fset.Position(fieldPos),
 				fmt.Errorf("%w: field %s in %s", ErrEventFieldUnexported, f.Name(), name))
 		}
 
 		// 2. Must have json tag
 		// Minimal check: verify `json:"..."` exists.
 		if !strings.Contains(tag, "json:\"") {
-			errs.ErrAt(ctx.pkg.Fset.Position(pos),
+			errs.ErrAt(ctx.pkg.Fset.Position(fieldPos),
 				&ErrorEventFieldMissingTag{FieldName: f.Name(), TypeName: name})
 		} else {
 			tagVal := structtag.JSONTagValue(tag)
 			// 3. Tag name must not be empty (e.g. json:"" or json:",omitempty").
 			if tagVal == "" {
-				errs.ErrAt(ctx.pkg.Fset.Position(pos),
+				errs.ErrAt(ctx.pkg.Fset.Position(fieldPos),
 					&ErrorEventFieldEmptyTag{FieldName: f.Name(), TypeName: name})
 			} else if seenTags[tagVal] {
 				// 4. Must not duplicate a json tag value already seen at this level.
-				errs.ErrAt(ctx.pkg.Fset.Position(pos),
+				errs.ErrAt(ctx.pkg.Fset.Position(fieldPos),
 					&ErrorEventFieldDuplicateTag{
 						FieldName: f.Name(), TagValue: tagVal, TypeName: name,
 					})

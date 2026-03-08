@@ -57,11 +57,11 @@ func TestSuggest(t *testing.T) {
 
 		"ErrPageInvalidPathComm/profile": {
 			err:  &parser.ErrorPageInvalidPathComm{TypeName: "PageProfile"},
-			want: "fix: First doc comment line must be `// PageProfile is /profile/`; if there are more lines, the next must be an empty `//`",
+			want: "fix: First doc comment line must be `// PageProfile is /profile/`",
 		},
 		"ErrPageInvalidPathComm/index": {
 			err:  &parser.ErrorPageInvalidPathComm{TypeName: "PageIndex"},
-			want: "fix: First doc comment line must be `// PageIndex is /`; if there are more lines, the next must be an empty `//`",
+			want: "fix: First doc comment line must be `// PageIndex is /`",
 		},
 
 		"ErrActionMissingPathComm/with page path": {
@@ -93,14 +93,14 @@ func TestSuggest(t *testing.T) {
 				Recv:       "PageProfile",
 				MethodName: "POSTFoo",
 			},
-			want: "fix: First doc comment line must be `// POSTFoo is /foo`; if there are more lines, the next must be an empty `//`",
+			want: "fix: First doc comment line must be `// POSTFoo is /foo`",
 		},
 		"ErrActionInvalidPathComm/app": {
 			err: &parser.ErrorActionInvalidPathComm{
 				Recv:       "App",
 				MethodName: "DELETEItem",
 			},
-			want: "fix: First doc comment line must be `// DELETEItem is /item`; if there are more lines, the next must be an empty `//`",
+			want: "fix: First doc comment line must be `// DELETEItem is /item`",
 		},
 
 		"ErrActionPathNotUnderPage": {
@@ -127,7 +127,7 @@ func TestSuggest(t *testing.T) {
 
 		"ErrEventCommInvalid": {
 			err:  &parser.ErrorEventCommInvalid{TypeName: "EventUserCreated"},
-			want: "fix: First doc comment line must be `// EventUserCreated is \"subject\"`; if there are more lines, the next must be an empty `//`",
+			want: "fix: First doc comment line must be `// EventUserCreated is \"subject\"`",
 		},
 
 		"ErrPathFieldMissingTag": {

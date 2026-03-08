@@ -221,7 +221,8 @@ func firstPassEventType(
 		case validate.ErrEventCommInvalid:
 			errs.ErrAt(typePos, &ErrorEventCommInvalid{TypeName: name})
 		case validate.ErrEventSubjectInvalid:
-			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrEventSubjectInvalid, name))
+			subjPos := eventSubjectPos(doc, name, ctx.pkg.Fset, typePos)
+			errs.ErrAt(subjPos, fmt.Errorf("%w: %s", ErrEventSubjectInvalid, name))
 		default:
 			// Defensive fallback: treat as invalid comment.
 			errs.ErrAt(typePos, &ErrorEventCommInvalid{TypeName: name})
@@ -246,15 +247,13 @@ func extractEventSubject(
 	}
 
 	// Extract (validated => safe).
-	want := typeName + " is "
 	for _, c := range doc.List {
 		txt := strings.TrimSpace(strings.TrimPrefix(c.Text, "//"))
-		if !strings.HasPrefix(txt, want) {
+		txt = strings.TrimSpace(txt)
+		rest, ok := validate.CutEventIsPrefix(txt, typeName)
+		if !ok {
 			continue
 		}
-		rest := strings.TrimSpace(strings.TrimPrefix(txt, want))
-		rest = strings.TrimSpace(rest)
-
 		// validate.EventSubjectCommentSubject guarantees:
 		// - starts/ends with '"'
 		// - non-empty payload
@@ -265,6 +264,41 @@ func extractEventSubject(
 	}
 	// Should not happen if validation succeeded.
 	return "", validate.ErrEventSubjectInvalid
+}
+
+// eventSubjectPos returns the position of the subject value (the quoted
+// string after "is ") in the doc comment for an event type. Falls back
+// to fallback when the comment cannot be located.
+func eventSubjectPos(
+	doc *ast.CommentGroup, typeName string,
+	fset *token.FileSet, fallback token.Position,
+) token.Position {
+	if doc == nil || len(doc.List) == 0 {
+		return fallback
+	}
+	c := doc.List[0]
+	txt := c.Text
+	// Find the subject within the raw comment text (including "// " prefix).
+	// Look for " is " (with possible extra whitespace) after the type name.
+	idx := strings.Index(txt, typeName)
+	if idx < 0 {
+		return fallback
+	}
+	// Skip past typeName, then whitespace, "is", then whitespace.
+	off := idx + len(typeName)
+	for off < len(txt) && (txt[off] == ' ' || txt[off] == '\t') {
+		off++
+	}
+	if !strings.HasPrefix(txt[off:], "is") {
+		return fallback
+	}
+	off += len("is")
+	for off < len(txt) && (txt[off] == ' ' || txt[off] == '\t') {
+		off++
+	}
+	pos := fset.Position(c.Pos())
+	pos.Column += off
+	return pos
 }
 
 func firstPassPageOrAbstractType(
@@ -601,7 +635,7 @@ func attachHTTPHandler(
 		// Keep going; still attach a best-effort handler model.
 		// herr may contain multiple joined errors (e.g. several
 		// unsupported params); report each one separately.
-		reportErrors(errs, pos, herr)
+		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
 	}
 	ctx.handlerOutputs[h] = outputs
 
@@ -636,7 +670,7 @@ func attachHTTPHandler(
 			if h.InputPath != nil {
 				p = ctx.pkg.Fset.Position(h.InputPath.Expr.Pos())
 			}
-			reportErrors(errs, p, err)
+			reportErrorsWithFset(errs, ctx.pkg.Fset, p, err)
 		}
 	}
 
@@ -647,7 +681,7 @@ func attachHTTPHandler(
 			if h.InputQuery != nil {
 				p = ctx.pkg.Fset.Position(h.InputQuery.Expr.Pos())
 			}
-			reportErrors(errs, p, rsErr)
+			reportErrorsWithFset(errs, ctx.pkg.Fset, p, rsErr)
 		}
 	}
 
@@ -662,8 +696,10 @@ func attachHTTPHandler(
 				get, getErr := buildHandlerGET(h, outputs, ctx.pkg.Fset)
 				pg.GET = get
 				if getErr != nil {
-					errs.ErrAt(pos,
-						fmt.Errorf("%w in %s.%s", getErr, recv, fd.Name.Name))
+					p := resolveErrorPos(getErr, ctx.pkg.Fset, pos)
+					errs.ErrAt(p,
+						fmt.Errorf("%w in %s.%s",
+							unwrapPositioned(getErr), recv, fd.Name.Name))
 				}
 			}
 		} else {
@@ -687,7 +723,7 @@ func attachAppAction(
 		"App", fd, ctx.pkg.TypesInfo, ctx.pkg.Fset, ctx.eventTypeNames, kind, suffix,
 	)
 	if herr != nil {
-		reportErrors(errs, pos, herr)
+		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
 	}
 	ctx.handlerOutputs[h] = outputs
 
@@ -803,9 +839,10 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 					get, getErr := buildHandlerGET(m, ctx.handlerOutputs[m], ctx.pkg.Fset)
 					pg.GET = get
 					if getErr != nil {
-						pos := ctx.pkg.Fset.Position(m.Expr.Pos())
-						errs.ErrAt(pos, fmt.Errorf("%w in %s.%s",
-							getErr, ap.TypeName, m.Name))
+						fallback := ctx.pkg.Fset.Position(m.Expr.Pos())
+						p := resolveErrorPos(getErr, ctx.pkg.Fset, fallback)
+						errs.ErrAt(p, fmt.Errorf("%w in %s.%s",
+							unwrapPositioned(getErr), ap.TypeName, m.Name))
 					}
 					getOwner = ap.TypeName
 					getOwnerPos = it.embedPos
@@ -1116,28 +1153,44 @@ type positionedError struct {
 func (e *positionedError) Error() string { return e.err.Error() }
 func (e *positionedError) Unwrap() error { return e.err }
 
-// reportErrors reports err at pos. If err was created by errors.Join,
-// each wrapped error is reported as a separate entry.
-// Individual errors may override pos by wrapping with positionedError.
-func reportErrors(errs *Errors, pos token.Position, err error) {
+// resolveErrorPos returns the most specific position for an error.
+// It checks positionedError first, then the ASTPos() interface,
+// falling back to the provided fset and default position.
+func resolveErrorPos(e error, fset *token.FileSet, fallback token.Position) token.Position {
+	var pe *positionedError
+	if errors.As(e, &pe) {
+		return pe.pos
+	}
+	if ap, ok := e.(interface{ ASTPos() token.Pos }); ok {
+		if p := ap.ASTPos(); p.IsValid() && fset != nil {
+			return fset.Position(p)
+		}
+	}
+	return fallback
+}
+
+// unwrapPositioned returns the inner error if e is a positionedError,
+// otherwise returns e unchanged.
+func unwrapPositioned(e error) error {
+	var pe *positionedError
+	if errors.As(e, &pe) {
+		return pe.err
+	}
+	return e
+}
+
+// reportErrorsWithFset is like reportErrors but also resolves ASTPos()
+// positions using the provided FileSet.
+func reportErrorsWithFset(errs *Errors, fset *token.FileSet, pos token.Position, err error) {
 	if joined, ok := err.(interface{ Unwrap() []error }); ok {
 		for _, e := range joined.Unwrap() {
-			p := pos
-			var pe *positionedError
-			if errors.As(e, &pe) {
-				p = pe.pos
-				e = pe.err
-			}
-			errs.ErrAt(p, e)
+			p := resolveErrorPos(e, fset, pos)
+			errs.ErrAt(p, unwrapPositioned(e))
 		}
 		return
 	}
-	var pe *positionedError
-	if errors.As(err, &pe) {
-		errs.ErrAt(pe.pos, pe.err)
-	} else {
-		errs.ErrAt(pos, err)
-	}
+	p := resolveErrorPos(err, fset, pos)
+	errs.ErrAt(p, unwrapPositioned(err))
 }
 
 // appendPositioned wraps err (or each sub-error of a joined error)
@@ -1415,7 +1468,11 @@ func parseHandler(
 	foundReq := false
 	for _, f := range expandedParams {
 		fieldErr := func(err error) *positionedError {
-			return &positionedError{pos: fset.Position(f.Type.Pos()), err: err}
+			p := f.Type.Pos()
+			if len(f.Names) > 0 {
+				p = f.Names[0].Pos()
+			}
+			return &positionedError{pos: fset.Position(p), err: err}
 		}
 
 		switch {
@@ -1554,14 +1611,14 @@ func parseHandler(
 	}
 
 	var outputs []*model.Output
-	var multiErr bool
+	var multiErrPos token.Pos
 	for _, r := range fd.Type.Results.List {
 		t := makeType(r.Type, info)
 
 		if len(r.Names) == 0 {
 			if typecheck.IsError(t.Resolved) {
 				if h.OutputErr != nil {
-					multiErr = true
+					multiErrPos = r.Type.Pos()
 					continue
 				}
 				h.OutputErr = &model.Output{Type: t}
@@ -1579,7 +1636,7 @@ func parseHandler(
 			}
 			if typecheck.IsError(t.Resolved) {
 				if h.OutputErr != nil {
-					multiErr = true
+					multiErrPos = n.Pos()
 					continue
 				}
 				h.OutputErr = out
@@ -1648,9 +1705,12 @@ func parseHandler(
 		}
 	}
 
-	if multiErr {
-		return h, outputs, fmt.Errorf("%w in %s.%s",
-			ErrSignatureMultiErrRet, recv, fd.Name.Name)
+	if multiErrPos.IsValid() {
+		return h, outputs, &positionedError{
+			pos: fset.Position(multiErrPos),
+			err: fmt.Errorf("%w in %s.%s",
+				ErrSignatureMultiErrRet, recv, fd.Name.Name),
+		}
 	}
 	if h.OutputRedirectStatus != nil && h.OutputRedirect == nil {
 		return h, outputs, fmt.Errorf("%w in %s.%s",

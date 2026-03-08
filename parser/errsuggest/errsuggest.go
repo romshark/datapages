@@ -101,7 +101,7 @@ func Suggest(err error) string {
 		}
 		path := pageTypePath(d.TypeName)
 		return fmt.Sprintf(
-			"fix: First doc comment line must be `// %s is %s`; if there are more lines, the next must be an empty `//`",
+			"fix: First doc comment line must be `// %s is %s`",
 			d.TypeName, path,
 		)
 
@@ -112,7 +112,7 @@ func Suggest(err error) string {
 		}
 		suffix := methodPathSuffix(d.MethodName)
 		return fmt.Sprintf(
-			"fix: First doc comment line must be `// %s is /%s`; if there are more lines, the next must be an empty `//`",
+			"fix: First doc comment line must be `// %s is /%s`",
 			d.MethodName, suffix,
 		)
 
@@ -129,9 +129,7 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf(
-			`fix: First doc comment line must be `+
-				"`"+`// %s is "subject"`+"`"+
-				`; if there are more lines, the next must be an empty `+"`//`",
+			"fix: First doc comment line must be `// %s is \"subject\"`",
 			d.TypeName,
 		)
 

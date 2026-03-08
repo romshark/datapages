@@ -84,6 +84,16 @@ var (
 	)
 )
 
+// fieldPosError wraps an error with the AST position of a struct field.
+type fieldPosError struct {
+	pos token.Pos
+	err error
+}
+
+func (e *fieldPosError) Error() string     { return e.err.Error() }
+func (e *fieldPosError) Unwrap() error     { return e.err }
+func (e *fieldPosError) ASTPos() token.Pos { return e.pos }
+
 // IsSessionTokenParam reports whether the AST field is
 // named "sessionToken".
 func IsSessionTokenParam(f *ast.Field) bool {
@@ -129,35 +139,39 @@ func ValidatePathStruct(
 	for i := range st.NumFields() {
 		field := st.Field(i)
 		tag := st.Tag(i)
+		fpos := field.Pos()
 
 		if !field.Exported() {
-			return fmt.Errorf(
+			return &fieldPosError{pos: fpos, err: fmt.Errorf(
 				"%w: field %s in %s.%s",
 				ErrPathFieldUnexported,
 				field.Name(), recv, method,
-			)
+			)}
 		}
 		if !typecheck.IsString(field.Type()) {
-			return fmt.Errorf(
+			return &fieldPosError{pos: fpos, err: fmt.Errorf(
 				"%w: field %s in %s.%s",
 				ErrPathFieldNotString,
 				field.Name(), recv, method,
-			)
+			)}
 		}
 		if !strings.Contains(tag, `path:"`) {
 			return &ErrorPathFieldMissingTag{
 				FieldName: field.Name(), Recv: recv, Method: method,
+				Pos: fpos,
 			}
 		}
 		tagVal := structtag.PathTagValue(tag)
 		if tagVal == "" {
 			return &ErrorPathFieldEmptyTag{
 				FieldName: field.Name(), Recv: recv, Method: method,
+				Pos: fpos,
 			}
 		} else if seen[tagVal] {
 			return &ErrorPathFieldDuplicateTag{
 				FieldName: field.Name(), TagValue: tagVal,
 				Recv: recv, Method: method,
+				Pos: fpos,
 			}
 		}
 		seen[tagVal] = true
@@ -189,28 +203,32 @@ func ValidateQueryStruct(
 	for i := range st.NumFields() {
 		field := st.Field(i)
 		tag := st.Tag(i)
+		fpos := field.Pos()
 
 		if !field.Exported() {
-			return fmt.Errorf(
+			return &fieldPosError{pos: fpos, err: fmt.Errorf(
 				"%w: field %s in %s.%s",
 				ErrQueryFieldUnexported,
 				field.Name(), recv, method,
-			)
+			)}
 		}
 		if !strings.Contains(tag, `query:"`) {
 			return &ErrorQueryFieldMissingTag{
 				FieldName: field.Name(), Recv: recv, Method: method,
+				Pos: fpos,
 			}
 		}
 		tagVal := structtag.QueryTagValue(tag)
 		if tagVal == "" {
 			return &ErrorQueryFieldEmptyTag{
 				FieldName: field.Name(), Recv: recv, Method: method,
+				Pos: fpos,
 			}
 		} else if seen[tagVal] {
 			return &ErrorQueryFieldDuplicateTag{
 				FieldName: field.Name(), TagValue: tagVal,
 				Recv: recv, Method: method,
+				Pos: fpos,
 			}
 		}
 		seen[tagVal] = true
@@ -243,28 +261,32 @@ func ValidateSignalsStruct(
 	for i := range st.NumFields() {
 		field := st.Field(i)
 		tag := st.Tag(i)
+		fpos := field.Pos()
 
 		if !field.Exported() {
-			return fmt.Errorf(
+			return &fieldPosError{pos: fpos, err: fmt.Errorf(
 				"%w: field %s in %s.%s",
 				ErrSignalsFieldUnexported,
 				field.Name(), recv, method,
-			)
+			)}
 		}
 		if !strings.Contains(tag, `json:"`) {
 			return &ErrorSignalsFieldMissingTag{
 				FieldName: field.Name(), Recv: recv, Method: method,
+				Pos: fpos,
 			}
 		}
 		tagVal := structtag.JSONTagValue(tag)
 		if tagVal == "" {
 			return &ErrorSignalsFieldEmptyTag{
 				FieldName: field.Name(), Recv: recv, Method: method,
+				Pos: fpos,
 			}
 		} else if seen[tagVal] {
 			return &ErrorSignalsFieldDuplicateTag{
 				FieldName: field.Name(), TagValue: tagVal,
 				Recv: recv, Method: method,
+				Pos: fpos,
 			}
 		}
 		seen[tagVal] = true
@@ -277,6 +299,7 @@ type ErrorPathFieldMissingTag struct {
 	FieldName string
 	Recv      string
 	Method    string
+	Pos       token.Pos
 }
 
 func (e *ErrorPathFieldMissingTag) Error() string {
@@ -284,13 +307,15 @@ func (e *ErrorPathFieldMissingTag) Error() string {
 		ErrPathFieldMissingTag, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorPathFieldMissingTag) Unwrap() error { return ErrPathFieldMissingTag }
+func (e *ErrorPathFieldMissingTag) Unwrap() error     { return ErrPathFieldMissingTag }
+func (e *ErrorPathFieldMissingTag) ASTPos() token.Pos { return e.Pos }
 
 // ErrorPathFieldEmptyTag is ErrPathFieldEmptyTag with suggestion context.
 type ErrorPathFieldEmptyTag struct {
 	FieldName string
 	Recv      string
 	Method    string
+	Pos       token.Pos
 }
 
 func (e *ErrorPathFieldEmptyTag) Error() string {
@@ -298,7 +323,8 @@ func (e *ErrorPathFieldEmptyTag) Error() string {
 		ErrPathFieldEmptyTag, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorPathFieldEmptyTag) Unwrap() error { return ErrPathFieldEmptyTag }
+func (e *ErrorPathFieldEmptyTag) Unwrap() error     { return ErrPathFieldEmptyTag }
+func (e *ErrorPathFieldEmptyTag) ASTPos() token.Pos { return e.Pos }
 
 // ErrorPathFieldDuplicateTag is ErrPathFieldDuplicateTag with suggestion context.
 type ErrorPathFieldDuplicateTag struct {
@@ -306,6 +332,7 @@ type ErrorPathFieldDuplicateTag struct {
 	TagValue  string
 	Recv      string
 	Method    string
+	Pos       token.Pos
 }
 
 func (e *ErrorPathFieldDuplicateTag) Error() string {
@@ -313,33 +340,38 @@ func (e *ErrorPathFieldDuplicateTag) Error() string {
 		ErrPathFieldDuplicateTag, e.TagValue, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorPathFieldDuplicateTag) Unwrap() error { return ErrPathFieldDuplicateTag }
+func (e *ErrorPathFieldDuplicateTag) Unwrap() error     { return ErrPathFieldDuplicateTag }
+func (e *ErrorPathFieldDuplicateTag) ASTPos() token.Pos { return e.Pos }
 
 // ErrorQueryFieldMissingTag is ErrQueryFieldMissingTag with suggestion context.
 type ErrorQueryFieldMissingTag struct {
 	FieldName string
 	Recv      string
 	Method    string
+	Pos       token.Pos
 }
 
 func (e *ErrorQueryFieldMissingTag) Error() string {
 	return fmt.Sprintf("%v: field %s in %s.%s", ErrQueryFieldMissingTag, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorQueryFieldMissingTag) Unwrap() error { return ErrQueryFieldMissingTag }
+func (e *ErrorQueryFieldMissingTag) Unwrap() error     { return ErrQueryFieldMissingTag }
+func (e *ErrorQueryFieldMissingTag) ASTPos() token.Pos { return e.Pos }
 
 // ErrorQueryFieldEmptyTag is ErrQueryFieldEmptyTag with suggestion context.
 type ErrorQueryFieldEmptyTag struct {
 	FieldName string
 	Recv      string
 	Method    string
+	Pos       token.Pos
 }
 
 func (e *ErrorQueryFieldEmptyTag) Error() string {
 	return fmt.Sprintf("%v: field %s in %s.%s", ErrQueryFieldEmptyTag, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorQueryFieldEmptyTag) Unwrap() error { return ErrQueryFieldEmptyTag }
+func (e *ErrorQueryFieldEmptyTag) Unwrap() error     { return ErrQueryFieldEmptyTag }
+func (e *ErrorQueryFieldEmptyTag) ASTPos() token.Pos { return e.Pos }
 
 // ErrorQueryFieldDuplicateTag is ErrQueryFieldDuplicateTag with suggestion context.
 type ErrorQueryFieldDuplicateTag struct {
@@ -347,6 +379,7 @@ type ErrorQueryFieldDuplicateTag struct {
 	TagValue  string
 	Recv      string
 	Method    string
+	Pos       token.Pos
 }
 
 func (e *ErrorQueryFieldDuplicateTag) Error() string {
@@ -354,13 +387,15 @@ func (e *ErrorQueryFieldDuplicateTag) Error() string {
 		ErrQueryFieldDuplicateTag, e.TagValue, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorQueryFieldDuplicateTag) Unwrap() error { return ErrQueryFieldDuplicateTag }
+func (e *ErrorQueryFieldDuplicateTag) Unwrap() error     { return ErrQueryFieldDuplicateTag }
+func (e *ErrorQueryFieldDuplicateTag) ASTPos() token.Pos { return e.Pos }
 
 // ErrorSignalsFieldMissingTag is ErrSignalsFieldMissingTag with suggestion context.
 type ErrorSignalsFieldMissingTag struct {
 	FieldName string
 	Recv      string
 	Method    string
+	Pos       token.Pos
 }
 
 func (e *ErrorSignalsFieldMissingTag) Error() string {
@@ -368,13 +403,15 @@ func (e *ErrorSignalsFieldMissingTag) Error() string {
 		ErrSignalsFieldMissingTag, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorSignalsFieldMissingTag) Unwrap() error { return ErrSignalsFieldMissingTag }
+func (e *ErrorSignalsFieldMissingTag) Unwrap() error     { return ErrSignalsFieldMissingTag }
+func (e *ErrorSignalsFieldMissingTag) ASTPos() token.Pos { return e.Pos }
 
 // ErrorSignalsFieldEmptyTag is ErrSignalsFieldEmptyTag with suggestion context.
 type ErrorSignalsFieldEmptyTag struct {
 	FieldName string
 	Recv      string
 	Method    string
+	Pos       token.Pos
 }
 
 func (e *ErrorSignalsFieldEmptyTag) Error() string {
@@ -382,7 +419,8 @@ func (e *ErrorSignalsFieldEmptyTag) Error() string {
 		ErrSignalsFieldEmptyTag, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorSignalsFieldEmptyTag) Unwrap() error { return ErrSignalsFieldEmptyTag }
+func (e *ErrorSignalsFieldEmptyTag) Unwrap() error     { return ErrSignalsFieldEmptyTag }
+func (e *ErrorSignalsFieldEmptyTag) ASTPos() token.Pos { return e.Pos }
 
 // ErrorSignalsFieldDuplicateTag is ErrSignalsFieldDuplicateTag with suggestion context.
 type ErrorSignalsFieldDuplicateTag struct {
@@ -390,6 +428,7 @@ type ErrorSignalsFieldDuplicateTag struct {
 	TagValue  string
 	Recv      string
 	Method    string
+	Pos       token.Pos
 }
 
 func (e *ErrorSignalsFieldDuplicateTag) Error() string {
@@ -397,9 +436,8 @@ func (e *ErrorSignalsFieldDuplicateTag) Error() string {
 		ErrSignalsFieldDuplicateTag, e.TagValue, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorSignalsFieldDuplicateTag) Unwrap() error {
-	return ErrSignalsFieldDuplicateTag
-}
+func (e *ErrorSignalsFieldDuplicateTag) Unwrap() error     { return ErrSignalsFieldDuplicateTag }
+func (e *ErrorSignalsFieldDuplicateTag) ASTPos() token.Pos { return e.Pos }
 
 // Dispatch parameter errors.
 var (
@@ -629,11 +667,14 @@ func ValidatePathAgainstRoute(
 			continue
 		}
 		if !varSet[tagVal] {
-			errs = append(errs, fmt.Errorf(
-				"%w: %q in %s.%s",
-				ErrPathFieldNotInRoute,
-				tagVal, recv, method,
-			))
+			errs = append(errs, &fieldPosError{
+				pos: st.Field(i).Pos(),
+				err: fmt.Errorf(
+					"%w: %q in %s.%s",
+					ErrPathFieldNotInRoute,
+					tagVal, recv, method,
+				),
+			})
 		} else {
 			delete(varSet, tagVal)
 		}
