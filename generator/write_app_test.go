@@ -560,12 +560,43 @@ func TestWritePageGETHandler(t *testing.T) {
 			},
 			golden: "app_page_get_redirect_status.txt",
 		},
+		"with dispatch": {
+			page: &model.Page{
+				TypeName:           "PageIndex",
+				Route:              "/",
+				PageSpecialization: model.PageTypeIndex,
+				GET: &model.HandlerGET{
+					Handler: &model.Handler{
+						InputRequest: &model.Input{Name: "r"},
+						InputSession: &model.Input{Name: "session"},
+						InputDispatch: &model.InputDispatch{
+							Name:           "dispatch",
+							EventTypeNames: []string{"EventFoo"},
+						},
+						OutputErr: &model.Output{Name: "err"},
+					},
+					OutputBody: &model.TemplComponent{
+						Output: &model.Output{Name: "body"},
+					},
+				},
+			},
+			app: &model.App{
+				PkgPath:             testAppPkgPath,
+				Fset:                token.NewFileSet(),
+				Session:             &model.SessionType{},
+				Events:              []*model.Event{testEvent("EventFoo", "foo", false)},
+				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
+				PageError404:        &model.Page{TypeName: "PageError404"},
+			},
+			golden: "app_page_get_dispatch.txt",
+		},
 	}
 
 	w := Writer{}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
+			w.buildEventMap(tt.app.Events)
 			w.writePageGETHandler(tt.page, tt.app, testAppPkg)
 			compareGolden(t, tt.golden, w.Buf)
 		})

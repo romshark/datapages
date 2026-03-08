@@ -163,6 +163,12 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		w.writeReadPath(h.InputPath, m)
 	}
 
+	// Dispatch closure.
+	if h.InputDispatch != nil {
+		hasBody = true
+		w.writeDispatchClosure(h.InputDispatch, appPkg)
+	}
+
 	// Page constructor.
 	if hasBody {
 		w.Raw("\n\tp := ")
