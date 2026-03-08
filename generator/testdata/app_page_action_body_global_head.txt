@@ -19,11 +19,7 @@ func (s *Server) handlePageSettingsPOSTPreview(
 		s.httpErrIntern(w, r, sse, "handling action PageSettings.Preview", err)
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageSettings.POSTPreview", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 	if err := s.writeHTML(
 		w, r, sess, genericHead, nil, body, nil,
 	); err != nil {

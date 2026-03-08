@@ -13,7 +13,7 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageSettings.GET", err)
 		return
 	}
-	genericHead := s.app.Head(r)
+	genericHead := s.app.Head(r, sess, sessToken)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)

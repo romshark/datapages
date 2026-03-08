@@ -122,8 +122,11 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	hasBody := false
 
 	// Auth.
-	needsToken := h.InputSessionToken != nil
-	if h.InputSession != nil || needsToken {
+	needsSession := h.InputSession != nil ||
+		(m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession)
+	needsToken := h.InputSessionToken != nil ||
+		(m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSessionToken)
+	if needsSession || needsToken {
 		hasBody = true
 		if needsToken {
 			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
@@ -246,14 +249,11 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	}
 
 	// Generic head.
-	if m.GlobalHeadGenerator != nil {
-		w.Line(1, "genericHead, err := s.app.Head(r)")
-		w.Line(1, "if err != nil {")
-		w.Raw("\t\ts.httpErrIntern(w, r, nil, \"generating generic head for ")
-		w.Raw(p.TypeName)
-		w.Raw("\", err)\n")
-		w.Line(2, "return")
-		w.Line(1, "}")
+	if gh := m.GlobalHeadGenerator; gh != nil {
+		hasSess := h.InputSession != nil || h.InputSessionToken != nil ||
+			gh.InputSession || gh.InputSessionToken
+		hasSessToken := h.InputSessionToken != nil || gh.InputSessionToken
+		w.writeGenericHeadCall(gh, appPkg, hasSess, hasSessToken)
 	}
 
 	// Body attrs.
@@ -274,7 +274,10 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	w.Raw("\t\tw, r, ")
 	if m.Session != nil {
 		sessArg := "sess"
-		if p.PageSpecialization == model.PageTypeError500 || !hasSessionInput(h) {
+		headNeedsSession := m.GlobalHeadGenerator != nil &&
+			(m.GlobalHeadGenerator.InputSession || m.GlobalHeadGenerator.InputSessionToken)
+		if p.PageSpecialization == model.PageTypeError500 ||
+			(!hasSessionInput(h) && !headNeedsSession) {
 			sessArg = appPkg + ".Session{}"
 		}
 		w.Raw(sessArg)
@@ -297,6 +300,32 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 
 func hasSessionInput(h *model.Handler) bool {
 	return h.InputSession != nil
+}
+
+// writeGenericHeadCall emits: genericHead := s.app.Head(r[, sess][, sessToken])
+// hasSess indicates whether a "sess" variable is in scope.
+// hasSessToken indicates whether a "sessToken" variable is in scope.
+func (w *Writer) writeGenericHeadCall(
+	gh *model.GlobalHead, appPkg string, hasSess, hasSessToken bool,
+) {
+	w.Raw("\tgenericHead := s.app.Head(r")
+	if gh.InputSession {
+		if hasSess {
+			w.Raw(", sess")
+		} else {
+			w.Raw(", ")
+			w.Raw(appPkg)
+			w.Raw(".Session{}")
+		}
+	}
+	if gh.InputSessionToken {
+		if hasSessToken {
+			w.Raw(", sessToken")
+		} else {
+			w.Raw(`, ""`)
+		}
+	}
+	w.Raw(")\n")
 }
 
 func (w *Writer) writeGETBodyAttrs(p *model.Page) {
@@ -805,8 +834,12 @@ func (w *Writer) writePageActionHandler(
 
 	// Auth.
 	needsToken := h.InputSessionToken != nil || h.OutputCloseSession != nil
-	if h.InputSession != nil || needsToken {
-		if needsToken {
+	headNeedsSess := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
+		m.GlobalHeadGenerator.InputSession
+	headNeedsToken := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
+		m.GlobalHeadGenerator.InputSessionToken
+	if h.InputSession != nil || needsToken || headNeedsSess || headNeedsToken {
+		if needsToken || headNeedsToken {
 			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
 		} else {
 			w.Line(1, "sess, _, ok := s.auth(w, r)")
@@ -986,22 +1019,15 @@ func (w *Writer) writeActionMethodCall(
 	// Render body (if action returns templ.Component).
 	if h.OutputBody != nil {
 		if m.GlobalHeadGenerator != nil {
-			w.Line(1, "genericHead, err := s.app.Head(r)")
-			w.Line(1, "if err != nil {")
-			w.Raw("\t\ts.httpErrIntern(w, r, nil, \"generating generic head for ")
-			w.Raw(p.TypeName)
-			w.Byte('.')
-			w.Raw(h.HTTPMethod)
-			w.Raw(h.Name)
-			w.Raw("\", err)\n")
-			w.Line(2, "return")
-			w.Line(1, "}")
+			w.writeGenericHeadCall(m.GlobalHeadGenerator, appPkg, hasSessionInput(h), false)
 		}
 		w.Line(1, "if err := s.writeHTML(")
 		w.Raw("\t\tw, r, ")
 		if m.Session != nil {
 			sessArg := "sess"
-			if !hasSessionInput(h) {
+			headNeedsSession := m.GlobalHeadGenerator != nil &&
+				(m.GlobalHeadGenerator.InputSession || m.GlobalHeadGenerator.InputSessionToken)
+			if !hasSessionInput(h) && !headNeedsSession {
 				sessArg = appPkg + ".Session{}"
 			}
 			w.Raw(sessArg)

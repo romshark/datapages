@@ -70,7 +70,9 @@ func TestParse_Basic(t *testing.T) {
 	require.Empty(app.Events)
 	{
 		require.NotNil(app.GlobalHeadGenerator)
-		requireExprLineCol(t, app, app.GlobalHeadGenerator, "app.go", 26, 13)
+		requireExprLineCol(t, app, app.GlobalHeadGenerator.Expr, "app.go", 26, 13)
+		require.False(app.GlobalHeadGenerator.InputSession)
+		require.False(app.GlobalHeadGenerator.InputSessionToken)
 	}
 	{
 		require.NotNil(app.Recover500)
@@ -658,6 +660,13 @@ func TestParse_Session(t *testing.T) {
 	require.NotNil(app)
 	require.NotNil(app.Session)
 
+	// Head with session
+	{
+		require.NotNil(app.GlobalHeadGenerator)
+		require.True(app.GlobalHeadGenerator.InputSession)
+		require.False(app.GlobalHeadGenerator.InputSessionToken)
+	}
+
 	// PageIndex - no session
 	{
 		p := app.PageIndex
@@ -1039,6 +1048,24 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrSignatureGETMissingBody, "app.go", 75, 24},
 			{parser.ErrSignatureGETBodyWrongName, "app.go", 84, 48},
 			{parser.ErrSignatureGETHeadWrongName, "app.go", 95, 2},
+		},
+		"err_head": {
+			{parser.ErrAppHeadMustTakeRequest, "app.go", 20, 13},
+		},
+		"err_head_return": {
+			{parser.ErrAppHeadMustReturnTemplComponent, "app.go", 20, 13},
+		},
+		"err_head_unsupported": {
+			{parser.ErrAppHeadUnsupportedInput, "app.go", 20, 13},
+		},
+		"err_recover500_no_params": {
+			{parser.ErrAppRecover500InvalidSignature, "app.go", 20, 13},
+		},
+		"err_recover500_params": {
+			{parser.ErrAppRecover500InvalidSignature, "app.go", 20, 13},
+		},
+		"err_recover500_return": {
+			{parser.ErrAppRecover500InvalidSignature, "app.go", 21, 13},
 		},
 		"err_dispatch": {
 			{parser.ErrDispatchParamNotFunc, "app.go", 34, 11},

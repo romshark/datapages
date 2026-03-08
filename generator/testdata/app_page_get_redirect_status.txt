@@ -11,11 +11,7 @@ func (s *Server) handlePageOldRouteGET(w http.ResponseWriter, r *http.Request) {
 	if httpRedirect(w, r, redirect, redirectStatus) {
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageOldRoute", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)

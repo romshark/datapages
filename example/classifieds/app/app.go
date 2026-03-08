@@ -102,8 +102,8 @@ func (*App) Recover500(
 }
 
 // Page render funcs
-func (*App) Head(r *http.Request) (body templ.Component, err error) {
-	return head(), nil
+func (*App) Head(r *http.Request) templ.Component {
+	return head()
 }
 
 type Chat struct {

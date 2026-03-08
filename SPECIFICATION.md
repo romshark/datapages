@@ -12,9 +12,10 @@ The `App` type may optionally provide a method for custom global HTML `<head>` t
 ```go
 func (*App) Head(
 	r *http.Request,
-	session Session,
-) (templ.Component, error) {
-	return globalHeadTags(session.UserID), error
+	sessionToken string, // Optional
+	session Session, // Optional
+) templ.Component {
+	return globalHeadTags()
 }
 ```
 

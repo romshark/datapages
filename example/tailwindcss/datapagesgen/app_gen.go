@@ -424,11 +424,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageIndex", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
