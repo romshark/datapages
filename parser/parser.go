@@ -219,7 +219,8 @@ func firstPassEventType(
 		case validate.ErrEventCommMissing:
 			errs.ErrAt(typePos, &ErrorEventCommMissing{TypeName: name})
 		case validate.ErrEventCommInvalid:
-			errs.ErrAt(typePos, &ErrorEventCommInvalid{TypeName: name})
+			commPos := eventCommInvalidPos(doc, name, ctx.pkg.Fset, typePos)
+			errs.ErrAt(commPos, &ErrorEventCommInvalid{TypeName: name})
 		case validate.ErrEventSubjectInvalid:
 			subjPos := eventSubjectPos(doc, name, ctx.pkg.Fset, typePos)
 			errs.ErrAt(subjPos, fmt.Errorf("%w: %s", ErrEventSubjectInvalid, name))
@@ -293,6 +294,43 @@ func eventSubjectPos(
 		return fallback
 	}
 	off += len("is")
+	for off < len(txt) && (txt[off] == ' ' || txt[off] == '\t') {
+		off++
+	}
+	pos := fset.Position(c.Pos())
+	pos.Column += off
+	return pos
+}
+
+// eventCommInvalidPos returns the position of the first unexpected token
+// in an invalid event subject comment. When the type name matches but "is"
+// is missing, it points at the token after the type name. When the type
+// name doesn't match, it points at the start of the comment content.
+func eventCommInvalidPos(
+	doc *ast.CommentGroup, typeName string,
+	fset *token.FileSet, fallback token.Position,
+) token.Position {
+	if doc == nil || len(doc.List) == 0 {
+		return fallback
+	}
+	c := doc.List[0]
+	txt := c.Text
+	idx := strings.Index(txt, typeName)
+	if idx < 0 {
+		// Type name not found — point at the content start (after "// ").
+		off := 0
+		if strings.HasPrefix(txt, "//") {
+			off = 2
+			for off < len(txt) && (txt[off] == ' ' || txt[off] == '\t') {
+				off++
+			}
+		}
+		pos := fset.Position(c.Pos())
+		pos.Column += off
+		return pos
+	}
+	// Type name found — skip past it and whitespace, point at what follows.
+	off := idx + len(typeName)
 	for off < len(txt) && (txt[off] == ' ' || txt[off] == '\t') {
 		off++
 	}
