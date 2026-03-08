@@ -597,7 +597,11 @@ func validateAndAttachEventHandler(
 			case paramvalidation.IsSignalsParam(f):
 				// Valid, no extra validation needed.
 			default:
-				errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), unsupportedInputError(
+				p := f.Type.Pos()
+				if len(f.Names) > 0 {
+					p = f.Names[0].Pos()
+				}
+				errs.ErrAt(ctx.pkg.Fset.Position(p), unsupportedInputError(
 					f, nil, ctx.pkg.TypesInfo, recv, fd.Name.Name,
 				))
 			}
