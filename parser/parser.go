@@ -24,8 +24,24 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func Parse(appPackagePath string) (app *model.App, errs Errors) {
+// ParseOptions configures optional behavior of [Parse].
+type ParseOptions struct {
+	// StaticPrefix is the URL path prefix for static files
+	// (e.g. "/static/"). Hardcoded href/action attributes under this
+	// prefix are not flagged as errors. Defaults to "/static/".
+	StaticPrefix string
+}
+
+func Parse(appPackagePath string, opts ...ParseOptions) (app *model.App, errs Errors) {
 	defer sortErrors(&errs)
+
+	var o ParseOptions
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	if o.StaticPrefix == "" {
+		o.StaticPrefix = "/static/"
+	}
 
 	pkg, err := loadPackage(appPackagePath)
 	if err != nil {
@@ -43,7 +59,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 		return nil, errs
 	}
 
-	ctx := newParseCtx(pkg)
+	ctx := newParseCtx(pkg, o)
 	indexTypes(&ctx)
 	collectEventTypeNames(&ctx)
 	initApp(&ctx, &errs)
@@ -55,6 +71,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	validateRequiredHandlers(&ctx, &errs)
 	finalizePages(&ctx)
 	assignSpecialPages(&ctx, &errs)
+	checkTemplFiles(&ctx, &errs)
 
 	if !ctx.appTypeFound {
 		return nil, errs
@@ -82,14 +99,17 @@ type parseCtx struct {
 	// Non-error outputs per handler, used by buildHandlerGET.
 	handlerOutputs map[*model.Handler][]*model.Output
 
+	opts ParseOptions
+
 	app          *model.App
 	appTypeFound bool
 	basePos      token.Position
 }
 
-func newParseCtx(pkg *packages.Package) parseCtx {
+func newParseCtx(pkg *packages.Package, opts ParseOptions) parseCtx {
 	return parseCtx{
 		pkg:                 pkg,
+		opts:                opts,
 		typeSpecByName:      map[string]*ast.TypeSpec{},
 		docByType:           map[string]*ast.CommentGroup{},
 		genDocByType:        map[string]*ast.CommentGroup{},

@@ -1,0 +1,27 @@
+package app
+
+templ indexPage() {
+	<h1>Index</h1>
+}
+
+templ profilePage() {
+	<form action={ action.POSTPageProfileSave() }>
+		<button type="submit">Save Profile</button>
+	</form>
+}
+
+templ settingsPage() {
+	<form action={ action.POSTPageSettingsUpdate() }>
+		<button type="submit">Update Settings</button>
+	</form>
+	@settingsActions()
+}
+
+templ settingsActions() {
+	<form action={ action.POSTPageProfileSave() }>
+		<button type="submit">Wrong: Profile action in Settings</button>
+	</form>
+	<form action={ action.POSTAppGlobal() }>
+		<button type="submit">OK: App action in Settings</button>
+	</form>
+}

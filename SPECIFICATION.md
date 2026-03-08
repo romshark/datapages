@@ -576,6 +576,38 @@ Datapages relies on the
 [`visibilitychange`](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event)
 event to perform the automatic refresh.
 
+## Linting
+
+`datapages lint` parses the application model and reports all errors without generating
+code. It validates the same rules as `datapages gen`, making it useful for CI checks
+and editor integration.
+
+This includes all structural validations (missing types, invalid signatures,
+path comments, event definitions, parameter types, etc.) as well as
+template-specific checks on `.templ` files:
+
+- **Hardcoded href URLs**: using `href="/path"` instead of the generated `href` package
+  (e.g. `href={ href.Login() }`).
+- **Hardcoded action URLs**: using `action="/path"` instead of the generated `action` package
+  (e.g. `action={ action.POSTPageProfileSave() }`).
+- **Action on wrong page**: using an action that belongs to a different page
+  (e.g. `action.POSTPageProfileSave()` in a template rendered by `PageSettings`).
+  App-level actions are allowed on any page.
+
+URLs starting with `/static/`, `//`, or non-`/` prefixes (external URLs) are exempt
+from the hardcoded href/action checks.
+
+### Suppressing Lint Errors
+
+Use `//datapages:nolint` in a templ file to suppress the next element's lint errors:
+
+```templ
+//datapages:nolint
+<a href="/legacy-path">Legacy</a>
+```
+
+The directive applies to the immediately following non-whitespace sibling element.
+
 ## Technical Limitations
 
 - For now, with CSRF protection enabled, you will not be able to use plain HTML forms,

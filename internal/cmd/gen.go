@@ -59,7 +59,7 @@ func runGen(moduleDir string, config config, stderr io.Writer) error {
 		return err
 	}
 
-	app, parseErr := parseApp(filepath.Join(moduleDir, config.App), stderr)
+	app, parseErr := parseApp(filepath.Join(moduleDir, config.App), config, stderr)
 
 	// Always generate the package; when app is nil, stub files are written so
 	// that IDEs can resolve the import while errors are fixed.
@@ -86,8 +86,10 @@ func runGen(moduleDir string, config config, stderr io.Writer) error {
 	return parseErr
 }
 
-func parseApp(appDir string, stderr io.Writer) (*model.App, error) {
-	app, errs := datapagesparser.Parse(appDir)
+func parseApp(appDir string, cfg config, stderr io.Writer) (*model.App, error) {
+	app, errs := datapagesparser.Parse(appDir, datapagesparser.ParseOptions{
+		StaticPrefix: cfg.StaticPrefix,
+	})
 	if errs.Len() > 0 {
 		for _, err := range errs.All() {
 			_, _ = fmt.Fprintln(stderr, err)

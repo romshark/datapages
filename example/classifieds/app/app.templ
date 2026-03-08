@@ -36,7 +36,7 @@ templ fragmentNavbar(session Session, searchTerm string, baseData baseData) {
 			data-on:keydown="if (evt.key === 'Enter') $searchanchor.click()"
 			placeholder="What are you looking for?"
 		/>
-		//datapages-lint:nolint
+		//datapages:nolint
 		<a
 			data-ref:searchanchor
 			data-attr:href="'/search?t=' + $searchinput"

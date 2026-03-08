@@ -210,6 +210,43 @@ func TestSuggest(t *testing.T) {
 			err:  &parser.ErrorEventTargetUserIDsNoSession{TypeName: "EventChat", PkgName: "app"},
 			want: "fix: Define a Session type in package app",
 		},
+
+		"ErrTemplHardcodedHref/simple": {
+			err:  &parser.ErrorTemplHardcodedHref{URL: "/login"},
+			want: `fix: Use href={ href.Login(...) } instead of "/login"`,
+		},
+		"ErrTemplHardcodedHref/index": {
+			err:  &parser.ErrorTemplHardcodedHref{URL: "/"},
+			want: `fix: Use href={ href.Index(...) } instead of "/"`,
+		},
+		"ErrTemplHardcodedHref/trailing slash": {
+			err:  &parser.ErrorTemplHardcodedHref{URL: "/profile/"},
+			want: `fix: Use href={ href.Profile(...) } instead of "/profile/"`,
+		},
+		"ErrTemplHardcodedHref/deep path fallback": {
+			err:  &parser.ErrorTemplHardcodedHref{URL: "/profile/edit"},
+			want: `fix: Use href={ href.Xxx(...) } from the generated href package instead of "/profile/edit"`,
+		},
+		"ErrTemplHardcodedAction/app level": {
+			err:  &parser.ErrorTemplHardcodedAction{URL: "/submit"},
+			want: `fix: Use action={ action.POSTAppSubmit(...) } instead of "/submit"`,
+		},
+		"ErrTemplHardcodedAction/page level": {
+			err:  &parser.ErrorTemplHardcodedAction{URL: "/profile/save"},
+			want: `fix: Use action={ action.POSTPageProfileSave(...) } instead of "/profile/save"`,
+		},
+		"ErrTemplHardcodedAction/deep path fallback": {
+			err:  &parser.ErrorTemplHardcodedAction{URL: "/a/b/c"},
+			want: `fix: Use action={ action.Xxx(...) } from the generated action package instead of "/a/b/c"`,
+		},
+		"ErrTemplActionWrongPage": {
+			err: &parser.ErrorTemplActionWrongPage{
+				ActionFunc: "POSTPageProfileSave",
+				PageType:   "PageSettings",
+				OwnerPage:  "PageProfile",
+			},
+			want: "fix: Move this action reference to a template used by PageProfile, or use an action owned by PageSettings",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, errsuggest.Suggest(tc.err))

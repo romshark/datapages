@@ -15,6 +15,10 @@ type config struct {
 	// Cmd is the path to the server cmd package (default: "cmd/server").
 	Cmd string `yaml:"cmd"`
 
+	// StaticPrefix is the URL path prefix for static files (default: "/static/").
+	// Must match the prefix used with WithStaticFS in the server configuration.
+	StaticPrefix string `yaml:"static-prefix"`
+
 	// Watch is the Templier watch mode settings (optional).
 	Watch *watchConfig `yaml:"watch"`
 }
