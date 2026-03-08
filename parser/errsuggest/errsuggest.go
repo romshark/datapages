@@ -46,6 +46,34 @@ func toSnakeCase(s string) string {
 // The hint is formatted as a short "fix: ..." line meant to be printed after the error.
 func Suggest(err error) string {
 	switch {
+	case errors.Is(err, parser.ErrAppMissingTypeApp):
+		return "fix: Add `type App struct{}`"
+
+	case errors.Is(err, parser.ErrAppMissingPageIndex):
+		return "fix: Add: \n" +
+			"// PageIndex is /\n" +
+			"type PageIndex struct{ App *App }\n" +
+			"func (p PageIndex) GET(r *http.Request) " +
+			"(body templ.Component, err error) { return nil, nil }"
+
+	case errors.Is(err, parser.ErrSignatureMissingReq):
+		return "fix: Add `r *http.Request` parameter"
+
+	case errors.Is(err, parser.ErrSignatureGETMissingBody):
+		return "fix: Add `body templ.Component` to return values"
+
+	case errors.Is(err, parser.ErrSignatureEvHandMissingSSE):
+		return "fix: Add `sse *datastar.ServerSentEventGenerator` parameter"
+
+	case errors.Is(err, parser.ErrSignatureEvHandMissingEvent):
+		return "fix: Add `event EventName` parameter"
+
+	case errors.Is(err, parser.ErrSessionMissingUserID):
+		return "fix: Add `UserID string` field to Session"
+
+	case errors.Is(err, parser.ErrSessionMissingIssuedAt):
+		return "fix: Add `IssuedAt time.Time` field to Session"
+
 	case errors.Is(err, parser.ErrPageMissingFieldApp):
 		var d *parser.ErrorPageMissingFieldApp
 		if !errors.As(err, &d) {
@@ -257,14 +285,8 @@ func Suggest(err error) string {
 // Errors intentionally excluded from Suggest — the error message already states
 // the fix, or there is no specific context available to produce a useful hint:
 //
-//   - ErrAppMissingTypeApp            — message names the required type
-//   - ErrAppMissingPageIndex          — message names the required page type
-//   - ErrSignatureMissingReq          — message names *http.Request
 //   - ErrSignatureMultiErrRet         — message states to remove the duplicate
-//   - ErrSignatureEvHandMissingSSE    — message names the exact required type
 //   - ErrSignatureEvHandReturnMustBeError — message names the required return type
-//   - ErrSignatureEvHandMissingEvent  — message states the required parameter name and type
-//   - ErrSignatureGETMissingBody      — message states "return body templ.Component"
 //   - ErrSignatureGETBodyWrongName    — message states to name it "body"
 //   - ErrSignatureGETHeadWrongName    — message states to name it "head"
 //   - ErrPageHasExtraFields           — message states to remove the fields
@@ -294,8 +316,6 @@ func Suggest(err error) string {
 //   - ErrDispatchNoParams             — constraint is clear from message
 //   - ErrDispatchParamNotEvent        — constraint is clear from message
 //   - ErrSessionNotStruct             — type constraint is clear from message
-//   - ErrSessionMissingUserID         — message names the required field and type
-//   - ErrSessionMissingIssuedAt       — message names the required field and type
 //   - ErrSessionParamNotSessionType   — constraint is clear from message
 //   - ErrSessionTokenParamNotString   — constraint is clear from message
 //   - ErrRedirectNotString            — constraint is clear from message

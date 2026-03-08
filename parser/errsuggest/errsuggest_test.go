@@ -20,6 +20,66 @@ func TestSuggest(t *testing.T) {
 		"unrelated":     {err: errors.New("some error"), want: ""},
 		"sentinel only": {err: parser.ErrActionPathNotUnderPage, want: ""},
 
+		"ErrAppMissingTypeApp": {
+			err:  parser.ErrAppMissingTypeApp,
+			want: "fix: Add `type App struct{}`",
+		},
+		"ErrAppMissingTypeApp/wrapped": {
+			err:  fmt.Errorf("outer: %w", parser.ErrAppMissingTypeApp),
+			want: "fix: Add `type App struct{}`",
+		},
+
+		"ErrAppMissingPageIndex": {
+			err: parser.ErrAppMissingPageIndex,
+			want: "fix: Add: \n" +
+				"// PageIndex is /\n" +
+				"type PageIndex struct{ App *App }\n" +
+				"func (p PageIndex) GET(r *http.Request) " +
+				"(body templ.Component, err error) { return nil, nil }",
+		},
+
+		"ErrSignatureMissingReq": {
+			err:  parser.ErrSignatureMissingReq,
+			want: "fix: Add `r *http.Request` parameter",
+		},
+		"ErrSignatureMissingReq/wrapped": {
+			err:  fmt.Errorf("%w in PageFoo.GET", parser.ErrSignatureMissingReq),
+			want: "fix: Add `r *http.Request` parameter",
+		},
+
+		"ErrSignatureGETMissingBody": {
+			err:  parser.ErrSignatureGETMissingBody,
+			want: "fix: Add `body templ.Component` to return values",
+		},
+
+		"ErrSignatureEvHandMissingSSE": {
+			err:  parser.ErrSignatureEvHandMissingSSE,
+			want: "fix: Add `sse *datastar.ServerSentEventGenerator` parameter",
+		},
+		"ErrSignatureEvHandMissingSSE/wrapped": {
+			err:  fmt.Errorf("%w: PageFoo.OnEventBar", parser.ErrSignatureEvHandMissingSSE),
+			want: "fix: Add `sse *datastar.ServerSentEventGenerator` parameter",
+		},
+
+		"ErrSignatureEvHandMissingEvent": {
+			err:  parser.ErrSignatureEvHandMissingEvent,
+			want: "fix: Add `event EventName` parameter",
+		},
+		"ErrSignatureEvHandMissingEvent/wrapped": {
+			err:  fmt.Errorf("%w: PageFoo.OnEventBar", parser.ErrSignatureEvHandMissingEvent),
+			want: "fix: Add `event EventName` parameter",
+		},
+
+		"ErrSessionMissingUserID": {
+			err:  parser.ErrSessionMissingUserID,
+			want: "fix: Add `UserID string` field to Session",
+		},
+
+		"ErrSessionMissingIssuedAt": {
+			err:  parser.ErrSessionMissingIssuedAt,
+			want: "fix: Add `IssuedAt time.Time` field to Session",
+		},
+
 		"ErrPageMissingFieldApp": {
 			err:  &parser.ErrorPageMissingFieldApp{TypeName: "PageProfile"},
 			want: "fix: Add field `App *App` to PageProfile",
