@@ -215,6 +215,16 @@ func Suggest(err error) string {
 			"fix: Use href={ href.Xxx(...) } from the generated href package "+
 				"instead of %q", d.URL)
 
+	case errors.Is(err, parser.ErrTemplActionWrongPage):
+		var d *parser.ErrorTemplActionWrongPage
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Move this action reference to a template used by %s, "+
+				"or use an action owned by %s",
+			d.OwnerPage, d.PageType)
+
 	case errors.Is(err, parser.ErrTemplHardcodedAction):
 		var d *parser.ErrorTemplHardcodedAction
 		if !errors.As(err, &d) {
@@ -290,6 +300,7 @@ func Suggest(err error) string {
 //   - ErrEnableBgStreamNotGET         — message states it must be in a GET handler
 //   - ErrDisableRefreshNotBool        — constraint is clear from message
 //   - ErrDisableRefreshNotGET         — message states it must be in a GET handler
+//   - ErrEventTargetUserIDsNoSession  — has dedicated suggestion above
 
 // pageTypePath derives a suggested route path from a page type name.
 // "PageIndex" -> "/", "PageProfile" -> "/profile/", "PageFooBar" -> "/foobar/".

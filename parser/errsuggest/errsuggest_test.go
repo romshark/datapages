@@ -234,6 +234,14 @@ func TestSuggest(t *testing.T) {
 			err:  &parser.ErrorTemplHardcodedAction{URL: "/a/b/c"},
 			want: `fix: Use action={ action.Xxx(...) } from the generated action package instead of "/a/b/c"`,
 		},
+		"ErrTemplActionWrongPage": {
+			err: &parser.ErrorTemplActionWrongPage{
+				ActionFunc: "POSTPageProfileSave",
+				PageType:   "PageSettings",
+				OwnerPage:  "PageProfile",
+			},
+			want: "fix: Move this action reference to a template used by PageProfile, or use an action owned by PageSettings",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, errsuggest.Suggest(tc.err))

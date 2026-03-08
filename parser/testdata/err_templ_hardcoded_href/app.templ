@@ -1,0 +1,14 @@
+package app
+
+templ page() {
+	<a href="/login">Login</a>
+	<a href="/profile">Profile</a>
+	<form action="/submit">
+		<button type="submit">Submit</button>
+	</form>
+	<a href="/static/style.css">OK static</a>
+	<a href="https://example.com">OK external</a>
+	<a href={ loginHref() }>OK expression</a>
+	//datapages:nolint
+	<a href="/suppressed">Suppressed</a>
+}

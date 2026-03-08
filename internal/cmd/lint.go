@@ -23,7 +23,7 @@ without generating code. Useful for CI checks and editor integration.`,
 				return err
 			}
 
-			_, err = parseApp(filepath.Join(moduleDir, config.App), stderr)
+			_, err = parseApp(filepath.Join(moduleDir, config.App), config, stderr)
 			return err
 		},
 	}
