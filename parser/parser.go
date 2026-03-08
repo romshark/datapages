@@ -508,7 +508,7 @@ func validateAndAttachEventHandler(
 				// Already validated above.
 			case paramvalidation.IsSessionTokenParam(f):
 				if !typecheck.IsString(ctx.pkg.TypesInfo.TypeOf(f.Type)) {
-					errs.ErrAt(pos, fmt.Errorf(
+					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), fmt.Errorf(
 						"%w: %s.%s",
 						ErrSessionTokenParamNotString,
 						recv, fd.Name.Name,
@@ -516,7 +516,7 @@ func validateAndAttachEventHandler(
 				}
 			case paramvalidation.IsSessionParam(f):
 				if !typecheck.IsSessionType(f.Type, ctx.pkg.TypesInfo) {
-					errs.ErrAt(pos, fmt.Errorf(
+					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), fmt.Errorf(
 						"%w: %s.%s",
 						ErrSessionParamNotSessionType,
 						recv, fd.Name.Name,
@@ -525,7 +525,7 @@ func validateAndAttachEventHandler(
 			case paramvalidation.IsSignalsParam(f):
 				// Valid, no extra validation needed.
 			default:
-				errs.ErrAt(pos, unsupportedInputError(
+				errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), unsupportedInputError(
 					f, nil, ctx.pkg.TypesInfo, recv, fd.Name.Name,
 				))
 			}
@@ -534,7 +534,11 @@ func validateAndAttachEventHandler(
 
 	// OnXXX must return exactly one result of type error.
 	if !eventHandlerReturnsOnlyError(fd, ctx.pkg.TypesInfo) {
-		errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+		retPos := pos
+		if fd.Type.Results != nil {
+			retPos = ctx.pkg.Fset.Position(fd.Type.Results.Pos())
+		}
+		errs.ErrAt(retPos, fmt.Errorf("%w: %s.%s",
 			ErrSignatureEvHandReturnMustBeError, recv, fd.Name.Name))
 	}
 
@@ -628,14 +632,22 @@ func attachHTTPHandler(
 		if err := paramvalidation.ValidatePathAgainstRoute(
 			h, recv, fd.Name.Name,
 		); err != nil {
-			errs.ErrAt(pos, err)
+			p := pos
+			if h.InputPath != nil {
+				p = ctx.pkg.Fset.Position(h.InputPath.Expr.Pos())
+			}
+			reportErrors(errs, p, err)
 		}
 	}
 
 	// Validate reflectsignal tags on query fields reference actual signals.
 	if herr == nil {
 		if rsErr := structtag.ValidateReflectSignal(h, recv, fd.Name.Name); rsErr != nil {
-			errs.ErrAt(pos, rsErr)
+			p := pos
+			if h.InputQuery != nil {
+				p = ctx.pkg.Fset.Position(h.InputQuery.Expr.Pos())
+			}
+			reportErrors(errs, p, rsErr)
 		}
 	}
 
@@ -647,7 +659,7 @@ func attachHTTPHandler(
 				// output validation and code generation details.
 				pg.GET = &model.HandlerGET{Handler: h}
 			} else {
-				get, getErr := buildHandlerGET(h, outputs)
+				get, getErr := buildHandlerGET(h, outputs, ctx.pkg.Fset)
 				pg.GET = get
 				if getErr != nil {
 					errs.ErrAt(pos,
@@ -788,7 +800,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				}
 				// First embedded GET wins (record embed site).
 				if getOwner == "" {
-					get, getErr := buildHandlerGET(m, ctx.handlerOutputs[m])
+					get, getErr := buildHandlerGET(m, ctx.handlerOutputs[m], ctx.pkg.Fset)
 					pg.GET = get
 					if getErr != nil {
 						pos := ctx.pkg.Fset.Position(m.Expr.Pos())
@@ -1120,7 +1132,34 @@ func reportErrors(errs *Errors, pos token.Position, err error) {
 		}
 		return
 	}
-	errs.ErrAt(pos, err)
+	var pe *positionedError
+	if errors.As(err, &pe) {
+		errs.ErrAt(pe.pos, pe.err)
+	} else {
+		errs.ErrAt(pos, err)
+	}
+}
+
+// appendPositioned wraps err (or each sub-error of a joined error)
+// with the given AST position and appends them to dst.
+// If an individual sub-error implements ASTPos() token.Pos and that
+// position is valid, it overrides the fallback position.
+func appendPositioned(dst *[]error, fset *token.FileSet, fallback token.Pos, err error) {
+	resolvePos := func(e error) token.Position {
+		if ap, ok := e.(interface{ ASTPos() token.Pos }); ok {
+			if p := ap.ASTPos(); p.IsValid() {
+				return fset.Position(p)
+			}
+		}
+		return fset.Position(fallback)
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, e := range joined.Unwrap() {
+			*dst = append(*dst, &positionedError{pos: resolvePos(e), err: e})
+		}
+	} else {
+		*dst = append(*dst, &positionedError{pos: resolvePos(err), err: err})
+	}
 }
 
 // knownParamNames lists the recognized handler parameter names
@@ -1296,7 +1335,9 @@ func makeType(typeExpr ast.Expr, info *types.Info) model.Type {
 	}
 }
 
-func buildHandlerGET(h *model.Handler, outputs []*model.Output) (*model.HandlerGET, error) {
+func buildHandlerGET(
+	h *model.Handler, outputs []*model.Output, fset *token.FileSet,
+) (*model.HandlerGET, error) {
 	get := &model.HandlerGET{
 		Handler: h,
 	}
@@ -1317,6 +1358,12 @@ func buildHandlerGET(h *model.Handler, outputs []*model.Output) (*model.HandlerG
 	// Validate: First templ.Component must be named "body"
 	firstComp := templComponents[0]
 	if firstComp.Name != "body" {
+		if firstComp.Expr != nil {
+			return get, &positionedError{
+				pos: fset.Position(firstComp.Expr.Pos()),
+				err: ErrSignatureGETBodyWrongName,
+			}
+		}
 		return get, ErrSignatureGETBodyWrongName
 	}
 	get.OutputBody = &model.TemplComponent{Output: firstComp}
@@ -1325,6 +1372,12 @@ func buildHandlerGET(h *model.Handler, outputs []*model.Output) (*model.HandlerG
 	if len(templComponents) > 1 {
 		secondComp := templComponents[1]
 		if secondComp.Name != "head" {
+			if secondComp.Expr != nil {
+				return get, &positionedError{
+					pos: fset.Position(secondComp.Expr.Pos()),
+					err: ErrSignatureGETHeadWrongName,
+				}
+			}
 			return get, ErrSignatureGETHeadWrongName
 		}
 		get.OutputHead = &model.TemplComponent{Output: secondComp}
@@ -1361,11 +1414,15 @@ func parseHandler(
 	var unsupErrs []error
 	foundReq := false
 	for _, f := range expandedParams {
+		fieldErr := func(err error) *positionedError {
+			return &positionedError{pos: fset.Position(f.Type.Pos()), err: err}
+		}
+
 		switch {
 		case typecheck.IsPtrToNetHTTPReq(f.Type, info):
 			if h.InputRequest != nil {
 				unsupErrs = append(unsupErrs,
-					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
 			h.InputRequest = parseInput(f, info)
@@ -1375,7 +1432,7 @@ func parseHandler(
 		case typecheck.IsPtrToDatastarSSE(f.Type, info):
 			if h.InputSSE != nil {
 				unsupErrs = append(unsupErrs,
-					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
 			h.InputSSE = parseInput(f, info)
@@ -1384,12 +1441,12 @@ func parseHandler(
 		case paramvalidation.IsSessionTokenParam(f):
 			if h.InputSessionToken != nil {
 				unsupErrs = append(unsupErrs,
-					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
 			if !typecheck.IsString(info.TypeOf(f.Type)) {
-				return h, nil, fmt.Errorf("%w in %s.%s",
-					ErrSessionTokenParamNotString, recv, fd.Name.Name)
+				return h, nil, fieldErr(fmt.Errorf("%w in %s.%s",
+					ErrSessionTokenParamNotString, recv, fd.Name.Name))
 			}
 			h.InputSessionToken = parseInput(f, info)
 			h.InputOrder = append(h.InputOrder, model.InputKindSessionToken)
@@ -1397,12 +1454,12 @@ func parseHandler(
 		case paramvalidation.IsSessionParam(f):
 			if h.InputSession != nil {
 				unsupErrs = append(unsupErrs,
-					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
 			if !typecheck.IsSessionType(f.Type, info) {
-				return h, nil, fmt.Errorf("%w in %s.%s",
-					ErrSessionParamNotSessionType, recv, fd.Name.Name)
+				return h, nil, fieldErr(fmt.Errorf("%w in %s.%s",
+					ErrSessionParamNotSessionType, recv, fd.Name.Name))
 			}
 			h.InputSession = parseInput(f, info)
 			h.InputOrder = append(h.InputOrder, model.InputKindSession)
@@ -1410,14 +1467,15 @@ func parseHandler(
 		case paramvalidation.IsPathParam(f):
 			if h.InputPath != nil {
 				unsupErrs = append(unsupErrs,
-					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
 			pathErr := paramvalidation.ValidatePathStruct(
 				f, info, recv, fd.Name.Name,
 			)
 			if pathErr != nil {
-				return h, nil, pathErr
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(), pathErr)
+				continue
 			}
 			h.InputPath = parseInput(f, info)
 			h.InputOrder = append(h.InputOrder, model.InputKindPath)
@@ -1425,14 +1483,15 @@ func parseHandler(
 		case paramvalidation.IsQueryParam(f):
 			if h.InputQuery != nil {
 				unsupErrs = append(unsupErrs,
-					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
 			queryErr := paramvalidation.ValidateQueryStruct(
 				f, info, recv, fd.Name.Name,
 			)
 			if queryErr != nil {
-				return h, nil, queryErr
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(), queryErr)
+				continue
 			}
 			h.InputQuery = parseInput(f, info)
 			h.InputOrder = append(h.InputOrder, model.InputKindQuery)
@@ -1440,14 +1499,15 @@ func parseHandler(
 		case paramvalidation.IsSignalsParam(f):
 			if h.InputSignals != nil {
 				unsupErrs = append(unsupErrs,
-					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
 			sigErr := paramvalidation.ValidateSignalsStruct(
 				f, info, recv, fd.Name.Name,
 			)
 			if sigErr != nil {
-				return h, nil, sigErr
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sigErr)
+				continue
 			}
 			h.InputSignals = parseInput(f, info)
 			h.InputOrder = append(h.InputOrder, model.InputKindSignals)
@@ -1455,21 +1515,14 @@ func parseHandler(
 		case paramvalidation.IsDispatchParam(f):
 			if h.InputDispatch != nil {
 				unsupErrs = append(unsupErrs,
-					unsupportedInputError(f, h, info, recv, fd.Name.Name))
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
 			eventNames, dispErr := paramvalidation.ValidateDispatchFunc(
 				f, info, eventTypeNames, recv, fd.Name.Name,
 			)
 			if dispErr != nil {
-				fieldPos := fset.Position(f.Type.Pos())
-				if joined, ok := dispErr.(interface{ Unwrap() []error }); ok {
-					for _, e := range joined.Unwrap() {
-						unsupErrs = append(unsupErrs, &positionedError{pos: fieldPos, err: e})
-					}
-				} else {
-					unsupErrs = append(unsupErrs, &positionedError{pos: fieldPos, err: dispErr})
-				}
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(), dispErr)
 				continue
 			}
 			h.InputDispatch = &model.InputDispatch{
@@ -1482,7 +1535,7 @@ func parseHandler(
 
 		default:
 			unsupErrs = append(unsupErrs,
-				unsupportedInputError(f, h, info, recv, fd.Name.Name))
+				fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 		}
 	}
 
@@ -1532,18 +1585,22 @@ func parseHandler(
 				h.OutputErr = out
 				continue
 			}
+			retErr := func(err error) *positionedError {
+				return &positionedError{pos: fset.Position(r.Type.Pos()), err: err}
+			}
+
 			switch n.Name {
 			case "redirect":
 				if !typecheck.IsString(t.Resolved) {
-					return h, nil, fmt.Errorf("%w in %s.%s",
-						ErrRedirectNotString, recv, fd.Name.Name)
+					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
+						ErrRedirectNotString, recv, fd.Name.Name))
 				}
 				h.OutputRedirect = out
 				continue
 			case "redirectStatus":
 				if !typecheck.IsInt(t.Resolved) {
-					return h, nil, fmt.Errorf("%w in %s.%s",
-						ErrRedirectStatusNotInt, recv, fd.Name.Name)
+					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
+						ErrRedirectStatusNotInt, recv, fd.Name.Name))
 				}
 				h.OutputRedirectStatus = out
 				continue
@@ -1551,38 +1608,38 @@ func parseHandler(
 				if !typecheck.IsSessionType(
 					r.Type, info,
 				) {
-					return h, nil, fmt.Errorf("%w in %s.%s",
-						ErrNewSessionNotSessionType, recv, fd.Name.Name)
+					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
+						ErrNewSessionNotSessionType, recv, fd.Name.Name))
 				}
 				h.OutputNewSession = out
 				continue
 			case "closeSession":
 				if !typecheck.IsBool(t.Resolved) {
-					return h, nil, fmt.Errorf("%w in %s.%s",
-						ErrCloseSessionNotBool, recv, fd.Name.Name)
+					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
+						ErrCloseSessionNotBool, recv, fd.Name.Name))
 				}
 				h.OutputCloseSession = out
 				continue
 			case "enableBackgroundStreaming":
 				if kind != methodkind.GETHandler {
-					return h, nil, fmt.Errorf("%w in %s.%s",
-						ErrEnableBgStreamNotGET, recv, fd.Name.Name)
+					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
+						ErrEnableBgStreamNotGET, recv, fd.Name.Name))
 				}
 				if !typecheck.IsBool(t.Resolved) {
-					return h, nil, fmt.Errorf("%w in %s.%s",
-						ErrEnableBgStreamNotBool, recv, fd.Name.Name)
+					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
+						ErrEnableBgStreamNotBool, recv, fd.Name.Name))
 				}
 				h.OutputEnableBgStream = out
 				continue
 
 			case "disableRefreshAfterHidden":
 				if kind != methodkind.GETHandler {
-					return h, nil, fmt.Errorf("%w in %s.%s",
-						ErrDisableRefreshNotGET, recv, fd.Name.Name)
+					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
+						ErrDisableRefreshNotGET, recv, fd.Name.Name))
 				}
 				if !typecheck.IsBool(t.Resolved) {
-					return h, nil, fmt.Errorf("%w in %s.%s",
-						ErrDisableRefreshNotBool, recv, fd.Name.Name)
+					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
+						ErrDisableRefreshNotBool, recv, fd.Name.Name))
 				}
 				h.OutputDisableRefresh = out
 				continue

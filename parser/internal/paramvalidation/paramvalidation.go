@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
+	"go/token"
 	"go/types"
 	"strings"
 
@@ -406,20 +407,17 @@ var (
 		"dispatch parameter must be a function type",
 	)
 	ErrDispatchMustReturnError error = &ErrorDispatchMustReturnError{}
-	ErrDispatchNoParams              = errors.New(
-		"dispatch function must have at least one event parameter",
-	)
-	ErrDispatchParamNotEvent = errors.New(
-		"dispatch function parameter must be an event type",
-	)
+	ErrDispatchNoParams        error = &ErrorDispatchNoParams{}
+	ErrDispatchParamNotEvent   error = &ErrorDispatchParamNotEvent{}
 )
 
 // ErrorDispatchMustReturnError is returned when a dispatch function's
 // return type is not exactly `error`.
 type ErrorDispatchMustReturnError struct {
-	Recv       string // e.g. "PageFoo"
-	MethodName string // e.g. "GET"
-	ParamTypes string // e.g. "EventFoo, EventBar"
+	Recv       string    // e.g. "PageFoo"
+	MethodName string    // e.g. "GET"
+	ParamTypes string    // e.g. "EventFoo, EventBar"
+	Pos        token.Pos // position of the problematic return type or func keyword
 }
 
 func (e *ErrorDispatchMustReturnError) Error() string {
@@ -436,6 +434,51 @@ func (e *ErrorDispatchMustReturnError) Is(target error) bool {
 	_, ok := target.(*ErrorDispatchMustReturnError)
 	return ok
 }
+
+func (e *ErrorDispatchMustReturnError) ASTPos() token.Pos { return e.Pos }
+
+// ErrorDispatchParamNotEvent is returned when a dispatch function
+// parameter is not an event type.
+type ErrorDispatchParamNotEvent struct {
+	Recv       string    // e.g. "PageFoo"
+	MethodName string    // e.g. "GET"
+	Pos        token.Pos // position of the non-event parameter type
+}
+
+func (e *ErrorDispatchParamNotEvent) Error() string {
+	return fmt.Sprintf(
+		"dispatch function parameter must be an event type in %s.%s",
+		e.Recv, e.MethodName,
+	)
+}
+
+func (e *ErrorDispatchParamNotEvent) Is(target error) bool {
+	_, ok := target.(*ErrorDispatchParamNotEvent)
+	return ok
+}
+
+func (e *ErrorDispatchParamNotEvent) ASTPos() token.Pos { return e.Pos }
+
+// ErrorDispatchNoParams is returned when a dispatch function has no parameters.
+type ErrorDispatchNoParams struct {
+	Recv       string    // e.g. "PageFoo"
+	MethodName string    // e.g. "GET"
+	Pos        token.Pos // position of the empty param list
+}
+
+func (e *ErrorDispatchNoParams) Error() string {
+	return fmt.Sprintf(
+		"dispatch function must have at least one event parameter in %s.%s",
+		e.Recv, e.MethodName,
+	)
+}
+
+func (e *ErrorDispatchNoParams) Is(target error) bool {
+	_, ok := target.(*ErrorDispatchNoParams)
+	return ok
+}
+
+func (e *ErrorDispatchNoParams) ASTPos() token.Pos { return e.Pos }
 
 // IsDispatchParam reports whether the AST field is named
 // "dispatch".
@@ -503,30 +546,37 @@ func ValidateDispatchFunc(
 		}
 	}
 	if !retOK {
+		retPos := ft.Pos() // fallback: func keyword
+		if ft.Results != nil && len(ft.Results.List) > 0 {
+			retPos = ft.Results.List[0].Type.Pos()
+		}
 		errs = append(errs, &ErrorDispatchMustReturnError{
 			Recv:       recv,
 			MethodName: method,
 			ParamTypes: funcParamTypes(ft),
+			Pos:        retPos,
 		})
 	}
 
 	// Validate parameters: at least one, all EventXXX.
 	var eventNames []string
 	if ft.Params == nil || len(ft.Params.List) == 0 {
-		errs = append(errs, fmt.Errorf(
-			"%w in %s.%s",
-			ErrDispatchNoParams, recv, method,
-		))
+		errs = append(errs, &ErrorDispatchNoParams{
+			Recv:       recv,
+			MethodName: method,
+			Pos:        ft.Pos(),
+		})
 	} else {
 		for _, p := range ft.Params.List {
 			name, ok := typecheck.EventTypeNameOf(
 				p.Type, info, eventTypeNames,
 			)
 			if !ok {
-				errs = append(errs, fmt.Errorf(
-					"%w in %s.%s",
-					ErrDispatchParamNotEvent, recv, method,
-				))
+				errs = append(errs, &ErrorDispatchParamNotEvent{
+					Recv:       recv,
+					MethodName: method,
+					Pos:        p.Type.Pos(),
+				})
 				break
 			}
 			// Account for grouped names (a, b EventFoo).
