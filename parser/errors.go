@@ -55,6 +55,7 @@ var (
 	ErrPageNameInvalid         = errors.New("page has invalid name")
 	ErrPageMissingPathComm     = errors.New("page is missing path comment")
 	ErrPageInvalidPathComm     = errors.New("page has invalid path comment")
+	ErrPageIndexPathMustBeRoot = errors.New(`PageIndex path must be "/"`)
 
 	ErrActionNameMissing      = errors.New("action handler must have a name")
 	ErrActionNameInvalid      = errors.New("action has invalid name")
@@ -388,6 +389,17 @@ func (e *ErrorPageInvalidPathComm) Error() string {
 }
 
 func (e *ErrorPageInvalidPathComm) Unwrap() error { return ErrPageInvalidPathComm }
+
+// ErrorPageIndexPathMustBeRoot is ErrPageIndexPathMustBeRoot with suggestion context.
+type ErrorPageIndexPathMustBeRoot struct {
+	Route string // the invalid route, e.g. "/home"
+}
+
+func (e *ErrorPageIndexPathMustBeRoot) Error() string {
+	return fmt.Sprintf("%v, got %q", ErrPageIndexPathMustBeRoot, e.Route)
+}
+
+func (e *ErrorPageIndexPathMustBeRoot) Unwrap() error { return ErrPageIndexPathMustBeRoot }
 
 // ErrorActionInvalidPathComm is ErrActionInvalidPathComm with suggestion context.
 type ErrorActionInvalidPathComm struct {

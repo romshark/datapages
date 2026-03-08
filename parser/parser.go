@@ -367,6 +367,8 @@ func firstPassPageOrAbstractType(
 			errs.ErrAt(typePos, &ErrorPageMissingPathComm{TypeName: name})
 		} else if !ok {
 			errs.ErrAt(typePos, &ErrorPageInvalidPathComm{TypeName: name})
+		} else if name == "PageIndex" && route != "/" {
+			errs.ErrAt(typePos, &ErrorPageIndexPathMustBeRoot{Route: route})
 		}
 
 		ctx.pages[name] = &model.Page{

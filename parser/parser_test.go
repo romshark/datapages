@@ -334,6 +334,16 @@ func TestParse_ErrMissingPageIndex(t *testing.T) {
 		parser.ErrAppMissingPageIndex)
 }
 
+func TestParse_ErrPageIndexPath(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_page_index_path")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrPageIndexPathMustBeRoot,
+	)
+}
+
 func TestParse_ErrPages(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_pages")
