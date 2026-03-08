@@ -568,19 +568,19 @@ func f(dispatch string) {}`,
 			src: `package test
 type EventFoo struct{}
 func f(dispatch func(EventFoo)) {}`,
-			wantErr: ErrDispatchReturnCount,
+			wantErr: ErrDispatchMustReturnError,
 		},
 		"two returns": {
 			src: `package test
 type EventFoo struct{}
 func f(dispatch func(EventFoo) (int, error)) {}`,
-			wantErr: ErrDispatchReturnCount,
+			wantErr: ErrDispatchMustReturnError,
 		},
 		"named multiple returns": {
 			src: `package test
 type EventFoo struct{}
 func f(dispatch func(EventFoo) (x, y error)) {}`,
-			wantErr: ErrDispatchReturnCount,
+			wantErr: ErrDispatchMustReturnError,
 		},
 		"return not error": {
 			src: `package test

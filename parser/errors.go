@@ -99,7 +99,6 @@ var (
 	ErrSignalsFieldEmptyTag     = paramvalidation.ErrSignalsFieldEmptyTag
 
 	ErrDispatchParamNotFunc    = paramvalidation.ErrDispatchParamNotFunc
-	ErrDispatchReturnCount     = paramvalidation.ErrDispatchReturnCount
 	ErrDispatchMustReturnError = paramvalidation.ErrDispatchMustReturnError
 	ErrDispatchNoParams        = paramvalidation.ErrDispatchNoParams
 	ErrDispatchParamNotEvent   = paramvalidation.ErrDispatchParamNotEvent

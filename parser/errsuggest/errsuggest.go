@@ -239,6 +239,16 @@ func Suggest(err error) string {
 				strings.Join(d.CandidateNames, ", "))
 		}
 		return fmt.Sprintf("fix: Remove parameter %s", d.ParamName)
+
+	case errors.Is(err, parser.ErrDispatchMustReturnError):
+		var d *paramvalidation.ErrorDispatchMustReturnError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		if d.ParamTypes != "" {
+			return fmt.Sprintf("fix: Use `func(%s) error`", d.ParamTypes)
+		}
+		return "fix: dispatch must return `error`"
 	}
 	return ""
 }
@@ -280,7 +290,6 @@ func Suggest(err error) string {
 //   - ErrSignalsFieldUnexported       — fix is obvious: capitalize the field name
 //   - ErrSignalsFieldDuplicateTag     — message names the duplicate value
 //   - ErrDispatchParamNotFunc         — type constraint is clear from message
-//   - ErrDispatchReturnCount          — return constraint is clear from message
 //   - ErrDispatchMustReturnError      — type constraint is clear from message
 //   - ErrDispatchNoParams             — constraint is clear from message
 //   - ErrDispatchParamNotEvent        — constraint is clear from message

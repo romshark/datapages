@@ -279,7 +279,8 @@ type ErrorPathFieldMissingTag struct {
 }
 
 func (e *ErrorPathFieldMissingTag) Error() string {
-	return fmt.Sprintf("%v: field %s in %s.%s", ErrPathFieldMissingTag, e.FieldName, e.Recv, e.Method)
+	return fmt.Sprintf("%v: field %s in %s.%s",
+		ErrPathFieldMissingTag, e.FieldName, e.Recv, e.Method)
 }
 
 func (e *ErrorPathFieldMissingTag) Unwrap() error { return ErrPathFieldMissingTag }
@@ -292,7 +293,8 @@ type ErrorPathFieldEmptyTag struct {
 }
 
 func (e *ErrorPathFieldEmptyTag) Error() string {
-	return fmt.Sprintf("%v: field %s in %s.%s", ErrPathFieldEmptyTag, e.FieldName, e.Recv, e.Method)
+	return fmt.Sprintf("%v: field %s in %s.%s",
+		ErrPathFieldEmptyTag, e.FieldName, e.Recv, e.Method)
 }
 
 func (e *ErrorPathFieldEmptyTag) Unwrap() error { return ErrPathFieldEmptyTag }
@@ -361,7 +363,8 @@ type ErrorSignalsFieldMissingTag struct {
 }
 
 func (e *ErrorSignalsFieldMissingTag) Error() string {
-	return fmt.Sprintf("%v: field %s in %s.%s", ErrSignalsFieldMissingTag, e.FieldName, e.Recv, e.Method)
+	return fmt.Sprintf("%v: field %s in %s.%s",
+		ErrSignalsFieldMissingTag, e.FieldName, e.Recv, e.Method)
 }
 
 func (e *ErrorSignalsFieldMissingTag) Unwrap() error { return ErrSignalsFieldMissingTag }
@@ -374,7 +377,8 @@ type ErrorSignalsFieldEmptyTag struct {
 }
 
 func (e *ErrorSignalsFieldEmptyTag) Error() string {
-	return fmt.Sprintf("%v: field %s in %s.%s", ErrSignalsFieldEmptyTag, e.FieldName, e.Recv, e.Method)
+	return fmt.Sprintf("%v: field %s in %s.%s",
+		ErrSignalsFieldEmptyTag, e.FieldName, e.Recv, e.Method)
 }
 
 func (e *ErrorSignalsFieldEmptyTag) Unwrap() error { return ErrSignalsFieldEmptyTag }
@@ -392,35 +396,72 @@ func (e *ErrorSignalsFieldDuplicateTag) Error() string {
 		ErrSignalsFieldDuplicateTag, e.TagValue, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorSignalsFieldDuplicateTag) Unwrap() error { return ErrSignalsFieldDuplicateTag }
+func (e *ErrorSignalsFieldDuplicateTag) Unwrap() error {
+	return ErrSignalsFieldDuplicateTag
+}
 
 // Dispatch parameter errors.
 var (
 	ErrDispatchParamNotFunc = errors.New(
 		"dispatch parameter must be a function type",
 	)
-	ErrDispatchReturnCount = errors.New(
-		"dispatch function must return " +
-			"exactly one value",
-	)
-	ErrDispatchMustReturnError = errors.New(
-		"dispatch function must return error",
-	)
-	ErrDispatchNoParams = errors.New(
-		"dispatch function must have " +
-			"at least one event parameter",
+	ErrDispatchMustReturnError error = &ErrorDispatchMustReturnError{}
+	ErrDispatchNoParams              = errors.New(
+		"dispatch function must have at least one event parameter",
 	)
 	ErrDispatchParamNotEvent = errors.New(
-		"dispatch function parameter " +
-			"must be an event type",
+		"dispatch function parameter must be an event type",
 	)
 )
+
+// ErrorDispatchMustReturnError is returned when a dispatch function's
+// return type is not exactly `error`.
+type ErrorDispatchMustReturnError struct {
+	Recv       string // e.g. "PageFoo"
+	MethodName string // e.g. "GET"
+	ParamTypes string // e.g. "EventFoo, EventBar"
+}
+
+func (e *ErrorDispatchMustReturnError) Error() string {
+	if e.Recv == "" {
+		return "dispatch function must return exactly one value of type error"
+	}
+	return fmt.Sprintf(
+		"dispatch function must return exactly one value of type error in %s.%s",
+		e.Recv, e.MethodName,
+	)
+}
+
+func (e *ErrorDispatchMustReturnError) Is(target error) bool {
+	_, ok := target.(*ErrorDispatchMustReturnError)
+	return ok
+}
 
 // IsDispatchParam reports whether the AST field is named
 // "dispatch".
 func IsDispatchParam(f *ast.Field) bool {
 	return len(f.Names) > 0 &&
 		f.Names[0].Name == "dispatch"
+}
+
+// funcParamTypes returns a comma-separated list of parameter type
+// expressions from a function type AST node (e.g. "EventFoo, EventBar").
+func funcParamTypes(ft *ast.FuncType) string {
+	if ft.Params == nil {
+		return ""
+	}
+	var parts []string
+	for _, p := range ft.Params.List {
+		t := types.ExprString(p.Type)
+		n := len(p.Names)
+		if n == 0 {
+			n = 1
+		}
+		for range n {
+			parts = append(parts, t)
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // ValidateDispatchFunc validates that a dispatch parameter
@@ -440,61 +481,67 @@ func ValidateDispatchFunc(
 		)
 	}
 
+	var errs []error
+
 	// Validate return: exactly one value of type error.
+	retOK := true
 	if ft.Results == nil || len(ft.Results.List) == 0 {
-		return nil, fmt.Errorf(
-			"%w in %s.%s",
-			ErrDispatchReturnCount, recv, method,
-		)
-	}
-	retCount := 0
-	for _, r := range ft.Results.List {
-		n := len(r.Names)
-		if n == 0 {
-			n = 1
+		retOK = false
+	} else {
+		retCount := 0
+		for _, r := range ft.Results.List {
+			n := len(r.Names)
+			if n == 0 {
+				n = 1
+			}
+			retCount += n
 		}
-		retCount += n
+		if retCount != 1 {
+			retOK = false
+		} else if retType := info.TypeOf(ft.Results.List[0].Type); !typecheck.IsError(retType) {
+			retOK = false
+		}
 	}
-	if retCount != 1 {
-		return nil, fmt.Errorf(
-			"%w in %s.%s",
-			ErrDispatchReturnCount, recv, method,
-		)
-	}
-	retType := info.TypeOf(ft.Results.List[0].Type)
-	if !typecheck.IsError(retType) {
-		return nil, fmt.Errorf(
-			"%w in %s.%s",
-			ErrDispatchMustReturnError, recv, method,
-		)
+	if !retOK {
+		errs = append(errs, &ErrorDispatchMustReturnError{
+			Recv:       recv,
+			MethodName: method,
+			ParamTypes: funcParamTypes(ft),
+		})
 	}
 
 	// Validate parameters: at least one, all EventXXX.
+	var eventNames []string
 	if ft.Params == nil || len(ft.Params.List) == 0 {
-		return nil, fmt.Errorf(
+		errs = append(errs, fmt.Errorf(
 			"%w in %s.%s",
 			ErrDispatchNoParams, recv, method,
-		)
-	}
-	var eventNames []string
-	for _, p := range ft.Params.List {
-		name, ok := typecheck.EventTypeNameOf(
-			p.Type, info, eventTypeNames,
-		)
-		if !ok {
-			return nil, fmt.Errorf(
-				"%w in %s.%s",
-				ErrDispatchParamNotEvent, recv, method,
+		))
+	} else {
+		for _, p := range ft.Params.List {
+			name, ok := typecheck.EventTypeNameOf(
+				p.Type, info, eventTypeNames,
 			)
+			if !ok {
+				errs = append(errs, fmt.Errorf(
+					"%w in %s.%s",
+					ErrDispatchParamNotEvent, recv, method,
+				))
+				break
+			}
+			// Account for grouped names (a, b EventFoo).
+			n := len(p.Names)
+			if n == 0 {
+				n = 1
+			}
+			for range n {
+				eventNames = append(eventNames, name)
+			}
 		}
-		// Account for grouped names (a, b EventFoo).
-		n := len(p.Names)
-		if n == 0 {
-			n = 1
-		}
-		for range n {
-			eventNames = append(eventNames, name)
-		}
+	}
+
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 	return eventNames, nil
 }

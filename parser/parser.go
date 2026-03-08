@@ -591,7 +591,7 @@ func attachHTTPHandler(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	h, outputs, herr := parseHandler(
-		recv, fd, ctx.pkg.TypesInfo, ctx.eventTypeNames, kind, suffix,
+		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset, ctx.eventTypeNames, kind, suffix,
 	)
 	if herr != nil {
 		// Keep going; still attach a best-effort handler model.
@@ -672,7 +672,7 @@ func attachAppAction(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	h, outputs, herr := parseHandler(
-		"App", fd, ctx.pkg.TypesInfo, ctx.eventTypeNames, kind, suffix,
+		"App", fd, ctx.pkg.TypesInfo, ctx.pkg.Fset, ctx.eventTypeNames, kind, suffix,
 	)
 	if herr != nil {
 		reportErrors(errs, pos, herr)
@@ -1094,12 +1094,29 @@ func expandFieldList(fields []*ast.Field) []*ast.Field {
 	return out
 }
 
+// positionedError wraps an error with a specific source position,
+// overriding the default position used by reportErrors.
+type positionedError struct {
+	pos token.Position
+	err error
+}
+
+func (e *positionedError) Error() string { return e.err.Error() }
+func (e *positionedError) Unwrap() error { return e.err }
+
 // reportErrors reports err at pos. If err was created by errors.Join,
 // each wrapped error is reported as a separate entry.
+// Individual errors may override pos by wrapping with positionedError.
 func reportErrors(errs *Errors, pos token.Position, err error) {
 	if joined, ok := err.(interface{ Unwrap() []error }); ok {
 		for _, e := range joined.Unwrap() {
-			errs.ErrAt(pos, e)
+			p := pos
+			var pe *positionedError
+			if errors.As(e, &pe) {
+				p = pe.pos
+				e = pe.err
+			}
+			errs.ErrAt(p, e)
 		}
 		return
 	}
@@ -1320,6 +1337,7 @@ func parseHandler(
 	recv string,
 	fd *ast.FuncDecl,
 	info *types.Info,
+	fset *token.FileSet,
 	eventTypeNames map[string]struct{},
 	kind methodkind.Kind,
 	name string,
@@ -1444,7 +1462,15 @@ func parseHandler(
 				f, info, eventTypeNames, recv, fd.Name.Name,
 			)
 			if dispErr != nil {
-				return h, nil, dispErr
+				fieldPos := fset.Position(f.Type.Pos())
+				if joined, ok := dispErr.(interface{ Unwrap() []error }); ok {
+					for _, e := range joined.Unwrap() {
+						unsupErrs = append(unsupErrs, &positionedError{pos: fieldPos, err: e})
+					}
+				} else {
+					unsupErrs = append(unsupErrs, &positionedError{pos: fieldPos, err: dispErr})
+				}
+				continue
 			}
 			h.InputDispatch = &model.InputDispatch{
 				Expr:           f.Names[0],

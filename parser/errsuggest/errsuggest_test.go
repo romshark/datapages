@@ -255,6 +255,23 @@ func TestSuggest(t *testing.T) {
 			},
 			want: "fix: Potential candidates: path, query, signals",
 		},
+
+		"ErrDispatchMustReturnError": {
+			err: &paramvalidation.ErrorDispatchMustReturnError{
+				Recv:       "PageFoo",
+				MethodName: "GET",
+				ParamTypes: "EventFoo",
+			},
+			want: "fix: Use `func(EventFoo) error`",
+		},
+		"ErrDispatchMustReturnError/multi": {
+			err: &paramvalidation.ErrorDispatchMustReturnError{
+				Recv:       "PageFoo",
+				MethodName: "GET",
+				ParamTypes: "EventFoo, EventBar",
+			},
+			want: "fix: Use `func(EventFoo, EventBar) error`",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, errsuggest.Suggest(tc.err))

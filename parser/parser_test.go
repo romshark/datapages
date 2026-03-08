@@ -632,8 +632,10 @@ func TestParse_ErrDispatch(t *testing.T) {
 
 	requireParseErrors(t, err,
 		parser.ErrDispatchParamNotFunc,
-		parser.ErrDispatchReturnCount,
 		parser.ErrDispatchMustReturnError,
+		parser.ErrDispatchMustReturnError,
+		parser.ErrDispatchMustReturnError, // PageNoReturnNoParams: no return
+		parser.ErrDispatchNoParams,        // PageNoReturnNoParams: no params
 		parser.ErrDispatchNoParams,
 		parser.ErrDispatchParamNotEvent,
 	)
