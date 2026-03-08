@@ -1301,11 +1301,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageError404", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
@@ -1364,11 +1360,7 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageError404", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
@@ -1443,11 +1435,7 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageError500.GET", err)
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageError500", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		if !disableRefreshAfterHidden {
@@ -1485,11 +1473,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageIndex", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
@@ -1572,11 +1556,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageLogin", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		if !disableRefreshAfterHidden {
@@ -1627,11 +1607,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	if httpRedirect(w, r, redirect, redirectStatus) {
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageLogin.POSTSubmit", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 	if err := s.writeHTML(
 		w, r, sess, genericHead, nil, body, nil,
 	); err != nil {
@@ -1666,11 +1642,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageMessages", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		if !enableBackgroundStreaming {
@@ -2020,11 +1992,7 @@ func (s *Server) handlePageMyPostsGET(w http.ResponseWriter, r *http.Request) {
 	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageMyPosts", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
@@ -2115,11 +2083,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PagePost", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
@@ -2337,11 +2301,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageSearch.GET", err)
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageSearch", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
@@ -2487,11 +2447,7 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageSettings", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
@@ -2721,11 +2677,7 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 	if httpRedirect(w, r, redirect, 0) {
 		return
 	}
-	genericHead, err := s.app.Head(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "generating generic head for PageUser", err)
-		return
-	}
+	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)

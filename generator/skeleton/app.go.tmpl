@@ -15,8 +15,8 @@ type Session struct {
 	IssuedAt time.Time
 }
 
-func (*App) Head(r *http.Request) (head templ.Component, err error) {
-	return nil, nil
+func (*App) Head(r *http.Request) templ.Component {
+	return nil
 }
 
 func (*App) Recover500(

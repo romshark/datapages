@@ -1,6 +1,6 @@
 
 func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
-	sess, sessToken, ok := s.auth(w, r)
+	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
@@ -8,12 +8,12 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 	p := testapp.PageSettings{
 	App: s.app,
 }
-	body, err := p.GET(sessToken, sess)
+	body, err := p.GET(sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageSettings.GET", err)
 		return
 	}
-	genericHead := s.app.Head(r)
+	genericHead := s.app.Head(r, sess)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)

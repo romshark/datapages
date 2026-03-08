@@ -1298,8 +1298,12 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	w.Line(0, "func (s *Server) render404(w http.ResponseWriter, r *http.Request) {")
 
 	h404 := p.GET.Handler
-	if h404.InputSession != nil || h404.InputSessionToken != nil {
-		if h404.InputSessionToken != nil {
+	headNeedsSess := m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession
+	headNeedsToken := m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSessionToken
+	needsToken := h404.InputSessionToken != nil || headNeedsToken
+	if h404.InputSession != nil || h404.InputSessionToken != nil ||
+		headNeedsSess || headNeedsToken {
+		if needsToken {
 			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
 		} else {
 			w.Line(1, "sess, _, ok := s.auth(w, r)")
@@ -1369,8 +1373,12 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 
 	// Auth.
 	needsToken := h.InputSessionToken != nil || h.OutputCloseSession != nil
-	if h.InputSession != nil || needsToken {
-		if needsToken {
+	headNeedsSess := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
+		m.GlobalHeadGenerator.InputSession
+	headNeedsToken := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
+		m.GlobalHeadGenerator.InputSessionToken
+	if h.InputSession != nil || needsToken || headNeedsSess || headNeedsToken {
+		if needsToken || headNeedsToken {
 			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
 		} else {
 			w.Line(1, "sess, _, ok := s.auth(w, r)")
@@ -1568,23 +1576,16 @@ func (w *Writer) writeMethodCall(
 		ownerName := actionOwnerName(p, isAppLevel)
 
 		if m.GlobalHeadGenerator != nil {
-			w.Line(1, "genericHead, err := s.app.Head(r)")
-			w.Line(1, "if err != nil {")
-			w.Raw("\t\ts.httpErrIntern(w, r, nil, \"generating generic head for ")
-			w.Raw(ownerName)
-			w.Byte('.')
-			w.Raw(h.HTTPMethod)
-			w.Raw(h.Name)
-			w.Raw("\", err)\n")
-			w.Line(2, "return")
-			w.Line(1, "}")
+			w.writeGenericHeadCall(m.GlobalHeadGenerator, appPkg, hasSessionInput(h), false)
 		}
 
 		w.Line(1, "if err := s.writeHTML(")
 		w.Raw("\t\tw, r, ")
 		if m.Session != nil {
 			sessArg := "sess"
-			if !hasSessionInput(h) {
+			headNeedsSession := m.GlobalHeadGenerator != nil &&
+				(m.GlobalHeadGenerator.InputSession || m.GlobalHeadGenerator.InputSessionToken)
+			if !hasSessionInput(h) && !headNeedsSession {
 				sessArg = appPkg + ".Session{}"
 			}
 			w.Raw(sessArg)
@@ -1761,13 +1762,9 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, contex
 
 	// Generic head.
 	if m.GlobalHeadGenerator != nil {
-		w.Line(1, "genericHead, err := s.app.Head(r)")
-		w.Line(1, "if err != nil {")
-		w.Raw("\t\ts.httpErrIntern(w, r, nil, \"generating generic head for ")
-		w.Raw(p.TypeName)
-		w.Raw("\", err)\n")
-		w.Line(2, "return")
-		w.Line(1, "}")
+		hasSess := h.InputSession != nil || h.InputSessionToken != nil
+		hasSessToken := h.InputSessionToken != nil
+		w.writeGenericHeadCall(m.GlobalHeadGenerator, appPkg, hasSess, hasSessToken)
 	}
 
 	// Body attrs - simple for render404/error pages.
@@ -1785,8 +1782,10 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, contex
 	w.Raw("\t\tw, r, ")
 	if m.Session != nil {
 		sessArg := "sess"
+		headNeedsSession := m.GlobalHeadGenerator != nil &&
+			(m.GlobalHeadGenerator.InputSession || m.GlobalHeadGenerator.InputSessionToken)
 		if p.PageSpecialization == model.PageTypeError500 ||
-			(p.PageSpecialization == model.PageTypeError404 && context == "render404") {
+			(p.PageSpecialization == model.PageTypeError404 && context == "render404" && !headNeedsSession) {
 			sessArg = appPkg + ".Session{}"
 		}
 		w.Raw(sessArg)

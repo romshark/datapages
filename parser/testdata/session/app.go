@@ -20,6 +20,11 @@ type EventPing struct {
 	Data string `json:"data"`
 }
 
+func (*App) Head(r *http.Request, session Session) templ.Component {
+	_ = session
+	return nil
+}
+
 // PageIndex is /
 type PageIndex struct{ App *App }
 

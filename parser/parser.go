@@ -435,7 +435,46 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 			if recv == "App" {
 				switch fd.Name.Name {
 				case "Head":
-					ctx.app.GlobalHeadGenerator = fd.Name
+					info := ctx.pkg.TypesInfo
+					pos := ctx.pkg.Fset.Position(fd.Name.Pos())
+
+					// Head must return exactly templ.Component.
+					results := fd.Type.Results
+					if results == nil || results.NumFields() != 1 ||
+						!typecheck.IsTemplComponent(info.TypeOf(results.List[0].Type)) {
+						errs.ErrAt(pos, ErrAppHeadMustReturnTemplComponent)
+						continue
+					}
+
+					// Head must accept *http.Request as first param,
+					// optionally followed by session and/or sessionToken.
+					params := fd.Type.Params
+					if params == nil || params.NumFields() < 1 ||
+						!typecheck.IsPtrToNetHTTPReq(params.List[0].Type, info) {
+						errs.ErrAt(pos, ErrAppHeadMustTakeRequest)
+						continue
+					}
+
+					gh := &model.GlobalHead{Expr: fd.Name}
+					valid := true
+					for i := 1; i < params.NumFields(); i++ {
+						f := params.List[i]
+						switch {
+						case typecheck.IsSessionType(f.Type, info):
+							gh.InputSession = true
+						case typecheck.IsString(info.TypeOf(f.Type)) &&
+							len(f.Names) > 0 && f.Names[0].Name == "sessionToken":
+							gh.InputSessionToken = true
+						default:
+							errs.ErrAt(pos, ErrAppHeadUnsupportedInput)
+							valid = false
+						}
+					}
+					if !valid {
+						continue
+					}
+
+					ctx.app.GlobalHeadGenerator = gh
 				case "Recover500":
 					ctx.app.Recover500 = fd.Name
 				default:

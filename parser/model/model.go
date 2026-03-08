@@ -15,14 +15,20 @@ type App struct {
 	PageError404 *Page
 	PageError500 *Page
 
-	Recover500          ast.Expr // Nullable.
-	GlobalHeadGenerator ast.Expr // Nullable.
+	Recover500          ast.Expr    // Nullable.
+	GlobalHeadGenerator *GlobalHead // Nullable.
 
 	Session *SessionType // Nullable.
 
 	Pages   []*Page
 	Events  []*Event
 	Actions []*Handler // App-level POST/PUT/DELETE actions.
+}
+
+type GlobalHead struct {
+	Expr              ast.Expr
+	InputSession      bool
+	InputSessionToken bool
 }
 
 type SessionType struct {

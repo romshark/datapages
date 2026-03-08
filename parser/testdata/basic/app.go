@@ -23,8 +23,8 @@ func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
 	return body, fmt.Errorf("unknown page variant")
 }
 
-func (*App) Head(r *http.Request) (body templ.Component, err error) {
-	return body, err
+func (*App) Head(r *http.Request) templ.Component {
+	return nil
 }
 
 func (*App) Recover500(

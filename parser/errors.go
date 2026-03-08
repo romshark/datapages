@@ -48,6 +48,14 @@ var (
 		"GET handler second templ.Component return must be named \"head\"",
 	)
 
+	ErrAppHeadMustTakeRequest = errors.New(
+		"head must accept *http.Request as first parameter",
+	)
+	ErrAppHeadMustReturnTemplComponent = errors.New(
+		"head must return exactly templ.Component",
+	)
+	ErrAppHeadUnsupportedInput = errors.New("head has unsupported input parameter")
+
 	ErrPageMissingFieldApp     = errors.New(`page is missing the "App *App" field`)
 	ErrPageHasExtraFields      = errors.New(`page struct has unsupported fields`)
 	ErrPageMissingGET          = errors.New(`page is missing the GET handler`)

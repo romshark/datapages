@@ -310,7 +310,7 @@ func TestWriteAppActionHandler(t *testing.T) {
 			app: &model.App{
 				PkgPath: testAppPkgPath, Fset: token.NewFileSet(),
 				Session:             &model.SessionType{},
-				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
+				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 			},
 			golden: "app_action_body_global_head.txt",
 		},
@@ -392,7 +392,7 @@ func TestWriteRender404(t *testing.T) {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
 				Session:             &model.SessionType{},
-				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
+				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 				PageError404: &model.Page{
 					TypeName:           "PageError404",
 					Route:              "/not-found/{$}",
@@ -414,7 +414,7 @@ func TestWriteRender404(t *testing.T) {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
 				Session:             &model.SessionType{},
-				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
+				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 				PageError404: &model.Page{
 					TypeName:           "PageError404",
 					Route:              "/not-found/{$}",
@@ -458,7 +458,7 @@ func TestWriteAppWriteHTML(t *testing.T) {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
 				Session:             &model.SessionType{},
-				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
+				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 			},
 			golden: "app_writehtml_global_head.txt",
 		},
@@ -533,7 +533,7 @@ func TestWritePageGETHandler(t *testing.T) {
 				PkgPath:             testAppPkgPath,
 				Fset:                token.NewFileSet(),
 				Session:             &model.SessionType{},
-				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
+				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 			},
 			golden: "app_page_get_session_token.txt",
 		},
@@ -556,7 +556,7 @@ func TestWritePageGETHandler(t *testing.T) {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
 				Fset:                token.NewFileSet(),
-				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
+				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 			},
 			golden: "app_page_get_redirect_status.txt",
 		},
@@ -585,10 +585,77 @@ func TestWritePageGETHandler(t *testing.T) {
 				Fset:                token.NewFileSet(),
 				Session:             &model.SessionType{},
 				Events:              []*model.Event{testEvent("EventFoo", "foo", false)},
-				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
+				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 				PageError404:        &model.Page{TypeName: "PageError404"},
 			},
 			golden: "app_page_get_dispatch.txt",
+		},
+		"head with session": {
+			page: &model.Page{
+				TypeName: "PageSettings",
+				Route:    "/settings/",
+				GET: &model.HandlerGET{
+					Handler: &model.Handler{
+						InputSession: &model.Input{Name: "sess"},
+						OutputErr:    &model.Output{Name: "err"},
+					},
+					OutputBody: &model.TemplComponent{
+						Output: &model.Output{Name: "body"},
+					},
+				},
+			},
+			app: &model.App{
+				PkgPath:             testAppPkgPath,
+				Fset:                token.NewFileSet(),
+				Session:             &model.SessionType{},
+				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}, InputSession: true},
+			},
+			golden: "app_page_get_head_session.txt",
+		},
+		"head with session and token": {
+			page: &model.Page{
+				TypeName: "PageSettings",
+				Route:    "/settings/",
+				GET: &model.HandlerGET{
+					Handler: &model.Handler{
+						InputSession:      &model.Input{Name: "sess"},
+						InputSessionToken: &model.Input{Name: "sessToken"},
+						OutputErr:         &model.Output{Name: "err"},
+					},
+					OutputBody: &model.TemplComponent{
+						Output: &model.Output{Name: "body"},
+					},
+				},
+			},
+			app: &model.App{
+				PkgPath:             testAppPkgPath,
+				Fset:                token.NewFileSet(),
+				Session:             &model.SessionType{},
+				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}, InputSession: true, InputSessionToken: true},
+			},
+			golden: "app_page_get_head_session_token.txt",
+		},
+		"head with session not in scope": {
+			page: &model.Page{
+				TypeName: "PagePublic",
+				Route:    "/public/",
+				GET: &model.HandlerGET{
+					Handler: &model.Handler{
+						InputRequest: &model.Input{Name: "r"},
+						OutputErr:    &model.Output{Name: "err"},
+					},
+					OutputBody: &model.TemplComponent{
+						Output: &model.Output{Name: "body"},
+					},
+				},
+			},
+			app: &model.App{
+				PkgPath:             testAppPkgPath,
+				Fset:                token.NewFileSet(),
+				Session:             &model.SessionType{},
+				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}, InputSession: true},
+			},
+			golden: "app_page_get_head_session_not_in_scope.txt",
 		},
 	}
 
@@ -776,7 +843,7 @@ func TestWritePageActionHandler(t *testing.T) {
 				PkgPath:             testAppPkgPath,
 				Fset:                token.NewFileSet(),
 				Session:             &model.SessionType{},
-				GlobalHeadGenerator: &ast.Ident{Name: "Head"},
+				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 			},
 			golden: "app_page_action_body_global_head.txt",
 		},

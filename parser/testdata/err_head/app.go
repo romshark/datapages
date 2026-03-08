@@ -8,13 +8,13 @@ import (
 
 type App struct{}
 
-func (*App) Head(r *http.Request) templ.Component {
-	return head()
-}
-
 // PageIndex is /
 type PageIndex struct{ App *App }
 
 func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
-	return pageIndex(), nil
+	return nil, nil
 }
+
+/* ErrAppHeadMustTakeRequest */
+
+func (*App) Head() templ.Component { return nil }
