@@ -1058,6 +1058,15 @@ func TestParse_ErrorPositions(t *testing.T) {
 		"err_head_unsupported": {
 			{parser.ErrAppHeadUnsupportedInput, "app.go", 20, 13},
 		},
+		"err_recover500_no_params": {
+			{parser.ErrAppRecover500InvalidSignature, "app.go", 20, 13},
+		},
+		"err_recover500_params": {
+			{parser.ErrAppRecover500InvalidSignature, "app.go", 20, 13},
+		},
+		"err_recover500_return": {
+			{parser.ErrAppRecover500InvalidSignature, "app.go", 21, 13},
+		},
 		"err_dispatch": {
 			{parser.ErrDispatchParamNotFunc, "app.go", 34, 11},
 			{parser.ErrDispatchMustReturnError, "app.go", 47, 11},

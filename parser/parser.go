@@ -476,6 +476,18 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 
 					ctx.app.GlobalHeadGenerator = gh
 				case "Recover500":
+					info := ctx.pkg.TypesInfo
+					pos := ctx.pkg.Fset.Position(fd.Name.Pos())
+					params := fd.Type.Params
+					results := fd.Type.Results
+					if params == nil || params.NumFields() != 2 ||
+						!typecheck.IsError(info.TypeOf(params.List[0].Type)) ||
+						!typecheck.IsPtrToDatastarSSE(params.List[1].Type, info) ||
+						results == nil || results.NumFields() != 1 ||
+						!typecheck.IsError(info.TypeOf(results.List[0].Type)) {
+						errs.ErrAt(pos, ErrAppRecover500InvalidSignature)
+						continue
+					}
 					ctx.app.Recover500 = fd.Name
 				default:
 					kind, suffix := methodkind.Classify(fd.Name.Name)

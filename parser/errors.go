@@ -56,6 +56,9 @@ var (
 	)
 	ErrAppHeadUnsupportedInput = errors.New("head has unsupported input parameter")
 
+	ErrAppRecover500InvalidSignature = errors.New(`"Recover500" must have signature ` +
+		`(error, *datastar.ServerSentEventGenerator) error`)
+
 	ErrPageMissingFieldApp     = errors.New(`page is missing the "App *App" field`)
 	ErrPageHasExtraFields      = errors.New(`page struct has unsupported fields`)
 	ErrPageMissingGET          = errors.New(`page is missing the GET handler`)
