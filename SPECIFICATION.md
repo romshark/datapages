@@ -54,11 +54,12 @@ Page types `PageError500` and `PageError404` are optional special error pages fo
 response codes `500` and `404` respectively.
 Otherwise datapages will use its own defaults.
 
-Handler method parameters and their order are defined and enforced by datapages.
+Handler method parameters are defined and enforced by datapages.
+Parameters may be in any order.
 Using unsupported parameter names and types will result in generator errors.
 
-The `GET` method parameter lists must always start with `r *http.Request`,
-followed by other parameters:
+The `GET` method parameter lists must include `r *http.Request`
+and may include the following optional parameters:
 
 ```go
 func (PageIndex) GET(
@@ -89,7 +90,7 @@ func (PageIndex) GET(
 ```
 
 The SSE action handlers `POSTXXX`, `DELETEXXX` and `PUTXXX` method parameter lists must
-always start with `r *http.Request`, followed by other parameters:
+include `r *http.Request` and may include the following optional parameters:
 
 ```go
 // POSTActionName is <path>
@@ -139,9 +140,9 @@ func (PageIndex) POSTActionName(
 }
 ```
 
-All `OnXXX` method parameter lists must always start with
-the `event` parameter of an event type, followed by
-`sse *datastar.ServerSentEventGenerator` and other parameters.
+All `OnXXX` method parameter lists must include
+the `event` parameter of an event type and
+`sse *datastar.ServerSentEventGenerator`. Parameters may be in any order.
 The `XXX` placeholder must always match the event name after the type's `Event` prefix.
 
 ```go

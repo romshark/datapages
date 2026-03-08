@@ -132,15 +132,9 @@ func EventSubjectCommentSubject(s string) error {
 //
 //	// EventFoo is "foo.bar"
 //
-// If there are more doc lines, an empty comment line is mandatory:
-//
-//	// EventFoo is "foo.bar"
-//	//
-//	// description...
-//
 // Errors:
 //   - ErrEventCommMissing: no doc comment.
-//   - ErrEventCommInvalid: doc exists, but header/spacing is wrong.
+//   - ErrEventCommInvalid: doc exists, but header is wrong.
 //   - ErrEventSubjectInvalid: header ok, but quoted subject invalid.
 func EventSubjectComment(typeName string, doc *ast.CommentGroup) error {
 	if doc == nil || len(doc.List) == 0 {
@@ -148,24 +142,15 @@ func EventSubjectComment(typeName string, doc *ast.CommentGroup) error {
 	}
 
 	first := cleanLine(doc.List[0].Text)
-	want := typeName + ` is `
 
 	// Any existing doc comment must start with the exact header for this symbol.
-	if !strings.HasPrefix(first, want) {
+	rest, ok := CutEventIsPrefix(first, typeName)
+	if !ok {
 		return ErrEventCommInvalid
 	}
 
-	rest := strings.TrimSpace(strings.TrimPrefix(first, want))
 	if err := EventSubjectCommentSubject(rest); err != nil {
 		return ErrEventSubjectInvalid
-	}
-
-	// Mandatory empty comment line between header and description.
-	if len(doc.List) > 1 {
-		second := cleanLine(doc.List[1].Text)
-		if second != "" {
-			return ErrEventCommInvalid
-		}
 	}
 
 	return nil
@@ -175,6 +160,31 @@ func cleanLine(raw string) string {
 	s := strings.TrimSpace(raw)
 	s = strings.TrimPrefix(s, "//")
 	return strings.TrimSpace(s)
+}
+
+// CutEventIsPrefix checks whether line starts with typeName followed by
+// whitespace, "is", and more whitespace, and returns the remainder (the
+// subject portion) plus true. Extra spaces or tabs between the parts are
+// tolerated. Returns ("", false) when the prefix does not match.
+func CutEventIsPrefix(line, typeName string) (rest string, ok bool) {
+	s, ok := strings.CutPrefix(line, typeName)
+	if !ok || len(s) == 0 {
+		return "", false
+	}
+	// Must have at least one whitespace after the type name.
+	if s[0] != ' ' && s[0] != '\t' {
+		return "", false
+	}
+	s = strings.TrimLeft(s, " \t")
+	s, ok = strings.CutPrefix(s, "is")
+	if !ok || len(s) == 0 {
+		return "", false
+	}
+	// Must have at least one whitespace after "is".
+	if s[0] != ' ' && s[0] != '\t' {
+		return "", false
+	}
+	return strings.TrimLeft(s, " \t"), true
 }
 
 // EventHandlerMethodName validates event handler method names:

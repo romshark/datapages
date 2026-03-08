@@ -75,7 +75,8 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	w.writeSetupHandlers(m)
 	w.writeAppErrHelpers(m, appPkg)
 
-	if m.PageError404 != nil {
+	if m.PageError404 != nil &&
+		m.PageError404.GET != nil && m.PageError404.GET.OutputBody != nil {
 		w.writeRender404(m, appPkg)
 	}
 
@@ -86,7 +87,7 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 
 	// Per-page handlers.
 	for _, p := range m.Pages {
-		if p.GET != nil {
+		if p.GET != nil && p.GET.OutputBody != nil {
 			w.writePageGETHandler(p, m, appPkg)
 		}
 		if pageHasStream(p) {
@@ -1148,7 +1149,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 	w.Line(1, "// Pages")
 
 	for _, p := range m.Pages {
-		if p.GET == nil {
+		if p.GET == nil || p.GET.OutputBody == nil {
 			continue
 		}
 
@@ -1298,7 +1299,11 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 
 	h404 := p.GET.Handler
 	if h404.InputSession != nil || h404.InputSessionToken != nil {
-		w.Line(1, "sess, _, ok := s.auth(w, r)")
+		if h404.InputSessionToken != nil {
+			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
+		} else {
+			w.Line(1, "sess, _, ok := s.auth(w, r)")
+		}
 		w.Line(1, "if !ok {")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1461,33 +1466,8 @@ func (w *Writer) writeMethodCall(
 		outs = append(outs, "err")
 	}
 
-	// Build input args.
-	var argsBuf [8]string
-	args := argsBuf[:0]
-	if h.InputRequest != nil {
-		args = append(args, "r")
-	}
-	if h.InputSSE != nil && !isAppLevel {
-		args = append(args, "sse")
-	}
-	if h.InputSessionToken != nil {
-		args = append(args, "sessToken")
-	}
-	if h.InputSession != nil {
-		args = append(args, "sess")
-	}
-	if h.InputPath != nil {
-		args = append(args, "path")
-	}
-	if h.InputQuery != nil {
-		args = append(args, "query")
-	}
-	if h.InputSignals != nil {
-		args = append(args, "signals")
-	}
-	if h.InputDispatch != nil {
-		args = append(args, "dispatch")
-	}
+	// Build input args in user-defined order.
+	args := handlerInputArgs(h, isAppLevel)
 
 	// Build the call expression.
 	receiver := "p"
@@ -1725,7 +1705,7 @@ func actionOwnerName(p *model.Page, isAppLevel bool) string {
 
 // writeGETCall generates the GET method call and HTML rendering for a page.
 func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, context string) {
-	if p.GET == nil {
+	if p.GET == nil || p.GET.OutputBody == nil {
 		return
 	}
 	h := p.GET.Handler
@@ -1752,21 +1732,8 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, contex
 		outs = append(outs, "err")
 	}
 
-	// Build input args.
-	var argsBuf [8]string
-	args := argsBuf[:0]
-	if h.InputRequest != nil {
-		args = append(args, "r")
-	}
-	if h.InputSession != nil {
-		args = append(args, "sess")
-	}
-	if h.InputPath != nil {
-		args = append(args, "path")
-	}
-	if h.InputQuery != nil {
-		args = append(args, "query")
-	}
+	// Build input args in user-defined order.
+	args := handlerInputArgs(h, false)
 
 	w.Byte('\t')
 	w.writeCommaSep(outs)

@@ -136,6 +136,30 @@ func IsSessionType(
 	return obj != nil && obj.Name() == "Session"
 }
 
+// IsEventType reports whether the expression resolves to the
+// named event type eventTypeName.
+func IsEventType(
+	expr ast.Expr,
+	info *types.Info,
+	eventTypeName string,
+) bool {
+	if eventTypeName == "" {
+		return false
+	}
+	t := info.TypeOf(expr)
+	if t == nil {
+		return false
+	}
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	named, ok := t.(*types.Named)
+	if !ok || named.Obj() == nil {
+		return false
+	}
+	return named.Obj().Name() == eventTypeName
+}
+
 // EventTypeNameOf returns the EventXXX type name for expr
 // if it is (or points to) a named type whose name is in
 // eventTypeNames.

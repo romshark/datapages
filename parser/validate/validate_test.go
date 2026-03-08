@@ -188,6 +188,15 @@ func TestEventSubjectComment(t *testing.T) {
 	// ok: header + mandatory blank + description
 	f(nil, "EventFoo", cg(`EventFoo is "foo.bar"`, ``, `something else`))
 
+	// ok: extra whitespace between type name and "is"
+	f(nil, "EventFoo", cg(`EventFoo  is "foo.bar"`))
+
+	// ok: extra whitespace between "is" and subject
+	f(nil, "EventFoo", cg(`EventFoo is   "foo.bar"`))
+
+	// ok: extra whitespace everywhere
+	f(nil, "EventFoo", cg(`EventFoo   is   "foo.bar"`))
+
 	// missing: no comment group
 	f(validate.ErrEventCommMissing, "EventFoo", (*ast.CommentGroup)(nil))
 
@@ -201,9 +210,8 @@ func TestEventSubjectComment(t *testing.T) {
 	f(validate.ErrEventCommInvalid, "EventFoo",
 		cg(`EventFoo handles "foo.bar"`))
 
-	// invalid comment: missing mandatory blank line after header when more lines exist
-	f(validate.ErrEventCommInvalid, "EventFoo",
-		cg(`EventFoo is "foo.bar"`, `not blank`, `desc`))
+	// ok: header + description without blank line separator
+	f(nil, "EventFoo", cg(`EventFoo is "foo.bar"`, `not blank`, `desc`))
 
 	// invalid subject: header ok, quoted payload invalid
 	f(validate.ErrEventSubjectInvalid, "EventFoo",
