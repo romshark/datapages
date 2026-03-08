@@ -107,7 +107,9 @@ func (PageIndex) OnEventBar(
 func (PageIndex) OnEventBazz(
 	event EventBazz,
 	sse *datastar.ServerSentEventGenerator,
-) (error, error) { /* ErrEvHandReturnMustBeError */
+) (
+	error, error,
+) { /* ErrEvHandReturnMustBeError */
 	_ = event
 	_ = sse
 	return nil, nil
