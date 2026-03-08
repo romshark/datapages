@@ -482,9 +482,12 @@ type ErrorSignatureUnsupportedInput struct {
 	ParamType  string // e.g. "*http.Request"
 	Recv       string // e.g. "PageFoo"
 	MethodName string // e.g. "GET"
-	// ExpectedName is set when the parameter type matches a known input
-	// but the name is wrong (e.g. type is Session but name is not "session").
+	// ExpectedName is set when there is exactly one candidate for the
+	// parameter (e.g. type is Session but name is not "session").
 	ExpectedName string
+	// CandidateNames lists multiple possible parameter names when the
+	// parameter type matches more than one known input slot.
+	CandidateNames []string
 }
 
 func (e *ErrorSignatureUnsupportedInput) Error() string {

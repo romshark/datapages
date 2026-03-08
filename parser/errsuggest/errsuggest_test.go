@@ -235,6 +235,26 @@ func TestSuggest(t *testing.T) {
 			},
 			want: "fix: Rename parameter sessionTok to sessionToken",
 		},
+		"ErrSignatureUnsupportedInput/type string single candidate": {
+			err: &parser.ErrorSignatureUnsupportedInput{
+				ParamName:    "s",
+				ParamType:    "string",
+				Recv:         "PageFoo",
+				MethodName:   "GET",
+				ExpectedName: "sessionToken",
+			},
+			want: "fix: Rename parameter s to sessionToken",
+		},
+		"ErrSignatureUnsupportedInput/type struct multiple candidates": {
+			err: &parser.ErrorSignatureUnsupportedInput{
+				ParamName:      "data",
+				ParamType:      "struct{...}",
+				Recv:           "PageFoo",
+				MethodName:     "GET",
+				CandidateNames: []string{"path", "query", "signals"},
+			},
+			want: "fix: Potential candidates: path, query, signals",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, errsuggest.Suggest(tc.err))

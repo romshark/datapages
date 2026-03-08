@@ -497,8 +497,8 @@ func queryHasIntField(t types.Type) bool {
 	if !ok {
 		return false
 	}
-	for i := range st.NumFields() {
-		if isIntType(st.Field(i).Type()) {
+	for field := range st.Fields() {
+		if isIntType(field.Type()) {
 			return true
 		}
 	}

@@ -1147,21 +1147,69 @@ func unsupportedInputError(
 			// Already consumed — this is a duplicate *http.Request.
 		case typecheck.IsPtrToDatastarSSE(f.Type, info):
 			// Already consumed — duplicate SSE parameter.
-		case typecheck.IsSessionType(f.Type, info):
-			if h.InputSession == nil && paramName != "session" {
-				e.ExpectedName = "session"
-			}
+		default:
+			e.CandidateNames = typeCandidates(f, h, info)
 		}
 	}
 
-	// If no type-based suggestion was found, try fuzzy name matching.
-	if e.ExpectedName == "" && paramName != "_" {
+	// Try fuzzy name matching for the best rename suggestion.
+	if paramName != "_" {
 		if best, ok := fuzzyMatchParamName(paramName, h); ok {
 			e.ExpectedName = best
 		}
 	}
 
 	return e
+}
+
+// typeCandidates returns the unconsumed known parameter names whose
+// expected type matches the field's type.
+func typeCandidates(
+	f *ast.Field, h *model.Handler, info *types.Info,
+) []string {
+	t := info.TypeOf(f.Type)
+	if t == nil {
+		return nil
+	}
+
+	isSession := typecheck.IsSessionType(f.Type, info)
+	isString := typecheck.IsString(t)
+	isStruct := isStructType(t)
+	isFunc := isFuncType(t)
+
+	type candidate struct {
+		name     string
+		consumed bool
+		match    bool
+	}
+	all := []candidate{
+		{"session", h.InputSession != nil, isSession},
+		{"sessionToken", h.InputSessionToken != nil, isString},
+		// Only suggest path/query/signals for plain structs,
+		// not for named types that have a more specific match (e.g. Session).
+		{"path", h.InputPath != nil, isStruct && !isSession},
+		{"query", h.InputQuery != nil, isStruct && !isSession},
+		{"signals", h.InputSignals != nil, isStruct && !isSession},
+		{"dispatch", h.InputDispatch != nil, isFunc},
+	}
+
+	var names []string
+	for _, c := range all {
+		if c.match && !c.consumed {
+			names = append(names, c.name)
+		}
+	}
+	return names
+}
+
+func isStructType(t types.Type) bool {
+	_, ok := t.Underlying().(*types.Struct)
+	return ok
+}
+
+func isFuncType(t types.Type) bool {
+	_, ok := t.Underlying().(*types.Signature)
+	return ok
 }
 
 // fuzzyMatchParamName returns the closest known parameter name to name,
@@ -1177,10 +1225,7 @@ func fuzzyMatchParamName(name string, h *model.Handler) (string, bool) {
 			strings.ToLower(name), strings.ToLower(known),
 		)
 		// Accept if distance is at most ~1/3 of the longer name's length.
-		maxDist := max(len(name), len(known)) / 3
-		if maxDist < 1 {
-			maxDist = 1
-		}
+		maxDist := max(max(len(name), len(known))/3, 1)
 		if d <= maxDist && (bestDist < 0 || d < bestDist) {
 			bestName = known
 			bestDist = d

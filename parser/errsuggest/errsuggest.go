@@ -215,10 +215,28 @@ func Suggest(err error) string {
 		if !errors.As(err, &d) {
 			return ""
 		}
+		// Filter candidates that differ from ExpectedName.
+		var others []string
+		for _, c := range d.CandidateNames {
+			if c != d.ExpectedName {
+				others = append(others, c)
+			}
+		}
 		if d.ExpectedName != "" {
-			return fmt.Sprintf(
+			s := fmt.Sprintf(
 				"fix: Rename parameter %s to %s",
 				d.ParamName, d.ExpectedName)
+			if len(others) > 0 {
+				s += fmt.Sprintf(
+					". Other candidates: %s",
+					strings.Join(others, ", "))
+			}
+			return s
+		}
+		if len(d.CandidateNames) > 0 {
+			return fmt.Sprintf(
+				"fix: Potential candidates: %s",
+				strings.Join(d.CandidateNames, ", "))
 		}
 		return fmt.Sprintf("fix: Remove parameter %s", d.ParamName)
 	}
