@@ -55,6 +55,11 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add `func (p PageIndex) GET(r *http.Request) (body templ.Component, err error) {}`",
 		},
 
+		"ErrPageIndexPathMustBeRoot": {
+			err:  &parser.ErrorPageIndexPathMustBeRoot{Route: "/home"},
+			want: "fix: Use `// PageIndex is /`",
+		},
+
 		"ErrPageInvalidPathComm/profile": {
 			err:  &parser.ErrorPageInvalidPathComm{TypeName: "PageProfile"},
 			want: "fix: First doc comment line must be `// PageProfile is /profile/`; if there are more lines, the next must be an empty `//`",

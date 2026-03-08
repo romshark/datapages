@@ -56,6 +56,9 @@ func Suggest(err error) string {
 		path := pageTypePath(d.TypeName)
 		return fmt.Sprintf("fix: Add `// %s is %s`", d.TypeName, path)
 
+	case errors.Is(err, parser.ErrPageIndexPathMustBeRoot):
+		return "fix: Use `// PageIndex is /`"
+
 	case errors.Is(err, parser.ErrActionMissingPathComm):
 		var d *parser.ErrorActionMissingPathComm
 		if !errors.As(err, &d) {
