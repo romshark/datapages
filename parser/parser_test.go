@@ -1090,7 +1090,7 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrSignatureUnsupportedInput, "app.go", 83, 2},
 			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 90, 18},
 			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 101, 3},
-			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 111, 3},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 110, 3},
 			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 121, 3},
 		},
 	} {
