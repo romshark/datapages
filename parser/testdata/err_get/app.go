@@ -37,10 +37,21 @@ func (PageMultiErrRet) GET(r *http.Request) (
 // PageUnknownInput is /unknown-input
 type PageUnknownInput struct{ App *App }
 
-/* ErrSignatureUnknownInput */
+/* ErrSignatureUnsupportedInput */
 
 func (PageUnknownInput) GET(
 	r *http.Request, unknown int, /* this is the error */
+) (body templ.Component, err error) {
+	return body, err
+}
+
+// PageDuplicateReq is /duplicate-req
+type PageDuplicateReq struct{ App *App }
+
+/* ErrSignatureUnsupportedInput */
+
+func (PageDuplicateReq) GET(
+	r, a *http.Request, /* second *http.Request is unsupported */
 ) (body templ.Component, err error) {
 	return body, err
 }

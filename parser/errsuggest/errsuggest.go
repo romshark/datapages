@@ -12,7 +12,11 @@ import (
 )
 
 // toSnakeCase converts a PascalCase or camelCase Go identifier to snake_case.
-// Examples: "UserID" → "user_id", "CreatedAt" → "created_at", "HTTPStatus" → "http_status".
+// Examples:
+//
+//   - "UserID" -> "user_id"
+//   - "CreatedAt" -> "created_at"
+//   - "HTTPStatus" -> "http_status".
 func toSnakeCase(s string) string {
 	runes := []rune(s)
 	var b strings.Builder
@@ -25,7 +29,8 @@ func toSnakeCase(s string) string {
 				if i+1 < len(runes) {
 					next = runes[i+1]
 				}
-				if unicode.IsLower(prev) || (unicode.IsUpper(prev) && unicode.IsLower(next)) {
+				if unicode.IsLower(prev) ||
+					(unicode.IsUpper(prev) && unicode.IsLower(next)) {
 					b.WriteByte('_')
 				}
 			}
@@ -143,7 +148,8 @@ func Suggest(err error) string {
 		if !errors.As(err, &d) {
 			return ""
 		}
-		return fmt.Sprintf("fix: Add a non-empty name to the path tag of field %s, e.g. `path:\"%s\"`",
+		return fmt.Sprintf(
+			"fix: Add a non-empty name to the path tag of field %s, e.g. `path:\"%s\"`",
 			d.FieldName, toSnakeCase(d.FieldName))
 
 	case errors.Is(err, parser.ErrQueryFieldMissingTag):
@@ -159,7 +165,8 @@ func Suggest(err error) string {
 		if !errors.As(err, &d) {
 			return ""
 		}
-		return fmt.Sprintf("fix: Add a non-empty name to the query tag of field %s, e.g. `query:\"%s\"`",
+		return fmt.Sprintf(
+			"fix: Add a non-empty name to the query tag of field %s, e.g. `query:\"%s\"`",
 			d.FieldName, toSnakeCase(d.FieldName))
 
 	case errors.Is(err, parser.ErrSignalsFieldMissingTag):
@@ -175,7 +182,8 @@ func Suggest(err error) string {
 		if !errors.As(err, &d) {
 			return ""
 		}
-		return fmt.Sprintf("fix: Add a non-empty name to the json tag of field %s, e.g. `json:\"%s\"`",
+		return fmt.Sprintf(
+			"fix: Add a non-empty name to the json tag of field %s, e.g. `json:\"%s\"`",
 			d.FieldName, toSnakeCase(d.FieldName))
 
 	case errors.Is(err, parser.ErrEventFieldMissingTag):
@@ -201,6 +209,18 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf("fix: Define a Session type in package %s", d.PkgName)
+
+	case errors.Is(err, parser.ErrSignatureUnsupportedInput):
+		var d *parser.ErrorSignatureUnsupportedInput
+		if !errors.As(err, &d) {
+			return ""
+		}
+		if d.ExpectedName != "" {
+			return fmt.Sprintf(
+				"fix: Rename parameter %s to %s",
+				d.ParamName, d.ExpectedName)
+		}
+		return fmt.Sprintf("fix: Remove parameter %s", d.ParamName)
 	}
 	return ""
 }
@@ -212,7 +232,6 @@ func Suggest(err error) string {
 //   - ErrAppMissingPageIndex          — message names the required page type
 //   - ErrSignatureMissingReq          — message names *http.Request
 //   - ErrSignatureMultiErrRet         — message states to remove the duplicate
-//   - ErrSignatureUnknownInput        — no information about which parameter is wrong
 //   - ErrSignatureSecondArgNotSSE     — message names the exact required type
 //   - ErrSignatureEvHandReturnMustBeError — message names the required return type
 //   - ErrSignatureEvHandFirstArgNotEvent — message states the required parameter name

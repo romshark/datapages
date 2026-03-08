@@ -205,6 +205,26 @@ func TestSuggest(t *testing.T) {
 			err:  &parser.ErrorEventTargetUserIDsNoSession{TypeName: "EventChat", PkgName: "app"},
 			want: "fix: Define a Session type in package app",
 		},
+
+		"ErrSignatureUnsupportedInput/remove": {
+			err: &parser.ErrorSignatureUnsupportedInput{
+				ParamName:  "b",
+				ParamType:  "*net/http.Request",
+				Recv:       "PageFoo",
+				MethodName: "GET",
+			},
+			want: "fix: Remove parameter b",
+		},
+		"ErrSignatureUnsupportedInput/rename": {
+			err: &parser.ErrorSignatureUnsupportedInput{
+				ParamName:    "sess",
+				ParamType:    "Session",
+				Recv:         "PageFoo",
+				MethodName:   "GET",
+				ExpectedName: "session",
+			},
+			want: "fix: Rename parameter sess to session",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, errsuggest.Suggest(tc.err))

@@ -530,8 +530,10 @@ func validateAndAttachEventHandler(
 
 	// No additional parameters beyond expected.
 	if params != nil && len(params.List) > nextIdx {
-		errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
-			ErrSignatureUnknownInput, recv, fd.Name.Name))
+		f := params.List[nextIdx]
+		errs.ErrAt(pos, unsupportedInputError(
+			f, ctx.pkg.TypesInfo, recv, fd.Name.Name,
+		))
 	}
 
 	// OnXXX must return exactly one result of type error.
@@ -641,12 +643,18 @@ func attachHTTPHandler(
 
 	if pg != nil {
 		if kind == methodkind.GETHandler {
-			get, getErr := buildHandlerGET(h, outputs)
-			pg.GET = get
-			// Only report GET validation errors if handler parsing succeeded
-			if getErr != nil && herr == nil {
-				errs.ErrAt(pos,
-					fmt.Errorf("%w in %s.%s", getErr, recv, fd.Name.Name))
+			if herr != nil {
+				// Handler parsing failed; attach a minimal GET so the
+				// page is not flagged as missing a GET handler, but skip
+				// output validation and code generation details.
+				pg.GET = &model.HandlerGET{Handler: h}
+			} else {
+				get, getErr := buildHandlerGET(h, outputs)
+				pg.GET = get
+				if getErr != nil {
+					errs.ErrAt(pos,
+						fmt.Errorf("%w in %s.%s", getErr, recv, fd.Name.Name))
+				}
 			}
 		} else {
 			pg.Actions = append(pg.Actions, h)
@@ -1078,6 +1086,65 @@ func parseRoute(
 	return route, true, true
 }
 
+// expandFieldList splits multi-name fields (e.g. "r, a *http.Request")
+// into individual single-name fields so each represents one parameter.
+func expandFieldList(fields []*ast.Field) []*ast.Field {
+	var out []*ast.Field
+	for _, f := range fields {
+		if len(f.Names) <= 1 {
+			out = append(out, f)
+			continue
+		}
+		for _, name := range f.Names {
+			out = append(out, &ast.Field{
+				Names: []*ast.Ident{name},
+				Type:  f.Type,
+			})
+		}
+	}
+	return out
+}
+
+// unsupportedInputError builds an ErrorSignatureUnsupportedInput for a
+// remaining parameter that doesn't match any recognized handler input.
+// It checks whether the parameter's type matches a known input whose
+// name-based check failed, and if so, sets ExpectedName for a rename
+// suggestion.
+func unsupportedInputError(
+	f *ast.Field, info *types.Info, recv, method string,
+) *ErrorSignatureUnsupportedInput {
+	paramName := "_"
+	if len(f.Names) > 0 {
+		paramName = f.Names[0].Name
+	}
+	paramType := types.ExprString(f.Type)
+	if t := info.TypeOf(f.Type); t != nil {
+		paramType = t.String()
+	}
+
+	e := &ErrorSignatureUnsupportedInput{
+		ParamName:  paramName,
+		ParamType:  paramType,
+		Recv:       recv,
+		MethodName: method,
+	}
+
+	// Check if the type matches a known input but the name is wrong.
+	switch {
+	case typecheck.IsPtrToNetHTTPReq(f.Type, info):
+		// Already consumed — this is a duplicate *http.Request.
+	case typecheck.IsPtrToDatastarSSE(f.Type, info):
+		// Already consumed — duplicate SSE parameter.
+	case typecheck.IsSessionType(f.Type, info):
+		e.ExpectedName = "session"
+	case typecheck.IsString(info.TypeOf(f.Type)):
+		// Could be sessionToken if it's a string.
+		e.ExpectedName = "sessionToken"
+	}
+
+	return e
+}
+
 func parseInput(f *ast.Field, info *types.Info) *model.Input {
 	// request param should be named, but keep best-effort
 	name := ""
@@ -1156,15 +1223,19 @@ func parseHandler(
 		return h, nil, fmt.Errorf("%w in %s.%s",
 			ErrSignatureMissingReq, recv, fd.Name.Name)
 	}
+	// Expand multi-name fields (e.g. "r, a *http.Request" → two fields)
+	// so that each field represents exactly one parameter.
+	expandedParams := expandFieldList(params.List)
+
 	// First param must be *http.Request
-	if !typecheck.IsPtrToNetHTTPReq(params.List[0].Type, info) {
+	if !typecheck.IsPtrToNetHTTPReq(expandedParams[0].Type, info) {
 		return h, nil, fmt.Errorf("%w in %s.%s",
 			ErrSignatureMissingReq, recv, fd.Name.Name)
 	}
-	h.InputRequest = parseInput(params.List[0], info)
+	h.InputRequest = parseInput(expandedParams[0], info)
 
 	// Check if second param is sse (built-in feature for actions)
-	remainingParams := params.List[1:]
+	remainingParams := expandedParams[1:]
 	if len(remainingParams) > 0 &&
 		typecheck.IsPtrToDatastarSSE(remainingParams[0].Type, info) {
 		h.InputSSE = parseInput(remainingParams[0], info)
@@ -1255,8 +1326,8 @@ func parseHandler(
 
 	// No additional parameters allowed in handler signature.
 	if len(remainingParams) > 0 {
-		return h, nil, fmt.Errorf("%w in %s.%s",
-			ErrSignatureUnknownInput, recv, fd.Name.Name)
+		f := remainingParams[0]
+		return h, nil, unsupportedInputError(f, info, recv, fd.Name.Name)
 	}
 
 	// Results

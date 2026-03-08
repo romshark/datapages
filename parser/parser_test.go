@@ -367,7 +367,8 @@ func TestParse_ErrGET(t *testing.T) {
 	requireParseErrors(t, err,
 		parser.ErrSignatureMissingReq,
 		parser.ErrSignatureMultiErrRet,
-		parser.ErrSignatureUnknownInput,
+		parser.ErrSignatureUnsupportedInput,
+		parser.ErrSignatureUnsupportedInput,
 		parser.ErrSignatureGETMissingBody,
 		parser.ErrSignatureGETBodyWrongName,
 		parser.ErrSignatureGETHeadWrongName,
@@ -407,7 +408,7 @@ func TestParse_ErrEventHandler(t *testing.T) {
 
 	requireParseErrors(t, err,
 		parser.ErrSignatureSecondArgNotSSE,
-		parser.ErrSignatureUnknownInput,
+		parser.ErrSignatureUnsupportedInput,
 		parser.ErrSignatureSecondArgNotSSE,
 		parser.ErrSignatureEvHandReturnMustBeError,
 		parser.ErrSignatureEvHandReturnMustBeError,

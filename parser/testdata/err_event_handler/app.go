@@ -63,7 +63,7 @@ func (PageIndex) OnEventQux(
 	return nil
 }
 
-/* ErrSignatureUnknownInput */
+/* ErrSignatureUnsupportedInput */
 
 func (PageIndex) OnEventCorge(
 	event EventCorge,

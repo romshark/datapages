@@ -17,11 +17,13 @@ import (
 )
 
 var (
-	ErrAppMissingTypeApp        = errors.New(`missing required type "App"`)
-	ErrAppMissingPageIndex      = errors.New(`missing required page type "PageIndex"`)
-	ErrSignatureMissingReq      = errors.New(`missing the *http.Request parameter`)
-	ErrSignatureMultiErrRet     = errors.New(`multiple error return values`)
-	ErrSignatureUnknownInput    = errors.New(`handler has unknown input parameter type`)
+	ErrAppMissingTypeApp         = errors.New(`missing required type "App"`)
+	ErrAppMissingPageIndex       = errors.New(`missing required page type "PageIndex"`)
+	ErrSignatureMissingReq       = errors.New(`missing the *http.Request parameter`)
+	ErrSignatureMultiErrRet      = errors.New(`multiple error return values`)
+	ErrSignatureUnsupportedInput = errors.New(`unsupported input parameter`)
+	// Deprecated: use ErrSignatureUnsupportedInput.
+	ErrSignatureUnknownInput    = ErrSignatureUnsupportedInput
 	ErrSignatureSecondArgNotSSE = errors.New(
 		"event handler second argument must be *datastar.ServerSentEventGenerator",
 	)
@@ -470,4 +472,24 @@ func (e *ErrorEventTargetUserIDsNoSession) Error() string {
 
 func (e *ErrorEventTargetUserIDsNoSession) Unwrap() error {
 	return ErrEventTargetUserIDsNoSession
+}
+
+// ErrorSignatureUnsupportedInput is ErrSignatureUnsupportedInput with context.
+type ErrorSignatureUnsupportedInput struct {
+	ParamName  string // e.g. "b"
+	ParamType  string // e.g. "*http.Request"
+	Recv       string // e.g. "PageFoo"
+	MethodName string // e.g. "GET"
+	// ExpectedName is set when the parameter type matches a known input
+	// but the name is wrong (e.g. type is Session but name is not "session").
+	ExpectedName string
+}
+
+func (e *ErrorSignatureUnsupportedInput) Error() string {
+	return fmt.Sprintf("%v %s %s in %s.%s",
+		ErrSignatureUnsupportedInput, e.ParamName, e.ParamType, e.Recv, e.MethodName)
+}
+
+func (e *ErrorSignatureUnsupportedInput) Unwrap() error {
+	return ErrSignatureUnsupportedInput
 }

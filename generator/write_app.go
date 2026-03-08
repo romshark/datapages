@@ -75,7 +75,8 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	w.writeSetupHandlers(m)
 	w.writeAppErrHelpers(m, appPkg)
 
-	if m.PageError404 != nil {
+	if m.PageError404 != nil &&
+		m.PageError404.GET != nil && m.PageError404.GET.OutputBody != nil {
 		w.writeRender404(m, appPkg)
 	}
 
@@ -86,7 +87,7 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 
 	// Per-page handlers.
 	for _, p := range m.Pages {
-		if p.GET != nil {
+		if p.GET != nil && p.GET.OutputBody != nil {
 			w.writePageGETHandler(p, m, appPkg)
 		}
 		if pageHasStream(p) {
@@ -1148,7 +1149,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 	w.Line(1, "// Pages")
 
 	for _, p := range m.Pages {
-		if p.GET == nil {
+		if p.GET == nil || p.GET.OutputBody == nil {
 			continue
 		}
 
@@ -1725,7 +1726,7 @@ func actionOwnerName(p *model.Page, isAppLevel bool) string {
 
 // writeGETCall generates the GET method call and HTML rendering for a page.
 func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, context string) {
-	if p.GET == nil {
+	if p.GET == nil || p.GET.OutputBody == nil {
 		return
 	}
 	h := p.GET.Handler
