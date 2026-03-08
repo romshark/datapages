@@ -291,7 +291,6 @@ func Suggest(err error) string {
 //   - ErrSignalsFieldUnexported       — fix is obvious: capitalize the field name
 //   - ErrSignalsFieldDuplicateTag     — message names the duplicate value
 //   - ErrDispatchParamNotFunc         — type constraint is clear from message
-//   - ErrDispatchMustReturnError      — type constraint is clear from message
 //   - ErrDispatchNoParams             — constraint is clear from message
 //   - ErrDispatchParamNotEvent        — constraint is clear from message
 //   - ErrSessionNotStruct             — type constraint is clear from message
