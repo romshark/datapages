@@ -40,7 +40,7 @@ func (PageNotFunc) GET(
 // PageNoReturn is /no-return
 type PageNoReturn struct{ App *App }
 
-/* ErrDispatchReturnCount */
+/* ErrDispatchMustReturnError */
 
 func (PageNoReturn) GET(
 	r *http.Request,
@@ -58,6 +58,19 @@ type PageWrongReturn struct{ App *App }
 func (PageWrongReturn) GET(
 	r *http.Request,
 	dispatch func(EventFoo) int,
+) (body templ.Component, err error) {
+	_ = dispatch
+	return body, err
+}
+
+// PageNoReturnNoParams is /no-return-no-params
+type PageNoReturnNoParams struct{ App *App }
+
+/* ErrDispatchMustReturnError, ErrDispatchNoParams */
+
+func (PageNoReturnNoParams) GET(
+	r *http.Request,
+	dispatch func(),
 ) (body templ.Component, err error) {
 	_ = dispatch
 	return body, err

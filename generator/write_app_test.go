@@ -340,13 +340,19 @@ func TestWriteSetupHandlers(t *testing.T) {
 						TypeName:           "PageIndex",
 						Route:              "/",
 						PageSpecialization: model.PageTypeIndex,
-						GET:                &model.HandlerGET{Handler: &model.Handler{}},
+						GET: &model.HandlerGET{
+							Handler:    &model.Handler{},
+							OutputBody: &model.TemplComponent{Output: &model.Output{Name: "body"}},
+						},
 					},
 					{TypeName: "PageNoGET", Route: "/noget/"},
 					{
 						TypeName: "PagePost",
 						Route:    "/post/{slug}",
-						GET:      &model.HandlerGET{Handler: &model.Handler{}},
+						GET: &model.HandlerGET{
+							Handler:    &model.Handler{},
+							OutputBody: &model.TemplComponent{Output: &model.Output{Name: "body"}},
+						},
 						EventHandlers: []*model.EventHandler{
 							testEventHandler("PostsArchived", "EventPostsArchived"),
 						},
