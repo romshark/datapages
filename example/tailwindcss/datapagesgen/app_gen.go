@@ -226,7 +226,7 @@ func (s *Server) logErr(msg string, err error) {
 const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
 
 func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
-	_, _ = io.WriteString(w, `data-on:visibilitychange__window="if (!document.hidden) @get(window.location.href)"`)
+	_, _ = io.WriteString(w, `data-on:visibilitychange__window="if (!document.hidden) window.location.reload()" `)
 }
 
 // Shutdown gracefully shuts down all server components.
