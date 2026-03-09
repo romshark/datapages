@@ -227,41 +227,8 @@ func (w *Writer) writeHrefFuncQueryOnly(
 ) {
 	w.Linef(0, "func %s(query Query%s) string {", funcName, funcName)
 
-	// Pre-convert int64 fields to strings.
-	if hasIntFields(fields) {
-		w.Line(1, "var (")
-		for _, f := range fields {
-			if isIntType(f.Type) {
-				tag := queryTagValue(f.Tag)
-				w.Linef(2, "%sStr string", tag)
-			}
-		}
-		w.Line(1, ")")
-		w.Line(0, "")
-		for _, f := range fields {
-			if isIntType(f.Type) {
-				tag := queryTagValue(f.Tag)
-				_, unsigned := intTypeParseInfo(f.Type)
-				typeName := intTypeName(f.Type)
-				w.Linef(1, "if query.%s != 0 {", f.Name)
-				if unsigned {
-					if typeName != "uint64" {
-						w.Linef(2, "%sStr = strconv.FormatUint(uint64(query.%s), 10)", tag, f.Name)
-					} else {
-						w.Linef(2, "%sStr = strconv.FormatUint(query.%s, 10)", tag, f.Name)
-					}
-				} else {
-					if typeName != "int64" {
-						w.Linef(2, "%sStr = strconv.FormatInt(int64(query.%s), 10)", tag, f.Name)
-					} else {
-						w.Linef(2, "%sStr = strconv.FormatInt(query.%s, 10)", tag, f.Name)
-					}
-				}
-				w.Line(1, "}")
-			}
-		}
-		w.Line(0, "")
-	}
+	// Pre-convert int fields to strings.
+	w.writeIntPreConvert(fields)
 
 	// anyQuery check.
 	w.writeAnyCheck("anyQuery", fields)
@@ -354,41 +321,8 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 
 	literals, _ := routeSegments(route)
 
-	// Pre-convert int64 fields to strings.
-	if hasIntFields(fields) {
-		w.Line(1, "var (")
-		for _, f := range fields {
-			if isIntType(f.Type) {
-				tag := queryTagValue(f.Tag)
-				w.Linef(2, "%sStr string", tag)
-			}
-		}
-		w.Line(1, ")")
-		w.Line(0, "")
-		for _, f := range fields {
-			if isIntType(f.Type) {
-				tag := queryTagValue(f.Tag)
-				_, unsigned := intTypeParseInfo(f.Type)
-				typeName := intTypeName(f.Type)
-				w.Linef(1, "if query.%s != 0 {", f.Name)
-				if unsigned {
-					if typeName != "uint64" {
-						w.Linef(2, "%sStr = strconv.FormatUint(uint64(query.%s), 10)", tag, f.Name)
-					} else {
-						w.Linef(2, "%sStr = strconv.FormatUint(query.%s, 10)", tag, f.Name)
-					}
-				} else {
-					if typeName != "int64" {
-						w.Linef(2, "%sStr = strconv.FormatInt(int64(query.%s), 10)", tag, f.Name)
-					} else {
-						w.Linef(2, "%sStr = strconv.FormatInt(query.%s, 10)", tag, f.Name)
-					}
-				}
-				w.Line(1, "}")
-			}
-		}
-		w.Line(0, "")
-	}
+	// Pre-convert int fields to strings.
+	w.writeIntPreConvert(fields)
 
 	// anyQuery check.
 	w.writeAnyCheck("anyQuery", fields)
@@ -552,9 +486,49 @@ func (w *Writer) writeIfZeroCheck(indent int, expr string, t types.Type) {
 // fieldTypeName returns the Go type name for a field type.
 func fieldTypeName(t types.Type) string {
 	if isIntType(t) {
-		return "int64"
+		return intTypeName(t)
 	}
 	return "string"
+}
+
+// writeIntPreConvert emits variable declarations and conversion code
+// for int fields (e.g. "deltaStr = strconv.FormatInt(query.Delta, 10)").
+func (w *Writer) writeIntPreConvert(fields []structFieldInfo) {
+	if !hasIntFields(fields) {
+		return
+	}
+	w.Line(1, "var (")
+	for _, f := range fields {
+		if isIntType(f.Type) {
+			tag := queryTagValue(f.Tag)
+			w.Linef(2, "%sStr string", tag)
+		}
+	}
+	w.Line(1, ")")
+	w.Line(0, "")
+	for _, f := range fields {
+		if isIntType(f.Type) {
+			tag := queryTagValue(f.Tag)
+			_, unsigned := intTypeParseInfo(f.Type)
+			typeName := intTypeName(f.Type)
+			w.Linef(1, "if query.%s != 0 {", f.Name)
+			if unsigned {
+				if typeName != "uint64" {
+					w.Linef(2, "%sStr = strconv.FormatUint(uint64(query.%s), 10)", tag, f.Name)
+				} else {
+					w.Linef(2, "%sStr = strconv.FormatUint(query.%s, 10)", tag, f.Name)
+				}
+			} else {
+				if typeName != "int64" {
+					w.Linef(2, "%sStr = strconv.FormatInt(int64(query.%s), 10)", tag, f.Name)
+				} else {
+					w.Linef(2, "%sStr = strconv.FormatInt(query.%s, 10)", tag, f.Name)
+				}
+			}
+			w.Line(1, "}")
+		}
+	}
+	w.Line(0, "")
 }
 
 // hasIntFields reports whether any field is an int/int64 type.

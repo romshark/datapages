@@ -20,10 +20,8 @@ func POSTPageOrgUpdate(org string, team string, query QueryPOSTPageOrgUpdate) st
 		if n > 0 {
 			l += len("&")
 		}
-		n++
 		l += len("role=") + len(query.Role)
 	}
-	_ = n
 
 	b.Grow(l)
 
@@ -40,8 +38,6 @@ func POSTPageOrgUpdate(org string, team string, query QueryPOSTPageOrgUpdate) st
 		if n > 0 {
 			b.WriteString("&")
 		}
-		n++
-		_ = n
 		b.WriteString("role=")
 		b.WriteString(query.Role)
 	}

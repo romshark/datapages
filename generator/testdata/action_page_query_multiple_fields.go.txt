@@ -28,10 +28,8 @@ func POSTPageMessagesMarkRead(query QueryPOSTPageMessagesMarkRead) string {
 		if n > 0 {
 			l += len("&")
 		}
-		n++
 		l += len("chat=") + len(query.Chat)
 	}
-	_ = n
 
 	b.Grow(l)
 
@@ -45,7 +43,6 @@ func POSTPageMessagesMarkRead(query QueryPOSTPageMessagesMarkRead) string {
 			b.WriteString("&")
 		}
 		n++
-		_ = n
 		b.WriteString("msgid=")
 		b.WriteString(query.MessageID)
 	}
@@ -53,8 +50,6 @@ func POSTPageMessagesMarkRead(query QueryPOSTPageMessagesMarkRead) string {
 		if n > 0 {
 			b.WriteString("&")
 		}
-		n++
-		_ = n
 		b.WriteString("chat=")
 		b.WriteString(query.Chat)
 	}

@@ -20,10 +20,8 @@ func POSTPagePostReply(slug string, query QueryPOSTPagePostReply) string {
 		if n > 0 {
 			l += len("&")
 		}
-		n++
 		l += len("pid=") + len(query.ParentID)
 	}
-	_ = n
 
 	b.Grow(l)
 
@@ -38,8 +36,6 @@ func POSTPagePostReply(slug string, query QueryPOSTPagePostReply) string {
 		if n > 0 {
 			b.WriteString("&")
 		}
-		n++
-		_ = n
 		b.WriteString("pid=")
 		b.WriteString(query.ParentID)
 	}

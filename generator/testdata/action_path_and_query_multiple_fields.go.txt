@@ -28,10 +28,8 @@ func POSTPagePostComment(slug string, query QueryPOSTPagePostComment) string {
 		if n > 0 {
 			l += len("&")
 		}
-		n++
 		l += len("draft=") + len(query.Draft)
 	}
-	_ = n
 
 	b.Grow(l)
 
@@ -47,7 +45,6 @@ func POSTPagePostComment(slug string, query QueryPOSTPagePostComment) string {
 			b.WriteString("&")
 		}
 		n++
-		_ = n
 		b.WriteString("pid=")
 		b.WriteString(query.ParentID)
 	}
@@ -55,8 +52,6 @@ func POSTPagePostComment(slug string, query QueryPOSTPagePostComment) string {
 		if n > 0 {
 			b.WriteString("&")
 		}
-		n++
-		_ = n
 		b.WriteString("draft=")
 		b.WriteString(query.Draft)
 	}

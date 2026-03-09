@@ -20,10 +20,8 @@ func POSTAppSearch(query QueryPOSTAppSearch) string {
 		if n > 0 {
 			l += len("&")
 		}
-		n++
 		l += len("t=") + len(query.Term)
 	}
-	_ = n
 
 	b.Grow(l)
 
@@ -36,8 +34,6 @@ func POSTAppSearch(query QueryPOSTAppSearch) string {
 		if n > 0 {
 			b.WriteString("&")
 		}
-		n++
-		_ = n
 		b.WriteString("t=")
 		b.WriteString(query.Term)
 	}

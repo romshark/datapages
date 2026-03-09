@@ -1,7 +1,11 @@
 package generator_test
 
 import (
+	"go/ast"
 	"go/format"
+	"go/importer"
+	goparser "go/parser"
+	"go/token"
 	"go/types"
 	"os"
 	"path/filepath"
@@ -179,6 +183,33 @@ func TestWritePkgAction(t *testing.T) {
 			}},
 			golden: "action_path_and_query_multiple_fields.go.txt",
 		},
+		"query with int field": {
+			app: &model.App{Pages: []*model.Page{
+				actionPage("PageIndex",
+					actionHandler("post", "Add", "/add/{$}",
+						hrefStruct(
+							hrefFieldDef{
+								"Delta", types.Typ[types.Int64],
+								`query:"delta"`,
+							},
+						))),
+			}},
+			golden: "action_query_with_int_field.go.txt",
+		},
+		"path and query with int field": {
+			app: &model.App{Pages: []*model.Page{
+				actionPage("PagePost",
+					actionHandler("post", "Rate",
+						"/post/{slug}/rate/{$}",
+						hrefStruct(
+							hrefFieldDef{
+								"Score", types.Typ[types.Int64],
+								`query:"score"`,
+							},
+						))),
+			}},
+			golden: "action_path_and_query_with_int_field.go.txt",
+		},
 		"path and query multiple path vars": {
 			app: &model.App{Pages: []*model.Page{
 				actionPage("PageOrg",
@@ -217,6 +248,55 @@ func TestWritePkgAction(t *testing.T) {
 			require.Equal(t, string(want), string(w.Buf))
 		})
 	}
+}
+
+func TestWritePkgActionIntFieldTypeChecks(t *testing.T) {
+	tests := map[string]*model.App{
+		"query only with int field": {Pages: []*model.Page{
+			actionPage("PageIndex",
+				actionHandler("post", "Add", "/add/{$}",
+					hrefStruct(
+						hrefFieldDef{
+							"Delta", types.Typ[types.Int64],
+							`query:"delta"`,
+						},
+					))),
+		}},
+		"path and query with int field": {Pages: []*model.Page{
+			actionPage("PagePost",
+				actionHandler("post", "Rate", "/post/{slug}/rate/{$}",
+					hrefStruct(
+						hrefFieldDef{
+							"Score", types.Typ[types.Int64],
+							`query:"score"`,
+						},
+					))),
+		}},
+	}
+
+	w := generator.Writer{Buf: make([]byte, 2*1024*1024)}
+	for name, app := range tests {
+		t.Run(name, func(t *testing.T) {
+			w.Reset()
+			w.WritePkgAction(app)
+			src, err := format.Source(w.Buf)
+			require.NoError(t, err,
+				"generated code is not valid Go syntax:\n%s", string(w.Buf))
+			typeCheckGenerated(t, src)
+		})
+	}
+}
+
+func typeCheckGenerated(t *testing.T, src []byte) {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := goparser.ParseFile(fset, "gen.go", src, 0)
+	require.NoError(t, err, "parse error")
+
+	conf := types.Config{Importer: importer.Default()}
+	_, err = conf.Check("action", fset, []*ast.File{f}, nil)
+	require.NoError(t, err,
+		"generated code does not type-check:\n%s", string(src))
 }
 
 // actionPage constructs a *model.Page with the given actions.

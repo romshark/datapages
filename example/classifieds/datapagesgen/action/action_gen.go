@@ -35,10 +35,8 @@ func POSTPageMessagesRead(query QueryPOSTPageMessagesRead) string {
 		if n > 0 {
 			l += len("&")
 		}
-		n++
 		l += len("msgid=") + len(query.MessageID)
 	}
-	_ = n
 
 	b.Grow(l)
 
@@ -51,8 +49,6 @@ func POSTPageMessagesRead(query QueryPOSTPageMessagesRead) string {
 		if n > 0 {
 			b.WriteString("&")
 		}
-		n++
-		_ = n
 		b.WriteString("msgid=")
 		b.WriteString(query.MessageID)
 	}
