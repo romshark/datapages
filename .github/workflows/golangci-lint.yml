@@ -19,6 +19,10 @@ jobs:
         project:
           - path: "."
             name: "root"
+          - path: "example/counter"
+            name: "example/counter"
+          - path: "example/fancy-counter"
+            name: "example/fancy-counter"
           - path: "example/classifieds"
             name: "example/classifieds"
           - path: "example/tailwindcss"
