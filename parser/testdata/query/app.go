@@ -21,10 +21,12 @@ type PageSearch struct{ App *App }
 func (PageSearch) GET(
 	r *http.Request,
 	query struct {
-		Term     string `query:"t"`
-		Category string `query:"c"`
-		Limit    int    `query:"l"`
-		PriceMin int64  `query:"pmin"`
+		Term     string  `query:"t"`
+		Category string  `query:"c"`
+		Limit    int     `query:"l"`
+		PriceMin int64   `query:"pmin"`
+		MaxPrice float64 `query:"pmax"`
+		InStock  bool    `query:"instock"`
 	},
 ) (body templ.Component, err error) {
 	_ = query

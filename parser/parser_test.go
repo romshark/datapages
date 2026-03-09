@@ -499,7 +499,7 @@ func TestParse_ErrPath(t *testing.T) {
 	requireParseErrors(t, err,
 		parser.ErrPathParamNotStruct,
 		parser.ErrPathFieldUnexported,
-		parser.ErrPathFieldNotString,
+		parser.ErrPathFieldUnsupportedType,
 		parser.ErrPathFieldMissingTag,
 		parser.ErrPathFieldNotInRoute,
 		parser.ErrPathMissingRouteVar,
@@ -544,6 +544,7 @@ func TestParse_ErrQuery(t *testing.T) {
 	requireParseErrors(t, err,
 		parser.ErrQueryParamNotStruct,
 		parser.ErrQueryFieldUnexported,
+		parser.ErrQueryFieldUnsupportedType,
 		parser.ErrQueryFieldMissingTag,
 		parser.ErrQueryFieldDuplicateTag,
 	)
@@ -1101,7 +1102,7 @@ func TestParse_ErrorPositions(t *testing.T) {
 		"err_path": {
 			{parser.ErrPathParamNotStruct, "app.go", 25, 48},
 			{parser.ErrPathFieldUnexported, "app.go", 38, 3},
-			{parser.ErrPathFieldNotString, "app.go", 53, 3},
+			{parser.ErrPathFieldUnsupportedType, "app.go", 53, 3},
 			{parser.ErrPathFieldMissingTag, "app.go", 68, 3},
 			{parser.ErrPathFieldNotInRoute, "app.go", 83, 3},
 			{parser.ErrPathMissingRouteVar, "app.go", 95, 23},
@@ -1110,8 +1111,9 @@ func TestParse_ErrorPositions(t *testing.T) {
 		"err_query": {
 			{parser.ErrQueryParamNotStruct, "app.go", 25, 49},
 			{parser.ErrQueryFieldUnexported, "app.go", 38, 3},
-			{parser.ErrQueryFieldMissingTag, "app.go", 53, 3},
-			{parser.ErrQueryFieldDuplicateTag, "app.go", 69, 3},
+			{parser.ErrQueryFieldUnsupportedType, "app.go", 53, 3},
+			{parser.ErrQueryFieldMissingTag, "app.go", 68, 3},
+			{parser.ErrQueryFieldDuplicateTag, "app.go", 84, 3},
 		},
 		"err_signals": {
 			{parser.ErrSignalsParamNotStruct, "app.go", 25, 51},

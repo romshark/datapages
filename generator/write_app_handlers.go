@@ -374,6 +374,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 
 	// Reflect signal attrs.
 	for _, f := range reflectFields {
+		fi := structFieldInfo{Name: f.FieldName, Type: f.Type}
 		if isStringType(f.Type) {
 			w.Line(0, "")
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
@@ -383,29 +384,14 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 			w.Raw(f.FieldName)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
-		} else if isIntType(f.Type) {
-			_, unsigned := intTypeParseInfo(f.Type)
-			typeName := intTypeName(f.Type)
+		} else {
 			w.Line(0, "")
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"`)\n")
 			w.Raw("\t\t_, _ = io.WriteString(w, ")
-			if unsigned {
-				if typeName != "uint64" {
-					w.Raw("strconv.FormatUint(uint64(query.")
-				} else {
-					w.Raw("strconv.FormatUint(query.")
-				}
-			} else {
-				if typeName != "int64" {
-					w.Raw("strconv.FormatInt(int64(query.")
-				} else {
-					w.Raw("strconv.FormatInt(query.")
-				}
-			}
-			w.Raw(f.FieldName)
-			w.Raw(", 10))\n")
+			w.writeFieldToString("query", fi)
+			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `\"`)")
 		}
 	}
@@ -538,12 +524,12 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 }
 
 func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
-	// Build a map from path: tag value to Go field name.
+	// Build a map from path: tag value to field info.
 	fields := w.structFields(pathInput.Type.Resolved)
-	tagToField := make(map[string]string, len(fields))
+	tagToField := make(map[string]structFieldInfo, len(fields))
 	for _, f := range fields {
 		if tag := pathTagValue(f.Tag); tag != "" {
-			tagToField[tag] = f.Name
+			tagToField[tag] = f
 		}
 	}
 	// Build the path prefix up to the variable, then write the variable.
@@ -553,10 +539,50 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 		w.Raw(lit)
 		w.Raw("`)\n")
 		if i < len(vars) {
-			w.Raw("\t\t_, _ = io.WriteString(w, path.")
-			w.Raw(tagToField[vars[i]])
+			f := tagToField[vars[i]]
+			w.Raw("\t\t_, _ = io.WriteString(w, ")
+			w.writeFieldToString("path", f)
 			w.Raw(")\n")
 		}
+	}
+}
+
+// writeFieldToString emits an expression that converts a struct field to a string.
+// For string fields it emits "varName.FieldName"; for other types it wraps with
+// strconv.Format* or fmt.Sprint.
+func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
+	ref := varName + "." + f.Name
+	if isStringType(f.Type) {
+		w.Raw(ref)
+	} else if isIntType(f.Type) {
+		_, unsigned := intTypeParseInfo(f.Type)
+		typeName := intTypeName(f.Type)
+		if unsigned {
+			if typeName != "uint64" {
+				w.Rawf("strconv.FormatUint(uint64(%s), 10)", ref)
+			} else {
+				w.Rawf("strconv.FormatUint(%s, 10)", ref)
+			}
+		} else {
+			if typeName != "int64" {
+				w.Rawf("strconv.FormatInt(int64(%s), 10)", ref)
+			} else {
+				w.Rawf("strconv.FormatInt(%s, 10)", ref)
+			}
+		}
+	} else if isFloatType(f.Type) {
+		bits := floatBits(f.Type)
+		typeName := floatTypeName(f.Type)
+		if typeName != "float64" {
+			w.Rawf("strconv.FormatFloat(float64(%s), 'f', -1, %d)", ref, bits)
+		} else {
+			w.Rawf("strconv.FormatFloat(%s, 'f', -1, %d)", ref, bits)
+		}
+	} else if isBoolType(f.Type) {
+		w.Rawf("strconv.FormatBool(%s)", ref)
+	} else {
+		// TextUnmarshaler or other — use fmt.Sprint as fallback.
+		w.Rawf("fmt.Sprint(%s)", ref)
 	}
 }
 
@@ -1061,49 +1087,20 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
 		tag := queryTagValue(f.Tag)
-		if isIntType(f.Type) {
-			bits, unsigned := intTypeParseInfo(f.Type)
-			typeName := intTypeName(f.Type)
-			w.Line(1, "{")
-			w.Raw("\t\tif q := q.Get(")
-			w.writeQuoted(tag)
-			w.Raw("); q != \"\" {\n")
-			if unsigned {
-				w.Linef(3, "u, err := strconv.ParseUint(q, 10, %d)", bits)
-			} else {
-				w.Linef(3, "i, err := strconv.ParseInt(q, 10, %d)", bits)
-			}
-			w.Line(3, "if err != nil {")
-			w.Raw("\t\t\t\ts.httpErrBad(w, \"unexpected value for query parameter: ")
-			w.Raw(tag)
-			w.Raw("\", err)\n")
-			w.Line(4, "return")
-			w.Line(3, "}")
-			w.Raw("\t\t\tquery.")
-			w.Raw(f.Name)
-			w.Raw(" = ")
-			if unsigned {
-				if typeName != "uint64" {
-					w.Raw(typeName + "(u)")
-				} else {
-					w.Raw("u")
-				}
-			} else {
-				if typeName != "int64" {
-					w.Raw(typeName + "(i)")
-				} else {
-					w.Raw("i")
-				}
-			}
-			w.Raw("\n")
-			w.Line(2, "}")
-			w.Line(1, "}")
-		} else {
+		if isStringType(f.Type) {
 			w.Raw("\tquery.")
 			w.Raw(f.Name)
 			w.Raw(" = q.Get(")
 			w.writeQuoted(tag)
 			w.Raw(")\n")
+		} else {
+			w.Line(1, "{")
+			w.Raw("\t\tif q := q.Get(")
+			w.writeQuoted(tag)
+			w.Raw("); q != \"\" {\n")
+			w.writeParseField("query", f, tag, "query parameter", 3)
+			w.Line(2, "}")
+			w.Line(1, "}")
 		}
 	}
 }
@@ -1116,11 +1113,132 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
 		tag := pathTagValue(f.Tag)
-		w.Raw("\tpath.")
+		if isStringType(f.Type) {
+			w.Raw("\tpath.")
+			w.Raw(f.Name)
+			w.Raw(" = r.PathValue(")
+			w.writeQuoted(tag)
+			w.Raw(")\n")
+		} else {
+			w.Line(1, "{")
+			w.Raw("\t\tv := r.PathValue(")
+			w.writeQuoted(tag)
+			w.Raw(")\n")
+			w.writeParseField("path", f, tag, "path parameter", 2)
+			w.Line(1, "}")
+		}
+	}
+}
+
+// writeParseField emits code that parses a raw string value into a typed
+// struct field. For writeReadQuery the raw variable is named "q" (from the
+// if-guard); for writeReadPath it is "v" (set before the call).
+//
+// varName is "path" or "query" (the struct being populated).
+// label is "path parameter" or "query parameter" (for error messages).
+// indent is the base indentation level for the generated code.
+func (w *Writer) writeParseField(
+	varName string, f structFieldInfo, tag, label string, indent int,
+) {
+	// Determine the raw-string variable name: "q" for query, "v" for path.
+	raw := "q"
+	if varName == "path" {
+		raw = "v"
+	}
+
+	tabs := func(n int) {
+		for range n {
+			w.Byte('\t')
+		}
+	}
+
+	if isIntType(f.Type) {
+		bits, unsigned := intTypeParseInfo(f.Type)
+		typeName := intTypeName(f.Type)
+		if unsigned {
+			tabs(indent)
+			w.Rawf("u, err := strconv.ParseUint(%s, 10, %d)\n", raw, bits)
+		} else {
+			tabs(indent)
+			w.Rawf("i, err := strconv.ParseInt(%s, 10, %d)\n", raw, bits)
+		}
+		tabs(indent)
+		w.Raw("if err != nil {\n")
+		tabs(indent + 1)
+		w.Rawf("s.httpErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
+		tabs(indent + 1)
+		w.Raw("return\n")
+		tabs(indent)
+		w.Raw("}\n")
+		tabs(indent)
+		w.Raw(varName)
+		w.Byte('.')
 		w.Raw(f.Name)
-		w.Raw(" = r.PathValue(")
-		w.writeQuoted(tag)
-		w.Raw(")\n")
+		w.Raw(" = ")
+		if unsigned {
+			if typeName != "uint64" {
+				w.Raw(typeName + "(u)")
+			} else {
+				w.Raw("u")
+			}
+		} else {
+			if typeName != "int64" {
+				w.Raw(typeName + "(i)")
+			} else {
+				w.Raw("i")
+			}
+		}
+		w.Byte('\n')
+	} else if isFloatType(f.Type) {
+		bits := floatBits(f.Type)
+		typeName := floatTypeName(f.Type)
+		tabs(indent)
+		w.Rawf("f, err := strconv.ParseFloat(%s, %d)\n", raw, bits)
+		tabs(indent)
+		w.Raw("if err != nil {\n")
+		tabs(indent + 1)
+		w.Rawf("s.httpErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
+		tabs(indent + 1)
+		w.Raw("return\n")
+		tabs(indent)
+		w.Raw("}\n")
+		tabs(indent)
+		w.Raw(varName)
+		w.Byte('.')
+		w.Raw(f.Name)
+		w.Raw(" = ")
+		if typeName != "float64" {
+			w.Raw("float32(f)")
+		} else {
+			w.Raw("f")
+		}
+		w.Byte('\n')
+	} else if isBoolType(f.Type) {
+		tabs(indent)
+		w.Rawf("b, err := strconv.ParseBool(%s)\n", raw)
+		tabs(indent)
+		w.Raw("if err != nil {\n")
+		tabs(indent + 1)
+		w.Rawf("s.httpErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
+		tabs(indent + 1)
+		w.Raw("return\n")
+		tabs(indent)
+		w.Raw("}\n")
+		tabs(indent)
+		w.Raw(varName)
+		w.Byte('.')
+		w.Raw(f.Name)
+		w.Raw(" = b\n")
+	} else if isTextUnmarshaler(f.Type) {
+		tabs(indent)
+		w.Rawf("if err := %s.%s.UnmarshalText([]byte(%s)); err != nil {\n",
+			varName, f.Name, raw)
+		tabs(indent + 1)
+		w.Rawf("s.httpErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
+		tabs(indent + 1)
+		w.Raw("return\n")
+		tabs(indent)
+		w.Raw("}\n")
 	}
 }
 

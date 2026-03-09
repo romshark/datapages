@@ -279,6 +279,32 @@ path struct {
 
 Provides URL path parameters. These parameters must be defined in the URL comment.
 
+Each field must be exported with a `path:"..."` struct tag
+where the tag value names the corresponding route variable
+(e.g. `path:"id"` binds to `{id}` in the URL pattern).
+
+Supported field types are:
+
+- `string`
+- `bool`
+- `int`
+- `int8`
+- `int16`
+- `int32`
+- `int64`
+- `uint`
+- `uint8`
+- `uint16`
+- `uint32`
+- `uint64`
+- `float32`
+- `float64`
+
+or any type implementing `encoding.TextUnmarshaler`.
+Values are parsed from their string representation in the URL.
+If a value cannot be parsed into the target type, the request
+returns HTTP 400 Bad Request.
+
 #### Parameter: `query struct {...}`
 
 ```go
@@ -288,7 +314,13 @@ query struct {
 }
 ```
 
-Provides URL query parameters. These parameters must be defined in the URL comment.
+Provides URL query parameters.
+
+Each field must be exported with a `query:"..."` struct tag
+where the tag value names the query parameter key
+(e.g. `query:"f"` reads from `?f=...`).
+
+The same field types as [`path`](#parameter-path-struct-) are supported.
 
 The `reflectsignal` struct field tag can be used to define what signal shall reflect
 into the query parameter:

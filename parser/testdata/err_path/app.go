@@ -42,15 +42,15 @@ func (PageUnexported) GET(
 	return body, err
 }
 
-// PageNotString is /not-string/{id}
-type PageNotString struct{ App *App }
+// PageUnsupportedType is /unsupported-type/{id}
+type PageUnsupportedType struct{ App *App }
 
-/* ErrPathFieldNotString */
+/* ErrPathFieldUnsupportedType */
 
-func (PageNotString) GET(
+func (PageUnsupportedType) GET(
 	r *http.Request,
 	path struct {
-		ID int `path:"id"`
+		ID []byte `path:"id"`
 	},
 ) (body templ.Component, err error) {
 	_ = path

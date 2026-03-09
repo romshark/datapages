@@ -321,6 +321,28 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Potential candidates: path, query, signals",
 		},
 
+		"ErrPathFieldUnsupportedType": {
+			err: fmt.Errorf(
+				"%w: field ID in PageFoo.GET",
+				parser.ErrPathFieldUnsupportedType,
+			),
+			want: "fix: Use either of: string, bool, " +
+				"int, int8, int16, int32, int64, " +
+				"uint, uint8, uint16, uint32, uint64, " +
+				"float32, float64, or encoding.TextUnmarshaler",
+		},
+
+		"ErrQueryFieldUnsupportedType": {
+			err: fmt.Errorf(
+				"%w: field Data in PageFoo.GET",
+				parser.ErrQueryFieldUnsupportedType,
+			),
+			want: "fix: Use either of: string, bool, " +
+				"int, int8, int16, int32, int64, " +
+				"uint, uint8, uint16, uint32, uint64, " +
+				"float32, float64, or encoding.TextUnmarshaler",
+		},
+
 		"ErrDispatchMustReturnError": {
 			err: &paramvalidation.ErrorDispatchMustReturnError{
 				Recv:       "PageFoo",

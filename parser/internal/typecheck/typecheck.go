@@ -25,6 +25,70 @@ func IsBool(t types.Type) bool {
 	return ok && b.Kind() == types.Bool
 }
 
+// IsInputFieldType reports whether t is a supported type for
+// path and query struct fields: string, bool, integers
+// (int, int8, int16, int32, int64, uint, uint8, uint16,
+// uint32, uint64), floats (float32, float64), or any type
+// that implements encoding.TextUnmarshaler.
+func IsInputFieldType(t types.Type) bool {
+	if isBasicInputType(t) {
+		return true
+	}
+	return ImplementsTextUnmarshaler(t)
+}
+
+// isBasicInputType reports whether t is a basic scalar type
+// supported for path/query fields.
+func isBasicInputType(t types.Type) bool {
+	b, ok := t.Underlying().(*types.Basic)
+	if !ok {
+		return false
+	}
+	switch b.Kind() {
+	case types.String, types.Bool,
+		types.Int, types.Int8, types.Int16,
+		types.Int32, types.Int64,
+		types.Uint, types.Uint8, types.Uint16,
+		types.Uint32, types.Uint64,
+		types.Float32, types.Float64:
+		return true
+	default:
+		return false
+	}
+}
+
+// textUnmarshaler is the method set of encoding.TextUnmarshaler.
+var textUnmarshaler = func() *types.Interface {
+	sig := types.NewSignatureType(
+		nil, nil, nil,
+		types.NewTuple(types.NewVar(
+			0, nil, "text", types.NewSlice(types.Typ[types.Byte]),
+		)),
+		types.NewTuple(types.NewVar(
+			0, nil, "", types.Universe.Lookup("error").Type(),
+		)),
+		false,
+	)
+	return types.NewInterfaceType(
+		[]*types.Func{types.NewFunc(
+			0, nil, "UnmarshalText", sig,
+		)},
+		nil,
+	).Complete()
+}()
+
+// ImplementsTextUnmarshaler reports whether t or *t implements
+// encoding.TextUnmarshaler.
+func ImplementsTextUnmarshaler(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	if types.Implements(t, textUnmarshaler) {
+		return true
+	}
+	return types.Implements(types.NewPointer(t), textUnmarshaler)
+}
+
 // IsTimeTime reports whether t is time.Time from the standard library.
 func IsTimeTime(t types.Type) bool {
 	if t == nil {

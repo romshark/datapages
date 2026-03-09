@@ -19,8 +19,13 @@ func (w *Writer) WritePkgAction(m *model.App) {
 		if a.InputPath != nil || a.InputQuery != nil {
 			needsStrings = true
 		}
+		if a.InputPath != nil {
+			if hasNonStringFields(w.structFields(a.InputPath.Type.Resolved)) {
+				needsStrconv = true
+			}
+		}
 		if a.InputQuery != nil {
-			if hasIntFields(w.structFields(a.InputQuery.Type.Resolved)) {
+			if hasNonStringFields(w.structFields(a.InputQuery.Type.Resolved)) {
 				needsStrconv = true
 			}
 		}
@@ -31,8 +36,13 @@ func (w *Writer) WritePkgAction(m *model.App) {
 			if a.InputPath != nil || a.InputQuery != nil {
 				needsStrings = true
 			}
+			if a.InputPath != nil {
+				if hasNonStringFields(w.structFields(a.InputPath.Type.Resolved)) {
+					needsStrconv = true
+				}
+			}
 			if a.InputQuery != nil {
-				if hasIntFields(w.structFields(a.InputQuery.Type.Resolved)) {
+				if hasNonStringFields(w.structFields(a.InputQuery.Type.Resolved)) {
 					needsStrconv = true
 				}
 			}
@@ -45,6 +55,7 @@ func (w *Writer) WritePkgAction(m *model.App) {
 		funcName   string
 		httpMethod string
 		route      string
+		pathInput  *model.Input
 		queryInput *model.Input
 	}
 
@@ -55,6 +66,7 @@ func (w *Writer) WritePkgAction(m *model.App) {
 			funcName:   strings.ToUpper(a.HTTPMethod) + "App" + a.Name,
 			httpMethod: a.HTTPMethod,
 			route:      a.Route,
+			pathInput:  a.InputPath,
 			queryInput: a.InputQuery,
 		}
 	}
@@ -71,6 +83,7 @@ func (w *Writer) WritePkgAction(m *model.App) {
 				funcName:   strings.ToUpper(a.HTTPMethod) + "Page" + pageSuffix + a.Name,
 				httpMethod: a.HTTPMethod,
 				route:      a.Route,
+				pathInput:  a.InputPath,
 				queryInput: a.InputQuery,
 			})
 		}
@@ -81,10 +94,10 @@ func (w *Writer) WritePkgAction(m *model.App) {
 
 	// Emit App actions first, then page actions.
 	for _, a := range appActions {
-		w.writeActionFunc(a.funcName, a.httpMethod, a.route, a.queryInput)
+		w.writeActionFunc(a.funcName, a.httpMethod, a.route, a.pathInput, a.queryInput)
 	}
 	for _, a := range pageActions {
-		w.writeActionFunc(a.funcName, a.httpMethod, a.route, a.queryInput)
+		w.writeActionFunc(a.funcName, a.httpMethod, a.route, a.pathInput, a.queryInput)
 	}
 }
 
@@ -123,10 +136,12 @@ func (w *Writer) writeActionFunc(
 	funcName string,
 	httpMethod string,
 	route string,
+	pathInput *model.Input,
 	queryInput *model.Input,
 ) {
 	pathVars := slices.Collect(routepattern.Vars(route))
 	hasPathVars := len(pathVars) > 0
+	params := w.pathParamInfos(pathInput, pathVars)
 
 	var queryFields []structFieldInfo
 	if queryInput != nil {
@@ -153,7 +168,7 @@ func (w *Writer) writeActionFunc(
 	}
 
 	if hasPathVars && !hasQuery {
-		w.writeActionFuncPathOnly(funcName, method, route, pathVars)
+		w.writeActionFuncPathOnly(funcName, method, route, params)
 		return
 	}
 
@@ -164,7 +179,7 @@ func (w *Writer) writeActionFunc(
 	}
 
 	// Both path and query.
-	w.writeActionFuncPathAndQuery(funcName, method, route, pathVars, queryFields)
+	w.writeActionFuncPathAndQuery(funcName, method, route, params, queryFields)
 	w.writeActionQueryType(funcName, queryFields)
 }
 
@@ -172,7 +187,7 @@ func (w *Writer) writeActionFuncPathOnly(
 	funcName string,
 	method string,
 	route string,
-	pathVars []string,
+	params []pathParamInfo,
 ) {
 	literals, _ := routeSegments(route)
 
@@ -180,8 +195,12 @@ func (w *Writer) writeActionFuncPathOnly(
 	w.Raw("func ")
 	w.Raw(funcName)
 	w.Byte('(')
-	w.writeJoinParams(pathVars)
+	w.writeTypedParams(params)
 	w.Raw(") string {\n")
+
+	// Pre-convert non-string params to strings.
+	w.writePathPreConvert(params)
+
 	w.Line(1, "var b strings.Builder")
 
 	// b.Grow(len("@method('lit0") + len(v0) + len("lit1") + ... + len("litN')")
@@ -190,12 +209,12 @@ func (w *Writer) writeActionFuncPathOnly(
 	w.Raw("('")
 	w.Raw(literals[0])
 	w.Raw("\")")
-	for i, v := range pathVars {
+	for i, p := range params {
 		w.Raw(" + len(")
-		w.Raw(v)
+		w.Raw(pathVarStrExpr(p))
 		w.Raw(") + len(\"")
 		w.Raw(literals[i+1])
-		if i == len(pathVars)-1 {
+		if i == len(params)-1 {
 			w.Raw("')")
 		}
 		w.Raw("\")")
@@ -208,13 +227,13 @@ func (w *Writer) writeActionFuncPathOnly(
 	w.Raw("('")
 	w.Raw(literals[0])
 	w.Raw("\")\n")
-	for i, v := range pathVars {
+	for i, p := range params {
 		w.Raw("\tb.WriteString(")
-		w.Raw(v)
+		w.Raw(pathVarStrExpr(p))
 		w.Raw(")\n")
 		w.Raw("\tb.WriteString(\"")
 		w.Raw(literals[i+1])
-		if i == len(pathVars)-1 {
+		if i == len(params)-1 {
 			w.Raw("')")
 		}
 		w.Raw("\")\n")
@@ -237,8 +256,8 @@ func (w *Writer) writeActionFuncQueryOnly(
 	w.Raw(funcName)
 	w.Raw(") string {\n")
 
-	// Pre-convert int fields to strings.
-	w.writeIntPreConvert(fields)
+	// Pre-convert non-string fields to strings.
+	w.writeQueryPreConvert(fields)
 
 	// anyQuery check.
 	w.writeAnyCheck("anyQuery", fields)
@@ -266,10 +285,10 @@ func (w *Writer) writeActionFuncQueryOnly(
 		if i < len(fields)-1 {
 			w.Line(2, "n++")
 		}
-		if isIntType(f.Type) {
-			w.Linef(2, "l += len(%q) + len(%sStr)", tag+"=", tag)
-		} else {
+		if isStringType(f.Type) {
 			w.Linef(2, "l += len(%q) + len(query.%s)", tag+"=", f.Name)
+		} else {
+			w.Linef(2, "l += len(%q) + len(%sStr)", tag+"=", tag)
 		}
 		w.Line(1, "}")
 	}
@@ -299,10 +318,10 @@ func (w *Writer) writeActionFuncQueryOnly(
 			w.Line(2, "n++")
 		}
 		w.Linef(2, "b.WriteString(%q)", tag+"=")
-		if isIntType(f.Type) {
-			w.Linef(2, "b.WriteString(%sStr)", tag)
-		} else {
+		if isStringType(f.Type) {
 			w.Linef(2, "b.WriteString(query.%s)", f.Name)
+		} else {
+			w.Linef(2, "b.WriteString(%sStr)", tag)
 		}
 		w.Line(1, "}")
 	}
@@ -317,7 +336,7 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	funcName string,
 	method string,
 	route string,
-	pathVars []string,
+	params []pathParamInfo,
 	fields []structFieldInfo,
 ) {
 	literals, _ := routeSegments(route)
@@ -326,13 +345,16 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	w.Raw("func ")
 	w.Raw(funcName)
 	w.Byte('(')
-	w.writeJoinParams(pathVars)
+	w.writeTypedParams(params)
 	w.Raw(", query Query")
 	w.Raw(funcName)
 	w.Raw(") string {\n")
 
-	// Pre-convert int fields to strings.
-	w.writeIntPreConvert(fields)
+	// Pre-convert non-string path params.
+	w.writePathPreConvert(params)
+
+	// Pre-convert non-string query fields to strings.
+	w.writeQueryPreConvert(fields)
 
 	// anyQuery check.
 	w.writeAnyCheck("anyQuery", fields)
@@ -347,9 +369,9 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	w.Raw("('")
 	w.Raw(literals[0])
 	w.Raw("\")")
-	for i, v := range pathVars {
+	for i, p := range params {
 		w.Raw(" + len(")
-		w.Raw(v)
+		w.Raw(pathVarStrExpr(p))
 		w.Raw(") + len(\"")
 		w.Raw(literals[i+1])
 		w.Raw("\")")
@@ -371,10 +393,10 @@ func (w *Writer) writeActionFuncPathAndQuery(
 		if i < len(fields)-1 {
 			w.Line(2, "n++")
 		}
-		if isIntType(f.Type) {
-			w.Linef(2, "l += len(%q) + len(%sStr)", tag+"=", tag)
-		} else {
+		if isStringType(f.Type) {
 			w.Linef(2, "l += len(%q) + len(query.%s)", tag+"=", f.Name)
+		} else {
+			w.Linef(2, "l += len(%q) + len(%sStr)", tag+"=", tag)
 		}
 		w.Line(1, "}")
 	}
@@ -388,9 +410,9 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	w.Raw("('")
 	w.Raw(literals[0])
 	w.Raw("\")\n")
-	for i, v := range pathVars {
+	for i, p := range params {
 		w.Raw("\tb.WriteString(")
-		w.Raw(v)
+		w.Raw(pathVarStrExpr(p))
 		w.Raw(")\n")
 		w.Raw("\tb.WriteString(\"")
 		w.Raw(literals[i+1])
@@ -413,10 +435,10 @@ func (w *Writer) writeActionFuncPathAndQuery(
 			w.Line(2, "n++")
 		}
 		w.Linef(2, "b.WriteString(%q)", tag+"=")
-		if isIntType(f.Type) {
-			w.Linef(2, "b.WriteString(%sStr)", tag)
-		} else {
+		if isStringType(f.Type) {
 			w.Linef(2, "b.WriteString(query.%s)", f.Name)
+		} else {
+			w.Linef(2, "b.WriteString(%sStr)", tag)
 		}
 		w.Line(1, "}")
 	}

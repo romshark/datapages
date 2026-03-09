@@ -87,20 +87,21 @@ var (
 	)
 	ErrEventFieldDuplicateTag = errors.New("event field has duplicate json tag value")
 
-	ErrPathParamNotStruct    = paramvalidation.ErrPathParamNotStruct
-	ErrPathFieldUnexported   = paramvalidation.ErrPathFieldUnexported
-	ErrPathFieldMissingTag   = paramvalidation.ErrPathFieldMissingTag
-	ErrPathFieldNotString    = paramvalidation.ErrPathFieldNotString
-	ErrPathFieldNotInRoute   = paramvalidation.ErrPathFieldNotInRoute
-	ErrPathMissingRouteVar   = paramvalidation.ErrPathMissingRouteVar
-	ErrPathFieldDuplicateTag = paramvalidation.ErrPathFieldDuplicateTag
-	ErrPathFieldEmptyTag     = paramvalidation.ErrPathFieldEmptyTag
+	ErrPathParamNotStruct       = paramvalidation.ErrPathParamNotStruct
+	ErrPathFieldUnexported      = paramvalidation.ErrPathFieldUnexported
+	ErrPathFieldMissingTag      = paramvalidation.ErrPathFieldMissingTag
+	ErrPathFieldUnsupportedType = paramvalidation.ErrPathFieldUnsupportedType
+	ErrPathFieldNotInRoute      = paramvalidation.ErrPathFieldNotInRoute
+	ErrPathMissingRouteVar      = paramvalidation.ErrPathMissingRouteVar
+	ErrPathFieldDuplicateTag    = paramvalidation.ErrPathFieldDuplicateTag
+	ErrPathFieldEmptyTag        = paramvalidation.ErrPathFieldEmptyTag
 
-	ErrQueryParamNotStruct    = paramvalidation.ErrQueryParamNotStruct
-	ErrQueryFieldUnexported   = paramvalidation.ErrQueryFieldUnexported
-	ErrQueryFieldMissingTag   = paramvalidation.ErrQueryFieldMissingTag
-	ErrQueryFieldDuplicateTag = paramvalidation.ErrQueryFieldDuplicateTag
-	ErrQueryFieldEmptyTag     = paramvalidation.ErrQueryFieldEmptyTag
+	ErrQueryParamNotStruct       = paramvalidation.ErrQueryParamNotStruct
+	ErrQueryFieldUnexported      = paramvalidation.ErrQueryFieldUnexported
+	ErrQueryFieldMissingTag      = paramvalidation.ErrQueryFieldMissingTag
+	ErrQueryFieldDuplicateTag    = paramvalidation.ErrQueryFieldDuplicateTag
+	ErrQueryFieldEmptyTag        = paramvalidation.ErrQueryFieldEmptyTag
+	ErrQueryFieldUnsupportedType = paramvalidation.ErrQueryFieldUnsupportedType
 
 	ErrQueryReflectSignalNotInSignals = structtag.ErrQueryReflectSignalNotInSignals
 

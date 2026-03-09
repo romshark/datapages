@@ -148,6 +148,93 @@ func TestWritePkgHref(t *testing.T) {
 			},
 			golden: "href_multiple_pages_mixed.go.txt",
 		},
+		"path variable int32": {
+			app: &model.App{
+				Pages: []*model.Page{
+					hrefPageWithPath("PageItem", "/item/{id}/{$}",
+						hrefStruct(
+							hrefFieldDef{"ID", types.Typ[types.Int32], `path:"id"`},
+						), nil),
+				},
+			},
+			golden: "href_path_variable_int32.go.txt",
+		},
+		"path variable naming conflict": {
+			app: &model.App{
+				Pages: []*model.Page{
+					hrefPageWithPath("PageItem", "/item/{value}/{s_value}/{s_s_value}/{$}",
+						hrefStruct(
+							hrefFieldDef{"Value", types.Typ[types.Int32], `path:"value"`},
+							hrefFieldDef{"SValue", types.Typ[types.Int32], `path:"s_value"`},
+							hrefFieldDef{"SSValue", types.Typ[types.String], `path:"s_s_value"`},
+						), nil),
+				},
+			},
+			golden: "href_path_variable_naming_conflict.go.txt",
+		},
+		"path variable uint64": {
+			app: &model.App{
+				Pages: []*model.Page{
+					hrefPageWithPath("PageItem", "/item/{id}/{$}",
+						hrefStruct(
+							hrefFieldDef{"ID", types.Typ[types.Uint64], `path:"id"`},
+						), nil),
+				},
+			},
+			golden: "href_path_variable_uint64.go.txt",
+		},
+		"path variable float64": {
+			app: &model.App{
+				Pages: []*model.Page{
+					hrefPageWithPath("PageCoord", "/coord/{lat}/{$}",
+						hrefStruct(
+							hrefFieldDef{"Lat", types.Typ[types.Float64], `path:"lat"`},
+						), nil),
+				},
+			},
+			golden: "href_path_variable_float64.go.txt",
+		},
+		"path variable bool": {
+			app: &model.App{
+				Pages: []*model.Page{
+					hrefPageWithPath("PageToggle", "/toggle/{on}/{$}",
+						hrefStruct(
+							hrefFieldDef{"On", types.Typ[types.Bool], `path:"on"`},
+						), nil),
+				},
+			},
+			golden: "href_path_variable_bool.go.txt",
+		},
+		"query with bool field": {
+			app: &model.App{
+				Pages: []*model.Page{
+					hrefPage("PageSearch", "/search/{$}", hrefStruct(
+						hrefFieldDef{"Active", types.Typ[types.Bool], `query:"active"`},
+					)),
+				},
+			},
+			golden: "href_query_with_bool_field.go.txt",
+		},
+		"query with float64 field": {
+			app: &model.App{
+				Pages: []*model.Page{
+					hrefPage("PageSearch", "/search/{$}", hrefStruct(
+						hrefFieldDef{"Price", types.Typ[types.Float64], `query:"price"`},
+					)),
+				},
+			},
+			golden: "href_query_with_float64_field.go.txt",
+		},
+		"query with uint32 field": {
+			app: &model.App{
+				Pages: []*model.Page{
+					hrefPage("PageSearch", "/search/{$}", hrefStruct(
+						hrefFieldDef{"Count", types.Typ[types.Uint32], `query:"count"`},
+					)),
+				},
+			},
+			golden: "href_query_with_uint32_field.go.txt",
+		},
 	}
 
 	w := generator.Writer{Buf: make([]byte, 2*1024*1024)}
@@ -192,10 +279,110 @@ func hrefStruct(fields ...hrefFieldDef) *types.Struct {
 	return types.NewStruct(vars, tags)
 }
 
+func TestWritePkgHrefTypeChecks(t *testing.T) {
+	allIntTypes := []struct {
+		name string
+		typ  types.Type
+	}{
+		{"int", types.Typ[types.Int]},
+		{"int8", types.Typ[types.Int8]},
+		{"int16", types.Typ[types.Int16]},
+		{"int32", types.Typ[types.Int32]},
+		{"int64", types.Typ[types.Int64]},
+		{"uint", types.Typ[types.Uint]},
+		{"uint8", types.Typ[types.Uint8]},
+		{"uint16", types.Typ[types.Uint16]},
+		{"uint32", types.Typ[types.Uint32]},
+		{"uint64", types.Typ[types.Uint64]},
+	}
+
+	tests := map[string]*model.App{
+		"query with bool": {Pages: []*model.Page{
+			hrefPage("PageSearch", "/search/{$}", hrefStruct(
+				hrefFieldDef{"Active", types.Typ[types.Bool], `query:"active"`},
+			)),
+		}},
+		"query with float32": {Pages: []*model.Page{
+			hrefPage("PageSearch", "/search/{$}", hrefStruct(
+				hrefFieldDef{"Ratio", types.Typ[types.Float32], `query:"ratio"`},
+			)),
+		}},
+		"query with float64": {Pages: []*model.Page{
+			hrefPage("PageSearch", "/search/{$}", hrefStruct(
+				hrefFieldDef{"Price", types.Typ[types.Float64], `query:"price"`},
+			)),
+		}},
+		"path with bool": {Pages: []*model.Page{
+			hrefPageWithPath("PageToggle", "/toggle/{on}/{$}",
+				hrefStruct(
+					hrefFieldDef{"On", types.Typ[types.Bool], `path:"on"`},
+				), nil),
+		}},
+		"path with float64": {Pages: []*model.Page{
+			hrefPageWithPath("PageCoord", "/coord/{lat}/{$}",
+				hrefStruct(
+					hrefFieldDef{"Lat", types.Typ[types.Float64], `path:"lat"`},
+				), nil),
+		}},
+		"path naming conflict": {Pages: []*model.Page{
+			hrefPageWithPath("PageItem", "/item/{value}/{s_value}/{s_s_value}/{$}",
+				hrefStruct(
+					hrefFieldDef{"Value", types.Typ[types.Int32], `path:"value"`},
+					hrefFieldDef{"SValue", types.Typ[types.Int32], `path:"s_value"`},
+					hrefFieldDef{"SSValue", types.Typ[types.String], `path:"s_s_value"`},
+				), nil),
+		}},
+	}
+
+	// Add a test for each integer type as query param.
+	for _, it := range allIntTypes {
+		tests["query with "+it.name] = &model.App{Pages: []*model.Page{
+			hrefPage("PageSearch", "/search/{$}", hrefStruct(
+				hrefFieldDef{"Val", it.typ, `query:"val"`},
+			)),
+		}}
+	}
+
+	// Add a test for each integer type as path param.
+	for _, it := range allIntTypes {
+		tests["path with "+it.name] = &model.App{Pages: []*model.Page{
+			hrefPageWithPath("PageItem", "/item/{id}/{$}",
+				hrefStruct(
+					hrefFieldDef{"ID", it.typ, `path:"id"`},
+				), nil),
+		}}
+	}
+
+	w := generator.Writer{Buf: make([]byte, 2*1024*1024)}
+	for name, app := range tests {
+		t.Run(name, func(t *testing.T) {
+			w.Reset()
+			w.WritePkgHref(app)
+			src, err := format.Source(w.Buf)
+			require.NoError(t, err,
+				"generated code is not valid Go syntax:\n%s", string(w.Buf))
+			typeCheckGenerated(t, src)
+		})
+	}
+}
+
 // hrefPage constructs a *model.Page for AppendPkgHref testing.
 // If querySt is non-nil, the page will have query parameters.
 func hrefPage(typeName, route string, querySt *types.Struct) *model.Page {
+	return hrefPageWithPath(typeName, route, nil, querySt)
+}
+
+// hrefPageWithPath constructs a *model.Page with explicit typed path and query structs.
+func hrefPageWithPath(
+	typeName, route string, pathSt, querySt *types.Struct,
+) *model.Page {
 	h := &model.Handler{}
+	if pathSt != nil {
+		h.InputPath = &model.Input{
+			Name: "path",
+			Type: model.Type{Resolved: pathSt},
+		}
+	}
 	if querySt != nil {
 		h.InputQuery = &model.Input{
 			Name: "query",
