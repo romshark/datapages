@@ -1,0 +1,57 @@
+# Code Style
+
+- Follow standard Go conventions (Effective Go).
+- Use `require` from testify for test assertions, use `assert` only where it makes sense.
+- Use table-driven map-based (to ensure random input ordering) tests where applicable
+  with concise name tests as map keys.
+
+# Commands
+
+- Lint: `mage lint`
+- Format: `mage fmt`
+- Tidy all Go modules: `mage modTidy`
+- Test (runs lint first): `mage test`
+- Generate templ files: `mage genTempl`
+- Run everything: `mage all`
+
+# Project Structure
+
+- `parser/` - main parser package, parses a Datapages application model from
+  a Go source package.
+- `parser/model/` - data model of a Datapages application.
+- `parser/validate/` - naming convention validation.
+- `parser/internal/` - internal utilities (e.g. route pattern parsing).
+- `parser/testdata/` - each subdirectory is a self-contained Go module
+  used as a test fixture. Prefix `err_` for expected-error cases.
+- `example/counter/` - minimal counter example (separate module).
+- `example/fancy-counter/` - polished counter with animations (separate module).
+- `example/classifieds/` - full example application (separate module).
+- `example/tailwindcss/` - minimal static page with Tailwind CSS (separate module).
+- `generator/` - code generation from parsed model.
+- `modules/` - pluggable modules (csrf, msgbroker, sessmanager, sesstokgen).
+- `internal/cmd/` - CLI command implementations.
+- `magefiles/` - build targets (mage).
+- `scripts/` - utility scripts.
+
+# Datapages Framework
+
+When working with Datapages application code, read and follow these files:
+
+- `.skills/datapages/SKILL.md` — step-by-step guide for writing Datapages apps and using
+  the CLI.
+- `.skills/datastar/SKILL.md` — Datastar HTML attribute and action reference for
+  templates.
+- `SPECIFICATION.md` — full parameter, return type, and configuration reference.
+
+# Commits
+
+- Keep the commit title to 50 characters or less.
+- Wrap the commit description at 72 characters.
+- Use conventional commits and prefix with `!` for breaking changes:
+  - `feat:` - new feature
+  - `fix:` - bug fix
+  - `refactor:` - change of code without change of behavior
+  - `test:` - testing related changes
+  - `chore:` - chores
+  - `ci:` - CI/CD related changes
+  - `docs:` - documentation related changes.
