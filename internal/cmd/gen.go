@@ -26,6 +26,9 @@ func newGenCmd(stderr io.Writer) *cobra.Command {
 
 Requires a datapages.yaml config file. Run "datapages init" to create one.
 
+This command does not run "templ generate". You must run it yourself
+before "datapages gen" if you have created or modified .templ files.
+
 The generated package is always written, even when the app package contains
 errors, so that IDEs can resolve the import while you fix the errors.
 Errors are always reported to stderr and the exit code is non-zero whenever
