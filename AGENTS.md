@@ -11,6 +11,8 @@
 - Format: `mage fmt`
 - Tidy all Go modules: `mage modTidy`
 - Test (runs lint first): `mage test`
+- Generate templ files: `mage genTempl`
+- Run everything: `mage all`
 
 # Project Structure
 
