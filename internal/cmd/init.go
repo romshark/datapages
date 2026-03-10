@@ -20,6 +20,7 @@ import (
 func newInitCmd(stderr io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
+		Args:  cobra.NoArgs,
 		Short: "Initialize a new Datapages project",
 		Long: `Create a new Datapages project with the standard directory structure.
 

@@ -16,6 +16,7 @@ import (
 func newGenCmd(stderr io.Writer) *cobra.Command {
 	return &cobra.Command{
 		Use:   "gen",
+		Args:  cobra.NoArgs,
 		Short: "Generate the server and helper packages",
 		Long: `Parse the application model from the app package and generate:
   - Server implementation with request handling, middleware, and sessions

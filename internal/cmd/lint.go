@@ -10,6 +10,7 @@ import (
 func newLintCmd(stderr io.Writer) *cobra.Command {
 	return &cobra.Command{
 		Use:   "lint",
+		Args:  cobra.NoArgs,
 		Short: "Validate the application model",
 		Long: `Parse the application model from the app package and report any errors
 without generating code. Useful for CI checks and editor integration.`,
