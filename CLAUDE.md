@@ -29,6 +29,8 @@
 
 # Commits
 
+- Keep the commit title to 50 characters or less.
+- Wrap the commit description at 72 characters.
 - Use conventional commits and prefix with `!` for breaking changes:
   - `feat:` - new feature
   - `fix:` - bug fix
