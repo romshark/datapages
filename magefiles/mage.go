@@ -217,4 +217,3 @@ func All() error {
 	}
 	return GenDocs()
 }
-
