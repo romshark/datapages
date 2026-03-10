@@ -96,6 +96,10 @@ jobs:
           echo "Detected uncommitted changes after running templ generate." \
           "Please regenerate .templ templates and commit changes." && exit 1
 
+      - name: Lint datapages examples
+        if: matrix.project.name == 'root' && matrix.deps == 'locked'
+        run: make lint-datapages
+
       # Try compile
       - name: Compile
         working-directory: ${{ matrix.project.path }}

@@ -37,26 +37,46 @@ check-mod:
 	test "$$fail" = 0
 
 check-fmt:
-	@$(MAKE) fmt
-	@test -z "$$(git diff --name-only)" || { \
+	@bad=$$(go run mvdan.cc/gofumpt@latest -l .); \
+	bad="$$bad$$(go run github.com/daixiang0/gci@latest list \
+		--skip-generated \
+		-s standard \
+		-s default \
+		-s "prefix(github.com/romshark/datapages)" .)"; \
+	test -z "$$bad" || { \
 		echo "files not formatted (run make fmt):"; \
-		git diff --name-only; \
+		echo "$$bad"; \
 		exit 1; \
 	}
 
-lint: check-fmt check-mod
+lint: check-fmt check-mod lint-datapages
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...
-	(cd example/counter/; go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...)
-	(cd example/fancy-counter/; go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...)
-	(cd example/classifieds/; go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...)
-	(cd example/tailwindcss/; go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...)
+	@find example -name go.mod -not -path '*/vendor/*' | \
+	while read mod; do \
+		dir=$$(dirname "$$mod"); \
+		echo "==> golangci-lint in $$dir"; \
+		( cd "$$dir" && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./... ) || exit 1; \
+	done
+
+lint-datapages:
+	@bin=$$(mktemp -d)/datapages; \
+	go build -o "$$bin" . && \
+	trap 'rm -f "$$bin"' EXIT; \
+	find example -name go.mod -not -path '*/vendor/*' | \
+	while read mod; do \
+		dir=$$(dirname "$$mod"); \
+		echo "==> datapages lint in $$dir"; \
+		( cd "$$dir" && "$$bin" lint ) || exit 1; \
+	done
 
 vulncheck:
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-	(cd example/counter/; go run golang.org/x/vuln/cmd/govulncheck@latest ./...)
-	(cd example/fancy-counter/; go run golang.org/x/vuln/cmd/govulncheck@latest ./...)
-	(cd example/classifieds/; go run golang.org/x/vuln/cmd/govulncheck@latest ./...)
-	(cd example/tailwindcss/; go run golang.org/x/vuln/cmd/govulncheck@latest ./...)
+	@find example -name go.mod -not -path '*/vendor/*' | \
+	while read mod; do \
+		dir=$$(dirname "$$mod"); \
+		echo "==> govulncheck in $$dir"; \
+		( cd "$$dir" && go run golang.org/x/vuln/cmd/govulncheck@latest ./... ) || exit 1; \
+	done
 
 mod-update: mod-update-examples mod-update-parser-tests
 	go get -u -t ./...
