@@ -50,6 +50,30 @@ It creates `app/app.go`, `app/app.templ`, `datapages.yaml`, `.env`, `compose.yam
 
 If the project already has `datapages.yaml`, skip this step.
 
+### `datapages.yaml` Structure
+
+The generated config looks like this:
+
+```yaml
+app: app # App source package path
+gen:
+  package: datapagesgen # Generated code package path
+  prometheus: true # Enable Prometheus metrics generation
+cmd: cmd/server # Server cmd package path
+watch: # Dev server settings for live-reload
+  exclude:
+    - ".git/**"
+    - ".*"
+    - "*~"
+```
+
+The fields agents are most likely to change (usually not necessary):
+
+- `app` — path to the app source package (default `app`)
+- `gen.package` — where generated code goes (default `datapagesgen`)
+- `gen.prometheus` — set `false` to disable metrics generation
+- `cmd` — path to the server command package (default `cmd/server`)
+
 ## Step 2: Define Minimal App
 
 Open `app/app.go`. The package name is `app`.
