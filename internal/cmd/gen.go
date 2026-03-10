@@ -24,7 +24,7 @@ func newGenCmd(stderr io.Writer) *cobra.Command {
   - Type-safe action helpers (action package)
   - Server entry point (cmd package, created only if missing)
 
-If no datapages.yaml config file exists, a default one is created.
+Requires a datapages.yaml config file. Run "datapages init" to create one.
 
 The generated package is always written, even when the app package contains
 errors, so that IDEs can resolve the import while you fix the errors.
@@ -40,9 +40,7 @@ parsing fails.`,
 				return err
 			}
 			if !found {
-				if err := writeDefaultConfig(moduleDir, true); err != nil {
-					return err
-				}
+				return errNoConfig
 			}
 			return runGen(moduleDir, config, stderr)
 		},

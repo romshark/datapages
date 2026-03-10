@@ -92,6 +92,10 @@ func findGitDir(dir string) string {
 	}
 }
 
+var errNoConfig = fmt.Errorf(
+	"no datapages.yaml found; run `datapages init` to create a project",
+)
+
 // loadConfig reads datapages.yml or datapages.yaml from moduleDir.
 // If neither file exists, default values are returned and found is false.
 // Returns an error if both files exist simultaneously.
