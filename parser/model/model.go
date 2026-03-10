@@ -92,7 +92,7 @@ type Handler struct {
 	InputQuery        *Input
 	InputSignals      *Input
 	InputDispatch     *InputDispatch
-	InputOrder        []string // InputKind constants in user-defined order.
+	OrderedInputs     []*Input // Inputs in user-defined order.
 
 	OutputBody           *TemplComponent // templ.Component body (actions only)
 	OutputRedirect       *Output
@@ -102,12 +102,11 @@ type Handler struct {
 	OutputEnableBgStream *Output
 	OutputDisableRefresh *Output
 	OutputErr            *Output
+	OrderedOutputs       []*Output // Outputs in user-defined order.
 }
 
 type InputDispatch struct {
-	Expr           ast.Expr
-	Name           string
-	Type           Type
+	*Input
 	EventTypeNames []string
 }
 
@@ -122,12 +121,12 @@ type EventHandler struct {
 	InputSessionToken *Input
 	InputSession      *Input
 	InputSignals      *Input
-	InputOrder        []string // InputKind constants in user-defined order.
+	OrderedInputs     []*Input // Inputs in user-defined order.
 
 	OutputErr *Output
 }
 
-// InputKind constants identify handler input parameters for InputOrder.
+// InputKind constants identify handler input parameter kinds.
 const (
 	InputKindRequest      = "request"
 	InputKindSSE          = "sse"
@@ -140,9 +139,23 @@ const (
 	InputKindEvent        = "event"
 )
 
+// OutputKind constants identify handler output return value kinds.
+const (
+	OutputKindBody           = "body"
+	OutputKindHead           = "head"
+	OutputKindRedirect       = "redirect"
+	OutputKindRedirectStatus = "redirectStatus"
+	OutputKindNewSession     = "newSession"
+	OutputKindCloseSession   = "closeSession"
+	OutputKindEnableBgStream = "enableBackgroundStreaming"
+	OutputKindDisableRefresh = "disableRefreshAfterHidden"
+	OutputKindErr            = "err"
+)
+
 type Input struct {
 	Expr ast.Expr
 
+	Kind string // InputKind constant.
 	Name string
 	Type Type
 }
@@ -150,6 +163,7 @@ type Input struct {
 type Output struct {
 	Expr ast.Expr
 
+	Kind string // OutputKind constant.
 	Name string
 
 	Type Type

@@ -154,6 +154,8 @@ var (
 		"disableRefreshAfterHidden can only be used in GET handlers",
 	)
 
+	ErrSignatureUnsupportedOutput = errors.New("unsupported output return value")
+
 	ErrEventTargetUserIDsNoSession = errors.New(
 		"event with TargetUserIDs requires a Session type",
 	)
