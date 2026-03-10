@@ -28,7 +28,7 @@ Bug fixes and small improvements can go straight to a pull request.
 1. Fork the repository and clone your fork.
 2. Create a feature branch from `main`.
 3. Make your changes.
-4. Run `make test` (this runs linting, formatting checks, and tests).
+4. Run `mage test` (this runs linting, formatting checks, and tests).
 5. Commit and push your branch.
 6. Open a pull request against `main`.
 
