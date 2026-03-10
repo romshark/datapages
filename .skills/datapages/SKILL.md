@@ -45,7 +45,8 @@ datapages init --non-interactive --name myapp --module github.com/user/myapp
 Prometheus metrics generation is enabled by default.
 Use `--prometheus=false` to disable it.
 
-It creates `app/app.go`, `datapages.yaml`, `.env`, and `cmd/server/main.go`.
+It creates `app/app.go`, `app/app.templ`, `datapages.yaml`, `.env`, `compose.yaml`,
+`Makefile`, and `cmd/server/main.go`.
 
 If the project already has `datapages.yaml`, skip this step.
 
@@ -218,17 +219,17 @@ func (*App) POSTSignOut(r *http.Request, session Session) (
 
 ### Action Parameters
 
-Use them in this order. Skip what you don't need.
+Parameters may be in any order. Skip what you don't need.
 
 ```go
-r *http.Request // always first
+r *http.Request
 sse *datastar.ServerSentEventGenerator // optional
 sessionToken string // optional
 session Session // optional
 path struct { ID string `path:"id"` } // optional
 query struct { P int `query:"p"` } // optional
 signals struct { V string `json:"v"` } // optional
-dispatch func(EventFoo) error // optional, always last
+dispatch func(EventFoo) error // optional
 ```
 
 Import `"github.com/starfederation/datastar-go/datastar"` for SSE.
@@ -239,6 +240,7 @@ Pick only what you need.
 
 ```go
 body templ.Component // optional
+head templ.Component // optional
 redirect string // optional
 redirectStatus int // only with redirect
 newSession Session // optional
@@ -436,8 +438,12 @@ Same pattern for `PageError500`.
 Adds shared `<head>` content (meta tags, stylesheets, scripts) to every page, so you don't have to repeat it in each page's `head` return value. Pointer receiver on App.
 
 ```go
-func (*App) Head(r *http.Request) (body templ.Component, err error) {
-	return globalHead(), nil
+func (*App) Head(
+	r *http.Request,
+	sessionToken string, // optional
+	session Session, // optional
+) templ.Component {
+	return globalHead()
 }
 ```
 
