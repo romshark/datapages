@@ -1446,33 +1446,8 @@ func (w *Writer) writeHandlerCallAndOutputs(
 func (w *Writer) writeMethodCall(
 	p *model.Page, h *model.Handler, m *model.App, appPkg string, isAppLevel bool,
 ) {
-	// Build output variable list.
-	var outsBuf [8]string
-	outs := outsBuf[:0]
-	if h.OutputBody != nil {
-		outs = append(outs, h.OutputBody.Name)
-	}
-	if h.OutputCloseSession != nil {
-		outs = append(outs, h.OutputCloseSession.Name)
-	}
-	if h.OutputRedirect != nil {
-		outs = append(outs, h.OutputRedirect.Name)
-	}
-	if h.OutputRedirectStatus != nil {
-		outs = append(outs, h.OutputRedirectStatus.Name)
-	}
-	if h.OutputNewSession != nil {
-		outs = append(outs, h.OutputNewSession.Name)
-	}
-	if h.OutputEnableBgStream != nil {
-		outs = append(outs, h.OutputEnableBgStream.Name)
-	}
-	if h.OutputDisableRefresh != nil {
-		outs = append(outs, h.OutputDisableRefresh.Name)
-	}
-	if h.OutputErr != nil {
-		outs = append(outs, "err")
-	}
+	// Build output variable list in user-defined order.
+	outs := handlerOutputVars(h)
 
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, isAppLevel)

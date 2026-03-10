@@ -812,6 +812,18 @@ func TestParse_ErrRedirect(t *testing.T) {
 	)
 }
 
+func TestParse_ErrUnsupportedOutput(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_unsupported_output")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrSignatureUnsupportedOutput,
+		parser.ErrSignatureGETBodyWrongName,
+		parser.ErrSignatureUnsupportedOutput,
+	)
+}
+
 func TestParse_SessionOutput(t *testing.T) {
 	app, err := parse(t, "session_output")
 	require := require.New(t)
@@ -948,7 +960,7 @@ func TestParse_ParamOrder(t *testing.T) {
 				model.InputKindSessionToken,
 				model.InputKindRequest,
 			},
-			p.GET.InputOrder,
+			inputKinds(p.GET.OrderedInputs),
 		)
 	}
 
@@ -970,7 +982,7 @@ func TestParse_ParamOrder(t *testing.T) {
 				model.InputKindSessionToken,
 				model.InputKindRequest,
 			},
-			p.GET.InputOrder,
+			inputKinds(p.GET.OrderedInputs),
 		)
 	}
 
@@ -986,7 +998,41 @@ func TestParse_ParamOrder(t *testing.T) {
 				model.InputKindSignals,
 				model.InputKindRequest,
 			},
-			p.GET.InputOrder,
+			inputKinds(p.GET.OrderedInputs),
+		)
+	}
+
+	// PageErrBeforeBody - error before body in output.
+	{
+		p := findPage(app, "PageErrBeforeBody")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputErr)
+		require.Equal(
+			[]string{
+				model.OutputKindErr,
+				model.OutputKindBody,
+			},
+			outputKinds(p.GET.OrderedOutputs),
+		)
+	}
+
+	// PageOutputReversed - all outputs reversed.
+	{
+		p := findPage(app, "PageOutputReversed")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputErr)
+		require.NotNil(p.GET.OutputRedirect)
+		require.Equal(
+			[]string{
+				model.OutputKindErr,
+				model.OutputKindRedirect,
+				model.OutputKindBody,
+			},
+			outputKinds(p.GET.OrderedOutputs),
 		)
 	}
 
@@ -1007,7 +1053,7 @@ func TestParse_ParamOrder(t *testing.T) {
 				model.InputKindSignals,
 				model.InputKindRequest,
 			},
-			a.InputOrder,
+			inputKinds(a.OrderedInputs),
 		)
 	}
 
@@ -1026,7 +1072,7 @@ func TestParse_ParamOrder(t *testing.T) {
 				model.InputKindSession,
 				model.InputKindEvent,
 			},
-			evh.InputOrder,
+			inputKinds(evh.OrderedInputs),
 		)
 	}
 }
@@ -1121,6 +1167,11 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrSignalsFieldMissingTag, "app.go", 53, 3},
 			{parser.ErrSignalsFieldDuplicateTag, "app.go", 69, 3},
 			{parser.ErrQueryReflectSignalNotInSignals, "app.go", 83, 2},
+		},
+		"err_unsupported_output": {
+			{parser.ErrSignatureUnsupportedOutput, "app.go", 27, 31},
+			{parser.ErrSignatureGETBodyWrongName, "app.go", 38, 4},
+			{parser.ErrSignatureUnsupportedOutput, "app.go", 47, 8},
 		},
 		"err_event_handler": {
 			{parser.ErrSignatureEvHandMissingSSE, "app.go", 59, 18},
@@ -1284,6 +1335,22 @@ func findEventHandler(
 		}
 	}
 	return nil
+}
+
+func inputKinds(inputs []*model.Input) []string {
+	kinds := make([]string, len(inputs))
+	for i, inp := range inputs {
+		kinds[i] = inp.Kind
+	}
+	return kinds
+}
+
+func outputKinds(outputs []*model.Output) []string {
+	kinds := make([]string, len(outputs))
+	for i, out := range outputs {
+		kinds[i] = out.Kind
+	}
+	return kinds
 }
 
 func TestParse_ExampleClassifieds(t *testing.T) {

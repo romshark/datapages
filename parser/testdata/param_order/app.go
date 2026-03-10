@@ -78,6 +78,26 @@ func (PageSignalsFirst) GET(
 	return body, err
 }
 
+// PageErrBeforeBody is /err-before-body
+type PageErrBeforeBody struct{ App *App }
+
+// GET with error before body.
+func (PageErrBeforeBody) GET(
+	r *http.Request,
+) (err error, body templ.Component) {
+	return err, body
+}
+
+// PageOutputReversed is /output-reversed
+type PageOutputReversed struct{ App *App }
+
+// GET with outputs in reversed order.
+func (PageOutputReversed) GET(
+	r *http.Request,
+) (err error, redirect string, body templ.Component) {
+	return err, redirect, body
+}
+
 // PageActionReversed is /action-reversed
 type PageActionReversed struct{ App *App }
 

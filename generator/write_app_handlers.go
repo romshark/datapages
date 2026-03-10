@@ -37,13 +37,101 @@ func handlerArgVar(kind string, skipSSE bool) string {
 	}
 }
 
+// outputVar returns the generated variable name for an output.
+// Error outputs always use "err"; others use their source name.
+func outputVar(out *model.Output) string {
+	if out.Kind == model.OutputKindErr {
+		return "err"
+	}
+	return out.Name
+}
+
+// handlerGETOutputVars builds the output variable list for a GET handler call
+// in the order defined by h.OrderedOutputs.
+func handlerGETOutputVars(
+	h *model.Handler, get *model.HandlerGET,
+) []string {
+	if len(h.OrderedOutputs) > 0 {
+		outs := make([]string, 0, len(h.OrderedOutputs))
+		for _, out := range h.OrderedOutputs {
+			outs = append(outs, outputVar(out))
+		}
+		return outs
+	}
+	// Fallback for manually constructed Handler (e.g. in tests).
+	var outsBuf [8]string
+	outs := outsBuf[:0]
+	if get.OutputBody != nil {
+		outs = append(outs, get.OutputBody.Name)
+	}
+	if get.OutputHead != nil {
+		outs = append(outs, get.OutputHead.Name)
+	}
+	if h.OutputRedirect != nil {
+		outs = append(outs, h.OutputRedirect.Name)
+	}
+	if h.OutputRedirectStatus != nil {
+		outs = append(outs, h.OutputRedirectStatus.Name)
+	}
+	if h.OutputEnableBgStream != nil {
+		outs = append(outs, h.OutputEnableBgStream.Name)
+	}
+	if h.OutputDisableRefresh != nil {
+		outs = append(outs, h.OutputDisableRefresh.Name)
+	}
+	if h.OutputErr != nil {
+		outs = append(outs, "err")
+	}
+	return outs
+}
+
+// handlerOutputVars builds the output variable list for a handler call
+// in the order defined by h.OrderedOutputs.
+func handlerOutputVars(h *model.Handler) []string {
+	if len(h.OrderedOutputs) > 0 {
+		outs := make([]string, 0, len(h.OrderedOutputs))
+		for _, out := range h.OrderedOutputs {
+			outs = append(outs, outputVar(out))
+		}
+		return outs
+	}
+	// Fallback for manually constructed Handler (e.g. in tests).
+	var outsBuf [8]string
+	outs := outsBuf[:0]
+	if h.OutputBody != nil {
+		outs = append(outs, h.OutputBody.Name)
+	}
+	if h.OutputCloseSession != nil {
+		outs = append(outs, h.OutputCloseSession.Name)
+	}
+	if h.OutputRedirect != nil {
+		outs = append(outs, h.OutputRedirect.Name)
+	}
+	if h.OutputRedirectStatus != nil {
+		outs = append(outs, h.OutputRedirectStatus.Name)
+	}
+	if h.OutputNewSession != nil {
+		outs = append(outs, h.OutputNewSession.Name)
+	}
+	if h.OutputEnableBgStream != nil {
+		outs = append(outs, h.OutputEnableBgStream.Name)
+	}
+	if h.OutputDisableRefresh != nil {
+		outs = append(outs, h.OutputDisableRefresh.Name)
+	}
+	if h.OutputErr != nil {
+		outs = append(outs, "err")
+	}
+	return outs
+}
+
 // handlerInputArgs builds the argument list for a handler call
-// in the order defined by h.InputOrder.
+// in the order defined by h.OrderedInputs.
 func handlerInputArgs(h *model.Handler, skipSSE bool) []string {
-	if len(h.InputOrder) > 0 {
-		args := make([]string, 0, len(h.InputOrder))
-		for _, kind := range h.InputOrder {
-			if v := handlerArgVar(kind, skipSSE); v != "" {
+	if len(h.OrderedInputs) > 0 {
+		args := make([]string, 0, len(h.OrderedInputs))
+		for _, inp := range h.OrderedInputs {
+			if v := handlerArgVar(inp.Kind, skipSSE); v != "" {
 				args = append(args, v)
 			}
 		}
@@ -79,12 +167,12 @@ func handlerInputArgs(h *model.Handler, skipSSE bool) []string {
 }
 
 // eventHandlerInputArgs builds the argument list for an event handler call
-// in the order defined by eh.InputOrder.
+// in the order defined by eh.OrderedInputs.
 func eventHandlerInputArgs(eh *model.EventHandler) []string {
-	if len(eh.InputOrder) > 0 {
-		args := make([]string, 0, len(eh.InputOrder))
-		for _, kind := range eh.InputOrder {
-			if v := handlerArgVar(kind, false); v != "" {
+	if len(eh.OrderedInputs) > 0 {
+		args := make([]string, 0, len(eh.OrderedInputs))
+		for _, inp := range eh.OrderedInputs {
+			if v := handlerArgVar(inp.Kind, false); v != "" {
 				args = append(args, v)
 			}
 		}
@@ -190,30 +278,8 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) {
 	h := p.GET.Handler
 
-	// Build output list.
-	var outsBuf [8]string
-	outs := outsBuf[:0]
-	if p.GET.OutputBody != nil {
-		outs = append(outs, p.GET.OutputBody.Name)
-	}
-	if p.GET.OutputHead != nil {
-		outs = append(outs, p.GET.OutputHead.Name)
-	}
-	if h.OutputRedirect != nil {
-		outs = append(outs, h.OutputRedirect.Name)
-	}
-	if h.OutputRedirectStatus != nil {
-		outs = append(outs, h.OutputRedirectStatus.Name)
-	}
-	if h.OutputEnableBgStream != nil {
-		outs = append(outs, h.OutputEnableBgStream.Name)
-	}
-	if h.OutputDisableRefresh != nil {
-		outs = append(outs, h.OutputDisableRefresh.Name)
-	}
-	if h.OutputErr != nil {
-		outs = append(outs, "err")
-	}
+	// Build output list in user-defined order.
+	outs := handlerGETOutputVars(h, p.GET)
 
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false)
@@ -926,27 +992,8 @@ func (w *Writer) writePageActionHandler(
 func (w *Writer) writeActionMethodCall(
 	p *model.Page, h *model.Handler, m *model.App, appPkg string,
 ) {
-	// Build output list.
-	var outsBuf [8]string
-	outs := outsBuf[:0]
-	if h.OutputBody != nil {
-		outs = append(outs, h.OutputBody.Name)
-	}
-	if h.OutputCloseSession != nil {
-		outs = append(outs, h.OutputCloseSession.Name)
-	}
-	if h.OutputRedirect != nil {
-		outs = append(outs, h.OutputRedirect.Name)
-	}
-	if h.OutputRedirectStatus != nil {
-		outs = append(outs, h.OutputRedirectStatus.Name)
-	}
-	if h.OutputNewSession != nil {
-		outs = append(outs, h.OutputNewSession.Name)
-	}
-	if h.OutputErr != nil {
-		outs = append(outs, "err")
-	}
+	// Build output list in user-defined order.
+	outs := handlerOutputVars(h)
 
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false)

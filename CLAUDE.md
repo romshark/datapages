@@ -7,11 +7,10 @@
 
 # Commands
 
-- Lint: `make lint`
-- Format: `make fmt`
-- Tidy all Go modules: `make mod-tidy`
-- Test (runs lint first): `make test`
-- Tidy parser testdata modules: `make mod-tidy-parser-tests`
+- Lint: `mage lint`
+- Format: `mage fmt`
+- Tidy all Go modules: `mage modTidy`
+- Test (runs lint first): `mage test`
 
 # Project Structure
 
