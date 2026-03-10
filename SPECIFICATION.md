@@ -90,6 +90,20 @@ func (PageIndex) GET(
 }
 ```
 
+Action handlers can also be defined on `*App` (pointer receiver) for global actions
+not tied to a specific page:
+
+```go
+// POSTSignOut is /sign-out/{$}
+func (*App) POSTSignOut(r *http.Request, session Session) (
+	closeSession bool,
+	redirect string,
+	err error,
+) {
+	return true, "/login", nil
+}
+```
+
 The SSE action handlers `POSTXXX`, `DELETEXXX` and `PUTXXX` method parameter lists must
 include `r *http.Request` and may include the following optional parameters:
 
@@ -98,6 +112,7 @@ include `r *http.Request` and may include the following optional parameters:
 func (PageIndex) POSTActionName(
 	r *http.Request,
 	sse *datastar.ServerSentEventGenerator, // Optional
+	sessionToken string, // Optional
 	session Session, // Optional
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
@@ -124,6 +139,7 @@ and `closeSession` return values cannot be used.
 // POSTActionName is <path>
 func (PageIndex) POSTActionName(
 	r *http.Request,
+	sessionToken string, // Optional
 	session Session, // Optional
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
@@ -155,7 +171,9 @@ The `XXX` placeholder must always match the event name after the type's `Event` 
 func (PageIndex) OnSomethingHappened(
 	event EventSomethingHappened,
 	sse *datastar.ServerSentEventGenerator,
+	sessionToken string, // Optional
 	session Session, // Optional
+	signals struct {...}, // Optional
 ) error {
 	// ...
 }
