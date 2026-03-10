@@ -11,15 +11,16 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/romshark/datapages/generator/skeleton"
-
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
+
+	"github.com/romshark/datapages/generator/skeleton"
 )
 
 func newInitCmd(stderr io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
+		Args:  cobra.NoArgs,
 		Short: "Initialize a new Datapages project",
 		Long: `Create a new Datapages project with the standard directory structure.
 

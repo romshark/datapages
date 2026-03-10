@@ -14,8 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/romshark/datapages/internal/cmd"
 	"github.com/stretchr/testify/require"
+
+	"github.com/romshark/datapages/internal/cmd"
 )
 
 func TestRun(t *testing.T) {
@@ -327,39 +328,107 @@ func TestWatch(t *testing.T) {
 	})
 }
 
-func TestLint(t *testing.T) {
+func TestLintGen(t *testing.T) {
+	// checkGenPackage checks only the generated package files (no cmd entry point).
+	checkGenPackage := func(t *testing.T, dir string) {
+		t.Helper()
+		for _, f := range []string{
+			"datapagesgen/app_gen.go",
+			"datapagesgen/action/action_gen.go",
+			"datapagesgen/href/href_gen.go",
+		} {
+			require.FileExists(t, filepath.Join(dir, f))
+		}
+	}
+	// checkGenFiles checks the generated package and the cmd entry point.
+	checkGenFiles := func(t *testing.T, dir string) {
+		t.Helper()
+		checkGenPackage(t, dir)
+		require.FileExists(t, filepath.Join(dir, "cmd/server/main.go"))
+	}
+
 	for name, tc := range map[string]struct {
 		appGoFile string
+		prepare   func(t *testing.T, dir string)
 		wantOK    bool
+		checkGen  func(t *testing.T, dir string) // optional post-gen assertions
 	}{
 		"ok": {
 			appGoFile: "valid.go",
 			wantOK:    true,
+			checkGen:  checkGenFiles,
 		},
-		"error": {
+		// App type missing: parser returns nil model, stub package files are generated.
+		"error no app type": {
 			appGoFile: "invalid.go",
 			wantOK:    false,
+			checkGen:  checkGenPackage,
+		},
+		// App type present but errors in other pages: parser returns a partial
+		// model, so gen still writes the generated package.
+		"error partial model": {
+			appGoFile: "invalid_with_app.go",
+			wantOK:    false,
+			checkGen:  checkGenFiles,
+		},
+		"config yml": {
+			appGoFile: "valid.go",
+			prepare: func(t *testing.T, dir string) {
+				src := filepath.Join(dir, "datapages.yaml")
+				dst := filepath.Join(dir, "datapages.yml")
+				require.NoError(t, os.Rename(src, dst))
+			},
+			wantOK:   true,
+			checkGen: checkGenFiles,
+		},
+		"no config": {
+			appGoFile: "valid.go",
+			prepare: func(t *testing.T, dir string) {
+				removeExistingFile(t, filepath.Join(dir, "datapages.yaml"))
+			},
+			wantOK: false,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := setupProject(t, tc.appGoFile)
-			before := hashDir(t, dir)
+			if tc.prepare != nil {
+				tc.prepare(t, dir)
+			}
 
+			// Lint must produce the same result as gen but never modify files.
+			before := hashDir(t, dir)
 			var stdout, stderr bytes.Buffer
 			code := cmd.Run(
 				context.Background(), []string{"datapages", "lint"},
 				nil, &stdout, &stderr,
 				"0.0.0", "xxxxxxx", "2026-2-23",
 			)
-
 			if tc.wantOK {
-				require.Zero(t, code, "stderr: %s", stderr.String())
+				require.Zero(t, code, "lint stderr: %s", stderr.String())
 			} else {
-				require.Equal(t, 1, code)
-				require.NotEmpty(t, stderr.String())
+				require.Equal(t, 1, code, "lint should fail")
+				require.NotEmpty(t, stderr.String(), "lint stderr should not be empty")
 			}
 			require.Equal(t, before, hashDir(t, dir),
 				"lint must not modify the project directory")
+
+			// Gen must produce the same pass/fail outcome.
+			stdout.Reset()
+			stderr.Reset()
+			code = cmd.Run(
+				context.Background(), []string{"datapages", "gen"},
+				nil, &stdout, &stderr,
+				"0.0.0", "xxxxxxx", "2026-2-23",
+			)
+			if tc.wantOK {
+				require.Zero(t, code, "gen stderr: %s", stderr.String())
+			} else {
+				require.Equal(t, 1, code, "gen should fail")
+				require.NotEmpty(t, stderr.String(), "gen stderr should not be empty")
+			}
+			if tc.checkGen != nil {
+				tc.checkGen(t, dir)
+			}
 		})
 	}
 }
@@ -393,108 +462,6 @@ func TestGenBuild(t *testing.T) {
 
 	out, err = exec.Command("go", "build", "./...").CombinedOutput()
 	require.NoError(t, err, "go build: %s", out)
-}
-
-func TestGen(t *testing.T) {
-	// checkGenPackage checks only the generated package files (no cmd entry point).
-	checkGenPackage := func(t *testing.T, dir string) {
-		t.Helper()
-		for _, f := range []string{
-			"datapagesgen/app_gen.go",
-			"datapagesgen/action/action_gen.go",
-			"datapagesgen/href/href_gen.go",
-		} {
-			require.FileExists(t, filepath.Join(dir, f))
-		}
-	}
-	// checkGenFiles checks the generated package and the cmd entry point.
-	checkGenFiles := func(t *testing.T, dir string) {
-		t.Helper()
-		checkGenPackage(t, dir)
-		require.FileExists(t, filepath.Join(dir, "cmd/server/main.go"))
-	}
-	checkDefaultConfig := func(t *testing.T, dir string) {
-		t.Helper()
-		p := filepath.Join(dir, "datapages.yaml")
-		require.FileExists(t, p)
-		data, err := os.ReadFile(p)
-		require.NoError(t, err)
-		require.Contains(t, string(data), "app: app")
-		require.Contains(t, string(data), "package: datapagesgen")
-	}
-
-	for name, tc := range map[string]struct {
-		appGoFile string
-		prepare   func(t *testing.T, dir string) // optional pre-run setup
-		wantOK    bool
-		check     func(t *testing.T, dir string) // optional post-run assertions
-	}{
-		"ok": {
-			appGoFile: "valid.go",
-			wantOK:    true,
-			check:     checkGenFiles,
-		},
-		// App type missing: parser returns nil model, stub package files are generated.
-		"error no app type": {
-			appGoFile: "invalid.go",
-			wantOK:    false,
-			check:     checkGenPackage,
-		},
-		// App type present but errors in other pages: parser returns a partial
-		// model, so gen still writes the generated package.
-		"error partial model": {
-			appGoFile: "invalid_with_app.go",
-			wantOK:    false,
-			check:     checkGenFiles,
-		},
-		// gen writes a default datapages.yaml when none exists, even on parse errors.
-		"writes default config/no app type": {
-			appGoFile: "invalid.go",
-			prepare: func(t *testing.T, dir string) {
-				removeExistingFile(t, filepath.Join(dir, "datapages.yaml"))
-			},
-			wantOK: false,
-			check: func(t *testing.T, dir string) {
-				checkDefaultConfig(t, dir)
-				checkGenPackage(t, dir)
-			},
-		},
-		"writes default config/partial model": {
-			appGoFile: "invalid_with_app.go",
-			prepare: func(t *testing.T, dir string) {
-				removeExistingFile(t, filepath.Join(dir, "datapages.yaml"))
-			},
-			wantOK: false,
-			check: func(t *testing.T, dir string) {
-				checkDefaultConfig(t, dir)
-				checkGenFiles(t, dir)
-			},
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			dir := setupProject(t, tc.appGoFile)
-			if tc.prepare != nil {
-				tc.prepare(t, dir)
-			}
-
-			var stdout, stderr bytes.Buffer
-			code := cmd.Run(
-				context.Background(), []string{"datapages", "gen"},
-				nil, &stdout, &stderr,
-				"0.0.0", "xxxxxxx", "2026-2-23",
-			)
-
-			if tc.wantOK {
-				require.Zero(t, code, "stderr: %s", stderr.String())
-			} else {
-				require.Equal(t, 1, code)
-				require.NotEmpty(t, stderr.String())
-			}
-			if tc.check != nil {
-				tc.check(t, dir)
-			}
-		})
-	}
 }
 
 // chdirTemp changes the working directory to dir and restores it on cleanup.

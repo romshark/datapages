@@ -12,9 +12,10 @@ The `App` type may optionally provide a method for custom global HTML `<head>` t
 ```go
 func (*App) Head(
 	r *http.Request,
-	session Session,
-) (templ.Component, error) {
-	return globalHeadTags(session.UserID), error
+	sessionToken string, // Optional
+	session Session, // Optional
+) templ.Component {
+	return globalHeadTags()
 }
 ```
 
@@ -54,11 +55,12 @@ Page types `PageError500` and `PageError404` are optional special error pages fo
 response codes `500` and `404` respectively.
 Otherwise datapages will use its own defaults.
 
-Handler method parameters and their order are defined and enforced by datapages.
+Handler method parameters are defined and enforced by datapages.
+Parameters may be in any order.
 Using unsupported parameter names and types will result in generator errors.
 
-The `GET` method parameter lists must always start with `r *http.Request`,
-followed by other parameters:
+The `GET` method parameter lists must include `r *http.Request`
+and may include the following optional parameters:
 
 ```go
 func (PageIndex) GET(
@@ -89,7 +91,7 @@ func (PageIndex) GET(
 ```
 
 The SSE action handlers `POSTXXX`, `DELETEXXX` and `PUTXXX` method parameter lists must
-always start with `r *http.Request`, followed by other parameters:
+include `r *http.Request` and may include the following optional parameters:
 
 ```go
 // POSTActionName is <path>
@@ -139,9 +141,9 @@ func (PageIndex) POSTActionName(
 }
 ```
 
-All `OnXXX` method parameter lists must always start with
-the `event` parameter of an event type, followed by
-`sse *datastar.ServerSentEventGenerator` and other parameters.
+All `OnXXX` method parameter lists must include
+the `event` parameter of an event type and
+`sse *datastar.ServerSentEventGenerator`. Parameters may be in any order.
 The `XXX` placeholder must always match the event name after the type's `Event` prefix.
 
 ```go
@@ -277,6 +279,32 @@ path struct {
 
 Provides URL path parameters. These parameters must be defined in the URL comment.
 
+Each field must be exported with a `path:"..."` struct tag
+where the tag value names the corresponding route variable
+(e.g. `path:"id"` binds to `{id}` in the URL pattern).
+
+Supported field types are:
+
+- `string`
+- `bool`
+- `int`
+- `int8`
+- `int16`
+- `int32`
+- `int64`
+- `uint`
+- `uint8`
+- `uint16`
+- `uint32`
+- `uint64`
+- `float32`
+- `float64`
+
+or any type implementing `encoding.TextUnmarshaler`.
+Values are parsed from their string representation in the URL.
+If a value cannot be parsed into the target type, the request
+returns HTTP 400 Bad Request.
+
 #### Parameter: `query struct {...}`
 
 ```go
@@ -286,7 +314,13 @@ query struct {
 }
 ```
 
-Provides URL query parameters. These parameters must be defined in the URL comment.
+Provides URL query parameters.
+
+Each field must be exported with a `query:"..."` struct tag
+where the tag value names the query parameter key
+(e.g. `query:"f"` reads from `?f=...`).
+
+The same field types as [`path`](#parameter-path-struct-) are supported.
 
 The `reflectsignal` struct field tag can be used to define what signal shall reflect
 into the query parameter:

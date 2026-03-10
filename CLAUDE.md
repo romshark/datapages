@@ -22,10 +22,15 @@
 - `parser/internal/` - internal utilities (e.g. route pattern parsing).
 - `parser/testdata/` - each subdirectory is a self-contained Go module
   used as a test fixture. Prefix `err_` for expected-error cases.
+- `example/counter/` - minimal counter example (separate module).
+- `example/fancy-counter/` - polished counter with animations (separate module).
 - `example/classifieds/` - full example application (separate module).
+- `example/tailwindcss/` - minimal static page with Tailwind CSS (separate module).
 
 # Commits
 
+- Keep the commit title to 50 characters or less.
+- Wrap the commit description at 72 characters.
 - Use conventional commits and prefix with `!` for breaking changes:
   - `feat:` - new feature
   - `fix:` - bug fix

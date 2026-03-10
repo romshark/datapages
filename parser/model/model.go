@@ -15,14 +15,20 @@ type App struct {
 	PageError404 *Page
 	PageError500 *Page
 
-	Recover500          ast.Expr // Nullable.
-	GlobalHeadGenerator ast.Expr // Nullable.
+	Recover500          ast.Expr    // Nullable.
+	GlobalHeadGenerator *GlobalHead // Nullable.
 
 	Session *SessionType // Nullable.
 
 	Pages   []*Page
 	Events  []*Event
 	Actions []*Handler // App-level POST/PUT/DELETE actions.
+}
+
+type GlobalHead struct {
+	Expr              ast.Expr
+	InputSession      bool
+	InputSessionToken bool
 }
 
 type SessionType struct {
@@ -86,6 +92,7 @@ type Handler struct {
 	InputQuery        *Input
 	InputSignals      *Input
 	InputDispatch     *InputDispatch
+	InputOrder        []string // InputKind constants in user-defined order.
 
 	OutputBody           *TemplComponent // templ.Component body (actions only)
 	OutputRedirect       *Output
@@ -115,9 +122,23 @@ type EventHandler struct {
 	InputSessionToken *Input
 	InputSession      *Input
 	InputSignals      *Input
+	InputOrder        []string // InputKind constants in user-defined order.
 
 	OutputErr *Output
 }
+
+// InputKind constants identify handler input parameters for InputOrder.
+const (
+	InputKindRequest      = "request"
+	InputKindSSE          = "sse"
+	InputKindSessionToken = "sessionToken"
+	InputKindSession      = "session"
+	InputKindPath         = "path"
+	InputKindQuery        = "query"
+	InputKindSignals      = "signals"
+	InputKindDispatch     = "dispatch"
+	InputKindEvent        = "event"
+)
 
 type Input struct {
 	Expr ast.Expr

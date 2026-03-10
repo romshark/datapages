@@ -5,8 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/romshark/datapages/parser/model"
 	goimports "golang.org/x/tools/imports"
+
+	"github.com/romshark/datapages/parser/model"
 )
 
 // Options configures code generation.

@@ -1,0 +1,50 @@
+package app
+
+import (
+	"fmt"
+	"github.com/romshark/datapages/example/counter/datapagesgen/action"
+)
+
+templ head() {
+	<title>Counter</title>
+	<style>
+		#page-counter {
+			font-family: system-ui, sans-serif;
+			display: flex;
+			gap: 1rem;
+			justify-content: center;
+			align-items: center;
+			min-height: 100vh;
+			margin: 0;
+		}
+		#value { font-size: 4rem; margin: 0 1rem; }
+		button { font-size: 2rem; padding: 0.25rem 1rem; cursor: pointer; }
+		.attribution {
+			position: fixed;
+			bottom: 0.5rem;
+			right: 0.75rem;
+			font-size: 0.75rem;
+			color: #aaa;
+			& a { color: inherit; }
+		}
+	</style>
+}
+
+templ pageCounter(value int32) {
+	<div id="page-counter">
+		<button
+			data-on:click={ action.POSTPageIndexAdd(
+			action.QueryPOSTPageIndexAdd{Delta: -1},
+		) }
+		>-</button>
+		<span id="value">{ fmt.Sprint(value) }</span>
+		<button
+			data-on:click={ action.POSTPageIndexAdd(
+			action.QueryPOSTPageIndexAdd{Delta: 1},
+		) }
+		>+</button>
+	</div>
+	<span class="attribution">
+		Built with <a href="https://github.com/romshark/datapages">Datapages</a>
+	</span>
+}

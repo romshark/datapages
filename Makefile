@@ -5,6 +5,11 @@ test: lint
 
 fmt:
 	go run mvdan.cc/gofumpt@latest -w .
+	go run github.com/daixiang0/gci@latest write \
+		--skip-generated \
+		-s standard \
+		-s default \
+		-s "prefix(github.com/romshark/datapages)" .
 
 # Verify all go.mod/go.sum files in the repo are tidy.
 # For each module: back up, tidy, diff, and restore on mismatch.
@@ -32,19 +37,24 @@ check-mod:
 	test "$$fail" = 0
 
 check-fmt:
-	@test -z "$$(go run mvdan.cc/gofumpt@latest -l .)" || { \
-		echo "files not formatted with gofumpt:"; \
-		go run mvdan.cc/gofumpt@latest -l .; \
+	@$(MAKE) fmt
+	@test -z "$$(git diff --name-only)" || { \
+		echo "files not formatted (run make fmt):"; \
+		git diff --name-only; \
 		exit 1; \
 	}
 
 lint: check-fmt check-mod
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...
+	(cd example/counter/; go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...)
+	(cd example/fancy-counter/; go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...)
 	(cd example/classifieds/; go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...)
 	(cd example/tailwindcss/; go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...)
 
 vulncheck:
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	(cd example/counter/; go run golang.org/x/vuln/cmd/govulncheck@latest ./...)
+	(cd example/fancy-counter/; go run golang.org/x/vuln/cmd/govulncheck@latest ./...)
 	(cd example/classifieds/; go run golang.org/x/vuln/cmd/govulncheck@latest ./...)
 	(cd example/tailwindcss/; go run golang.org/x/vuln/cmd/govulncheck@latest ./...)
 

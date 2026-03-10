@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/romshark/datapages/example/classifieds/app/domain"
-	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
-
 	"github.com/a-h/templ"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages/example/classifieds/app/domain"
+	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 )
 
 type Session struct {
@@ -102,8 +102,8 @@ func (*App) Recover500(
 }
 
 // Page render funcs
-func (*App) Head(r *http.Request) (body templ.Component, err error) {
-	return head(), nil
+func (*App) Head(r *http.Request) templ.Component {
+	return head()
 }
 
 type Chat struct {

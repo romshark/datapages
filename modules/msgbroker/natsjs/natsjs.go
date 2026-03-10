@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/nats-io/nats.go"
+
 	"github.com/romshark/datapages/modules/msgbroker"
 )
 

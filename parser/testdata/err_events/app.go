@@ -4,8 +4,8 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
 	"datapagestest/fixture/err_events/subpkg"
+	"github.com/a-h/templ"
 )
 
 type (

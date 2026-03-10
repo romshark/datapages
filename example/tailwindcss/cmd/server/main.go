@@ -11,10 +11,9 @@ import (
 	"os/signal"
 	"strings"
 
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
-
 	"github.com/romshark/datapages/example/tailwindcss/app"
 	"github.com/romshark/datapages/example/tailwindcss/datapagesgen"
+	"github.com/romshark/datapages/modules/msgbroker/inmem"
 )
 
 func main() {

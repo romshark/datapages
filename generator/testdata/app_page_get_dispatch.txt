@@ -1,0 +1,49 @@
+
+func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	if r.URL.Path != "/" {
+		s.render404(w, r)
+		return
+	}
+
+	dispatch := func(
+		e1 testapp.EventFoo,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventFoo JSON: %w", err)
+			}
+			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, EvSubjFoo, j)
+			if err != nil {
+				return fmt.Errorf("publishing subject %q: %w", EvSubjFoo, err)
+			}
+		}
+		return nil
+	}
+
+	p := testapp.PageIndex{
+	App: s.app,
+}
+	body, err := p.GET(r, sess, dispatch)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs,
+	); err != nil {
+		s.logErr("rendering PageIndex", err)
+		return
+	}
+}

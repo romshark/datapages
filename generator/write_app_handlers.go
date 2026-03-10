@@ -7,6 +7,109 @@ import (
 	"github.com/romshark/datapages/parser/model"
 )
 
+// handlerArgVar maps an InputKind constant to the local variable name
+// used in generated code. skipSSE causes SSE to be omitted (for app-level actions).
+func handlerArgVar(kind string, skipSSE bool) string {
+	switch kind {
+	case model.InputKindRequest:
+		return "r"
+	case model.InputKindSSE:
+		if skipSSE {
+			return ""
+		}
+		return "sse"
+	case model.InputKindSessionToken:
+		return "sessToken"
+	case model.InputKindSession:
+		return "sess"
+	case model.InputKindPath:
+		return "path"
+	case model.InputKindQuery:
+		return "query"
+	case model.InputKindSignals:
+		return "signals"
+	case model.InputKindDispatch:
+		return "dispatch"
+	case model.InputKindEvent:
+		return "e"
+	default:
+		return ""
+	}
+}
+
+// handlerInputArgs builds the argument list for a handler call
+// in the order defined by h.InputOrder.
+func handlerInputArgs(h *model.Handler, skipSSE bool) []string {
+	if len(h.InputOrder) > 0 {
+		args := make([]string, 0, len(h.InputOrder))
+		for _, kind := range h.InputOrder {
+			if v := handlerArgVar(kind, skipSSE); v != "" {
+				args = append(args, v)
+			}
+		}
+		return args
+	}
+	// Fallback for manually constructed Handler (e.g. in tests).
+	var args []string
+	if h.InputRequest != nil {
+		args = append(args, "r")
+	}
+	if h.InputSSE != nil && !skipSSE {
+		args = append(args, "sse")
+	}
+	if h.InputSessionToken != nil {
+		args = append(args, "sessToken")
+	}
+	if h.InputSession != nil {
+		args = append(args, "sess")
+	}
+	if h.InputPath != nil {
+		args = append(args, "path")
+	}
+	if h.InputQuery != nil {
+		args = append(args, "query")
+	}
+	if h.InputSignals != nil {
+		args = append(args, "signals")
+	}
+	if h.InputDispatch != nil {
+		args = append(args, "dispatch")
+	}
+	return args
+}
+
+// eventHandlerInputArgs builds the argument list for an event handler call
+// in the order defined by eh.InputOrder.
+func eventHandlerInputArgs(eh *model.EventHandler) []string {
+	if len(eh.InputOrder) > 0 {
+		args := make([]string, 0, len(eh.InputOrder))
+		for _, kind := range eh.InputOrder {
+			if v := handlerArgVar(kind, false); v != "" {
+				args = append(args, v)
+			}
+		}
+		return args
+	}
+	// Fallback for manually constructed EventHandler (e.g. in tests).
+	var args []string
+	if eh.InputEvent != nil {
+		args = append(args, "e")
+	}
+	if eh.InputSSE != nil {
+		args = append(args, "sse")
+	}
+	if eh.InputSessionToken != nil {
+		args = append(args, "sessToken")
+	}
+	if eh.InputSession != nil {
+		args = append(args, "sess")
+	}
+	if eh.InputSignals != nil {
+		args = append(args, "signals")
+	}
+	return args
+}
+
 // writePageGETHandler generates the GET handler for a page.
 func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string) {
 	w.Line(0, "")
@@ -19,8 +122,11 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	hasBody := false
 
 	// Auth.
-	needsToken := h.InputSessionToken != nil
-	if h.InputSession != nil || needsToken {
+	needsSession := h.InputSession != nil ||
+		(m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession)
+	needsToken := h.InputSessionToken != nil ||
+		(m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSessionToken)
+	if needsSession || needsToken {
 		hasBody = true
 		if needsToken {
 			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
@@ -58,6 +164,12 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	if h.InputPath != nil {
 		hasBody = true
 		w.writeReadPath(h.InputPath, m)
+	}
+
+	// Dispatch closure.
+	if h.InputDispatch != nil {
+		hasBody = true
+		w.writeDispatchClosure(h.InputDispatch, appPkg)
 	}
 
 	// Page constructor.
@@ -103,24 +215,8 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 		outs = append(outs, "err")
 	}
 
-	// Build input args.
-	var argsBuf [8]string
-	args := argsBuf[:0]
-	if h.InputRequest != nil {
-		args = append(args, "r")
-	}
-	if h.InputSessionToken != nil {
-		args = append(args, "sessToken")
-	}
-	if h.InputSession != nil {
-		args = append(args, "sess")
-	}
-	if h.InputPath != nil {
-		args = append(args, "path")
-	}
-	if h.InputQuery != nil {
-		args = append(args, "query")
-	}
+	// Build input args in user-defined order.
+	args := handlerInputArgs(h, false)
 
 	w.Byte('\t')
 	w.writeCommaSep(outs)
@@ -153,14 +249,11 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	}
 
 	// Generic head.
-	if m.GlobalHeadGenerator != nil {
-		w.Line(1, "genericHead, err := s.app.Head(r)")
-		w.Line(1, "if err != nil {")
-		w.Raw("\t\ts.httpErrIntern(w, r, nil, \"generating generic head for ")
-		w.Raw(p.TypeName)
-		w.Raw("\", err)\n")
-		w.Line(2, "return")
-		w.Line(1, "}")
+	if gh := m.GlobalHeadGenerator; gh != nil {
+		hasSess := h.InputSession != nil || h.InputSessionToken != nil ||
+			gh.InputSession || gh.InputSessionToken
+		hasSessToken := h.InputSessionToken != nil || gh.InputSessionToken
+		w.writeGenericHeadCall(gh, appPkg, hasSess, hasSessToken)
 	}
 
 	// Body attrs.
@@ -181,7 +274,10 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	w.Raw("\t\tw, r, ")
 	if m.Session != nil {
 		sessArg := "sess"
-		if p.PageSpecialization == model.PageTypeError500 || !hasSessionInput(h) {
+		headNeedsSession := m.GlobalHeadGenerator != nil &&
+			(m.GlobalHeadGenerator.InputSession || m.GlobalHeadGenerator.InputSessionToken)
+		if p.PageSpecialization == model.PageTypeError500 ||
+			(!hasSessionInput(h) && !headNeedsSession) {
 			sessArg = appPkg + ".Session{}"
 		}
 		w.Raw(sessArg)
@@ -204,6 +300,32 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 
 func hasSessionInput(h *model.Handler) bool {
 	return h.InputSession != nil
+}
+
+// writeGenericHeadCall emits: genericHead := s.app.Head(r[, sess][, sessToken])
+// hasSess indicates whether a "sess" variable is in scope.
+// hasSessToken indicates whether a "sessToken" variable is in scope.
+func (w *Writer) writeGenericHeadCall(
+	gh *model.GlobalHead, appPkg string, hasSess, hasSessToken bool,
+) {
+	w.Raw("\tgenericHead := s.app.Head(r")
+	if gh.InputSession {
+		if hasSess {
+			w.Raw(", sess")
+		} else {
+			w.Raw(", ")
+			w.Raw(appPkg)
+			w.Raw(".Session{}")
+		}
+	}
+	if gh.InputSessionToken {
+		if hasSessToken {
+			w.Raw(", sessToken")
+		} else {
+			w.Raw(`, ""`)
+		}
+	}
+	w.Raw(")\n")
 }
 
 func (w *Writer) writeGETBodyAttrs(p *model.Page) {
@@ -252,6 +374,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 
 	// Reflect signal attrs.
 	for _, f := range reflectFields {
+		fi := structFieldInfo{Name: f.FieldName, Type: f.Type}
 		if isStringType(f.Type) {
 			w.Line(0, "")
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
@@ -261,29 +384,14 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 			w.Raw(f.FieldName)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
-		} else if isIntType(f.Type) {
-			_, unsigned := intTypeParseInfo(f.Type)
-			typeName := intTypeName(f.Type)
+		} else {
 			w.Line(0, "")
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"`)\n")
 			w.Raw("\t\t_, _ = io.WriteString(w, ")
-			if unsigned {
-				if typeName != "uint64" {
-					w.Raw("strconv.FormatUint(uint64(query.")
-				} else {
-					w.Raw("strconv.FormatUint(query.")
-				}
-			} else {
-				if typeName != "int64" {
-					w.Raw("strconv.FormatInt(int64(query.")
-				} else {
-					w.Raw("strconv.FormatInt(query.")
-				}
-			}
-			w.Raw(f.FieldName)
-			w.Raw(", 10))\n")
+			w.writeFieldToString("query", fi)
+			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `\"`)")
 		}
 	}
@@ -416,12 +524,12 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 }
 
 func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
-	// Build a map from path: tag value to Go field name.
+	// Build a map from path: tag value to field info.
 	fields := w.structFields(pathInput.Type.Resolved)
-	tagToField := make(map[string]string, len(fields))
+	tagToField := make(map[string]structFieldInfo, len(fields))
 	for _, f := range fields {
 		if tag := pathTagValue(f.Tag); tag != "" {
-			tagToField[tag] = f.Name
+			tagToField[tag] = f
 		}
 	}
 	// Build the path prefix up to the variable, then write the variable.
@@ -431,10 +539,50 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 		w.Raw(lit)
 		w.Raw("`)\n")
 		if i < len(vars) {
-			w.Raw("\t\t_, _ = io.WriteString(w, path.")
-			w.Raw(tagToField[vars[i]])
+			f := tagToField[vars[i]]
+			w.Raw("\t\t_, _ = io.WriteString(w, ")
+			w.writeFieldToString("path", f)
 			w.Raw(")\n")
 		}
+	}
+}
+
+// writeFieldToString emits an expression that converts a struct field to a string.
+// For string fields it emits "varName.FieldName"; for other types it wraps with
+// strconv.Format* or fmt.Sprint.
+func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
+	ref := varName + "." + f.Name
+	if isStringType(f.Type) {
+		w.Raw(ref)
+	} else if isIntType(f.Type) {
+		_, unsigned := intTypeParseInfo(f.Type)
+		typeName := intTypeName(f.Type)
+		if unsigned {
+			if typeName != "uint64" {
+				w.Rawf("strconv.FormatUint(uint64(%s), 10)", ref)
+			} else {
+				w.Rawf("strconv.FormatUint(%s, 10)", ref)
+			}
+		} else {
+			if typeName != "int64" {
+				w.Rawf("strconv.FormatInt(int64(%s), 10)", ref)
+			} else {
+				w.Rawf("strconv.FormatInt(%s, 10)", ref)
+			}
+		}
+	} else if isFloatType(f.Type) {
+		bits := floatBits(f.Type)
+		typeName := floatTypeName(f.Type)
+		if typeName != "float64" {
+			w.Rawf("strconv.FormatFloat(float64(%s), 'f', -1, %d)", ref, bits)
+		} else {
+			w.Rawf("strconv.FormatFloat(%s, 'f', -1, %d)", ref, bits)
+		}
+	} else if isBoolType(f.Type) {
+		w.Rawf("strconv.FormatBool(%s)", ref)
+	} else {
+		// TextUnmarshaler or other — use fmt.Sprint as fallback.
+		w.Rawf("fmt.Sprint(%s)", ref)
 	}
 }
 
@@ -584,24 +732,8 @@ func (w *Writer) writeStreamEventCase(
 func (w *Writer) writeEventHandlerCall(
 	ownerLabel string, eh *model.EventHandler, receiver string,
 ) {
-	// Build args.
-	var argsBuf [8]string
-	args := argsBuf[:0]
-	if eh.InputEvent != nil {
-		args = append(args, "e")
-	}
-	if eh.InputSSE != nil {
-		args = append(args, "sse")
-	}
-	if eh.InputSessionToken != nil {
-		args = append(args, "sessToken")
-	}
-	if eh.InputSession != nil {
-		args = append(args, "sess")
-	}
-	if eh.InputSignals != nil {
-		args = append(args, "signals")
-	}
+	// Build args in user-defined order.
+	args := eventHandlerInputArgs(eh)
 
 	methodName := "On" + eh.Name
 
@@ -728,8 +860,12 @@ func (w *Writer) writePageActionHandler(
 
 	// Auth.
 	needsToken := h.InputSessionToken != nil || h.OutputCloseSession != nil
-	if h.InputSession != nil || needsToken {
-		if needsToken {
+	headNeedsSess := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
+		m.GlobalHeadGenerator.InputSession
+	headNeedsToken := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
+		m.GlobalHeadGenerator.InputSessionToken
+	if h.InputSession != nil || needsToken || headNeedsSess || headNeedsToken {
+		if needsToken || headNeedsToken {
 			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
 		} else {
 			w.Line(1, "sess, _, ok := s.auth(w, r)")
@@ -812,33 +948,8 @@ func (w *Writer) writeActionMethodCall(
 		outs = append(outs, "err")
 	}
 
-	// Build input args.
-	var argsBuf [8]string
-	args := argsBuf[:0]
-	if h.InputRequest != nil {
-		args = append(args, "r")
-	}
-	if h.InputSSE != nil {
-		args = append(args, "sse")
-	}
-	if h.InputSessionToken != nil {
-		args = append(args, "sessToken")
-	}
-	if h.InputSession != nil {
-		args = append(args, "sess")
-	}
-	if h.InputPath != nil {
-		args = append(args, "path")
-	}
-	if h.InputQuery != nil {
-		args = append(args, "query")
-	}
-	if h.InputSignals != nil {
-		args = append(args, "signals")
-	}
-	if h.InputDispatch != nil {
-		args = append(args, "dispatch")
-	}
+	// Build input args in user-defined order.
+	args := handlerInputArgs(h, false)
 
 	methodName := h.HTTPMethod + h.Name
 
@@ -934,22 +1045,15 @@ func (w *Writer) writeActionMethodCall(
 	// Render body (if action returns templ.Component).
 	if h.OutputBody != nil {
 		if m.GlobalHeadGenerator != nil {
-			w.Line(1, "genericHead, err := s.app.Head(r)")
-			w.Line(1, "if err != nil {")
-			w.Raw("\t\ts.httpErrIntern(w, r, nil, \"generating generic head for ")
-			w.Raw(p.TypeName)
-			w.Byte('.')
-			w.Raw(h.HTTPMethod)
-			w.Raw(h.Name)
-			w.Raw("\", err)\n")
-			w.Line(2, "return")
-			w.Line(1, "}")
+			w.writeGenericHeadCall(m.GlobalHeadGenerator, appPkg, hasSessionInput(h), false)
 		}
 		w.Line(1, "if err := s.writeHTML(")
 		w.Raw("\t\tw, r, ")
 		if m.Session != nil {
 			sessArg := "sess"
-			if !hasSessionInput(h) {
+			headNeedsSession := m.GlobalHeadGenerator != nil &&
+				(m.GlobalHeadGenerator.InputSession || m.GlobalHeadGenerator.InputSessionToken)
+			if !hasSessionInput(h) && !headNeedsSession {
 				sessArg = appPkg + ".Session{}"
 			}
 			w.Raw(sessArg)
@@ -983,49 +1087,20 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
 		tag := queryTagValue(f.Tag)
-		if isIntType(f.Type) {
-			bits, unsigned := intTypeParseInfo(f.Type)
-			typeName := intTypeName(f.Type)
-			w.Line(1, "{")
-			w.Raw("\t\tif q := q.Get(")
-			w.writeQuoted(tag)
-			w.Raw("); q != \"\" {\n")
-			if unsigned {
-				w.Linef(3, "u, err := strconv.ParseUint(q, 10, %d)", bits)
-			} else {
-				w.Linef(3, "i, err := strconv.ParseInt(q, 10, %d)", bits)
-			}
-			w.Line(3, "if err != nil {")
-			w.Raw("\t\t\t\ts.httpErrBad(w, \"unexpected value for query parameter: ")
-			w.Raw(tag)
-			w.Raw("\", err)\n")
-			w.Line(4, "return")
-			w.Line(3, "}")
-			w.Raw("\t\t\tquery.")
-			w.Raw(f.Name)
-			w.Raw(" = ")
-			if unsigned {
-				if typeName != "uint64" {
-					w.Raw(typeName + "(u)")
-				} else {
-					w.Raw("u")
-				}
-			} else {
-				if typeName != "int64" {
-					w.Raw(typeName + "(i)")
-				} else {
-					w.Raw("i")
-				}
-			}
-			w.Raw("\n")
-			w.Line(2, "}")
-			w.Line(1, "}")
-		} else {
+		if isStringType(f.Type) {
 			w.Raw("\tquery.")
 			w.Raw(f.Name)
 			w.Raw(" = q.Get(")
 			w.writeQuoted(tag)
 			w.Raw(")\n")
+		} else {
+			w.Line(1, "{")
+			w.Raw("\t\tif q := q.Get(")
+			w.writeQuoted(tag)
+			w.Raw("); q != \"\" {\n")
+			w.writeParseField("query", f, tag, "query parameter", 3)
+			w.Line(2, "}")
+			w.Line(1, "}")
 		}
 	}
 }
@@ -1038,11 +1113,132 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
 		tag := pathTagValue(f.Tag)
-		w.Raw("\tpath.")
+		if isStringType(f.Type) {
+			w.Raw("\tpath.")
+			w.Raw(f.Name)
+			w.Raw(" = r.PathValue(")
+			w.writeQuoted(tag)
+			w.Raw(")\n")
+		} else {
+			w.Line(1, "{")
+			w.Raw("\t\tv := r.PathValue(")
+			w.writeQuoted(tag)
+			w.Raw(")\n")
+			w.writeParseField("path", f, tag, "path parameter", 2)
+			w.Line(1, "}")
+		}
+	}
+}
+
+// writeParseField emits code that parses a raw string value into a typed
+// struct field. For writeReadQuery the raw variable is named "q" (from the
+// if-guard); for writeReadPath it is "v" (set before the call).
+//
+// varName is "path" or "query" (the struct being populated).
+// label is "path parameter" or "query parameter" (for error messages).
+// indent is the base indentation level for the generated code.
+func (w *Writer) writeParseField(
+	varName string, f structFieldInfo, tag, label string, indent int,
+) {
+	// Determine the raw-string variable name: "q" for query, "v" for path.
+	raw := "q"
+	if varName == "path" {
+		raw = "v"
+	}
+
+	tabs := func(n int) {
+		for range n {
+			w.Byte('\t')
+		}
+	}
+
+	if isIntType(f.Type) {
+		bits, unsigned := intTypeParseInfo(f.Type)
+		typeName := intTypeName(f.Type)
+		if unsigned {
+			tabs(indent)
+			w.Rawf("u, err := strconv.ParseUint(%s, 10, %d)\n", raw, bits)
+		} else {
+			tabs(indent)
+			w.Rawf("i, err := strconv.ParseInt(%s, 10, %d)\n", raw, bits)
+		}
+		tabs(indent)
+		w.Raw("if err != nil {\n")
+		tabs(indent + 1)
+		w.Rawf("s.httpErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
+		tabs(indent + 1)
+		w.Raw("return\n")
+		tabs(indent)
+		w.Raw("}\n")
+		tabs(indent)
+		w.Raw(varName)
+		w.Byte('.')
 		w.Raw(f.Name)
-		w.Raw(" = r.PathValue(")
-		w.writeQuoted(tag)
-		w.Raw(")\n")
+		w.Raw(" = ")
+		if unsigned {
+			if typeName != "uint64" {
+				w.Raw(typeName + "(u)")
+			} else {
+				w.Raw("u")
+			}
+		} else {
+			if typeName != "int64" {
+				w.Raw(typeName + "(i)")
+			} else {
+				w.Raw("i")
+			}
+		}
+		w.Byte('\n')
+	} else if isFloatType(f.Type) {
+		bits := floatBits(f.Type)
+		typeName := floatTypeName(f.Type)
+		tabs(indent)
+		w.Rawf("f, err := strconv.ParseFloat(%s, %d)\n", raw, bits)
+		tabs(indent)
+		w.Raw("if err != nil {\n")
+		tabs(indent + 1)
+		w.Rawf("s.httpErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
+		tabs(indent + 1)
+		w.Raw("return\n")
+		tabs(indent)
+		w.Raw("}\n")
+		tabs(indent)
+		w.Raw(varName)
+		w.Byte('.')
+		w.Raw(f.Name)
+		w.Raw(" = ")
+		if typeName != "float64" {
+			w.Raw("float32(f)")
+		} else {
+			w.Raw("f")
+		}
+		w.Byte('\n')
+	} else if isBoolType(f.Type) {
+		tabs(indent)
+		w.Rawf("b, err := strconv.ParseBool(%s)\n", raw)
+		tabs(indent)
+		w.Raw("if err != nil {\n")
+		tabs(indent + 1)
+		w.Rawf("s.httpErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
+		tabs(indent + 1)
+		w.Raw("return\n")
+		tabs(indent)
+		w.Raw("}\n")
+		tabs(indent)
+		w.Raw(varName)
+		w.Byte('.')
+		w.Raw(f.Name)
+		w.Raw(" = b\n")
+	} else if isTextUnmarshaler(f.Type) {
+		tabs(indent)
+		w.Rawf("if err := %s.%s.UnmarshalText([]byte(%s)); err != nil {\n",
+			varName, f.Name, raw)
+		tabs(indent + 1)
+		w.Rawf("s.httpErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
+		tabs(indent + 1)
+		w.Raw("return\n")
+		tabs(indent)
+		w.Raw("}\n")
 	}
 }
 

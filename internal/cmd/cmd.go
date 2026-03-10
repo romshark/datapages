@@ -12,7 +12,6 @@ import (
 
 	"github.com/romshark/yamagiconf"
 	"github.com/spf13/cobra"
-
 	"golang.org/x/mod/modfile"
 )
 
@@ -92,6 +91,10 @@ func findGitDir(dir string) string {
 		dir = parent
 	}
 }
+
+var errNoConfig = fmt.Errorf(
+	"no datapages.yaml found; run `datapages init` to create a project",
+)
 
 // loadConfig reads datapages.yml or datapages.yaml from moduleDir.
 // If neither file exists, default values are returned and found is false.

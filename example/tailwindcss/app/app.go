@@ -8,8 +8,8 @@ import (
 
 type App struct{}
 
-func (*App) Head(r *http.Request) (body templ.Component, err error) {
-	return head(), nil
+func (*App) Head(r *http.Request) templ.Component {
+	return head()
 }
 
 // PageIndex is /

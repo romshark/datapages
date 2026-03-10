@@ -1,0 +1,28 @@
+
+func (s *Server) handlePagePublicGET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	p := testapp.PagePublic{
+	App: s.app,
+}
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PagePublic.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r, sess)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs,
+	); err != nil {
+		s.logErr("rendering PagePublic", err)
+		return
+	}
+}

@@ -18,6 +18,7 @@ import (
 func newWatchCmd(stderr io.Writer, version string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "watch",
+		Args:  cobra.NoArgs,
 		Short: "Start the live-reloading dev server",
 		Long: `Start a development server that watches for file changes, rebuilds
 the application, and live-reloads the browser tabs. Configuration is read

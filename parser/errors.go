@@ -10,31 +10,35 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/tools/go/packages"
+
 	"github.com/romshark/datapages/parser/internal/paramvalidation"
 	"github.com/romshark/datapages/parser/internal/structtag"
-
-	"golang.org/x/tools/go/packages"
 )
 
 var (
-	ErrAppMissingTypeApp        = errors.New(`missing required type "App"`)
-	ErrAppMissingPageIndex      = errors.New(`missing required page type "PageIndex"`)
-	ErrSignatureMissingReq      = errors.New(`missing the *http.Request parameter`)
-	ErrSignatureMultiErrRet     = errors.New(`multiple error return values`)
-	ErrSignatureUnknownInput    = errors.New(`handler has unknown input parameter type`)
-	ErrSignatureSecondArgNotSSE = errors.New(
-		"event handler second argument must be *datastar.ServerSentEventGenerator",
+	ErrAppMissingTypeApp         = errors.New(`missing required type "App"`)
+	ErrAppMissingPageIndex       = errors.New(`missing required page type "PageIndex"`)
+	ErrSignatureMissingReq       = errors.New(`missing the *http.Request parameter`)
+	ErrSignatureMultiErrRet      = errors.New(`multiple error return values`)
+	ErrSignatureUnsupportedInput = errors.New(`unsupported input parameter`)
+	// Deprecated: use ErrSignatureUnsupportedInput.
+	ErrSignatureUnknownInput     = ErrSignatureUnsupportedInput
+	ErrSignatureEvHandMissingSSE = errors.New(
+		"event handler must have a *datastar.ServerSentEventGenerator parameter",
 	)
+	// Deprecated: use ErrSignatureEvHandMissingSSE.
+	ErrSignatureSecondArgNotSSE         = ErrSignatureEvHandMissingSSE
 	ErrSignatureEvHandReturnMustBeError = errors.New(
 		"event handler must return only error",
 	)
-	ErrSignatureEvHandFirstArgNotEvent = errors.New(
-		`event handler first argument must be named "event"`,
+	ErrSignatureEvHandMissingEvent = errors.New(
+		`event handler must have a parameter named "event" of an event type`,
 	)
-	ErrSignatureEvHandFirstArgTypeNotEvent = errors.New(
-		"event handler first argument type must be an event type",
-	)
-	ErrSignatureGETMissingBody = errors.New(
+	// Deprecated: use ErrSignatureEvHandMissingEvent.
+	ErrSignatureEvHandFirstArgNotEvent     = ErrSignatureEvHandMissingEvent
+	ErrSignatureEvHandFirstArgTypeNotEvent = ErrSignatureEvHandMissingEvent
+	ErrSignatureGETMissingBody             = errors.New(
 		"GET handler must return body templ.Component",
 	)
 	ErrSignatureGETBodyWrongName = errors.New(
@@ -44,6 +48,17 @@ var (
 		"GET handler second templ.Component return must be named \"head\"",
 	)
 
+	ErrAppHeadMustTakeRequest = errors.New(
+		"head must accept *http.Request as first parameter",
+	)
+	ErrAppHeadMustReturnTemplComponent = errors.New(
+		"head must return exactly templ.Component",
+	)
+	ErrAppHeadUnsupportedInput = errors.New("head has unsupported input parameter")
+
+	ErrAppRecover500InvalidSignature = errors.New(`"Recover500" must have signature ` +
+		`(error, *datastar.ServerSentEventGenerator) error`)
+
 	ErrPageMissingFieldApp     = errors.New(`page is missing the "App *App" field`)
 	ErrPageHasExtraFields      = errors.New(`page struct has unsupported fields`)
 	ErrPageMissingGET          = errors.New(`page is missing the GET handler`)
@@ -51,6 +66,7 @@ var (
 	ErrPageNameInvalid         = errors.New("page has invalid name")
 	ErrPageMissingPathComm     = errors.New("page is missing path comment")
 	ErrPageInvalidPathComm     = errors.New("page has invalid path comment")
+	ErrPageIndexPathMustBeRoot = errors.New(`PageIndex path must be "/"`)
 
 	ErrActionNameMissing      = errors.New("action handler must have a name")
 	ErrActionNameInvalid      = errors.New("action has invalid name")
@@ -71,20 +87,21 @@ var (
 	)
 	ErrEventFieldDuplicateTag = errors.New("event field has duplicate json tag value")
 
-	ErrPathParamNotStruct    = paramvalidation.ErrPathParamNotStruct
-	ErrPathFieldUnexported   = paramvalidation.ErrPathFieldUnexported
-	ErrPathFieldMissingTag   = paramvalidation.ErrPathFieldMissingTag
-	ErrPathFieldNotString    = paramvalidation.ErrPathFieldNotString
-	ErrPathFieldNotInRoute   = paramvalidation.ErrPathFieldNotInRoute
-	ErrPathMissingRouteVar   = paramvalidation.ErrPathMissingRouteVar
-	ErrPathFieldDuplicateTag = paramvalidation.ErrPathFieldDuplicateTag
-	ErrPathFieldEmptyTag     = paramvalidation.ErrPathFieldEmptyTag
+	ErrPathParamNotStruct       = paramvalidation.ErrPathParamNotStruct
+	ErrPathFieldUnexported      = paramvalidation.ErrPathFieldUnexported
+	ErrPathFieldMissingTag      = paramvalidation.ErrPathFieldMissingTag
+	ErrPathFieldUnsupportedType = paramvalidation.ErrPathFieldUnsupportedType
+	ErrPathFieldNotInRoute      = paramvalidation.ErrPathFieldNotInRoute
+	ErrPathMissingRouteVar      = paramvalidation.ErrPathMissingRouteVar
+	ErrPathFieldDuplicateTag    = paramvalidation.ErrPathFieldDuplicateTag
+	ErrPathFieldEmptyTag        = paramvalidation.ErrPathFieldEmptyTag
 
-	ErrQueryParamNotStruct    = paramvalidation.ErrQueryParamNotStruct
-	ErrQueryFieldUnexported   = paramvalidation.ErrQueryFieldUnexported
-	ErrQueryFieldMissingTag   = paramvalidation.ErrQueryFieldMissingTag
-	ErrQueryFieldDuplicateTag = paramvalidation.ErrQueryFieldDuplicateTag
-	ErrQueryFieldEmptyTag     = paramvalidation.ErrQueryFieldEmptyTag
+	ErrQueryParamNotStruct       = paramvalidation.ErrQueryParamNotStruct
+	ErrQueryFieldUnexported      = paramvalidation.ErrQueryFieldUnexported
+	ErrQueryFieldMissingTag      = paramvalidation.ErrQueryFieldMissingTag
+	ErrQueryFieldDuplicateTag    = paramvalidation.ErrQueryFieldDuplicateTag
+	ErrQueryFieldEmptyTag        = paramvalidation.ErrQueryFieldEmptyTag
+	ErrQueryFieldUnsupportedType = paramvalidation.ErrQueryFieldUnsupportedType
 
 	ErrQueryReflectSignalNotInSignals = structtag.ErrQueryReflectSignalNotInSignals
 
@@ -95,7 +112,6 @@ var (
 	ErrSignalsFieldEmptyTag     = paramvalidation.ErrSignalsFieldEmptyTag
 
 	ErrDispatchParamNotFunc    = paramvalidation.ErrDispatchParamNotFunc
-	ErrDispatchReturnCount     = paramvalidation.ErrDispatchReturnCount
 	ErrDispatchMustReturnError = paramvalidation.ErrDispatchMustReturnError
 	ErrDispatchNoParams        = paramvalidation.ErrDispatchNoParams
 	ErrDispatchParamNotEvent   = paramvalidation.ErrDispatchParamNotEvent
@@ -386,6 +402,17 @@ func (e *ErrorPageInvalidPathComm) Error() string {
 
 func (e *ErrorPageInvalidPathComm) Unwrap() error { return ErrPageInvalidPathComm }
 
+// ErrorPageIndexPathMustBeRoot is ErrPageIndexPathMustBeRoot with suggestion context.
+type ErrorPageIndexPathMustBeRoot struct {
+	Route string // the invalid route, e.g. "/home"
+}
+
+func (e *ErrorPageIndexPathMustBeRoot) Error() string {
+	return fmt.Sprintf("%v, got %q", ErrPageIndexPathMustBeRoot, e.Route)
+}
+
+func (e *ErrorPageIndexPathMustBeRoot) Unwrap() error { return ErrPageIndexPathMustBeRoot }
+
 // ErrorActionInvalidPathComm is ErrActionInvalidPathComm with suggestion context.
 type ErrorActionInvalidPathComm struct {
 	Recv       string // e.g. "PageProfile" or "App"
@@ -470,4 +497,27 @@ func (e *ErrorEventTargetUserIDsNoSession) Error() string {
 
 func (e *ErrorEventTargetUserIDsNoSession) Unwrap() error {
 	return ErrEventTargetUserIDsNoSession
+}
+
+// ErrorSignatureUnsupportedInput is ErrSignatureUnsupportedInput with context.
+type ErrorSignatureUnsupportedInput struct {
+	ParamName  string // e.g. "b"
+	ParamType  string // e.g. "*http.Request"
+	Recv       string // e.g. "PageFoo"
+	MethodName string // e.g. "GET"
+	// ExpectedName is set when there is exactly one candidate for the
+	// parameter (e.g. type is Session but name is not "session").
+	ExpectedName string
+	// CandidateNames lists multiple possible parameter names when the
+	// parameter type matches more than one known input slot.
+	CandidateNames []string
+}
+
+func (e *ErrorSignatureUnsupportedInput) Error() string {
+	return fmt.Sprintf("%v %s %s in %s.%s",
+		ErrSignatureUnsupportedInput, e.ParamName, e.ParamType, e.Recv, e.MethodName)
+}
+
+func (e *ErrorSignatureUnsupportedInput) Unwrap() error {
+	return ErrSignatureUnsupportedInput
 }

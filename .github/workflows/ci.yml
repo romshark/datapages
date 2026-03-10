@@ -17,6 +17,12 @@ jobs:
           - path: "."
             name: "root"
             has_templ: false
+          - path: "example/counter"
+            name: "counter"
+            has_templ: true
+          - path: "example/fancy-counter"
+            name: "fancy-counter"
+            has_templ: true
           - path: "example/classifieds"
             name: "classifieds"
             has_templ: true

@@ -31,17 +31,19 @@ type mainGoData struct {
 	GenImport  string
 	Gen        string
 	Prometheus bool
+	HasSession bool
 }
 
 // MainGo renders the cmd/server/main.go template with the given import paths
 // and returns formatted Go source.
-func MainGo(appImportPath, genImportPath, genPkgName string, prometheus bool) ([]byte, error) {
+func MainGo(appImportPath, genImportPath, genPkgName string, prometheus, hasSession bool) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, mainGoData{
 		AppImport:  appImportPath,
 		GenImport:  genImportPath,
 		Gen:        genPkgName,
 		Prometheus: prometheus,
+		HasSession: hasSession,
 	}); err != nil {
 		return nil, fmt.Errorf("executing main.go template: %w", err)
 	}
