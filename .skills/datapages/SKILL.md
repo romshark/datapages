@@ -11,11 +11,16 @@ description: >-
 You write Go application logic and templates. Datapages generates the server.
 Follow these steps in order. Do not skip steps.
 
+For the full specification of all parameters, return types, supported field types, and
+configuration options, see [SPECIFICATION.md](../../SPECIFICATION.md).
+
 Datapages apps use two other technologies. This skill does not teach them.
 Learn them separately.
 
 - **Templ** (`github.com/a-h/templ`) - Go HTML templating.
-  Handlers return `templ.Component`. You write `.templ` files that compile to Go.
+  Handlers return `templ.Component`. You write `.templ` files that compile to Go
+  via `templ generate`. Datapages does **not** run this automatically — you must
+  run `templ generate` yourself after creating or modifying `.templ` files.
   Docs: https://templ.guide/developer-tools/llm/
 - **Datastar** (`github.com/starfederation/datastar-go/datastar`) - Frontend
   reactivity via HTML attributes and SSE. Actions use `data-on-click` and
@@ -36,6 +41,9 @@ Run this:
 ```sh
 datapages init --non-interactive --name myapp --module github.com/user/myapp
 ```
+
+Prometheus metrics generation is enabled by default.
+Use `--prometheus=false` to disable it.
 
 It creates `app/app.go`, `datapages.yaml`, `.env`, and `cmd/server/main.go`.
 
@@ -69,7 +77,7 @@ Important:
 1. The doc comment says `// PageIndex is /`. The word `is` matters. The route follows.
 2. The struct has `App *App`. Every page needs this field. No exceptions.
 3. The GET method uses a value receiver. Not a pointer.
-4. Datapages rejects the package without a `App` or `PageIndex` struct types.
+4. Datapages rejects the package without an `App` or `PageIndex` struct types.
 
 ## Step 3: Add Session (Optional)
 
@@ -111,7 +119,7 @@ See https://pkg.go.dev/net/http#hdr-Patterns-ServeMux for the full spec.
 ### GET Return Values
 
 The minimum is `(body templ.Component, err error)`.
-You can add more. Order matters. Pick what you need.
+You can add more. Pick only what you need.
 
 ```go
 body templ.Component // always first
@@ -176,7 +184,7 @@ func (PageSearch) GET(
 }
 ```
 
-The `query` tag specifies the query parameter name. `query:"t"` maps to `?t=...` in the URL. Supported field types: `string` and all integer types (`int`, `int8`, `int16`, `int32`, `int64`, `uint`, `uint8`, `uint16`, `uint32`, `uint64`).
+The `query` tag specifies the query parameter name. `query:"t"` maps to `?t=...` in the URL. See [SPECIFICATION.md](../../SPECIFICATION.md) for all supported field types.
 
 ## Step 6: Add Actions
 
@@ -227,7 +235,7 @@ Import `"github.com/starfederation/datastar-go/datastar"` for SSE.
 
 ### Action Return Types
 
-Order matters. Pick what you need.
+Pick only what you need.
 
 ```go
 body templ.Component // optional
@@ -337,12 +345,17 @@ dispatch func(EventMessageSent, EventUserActive) error
 
 ### Handle Events on Pages
 
-Method name starts with `On`. SSE parameter is required.
+Method name starts with `On`. The `event` and `sse` parameters are required. Optional parameters: `session Session`, `sessionToken string`, `signals struct{...}`.
+Parameters may appear in any order.
+The `signals` parameter carries the client's Datastar signal values from the initial SSE connection request, not from the time each event fires.
 
 ```go
 func (PageChat) OnMessageSent(
 	event EventMessageSent,
 	sse *datastar.ServerSentEventGenerator,
+	session Session, // Optional
+	sessionToken string, // Optional
+	signals struct{...}, // Optional
 ) error {
 	return sse.PatchElementTempl(messageComponent(event.Message))
 }
@@ -495,7 +508,7 @@ Pass options to `NewServer` to configure middleware, CSRF protection, static fil
 ```go
 var opts []datapagesgen.ServerOption
 
-// Access logging middleware
+// Middleware — adds custom HTTP middleware
 opts = append(opts, datapagesgen.WithMiddleware(func(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		slog.Info("access", slog.String("path", r.URL.Path))
@@ -509,8 +522,24 @@ opts = append(opts, datapagesgen.WithCSRFProtection(datapagesgen.CSRFConfig{
 	DevBypassToken: os.Getenv("CSRF_DEV_BYPASS"),
 }))
 
-// Authentication
+// Authentication (required when Session type is defined)
 opts = append(opts, datapagesgen.WithAuth(datapagesgen.AuthConfig{}))
+
+// Custom logger (consider slog.LevelDebug when datapagesgen.IsDevMode() is true)
+opts = append(opts, datapagesgen.WithLogger(slog.Default()))
+
+// Custom HTTP server (Addr and Handler are always overwritten)
+opts = append(opts, datapagesgen.WithHTTPServer(&http.Server{
+	ReadHeaderTimeout: 10 * time.Second,
+}))
+
+// Custom Datastar JS bundle URL (defaults to CDN)
+opts = append(opts, datapagesgen.WithDatastarJS("https://cdn.example.com/datastar.js"))
+
+// Prometheus metrics on a dedicated HTTP server
+opts = append(opts, datapagesgen.WithPrometheus(datapagesgen.PrometheusConfig{
+	Host: ":9091",
+}))
 ```
 
 ### Listen and Serve
@@ -574,10 +603,68 @@ Reference static files in templates using the URL path prefix (e.g. `/static/sty
 
 ## Step 15: Generate and Run
 
+Build workflow after editing `app.go` or `.templ` files:
+
 ```sh
-datapages gen # parse and generate code
-datapages lint # validate without generating
-datapages watch # live reload during development
+templ generate        # compile .templ files to Go (required after .templ changes)
+datapages gen         # parse app package and generate server code
+go build ./cmd/server # build the server binary
 ```
 
-Never edit files ending in `_gen.go` or files containing a `DO NOT EDIT` header comment. They are overwritten by code generation.
+If `datapages gen` reports errors, fix the Go source in `app/` and re-run.
+Never edit files ending in `_gen.go` or files containing a `DO NOT EDIT` header comment — they are overwritten by code generation.
+
+CLI reference:
+
+```sh
+datapages gen             # parse and generate code
+datapages lint            # validate without generating
+datapages watch           # live reload dev server (for humans, not AI)
+datapages version         # show version info
+datapages help            # show help for all commands and flags
+datapages help <command>  # show help for a specific command
+```
+
+## Step 16: Use Generated URL Packages
+
+`datapages gen` produces two packages with type-safe URL builders. **Always use these instead of hardcoding URLs.**
+
+### `datapagesgen/href` — Page Links
+
+Generated functions return URL strings for `<a href>` attributes. One function per page.
+
+```templ
+// Simple page
+<a href={ href.Index() }>Home</a>
+<a href={ href.Login() }>Log in</a>
+
+// Page with path variable (e.g. PagePost is /post/{slug})
+<a href={ href.Post(post.Slug) }>{ post.Title }</a>
+
+// Page with query parameters
+<a href={ href.Messages(href.QueryMessages{Chat: chatID}) }>Messages</a>
+```
+
+Query parameter structs are generated as `href.Query<PageName>`. Zero-value fields are omitted from the URL.
+
+### `datapagesgen/action` — Datastar Actions
+
+Generated functions return Datastar action strings (`@post('/...')`, `@put('/...')`, etc.) for use in `data-on:click` and similar attributes. One function per action handler.
+
+```templ
+// Simple action
+<button data-on:click={ action.POSTPageLoginSubmit() }>Submit</button>
+
+// Action with path variable
+<button data-on:click={ action.POSTPagePostSendMessage(slug) }>Send</button>
+
+// Action with query parameters
+<button data-on:click={ action.POSTPageMessagesRead(
+    action.QueryPOSTPageMessagesRead{MessageID: msg.ID},
+) }>Mark Read</button>
+
+// App-level action (not tied to a page)
+<button data-on:click={ action.POSTAppSignOut() }>Sign Out</button>
+```
+
+Naming convention: `{METHOD}Page{PageName}{HandlerName}` for page actions, `{METHOD}App{HandlerName}` for app-level actions. Query parameter structs are generated as `action.Query<FunctionName>`.

@@ -112,8 +112,13 @@ func (PageIndex) POSTActionName(
 }
 ```
 
-Action handler may omit the `sse` parameter and instead redirect,
-return HTML, set/remove sessions.
+Action handlers that omit the `sse` parameter can instead redirect,
+return HTML, and set or remove sessions.
+
+**Session mutation and SSE are mutually exclusive in action handlers.**
+When the `sse` parameter is present, the handler opens a long-lived SSE stream —
+HTTP headers (including session cookies) have already been sent, so `newSession`
+and `closeSession` return values cannot be used.
 
 ```go
 // POSTActionName is <path>
@@ -265,9 +270,27 @@ signals struct {
 ```
 
 Provides the captured [Datastar signals](https://data-star.dev/guide/reactive_signals)
-from the page.
+from the page. Signal fields map directly to Datastar signal names via their `json` tags.
 Any named or anonymous struct is accepted,
 but every field must have a json struct field tag.
+Any JSON-serializable field type is supported, including nested structs, slices, and maps.
+
+Nested structs map to nested Datastar signals using dot notation:
+
+```go
+signals struct {
+	Form struct {
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	} `json:"form"`
+}
+```
+
+This maps to Datastar signals `$form.name` and `$form.email`, initialized in
+templates with `data-signals:form.name="''"` and `data-signals:form.email="''"`,
+or as a single object `data-signals="{form: {name: '', email: ''}}"`.
+The Go handler receives the nested values as `signals.Form.Name` and
+`signals.Form.Email`.
 
 #### Parameter: `path struct {...}`
 
@@ -278,6 +301,7 @@ path struct {
 ```
 
 Provides URL path parameters. These parameters must be defined in the URL comment.
+Both named and anonymous struct types are accepted.
 
 Each field must be exported with a `path:"..."` struct tag
 where the tag value names the corresponding route variable
@@ -315,6 +339,7 @@ query struct {
 ```
 
 Provides URL query parameters.
+Both named and anonymous struct types are accepted.
 
 Each field must be exported with a `query:"..."` struct tag
 where the tag value names the query parameter key
