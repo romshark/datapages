@@ -523,62 +523,6 @@ func (PageChat) OnMessageSent(
 
 </details>
 
-#### Parameter: `metrics struct {...}` (Experimental)
-
-This feature is in its design phase and not implemented yet.
-
-```go
-metrics struct {
-	// Help description goes in this comment
-	ExampleRequestsTotal interface {
-		CounterAdd(delta float64, result string)
-	} `name:"example_requests_total"`
-
-	ExampleConnectionsOpen interface {
-		GaugeSet(value float64)
-	} `name:"example_connections_open" subsystem:"network"`
-
-	ExampleOrderSize interface {
-		HistogramObserve(value float64, )
-	} `name:"order_size", buckets:"0,1,5,50,100,1000"``
-
-	//...
-},
-```
-
-Datapages can inject typed metric handles into page/action/event handlers,
-similar to `signals`, `dispatch`, etc.
-You declare what you need at the handler boundary, and the generator automatically
-defines the Prometheus collectors and registers them.
-
-The methods of the interface define the metric kind:
-
-##### Counter
-
-```go
-interface {
-	CounterAdd(label1, label2 string, /* ... */)
-}
-```
-
-##### Gauge
-
-```go
-interface {
-	GaugeSet(value float64, label1, label2 string, /* ... */)
-}
-```
-
-##### Histogram
-
-```go
-interface {
-	HistogramObserve(value float64, label1, label2 string, /* ... */)
-}
-```
-
-Buckets can be defined using the `bucket` struct tag as a comma-separated list of values.
-
 #### Return Value: `body templ.Component`
 
 Specifies the [Templ](https://templ.guide/) template to use for the contents of the page.
