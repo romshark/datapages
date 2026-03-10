@@ -1,5 +1,0 @@
-app: app
-gen:
-  package: datapagesgen
-  prometheus: true
-cmd: cmd/server
