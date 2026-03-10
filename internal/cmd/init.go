@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/romshark/datapages/generator/skeleton"
-
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
+
+	"github.com/romshark/datapages/generator/skeleton"
 )
 
 func newInitCmd(stderr io.Writer) *cobra.Command {

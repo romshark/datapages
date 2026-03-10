@@ -14,6 +14,8 @@ import (
 	"unicode"
 
 	"github.com/lithammer/fuzzysearch/fuzzy"
+	"golang.org/x/tools/go/packages"
+
 	"github.com/romshark/datapages/parser/internal/methodkind"
 	"github.com/romshark/datapages/parser/internal/paramvalidation"
 	"github.com/romshark/datapages/parser/internal/structinspect"
@@ -21,8 +23,6 @@ import (
 	"github.com/romshark/datapages/parser/internal/typecheck"
 	"github.com/romshark/datapages/parser/model"
 	"github.com/romshark/datapages/parser/validate"
-
-	"golang.org/x/tools/go/packages"
 )
 
 func Parse(appPackagePath string) (app *model.App, errs Errors) {

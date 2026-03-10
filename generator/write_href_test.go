@@ -9,9 +9,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/romshark/datapages/generator"
 	"github.com/romshark/datapages/parser/model"
-	"github.com/stretchr/testify/require"
 )
 
 var update = flag.Bool("update", false, "update golden files")

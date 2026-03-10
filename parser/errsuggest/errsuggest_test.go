@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/romshark/datapages/parser"
 	"github.com/romshark/datapages/parser/errsuggest"
 	"github.com/romshark/datapages/parser/internal/paramvalidation"
-	"github.com/stretchr/testify/require"
 )
 
 func TestSuggest(t *testing.T) {

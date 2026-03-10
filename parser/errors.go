@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/tools/go/packages"
+
 	"github.com/romshark/datapages/parser/internal/paramvalidation"
 	"github.com/romshark/datapages/parser/internal/structtag"
-
-	"golang.org/x/tools/go/packages"
 )
 
 var (

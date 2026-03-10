@@ -9,8 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/romshark/datapages/parser/model"
 	"github.com/stretchr/testify/require"
+
+	"github.com/romshark/datapages/parser/model"
 )
 
 const (

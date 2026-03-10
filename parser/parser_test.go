@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/romshark/datapages/parser"
 	"github.com/romshark/datapages/parser/model"
-
-	"github.com/stretchr/testify/require"
 )
 
 const TypeNameTemplComponent = "github.com/a-h/templ.Component"

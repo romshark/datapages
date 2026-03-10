@@ -5,11 +5,12 @@ import (
 	"io"
 	"path/filepath"
 
+	"github.com/spf13/cobra"
+
 	"github.com/romshark/datapages/generator"
 	datapagesparser "github.com/romshark/datapages/parser"
 	"github.com/romshark/datapages/parser/errsuggest"
 	"github.com/romshark/datapages/parser/model"
-	"github.com/spf13/cobra"
 )
 
 func newGenCmd(stderr io.Writer) *cobra.Command {

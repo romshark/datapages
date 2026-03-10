@@ -14,8 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/romshark/datapages/internal/cmd"
 	"github.com/stretchr/testify/require"
+
+	"github.com/romshark/datapages/internal/cmd"
 )
 
 func TestRun(t *testing.T) {

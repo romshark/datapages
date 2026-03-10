@@ -3,10 +3,10 @@ package app
 import (
 	"net/http"
 
-	"github.com/romshark/datapages/example/classifieds/app/domain"
-
 	"github.com/a-h/templ"
 	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages/example/classifieds/app/domain"
 )
 
 // PageSearch is /search

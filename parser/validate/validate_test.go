@@ -4,9 +4,9 @@ import (
 	"go/ast"
 	"testing"
 
-	"github.com/romshark/datapages/parser/validate"
-
 	"github.com/stretchr/testify/require"
+
+	"github.com/romshark/datapages/parser/validate"
 )
 
 func TestPageTypeName(t *testing.T) {

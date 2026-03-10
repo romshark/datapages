@@ -7,9 +7,9 @@ import (
 	"go/types"
 	"testing"
 
-	"github.com/romshark/datapages/parser/model"
-
 	"github.com/stretchr/testify/require"
+
+	"github.com/romshark/datapages/parser/model"
 )
 
 func TestJSONTagValue(t *testing.T) {

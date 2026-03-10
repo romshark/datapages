@@ -12,9 +12,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/romshark/datapages/generator"
 	"github.com/romshark/datapages/parser/model"
-	"github.com/stretchr/testify/require"
 )
 
 func TestWritePkgAction(t *testing.T) {
