@@ -27,6 +27,11 @@
 - `example/fancy-counter/` - polished counter with animations (separate module).
 - `example/classifieds/` - full example application (separate module).
 - `example/tailwindcss/` - minimal static page with Tailwind CSS (separate module).
+- `generator/` - code generation from parsed model.
+- `modules/` - pluggable modules (csrf, msgbroker, sessmanager, sesstokgen).
+- `internal/cmd/` - CLI command implementations.
+- `magefiles/` - build targets (mage).
+- `scripts/` - utility scripts.
 
 # Datapages Framework
 
