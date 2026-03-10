@@ -47,13 +47,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Install mage
+        run: go install github.com/magefile/mage@latest
+
       - name: Check formatting (gofumpt)
         if: matrix.deps == 'locked'
-        run: make check-fmt
+        run: mage checkFmt
 
       - name: Check go.mod tidy
         if: matrix.deps == 'locked'
-        run: make check-mod
+        run: mage checkMod
 
       - name: Update to latest deps
         if: matrix.deps == 'latest'
@@ -98,7 +101,7 @@ jobs:
 
       - name: Lint datapages examples
         if: matrix.project.name == 'root' && matrix.deps == 'locked'
-        run: make lint-datapages
+        run: mage lintDatapages
 
       # Try compile
       - name: Compile
