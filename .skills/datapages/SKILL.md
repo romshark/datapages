@@ -695,6 +695,13 @@ Generated functions return Datastar action strings (`@post('/...')`, `@put('/...
 
 // App-level action (not tied to a page)
 <button data-on:click={ action.POSTAppSignOut() }>Sign Out</button>
+
+// Action with Datastar options (e.g. payload, contentType, filterSignals)
+<button data-on:click={ action.POSTPageLoginSubmit(
+    action.WithOption(action.OptPayload, "'auto'"),
+) }>Submit</button>
 ```
+
+All generated action functions accept variadic `action.WithOption(key, value)` arguments to pass [Datastar action options](https://data-star.dev/reference/actions#options). The key is an `action.Opt` constant (e.g. `OptContentType`, `OptFilterSignals`, `OptSelector`, `OptHeaders`, `OptOpenWhenHidden`, `OptPayload`, `OptRetry`, `OptRetryInterval`, `OptRetryScaler`, `OptRetryMaxWaitMs`, `OptRetryMaxCount`, `OptRequestCancellation`). The value is a raw JavaScript expression string (use `"'auto'"` for a JS string, `"true"` for a boolean).
 
 Naming convention: `{METHOD}Page{PageName}{HandlerName}` for page actions, `{METHOD}App{HandlerName}` for app-level actions. Query parameter structs are generated as `action.Query<FunctionName>`.

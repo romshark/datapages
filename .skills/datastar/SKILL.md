@@ -18,7 +18,7 @@ Templates are written in Templ. Docs: https://templ.guide/developer-tools/llm/
 
 ### IMPORTANT: Datapages Rules (ALWAYS follow these)
 
-- **Never hardcode action URLs** (`@get('/path')`, `@post('/path')`, etc.). Always use the generated functions from the `action` package (`datapagesgen/action/`). These functions return the correct Datastar action string. Example: `action.POSTPageLoginSubmit()` returns `@post('/login/submit/')`.
+- **Never hardcode action URLs** (`@get('/path')`, `@post('/path')`, etc.). Always use the generated functions from the `action` package (`datapagesgen/action/`). These functions return the correct Datastar action string. Example: `action.POSTPageLoginSubmit()` returns `@post('/login/submit/')`. To pass Datastar action options (e.g. `contentType`, `payload`), use `action.WithOption(action.OptPayload, "'auto'")` — never hardcode the options object.
 - **Never hardcode href URLs for app-internal links.** Always use the generated functions from the `href` package (`datapagesgen/href/`). Example: `href.Messages(href.QueryMessages{Chat: chatID})` returns `/messages/?chat=...`. External URLs (outside the app) can be hardcoded as usual.
 - **CSRF protection is handled automatically** by Datapages - never set CSRF headers manually.
 - **SSE streams must NOT be opened manually** — Datapages manages all SSE stream lifecycle.
