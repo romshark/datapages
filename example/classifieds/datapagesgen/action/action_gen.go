@@ -27,6 +27,7 @@ const (
 type option struct {
 	key   Opt
 	value string
+	kind  uint8 // 0=option, 1=before, 2=after
 }
 
 // WithOption creates an action option key-value pair.
@@ -36,12 +37,39 @@ func WithOption(key Opt, value string) option {
 	return option{key: key, value: value}
 }
 
+// WithBefore prepends a JavaScript expression before the action call.
+// Multiple before expressions are joined with "; " separators.
+func WithBefore(expr string) option {
+	return option{value: expr, kind: 1}
+}
+
+// WithAfter appends a JavaScript expression after the action call.
+// Multiple after expressions are joined with "; " separators.
+func WithAfter(expr string) option {
+	return option{value: expr, kind: 2}
+}
+
 func writeOptions(b *strings.Builder, options []option) {
+	any := false
+	for _, o := range options {
+		if o.kind == 0 {
+			any = true
+			break
+		}
+	}
+	if !any {
+		return
+	}
 	b.WriteString(", {")
-	for i, o := range options {
-		if i > 0 {
+	first := true
+	for _, o := range options {
+		if o.kind != 0 {
+			continue
+		}
+		if !first {
 			b.WriteString(", ")
 		}
+		first = false
 		b.WriteString(string(o.key))
 		b.WriteString(": ")
 		b.WriteString(o.value)
@@ -53,14 +81,52 @@ func optionsLen(options []option) int {
 	if len(options) == 0 {
 		return 0
 	}
-	n := len(", {}")
-	for i, o := range options {
-		if i > 0 {
+	n := 0
+	count := 0
+	for _, o := range options {
+		if o.kind != 0 {
+			continue
+		}
+		if count > 0 {
 			n += len(", ")
 		}
+		count++
 		n += len(o.key) + len(": ") + len(o.value)
 	}
-	return n
+	if count == 0 {
+		return 0
+	}
+	return n + len(", {}")
+}
+
+func writeBefore(b *strings.Builder, options []option) {
+	for _, o := range options {
+		if o.kind == 1 {
+			b.WriteString(o.value)
+			b.WriteString("; ")
+		}
+	}
+}
+
+func writeAfter(b *strings.Builder, options []option) {
+	for _, o := range options {
+		if o.kind == 2 {
+			b.WriteString("; ")
+			b.WriteString(o.value)
+		}
+	}
+}
+
+func beforeAfterLen(options []option) (before, after int) {
+	for _, o := range options {
+		switch o.kind {
+		case 1:
+			before += len(o.value) + len("; ")
+		case 2:
+			after += len("; ") + len(o.value)
+		}
+	}
+	return
 }
 
 // POSTAppCause500 references /cause-500-internal-error/
@@ -69,10 +135,13 @@ func POSTAppCause500(options ...option) string {
 		return "@post('/cause-500-internal-error/')"
 	}
 	var b strings.Builder
-	b.Grow(len("@post('/cause-500-internal-error/'") + optionsLen(options) + len(")"))
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/cause-500-internal-error/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
 	b.WriteString("@post('/cause-500-internal-error/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
+	writeAfter(&b, options)
 	return b.String()
 }
 
@@ -82,10 +151,13 @@ func POSTAppSignOut(options ...option) string {
 		return "@post('/sign-out/')"
 	}
 	var b strings.Builder
-	b.Grow(len("@post('/sign-out/'") + optionsLen(options) + len(")"))
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/sign-out/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
 	b.WriteString("@post('/sign-out/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
+	writeAfter(&b, options)
 	return b.String()
 }
 
@@ -95,10 +167,13 @@ func POSTPageLoginSubmit(options ...option) string {
 		return "@post('/login/submit/')"
 	}
 	var b strings.Builder
-	b.Grow(len("@post('/login/submit/'") + optionsLen(options) + len(")"))
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/login/submit/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
 	b.WriteString("@post('/login/submit/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
+	writeAfter(&b, options)
 	return b.String()
 }
 
@@ -107,7 +182,8 @@ func POSTPageMessagesRead(query QueryPOSTPageMessagesRead, options ...option) st
 	anyQuery := query.MessageID != ""
 
 	var b strings.Builder
-	l := len("@post('/messages/read/'") + optionsLen(options) + len(")")
+	bl, al := beforeAfterLen(options)
+	l := bl + len("@post('/messages/read/'") + optionsLen(options) + len(")") + al
 	if anyQuery {
 		l += len("?")
 	}
@@ -121,6 +197,7 @@ func POSTPageMessagesRead(query QueryPOSTPageMessagesRead, options ...option) st
 
 	b.Grow(l)
 
+	writeBefore(&b, options)
 	b.WriteString("@post('/messages/read/")
 	if anyQuery {
 		b.WriteString("?")
@@ -136,6 +213,7 @@ func POSTPageMessagesRead(query QueryPOSTPageMessagesRead, options ...option) st
 	b.WriteString("'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
+	writeAfter(&b, options)
 
 	return b.String()
 }
@@ -150,10 +228,13 @@ func POSTPageMessagesSendMessage(options ...option) string {
 		return "@post('/messages/sendmessage/')"
 	}
 	var b strings.Builder
-	b.Grow(len("@post('/messages/sendmessage/'") + optionsLen(options) + len(")"))
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/messages/sendmessage/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
 	b.WriteString("@post('/messages/sendmessage/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
+	writeAfter(&b, options)
 	return b.String()
 }
 
@@ -163,10 +244,13 @@ func POSTPageMessagesWriting(options ...option) string {
 		return "@post('/messages/writing/')"
 	}
 	var b strings.Builder
-	b.Grow(len("@post('/messages/writing/'") + optionsLen(options) + len(")"))
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/messages/writing/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
 	b.WriteString("@post('/messages/writing/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
+	writeAfter(&b, options)
 	return b.String()
 }
 
@@ -176,22 +260,28 @@ func POSTPageMessagesWritingStopped(options ...option) string {
 		return "@post('/messages/writing-stopped/')"
 	}
 	var b strings.Builder
-	b.Grow(len("@post('/messages/writing-stopped/'") + optionsLen(options) + len(")"))
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/messages/writing-stopped/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
 	b.WriteString("@post('/messages/writing-stopped/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
+	writeAfter(&b, options)
 	return b.String()
 }
 
 // POSTPagePostSendMessage references /post/{slug}/send-message/
 func POSTPagePostSendMessage(slug string, options ...option) string {
 	var b strings.Builder
-	b.Grow(len("@post('/post/") + len(slug) + len("/send-message/'") + optionsLen(options) + len(")"))
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/post/") + len(slug) + len("/send-message/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
 	b.WriteString("@post('/post/")
 	b.WriteString(slug)
 	b.WriteString("/send-message/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
+	writeAfter(&b, options)
 	return b.String()
 }
 
@@ -201,10 +291,13 @@ func POSTPageSearchParamChange(options ...option) string {
 		return "@post('/search/paramchange/')"
 	}
 	var b strings.Builder
-	b.Grow(len("@post('/search/paramchange/'") + optionsLen(options) + len(")"))
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/search/paramchange/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
 	b.WriteString("@post('/search/paramchange/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
+	writeAfter(&b, options)
 	return b.String()
 }
 
@@ -214,22 +307,28 @@ func POSTPageSettingsCloseAllSessions(options ...option) string {
 		return "@post('/settings/close-all-sessions/')"
 	}
 	var b strings.Builder
-	b.Grow(len("@post('/settings/close-all-sessions/'") + optionsLen(options) + len(")"))
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/settings/close-all-sessions/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
 	b.WriteString("@post('/settings/close-all-sessions/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
+	writeAfter(&b, options)
 	return b.String()
 }
 
 // POSTPageSettingsCloseSession references /settings/close-session/{token}/
 func POSTPageSettingsCloseSession(token string, options ...option) string {
 	var b strings.Builder
-	b.Grow(len("@post('/settings/close-session/") + len(token) + len("/'") + optionsLen(options) + len(")"))
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/settings/close-session/") + len(token) + len("/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
 	b.WriteString("@post('/settings/close-session/")
 	b.WriteString(token)
 	b.WriteString("/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
+	writeAfter(&b, options)
 	return b.String()
 }
 
@@ -239,9 +338,12 @@ func POSTPageSettingsSave(options ...option) string {
 		return "@post('/settings/save/')"
 	}
 	var b strings.Builder
-	b.Grow(len("@post('/settings/save/'") + optionsLen(options) + len(")"))
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/settings/save/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
 	b.WriteString("@post('/settings/save/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
+	writeAfter(&b, options)
 	return b.String()
 }
