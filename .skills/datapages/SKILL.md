@@ -695,6 +695,23 @@ Generated functions return Datastar action strings (`@post('/...')`, `@put('/...
 
 // App-level action (not tied to a page)
 <button data-on:click={ action.POSTAppSignOut() }>Sign Out</button>
+
+// Action with Datastar options (e.g. payload, contentType, filterSignals)
+<button data-on:click={ action.POSTPageLoginSubmit(
+    action.WithOption(action.OptPayload, "'auto'"),
+) }>Submit</button>
+
+// Action with before/after expressions (joined with "; " separators)
+<button data-on:click={ action.POSTPageLoginSubmit(
+    action.WithBefore("$foo='asd'"),
+    action.WithAfter("$foo=''"),
+) }>Submit</button>
 ```
+
+All generated action functions accept variadic modifier arguments:
+
+- `action.WithOption(key, value)` — passes a [Datastar action option](https://data-star.dev/reference/actions#options). The key is an `action.Opt` constant (e.g. `OptContentType`, `OptFilterSignals`, `OptSelector`, `OptHeaders`, `OptOpenWhenHidden`, `OptPayload`, `OptRetry`, `OptRetryInterval`, `OptRetryScaler`, `OptRetryMaxWaitMs`, `OptRetryMaxCount`, `OptRequestCancellation`). The value is a raw JavaScript expression string (use `"'auto'"` for a JS string, `"true"` for a boolean).
+- `action.WithBefore(expr)` — prepends a JavaScript expression before the action call, separated by `"; "`.
+- `action.WithAfter(expr)` — appends a JavaScript expression after the action call, separated by `"; "`.
 
 Naming convention: `{METHOD}Page{PageName}{HandlerName}` for page actions, `{METHOD}App{HandlerName}` for app-level actions. Query parameter structs are generated as `action.Query<FunctionName>`.
