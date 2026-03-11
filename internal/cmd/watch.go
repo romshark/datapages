@@ -94,6 +94,7 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 			ClearOn:          mapLogClear(w.Log.ClearOn),
 			PrintJSDebugLogs: w.Log.PrintJSDebugLogs,
 		},
+		ReconnectMessage: "reconnecting 📡<br>restart datapages watch",
 	}
 	if w.TLS != nil {
 		conf.TLS = &engine.TLSConfig{
