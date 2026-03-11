@@ -12,6 +12,7 @@ import (
 func newVersionCmd(stdout io.Writer, version, commit, buildDate string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "version",
+		Args:  cobra.NoArgs,
 		Short: "Print version information",
 		Long: `Print the datapages CLI version. Use --full to include commit hash,
 build date, Go version, and module dependencies.`,

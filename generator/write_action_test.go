@@ -1,16 +1,21 @@
 package generator_test
 
 import (
+	"go/ast"
 	"go/format"
+	"go/importer"
+	goparser "go/parser"
+	"go/token"
 	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/romshark/datapages/generator"
 	"github.com/romshark/datapages/parser/model"
-	"github.com/stretchr/testify/require"
 )
 
 func TestWritePkgAction(t *testing.T) {
@@ -179,6 +184,33 @@ func TestWritePkgAction(t *testing.T) {
 			}},
 			golden: "action_path_and_query_multiple_fields.go.txt",
 		},
+		"query with int field": {
+			app: &model.App{Pages: []*model.Page{
+				actionPage("PageIndex",
+					actionHandler("post", "Add", "/add/{$}",
+						hrefStruct(
+							hrefFieldDef{
+								"Delta", types.Typ[types.Int64],
+								`query:"delta"`,
+							},
+						))),
+			}},
+			golden: "action_query_with_int_field.go.txt",
+		},
+		"path and query with int field": {
+			app: &model.App{Pages: []*model.Page{
+				actionPage("PagePost",
+					actionHandler("post", "Rate",
+						"/post/{slug}/rate/{$}",
+						hrefStruct(
+							hrefFieldDef{
+								"Score", types.Typ[types.Int64],
+								`query:"score"`,
+							},
+						))),
+			}},
+			golden: "action_path_and_query_with_int_field.go.txt",
+		},
 		"path and query multiple path vars": {
 			app: &model.App{Pages: []*model.Page{
 				actionPage("PageOrg",
@@ -192,6 +224,98 @@ func TestWritePkgAction(t *testing.T) {
 						))),
 			}},
 			golden: "action_path_and_query_multiple_path_vars.go.txt",
+		},
+		"path variable int32": {
+			app: &model.App{Pages: []*model.Page{
+				actionPage("PageIndex",
+					actionHandlerWithPath("post", "Set", "/set/{value}/{$}",
+						hrefStruct(
+							hrefFieldDef{"Value", types.Typ[types.Int32], `path:"value"`},
+						), nil)),
+			}},
+			golden: "action_path_variable_int32.go.txt",
+		},
+		"path variable naming conflict": {
+			app: &model.App{Pages: []*model.Page{
+				actionPage("PageIndex",
+					actionHandlerWithPath("post", "Set",
+						"/set/{value}/{s_value}/{s_s_value}/{$}",
+						hrefStruct(
+							hrefFieldDef{"Value", types.Typ[types.Int32], `path:"value"`},
+							hrefFieldDef{"SValue", types.Typ[types.Int32], `path:"s_value"`},
+							hrefFieldDef{"SSValue", types.Typ[types.String], `path:"s_s_value"`},
+						), nil)),
+			}},
+			golden: "action_path_variable_naming_conflict.go.txt",
+		},
+		"path variable uint64": {
+			app: &model.App{Pages: []*model.Page{
+				actionPage("PageItem",
+					actionHandlerWithPath("post", "Get", "/item/{id}/{$}",
+						hrefStruct(
+							hrefFieldDef{"ID", types.Typ[types.Uint64], `path:"id"`},
+						), nil)),
+			}},
+			golden: "action_path_variable_uint64.go.txt",
+		},
+		"path variable float64": {
+			app: &model.App{Pages: []*model.Page{
+				actionPage("PageCoord",
+					actionHandlerWithPath("post", "Mark", "/coord/{lat}/{$}",
+						hrefStruct(
+							hrefFieldDef{"Lat", types.Typ[types.Float64], `path:"lat"`},
+						), nil)),
+			}},
+			golden: "action_path_variable_float64.go.txt",
+		},
+		"path variable bool": {
+			app: &model.App{Pages: []*model.Page{
+				actionPage("PageToggle",
+					actionHandlerWithPath("post", "Switch", "/toggle/{on}/{$}",
+						hrefStruct(
+							hrefFieldDef{"On", types.Typ[types.Bool], `path:"on"`},
+						), nil)),
+			}},
+			golden: "action_path_variable_bool.go.txt",
+		},
+		"query with bool field": {
+			app: &model.App{Pages: []*model.Page{
+				actionPage("PageIndex",
+					actionHandler("post", "Filter", "/filter/{$}",
+						hrefStruct(
+							hrefFieldDef{
+								"Active", types.Typ[types.Bool],
+								`query:"active"`,
+							},
+						))),
+			}},
+			golden: "action_query_with_bool_field.go.txt",
+		},
+		"query with float64 field": {
+			app: &model.App{Pages: []*model.Page{
+				actionPage("PageIndex",
+					actionHandler("post", "SetPrice", "/set-price/{$}",
+						hrefStruct(
+							hrefFieldDef{
+								"Price", types.Typ[types.Float64],
+								`query:"price"`,
+							},
+						))),
+			}},
+			golden: "action_query_with_float64_field.go.txt",
+		},
+		"query with uint32 field": {
+			app: &model.App{Pages: []*model.Page{
+				actionPage("PageIndex",
+					actionHandler("post", "SetCount", "/set-count/{$}",
+						hrefStruct(
+							hrefFieldDef{
+								"Count", types.Typ[types.Uint32],
+								`query:"count"`,
+							},
+						))),
+			}},
+			golden: "action_query_with_uint32_field.go.txt",
 		},
 	}
 
@@ -219,6 +343,132 @@ func TestWritePkgAction(t *testing.T) {
 	}
 }
 
+func TestWritePkgActionTypeChecks(t *testing.T) {
+	allIntTypes := []struct {
+		name string
+		typ  types.Type
+	}{
+		{"int", types.Typ[types.Int]},
+		{"int8", types.Typ[types.Int8]},
+		{"int16", types.Typ[types.Int16]},
+		{"int32", types.Typ[types.Int32]},
+		{"int64", types.Typ[types.Int64]},
+		{"uint", types.Typ[types.Uint]},
+		{"uint8", types.Typ[types.Uint8]},
+		{"uint16", types.Typ[types.Uint16]},
+		{"uint32", types.Typ[types.Uint32]},
+		{"uint64", types.Typ[types.Uint64]},
+	}
+
+	tests := map[string]*model.App{
+		"query with int64": {Pages: []*model.Page{
+			actionPage("PageIndex",
+				actionHandler("post", "Add", "/add/{$}",
+					hrefStruct(
+						hrefFieldDef{"Delta", types.Typ[types.Int64], `query:"delta"`},
+					))),
+		}},
+		"path and query with int64": {Pages: []*model.Page{
+			actionPage("PagePost",
+				actionHandler("post", "Rate", "/post/{slug}/rate/{$}",
+					hrefStruct(
+						hrefFieldDef{"Score", types.Typ[types.Int64], `query:"score"`},
+					))),
+		}},
+		"query with bool": {Pages: []*model.Page{
+			actionPage("PageIndex",
+				actionHandler("post", "Filter", "/filter/{$}",
+					hrefStruct(
+						hrefFieldDef{"Active", types.Typ[types.Bool], `query:"active"`},
+					))),
+		}},
+		"query with float64": {Pages: []*model.Page{
+			actionPage("PageIndex",
+				actionHandler("post", "SetPrice", "/set-price/{$}",
+					hrefStruct(
+						hrefFieldDef{"Price", types.Typ[types.Float64], `query:"price"`},
+					))),
+		}},
+		"query with float32": {Pages: []*model.Page{
+			actionPage("PageIndex",
+				actionHandler("post", "SetRatio", "/set-ratio/{$}",
+					hrefStruct(
+						hrefFieldDef{"Ratio", types.Typ[types.Float32], `query:"ratio"`},
+					))),
+		}},
+		"path with bool": {Pages: []*model.Page{
+			actionPage("PageToggle",
+				actionHandlerWithPath("post", "Switch", "/toggle/{on}/{$}",
+					hrefStruct(
+						hrefFieldDef{"On", types.Typ[types.Bool], `path:"on"`},
+					), nil)),
+		}},
+		"path with float64": {Pages: []*model.Page{
+			actionPage("PageCoord",
+				actionHandlerWithPath("post", "Mark", "/coord/{lat}/{$}",
+					hrefStruct(
+						hrefFieldDef{"Lat", types.Typ[types.Float64], `path:"lat"`},
+					), nil)),
+		}},
+		"path naming conflict": {Pages: []*model.Page{
+			actionPage("PageIndex",
+				actionHandlerWithPath("post", "Set",
+					"/set/{value}/{s_value}/{s_s_value}/{$}",
+					hrefStruct(
+						hrefFieldDef{"Value", types.Typ[types.Int32], `path:"value"`},
+						hrefFieldDef{"SValue", types.Typ[types.Int32], `path:"s_value"`},
+						hrefFieldDef{"SSValue", types.Typ[types.String], `path:"s_s_value"`},
+					), nil)),
+		}},
+	}
+
+	// Add a test for each integer type as query param.
+	for _, it := range allIntTypes {
+		tests["query with "+it.name] = &model.App{Pages: []*model.Page{
+			actionPage("PageIndex",
+				actionHandler("post", "Do", "/do/{$}",
+					hrefStruct(
+						hrefFieldDef{"Val", it.typ, `query:"val"`},
+					))),
+		}}
+	}
+
+	// Add a test for each integer type as path param.
+	for _, it := range allIntTypes {
+		tests["path with "+it.name] = &model.App{Pages: []*model.Page{
+			actionPage("PageItem",
+				actionHandlerWithPath("post", "Get", "/item/{id}/{$}",
+					hrefStruct(
+						hrefFieldDef{"ID", it.typ, `path:"id"`},
+					), nil)),
+		}}
+	}
+
+	w := generator.Writer{Buf: make([]byte, 2*1024*1024)}
+	for name, app := range tests {
+		t.Run(name, func(t *testing.T) {
+			w.Reset()
+			w.WritePkgAction(app)
+			src, err := format.Source(w.Buf)
+			require.NoError(t, err,
+				"generated code is not valid Go syntax:\n%s", string(w.Buf))
+			typeCheckGenerated(t, src)
+		})
+	}
+}
+
+func typeCheckGenerated(t *testing.T, src []byte) {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := goparser.ParseFile(fset, "gen.go", src, 0)
+	require.NoError(t, err, "parse error")
+
+	conf := types.Config{Importer: importer.Default()}
+	_, err = conf.Check("action", fset, []*ast.File{f}, nil)
+	require.NoError(t, err,
+		"generated code does not type-check:\n%s", string(src))
+}
+
 // actionPage constructs a *model.Page with the given actions.
 func actionPage(typeName string, actions ...*model.Handler) *model.Page {
 	return &model.Page{
@@ -233,15 +483,26 @@ func actionPage(typeName string, actions ...*model.Handler) *model.Page {
 func actionHandler(
 	method, name, route string, query *types.Struct,
 ) *model.Handler {
+	return actionHandlerWithPath(method, name, route, nil, query)
+}
+
+// actionHandlerWithPath constructs a *model.Handler with an explicit typed path struct.
+// When path is non-nil, InputPath.Type.Resolved is set to the given struct.
+// When path is nil but the route contains variables, InputPath is set with nil Type.Resolved.
+func actionHandlerWithPath(
+	method, name, route string, path, query *types.Struct,
+) *model.Handler {
 	h := &model.Handler{
 		HTTPMethod: method,
 		Name:       name,
 		Route:      route,
 	}
-	// Set InputPath when route has path variables so the import check works.
 	cleaned := strings.ReplaceAll(route, "{$}", "")
 	if strings.Contains(cleaned, "{") {
 		h.InputPath = &model.Input{Name: "path"}
+		if path != nil {
+			h.InputPath.Type = model.Type{Resolved: path}
+		}
 	}
 	if query != nil {
 		h.InputQuery = &model.Input{

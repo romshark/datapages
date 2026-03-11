@@ -17,6 +17,12 @@ jobs:
           - path: "."
             name: "root"
             has_templ: false
+          - path: "example/counter"
+            name: "counter"
+            has_templ: true
+          - path: "example/fancy-counter"
+            name: "fancy-counter"
+            has_templ: true
           - path: "example/classifieds"
             name: "classifieds"
             has_templ: true
@@ -41,13 +47,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Install mage
+        run: go install github.com/magefile/mage@latest
+
       - name: Check formatting (gofumpt)
         if: matrix.deps == 'locked'
-        run: make check-fmt
+        run: mage checkFmt
 
       - name: Check go.mod tidy
         if: matrix.deps == 'locked'
-        run: make check-mod
+        run: mage checkMod
 
       - name: Update to latest deps
         if: matrix.deps == 'latest'
@@ -89,6 +98,10 @@ jobs:
         run: |
           echo "Detected uncommitted changes after running templ generate." \
           "Please regenerate .templ templates and commit changes." && exit 1
+
+      - name: Lint datapages examples
+        if: matrix.project.name == 'root' && matrix.deps == 'locked'
+        run: mage lintDatapages
 
       # Try compile
       - name: Compile

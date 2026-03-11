@@ -10,16 +10,15 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/nats-io/nats.go"
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/romshark/datapages/example/classifieds/app"
+	"github.com/romshark/datapages/example/classifieds/datapagesgen"
 	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
 	"github.com/romshark/datapages/modules/msgbroker/natsjs"
 	"github.com/romshark/datapages/modules/sessmanager/natskv"
 	"github.com/romshark/datapages/modules/sesstokgen"
-
-	"github.com/romshark/datapages/example/classifieds/app"
-	"github.com/romshark/datapages/example/classifieds/datapagesgen"
-
-	"github.com/nats-io/nats.go"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 const (

@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/romshark/datapages/example/classifieds/app/domain"
-	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
-
 	"github.com/a-h/templ"
 	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages/example/classifieds/app/domain"
+	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 )
 
 // PagePost is /post/{slug}

@@ -3,10 +3,10 @@ package app
 import (
 	"net/http"
 
+	"github.com/a-h/templ"
+
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
-
-	"github.com/a-h/templ"
 )
 
 // PageMyPosts is /my-posts

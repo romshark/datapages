@@ -7,9 +7,9 @@ import (
 	"go/types"
 	"testing"
 
-	"github.com/romshark/datapages/parser/model"
-
 	"github.com/stretchr/testify/require"
+
+	"github.com/romshark/datapages/parser/model"
 )
 
 // typeCheckSrc parses and type-checks Go source, returning
@@ -153,6 +153,63 @@ func f(path struct {
 	Slug string ` + "`" + `path:"slug"` + "`" + `
 }) {}`,
 		},
+		"valid int field": {
+			src: `package test
+func f(path struct {
+	ID int ` + "`" + `path:"id"` + "`" + `
+}) {}`,
+		},
+		"valid int32 field": {
+			src: `package test
+func f(path struct {
+	ID int32 ` + "`" + `path:"id"` + "`" + `
+}) {}`,
+		},
+		"valid int64 field": {
+			src: `package test
+func f(path struct {
+	ID int64 ` + "`" + `path:"id"` + "`" + `
+}) {}`,
+		},
+		"valid uint field": {
+			src: `package test
+func f(path struct {
+	ID uint ` + "`" + `path:"id"` + "`" + `
+}) {}`,
+		},
+		"valid float64 field": {
+			src: `package test
+func f(path struct {
+	Score float64 ` + "`" + `path:"score"` + "`" + `
+}) {}`,
+		},
+		"valid bool field": {
+			src: `package test
+func f(path struct {
+	Active bool ` + "`" + `path:"active"` + "`" + `
+}) {}`,
+		},
+		"valid TextUnmarshaler pointer receiver": {
+			src: `package test
+type MyID struct{ V string }
+func f(path struct {
+	ID MyID ` + "`" + `path:"id"` + "`" + `
+}) {}
+func (m *MyID) UnmarshalText(text []byte) error {
+	m.V = string(text)
+	return nil
+}`,
+		},
+		"valid TextUnmarshaler value receiver": {
+			src: `package test
+type MyID string
+func f(path struct {
+	ID MyID ` + "`" + `path:"id"` + "`" + `
+}) {}
+func (m MyID) UnmarshalText(text []byte) error {
+	return nil
+}`,
+		},
 		"empty struct": {
 			src: `package test
 func f(path struct{}) {}`,
@@ -169,12 +226,12 @@ func f(path struct {
 }) {}`,
 			wantErr: ErrPathFieldUnexported,
 		},
-		"field not string": {
+		"unsupported type": {
 			src: `package test
 func f(path struct {
-	ID int ` + "`" + `path:"id"` + "`" + `
+	ID []byte ` + "`" + `path:"id"` + "`" + `
 }) {}`,
-			wantErr: ErrPathFieldNotString,
+			wantErr: ErrPathFieldUnsupportedType,
 		},
 		"missing tag": {
 			src: `package test
@@ -237,6 +294,47 @@ func f(query struct {
 	Search string ` + "`" + `query:"search"` + "`" + `
 }) {}`,
 		},
+		"valid int field": {
+			src: `package test
+func f(query struct {
+	Limit int ` + "`" + `query:"l"` + "`" + `
+}) {}`,
+		},
+		"valid int64 field": {
+			src: `package test
+func f(query struct {
+	Offset int64 ` + "`" + `query:"o"` + "`" + `
+}) {}`,
+		},
+		"valid uint field": {
+			src: `package test
+func f(query struct {
+	Page uint ` + "`" + `query:"p"` + "`" + `
+}) {}`,
+		},
+		"valid float64 field": {
+			src: `package test
+func f(query struct {
+	Price float64 ` + "`" + `query:"price"` + "`" + `
+}) {}`,
+		},
+		"valid bool field": {
+			src: `package test
+func f(query struct {
+	Active bool ` + "`" + `query:"active"` + "`" + `
+}) {}`,
+		},
+		"valid TextUnmarshaler": {
+			src: `package test
+type Filter struct{ V string }
+func f(query struct {
+	F Filter ` + "`" + `query:"f"` + "`" + `
+}) {}
+func (fl *Filter) UnmarshalText(text []byte) error {
+	fl.V = string(text)
+	return nil
+}`,
+		},
 		"empty struct": {
 			src: `package test
 func f(query struct{}) {}`,
@@ -247,6 +345,13 @@ type SearchParams struct {
 	Term string ` + "`" + `query:"t"` + "`" + `
 }
 func f(query SearchParams) {}`,
+		},
+		"unsupported type": {
+			src: `package test
+func f(query struct {
+	Data []byte ` + "`" + `query:"d"` + "`" + `
+}) {}`,
+			wantErr: ErrQueryFieldUnsupportedType,
 		},
 		"not a struct": {
 			src: `package test

@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/romshark/datapages/generator"
 	"github.com/romshark/datapages/parser"
-	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateClassifieds(t *testing.T) {

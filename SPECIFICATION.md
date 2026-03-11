@@ -55,9 +55,9 @@ Page types `PageError500` and `PageError404` are optional special error pages fo
 response codes `500` and `404` respectively.
 Otherwise datapages will use its own defaults.
 
-Handler method parameters are defined and enforced by datapages.
-Parameters may be in any order.
-Using unsupported parameter names and types will result in generator errors.
+Handler method parameters and return values are defined and enforced by datapages.
+Parameters and return values may be in any order. Using unsupported parameter or
+return value names and types will result in generator errors.
 
 The `GET` method parameter lists must include `r *http.Request`
 and may include the following optional parameters:
@@ -90,6 +90,20 @@ func (PageIndex) GET(
 }
 ```
 
+Action handlers can also be defined on `*App` (pointer receiver) for global actions
+not tied to a specific page:
+
+```go
+// POSTSignOut is /sign-out/{$}
+func (*App) POSTSignOut(r *http.Request, session Session) (
+	closeSession bool,
+	redirect string,
+	err error,
+) {
+	return true, "/login", nil
+}
+```
+
 The SSE action handlers `POSTXXX`, `DELETEXXX` and `PUTXXX` method parameter lists must
 include `r *http.Request` and may include the following optional parameters:
 
@@ -98,6 +112,7 @@ include `r *http.Request` and may include the following optional parameters:
 func (PageIndex) POSTActionName(
 	r *http.Request,
 	sse *datastar.ServerSentEventGenerator, // Optional
+	sessionToken string, // Optional
 	session Session, // Optional
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
@@ -112,13 +127,19 @@ func (PageIndex) POSTActionName(
 }
 ```
 
-Action handler may omit the `sse` parameter and instead redirect,
-return HTML, set/remove sessions.
+Action handlers that omit the `sse` parameter can instead redirect,
+return HTML, and set or remove sessions.
+
+**Session mutation and SSE are mutually exclusive in action handlers.**
+When the `sse` parameter is present, the handler opens a long-lived SSE stream —
+HTTP headers (including session cookies) have already been sent, so `newSession`
+and `closeSession` return values cannot be used.
 
 ```go
 // POSTActionName is <path>
 func (PageIndex) POSTActionName(
 	r *http.Request,
+	sessionToken string, // Optional
 	session Session, // Optional
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
@@ -150,7 +171,9 @@ The `XXX` placeholder must always match the event name after the type's `Event` 
 func (PageIndex) OnSomethingHappened(
 	event EventSomethingHappened,
 	sse *datastar.ServerSentEventGenerator,
+	sessionToken string, // Optional
 	session Session, // Optional
+	signals struct {...}, // Optional
 ) error {
 	// ...
 }
@@ -265,9 +288,27 @@ signals struct {
 ```
 
 Provides the captured [Datastar signals](https://data-star.dev/guide/reactive_signals)
-from the page.
+from the page. Signal fields map directly to Datastar signal names via their `json` tags.
 Any named or anonymous struct is accepted,
 but every field must have a json struct field tag.
+Any JSON-serializable field type is supported, including nested structs, slices, and maps.
+
+Nested structs map to nested Datastar signals using dot notation:
+
+```go
+signals struct {
+	Form struct {
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	} `json:"form"`
+}
+```
+
+This maps to Datastar signals `$form.name` and `$form.email`, initialized in
+templates with `data-signals:form.name="''"` and `data-signals:form.email="''"`,
+or as a single object `data-signals="{form: {name: '', email: ''}}"`.
+The Go handler receives the nested values as `signals.Form.Name` and
+`signals.Form.Email`.
 
 #### Parameter: `path struct {...}`
 
@@ -278,6 +319,33 @@ path struct {
 ```
 
 Provides URL path parameters. These parameters must be defined in the URL comment.
+Both named and anonymous struct types are accepted.
+
+Each field must be exported with a `path:"..."` struct tag
+where the tag value names the corresponding route variable
+(e.g. `path:"id"` binds to `{id}` in the URL pattern).
+
+Supported field types are:
+
+- `string`
+- `bool`
+- `int`
+- `int8`
+- `int16`
+- `int32`
+- `int64`
+- `uint`
+- `uint8`
+- `uint16`
+- `uint32`
+- `uint64`
+- `float32`
+- `float64`
+
+or any type implementing `encoding.TextUnmarshaler`.
+Values are parsed from their string representation in the URL.
+If a value cannot be parsed into the target type, the request
+returns HTTP 400 Bad Request.
 
 #### Parameter: `query struct {...}`
 
@@ -288,7 +356,14 @@ query struct {
 }
 ```
 
-Provides URL query parameters. These parameters must be defined in the URL comment.
+Provides URL query parameters.
+Both named and anonymous struct types are accepted.
+
+Each field must be exported with a `query:"..."` struct tag
+where the tag value names the query parameter key
+(e.g. `query:"f"` reads from `?f=...`).
+
+The same field types as [`path`](#parameter-path-struct-) are supported.
 
 The `reflectsignal` struct field tag can be used to define what signal shall reflect
 into the query parameter:
@@ -447,62 +522,6 @@ func (PageChat) OnMessageSent(
 ```
 
 </details>
-
-#### Parameter: `metrics struct {...}` (Experimental)
-
-This feature is in its design phase and not implemented yet.
-
-```go
-metrics struct {
-	// Help description goes in this comment
-	ExampleRequestsTotal interface {
-		CounterAdd(delta float64, result string)
-	} `name:"example_requests_total"`
-
-	ExampleConnectionsOpen interface {
-		GaugeSet(value float64)
-	} `name:"example_connections_open" subsystem:"network"`
-
-	ExampleOrderSize interface {
-		HistogramObserve(value float64, )
-	} `name:"order_size", buckets:"0,1,5,50,100,1000"``
-
-	//...
-},
-```
-
-Datapages can inject typed metric handles into page/action/event handlers,
-similar to `signals`, `dispatch`, etc.
-You declare what you need at the handler boundary, and the generator automatically
-defines the Prometheus collectors and registers them.
-
-The methods of the interface define the metric kind:
-
-##### Counter
-
-```go
-interface {
-	CounterAdd(label1, label2 string, /* ... */)
-}
-```
-
-##### Gauge
-
-```go
-interface {
-	GaugeSet(value float64, label1, label2 string, /* ... */)
-}
-```
-
-##### Histogram
-
-```go
-interface {
-	HistogramObserve(value float64, label1, label2 string, /* ... */)
-}
-```
-
-Buckets can be defined using the `bucket` struct tag as a comma-separated list of values.
 
 #### Return Value: `body templ.Component`
 

@@ -161,6 +161,9 @@ type structFieldInfo struct {
 // calling structFields again.
 func (w *Writer) structFields(t types.Type) []structFieldInfo {
 	w.fields = w.fields[:0]
+	if t == nil {
+		return w.fields
+	}
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
 		return w.fields
@@ -261,7 +264,10 @@ func computeAppUsage(m *model.App) appUsage {
 		if h.InputSignals != nil {
 			u.httpErrBad = true
 		}
-		if h.InputQuery != nil && queryHasIntField(h.InputQuery.Type.Resolved) {
+		if h.InputQuery != nil && structHasNonStringField(h.InputQuery.Type.Resolved) {
+			u.httpErrBad = true
+		}
+		if h.InputPath != nil && structHasNonStringField(h.InputPath.Type.Resolved) {
 			u.httpErrBad = true
 		}
 	}
@@ -477,6 +483,70 @@ func isStringType(t types.Type) bool {
 	return ok && basic.Kind() == types.String
 }
 
+// isBoolType returns true if the type's underlying type is bool.
+func isBoolType(t types.Type) bool {
+	basic, ok := t.Underlying().(*types.Basic)
+	return ok && basic.Kind() == types.Bool
+}
+
+// isFloatType returns true if the type is float32 or float64.
+func isFloatType(t types.Type) bool {
+	basic, ok := t.Underlying().(*types.Basic)
+	if !ok {
+		return false
+	}
+	return basic.Kind() == types.Float32 || basic.Kind() == types.Float64
+}
+
+// floatTypeName returns "float32" or "float64".
+// Precondition: isFloatType(t) must be true.
+func floatTypeName(t types.Type) string {
+	if t.Underlying().(*types.Basic).Kind() == types.Float32 {
+		return "float32"
+	}
+	return "float64"
+}
+
+// floatBits returns the strconv bit-size for ParseFloat.
+// Precondition: isFloatType(t) must be true.
+func floatBits(t types.Type) int {
+	if t.Underlying().(*types.Basic).Kind() == types.Float32 {
+		return 32
+	}
+	return 64
+}
+
+// textUnmarshaler is the method set of encoding.TextUnmarshaler.
+var textUnmarshaler = func() *types.Interface {
+	sig := types.NewSignatureType(
+		nil, nil, nil,
+		types.NewTuple(types.NewVar(
+			0, nil, "text", types.NewSlice(types.Typ[types.Byte]),
+		)),
+		types.NewTuple(types.NewVar(
+			0, nil, "", types.Universe.Lookup("error").Type(),
+		)),
+		false,
+	)
+	return types.NewInterfaceType(
+		[]*types.Func{types.NewFunc(
+			0, nil, "UnmarshalText", sig,
+		)},
+		nil,
+	).Complete()
+}()
+
+// isTextUnmarshaler returns true if t or *t implements encoding.TextUnmarshaler.
+func isTextUnmarshaler(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	if types.Implements(t, textUnmarshaler) {
+		return true
+	}
+	return types.Implements(types.NewPointer(t), textUnmarshaler)
+}
+
 // isIntType returns true if the type is int64, int, etc.
 func isIntType(t types.Type) bool {
 	basic, ok := t.Underlying().(*types.Basic)
@@ -491,14 +561,15 @@ func isIntType(t types.Type) bool {
 	return false
 }
 
-// queryHasIntField returns true if the resolved query struct type has any integer fields.
-func queryHasIntField(t types.Type) bool {
+// structHasNonStringField returns true if the resolved struct type
+// has any field whose type is not string.
+func structHasNonStringField(t types.Type) bool {
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
 		return false
 	}
 	for field := range st.Fields() {
-		if isIntType(field.Type()) {
+		if !isStringType(field.Type()) {
 			return true
 		}
 	}

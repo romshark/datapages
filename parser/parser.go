@@ -14,6 +14,8 @@ import (
 	"unicode"
 
 	"github.com/lithammer/fuzzysearch/fuzzy"
+	"golang.org/x/tools/go/packages"
+
 	"github.com/romshark/datapages/parser/internal/methodkind"
 	"github.com/romshark/datapages/parser/internal/paramvalidation"
 	"github.com/romshark/datapages/parser/internal/structinspect"
@@ -21,8 +23,6 @@ import (
 	"github.com/romshark/datapages/parser/internal/typecheck"
 	"github.com/romshark/datapages/parser/model"
 	"github.com/romshark/datapages/parser/validate"
-
-	"golang.org/x/tools/go/packages"
 )
 
 // ParseOptions configures optional behavior of [Parse].
@@ -1090,24 +1090,30 @@ func parseEventHandler(
 		switch {
 		case len(f.Names) == 1 && f.Names[0].Name == "event":
 			h.InputEvent = parseInput(f, info)
-			h.InputOrder = append(h.InputOrder, model.InputKindEvent)
+			h.InputEvent.Kind = model.InputKindEvent
+			h.OrderedInputs = append(h.OrderedInputs, h.InputEvent)
 		case typecheck.IsPtrToDatastarSSE(f.Type, info):
 			h.InputSSE = parseInput(f, info)
-			h.InputOrder = append(h.InputOrder, model.InputKindSSE)
+			h.InputSSE.Kind = model.InputKindSSE
+			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
 		case paramvalidation.IsSessionTokenParam(f):
 			h.InputSessionToken = parseInput(f, info)
-			h.InputOrder = append(h.InputOrder, model.InputKindSessionToken)
+			h.InputSessionToken.Kind = model.InputKindSessionToken
+			h.OrderedInputs = append(h.OrderedInputs, h.InputSessionToken)
 		case paramvalidation.IsSessionParam(f):
 			h.InputSession = parseInput(f, info)
-			h.InputOrder = append(h.InputOrder, model.InputKindSession)
+			h.InputSession.Kind = model.InputKindSession
+			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
 		case paramvalidation.IsSignalsParam(f):
 			h.InputSignals = parseInput(f, info)
-			h.InputOrder = append(h.InputOrder, model.InputKindSignals)
+			h.InputSignals.Kind = model.InputKindSignals
+			h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
 		}
 	}
 
 	if fd.Type.Results != nil && len(fd.Type.Results.List) > 0 {
 		h.OutputErr = &model.Output{
+			Kind: model.OutputKindErr,
 			Type: makeType(fd.Type.Results.List[0].Type, info),
 		}
 	}
@@ -1598,7 +1604,8 @@ func parseHandler(
 				continue
 			}
 			h.InputRequest = parseInput(f, info)
-			h.InputOrder = append(h.InputOrder, model.InputKindRequest)
+			h.InputRequest.Kind = model.InputKindRequest
+			h.OrderedInputs = append(h.OrderedInputs, h.InputRequest)
 			foundReq = true
 
 		case typecheck.IsPtrToDatastarSSE(f.Type, info):
@@ -1608,7 +1615,8 @@ func parseHandler(
 				continue
 			}
 			h.InputSSE = parseInput(f, info)
-			h.InputOrder = append(h.InputOrder, model.InputKindSSE)
+			h.InputSSE.Kind = model.InputKindSSE
+			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
 
 		case paramvalidation.IsSessionTokenParam(f):
 			if h.InputSessionToken != nil {
@@ -1621,7 +1629,8 @@ func parseHandler(
 					ErrSessionTokenParamNotString, recv, fd.Name.Name))
 			}
 			h.InputSessionToken = parseInput(f, info)
-			h.InputOrder = append(h.InputOrder, model.InputKindSessionToken)
+			h.InputSessionToken.Kind = model.InputKindSessionToken
+			h.OrderedInputs = append(h.OrderedInputs, h.InputSessionToken)
 
 		case paramvalidation.IsSessionParam(f):
 			if h.InputSession != nil {
@@ -1634,7 +1643,8 @@ func parseHandler(
 					ErrSessionParamNotSessionType, recv, fd.Name.Name))
 			}
 			h.InputSession = parseInput(f, info)
-			h.InputOrder = append(h.InputOrder, model.InputKindSession)
+			h.InputSession.Kind = model.InputKindSession
+			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
 
 		case paramvalidation.IsPathParam(f):
 			if h.InputPath != nil {
@@ -1650,7 +1660,8 @@ func parseHandler(
 				continue
 			}
 			h.InputPath = parseInput(f, info)
-			h.InputOrder = append(h.InputOrder, model.InputKindPath)
+			h.InputPath.Kind = model.InputKindPath
+			h.OrderedInputs = append(h.OrderedInputs, h.InputPath)
 
 		case paramvalidation.IsQueryParam(f):
 			if h.InputQuery != nil {
@@ -1666,7 +1677,8 @@ func parseHandler(
 				continue
 			}
 			h.InputQuery = parseInput(f, info)
-			h.InputOrder = append(h.InputOrder, model.InputKindQuery)
+			h.InputQuery.Kind = model.InputKindQuery
+			h.OrderedInputs = append(h.OrderedInputs, h.InputQuery)
 
 		case paramvalidation.IsSignalsParam(f):
 			if h.InputSignals != nil {
@@ -1682,7 +1694,8 @@ func parseHandler(
 				continue
 			}
 			h.InputSignals = parseInput(f, info)
-			h.InputOrder = append(h.InputOrder, model.InputKindSignals)
+			h.InputSignals.Kind = model.InputKindSignals
+			h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
 
 		case paramvalidation.IsDispatchParam(f):
 			if h.InputDispatch != nil {
@@ -1697,13 +1710,13 @@ func parseHandler(
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), dispErr)
 				continue
 			}
+			inp := parseInput(f, info)
+			inp.Kind = model.InputKindDispatch
 			h.InputDispatch = &model.InputDispatch{
-				Expr:           f.Names[0],
-				Name:           "dispatch",
-				Type:           makeType(f.Type, info),
+				Input:          inp,
 				EventTypeNames: eventNames,
 			}
-			h.InputOrder = append(h.InputOrder, model.InputKindDispatch)
+			h.OrderedInputs = append(h.OrderedInputs, inp)
 
 		default:
 			unsupErrs = append(unsupErrs,
@@ -1736,7 +1749,8 @@ func parseHandler(
 					multiErrPos = r.Type.Pos()
 					continue
 				}
-				h.OutputErr = &model.Output{Type: t}
+				h.OutputErr = &model.Output{Kind: model.OutputKindErr, Type: t}
+				h.OrderedOutputs = append(h.OrderedOutputs, h.OutputErr)
 				continue
 			}
 			outputs = append(outputs, &model.Output{Type: t})
@@ -1754,7 +1768,9 @@ func parseHandler(
 					multiErrPos = n.Pos()
 					continue
 				}
+				out.Kind = model.OutputKindErr
 				h.OutputErr = out
+				h.OrderedOutputs = append(h.OrderedOutputs, out)
 				continue
 			}
 			retErr := func(err error) *positionedError {
@@ -1767,14 +1783,18 @@ func parseHandler(
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrRedirectNotString, recv, fd.Name.Name))
 				}
+				out.Kind = model.OutputKindRedirect
 				h.OutputRedirect = out
+				h.OrderedOutputs = append(h.OrderedOutputs, out)
 				continue
 			case "redirectStatus":
 				if !typecheck.IsInt(t.Resolved) {
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrRedirectStatusNotInt, recv, fd.Name.Name))
 				}
+				out.Kind = model.OutputKindRedirectStatus
 				h.OutputRedirectStatus = out
+				h.OrderedOutputs = append(h.OrderedOutputs, out)
 				continue
 			case "newSession":
 				if !typecheck.IsSessionType(
@@ -1783,14 +1803,18 @@ func parseHandler(
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrNewSessionNotSessionType, recv, fd.Name.Name))
 				}
+				out.Kind = model.OutputKindNewSession
 				h.OutputNewSession = out
+				h.OrderedOutputs = append(h.OrderedOutputs, out)
 				continue
 			case "closeSession":
 				if !typecheck.IsBool(t.Resolved) {
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrCloseSessionNotBool, recv, fd.Name.Name))
 				}
+				out.Kind = model.OutputKindCloseSession
 				h.OutputCloseSession = out
+				h.OrderedOutputs = append(h.OrderedOutputs, out)
 				continue
 			case "enableBackgroundStreaming":
 				if kind != methodkind.GETHandler {
@@ -1801,7 +1825,9 @@ func parseHandler(
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrEnableBgStreamNotBool, recv, fd.Name.Name))
 				}
+				out.Kind = model.OutputKindEnableBgStream
 				h.OutputEnableBgStream = out
+				h.OrderedOutputs = append(h.OrderedOutputs, out)
 				continue
 
 			case "disableRefreshAfterHidden":
@@ -1813,8 +1839,22 @@ func parseHandler(
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrDisableRefreshNotBool, recv, fd.Name.Name))
 				}
+				out.Kind = model.OutputKindDisableRefresh
 				h.OutputDisableRefresh = out
+				h.OrderedOutputs = append(h.OrderedOutputs, out)
 				continue
+			default:
+				if !typecheck.IsTemplComponent(t.Resolved) {
+					return h, nil, retErr(fmt.Errorf(
+						"%w %s %s in %s.%s",
+						ErrSignatureUnsupportedOutput, n.Name, t.Resolved,
+						recv, fd.Name.Name))
+				}
+				// templ.Component returns are validated later
+				// by buildHandlerGET / action body detection.
+				// Use the user's name as Kind (body/head).
+				out.Kind = n.Name
+				h.OrderedOutputs = append(h.OrderedOutputs, out)
 			}
 			outputs = append(outputs, out)
 		}

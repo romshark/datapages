@@ -9,8 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/romshark/datapages/parser/model"
 	"github.com/stretchr/testify/require"
+
+	"github.com/romshark/datapages/parser/model"
 )
 
 const (
@@ -264,7 +265,7 @@ func TestWriteAppActionHandler(t *testing.T) {
 					Type: namedAppType("PathArchive", pathSt),
 				},
 				InputDispatch: &model.InputDispatch{
-					Name:           "dispatch",
+					Input:          &model.Input{Name: "dispatch", Kind: model.InputKindDispatch},
 					EventTypeNames: []string{"EventPostsArchived"},
 				},
 				OutputErr: &model.Output{Name: "err"},
@@ -570,7 +571,7 @@ func TestWritePageGETHandler(t *testing.T) {
 						InputRequest: &model.Input{Name: "r"},
 						InputSession: &model.Input{Name: "session"},
 						InputDispatch: &model.InputDispatch{
-							Name:           "dispatch",
+							Input:          &model.Input{Name: "dispatch", Kind: model.InputKindDispatch},
 							EventTypeNames: []string{"EventFoo"},
 						},
 						OutputErr: &model.Output{Name: "err"},

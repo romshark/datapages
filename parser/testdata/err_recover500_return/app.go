@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	datastar "github.com/starfederation/datastar-go"
+	"github.com/starfederation/datastar-go/datastar"
 )
 
 type App struct{}

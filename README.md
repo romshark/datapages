@@ -21,6 +21,13 @@ type-safe URL and action helpers -
 so your application code stays clean and takes full advantage of Go's strong
 static typing and high performance.
 
+## Examples
+
+- [`counter`](example/counter/) — Minimal real-time counter. Bare bones starting point.
+- [`fancy-counter`](example/fancy-counter/) — Fancy real-time collaborative counter.
+- [`classifieds`](example/classifieds/) — Full-featured classifieds marketplace with sessions, auth, Prometheus metrics, and load testing.
+- [`tailwindcss`](example/tailwindcss/) — Minimal static page demonstrating Tailwind CSS integration.
+
 ## Getting Started
 
 ### Install
@@ -64,38 +71,6 @@ Use `datapages init --prometheus=false` to scaffold a project without Prometheus
 The optional `watch` section configures the development server
 (host, proxy timeout, TLS, compiler flags, custom watchers, etc.).
 
-## Demo: Classifieds
-
-This repository features a demo application resembling an online classifieds marketplace
-under `example/classifieds`.
-The code you'd write is in
-[example/classifieds/app](https://github.com/romshark/datapages/tree/main/example/classifieds/app)
-(the "source package").
-The code that the generator produces is in
-[example/classifieds/datapagesgen](https://github.com/romshark/datapages/tree/main/example/classifieds/datapagesgen).
-
-To run the demo in development mode, use:
-
-```sh
-cd example/classifieds
-make dev
-```
-
-You can then access:
-- Preview: http://localhost:52000/
-- Grafana Dashboards: http://localhost:3000/
-- Prometheus UI: http://localhost:9091/
-
-You can install [k6](https://k6.io/) and run `make load` in the background
-to generate random traffic.
-Increase the number of virtual users (`VU`) to apply more load to the server when needed.
-
-To run the demo in production mode, use:
-
-```sh
-make stage
-```
-
 ## Specification
 
 See [SPECIFICATION.md](SPECIFICATION.md) for the full source package specification,
@@ -128,6 +103,21 @@ Datapages ships pluggable modules with swappable implementations:
 ### Prerequisites
 
 - [Go](https://go.dev/dl/) (see version in `go.mod`)
+- [Mage](https://magefile.org/) (or use `go run github.com/magefile/mage@latest`)
+
+### Commands
+
+```sh
+mage test          # Lint + test with coverage
+mage lint          # Format check, module tidy check, datapages lint, golangci-lint
+mage fmt           # Format all Go files (gofumpt + gci)
+mage modTidy       # Tidy all go.mod files
+mage lintDatapages # Run datapages lint on all examples
+mage vulncheck     # Run govulncheck on all modules
+mage genTempl      # Generate templ templates
+mage genDocs       # Generate documentation pages
+mage all           # Run everything
+```
 
 ### Contributing
 

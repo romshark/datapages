@@ -305,6 +305,10 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf("fix: Remove parameter %s", d.ParamName)
 
+	case errors.Is(err, parser.ErrPathFieldUnsupportedType),
+		errors.Is(err, parser.ErrQueryFieldUnsupportedType):
+		return suggestUnsupportedFieldType
+
 	case errors.Is(err, parser.ErrDispatchMustReturnError):
 		var d *paramvalidation.ErrorDispatchMustReturnError
 		if !errors.As(err, &d) {
@@ -338,7 +342,6 @@ func Suggest(err error) string {
 //   - ErrPathParamNotStruct           — type constraint is clear from message
 //   - ErrPathFieldUnexported          — fix is obvious: capitalize the field name
 //   - ErrPathFieldDuplicateTag        — message names the duplicate value
-//   - ErrPathFieldNotString           — type constraint is clear from message
 //   - ErrPathFieldNotInRoute          — message names the tag value missing from route
 //   - ErrPathMissingRouteVar          — message names the route variable without a field
 //   - ErrQueryParamNotStruct          — type constraint is clear from message
@@ -453,6 +456,11 @@ func hrefFuncFromURL(url string) string {
 	// Capitalize: "login" → "Login", "myposts" → "Myposts"
 	return capitalize(url)
 }
+
+const suggestUnsupportedFieldType = "fix: Use either of: string, bool, " +
+	"int, int8, int16, int32, int64, " +
+	"uint, uint8, uint16, uint32, uint64, " +
+	"float32, float64, or encoding.TextUnmarshaler"
 
 func cleanPath(p string) string {
 	if p == "/" {

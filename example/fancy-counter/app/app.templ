@@ -1,0 +1,188 @@
+package app
+
+import (
+	"fmt"
+	"github.com/romshark/datapages/example/fancy-counter/datapagesgen/action"
+	"math"
+)
+
+templ head() {
+	<title>Fancy Counter</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<script type="module">
+		import "https://esm.sh/number-flow@0.6.0"
+		customElements.whenDefined("number-flow").then(() => {
+			const data = document.getElementById("counter-data")
+			const flow = document.getElementById("counter-value")
+			const sync = () => flow.update(parseInt(data.value, 10))
+			new MutationObserver(sync).observe(data, { attributes: true })
+			sync()
+		})
+	</script>
+	<style>
+		* {
+			margin: 0;
+			padding: 0;
+			box-sizing: border-box;
+		}
+		body {
+			font-family: system-ui, sans-serif;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			min-height: 100vh;
+			padding: 1rem;
+			background: #f5f5f5;
+			color: #1a1a1a;
+		}
+		.card {
+			background: #fff;
+			border-radius: 1rem;
+			padding: 2.5rem 2rem;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			width: fit-content;
+			min-width: min(100%, 24rem);
+		}
+		h1 {
+			font-size: 0.875rem;
+			font-weight: 500;
+			text-transform: uppercase;
+			letter-spacing: 0.08em;
+			color: #888;
+			margin-bottom: 1rem;
+		}
+		#counter-value {
+			display: block;
+			font-size: clamp(1.5rem, 10vw, 6rem);
+			font-weight: 700;
+			font-variant-numeric: tabular-nums;
+			line-height: 1;
+			white-space: nowrap;
+			text-align: center;
+			margin-bottom: 1.5rem;
+			--number-flow-mask-height: 0.15em;
+		}
+		#counter-data {
+			display: none;
+		}
+		.buttons {
+			display: flex;
+			flex-wrap: wrap;
+			justify-content: center;
+			gap: 0.5rem;
+			width: 100%;
+
+			& button {
+				font-size: 1.25rem;
+				font-weight: 500;
+				padding: 0.5rem 1.25rem;
+				border: 1px solid #ddd;
+				border-radius: 0.5rem;
+				background: #fafafa;
+				cursor: pointer;
+				transition: background 0.15s, border-color 0.15s;
+			}
+			& button:hover {
+				background: #eee;
+				border-color: #bbb;
+			}
+			& button:active {
+				background: #e0e0e0;
+			}
+		}
+		.set-group {
+			display: flex;
+			gap: 0.5rem;
+			width: 100%;
+			margin-top: 0.5rem;
+
+			& input {
+				flex: 1;
+				min-width: 0;
+				font-size: 1rem;
+				padding: 0.5rem 0.75rem;
+				border: 1px solid #ddd;
+				border-radius: 0.5rem;
+				background: #fafafa;
+				font-variant-numeric: tabular-nums;
+			}
+			& input:focus {
+				outline: none;
+				border-color: #999;
+			}
+			& button {
+				font-size: 1rem;
+				font-weight: 500;
+				padding: 0.5rem 1.25rem;
+				border: 1px solid #ddd;
+				border-radius: 0.5rem;
+				background: #fafafa;
+				cursor: pointer;
+				transition: background 0.15s, border-color 0.15s;
+			}
+			& button:hover {
+				background: #eee;
+				border-color: #bbb;
+			}
+			& button:active {
+				background: #e0e0e0;
+			}
+		}
+		.hint {
+			color: #aaa;
+			font-size: 0.8125rem;
+			margin-top: 1.5rem;
+			text-align: center;
+		}
+		.attribution {
+			position: fixed;
+			bottom: 0.5rem;
+			left: 0;
+			right: 0;
+			text-align: center;
+			font-size: 0.75rem;
+			color: #aaa;
+			& a { color: inherit; }
+		}
+	</style>
+}
+
+templ pageCounter(value int32) {
+	<div class="card">
+		<h1>Counter</h1>
+		<number-flow id="counter-value"></number-flow>
+		@counterValue(value)
+		<div class="buttons">
+			<button data-on:click={ action.POSTPageIndexSet(math.MinInt32) }>min</button>
+			<button
+				data-on:click={ action.POSTPageIndexAdd(
+					action.QueryPOSTPageIndexAdd{Delta: -1},
+				) }
+			>-</button>
+			<button
+				data-on:click={ action.POSTPageIndexAdd(
+					action.QueryPOSTPageIndexAdd{Delta: 1},
+				) }
+			>+</button>
+			<button data-on:click={ action.POSTPageIndexSet(math.MaxInt32) }>max</button>
+		</div>
+		<div class="set-group">
+			<input data-bind="setvalue" type="number" placeholder="Enter integer value"/>
+			<button data-on:click={ action.POSTPageIndexSet(0) }>Set</button>
+		</div>
+		<p class="hint">
+			Open this page in multiple tabs to see real-time sync via events.
+		</p>
+	</div>
+	<span class="attribution">
+		Built with <a href="https://github.com/romshark/datapages">Datapages</a>
+	</span>
+}
+
+templ counterValue(value int32) {
+	<data id="counter-data" value={ fmt.Sprint(value) }></data>
+}

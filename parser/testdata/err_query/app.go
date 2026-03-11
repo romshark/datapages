@@ -42,6 +42,21 @@ func (PageUnexported) GET(
 	return body, err
 }
 
+// PageUnsupportedType is /unsupported-type
+type PageUnsupportedType struct{ App *App }
+
+/* ErrQueryFieldUnsupportedType */
+
+func (PageUnsupportedType) GET(
+	r *http.Request,
+	query struct {
+		Data []byte `query:"d"`
+	},
+) (body templ.Component, err error) {
+	_ = query
+	return body, err
+}
+
 // PageMissingTag is /missing-tag
 type PageMissingTag struct{ App *App }
 

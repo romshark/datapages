@@ -5,16 +5,18 @@ import (
 	"io"
 	"path/filepath"
 
+	"github.com/spf13/cobra"
+
 	"github.com/romshark/datapages/generator"
 	datapagesparser "github.com/romshark/datapages/parser"
 	"github.com/romshark/datapages/parser/errsuggest"
 	"github.com/romshark/datapages/parser/model"
-	"github.com/spf13/cobra"
 )
 
 func newGenCmd(stderr io.Writer) *cobra.Command {
 	return &cobra.Command{
 		Use:   "gen",
+		Args:  cobra.NoArgs,
 		Short: "Generate the server and helper packages",
 		Long: `Parse the application model from the app package and generate:
   - Server implementation with request handling, middleware, and sessions
@@ -22,7 +24,10 @@ func newGenCmd(stderr io.Writer) *cobra.Command {
   - Type-safe action helpers (action package)
   - Server entry point (cmd package, created only if missing)
 
-If no datapages.yaml config file exists, a default one is created.
+Requires a datapages.yaml config file. Run "datapages init" to create one.
+
+This command does not run "templ generate". You must run it yourself
+before "datapages gen" if you have created or modified .templ files.
 
 The generated package is always written, even when the app package contains
 errors, so that IDEs can resolve the import while you fix the errors.
@@ -38,9 +43,7 @@ parsing fails.`,
 				return err
 			}
 			if !found {
-				if err := writeDefaultConfig(moduleDir, true); err != nil {
-					return err
-				}
+				return errNoConfig
 			}
 			return runGen(moduleDir, config, stderr)
 		},

@@ -27,8 +27,8 @@ var (
 	ErrPathFieldMissingTag = errors.New(
 		`path struct field must have a path:"..." tag`,
 	)
-	ErrPathFieldNotString = errors.New(
-		"path struct field must be of type string",
+	ErrPathFieldUnsupportedType = errors.New(
+		"path struct field has unsupported type",
 	)
 	ErrPathFieldNotInRoute = errors.New(
 		"path struct field tag does not match " +
@@ -62,6 +62,9 @@ var (
 	)
 	ErrQueryFieldEmptyTag = errors.New(
 		`query struct field query tag must have a non-empty name`,
+	)
+	ErrQueryFieldUnsupportedType = errors.New(
+		"query struct field has unsupported type",
 	)
 )
 
@@ -114,8 +117,9 @@ func IsPathParam(f *ast.Field) bool {
 }
 
 // ValidatePathStruct validates that a path parameter is an
-// anonymous struct with exported string fields each carrying
-// a `path:"..."` tag.
+// anonymous struct with exported fields of supported types
+// (string, bool, integers, floats, or encoding.TextUnmarshaler)
+// each carrying a `path:"..."` tag.
 func ValidatePathStruct(
 	f *ast.Field, info *types.Info, recv, method string,
 ) error {
@@ -148,10 +152,10 @@ func ValidatePathStruct(
 				field.Name(), recv, method,
 			)}
 		}
-		if !typecheck.IsString(field.Type()) {
+		if !typecheck.IsInputFieldType(field.Type()) {
 			return &fieldPosError{pos: fpos, err: fmt.Errorf(
 				"%w: field %s in %s.%s",
-				ErrPathFieldNotString,
+				ErrPathFieldUnsupportedType,
 				field.Name(), recv, method,
 			)}
 		}
@@ -209,6 +213,13 @@ func ValidateQueryStruct(
 			return &fieldPosError{pos: fpos, err: fmt.Errorf(
 				"%w: field %s in %s.%s",
 				ErrQueryFieldUnexported,
+				field.Name(), recv, method,
+			)}
+		}
+		if !typecheck.IsInputFieldType(field.Type()) {
+			return &fieldPosError{pos: fpos, err: fmt.Errorf(
+				"%w: field %s in %s.%s",
+				ErrQueryFieldUnsupportedType,
 				field.Name(), recv, method,
 			)}
 		}
