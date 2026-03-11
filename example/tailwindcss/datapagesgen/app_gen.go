@@ -4,9 +4,11 @@ package datapagesgen
 
 import (
 	"context"
+	"embed"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -20,6 +22,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/example/tailwindcss/app"
+	"github.com/romshark/datapages/example/tailwindcss/datapagesgen/assets"
 
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -68,42 +71,33 @@ func WithHTTPServer(server *http.Server) ServerOption {
 	}
 }
 
-// WithStaticFS sets a custom filesystem for serving static files at the
-// specified URL path. If not provided, static file serving is disabled.
-//
-//	// This will serve files at URL path "/static/*" from directory "./assets".
-//	subFS, err := fs.Sub(embedFS, "assets")
-//	if err != nil { return err }
-//	fs := http.FS(subFS)
-//	//...
-//	WithStaticFS("/static/", fs, nil)
-//
-// You may also optionally provide fsDev to use another filesystem for
-// development environments. If fsDev it automatically falls back to fsProd.
-// fsDev always serves static files with caching disabled.
-func WithStaticFS(urlPath string, fsProd, fsDev http.FileSystem) ServerOption {
-	return func(s *Server) error {
-		if urlPath == "" || urlPath[0] != '/' {
-			return fmt.Errorf("static urlPath must start with '/': %q", urlPath)
-		}
-		if !strings.HasSuffix(urlPath, "/") {
-			urlPath += "/"
-		}
-
-		s.staticFS = fsProd
-		if IsDevMode() && fsDev != nil {
-			s.staticFS = fsDev
-		}
-		s.staticURLPath = urlPath
-		return nil
-	}
-}
-
 // WithDatastarJS sets a custom URL for the Datastar JavaScript bundle.
 // Defaults to DefaultDatastarJSSrc if not set.
 func WithDatastarJS(src string) ServerOption {
 	return func(s *Server) error {
 		s.datastarJSSrc = src
+		return nil
+	}
+}
+
+// WithAssets enables serving static asset files at assets.URLPrefix.
+// Pass the embed.FS that contains your static files (e.g. with
+// //go:embed static/* in your app package). The embed.FS subdirectory
+// (assets.Dir) is extracted automatically.
+//
+// In dev mode (IsDevMode), files are served from disk (assets.DevDir)
+// for live reloading without recompilation.
+func WithAssets(fsys embed.FS) ServerOption {
+	return func(s *Server) error {
+		if IsDevMode() {
+			s.assetsFS = http.Dir(assets.DevDir)
+		} else {
+			sub, err := fs.Sub(fsys, assets.Dir)
+			if err != nil {
+				return fmt.Errorf("WithAssets: %w", err)
+			}
+			s.assetsFS = http.FS(sub)
+		}
 		return nil
 	}
 }
@@ -190,33 +184,6 @@ func (s *Server) ListenAndServeTLS(
 	})
 }
 
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Build handler chain from middleware
-	handler := http.Handler(s.mux)
-
-	// Normalize trailing slashes: ensure all paths end with /
-	// except for static file paths
-
-	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
-		// Skip normalization for static file paths
-		if s.staticURLPath == "" || !strings.HasPrefix(p, s.staticURLPath) {
-			// Add trailing slash for non-static paths
-			r.URL.Path = p + "/"
-			// Update the raw path as well if it exists
-			if r.URL.RawPath != "" {
-				r.URL.RawPath = r.URL.RawPath + "/"
-			}
-		}
-	}
-
-	// Apply middleware in reverse order so they execute in the order they were added
-	for _, h := range s.middleware {
-		handler = h(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 func (s *Server) logErr(msg string, err error) {
 	s.logger.Error(msg, slog.Any("err", err))
 }
@@ -227,6 +194,27 @@ const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
 
 func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
 	_, _ = io.WriteString(w, `data-on:visibilitychange__window="if (!document.hidden) window.location.reload()" `)
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	handler := http.Handler(s.mux)
+
+	// Normalize trailing slashes: ensure all paths end with /
+	// except for static file paths
+	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
+		if !strings.HasPrefix(p, assets.URLPrefix) {
+			r.URL.Path = p + "/"
+			if r.URL.RawPath != "" {
+				r.URL.RawPath = r.URL.RawPath + "/"
+			}
+		}
+	}
+
+	for _, h := range s.middleware {
+		handler = h(handler)
+	}
+
+	handler.ServeHTTP(w, r)
 }
 
 // Shutdown gracefully shuts down all server components.
@@ -295,10 +283,9 @@ type Server struct {
 	mux                  *http.ServeMux
 	logger               *slog.Logger
 	middleware           []func(http.Handler) http.Handler
-	staticURLPath        string
-	staticFS             http.FileSystem
 	datastarJSSrc        string
 	enabledTLS           bool
+	assetsFS             http.FileSystem
 }
 
 // NewServer creates a new server instance.
@@ -306,7 +293,7 @@ type Server struct {
 //
 //   - WithMiddleware
 //   - WithHTTPServer
-//   - WithStaticFS
+//   - WithAssets
 //   - WithDatastarJS
 func NewServer(
 	app *app.App,
@@ -373,12 +360,12 @@ func NewServer(
 	}
 
 	setupHandlers(s)
-	if s.staticFS != nil {
-		h := http.StripPrefix("/static/", http.FileServer(s.staticFS))
+	if s.assetsFS != nil {
+		h := http.StripPrefix(assets.URLPrefix, http.FileServer(s.assetsFS))
 		if IsDevMode() {
 			h = devNoCache(h)
 		}
-		s.mux.Handle("GET /static/", h)
+		s.mux.Handle("GET "+assets.URLPrefix, h)
 	}
 
 	return s

@@ -13,6 +13,8 @@ import (
 
 	"github.com/romshark/templier/engine"
 	"github.com/spf13/cobra"
+
+	"github.com/romshark/datapages/internal/cmd/config"
 )
 
 func newWatchCmd(stderr io.Writer, version string) *cobra.Command {
@@ -41,23 +43,23 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 	if err != nil {
 		return err
 	}
-	config, found, err := loadConfig(moduleDir)
+	conf, found, err := config.Load(moduleDir)
 	if err != nil {
 		return err
 	}
 	if !found {
-		if err := writeDefaultConfig(moduleDir, true); err != nil {
+		if err := config.WriteDefault(moduleDir, true); err != nil {
 			return err
 		}
 	}
-	if err := runGen(moduleDir, config, stderr); err != nil {
+	if err := runGen(moduleDir, conf, stderr); err != nil {
 		// Non-fatal: individual parse errors are already on stderr.
 		// The gen watcher will retry and surface errors in the browser on next save.
 		_, _ = fmt.Fprintln(stderr, err)
 	}
-	w := config.Watch
+	w := conf.Watch
 	if w == nil {
-		w = &watchConfig{}
+		w = &config.WatchConfig{}
 	}
 	if w.AppHost == "" {
 		w.AppHost = "http://localhost:8080"
@@ -73,11 +75,11 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 		dirWork = filepath.Join(moduleDir, w.DirWork)
 	}
 
-	conf := engine.Config{
+	engineConf := engine.Config{
 		App: engine.AppConfig{
 			DirSrcRoot: moduleDir,
 			Exclude:    w.Exclude,
-			DirCmd:     "./" + config.Cmd + "/",
+			DirCmd:     "./" + conf.Cmd + "/",
 			DirWork:    dirWork,
 			Flags:      splitFlags(w.Flags),
 			Host:       appHost,
@@ -97,7 +99,7 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 		ReconnectMessage: "reconnecting 📡<br>restart datapages watch",
 	}
 	if w.TLS != nil {
-		conf.TLS = &engine.TLSConfig{
+		engineConf.TLS = &engine.TLSConfig{
 			Cert: w.TLS.Cert,
 			Key:  w.TLS.Key,
 		}
@@ -118,11 +120,11 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 		if exe, exeErr := os.Executable(); exeErr == nil {
 			genExe = exe
 		}
-		conf.CustomWatchers = append([]engine.CustomWatcherConfig{
+		engineConf.CustomWatchers = append([]engine.CustomWatcherConfig{
 			{
 				Name: "datapages gen",
 				Include: []string{
-					filepath.ToSlash(filepath.Clean(config.App)) + "/**/*.go",
+					filepath.ToSlash(filepath.Clean(conf.App)) + "/**/*.go",
 					"datapages.yaml",
 					"datapages.yml",
 				},
@@ -130,10 +132,10 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 				FailOnErr: true,
 				Requires:  engine.ActionRebuild,
 			},
-		}, conf.CustomWatchers...)
+		}, engineConf.CustomWatchers...)
 	}
 
-	e, err := engine.New(conf, engine.Options{})
+	e, err := engine.New(engineConf, engine.Options{})
 	if err != nil {
 		return fmt.Errorf("initializing watch engine: %w", err)
 	}
@@ -148,7 +150,7 @@ func splitFlags(s string) []string {
 	return strings.Fields(s)
 }
 
-func buildCompilerConfig(c *watchCompiler) *engine.CompilerConfig {
+func buildCompilerConfig(c *config.WatchCompiler) *engine.CompilerConfig {
 	if c == nil {
 		return nil
 	}
@@ -187,7 +189,7 @@ func buildCompilerConfig(c *watchCompiler) *engine.CompilerConfig {
 	}
 }
 
-func mapCustomWatchers(watchers []watchCustomWatcher) []engine.CustomWatcherConfig {
+func mapCustomWatchers(watchers []config.WatchCustomWatcher) []engine.CustomWatcherConfig {
 	if len(watchers) == 0 {
 		return nil
 	}
@@ -206,35 +208,35 @@ func mapCustomWatchers(watchers []watchCustomWatcher) []engine.CustomWatcherConf
 	return out
 }
 
-func mapLogLevel(l logLevel) engine.LogLevel {
+func mapLogLevel(l config.LogLevel) engine.LogLevel {
 	switch l {
-	case logLevelVerbose:
+	case config.LogLevelVerbose:
 		return engine.LogLevelVerbose
-	case logLevelDebug:
+	case config.LogLevelDebug:
 		return engine.LogLevelDebug
 	default:
 		return engine.LogLevelError
 	}
 }
 
-func mapLogClear(l logClear) engine.LogClearOn {
+func mapLogClear(l config.LogClear) engine.LogClearOn {
 	switch l {
-	case logClearOnRestart:
+	case config.LogClearOnRestart:
 		return engine.LogClearOnRestart
-	case logClearOnFileChange:
+	case config.LogClearOnFileChange:
 		return engine.LogClearOnFileChange
 	default:
 		return engine.LogClearNever
 	}
 }
 
-func mapWatcherRequires(r watcherRequires) engine.ActionType {
+func mapWatcherRequires(r config.WatcherRequires) engine.ActionType {
 	switch r {
-	case watcherRequiresReload:
+	case config.WatcherRequiresReload:
 		return engine.ActionReload
-	case watcherRequiresRestart:
+	case config.WatcherRequiresRestart:
 		return engine.ActionRestart
-	case watcherRequiresRebuild:
+	case config.WatcherRequiresRebuild:
 		return engine.ActionRebuild
 	default:
 		return engine.ActionNone

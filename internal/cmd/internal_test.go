@@ -7,8 +7,9 @@ import (
 	"time"
 
 	"github.com/romshark/templier/engine"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/romshark/datapages/internal/cmd/config"
 )
 
 func TestSplitFlags(t *testing.T) {
@@ -32,12 +33,12 @@ func TestSplitFlags(t *testing.T) {
 
 func TestBuildCompilerConfig(t *testing.T) {
 	for name, tc := range map[string]struct {
-		input *watchCompiler
+		input *config.WatchCompiler
 		want  *engine.CompilerConfig
 	}{
 		"nil": {input: nil, want: nil},
 		"all fields": {
-			input: &watchCompiler{
+			input: &config.WatchCompiler{
 				Gcflags:  "-N -l",
 				Ldflags:  "-s -w",
 				Asmflags: "-trimpath",
@@ -63,7 +64,7 @@ func TestBuildCompilerConfig(t *testing.T) {
 			},
 		},
 		"partial": {
-			input: &watchCompiler{Race: true},
+			input: &config.WatchCompiler{Race: true},
 			want: &engine.CompilerConfig{
 				Flags: []string{"-race"},
 			},
@@ -84,12 +85,12 @@ func TestBuildCompilerConfig(t *testing.T) {
 
 func TestMapLogLevel(t *testing.T) {
 	for name, tc := range map[string]struct {
-		input logLevel
+		input config.LogLevel
 		want  engine.LogLevel
 	}{
-		"erronly": {input: logLevelErrOnly, want: engine.LogLevelError},
-		"verbose": {input: logLevelVerbose, want: engine.LogLevelVerbose},
-		"debug":   {input: logLevelDebug, want: engine.LogLevelDebug},
+		"erronly": {input: config.LogLevelErrOnly, want: engine.LogLevelError},
+		"verbose": {input: config.LogLevelVerbose, want: engine.LogLevelVerbose},
+		"debug":   {input: config.LogLevelDebug, want: engine.LogLevelDebug},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, mapLogLevel(tc.input))
@@ -99,12 +100,12 @@ func TestMapLogLevel(t *testing.T) {
 
 func TestMapLogClear(t *testing.T) {
 	for name, tc := range map[string]struct {
-		input logClear
+		input config.LogClear
 		want  engine.LogClearOn
 	}{
-		"disabled":    {input: logClearDisabled, want: engine.LogClearNever},
-		"restart":     {input: logClearOnRestart, want: engine.LogClearOnRestart},
-		"file change": {input: logClearOnFileChange, want: engine.LogClearOnFileChange},
+		"disabled":    {input: config.LogClearDisabled, want: engine.LogClearNever},
+		"restart":     {input: config.LogClearOnRestart, want: engine.LogClearOnRestart},
+		"file change": {input: config.LogClearOnFileChange, want: engine.LogClearOnFileChange},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, mapLogClear(tc.input))
@@ -114,13 +115,13 @@ func TestMapLogClear(t *testing.T) {
 
 func TestMapWatcherRequires(t *testing.T) {
 	for name, tc := range map[string]struct {
-		input watcherRequires
+		input config.WatcherRequires
 		want  engine.ActionType
 	}{
-		"none":    {input: watcherRequiresNone, want: engine.ActionNone},
-		"reload":  {input: watcherRequiresReload, want: engine.ActionReload},
-		"restart": {input: watcherRequiresRestart, want: engine.ActionRestart},
-		"rebuild": {input: watcherRequiresRebuild, want: engine.ActionRebuild},
+		"none":    {input: config.WatcherRequiresNone, want: engine.ActionNone},
+		"reload":  {input: config.WatcherRequiresReload, want: engine.ActionReload},
+		"restart": {input: config.WatcherRequiresRestart, want: engine.ActionRestart},
+		"rebuild": {input: config.WatcherRequiresRebuild, want: engine.ActionRebuild},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, mapWatcherRequires(tc.input))
@@ -130,20 +131,20 @@ func TestMapWatcherRequires(t *testing.T) {
 
 func TestMapCustomWatchers(t *testing.T) {
 	for name, tc := range map[string]struct {
-		input []watchCustomWatcher
+		input []config.WatchCustomWatcher
 		want  []engine.CustomWatcherConfig
 	}{
 		"nil":   {input: nil, want: nil},
-		"empty": {input: []watchCustomWatcher{}, want: nil},
+		"empty": {input: []config.WatchCustomWatcher{}, want: nil},
 		"single": {
-			input: []watchCustomWatcher{{
+			input: []config.WatchCustomWatcher{{
 				Name:        "templ",
 				Cmd:         "templ generate",
 				Include:     []string{"**/*.templ"},
 				Exclude:     []string{"vendor/**"},
 				Debounce:    100 * time.Millisecond,
 				FailOnError: true,
-				Requires:    watcherRequiresRebuild,
+				Requires:    config.WatcherRequiresRebuild,
 			}},
 			want: []engine.CustomWatcherConfig{{
 				Name:      "templ",
@@ -224,137 +225,6 @@ func TestCheckCmdPackage(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-		})
-	}
-}
-
-func TestUnmarshalLogLevel(t *testing.T) {
-	for name, tc := range map[string]struct {
-		input   string
-		want    logLevel
-		wantErr bool
-	}{
-		"empty":   {input: "", want: logLevelErrOnly},
-		"erronly": {input: "erronly", want: logLevelErrOnly},
-		"verbose": {input: "verbose", want: logLevelVerbose},
-		"debug":   {input: "debug", want: logLevelDebug},
-		"invalid": {input: "trace", wantErr: true},
-	} {
-		t.Run(name, func(t *testing.T) {
-			var l logLevel
-			err := l.UnmarshalText([]byte(tc.input))
-			if tc.wantErr {
-				assert.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, tc.want, l)
-			}
-		})
-	}
-}
-
-func TestUnmarshalLogClear(t *testing.T) {
-	for name, tc := range map[string]struct {
-		input   string
-		want    logClear
-		wantErr bool
-	}{
-		"empty":       {input: "", want: logClearDisabled},
-		"restart":     {input: "restart", want: logClearOnRestart},
-		"file-change": {input: "file-change", want: logClearOnFileChange},
-		"invalid":     {input: "always", wantErr: true},
-	} {
-		t.Run(name, func(t *testing.T) {
-			var l logClear
-			err := l.UnmarshalText([]byte(tc.input))
-			if tc.wantErr {
-				assert.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, tc.want, l)
-			}
-		})
-	}
-}
-
-func TestUnmarshalWatcherRequires(t *testing.T) {
-	for name, tc := range map[string]struct {
-		input   string
-		want    watcherRequires
-		wantErr bool
-	}{
-		"empty":   {input: "", want: watcherRequiresNone},
-		"reload":  {input: "reload", want: watcherRequiresReload},
-		"restart": {input: "restart", want: watcherRequiresRestart},
-		"rebuild": {input: "rebuild", want: watcherRequiresRebuild},
-		"invalid": {input: "reboot", wantErr: true},
-	} {
-		t.Run(name, func(t *testing.T) {
-			var r watcherRequires
-			err := r.UnmarshalText([]byte(tc.input))
-			if tc.wantErr {
-				assert.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, tc.want, r)
-			}
-		})
-	}
-}
-
-func TestLoadConfig(t *testing.T) {
-	for name, tc := range map[string]struct {
-		setup     func(t *testing.T) string
-		wantFound bool
-		wantErr   string
-	}{
-		"neither": {
-			setup:     func(t *testing.T) string { return t.TempDir() },
-			wantFound: false,
-		},
-		"yaml only": {
-			setup: func(t *testing.T) string {
-				dir := t.TempDir()
-				require.NoError(t, os.WriteFile(
-					filepath.Join(dir, "datapages.yaml"), []byte("app: myapp\n"), 0o644,
-				))
-				return dir
-			},
-			wantFound: true,
-		},
-		"yml only": {
-			setup: func(t *testing.T) string {
-				dir := t.TempDir()
-				require.NoError(t, os.WriteFile(
-					filepath.Join(dir, "datapages.yml"), []byte("app: myapp\n"), 0o644,
-				))
-				return dir
-			},
-			wantFound: true,
-		},
-		"both ambiguous": {
-			setup: func(t *testing.T) string {
-				dir := t.TempDir()
-				require.NoError(t, os.WriteFile(
-					filepath.Join(dir, "datapages.yaml"), []byte("app: myapp\n"), 0o644,
-				))
-				require.NoError(t, os.WriteFile(
-					filepath.Join(dir, "datapages.yml"), []byte("app: myapp\n"), 0o644,
-				))
-				return dir
-			},
-			wantErr: "ambiguous",
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			dir := tc.setup(t)
-			_, found, err := loadConfig(dir)
-			if tc.wantErr != "" {
-				require.ErrorContains(t, err, tc.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tc.wantFound, found)
 		})
 	}
 }

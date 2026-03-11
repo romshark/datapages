@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/romshark/datapages/generator"
+	"github.com/romshark/datapages/internal/cmd/config"
 	datapagesparser "github.com/romshark/datapages/parser"
 	"github.com/romshark/datapages/parser/errsuggest"
 	"github.com/romshark/datapages/parser/model"
@@ -38,46 +40,60 @@ parsing fails.`,
 			if err != nil {
 				return err
 			}
-			config, found, err := loadConfig(moduleDir)
+			conf, found, err := config.Load(moduleDir)
 			if err != nil {
 				return err
 			}
 			if !found {
-				return errNoConfig
+				return config.ErrNoConfig
 			}
-			return runGen(moduleDir, config, stderr)
+			return runGen(moduleDir, conf, stderr)
 		},
 	}
 }
 
-func runGen(moduleDir string, config config, stderr io.Writer) error {
+func runGen(moduleDir string, cfg config.Config, stderr io.Writer) error {
 	modulePath, err := readModulePath(moduleDir)
 	if err != nil {
 		return err
 	}
 
-	cmdDir := filepath.Join(moduleDir, config.Cmd)
+	cmdDir := filepath.Join(moduleDir, cfg.Cmd)
 	cmdExists, err := checkCmdPackage(cmdDir)
 	if err != nil {
 		return err
 	}
 
-	app, parseErr := parseApp(filepath.Join(moduleDir, config.App), stderr)
+	app, parseErr := parseApp(filepath.Join(moduleDir, cfg.App), stderr)
 
 	// Always generate the package; when app is nil, stub files are written so
 	// that IDEs can resolve the import while errors are fixed.
-	genDir := filepath.Join(moduleDir, config.Gen.Package)
+	genDir := filepath.Join(moduleDir, cfg.Gen.Package)
 	genPkgName := filepath.Base(genDir)
-	prometheus := app != nil && config.Gen.Prometheus != nil && *config.Gen.Prometheus
+	genImport := modulePath + "/" + cfg.Gen.Package
+	prometheus := app != nil && cfg.Gen.Prometheus != nil && *cfg.Gen.Prometheus
+	var assetsURLPrefix, assetsDir string
+	if cfg.Assets != nil {
+		assetsURLPrefix = cfg.Assets.URLPrefix
+		// Derive embed.FS subdirectory from the on-disk path by stripping
+		// the app package prefix: "./app/static" → "static".
+		cleaned := filepath.Clean(cfg.Assets.Dir)
+		assetsDir = strings.TrimPrefix(cleaned, cfg.App+string(filepath.Separator))
+	}
 	if err := generator.Generate(
-		genDir, genPkgName, app, 0o644, generator.Options{Prometheus: prometheus},
+		genDir, genPkgName, app, 0o644, generator.Options{
+			Prometheus:      prometheus,
+			AssetsURLPrefix: assetsURLPrefix,
+			AssetsDir:       assetsDir,
+			AppDir:          cfg.App,
+			GenImport:       genImport,
+		},
 	); err != nil {
 		return fmt.Errorf("generating code: %w", err)
 	}
 
 	if app != nil && !cmdExists {
-		appImport := modulePath + "/" + config.App
-		genImport := modulePath + "/" + config.Gen.Package
+		appImport := modulePath + "/" + cfg.App
 		hasSession := app.Session != nil
 		if err := generator.GenerateCmd(
 			cmdDir, appImport, genImport, genPkgName, prometheus, hasSession, 0o644,

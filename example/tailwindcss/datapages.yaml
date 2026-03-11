@@ -3,6 +3,9 @@ gen:
   package: datapagesgen
   prometheus: false
 cmd: cmd/server
+assets:
+  url-prefix: /static/
+  dir: ./app/static/
 watch:
   app-host: "http://localhost:8080"
   custom-watchers:

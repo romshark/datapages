@@ -21,7 +21,13 @@ func TestGenerateClassifieds(t *testing.T) {
 	require.NotNil(t, app, "parser returned nil model")
 
 	tmpDir := t.TempDir()
-	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{Prometheus: true})
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
+		Prometheus:      true,
+		AssetsURLPrefix: "/static/",
+		AssetsDir:       "static",
+		AppDir:          "app",
+		GenImport:       "github.com/romshark/datapages/example/classifieds/datapagesgen",
+	})
 	require.NoError(t, err)
 
 	compareFile(t, "app_gen.go",
@@ -36,6 +42,10 @@ func TestGenerateClassifieds(t *testing.T) {
 		filepath.Join(tmpDir, "href", "href_gen.go"),
 		filepath.Join("..", "example", "classifieds",
 			"datapagesgen", "href", "href_gen.go"))
+	compareFile(t, "assets/assets_gen.go",
+		filepath.Join(tmpDir, "assets", "assets_gen.go"),
+		filepath.Join("..", "example", "classifieds",
+			"datapagesgen", "assets", "assets_gen.go"))
 }
 
 func TestGenerateCmd(t *testing.T) {

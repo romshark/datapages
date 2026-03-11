@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/romshark/datapages/generator/skeleton"
+	"github.com/romshark/datapages/internal/cmd/config"
 )
 
 func newInitCmd(stderr io.Writer) *cobra.Command {
@@ -178,11 +179,11 @@ func runInit(
 	}
 
 	// Step 11: Run code generation so all imports exist for the final tidy.
-	config, _, err := loadConfig(projectDir)
+	conf, _, err := config.Load(projectDir)
 	if err != nil {
 		return err
 	}
-	if err := runGen(projectDir, config, stderr); err != nil {
+	if err := runGen(projectDir, conf, stderr); err != nil {
 		return err
 	}
 
@@ -406,7 +407,7 @@ func writeDefaultConfigIfMissing(
 			return false, nil
 		}
 	}
-	if err := writeDefaultConfig(projectDir, prometheus); err != nil {
+	if err := config.WriteDefault(projectDir, prometheus); err != nil {
 		return false, err
 	}
 	_, _ = fmt.Fprintln(w, "Created datapages.yaml")

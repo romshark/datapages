@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+
+	"github.com/romshark/datapages/internal/cmd/config"
 )
 
 func newLintCmd(stderr io.Writer) *cobra.Command {
@@ -21,15 +23,15 @@ Requires a datapages.yaml config file. Run "datapages init" to create one first.
 			if err != nil {
 				return err
 			}
-			config, found, err := loadConfig(moduleDir)
+			conf, found, err := config.Load(moduleDir)
 			if err != nil {
 				return err
 			}
 			if !found {
-				return errNoConfig
+				return config.ErrNoConfig
 			}
 
-			_, err = parseApp(filepath.Join(moduleDir, config.App), stderr)
+			_, err = parseApp(filepath.Join(moduleDir, conf.App), stderr)
 			return err
 		},
 	}

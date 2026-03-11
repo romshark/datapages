@@ -47,7 +47,7 @@ func main() {
 	withAccessLogger(&opts)
 	withAuth(&opts)
 	withCSRFProtection(&opts)
-	withStaticFS(&opts)
+	withAssets(&opts)
 
 	messageBroker, sessionManager := connectNATS()
 
@@ -74,14 +74,9 @@ func withAccessLogger(opts *[]datapagesgen.ServerOption) {
 	*opts = append(*opts, o)
 }
 
-func withStaticFS(opts *[]datapagesgen.ServerOption) {
-	fsStatic, err := app.FSStatic()
-	if err != nil {
-		slog.Error("preparing static fs", slog.Any("err", err))
-		os.Exit(1)
-	}
+func withAssets(opts *[]datapagesgen.ServerOption) {
 	*opts = append(*opts,
-		datapagesgen.WithStaticFS("/static/", fsStatic, app.FSStaticDev()),
+		datapagesgen.WithAssets(app.StaticFS),
 		datapagesgen.WithDatastarJS("/static/ds.min.js"))
 }
 
