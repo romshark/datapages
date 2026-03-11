@@ -1,5 +1,8 @@
 package app
 
+// Stub import so the IDE can resolve action references without errors.
+import "datapagestest/fixture/err_templ_action_not_on_page/datapagesgen/action"
+
 templ indexPage() {
 	<h1>Index</h1>
 }
@@ -18,6 +21,7 @@ templ settingsPage() {
 }
 
 templ settingsActions() {
+	/* ErrTemplActionWrongPage: POSTPageProfileSave belongs to PageProfile, not PageSettings */
 	<form action={ action.POSTPageProfileSave() }>
 		<button type="submit">Wrong: Profile action in Settings</button>
 	</form>
