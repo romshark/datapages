@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	templparser "github.com/a-h/templ/parser/v2"
-
 	"golang.org/x/tools/go/packages"
 )
 

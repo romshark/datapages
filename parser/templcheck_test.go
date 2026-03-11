@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/romshark/datapages/parser"
-
 	"github.com/stretchr/testify/require"
+
+	"github.com/romshark/datapages/parser"
 )
 
 func TestParse_ErrTemplHardcodedHref(t *testing.T) {
