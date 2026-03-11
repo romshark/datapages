@@ -83,8 +83,7 @@ func withAccessLogger(opts *[]datapagesgen.ServerOption) {
 }
 
 func withAssets(opts *[]datapagesgen.ServerOption) {
-	*opts = append(*opts,
-		datapagesgen.WithAssets(app.StaticFS))
+	*opts = append(*opts, datapagesgen.WithAssets(app.StaticFS))
 }
 
 func listenAndServe(ctx context.Context, s *datapagesgen.Server, host string) {

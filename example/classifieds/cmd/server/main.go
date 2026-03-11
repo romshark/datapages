@@ -15,6 +15,7 @@ import (
 
 	"github.com/romshark/datapages/example/classifieds/app"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen"
+	"github.com/romshark/datapages/example/classifieds/datapagesgen/assets"
 	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
 	"github.com/romshark/datapages/modules/msgbroker/natsjs"
 	"github.com/romshark/datapages/modules/sessmanager/natskv"
@@ -77,7 +78,7 @@ func withAccessLogger(opts *[]datapagesgen.ServerOption) {
 func withAssets(opts *[]datapagesgen.ServerOption) {
 	*opts = append(*opts,
 		datapagesgen.WithAssets(app.StaticFS),
-		datapagesgen.WithDatastarJS("/static/ds.min.js"))
+		datapagesgen.WithDatastarJS(assets.Path("ds.min.js")))
 }
 
 func withAuth(opts *[]datapagesgen.ServerOption) {

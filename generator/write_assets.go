@@ -22,4 +22,10 @@ func (w *Writer) WritePkgAssets() {
 	w.Raw("const DevDir = ")
 	w.writeQuoted("./" + w.appDir + "/" + w.assetsDir)
 	w.Byte('\n')
+	w.Line(0, "")
+	w.Line(0, "// Path returns the URL path for a static asset file.")
+	w.Line(0, "// For example, Path(\"style.css\") returns \"/static/style.css\".")
+	w.Line(0, "func Path(p string) string {")
+	w.Line(1, "return path.Join(URLPrefix, p)")
+	w.Line(0, "}")
 }

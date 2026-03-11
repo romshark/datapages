@@ -12,6 +12,7 @@ import (
 	"github.com/starfederation/datastar-go/datastar"
 
 	"github.com/romshark/datapages/example/classifieds/app/domain"
+	"github.com/romshark/datapages/example/classifieds/datapagesgen/assets"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 )
 
@@ -166,12 +167,12 @@ func (b Base) OnMessagingSent(
 		return err
 	}
 	if session.UserID != event.UserID {
-		return sse.ExecuteScript(`
+		return sse.ExecuteScript(fmt.Sprintf(`
 			(() => {
-				const audio = new Audio("/static/message-notification.mp3");
+				const audio = new Audio("%s");
 				audio.play();
 			})();
-		`)
+		`, assets.Path("message-notification.mp3")))
 	}
 	return nil
 }
