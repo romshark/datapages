@@ -26,24 +26,8 @@ import (
 	"github.com/romshark/datapages/parser/validate"
 )
 
-// ParseOptions configures optional behavior of [Parse].
-type ParseOptions struct {
-	// StaticPrefix is the URL path prefix for static files
-	// (e.g. "/static/"). Hardcoded href/action attributes under this
-	// prefix are not flagged as errors. Defaults to "/static/".
-	StaticPrefix string
-}
-
-func Parse(appPackagePath string, opts ...ParseOptions) (app *model.App, errs Errors) {
+func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	defer sortErrors(&errs)
-
-	var o ParseOptions
-	if len(opts) > 0 {
-		o = opts[0]
-	}
-	if o.StaticPrefix == "" {
-		o.StaticPrefix = "/static/"
-	}
 
 	pkg, err := loadPackage(appPackagePath)
 	if err != nil {
@@ -61,7 +45,7 @@ func Parse(appPackagePath string, opts ...ParseOptions) (app *model.App, errs Er
 		return nil, errs
 	}
 
-	ctx := newParseCtx(pkg, o)
+	ctx := newParseCtx(pkg)
 	indexTypes(&ctx)
 	collectEventTypeNames(&ctx)
 	initApp(&ctx, &errs)
@@ -101,17 +85,14 @@ type parseCtx struct {
 	// Non-error outputs per handler, used by buildHandlerGET.
 	handlerOutputs map[*model.Handler][]*model.Output
 
-	opts ParseOptions
-
 	app          *model.App
 	appTypeFound bool
 	basePos      token.Position
 }
 
-func newParseCtx(pkg *packages.Package, opts ParseOptions) parseCtx {
+func newParseCtx(pkg *packages.Package) parseCtx {
 	return parseCtx{
 		pkg:                 pkg,
-		opts:                opts,
 		typeSpecByName:      map[string]*ast.TypeSpec{},
 		docByType:           map[string]*ast.CommentGroup{},
 		genDocByType:        map[string]*ast.CommentGroup{},
