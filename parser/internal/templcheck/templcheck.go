@@ -32,9 +32,10 @@ func Check(
 	errFn ErrFunc,
 ) {
 	constValues := resolveConstValues(pkg)
+	hrefLocalName := findHrefPkgLocalName(pkg)
 	templPaths := templFilesFromPackage(pkg)
 	for _, templPath := range templPaths {
-		checkTemplFile(errFn, templPath, constValues)
+		checkTemplFile(errFn, templPath, constValues, hrefLocalName)
 	}
 	if app != nil {
 		checkActionOwnership(pkg, app, errFn, templPaths)
@@ -72,7 +73,41 @@ func templFilesFromPackage(pkg *packages.Package) []string {
 	return paths
 }
 
-func checkTemplFile(errFn ErrFunc, path string, constValues map[string]string) {
+// findHrefPkgLocalName scans the _templ.go files in pkg for an import whose
+// path ends with /href and whose parent directory is named datapagesgen (the
+// generated package). It returns the local name used for that import
+// (e.g. "href"), or "" if no such import is found.
+func findHrefPkgLocalName(pkg *packages.Package) string {
+	for _, f := range pkg.Syntax {
+		filename := pkg.Fset.Position(f.Pos()).Filename
+		if !strings.HasSuffix(filename, "_templ.go") {
+			continue
+		}
+		for _, imp := range f.Imports {
+			importPath, _ := strconv.Unquote(imp.Path.Value)
+			if !strings.HasSuffix(importPath, "/href") {
+				continue
+			}
+			// Verify the parent segment is a datapagesgen-like package
+			// by checking that the path has at least two segments and
+			// the import is from within the module (not an external "href" package).
+			// The generated href package always lives at <module>/datapagesgen/href
+			// (where "datapagesgen" is the configured gen package name).
+			// We verify by checking that the import path is from the same module
+			// as the package being checked.
+			if pkg.Module != nil && !strings.HasPrefix(importPath, pkg.Module.Path+"/") {
+				continue
+			}
+			if imp.Name != nil {
+				return imp.Name.Name
+			}
+			return "href" // default: last segment of import path
+		}
+	}
+	return ""
+}
+
+func checkTemplFile(errFn ErrFunc, path string, constValues map[string]string, hrefLocalName string) {
 	tf, err := templparser.Parse(path)
 	if err != nil {
 		return
@@ -85,13 +120,13 @@ func checkTemplFile(errFn ErrFunc, path string, constValues map[string]string) {
 		if !ok {
 			continue
 		}
-		walkChildren(errFn, filename, tmpl.Children, constValues)
+		walkChildren(errFn, filename, tmpl.Children, constValues, hrefLocalName)
 	}
 }
 
 // walkChildren recursively walks templ AST children looking for Element nodes
 // with hardcoded href/action attributes.
-func walkChildren(errFn ErrFunc, filename string, nodes []templparser.Node, constValues map[string]string) {
+func walkChildren(errFn ErrFunc, filename string, nodes []templparser.Node, constValues map[string]string, hrefLocalName string) {
 	prevIsNolint := false
 	for _, node := range nodes {
 		switch n := node.(type) {
@@ -104,17 +139,17 @@ func walkChildren(errFn ErrFunc, filename string, nodes []templparser.Node, cons
 			continue
 		case *templparser.Element:
 			if !prevIsNolint {
-				checkElementAttrs(errFn, filename, n, constValues)
+				checkElementAttrs(errFn, filename, n, constValues, hrefLocalName)
 			}
-			walkChildren(errFn, filename, n.Children, constValues)
+			walkChildren(errFn, filename, n.Children, constValues, hrefLocalName)
 		case templparser.CompositeNode:
-			walkChildren(errFn, filename, n.ChildNodes(), constValues)
+			walkChildren(errFn, filename, n.ChildNodes(), constValues, hrefLocalName)
 		}
 		prevIsNolint = false
 	}
 }
 
-func checkElementAttrs(errFn ErrFunc, filename string, el *templparser.Element, constValues map[string]string) {
+func checkElementAttrs(errFn ErrFunc, filename string, el *templparser.Element, constValues map[string]string, hrefLocalName string) {
 	for _, attr := range el.Attributes {
 		switch a := attr.(type) {
 		case *templparser.ConstantAttribute:
@@ -149,7 +184,7 @@ func checkElementAttrs(errFn ErrFunc, filename string, el *templparser.Element, 
 				if el.Name != "a" {
 					continue
 				}
-				checkHrefExpr(errFn, exprPos, a.Expression.Value, constValues)
+				checkHrefExpr(errFn, exprPos, a.Expression.Value, constValues, hrefLocalName)
 			}
 			if isDatastarActionAttr(key.Name) {
 				continue
@@ -188,6 +223,7 @@ func checkHrefExpr(
 	pos token.Position,
 	expr string,
 	constValues map[string]string,
+	hrefLocalName string,
 ) {
 	exprAST, err := goparser.ParseExpr(expr)
 	if err != nil {
@@ -195,7 +231,7 @@ func checkHrefExpr(
 		return
 	}
 
-	info := analyzeHrefExpr(exprAST, constValues)
+	info := analyzeHrefExpr(exprAST, constValues, hrefLocalName)
 
 	// 1. Uses href package → check External for disallowed URLs, otherwise OK.
 	if info.usesHrefPkg {
@@ -244,12 +280,15 @@ type hrefExprInfo struct {
 }
 
 // analyzeHrefExpr walks a parsed Go expression and populates hrefExprInfo.
-func analyzeHrefExpr(node ast.Expr, constValues map[string]string) hrefExprInfo {
+// hrefLocalName is the local import name for the generated href package
+// (e.g. "href"); if empty, no href package is imported and all pkg.Xxx()
+// calls are treated as non-href calls.
+func analyzeHrefExpr(node ast.Expr, constValues map[string]string, hrefLocalName string) hrefExprInfo {
 	var info hrefExprInfo
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.CallExpr:
-			if isHrefCall(x) {
+			if hrefLocalName != "" && isHrefCall(x, hrefLocalName) {
 				info.usesHrefPkg = true
 				if isHrefExternalCall(x) {
 					info.externalURL = resolveCallArg(x, constValues)
@@ -275,14 +314,15 @@ func analyzeHrefExpr(node ast.Expr, constValues map[string]string) hrefExprInfo 
 	return info
 }
 
-// isHrefCall reports whether call is href.Xxx(...).
-func isHrefCall(call *ast.CallExpr) bool {
+// isHrefCall reports whether call is <hrefLocalName>.Xxx(...),
+// where hrefLocalName is the local import name for the generated href package.
+func isHrefCall(call *ast.CallExpr, hrefLocalName string) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return false
 	}
 	ident, ok := sel.X.(*ast.Ident)
-	return ok && ident.Name == "href"
+	return ok && ident.Name == hrefLocalName
 }
 
 // isHrefExternalCall reports whether call is href.External(...).
