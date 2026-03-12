@@ -10,6 +10,8 @@ import (
 )
 
 // Opt is the name of a Datastar action option.
+//
+// See https://data-star.dev/reference/actions#options
 type Opt string
 
 const (

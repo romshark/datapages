@@ -116,6 +116,8 @@ func (w *Writer) writeActionHeader(hasActions, needsStrconv bool) {
 	}
 	w.Line(0, "")
 	w.Line(0, "// Opt is the name of a Datastar action option.")
+	w.Line(0, "//")
+	w.Line(0, "// See https://data-star.dev/reference/actions#options")
 	w.Line(0, "type Opt string")
 	w.Line(0, "")
 	w.Line(0, "const (")
