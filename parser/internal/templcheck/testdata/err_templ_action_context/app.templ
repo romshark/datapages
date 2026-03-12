@@ -11,8 +11,16 @@ templ page() {
 	</form>
 	/* OK: action in data-on:click */
 	<button data-on:click={ action.POSTPageIndexSubmit() }>Submit</button>
+	/* OK: action in data-on:submit */
+	<form data-on:submit={ action.POSTPageIndexSubmit() }></form>
+	/* OK: action in data-on:load */
+	<div data-on:load={ action.POSTPageIndexSubmit() }></div>
+	/* OK: action in data-on:keydown */
+	<input data-on:keydown={ action.POSTPageIndexSubmit() }/>
 	/* OK: action in data-on-intersect */
 	<div data-on-intersect={ action.POSTPageIndexSubmit() }></div>
+	/* OK: action in data-on-intersect.once */
+	<div data-on-intersect.once={ action.POSTPageIndexSubmit() }></div>
 	/* OK: action in data-init */
 	<div data-init={ action.POSTPageIndexSubmit() }></div>
 	//datapages:nolint

@@ -74,9 +74,8 @@ func templFilesFromPackage(pkg *packages.Package) []string {
 }
 
 // findHrefPkgLocalName scans the _templ.go files in pkg for an import whose
-// path ends with /href and whose parent directory is named datapagesgen (the
-// generated package). It returns the local name used for that import
-// (e.g. "href"), or "" if no such import is found.
+// path ends with /href and belongs to the same Go module. It returns the local
+// name used for that import (e.g. "href"), or "" if no such import is found.
 func findHrefPkgLocalName(pkg *packages.Package) string {
 	for _, f := range pkg.Syntax {
 		filename := pkg.Fset.Position(f.Pos()).Filename
@@ -88,13 +87,8 @@ func findHrefPkgLocalName(pkg *packages.Package) string {
 			if !strings.HasSuffix(importPath, "/href") {
 				continue
 			}
-			// Verify the parent segment is a datapagesgen-like package
-			// by checking that the path has at least two segments and
-			// the import is from within the module (not an external "href" package).
-			// The generated href package always lives at <module>/datapagesgen/href
-			// (where "datapagesgen" is the configured gen package name).
-			// We verify by checking that the import path is from the same module
-			// as the package being checked.
+			// Reject external "href" packages by verifying the import
+			// belongs to the same module as the package being checked.
 			if pkg.Module != nil && !strings.HasPrefix(importPath, pkg.Module.Path+"/") {
 				continue
 			}
@@ -168,6 +162,16 @@ func checkElementAttrs(errFn ErrFunc, filename string, el *templparser.Element, 
 					Column:   int(a.Range.From.Col) + 1,
 				}
 				errFn(pos, &ErrorHardcodedHref{URL: a.Value})
+			case "action":
+				if el.Name != "form" || hrefcheck.IsAllowedNonRelativeHref(a.Value) {
+					continue
+				}
+				pos := token.Position{
+					Filename: filename,
+					Line:     int(a.Range.From.Line) + 1,
+					Column:   int(a.Range.From.Col) + 1,
+				}
+				errFn(pos, &ErrorHardcodedAction{URL: a.Value})
 			}
 		case *templparser.ExpressionAttribute:
 			key, ok := a.Key.(templparser.ConstantAttributeKey)

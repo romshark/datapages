@@ -60,9 +60,11 @@ func TestCheck_ErrHref(t *testing.T) {
 		line, col int
 	}
 	hardcoded := templcheck.ErrHardcodedHref
+	hardcodedAction := templcheck.ErrHardcodedAction
 	unverifiable := templcheck.ErrHrefUnverifiable
 	extInternal := templcheck.ErrExternalWithInternal
 	expect := []expectEntry{
+		{hardcodedAction, "/submit", 11, 8},
 		{hardcoded, "/login", 34, 5},
 		{hardcoded, "/profile", 36, 5},
 		{hardcoded, "/static/style.css", 38, 5},
@@ -92,6 +94,11 @@ func TestCheck_ErrHref(t *testing.T) {
 		if h, ok := errors.AsType[*templcheck.ErrorHardcodedHref](pe.err); ok {
 			got = append(got,
 				expectEntry{hardcoded, h.URL, pe.pos.Line, pe.pos.Column})
+			continue
+		}
+		if a, ok := errors.AsType[*templcheck.ErrorHardcodedAction](pe.err); ok {
+			got = append(got,
+				expectEntry{hardcodedAction, a.URL, pe.pos.Line, pe.pos.Column})
 			continue
 		}
 		if u, ok := errors.AsType[*templcheck.ErrorHrefUnverifiable](pe.err); ok {

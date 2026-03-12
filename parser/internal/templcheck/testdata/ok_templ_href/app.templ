@@ -19,11 +19,13 @@ templ page() {
 	<a href="sms:+1234567890">SMS</a>
 	<a href="ftp://files.example.com">FTP</a>
 	<a href="//cdn.example.com/lib.js">Protocol-relative</a>
-	/* Non-<a> elements: href/action not checked */
+	/* Non-<a> elements: href not checked */
+	<link href="/style.css" rel="stylesheet"/>
+	/* Nolint suppresses hardcoded form action */
+	//datapages:nolint
 	<form action="/submit">
 		<button type="submit">Submit</button>
 	</form>
-	<link href="/style.css" rel="stylesheet"/>
 	/* Expression href: href package page functions */
 	<a href={ href.PageIndex() }>Index</a>
 	<a href={ href.PageProfile("alice") }>Profile</a>
