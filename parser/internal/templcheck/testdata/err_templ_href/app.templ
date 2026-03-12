@@ -24,7 +24,9 @@ templ page(dynamicValue string) {
 	<a href={ href.PageIndex() }>OK href package</a>
 	<a href={ href.PageProfile() }>OK href package</a>
 	<a href={ href.External("https://example.com") }>OK href.External</a>
-	<a href={ href.External(fmt.Sprintf("mailto:%s", "test@example.com")) }>OK href.External dynamic</a>
+	<a href={ href.External(fmt.Sprintf("mailto:%s", "test@example.com")) }>
+		OK href.External dynamic
+	</a>
 	//
 	// --- ERRORS ---
 	//
