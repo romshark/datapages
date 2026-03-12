@@ -51,8 +51,8 @@ func check(t *testing.T, fixtureName string, app *model.App) []posErr {
 	return errs
 }
 
-func TestCheck_ErrHardcodedHref(t *testing.T) {
-	errs := check(t, "err_templ_hardcoded_href", nil)
+func TestCheck_ErrHref(t *testing.T) {
+	errs := check(t, "err_templ_href", nil)
 
 	type expectEntry struct {
 		sentinel  error
@@ -61,25 +61,30 @@ func TestCheck_ErrHardcodedHref(t *testing.T) {
 	}
 	hardcoded := templcheck.ErrHardcodedHref
 	unverifiable := templcheck.ErrHrefUnverifiable
+	extInternal := templcheck.ErrExternalWithInternal
 	expect := []expectEntry{
-		{hardcoded, "/login", 27, 5},
-		{hardcoded, "/profile", 29, 5},
-		{hardcoded, "/static/style.css", 31, 5},
-		{hardcoded, "/settings", 33, 12},
-		{hardcoded, "/set", 35, 12},
-		{unverifiable, `"/set" + dynamicValue`, 37, 12},
-		{unverifiable, `templ.SafeURL("/about")`, 39, 12},
-		{unverifiable, `templ.SafeURL(ConstantStringNOTOK)`, 41, 12},
-		{unverifiable, `templ.SafeURL("https://data-star.dev")`, 43, 12},
-		{hardcoded, "/c", 44, 12},
-		{hardcoded, "notok", 45, 12},
-		{hardcoded, "", 47, 5},
-		{hardcoded, "?tab=settings", 49, 5},
-		{hardcoded, "relative", 51, 5},
-		{hardcoded, "javascript:void(0)", 53, 5},
-		{hardcoded, "/nested", 57, 7},
-		{unverifiable, `loginHref()`, 61, 12},
-		{unverifiable, `fmt.Sprintf("mailto:%s", "test@example.com")`, 63, 12},
+		{hardcoded, "/login", 32, 5},
+		{hardcoded, "/profile", 34, 5},
+		{hardcoded, "/static/style.css", 36, 5},
+		{hardcoded, "/settings", 38, 12},
+		{hardcoded, "/set", 40, 12},
+		{unverifiable, `"/set" + dynamicValue`, 42, 12},
+		{unverifiable, `templ.SafeURL("/about")`, 44, 12},
+		{unverifiable, `templ.SafeURL(ConstantStringNOTOK)`, 46, 12},
+		{unverifiable, `templ.SafeURL("https://data-star.dev")`, 48, 12},
+		{hardcoded, "/c", 49, 12},
+		{hardcoded, "notok", 50, 12},
+		{hardcoded, "", 52, 5},
+		{hardcoded, "?tab=settings", 54, 5},
+		{hardcoded, "relative", 56, 5},
+		{hardcoded, "javascript:void(0)", 58, 5},
+		{hardcoded, "/nested", 62, 7},
+		{unverifiable, `loginHref()`, 66, 12},
+		{unverifiable, `someOtherFunc()`, 68, 12},
+		{unverifiable, `buildURL(id)`, 70, 12},
+		{unverifiable, `fmt.Sprintf("mailto:%s", "test@example.com")`, 72, 12},
+		{extInternal, "/login", 74, 12},
+		{extInternal, "/internal", 76, 12},
 	}
 
 	var got []expectEntry
@@ -92,6 +97,11 @@ func TestCheck_ErrHardcodedHref(t *testing.T) {
 		if u, ok := errors.AsType[*templcheck.ErrorHrefUnverifiable](pe.err); ok {
 			got = append(got,
 				expectEntry{unverifiable, u.Expr, pe.pos.Line, pe.pos.Column})
+			continue
+		}
+		if e, ok := errors.AsType[*templcheck.ErrorExternalWithInternal](pe.err); ok {
+			got = append(got,
+				expectEntry{extInternal, e.URL, pe.pos.Line, pe.pos.Column})
 			continue
 		}
 		t.Errorf("unexpected error at %s: %v", pe.pos, pe.err)
@@ -228,50 +238,6 @@ func TestCheck_ErrActionContext(t *testing.T) {
 	for key := range expect {
 		require.Contains(t, found, key)
 	}
-}
-
-func TestCheck_ErrHrefExpr(t *testing.T) {
-	errs := check(t, "err_templ_href_expr", nil)
-
-	type expectEntry struct {
-		line int
-		col  int
-	}
-	expectNotFromPkg := map[string]expectEntry{
-		"someOtherFunc()": {17, 12},
-		"buildURL(id)":    {18, 12},
-	}
-	expectExternalInternal := map[string]expectEntry{
-		"/login":    {21, 12},
-		"/internal": {22, 12},
-	}
-
-	foundNotFromPkg := map[string]bool{}
-	foundExternalInternal := map[string]bool{}
-	for _, pe := range errs {
-		var enp *templcheck.ErrorHrefUnverifiable
-		if errors.As(pe.err, &enp) {
-			foundNotFromPkg[enp.Expr] = true
-			want, ok := expectNotFromPkg[enp.Expr]
-			require.True(t, ok, "unexpected ErrHrefUnverifiable: %s", enp.Expr)
-			require.Equal(t, want.line, pe.pos.Line, "wrong line for %s", enp.Expr)
-			require.Equal(t, want.col, pe.pos.Column, "wrong column for %s", enp.Expr)
-			require.ErrorIs(t, pe.err, templcheck.ErrHrefUnverifiable)
-			continue
-		}
-		var eei *templcheck.ErrorExternalWithInternal
-		if errors.As(pe.err, &eei) {
-			foundExternalInternal[eei.URL] = true
-			want, ok := expectExternalInternal[eei.URL]
-			require.True(t, ok, "unexpected ErrExternalWithInternal: %s", eei.URL)
-			require.Equal(t, want.line, pe.pos.Line, "wrong line for %s", eei.URL)
-			require.Equal(t, want.col, pe.pos.Column, "wrong column for %s", eei.URL)
-			require.ErrorIs(t, pe.err, templcheck.ErrExternalWithInternal)
-			continue
-		}
-	}
-	require.Len(t, foundNotFromPkg, len(expectNotFromPkg))
-	require.Len(t, foundExternalInternal, len(expectExternalInternal))
 }
 
 func TestCheck_OKHref(t *testing.T) {

@@ -1,4 +1,4 @@
-module datapagestest/fixture/err_templ_href_expr
+module datapagestest/fixture/err_templ_href
 
 go 1.26
 

@@ -50,10 +50,7 @@ func IsAllowedNonRelativeHref(s string) bool {
 	// If it has an explicit URI scheme, allow it unless banned.
 	u, err := url.Parse(s)
 	if err == nil && u.Scheme != "" {
-		if strings.EqualFold(u.Scheme, "javascript") {
-			return false
-		}
-		return true
+		return !strings.EqualFold(u.Scheme, "javascript")
 	}
 
 	// Everything else is a plain relative path.

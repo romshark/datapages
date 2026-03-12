@@ -1,9 +1,10 @@
 package app
 
-import "fmt"
+import (
+	"fmt"
 
-const ConstantStringOK = "https://data-star.dev"
-const ConstantStringNOTOK = "/c"
+	"datapagestest/fixture/err_templ_href/datapagesgen/href"
+)
 
 templ page(dynamicValue string) {
 	// TODO: form action is not validated for now
@@ -20,18 +21,22 @@ templ page(dynamicValue string) {
 	<a href="/suppressed">Suppressed with explanation</a>
 	<a href={ ConstantStringOK }>Constant external</a>
 	<a href={ "https://data-star.dev" }>Literal</a>
+	<a href={ href.PageIndex() }>OK href package</a>
+	<a href={ href.PageProfile() }>OK href package</a>
+	<a href={ href.External("https://example.com") }>OK href.External</a>
+	<a href={ href.External(fmt.Sprintf("mailto:%s", "test@example.com")) }>OK href.External dynamic</a>
 	//
 	// --- ERRORS ---
 	//
-	/* ErrTemplHardcodedHref */
+	/* ErrHardcodedHref */
 	<a href="/login">Login</a>
-	/* ErrTemplHardcodedHref */
+	/* ErrHardcodedHref */
 	<a href="/profile">Profile</a>
-	/* ErrTemplHardcodedHref: static asset */
+	/* ErrHardcodedHref: static asset */
 	<a href="/static/style.css">Static</a>
-	/* ErrTemplHardcodedHref: string literal in expression */
+	/* ErrHardcodedHref: string literal in expression */
 	<a href={ "/settings" }>Settings</a>
-	/* ErrTemplHardcodedHref: string concatenation */
+	/* ErrHardcodedHref: string concatenation */
 	<a href={ "/set" + "tings" }>Settings</a>
 	/* ErrHrefUnverifiable: string concatenation with variable */
 	<a href={ "/set" + dynamicValue }>Settings</a>
@@ -43,22 +48,30 @@ templ page(dynamicValue string) {
 	<a href={ templ.SafeURL("https://data-star.dev") }>Datastar</a>
 	<a href={ ConstantStringNOTOK }>Constant plain</a>
 	<a href={ "notok" }>Literal relative</a>
-	/* ErrTemplHardcodedHref: empty href */
+	/* ErrHardcodedHref: empty href */
 	<a href="">Empty</a>
-	/* ErrTemplHardcodedHref: query-only */
+	/* ErrHardcodedHref: query-only */
 	<a href="?tab=settings">Query</a>
-	/* ErrTemplHardcodedHref: relative path */
+	/* ErrHardcodedHref: relative path */
 	<a href="relative">Relative</a>
-	/* ErrTemplHardcodedHref: javascript */
+	/* ErrHardcodedHref: javascript */
 	<a href="javascript:void(0)">JS</a>
 	<div>
 		<div>
-			/* ErrTemplHardcodedHref: nested in divs */
+			/* ErrHardcodedHref: nested in divs */
 			<a href="/nested">Nested</a>
 		</div>
 	</div>
 	/* ErrHrefUnverifiable: function call not from href package */
 	<a href={ loginHref() }>Login func</a>
+	/* ErrHrefUnverifiable: function call not from href package */
+	<a href={ someOtherFunc() }>Other func</a>
+	/* ErrHrefUnverifiable: function call not from href package */
+	<a href={ buildURL(id) }>Build URL</a>
 	/* ErrHrefUnverifiable: fmt.Sprintf can't be statically verified */
 	<a href={ fmt.Sprintf("mailto:%s", "test@example.com") }>Email us</a>
+	/* ErrExternalWithInternal: href.External with internal URL */
+	<a href={ href.External("/login") }>Bad external</a>
+	/* ErrExternalWithInternal: href.External with internal constant */
+	<a href={ href.External(InternalConst) }>Bad external const</a>
 }
