@@ -16,6 +16,28 @@ const (
 	toolTempl       = "github.com/a-h/templ/cmd/templ@v0.3.1001"
 )
 
+// Build verifies the datapages CLI and all example binaries compile.
+func Build() error {
+	if err := BuildCLI(); err != nil {
+		return err
+	}
+	return BuildExamples()
+}
+
+// BuildCLI verifies the datapages CLI compiles.
+func BuildCLI() error {
+	fmt.Println("==> go build .")
+	return run("go", "build", "-o", os.DevNull, ".")
+}
+
+// BuildExamples verifies all example binaries compile.
+func BuildExamples() error {
+	return forEachModule("example", func(dir string) error {
+		fmt.Println("==> go build ./... in", dir)
+		return runIn(dir, "go", "build", "./...")
+	})
+}
+
 // Test runs lint then go test with coverage.
 func Test() error {
 	if err := Lint(); err != nil {
@@ -170,6 +192,63 @@ func ModTidy() error {
 		}
 	}
 	return nil
+}
+
+// GoFix runs go fix on the root module, examples, and parser testdata.
+func GoFix() error {
+	if err := GoFixCLI(); err != nil {
+		return err
+	}
+	return GoFixExamples()
+}
+
+// GoFixCLI runs go fix on the root module.
+func GoFixCLI() error {
+	fmt.Println("==> go fix ./...")
+	return run("go", "fix", "./...")
+}
+
+// GoFixExamples runs go fix on all example and parser testdata modules.
+func GoFixExamples() error {
+	for _, root := range []string{"example", "parser/testdata"} {
+		if err := forEachModule(root, func(dir string) error {
+			fmt.Println("==> go fix ./... in", dir)
+			return runIn(dir, "go", "fix", "./...")
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Gen runs all code generation (templ, datapages, docs).
+func Gen() error {
+	if err := GenTempl(); err != nil {
+		return err
+	}
+	if err := GenDatapages(); err != nil {
+		return err
+	}
+	return GenDocs()
+}
+
+// GenDatapages builds the datapages CLI from source
+// and runs "datapages gen" on each example.
+func GenDatapages() error {
+	tmp, err := os.MkdirTemp("", "datapages-gen-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+
+	bin := filepath.Join(tmp, "datapages")
+	if err := run("go", "build", "-o", bin, "."); err != nil {
+		return err
+	}
+	return forEachModule("example", func(dir string) error {
+		fmt.Println("==> datapages gen in", dir)
+		return runIn(dir, bin, "gen")
+	})
 }
 
 // GenTempl generates templ templates for examples and parser testdata.
