@@ -25,8 +25,9 @@ func TestIsAllowedNonRelativeHref(t *testing.T) {
 		"javascript":         {input: "javascript:void(0)", want: false},
 		"javascript_upper":   {input: "JavaScript:void(0)", want: false},
 
-		"fragment":          {input: "#section", want: true},
-		"fragment_empty":    {input: "#", want: true},
+		"fragment":            {input: "#section", want: true},
+		"fragment_empty":      {input: "#", want: true},
+		"fragment_with_query": {input: "#frag?query=param", want: true},
 		"protocol_relative": {input: "//cdn.example.com/lib.js", want: true},
 		"https":             {input: "https://example.com", want: true},
 		"http":              {input: "http://example.com", want: true},
