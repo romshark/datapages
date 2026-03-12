@@ -28,14 +28,14 @@ func TestIsAllowedNonRelativeHref(t *testing.T) {
 		"fragment":            {input: "#section", want: true},
 		"fragment_empty":      {input: "#", want: true},
 		"fragment_with_query": {input: "#frag?query=param", want: true},
-		"protocol_relative": {input: "//cdn.example.com/lib.js", want: true},
-		"https":             {input: "https://example.com", want: true},
-		"http":              {input: "http://example.com", want: true},
-		"mailto":            {input: "mailto:test@example.com", want: true},
-		"tel":               {input: "tel:+1234567890", want: true},
-		"sms":               {input: "sms:+1234567890", want: true},
-		"ftp":               {input: "ftp://files.example.com", want: true},
-		"data":              {input: "data:text/html,<h1>Hi</h1>", want: true},
+		"protocol_relative":   {input: "//cdn.example.com/lib.js", want: true},
+		"https":               {input: "https://example.com", want: true},
+		"http":                {input: "http://example.com", want: true},
+		"mailto":              {input: "mailto:test@example.com", want: true},
+		"tel":                 {input: "tel:+1234567890", want: true},
+		"sms":                 {input: "sms:+1234567890", want: true},
+		"ftp":                 {input: "ftp://files.example.com", want: true},
+		"data":                {input: "data:text/html,<h1>Hi</h1>", want: true},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
