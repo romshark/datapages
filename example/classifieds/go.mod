@@ -13,11 +13,11 @@ require (
 	github.com/nats-io/nats.go v1.49.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/starfederation/datastar-go v1.1.0
-	golang.org/x/crypto v0.48.0
+	golang.org/x/crypto v0.49.0
 	golang.org/x/sync v0.20.0
 )
 
-require github.com/romshark/datapages v0.4.1
+require github.com/romshark/datapages v0.5.0
 
 require (
 	github.com/CAFxX/httpcompression v0.0.9 // indirect
