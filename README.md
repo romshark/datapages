@@ -144,8 +144,12 @@ mage fmt           # Format all Go files (gofumpt + gci)
 mage modTidy       # Tidy all go.mod files
 mage lintDatapages # Run datapages lint on all examples
 mage vulncheck     # Run govulncheck on all modules
+mage build         # Build CLI and all examples
+mage gen           # Generate all (templ + datapages + docs)
 mage genTempl      # Generate templ templates
+mage genDatapages  # Generate datapages code for all examples
 mage genDocs       # Generate documentation pages
+mage goFix         # Run go fix on all modules
 mage all           # Run everything
 ```
 

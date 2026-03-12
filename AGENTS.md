@@ -11,7 +11,11 @@
 - Format: `mage fmt`
 - Tidy all Go modules: `mage modTidy`
 - Test (runs lint first): `mage test`
+- Build CLI and examples: `mage build`
 - Generate templ files: `mage genTempl`
+- Generate datapages code: `mage genDatapages`
+- Generate all (templ + datapages + docs): `mage gen`
+- Run go fix on all modules: `mage goFix`
 - Run everything: `mage all`
 
 # Project Structure
