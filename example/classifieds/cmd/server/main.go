@@ -15,6 +15,7 @@ import (
 
 	"github.com/romshark/datapages/example/classifieds/app"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen"
+	"github.com/romshark/datapages/example/classifieds/datapagesgen/assets"
 	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
 	"github.com/romshark/datapages/modules/msgbroker/natsjs"
 	"github.com/romshark/datapages/modules/sessmanager/natskv"
@@ -47,7 +48,7 @@ func main() {
 	withAccessLogger(&opts)
 	withAuth(&opts)
 	withCSRFProtection(&opts)
-	withStaticFS(&opts)
+	withAssets(&opts)
 
 	messageBroker, sessionManager := connectNATS()
 
@@ -74,15 +75,10 @@ func withAccessLogger(opts *[]datapagesgen.ServerOption) {
 	*opts = append(*opts, o)
 }
 
-func withStaticFS(opts *[]datapagesgen.ServerOption) {
-	fsStatic, err := app.FSStatic()
-	if err != nil {
-		slog.Error("preparing static fs", slog.Any("err", err))
-		os.Exit(1)
-	}
+func withAssets(opts *[]datapagesgen.ServerOption) {
 	*opts = append(*opts,
-		datapagesgen.WithStaticFS("/static/", fsStatic, app.FSStaticDev()),
-		datapagesgen.WithDatastarJS("/static/ds.min.js"))
+		datapagesgen.WithAssets(app.StaticFS),
+		datapagesgen.WithDatastarJS(assets.Path("ds.min.js")))
 }
 
 func withAuth(opts *[]datapagesgen.ServerOption) {

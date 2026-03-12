@@ -322,11 +322,23 @@ var writerPool = sync.Pool{
 }
 
 type Writer struct {
-	Buf        []byte
-	eventMap   map[string]*model.Event // built once per WriteApp, reused
-	fields     []structFieldInfo       // reusable scratch for structFields
-	prometheus bool                    // whether to generate Prometheus metrics code
-	usage      appUsage                // computed once per WriteApp
+	Buf []byte
+	// eventMap is built once per WriteApp, reused
+	eventMap map[string]*model.Event
+	// fields is a reusable scratch for structFields
+	fields []structFieldInfo
+	// prometheus defines whether to generate Prometheus metrics code
+	prometheus bool
+	// assetsURLPrefix is the URL path prefix for static files (empty = disabled)
+	assetsURLPrefix string
+	// assetsDir is the subdirectory within the app package for static files (e.g. "static")
+	assetsDir string
+	// appDir is the app source package path relative to module root (e.g. "app")
+	appDir string
+	// genImport is the full import path of the generated root package
+	genImport string
+	// usage is computed once per WriteApp
+	usage appUsage
 }
 
 func (w *Writer) Reset() {

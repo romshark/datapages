@@ -3,13 +3,19 @@ gen:
   package: datapagesgen
   prometheus: false
 cmd: cmd/server
+assets:
+  url-prefix: /static/
+  dir: ./app/static/
 watch:
   app-host: "http://localhost:8080"
   custom-watchers:
-    - name: "TailwindCSS"
+    - name: "Rebuild CSS"
       include:
         - "app/**/*.templ"
         - "input.tw.css"
       cmd: "npx tailwindcss -i ./input.tw.css -o ./app/static/output.css"
       fail-on-error: true
+    - name: "Reload on static assets change"
+      include:
+        - "app/static/**"
       requires: reload

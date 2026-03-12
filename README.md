@@ -54,22 +54,52 @@ datapages init
 
 ## Configuration
 
-Datapages reads configuration from `datapages.yaml` in the module root:
+Datapages reads configuration from `datapages.yaml` or `datapages.yml` in the
+module root. If both files exist, the CLI treats that as an error.
+
+The default scaffold created by `datapages init` looks like this:
 
 ```yaml
-app: app            # Path to the app source package (default)
+app: app
 gen:
-  package: datapagesgen # Path to the generated package (default)
-  prometheus: true      # Enable Prometheus metrics generation (default)
-cmd: cmd/server     # Path to the server cmd package (default)
+  package: datapagesgen
+  prometheus: true
+cmd: cmd/server
+watch:
+  exclude:
+    - ".git/**" # git internals
+    - ".*"      # hidden files/directories
+    - "*~"      # editor backup files
 ```
 
-When `prometheus` is set to `false`, the generated server code will not include
-Prometheus imports, metric variables, or the `WithPrometheus` server option.
-Use `datapages init --prometheus=false` to scaffold a project without Prometheus.
+Optional sections can be added as needed:
+
+```yaml
+assets:
+  url-prefix: /static/
+  dir: ./app/static/
+```
+
+These top-level keys are supported:
+
+- `app`: path to the app source package. Default: `app`
+- `gen.package`: path to the generated package. Default: `datapagesgen`
+- `gen.prometheus`: enable Prometheus metric generation. Default: `true`
+- `cmd`: path to the server command package. Default: `cmd/server`
+- `assets`: embedded static asset serving configuration
+- `watch`: development server settings
+
+When `assets` is set, both fields are required. `url-prefix` must start and end
+with `/` and cannot be `/`.
+
+When `gen.prometheus` is set to `false`, the generated server code will not
+include Prometheus imports, metric variables, or the `WithPrometheus` server
+option. Use `datapages init --prometheus=false` to scaffold a project without
+Prometheus.
 
 The optional `watch` section configures the development server
-(host, proxy timeout, TLS, compiler flags, custom watchers, etc.).
+(host, proxy timeout, debounce, TLS, compiler flags, logging, custom watchers,
+etc.).
 
 ## Specification
 
@@ -114,8 +144,12 @@ mage fmt           # Format all Go files (gofumpt + gci)
 mage modTidy       # Tidy all go.mod files
 mage lintDatapages # Run datapages lint on all examples
 mage vulncheck     # Run govulncheck on all modules
+mage build         # Build CLI and all examples
+mage gen           # Generate all (templ + datapages + docs)
 mage genTempl      # Generate templ templates
+mage genDatapages  # Generate datapages code for all examples
 mage genDocs       # Generate documentation pages
+mage goFix         # Run go fix on all modules
 mage all           # Run everything
 ```
 

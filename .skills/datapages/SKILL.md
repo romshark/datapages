@@ -60,6 +60,9 @@ gen:
   package: datapagesgen # Generated code package path
   prometheus: true # Enable Prometheus metrics generation
 cmd: cmd/server # Server cmd package path
+assets: # Static asset file serving (optional)
+  url-prefix: /static/ # URL path prefix
+  dir: ./app/static/ # Path to static files, relative to module root
 watch: # Dev server settings for live-reload
   exclude:
     - ".git/**"
@@ -73,6 +76,9 @@ The fields agents are most likely to change (usually not necessary):
 - `gen.package` — where generated code goes (default `datapagesgen`)
 - `gen.prometheus` — set `false` to disable metrics generation
 - `cmd` — path to the server command package (default `cmd/server`)
+- `assets` — static asset serving config (optional). When omitted, asset serving is disabled. When set, both sub-fields are required:
+  - `assets.url-prefix` — URL path prefix; must start and end with `/`. Emitted as the `URLPrefix` constant in the generated `assets` subpackage.
+  - `assets.dir` — on-disk path to the static files directory (e.g. `./app/static/`). Used for `embed.FS` subdirectory derivation and dev-mode disk serving.
 
 ## Step 2: Define Minimal App
 
@@ -582,54 +588,31 @@ s.ListenAndServeTLS(ctx, "localhost:8443", certPath, keyPath)
 
 ## Step 14: Serve Static Files (Optional)
 
-If your app needs to serve static assets (CSS, JS, images, fonts), place them in a directory inside your app package (e.g. `app/static/`) and use Go's `embed` package to bundle them into the binary. This ensures the server is self-contained and deployable as a single binary without needing to ship a separate assets directory.
+If your app needs to serve static assets (CSS, JS, images, fonts), place them in a directory inside your app package (e.g. `app/static/`) and use Go's `embed` package to bundle them into the binary.
 
 Create an `app/assets.go` file:
 
 ```go
 package app
 
-import (
-	"embed"
-	"io/fs"
-	"net/http"
-)
+import "embed"
 
 //go:embed static/*
-var embedFS embed.FS
-
-// FSStatic returns an http.FileSystem from the embedded filesystem.
-// Use this in production.
-func FSStatic() (http.FileSystem, error) {
-	subFS, err := fs.Sub(embedFS, "static")
-	if err != nil {
-		return nil, err
-	}
-	return http.FS(subFS), nil
-}
-
-// FSStaticDev returns an http.FileSystem that reads directly from disk.
-// Use this in development for live reloading without recompilation.
-func FSStaticDev() http.FileSystem {
-	return http.Dir("./app/static")
-}
+var StaticFS embed.FS
 ```
 
-Then register the static filesystem in `cmd/server/main.go` using a server option:
+Then register the static filesystem in `cmd/server/main.go` using a server option.
+This is only needed when the app serves static files (CSS, JS, images, fonts):
 
 ```go
-fsStatic, err := app.FSStatic()
-if err != nil {
-	slog.Error("preparing static fs", slog.Any("err", err))
-	os.Exit(1)
-}
-opts = append(opts,
-	datapagesgen.WithStaticFS("/static/", fsStatic, app.FSStaticDev()))
+opts = append(opts, datapagesgen.WithAssets(app.StaticFS))
 ```
 
-`WithStaticFS` takes a URL path prefix, the production filesystem, and an optional development filesystem. The dev filesystem serves files with caching disabled and falls back to the production filesystem if `nil`.
+`WithAssets` takes an `embed.FS` and handles everything automatically: in production, it extracts the subdirectory (`assets.Dir`) and serves embedded files; in dev mode (`IsDevMode`), it serves from disk (`assets.DevDir`) with caching disabled for live reloading without recompilation.
 
-Reference static files in templates using the URL path prefix (e.g. `/static/style.css`).
+The URL path prefix is the generated `assets.URLPrefix` constant (configured via `assets.url-prefix` in `datapages.yaml`). The embed.FS subdirectory and dev-mode disk path are derived from `assets.dir`.
+
+Reference static files in templates using the static prefix (e.g. `/static/style.css`).
 
 ## Step 15: Generate and Run
 
@@ -695,6 +678,23 @@ Generated functions return Datastar action strings (`@post('/...')`, `@put('/...
 
 // App-level action (not tied to a page)
 <button data-on:click={ action.POSTAppSignOut() }>Sign Out</button>
+
+// Action with Datastar options (e.g. payload, contentType, filterSignals)
+<button data-on:click={ action.POSTPageLoginSubmit(
+    action.WithOption(action.OptPayload, "'auto'"),
+) }>Submit</button>
+
+// Action with before/after expressions (joined with "; " separators)
+<button data-on:click={ action.POSTPageLoginSubmit(
+    action.WithBefore("$foo='asd'"),
+    action.WithAfter("$foo=''"),
+) }>Submit</button>
 ```
+
+All generated action functions accept variadic modifier arguments:
+
+- `action.WithOption(key, value)` — passes a [Datastar action option](https://data-star.dev/reference/actions#options). The key is an `action.Opt` constant (e.g. `OptContentType`, `OptFilterSignals`, `OptSelector`, `OptHeaders`, `OptOpenWhenHidden`, `OptPayload`, `OptRetry`, `OptRetryInterval`, `OptRetryScaler`, `OptRetryMaxWaitMs`, `OptRetryMaxCount`, `OptRequestCancellation`). The value is a raw JavaScript expression string (use `"'auto'"` for a JS string, `"true"` for a boolean).
+- `action.WithBefore(expr)` — prepends a JavaScript expression before the action call, separated by `"; "`.
+- `action.WithAfter(expr)` — appends a JavaScript expression after the action call, separated by `"; "`.
 
 Naming convention: `{METHOD}Page{PageName}{HandlerName}` for page actions, `{METHOD}App{HandlerName}` for app-level actions. Query parameter structs are generated as `action.Query<FunctionName>`.

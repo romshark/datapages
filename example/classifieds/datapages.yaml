@@ -3,6 +3,9 @@ gen:
   package: datapagesgen
   prometheus: true
 cmd: cmd/server
+assets:
+  url-prefix: /static/
+  dir: ./app/static/
 watch:
   app-host: "http://localhost:52000"
   exclude:

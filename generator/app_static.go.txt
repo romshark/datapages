@@ -43,37 +43,6 @@ func WithHTTPServer(server *http.Server) ServerOption {
 	}
 }
 
-// WithStaticFS sets a custom filesystem for serving static files at the
-// specified URL path. If not provided, static file serving is disabled.
-//
-//	// This will serve files at URL path "/static/*" from directory "./assets".
-//	subFS, err := fs.Sub(embedFS, "assets")
-//	if err != nil { return err }
-//	fs := http.FS(subFS)
-//	//...
-//	WithStaticFS("/static/", fs, nil)
-//
-// You may also optionally provide fsDev to use another filesystem for
-// development environments. If fsDev it automatically falls back to fsProd.
-// fsDev always serves static files with caching disabled.
-func WithStaticFS(urlPath string, fsProd, fsDev http.FileSystem) ServerOption {
-	return func(s *Server) error {
-		if urlPath == "" || urlPath[0] != '/' {
-			return fmt.Errorf("static urlPath must start with '/': %q", urlPath)
-		}
-		if !strings.HasSuffix(urlPath, "/") {
-			urlPath += "/"
-		}
-
-		s.staticFS = fsProd
-		if IsDevMode() && fsDev != nil {
-			s.staticFS = fsDev
-		}
-		s.staticURLPath = urlPath
-		return nil
-	}
-}
-
 // WithDatastarJS sets a custom URL for the Datastar JavaScript bundle.
 // Defaults to DefaultDatastarJSSrc if not set.
 func WithDatastarJS(src string) ServerOption {
@@ -81,15 +50,6 @@ func WithDatastarJS(src string) ServerOption {
 		s.datastarJSSrc = src
 		return nil
 	}
-}
-
-func devNoCache(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store, max-age=0")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-		next.ServeHTTP(w, r)
-	})
 }
 
 

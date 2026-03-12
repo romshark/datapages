@@ -1,9 +1,11 @@
 package app
 
+import "github.com/romshark/datapages/example/tailwindcss/datapagesgen/assets"
+
 templ head() {
 	<title>Datapages + TailwindCSS</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1"/>
-	<link rel="stylesheet" href="/static/output.css"/>
+	<link rel="stylesheet" href={ assets.Path("output.css") }/>
 }
 
 templ pageIndex() {

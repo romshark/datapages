@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/romshark/datapages/example/classifieds/app/domain"
+	"github.com/romshark/datapages/example/classifieds/datapagesgen/assets"
 )
 
 func timestamp(value string) time.Time {
@@ -18,19 +19,19 @@ func timestamp(value string) time.Time {
 var mainCategories = []domain.Category{
 	{
 		ID: "cars", Name: "Cars",
-		ImageURL: "/static/icons/category-cars.png",
+		ImageURL: assets.Path("icons/category-cars.png"),
 	},
 	{
 		ID: "musical-instruments", Name: "Musical Instruments",
-		ImageURL: "/static/icons/category-musical-instruments.png",
+		ImageURL: assets.Path("icons/category-musical-instruments.png"),
 	},
 	{
 		ID: "clothing", Name: "Clothing",
-		ImageURL: "/static/icons/category-clothing.png",
+		ImageURL: assets.Path("icons/category-clothing.png"),
 	},
 	{
 		ID: "electronics", Name: "Electronics",
-		ImageURL: "/static/icons/category-electronics.png",
+		ImageURL: assets.Path("icons/category-electronics.png"),
 	},
 }
 

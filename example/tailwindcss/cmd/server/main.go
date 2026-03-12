@@ -27,7 +27,7 @@ func main() {
 
 	var opts []datapagesgen.ServerOption
 	withAccessLogger(&opts)
-	withStaticFS(&opts)
+	withAssets(&opts)
 
 	messageBroker := inmem.New(0)
 
@@ -82,14 +82,8 @@ func withAccessLogger(opts *[]datapagesgen.ServerOption) {
 	}))
 }
 
-func withStaticFS(opts *[]datapagesgen.ServerOption) {
-	fsStatic, err := app.FSStatic()
-	if err != nil {
-		slog.Error("preparing static fs", slog.Any("err", err))
-		os.Exit(1)
-	}
-	*opts = append(*opts,
-		datapagesgen.WithStaticFS("/static/", fsStatic, app.FSStaticDev()))
+func withAssets(opts *[]datapagesgen.ServerOption) {
+	*opts = append(*opts, datapagesgen.WithAssets(app.StaticFS))
 }
 
 func listenAndServe(ctx context.Context, s *datapagesgen.Server, host string) {

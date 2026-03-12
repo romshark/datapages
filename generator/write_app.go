@@ -28,6 +28,7 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 
 	w.writeAppHeader(pkgName, m.PkgPath, needsJSON(m))
 	w.Raw(appStaticContent)
+	w.writeWithAssets()
 	if w.prometheus {
 		w.Raw(appStaticPromContent)
 	} else {
@@ -35,6 +36,7 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	}
 	w.writeListenAndServe()
 	w.Raw(appStaticContent2)
+	w.writeServeHTTP()
 	if w.usage.httpErrBad {
 		w.Raw(`
 func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
@@ -152,6 +154,11 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Byte('\t')
 	w.writeQuoted(appPkgPath)
 	w.Byte('\n')
+	if w.hasAssets() && w.genImport != "" {
+		w.Byte('\t')
+		w.writeQuoted(w.genImport + "/assets")
+		w.Byte('\n')
+	}
 	w.Line(0, "")
 	if w.prometheus {
 		w.Line(1, `"github.com/prometheus/client_golang/prometheus"`)
@@ -159,6 +166,105 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	}
 	w.Line(1, `"github.com/starfederation/datastar-go/datastar"`)
 	w.Line(0, ")")
+}
+
+func (w *Writer) hasAssets() bool { return w.assetsURLPrefix != "" }
+
+func (w *Writer) writeWithAssets() {
+	if w.hasAssets() {
+		w.Raw(`
+// WithAssets enables serving static asset files at assets.URLPrefix.
+// Pass the embed.FS that contains your static files (e.g. with
+// //go:embed static/* in your app package). The embed.FS subdirectory
+// (assets.Dir) is extracted automatically.
+//
+// In dev mode (IsDevMode), files are served from disk (assets.DevDir)
+// for live reloading without recompilation.
+func WithAssets(fsys embed.FS) ServerOption {
+	return func(s *Server) error {
+		if IsDevMode() {
+			s.assetsFS = http.Dir(assets.DevDir)
+		} else {
+			sub, err := fs.Sub(fsys, assets.Dir)
+			if err != nil {
+				return fmt.Errorf("WithAssets: %w", err)
+			}
+			s.assetsFS = http.FS(sub)
+		}
+		return nil
+	}
+}
+
+func devNoCache(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		next.ServeHTTP(w, r)
+	})
+}
+`)
+	} else {
+		w.Raw(`
+// WithAssets enables serving static asset files at assets.URLPrefix.
+// This option is not available because assets is not configured
+// in datapages.yaml. Add an assets section to enable asset file serving.
+func WithAssets(fsys embed.FS) ServerOption {
+	return func(s *Server) error {
+		return errors.New(
+			"WithAssets: assets is not configured in datapages.yaml",
+		)
+	}
+}
+`)
+	}
+}
+
+func (w *Writer) writeServeHTTP() {
+	if w.hasAssets() {
+		w.Raw(`
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	handler := http.Handler(s.mux)
+
+	// Normalize trailing slashes: ensure all paths end with /
+	// except for static file paths
+	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
+		if !strings.HasPrefix(p, assets.URLPrefix) {
+			r.URL.Path = p + "/"
+			if r.URL.RawPath != "" {
+				r.URL.RawPath = r.URL.RawPath + "/"
+			}
+		}
+	}
+
+	for _, h := range s.middleware {
+		handler = h(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+`)
+	} else {
+		w.Raw(`
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	handler := http.Handler(s.mux)
+
+	// Normalize trailing slashes: ensure all paths end with /
+	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
+		r.URL.Path = p + "/"
+		if r.URL.RawPath != "" {
+			r.URL.RawPath = r.URL.RawPath + "/"
+		}
+	}
+
+	for _, h := range s.middleware {
+		handler = h(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+`)
+	}
 }
 
 func (w *Writer) writeListenAndServe() {
@@ -554,11 +660,13 @@ type Server struct {
 	mux                  *http.ServeMux
 	logger               *slog.Logger
 	middleware           []func(http.Handler) http.Handler
-	staticURLPath        string
-	staticFS             http.FileSystem
 	datastarJSSrc        string
 	enabledTLS           bool
 `)
+	if w.hasAssets() {
+		w.Raw(`	assetsFS             http.FileSystem
+`)
+	}
 	if w.prometheus {
 		w.Raw(`
 	metricsServer         *http.Server`)
@@ -584,7 +692,7 @@ func (w *Writer) writeAppNewServer(appPkg string) {
 //
 //   - WithMiddleware
 //   - WithHTTPServer
-//   - WithStaticFS
+//   - WithAssets
 //   - WithDatastarJS`)
 	if w.usage.hasSession {
 		w.Raw(`
@@ -717,14 +825,18 @@ func NewServer(
 	}
 	w.Raw(`
 	setupHandlers(s)
-	if s.staticFS != nil {
-		h := http.StripPrefix("/static/", http.FileServer(s.staticFS))
+`)
+	if w.hasAssets() {
+		w.Raw(`	if s.assetsFS != nil {
+		h := http.StripPrefix(assets.URLPrefix, http.FileServer(s.assetsFS))
 		if IsDevMode() {
 			h = devNoCache(h)
 		}
-		s.mux.Handle("GET /static/", h)
+		s.mux.Handle("GET "+assets.URLPrefix, h)
 	}
-
+`)
+	}
+	w.Raw(`
 	return s
 }
 `)
