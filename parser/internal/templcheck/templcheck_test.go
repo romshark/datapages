@@ -194,56 +194,98 @@ func TestCheck_ErrActionWrongPage(t *testing.T) {
 	}
 }
 
-func TestCheck_ErrActionContext(t *testing.T) {
-	errs := check(t, "err_templ_action_context", nil)
+func TestCheck_ErrContext(t *testing.T) {
+	errs := check(t, "err_templ_context", nil)
 
-	// action.POSTPageIndexSubmit() in href → error
-	// action.POSTPageIndexSubmit() in HTML action → error
-	// action.POSTPageIndexSubmit() in data-on:click → OK
-	// action.POSTPageIndexSubmit() in data-on-intersect → OK
-	// action.POSTPageIndexSubmit() in data-init → OK
-	// action.POSTPageIndexSubmit() in href with nolint → suppressed
-
-	type expectEntry struct {
+	type actionExpect struct {
 		attrName   string
 		actionFunc string
 		line       int
 		col        int
 	}
-	expect := map[string]expectEntry{
+	actionCases := map[string]actionExpect{
 		"href-POSTPageIndexSubmit": {
 			attrName:   "href",
 			actionFunc: "POSTPageIndexSubmit",
-			line:       7,
+			line:       10,
 			col:        12,
 		},
 		"action-POSTPageIndexSubmit": {
 			attrName:   "action",
 			actionFunc: "POSTPageIndexSubmit",
-			line:       9,
+			line:       12,
 			col:        17,
 		},
 	}
 
-	found := map[string]bool{}
+	type hrefExpect struct {
+		attrName string
+		hrefFunc string
+		line     int
+		col      int
+	}
+	hrefCases := map[string]hrefExpect{
+		"data-on:click-PageIndex": {
+			attrName: "data-on:click",
+			hrefFunc: "PageIndex",
+			line:     30,
+			col:      26,
+		},
+		"data-on:submit-PageIndex": {
+			attrName: "data-on:submit",
+			hrefFunc: "PageIndex",
+			line:     32,
+			col:      25,
+		},
+		"data-init-PageIndex": {
+			attrName: "data-init",
+			hrefFunc: "PageIndex",
+			line:     34,
+			col:      19,
+		},
+	}
+
+	foundAction := map[string]bool{}
+	foundHref := map[string]bool{}
 	for _, pe := range errs {
-		var e *templcheck.ErrorActionContext
-		if !errors.As(pe.err, &e) {
+		if e, ok := errors.AsType[*templcheck.ErrorActionContext](pe.err); ok {
+			key := e.AttrName + "-" + e.ActionFunc
+			foundAction[key] = true
+			want, ok := actionCases[key]
+			require.True(t, ok, "unexpected action context error: %s in %s", e.ActionFunc, e.AttrName)
+			require.Equal(t, want.attrName, e.AttrName)
+			require.Equal(t, want.actionFunc, e.ActionFunc)
+			require.Equal(t, want.line, pe.pos.Line, "wrong line for %s", key)
+			require.Equal(t, want.col, pe.pos.Column, "wrong column for %s", key)
+			require.ErrorIs(t, pe.err, templcheck.ErrActionContext)
 			continue
 		}
-		key := e.AttrName + "-" + e.ActionFunc
-		found[key] = true
-		want, ok := expect[key]
-		require.True(t, ok, "unexpected action context error: %s in %s", e.ActionFunc, e.AttrName)
-		require.Equal(t, want.attrName, e.AttrName)
-		require.Equal(t, want.actionFunc, e.ActionFunc)
-		require.Equal(t, want.line, pe.pos.Line, "wrong line for %s", key)
-		require.Equal(t, want.col, pe.pos.Column, "wrong column for %s", key)
-		require.ErrorIs(t, pe.err, templcheck.ErrActionContext)
+		if e, ok := errors.AsType[*templcheck.ErrorHrefContext](pe.err); ok {
+			key := e.AttrName + "-" + e.HrefFunc
+			foundHref[key] = true
+			want, ok := hrefCases[key]
+			require.True(t, ok, "unexpected href context error: %s in %s", e.HrefFunc, e.AttrName)
+			require.Equal(t, want.attrName, e.AttrName)
+			require.Equal(t, want.hrefFunc, e.HrefFunc)
+			require.Equal(t, want.line, pe.pos.Line, "wrong line for %s", key)
+			require.Equal(t, want.col, pe.pos.Column, "wrong column for %s", key)
+			require.ErrorIs(t, pe.err, templcheck.ErrHrefContext)
+			continue
+		}
+		// ErrHrefUnverifiable is expected for action.XXX() in href attrs
+		// (checkHrefExpr also flags these).
+		if errors.Is(pe.err, templcheck.ErrHrefUnverifiable) {
+			continue
+		}
+		t.Errorf("unexpected error at %s: %v", pe.pos, pe.err)
 	}
-	require.Len(t, found, len(expect))
-	for key := range expect {
-		require.Contains(t, found, key)
+	require.Len(t, foundAction, len(actionCases))
+	for key := range actionCases {
+		require.Contains(t, foundAction, key)
+	}
+	require.Len(t, foundHref, len(hrefCases))
+	for key := range hrefCases {
+		require.Contains(t, foundHref, key)
 	}
 }
 

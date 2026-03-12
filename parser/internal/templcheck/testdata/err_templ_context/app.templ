@@ -1,6 +1,9 @@
 package app
 
-import "datapagestest/fixture/err_templ_action_context/datapagesgen/action"
+import (
+	"datapagestest/fixture/err_templ_context/datapagesgen/action"
+	"datapagestest/fixture/err_templ_context/datapagesgen/href"
+)
 
 templ page() {
 	/* ErrTemplActionContext: action in href */
@@ -23,6 +26,14 @@ templ page() {
 	<div data-on-intersect.once={ action.POSTPageIndexSubmit() }></div>
 	/* OK: action in data-init */
 	<div data-init={ action.POSTPageIndexSubmit() }></div>
+	/* ErrHrefContext: href in data-on:click */
+	<button data-on:click={ href.PageIndex() }>Submit</button>
+	/* ErrHrefContext: href in data-on:submit */
+	<form data-on:submit={ href.PageIndex() }></form>
+	/* ErrHrefContext: href in data-init */
+	<div data-init={ href.PageIndex() }></div>
+	/* OK: href in href attribute */
+	<a href={ href.PageIndex() }>Home</a>
 	//datapages:nolint
 	<a href={ action.POSTPageIndexSubmit() }>Suppressed</a>
 }

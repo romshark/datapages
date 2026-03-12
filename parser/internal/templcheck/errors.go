@@ -10,6 +10,7 @@ var (
 	ErrHardcodedAction      = errors.New("template uses hardcoded app-internal action")
 	ErrActionWrongPage      = errors.New("template uses action from another page")
 	ErrActionContext        = errors.New("action helper used outside Datastar action context")
+	ErrHrefContext          = errors.New("href helper used in Datastar action context")
 	ErrHrefUnverifiable     = errors.New("href expression must use href package functions")
 	ErrExternalWithInternal = errors.New("href.External used with app-internal URL")
 )
@@ -62,6 +63,19 @@ func (e *ErrorActionContext) Error() string {
 }
 
 func (e *ErrorActionContext) Unwrap() error { return ErrActionContext }
+
+// ErrorHrefContext is ErrHrefContext with context.
+type ErrorHrefContext struct {
+	AttrName string // e.g. "data-on:click"
+	HrefFunc string // e.g. "PageIndex"
+}
+
+func (e *ErrorHrefContext) Error() string {
+	return fmt.Sprintf("%v: %s in %s attribute",
+		ErrHrefContext, e.HrefFunc, e.AttrName)
+}
+
+func (e *ErrorHrefContext) Unwrap() error { return ErrHrefContext }
 
 // ErrorHrefUnverifiable is ErrHrefUnverifiable with context.
 type ErrorHrefUnverifiable struct {

@@ -621,6 +621,9 @@ template-specific checks on `.templ` files:
 - **Action context**: using an `action.XXX()` call in an attribute that is not a Datastar
   action context (`data-on:*`, `data-on-*`, `data-init*`). For example,
   `action.POSTPageIndexSubmit()` in an `href` or plain HTML `action` attribute.
+- **Href context**: using an `href.XXX()` call in a Datastar action context
+  (`data-on:*`, `data-on-*`, `data-init*`). Href functions return URL paths,
+  not Datastar action strings — use `action.XXX()` instead.
 - **Action on wrong page**: using an action that belongs to a different page
   (e.g. `action.POSTPageProfileSave()` in a template rendered by `PageSettings`).
   App-level actions are allowed on any page.

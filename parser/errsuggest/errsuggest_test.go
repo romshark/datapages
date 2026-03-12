@@ -300,6 +300,13 @@ func TestSuggest(t *testing.T) {
 			err:  &parser.ErrorTemplHardcodedAction{URL: "/a/b/c"},
 			want: `fix: Use action={ action.Xxx(...) } from the generated action package instead of "/a/b/c"`,
 		},
+		"ErrTemplHrefContext": {
+			err: &parser.ErrorTemplHrefContext{
+				AttrName: "data-on:click",
+				HrefFunc: "PageIndex",
+			},
+			want: "fix: href.PageIndex() returns a URL path, not a Datastar action — use action.Xxx(...) from the generated action package instead",
+		},
 		"ErrTemplActionWrongPage": {
 			err: &parser.ErrorTemplActionWrongPage{
 				ActionFunc: "POSTPageProfileSave",

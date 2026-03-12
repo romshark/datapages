@@ -165,6 +165,7 @@ var (
 	ErrTemplHardcodedAction      = templcheck.ErrHardcodedAction
 	ErrTemplActionWrongPage      = templcheck.ErrActionWrongPage
 	ErrTemplActionContext        = templcheck.ErrActionContext
+	ErrTemplHrefContext          = templcheck.ErrHrefContext
 	ErrTemplHrefUnverifiable     = templcheck.ErrHrefUnverifiable
 	ErrTemplExternalWithInternal = templcheck.ErrExternalWithInternal
 )
@@ -515,6 +516,7 @@ type (
 	ErrorTemplHardcodedAction      = templcheck.ErrorHardcodedAction
 	ErrorTemplActionWrongPage      = templcheck.ErrorActionWrongPage
 	ErrorTemplActionContext        = templcheck.ErrorActionContext
+	ErrorTemplHrefContext          = templcheck.ErrorHrefContext
 	ErrorTemplHrefUnverifiable     = templcheck.ErrorHrefUnverifiable
 	ErrorTemplExternalWithInternal = templcheck.ErrorExternalWithInternal
 )

@@ -144,6 +144,12 @@ func walkChildren(errFn ErrFunc, filename string, nodes []templparser.Node, cons
 }
 
 func checkElementAttrs(errFn ErrFunc, filename string, el *templparser.Element, constValues map[string]string, hrefLocalName string) {
+	var hrefRefMatch *regexp.Regexp
+	if hrefLocalName != "" {
+		hrefRefMatch = regexp.MustCompile(
+			`\b` + regexp.QuoteMeta(hrefLocalName) + `\.(\w+)\s*\(`,
+		)
+	}
 	for _, attr := range el.Attributes {
 		switch a := attr.(type) {
 		case *templparser.ConstantAttribute:
@@ -191,6 +197,16 @@ func checkElementAttrs(errFn ErrFunc, filename string, el *templparser.Element, 
 				checkHrefExpr(errFn, exprPos, a.Expression.Value, constValues, hrefLocalName)
 			}
 			if isDatastarActionAttr(key.Name) {
+				if hrefRefMatch != nil {
+					matches := hrefRefMatch.FindAllStringSubmatchIndex(a.Expression.Value, -1)
+					for _, loc := range matches {
+						funcName := a.Expression.Value[loc[2]:loc[3]]
+						errFn(exprPos, &ErrorHrefContext{
+							AttrName: key.Name,
+							HrefFunc: funcName,
+						})
+					}
+				}
 				continue
 			}
 			matches := actionRefMatch.FindAllStringSubmatchIndex(a.Expression.Value, -1)

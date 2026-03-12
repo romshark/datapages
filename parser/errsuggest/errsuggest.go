@@ -293,6 +293,16 @@ func Suggest(err error) string {
 			"fix: Use action={ action.Xxx(...) } from the generated action package "+
 				"instead of %q", d.URL)
 
+	case errors.Is(err, parser.ErrTemplHrefContext):
+		var d *parser.ErrorTemplHrefContext
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: href.%s() returns a URL path, not a Datastar action — "+
+				"use action.Xxx(...) from the generated action package instead",
+			d.HrefFunc)
+
 	case errors.Is(err, parser.ErrSignatureUnsupportedInput):
 		var d *parser.ErrorSignatureUnsupportedInput
 		if !errors.As(err, &d) {
