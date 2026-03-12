@@ -1,0 +1,283 @@
+package templcheck_test
+
+import (
+	"errors"
+	"go/token"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"golang.org/x/tools/go/packages"
+
+	"github.com/romshark/datapages/parser/internal/templcheck"
+	"github.com/romshark/datapages/parser/model"
+)
+
+func loadPkg(t *testing.T, fixtureName string) *packages.Package {
+	t.Helper()
+	dir := filepath.Join("testdata", fixtureName)
+	absDir, err := filepath.Abs(dir)
+	require.NoError(t, err)
+	cfg := &packages.Config{
+		Mode: packages.NeedName |
+			packages.NeedFiles |
+			packages.NeedCompiledGoFiles |
+			packages.NeedImports |
+			packages.NeedDeps |
+			packages.NeedTypes |
+			packages.NeedTypesInfo |
+			packages.NeedSyntax |
+			packages.NeedModule,
+		Dir: absDir,
+	}
+	pkgs, err := packages.Load(cfg, ".")
+	require.NoError(t, err)
+	require.Len(t, pkgs, 1)
+	return pkgs[0]
+}
+
+type posErr struct {
+	pos token.Position
+	err error
+}
+
+func check(t *testing.T, fixtureName string, app *model.App) []posErr {
+	t.Helper()
+	pkg := loadPkg(t, fixtureName)
+	var errs []posErr
+	templcheck.Check(pkg, app, func(pos token.Position, err error) {
+		errs = append(errs, posErr{pos: pos, err: err})
+	})
+	return errs
+}
+
+func TestCheck_ErrHardcodedHref(t *testing.T) {
+	errs := check(t, "err_templ_hardcoded_href", nil)
+
+	type expectEntry struct {
+		sentinel  error
+		val       string
+		line, col int
+	}
+	hardcoded := templcheck.ErrHardcodedHref
+	unverifiable := templcheck.ErrHrefUnverifiable
+	expect := []expectEntry{
+		{hardcoded, "/login", 27, 5},
+		{hardcoded, "/profile", 29, 5},
+		{hardcoded, "/static/style.css", 31, 5},
+		{hardcoded, "/settings", 33, 12},
+		{hardcoded, "/set", 35, 12},
+		{unverifiable, `"/set" + dynamicValue`, 37, 12},
+		{unverifiable, `templ.SafeURL("/about")`, 39, 12},
+		{unverifiable, `templ.SafeURL(ConstantStringNOTOK)`, 41, 12},
+		{unverifiable, `templ.SafeURL("https://data-star.dev")`, 43, 12},
+		{hardcoded, "/c", 44, 12},
+		{hardcoded, "notok", 45, 12},
+		{hardcoded, "", 47, 5},
+		{hardcoded, "?tab=settings", 49, 5},
+		{hardcoded, "relative", 51, 5},
+		{hardcoded, "javascript:void(0)", 53, 5},
+		{hardcoded, "/nested", 57, 7},
+		{unverifiable, `loginHref()`, 61, 12},
+		{unverifiable, `fmt.Sprintf("mailto:%s", "test@example.com")`, 63, 12},
+	}
+
+	var got []expectEntry
+	for _, pe := range errs {
+		if h, ok := errors.AsType[*templcheck.ErrorHardcodedHref](pe.err); ok {
+			got = append(got,
+				expectEntry{hardcoded, h.URL, pe.pos.Line, pe.pos.Column})
+			continue
+		}
+		if u, ok := errors.AsType[*templcheck.ErrorHrefUnverifiable](pe.err); ok {
+			got = append(got,
+				expectEntry{unverifiable, u.Expr, pe.pos.Line, pe.pos.Column})
+			continue
+		}
+		t.Errorf("unexpected error at %s: %v", pe.pos, pe.err)
+	}
+	require.Equal(t, expect, got)
+}
+
+func TestCheck_ErrActionWrongPage(t *testing.T) {
+	// Build a minimal model.App that mirrors the fixture:
+	// PageProfile owns POSTSave, PageSettings owns POSTUpdate, App owns POSTGlobal.
+	app := &model.App{
+		Actions: []*model.Handler{
+			{HTTPMethod: "post", Name: "Global"},
+		},
+		Pages: []*model.Page{
+			{
+				TypeName: "PageIndex",
+				GET:      &model.HandlerGET{Handler: &model.Handler{}},
+			},
+			{
+				TypeName: "PageProfile",
+				GET:      &model.HandlerGET{Handler: &model.Handler{}},
+				Actions: []*model.Handler{
+					{HTTPMethod: "post", Name: "Save"},
+				},
+			},
+			{
+				TypeName: "PageSettings",
+				GET:      &model.HandlerGET{Handler: &model.Handler{}},
+				Actions: []*model.Handler{
+					{HTTPMethod: "post", Name: "Update"},
+				},
+			},
+		},
+	}
+
+	errs := check(t, "err_templ_action_not_on_page", app)
+
+	// settingsPage() calls @settingsActions() which uses
+	// action.POSTPageProfileSave() — that action belongs to PageProfile,
+	// not PageSettings.
+	// action.POSTPageSettingsUpdate() in settingsPage is OK (own page).
+	// action.POSTAppGlobal() in settingsActions is OK (app-level).
+	// action.POSTPageProfileSave() in profilePage is OK (own page).
+
+	type expectEntry struct {
+		actionFunc string
+		pageType   string
+		ownerPage  string
+		line       int
+		col        int
+	}
+	expect := map[string]expectEntry{
+		"POSTPageProfileSave-PageSettings": {
+			actionFunc: "POSTPageProfileSave",
+			pageType:   "PageSettings",
+			ownerPage:  "PageProfile",
+			line:       25,
+			col:        17,
+		},
+	}
+
+	found := map[string]bool{}
+	for _, pe := range errs {
+		var e *templcheck.ErrorActionWrongPage
+		if !errors.As(pe.err, &e) {
+			continue
+		}
+		key := e.ActionFunc + "-" + e.PageType
+		found[key] = true
+		want, ok := expect[key]
+		require.True(t, ok, "unexpected cross-page action error: %s in %s", e.ActionFunc, e.PageType)
+		require.Equal(t, want.actionFunc, e.ActionFunc)
+		require.Equal(t, want.pageType, e.PageType)
+		require.Equal(t, want.ownerPage, e.OwnerPage)
+		require.Equal(t, want.line, pe.pos.Line, "wrong line for %s", key)
+		require.Equal(t, want.col, pe.pos.Column, "wrong column for %s", key)
+		require.ErrorIs(t, pe.err, templcheck.ErrActionWrongPage)
+	}
+	require.Len(t, found, len(expect))
+	for key := range expect {
+		require.Contains(t, found, key)
+	}
+}
+
+func TestCheck_ErrActionContext(t *testing.T) {
+	errs := check(t, "err_templ_action_context", nil)
+
+	// action.POSTPageIndexSubmit() in href → error
+	// action.POSTPageIndexSubmit() in HTML action → error
+	// action.POSTPageIndexSubmit() in data-on:click → OK
+	// action.POSTPageIndexSubmit() in data-on-intersect → OK
+	// action.POSTPageIndexSubmit() in data-init → OK
+	// action.POSTPageIndexSubmit() in href with nolint → suppressed
+
+	type expectEntry struct {
+		attrName   string
+		actionFunc string
+		line       int
+		col        int
+	}
+	expect := map[string]expectEntry{
+		"href-POSTPageIndexSubmit": {
+			attrName:   "href",
+			actionFunc: "POSTPageIndexSubmit",
+			line:       7,
+			col:        12,
+		},
+		"action-POSTPageIndexSubmit": {
+			attrName:   "action",
+			actionFunc: "POSTPageIndexSubmit",
+			line:       9,
+			col:        17,
+		},
+	}
+
+	found := map[string]bool{}
+	for _, pe := range errs {
+		var e *templcheck.ErrorActionContext
+		if !errors.As(pe.err, &e) {
+			continue
+		}
+		key := e.AttrName + "-" + e.ActionFunc
+		found[key] = true
+		want, ok := expect[key]
+		require.True(t, ok, "unexpected action context error: %s in %s", e.ActionFunc, e.AttrName)
+		require.Equal(t, want.attrName, e.AttrName)
+		require.Equal(t, want.actionFunc, e.ActionFunc)
+		require.Equal(t, want.line, pe.pos.Line, "wrong line for %s", key)
+		require.Equal(t, want.col, pe.pos.Column, "wrong column for %s", key)
+		require.ErrorIs(t, pe.err, templcheck.ErrActionContext)
+	}
+	require.Len(t, found, len(expect))
+	for key := range expect {
+		require.Contains(t, found, key)
+	}
+}
+
+func TestCheck_ErrHrefExpr(t *testing.T) {
+	errs := check(t, "err_templ_href_expr", nil)
+
+	type expectEntry struct {
+		line int
+		col  int
+	}
+	expectNotFromPkg := map[string]expectEntry{
+		"someOtherFunc()": {17, 12},
+		"buildURL(id)":    {18, 12},
+	}
+	expectExternalInternal := map[string]expectEntry{
+		"/login":    {21, 12},
+		"/internal": {22, 12},
+	}
+
+	foundNotFromPkg := map[string]bool{}
+	foundExternalInternal := map[string]bool{}
+	for _, pe := range errs {
+		var enp *templcheck.ErrorHrefUnverifiable
+		if errors.As(pe.err, &enp) {
+			foundNotFromPkg[enp.Expr] = true
+			want, ok := expectNotFromPkg[enp.Expr]
+			require.True(t, ok, "unexpected ErrHrefUnverifiable: %s", enp.Expr)
+			require.Equal(t, want.line, pe.pos.Line, "wrong line for %s", enp.Expr)
+			require.Equal(t, want.col, pe.pos.Column, "wrong column for %s", enp.Expr)
+			require.ErrorIs(t, pe.err, templcheck.ErrHrefUnverifiable)
+			continue
+		}
+		var eei *templcheck.ErrorExternalWithInternal
+		if errors.As(pe.err, &eei) {
+			foundExternalInternal[eei.URL] = true
+			want, ok := expectExternalInternal[eei.URL]
+			require.True(t, ok, "unexpected ErrExternalWithInternal: %s", eei.URL)
+			require.Equal(t, want.line, pe.pos.Line, "wrong line for %s", eei.URL)
+			require.Equal(t, want.col, pe.pos.Column, "wrong column for %s", eei.URL)
+			require.ErrorIs(t, pe.err, templcheck.ErrExternalWithInternal)
+			continue
+		}
+	}
+	require.Len(t, foundNotFromPkg, len(expectNotFromPkg))
+	require.Len(t, foundExternalInternal, len(expectExternalInternal))
+}
+
+func TestCheck_OKHref(t *testing.T) {
+	errs := check(t, "ok_templ_href", nil)
+	for _, pe := range errs {
+		t.Errorf("unexpected error at %s: %v", pe.pos, pe.err)
+	}
+	require.Empty(t, errs)
+}

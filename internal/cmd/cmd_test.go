@@ -721,6 +721,10 @@ func TestInit(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			// Allow go mod tidy to succeed even when the local module
+			// contains packages not yet published to the registry.
+			t.Setenv("GOFLAGS", "-e")
+
 			dir := tc.setup(t)
 			chdirTemp(t, dir)
 

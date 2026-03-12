@@ -4,5 +4,40 @@
 // Use these in templates instead of hardcoding URLs.
 package href
 
-// Index references /{$}
-func Index() string { return "/" }
+import (
+	"log/slog"
+	"path"
+	"strings"
+	"sync/atomic"
+
+	"github.com/romshark/datapages/hrefcheck"
+)
+
+var logger atomic.Pointer[slog.Logger]
+
+func init() { logger.Store(slog.Default()) }
+
+// SetLogger sets the logger used by External to log invalid URLs.
+// It is safe for concurrent use.
+func SetLogger(l *slog.Logger) { logger.Store(l) }
+
+func getLogger() *slog.Logger { return logger.Load() }
+
+// External returns url as-is for use in href attributes.
+// It logs a warning at runtime if the URL is not an allowed
+// non-relative href (e.g. app-internal paths, javascript:, relative URLs).
+func External(url string) string {
+	if !hrefcheck.IsAllowedNonRelativeHref(url) && !strings.HasPrefix(url, "/static/") {
+		getLogger().Warn("href.External called with app-internal URL", "url", url)
+	}
+	return url
+}
+
+// Asset returns the URL path for a static asset file.
+// For example, Asset("style.css") returns "/static/style.css".
+func Asset(p string) string {
+	return path.Join("/static/", p)
+}
+
+// PageIndex references /{$}
+func PageIndex() string { return "/" }

@@ -1,0 +1,47 @@
+package app
+
+import (
+	"fmt"
+
+	"datapagestest/fixture/ok_templ_href/datapagesgen/href"
+)
+
+var email = "test@example.com"
+
+templ page() {
+	/* Static href attributes with allowed URLs */
+	<a href="https://example.com">External HTTPS</a>
+	<a href="http://example.com">External HTTP</a>
+	<a href="#section">Fragment</a>
+	<a href="#">Empty fragment</a>
+	<a href="mailto:user@example.com">Mailto</a>
+	<a href="tel:+1234567890">Tel</a>
+	<a href="sms:+1234567890">SMS</a>
+	<a href="ftp://files.example.com">FTP</a>
+	<a href="//cdn.example.com/lib.js">Protocol-relative</a>
+	/* Non-<a> elements: href/action not checked */
+	<form action="/submit">
+		<button type="submit">Submit</button>
+	</form>
+	<link href="/style.css" rel="stylesheet"/>
+	/* Expression href: href package page functions */
+	<a href={ href.PageIndex() }>Index</a>
+	<a href={ href.PageProfile("alice") }>Profile</a>
+	/* Expression href: href.External with allowed URLs */
+	<a href={ href.External("https://example.com") }>External literal</a>
+	<a href={ href.External("mailto:test@example.com") }>External mailto</a>
+	<a href={ href.External("//cdn.example.com") }>External protocol-relative</a>
+	<a href={ href.External(ExternalConst) }>External constant</a>
+	<a href={ href.External(fmt.Sprintf("mailto:%s", email)) }>External dynamic</a>
+	/* Expression href: href.Asset */
+	<a href={ href.Asset("style.css") }>Asset</a>
+	/* Expression href: allowed literal/constant without href package */
+	<a href={ "https://example.com" }>Literal external</a>
+	<a href={ `https://example.com` }>Literal external</a>
+	<a href={ ExternalConst }>Constant external</a>
+	/* Nolint directive suppresses errors */
+	//datapages:nolint
+	<a href="/suppressed">Nolint</a>
+	//datapages:nolint // explanation
+	<a href="/also-suppressed">Nolint with comment</a>
+}

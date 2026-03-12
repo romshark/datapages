@@ -16,4 +16,5 @@ func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
 	return page(), nil
 }
 
-func loginHref() templ.SafeURL { return "/" }
+// POSTSubmit is /submit
+func (PageIndex) POSTSubmit(r *http.Request) error { return nil }

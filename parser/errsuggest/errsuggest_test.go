@@ -274,15 +274,15 @@ func TestSuggest(t *testing.T) {
 
 		"ErrTemplHardcodedHref/simple": {
 			err:  &parser.ErrorTemplHardcodedHref{URL: "/login"},
-			want: `fix: Use href={ href.Login(...) } instead of "/login"`,
+			want: `fix: Use href={ href.PageLogin(...) } instead of "/login"`,
 		},
 		"ErrTemplHardcodedHref/index": {
 			err:  &parser.ErrorTemplHardcodedHref{URL: "/"},
-			want: `fix: Use href={ href.Index(...) } instead of "/"`,
+			want: `fix: Use href={ href.PageIndex(...) } instead of "/"`,
 		},
 		"ErrTemplHardcodedHref/trailing slash": {
 			err:  &parser.ErrorTemplHardcodedHref{URL: "/profile/"},
-			want: `fix: Use href={ href.Profile(...) } instead of "/profile/"`,
+			want: `fix: Use href={ href.PageProfile(...) } instead of "/profile/"`,
 		},
 		"ErrTemplHardcodedHref/deep path fallback": {
 			err:  &parser.ErrorTemplHardcodedHref{URL: "/profile/edit"},

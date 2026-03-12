@@ -607,24 +607,68 @@ This includes all structural validations (missing types, invalid signatures,
 path comments, event definitions, parameter types, etc.) as well as
 template-specific checks on `.templ` files:
 
-- **Hardcoded href URLs**: using `href="/path"` instead of the generated `href` package
-  (e.g. `href={ href.Login() }`).
-- **Hardcoded action URLs**: using `action="/path"` instead of the generated `action` package
-  (e.g. `action={ action.POSTPageProfileSave() }`).
+- **Hardcoded href**: a static `href="/path"` on an `<a>` tag or an expression
+  `href={ "/path" }` / `href={ SomeConst }` whose value resolves to a disallowed URL.
+  Use the generated `href` package instead (e.g. `href={ href.PageLogin() }`).
+- **Unverifiable href expression**: an expression `href` on an `<a>` tag that contains
+  a function call not from the `href` package (e.g. `href={ templ.SafeURL("/about") }`,
+  `href={ loginHref() }`, `href={ fmt.Sprintf(...) }`). The linter cannot statically
+  verify these, so they must use `href` package functions.
+- **`href.External` with internal URL**: `href.External("/login")` wrapping a URL that
+  looks app-internal.
+- **Hardcoded action URLs**: using `action="/path"` instead of the generated `action`
+  package (e.g. `action={ action.POSTPageProfileSave() }`).
+- **Action context**: using an `action.XXX()` call in an attribute that is not a Datastar
+  action context (`data-on:*`, `data-on-*`, `data-init*`). For example,
+  `action.POSTPageIndexSubmit()` in an `href` or plain HTML `action` attribute.
 - **Action on wrong page**: using an action that belongs to a different page
   (e.g. `action.POSTPageProfileSave()` in a template rendered by `PageSettings`).
   App-level actions are allowed on any page.
 
-URLs starting with `/static/`, `//`, or non-`/` prefixes (external URLs) are exempt
-from the hardcoded href/action checks.
+### Allowed href values
+
+The following href values are allowed without the `href` package and will not
+produce lint errors:
+
+- Fragment-only: `#section`, `#`
+- Protocol-relative: `//cdn.example.com`
+- Absolute with scheme: `https://...`, `mailto:...`, `tel:...`, `sms:...`, `ftp://...`
+- Package-level `const` values that resolve to one of the above
+- Backtick and double-quoted string literals that resolve to one of the above
+
+The following are always disallowed:
+
+- Root-relative paths: `/login`, `/static/style.css`
+- Relative paths: `relative`, `./x`, `../x`
+- Query-only: `?tab=settings`
+- Empty string: `""`
+- `javascript:` URLs
+
+### Expression href validation
+
+Expression href attributes (`href={ expr }`) are parsed as Go AST and validated:
+
+1. **`href` package calls** (`href.PageXxx()`, `href.External(...)`, `href.Asset(...)`)
+   are always allowed. For `href.External`, the first argument is checked if it is a
+   string literal or constant — if it resolves to a disallowed URL, an error is reported.
+2. **Any other function call** (e.g. `templ.SafeURL(...)`, `fmt.Sprintf(...)`,
+   `loginHref()`) is rejected because the result cannot be statically verified.
+3. **String literals and constants** are resolved and checked against the allowed/disallowed
+   rules above.
+4. **Bare identifiers** are resolved via package-level `const` values. Variables are not
+   trusted (they can be reassigned).
 
 ### Suppressing Lint Errors
 
-Use `//datapages:nolint` in a templ file to suppress the next element's lint errors:
+Use `//datapages:nolint` in a templ file to suppress the next element's lint errors.
+An optional trailing explanation comment is allowed:
 
 ```templ
 //datapages:nolint
 <a href="/legacy-path">Legacy</a>
+
+//datapages:nolint // migrating to href package in #1234
+<a href="/another-legacy">Another</a>
 ```
 
 The directive applies to the immediately following non-whitespace sibling element.

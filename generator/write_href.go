@@ -39,6 +39,8 @@ func (w *Writer) WritePkgHref(m *model.App) {
 	}
 
 	w.writeHrefHeader(needsStrconv, needsStrings)
+	w.writeHrefExternal()
+	w.writeHrefAsset()
 
 	for _, p := range m.Pages {
 		if p.PageSpecialization == model.PageTypeError500 {
@@ -59,15 +61,61 @@ func (w *Writer) writeHrefHeader(needsStrconv, needsStrings bool) {
 	w.Line(0, "package href")
 	w.Line(0, "")
 
-	switch {
-	case needsStrconv && needsStrings:
-		w.Line(0, "import (")
-		w.Line(1, `"strconv"`)
-		w.Line(1, `"strings"`)
-		w.Line(0, ")")
-	case needsStrings:
-		w.Line(0, `import "strings"`)
+	// Always need log/slog and sync for SetLogger/External.
+	w.Line(0, "import (")
+	w.Line(1, `"log/slog"`)
+	if w.assetsURLPrefix != "" {
+		w.Line(1, `"path"`)
 	}
+	if needsStrconv {
+		w.Line(1, `"strconv"`)
+	}
+	if needsStrings || w.assetsURLPrefix != "" {
+		w.Line(1, `"strings"`)
+	}
+	w.Line(1, `"sync/atomic"`)
+	w.Line(0, "")
+	w.Line(1, `"github.com/romshark/datapages/hrefcheck"`)
+	w.Line(0, ")")
+}
+
+func (w *Writer) writeHrefExternal() {
+	w.Line(0, "")
+	w.Line(0, "var logger atomic.Pointer[slog.Logger]")
+	w.Line(0, "")
+	w.Line(0, "func init() { logger.Store(slog.Default()) }")
+	w.Line(0, "")
+	w.Line(0, "// SetLogger sets the logger used by External to log invalid URLs.")
+	w.Line(0, "// It is safe for concurrent use.")
+	w.Line(0, "func SetLogger(l *slog.Logger) { logger.Store(l) }")
+	w.Line(0, "")
+	w.Line(0, "func getLogger() *slog.Logger { return logger.Load() }")
+	w.Line(0, "")
+	w.Line(0, "// External returns url as-is for use in href attributes.")
+	w.Line(0, "// It logs a warning at runtime if the URL is not an allowed")
+	w.Line(0, "// non-relative href (e.g. app-internal paths, javascript:, relative URLs).")
+	w.Linef(0, "func External(url string) string {")
+	if w.assetsURLPrefix != "" {
+		w.Linef(1, `if !hrefcheck.IsAllowedNonRelativeHref(url) && !strings.HasPrefix(url, %q) {`, w.assetsURLPrefix)
+	} else {
+		w.Line(1, `if !hrefcheck.IsAllowedNonRelativeHref(url) {`)
+	}
+	w.Line(2, `getLogger().Warn("href.External called with app-internal URL", "url", url)`)
+	w.Line(1, "}")
+	w.Line(1, "return url")
+	w.Line(0, "}")
+}
+
+func (w *Writer) writeHrefAsset() {
+	if w.assetsURLPrefix == "" {
+		return
+	}
+	w.Line(0, "")
+	w.Line(0, "// Asset returns the URL path for a static asset file.")
+	w.Linef(0, `// For example, Asset("style.css") returns %q.`, w.assetsURLPrefix+"style.css")
+	w.Line(0, "func Asset(p string) string {")
+	w.Linef(1, "return path.Join(%q, p)", w.assetsURLPrefix)
+	w.Line(0, "}")
 }
 
 // writeRouteComment writes a doc comment line like "// FuncName references /route/{$}\n".

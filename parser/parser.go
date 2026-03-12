@@ -20,6 +20,7 @@ import (
 	"github.com/romshark/datapages/parser/internal/paramvalidation"
 	"github.com/romshark/datapages/parser/internal/structinspect"
 	"github.com/romshark/datapages/parser/internal/structtag"
+	"github.com/romshark/datapages/parser/internal/templcheck"
 	"github.com/romshark/datapages/parser/internal/typecheck"
 	"github.com/romshark/datapages/parser/model"
 	"github.com/romshark/datapages/parser/validate"
@@ -1924,4 +1925,9 @@ func actionIsUnderPage(page, action string) bool {
 		return false // disallow exact match
 	}
 	return action[len(page)] == '/'
+}
+
+// checkTemplFiles delegates to the templcheck subpackage.
+func checkTemplFiles(ctx *parseCtx, errs *Errors) {
+	templcheck.Check(ctx.pkg, ctx.app, errs.ErrAt)
 }

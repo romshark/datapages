@@ -159,6 +159,11 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 		w.writeQuoted(w.genImport + "/assets")
 		w.Byte('\n')
 	}
+	if w.genImport != "" {
+		w.Byte('\t')
+		w.writeQuoted(w.genImport + "/href")
+		w.Byte('\n')
+	}
 	w.Line(0, "")
 	if w.prometheus {
 		w.Line(1, `"github.com/prometheus/client_golang/prometheus"`)
@@ -793,6 +798,7 @@ func NewServer(
 		}
 		s.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
 	}
+	href.SetLogger(s.logger)
 	s.httpServer.Handler = s
 	if s.httpServer.ErrorLog == nil {
 		s.httpServer.ErrorLog = slog.NewLogLogger(

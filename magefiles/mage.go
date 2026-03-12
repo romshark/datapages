@@ -16,6 +16,14 @@ const (
 	toolTempl       = "github.com/a-h/templ/cmd/templ@v0.3.1001"
 )
 
+// submoduleRoots lists directories containing sub-modules (their own go.mod)
+// that mage commands need to operate on.
+var submoduleRoots = []string{
+	"example",
+	"parser/testdata",
+	"parser/internal/templcheck/testdata",
+}
+
 // Build verifies the datapages CLI and all example binaries compile.
 func Build() error {
 	if err := BuildCLI(); err != nil {
@@ -167,7 +175,7 @@ func ModUpdate() error {
 	if err := run("go", "get", "-u", "-t", "./..."); err != nil {
 		return err
 	}
-	for _, root := range []string{"example", "parser/testdata"} {
+	for _, root := range submoduleRoots {
 		if err := forEachModule(root, func(dir string) error {
 			fmt.Println("==> go get -u -t ./... in", dir)
 			return runIn(dir, "go", "get", "-u", "-t", "./...")
@@ -183,7 +191,7 @@ func ModTidy() error {
 	if err := run("go", "mod", "tidy"); err != nil {
 		return err
 	}
-	for _, root := range []string{"example", "parser/testdata"} {
+	for _, root := range submoduleRoots {
 		if err := forEachModule(root, func(dir string) error {
 			fmt.Println("==> go mod tidy in", dir)
 			return runIn(dir, "go", "mod", "tidy")
@@ -210,7 +218,7 @@ func GoFixCLI() error {
 
 // GoFixExamples runs go fix on all example and parser testdata modules.
 func GoFixExamples() error {
-	for _, root := range []string{"example", "parser/testdata"} {
+	for _, root := range submoduleRoots {
 		if err := forEachModule(root, func(dir string) error {
 			fmt.Println("==> go fix ./... in", dir)
 			return runIn(dir, "go", "fix", "./...")
@@ -253,7 +261,7 @@ func GenDatapages() error {
 
 // GenTempl generates templ templates for examples and parser testdata.
 func GenTempl() error {
-	for _, root := range []string{"example", "parser/testdata"} {
+	for _, root := range submoduleRoots {
 		if err := forEachModule(root, func(dir string) error {
 			fmt.Println("==> templ generate in", dir)
 			return runIn(dir, "go", "run", toolTempl, "generate")

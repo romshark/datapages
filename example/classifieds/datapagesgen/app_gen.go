@@ -30,6 +30,7 @@ import (
 
 	"github.com/romshark/datapages/example/classifieds/app"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/assets"
+	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -846,6 +847,7 @@ func NewServer(
 		}
 		s.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
 	}
+	href.SetLogger(s.logger)
 	s.httpServer.Handler = s
 	if s.httpServer.ErrorLog == nil {
 		s.httpServer.ErrorLog = slog.NewLogLogger(

@@ -463,7 +463,7 @@ func typeCheckGenerated(t *testing.T, src []byte) {
 	f, err := goparser.ParseFile(fset, "gen.go", src, 0)
 	require.NoError(t, err, "parse error")
 
-	conf := types.Config{Importer: importer.Default()}
+	conf := types.Config{Importer: importer.ForCompiler(fset, "source", nil)}
 	_, err = conf.Check("action", fset, []*ast.File{f}, nil)
 	require.NoError(t, err,
 		"generated code does not type-check:\n%s", string(src))

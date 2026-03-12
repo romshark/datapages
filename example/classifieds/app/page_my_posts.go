@@ -24,7 +24,7 @@ func (p PageMyPosts) GET(
 	err error,
 ) {
 	if session.UserID == "" {
-		return nil, nil, href.Login(), nil
+		return nil, nil, href.PageLogin(), nil
 	}
 
 	user, err := p.App.repo.UserByName(r.Context(), session.UserID)

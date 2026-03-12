@@ -14,6 +14,7 @@ import (
 
 	"github.com/romshark/datapages/parser/internal/paramvalidation"
 	"github.com/romshark/datapages/parser/internal/structtag"
+	"github.com/romshark/datapages/parser/internal/templcheck"
 )
 
 var (
@@ -160,9 +161,12 @@ var (
 		"event with TargetUserIDs requires a Session type",
 	)
 
-	ErrTemplHardcodedHref   = errors.New("template uses hardcoded app-internal href")
-	ErrTemplHardcodedAction = errors.New("template uses hardcoded app-internal action")
-	ErrTemplActionWrongPage = errors.New("template uses action from another page")
+	ErrTemplHardcodedHref        = templcheck.ErrHardcodedHref
+	ErrTemplHardcodedAction      = templcheck.ErrHardcodedAction
+	ErrTemplActionWrongPage      = templcheck.ErrActionWrongPage
+	ErrTemplActionContext        = templcheck.ErrActionContext
+	ErrTemplHrefUnverifiable     = templcheck.ErrHrefUnverifiable
+	ErrTemplExternalWithInternal = templcheck.ErrExternalWithInternal
 )
 
 func normPos(pos token.Position) token.Position {
@@ -505,41 +509,15 @@ func (e *ErrorEventTargetUserIDsNoSession) Unwrap() error {
 	return ErrEventTargetUserIDsNoSession
 }
 
-// ErrorTemplHardcodedHref is ErrTemplHardcodedHref with context.
-type ErrorTemplHardcodedHref struct {
-	URL string // e.g. "/login"
-}
-
-func (e *ErrorTemplHardcodedHref) Error() string {
-	return fmt.Sprintf("%v: %s", ErrTemplHardcodedHref, e.URL)
-}
-
-func (e *ErrorTemplHardcodedHref) Unwrap() error { return ErrTemplHardcodedHref }
-
-// ErrorTemplHardcodedAction is ErrTemplHardcodedAction with context.
-type ErrorTemplHardcodedAction struct {
-	URL string // e.g. "/login/submit"
-}
-
-func (e *ErrorTemplHardcodedAction) Error() string {
-	return fmt.Sprintf("%v: %s", ErrTemplHardcodedAction, e.URL)
-}
-
-func (e *ErrorTemplHardcodedAction) Unwrap() error { return ErrTemplHardcodedAction }
-
-// ErrorTemplActionWrongPage is ErrTemplActionWrongPage with context.
-type ErrorTemplActionWrongPage struct {
-	ActionFunc string // e.g. "POSTPageProfileSave"
-	PageType   string // e.g. "PageSettings" (the page whose template uses the action)
-	OwnerPage  string // e.g. "PageProfile" or "App" (the page/app that owns the action)
-}
-
-func (e *ErrorTemplActionWrongPage) Error() string {
-	return fmt.Sprintf("%v: %s belongs to %s, used in %s",
-		ErrTemplActionWrongPage, e.ActionFunc, e.OwnerPage, e.PageType)
-}
-
-func (e *ErrorTemplActionWrongPage) Unwrap() error { return ErrTemplActionWrongPage }
+// Type aliases for templ-check error types defined in the templcheck subpackage.
+type (
+	ErrorTemplHardcodedHref        = templcheck.ErrorHardcodedHref
+	ErrorTemplHardcodedAction      = templcheck.ErrorHardcodedAction
+	ErrorTemplActionWrongPage      = templcheck.ErrorActionWrongPage
+	ErrorTemplActionContext        = templcheck.ErrorActionContext
+	ErrorTemplHrefUnverifiable     = templcheck.ErrorHrefUnverifiable
+	ErrorTemplExternalWithInternal = templcheck.ErrorExternalWithInternal
+)
 
 // ErrorSignatureUnsupportedInput is ErrSignatureUnsupportedInput with context.
 type ErrorSignatureUnsupportedInput struct {

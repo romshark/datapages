@@ -4,10 +4,36 @@
 // Use these in templates instead of hardcoding URLs.
 package href
 
-import "strings"
+import (
+	"log/slog"
+	"strings"
+	"sync/atomic"
 
-// UserPost references /user/{name}/post/{$}
-func UserPost(name string, query QueryUserPost) string {
+	"github.com/romshark/datapages/hrefcheck"
+)
+
+var logger atomic.Pointer[slog.Logger]
+
+func init() { logger.Store(slog.Default()) }
+
+// SetLogger sets the logger used by External to log invalid URLs.
+// It is safe for concurrent use.
+func SetLogger(l *slog.Logger) { logger.Store(l) }
+
+func getLogger() *slog.Logger { return logger.Load() }
+
+// External returns url as-is for use in href attributes.
+// It logs a warning at runtime if the URL is not an allowed
+// non-relative href (e.g. app-internal paths, javascript:, relative URLs).
+func External(url string) string {
+	if !hrefcheck.IsAllowedNonRelativeHref(url) {
+		getLogger().Warn("href.External called with app-internal URL", "url", url)
+	}
+	return url
+}
+
+// PageUserPost references /user/{name}/post/{$}
+func PageUserPost(name string, query QueryPageUserPost) string {
 	anyQuery := query.Sort != ""
 
 	var b strings.Builder
@@ -52,7 +78,7 @@ func UserPost(name string, query QueryUserPost) string {
 	return b.String()
 }
 
-// QueryUserPost is the query parameters for UserPost
-type QueryUserPost struct {
+// QueryPageUserPost is the query parameters for PageUserPost
+type QueryPageUserPost struct {
 	Sort string `query:"sort"`
 }

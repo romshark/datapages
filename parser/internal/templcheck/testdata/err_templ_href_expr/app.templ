@@ -1,0 +1,23 @@
+package app
+
+import (
+	"fmt"
+
+	"datapagestest/fixture/err_templ_href_expr/datapagesgen/href"
+)
+
+templ page() {
+	/* OK: href package functions */
+	<a href={ href.PageIndex() }>Index</a>
+	<a href={ href.PageProfile() }>Profile</a>
+	<a href={ href.External("https://example.com") }>External</a>
+	<a href={ href.External(fmt.Sprintf("mailto:%s", "test@example.com")) }>Email us</a>
+
+	/* ErrHrefUnverifiable: not using href package */
+	<a href={ someOtherFunc() }>Bad</a>
+	<a href={ buildURL(id) }>Bad</a>
+
+	/* ErrExternalWithInternal: href.External with internal URL */
+	<a href={ href.External("/login") }>Bad</a>
+	<a href={ href.External(InternalConst) }>Bad</a>
+}

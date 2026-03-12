@@ -1,0 +1,20 @@
+package app
+
+import "datapagestest/fixture/err_templ_action_context/datapagesgen/action"
+
+templ page() {
+	/* ErrTemplActionContext: action in href */
+	<a href={ action.POSTPageIndexSubmit() }>Submit</a>
+	/* ErrTemplActionContext: action in HTML form action */
+	<form action={ action.POSTPageIndexSubmit() }>
+		<button type="submit">Submit</button>
+	</form>
+	/* OK: action in data-on:click */
+	<button data-on:click={ action.POSTPageIndexSubmit() }>Submit</button>
+	/* OK: action in data-on-intersect */
+	<div data-on-intersect={ action.POSTPageIndexSubmit() }></div>
+	/* OK: action in data-init */
+	<div data-init={ action.POSTPageIndexSubmit() }></div>
+	//datapages:nolint
+	<a href={ action.POSTPageIndexSubmit() }>Suppressed</a>
+}

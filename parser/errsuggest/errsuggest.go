@@ -252,6 +252,24 @@ func Suggest(err error) string {
 			"fix: Use href={ href.Xxx(...) } from the generated href package "+
 				"instead of %q", d.URL)
 
+	case errors.Is(err, parser.ErrTemplHrefUnverifiable):
+		return "fix: Use href={ href.Xxx(...) } from the generated href package, " +
+			"or href={ href.External(url) } for external URLs"
+
+	case errors.Is(err, parser.ErrTemplExternalWithInternal):
+		var d *parser.ErrorTemplExternalWithInternal
+		if !errors.As(err, &d) {
+			return ""
+		}
+		if fn := hrefFuncFromURL(d.URL); fn != "" {
+			return fmt.Sprintf(
+				"fix: Use href={ href.%s(...) } instead of href.External(%q)",
+				fn, d.URL)
+		}
+		return fmt.Sprintf(
+			"fix: Use href={ href.Xxx(...) } from the generated href package "+
+				"instead of href.External(%q)", d.URL)
+
 	case errors.Is(err, parser.ErrTemplActionWrongPage):
 		var d *parser.ErrorTemplActionWrongPage
 		if !errors.As(err, &d) {
@@ -369,6 +387,7 @@ func Suggest(err error) string {
 //   - ErrDisableRefreshNotBool        — constraint is clear from message
 //   - ErrDisableRefreshNotGET         — message states it must be in a GET handler
 //   - ErrEventTargetUserIDsNoSession  — has dedicated suggestion above
+//   - ErrTemplActionContext            — message states the required context
 
 // pageTypePath derives a suggested route path from a page type name.
 // "PageIndex" -> "/", "PageProfile" -> "/profile/", "PageFooBar" -> "/foobar/".
@@ -434,7 +453,7 @@ func capitalize(s string) string {
 }
 
 // hrefFuncFromURL derives a likely href package function name from a URL path.
-// "/" → "Index", "/login" → "Login", "/profile/" → "Profile".
+// "/" → "PageIndex", "/login" → "PageLogin", "/profile/" → "PageProfile".
 // Returns "" when the URL contains path variables or cannot be mapped.
 func hrefFuncFromURL(url string) string {
 	// Strip query string.
@@ -443,7 +462,7 @@ func hrefFuncFromURL(url string) string {
 	}
 	url = strings.Trim(url, "/")
 	if url == "" {
-		return "Index"
+		return "PageIndex"
 	}
 	// Take only the first path segment (deeper paths are usually actions).
 	if strings.Contains(url, "/") {
@@ -453,8 +472,8 @@ func hrefFuncFromURL(url string) string {
 	if strings.ContainsAny(url, "{}") {
 		return ""
 	}
-	// Capitalize: "login" → "Login", "myposts" → "Myposts"
-	return capitalize(url)
+	// Capitalize: "login" → "PageLogin", "myposts" → "PageMyposts"
+	return "Page" + capitalize(url)
 }
 
 const suggestUnsupportedFieldType = "fix: Use either of: string, bool, " +
