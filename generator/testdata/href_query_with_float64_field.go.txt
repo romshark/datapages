@@ -18,8 +18,13 @@ var logger atomic.Pointer[slog.Logger]
 func init() { logger.Store(slog.Default()) }
 
 // SetLogger sets the logger used by External to log invalid URLs.
-// It is safe for concurrent use.
-func SetLogger(l *slog.Logger) { logger.Store(l) }
+// Passing nil resets to the default logger. It is safe for concurrent use.
+func SetLogger(l *slog.Logger) {
+	if l == nil {
+		l = slog.Default()
+	}
+	logger.Store(l)
+}
 
 func getLogger() *slog.Logger { return logger.Load() }
 
