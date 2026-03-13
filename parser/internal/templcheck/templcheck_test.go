@@ -41,6 +41,14 @@ type posErr struct {
 	err error
 }
 
+func requireNoErrs(t *testing.T, errs []posErr) {
+	t.Helper()
+	for _, pe := range errs {
+		t.Errorf("unexpected error at %s: %v", pe.pos, pe.err)
+	}
+	require.Empty(t, errs)
+}
+
 func check(t *testing.T, fixtureName string, app *model.App) []posErr {
 	t.Helper()
 	pkg := loadPkg(t, fixtureName)
@@ -304,26 +312,17 @@ func TestCheck_ErrContext(t *testing.T) {
 
 func TestCheck_OKHref(t *testing.T) {
 	errs := check(t, "ok_templ_href", nil)
-	for _, pe := range errs {
-		t.Errorf("unexpected error at %s: %v", pe.pos, pe.err)
-	}
-	require.Empty(t, errs)
+	requireNoErrs(t, errs)
 }
 
 func TestCheck_OKHrefAlias(t *testing.T) {
 	errs := check(t, "ok_templ_href_alias", nil)
-	for _, pe := range errs {
-		t.Errorf("unexpected error at %s: %v", pe.pos, pe.err)
-	}
-	require.Empty(t, errs)
+	requireNoErrs(t, errs)
 }
 
 func TestCheck_OKHrefDot(t *testing.T) {
-	errs := check(t, "ok_templ_href_dot", nil)
-	for _, pe := range errs {
-		t.Errorf("unexpected error at %s: %v", pe.pos, pe.err)
-	}
-	require.Empty(t, errs)
+	errs := check(t, "ok_templ_href_dot/template", nil)
+	requireNoErrs(t, errs)
 }
 
 func BenchmarkCheck_ErrHref(b *testing.B) {

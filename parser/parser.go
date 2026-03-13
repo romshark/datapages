@@ -22,6 +22,7 @@ import (
 	"github.com/romshark/datapages/parser/internal/structtag"
 	"github.com/romshark/datapages/parser/internal/templcheck"
 	"github.com/romshark/datapages/parser/internal/typecheck"
+	"github.com/romshark/datapages/parser/internal/urlpath"
 	"github.com/romshark/datapages/parser/model"
 	"github.com/romshark/datapages/parser/validate"
 )
@@ -1890,8 +1891,8 @@ func typeStruct(ctx *parseCtx, typeName string) *ast.StructType {
 //   - boundary: either page=="/" OR next char after prefix is '/'
 //   - disallow exact equality (action == page) to avoid colliding with GET route
 func actionIsUnderPage(page, action string) bool {
-	page = cleanPath(page)
-	action = cleanPath(action)
+	page = urlpath.Clean(page)
+	action = urlpath.Clean(action)
 
 	if page == "" || action == "" {
 		return false

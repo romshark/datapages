@@ -9,6 +9,7 @@ import (
 
 	"github.com/romshark/datapages/parser"
 	"github.com/romshark/datapages/parser/internal/paramvalidation"
+	"github.com/romshark/datapages/parser/internal/urlpath"
 )
 
 // toSnakeCase converts a PascalCase or camelCase Go identifier to snake_case.
@@ -100,7 +101,7 @@ func Suggest(err error) string {
 		suffix := methodPathSuffix(d.MethodName)
 		base := "/"
 		if d.PagePath != "" && d.PagePath != "/" {
-			base = cleanPath(d.PagePath) + "/"
+			base = urlpath.Clean(d.PagePath) + "/"
 		}
 		path := base + suffix
 		return fmt.Sprintf("fix: Add `// %s is %s`", d.MethodName, path)
@@ -111,7 +112,7 @@ func Suggest(err error) string {
 			return ""
 		}
 		suffix := methodPathSuffix(d.MethodName)
-		path := cleanPath(d.PagePath) + "/" + suffix
+		path := urlpath.Clean(d.PagePath) + "/" + suffix
 		return fmt.Sprintf("fix: Use `// %s is %s`", d.MethodName, path)
 
 	case errors.Is(err, parser.ErrPageMissingGET):
@@ -490,10 +491,3 @@ const suggestUnsupportedFieldType = "fix: Use either of: string, bool, " +
 	"int, int8, int16, int32, int64, " +
 	"uint, uint8, uint16, uint32, uint64, " +
 	"float32, float64, or encoding.TextUnmarshaler"
-
-func cleanPath(p string) string {
-	if p == "/" {
-		return p
-	}
-	return strings.TrimRight(p, "/")
-}

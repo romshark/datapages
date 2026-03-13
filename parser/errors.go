@@ -336,13 +336,6 @@ func sortErrors(e *Errors) {
 	})
 }
 
-func cleanPath(p string) string {
-	if p == "/" {
-		return p
-	}
-	return strings.TrimRight(p, "/")
-}
-
 // ErrorPageMissingFieldApp is ErrPageMissingFieldApp with suggestion context.
 type ErrorPageMissingFieldApp struct {
 	TypeName string // e.g. "PageProfile"
