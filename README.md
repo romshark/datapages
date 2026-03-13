@@ -114,8 +114,9 @@ including handler signatures, parameters, return values, events, sessions, and m
   You must use Datastar actions for any sort of server interactivity.
 
 - The href linter cannot detect absolute links to your own domain
-  (e.g. `href="https://mydomain.com/login"`). These bypass the linter because
-  they look like external URLs. Use the generated `href.PageXxx()` builders instead.
+  (e.g. `href="https://mydomain.com/login"`). These bypass the linter because they
+  have an explicit URL scheme, which the linter treats as external.
+  Use the generated `href.PageXxx()` builders instead.
 
 ## Modules
 

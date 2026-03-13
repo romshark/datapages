@@ -619,10 +619,10 @@ template-specific checks on `.templ` files:
 - **Hardcoded action URLs**: using `action="/path"` instead of the generated `action`
   package (e.g. `action={ action.POSTPageProfileSave() }`).
 - **Action context**: using an `action.XXX()` call in an attribute that is not a Datastar
-  action context (`data-on:*`, `data-on-*`, `data-init*`). For example,
+  action context (`data-on:<event>`, `data-on-<plugin>`, `data-init`). For example,
   `action.POSTPageIndexSubmit()` in an `href` or plain HTML `action` attribute.
 - **Href context**: using an `href.XXX()` call in a Datastar action context
-  (`data-on:*`, `data-on-*`, `data-init*`). Href functions return URL paths,
+  (`data-on:<event>`, `data-on-<plugin>`, `data-init`). Href functions return URL paths,
   not Datastar action strings — use `action.XXX()` instead.
 - **Action on wrong page**: using an action that belongs to a different page
   (e.g. `action.POSTPageProfileSave()` in a template rendered by `PageSettings`).
@@ -636,7 +636,7 @@ produce lint errors:
 - Fragment-only: `#section`, `#`
 - Protocol-relative: `//cdn.example.com`
 - Absolute with scheme: `https://...`, `mailto:...`, `tel:...`, `sms:...`, `ftp://...`
-- Package-level `const` values that resolve to one of the above
+- `const` values that resolve to one of the above
 - Backtick and double-quoted string literals that resolve to one of the above
 
 The following are always disallowed:
@@ -658,8 +658,9 @@ Expression href attributes (`href={ expr }`) are parsed as Go AST and validated:
    `loginHref()`) is rejected because the result cannot be statically verified.
 3. **String literals and constants** are resolved and checked against the allowed/disallowed
    rules above.
-4. **Bare identifiers** are resolved via package-level `const` values. Variables are not
-   trusted (they can be reassigned).
+4. **Bare identifiers** are resolved via `const` values. **Qualified
+   identifiers** (e.g. `urls.LoginURL`) are resolved via exported constants from
+   imported packages. Variables are not trusted (their value cannot be determined statically).
 
 ### Suppressing Lint Errors
 
@@ -675,6 +676,8 @@ An optional trailing explanation comment is allowed:
 ```
 
 The directive applies to the immediately following non-whitespace sibling element.
+It suppresses href/action attribute errors only — it does **not** suppress
+cross-page action ownership errors.
 
 ## Technical Limitations
 
