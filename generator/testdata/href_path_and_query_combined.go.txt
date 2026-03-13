@@ -11,9 +11,9 @@ func UserPost(name string, query QueryUserPost) string {
 	anyQuery := query.Sort != ""
 
 	var b strings.Builder
-	l := len("/user/")
-	+len(name)
-	+len("/post/")
+	l := len("/user/") +
+		len(name) +
+		len("/post/")
 	if anyQuery {
 		l += len("?")
 	}

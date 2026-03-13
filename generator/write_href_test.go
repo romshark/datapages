@@ -333,6 +333,15 @@ func TestWritePkgHrefTypeChecks(t *testing.T) {
 					hrefFieldDef{"SSValue", types.Typ[types.String], `path:"s_s_value"`},
 				), nil),
 		}},
+		"path and query combined": {Pages: []*model.Page{
+			hrefPageWithPath("PageUserPost", "/user/{name}/post/{$}",
+				hrefStruct(
+					hrefFieldDef{"Name", types.Typ[types.String], `path:"name"`},
+				),
+				hrefStruct(
+					hrefFieldDef{"Sort", types.Typ[types.String], `query:"sort"`},
+				)),
+		}},
 	}
 
 	// Add a test for each integer type as query param.

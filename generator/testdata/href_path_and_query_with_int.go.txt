@@ -23,9 +23,9 @@ func Catalog(category string, query QueryCatalog) string {
 		query.Sort != ""
 
 	var b strings.Builder
-	l := len("/catalog/")
-	+len(category)
-	+len("/")
+	l := len("/catalog/") +
+		len(category) +
+		len("/")
 	if anyQuery {
 		l += len("?")
 	}
