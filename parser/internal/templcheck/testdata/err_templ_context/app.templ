@@ -36,4 +36,8 @@ templ page() {
 	<a href={ href.PageIndex() }>Home</a>
 	//datapages:nolint
 	<a href={ action.POSTPageIndexSubmit() }>Suppressed</a>
+	/* ErrActionContext: action in data-only (NOT a Datastar attr) */
+	<div data-only={ action.POSTPageIndexSubmit() }></div>
+	/* OK: href in data-only (NOT a Datastar attr, no ErrHrefContext) */
+	<div data-only={ href.PageIndex() }></div>
 }

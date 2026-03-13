@@ -236,9 +236,48 @@ func checkElementAttrs(
 }
 
 // isDatastarActionAttr reports whether the attribute name is a valid
-// Datastar action context (data-on:*, data-on-*, or data-init*).
+// Datastar action context.
+//
+// Matched attributes:
+//   - data-on:<event> — standard DOM events (open-ended: click, submit, load, …)
+//   - data-on-intersect, data-on-interval, data-on-signal-patch — Datastar plugins
+//   - data-init
+//
+// Plugin and data-init attributes may carry Datastar modifiers
+// (e.g. data-on-intersect.once, data-on-interval__duration.500ms).
 func isDatastarActionAttr(name string) bool {
-	return strings.HasPrefix(name, "data-on") || strings.HasPrefix(name, "data-init")
+	// data-on:<event> — DOM events are open-ended, prefix match is required.
+	if strings.HasPrefix(name, "data-on:") {
+		return true
+	}
+	// data-on-<plugin> — known Datastar plugin events.
+	for _, plugin := range datastarOnPlugins {
+		if hasAttrPrefix(name, plugin) {
+			return true
+		}
+	}
+	// data-init with optional modifiers.
+	return hasAttrPrefix(name, "data-init")
+}
+
+// datastarOnPlugins lists the known Datastar data-on-<plugin> attribute prefixes.
+var datastarOnPlugins = []string{
+	"data-on-intersect",
+	"data-on-interval",
+	"data-on-signal-patch",
+}
+
+// hasAttrPrefix reports whether name equals prefix or starts with prefix
+// followed by a Datastar modifier separator ('.' or '__').
+func hasAttrPrefix(name, prefix string) bool {
+	if !strings.HasPrefix(name, prefix) {
+		return false
+	}
+	if len(name) == len(prefix) {
+		return true
+	}
+	rest := name[len(prefix):]
+	return rest[0] == '.' || strings.HasPrefix(rest, "__")
 }
 
 // actionRefMatch matches action.FuncName( in Go expressions.

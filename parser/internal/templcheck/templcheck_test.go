@@ -216,6 +216,12 @@ func TestCheck_ErrContext(t *testing.T) {
 			line:       12,
 			col:        17,
 		},
+		"data-only-POSTPageIndexSubmit": {
+			attrName:   "data-only",
+			actionFunc: "POSTPageIndexSubmit",
+			line:       40,
+			col:        19,
+		},
 	}
 
 	type hrefExpect struct {
