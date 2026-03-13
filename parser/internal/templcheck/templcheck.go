@@ -66,6 +66,12 @@ func (m *pkgMatcher) isCall(call *ast.CallExpr) (funcName string, ok bool) {
 	return sel.Sel.Name, true
 }
 
+// parsedTempl holds a pre-parsed .templ file and its base filename.
+type parsedTempl struct {
+	file     *templparser.TemplateFile
+	filename string // base filename
+}
+
 // checker holds resolved state shared across all checks.
 type checker struct {
 	errFn        ErrFunc
@@ -89,11 +95,22 @@ func Check(
 		actionPkg:    resolvePkgMatcher(pkg, "/action", "action"),
 	}
 	templPaths := templFilesFromPackage(pkg)
+	var parsed []parsedTempl
 	for _, templPath := range templPaths {
-		c.checkTemplFile(templPath)
+		tf, err := templparser.Parse(templPath)
+		if err != nil {
+			continue
+		}
+		parsed = append(parsed, parsedTempl{
+			file:     tf,
+			filename: filepath.Base(templPath),
+		})
+	}
+	for _, pt := range parsed {
+		c.checkParsedTemplFile(pt.filename, pt.file)
 	}
 	if app != nil {
-		c.checkActionOwnership(pkg, app, templPaths)
+		c.checkActionOwnership(pkg, app, parsed)
 	}
 }
 
@@ -228,14 +245,7 @@ func pkgExports(pkg *packages.Package, importPath string) map[string]bool {
 	return exports
 }
 
-func (c *checker) checkTemplFile(path string) {
-	tf, err := templparser.Parse(path)
-	if err != nil {
-		return
-	}
-
-	filename := filepath.Base(path)
-
+func (c *checker) checkParsedTemplFile(filename string, tf *templparser.TemplateFile) {
 	for _, node := range tf.Nodes {
 		tmpl, ok := node.(*templparser.HTMLTemplate)
 		if !ok {
@@ -613,7 +623,7 @@ type actionRef struct {
 func (c *checker) checkActionOwnership(
 	pkg *packages.Package,
 	app *model.App,
-	templPaths []string,
+	parsed []parsedTempl,
 ) {
 	// Build action ownership map: generated func name -> page type name (or "App").
 	actionOwner := buildActionOwnerMap(app)
@@ -621,10 +631,10 @@ func (c *checker) checkActionOwnership(
 		return
 	}
 
-	// Parse all templ files and extract function info.
+	// Extract function info from pre-parsed templ files.
 	funcsByName := map[string]*funcInfo{}
-	for _, path := range templPaths {
-		for _, fi := range c.parseTemplFuncInfos(path) {
+	for _, pt := range parsed {
+		for _, fi := range c.extractTemplFuncInfos(pt.filename, pt.file) {
 			funcsByName[fi.name] = fi
 		}
 	}
@@ -687,14 +697,11 @@ func buildActionOwnerMap(app *model.App) map[string]string {
 	return m
 }
 
-// parseTemplFuncInfos parses a .templ file and returns info for each
-// templ function defined in it.
-func (c *checker) parseTemplFuncInfos(path string) []*funcInfo {
-	tf, err := templparser.Parse(path)
-	if err != nil {
-		return nil
-	}
-	filename := filepath.Base(path)
+// extractTemplFuncInfos returns info for each templ function defined
+// in a pre-parsed .templ file.
+func (c *checker) extractTemplFuncInfos(
+	filename string, tf *templparser.TemplateFile,
+) []*funcInfo {
 	var funcs []*funcInfo
 	for _, node := range tf.Nodes {
 		tmpl, ok := node.(*templparser.HTMLTemplate)
