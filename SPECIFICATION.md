@@ -680,7 +680,9 @@ An optional trailing explanation comment is allowed:
 ```
 
 The directive applies to the immediately following non-whitespace sibling element.
-It suppresses href and form action attribute errors only — it does **not** suppress
+It suppresses all attribute-level lint errors (hardcoded href, unverifiable href,
+`href.External` with internal URL, hardcoded action, unverifiable action,
+form action, action/href context mismatch) — it does **not** suppress
 cross-page action ownership errors.
 
 ## Technical Limitations
