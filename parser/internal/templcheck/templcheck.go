@@ -68,10 +68,11 @@ func (m *pkgMatcher) isCall(call *ast.CallExpr) (funcName string, ok bool) {
 
 // checker holds resolved state shared across all checks.
 type checker struct {
-	errFn       ErrFunc
-	constValues map[string]string
-	hrefPkg     *pkgMatcher
-	actionPkg   *pkgMatcher
+	errFn        ErrFunc
+	constValues  map[string]string
+	importConsts map[string]map[string]string // localName -> constName -> value
+	hrefPkg      *pkgMatcher
+	actionPkg    *pkgMatcher
 }
 
 // Check validates .templ files in pkg and reports errors via errFn.
@@ -81,10 +82,11 @@ func Check(
 	errFn ErrFunc,
 ) {
 	c := checker{
-		errFn:       errFn,
-		constValues: resolveConstValues(pkg),
-		hrefPkg:     resolvePkgMatcher(pkg, "/href", "href"),
-		actionPkg:   resolvePkgMatcher(pkg, "/action", "action"),
+		errFn:        errFn,
+		constValues:  resolveConstValues(pkg),
+		importConsts: resolveImportConsts(pkg),
+		hrefPkg:      resolvePkgMatcher(pkg, "/href", "href"),
+		actionPkg:    resolvePkgMatcher(pkg, "/action", "action"),
 	}
 	templPaths := templFilesFromPackage(pkg)
 	for _, templPath := range templPaths {
@@ -110,6 +112,50 @@ func resolveConstValues(pkg *packages.Package) map[string]string {
 	return m
 }
 
+// resolveImportConsts builds a map from import local names to their exported
+// string constants. This allows the linter to resolve qualified identifiers
+// like urls.LoginURL in href expressions.
+func resolveImportConsts(pkg *packages.Package) map[string]map[string]string {
+	m := map[string]map[string]string{}
+	for _, f := range pkg.Syntax {
+		for _, imp := range f.Imports {
+			importPath, _ := strconv.Unquote(imp.Path.Value)
+			dep := pkg.Imports[importPath]
+			if dep == nil || dep.Types == nil {
+				continue
+			}
+			var localName string
+			if imp.Name != nil {
+				switch imp.Name.Name {
+				case "_", ".":
+					continue // blank and dot imports handled elsewhere
+				default:
+					localName = imp.Name.Name
+				}
+			} else {
+				localName = dep.Types.Name()
+			}
+			if _, ok := m[localName]; ok {
+				continue // already resolved this alias
+			}
+			consts := map[string]string{}
+			scope := dep.Types.Scope()
+			for _, name := range scope.Names() {
+				obj := scope.Lookup(name)
+				c, ok := obj.(*types.Const)
+				if !ok || c.Val().Kind() != constant.String {
+					continue
+				}
+				consts[name] = constant.StringVal(c.Val())
+			}
+			if len(consts) > 0 {
+				m[localName] = consts
+			}
+		}
+	}
+	return m
+}
+
 // templFilesFromPackage returns absolute paths of .templ files belonging
 // to pkg by finding _templ.go compiled files and deriving the source name.
 func templFilesFromPackage(pkg *packages.Package) []string {
@@ -118,7 +164,7 @@ func templFilesFromPackage(pkg *packages.Package) []string {
 		if !strings.HasSuffix(goFile, "_templ.go") {
 			continue
 		}
-		// foo_templ.go → foo.templ
+		// foo_templ.go -> foo.templ
 		base := strings.TrimSuffix(filepath.Base(goFile), "_templ.go") + ".templ"
 		templPath := filepath.Join(filepath.Dir(goFile), base)
 		paths = append(paths, templPath)
@@ -271,7 +317,7 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 				}
 				checkHrefExpr(
 					c.errFn, exprPos, a.Expression.Value,
-					c.constValues, c.hrefPkg,
+					c.constValues, c.importConsts, c.hrefPkg,
 				)
 			}
 			if isDatastarActionAttr(key.Name) {
@@ -346,17 +392,18 @@ func hasAttrPrefix(name, prefix string) bool {
 
 // checkHrefExpr validates an expression href attribute on an <a> tag.
 // It parses the expression as Go source and walks the AST to determine:
-//  1. If expr calls href.Xxx() → OK (but check href.External for disallowed URLs).
-//  2. If expr contains any other function call → ErrHrefUnverifiable.
-//  3. If expr contains unresolved identifiers (variables) → ErrHrefUnverifiable.
-//  4. If expr contains disallowed string literals or constants → ErrHardcodedHref.
-//  5. If expr contains only allowed literals/constants → OK.
-//  6. Otherwise → ErrHrefUnverifiable.
+//  1. If expr calls href.Xxx() -> OK (but check href.External for disallowed URLs).
+//  2. If expr contains any other function call -> ErrHrefUnverifiable.
+//  3. If expr contains unresolved identifiers (variables) -> ErrHrefUnverifiable.
+//  4. If expr contains disallowed string literals or constants -> ErrHardcodedHref.
+//  5. If expr contains only allowed literals/constants -> OK.
+//  6. Otherwise -> ErrHrefUnverifiable.
 func checkHrefExpr(
 	errFn ErrFunc,
 	pos token.Position,
 	expr string,
 	constValues map[string]string,
+	importConsts map[string]map[string]string,
 	hrefPkg *pkgMatcher,
 ) {
 	exprAST, err := goparser.ParseExpr(expr)
@@ -365,9 +412,9 @@ func checkHrefExpr(
 		return
 	}
 
-	info := analyzeHrefExpr(exprAST, constValues, hrefPkg)
+	info := analyzeHrefExpr(exprAST, constValues, importConsts, hrefPkg)
 
-	// 1. Uses href package → check External for disallowed URLs, otherwise OK.
+	// 1. Uses href package -> check External for disallowed URLs, otherwise OK.
 	if info.usesHrefPkg {
 		if info.externalURL != "" &&
 			!hrefcheck.IsAllowedNonRelativeHref(info.externalURL) {
@@ -394,7 +441,7 @@ func checkHrefExpr(
 		return
 	}
 
-	// 5. All resolved values are allowed external URLs → OK.
+	// 5. All resolved values are allowed external URLs -> OK.
 	if info.hasAllowed {
 		return
 	}
@@ -418,7 +465,10 @@ type hrefExprInfo struct {
 // hrefPkg identifies the generated href package; if nil, all function calls
 // are treated as non-href calls.
 func analyzeHrefExpr(
-	node ast.Expr, constValues map[string]string, hrefPkg *pkgMatcher,
+	node ast.Expr,
+	constValues map[string]string,
+	importConsts map[string]map[string]string,
+	hrefPkg *pkgMatcher,
 ) hrefExprInfo {
 	var info hrefExprInfo
 	ast.Inspect(node, func(n ast.Node) bool {
@@ -427,7 +477,7 @@ func analyzeHrefExpr(
 			if funcName, ok := hrefPkg.isCall(x); ok {
 				info.usesHrefPkg = true
 				if funcName == "External" {
-					info.externalURL = resolveCallArg(x, constValues)
+					info.externalURL = resolveCallArg(x, constValues, importConsts)
 				}
 				return false // don't recurse into href.Xxx() args
 			}
@@ -444,6 +494,13 @@ func analyzeHrefExpr(
 			} else {
 				info.hasUnresolved = true
 			}
+		case *ast.SelectorExpr:
+			if val, ok := resolveImportedConst(x, importConsts); ok {
+				classifyURL(&info, val)
+				return false
+			}
+			info.hasUnresolved = true
+			return false
 		}
 		return true
 	})
@@ -452,7 +509,11 @@ func analyzeHrefExpr(
 
 // resolveCallArg returns the string value of the first argument to a call
 // if it is a string literal or a known constant. Returns "" otherwise.
-func resolveCallArg(call *ast.CallExpr, constValues map[string]string) string {
+func resolveCallArg(
+	call *ast.CallExpr,
+	constValues map[string]string,
+	importConsts map[string]map[string]string,
+) string {
 	if len(call.Args) == 0 {
 		return ""
 	}
@@ -466,8 +527,27 @@ func resolveCallArg(call *ast.CallExpr, constValues map[string]string) string {
 		if val, ok := constValues[arg.Name]; ok {
 			return val
 		}
+	case *ast.SelectorExpr:
+		if val, ok := resolveImportedConst(arg, importConsts); ok {
+			return val
+		}
 	}
 	return ""
+}
+
+// resolveImportedConst resolves a qualified identifier (e.g. urls.LoginURL)
+// to its string constant value using the import constants map.
+func resolveImportedConst(sel *ast.SelectorExpr, importConsts map[string]map[string]string) (string, bool) {
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return "", false
+	}
+	pkgConsts, ok := importConsts[ident.Name]
+	if !ok {
+		return "", false
+	}
+	val, ok := pkgConsts[sel.Sel.Name]
+	return val, ok
 }
 
 // classifyURL records a resolved URL value as allowed or disallowed in info.
@@ -523,7 +603,7 @@ func (c *checker) checkActionOwnership(
 	app *model.App,
 	templPaths []string,
 ) {
-	// Build action ownership map: generated func name → page type name (or "App").
+	// Build action ownership map: generated func name -> page type name (or "App").
 	actionOwner := buildActionOwnerMap(app)
 	if len(actionOwner) == 0 {
 		return
@@ -657,7 +737,7 @@ func (c *checker) collectTemplCalls(nodes []templparser.Node, fi *funcInfo) {
 }
 
 // templCallName extracts a local function name from a templ call expression.
-// "header()" → "header", "pkg.Foo()" → "" (not local).
+// "header()" -> "header", "pkg.Foo()" -> "" (not local).
 func templCallName(expr string) string {
 	expr = strings.TrimSpace(expr)
 	i := strings.IndexByte(expr, '(')

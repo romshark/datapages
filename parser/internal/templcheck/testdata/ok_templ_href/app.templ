@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"datapagestest/fixture/ok_templ_href/datapagesgen/href"
+	"datapagestest/fixture/ok_templ_href/urls"
 )
 
 var email = "test@example.com"
@@ -46,4 +47,7 @@ templ page() {
 	<a href="/suppressed">Nolint</a>
 	//datapages:nolint // explanation
 	<a href="/also-suppressed">Nolint with comment</a>
+	/* Imported constant with allowed URL */
+	<a href={ urls.ExternalURL }>Imported external</a>
+	<a href={ href.External(urls.ExternalURL) }>External imported const</a>
 }

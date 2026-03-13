@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"datapagestest/fixture/err_templ_href/datapagesgen/href"
+	"datapagestest/fixture/err_templ_href/urls"
 )
 
 templ page(dynamicValue string) {
@@ -78,4 +79,8 @@ templ page(dynamicValue string) {
 	<a href={ href.External(InternalConst) }>Bad external const</a>
 	/* non-directive mention of datapages:nolint must NOT suppress */
 	<a href="/should-error">False nolint</a>
+	/* ErrHardcodedHref: imported constant with internal URL */
+	<a href={ urls.LoginURL }>Imported internal</a>
+	/* ErrExternalWithInternal: href.External with imported internal constant */
+	<a href={ href.External(urls.InternalURL) }>Bad external imported</a>
 }
