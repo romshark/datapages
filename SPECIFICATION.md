@@ -616,11 +616,15 @@ template-specific checks on `.templ` files:
   verify these, so they must use `href` package functions.
 - **`href.External` with internal URL**: `href.External("/login")` wrapping a URL that
   looks app-internal.
-- **Hardcoded action URLs**: using `action="/path"` instead of the generated `action`
-  package (e.g. `action={ action.POSTPageProfileSave() }`).
+- **Hardcoded action URLs**: using a hardcoded URL in a Datastar action context
+  (e.g. `@post('/foo/bar')`) instead of the generated `action` package
+  (e.g. `action={ action.POSTPageProfileSave() }`).
+- **Form action attribute**: using a `<form action=...>` attribute (constant or
+  expression). Datapages does not support plain HTML form submissions — use
+  `data-on:submit` with Datastar actions instead.
 - **Action context**: using an `action.XXX()` call in an attribute that is not a Datastar
   action context (`data-on:<event>`, `data-on-<plugin>`, `data-init`). For example,
-  `action.POSTPageIndexSubmit()` in an `href` or plain HTML `action` attribute.
+  `action.POSTPageIndexSubmit()` in an `href` attribute.
 - **Href context**: using an `href.XXX()` call in a Datastar action context
   (`data-on:<event>`, `data-on-<plugin>`, `data-init`). Href functions return URL paths,
   not Datastar action strings — use `action.XXX()` instead.
@@ -676,15 +680,15 @@ An optional trailing explanation comment is allowed:
 ```
 
 The directive applies to the immediately following non-whitespace sibling element.
-It suppresses href/action attribute errors only — it does **not** suppress
+It suppresses href and form action attribute errors only — it does **not** suppress
 cross-page action ownership errors.
 
 ## Technical Limitations
 
-- For now, with CSRF protection enabled, you will not be able to use plain HTML forms,
-  since the CSRF token is auto-injected for Datastar `fetch` requests
-  (where `Datastar-Request` header is `true`).
-  You must use Datastar actions for any sort of server interactivity.
+- Plain HTML forms are not supported. CSRF tokens are auto-injected for
+  Datastar `fetch` requests (where `Datastar-Request` header is `true`),
+  so plain form submissions will not include the CSRF token.
+  Use `data-on:submit` with Datastar actions for server interactivity.
 
 ## Modules
 

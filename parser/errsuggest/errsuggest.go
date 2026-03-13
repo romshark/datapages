@@ -300,6 +300,19 @@ func Suggest(err error) string {
 			"fix: Use action={ action.Xxx(...) } from the generated action package "+
 				"instead of %q", d.URL)
 
+	case errors.Is(err, parser.ErrTemplActionUnverifiable):
+		var d *parser.ErrorTemplActionUnverifiable
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Use action={ action.Xxx(...) } from the generated action package "+
+				"instead of %q", d.Expr)
+
+	case errors.Is(err, parser.ErrTemplFormAction):
+		return "fix: Remove the action attribute and use " +
+			"data-on:submit with Datastar actions instead"
+
 	case errors.Is(err, parser.ErrTemplHrefContext):
 		var d *parser.ErrorTemplHrefContext
 		if !errors.As(err, &d) {

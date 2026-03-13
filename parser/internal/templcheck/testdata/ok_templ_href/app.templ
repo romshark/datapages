@@ -22,11 +22,6 @@ templ page() {
 	<a href="//cdn.example.com/lib.js">Protocol-relative</a>
 	/* Non-<a> elements: href not checked */
 	<link href="/style.css" rel="stylesheet"/>
-	/* Nolint suppresses hardcoded form action */
-	//datapages:nolint
-	<form action="/submit">
-		<button type="submit">Submit</button>
-	</form>
 	/* Expression href: href package page functions */
 	<a href={ href.PageIndex() }>Index</a>
 	<a href={ href.PageProfile("alice") }>Profile</a>
@@ -50,4 +45,6 @@ templ page() {
 	/* Imported constant with allowed URL */
 	<a href={ urls.ExternalURL }>Imported external</a>
 	<a href={ href.External(urls.ExternalURL) }>External imported const</a>
+	/* href.Asset with internal-looking path: trusted like any href func */
+	<a href={ href.Asset("/login") }>Asset internal path</a>
 }

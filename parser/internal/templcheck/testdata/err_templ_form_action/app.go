@@ -1,0 +1,2 @@
+//nolint:all
+package app

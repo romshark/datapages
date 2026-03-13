@@ -1,0 +1,64 @@
+package app
+
+import "datapagestest/fixture/err_templ_hardcoded_action/consts"
+
+templ page() {
+	/* ErrHardcodedAction: @post in data-on:click */
+	<button data-on:click="@post('/login/submit')">Submit</button>
+	/* ErrHardcodedAction: @get in data-on:load */
+	<div data-on:load="@get('/api/data')">Lazy</div>
+	/* ErrHardcodedAction: @post in data-on:submit */
+	<form data-on:submit="@post('/profile/save')"></form>
+	/* ErrHardcodedAction: @put */
+	<button data-on:click="@put('/resource')">Update</button>
+	/* ErrHardcodedAction: @delete */
+	<button data-on:click="@delete('/resource')">Delete</button>
+	/* ErrHardcodedAction: @patch */
+	<button data-on:click="@patch('/resource')">Patch</button>
+	/* ErrHardcodedAction: in data-on-intersect */
+	<div data-on-intersect="@get('/lazy')"></div>
+	/* ErrHardcodedAction: in data-on-interval */
+	<div data-on-interval="@get('/poll')"></div>
+	/* ErrHardcodedAction: in data-on-signal-patch */
+	<div data-on-signal-patch="@post('/sync')"></div>
+	/* ErrHardcodedAction: in data-init */
+	<div data-init="@get('/init')"></div>
+	/* ErrHardcodedAction: custom event */
+	<button data-on:customevent="@post('/custom')">Custom</button>
+	/* ErrHardcodedAction: JS expression with action */
+	<button data-on:click="$foo = 'bar'; @post('/mixed')">Mixed</button>
+	/* ErrHardcodedAction: data-on:click with modifier */
+	<button data-on:click.debounce="@post('/debounced')">Debounced</button>
+	/* ErrHardcodedAction: data-on-intersect with modifier */
+	<div data-on-intersect.once="@get('/intersect-once')"></div>
+	/* ErrHardcodedAction: data-init with modifier */
+	<div data-init__once="@get('/init-once')"></div>
+	/* ErrHardcodedAction: expression string literal */
+	<button data-on:click={ "@post('/expr-literal')" }>Expr literal</button>
+	/* ErrHardcodedAction: expression backtick literal */
+	<button data-on:click={ `@post('/backtick')` }>Expr backtick</button>
+	/* ErrHardcodedAction: expression constant */
+	<button data-on:click={ HardcodedAction }>Expr const</button>
+	/* ErrHardcodedAction: expression imported constant */
+	<button data-on:click={ consts.ActionConst }>Expr imported</button>
+	/* ErrActionUnverifiable: string concatenation */
+	<button data-on:click={ "@post" + "('/concat')" }>Concat</button>
+	/* ErrActionUnverifiable: function call */
+	<button data-on:click={ buildAction() }>Func call</button>
+	/* ErrActionUnverifiable: variable */
+	<button data-on:click={ dynamicVar }>Dynamic</button>
+	// --- OK ---
+	/* OK: expression string literal without action URL */
+	<button data-on:click={ "$count++" }>Client side</button>
+	/* OK: expression constant without action URL */
+	<button data-on:click={ ClientSideConst }>Client const</button>
+	/* OK: not a Datastar action attr */
+	<div data-custom="@post('/whatever')"></div>
+	/* OK: no action URL pattern */
+	<button data-on:click="console.log('hello')">Log</button>
+	/* OK: JS signal assignment, no action */
+	<button data-on:click="$foo = 'bar'">Signal</button>
+	/* OK: nolint suppresses */
+	//datapages:nolint
+	<button data-on:click="@post('/suppressed')">Suppressed</button>
+}

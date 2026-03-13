@@ -8,10 +8,6 @@ import (
 templ page() {
 	/* ErrTemplActionContext: action in href */
 	<a href={ action.POSTPageIndexSubmit() }>Submit</a>
-	/* ErrTemplActionContext: action in HTML form action */
-	<form action={ action.POSTPageIndexSubmit() }>
-		<button type="submit">Submit</button>
-	</form>
 	/* OK: action in data-on:click */
 	<button data-on:click={ action.POSTPageIndexSubmit() }>Submit</button>
 	/* OK: action in data-on:submit */

@@ -163,10 +163,12 @@ var (
 
 	ErrTemplHardcodedHref        = templcheck.ErrHardcodedHref
 	ErrTemplHardcodedAction      = templcheck.ErrHardcodedAction
+	ErrTemplFormAction           = templcheck.ErrFormAction
 	ErrTemplActionWrongPage      = templcheck.ErrActionWrongPage
 	ErrTemplActionContext        = templcheck.ErrActionContext
 	ErrTemplHrefContext          = templcheck.ErrHrefContext
 	ErrTemplHrefUnverifiable     = templcheck.ErrHrefUnverifiable
+	ErrTemplActionUnverifiable   = templcheck.ErrActionUnverifiable
 	ErrTemplExternalWithInternal = templcheck.ErrExternalWithInternal
 )
 
@@ -507,10 +509,12 @@ func (e *ErrorEventTargetUserIDsNoSession) Unwrap() error {
 type (
 	ErrorTemplHardcodedHref        = templcheck.ErrorHardcodedHref
 	ErrorTemplHardcodedAction      = templcheck.ErrorHardcodedAction
+	ErrorTemplFormAction           = templcheck.ErrorFormAction
 	ErrorTemplActionWrongPage      = templcheck.ErrorActionWrongPage
 	ErrorTemplActionContext        = templcheck.ErrorActionContext
 	ErrorTemplHrefContext          = templcheck.ErrorHrefContext
 	ErrorTemplHrefUnverifiable     = templcheck.ErrorHrefUnverifiable
+	ErrorTemplActionUnverifiable   = templcheck.ErrorActionUnverifiable
 	ErrorTemplExternalWithInternal = templcheck.ErrorExternalWithInternal
 )
 

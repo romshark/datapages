@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -300,7 +301,7 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 				}
 				c.errFn(pos, &ErrorHardcodedHref{URL: a.Value})
 			case "action":
-				if el.Name != "form" || hrefcheck.IsAllowedNonRelativeHref(a.Value) {
+				if el.Name != "form" {
 					continue
 				}
 				pos := token.Position{
@@ -308,7 +309,19 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 					Line:     int(a.Range.From.Line) + 1,
 					Column:   int(a.Range.From.Col) + 1,
 				}
-				c.errFn(pos, &ErrorHardcodedAction{URL: a.Value})
+				c.errFn(pos, &ErrorFormAction{})
+			default:
+				if !isDatastarActionAttr(key.Name) {
+					continue
+				}
+				for _, url := range extractHardcodedActionURLs(a.Value) {
+					pos := token.Position{
+						Filename: filename,
+						Line:     int(a.Range.From.Line) + 1,
+						Column:   int(a.Range.From.Col) + 1,
+					}
+					c.errFn(pos, &ErrorHardcodedAction{URL: url})
+				}
 			}
 		case *templparser.ExpressionAttribute:
 			key, ok := a.Key.(templparser.ConstantAttributeKey)
@@ -334,6 +347,12 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 						c.constValues, c.importConsts, c.hrefPkg,
 					)
 				}
+			case "action":
+				if el.Name != "form" {
+					continue
+				}
+				c.errFn(exprPos, &ErrorFormAction{})
+				continue
 			}
 			if isDatastarActionAttr(key.Name) {
 				findPkgCalls(
@@ -345,6 +364,10 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 						})
 					},
 				)
+				if !hasPkgCall(a.Expression.Value, c.actionPkg) &&
+					!hasPkgCall(a.Expression.Value, c.hrefPkg) {
+					c.checkExprHardcodedAction(exprPos, a.Expression.Value)
+				}
 				continue
 			}
 			findPkgCalls(
@@ -403,6 +426,67 @@ func hasAttrPrefix(name, prefix string) bool {
 	}
 	rest := name[len(prefix):]
 	return rest[0] == '.' || strings.HasPrefix(rest, "__")
+}
+
+// hardcodedActionRE matches Datastar action calls with literal URL arguments,
+// e.g. @post('/login') or @get("/api/data").
+var hardcodedActionRE = regexp.MustCompile(
+	`@(?:post|get|put|delete|patch)\s*\(\s*['"]([^'"]*)['"]\s*\)`,
+)
+
+// extractHardcodedActionURLs returns the URLs from hardcoded Datastar action
+// expressions such as @post('/login') found in a constant attribute value.
+func extractHardcodedActionURLs(value string) []string {
+	matches := hardcodedActionRE.FindAllStringSubmatch(value, -1)
+	urls := make([]string, 0, len(matches))
+	for _, m := range matches {
+		urls = append(urls, m[1])
+	}
+	return urls
+}
+
+// checkExprHardcodedAction checks whether a Go expression used in a Datastar
+// action attribute resolves to a string containing hardcoded action URLs
+// like @post('/login'). Only simple expressions (string literal, known
+// constant, known imported constant) are accepted; anything else is
+// reported as ErrActionUnverifiable.
+func (c *checker) checkExprHardcodedAction(pos token.Position, expr string) {
+	exprAST, err := goparser.ParseExpr(expr)
+	if err != nil {
+		c.errFn(pos, &ErrorActionUnverifiable{Expr: expr})
+		return
+	}
+	resolved, ok := c.resolveSimpleExpr(exprAST)
+	if !ok {
+		c.errFn(pos, &ErrorActionUnverifiable{Expr: expr})
+		return
+	}
+	for _, url := range extractHardcodedActionURLs(resolved) {
+		c.errFn(pos, &ErrorHardcodedAction{URL: url})
+	}
+}
+
+// resolveSimpleExpr resolves a "simple" Go expression — a string literal,
+// a known package-level constant, or a known imported constant — to its
+// string value. Returns ("", false) for anything more complex
+// (concatenation, function calls, variables, etc.).
+func (c *checker) resolveSimpleExpr(node ast.Expr) (string, bool) {
+	switch x := node.(type) {
+	case *ast.BasicLit:
+		if x.Kind == token.STRING {
+			val, _ := strconv.Unquote(x.Value)
+			return val, true
+		}
+	case *ast.Ident:
+		if val, ok := c.constValues[x.Name]; ok {
+			return val, true
+		}
+	case *ast.SelectorExpr:
+		if val, ok := resolveImportedConst(x, c.importConsts); ok {
+			return val, true
+		}
+	}
+	return "", false
 }
 
 // checkHrefExpr validates an expression href attribute on an <a> tag.

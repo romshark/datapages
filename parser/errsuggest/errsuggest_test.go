@@ -300,6 +300,28 @@ func TestSuggest(t *testing.T) {
 			err:  &parser.ErrorTemplHardcodedAction{URL: "/a/b/c"},
 			want: `fix: Use action={ action.Xxx(...) } from the generated action package instead of "/a/b/c"`,
 		},
+		"ErrTemplActionUnverifiable": {
+			err:  &parser.ErrorTemplActionUnverifiable{Expr: `buildAction()`},
+			want: `fix: Use action={ action.Xxx(...) } from the generated action package instead of "buildAction()"`,
+		},
+		"ErrTemplFormAction": {
+			err:  &parser.ErrorTemplFormAction{},
+			want: "fix: Remove the action attribute and use data-on:submit with Datastar actions instead",
+		},
+		"ErrTemplHrefUnverifiable": {
+			err:  &parser.ErrorTemplHrefUnverifiable{Expr: `templ.SafeURL("/about")`},
+			want: `fix: Use href={ href.Xxx(...) } from the generated href package, or href={ href.External(url) } for external URLs instead of "templ.SafeURL(\"/about\")"`,
+		},
+
+		"ErrTemplExternalWithInternal/known page": {
+			err:  &parser.ErrorTemplExternalWithInternal{URL: "/login"},
+			want: `fix: Use href={ href.PageLogin(...) } instead of href.External("/login")`,
+		},
+		"ErrTemplExternalWithInternal/deep path fallback": {
+			err:  &parser.ErrorTemplExternalWithInternal{URL: "/a/b/c"},
+			want: `fix: Use href={ href.Xxx(...) } from the generated href package instead of href.External("/a/b/c")`,
+		},
+
 		"ErrTemplHrefContext": {
 			err: &parser.ErrorTemplHrefContext{
 				AttrName: "data-on:click",

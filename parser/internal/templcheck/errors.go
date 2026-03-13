@@ -8,10 +8,12 @@ import (
 var (
 	ErrHardcodedHref        = errors.New("template uses hardcoded app-internal href")
 	ErrHardcodedAction      = errors.New("template uses hardcoded app-internal action")
+	ErrFormAction           = errors.New("template uses form action attribute")
 	ErrActionWrongPage      = errors.New("template uses action from another page")
 	ErrActionContext        = errors.New("action helper used outside Datastar action context")
 	ErrHrefContext          = errors.New("href helper used in Datastar action context")
 	ErrHrefUnverifiable     = errors.New("href expression must use href package functions")
+	ErrActionUnverifiable   = errors.New("action expression must use action package functions")
 	ErrExternalWithInternal = errors.New("href.External used with app-internal URL")
 )
 
@@ -36,6 +38,15 @@ func (e *ErrorHardcodedAction) Error() string {
 }
 
 func (e *ErrorHardcodedAction) Unwrap() error { return ErrHardcodedAction }
+
+// ErrorFormAction is ErrFormAction with context.
+type ErrorFormAction struct{}
+
+func (e *ErrorFormAction) Error() string {
+	return ErrFormAction.Error()
+}
+
+func (e *ErrorFormAction) Unwrap() error { return ErrFormAction }
 
 // ErrorActionWrongPage is ErrActionWrongPage with context.
 type ErrorActionWrongPage struct {
@@ -87,6 +98,17 @@ func (e *ErrorHrefUnverifiable) Error() string {
 }
 
 func (e *ErrorHrefUnverifiable) Unwrap() error { return ErrHrefUnverifiable }
+
+// ErrorActionUnverifiable is ErrActionUnverifiable with context.
+type ErrorActionUnverifiable struct {
+	Expr string // the full expression value
+}
+
+func (e *ErrorActionUnverifiable) Error() string {
+	return fmt.Sprintf("%v: %s", ErrActionUnverifiable, e.Expr)
+}
+
+func (e *ErrorActionUnverifiable) Unwrap() error { return ErrActionUnverifiable }
 
 // ErrorExternalWithInternal is ErrExternalWithInternal with context.
 type ErrorExternalWithInternal struct {
