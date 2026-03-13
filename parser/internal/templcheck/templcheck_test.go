@@ -13,11 +13,11 @@ import (
 	"github.com/romshark/datapages/parser/model"
 )
 
-func loadPkg(t *testing.T, fixtureName string) *packages.Package {
-	t.Helper()
+func loadPkg(tb testing.TB, fixtureName string) *packages.Package {
+	tb.Helper()
 	dir := filepath.Join("testdata", fixtureName)
 	absDir, err := filepath.Abs(dir)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 	cfg := &packages.Config{
 		Mode: packages.NeedName |
 			packages.NeedFiles |
@@ -31,8 +31,8 @@ func loadPkg(t *testing.T, fixtureName string) *packages.Package {
 		Dir: absDir,
 	}
 	pkgs, err := packages.Load(cfg, ".")
-	require.NoError(t, err)
-	require.Len(t, pkgs, 1)
+	require.NoError(tb, err)
+	require.Len(tb, pkgs, 1)
 	return pkgs[0]
 }
 
@@ -301,4 +301,22 @@ func TestCheck_OKHref(t *testing.T) {
 		t.Errorf("unexpected error at %s: %v", pe.pos, pe.err)
 	}
 	require.Empty(t, errs)
+}
+
+func BenchmarkCheck_ErrHref(b *testing.B) {
+	pkg := loadPkg(b, "err_templ_href")
+	noop := func(token.Position, error) {}
+
+	for b.Loop() {
+		templcheck.Check(pkg, nil, noop)
+	}
+}
+
+func BenchmarkCheck_OKHref(b *testing.B) {
+	pkg := loadPkg(b, "ok_templ_href")
+	noop := func(token.Position, error) {}
+
+	for b.Loop() {
+		templcheck.Check(pkg, nil, noop)
+	}
 }
