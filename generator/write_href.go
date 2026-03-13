@@ -184,7 +184,7 @@ func routeSegments(route string) (literals []string, vars []string) {
 }
 
 func (w *Writer) writeHrefFunc(p *model.Page) {
-	funcName := pageNameForHref(p.TypeName)
+	funcName := p.TypeName
 	pathVars := slices.Collect(routepattern.Vars(p.Route))
 	hasPathVars := len(pathVars) > 0
 

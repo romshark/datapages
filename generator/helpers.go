@@ -56,12 +56,6 @@ func stripPagePrefix(typeName string) string {
 	return strings.TrimPrefix(typeName, "Page")
 }
 
-// pageNameForHref returns the function name for the href package.
-// "PageIndex" -> "PageIndex", "PageError404" -> "PageError404"
-func pageNameForHref(typeName string) string {
-	return typeName
-}
-
 // pageHasStream returns true if the page has event handlers and needs a stream.
 func pageHasStream(p *model.Page) bool {
 	return len(p.EventHandlers) > 0
