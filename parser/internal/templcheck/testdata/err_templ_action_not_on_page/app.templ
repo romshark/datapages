@@ -28,4 +28,9 @@ templ settingsActions() {
 	<form action={ action.POSTAppGlobal() }>
 		<button type="submit">OK: App action in Settings</button>
 	</form>
+	/* nolint suppresses element-level checks but NOT action ownership */
+	//datapages:nolint
+	<form action={ action.POSTPageProfileSave() }>
+		<button type="submit">Nolinted but still wrong page</button>
+	</form>
 }

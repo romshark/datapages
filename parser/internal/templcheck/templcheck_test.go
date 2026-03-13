@@ -154,6 +154,8 @@ func TestCheck_ErrActionWrongPage(t *testing.T) {
 	// action.POSTPageSettingsUpdate() in settingsPage is OK (own page).
 	// action.POSTAppGlobal() in settingsActions is OK (app-level).
 	// action.POSTPageProfileSave() in profilePage is OK (own page).
+	// The nolinted POSTPageProfileSave() at line 33 is still flagged:
+	// nolint suppresses element-level checks but NOT ownership checks.
 
 	type expectEntry struct {
 		actionFunc string
@@ -162,37 +164,39 @@ func TestCheck_ErrActionWrongPage(t *testing.T) {
 		line       int
 		col        int
 	}
-	expect := map[string]expectEntry{
-		"POSTPageProfileSave-PageSettings": {
+	expect := []expectEntry{
+		{
 			actionFunc: "POSTPageProfileSave",
 			pageType:   "PageSettings",
 			ownerPage:  "PageProfile",
 			line:       25,
 			col:        17,
 		},
+		{
+			actionFunc: "POSTPageProfileSave",
+			pageType:   "PageSettings",
+			ownerPage:  "PageProfile",
+			line:       33,
+			col:        17,
+		},
 	}
 
-	found := map[string]bool{}
+	var got []expectEntry
 	for _, pe := range errs {
 		var e *templcheck.ErrorActionWrongPage
 		if !errors.As(pe.err, &e) {
 			continue
 		}
-		key := e.ActionFunc + "-" + e.PageType
-		found[key] = true
-		want, ok := expect[key]
-		require.True(t, ok, "unexpected cross-page action error: %s in %s", e.ActionFunc, e.PageType)
-		require.Equal(t, want.actionFunc, e.ActionFunc)
-		require.Equal(t, want.pageType, e.PageType)
-		require.Equal(t, want.ownerPage, e.OwnerPage)
-		require.Equal(t, want.line, pe.pos.Line, "wrong line for %s", key)
-		require.Equal(t, want.col, pe.pos.Column, "wrong column for %s", key)
 		require.ErrorIs(t, pe.err, templcheck.ErrActionWrongPage)
+		got = append(got, expectEntry{
+			actionFunc: e.ActionFunc,
+			pageType:   e.PageType,
+			ownerPage:  e.OwnerPage,
+			line:       pe.pos.Line,
+			col:        pe.pos.Column,
+		})
 	}
-	require.Len(t, found, len(expect))
-	for key := range expect {
-		require.Contains(t, found, key)
-	}
+	require.ElementsMatch(t, expect, got)
 }
 
 func TestCheck_ErrContext(t *testing.T) {
