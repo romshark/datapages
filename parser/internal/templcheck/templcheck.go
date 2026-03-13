@@ -315,10 +315,15 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 				if el.Name != "a" {
 					continue
 				}
-				checkHrefExpr(
-					c.errFn, exprPos, a.Expression.Value,
-					c.constValues, c.importConsts, c.hrefPkg,
-				)
+				// Skip href validation when the expression calls the action
+				// package — the action-context check below will report a more
+				// specific error.
+				if !hasPkgCall(a.Expression.Value, c.actionPkg) {
+					checkHrefExpr(
+						c.errFn, exprPos, a.Expression.Value,
+						c.constValues, c.importConsts, c.hrefPkg,
+					)
+				}
 			}
 			if isDatastarActionAttr(key.Name) {
 				findPkgCalls(
@@ -557,6 +562,13 @@ func classifyURL(info *hrefExprInfo, val string) {
 	} else if info.disallowedURL == "" {
 		info.disallowedURL = val
 	}
+}
+
+// hasPkgCall reports whether expr contains any call to the package identified by m.
+func hasPkgCall(expr string, m *pkgMatcher) bool {
+	found := false
+	findPkgCalls(expr, m, func(string) { found = true })
+	return found
 }
 
 // findPkgCalls parses expr as a Go expression and calls fn for each

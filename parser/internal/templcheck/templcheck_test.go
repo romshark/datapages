@@ -293,11 +293,6 @@ func TestCheck_ErrContext(t *testing.T) {
 			require.ErrorIs(t, pe.err, templcheck.ErrHrefContext)
 			continue
 		}
-		// ErrHrefUnverifiable is expected for action.XXX() in href attrs
-		// (checkHrefExpr also flags these).
-		if errors.Is(pe.err, templcheck.ErrHrefUnverifiable) {
-			continue
-		}
 		t.Errorf("unexpected error at %s: %v", pe.pos, pe.err)
 	}
 	require.Len(t, foundAction, len(actionCases))
