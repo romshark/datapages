@@ -303,7 +303,7 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 					Line:     int(a.Range.From.Line) + 1,
 					Column:   int(a.Range.From.Col) + 1,
 				}
-				c.errFn(pos, &ErrorHardcodedHref{URL: a.Value})
+				c.errFn(pos, &ErrorHrefRelative{URL: a.Value})
 			case "action":
 				if el.Name != "form" {
 					continue
@@ -324,7 +324,7 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 						Line:     int(a.Range.From.Line) + 1,
 						Column:   int(a.Range.From.Col) + 1,
 					}
-					c.errFn(pos, &ErrorHardcodedAction{URL: url})
+					c.errFn(pos, &ErrorActionHardcoded{URL: url})
 				}
 			}
 		case *templparser.ExpressionAttribute:
@@ -473,7 +473,7 @@ func (c *checker) checkExprHardcodedAction(pos token.Position, expr string, expr
 		return
 	}
 	for _, url := range extractHardcodedActionURLs(resolved) {
-		c.errFn(pos, &ErrorHardcodedAction{URL: url})
+		c.errFn(pos, &ErrorActionHardcoded{URL: url})
 	}
 }
 
@@ -505,7 +505,7 @@ func (c *checker) resolveSimpleExpr(node ast.Expr) (string, bool) {
 //  1. If expr calls href.Xxx() -> OK (but check href.External for disallowed URLs).
 //  2. If expr contains any other function call -> ErrHrefUnverifiable.
 //  3. If expr contains unresolved identifiers (variables) -> ErrHrefUnverifiable.
-//  4. If expr contains disallowed string literals or constants -> ErrHardcodedHref.
+//  4. If expr contains disallowed string literals or constants -> ErrHrefRelative.
 //  5. If expr contains only allowed literals/constants -> OK.
 //  6. Otherwise -> ErrHrefUnverifiable.
 func checkHrefExpr(
@@ -523,7 +523,7 @@ func checkHrefExpr(
 	if info.usesHrefPkg {
 		if info.externalURL != "" &&
 			!hrefcheck.IsAllowedNonRelativeHref(info.externalURL) {
-			errFn(pos, &ErrorExternalWithInternal{URL: info.externalURL})
+			errFn(pos, &ErrorHrefExternalIsRelative{URL: info.externalURL})
 		}
 		return
 	}
@@ -542,7 +542,7 @@ func checkHrefExpr(
 
 	// 4. Disallowed string literal or constant value.
 	if info.disallowedURL != "" {
-		errFn(pos, &ErrorHardcodedHref{URL: info.disallowedURL})
+		errFn(pos, &ErrorHrefRelative{URL: info.disallowedURL})
 		return
 	}
 

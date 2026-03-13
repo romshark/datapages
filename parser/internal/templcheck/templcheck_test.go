@@ -67,9 +67,9 @@ func TestCheck_ErrHref(t *testing.T) {
 		val       string
 		line, col int
 	}
-	hardcoded := templcheck.ErrHardcodedHref
+	hardcoded := templcheck.ErrHrefRelative
 	unverifiable := templcheck.ErrHrefUnverifiable
-	extInternal := templcheck.ErrExternalWithInternal
+	extInternal := templcheck.ErrHrefExternalIsRelative
 	expect := []expectEntry{
 		{hardcoded, "/login", 31, 5},
 		{hardcoded, "/profile", 33, 5},
@@ -100,7 +100,7 @@ func TestCheck_ErrHref(t *testing.T) {
 
 	var got []expectEntry
 	for _, pe := range errs {
-		if h, ok := errors.AsType[*templcheck.ErrorHardcodedHref](pe.err); ok {
+		if h, ok := errors.AsType[*templcheck.ErrorHrefRelative](pe.err); ok {
 			got = append(got,
 				expectEntry{hardcoded, h.URL, pe.pos.Line, pe.pos.Column})
 			continue
@@ -110,7 +110,7 @@ func TestCheck_ErrHref(t *testing.T) {
 				expectEntry{unverifiable, u.Expr, pe.pos.Line, pe.pos.Column})
 			continue
 		}
-		if e, ok := errors.AsType[*templcheck.ErrorExternalWithInternal](pe.err); ok {
+		if e, ok := errors.AsType[*templcheck.ErrorHrefExternalIsRelative](pe.err); ok {
 			got = append(got,
 				expectEntry{extInternal, e.URL, pe.pos.Line, pe.pos.Column})
 			continue
@@ -315,10 +315,10 @@ func TestCheck_ErrFormAction(t *testing.T) {
 	require.Equal(t, expect, got)
 }
 
-func TestCheck_ErrHardcodedAction(t *testing.T) {
+func TestCheck_ErrActionHardcoded(t *testing.T) {
 	errs := check(t, "err_templ_hardcoded_action", nil)
 
-	hardcoded := templcheck.ErrHardcodedAction
+	hardcoded := templcheck.ErrActionHardcoded
 	unverifiable := templcheck.ErrActionUnverifiable
 
 	type expectEntry struct {
@@ -353,7 +353,7 @@ func TestCheck_ErrHardcodedAction(t *testing.T) {
 
 	var got []expectEntry
 	for _, pe := range errs {
-		if h, ok := errors.AsType[*templcheck.ErrorHardcodedAction](pe.err); ok {
+		if h, ok := errors.AsType[*templcheck.ErrorActionHardcoded](pe.err); ok {
 			got = append(got,
 				expectEntry{hardcoded, h.URL, pe.pos.Line, pe.pos.Column})
 			continue

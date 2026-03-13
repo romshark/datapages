@@ -272,32 +272,32 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Define a Session type in package app",
 		},
 
-		"ErrTemplHardcodedHref/simple": {
-			err:  &parser.ErrorTemplHardcodedHref{URL: "/login"},
+		"ErrTemplHrefRelative/simple": {
+			err:  &parser.ErrorTemplHrefRelative{URL: "/login"},
 			want: `fix: Use href={ href.PageLogin(...) } instead of "/login"`,
 		},
-		"ErrTemplHardcodedHref/index": {
-			err:  &parser.ErrorTemplHardcodedHref{URL: "/"},
+		"ErrTemplHrefRelative/index": {
+			err:  &parser.ErrorTemplHrefRelative{URL: "/"},
 			want: `fix: Use href={ href.PageIndex(...) } instead of "/"`,
 		},
-		"ErrTemplHardcodedHref/trailing slash": {
-			err:  &parser.ErrorTemplHardcodedHref{URL: "/profile/"},
+		"ErrTemplHrefRelative/trailing slash": {
+			err:  &parser.ErrorTemplHrefRelative{URL: "/profile/"},
 			want: `fix: Use href={ href.PageProfile(...) } instead of "/profile/"`,
 		},
-		"ErrTemplHardcodedHref/deep path fallback": {
-			err:  &parser.ErrorTemplHardcodedHref{URL: "/profile/edit"},
+		"ErrTemplHrefRelative/deep path fallback": {
+			err:  &parser.ErrorTemplHrefRelative{URL: "/profile/edit"},
 			want: `fix: Use href={ href.Xxx(...) } from the generated href package instead of "/profile/edit"`,
 		},
-		"ErrTemplHardcodedAction/app level": {
-			err:  &parser.ErrorTemplHardcodedAction{URL: "/submit"},
+		"ErrTemplActionHardcoded/app level": {
+			err:  &parser.ErrorTemplActionHardcoded{URL: "/submit"},
 			want: `fix: Use action={ action.POSTAppSubmit(...) } instead of "/submit"`,
 		},
-		"ErrTemplHardcodedAction/page level": {
-			err:  &parser.ErrorTemplHardcodedAction{URL: "/profile/save"},
+		"ErrTemplActionHardcoded/page level": {
+			err:  &parser.ErrorTemplActionHardcoded{URL: "/profile/save"},
 			want: `fix: Use action={ action.POSTPageProfileSave(...) } instead of "/profile/save"`,
 		},
-		"ErrTemplHardcodedAction/deep path fallback": {
-			err:  &parser.ErrorTemplHardcodedAction{URL: "/a/b/c"},
+		"ErrTemplActionHardcoded/deep path fallback": {
+			err:  &parser.ErrorTemplActionHardcoded{URL: "/a/b/c"},
 			want: `fix: Use action={ action.Xxx(...) } from the generated action package instead of "/a/b/c"`,
 		},
 		"ErrTemplActionUnverifiable": {
@@ -313,12 +313,12 @@ func TestSuggest(t *testing.T) {
 			want: `fix: Use href={ href.Xxx(...) } from the generated href package, or href={ href.External(url) } for external URLs instead of "templ.SafeURL(\"/about\")"`,
 		},
 
-		"ErrTemplExternalWithInternal/known page": {
-			err:  &parser.ErrorTemplExternalWithInternal{URL: "/login"},
+		"ErrTemplHrefExternalIsRelative/known page": {
+			err:  &parser.ErrorTemplHrefExternalIsRelative{URL: "/login"},
 			want: `fix: Use href={ href.PageLogin(...) } instead of href.External("/login")`,
 		},
-		"ErrTemplExternalWithInternal/deep path fallback": {
-			err:  &parser.ErrorTemplExternalWithInternal{URL: "/a/b/c"},
+		"ErrTemplHrefExternalIsRelative/deep path fallback": {
+			err:  &parser.ErrorTemplHrefExternalIsRelative{URL: "/a/b/c"},
 			want: `fix: Use href={ href.Xxx(...) } from the generated href package instead of href.External("/a/b/c")`,
 		},
 

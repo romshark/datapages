@@ -6,38 +6,38 @@ import (
 )
 
 var (
-	ErrHardcodedHref        = errors.New("template uses hardcoded app-internal href")
-	ErrHardcodedAction      = errors.New("template uses hardcoded app-internal action")
-	ErrFormAction           = errors.New("template uses form action attribute")
-	ErrActionWrongPage      = errors.New("template uses action from another page")
-	ErrActionContext        = errors.New("action helper used outside Datastar action context")
-	ErrHrefContext          = errors.New("href helper used in Datastar action context")
-	ErrHrefUnverifiable     = errors.New("href expression must use href package functions")
-	ErrActionUnverifiable   = errors.New("action expression must use action package functions")
-	ErrExternalWithInternal = errors.New("href.External used with app-internal URL")
+	ErrHrefRelative           = errors.New("template uses relative href")
+	ErrActionHardcoded        = errors.New("template uses hardcoded action")
+	ErrFormAction             = errors.New("template uses form action attribute")
+	ErrActionWrongPage        = errors.New("template uses action from another page")
+	ErrActionContext          = errors.New("action helper used outside Datastar action context")
+	ErrHrefContext            = errors.New("href helper used in Datastar action context")
+	ErrHrefUnverifiable       = errors.New("href expression must use href package functions")
+	ErrActionUnverifiable     = errors.New("action expression must use action package functions")
+	ErrHrefExternalIsRelative = errors.New("href.External used with relative URL")
 )
 
-// ErrorHardcodedHref is ErrHardcodedHref with context.
-type ErrorHardcodedHref struct {
+// ErrorHrefRelative is ErrHrefRelative with context.
+type ErrorHrefRelative struct {
 	URL string // e.g. "/login"
 }
 
-func (e *ErrorHardcodedHref) Error() string {
-	return fmt.Sprintf("%v: %s", ErrHardcodedHref, e.URL)
+func (e *ErrorHrefRelative) Error() string {
+	return fmt.Sprintf("%v: %s", ErrHrefRelative, e.URL)
 }
 
-func (e *ErrorHardcodedHref) Unwrap() error { return ErrHardcodedHref }
+func (e *ErrorHrefRelative) Unwrap() error { return ErrHrefRelative }
 
-// ErrorHardcodedAction is ErrHardcodedAction with context.
-type ErrorHardcodedAction struct {
+// ErrorActionHardcoded is ErrActionHardcoded with context.
+type ErrorActionHardcoded struct {
 	URL string // e.g. "/login/submit"
 }
 
-func (e *ErrorHardcodedAction) Error() string {
-	return fmt.Sprintf("%v: %s", ErrHardcodedAction, e.URL)
+func (e *ErrorActionHardcoded) Error() string {
+	return fmt.Sprintf("%v: %s", ErrActionHardcoded, e.URL)
 }
 
-func (e *ErrorHardcodedAction) Unwrap() error { return ErrHardcodedAction }
+func (e *ErrorActionHardcoded) Unwrap() error { return ErrActionHardcoded }
 
 // ErrorFormAction is ErrFormAction with context.
 type ErrorFormAction struct{}
@@ -110,13 +110,13 @@ func (e *ErrorActionUnverifiable) Error() string {
 
 func (e *ErrorActionUnverifiable) Unwrap() error { return ErrActionUnverifiable }
 
-// ErrorExternalWithInternal is ErrExternalWithInternal with context.
-type ErrorExternalWithInternal struct {
+// ErrorHrefExternalIsRelative is ErrHrefExternalIsRelative with context.
+type ErrorHrefExternalIsRelative struct {
 	URL string // the internal URL, e.g. "/login"
 }
 
-func (e *ErrorExternalWithInternal) Error() string {
-	return fmt.Sprintf("%v: %s", ErrExternalWithInternal, e.URL)
+func (e *ErrorHrefExternalIsRelative) Error() string {
+	return fmt.Sprintf("%v: %s", ErrHrefExternalIsRelative, e.URL)
 }
 
-func (e *ErrorExternalWithInternal) Unwrap() error { return ErrExternalWithInternal }
+func (e *ErrorHrefExternalIsRelative) Unwrap() error { return ErrHrefExternalIsRelative }

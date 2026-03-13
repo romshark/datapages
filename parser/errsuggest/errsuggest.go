@@ -240,8 +240,8 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf("fix: Define a Session type in package %s", d.PkgName)
 
-	case errors.Is(err, parser.ErrTemplHardcodedHref):
-		var d *parser.ErrorTemplHardcodedHref
+	case errors.Is(err, parser.ErrTemplHrefRelative):
+		var d *parser.ErrorTemplHrefRelative
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -263,8 +263,8 @@ func Suggest(err error) string {
 				"or href={ href.External(url) } for external URLs "+
 				"instead of %q", d.Expr)
 
-	case errors.Is(err, parser.ErrTemplExternalWithInternal):
-		var d *parser.ErrorTemplExternalWithInternal
+	case errors.Is(err, parser.ErrTemplHrefExternalIsRelative):
+		var d *parser.ErrorTemplHrefExternalIsRelative
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -287,8 +287,8 @@ func Suggest(err error) string {
 				"or use an action owned by %s",
 			d.OwnerPage, d.PageType)
 
-	case errors.Is(err, parser.ErrTemplHardcodedAction):
-		var d *parser.ErrorTemplHardcodedAction
+	case errors.Is(err, parser.ErrTemplActionHardcoded):
+		var d *parser.ErrorTemplActionHardcoded
 		if !errors.As(err, &d) {
 			return ""
 		}

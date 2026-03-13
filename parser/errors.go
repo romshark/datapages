@@ -161,15 +161,15 @@ var (
 		"event with TargetUserIDs requires a Session type",
 	)
 
-	ErrTemplHardcodedHref        = templcheck.ErrHardcodedHref
-	ErrTemplHardcodedAction      = templcheck.ErrHardcodedAction
-	ErrTemplFormAction           = templcheck.ErrFormAction
-	ErrTemplActionWrongPage      = templcheck.ErrActionWrongPage
-	ErrTemplActionContext        = templcheck.ErrActionContext
-	ErrTemplHrefContext          = templcheck.ErrHrefContext
-	ErrTemplHrefUnverifiable     = templcheck.ErrHrefUnverifiable
-	ErrTemplActionUnverifiable   = templcheck.ErrActionUnverifiable
-	ErrTemplExternalWithInternal = templcheck.ErrExternalWithInternal
+	ErrTemplHrefRelative           = templcheck.ErrHrefRelative
+	ErrTemplActionHardcoded        = templcheck.ErrActionHardcoded
+	ErrTemplFormAction             = templcheck.ErrFormAction
+	ErrTemplActionWrongPage        = templcheck.ErrActionWrongPage
+	ErrTemplActionContext          = templcheck.ErrActionContext
+	ErrTemplHrefContext            = templcheck.ErrHrefContext
+	ErrTemplHrefUnverifiable       = templcheck.ErrHrefUnverifiable
+	ErrTemplActionUnverifiable     = templcheck.ErrActionUnverifiable
+	ErrTemplHrefExternalIsRelative = templcheck.ErrHrefExternalIsRelative
 )
 
 func normPos(pos token.Position) token.Position {
@@ -507,15 +507,15 @@ func (e *ErrorEventTargetUserIDsNoSession) Unwrap() error {
 
 // Type aliases for templ-check error types defined in the templcheck subpackage.
 type (
-	ErrorTemplHardcodedHref        = templcheck.ErrorHardcodedHref
-	ErrorTemplHardcodedAction      = templcheck.ErrorHardcodedAction
-	ErrorTemplFormAction           = templcheck.ErrorFormAction
-	ErrorTemplActionWrongPage      = templcheck.ErrorActionWrongPage
-	ErrorTemplActionContext        = templcheck.ErrorActionContext
-	ErrorTemplHrefContext          = templcheck.ErrorHrefContext
-	ErrorTemplHrefUnverifiable     = templcheck.ErrorHrefUnverifiable
-	ErrorTemplActionUnverifiable   = templcheck.ErrorActionUnverifiable
-	ErrorTemplExternalWithInternal = templcheck.ErrorExternalWithInternal
+	ErrorTemplHrefRelative           = templcheck.ErrorHrefRelative
+	ErrorTemplActionHardcoded        = templcheck.ErrorActionHardcoded
+	ErrorTemplFormAction             = templcheck.ErrorFormAction
+	ErrorTemplActionWrongPage        = templcheck.ErrorActionWrongPage
+	ErrorTemplActionContext          = templcheck.ErrorActionContext
+	ErrorTemplHrefContext            = templcheck.ErrorHrefContext
+	ErrorTemplHrefUnverifiable       = templcheck.ErrorHrefUnverifiable
+	ErrorTemplActionUnverifiable     = templcheck.ErrorActionUnverifiable
+	ErrorTemplHrefExternalIsRelative = templcheck.ErrorHrefExternalIsRelative
 )
 
 // ErrorSignatureUnsupportedInput is ErrSignatureUnsupportedInput with context.
