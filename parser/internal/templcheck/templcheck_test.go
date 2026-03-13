@@ -304,6 +304,22 @@ func TestCheck_OKHref(t *testing.T) {
 	require.Empty(t, errs)
 }
 
+func TestCheck_OKHrefAlias(t *testing.T) {
+	errs := check(t, "ok_templ_href_alias", nil)
+	for _, pe := range errs {
+		t.Errorf("unexpected error at %s: %v", pe.pos, pe.err)
+	}
+	require.Empty(t, errs)
+}
+
+func TestCheck_OKHrefDot(t *testing.T) {
+	errs := check(t, "ok_templ_href_dot", nil)
+	for _, pe := range errs {
+		t.Errorf("unexpected error at %s: %v", pe.pos, pe.err)
+	}
+	require.Empty(t, errs)
+}
+
 func BenchmarkCheck_ErrHref(b *testing.B) {
 	pkg := loadPkg(b, "err_templ_href")
 	noop := func(token.Position, error) {}

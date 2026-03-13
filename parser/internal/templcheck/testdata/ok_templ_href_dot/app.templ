@@ -1,0 +1,10 @@
+package app
+
+import . "datapagestest/fixture/ok_templ_href_dot/datapagesgen/href"
+
+templ page() {
+	<a href={ PageIndex() }>Index</a>
+	<a href={ PageProfile("alice") }>Profile</a>
+	<a href={ External("https://example.com") }>External</a>
+	<a href={ Asset("style.css") }>Asset</a>
+}

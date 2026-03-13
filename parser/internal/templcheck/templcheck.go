@@ -24,12 +24,54 @@ import (
 // ErrFunc is called for each error found during checking.
 type ErrFunc func(pos token.Position, err error)
 
+// pkgMatcher identifies calls to a specific generated package (href or action)
+// in parsed Go expressions. It handles both qualified (pkg.Func()) and
+// dot-imported (Func()) call patterns.
+type pkgMatcher struct {
+	// localName is the import qualifier (e.g. "href", "myhref").
+	// Empty for dot-imports.
+	localName string
+	// exports is the set of exported function names from the package.
+	// Only populated for dot-imports; nil otherwise.
+	exports map[string]bool
+}
+
+// isCall reports whether call is a call to a function from this package.
+// Returns the called function name and true if matched.
+// Safe to call on a nil receiver (returns "", false).
+func (m *pkgMatcher) isCall(call *ast.CallExpr) (funcName string, ok bool) {
+	if m == nil {
+		return "", false
+	}
+	if m.exports != nil {
+		// Dot-import: match bare function calls by name.
+		ident, isIdent := call.Fun.(*ast.Ident)
+		if !isIdent {
+			return "", false
+		}
+		if m.exports[ident.Name] {
+			return ident.Name, true
+		}
+		return "", false
+	}
+	// Qualified import: match pkg.Func() selector expressions.
+	sel, isSel := call.Fun.(*ast.SelectorExpr)
+	if !isSel {
+		return "", false
+	}
+	ident, isIdent := sel.X.(*ast.Ident)
+	if !isIdent || ident.Name != m.localName {
+		return "", false
+	}
+	return sel.Sel.Name, true
+}
+
 // checker holds resolved state shared across all checks.
 type checker struct {
-	errFn           ErrFunc
-	constValues     map[string]string
-	hrefLocalName   string
-	actionLocalName string
+	errFn       ErrFunc
+	constValues map[string]string
+	hrefPkg     *pkgMatcher
+	actionPkg   *pkgMatcher
 }
 
 // Check validates .templ files in pkg and reports errors via errFn.
@@ -39,10 +81,10 @@ func Check(
 	errFn ErrFunc,
 ) {
 	c := checker{
-		errFn:           errFn,
-		constValues:     resolveConstValues(pkg),
-		hrefLocalName:   findPkgLocalName(pkg, "/href", "href"),
-		actionLocalName: findPkgLocalName(pkg, "/action", "action"),
+		errFn:       errFn,
+		constValues: resolveConstValues(pkg),
+		hrefPkg:     resolvePkgMatcher(pkg, "/href", "href"),
+		actionPkg:   resolvePkgMatcher(pkg, "/action", "action"),
 	}
 	templPaths := templFilesFromPackage(pkg)
 	for _, templPath := range templPaths {
@@ -84,11 +126,11 @@ func templFilesFromPackage(pkg *packages.Package) []string {
 	return paths
 }
 
-// findPkgLocalName scans the _templ.go files in pkg for an import whose path
-// ends with suffix and belongs to the same Go module. It returns the local name
-// used for that import, or "" if no such import is found. defaultName is the
-// fallback when no explicit alias is present (e.g. "href", "action").
-func findPkgLocalName(pkg *packages.Package, suffix, defaultName string) string {
+// resolvePkgMatcher scans the _templ.go files in pkg for an import whose path
+// ends with suffix and belongs to the same Go module. It returns a pkgMatcher
+// that can identify calls to that package, or nil if no such import is found.
+// defaultName is the fallback when no explicit alias is present.
+func resolvePkgMatcher(pkg *packages.Package, suffix, defaultName string) *pkgMatcher {
 	for _, f := range pkg.Syntax {
 		filename := pkg.Fset.Position(f.Pos()).Filename
 		if !strings.HasSuffix(filename, "_templ.go") {
@@ -105,12 +147,39 @@ func findPkgLocalName(pkg *packages.Package, suffix, defaultName string) string 
 				continue
 			}
 			if imp.Name != nil {
-				return imp.Name.Name
+				switch imp.Name.Name {
+				case "_":
+					continue // blank import, no calls possible
+				case ".":
+					exports := pkgExports(pkg, importPath)
+					if len(exports) == 0 {
+						return nil
+					}
+					return &pkgMatcher{exports: exports}
+				default:
+					return &pkgMatcher{localName: imp.Name.Name}
+				}
 			}
-			return defaultName
+			return &pkgMatcher{localName: defaultName}
 		}
 	}
-	return ""
+	return nil
+}
+
+// pkgExports returns the set of exported names from the package at importPath.
+func pkgExports(pkg *packages.Package, importPath string) map[string]bool {
+	imp := pkg.Imports[importPath]
+	if imp == nil || imp.Types == nil {
+		return nil
+	}
+	scope := imp.Types.Scope()
+	exports := map[string]bool{}
+	for _, name := range scope.Names() {
+		if token.IsExported(name) {
+			exports[name] = true
+		}
+	}
+	return exports
 }
 
 func (c *checker) checkTemplFile(path string) {
@@ -202,34 +271,30 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 				}
 				checkHrefExpr(
 					c.errFn, exprPos, a.Expression.Value,
-					c.constValues, c.hrefLocalName,
+					c.constValues, c.hrefPkg,
 				)
 			}
 			if isDatastarActionAttr(key.Name) {
-				if c.hrefLocalName != "" {
-					findPkgCalls(
-						a.Expression.Value, c.hrefLocalName,
-						func(funcName string) {
-							c.errFn(exprPos, &ErrorHrefContext{
-								AttrName: key.Name,
-								HrefFunc: funcName,
-							})
-						},
-					)
-				}
-				continue
-			}
-			if c.actionLocalName != "" {
 				findPkgCalls(
-					a.Expression.Value, c.actionLocalName,
+					a.Expression.Value, c.hrefPkg,
 					func(funcName string) {
-						c.errFn(exprPos, &ErrorActionContext{
-							AttrName:   key.Name,
-							ActionFunc: funcName,
+						c.errFn(exprPos, &ErrorHrefContext{
+							AttrName: key.Name,
+							HrefFunc: funcName,
 						})
 					},
 				)
+				continue
 			}
+			findPkgCalls(
+				a.Expression.Value, c.actionPkg,
+				func(funcName string) {
+					c.errFn(exprPos, &ErrorActionContext{
+						AttrName:   key.Name,
+						ActionFunc: funcName,
+					})
+				},
+			)
 		}
 	}
 }
@@ -292,7 +357,7 @@ func checkHrefExpr(
 	pos token.Position,
 	expr string,
 	constValues map[string]string,
-	hrefLocalName string,
+	hrefPkg *pkgMatcher,
 ) {
 	exprAST, err := goparser.ParseExpr(expr)
 	if err != nil {
@@ -300,7 +365,7 @@ func checkHrefExpr(
 		return
 	}
 
-	info := analyzeHrefExpr(exprAST, constValues, hrefLocalName)
+	info := analyzeHrefExpr(exprAST, constValues, hrefPkg)
 
 	// 1. Uses href package → check External for disallowed URLs, otherwise OK.
 	if info.usesHrefPkg {
@@ -350,19 +415,18 @@ type hrefExprInfo struct {
 }
 
 // analyzeHrefExpr walks a parsed Go expression and populates hrefExprInfo.
-// hrefLocalName is the local import name for the generated href package
-// (e.g. "href"); if empty, no href package is imported and all pkg.Xxx()
-// calls are treated as non-href calls.
+// hrefPkg identifies the generated href package; if nil, all function calls
+// are treated as non-href calls.
 func analyzeHrefExpr(
-	node ast.Expr, constValues map[string]string, hrefLocalName string,
+	node ast.Expr, constValues map[string]string, hrefPkg *pkgMatcher,
 ) hrefExprInfo {
 	var info hrefExprInfo
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.CallExpr:
-			if hrefLocalName != "" && isPkgCall(x, hrefLocalName) {
+			if funcName, ok := hrefPkg.isCall(x); ok {
 				info.usesHrefPkg = true
-				if isExternalCall(x) {
+				if funcName == "External" {
 					info.externalURL = resolveCallArg(x, constValues)
 				}
 				return false // don't recurse into href.Xxx() args
@@ -384,25 +448,6 @@ func analyzeHrefExpr(
 		return true
 	})
 	return info
-}
-
-// isPkgCall reports whether call is <localName>.Xxx(...).
-func isPkgCall(call *ast.CallExpr, localName string) bool {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-	ident, ok := sel.X.(*ast.Ident)
-	return ok && ident.Name == localName
-}
-
-// isExternalCall reports whether call is <pkg>.External(...).
-func isExternalCall(call *ast.CallExpr) bool {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-	return sel.Sel.Name == "External"
 }
 
 // resolveCallArg returns the string value of the first argument to a call
@@ -432,6 +477,29 @@ func classifyURL(info *hrefExprInfo, val string) {
 	} else if info.disallowedURL == "" {
 		info.disallowedURL = val
 	}
+}
+
+// findPkgCalls parses expr as a Go expression and calls fn for each
+// call to the package identified by m. fn receives the called function name.
+func findPkgCalls(expr string, m *pkgMatcher, fn func(funcName string)) {
+	if m == nil {
+		return
+	}
+	exprAST, err := goparser.ParseExpr(expr)
+	if err != nil {
+		return
+	}
+	ast.Inspect(exprAST, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if funcName, ok := m.isCall(call); ok {
+			fn(funcName)
+			return false
+		}
+		return true
+	})
 }
 
 // funcInfo holds information extracted from a single templ function definition.
@@ -605,36 +673,12 @@ func templCallName(expr string) string {
 
 // collectActionRefs parses a Go expression and collects action.XXX() references.
 func (c *checker) collectActionRefs(expr templparser.Expression, fi *funcInfo) {
-	if c.actionLocalName == "" {
-		return
-	}
-	findPkgCalls(expr.Value, c.actionLocalName, func(funcName string) {
+	findPkgCalls(expr.Value, c.actionPkg, func(funcName string) {
 		fi.actionRefs = append(fi.actionRefs, actionRef{
 			funcName: funcName,
 			line:     int(expr.Range.From.Line) + 1,
 			col:      int(expr.Range.From.Col) + 1,
 		})
-	})
-}
-
-// findPkgCalls parses expr as a Go expression and calls fn for each
-// <localName>.Xxx() call found. fn receives the called method name (Xxx).
-func findPkgCalls(expr, localName string, fn func(funcName string)) {
-	exprAST, err := goparser.ParseExpr(expr)
-	if err != nil {
-		return
-	}
-	ast.Inspect(exprAST, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		if !isPkgCall(call, localName) {
-			return true
-		}
-		sel := call.Fun.(*ast.SelectorExpr) // safe: isPkgCall verified
-		fn(sel.Sel.Name)
-		return false
 	})
 }
 
