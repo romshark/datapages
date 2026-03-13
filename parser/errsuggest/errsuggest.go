@@ -254,8 +254,14 @@ func Suggest(err error) string {
 				"instead of %q", d.URL)
 
 	case errors.Is(err, parser.ErrTemplHrefUnverifiable):
-		return "fix: Use href={ href.Xxx(...) } from the generated href package, " +
-			"or href={ href.External(url) } for external URLs"
+		var d *parser.ErrorTemplHrefUnverifiable
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Use href={ href.Xxx(...) } from the generated href package, "+
+				"or href={ href.External(url) } for external URLs "+
+				"instead of %q", d.Expr)
 
 	case errors.Is(err, parser.ErrTemplExternalWithInternal):
 		var d *parser.ErrorTemplExternalWithInternal
