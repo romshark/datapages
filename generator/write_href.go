@@ -394,19 +394,19 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 
 	// Path literal lengths.
 	if len(literals) > 0 {
-		// First line.
-		w.Linef(1, "l := len(%q)", literals[0])
-		// Remaining path literals and vars.
+		w.Linef(1, "l := len(%q) +", literals[0])
 		for i := 1; i < len(literals); i++ {
-			// preceding var length exists for i-1
 			if i-1 < len(params) {
-				w.Linef(2, "+ len(%s)", pathVarStrExpr(params[i-1]))
+				w.Linef(2, "len(%s) +", pathVarStrExpr(params[i-1]))
 			}
-			w.Linef(2, "+ len(%q)", literals[i])
+			if i < len(literals)-1 || len(params) >= len(literals) {
+				w.Linef(2, "len(%q) +", literals[i])
+			} else {
+				w.Linef(2, "len(%q)", literals[i])
+			}
 		}
-		// Add last var length if routeSegments produced one extra var (shouldn't).
 		if len(params) >= len(literals) {
-			w.Linef(2, "+ len(%s)", pathVarStrExpr(params[len(literals)-1]))
+			w.Linef(2, "len(%s)", pathVarStrExpr(params[len(literals)-1]))
 		}
 	} else {
 		w.Line(1, "l := 0")
