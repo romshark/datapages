@@ -137,7 +137,7 @@ func (c *checker) walkChildren(filename string, nodes []templparser.Node) {
 	for _, node := range nodes {
 		switch n := node.(type) {
 		case *templparser.GoComment:
-			prevIsNolint = strings.Contains(n.Contents, "datapages:nolint")
+			prevIsNolint = strings.HasPrefix(strings.TrimSpace(n.Contents), "datapages:nolint")
 			continue
 		case *templparser.Whitespace:
 			// Whitespace between a nolint comment and the next element

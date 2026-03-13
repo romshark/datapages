@@ -87,6 +87,7 @@ func TestCheck_ErrHref(t *testing.T) {
 		{unverifiable, `fmt.Sprintf("mailto:%s", "test@example.com")`, 74, 12},
 		{extInternal, "/login", 76, 12},
 		{extInternal, "/internal", 78, 12},
+		{hardcoded, "/should-error", 80, 5},
 	}
 
 	var got []expectEntry

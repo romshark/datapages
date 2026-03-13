@@ -76,4 +76,6 @@ templ page(dynamicValue string) {
 	<a href={ href.External("/login") }>Bad external</a>
 	/* ErrExternalWithInternal: href.External with internal constant */
 	<a href={ href.External(InternalConst) }>Bad external const</a>
+	/* non-directive mention of datapages:nolint must NOT suppress */
+	<a href="/should-error">False nolint</a>
 }
