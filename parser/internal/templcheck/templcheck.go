@@ -33,9 +33,15 @@ func Check(
 ) {
 	constValues := resolveConstValues(pkg)
 	hrefLocalName := findHrefPkgLocalName(pkg)
+	var hrefRefMatch *regexp.Regexp
+	if hrefLocalName != "" {
+		hrefRefMatch = regexp.MustCompile(
+			`\b` + regexp.QuoteMeta(hrefLocalName) + `\.(\w+)\s*\(`,
+		)
+	}
 	templPaths := templFilesFromPackage(pkg)
 	for _, templPath := range templPaths {
-		checkTemplFile(errFn, templPath, constValues, hrefLocalName)
+		checkTemplFile(errFn, templPath, constValues, hrefLocalName, hrefRefMatch)
 	}
 	if app != nil {
 		checkActionOwnership(pkg, app, errFn, templPaths)
@@ -101,7 +107,10 @@ func findHrefPkgLocalName(pkg *packages.Package) string {
 	return ""
 }
 
-func checkTemplFile(errFn ErrFunc, path string, constValues map[string]string, hrefLocalName string) {
+func checkTemplFile(
+	errFn ErrFunc, path string, constValues map[string]string,
+	hrefLocalName string, hrefRefMatch *regexp.Regexp,
+) {
 	tf, err := templparser.Parse(path)
 	if err != nil {
 		return
@@ -114,13 +123,16 @@ func checkTemplFile(errFn ErrFunc, path string, constValues map[string]string, h
 		if !ok {
 			continue
 		}
-		walkChildren(errFn, filename, tmpl.Children, constValues, hrefLocalName)
+		walkChildren(errFn, filename, tmpl.Children, constValues, hrefLocalName, hrefRefMatch)
 	}
 }
 
 // walkChildren recursively walks templ AST children looking for Element nodes
 // with hardcoded href/action attributes.
-func walkChildren(errFn ErrFunc, filename string, nodes []templparser.Node, constValues map[string]string, hrefLocalName string) {
+func walkChildren(
+	errFn ErrFunc, filename string, nodes []templparser.Node,
+	constValues map[string]string, hrefLocalName string, hrefRefMatch *regexp.Regexp,
+) {
 	prevIsNolint := false
 	for _, node := range nodes {
 		switch n := node.(type) {
@@ -133,23 +145,21 @@ func walkChildren(errFn ErrFunc, filename string, nodes []templparser.Node, cons
 			continue
 		case *templparser.Element:
 			if !prevIsNolint {
-				checkElementAttrs(errFn, filename, n, constValues, hrefLocalName)
+				checkElementAttrs(errFn, filename, n, constValues, hrefLocalName, hrefRefMatch)
 			}
-			walkChildren(errFn, filename, n.Children, constValues, hrefLocalName)
+			walkChildren(errFn, filename, n.Children, constValues, hrefLocalName, hrefRefMatch)
 		case templparser.CompositeNode:
-			walkChildren(errFn, filename, n.ChildNodes(), constValues, hrefLocalName)
+			walkChildren(errFn, filename, n.ChildNodes(), constValues, hrefLocalName, hrefRefMatch)
 		}
 		prevIsNolint = false
 	}
 }
 
-func checkElementAttrs(errFn ErrFunc, filename string, el *templparser.Element, constValues map[string]string, hrefLocalName string) {
-	var hrefRefMatch *regexp.Regexp
-	if hrefLocalName != "" {
-		hrefRefMatch = regexp.MustCompile(
-			`\b` + regexp.QuoteMeta(hrefLocalName) + `\.(\w+)\s*\(`,
-		)
-	}
+func checkElementAttrs(
+	errFn ErrFunc, filename string,
+	el *templparser.Element, constValues map[string]string,
+	hrefLocalName string, hrefRefMatch *regexp.Regexp,
+) {
 	for _, attr := range el.Attributes {
 		switch a := attr.(type) {
 		case *templparser.ConstantAttribute:
@@ -194,11 +204,15 @@ func checkElementAttrs(errFn ErrFunc, filename string, el *templparser.Element, 
 				if el.Name != "a" {
 					continue
 				}
-				checkHrefExpr(errFn, exprPos, a.Expression.Value, constValues, hrefLocalName)
+				checkHrefExpr(
+					errFn, exprPos, a.Expression.Value, constValues, hrefLocalName,
+				)
 			}
 			if isDatastarActionAttr(key.Name) {
 				if hrefRefMatch != nil {
-					matches := hrefRefMatch.FindAllStringSubmatchIndex(a.Expression.Value, -1)
+					matches := hrefRefMatch.FindAllStringSubmatchIndex(
+						a.Expression.Value, -1,
+					)
 					for _, loc := range matches {
 						funcName := a.Expression.Value[loc[2]:loc[3]]
 						errFn(exprPos, &ErrorHrefContext{
@@ -255,7 +269,8 @@ func checkHrefExpr(
 
 	// 1. Uses href package → check External for disallowed URLs, otherwise OK.
 	if info.usesHrefPkg {
-		if info.externalURL != "" && !hrefcheck.IsAllowedNonRelativeHref(info.externalURL) {
+		if info.externalURL != "" &&
+			!hrefcheck.IsAllowedNonRelativeHref(info.externalURL) {
 			errFn(pos, &ErrorExternalWithInternal{URL: info.externalURL})
 		}
 		return
@@ -303,7 +318,9 @@ type hrefExprInfo struct {
 // hrefLocalName is the local import name for the generated href package
 // (e.g. "href"); if empty, no href package is imported and all pkg.Xxx()
 // calls are treated as non-href calls.
-func analyzeHrefExpr(node ast.Expr, constValues map[string]string, hrefLocalName string) hrefExprInfo {
+func analyzeHrefExpr(
+	node ast.Expr, constValues map[string]string, hrefLocalName string,
+) hrefExprInfo {
 	var info hrefExprInfo
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch x := n.(type) {
