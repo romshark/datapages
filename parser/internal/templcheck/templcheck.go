@@ -136,6 +136,10 @@ func resolveConstValues(pkg *packages.Package) map[string]string {
 func resolveImportConsts(pkg *packages.Package) map[string]map[string]string {
 	m := map[string]map[string]string{}
 	for _, f := range pkg.Syntax {
+		filename := pkg.Fset.Position(f.Pos()).Filename
+		if !strings.HasSuffix(filename, "_templ.go") {
+			continue
+		}
 		for _, imp := range f.Imports {
 			importPath, _ := strconv.Unquote(imp.Path.Value)
 			dep := pkg.Imports[importPath]
@@ -333,17 +337,23 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 				Line:     int(a.Expression.Range.From.Line) + 1,
 				Column:   int(a.Expression.Range.From.Col) + 1,
 			}
+			// Parse the Go expression once for all subsequent checks.
+			exprAST, parseErr := goparser.ParseExpr(a.Expression.Value)
 			switch key.Name {
 			case "href":
 				if el.Name != "a" {
 					continue
 				}
+				if parseErr != nil {
+					c.errFn(exprPos, &ErrorHrefUnverifiable{Expr: a.Expression.Value})
+					break
+				}
 				// Skip href validation when the expression calls the action
 				// package — the action-context check below will report a more
 				// specific error.
-				if !hasPkgCall(a.Expression.Value, c.actionPkg) {
+				if !hasPkgCallNode(exprAST, c.actionPkg) {
 					checkHrefExpr(
-						c.errFn, exprPos, a.Expression.Value,
+						c.errFn, exprPos, a.Expression.Value, exprAST,
 						c.constValues, c.importConsts, c.hrefPkg,
 					)
 				}
@@ -355,8 +365,12 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 				continue
 			}
 			if isDatastarActionAttr(key.Name) {
-				findPkgCalls(
-					a.Expression.Value, c.hrefPkg,
+				if parseErr != nil {
+					c.errFn(exprPos, &ErrorActionUnverifiable{Expr: a.Expression.Value})
+					continue
+				}
+				findPkgCallsNode(
+					exprAST, c.hrefPkg,
 					func(funcName string) {
 						c.errFn(exprPos, &ErrorHrefContext{
 							AttrName: key.Name,
@@ -364,21 +378,23 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 						})
 					},
 				)
-				if !hasPkgCall(a.Expression.Value, c.actionPkg) &&
-					!hasPkgCall(a.Expression.Value, c.hrefPkg) {
-					c.checkExprHardcodedAction(exprPos, a.Expression.Value)
+				if !hasPkgCallNode(exprAST, c.actionPkg) &&
+					!hasPkgCallNode(exprAST, c.hrefPkg) {
+					c.checkExprHardcodedAction(exprPos, a.Expression.Value, exprAST)
 				}
 				continue
 			}
-			findPkgCalls(
-				a.Expression.Value, c.actionPkg,
-				func(funcName string) {
-					c.errFn(exprPos, &ErrorActionContext{
-						AttrName:   key.Name,
-						ActionFunc: funcName,
-					})
-				},
-			)
+			if parseErr == nil {
+				findPkgCallsNode(
+					exprAST, c.actionPkg,
+					func(funcName string) {
+						c.errFn(exprPos, &ErrorActionContext{
+							AttrName:   key.Name,
+							ActionFunc: funcName,
+						})
+					},
+				)
+			}
 		}
 	}
 }
@@ -450,12 +466,7 @@ func extractHardcodedActionURLs(value string) []string {
 // like @post('/login'). Only simple expressions (string literal, known
 // constant, known imported constant) are accepted; anything else is
 // reported as ErrActionUnverifiable.
-func (c *checker) checkExprHardcodedAction(pos token.Position, expr string) {
-	exprAST, err := goparser.ParseExpr(expr)
-	if err != nil {
-		c.errFn(pos, &ErrorActionUnverifiable{Expr: expr})
-		return
-	}
+func (c *checker) checkExprHardcodedAction(pos token.Position, expr string, exprAST ast.Expr) {
 	resolved, ok := c.resolveSimpleExpr(exprAST)
 	if !ok {
 		c.errFn(pos, &ErrorActionUnverifiable{Expr: expr})
@@ -501,16 +512,11 @@ func checkHrefExpr(
 	errFn ErrFunc,
 	pos token.Position,
 	expr string,
+	exprAST ast.Expr,
 	constValues map[string]string,
 	importConsts map[string]map[string]string,
 	hrefPkg *pkgMatcher,
 ) {
-	exprAST, err := goparser.ParseExpr(expr)
-	if err != nil {
-		errFn(pos, &ErrorHrefUnverifiable{Expr: expr})
-		return
-	}
-
 	info := analyzeHrefExpr(exprAST, constValues, importConsts, hrefPkg)
 
 	// 1. Uses href package -> check External for disallowed URLs, otherwise OK.
@@ -658,11 +664,31 @@ func classifyURL(info *hrefExprInfo, val string) {
 	}
 }
 
-// hasPkgCall reports whether expr contains any call to the package identified by m.
-func hasPkgCall(expr string, m *pkgMatcher) bool {
+// hasPkgCallNode reports whether node contains any call to the package
+// identified by m.
+func hasPkgCallNode(node ast.Node, m *pkgMatcher) bool {
 	found := false
-	findPkgCalls(expr, m, func(string) { found = true })
+	findPkgCallsNode(node, m, func(string) { found = true })
 	return found
+}
+
+// findPkgCallsNode walks a parsed Go AST and calls fn for each call to the
+// package identified by m. fn receives the called function name.
+func findPkgCallsNode(node ast.Node, m *pkgMatcher, fn func(funcName string)) {
+	if m == nil {
+		return
+	}
+	ast.Inspect(node, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if funcName, ok := m.isCall(call); ok {
+			fn(funcName)
+			return false
+		}
+		return true
+	})
 }
 
 // findPkgCalls parses expr as a Go expression and calls fn for each
@@ -675,17 +701,7 @@ func findPkgCalls(expr string, m *pkgMatcher, fn func(funcName string)) {
 	if err != nil {
 		return
 	}
-	ast.Inspect(exprAST, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		if funcName, ok := m.isCall(call); ok {
-			fn(funcName)
-			return false
-		}
-		return true
-	})
+	findPkgCallsNode(exprAST, m, fn)
 }
 
 // funcInfo holds information extracted from a single templ function definition.
