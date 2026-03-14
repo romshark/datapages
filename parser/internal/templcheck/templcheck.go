@@ -25,6 +25,16 @@ import (
 // ErrFunc is called for each error found during checking.
 type ErrFunc func(pos token.Position, err error)
 
+// posFromRange converts the start of a templ Range to a go/token.Position.
+// Templ lines and columns are 0-based; go/token are 1-based.
+func posFromRange(filename string, r templparser.Range) token.Position {
+	return token.Position{
+		Filename: filename,
+		Line:     int(r.From.Line) + 1,
+		Column:   int(r.From.Col) + 1,
+	}
+}
+
 // pkgMatcher identifies calls to a specific generated package (href or action)
 // in parsed Go expressions. It handles both qualified (pkg.Func()) and
 // dot-imported (Func()) call patterns.
@@ -298,33 +308,18 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 				if el.Name != "a" || hrefcheck.IsAllowedNonRelativeHref(a.Value) {
 					continue
 				}
-				pos := token.Position{
-					Filename: filename,
-					Line:     int(a.Range.From.Line) + 1,
-					Column:   int(a.Range.From.Col) + 1,
-				}
-				c.errFn(pos, &ErrorHrefRelative{URL: a.Value})
+				c.errFn(posFromRange(filename, a.Range), &ErrorHrefRelative{URL: a.Value})
 			case "action":
 				if el.Name != "form" {
 					continue
 				}
-				pos := token.Position{
-					Filename: filename,
-					Line:     int(a.Range.From.Line) + 1,
-					Column:   int(a.Range.From.Col) + 1,
-				}
-				c.errFn(pos, &ErrorFormAction{})
+				c.errFn(posFromRange(filename, a.Range), &ErrorFormAction{})
 			default:
 				if !isDatastarActionAttr(key.Name) {
 					continue
 				}
 				for _, url := range extractHardcodedActionURLs(a.Value) {
-					pos := token.Position{
-						Filename: filename,
-						Line:     int(a.Range.From.Line) + 1,
-						Column:   int(a.Range.From.Col) + 1,
-					}
-					c.errFn(pos, &ErrorActionHardcoded{URL: url})
+					c.errFn(posFromRange(filename, a.Range), &ErrorActionHardcoded{URL: url})
 				}
 			}
 		case *templparser.ExpressionAttribute:
@@ -332,11 +327,7 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 			if !ok {
 				continue
 			}
-			exprPos := token.Position{
-				Filename: filename,
-				Line:     int(a.Expression.Range.From.Line) + 1,
-				Column:   int(a.Expression.Range.From.Col) + 1,
-			}
+			exprPos := posFromRange(filename, a.Expression.Range)
 			// Parse the Go expression once for all subsequent checks.
 			exprAST, parseErr := goparser.ParseExpr(a.Expression.Value)
 			switch key.Name {
