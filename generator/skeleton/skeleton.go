@@ -24,6 +24,12 @@ var ComposeYAML string
 //go:embed Makefile.tmpl
 var Makefile string
 
+//go:embed vscode-extensions.json.tmpl
+var VSCodeExtensions string
+
+//go:embed ci.yml.tmpl
+var CIWorkflow string
+
 var tmpl = template.Must(template.New("main.go").Parse(mainGoTmpl))
 
 type mainGoData struct {

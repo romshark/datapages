@@ -166,6 +166,16 @@ func runInit(
 		return err
 	}
 
+	// Step 8b: Write .vscode/extensions.json if missing.
+	if _, err := writeVSCodeExtensionsIfMissing(projectDir, out); err != nil {
+		return err
+	}
+
+	// Step 8c: Write .github/workflows/ci.yml if missing.
+	if _, err := writeGithubWorkflowIfMissing(projectDir, out); err != nil {
+		return err
+	}
+
 	// Step 9: Run go mod tidy to resolve app package dependencies
 	// (e.g. templ) so the parser can type-check before code generation.
 	if err := goModTidy(projectDir); err != nil {
@@ -479,6 +489,40 @@ func writeMakefileIfMissing(projectDir string, w io.Writer) (bool, error) {
 		return false, fmt.Errorf("writing Makefile: %w", err)
 	}
 	_, _ = fmt.Fprintln(w, "Created Makefile")
+	return true, nil
+}
+
+func writeGithubWorkflowIfMissing(projectDir string, w io.Writer) (bool, error) {
+	ciPath := filepath.Join(projectDir, ".github", "workflows", "ci.yml")
+	if _, err := os.Stat(ciPath); err == nil {
+		return false, nil
+	}
+	if err := os.MkdirAll(
+		filepath.Join(projectDir, ".github", "workflows"), 0o755,
+	); err != nil {
+		return false, fmt.Errorf("creating .github/workflows directory: %w", err)
+	}
+	if err := os.WriteFile(ciPath, []byte(skeleton.CIWorkflow), 0o644); err != nil {
+		return false, fmt.Errorf("writing .github/workflows/ci.yml: %w", err)
+	}
+	_, _ = fmt.Fprintln(w, "Created .github/workflows/ci.yml")
+	return true, nil
+}
+
+func writeVSCodeExtensionsIfMissing(projectDir string, w io.Writer) (bool, error) {
+	extPath := filepath.Join(projectDir, ".vscode", "extensions.json")
+	if _, err := os.Stat(extPath); err == nil {
+		return false, nil
+	}
+	if err := os.MkdirAll(filepath.Join(projectDir, ".vscode"), 0o755); err != nil {
+		return false, fmt.Errorf("creating .vscode directory: %w", err)
+	}
+	if err := os.WriteFile(
+		extPath, []byte(skeleton.VSCodeExtensions), 0o644,
+	); err != nil {
+		return false, fmt.Errorf("writing .vscode/extensions.json: %w", err)
+	}
+	_, _ = fmt.Fprintln(w, "Created .vscode/extensions.json")
 	return true, nil
 }
 

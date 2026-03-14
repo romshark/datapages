@@ -1,0 +1,45 @@
+on:
+  push:
+  pull_request:
+
+name: CI
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install templ
+        run: go install github.com/a-h/templ/cmd/templ@latest
+
+      - name: Install datapages
+        run: go install github.com/romshark/datapages@latest
+
+      # Ensure templ generate was run before commit
+      - name: Run templ generate
+        run: templ generate
+      - name: Check for uncommitted templ changes
+        run: |
+          git diff --exit-code -- '*.go' || \
+            (echo "templ generate produced uncommitted changes. Please run templ generate and commit the results." && exit 1)
+
+      # Ensure datapages gen was run before commit
+      - name: Run datapages gen
+        run: datapages gen
+      - name: Check for uncommitted datapages changes
+        run: |
+          git diff --exit-code || \
+            (echo "datapages gen produced uncommitted changes. Please run datapages gen and commit the results." && exit 1)
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Compile server
+        run: go build ./cmd/server/
