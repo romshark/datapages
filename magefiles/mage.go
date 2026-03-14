@@ -14,6 +14,7 @@ const (
 	toolGolangCI    = "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
 	toolGovulncheck = "golang.org/x/vuln/cmd/govulncheck@latest"
 	toolTempl       = "github.com/a-h/templ/cmd/templ@v0.3.1001"
+	toolMinify      = "github.com/tdewolff/minify/v2/cmd/minify@latest"
 )
 
 // submoduleRoots lists directories containing sub-modules (their own go.mod)
@@ -282,7 +283,11 @@ func GenDocs() error {
 	if err := goRun(toolTempl, "generate", "-path", "./docs-src"); err != nil {
 		return err
 	}
-	return run("go", "run", "./scripts/render-pages", "-version", version)
+	if err := run("go", "run", "./scripts/render-pages", "-version", version); err != nil {
+		return err
+	}
+	fmt.Println("==> minify docs-src/style.css -> docs/style.css")
+	return goRun(toolMinify, "-o", "docs/style.css", "docs-src/style.css")
 }
 
 // All runs test, vulncheck, fmt, mod-tidy, gen-templ, and gen-docs.
