@@ -17,9 +17,33 @@ for building dynamic, server-rendered web applications in pure Go.
 **Focus on your business logic, generate the boilerplate**
 Datapages parses your app source package and generates all the wiring.
 Routing, sessions and authentication, SSE streams, CSRF protection,
-type-safe URL and action helpers -
+type-safe URL and action helpers, Prometheus metrics -
 so your application code stays clean and takes full advantage of Go's strong
 static typing and high performance.
+
+No matter whether you're building **real-time collaborative dynamic web app**
+or simple [HTMX](https://htmx.org/)-style websites** - Datapages will serve you well.
+
+## Who This Is For
+
+Datapages is a good fit if you:
+
+- **Already write your backend in Go** and want to build your web frontend
+  in the same language and toolchain.
+- **Are building a server-rendered application**, where the server owns the data;
+  not a local-first offline-capable SPA.
+- **Already use [Datastar](https://data-star.dev)** and want a Go framework
+  that generates the boilerplate around it and keeps your code
+  well maintained over time.
+- **Already use [Templ](https://templ.guide)** and want a full framework
+  built around it.
+- **Use [HTMX](https://htmx.org/),
+  [idiomorph](https://htmx.org/extensions/idiomorph/)
+  and [Alpine.js](https://alpinejs.dev/)**, and instead want a single cohesive stack
+  with a smaller bundle size and less spaghetti-code.
+- **Don't want to maintain a separate REST/GraphQL API** just to feed your frontend.
+- **Want to deploy as a single, statically compiled binary** that makes
+  the most of your hardware.
 
 ## Examples
 
@@ -165,3 +189,4 @@ conventions, commit message format, and project structure.
 
 Use the `example/classifieds/` application as a real-world
 test fixture when developing Datapages.
+
