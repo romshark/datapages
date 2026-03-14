@@ -25,7 +25,7 @@ templ head() {
 
 templ fragmentNavbar(session Session, searchTerm string, baseData baseData) {
 	<nav id="navbar" data-signals:searchinput={ fmt.Sprintf("%q", searchTerm) }>
-		<a href={ href.Index() }>Home</a>
+		<a href={ href.PageIndex() }>Home</a>
 		// pageshow handles the browser form restoration on page navigation.
 		<input
 			class="input"
@@ -36,7 +36,7 @@ templ fragmentNavbar(session Session, searchTerm string, baseData baseData) {
 			data-on:keydown="if (evt.key === 'Enter') $searchanchor.click()"
 			placeholder="What are you looking for?"
 		/>
-		//datapages-lint:nolint
+		//datapages:nolint
 		<a
 			data-ref:searchanchor
 			data-attr:href="'/search?t=' + $searchinput"
@@ -49,7 +49,7 @@ templ fragmentNavbar(session Session, searchTerm string, baseData baseData) {
 			@menuBase("navbar-menu", session.UserID, baseData.UserAvatarURL)
 		} else {
 			<button class="btn-secondary">
-				<a href={ href.Login() }>Sign in</a>
+				<a href={ href.PageLogin() }>Sign in</a>
 			</button>
 		}
 	</nav>
@@ -90,7 +90,7 @@ templ toastError500() {
 }
 
 templ fragmentMessagesLink(unreadChats int) {
-	<a id="messages" href={ href.Messages(href.QueryMessages{}) }>
+	<a id="messages" href={ href.PageMessages(href.QueryPageMessages{}) }>
 		if unreadChats > 0 {
 			@iconMessages()
 			<b>
@@ -113,7 +113,7 @@ templ fragmentInternalError() {
 templ pageError500() {
 	<h1>Oh no!</h1>
 	<p>Something went wrong on our side.</p>
-	<a href={ href.Index() }>Try to go back to the homepage.</a>
+	<a href={ href.PageIndex() }>Try to go back to the homepage.</a>
 }
 
 templ pageError404(session Session, baseData baseData) {
@@ -121,7 +121,7 @@ templ pageError404(session Session, baseData baseData) {
 	@page("page-not-found") {
 		<h1>Oh-oh!</h1>
 		<p>This page doesn't exist.</p>
-		<a href={ href.Index() }>Go back to homepage.</a>
+		<a href={ href.PageIndex() }>Go back to homepage.</a>
 	}
 }
 
@@ -135,7 +135,7 @@ templ pageIndex(
 			for _, category := range mainCategories {
 				<li>
 					<a
-						href={ href.Search(href.QuerySearch{
+						href={ href.PageSearch(href.QueryPageSearch{
 							Category: category.ID,
 						}) }
 					>
@@ -157,7 +157,7 @@ templ pageLogin(wrongCreds bool) {
 		<div class="card">
 			<header>
 				<h1>Sign in</h1>
-				<a href={ href.Index() }>continue as guest</a>
+				<a href={ href.PageIndex() }>continue as guest</a>
 			</header>
 			<section>
 				<input
@@ -250,7 +250,7 @@ templ pageMessages(
 						}}
 						<li class={ classes }>
 							<a
-								href={ href.Messages(href.QueryMessages{
+								href={ href.PageMessages(href.QueryPageMessages{
 									Chat: chat.ID,
 								}) }
 							>
@@ -288,7 +288,7 @@ templ pageMessages(
 			} else if openChat.ID == "" {
 				<p>Select any chat.</p>
 			} else {
-				<a target="_blank" href={ href.Post(openChat.PostSlug) }>
+				<a target="_blank" href={ href.PagePost(openChat.PostSlug) }>
 					<h1>{ openChat.Title }</h1>
 				</a>
 				<ul>
@@ -544,7 +544,7 @@ templ pagePost(
 			<h1 class="post-title">{ post.Title }</h1>
 			<div class="post-meta">
 				<a
-					href={ href.User(post.MerchantUserName) }
+					href={ href.PageUser(post.MerchantUserName) }
 					class="post-merchant"
 				>By { post.MerchantUserName }</a>
 				<p class="post-location">{ post.Location }</p>
@@ -559,7 +559,7 @@ templ pagePost(
 				<h1 class="post-title">{ post.Title }</h1>
 				<div class="post-meta">
 					<a
-						href={ href.User(post.MerchantUserName) }
+						href={ href.PageUser(post.MerchantUserName) }
 						class="post-merchant"
 					>By { post.MerchantUserName }</a>
 					<p class="post-location">{ post.Location }</p>
@@ -576,7 +576,7 @@ templ pagePost(
 		} else if session.UserID != "" && post.MerchantUserName != session.UserID {
 			@fragmentMessageForm(post.Slug)
 		} else if session.UserID == "" {
-			<a href={ href.Login() }>Login to send a message</a>
+			<a href={ href.PageLogin() }>Login to send a message</a>
 		}
 		<p class="post-description">{ post.Description }</p>
 		<h3 class="similar-heading">Similar Posts</h3>
@@ -626,7 +626,7 @@ templ fragmentPosts(posts []domain.Post) {
 				<div class="body">
 					<a
 						class="title"
-						href={ href.Post(post.Slug) }
+						href={ href.PagePost(post.Slug) }
 					>
 						{ post.Title }
 					</a>
@@ -680,7 +680,7 @@ templ fragmentMessageFormSending() {
 templ fragmentMessageFormLinkToChat(chatID string) {
 	<div id="message-form">
 		<a
-			href={ href.Messages(href.QueryMessages{
+			href={ href.PageMessages(href.QueryPageMessages{
 				Chat: chatID,
 			}) }
 		>Go to the chat</a>
@@ -725,14 +725,14 @@ templ menuBase(id, userName, userAvatarURL string) {
 					aria-labelledby="account-options"
 				>
 					<a
-						href={ href.MyPosts() }
+						href={ href.PageMyPosts() }
 						role="menuitem"
 					>
 						@iconShop()
 						My Posts
 					</a>
 					<a
-						href={ href.Settings() }
+						href={ href.PageSettings() }
 						role="menuitem"
 					>
 						@iconSettings()
@@ -770,7 +770,7 @@ templ fragmentMessage(session Session, msg domain.Message) {
 			>
 				<a
 					target="_blank"
-					href={ href.User(msg.SenderUserName) }
+					href={ href.PageUser(msg.SenderUserName) }
 				>
 					{ msg.SenderUserName }
 				</a>

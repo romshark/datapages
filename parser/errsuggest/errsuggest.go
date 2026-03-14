@@ -9,6 +9,7 @@ import (
 
 	"github.com/romshark/datapages/parser"
 	"github.com/romshark/datapages/parser/internal/paramvalidation"
+	"github.com/romshark/datapages/parser/internal/urlpath"
 )
 
 // toSnakeCase converts a PascalCase or camelCase Go identifier to snake_case.
@@ -100,7 +101,7 @@ func Suggest(err error) string {
 		suffix := methodPathSuffix(d.MethodName)
 		base := "/"
 		if d.PagePath != "" && d.PagePath != "/" {
-			base = cleanPath(d.PagePath) + "/"
+			base = urlpath.Clean(d.PagePath) + "/"
 		}
 		path := base + suffix
 		return fmt.Sprintf("fix: Add `// %s is %s`", d.MethodName, path)
@@ -111,7 +112,7 @@ func Suggest(err error) string {
 			return ""
 		}
 		suffix := methodPathSuffix(d.MethodName)
-		path := cleanPath(d.PagePath) + "/" + suffix
+		path := urlpath.Clean(d.PagePath) + "/" + suffix
 		return fmt.Sprintf("fix: Use `// %s is %s`", d.MethodName, path)
 
 	case errors.Is(err, parser.ErrPageMissingGET):
@@ -239,6 +240,99 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf("fix: Define a Session type in package %s", d.PkgName)
 
+	case errors.Is(err, parser.ErrTemplHrefRelative):
+		var d *parser.ErrorTemplHrefRelative
+		if !errors.As(err, &d) {
+			return ""
+		}
+		if fn := hrefFuncFromURL(d.URL); fn != "" {
+			return fmt.Sprintf("fix: Use href={ href.%s(...) } instead of %q",
+				fn, d.URL)
+		}
+		return fmt.Sprintf(
+			"fix: Use href={ href.Xxx(...) } from the generated href package "+
+				"instead of %q", d.URL)
+
+	case errors.Is(err, parser.ErrTemplHrefUnverifiable):
+		var d *parser.ErrorTemplHrefUnverifiable
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Use href={ href.Xxx(...) } from the generated href package, "+
+				"or href={ href.External(url) } for external URLs "+
+				"instead of %q", d.Expr)
+
+	case errors.Is(err, parser.ErrTemplHrefExternalIsRelative):
+		var d *parser.ErrorTemplHrefExternalIsRelative
+		if !errors.As(err, &d) {
+			return ""
+		}
+		if fn := hrefFuncFromURL(d.URL); fn != "" {
+			return fmt.Sprintf(
+				"fix: Use href={ href.%s(...) } instead of href.External(%q)",
+				fn, d.URL)
+		}
+		return fmt.Sprintf(
+			"fix: Use href={ href.Xxx(...) } from the generated href package "+
+				"instead of href.External(%q)", d.URL)
+
+	case errors.Is(err, parser.ErrTemplActionWrongPage):
+		var d *parser.ErrorTemplActionWrongPage
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Move this action reference to a template used by %s, "+
+				"or use an action owned by %s",
+			d.OwnerPage, d.PageType)
+
+	case errors.Is(err, parser.ErrTemplActionHardcoded):
+		var d *parser.ErrorTemplActionHardcoded
+		if !errors.As(err, &d) {
+			return ""
+		}
+		if fn := actionFuncFromURL(d.URL); fn != "" {
+			return fmt.Sprintf("fix: Use action={ action.%s(...) } instead of %q",
+				fn, d.URL)
+		}
+		return fmt.Sprintf(
+			"fix: Use action={ action.Xxx(...) } from the generated action package "+
+				"instead of %q", d.URL)
+
+	case errors.Is(err, parser.ErrTemplActionUnverifiable):
+		var d *parser.ErrorTemplActionUnverifiable
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Use action={ action.Xxx(...) } from the generated action package "+
+				"instead of %q", d.Expr)
+
+	case errors.Is(err, parser.ErrTemplFormAction):
+		return "fix: Remove the action attribute and use " +
+			"data-on:submit with Datastar actions instead"
+
+	case errors.Is(err, parser.ErrTemplHrefContext):
+		var d *parser.ErrorTemplHrefContext
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: href.%s() returns a URL path, not a Datastar action — "+
+				"use action.Xxx(...) from the generated action package instead",
+			d.HrefFunc)
+
+	case errors.Is(err, parser.ErrTemplActionContext):
+		var d *parser.ErrorTemplActionContext
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: action.%s() is a Datastar action, not a URL — "+
+				"use href.PageXxx(...) from the generated href package instead",
+			d.ActionFunc)
+
 	case errors.Is(err, parser.ErrSignatureUnsupportedInput):
 		var d *parser.ErrorSignatureUnsupportedInput
 		if !errors.As(err, &d) {
@@ -332,6 +426,7 @@ func Suggest(err error) string {
 //   - ErrEnableBgStreamNotGET         — message states it must be in a GET handler
 //   - ErrDisableRefreshNotBool        — constraint is clear from message
 //   - ErrDisableRefreshNotGET         — message states it must be in a GET handler
+//   - ErrEventTargetUserIDsNoSession  — has dedicated suggestion above
 
 // pageTypePath derives a suggested route path from a page type name.
 // "PageIndex" -> "/", "PageProfile" -> "/profile/", "PageFooBar" -> "/foobar/".
@@ -358,14 +453,69 @@ func methodPathSuffix(method string) string {
 	return strings.ToLower(method)
 }
 
+// actionFuncFromURL derives a likely action package function name from a URL path.
+// Assumes POST (the most common method for form actions).
+// "/submit" → "POSTAppSubmit", "/profile/save" → "POSTPageProfileSave".
+// Returns "" when the URL contains variables or cannot be mapped.
+func actionFuncFromURL(url string) string {
+	// Strip query string.
+	if i := strings.IndexByte(url, '?'); i >= 0 {
+		url = url[:i]
+	}
+	url = strings.Trim(url, "/")
+	if url == "" {
+		return ""
+	}
+	// Skip if it looks like a route variable.
+	if strings.ContainsAny(url, "{}") {
+		return ""
+	}
+
+	parts := strings.Split(url, "/")
+	switch len(parts) {
+	case 1:
+		// Single segment: app-level action, e.g. "/submit" → "POSTAppSubmit"
+		return "POSTApp" + capitalize(parts[0])
+	case 2:
+		// Two segments: page action, e.g. "/profile/save" → "POSTPageProfileSave"
+		return "POSTPage" + capitalize(parts[0]) + capitalize(parts[1])
+	default:
+		return ""
+	}
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// hrefFuncFromURL derives a likely href package function name from a URL path.
+// "/" → "PageIndex", "/login" → "PageLogin", "/profile/" → "PageProfile".
+// Returns "" when the URL contains path variables or cannot be mapped.
+func hrefFuncFromURL(url string) string {
+	// Strip query string.
+	if i := strings.IndexByte(url, '?'); i >= 0 {
+		url = url[:i]
+	}
+	url = strings.Trim(url, "/")
+	if url == "" {
+		return "PageIndex"
+	}
+	// Take only the first path segment (deeper paths are usually actions).
+	if strings.Contains(url, "/") {
+		return ""
+	}
+	// Skip if it looks like a route variable.
+	if strings.ContainsAny(url, "{}") {
+		return ""
+	}
+	// Capitalize: "login" → "PageLogin", "myposts" → "PageMyposts"
+	return "Page" + capitalize(url)
+}
+
 const suggestUnsupportedFieldType = "fix: Use either of: string, bool, " +
 	"int, int8, int16, int32, int64, " +
 	"uint, uint8, uint16, uint32, uint64, " +
 	"float32, float64, or encoding.TextUnmarshaler"
-
-func cleanPath(p string) string {
-	if p == "/" {
-		return p
-	}
-	return strings.TrimRight(p, "/")
-}

@@ -597,12 +597,100 @@ Datapages relies on the
 [`visibilitychange`](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event)
 event to perform the automatic refresh.
 
+## Linting
+
+`datapages lint` parses the application model and reports all errors without generating
+code. It validates the same rules as `datapages gen`, making it useful for CI checks
+and editor integration.
+
+This includes all structural validations (missing types, invalid signatures,
+path comments, event definitions, parameter types, etc.) as well as
+template-specific checks on `.templ` files:
+
+- **Hardcoded href**: a static `href="/path"` on an `<a>` tag or an expression
+  `href={ "/path" }` / `href={ SomeConst }` whose value resolves to a disallowed URL.
+  Use the generated `href` package instead (e.g. `href={ href.PageLogin() }`).
+- **Unverifiable href expression**: an expression `href` on an `<a>` tag that contains
+  a function call not from the `href` package (e.g. `href={ templ.SafeURL("/about") }`,
+  `href={ loginHref() }`, `href={ fmt.Sprintf(...) }`). The linter cannot statically
+  verify these, so they must use `href` package functions.
+- **`href.External` with internal URL**: `href.External("/login")` wrapping a URL that
+  looks app-internal.
+- **Hardcoded action URLs**: using a hardcoded URL in a Datastar action context
+  (e.g. `@post('/foo/bar')`) instead of the generated `action` package
+  (e.g. `action={ action.POSTPageProfileSave() }`).
+- **Form action attribute**: using a `<form action=...>` attribute (constant or
+  expression). Datapages does not support plain HTML form submissions — use
+  `data-on:submit` with Datastar actions instead.
+- **Action context**: using an `action.XXX()` call in an attribute that is not a Datastar
+  action context (`data-on:<event>`, `data-on-<plugin>`, `data-init`). For example,
+  `action.POSTPageIndexSubmit()` in an `href` attribute.
+- **Href context**: using an `href.XXX()` call in a Datastar action context
+  (`data-on:<event>`, `data-on-<plugin>`, `data-init`). Href functions return URL paths,
+  not Datastar action strings — use `action.XXX()` instead.
+- **Action on wrong page**: using an action that belongs to a different page
+  (e.g. `action.POSTPageProfileSave()` in a template rendered by `PageSettings`).
+  App-level actions are allowed on any page.
+
+### Allowed href values
+
+The following href values are allowed without the `href` package and will not
+produce lint errors:
+
+- Fragment-only: `#section`, `#`
+- Protocol-relative: `//cdn.example.com`
+- Absolute with scheme: `https://...`, `mailto:...`, `tel:...`, `sms:...`, `ftp://...`
+- `const` values that resolve to one of the above
+- Backtick and double-quoted string literals that resolve to one of the above
+
+The following are always disallowed:
+
+- Root-relative paths: `/login`, `/static/style.css`
+- Relative paths: `relative`, `./x`, `../x`
+- Query-only: `?tab=settings`
+- Empty string: `""`
+- `javascript:` URLs
+
+### Expression href validation
+
+Expression href attributes (`href={ expr }`) are parsed as Go AST and validated:
+
+1. **`href` package calls** (`href.PageXxx()`, `href.External(...)`, `href.Asset(...)`)
+   are always allowed. For `href.External`, the first argument is checked if it is a
+   string literal or constant — if it resolves to a disallowed URL, an error is reported.
+2. **Any other function call** (e.g. `templ.SafeURL(...)`, `fmt.Sprintf(...)`,
+   `loginHref()`) is rejected because the result cannot be statically verified.
+3. **String literals and constants** are resolved and checked against the allowed/disallowed
+   rules above.
+4. **Bare identifiers** are resolved via `const` values. **Qualified
+   identifiers** (e.g. `urls.LoginURL`) are resolved via exported constants from
+   imported packages. Variables are not trusted (their value cannot be determined statically).
+
+### Suppressing Lint Errors
+
+Use `//datapages:nolint` in a templ file to suppress the next element's lint errors.
+An optional trailing explanation comment is allowed:
+
+```templ
+//datapages:nolint
+<a href="/legacy-path">Legacy</a>
+
+//datapages:nolint // migrating to href package in #1234
+<a href="/another-legacy">Another</a>
+```
+
+The directive applies to the immediately following non-whitespace sibling element.
+It suppresses all attribute-level lint errors (hardcoded href, unverifiable href,
+`href.External` with internal URL, hardcoded action, unverifiable action,
+form action, action/href context mismatch) — it does **not** suppress
+cross-page action ownership errors.
+
 ## Technical Limitations
 
-- For now, with CSRF protection enabled, you will not be able to use plain HTML forms,
-  since the CSRF token is auto-injected for Datastar `fetch` requests
-  (where `Datastar-Request` header is `true`).
-  You must use Datastar actions for any sort of server interactivity.
+- Plain HTML forms are not supported. CSRF tokens are auto-injected for
+  Datastar `fetch` requests (where `Datastar-Request` header is `true`),
+  so plain form submissions will not include the CSRF token.
+  Use `data-on:submit` with Datastar actions for server interactivity.
 
 ## Modules
 

@@ -30,7 +30,7 @@ func (p PageMessages) GET(
 	err error,
 ) {
 	if session.UserID == "" {
-		redirect = href.Login()
+		redirect = href.PageLogin()
 		return
 	}
 

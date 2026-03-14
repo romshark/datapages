@@ -4,13 +4,44 @@
 // Use these in templates instead of hardcoding URLs.
 package href
 
-import "strings"
+import (
+	"log/slog"
+	"strings"
+	"sync/atomic"
 
-// Foo references /foo/{$}
-func Foo() string { return "/foo/" }
+	"github.com/romshark/datapages/hrefcheck"
+)
 
-// Bar references /bar/{slug}/{$}
-func Bar(slug string) string {
+var logger atomic.Pointer[slog.Logger]
+
+func init() { logger.Store(slog.Default()) }
+
+// SetLogger sets the logger used by External to log invalid URLs.
+// Passing nil resets to the default logger. It is safe for concurrent use.
+func SetLogger(l *slog.Logger) {
+	if l == nil {
+		l = slog.Default()
+	}
+	logger.Store(l)
+}
+
+func getLogger() *slog.Logger { return logger.Load() }
+
+// External returns url as-is for use in href attributes.
+// It logs a warning at runtime if the URL is not an allowed
+// non-relative href (e.g. app-internal paths, javascript:, relative URLs).
+func External(url string) string {
+	if !hrefcheck.IsAllowedNonRelativeHref(url) {
+		getLogger().Warn("href.External called with app-internal URL", "url", url)
+	}
+	return url
+}
+
+// PageFoo references /foo/{$}
+func PageFoo() string { return "/foo/" }
+
+// PageBar references /bar/{slug}/{$}
+func PageBar(slug string) string {
 	var b strings.Builder
 	b.Grow(
 		len("/bar/") +
@@ -23,8 +54,8 @@ func Bar(slug string) string {
 	return b.String()
 }
 
-// Baz references /baz/{$}
-func Baz(query QueryBaz) string {
+// PageBaz references /baz/{$}
+func PageBaz(query QueryPageBaz) string {
 	anyQuery := query.Q != ""
 
 	var b strings.Builder
@@ -65,7 +96,7 @@ func Baz(query QueryBaz) string {
 	return b.String()
 }
 
-// QueryBaz is the query parameters for Baz
-type QueryBaz struct {
+// QueryPageBaz is the query parameters for PageBaz
+type QueryPageBaz struct {
 	Q string `query:"q"`
 }

@@ -38,7 +38,7 @@ func (p PagePost) GET(
 	if err != nil {
 		if errors.Is(err, domain.ErrPostNotFound) {
 			// Redirect to 404 page.
-			return nil, nil, href.Error404(), nil
+			return nil, nil, href.PageError404(), nil
 		}
 	}
 

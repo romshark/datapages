@@ -1,0 +1,3 @@
+app: app
+gen:
+  package: datapagesgen

@@ -1,0 +1,36 @@
+package app
+
+// Stub import so the IDE can resolve action references without errors.
+import "datapagestest/fixture/err_templ_action_not_on_page/datapagesgen/action"
+
+templ indexPage() {
+	<h1>Index</h1>
+}
+
+templ profilePage() {
+	<form action={ action.POSTPageProfileSave() }>
+		<button type="submit">Save Profile</button>
+	</form>
+}
+
+templ settingsPage() {
+	<form action={ action.POSTPageSettingsUpdate() }>
+		<button type="submit">Update Settings</button>
+	</form>
+	@settingsActions()
+}
+
+templ settingsActions() {
+	/* ErrTemplActionWrongPage: POSTPageProfileSave belongs to PageProfile, not PageSettings */
+	<form action={ action.POSTPageProfileSave() }>
+		<button type="submit">Wrong: Profile action in Settings</button>
+	</form>
+	<form action={ action.POSTAppGlobal() }>
+		<button type="submit">OK: App action in Settings</button>
+	</form>
+	/* nolint suppresses element-level checks but NOT action ownership */
+	//datapages:nolint
+	<form action={ action.POSTPageProfileSave() }>
+		<button type="submit">Nolinted but still wrong page</button>
+	</form>
+}

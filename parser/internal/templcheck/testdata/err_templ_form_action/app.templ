@@ -1,0 +1,27 @@
+package app
+
+import "datapagestest/fixture/err_templ_form_action/datapagesgen/action"
+
+templ page() {
+	/* ErrFormAction: constant action */
+	<form action="/submit">
+		<button type="submit">Submit</button>
+	</form>
+	/* ErrFormAction: expression string */
+	<form action={ "/submit" }>
+		<button type="submit">Submit</button>
+	</form>
+	/* ErrFormAction: expression with action package */
+	<form action={ action.POSTPageIndexSubmit() }>
+		<button type="submit">Submit</button>
+	</form>
+	/* OK: form without action attribute */
+	<form data-on:submit={ action.POSTPageIndexSubmit() }>
+		<button type="submit">Submit</button>
+	</form>
+	/* OK: nolint suppresses */
+	//datapages:nolint
+	<form action="/suppressed">
+		<button type="submit">Suppressed</button>
+	</form>
+}

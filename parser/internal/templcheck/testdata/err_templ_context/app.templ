@@ -1,0 +1,39 @@
+package app
+
+import (
+	"datapagestest/fixture/err_templ_context/datapagesgen/action"
+	"datapagestest/fixture/err_templ_context/datapagesgen/href"
+)
+
+templ page() {
+	/* ErrTemplActionContext: action in href */
+	<a href={ action.POSTPageIndexSubmit() }>Submit</a>
+	/* OK: action in data-on:click */
+	<button data-on:click={ action.POSTPageIndexSubmit() }>Submit</button>
+	/* OK: action in data-on:submit */
+	<form data-on:submit={ action.POSTPageIndexSubmit() }></form>
+	/* OK: action in data-on:load */
+	<div data-on:load={ action.POSTPageIndexSubmit() }></div>
+	/* OK: action in data-on:keydown */
+	<input data-on:keydown={ action.POSTPageIndexSubmit() }/>
+	/* OK: action in data-on-intersect */
+	<div data-on-intersect={ action.POSTPageIndexSubmit() }></div>
+	/* OK: action in data-on-intersect.once */
+	<div data-on-intersect.once={ action.POSTPageIndexSubmit() }></div>
+	/* OK: action in data-init */
+	<div data-init={ action.POSTPageIndexSubmit() }></div>
+	/* ErrHrefContext: href in data-on:click */
+	<button data-on:click={ href.PageIndex() }>Submit</button>
+	/* ErrHrefContext: href in data-on:submit */
+	<form data-on:submit={ href.PageIndex() }></form>
+	/* ErrHrefContext: href in data-init */
+	<div data-init={ href.PageIndex() }></div>
+	/* OK: href in href attribute */
+	<a href={ href.PageIndex() }>Home</a>
+	//datapages:nolint
+	<a href={ action.POSTPageIndexSubmit() }>Suppressed</a>
+	/* ErrActionContext: action in data-only (NOT a Datastar attr) */
+	<div data-only={ action.POSTPageIndexSubmit() }></div>
+	/* OK: href in data-only (NOT a Datastar attr, no ErrHrefContext) */
+	<div data-only={ href.PageIndex() }></div>
+}

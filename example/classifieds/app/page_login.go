@@ -22,7 +22,7 @@ func (PageLogin) GET(r *http.Request, session Session) (
 ) {
 	if session.UserID != "" {
 		// Already logged in
-		return nil, href.Index(), false, nil
+		return nil, href.PageIndex(), false, nil
 	}
 	return pageLogin(false), redirect, true, nil
 }
@@ -44,7 +44,7 @@ func (p PageLogin) POSTSubmit(
 ) {
 	if session.UserID != "" {
 		// Already logged in.
-		redirect, redirectStatus = href.Index(), http.StatusSeeOther
+		redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
 		return
 	}
 	uid, err := p.App.repo.Login(signals.EmailOrUsername, signals.Password)
@@ -64,6 +64,6 @@ func (p PageLogin) POSTSubmit(
 		UserID:   uid,
 		IssuedAt: now,
 	}
-	redirect, redirectStatus = href.Index(), http.StatusSeeOther
+	redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
 	return
 }

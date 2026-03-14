@@ -23,6 +23,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/example/counter/app"
+	"github.com/romshark/datapages/example/counter/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -372,6 +373,7 @@ func NewServer(
 		}
 		s.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
 	}
+	href.SetLogger(s.logger)
 	s.httpServer.Handler = s
 	if s.httpServer.ErrorLog == nil {
 		s.httpServer.ErrorLog = slog.NewLogLogger(

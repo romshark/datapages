@@ -42,7 +42,7 @@ func (p PageSettings) GET(
 	session Session,
 ) (body templ.Component, redirect string, err error) {
 	if session.UserID == "" {
-		return nil, href.Login(), nil
+		return nil, href.PageLogin(), nil
 	}
 
 	sessions := make(map[string]Session)
@@ -61,7 +61,7 @@ func (p PageSettings) POSTSave(
 	},
 ) (redirect string, err error) {
 	if session.UserID == "" {
-		return href.Login(), nil
+		return href.PageLogin(), nil
 	}
 	// TODO
 	return "", nil
@@ -103,7 +103,7 @@ func (p PageSettings) POSTCloseSession(
 	})
 	if sessionToken == path.Token {
 		// Closed current session
-		return true, href.Login(), nil
+		return true, href.PageLogin(), nil
 	}
 	// Closed another session.
 	return false, "", nil
@@ -129,7 +129,7 @@ func (p PageSettings) POSTCloseAllSessions(
 			Token:         token,
 		})
 	}
-	return href.Login(), nil
+	return href.PageLogin(), nil
 }
 
 func (p PageSettings) OnSessionClosed(
@@ -140,7 +140,7 @@ func (p PageSettings) OnSessionClosed(
 ) error {
 	if event.Token == sessionToken {
 		// Current session was closed
-		return sse.Redirect(href.Login())
+		return sse.Redirect(href.PageLogin())
 	}
 	body, err := p.render(sse.Context(), session)
 	if err != nil {

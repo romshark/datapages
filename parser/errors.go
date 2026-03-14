@@ -14,6 +14,7 @@ import (
 
 	"github.com/romshark/datapages/parser/internal/paramvalidation"
 	"github.com/romshark/datapages/parser/internal/structtag"
+	"github.com/romshark/datapages/parser/internal/templcheck"
 )
 
 var (
@@ -159,6 +160,16 @@ var (
 	ErrEventTargetUserIDsNoSession = errors.New(
 		"event with TargetUserIDs requires a Session type",
 	)
+
+	ErrTemplHrefRelative           = templcheck.ErrHrefRelative
+	ErrTemplActionHardcoded        = templcheck.ErrActionHardcoded
+	ErrTemplFormAction             = templcheck.ErrFormAction
+	ErrTemplActionWrongPage        = templcheck.ErrActionWrongPage
+	ErrTemplActionContext          = templcheck.ErrActionContext
+	ErrTemplHrefContext            = templcheck.ErrHrefContext
+	ErrTemplHrefUnverifiable       = templcheck.ErrHrefUnverifiable
+	ErrTemplActionUnverifiable     = templcheck.ErrActionUnverifiable
+	ErrTemplHrefExternalIsRelative = templcheck.ErrHrefExternalIsRelative
 )
 
 func normPos(pos token.Position) token.Position {
@@ -327,13 +338,6 @@ func sortErrors(e *Errors) {
 	})
 }
 
-func cleanPath(p string) string {
-	if p == "/" {
-		return p
-	}
-	return strings.TrimRight(p, "/")
-}
-
 // ErrorPageMissingFieldApp is ErrPageMissingFieldApp with suggestion context.
 type ErrorPageMissingFieldApp struct {
 	TypeName string // e.g. "PageProfile"
@@ -500,6 +504,19 @@ func (e *ErrorEventTargetUserIDsNoSession) Error() string {
 func (e *ErrorEventTargetUserIDsNoSession) Unwrap() error {
 	return ErrEventTargetUserIDsNoSession
 }
+
+// Type aliases for templ-check error types defined in the templcheck subpackage.
+type (
+	ErrorTemplHrefRelative           = templcheck.ErrorHrefRelative
+	ErrorTemplActionHardcoded        = templcheck.ErrorActionHardcoded
+	ErrorTemplFormAction             = templcheck.ErrorFormAction
+	ErrorTemplActionWrongPage        = templcheck.ErrorActionWrongPage
+	ErrorTemplActionContext          = templcheck.ErrorActionContext
+	ErrorTemplHrefContext            = templcheck.ErrorHrefContext
+	ErrorTemplHrefUnverifiable       = templcheck.ErrorHrefUnverifiable
+	ErrorTemplActionUnverifiable     = templcheck.ErrorActionUnverifiable
+	ErrorTemplHrefExternalIsRelative = templcheck.ErrorHrefExternalIsRelative
+)
 
 // ErrorSignatureUnsupportedInput is ErrSignatureUnsupportedInput with context.
 type ErrorSignatureUnsupportedInput struct {

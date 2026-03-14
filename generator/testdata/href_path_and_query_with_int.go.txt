@@ -5,12 +5,41 @@
 package href
 
 import (
+	"log/slog"
 	"strconv"
 	"strings"
+	"sync/atomic"
+
+	"github.com/romshark/datapages/hrefcheck"
 )
 
-// Catalog references /catalog/{category}/{$}
-func Catalog(category string, query QueryCatalog) string {
+var logger atomic.Pointer[slog.Logger]
+
+func init() { logger.Store(slog.Default()) }
+
+// SetLogger sets the logger used by External to log invalid URLs.
+// Passing nil resets to the default logger. It is safe for concurrent use.
+func SetLogger(l *slog.Logger) {
+	if l == nil {
+		l = slog.Default()
+	}
+	logger.Store(l)
+}
+
+func getLogger() *slog.Logger { return logger.Load() }
+
+// External returns url as-is for use in href attributes.
+// It logs a warning at runtime if the URL is not an allowed
+// non-relative href (e.g. app-internal paths, javascript:, relative URLs).
+func External(url string) string {
+	if !hrefcheck.IsAllowedNonRelativeHref(url) {
+		getLogger().Warn("href.External called with app-internal URL", "url", url)
+	}
+	return url
+}
+
+// PageCatalog references /catalog/{category}/{$}
+func PageCatalog(category string, query QueryPageCatalog) string {
 	var (
 		pStr string
 	)
@@ -79,8 +108,8 @@ func Catalog(category string, query QueryCatalog) string {
 	return b.String()
 }
 
-// QueryCatalog is the query parameters for Catalog
-type QueryCatalog struct {
+// QueryPageCatalog is the query parameters for PageCatalog
+type QueryPageCatalog struct {
 	Page int64  `query:"p"`
 	Sort string `query:"sort"`
 }

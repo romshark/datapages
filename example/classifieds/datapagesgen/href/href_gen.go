@@ -5,21 +5,57 @@
 package href
 
 import (
+	"log/slog"
+	"path"
 	"strconv"
 	"strings"
+	"sync/atomic"
+
+	"github.com/romshark/datapages/hrefcheck"
 )
 
-// Error404 references /not-found/{$}
-func Error404() string { return "/not-found/" }
+var logger atomic.Pointer[slog.Logger]
 
-// Index references /{$}
-func Index() string { return "/" }
+func init() { logger.Store(slog.Default()) }
 
-// Login references /login/{$}
-func Login() string { return "/login/" }
+// SetLogger sets the logger used by External to log invalid URLs.
+// Passing nil resets to the default logger. It is safe for concurrent use.
+func SetLogger(l *slog.Logger) {
+	if l == nil {
+		l = slog.Default()
+	}
+	logger.Store(l)
+}
 
-// Messages references /messages/{$}
-func Messages(query QueryMessages) string {
+func getLogger() *slog.Logger { return logger.Load() }
+
+// External returns url as-is for use in href attributes.
+// It logs a warning at runtime if the URL is not an allowed
+// non-relative href (e.g. app-internal paths, javascript:, relative URLs).
+func External(url string) string {
+	if !hrefcheck.IsAllowedNonRelativeHref(url) && !strings.HasPrefix(url, "/static/") {
+		getLogger().Warn("href.External called with app-internal URL", "url", url)
+	}
+	return url
+}
+
+// Asset returns the URL path for a static asset file.
+// For example, Asset("style.css") returns "/static/style.css".
+func Asset(p string) string {
+	return path.Join("/static/", p)
+}
+
+// PageError404 references /not-found/{$}
+func PageError404() string { return "/not-found/" }
+
+// PageIndex references /{$}
+func PageIndex() string { return "/" }
+
+// PageLogin references /login/{$}
+func PageLogin() string { return "/login/" }
+
+// PageMessages references /messages/{$}
+func PageMessages(query QueryPageMessages) string {
 	anyQuery := query.Chat != ""
 
 	var b strings.Builder
@@ -60,16 +96,16 @@ func Messages(query QueryMessages) string {
 	return b.String()
 }
 
-// QueryMessages is the query parameters for Messages
-type QueryMessages struct {
+// QueryPageMessages is the query parameters for PageMessages
+type QueryPageMessages struct {
 	Chat string `query:"chat"`
 }
 
-// MyPosts references /my-posts/{$}
-func MyPosts() string { return "/my-posts/" }
+// PageMyPosts references /my-posts/{$}
+func PageMyPosts() string { return "/my-posts/" }
 
-// Post references /post/{slug}/{$}
-func Post(slug string) string {
+// PagePost references /post/{slug}/{$}
+func PagePost(slug string) string {
 	var b strings.Builder
 	b.Grow(
 		len("/post/") +
@@ -82,8 +118,8 @@ func Post(slug string) string {
 	return b.String()
 }
 
-// Search references /search/{$}
-func Search(query QuerySearch) string {
+// PageSearch references /search/{$}
+func PageSearch(query QueryPageSearch) string {
 	var (
 		pminStr string
 		pmaxStr string
@@ -200,8 +236,8 @@ func Search(query QuerySearch) string {
 	return b.String()
 }
 
-// QuerySearch is the query parameters for Search
-type QuerySearch struct {
+// QueryPageSearch is the query parameters for PageSearch
+type QueryPageSearch struct {
 	Term     string `query:"t"`
 	Category string `query:"c"`
 	PriceMin int64  `query:"pmin"`
@@ -209,11 +245,11 @@ type QuerySearch struct {
 	Location string `query:"l"`
 }
 
-// Settings references /settings/{$}
-func Settings() string { return "/settings/" }
+// PageSettings references /settings/{$}
+func PageSettings() string { return "/settings/" }
 
-// User references /user/{name}/{$}
-func User(name string) string {
+// PageUser references /user/{name}/{$}
+func PageUser(name string) string {
 	var b strings.Builder
 	b.Grow(
 		len("/user/") +

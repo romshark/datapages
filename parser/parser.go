@@ -20,7 +20,9 @@ import (
 	"github.com/romshark/datapages/parser/internal/paramvalidation"
 	"github.com/romshark/datapages/parser/internal/structinspect"
 	"github.com/romshark/datapages/parser/internal/structtag"
+	"github.com/romshark/datapages/parser/internal/templcheck"
 	"github.com/romshark/datapages/parser/internal/typecheck"
+	"github.com/romshark/datapages/parser/internal/urlpath"
 	"github.com/romshark/datapages/parser/model"
 	"github.com/romshark/datapages/parser/validate"
 )
@@ -56,6 +58,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	validateRequiredHandlers(&ctx, &errs)
 	finalizePages(&ctx)
 	assignSpecialPages(&ctx, &errs)
+	checkTemplFiles(&ctx, &errs)
 
 	if !ctx.appTypeFound {
 		return nil, errs
@@ -1888,8 +1891,8 @@ func typeStruct(ctx *parseCtx, typeName string) *ast.StructType {
 //   - boundary: either page=="/" OR next char after prefix is '/'
 //   - disallow exact equality (action == page) to avoid colliding with GET route
 func actionIsUnderPage(page, action string) bool {
-	page = cleanPath(page)
-	action = cleanPath(action)
+	page = urlpath.Clean(page)
+	action = urlpath.Clean(action)
 
 	if page == "" || action == "" {
 		return false
@@ -1904,4 +1907,9 @@ func actionIsUnderPage(page, action string) bool {
 		return false // disallow exact match
 	}
 	return action[len(page)] == '/'
+}
+
+// checkTemplFiles delegates to the templcheck subpackage.
+func checkTemplFiles(ctx *parseCtx, errs *Errors) {
+	templcheck.Check(ctx.pkg, ctx.app, errs.ErrAt)
 }

@@ -272,6 +272,79 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Define a Session type in package app",
 		},
 
+		"ErrTemplHrefRelative/simple": {
+			err:  &parser.ErrorTemplHrefRelative{URL: "/login"},
+			want: `fix: Use href={ href.PageLogin(...) } instead of "/login"`,
+		},
+		"ErrTemplHrefRelative/index": {
+			err:  &parser.ErrorTemplHrefRelative{URL: "/"},
+			want: `fix: Use href={ href.PageIndex(...) } instead of "/"`,
+		},
+		"ErrTemplHrefRelative/trailing slash": {
+			err:  &parser.ErrorTemplHrefRelative{URL: "/profile/"},
+			want: `fix: Use href={ href.PageProfile(...) } instead of "/profile/"`,
+		},
+		"ErrTemplHrefRelative/deep path fallback": {
+			err:  &parser.ErrorTemplHrefRelative{URL: "/profile/edit"},
+			want: `fix: Use href={ href.Xxx(...) } from the generated href package instead of "/profile/edit"`,
+		},
+		"ErrTemplActionHardcoded/app level": {
+			err:  &parser.ErrorTemplActionHardcoded{URL: "/submit"},
+			want: `fix: Use action={ action.POSTAppSubmit(...) } instead of "/submit"`,
+		},
+		"ErrTemplActionHardcoded/page level": {
+			err:  &parser.ErrorTemplActionHardcoded{URL: "/profile/save"},
+			want: `fix: Use action={ action.POSTPageProfileSave(...) } instead of "/profile/save"`,
+		},
+		"ErrTemplActionHardcoded/deep path fallback": {
+			err:  &parser.ErrorTemplActionHardcoded{URL: "/a/b/c"},
+			want: `fix: Use action={ action.Xxx(...) } from the generated action package instead of "/a/b/c"`,
+		},
+		"ErrTemplActionUnverifiable": {
+			err:  &parser.ErrorTemplActionUnverifiable{Expr: `buildAction()`},
+			want: `fix: Use action={ action.Xxx(...) } from the generated action package instead of "buildAction()"`,
+		},
+		"ErrTemplFormAction": {
+			err:  &parser.ErrorTemplFormAction{},
+			want: "fix: Remove the action attribute and use data-on:submit with Datastar actions instead",
+		},
+		"ErrTemplHrefUnverifiable": {
+			err:  &parser.ErrorTemplHrefUnverifiable{Expr: `templ.SafeURL("/about")`},
+			want: `fix: Use href={ href.Xxx(...) } from the generated href package, or href={ href.External(url) } for external URLs instead of "templ.SafeURL(\"/about\")"`,
+		},
+
+		"ErrTemplHrefExternalIsRelative/known page": {
+			err:  &parser.ErrorTemplHrefExternalIsRelative{URL: "/login"},
+			want: `fix: Use href={ href.PageLogin(...) } instead of href.External("/login")`,
+		},
+		"ErrTemplHrefExternalIsRelative/deep path fallback": {
+			err:  &parser.ErrorTemplHrefExternalIsRelative{URL: "/a/b/c"},
+			want: `fix: Use href={ href.Xxx(...) } from the generated href package instead of href.External("/a/b/c")`,
+		},
+
+		"ErrTemplHrefContext": {
+			err: &parser.ErrorTemplHrefContext{
+				AttrName: "data-on:click",
+				HrefFunc: "PageIndex",
+			},
+			want: "fix: href.PageIndex() returns a URL path, not a Datastar action — use action.Xxx(...) from the generated action package instead",
+		},
+		"ErrTemplActionContext": {
+			err: &parser.ErrorTemplActionContext{
+				AttrName:   "href",
+				ActionFunc: "POSTPageLoginSubmit",
+			},
+			want: "fix: action.POSTPageLoginSubmit() is a Datastar action, not a URL — use href.PageXxx(...) from the generated href package instead",
+		},
+		"ErrTemplActionWrongPage": {
+			err: &parser.ErrorTemplActionWrongPage{
+				ActionFunc: "POSTPageProfileSave",
+				PageType:   "PageSettings",
+				OwnerPage:  "PageProfile",
+			},
+			want: "fix: Move this action reference to a template used by PageProfile, or use an action owned by PageSettings",
+		},
+
 		"ErrSignatureUnsupportedInput/remove": {
 			err: &parser.ErrorSignatureUnsupportedInput{
 				ParamName:  "b",

@@ -69,7 +69,7 @@ func (*App) POSTSignOut(r *http.Request, session Session) (
 	redirect string,
 	err error,
 ) {
-	return true, href.Login(), nil
+	return true, href.PageLogin(), nil
 }
 
 // POSTCause500 is /cause-500-internal-error/{$}
