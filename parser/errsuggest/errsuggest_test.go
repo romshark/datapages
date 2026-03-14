@@ -329,6 +329,13 @@ func TestSuggest(t *testing.T) {
 			},
 			want: "fix: href.PageIndex() returns a URL path, not a Datastar action — use action.Xxx(...) from the generated action package instead",
 		},
+		"ErrTemplActionContext": {
+			err: &parser.ErrorTemplActionContext{
+				AttrName:   "href",
+				ActionFunc: "POSTPageLoginSubmit",
+			},
+			want: "fix: action.POSTPageLoginSubmit() is a Datastar action, not a URL — use href.PageXxx(...) from the generated href package instead",
+		},
 		"ErrTemplActionWrongPage": {
 			err: &parser.ErrorTemplActionWrongPage{
 				ActionFunc: "POSTPageProfileSave",

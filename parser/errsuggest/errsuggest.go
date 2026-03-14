@@ -323,6 +323,16 @@ func Suggest(err error) string {
 				"use action.Xxx(...) from the generated action package instead",
 			d.HrefFunc)
 
+	case errors.Is(err, parser.ErrTemplActionContext):
+		var d *parser.ErrorTemplActionContext
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: action.%s() is a Datastar action, not a URL — "+
+				"use href.PageXxx(...) from the generated href package instead",
+			d.ActionFunc)
+
 	case errors.Is(err, parser.ErrSignatureUnsupportedInput):
 		var d *parser.ErrorSignatureUnsupportedInput
 		if !errors.As(err, &d) {
@@ -417,7 +427,6 @@ func Suggest(err error) string {
 //   - ErrDisableRefreshNotBool        — constraint is clear from message
 //   - ErrDisableRefreshNotGET         — message states it must be in a GET handler
 //   - ErrEventTargetUserIDsNoSession  — has dedicated suggestion above
-//   - ErrTemplActionContext            — message states the required context
 
 // pageTypePath derives a suggested route path from a page type name.
 // "PageIndex" -> "/", "PageProfile" -> "/profile/", "PageFooBar" -> "/foobar/".
