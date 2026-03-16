@@ -16,7 +16,6 @@ var stdTmpl = template.Must(template.New("hello").Parse(
 
 func BenchmarkTemplatingStd(b *testing.B) {
 	data := struct{ Name string }{Name: "World"}
-	b.ReportAllocs()
 	for b.Loop() {
 		if err := stdTmpl.Execute(io.Discard, data); err != nil {
 			panic(err)
@@ -27,9 +26,9 @@ func BenchmarkTemplatingStd(b *testing.B) {
 func BenchmarkTemplatingTempl(b *testing.B) {
 	ctx := context.Background()
 	c := Hello("World")
-	b.ReportAllocs()
 	for b.Loop() {
 		if err := c.Render(ctx, io.Discard); err != nil {
+			panic(err)
 		}
 	}
 }
