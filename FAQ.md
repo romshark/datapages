@@ -32,5 +32,24 @@ PASS
 coverage: 79.3% of statements
 ```
 
-Shoutout to the templ developers and contributors, who are doing an awesome job and
-without whom Datapages would be only half as awesome! ❤️
+Shoutout to the
+[templ developers and contributors](https://github.com/a-h/templ/graphs/contributors),
+who are doing an awesome job and without whom Datapages would be only half as awesome! ❤️
+
+## Why NATS Core over JetStream?
+
+The Datapages message broker dispatches events for live UI updates over SSE,
+not data changes. A lost event just means a stale UI until the next refresh
+or page reload. [JetStream](https://docs.nats.io/nats-concepts/jetstream)'s
+durability, ack-based delivery, and replay guarantees add overhead and
+complexity with no real payoff for this use case.
+
+[Core NATS](https://docs.nats.io/nats-concepts/core-nats) is sufficient because:
+
+- **Partial writes are unlikely and harmless.** Core NATS
+  [`Publish` buffers outgoing data locally](https://docs.nats.io/using-nats/developer/sending/caches),
+  so each call is a fast in-memory append. A dispatch loop failing
+  mid-way would require the connection to drop between two appends.
+  Even then, the result is just a missed UI update - not data loss.
+- **Lower latency.** No ack round-trip per publish.
+- **Simpler deployment.** No stream/consumer configuration needed.
