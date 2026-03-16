@@ -17,19 +17,24 @@ Frequently asked questions about Datapages.
   to the IDE - at best you get basic syntax highlighting.
 - **Higher performance.** Templ utilizes code generation to produce efficient
   rendering code ahead of time, which is more efficient than `html/template` rendering
-  (see benchmark results below).
+  (see benchmark results below). Faster engines exist, but templ offers
+  the best balance of performance, type safety, and developer experience.
+  Additional engines may be supported in the future if requested.
 
 Templating benchmark source: [`internal/bench/`](internal/bench/)
 
 ```
 goos: darwin
 goarch: arm64
-pkg: github.com/romshark/datapages/internal/bench
+pkg: github.com/romshark/datapages/internal/templatingbench
 cpu: Apple M4 Pro
-BenchmarkTemplatingStd-14      	 3560989	       321.1 ns/op	     256 B/op	       8 allocs/op
-BenchmarkTemplatingTempl-14    	12684994	        94.81 ns/op	     117 B/op	       4 allocs/op
+BenchmarkTemplatingStd-14                3509767               329.4 ns/op           256 B/op          8 allocs/op
+BenchmarkTemplatingTempl-14             12522609                95.28 ns/op          117 B/op          4 allocs/op
+BenchmarkTemplatingQuicktemplate-14     55614774                21.76 ns/op            0 B/op          0 allocs/op
+BenchmarkTemplatingGomponents-14        10426274               115.2 ns/op            16 B/op          1 allocs/op
+BenchmarkTemplatingJet-14               16843957                69.83 ns/op           24 B/op          1 allocs/op
 PASS
-coverage: 79.3% of statements
+ok      github.com/romshark/datapages/internal/templatingbench  6.216s
 ```
 
 Shoutout to the
