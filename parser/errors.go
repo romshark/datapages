@@ -178,8 +178,10 @@ var (
 	ErrTemplActionContext          = templcheck.ErrActionContext
 	ErrTemplHrefContext            = templcheck.ErrHrefContext
 	ErrTemplHrefUnverifiable       = templcheck.ErrHrefUnverifiable
-	ErrTemplActionUnverifiable     = templcheck.ErrActionUnverifiable
-	ErrTemplHrefExternalIsRelative = templcheck.ErrHrefExternalIsRelative
+	ErrTemplActionUnverifiable           = templcheck.ErrActionUnverifiable
+	ErrTemplActionUnverifiableWithPrefix = templcheck.ErrActionUnverifiableWithPrefix
+	ErrTemplActionUnverifiableWithSuffix = templcheck.ErrActionUnverifiableWithSuffix
+	ErrTemplHrefExternalIsRelative       = templcheck.ErrHrefExternalIsRelative
 )
 
 func normPos(pos token.Position) token.Position {
@@ -550,8 +552,10 @@ type (
 	ErrorTemplActionContext          = templcheck.ErrorActionContext
 	ErrorTemplHrefContext            = templcheck.ErrorHrefContext
 	ErrorTemplHrefUnverifiable       = templcheck.ErrorHrefUnverifiable
-	ErrorTemplActionUnverifiable     = templcheck.ErrorActionUnverifiable
-	ErrorTemplHrefExternalIsRelative = templcheck.ErrorHrefExternalIsRelative
+	ErrorTemplActionUnverifiable           = templcheck.ErrorActionUnverifiable
+	ErrorTemplActionUnverifiableWithPrefix = templcheck.ErrorActionUnverifiableWithPrefix
+	ErrorTemplActionUnverifiableWithSuffix = templcheck.ErrorActionUnverifiableWithSuffix
+	ErrorTemplHrefExternalIsRelative       = templcheck.ErrorHrefExternalIsRelative
 )
 
 // ErrorSignatureUnsupportedInput is ErrSignatureUnsupportedInput with context.

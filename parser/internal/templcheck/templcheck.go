@@ -5,8 +5,10 @@
 package templcheck
 
 import (
+	"bytes"
 	"go/ast"
 	"go/constant"
+	"go/format"
 	goparser "go/parser"
 	"go/token"
 	"go/types"
@@ -369,8 +371,12 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 						})
 					},
 				)
-				if !hasPkgCallNode(exprAST, c.actionPkg) &&
-					!hasPkgCallNode(exprAST, c.hrefPkg) {
+				if hasPkgCallNode(exprAST, c.actionPkg) {
+					// Action call exists in the expression. Verify it is
+					// the entire expression, not embedded in a
+					// concatenation or other compound expression.
+					c.checkActionEmbedding(exprPos, a.Expression.Value, exprAST)
+				} else if !hasPkgCallNode(exprAST, c.hrefPkg) {
 					c.checkExprHardcodedAction(exprPos, a.Expression.Value, exprAST)
 				}
 				continue
@@ -450,6 +456,62 @@ func extractHardcodedActionURLs(value string) []string {
 		urls = append(urls, m[1])
 	}
 	return urls
+}
+
+// checkActionEmbedding verifies that an action call is the entire expression.
+// If the expression is a binary add (string concatenation) with the action call
+// on one side, it reports ErrActionUnverifiableWithPrefix or
+// ErrActionUnverifiableWithSuffix to guide the user towards WithBefore/WithAfter.
+// For any other compound expression it reports the generic ErrActionUnverifiable.
+func (c *checker) checkActionEmbedding(pos token.Position, expr string, exprAST ast.Expr) {
+	// Top-level is a bare action call → OK.
+	if call, ok := exprAST.(*ast.CallExpr); ok {
+		if _, ok := c.actionPkg.isCall(call); ok {
+			return
+		}
+	}
+
+	// Check for string + action.XXX() or action.XXX() + string pattern.
+	if bin, ok := exprAST.(*ast.BinaryExpr); ok && bin.Op == token.ADD {
+		callY, yIsCall := bin.Y.(*ast.CallExpr)
+		callX, xIsCall := bin.X.(*ast.CallExpr)
+		var yFuncName, xFuncName string
+		var yIsAction, xIsAction bool
+		if yIsCall {
+			yFuncName, yIsAction = c.actionPkg.isCall(callY)
+		}
+		if xIsCall {
+			xFuncName, xIsAction = c.actionPkg.isCall(callX)
+		}
+		// Only report prefix/suffix when exactly one side is an action call.
+		if yIsAction && !xIsAction {
+			c.errFn(pos, &ErrorActionUnverifiableWithPrefix{
+				Expr:       expr,
+				ActionFunc: yFuncName,
+				Prefix:     exprSource(bin.X),
+			})
+			return
+		}
+		if xIsAction && !yIsAction {
+			c.errFn(pos, &ErrorActionUnverifiableWithSuffix{
+				Expr:       expr,
+				ActionFunc: xFuncName,
+				Suffix:     exprSource(bin.Y),
+			})
+			return
+		}
+	}
+
+	c.errFn(pos, &ErrorActionUnverifiable{Expr: expr})
+}
+
+// exprSource renders a Go AST expression back to source code.
+func exprSource(node ast.Expr) string {
+	var buf bytes.Buffer
+	if err := format.Node(&buf, token.NewFileSet(), node); err != nil {
+		return ""
+	}
+	return buf.String()
 }
 
 // checkExprHardcodedAction checks whether a Go expression used in a Datastar

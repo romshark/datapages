@@ -309,6 +309,26 @@ func Suggest(err error) string {
 			"fix: Use action={ action.Xxx(...) } from the generated action package "+
 				"instead of %q", d.URL)
 
+	case errors.Is(err, parser.ErrTemplActionUnverifiableWithPrefix):
+		var d *parser.ErrorTemplActionUnverifiableWithPrefix
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Use action.%s(action.WithBefore(%s)) "+
+				"instead of concatenating a prefix",
+			d.ActionFunc, d.Prefix)
+
+	case errors.Is(err, parser.ErrTemplActionUnverifiableWithSuffix):
+		var d *parser.ErrorTemplActionUnverifiableWithSuffix
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Use action.%s(action.WithAfter(%s)) "+
+				"instead of concatenating a suffix",
+			d.ActionFunc, d.Suffix)
+
 	case errors.Is(err, parser.ErrTemplActionUnverifiable):
 		var d *parser.ErrorTemplActionUnverifiable
 		if !errors.As(err, &d) {

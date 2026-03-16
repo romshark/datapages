@@ -12,9 +12,11 @@ var (
 	ErrActionWrongPage        = errors.New("template uses action from another page")
 	ErrActionContext          = errors.New("action helper used outside Datastar action context")
 	ErrHrefContext            = errors.New("href helper used in Datastar action context")
-	ErrHrefUnverifiable       = errors.New("href expression must use href package functions")
-	ErrActionUnverifiable     = errors.New("action expression must use action package functions")
-	ErrHrefExternalIsRelative = errors.New("href.External used with relative URL")
+	ErrHrefUnverifiable              = errors.New("href expression must use href package functions")
+	ErrActionUnverifiable            = errors.New("action expression must use action package functions")
+	ErrActionUnverifiableWithPrefix  = errors.New("action call must not be concatenated with a prefix")
+	ErrActionUnverifiableWithSuffix  = errors.New("action call must not be concatenated with a suffix")
+	ErrHrefExternalIsRelative        = errors.New("href.External used with relative URL")
 )
 
 // ErrorHrefRelative is ErrHrefRelative with context.
@@ -109,6 +111,36 @@ func (e *ErrorActionUnverifiable) Error() string {
 }
 
 func (e *ErrorActionUnverifiable) Unwrap() error { return ErrActionUnverifiable }
+
+// ErrorActionUnverifiableWithPrefix is ErrActionUnverifiableWithPrefix with context.
+type ErrorActionUnverifiableWithPrefix struct {
+	Expr       string // the full expression value
+	ActionFunc string // e.g. "POSTPageIndexCalculate"
+	Prefix     string // the prefix expression source, e.g. `"$_fresh = true; "`
+}
+
+func (e *ErrorActionUnverifiableWithPrefix) Error() string {
+	return fmt.Sprintf("%v: %s", ErrActionUnverifiableWithPrefix, e.Expr)
+}
+
+func (e *ErrorActionUnverifiableWithPrefix) Unwrap() error {
+	return ErrActionUnverifiableWithPrefix
+}
+
+// ErrorActionUnverifiableWithSuffix is ErrActionUnverifiableWithSuffix with context.
+type ErrorActionUnverifiableWithSuffix struct {
+	Expr       string // the full expression value
+	ActionFunc string // e.g. "POSTPageIndexCalculate"
+	Suffix     string // the suffix expression source, e.g. `"; $count++"`
+}
+
+func (e *ErrorActionUnverifiableWithSuffix) Error() string {
+	return fmt.Sprintf("%v: %s", ErrActionUnverifiableWithSuffix, e.Expr)
+}
+
+func (e *ErrorActionUnverifiableWithSuffix) Unwrap() error {
+	return ErrActionUnverifiableWithSuffix
+}
 
 // ErrorHrefExternalIsRelative is ErrHrefExternalIsRelative with context.
 type ErrorHrefExternalIsRelative struct {

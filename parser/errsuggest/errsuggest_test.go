@@ -312,6 +312,22 @@ func TestSuggest(t *testing.T) {
 			err:  &parser.ErrorTemplActionUnverifiable{Expr: `buildAction()`},
 			want: `fix: Use action={ action.Xxx(...) } from the generated action package instead of "buildAction()"`,
 		},
+		"ErrTemplActionUnverifiableWithPrefix": {
+			err: &parser.ErrorTemplActionUnverifiableWithPrefix{
+				Expr:       `"$_fresh = true; " + action.POSTPageIndexCalculate()`,
+				ActionFunc: "POSTPageIndexCalculate",
+				Prefix:     `"$_fresh = true; "`,
+			},
+			want: `fix: Use action.POSTPageIndexCalculate(action.WithBefore("$_fresh = true; ")) instead of concatenating a prefix`,
+		},
+		"ErrTemplActionUnverifiableWithSuffix": {
+			err: &parser.ErrorTemplActionUnverifiableWithSuffix{
+				Expr:       `action.POSTPageIndexCalculate() + "; $_fresh = true"`,
+				ActionFunc: "POSTPageIndexCalculate",
+				Suffix:     `"; $_fresh = true"`,
+			},
+			want: `fix: Use action.POSTPageIndexCalculate(action.WithAfter("; $_fresh = true")) instead of concatenating a suffix`,
+		},
 		"ErrTemplFormAction": {
 			err:  &parser.ErrorTemplFormAction{},
 			want: "fix: Remove the action attribute and use data-on:submit with Datastar actions instead",

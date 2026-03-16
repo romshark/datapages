@@ -4,3 +4,4 @@
 package action
 
 func POSTPageIndexSubmit() string { return "" }
+func POSTPageIndexReset() string  { return "" }

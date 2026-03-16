@@ -36,4 +36,44 @@ templ page() {
 	<div data-only={ action.POSTPageIndexSubmit() }></div>
 	/* OK: href in data-only (NOT a Datastar attr, no ErrHrefContext) */
 	<div data-only={ href.PageIndex() }></div>
+	/* ErrActionUnverifiableWithPrefix: string + action */
+	<button data-on:click={ "$_fresh = true; " + action.POSTPageIndexSubmit() }>
+		Prefix
+	</button>
+	/* ErrActionUnverifiableWithSuffix: action + string */
+	<button data-on:click={ action.POSTPageIndexSubmit() + "; $_fresh = true" }>
+		Suffix
+	</button>
+	/* ErrActionUnverifiable: action + same action */
+	<button
+		data-on:click={ action.POSTPageIndexSubmit() + action.POSTPageIndexSubmit() }
+	>
+		ActionConcat
+	</button>
+	/* ErrActionUnverifiable: action + different action */
+	<button
+		data-on:click={ action.POSTPageIndexSubmit() + action.POSTPageIndexReset() }
+	>
+		ActionConcatDiff
+	</button>
+	/* ErrActionUnverifiableWithPrefix: chained string + string + action */
+	<button
+		data-on:click={ "$a; " + "$b; " + action.POSTPageIndexSubmit() }
+	>
+		ChainedPrefix
+	</button>
+	/* ErrActionUnverifiable: action + string + string (chained suffix) */
+	<button
+		data-on:click={ action.POSTPageIndexSubmit() + "; $a" + "; $b" }
+	>
+		ChainedSuffix
+	</button>
+	/* ErrActionUnverifiableWithPrefix: action + string + action */
+	<button
+		data-on:click={ action.POSTPageIndexSubmit() +
+			"; $a; " +
+			action.POSTPageIndexReset() }
+	>
+		ActionStringAction
+	</button>
 }
