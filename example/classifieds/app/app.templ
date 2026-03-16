@@ -307,16 +307,15 @@ templ pageMessages(
 						type="text"
 						data-bind="messagetext"
 						placeholder="Message"
-						data-on:input__throttle.300ms={ "if ($messagetext != '') {" +
-							action.POSTPageMessagesWriting() +
-							"} else {" +
-							action.POSTPageMessagesWritingStopped() +
-							"}" }
-						data-on:keydown={ "if (evt.key === 'Enter' && !evt.shiftKey) { " +
-							"evt.preventDefault();" +
-							"if ($messagetext.trim() !== '') {" +
-							action.POSTPageMessagesSendMessage() +
-							"}}" }
+						data-on:input__throttle.300ms={ action.POSTPageMessagesWriting(
+							action.WithBefore("if (!$messagetext) return"),
+						) }
+						data-on:input__debounce.300ms={ action.POSTPageMessagesWritingStopped(
+							action.WithBefore("if ($messagetext) return"),
+						) }
+						data-on:keydown={ action.POSTPageMessagesSendMessage(
+							action.WithBefore("if (evt.key !== 'Enter' || evt.shiftKey || !$messagetext.trim()) return; evt.preventDefault()"),
+						) }
 					></textarea>
 					<button
 						class="btn"

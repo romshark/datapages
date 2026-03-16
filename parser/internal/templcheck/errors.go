@@ -6,17 +6,17 @@ import (
 )
 
 var (
-	ErrHrefRelative           = errors.New("template uses relative href")
-	ErrActionHardcoded        = errors.New("template uses hardcoded action")
-	ErrFormAction             = errors.New("template uses form action attribute")
-	ErrActionWrongPage        = errors.New("template uses action from another page")
-	ErrActionContext          = errors.New("action helper used outside Datastar action context")
-	ErrHrefContext            = errors.New("href helper used in Datastar action context")
-	ErrHrefUnverifiable              = errors.New("href expression must use href package functions")
-	ErrActionUnverifiable            = errors.New("action expression must use action package functions")
-	ErrActionUnverifiableWithPrefix  = errors.New("action call must not be concatenated with a prefix")
-	ErrActionUnverifiableWithSuffix  = errors.New("action call must not be concatenated with a suffix")
-	ErrHrefExternalIsRelative        = errors.New("href.External used with relative URL")
+	ErrHrefRelative                 = errors.New("template uses relative href")
+	ErrActionHardcoded              = errors.New("template uses hardcoded action")
+	ErrFormAction                   = errors.New("template uses form action attribute")
+	ErrActionWrongPage              = errors.New("template uses action from another page")
+	ErrActionContext                = errors.New("action helper used outside Datastar action context")
+	ErrHrefContext                  = errors.New("href helper used in Datastar action context")
+	ErrHrefUnverifiable             = errors.New("href expression must use href package functions")
+	ErrActionUnverifiable           = errors.New("action expression must use action package functions")
+	ErrActionUnverifiableWithPrefix = errors.New("action call must not be concatenated with a prefix")
+	ErrActionUnverifiableWithSuffix = errors.New("action call must not be concatenated with a suffix")
+	ErrHrefExternalIsRelative       = errors.New("href.External used with relative URL")
 )
 
 // ErrorHrefRelative is ErrHrefRelative with context.

@@ -264,6 +264,9 @@ func GenDatapages() error {
 func GenTempl() error {
 	for _, root := range submoduleRoots {
 		if err := forEachModule(root, func(dir string) error {
+			if !hasTemplFiles(dir) {
+				return nil
+			}
 			fmt.Println("==> templ generate in", dir)
 			return runIn(dir, "go", "run", toolTempl, "generate")
 		}); err != nil {
