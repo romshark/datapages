@@ -1,0 +1,13 @@
+url: http://localhost:8080
+---
+# After pressing =, a digit starts a fresh expression
+# instead of appending to the result.
+- launchApp
+- tapOn: "2"
+- tapOn: "+"
+- tapOn: "3"
+- tapOn: "="
+- assertVisible: "5"
+- tapOn: "9"
+- assertVisible: "9"
+- takeScreenshot: 09_digit_after_equals

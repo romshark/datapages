@@ -1,0 +1,7 @@
+url: http://localhost:8080
+---
+# Verify the calculator loads with a clean initial state.
+- launchApp
+- assertVisible: "Calculator"
+- assertVisible: "0"
+- takeScreenshot: 01_initial_state

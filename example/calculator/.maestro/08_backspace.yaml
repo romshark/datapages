@@ -1,0 +1,12 @@
+url: http://localhost:8080
+---
+# Pressing backspace removes the last character.
+- launchApp
+- tapOn: "1"
+- tapOn: "2"
+- tapOn: "3"
+- assertVisible: "123"
+- tapOn:
+    text: "\u21d0"
+- assertVisible: "12"
+- takeScreenshot: 08_backspace

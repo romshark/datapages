@@ -1,0 +1,14 @@
+url: http://localhost:8080
+---
+# After pressing =, an operator continues from the result.
+- launchApp
+- tapOn: "2"
+- tapOn: "+"
+- tapOn: "3"
+- tapOn: "="
+- assertVisible: "5"
+- tapOn: "+"
+- tapOn: "1"
+- tapOn: "="
+- assertVisible: "6"
+- takeScreenshot: 10_operator_after_equals

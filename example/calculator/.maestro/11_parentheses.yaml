@@ -1,0 +1,15 @@
+url: http://localhost:8080
+---
+# Parentheses control operator precedence: (2 + 3) x 4 = 20
+- launchApp
+- tapOn: "("
+- tapOn: "2"
+- tapOn: "+"
+- tapOn: "3"
+- tapOn: ")"
+- tapOn:
+    text: "\u00d7"
+- tapOn: "4"
+- tapOn: "="
+- assertVisible: "20"
+- takeScreenshot: 11_parentheses

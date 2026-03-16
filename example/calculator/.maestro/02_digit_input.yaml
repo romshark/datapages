@@ -1,0 +1,8 @@
+url: http://localhost:8080
+---
+# Pressing digit buttons appends them to the display.
+- launchApp
+- tapOn: "4"
+- tapOn: "2"
+- assertVisible: "42"
+- takeScreenshot: 02_digit_input
