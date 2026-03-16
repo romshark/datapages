@@ -1,0 +1,1 @@
+{% func HelloQT(name string) %}<div><h1>Hello, {%s name %}!</h1><p>Welcome to the benchmark.</p></div>{% endfunc %}
