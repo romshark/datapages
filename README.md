@@ -130,6 +130,8 @@ etc.).
 See [SPECIFICATION.md](SPECIFICATION.md) for the full source package specification,
 including handler signatures, parameters, return values, events, sessions, and modules.
 
+See [FAQ.md](FAQ.md) for frequently asked questions.
+
 ## Technical Limitations
 
 - For now, with CSRF protection enabled, you will not be able to use plain HTML forms,
