@@ -1358,7 +1358,10 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		filepath.Join("..", "example", "classifieds", "app"),
 	)
 	require := require.New(t)
-	requireParseErrors(t, errs)
+	requireParseErrors(t, errs,
+		parser.ErrTemplActionUnverifiable,
+		parser.ErrTemplActionUnverifiable,
+	)
 	require.NotNil(app)
 
 	// App-level features
