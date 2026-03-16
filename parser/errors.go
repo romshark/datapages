@@ -161,13 +161,13 @@ var (
 		"event with TargetUserIDs requires a Session type",
 	)
 
-	ErrTemplHrefRelative           = templcheck.ErrHrefRelative
-	ErrTemplActionHardcoded        = templcheck.ErrActionHardcoded
-	ErrTemplFormAction             = templcheck.ErrFormAction
-	ErrTemplActionWrongPage        = templcheck.ErrActionWrongPage
-	ErrTemplActionContext          = templcheck.ErrActionContext
-	ErrTemplHrefContext            = templcheck.ErrHrefContext
-	ErrTemplHrefUnverifiable       = templcheck.ErrHrefUnverifiable
+	ErrTemplHrefRelative                 = templcheck.ErrHrefRelative
+	ErrTemplActionHardcoded              = templcheck.ErrActionHardcoded
+	ErrTemplFormAction                   = templcheck.ErrFormAction
+	ErrTemplActionWrongPage              = templcheck.ErrActionWrongPage
+	ErrTemplActionContext                = templcheck.ErrActionContext
+	ErrTemplHrefContext                  = templcheck.ErrHrefContext
+	ErrTemplHrefUnverifiable             = templcheck.ErrHrefUnverifiable
 	ErrTemplActionUnverifiable           = templcheck.ErrActionUnverifiable
 	ErrTemplActionUnverifiableWithPrefix = templcheck.ErrActionUnverifiableWithPrefix
 	ErrTemplActionUnverifiableWithSuffix = templcheck.ErrActionUnverifiableWithSuffix
@@ -509,13 +509,13 @@ func (e *ErrorEventTargetUserIDsNoSession) Unwrap() error {
 
 // Type aliases for templ-check error types defined in the templcheck subpackage.
 type (
-	ErrorTemplHrefRelative           = templcheck.ErrorHrefRelative
-	ErrorTemplActionHardcoded        = templcheck.ErrorActionHardcoded
-	ErrorTemplFormAction             = templcheck.ErrorFormAction
-	ErrorTemplActionWrongPage        = templcheck.ErrorActionWrongPage
-	ErrorTemplActionContext          = templcheck.ErrorActionContext
-	ErrorTemplHrefContext            = templcheck.ErrorHrefContext
-	ErrorTemplHrefUnverifiable       = templcheck.ErrorHrefUnverifiable
+	ErrorTemplHrefRelative                 = templcheck.ErrorHrefRelative
+	ErrorTemplActionHardcoded              = templcheck.ErrorActionHardcoded
+	ErrorTemplFormAction                   = templcheck.ErrorFormAction
+	ErrorTemplActionWrongPage              = templcheck.ErrorActionWrongPage
+	ErrorTemplActionContext                = templcheck.ErrorActionContext
+	ErrorTemplHrefContext                  = templcheck.ErrorHrefContext
+	ErrorTemplHrefUnverifiable             = templcheck.ErrorHrefUnverifiable
 	ErrorTemplActionUnverifiable           = templcheck.ErrorActionUnverifiable
 	ErrorTemplActionUnverifiableWithPrefix = templcheck.ErrorActionUnverifiableWithPrefix
 	ErrorTemplActionUnverifiableWithSuffix = templcheck.ErrorActionUnverifiableWithSuffix

@@ -246,7 +246,7 @@ func TestCheck_ErrContext(t *testing.T) {
 			Expr: `action.POSTPageIndexSubmit() + "; $a" + "; $b"`,
 		}},
 		{73, 19, templcheck.ErrorActionUnverifiableWithPrefix{
-			Expr: "action.POSTPageIndexSubmit() +\n\t\t\t\"; $a; \" +\n\t\t\taction.POSTPageIndexReset()",
+			Expr:       "action.POSTPageIndexSubmit() +\n\t\t\t\"; $a; \" +\n\t\t\taction.POSTPageIndexReset()",
 			ActionFunc: "POSTPageIndexReset",
 			Prefix:     `action.POSTPageIndexSubmit() + "; $a; "`,
 		}},

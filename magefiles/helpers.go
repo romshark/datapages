@@ -41,6 +41,22 @@ func runIn(dir string, args ...string) error {
 	return cmd.Run()
 }
 
+// hasTemplFiles reports whether dir or any subdirectory contains a .templ file.
+func hasTemplFiles(dir string) bool {
+	found := false
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && filepath.Ext(path) == ".templ" {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
 func output(args ...string) (string, error) {
 	cmd := exec.Command(args[0], args[1:]...)
 	out, err := cmd.Output()
