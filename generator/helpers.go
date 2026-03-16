@@ -25,27 +25,33 @@ func evSubjConst(e *model.Event) string {
 	return "EvSubj" + eventConstName(e.TypeName)
 }
 
-// evSubjPrefConst returns the subject prefix constant name for per-user events.
-// Returns "" for public events (no TargetUserIDs).
+// evSubjPrefConst returns the subject prefix constant name for private events.
+// Returns "" for public events (no SubjectUser).
 // "EventMessagingSent" -> "EvSubjPrefMessagingSent"
 func evSubjPrefConst(e *model.Event) string {
-	if !e.HasTargetUserIDs {
+	if !e.IsPrivate() {
 		return ""
 	}
 	return "EvSubjPref" + eventConstName(e.TypeName)
 }
 
-// evSubjValue returns the subject constant value.
-// For HasTargetUserIDs: "messaging.sent.*"
-// For public: "posts.archived"
+// evSubjValue returns the subscription subject constant value.
+// For events with N subject fields: "messaging.sent.*.*" (N wildcards appended).
+// For public events: "posts.archived"
 func evSubjValue(e *model.Event) string {
-	if e.HasTargetUserIDs {
-		return e.Subject + ".*"
+	n := len(e.SubjectFields)
+	if n == 0 {
+		return e.Subject
 	}
-	return e.Subject
+	var b strings.Builder
+	b.WriteString(e.Subject)
+	for range n {
+		b.WriteString(".*")
+	}
+	return b.String()
 }
 
-// evSubjPrefValue returns the subject prefix value for per-user events.
+// evSubjPrefValue returns the subject prefix value used to match private events.
 // "messaging.sent."
 func evSubjPrefValue(e *model.Event) string {
 	return e.Subject + "."
@@ -62,10 +68,10 @@ func pageHasStream(p *model.Page) bool {
 }
 
 // pageHasPrivateEvent returns true if any event handler on the page
-// handles a private event (HasTargetUserIDs).
+// handles a private event (has SubjectUser).
 func pageHasPrivateEvent(p *model.Page, eventByName map[string]*model.Event) bool {
 	for _, eh := range p.EventHandlers {
-		if e, ok := eventByName[eh.EventTypeName]; ok && e.HasTargetUserIDs {
+		if e, ok := eventByName[eh.EventTypeName]; ok && e.IsPrivate() {
 			return true
 		}
 	}
@@ -73,7 +79,7 @@ func pageHasPrivateEvent(p *model.Page, eventByName map[string]*model.Event) boo
 }
 
 // pageHasAnonStream returns true if a page needs an anonymous stream endpoint.
-// This happens when the page has both public (no TargetUserIDs) AND private events.
+// This happens when the page has both public AND private events.
 func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool {
 	hasPublic := false
 	hasPrivate := false
@@ -82,7 +88,7 @@ func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool 
 		if !ok {
 			continue
 		}
-		if e.HasTargetUserIDs {
+		if e.IsPrivate() {
 			hasPrivate = true
 		} else {
 			hasPublic = true
@@ -266,7 +272,7 @@ func computeAppUsage(m *model.App) appUsage {
 		}
 	}
 
-	// Build event map for TargetUserIDs lookup.
+	// Build event map for subject field lookup.
 	eventByName := make(map[string]*model.Event, len(m.Events))
 	for _, e := range m.Events {
 		eventByName[e.TypeName] = e

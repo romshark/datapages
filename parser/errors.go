@@ -157,9 +157,19 @@ var (
 
 	ErrSignatureUnsupportedOutput = errors.New("unsupported output return value")
 
-	ErrEventTargetUserIDsNoSession = errors.New(
-		"event with TargetUserIDs requires a Session type",
+	ErrEventSubjectUserNoSession = errors.New(
+		"event with SubjectUser requires a Session type",
 	)
+	// Deprecated: use ErrEventSubjectUserNoSession.
+	ErrEventSubjectPrefixUserNoSession = ErrEventSubjectUserNoSession
+	// Deprecated: use ErrEventSubjectUserNoSession.
+	ErrEventTargetUserIDsNoSession = ErrEventSubjectUserNoSession
+
+	ErrEventSubjectAfterPayload = errors.New(
+		"subject field must be defined before payload fields",
+	)
+	// Deprecated: use ErrEventSubjectAfterPayload.
+	ErrEventSubjectPrefixAfterPayload = ErrEventSubjectAfterPayload
 
 	ErrTemplHrefRelative           = templcheck.ErrHrefRelative
 	ErrTemplActionHardcoded        = templcheck.ErrActionHardcoded
@@ -491,19 +501,45 @@ func (e *ErrorEventFieldDuplicateTag) Error() string {
 
 func (e *ErrorEventFieldDuplicateTag) Unwrap() error { return ErrEventFieldDuplicateTag }
 
-// ErrorEventTargetUserIDsNoSession is ErrEventTargetUserIDsNoSession with suggestion context.
-type ErrorEventTargetUserIDsNoSession struct {
+// ErrorEventSubjectUserNoSession is ErrEventSubjectUserNoSession
+// with suggestion context.
+type ErrorEventSubjectUserNoSession struct {
 	TypeName string // e.g. "EventFoo"
 	PkgName  string // e.g. "app"
 }
 
-func (e *ErrorEventTargetUserIDsNoSession) Error() string {
-	return fmt.Sprintf("%v: %s", ErrEventTargetUserIDsNoSession, e.TypeName)
+func (e *ErrorEventSubjectUserNoSession) Error() string {
+	return fmt.Sprintf("%v: %s", ErrEventSubjectUserNoSession, e.TypeName)
 }
 
-func (e *ErrorEventTargetUserIDsNoSession) Unwrap() error {
-	return ErrEventTargetUserIDsNoSession
+func (e *ErrorEventSubjectUserNoSession) Unwrap() error {
+	return ErrEventSubjectUserNoSession
 }
+
+// Deprecated: use ErrorEventSubjectUserNoSession.
+type ErrorEventSubjectPrefixUserNoSession = ErrorEventSubjectUserNoSession
+
+// Deprecated: use ErrorEventSubjectUserNoSession.
+type ErrorEventTargetUserIDsNoSession = ErrorEventSubjectUserNoSession
+
+// ErrorEventSubjectAfterPayload is ErrEventSubjectAfterPayload
+// with suggestion context.
+type ErrorEventSubjectAfterPayload struct {
+	FieldName string // e.g. "SubjectUser"
+	TypeName  string // e.g. "EventFoo"
+}
+
+func (e *ErrorEventSubjectAfterPayload) Error() string {
+	return fmt.Sprintf("%v: %s in %s",
+		ErrEventSubjectAfterPayload, e.FieldName, e.TypeName)
+}
+
+func (e *ErrorEventSubjectAfterPayload) Unwrap() error {
+	return ErrEventSubjectAfterPayload
+}
+
+// Deprecated: use ErrorEventSubjectAfterPayload.
+type ErrorEventSubjectPrefixAfterPayload = ErrorEventSubjectAfterPayload
 
 // Type aliases for templ-check error types defined in the templcheck subpackage.
 type (

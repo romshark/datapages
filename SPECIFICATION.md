@@ -454,16 +454,75 @@ type EventExample struct {
 }
 ```
 
-Events that are targeted as specific user groups only, must declare the `TargetUserIDs`
-field:
+Events can declare subject fields to build targeted NATS subjects.
+Any field whose name starts with `Subject` is a subject field.
+Subject fields must have type `[]string` and the struct tag `json:"-"`.
+Subject fields must be defined before any payload fields.
+
+When an event is dispatched, the Cartesian product of all subject field values
+is computed (in field definition order) and each combination is appended to the
+event's base subject.
+
+`SubjectUser` is a special subject field: its presence makes the event stream
+require authentication (only authenticated users whose ID appears in the list
+will receive the event).
 
 ```go
 type EventMessageSent struct {
-	TargetUserIDs []string `json:"-"`
+	SubjectUser     []string `json:"-"`
+	SubjectChatRoom []string `json:"-"`
 
 	Message string `json:"message"`
 	Sender  string `json:"sender"`
 }
+```
+
+The following is invalid because a subject field appears after a payload field:
+
+```go
+type EventInvalid struct {
+	Message     string   `json:"message"`
+	SubjectUser []string `json:"-"` // ERROR: subject field after payload field
+}
+```
+
+**Example 1** — Given `// EventExample is "example"`:
+
+```go
+dispatch(EventExample{
+	SubjectUser:                  []string{"u1", "u2"},
+	SubjectAnything:              []string{"a1"},
+	SubjectSomethingElseEntirely: []string{"s1", "s2", "s3"},
+})
+```
+
+The following subjects are dispatched:
+
+```
+example.u1.a1.s1
+example.u1.a1.s2
+example.u1.a1.s3
+example.u2.a1.s1
+example.u2.a1.s2
+example.u2.a1.s3
+```
+
+**Example 2** — Given `// EventExample2 is "example2"`:
+
+```go
+dispatch(EventExample2{
+	SubjectAnything: []string{"a1", "a2"},
+	SubjectUser:     []string{"u1", "u2"},
+})
+```
+
+The following subjects are dispatched:
+
+```
+example2.a1.u1
+example2.a1.u2
+example2.a2.u1
+example2.a2.u2
 ```
 
 You may provide multiple event types which are dispatched in the order of definition:
@@ -480,7 +539,8 @@ dispatch func(EventTypeA, EventTypeB, EventTypeC) error
 ```go
 // EventMessageSent is "chat.sent"
 type EventMessageSent struct {
-	TargetUserIDs []string `json:"-"`
+	SubjectUser     []string `json:"-"`
+	SubjectChatRoom []string `json:"-"`
 
 	Message string `json:"message"`
 	Sender  string `json:"sender"`
@@ -506,9 +566,10 @@ func (PageChat) POSTSendMessage(
 		return nil // No-op.
 	}
 	return dispatch(EventMessageSent{
-		TargetUserIDs: chatroom.ParticipantIDs,
-		Message:	   signals.InputText,
-		Sender:		session.UserID,
+		SubjectUser:     chatroom.ParticipantIDs,
+		SubjectChatRoom: []string{signals.ChatRoom},
+		Message:               signals.InputText,
+		Sender:                session.UserID,
 	})
 }
 

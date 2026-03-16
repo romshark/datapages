@@ -766,7 +766,7 @@ func (w *Writer) writeStreamEventCase(
 ) {
 	constName := eventConstName(ev.TypeName)
 
-	if ev.HasTargetUserIDs {
+	if ev.IsPrivate() {
 		w.Raw("\t\t\tcase strings.HasPrefix(msg.Subject, EvSubjPref")
 		w.Raw(constName)
 		w.Raw("):\n")
@@ -859,7 +859,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	publicHandlers := 0
 	for _, eh := range p.EventHandlers {
 		ev := w.eventMap[eh.EventTypeName]
-		if ev != nil && !ev.HasTargetUserIDs {
+		if ev != nil && !ev.IsPrivate() {
 			publicHandlers++
 		}
 	}
@@ -868,7 +868,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		// Single event: use if instead of switch.
 		for _, eh := range p.EventHandlers {
 			ev := w.eventMap[eh.EventTypeName]
-			if ev == nil || ev.HasTargetUserIDs {
+			if ev == nil || ev.IsPrivate() {
 				continue
 			}
 			w.Raw("\t\t\tif msg.Subject == EvSubj")
@@ -892,7 +892,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		w.Line(3, "switch msg.Subject {")
 		for _, eh := range p.EventHandlers {
 			ev := w.eventMap[eh.EventTypeName]
-			if ev == nil || ev.HasTargetUserIDs {
+			if ev == nil || ev.IsPrivate() {
 				continue
 			}
 			w.writeStreamEventCase(p, eh, ev, appPkg, true)

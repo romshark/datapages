@@ -147,9 +147,9 @@ func (p PageMessages) POSTRead(
 
 	return dispatch(
 		EventMessagingRead{
-			TargetUserIDs: []string{chat.SenderUserName, post.MerchantUserName},
-			ChatID:        signals.ChatSelected,
-			UserID:        session.UserID,
+			SubjectUser: []string{chat.SenderUserName, post.MerchantUserName},
+			ChatID:      signals.ChatSelected,
+			UserID:      session.UserID,
 		},
 	)
 }
@@ -178,9 +178,9 @@ func (p PageMessages) POSTWriting(
 
 	return dispatch(
 		EventMessagingWriting{
-			TargetUserIDs: targetUsers,
-			ChatID:        signals.ChatSelected,
-			UserID:        session.UserID,
+			SubjectUser: targetUsers,
+			ChatID:      signals.ChatSelected,
+			UserID:      session.UserID,
 		},
 	)
 }
@@ -209,9 +209,9 @@ func (p PageMessages) POSTWritingStopped(
 
 	return dispatch(
 		EventMessagingWritingStopped{
-			TargetUserIDs: targetUsers,
-			ChatID:        signals.ChatSelected,
-			UserID:        session.UserID,
+			SubjectUser: targetUsers,
+			ChatID:      signals.ChatSelected,
+			UserID:      session.UserID,
 		},
 	)
 }
@@ -265,14 +265,14 @@ func (p PageMessages) POSTSendMessage(
 
 	return dispatch(
 		EventMessagingWritingStopped{
-			TargetUserIDs: targetUsers,
-			ChatID:        signals.ChatSelected,
-			UserID:        session.UserID,
+			SubjectUser: targetUsers,
+			ChatID:      signals.ChatSelected,
+			UserID:      session.UserID,
 		},
 		EventMessagingSent{
-			TargetUserIDs: targetUsers,
-			ChatID:        signals.ChatSelected,
-			UserID:        session.UserID,
+			SubjectUser: targetUsers,
+			ChatID:      signals.ChatSelected,
+			UserID:      session.UserID,
 		},
 	)
 }

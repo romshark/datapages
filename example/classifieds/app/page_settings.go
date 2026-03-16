@@ -98,8 +98,8 @@ func (p PageSettings) POSTCloseSession(
 		return false, "", err
 	}
 	_ = dispatch(EventSessionClosed{
-		TargetUserIDs: []string{sess.UserID},
-		Token:         path.Token,
+		SubjectUser: []string{sess.UserID},
+		Token:       path.Token,
 	})
 	if sessionToken == path.Token {
 		// Closed current session
@@ -125,8 +125,8 @@ func (p PageSettings) POSTCloseAllSessions(
 	targetUsers := []string{session.UserID}
 	for _, token := range closed {
 		_ = dispatch(EventSessionClosed{
-			TargetUserIDs: targetUsers,
-			Token:         token,
+			SubjectUser: targetUsers,
+			Token:       token,
 		})
 	}
 	return href.PageLogin(), nil

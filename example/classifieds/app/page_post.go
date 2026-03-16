@@ -108,9 +108,9 @@ func (p PagePost) POSTSendMessage(
 	}
 
 	if err := dispatch(EventMessagingSent{
-		TargetUserIDs: []string{post.MerchantUserName, session.UserID},
-		ChatID:        chatID,
-		UserID:        session.UserID,
+		SubjectUser: []string{post.MerchantUserName, session.UserID},
+		ChatID:      chatID,
+		UserID:      session.UserID,
 	}); err != nil {
 		return err
 	}

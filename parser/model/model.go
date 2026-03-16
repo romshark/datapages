@@ -174,11 +174,36 @@ type Type struct {
 	TypeExpr ast.Expr
 }
 
+// SubjectField represents a Subject-prefixed field on an event type.
+// The field name suffix (e.g. "User" from "SubjectUser") identifies the
+// subject segment; values are appended to the NATS subject at dispatch time.
+type SubjectField struct {
+	FieldName string // e.g. "SubjectUser"
+	Name      string // e.g. "User" (suffix after "Subject")
+}
+
 type Event struct {
 	Expr ast.Expr
 
 	TypeName string
 	Subject  string
 
-	HasTargetUserIDs bool
+	SubjectFields []SubjectField
 }
+
+// HasSubjectUser reports whether the event has a SubjectUser field.
+func (e *Event) HasSubjectUser() bool {
+	for _, sf := range e.SubjectFields {
+		if sf.Name == "User" {
+			return true
+		}
+	}
+	return false
+}
+
+// IsPrivate reports whether the event targets specific users
+// (has a SubjectUser field).
+func (e *Event) IsPrivate() bool { return e.HasSubjectUser() }
+
+// HasSubjectFields reports whether the event has any subject fields.
+func (e *Event) HasSubjectFields() bool { return len(e.SubjectFields) > 0 }

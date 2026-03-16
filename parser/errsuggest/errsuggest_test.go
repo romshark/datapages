@@ -267,9 +267,17 @@ func TestSuggest(t *testing.T) {
 				"e.g. `json:\"user_id\"`",
 		},
 
-		"ErrEventTargetUserIDsNoSession": {
-			err:  &parser.ErrorEventTargetUserIDsNoSession{TypeName: "EventChat", PkgName: "app"},
+		"ErrEventSubjectUserNoSession": {
+			err:  &parser.ErrorEventSubjectUserNoSession{TypeName: "EventChat", PkgName: "app"},
 			want: "fix: Define a Session type in package app",
+		},
+
+		"ErrEventSubjectAfterPayload": {
+			err: &parser.ErrorEventSubjectAfterPayload{
+				FieldName: "SubjectUser",
+				TypeName:  "EventChat",
+			},
+			want: "fix: Move SubjectUser before payload fields in EventChat",
 		},
 
 		"ErrTemplHrefRelative/simple": {

@@ -54,13 +54,13 @@ func validateEvents(ctx *parseCtx, errs *Errors) {
 		)
 	}
 
-	// Events with TargetUserIDs require a Session type to be defined.
+	// Events with SubjectUser require a Session type to be defined.
 	if ctx.app.Session == nil {
 		for _, ev := range ctx.app.Events {
-			if ev.HasTargetUserIDs {
+			if ev.HasSubjectUser() {
 				errs.ErrAt(
 					ctx.pkg.Fset.Position(ev.Expr.Pos()),
-					&ErrorEventTargetUserIDsNoSession{
+					&ErrorEventSubjectUserNoSession{
 						TypeName: ev.TypeName,
 						PkgName:  ctx.pkg.Name,
 					},
