@@ -11,10 +11,9 @@ import (
 	"testing"
 
 	"github.com/CloudyKit/jet/v6"
+	"github.com/stretchr/testify/require"
 	g "maragu.dev/gomponents"
 	ghtml "maragu.dev/gomponents/html"
-
-	"github.com/stretchr/testify/require"
 )
 
 var stdTmpl = template.Must(template.New("hello").Parse(
