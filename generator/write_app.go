@@ -1035,7 +1035,8 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 //
 //	"chat.sent." + userID + ".*"
 func (w *Writer) writeEvUserSubExpr(e *model.Event) {
-	beforeUser := e.Subject
+	var beforeUser strings.Builder
+	beforeUser.WriteString(e.Subject)
 	afterUser := ""
 	foundUser := false
 	for _, sf := range e.SubjectFields {
@@ -1044,13 +1045,13 @@ func (w *Writer) writeEvUserSubExpr(e *model.Event) {
 			continue
 		}
 		if !foundUser {
-			beforeUser += ".*"
+			beforeUser.WriteString(".*")
 		} else {
 			afterUser += ".*"
 		}
 	}
 
-	w.writeQuoted(beforeUser + ".")
+	w.writeQuoted(beforeUser.String() + ".")
 	w.Raw(" + userID")
 	if afterUser != "" {
 		w.Raw(" + ")
