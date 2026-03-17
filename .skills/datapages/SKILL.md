@@ -393,15 +393,18 @@ func (PageChat) OnMessageSent(
 }
 ```
 
-### Target Specific Users
+### Subject Fields
 
-Add `TargetUserIDs []string` with `json:"-"`. Requires a Session type because the server uses `Session.UserID` to match connected users against the target list.
-Separate `TargetUserIDs` from payload fields with an empty line for readability.
+Any field named `Subject<Name>` with type `[]string` and tag `json:"-"` is a subject field. Subject fields must appear before any payload fields.
+
+The values of all subject fields are combined as a Cartesian product and appended to the event's base NATS subject. For example, if an event has `SubjectUser` with values `["u1", "u2"]`, the base subject `messaging.sent` becomes `messaging.sent.u1` and `messaging.sent.u2`.
+
+`SubjectUser` is special: its presence makes the event private (requires a Session type with `Session.UserID` to match connected users).
 
 ```go
 // EventDirectMessage is "messaging.direct"
 type EventDirectMessage struct {
-	TargetUserIDs []string `json:"-"`
+	SubjectUser []string `json:"-"`
 
 	Content string `json:"content"`
 }

@@ -233,12 +233,21 @@ func Suggest(err error) string {
 			"fix: Add a non-empty name to the json tag of field %s, e.g. `json:\"%s\"`",
 			d.FieldName, toSnakeCase(d.FieldName))
 
-	case errors.Is(err, parser.ErrEventTargetUserIDsNoSession):
-		var d *parser.ErrorEventTargetUserIDsNoSession
+	case errors.Is(err, parser.ErrEventSubjectUserNoSession):
+		var d *parser.ErrorEventSubjectUserNoSession
 		if !errors.As(err, &d) {
 			return ""
 		}
 		return fmt.Sprintf("fix: Define a Session type in package %s", d.PkgName)
+
+	case errors.Is(err, parser.ErrEventSubjectAfterPayload):
+		var d *parser.ErrorEventSubjectAfterPayload
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Move %s before payload fields in %s",
+			d.FieldName, d.TypeName)
 
 	case errors.Is(err, parser.ErrTemplHrefRelative):
 		var d *parser.ErrorTemplHrefRelative
@@ -446,7 +455,8 @@ func Suggest(err error) string {
 //   - ErrEnableBgStreamNotGET         — message states it must be in a GET handler
 //   - ErrDisableRefreshNotBool        — constraint is clear from message
 //   - ErrDisableRefreshNotGET         — message states it must be in a GET handler
-//   - ErrEventTargetUserIDsNoSession  — has dedicated suggestion above
+//   - ErrEventSubjectUserNoSession  — has dedicated suggestion above
+//   - ErrEventSubjectAfterPayload   — has dedicated suggestion above
 
 // pageTypePath derives a suggested route path from a page type name.
 // "PageIndex" -> "/", "PageProfile" -> "/profile/", "PageFooBar" -> "/foobar/".

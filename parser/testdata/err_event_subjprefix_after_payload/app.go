@@ -3,11 +3,17 @@ package app
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/a-h/templ"
 )
 
 type App struct{}
+
+type Session struct {
+	UserID   string
+	IssuedAt time.Time
+}
 
 // PageIndex is /
 type PageIndex struct{ App *App }
@@ -16,16 +22,10 @@ func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
 	return body, err
 }
 
-/* ErrEventSubjectUserNoSession: SubjectUser without Session type */
+/* ErrEventSubjectAfterPayload: Subject after payload field */
 
-// EventChat is "chat"
-type EventChat struct {
+// EventBad is "bad"
+type EventBad struct {
+	Message     string   `json:"message"`
 	SubjectUser []string `json:"-"`
-
-	Message string `json:"message"`
-}
-
-// EventPublic is "public"
-type EventPublic struct {
-	Data string `json:"data"`
 }

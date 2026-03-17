@@ -2,7 +2,7 @@ package app
 
 // EventMessagingSent is "messaging.sent"
 type EventMessagingSent struct {
-	TargetUserIDs []string `json:"-"`
+	SubjectUser []string `json:"-"`
 
 	ChatID string `json:"chat-id"`
 	UserID string `json:"user-id"`
@@ -10,7 +10,7 @@ type EventMessagingSent struct {
 
 // EventMessagingRead is "messaging.read"
 type EventMessagingRead struct {
-	TargetUserIDs []string `json:"-"`
+	SubjectUser []string `json:"-"`
 
 	ChatID    string `json:"chat-id"`
 	UserID    string `json:"user-id"`
@@ -19,7 +19,7 @@ type EventMessagingRead struct {
 
 // EventMessagingWriting is "messaging.writing"
 type EventMessagingWriting struct {
-	TargetUserIDs []string `json:"-"`
+	SubjectUser []string `json:"-"`
 
 	ChatID string `json:"chat-id"`
 	UserID string `json:"user-id"`
@@ -27,7 +27,7 @@ type EventMessagingWriting struct {
 
 // EventMessagingWritingStopped is "messaging.writing-stopped"
 type EventMessagingWritingStopped struct {
-	TargetUserIDs []string `json:"-"`
+	SubjectUser []string `json:"-"`
 
 	ChatID string `json:"chat-id"`
 	UserID string `json:"user-id"`
@@ -40,7 +40,7 @@ type EventPostArchived struct {
 
 // EventSessionClosed is "sessions.closed"
 type EventSessionClosed struct {
-	TargetUserIDs []string `json:"-"`
+	SubjectUser []string `json:"-"`
 
 	Token string `json:"token"`
 }
