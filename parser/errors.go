@@ -160,16 +160,10 @@ var (
 	ErrEventSubjectUserNoSession = errors.New(
 		"event with SubjectUser requires a Session type",
 	)
-	// Deprecated: use ErrEventSubjectUserNoSession.
-	ErrEventSubjectPrefixUserNoSession = ErrEventSubjectUserNoSession
-	// Deprecated: use ErrEventSubjectUserNoSession.
-	ErrEventTargetUserIDsNoSession = ErrEventSubjectUserNoSession
 
 	ErrEventSubjectAfterPayload = errors.New(
 		"subject field must be defined before payload fields",
 	)
-	// Deprecated: use ErrEventSubjectAfterPayload.
-	ErrEventSubjectPrefixAfterPayload = ErrEventSubjectAfterPayload
 
 	ErrTemplHrefRelative                 = templcheck.ErrHrefRelative
 	ErrTemplActionHardcoded              = templcheck.ErrActionHardcoded
@@ -518,12 +512,6 @@ func (e *ErrorEventSubjectUserNoSession) Unwrap() error {
 	return ErrEventSubjectUserNoSession
 }
 
-// Deprecated: use ErrorEventSubjectUserNoSession.
-type ErrorEventSubjectPrefixUserNoSession = ErrorEventSubjectUserNoSession
-
-// Deprecated: use ErrorEventSubjectUserNoSession.
-type ErrorEventTargetUserIDsNoSession = ErrorEventSubjectUserNoSession
-
 // ErrorEventSubjectAfterPayload is ErrEventSubjectAfterPayload
 // with suggestion context.
 type ErrorEventSubjectAfterPayload struct {
@@ -539,9 +527,6 @@ func (e *ErrorEventSubjectAfterPayload) Error() string {
 func (e *ErrorEventSubjectAfterPayload) Unwrap() error {
 	return ErrEventSubjectAfterPayload
 }
-
-// Deprecated: use ErrorEventSubjectAfterPayload.
-type ErrorEventSubjectPrefixAfterPayload = ErrorEventSubjectAfterPayload
 
 // Type aliases for templ-check error types defined in the templcheck subpackage.
 type (
