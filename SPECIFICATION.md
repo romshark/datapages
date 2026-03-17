@@ -456,18 +456,43 @@ type EventExample struct {
 
 Events can declare subject fields to build targeted NATS subjects.
 Any field whose name starts with `Subject` is a subject field.
-Subject fields must have type `[]string` and the struct tag `json:"-"`.
+Subject fields must have type `string` or `[]string` and the struct tag `json:"-"`.
 Subject fields must be defined before any payload fields.
 
-When an event is dispatched, the Cartesian product of all subject field values
-is computed (in field definition order) and each combination is appended to the
-event's base subject.
+- `[]string` — multiple values; the Cartesian product of all `[]string` subject field
+  values is computed at dispatch time and each combination produces a separate publish.
+- `string` — single value; used directly in the subject without looping.
 
-`SubjectUser` is a special subject field: its presence makes the event stream
-require authentication (only authenticated users whose ID appears in the list
-will receive the event).
+When an event is dispatched, subject field values are appended (in field definition
+order) to the event's base subject, separated by dots.
+
+For example, given `// EventNotify is "notify"`:
 
 ```go
+dispatch(EventNotify{
+	SubjectUser:   "u1",
+	SubjectRoom:   []string{"r1", "r2"},
+	SubjectDevice: "mobile",
+})
+```
+
+The following subjects are dispatched:
+
+```
+notify.u1.r1.mobile
+notify.u1.r2.mobile
+```
+
+The `string` field `SubjectUser` contributes one value, the `[]string` field
+`SubjectRoom` expands into two combinations, and the `string` field
+`SubjectDevice` contributes one value.
+
+`SubjectUser` is a special subject field: its presence makes the event stream
+require authentication (only authenticated users whose ID appears in the subject
+will receive the event). It can be `string` (single user) or `[]string` (multiple users).
+
+```go
+// Multiple recipients:
 type EventMessageSent struct {
 	SubjectUser     []string `json:"-"`
 	SubjectChatRoom []string `json:"-"`
@@ -475,7 +500,60 @@ type EventMessageSent struct {
 	Message string `json:"message"`
 	Sender  string `json:"sender"`
 }
+
+// Single recipient:
+type EventDirectMessage struct {
+	SubjectUser string `json:"-"`
+
+	Text   string `json:"text"`
+	Sender string `json:"sender"`
+}
 ```
+
+##### Signal-scoped subject fields
+
+A subject field (other than `SubjectUser`) can carry a `signal:"<name>"` struct tag
+to bind its value to a client-side Datastar signal. When a client connects to the
+SSE stream, the server reads the signal value and uses it to build the subscription
+subject. This enables per-instance event routing without authentication.
+
+The signal name must start with a lowercase letter and contain only lowercase letters,
+digits, underscores, or dots (e.g. `signal:"instance_id"`, `signal:"form.calc_id"`).
+
+Signal-scoped subject fields must have type `string` (singular), since the signal
+provides exactly one value. `SubjectUser` must not have a signal tag.
+
+```go
+// EventCalcUpdated is "calc.updated"
+type EventCalcUpdated struct {
+	SubjectInstance string `json:"-" signal:"instance_id"`
+
+	Result float64 `json:"result"`
+}
+```
+
+When the SSE stream handler runs, it reads `instance_id` from the client's signals,
+validates it is non-empty, and subscribes to `calc.updated.<instance_id>`.
+
+Signal-scoped events can be mixed with private (`SubjectUser`) events and plain
+public events on the same page. They can also coexist with non-signal subject fields:
+
+```go
+// EventRoomUpdate is "room.update"
+type EventRoomUpdate struct {
+	SubjectUser []string `json:"-"`
+	SubjectRoom []string `json:"-"`
+	SubjectCalc string   `json:"-" signal:"calc_id"`
+
+	Data string `json:"data"`
+}
+```
+
+**Restrictions:**
+
+- `SubjectUser` must not have a `signal:"..."` tag.
+- No two subject fields may share the same `signal:"..."` tag value.
+- Signal tag names must match `[a-z][a-z0-9_.]*`.
 
 The following is invalid because a subject field appears after a payload field:
 

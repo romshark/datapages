@@ -165,6 +165,18 @@ var (
 		"subject field must be defined before payload fields",
 	)
 
+	ErrEventSubjectDuplicateSignal = errors.New(
+		"multiple event subject fields with the same signal tag",
+	)
+
+	ErrEventSubjectUserSignal = errors.New(
+		"SubjectUser must not have a signal tag",
+	)
+
+	ErrEventSubjectSignalInvalid = errors.New(
+		"invalid signal tag value",
+	)
+
 	ErrTemplHrefRelative                 = templcheck.ErrHrefRelative
 	ErrTemplActionHardcoded              = templcheck.ErrActionHardcoded
 	ErrTemplFormAction                   = templcheck.ErrFormAction
@@ -526,6 +538,55 @@ func (e *ErrorEventSubjectAfterPayload) Error() string {
 
 func (e *ErrorEventSubjectAfterPayload) Unwrap() error {
 	return ErrEventSubjectAfterPayload
+}
+
+// ErrorEventSubjectDuplicateSignal is ErrEventSubjectDuplicateSignal
+// with suggestion context.
+type ErrorEventSubjectDuplicateSignal struct {
+	FieldName      string // e.g. "SubjectFoo" (second occurrence)
+	FirstFieldName string // e.g. "SubjectBar" (first occurrence)
+	SignalName     string // e.g. "instance_id"
+	TypeName       string // e.g. "EventCalcUpdated"
+}
+
+func (e *ErrorEventSubjectDuplicateSignal) Error() string {
+	return fmt.Sprintf("%v: %s has duplicate signal %q in %s (already used by %s)",
+		ErrEventSubjectDuplicateSignal, e.FieldName, e.SignalName, e.TypeName, e.FirstFieldName)
+}
+
+func (e *ErrorEventSubjectDuplicateSignal) Unwrap() error {
+	return ErrEventSubjectDuplicateSignal
+}
+
+// ErrorEventSubjectUserSignal is ErrEventSubjectUserSignal
+// with suggestion context.
+type ErrorEventSubjectUserSignal struct {
+	TypeName string // e.g. "EventChat"
+}
+
+func (e *ErrorEventSubjectUserSignal) Error() string {
+	return fmt.Sprintf("%v: in %s", ErrEventSubjectUserSignal, e.TypeName)
+}
+
+func (e *ErrorEventSubjectUserSignal) Unwrap() error {
+	return ErrEventSubjectUserSignal
+}
+
+// ErrorEventSubjectSignalInvalid is ErrEventSubjectSignalInvalid
+// with suggestion context.
+type ErrorEventSubjectSignalInvalid struct {
+	FieldName  string // e.g. "SubjectInstance"
+	SignalName string // the invalid tag value
+	TypeName   string // e.g. "EventCalc"
+}
+
+func (e *ErrorEventSubjectSignalInvalid) Error() string {
+	return fmt.Sprintf("%v: %s has signal %q in %s",
+		ErrEventSubjectSignalInvalid, e.FieldName, e.SignalName, e.TypeName)
+}
+
+func (e *ErrorEventSubjectSignalInvalid) Unwrap() error {
+	return ErrEventSubjectSignalInvalid
 }
 
 // Type aliases for templ-check error types defined in the templcheck subpackage.

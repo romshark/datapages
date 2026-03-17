@@ -261,3 +261,36 @@ func TestEventHandlerMethodName(t *testing.T) {
 	f(validate.ErrEventHandlerNameInvalid, "OnAÄ")
 	f(validate.ErrEventHandlerNameInvalid, "OnA💥")
 }
+
+func TestSignalTagName(t *testing.T) {
+	f := func(expect error, input string) {
+		t.Helper()
+		require.ErrorIs(t, validate.SignalTagName(input), expect)
+	}
+
+	// valid
+	f(nil, "instance_id")
+	f(nil, "x")
+	f(nil, "foo")
+	f(nil, "foo_bar")
+	f(nil, "foo123")
+	f(nil, "a.b.c")
+	f(nil, "form.name")
+
+	// empty
+	f(validate.ErrSignalTagNameInvalid, "")
+	// starts with uppercase
+	f(validate.ErrSignalTagNameInvalid, "Foo")
+	// starts with digit
+	f(validate.ErrSignalTagNameInvalid, "1foo")
+	// starts with underscore
+	f(validate.ErrSignalTagNameInvalid, "_foo")
+	// contains spaces
+	f(validate.ErrSignalTagNameInvalid, "has spaces")
+	// contains uppercase
+	f(validate.ErrSignalTagNameInvalid, "camelCase")
+	// contains hyphen
+	f(validate.ErrSignalTagNameInvalid, "foo-bar")
+	// contains quotes
+	f(validate.ErrSignalTagNameInvalid, `foo"bar`)
+}

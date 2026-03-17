@@ -880,19 +880,19 @@ func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
 
 	w.Line(0, ")")
 
-	// EvSubjPref* constants (prefix for matching private events).
-	hasPrivate := false
+	// EvSubjPref* constants (prefix for matching private and signal-scoped events).
+	hasPrefixed := false
 	for _, e := range events {
-		if e.IsPrivate() {
-			hasPrivate = true
+		if e.IsPrivate() || e.IsSignalScoped() {
+			hasPrefixed = true
 			break
 		}
 	}
-	if hasPrivate {
+	if hasPrefixed {
 		w.Line(0, "")
 		w.Line(0, "const (")
 		for _, e := range events {
-			if e.IsPrivate() {
+			if e.IsPrivate() || e.IsSignalScoped() {
 				w.Byte('\t')
 				w.Raw(evSubjPrefConst(e))
 				w.Raw(" = ")
@@ -926,19 +926,37 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 		// Determine which events this page handles.
 		hasPublic := false
 		hasPrivate := false
+		hasSignalScoped := false
 		for _, eh := range p.EventHandlers {
 			ev := w.eventMap[eh.EventTypeName]
 			if ev == nil {
 				continue
 			}
-			if ev.IsPrivate() {
+			switch {
+			case ev.IsPrivate():
 				hasPrivate = true
-			} else {
+			case ev.IsSignalScoped():
+				hasSignalScoped = true
+			default:
 				hasPublic = true
 			}
 		}
 
 		name := "evSubj" + p.TypeName
+
+		signalFields := pageSignalSubjectFields(p, w.eventMap)
+
+		if hasSignalScoped && !hasPrivate {
+			// Signal-scoped events (possibly mixed with public).
+			w.writeEvSubjSignalFunc(p, name, signalFields, hasPublic)
+			continue
+		}
+
+		if hasPrivate && hasSignalScoped {
+			// Mixed private + signal-scoped (possibly with public).
+			w.writeEvSubjPrivateSignalFunc(p, name, signalFields, hasPublic)
+			continue
+		}
 
 		if hasPrivate && !hasPublic {
 			// All events are per-user, just take userID.
@@ -1037,7 +1055,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 func (w *Writer) writeEvUserSubExpr(e *model.Event) {
 	var beforeUser strings.Builder
 	beforeUser.WriteString(e.Subject)
-	afterUser := ""
+	var afterUser strings.Builder
 	foundUser := false
 	for _, sf := range e.SubjectFields {
 		if sf.Name == "User" && !foundUser {
@@ -1047,15 +1065,164 @@ func (w *Writer) writeEvUserSubExpr(e *model.Event) {
 		if !foundUser {
 			beforeUser.WriteString(".*")
 		} else {
-			afterUser += ".*"
+			afterUser.WriteString(".*")
 		}
 	}
 
 	w.writeQuoted(beforeUser.String() + ".")
 	w.Raw(" + userID")
-	if afterUser != "" {
+	if afterUser.String() != "" {
 		w.Raw(" + ")
-		w.writeQuoted(afterUser)
+		w.writeQuoted(afterUser.String())
+	}
+}
+
+// writeEvSubjSignalFunc emits an evSubjPageXxx function for pages
+// whose events are signal-scoped (possibly mixed with plain public events).
+// Each unique signal subject field becomes a string parameter.
+func (w *Writer) writeEvSubjSignalFunc(
+	p *model.Page, name string,
+	signalFields []model.SubjectField, hasPublic bool,
+) {
+	w.Line(0, "")
+	w.Raw("func ")
+	w.Raw(name)
+	w.Raw("(")
+	for i, sf := range signalFields {
+		if i > 0 {
+			w.Raw(", ")
+		}
+		w.Raw("subj")
+		w.Raw(sf.Name)
+		w.Raw(" string")
+	}
+	w.Raw(") []string {\n")
+	w.Line(1, "return []string{")
+
+	// Public events first.
+	if hasPublic {
+		for _, eh := range p.EventHandlers {
+			ev := w.eventMap[eh.EventTypeName]
+			if ev == nil || ev.IsPrivate() || ev.IsSignalScoped() {
+				continue
+			}
+			w.Raw("\t\t")
+			w.Raw(evSubjConst(ev))
+			w.Raw(",\n")
+		}
+	}
+
+	// Signal-scoped events.
+	for _, eh := range p.EventHandlers {
+		ev := w.eventMap[eh.EventTypeName]
+		if ev == nil || !ev.IsSignalScoped() {
+			continue
+		}
+		w.Raw("\t\t")
+		w.writeEvSignalSubExpr(ev)
+		w.Raw(",\n")
+	}
+
+	w.Line(1, "}")
+	w.Line(0, "}")
+}
+
+// writeEvSubjPrivateSignalFunc emits an evSubjPageXxx function for pages
+// whose events mix private (SubjectUser) and signal-scoped events,
+// possibly with plain public events. Takes userID plus signal parameters.
+func (w *Writer) writeEvSubjPrivateSignalFunc(
+	p *model.Page, name string,
+	signalFields []model.SubjectField, hasPublic bool,
+) {
+	w.Line(0, "")
+	w.Raw("func ")
+	w.Raw(name)
+	w.Raw("(userID string")
+	for _, sf := range signalFields {
+		w.Raw(", subj")
+		w.Raw(sf.Name)
+		w.Raw(" string")
+	}
+	w.Raw(") []string {\n")
+
+	if hasPublic {
+		w.Line(1, "if userID == \"\" {")
+		w.Line(2, "return []string{")
+		for _, eh := range p.EventHandlers {
+			ev := w.eventMap[eh.EventTypeName]
+			if ev == nil || ev.IsPrivate() || ev.IsSignalScoped() {
+				continue
+			}
+			w.Raw("\t\t\t")
+			w.Raw(evSubjConst(ev))
+			w.Raw(",\n")
+		}
+		w.Line(2, "}")
+		w.Line(1, "}")
+	}
+
+	w.Line(1, "return []string{")
+
+	// Public events first.
+	if hasPublic {
+		for _, eh := range p.EventHandlers {
+			ev := w.eventMap[eh.EventTypeName]
+			if ev == nil || ev.IsPrivate() || ev.IsSignalScoped() {
+				continue
+			}
+			w.Raw("\t\t")
+			w.Raw(evSubjConst(ev))
+			w.Raw(",\n")
+		}
+	}
+
+	// Private events.
+	for _, eh := range p.EventHandlers {
+		ev := w.eventMap[eh.EventTypeName]
+		if ev == nil || !ev.IsPrivate() {
+			continue
+		}
+		w.Raw("\t\t")
+		w.writeEvUserSubExpr(ev)
+		w.Raw(",\n")
+	}
+
+	// Signal-scoped events.
+	for _, eh := range p.EventHandlers {
+		ev := w.eventMap[eh.EventTypeName]
+		if ev == nil || !ev.IsSignalScoped() {
+			continue
+		}
+		w.Raw("\t\t")
+		w.writeEvSignalSubExpr(ev)
+		w.Raw(",\n")
+	}
+
+	w.Line(1, "}")
+	w.Line(0, "}")
+}
+
+// writeEvSignalSubExpr emits a Go expression that builds a signal-scoped
+// subscription subject. Each signal-tagged subject field uses its
+// corresponding parameter variable; non-signal positions become "*" wildcards.
+//
+// E.g. for SubjectInstance with signal:"instance_id" and subject "calc.updated":
+//
+//	"calc.updated." + subjInstance
+func (w *Writer) writeEvSignalSubExpr(ev *model.Event) {
+	w.writeQuoted(ev.Subject + ".")
+	for i, sf := range ev.SubjectFields {
+		if i > 0 {
+			w.Raw(` + "." + `)
+		} else {
+			w.Raw(" + ")
+		}
+		if sf.SignalName != "" {
+			w.Raw("subj")
+			w.Raw(sf.Name)
+		} else {
+			w.writeQuoted("*")
+		}
 	}
 }
 
@@ -1763,24 +1930,37 @@ func (w *Writer) writeDispatchClosure(d *model.InputDispatch, appPkg string) {
 		w.Line(3, "}")
 
 		if ev != nil && ev.HasSubjectFields() {
-			// Nested loops for Cartesian product of all subject fields.
+			// Nested loops for Cartesian product of []string subject fields.
+			// Singular (string) fields are assigned directly without a loop.
 			baseIndent := 3
+			loopDepth := 0
 			for pi, sf := range ev.SubjectFields {
-				indent := baseIndent + pi
+				indent := baseIndent + loopDepth
 				for range indent {
 					w.Byte('\t')
 				}
-				w.Raw("for _, p")
-				w.Raw(itoa(pi))
-				w.Raw(" := range e")
-				w.Raw(idx)
-				w.Byte('.')
-				w.Raw(sf.FieldName)
-				w.Raw(" {\n")
+				if sf.Singular {
+					w.Raw("p")
+					w.Raw(itoa(pi))
+					w.Raw(" := e")
+					w.Raw(idx)
+					w.Byte('.')
+					w.Raw(sf.FieldName)
+					w.Byte('\n')
+				} else {
+					w.Raw("for _, p")
+					w.Raw(itoa(pi))
+					w.Raw(" := range e")
+					w.Raw(idx)
+					w.Byte('.')
+					w.Raw(sf.FieldName)
+					w.Raw(" {\n")
+					loopDepth++
+				}
 			}
 
 			// Build the subject: baseSubject + "." + p0 + "." + p1
-			innerIndent := baseIndent + len(ev.SubjectFields)
+			innerIndent := baseIndent + loopDepth
 			for range innerIndent {
 				w.Byte('\t')
 			}
@@ -1810,9 +1990,13 @@ func (w *Writer) writeDispatchClosure(d *model.InputDispatch, appPkg string) {
 			}
 			w.Raw("}\n")
 
-			// Close loops in reverse order.
+			// Close loops in reverse order (only for non-singular fields).
 			for pi := len(ev.SubjectFields) - 1; pi >= 0; pi-- {
-				indent := baseIndent + pi
+				if ev.SubjectFields[pi].Singular {
+					continue
+				}
+				loopDepth--
+				indent := baseIndent + loopDepth
 				for range indent {
 					w.Byte('\t')
 				}

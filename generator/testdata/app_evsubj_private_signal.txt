@@ -1,0 +1,7 @@
+
+func evSubjPageDashboard(userID string, subjInstance string) []string {
+	return []string{
+		"messaging.sent." + userID,
+		"calc.updated." + subjInstance,
+	}
+}

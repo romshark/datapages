@@ -6,8 +6,11 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"reflect"
 	"strconv"
 	"strings"
+
+	"github.com/romshark/datapages/parser/validate"
 )
 
 // ReceiverTypeName extracts the type name from a method
@@ -124,9 +127,11 @@ func HasRequiredAppField(
 
 // SubjectField describes a Subject-prefixed field found in a struct.
 type SubjectField struct {
-	FieldName string    // e.g. "SubjectUser"
-	Name      string    // e.g. "User"
-	Pos       token.Pos // position of the field name identifier
+	FieldName  string    // e.g. "SubjectUser"
+	Name       string    // e.g. "User"
+	SignalName string    // e.g. "instance_id" (from signal:"instance_id" tag, empty otherwise)
+	Singular   bool      // true when the field type is string (not []string)
+	Pos        token.Pos // position of the field name identifier
 }
 
 // SubjectFieldResult holds the result of inspecting a struct for Subject fields.
@@ -136,6 +141,16 @@ type SubjectFieldResult struct {
 	// AfterPayload is non-nil when a Subject field appears after a
 	// non-Subject (payload) field. It points to the offending field.
 	AfterPayload *SubjectField
+	// DuplicateSignal is non-nil when two subject fields share the
+	// same signal:"..." tag value. It points to the second occurrence.
+	// DuplicateSignalFirst names the first field that used the signal.
+	DuplicateSignal      *SubjectField
+	DuplicateSignalFirst string
+	// UserWithSignal is non-nil when SubjectUser has a signal:"..." tag.
+	// SubjectUser is auth-scoped and must not be bound to a signal.
+	UserWithSignal *SubjectField
+	// InvalidSignal is non-nil when a signal:"..." tag value is malformed.
+	InvalidSignal *SubjectField
 }
 
 // SubjectFields inspects a type spec for Subject-prefixed fields.
@@ -165,17 +180,24 @@ func SubjectFields(
 			continue
 		}
 
-		// Validate type is []string.
+		// Validate type is string or []string.
 		t := info.TypeOf(f.Type)
 		if t == nil {
 			continue
 		}
-		slice, ok := t.(*types.Slice)
-		if !ok {
-			continue
-		}
-		basic, ok := slice.Elem().(*types.Basic)
-		if !ok || basic.Kind() != types.String {
+		singular := false
+		switch ut := t.(type) {
+		case *types.Basic:
+			if ut.Kind() != types.String {
+				continue
+			}
+			singular = true
+		case *types.Slice:
+			basic, ok := ut.Elem().(*types.Basic)
+			if !ok || basic.Kind() != types.String {
+				continue
+			}
+		default:
 			continue
 		}
 
@@ -191,14 +213,34 @@ func SubjectFields(
 			continue
 		}
 
+		// Extract optional signal:"xxx" tag for signal-scoped subject fields.
+		signalName := reflect.StructTag(tag).Get("signal")
+
 		sf := SubjectField{
-			FieldName: name,
-			Name:      suffix,
-			Pos:       f.Names[0].Pos(),
+			FieldName:  name,
+			Name:       suffix,
+			SignalName: signalName,
+			Singular:   singular,
+			Pos:        f.Names[0].Pos(),
 		}
 
 		if seenPayload && result.AfterPayload == nil {
 			result.AfterPayload = &sf
+		}
+		if suffix == "User" && signalName != "" && result.UserWithSignal == nil {
+			result.UserWithSignal = &sf
+		}
+		if signalName != "" && validate.SignalTagName(signalName) != nil && result.InvalidSignal == nil {
+			result.InvalidSignal = &sf
+		}
+		if signalName != "" && result.DuplicateSignal == nil {
+			for _, prev := range result.Fields {
+				if prev.SignalName == signalName {
+					result.DuplicateSignal = &sf
+					result.DuplicateSignalFirst = prev.FieldName
+					break
+				}
+			}
 		}
 
 		result.Fields = append(result.Fields, sf)

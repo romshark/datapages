@@ -451,6 +451,104 @@ func TestParse_ErrEventSubjectAfterPayload(t *testing.T) {
 	)
 }
 
+func TestParse_ErrEventSubjectDuplicateSignal(t *testing.T) {
+	_, err := parse(t, "err_event_subj_duplicate_signal")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrEventSubjectDuplicateSignal,
+	)
+}
+
+func TestParse_ErrEventSubjectSignalInvalid(t *testing.T) {
+	_, err := parse(t, "err_event_subj_signal_invalid")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrEventSubjectSignalInvalid,
+	)
+}
+
+func TestParse_ErrEventSubjectUserSignal(t *testing.T) {
+	_, err := parse(t, "err_event_subj_user_signal")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrEventSubjectUserSignal,
+	)
+}
+
+func TestParse_SignalSubjectFields(t *testing.T) {
+	app, errs := parse(t, "signal_subject")
+	require := require.New(t)
+	requireParseErrors(t, errs)
+	require.NotNil(app)
+
+	require.Len(app.Events, 5)
+	events := map[string]*model.Event{}
+	for _, e := range app.Events {
+		events[e.TypeName] = e
+	}
+
+	for name, tc := range map[string]struct {
+		subject        string
+		subjectFields  []model.SubjectField
+		isPrivate      bool
+		isSignalScoped bool
+	}{
+		"EventSingular": {
+			subject: "calc.updated",
+			subjectFields: []model.SubjectField{
+				{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id", Singular: true},
+			},
+			isPrivate:      false,
+			isSignalScoped: true,
+		},
+		"EventPluralUser": {
+			subject: "chat.sent",
+			subjectFields: []model.SubjectField{
+				{FieldName: "SubjectUser", Name: "User"},
+			},
+			isPrivate:      true,
+			isSignalScoped: false,
+		},
+		"EventSingularUser": {
+			subject: "dm.sent",
+			subjectFields: []model.SubjectField{
+				{FieldName: "SubjectUser", Name: "User", Singular: true},
+			},
+			isPrivate:      true,
+			isSignalScoped: false,
+		},
+		"EventMixed": {
+			subject: "mixed",
+			subjectFields: []model.SubjectField{
+				{FieldName: "SubjectUser", Name: "User"},
+				{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id", Singular: true},
+			},
+			isPrivate:      true,
+			isSignalScoped: true,
+		},
+		"EventThreeField": {
+			subject: "three",
+			subjectFields: []model.SubjectField{
+				{FieldName: "SubjectUser", Name: "User"},
+				{FieldName: "SubjectRoom", Name: "Room"},
+				{FieldName: "SubjectCalc", Name: "Calc", SignalName: "calc_id", Singular: true},
+			},
+			isPrivate:      true,
+			isSignalScoped: true,
+		},
+	} {
+		e, ok := events[name]
+		require.True(ok, "missing event: %s", name)
+		require.Equal(tc.subject, e.Subject, "event %s subject", name)
+		require.Equal(tc.isPrivate, e.IsPrivate(), "event %s IsPrivate", name)
+		require.Equal(tc.isSignalScoped, e.IsSignalScoped(), "event %s IsSignalScoped", name)
+		require.Equal(tc.subjectFields, e.SubjectFields, "event %s SubjectFields", name)
+	}
+}
+
 func TestParse_ErrEmbedDuplicateEventHandler(t *testing.T) {
 	_, err := parse(t, "err_embed_duplicate_event_handler")
 	require.NotZero(t, err.Error())

@@ -666,6 +666,7 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Line(1, "}")
 
 	hasPrivate := pageHasPrivateEvent(p, w.eventMap)
+	hasSignalScoped := pageHasSignalScopedEvent(p, w.eventMap)
 	if hasPrivate {
 		w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
 		w.Line(1, "if !ok {")
@@ -684,6 +685,37 @@ func (w *Writer) writePageGETStreamHandler(
 			w.Line(0, "")
 			w.Line(1, `if sess.UserID == "" {`)
 			w.Line(2, "http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)")
+			w.Line(2, "return")
+			w.Line(1, "}")
+		}
+	}
+
+	// Read signal-scoped subject values for subscription.
+	signalFields := pageSignalSubjectFields(p, w.eventMap)
+	if hasSignalScoped {
+		w.Line(0, "")
+		w.Line(1, "var subjSignals struct {")
+		for _, sf := range signalFields {
+			w.Raw("\t\t")
+			w.Raw(sf.Name)
+			w.Raw(` string `)
+			w.Raw("`json:\"")
+			w.Raw(sf.SignalName)
+			w.Raw("\"`")
+			w.Byte('\n')
+		}
+		w.Line(1, "}")
+		w.Line(1, "if err := datastar.ReadSignals(r, &subjSignals); err != nil {")
+		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
+		w.Line(2, "return")
+		w.Line(1, "}")
+		for _, sf := range signalFields {
+			w.Raw("\tif subjSignals.")
+			w.Raw(sf.Name)
+			w.Raw(" == \"\" {\n")
+			w.Raw("\t\ts.httpErrBad(w, \"missing required signal\", fmt.Errorf(\"signal %q is required\", ")
+			w.writeQuoted(sf.SignalName)
+			w.Raw("))\n")
 			w.Line(2, "return")
 			w.Line(1, "}")
 		}
@@ -731,15 +763,33 @@ func (w *Writer) writePageGETStreamHandler(
 	}
 	w.Raw(" ")
 	w.Raw(evSubjName)
-	if hasPrivate {
+	if hasPrivate && hasSignalScoped {
+		w.Raw("(sess.UserID")
+		for _, sf := range signalFields {
+			w.Raw(", subjSignals.")
+			w.Raw(sf.Name)
+		}
+		w.Raw("), func(\n")
+	} else if hasPrivate {
 		w.Raw("(sess.UserID), func(\n")
+	} else if hasSignalScoped {
+		w.Raw("(")
+		for i, sf := range signalFields {
+			if i > 0 {
+				w.Raw(", ")
+			}
+			w.Raw("subjSignals.")
+			w.Raw(sf.Name)
+		}
+		w.Raw("), func(\n")
 	} else {
 		w.Raw("(), func(\n")
 	}
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")
 	w.Line(1, ") {")
 	w.Line(2, "for msg := range ch {")
-	if hasPrivate {
+	needsPrefixMatch := hasPrivate || hasSignalScoped
+	if needsPrefixMatch {
 		w.Line(3, "switch {")
 	} else {
 		w.Line(3, "switch msg.Subject {")
@@ -751,7 +801,7 @@ func (w *Writer) writePageGETStreamHandler(
 		if ev == nil {
 			continue
 		}
-		w.writeStreamEventCase(p, eh, ev, appPkg, !hasPrivate)
+		w.writeStreamEventCase(p, eh, ev, appPkg, !needsPrefixMatch)
 	}
 
 	w.Line(3, "}")
@@ -766,7 +816,7 @@ func (w *Writer) writeStreamEventCase(
 ) {
 	constName := eventConstName(ev.TypeName)
 
-	if ev.IsPrivate() {
+	if ev.IsPrivate() || ev.IsSignalScoped() {
 		w.Raw("\t\t\tcase strings.HasPrefix(msg.Subject, EvSubjPref")
 		w.Raw(constName)
 		w.Raw("):\n")

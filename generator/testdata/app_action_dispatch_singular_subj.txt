@@ -1,0 +1,26 @@
+
+func (s *Server) handlePOSTUpdate(w http.ResponseWriter, r *http.Request) {
+
+	dispatch := func(
+		e1 testapp.EventCalcUpdated,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventCalcUpdated JSON: %w", err)
+			}
+			p0 := e1.SubjectInstance
+			subj := "calc.updated." + p0
+			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
+			if err != nil {
+				return fmt.Errorf("publishing subject %q: %w", subj, err)
+			}
+		}
+		return nil
+	}
+	err := s.app.POSTUpdate(dispatch)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Update", err)
+		return
+	}
+}

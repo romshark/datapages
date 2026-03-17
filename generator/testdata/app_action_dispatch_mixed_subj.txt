@@ -1,0 +1,32 @@
+
+func (s *Server) handlePOSTNotify(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	dispatch := func(
+		e1 testapp.EventMixed,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventMixed JSON: %w", err)
+			}
+			for _, p0 := range e1.SubjectUser {
+				p1 := e1.SubjectInstance
+				subj := "mixed." + p0 + "." + p1
+				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
+				if err != nil {
+					return fmt.Errorf("publishing subject %q: %w", subj, err)
+				}
+			}
+		}
+		return nil
+	}
+	err := s.app.POSTNotify(sess, dispatch)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.Notify", err)
+		return
+	}
+}

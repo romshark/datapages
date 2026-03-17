@@ -80,6 +80,14 @@ func testEvent(typeName, subject string, private bool) *model.Event {
 	return e
 }
 
+func testSignalEvent(typeName, subject string, fields ...model.SubjectField) *model.Event {
+	return &model.Event{
+		TypeName:      typeName,
+		Subject:       subject,
+		SubjectFields: fields,
+	}
+}
+
 func testEventHandler(
 	name, eventTypeName string, opts ...func(*model.EventHandler),
 ) *model.EventHandler {
@@ -134,6 +142,70 @@ func TestWriteEvSubjPageFuncs(t *testing.T) {
 				"EventPostsArchived": publicEvent,
 			},
 			golden: "app_evsubj_public_only.txt",
+		},
+		"signal-scoped only": {
+			pages: []*model.Page{{
+				TypeName: "PageCalc",
+				Route:    "/calc/",
+				EventHandlers: []*model.EventHandler{
+					testEventHandler("CalcUpdated", "EventCalcUpdated"),
+				},
+			}},
+			eventMap: map[string]*model.Event{
+				"EventCalcUpdated": testSignalEvent("EventCalcUpdated", "calc.updated",
+					model.SubjectField{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id"}),
+			},
+			golden: "app_evsubj_signal_only.txt",
+		},
+		"signal-scoped with public": {
+			pages: []*model.Page{{
+				TypeName: "PageCalc",
+				Route:    "/calc/",
+				EventHandlers: []*model.EventHandler{
+					testEventHandler("PostsCreated", "EventPostsCreated"),
+					testEventHandler("CalcUpdated", "EventCalcUpdated"),
+				},
+			}},
+			eventMap: map[string]*model.Event{
+				"EventPostsCreated": publicEvent,
+				"EventCalcUpdated": testSignalEvent("EventCalcUpdated", "calc.updated",
+					model.SubjectField{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id"}),
+			},
+			golden: "app_evsubj_signal_with_public.txt",
+		},
+		"private with signal-scoped": {
+			pages: []*model.Page{{
+				TypeName: "PageDashboard",
+				Route:    "/dashboard/",
+				EventHandlers: []*model.EventHandler{
+					testEventHandler("MessagingSent", "EventMessagingSent", withEHSession),
+					testEventHandler("CalcUpdated", "EventCalcUpdated"),
+				},
+			}},
+			eventMap: map[string]*model.Event{
+				"EventMessagingSent": privateEvent,
+				"EventCalcUpdated": testSignalEvent("EventCalcUpdated", "calc.updated",
+					model.SubjectField{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id"}),
+			},
+			golden: "app_evsubj_private_signal.txt",
+		},
+		"private with signal-scoped and public": {
+			pages: []*model.Page{{
+				TypeName: "PageDashboard",
+				Route:    "/dashboard/",
+				EventHandlers: []*model.EventHandler{
+					testEventHandler("PostsArchived", "EventPostsArchived"),
+					testEventHandler("MessagingSent", "EventMessagingSent", withEHSession),
+					testEventHandler("CalcUpdated", "EventCalcUpdated"),
+				},
+			}},
+			eventMap: map[string]*model.Event{
+				"EventPostsArchived": publicEvent,
+				"EventMessagingSent": privateEvent,
+				"EventCalcUpdated": testSignalEvent("EventCalcUpdated", "calc.updated",
+					model.SubjectField{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id"}),
+			},
+			golden: "app_evsubj_private_signal_public.txt",
 		},
 	}
 
@@ -280,6 +352,56 @@ func TestWriteAppActionHandler(t *testing.T) {
 				Events: []*model.Event{publicEvent},
 			},
 			golden: "app_action_path_dispatch.txt",
+		},
+		"dispatch with plural subject field": {
+			handler: &model.Handler{
+				HTTPMethod: "POST", Name: "Send", Route: "/send/{$}",
+				InputSession: &model.Input{Name: "sess"},
+				InputDispatch: &model.InputDispatch{
+					Input:          &model.Input{Name: "dispatch", Kind: model.InputKindDispatch},
+					EventTypeNames: []string{"EventMessagingSent"},
+				},
+				OutputErr: &model.Output{Name: "err"},
+			},
+			app: &model.App{
+				PkgPath: testAppPkgPath, Fset: token.NewFileSet(),
+				Events: []*model.Event{testEvent("EventMessagingSent", "messaging.sent", true)},
+			},
+			golden: "app_action_dispatch_plural_subj.txt",
+		},
+		"dispatch with singular subject field": {
+			handler: &model.Handler{
+				HTTPMethod: "POST", Name: "Update", Route: "/update/{$}",
+				InputDispatch: &model.InputDispatch{
+					Input:          &model.Input{Name: "dispatch", Kind: model.InputKindDispatch},
+					EventTypeNames: []string{"EventCalcUpdated"},
+				},
+				OutputErr: &model.Output{Name: "err"},
+			},
+			app: &model.App{
+				PkgPath: testAppPkgPath, Fset: token.NewFileSet(),
+				Events: []*model.Event{testSignalEvent("EventCalcUpdated", "calc.updated",
+					model.SubjectField{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id", Singular: true})},
+			},
+			golden: "app_action_dispatch_singular_subj.txt",
+		},
+		"dispatch with mixed singular and plural subject fields": {
+			handler: &model.Handler{
+				HTTPMethod: "POST", Name: "Notify", Route: "/notify/{$}",
+				InputSession: &model.Input{Name: "sess"},
+				InputDispatch: &model.InputDispatch{
+					Input:          &model.Input{Name: "dispatch", Kind: model.InputKindDispatch},
+					EventTypeNames: []string{"EventMixed"},
+				},
+				OutputErr: &model.Output{Name: "err"},
+			},
+			app: &model.App{
+				PkgPath: testAppPkgPath, Fset: token.NewFileSet(),
+				Events: []*model.Event{testSignalEvent("EventMixed", "mixed",
+					model.SubjectField{FieldName: "SubjectUser", Name: "User"},
+					model.SubjectField{FieldName: "SubjectInstance", Name: "Instance", Singular: true})},
+			},
+			golden: "app_action_dispatch_mixed_subj.txt",
 		},
 		"redirect outputs": {
 			handler: &model.Handler{
@@ -740,6 +862,31 @@ func TestWritePageGETStreamHandler(t *testing.T) {
 				"EventMessagingSent": privateEvent,
 			},
 			golden: "app_stream_signals_sesstoken.txt",
+		},
+		"private with signal-scoped": {
+			page: &model.Page{
+				TypeName: "PageDashboard",
+				Route:    "/dashboard/",
+				EventHandlers: []*model.EventHandler{
+					testEventHandler("MessagingSent", "EventMessagingSent", withEHSession, withEHErr),
+					testEventHandler("CalcUpdated", "EventCalcUpdated", withEHErr),
+				},
+			},
+			app: &model.App{
+				PkgPath: testAppPkgPath,
+				Fset:    token.NewFileSet(),
+				Events: []*model.Event{
+					privateEvent,
+					testSignalEvent("EventCalcUpdated", "calc.updated",
+						model.SubjectField{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id"}),
+				},
+			},
+			eventMap: map[string]*model.Event{
+				"EventMessagingSent": privateEvent,
+				"EventCalcUpdated": testSignalEvent("EventCalcUpdated", "calc.updated",
+					model.SubjectField{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id"}),
+			},
+			golden: "app_stream_private_signal.txt",
 		},
 	}
 

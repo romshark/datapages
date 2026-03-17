@@ -249,6 +249,27 @@ func Suggest(err error) string {
 			"fix: Move %s before payload fields in %s",
 			d.FieldName, d.TypeName)
 
+	case errors.Is(err, parser.ErrEventSubjectDuplicateSignal):
+		var d *parser.ErrorEventSubjectDuplicateSignal
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Use a unique signal tag for %s in %s (signal %q is already used by %s)",
+			d.FieldName, d.TypeName, d.SignalName, d.FirstFieldName)
+
+	case errors.Is(err, parser.ErrEventSubjectUserSignal):
+		return "fix: Remove the signal tag from SubjectUser — it is always bound to the authenticated user's ID"
+
+	case errors.Is(err, parser.ErrEventSubjectSignalInvalid):
+		var d *parser.ErrorEventSubjectSignalInvalid
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Use a valid signal name for %s in %s (must start with a lowercase letter, then lowercase/digits/underscores/dots)",
+			d.FieldName, d.TypeName)
+
 	case errors.Is(err, parser.ErrTemplHrefRelative):
 		var d *parser.ErrorTemplHrefRelative
 		if !errors.As(err, &d) {

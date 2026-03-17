@@ -1,14 +1,10 @@
-module github.com/romshark/datapages/example/counter
+module datapagestest/fixture/signal_subject
 
-go 1.26.1
-
-replace github.com/romshark/datapages => ../../
+go 1.26
 
 require (
 	github.com/a-h/templ v0.3.1001
-	github.com/romshark/datapages v0.6.2
 	github.com/starfederation/datastar-go v1.1.0
-	golang.org/x/sync v0.20.0
 )
 
 require (

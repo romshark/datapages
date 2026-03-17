@@ -280,6 +280,30 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Move SubjectUser before payload fields in EventChat",
 		},
 
+		"ErrEventSubjectDuplicateSignal": {
+			err: &parser.ErrorEventSubjectDuplicateSignal{
+				FieldName:      "SubjectBar",
+				FirstFieldName: "SubjectFoo",
+				SignalName:     "instance_id",
+				TypeName:       "EventCalc",
+			},
+			want: "fix: Use a unique signal tag for SubjectBar in EventCalc (signal \"instance_id\" is already used by SubjectFoo)",
+		},
+
+		"ErrEventSubjectSignalInvalid": {
+			err: &parser.ErrorEventSubjectSignalInvalid{
+				FieldName:  "SubjectInstance",
+				SignalName: "has spaces",
+				TypeName:   "EventBad",
+			},
+			want: "fix: Use a valid signal name for SubjectInstance in EventBad (must start with a lowercase letter, then lowercase/digits/underscores/dots)",
+		},
+
+		"ErrEventSubjectUserSignal": {
+			err:  &parser.ErrorEventSubjectUserSignal{TypeName: "EventChat"},
+			want: "fix: Remove the signal tag from SubjectUser — it is always bound to the authenticated user's ID",
+		},
+
 		"ErrTemplHrefRelative/simple": {
 			err:  &parser.ErrorTemplHrefRelative{URL: "/login"},
 			want: `fix: Use href={ href.PageLogin(...) } instead of "/login"`,

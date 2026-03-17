@@ -1,0 +1,13 @@
+
+func evSubjPageDashboard(userID string, subjInstance string) []string {
+	if userID == "" {
+		return []string{
+			EvSubjPostsArchived,
+		}
+	}
+	return []string{
+		EvSubjPostsArchived,
+		"messaging.sent." + userID,
+		"calc.updated." + subjInstance,
+	}
+}

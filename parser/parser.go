@@ -244,12 +244,41 @@ func firstPassEventType(
 			},
 		)
 	}
+	if sfResult.DuplicateSignal != nil {
+		errs.ErrAt(
+			ctx.pkg.Fset.Position(sfResult.DuplicateSignal.Pos),
+			&ErrorEventSubjectDuplicateSignal{
+				FieldName:      sfResult.DuplicateSignal.FieldName,
+				FirstFieldName: sfResult.DuplicateSignalFirst,
+				SignalName:     sfResult.DuplicateSignal.SignalName,
+				TypeName:       name,
+			},
+		)
+	}
+	if sfResult.UserWithSignal != nil {
+		errs.ErrAt(
+			ctx.pkg.Fset.Position(sfResult.UserWithSignal.Pos),
+			&ErrorEventSubjectUserSignal{TypeName: name},
+		)
+	}
+	if sfResult.InvalidSignal != nil {
+		errs.ErrAt(
+			ctx.pkg.Fset.Position(sfResult.InvalidSignal.Pos),
+			&ErrorEventSubjectSignalInvalid{
+				FieldName:  sfResult.InvalidSignal.FieldName,
+				SignalName: sfResult.InvalidSignal.SignalName,
+				TypeName:   name,
+			},
+		)
+	}
 
 	var subjectFields []model.SubjectField
 	for _, sf := range sfResult.Fields {
 		subjectFields = append(subjectFields, model.SubjectField{
-			FieldName: sf.FieldName,
-			Name:      sf.Name,
+			FieldName:  sf.FieldName,
+			Name:       sf.Name,
+			SignalName: sf.SignalName,
+			Singular:   sf.Singular,
 		})
 	}
 
