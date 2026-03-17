@@ -849,13 +849,13 @@ func NewServer(
 }
 
 func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
-	// EvSubj* constants (subscription subjects with wildcards for per-user events).
+	// EvSubj* constants (subscription subjects with wildcards for prefixed events).
 	w.Line(0, "")
 	w.Line(0, "const (")
 
 	// Private events first.
 	for _, e := range events {
-		if e.HasTargetUserIDs {
+		if e.IsPrivate() {
 			w.Byte('\t')
 			w.Raw(evSubjConst(e))
 			w.Raw(" = ")
@@ -869,7 +869,7 @@ func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
 	w.Line(0, "")
 
 	for _, e := range events {
-		if !e.HasTargetUserIDs {
+		if !e.IsPrivate() {
 			w.Byte('\t')
 			w.Raw(evSubjConst(e))
 			w.Raw(" = ")
@@ -880,10 +880,10 @@ func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
 
 	w.Line(0, ")")
 
-	// EvSubjPref* constants (prefix for publishing per-user events).
+	// EvSubjPref* constants (prefix for matching private events).
 	hasPrivate := false
 	for _, e := range events {
-		if e.HasTargetUserIDs {
+		if e.IsPrivate() {
 			hasPrivate = true
 			break
 		}
@@ -892,7 +892,7 @@ func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
 		w.Line(0, "")
 		w.Line(0, "const (")
 		for _, e := range events {
-			if e.HasTargetUserIDs {
+			if e.IsPrivate() {
 				w.Byte('\t')
 				w.Raw(evSubjPrefConst(e))
 				w.Raw(" = ")
@@ -931,7 +931,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 			if ev == nil {
 				continue
 			}
-			if ev.HasTargetUserIDs {
+			if ev.IsPrivate() {
 				hasPrivate = true
 			} else {
 				hasPublic = true
@@ -953,8 +953,8 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 					continue
 				}
 				w.Raw("\t\t")
-				w.Raw(evSubjPrefConst(ev))
-				w.Raw(" + userID,\n")
+				w.writeEvUserSubExpr(ev)
+				w.Raw(",\n")
 			}
 			w.Line(1, "}")
 			w.Line(0, "}")
@@ -991,7 +991,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 		w.Line(2, "return []string{")
 		for _, eh := range p.EventHandlers {
 			ev := w.eventMap[eh.EventTypeName]
-			if ev == nil || ev.HasTargetUserIDs {
+			if ev == nil || ev.IsPrivate() {
 				continue
 			}
 			w.Raw("\t\t\t")
@@ -1005,7 +1005,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 		// Public first, then private.
 		for _, eh := range p.EventHandlers {
 			ev := w.eventMap[eh.EventTypeName]
-			if ev == nil || ev.HasTargetUserIDs {
+			if ev == nil || ev.IsPrivate() {
 				continue
 			}
 			w.Raw("\t\t")
@@ -1014,16 +1014,48 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 		}
 		for _, eh := range p.EventHandlers {
 			ev := w.eventMap[eh.EventTypeName]
-			if ev == nil || !ev.HasTargetUserIDs {
+			if ev == nil || !ev.IsPrivate() {
 				continue
 			}
 			w.Raw("\t\t")
-			w.Raw(evSubjPrefConst(ev))
-			w.Raw(" + userID,\n")
+			w.writeEvUserSubExpr(ev)
+			w.Raw(",\n")
 		}
 
 		w.Line(1, "}")
 		w.Line(0, "}")
+	}
+}
+
+// writeEvUserSubExpr emits a Go expression that builds a per-user
+// subscription subject for a private event. Non-User positions
+// become "*" wildcards; the User position uses the userID variable.
+//
+// E.g. for SubjectUser + SubjectChatRoom with subject "chat.sent":
+//
+//	"chat.sent." + userID + ".*"
+func (w *Writer) writeEvUserSubExpr(e *model.Event) {
+	var beforeUser strings.Builder
+	beforeUser.WriteString(e.Subject)
+	afterUser := ""
+	foundUser := false
+	for _, sf := range e.SubjectFields {
+		if sf.Name == "User" && !foundUser {
+			foundUser = true
+			continue
+		}
+		if !foundUser {
+			beforeUser.WriteString(".*")
+		} else {
+			afterUser += ".*"
+		}
+	}
+
+	w.writeQuoted(beforeUser.String() + ".")
+	w.Raw(" + userID")
+	if afterUser != "" {
+		w.Raw(" + ")
+		w.writeQuoted(afterUser)
 	}
 }
 
@@ -1242,7 +1274,7 @@ func brokerSubjectKind(subject string) string {
 	switch {
 `)
 	for _, e := range events {
-		if e.HasTargetUserIDs {
+		if e.IsPrivate() {
 			w.Raw("\tcase strings.HasPrefix(subject, ")
 			w.Raw(evSubjPrefConst(e))
 			w.Raw("):\n")
@@ -1730,18 +1762,62 @@ func (w *Writer) writeDispatchClosure(d *model.InputDispatch, appPkg string) {
 		w.Raw(" JSON: %w\", err)\n")
 		w.Line(3, "}")
 
-		if ev != nil && ev.HasTargetUserIDs {
-			w.Raw("\t\t\tfor _, uid := range e")
-			w.Raw(idx)
-			w.Raw(".TargetUserIDs {\n")
-			w.Raw("\t\t\t\tsubj := ")
-			w.Raw(evSubjPrefConst(ev))
-			w.Raw(" + uid\n")
-			w.Line(4, "err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)")
-			w.Line(4, "if err != nil {")
-			w.Line(5, "return fmt.Errorf(\"publishing subject %q: %w\", subj, err)")
-			w.Line(4, "}")
-			w.Line(3, "}")
+		if ev != nil && ev.HasSubjectFields() {
+			// Nested loops for Cartesian product of all subject fields.
+			baseIndent := 3
+			for pi, sf := range ev.SubjectFields {
+				indent := baseIndent + pi
+				for range indent {
+					w.Byte('\t')
+				}
+				w.Raw("for _, p")
+				w.Raw(itoa(pi))
+				w.Raw(" := range e")
+				w.Raw(idx)
+				w.Byte('.')
+				w.Raw(sf.FieldName)
+				w.Raw(" {\n")
+			}
+
+			// Build the subject: baseSubject + "." + p0 + "." + p1
+			innerIndent := baseIndent + len(ev.SubjectFields)
+			for range innerIndent {
+				w.Byte('\t')
+			}
+			w.Raw("subj := ")
+			w.writeQuoted(ev.Subject + ".")
+			w.Raw(" + p0")
+			for pi := 1; pi < len(ev.SubjectFields); pi++ {
+				w.Raw(" + \".\" + p")
+				w.Raw(itoa(pi))
+			}
+			w.Byte('\n')
+
+			for range innerIndent {
+				w.Byte('\t')
+			}
+			w.Raw("err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)\n")
+			for range innerIndent {
+				w.Byte('\t')
+			}
+			w.Raw("if err != nil {\n")
+			for range innerIndent + 1 {
+				w.Byte('\t')
+			}
+			w.Raw("return fmt.Errorf(\"publishing subject %q: %w\", subj, err)\n")
+			for range innerIndent {
+				w.Byte('\t')
+			}
+			w.Raw("}\n")
+
+			// Close loops in reverse order.
+			for pi := len(ev.SubjectFields) - 1; pi >= 0; pi-- {
+				indent := baseIndent + pi
+				for range indent {
+					w.Byte('\t')
+				}
+				w.Raw("}\n")
+			}
 		} else if ev != nil {
 			w.Raw("\t\t\terr = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, ")
 			w.Raw(evSubjConst(ev))

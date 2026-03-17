@@ -234,11 +234,30 @@ func firstPassEventType(
 		return
 	}
 
+	sfResult := structinspect.SubjectFields(ts, ctx.pkg.TypesInfo)
+	if sfResult.AfterPayload != nil {
+		errs.ErrAt(
+			ctx.pkg.Fset.Position(sfResult.AfterPayload.Pos),
+			&ErrorEventSubjectAfterPayload{
+				FieldName: sfResult.AfterPayload.FieldName,
+				TypeName:  name,
+			},
+		)
+	}
+
+	var subjectFields []model.SubjectField
+	for _, sf := range sfResult.Fields {
+		subjectFields = append(subjectFields, model.SubjectField{
+			FieldName: sf.FieldName,
+			Name:      sf.Name,
+		})
+	}
+
 	ctx.app.Events = append(ctx.app.Events, &model.Event{
-		Expr:             ts.Name,
-		TypeName:         name,
-		Subject:          subj,
-		HasTargetUserIDs: structinspect.HasTargetUserIDs(ts, ctx.pkg.TypesInfo),
+		Expr:          ts.Name,
+		TypeName:      name,
+		Subject:       subj,
+		SubjectFields: subjectFields,
 	})
 }
 

@@ -157,8 +157,12 @@ var (
 
 	ErrSignatureUnsupportedOutput = errors.New("unsupported output return value")
 
-	ErrEventTargetUserIDsNoSession = errors.New(
-		"event with TargetUserIDs requires a Session type",
+	ErrEventSubjectUserNoSession = errors.New(
+		"event with SubjectUser requires a Session type",
+	)
+
+	ErrEventSubjectAfterPayload = errors.New(
+		"subject field must be defined before payload fields",
 	)
 
 	ErrTemplHrefRelative                 = templcheck.ErrHrefRelative
@@ -493,18 +497,35 @@ func (e *ErrorEventFieldDuplicateTag) Error() string {
 
 func (e *ErrorEventFieldDuplicateTag) Unwrap() error { return ErrEventFieldDuplicateTag }
 
-// ErrorEventTargetUserIDsNoSession is ErrEventTargetUserIDsNoSession with suggestion context.
-type ErrorEventTargetUserIDsNoSession struct {
+// ErrorEventSubjectUserNoSession is ErrEventSubjectUserNoSession
+// with suggestion context.
+type ErrorEventSubjectUserNoSession struct {
 	TypeName string // e.g. "EventFoo"
 	PkgName  string // e.g. "app"
 }
 
-func (e *ErrorEventTargetUserIDsNoSession) Error() string {
-	return fmt.Sprintf("%v: %s", ErrEventTargetUserIDsNoSession, e.TypeName)
+func (e *ErrorEventSubjectUserNoSession) Error() string {
+	return fmt.Sprintf("%v: %s", ErrEventSubjectUserNoSession, e.TypeName)
 }
 
-func (e *ErrorEventTargetUserIDsNoSession) Unwrap() error {
-	return ErrEventTargetUserIDsNoSession
+func (e *ErrorEventSubjectUserNoSession) Unwrap() error {
+	return ErrEventSubjectUserNoSession
+}
+
+// ErrorEventSubjectAfterPayload is ErrEventSubjectAfterPayload
+// with suggestion context.
+type ErrorEventSubjectAfterPayload struct {
+	FieldName string // e.g. "SubjectUser"
+	TypeName  string // e.g. "EventFoo"
+}
+
+func (e *ErrorEventSubjectAfterPayload) Error() string {
+	return fmt.Sprintf("%v: %s in %s",
+		ErrEventSubjectAfterPayload, e.FieldName, e.TypeName)
+}
+
+func (e *ErrorEventSubjectAfterPayload) Unwrap() error {
+	return ErrEventSubjectAfterPayload
 }
 
 // Type aliases for templ-check error types defined in the templcheck subpackage.

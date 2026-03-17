@@ -917,31 +917,31 @@ func MessageBrokerStreamSubjects() []string {
 
 func evSubjPageError404(userID string) []string {
 	return []string{
-		EvSubjPrefMessagingSent + userID,
-		EvSubjPrefMessagingRead + userID,
+		"messaging.sent." + userID,
+		"messaging.read." + userID,
 	}
 }
 
 func evSubjPageIndex(userID string) []string {
 	return []string{
-		EvSubjPrefMessagingSent + userID,
-		EvSubjPrefMessagingRead + userID,
+		"messaging.sent." + userID,
+		"messaging.read." + userID,
 	}
 }
 
 func evSubjPageMessages(userID string) []string {
 	return []string{
-		EvSubjPrefMessagingRead + userID,
-		EvSubjPrefMessagingWriting + userID,
-		EvSubjPrefMessagingWritingStopped + userID,
-		EvSubjPrefMessagingSent + userID,
+		"messaging.read." + userID,
+		"messaging.writing." + userID,
+		"messaging.writing-stopped." + userID,
+		"messaging.sent." + userID,
 	}
 }
 
 func evSubjPageMyPosts(userID string) []string {
 	return []string{
-		EvSubjPrefMessagingSent + userID,
-		EvSubjPrefMessagingRead + userID,
+		"messaging.sent." + userID,
+		"messaging.read." + userID,
 	}
 }
 
@@ -953,23 +953,23 @@ func evSubjPagePost(userID string) []string {
 	}
 	return []string{
 		EvSubjPostArchived,
-		EvSubjPrefMessagingSent + userID,
-		EvSubjPrefMessagingRead + userID,
+		"messaging.sent." + userID,
+		"messaging.read." + userID,
 	}
 }
 
 func evSubjPageSearch(userID string) []string {
 	return []string{
-		EvSubjPrefMessagingSent + userID,
-		EvSubjPrefMessagingRead + userID,
+		"messaging.sent." + userID,
+		"messaging.read." + userID,
 	}
 }
 
 func evSubjPageSettings(userID string) []string {
 	return []string{
-		EvSubjPrefSessionClosed + userID,
-		EvSubjPrefMessagingSent + userID,
-		EvSubjPrefMessagingRead + userID,
+		"sessions.closed." + userID,
+		"messaging.sent." + userID,
+		"messaging.read." + userID,
 	}
 }
 
@@ -981,8 +981,8 @@ func evSubjPageUser(userID string) []string {
 	}
 	return []string{
 		EvSubjPostArchived,
-		EvSubjPrefMessagingSent + userID,
-		EvSubjPrefMessagingRead + userID,
+		"messaging.sent." + userID,
+		"messaging.read." + userID,
 	}
 }
 
@@ -1773,8 +1773,8 @@ func (s *Server) handlePageMessagesPOSTRead(
 			if err != nil {
 				return fmt.Errorf("marshaling EventMessagingRead JSON: %w", err)
 			}
-			for _, uid := range e1.TargetUserIDs {
-				subj := EvSubjPrefMessagingRead + uid
+			for _, p0 := range e1.SubjectUser {
+				subj := "messaging.read." + p0
 				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
@@ -1823,8 +1823,8 @@ func (s *Server) handlePageMessagesPOSTWriting(
 			if err != nil {
 				return fmt.Errorf("marshaling EventMessagingWriting JSON: %w", err)
 			}
-			for _, uid := range e1.TargetUserIDs {
-				subj := EvSubjPrefMessagingWriting + uid
+			for _, p0 := range e1.SubjectUser {
+				subj := "messaging.writing." + p0
 				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
@@ -1873,8 +1873,8 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 			if err != nil {
 				return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
 			}
-			for _, uid := range e1.TargetUserIDs {
-				subj := EvSubjPrefMessagingWritingStopped + uid
+			for _, p0 := range e1.SubjectUser {
+				subj := "messaging.writing-stopped." + p0
 				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
@@ -1925,8 +1925,8 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 			if err != nil {
 				return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
 			}
-			for _, uid := range e1.TargetUserIDs {
-				subj := EvSubjPrefMessagingWritingStopped + uid
+			for _, p0 := range e1.SubjectUser {
+				subj := "messaging.writing-stopped." + p0
 				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
@@ -1938,8 +1938,8 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 			if err != nil {
 				return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
 			}
-			for _, uid := range e2.TargetUserIDs {
-				subj := EvSubjPrefMessagingSent + uid
+			for _, p0 := range e2.SubjectUser {
+				subj := "messaging.sent." + p0
 				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
@@ -2222,8 +2222,8 @@ func (s *Server) handlePagePostPOSTSendMessage(
 			if err != nil {
 				return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
 			}
-			for _, uid := range e1.TargetUserIDs {
-				subj := EvSubjPrefMessagingSent + uid
+			for _, p0 := range e1.SubjectUser {
+				subj := "messaging.sent." + p0
 				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
@@ -2567,8 +2567,8 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 			if err != nil {
 				return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
 			}
-			for _, uid := range e1.TargetUserIDs {
-				subj := EvSubjPrefSessionClosed + uid
+			for _, p0 := range e1.SubjectUser {
+				subj := "sessions.closed." + p0
 				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)
@@ -2615,8 +2615,8 @@ func (s *Server) handlePageSettingsPOSTCloseAllSessions(
 			if err != nil {
 				return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
 			}
-			for _, uid := range e1.TargetUserIDs {
-				subj := EvSubjPrefSessionClosed + uid
+			for _, p0 := range e1.SubjectUser {
+				subj := "sessions.closed." + p0
 				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
 				if err != nil {
 					return fmt.Errorf("publishing subject %q: %w", subj, err)

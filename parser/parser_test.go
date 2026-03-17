@@ -433,12 +433,21 @@ func TestParse_ErrEventHandler(t *testing.T) {
 	)
 }
 
-func TestParse_ErrEventTargetUserIDsNoSession(t *testing.T) {
+func TestParse_ErrEventSubjectUserNoSession(t *testing.T) {
 	_, err := parse(t, "err_event_target_no_session")
 	require.NotZero(t, err.Error())
 
 	requireParseErrors(t, err,
-		parser.ErrEventTargetUserIDsNoSession,
+		parser.ErrEventSubjectUserNoSession,
+	)
+}
+
+func TestParse_ErrEventSubjectAfterPayload(t *testing.T) {
+	_, err := parse(t, "err_event_subjprefix_after_payload")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrEventSubjectAfterPayload,
 	)
 }
 
@@ -1391,8 +1400,8 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		events[e.TypeName] = e
 	}
 	for name, tc := range map[string]struct {
-		subject          string
-		hasTargetUserIDs bool
+		subject        string
+		hasSubjectUser bool
 	}{
 		"EventMessagingRead":           {"messaging.read", true},
 		"EventMessagingSent":           {"messaging.sent", true},
@@ -1404,8 +1413,8 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		e, ok := events[name]
 		require.True(ok, "missing event: %s", name)
 		require.Equal(tc.subject, e.Subject, "event %s subject", name)
-		require.Equal(tc.hasTargetUserIDs, e.HasTargetUserIDs,
-			"event %s HasTargetUserIDs", name)
+		require.Equal(tc.hasSubjectUser, e.HasSubjectUser(),
+			"event %s HasSubjectUser", name)
 	}
 
 	// Pages (sorted alphabetically)

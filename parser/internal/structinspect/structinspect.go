@@ -122,20 +122,50 @@ func HasRequiredAppField(
 	return false
 }
 
-// HasTargetUserIDs reports whether a type spec has a
-// TargetUserIDs []string field with a `json:"-"` tag.
-func HasTargetUserIDs(
+// SubjectField describes a Subject-prefixed field found in a struct.
+type SubjectField struct {
+	FieldName string    // e.g. "SubjectUser"
+	Name      string    // e.g. "User"
+	Pos       token.Pos // position of the field name identifier
+}
+
+// SubjectFieldResult holds the result of inspecting a struct for Subject fields.
+type SubjectFieldResult struct {
+	// Fields are the valid Subject fields found, in definition order.
+	Fields []SubjectField
+	// AfterPayload is non-nil when a Subject field appears after a
+	// non-Subject (payload) field. It points to the offending field.
+	AfterPayload *SubjectField
+}
+
+// SubjectFields inspects a type spec for Subject-prefixed fields.
+// A valid Subject field has type []string and struct tag json:"-".
+// Returns the list of subject fields and whether any appear after payload fields.
+func SubjectFields(
 	ts *ast.TypeSpec, info *types.Info,
-) bool {
+) SubjectFieldResult {
+	var result SubjectFieldResult
 	st, ok := ts.Type.(*ast.StructType)
 	if !ok {
-		return false
+		return result
 	}
+
+	seenPayload := false
 	for _, f := range st.Fields.List {
-		if len(f.Names) != 1 ||
-			f.Names[0].Name != "TargetUserIDs" {
+		if len(f.Names) != 1 {
 			continue
 		}
+		name := f.Names[0].Name
+		suffix, isSubject := strings.CutPrefix(name, "Subject")
+		if !isSubject || suffix == "" {
+			// Not a Subject field — it's a payload field.
+			if len(f.Names) == 1 && f.Names[0].IsExported() {
+				seenPayload = true
+			}
+			continue
+		}
+
+		// Validate type is []string.
 		t := info.TypeOf(f.Type)
 		if t == nil {
 			continue
@@ -148,14 +178,31 @@ func HasTargetUserIDs(
 		if !ok || basic.Kind() != types.String {
 			continue
 		}
+
+		// Validate json:"-" tag.
 		if f.Tag == nil {
-			return false
+			continue
 		}
 		tag, err := strconv.Unquote(f.Tag.Value)
 		if err != nil {
-			return false
+			continue
 		}
-		return strings.Contains(tag, `json:"-"`)
+		if !strings.Contains(tag, `json:"-"`) {
+			continue
+		}
+
+		sf := SubjectField{
+			FieldName: name,
+			Name:      suffix,
+			Pos:       f.Names[0].Pos(),
+		}
+
+		if seenPayload && result.AfterPayload == nil {
+			result.AfterPayload = &sf
+		}
+
+		result.Fields = append(result.Fields, sf)
 	}
-	return false
+
+	return result
 }

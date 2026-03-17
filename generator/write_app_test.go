@@ -68,11 +68,16 @@ func testStruct(fields ...testFieldDef) *types.Struct {
 }
 
 func testEvent(typeName, subject string, private bool) *model.Event {
-	return &model.Event{
-		TypeName:         typeName,
-		Subject:          subject,
-		HasTargetUserIDs: private,
+	e := &model.Event{
+		TypeName: typeName,
+		Subject:  subject,
 	}
+	if private {
+		e.SubjectFields = []model.SubjectField{
+			{FieldName: "SubjectUser", Name: "User"},
+		}
+	}
+	return e
 }
 
 func testEventHandler(
