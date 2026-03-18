@@ -9,9 +9,6 @@
 *.dylib
 /datapages
 
-# staging executable
-example/classifieds/server
-
 # npm
 **/node_modules/
 
@@ -38,9 +35,10 @@ go.work.sum
 # .idea/
 # .vscode/
 
-# Certificates
+# Examples
+example/classifieds/server
+example/calculator/server
+example/calculator/calculator
+example/calculator/build/
 example/**/certs/*
-
-# Grafana runtime data
 example/**/grafana/data/
-

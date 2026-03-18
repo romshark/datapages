@@ -4,7 +4,10 @@
 // Use these in templates instead of hardcoding action URLs.
 package action
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // Opt is the name of a Datastar action option.
 //
@@ -131,16 +134,16 @@ func beforeAfterLen(options []option) (before, after int) {
 	return
 }
 
-// POSTPageIndexCalculate references /calculate/
-func POSTPageIndexCalculate(options ...option) string {
-	if len(options) == 0 {
-		return "@post('/calculate/')"
-	}
+// POSTPageIndexInput references /input/{btn}/
+func POSTPageIndexInput(btn int, options ...option) string {
+	s_btn := strconv.FormatInt(int64(btn), 10)
 	var b strings.Builder
 	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@post('/calculate/'") + optionsLen(options) + len(")") + al)
+	b.Grow(bl + len("@post('/input/") + len(s_btn) + len("/'") + optionsLen(options) + len(")") + al)
 	writeBefore(&b, options)
-	b.WriteString("@post('/calculate/'")
+	b.WriteString("@post('/input/")
+	b.WriteString(s_btn)
+	b.WriteString("/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
 	writeAfter(&b, options)

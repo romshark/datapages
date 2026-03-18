@@ -1,6 +1,8 @@
 package app
 
 import (
+	"fmt"
+	"github.com/romshark/datapages/example/calculator/app/calc"
 	"github.com/romshark/datapages/example/calculator/datapagesgen/action"
 	"github.com/romshark/datapages/example/calculator/datapagesgen/assets"
 )
@@ -16,7 +18,7 @@ templ head() {
 				'0':'0','1':'1','2':'2','3':'3','4':'4',
 				'5':'5','6':'6','7':'7','8':'8','9':'9',
 				'.':'.','+':'+','-':'\u2212','*':'\u00d7','/':'\u00f7',
-				'(':'(', ')':')',
+				'(':'()', ')':'()',
 				'Enter':'=','=':'=',
 				'Backspace':'\u21d0','Escape':'C'
 			};
@@ -34,40 +36,100 @@ templ head() {
 	</script>
 }
 
-templ pageCalculator(display string) {
-	<div id="page-calculator" class="card" data-signals:expr={ jsStr(display) } data-signals:_fresh="false" data-on:keydown__window="calcKey(evt)">
+templ pageCalculator(input string, fresh bool, instanceID string) {
+	<div
+		id="page-calculator"
+		class="card"
+		data-signals:input={ fmt.Sprintf("'%s'", input) }
+		data-signals:_fresh={ fmt.Sprintf("%t", fresh) }
+		data-signals:instance_id={ fmt.Sprintf("'%s'", instanceID) }
+		data-on:keydown__window="calcKey(evt)"
+	>
 		<h1>Calculator</h1>
-		<div class="display" data-text="$expr || '0'"></div>
+		<div class="display" data-text="$input || '0'"></div>
 		<div class="buttons">
-			<button class="btn-fn" data-on:click="$expr = ''; $_fresh = false">C</button>
-			<button class="btn-fn" data-on:click="$expr = $_fresh ? '' : $expr.slice(0, -1); $_fresh = false">&lArr;</button>
-			<button class="btn-fn" data-on:click="$_fresh && ($expr = ''); $_fresh = false; $expr += '('">(</button>
-			<button class="btn-fn" data-on:click="$_fresh && ($expr = ''); $_fresh = false; $expr += ')'">)</button>
-			<button class="btn-digit" data-on:click="$_fresh && ($expr = ''); $_fresh = false; $expr += '7'">7</button>
-			<button class="btn-digit" data-on:click="$_fresh && ($expr = ''); $_fresh = false; $expr += '8'">8</button>
-			<button class="btn-digit" data-on:click="$_fresh && ($expr = ''); $_fresh = false; $expr += '9'">9</button>
-			<button class="btn-op" data-on:click="$_fresh = false; $expr = '\u00f7\u00d7-+'.includes($expr.slice(-1)) ? $expr.slice(0,-1)+'\u00f7' : $expr+'\u00f7'">&divide;</button>
-			<button class="btn-digit" data-on:click="$_fresh && ($expr = ''); $_fresh = false; $expr += '4'">4</button>
-			<button class="btn-digit" data-on:click="$_fresh && ($expr = ''); $_fresh = false; $expr += '5'">5</button>
-			<button class="btn-digit" data-on:click="$_fresh && ($expr = ''); $_fresh = false; $expr += '6'">6</button>
-			<button class="btn-op" data-on:click="$_fresh = false; $expr = '\u00f7\u00d7-+'.includes($expr.slice(-1)) ? $expr.slice(0,-1)+'\u00d7' : $expr+'\u00d7'">&times;</button>
-			<button class="btn-digit" data-on:click="$_fresh && ($expr = ''); $_fresh = false; $expr += '1'">1</button>
-			<button class="btn-digit" data-on:click="$_fresh && ($expr = ''); $_fresh = false; $expr += '2'">2</button>
-			<button class="btn-digit" data-on:click="$_fresh && ($expr = ''); $_fresh = false; $expr += '3'">3</button>
-			<button class="btn-op" data-on:click="$_fresh = false; $expr = '\u00f7\u00d7-+'.includes($expr.slice(-1)) ? $expr.slice(0,-1)+'-' : $expr+'-'">&minus;</button>
-			<button class="btn-digit" data-on:click="$_fresh && ($expr = ''); $_fresh = false; $expr += '0'">0</button>
-			<button class="btn-digit" data-on:click="$_fresh && ($expr = ''); $_fresh = false; $expr += '.'">.</button>
+			<button
+				class="btn-fn"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonClear)) }
+			>C</button>
+			<button
+				class="btn-fn"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonBackspace)) }
+			>&lArr;</button>
+			<button
+				class="btn-fn"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonParen)) }
+			>()</button>
+			<button
+				class="btn-op"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonDiv)) }
+			>&divide;</button>
+			<button
+				class="btn-digit"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton7)) }
+			>7</button>
+			<button
+				class="btn-digit"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton8)) }
+			>8</button>
+			<button
+				class="btn-digit"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton9)) }
+			>9</button>
+			<button
+				class="btn-op"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonMul)) }
+			>&times;</button>
+			<button
+				class="btn-digit"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton4)) }
+			>4</button>
+			<button
+				class="btn-digit"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton5)) }
+			>5</button>
+			<button
+				class="btn-digit"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton6)) }
+			>6</button>
+			<button
+				class="btn-op"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonSub)) }
+			>&minus;</button>
+			<button
+				class="btn-digit"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton1)) }
+			>1</button>
+			<button
+				class="btn-digit"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton2)) }
+			>2</button>
+			<button
+				class="btn-digit"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton3)) }
+			>3</button>
+			<button
+				class="btn-op"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonAdd)) }
+			>+</button>
+			<button
+				class="btn-digit"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton0)) }
+			>0</button>
+			<button
+				class="btn-digit"
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonDot)) }
+			>.</button>
 			<button
 				class="btn-eq"
-				data-on:click={ "$_fresh = true; " + action.POSTPageIndexCalculate() }
+				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonEq)) }
 			>=</button>
-			<button class="btn-op" data-on:click="$_fresh = false; $expr = '\u00f7\u00d7-+'.includes($expr.slice(-1)) ? $expr.slice(0,-1)+'+' : $expr+'+'">+</button>
 		</div>
 		<p class="hint">
-			Expression is evaluated server-side when you press =
+			Expression is evaluated server-side
 		</p>
+		<span id="attribution" class="attribution">
+			Built with <a href="https://github.com/romshark/datapages">Datapages</a>
+		</span>
 	</div>
-	<span class="attribution">
-		Built with <a href="https://github.com/romshark/datapages">Datapages</a>
-	</span>
 }

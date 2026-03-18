@@ -5,6 +5,7 @@ package datapagesgen
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -259,6 +261,7 @@ func (s *Server) writeHTML(
 	r *http.Request,
 	headGeneric, head, body templ.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
+	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
 		<script type="module" src="`+s.datastarJSSrc+`"></script>`)
@@ -289,8 +292,50 @@ func (s *Server) writeHTML(
 			return err
 		}
 	}
+	if writeBodySuffix != nil {
+		if _, err := io.WriteString(w, "<template "); err != nil {
+			return err
+		}
+		writeBodySuffix(w)
+		if _, err := io.WriteString(w, "></template>"); err != nil {
+			return err
+		}
+	}
 	_, err = io.WriteString(w, "</body></html>")
 	return err
+}
+
+func (s *Server) handleStreamRequest(
+	w http.ResponseWriter, r *http.Request,
+	subjects []string,
+	fn func(
+		sse *datastar.ServerSentEventGenerator,
+		ch <-chan msgbroker.Message,
+	),
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+
+	ctx := r.Context()
+	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
+		return
+	}
+
+	subC := sub.C()
+	go func() {
+		select {
+		case <-r.Context().Done():
+		case <-s.shutdownCh:
+		}
+		sub.Close()
+	}()
+
+	fn(sse, subC)
 }
 
 type Server struct {
@@ -395,12 +440,25 @@ func NewServer(
 
 const (
 
-// Public events:
+	// Public events:
 
+	EvSubjCalcUpdated = "calc.updated.*"
+)
+
+const (
+	EvSubjPrefCalcUpdated = "calc.updated."
 )
 
 func MessageBrokerStreamSubjects() []string {
-	return []string{}
+	return []string{
+		EvSubjCalcUpdated,
+	}
+}
+
+func evSubjPageIndex(subjInstanceID string) []string {
+	return []string{
+		"calc.updated." + subjInstanceID,
+	}
 }
 
 func setupHandlers(s *Server) {
@@ -409,8 +467,11 @@ func setupHandlers(s *Server) {
 		"GET /",
 		s.handlePageIndexGET)
 	s.mux.HandleFunc(
-		"POST /calculate/{$}",
-		s.handlePageIndexPOSTCalculate)
+		"GET /_$/{$}",
+		s.handlePageIndexGETStream)
+	s.mux.HandleFunc(
+		"POST /input/{btn}/{$}",
+		s.handlePageIndexPOSTInput)
 }
 
 func (s *Server) httpErrIntern(
@@ -431,7 +492,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageIndex{
 		App: s.app,
 	}
-	body, err := p.GET(r)
+	body, disableRefreshAfterHidden, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -439,18 +500,65 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		if !disableRefreshAfterHidden {
+			writeBodyAttrOnVisibilityChange(w)
+		}
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
 	}
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs,
+		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.logErr("rendering PageIndex", err)
 		return
 	}
 }
 
-func (s *Server) handlePageIndexPOSTCalculate(
+func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	var subjSignals struct {
+		InstanceID string `json:"instance_id"`
+	}
+	if err := datastar.ReadSignals(r, &subjSignals); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+		return
+	}
+	if subjSignals.InstanceID == "" {
+		s.httpErrBad(w, "missing required signal", fmt.Errorf("signal %q is required", "instance_id"))
+		return
+	}
+
+	p := app.PageIndex{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPageIndex(subjSignals.InstanceID), func(
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+	) {
+		for msg := range ch {
+			switch {
+			case strings.HasPrefix(msg.Subject, EvSubjPrefCalcUpdated):
+				var e app.EventCalcUpdated
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventCalcUpdated JSON", err)
+					continue
+				}
+				e.SubjectInstanceID = strings.TrimPrefix(msg.Subject, EvSubjPrefCalcUpdated)
+				if err := p.OnCalcUpdated(e, sse); err != nil {
+					s.logErr("handling PageIndex.OnCalcUpdated", err)
+				}
+			}
+		}
+	})
+}
+
+func (s *Server) handlePageIndexPOSTInput(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.checkIsDSReq(w, r) {
@@ -458,25 +566,51 @@ func (s *Server) handlePageIndexPOSTCalculate(
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
 	var signals struct {
-		Expr string `json:"expr"`
+		InstanceID string `json:"instance_id"`
+		Input      string `json:"input"`
+		Fresh      bool   `json:"_fresh"`
 	}
 	if err := datastar.ReadSignals(r, &signals); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
+
+	var path struct {
+		Btn int `path:"btn"`
+	}
+	{
+		v := r.PathValue("btn")
+		i, err := strconv.ParseInt(v, 10, 0)
+		if err != nil {
+			s.httpErrBad(w, "unexpected value for path parameter: btn", err)
+			return
+		}
+		path.Btn = int(i)
+	}
+
+	dispatch := func(
+		e1 app.EventCalcUpdated,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventCalcUpdated JSON: %w", err)
+			}
+			p0 := e1.SubjectInstanceID
+			subj := "calc.updated." + p0
+			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
+			if err != nil {
+				return fmt.Errorf("publishing subject %q: %w", subj, err)
+			}
+		}
+		return nil
+	}
 	p := app.PageIndex{
 		App: s.app,
 	}
-	body, err := p.POSTCalculate(r, signals)
+	err := p.POSTInput(r, dispatch, path, signals)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageIndex.Calculate", err)
-		return
-	}
-	genericHead := s.app.Head(r)
-	if err := s.writeHTML(
-		w, r, genericHead, nil, body, nil,
-	); err != nil {
-		s.logErr("rendering response of PageIndex.POSTCalculate", err)
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Input", err)
 		return
 	}
 }

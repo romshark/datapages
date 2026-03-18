@@ -1,35 +1,121 @@
 package app
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/a-h/templ"
+	"github.com/starfederation/datastar-go/datastar"
 
 	"github.com/romshark/datapages/example/calculator/app/calc"
 )
 
-type App struct{}
+// EventCalcUpdated is "calc.updated"
+type EventCalcUpdated struct {
+	SubjectInstanceID string `json:"-" signal:"instance_id"`
+
+	Input string `json:"input"`
+	Fresh bool   `json:"fresh"`
+}
+
+type App struct {
+	hmacKey [32]byte
+}
+
+func NewApp(hmacSecretKey [32]byte) *App {
+	return &App{
+		hmacKey: hmacSecretKey,
+	}
+}
+
+// newID generates a crypto-random, HMAC-signed identifier.
+// Format: base64url(random) "." base64url(hmac-sha256(random))
+func (a *App) newID() (string, error) {
+	var buf [16]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "", err
+	}
+	token := base64.RawURLEncoding.EncodeToString(buf[:])
+	mac := hmac.New(sha256.New, a.hmacKey[:])
+	mac.Write(buf[:])
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return token + "~" + sig, nil
+}
+
+var errInvalidID = errors.New("invalid instance ID")
+
+func (a *App) verifyID(id string) error {
+	parts := strings.SplitN(id, "~", 2)
+	if len(parts) != 2 {
+		return errInvalidID
+	}
+	token, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return errInvalidID
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return errInvalidID
+	}
+	mac := hmac.New(sha256.New, a.hmacKey[:])
+	mac.Write(token)
+	if !hmac.Equal(mac.Sum(nil), sig) {
+		return errInvalidID
+	}
+	return nil
+}
 
 func (*App) Head(_ *http.Request) templ.Component { return head() }
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
-	return pageCalculator(""), nil
+func (p PageIndex) GET(r *http.Request) (
+	body templ.Component,
+	disableRefreshAfterHidden bool,
+	err error,
+) {
+	id, err := p.App.newID()
+	if err != nil {
+		return nil, true, err
+	}
+	return pageCalculator("", false, id), true, nil
 }
 
-// POSTCalculate is /calculate/{$}
-func (PageIndex) POSTCalculate(
+// POSTInput is /input/{btn}/{$}
+func (p PageIndex) POSTInput(
 	r *http.Request,
-	signals struct {
-		Expr string `json:"expr"`
+	dispatch func(EventCalcUpdated) error,
+	path struct {
+		Btn int `path:"btn"`
 	},
-) (body templ.Component, err error) {
-	return pageCalculator(calc.Evaluate(signals.Expr)), nil
+	signals struct {
+		InstanceID string `json:"instance_id"`
+		Input      string `json:"input"`
+		Fresh      bool   `json:"_fresh"`
+	},
+) error {
+	if err := p.App.verifyID(signals.InstanceID); err != nil {
+		return err
+	}
+	input, fresh := calc.Press(signals.Input, signals.Fresh, calc.CalcButton(path.Btn))
+	return dispatch(EventCalcUpdated{
+		SubjectInstanceID: signals.InstanceID,
+		Input:             input,
+		Fresh:             fresh,
+	})
 }
 
-// jsStr wraps s in single quotes for use as a JavaScript string literal.
-func jsStr(s string) string {
-	return "'" + s + "'"
+func (PageIndex) OnCalcUpdated(
+	event EventCalcUpdated,
+	sse *datastar.ServerSentEventGenerator,
+) error {
+	return sse.PatchElementTempl(
+		pageCalculator(event.Input, event.Fresh, event.SubjectInstanceID),
+	)
 }

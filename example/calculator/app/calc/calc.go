@@ -79,18 +79,26 @@ func (p *parser) parseTerm() (float64, error) {
 	}
 	for {
 		op := p.peek()
-		if op != '*' && op != '/' {
-			break
-		}
-		p.pos++
-		right, err := p.parseFactor()
-		if err != nil {
-			return 0, err
-		}
-		if op == '*' {
+		if op == '*' || op == '/' {
+			p.pos++
+			right, err := p.parseFactor()
+			if err != nil {
+				return 0, err
+			}
+			if op == '*' {
+				left *= right
+			} else {
+				left /= right
+			}
+		} else if op == '(' || unicode.IsDigit(rune(op)) {
+			// Implicit multiplication: 6(2) or (2)(3).
+			right, err := p.parseFactor()
+			if err != nil {
+				return 0, err
+			}
 			left *= right
 		} else {
-			left /= right
+			break
 		}
 	}
 	return left, nil

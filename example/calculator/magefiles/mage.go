@@ -1,18 +1,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
+	"os/signal"
 	"time"
 )
 
-// MaestroTest builds and starts the calculator server,
+// TestUIWorkflows builds and starts the calculator server,
 // runs Maestro flows against it, then stops the server.
-func MaestroTest() error {
+func TestUIWorkflows() error {
 	fmt.Println("==> go build ./cmd/server")
 	if err := run("go", "build", "-o", "server", "./cmd/server"); err != nil {
 		return err
@@ -45,74 +45,72 @@ func MaestroTest() error {
 	return run("maestro", "test", ".maestro/")
 }
 
-// BuildDesktop builds the Wails v2 desktop app.
-// On macOS it produces Calculator.app, on other platforms a plain binary.
+// BuildDesktop builds the desktop app.
 func BuildDesktop() error {
-	if runtime.GOOS == "darwin" {
-		return buildMacOSApp("Calculator.app", "calculator", "./cmd/desktop",
-			"cmd/desktop/Info.plist", "-tags", "desktop,production")
-	}
-	fmt.Println("==> go build ./cmd/desktop")
-	return run("go", "build", "-tags", "desktop,production",
-		"-o", "calculator-desktop", "./cmd/desktop")
-}
-
-// RunDesktop builds and runs the Wails v2 desktop app.
-func RunDesktop() error {
-	if err := BuildDesktop(); err != nil {
+	if err := Gen(); err != nil {
 		return err
 	}
-	defer cleanupBuild("Calculator.app", "calculator-desktop")
-	return runApp("Calculator.app", "calculator-desktop")
+	fmt.Println("==> go build -o calculator .")
+	return run("go", "build", "-o", "calculator", ".")
 }
 
-func runApp(macOSApp, binary string) error {
-	if runtime.GOOS == "darwin" {
-		fmt.Printf("==> open %s\n", macOSApp)
-		bin := filepath.Join(macOSApp, "Contents", "MacOS", "calculator")
-		cmd := exec.Command(bin)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
+// RunDesktop runs the desktop app.
+func RunDesktop() error {
+	if err := Gen(); err != nil {
+		return err
 	}
-	fmt.Printf("==> ./%s\n", binary)
-	cmd := exec.Command("./" + binary)
+	fmt.Println("==> go run .")
+	return run("go", "run", ".")
+}
+
+// RunServer starts NATS via docker compose, then builds and runs the server.
+// Press Ctrl+C to stop both the server and NATS.
+func RunServer() error {
+	if err := Gen(); err != nil {
+		return err
+	}
+
+	fmt.Println("==> docker compose up -d")
+	if err := run("docker", "compose", "up", "-d"); err != nil {
+		return fmt.Errorf("starting docker compose: %w", err)
+	}
+	defer func() {
+		fmt.Println("==> docker compose down")
+		_ = run("docker", "compose", "down")
+	}()
+
+	fmt.Println("==> go build ./cmd/server")
+	if err := run("go", "build", "-o", "server", "./cmd/server"); err != nil {
+		return err
+	}
+	defer os.Remove("server")
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	if os.Getenv("HMAC_SECRET_KEY") == "" {
+		os.Setenv("HMAC_SECRET_KEY", "dev-secret")
+	}
+
+	fmt.Println("==> starting server on localhost:8080")
+	cmd := exec.CommandContext(ctx, "./server", "-host", "localhost:8080")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	if err := cmd.Run(); err != nil && ctx.Err() != nil {
+		return nil // interrupted by Ctrl+C
+	} else if err != nil {
+		return fmt.Errorf("running server: %w", err)
+	}
+	return nil
 }
 
-func cleanupBuild(macOSApp, binary string) {
-	_ = os.RemoveAll(macOSApp)
-	_ = os.Remove(binary)
-}
-
-func buildMacOSApp(
-	appName, binName, pkg, plistPath string, extraFlags ...string,
-) error {
-	macOS := filepath.Join(appName, "Contents", "MacOS")
-
-	_ = os.RemoveAll(appName)
-	if err := os.MkdirAll(macOS, 0o755); err != nil {
+func Gen() error {
+	fmt.Println("==> templ generate")
+	if err := run("templ", "generate"); err != nil {
 		return err
 	}
-
-	args := []string{"build"}
-	args = append(args, extraFlags...)
-	args = append(args, "-o", filepath.Join(macOS, binName), pkg)
-	fmt.Printf("==> go %s\n", args)
-	if err := run(append([]string{"go"}, args...)...); err != nil {
-		return err
-	}
-
-	fmt.Println("==> copying Info.plist")
-	plist, err := os.ReadFile(plistPath)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(
-		filepath.Join(appName, "Contents", "Info.plist"), plist, 0o644,
-	)
+	fmt.Println("==> datapages gen")
+	return run("datapages", "gen")
 }
 
 func run(args ...string) error {
