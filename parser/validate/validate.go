@@ -14,6 +14,7 @@ var (
 	ErrEventCommInvalid        = errors.New("invalid event subject comment syntax")
 	ErrEventSubjectInvalid     = errors.New("invalid event subject")
 	ErrEventHandlerNameInvalid = errors.New("invalid event handler method name")
+	ErrSignalTagNameInvalid    = errors.New("invalid signal tag name")
 )
 
 // PageTypeName validates page type names: "Page" + Uppercase letter + [A-Za-z0-9]*.
@@ -185,6 +186,28 @@ func CutEventIsPrefix(line, typeName string) (rest string, ok bool) {
 		return "", false
 	}
 	return strings.TrimLeft(s, " \t"), true
+}
+
+// SignalTagName validates a signal:"..." tag value.
+// Valid: non-empty, [a-z][a-z0-9_.]* (lowercase start, then lowercase/digits/underscores/dots).
+func SignalTagName(name string) error {
+	if name == "" {
+		return ErrSignalTagNameInvalid
+	}
+	c0 := name[0]
+	if c0 < 'a' || c0 > 'z' {
+		return ErrSignalTagNameInvalid
+	}
+	for i := 1; i < len(name); i++ {
+		c := name[i]
+		if (c >= 'a' && c <= 'z') ||
+			(c >= '0' && c <= '9') ||
+			c == '_' || c == '.' {
+			continue
+		}
+		return ErrSignalTagNameInvalid
+	}
+	return nil
 }
 
 // EventHandlerMethodName validates event handler method names:

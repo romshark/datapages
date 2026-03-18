@@ -1,0 +1,6 @@
+
+func evSubjPageCalc(subjInstance string) []string {
+	return []string{
+		"calc.updated." + subjInstance,
+	}
+}

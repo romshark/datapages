@@ -177,9 +177,16 @@ type Type struct {
 // SubjectField represents a Subject-prefixed field on an event type.
 // The field name suffix (e.g. "User" from "SubjectUser") identifies the
 // subject segment; values are appended to the NATS subject at dispatch time.
+//
+// SignalName, when non-empty, marks the field as signal-scoped:
+// the SSE stream handler reads this signal from the client
+// and subscribes to the subject with the signal value appended.
+// This enables per-instance event routing without authentication.
 type SubjectField struct {
-	FieldName string // e.g. "SubjectUser"
-	Name      string // e.g. "User" (suffix after "Subject")
+	FieldName  string // e.g. "SubjectUser"
+	Name       string // e.g. "User" (suffix after "Subject")
+	SignalName string // e.g. "instance_id" (from signal:"instance_id" tag)
+	Singular   bool   // true when the field type is string (not []string)
 }
 
 type Event struct {
@@ -207,3 +214,18 @@ func (e *Event) IsPrivate() bool { return e.HasSubjectUser() }
 
 // HasSubjectFields reports whether the event has any subject fields.
 func (e *Event) HasSubjectFields() bool { return len(e.SubjectFields) > 0 }
+
+// HasSignalSubjectFields reports whether the event has any
+// signal-scoped subject fields (fields with a signal:"..." tag).
+func (e *Event) HasSignalSubjectFields() bool {
+	for _, sf := range e.SubjectFields {
+		if sf.SignalName != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// IsSignalScoped reports whether the event uses signal-based
+// subject routing (has at least one signal-tagged subject field).
+func (e *Event) IsSignalScoped() bool { return e.HasSignalSubjectFields() }

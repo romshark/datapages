@@ -25,11 +25,12 @@ func evSubjConst(e *model.Event) string {
 	return "EvSubj" + eventConstName(e.TypeName)
 }
 
-// evSubjPrefConst returns the subject prefix constant name for private events.
-// Returns "" for public events (no SubjectUser).
+// evSubjPrefConst returns the subject prefix constant name for events
+// that use prefix-based subject matching (private or signal-scoped).
+// Returns "" for plain public events.
 // "EventMessagingSent" -> "EvSubjPrefMessagingSent"
 func evSubjPrefConst(e *model.Event) string {
-	if !e.IsPrivate() {
+	if !e.IsPrivate() && !e.IsSignalScoped() {
 		return ""
 	}
 	return "EvSubjPref" + eventConstName(e.TypeName)
@@ -76,6 +77,37 @@ func pageHasPrivateEvent(p *model.Page, eventByName map[string]*model.Event) boo
 		}
 	}
 	return false
+}
+
+// pageHasSignalScopedEvent returns true if any event handler on the page
+// handles a signal-scoped event (has subject fields with signal tags).
+func pageHasSignalScopedEvent(p *model.Page, eventByName map[string]*model.Event) bool {
+	for _, eh := range p.EventHandlers {
+		if e, ok := eventByName[eh.EventTypeName]; ok && e.IsSignalScoped() {
+			return true
+		}
+	}
+	return false
+}
+
+// pageSignalSubjectFields returns the unique signal-scoped subject fields
+// across all events handled by the page, in first-seen order.
+func pageSignalSubjectFields(p *model.Page, eventByName map[string]*model.Event) []model.SubjectField {
+	seen := make(map[string]bool)
+	var fields []model.SubjectField
+	for _, eh := range p.EventHandlers {
+		e, ok := eventByName[eh.EventTypeName]
+		if !ok {
+			continue
+		}
+		for _, sf := range e.SubjectFields {
+			if sf.SignalName != "" && !seen[sf.SignalName] {
+				seen[sf.SignalName] = true
+				fields = append(fields, sf)
+			}
+		}
+	}
+	return fields
 }
 
 // pageHasAnonStream returns true if a page needs an anonymous stream endpoint.
@@ -292,6 +324,9 @@ func computeAppUsage(m *model.App) appUsage {
 				u.auth = true
 			}
 			if pageHasAnonStream(p, eventByName) {
+				u.httpErrBad = true
+			}
+			if pageHasSignalScopedEvent(p, eventByName) {
 				u.httpErrBad = true
 			}
 			for _, eh := range p.EventHandlers {
