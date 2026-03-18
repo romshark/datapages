@@ -425,6 +425,7 @@ func (s *Server) writeHTML(
 	}
 	w.Raw(`head, body templ.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
+	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	_, err := io.WriteString(w, ` + "`" +
 		`<!DOCTYPE html><html><head><meta charset="UTF-8"/>
@@ -498,6 +499,15 @@ func (s *Server) writeHTML(
 	}
 	if body != nil {
 		if err := body.Render(r.Context(), w); err != nil {
+			return err
+		}
+	}
+	if writeBodySuffix != nil {
+		if _, err := io.WriteString(w, "<template "); err != nil {
+			return err
+		}
+		writeBodySuffix(w)
+		if _, err := io.WriteString(w, "></template>"); err != nil {
 			return err
 		}
 	}
@@ -1894,7 +1904,7 @@ func (w *Writer) writeMethodCall(
 			w.Raw("nil, ")
 		}
 		w.Raw(h.OutputBody.Name)
-		w.Raw(", nil,\n")
+		w.Raw(", nil, nil,\n")
 		w.Line(1, "); err != nil {")
 		w.Raw("\t\ts.logErr(\"rendering response of ")
 		w.Raw(ownerName)
@@ -2155,7 +2165,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, contex
 		w.Raw("genericHead, ")
 	}
 	w.Raw(headArg)
-	w.Raw(", body, bodyAttrs,\n")
+	w.Raw(", body, bodyAttrs, nil,\n")
 	w.Line(1, "); err != nil {")
 	w.Raw("\t\ts.logErr(\"rendering ")
 	w.Raw(p.TypeName)

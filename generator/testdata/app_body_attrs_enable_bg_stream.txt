@@ -3,6 +3,9 @@
 		if !enableBgStream {
 			writeBodyAttrOnVisibilityChange(w)
 		}
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/chat/_$/'`)

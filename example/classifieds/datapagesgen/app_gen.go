@@ -623,6 +623,7 @@ func (s *Server) writeHTML(
 	sess app.Session,
 	headGeneric, head, body templ.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
+	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
 		<script type="module" src="`+s.datastarJSSrc+`"></script>`)
@@ -684,6 +685,15 @@ func (s *Server) writeHTML(
 	}
 	if body != nil {
 		if err := body.Render(r.Context(), w); err != nil {
+			return err
+		}
+	}
+	if writeBodySuffix != nil {
+		if _, err := io.WriteString(w, "<template "); err != nil {
+			return err
+		}
+		writeBodySuffix(w)
+		if _, err := io.WriteString(w, "></template>"); err != nil {
 			return err
 		}
 	}
@@ -1296,7 +1306,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 	}
 	if err := s.writeHTML(
-		w, r, app.Session{}, genericHead, nil, body, bodyAttrs,
+		w, r, app.Session{}, genericHead, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.logErr("rendering PageError404", err)
 		return
@@ -1353,6 +1363,9 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/not-found/_$/')"`)
@@ -1360,7 +1373,7 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs,
+		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.logErr("rendering PageError404", err)
 		return
@@ -1433,7 +1446,7 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, app.Session{}, genericHead, nil, body, bodyAttrs,
+		w, r, app.Session{}, genericHead, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.logErr("rendering PageError500", err)
 		return
@@ -1466,6 +1479,9 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
@@ -1473,7 +1489,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs,
+		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.logErr("rendering PageIndex", err)
 		return
@@ -1554,7 +1570,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs,
+		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.logErr("rendering PageLogin", err)
 		return
@@ -1598,7 +1614,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	}
 	genericHead := s.app.Head(r)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.logErr("rendering response of PageLogin.POSTSubmit", err)
 		return
@@ -1641,6 +1657,9 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `data-signals:chatselected="'`)
 		_, _ = io.WriteString(w, query.Chat)
 		_, _ = io.WriteString(w, `'"`)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/messages/_$/'`)
@@ -1659,7 +1678,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs,
+		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.logErr("rendering PageMessages", err)
 		return
@@ -1977,6 +1996,9 @@ func (s *Server) handlePageMyPostsGET(w http.ResponseWriter, r *http.Request) {
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/my-posts/_$/')"`)
@@ -1984,7 +2006,7 @@ func (s *Server) handlePageMyPostsGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, head, body, bodyAttrs,
+		w, r, sess, genericHead, head, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.logErr("rendering PageMyPosts", err)
 		return
@@ -2068,6 +2090,9 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
 
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/post/`)
@@ -2081,7 +2106,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, head, body, bodyAttrs,
+		w, r, sess, genericHead, head, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.logErr("rendering PagePost", err)
 		return
@@ -2306,6 +2331,9 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `data-signals:location="'`)
 		_, _ = io.WriteString(w, query.Location)
 		_, _ = io.WriteString(w, `'"`)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/search/_$/')"`)
@@ -2323,7 +2351,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs,
+		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.logErr("rendering PageSearch", err)
 		return
@@ -2432,6 +2460,9 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/settings/_$/')"`)
@@ -2439,7 +2470,7 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs,
+		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.logErr("rendering PageSettings", err)
 		return
@@ -2662,6 +2693,9 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
 
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/user/`)
@@ -2675,7 +2709,7 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, head, body, bodyAttrs,
+		w, r, sess, genericHead, head, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.logErr("rendering PageUser", err)
 		return

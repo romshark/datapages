@@ -18,7 +18,7 @@ func (s *Server) handlePageOldRouteGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs,
+		w, r, genericHead, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.logErr("rendering PageOldRoute", err)
 		return
