@@ -319,8 +319,8 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 		w.writeGenericHeadCall(gh, appPkg, hasSess, hasSessToken)
 	}
 
-	// Body attrs.
-	w.writeGETBodyAttrs(p)
+	// Body attrs and suffix.
+	hasBodySuffix := w.writeGETBodyAttrs(p)
 
 	headArg := "nil"
 	if p.GET.OutputHead != nil {
@@ -352,7 +352,12 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	w.Raw(headArg)
 	w.Raw(", ")
 	w.Raw(bodyName)
-	w.Raw(", bodyAttrs,\n")
+	w.Raw(", bodyAttrs, ")
+	if hasBodySuffix {
+		w.Raw("bodySuffix,\n")
+	} else {
+		w.Raw("nil,\n")
+	}
 	w.Line(1, "); err != nil {")
 	w.Raw("\t\ts.logErr(\"rendering ")
 	w.Raw(p.TypeName)
@@ -391,7 +396,7 @@ func (w *Writer) writeGenericHeadCall(
 	w.Raw(")\n")
 }
 
-func (w *Writer) writeGETBodyAttrs(p *model.Page) {
+func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 	h := p.GET.Handler
 
 	hasDisableRefresh := h.OutputDisableRefresh != nil
@@ -416,6 +421,8 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 	}
 	hasReflectSignals := len(reflectFields) > 0
 
+	// bodyAttrs: visibility change + reflect signal attrs.
+	// Written as attributes on the <body> tag.
 	w.Line(0, "")
 	w.Line(1, "bodyAttrs := func(w http.ResponseWriter) {")
 
@@ -458,6 +465,20 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 			w.Line(2, "_, _ = io.WriteString(w, `\"`)")
 		}
 	}
+
+	w.Line(1, "}")
+
+	// bodySuffix: data-init (SSE stream) + data-effect (URL sync).
+	// Written as attributes on a <div> after the body content so that
+	// signals defined in child elements are available in the Datastar
+	// store when these attributes are processed.
+	needsSuffix := hasStream || hasReflectSignals
+	if !needsSuffix {
+		return false
+	}
+
+	w.Line(0, "")
+	w.Line(1, "bodySuffix := func(w http.ResponseWriter) {")
 
 	// Stream data-init attr.
 	// Fun fact: this is a writer writing a writer writing an attribute.
@@ -584,6 +605,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) {
 	}
 
 	w.Line(1, "}")
+	return true
 }
 
 func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
@@ -1134,7 +1156,7 @@ func (w *Writer) writeActionMethodCall(
 			w.Raw("nil, ")
 		}
 		w.Raw(h.OutputBody.Name)
-		w.Raw(", nil,\n")
+		w.Raw(", nil, nil,\n")
 		w.Line(1, "); err != nil {")
 		w.Raw("\t\ts.logErr(\"rendering response of ")
 		w.Raw(p.TypeName)

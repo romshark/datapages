@@ -236,6 +236,7 @@ func (s *Server) writeHTML(
 	r *http.Request,
 	headGeneric, head, body templ.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
+	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
 		<script type="module" src="`+s.datastarJSSrc+`"></script>`)
@@ -263,6 +264,15 @@ func (s *Server) writeHTML(
 	}
 	if body != nil {
 		if err := body.Render(r.Context(), w); err != nil {
+			return err
+		}
+	}
+	if writeBodySuffix != nil {
+		if _, err := io.WriteString(w, "<template "); err != nil {
+			return err
+		}
+		writeBodySuffix(w)
+		if _, err := io.WriteString(w, "></template>"); err != nil {
 			return err
 		}
 	}
@@ -457,12 +467,15 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
 
 		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
 	}
 
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs,
+		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.logErr("rendering PageIndex", err)
 		return

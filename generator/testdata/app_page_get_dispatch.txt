@@ -41,7 +41,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs,
+		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.logErr("rendering PageIndex", err)
 		return

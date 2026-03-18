@@ -11,7 +11,7 @@ func (s *Server) handlePOSTPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(r)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.logErr("rendering response of App.POSTPreview", err)
 		return
