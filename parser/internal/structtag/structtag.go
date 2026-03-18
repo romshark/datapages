@@ -14,8 +14,7 @@ import (
 // ErrQueryReflectSignalNotInSignals indicates a reflectsignal
 // tag references a signal not present in the signals parameter.
 var ErrQueryReflectSignalNotInSignals = errors.New(
-	"query reflectsignal tag references signal " +
-		"not in signals parameter",
+	"query reflectsignal tag references signal not in signals parameter",
 )
 
 // JSONTagExcluded reports whether the struct tag is `json:"-"`, which instructs

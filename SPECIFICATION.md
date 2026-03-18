@@ -173,7 +173,6 @@ func (PageIndex) OnSomethingHappened(
 	sse *datastar.ServerSentEventGenerator,
 	sessionToken string, // Optional
 	session Session, // Optional
-	signals struct {...}, // Optional
 ) error {
 	// ...
 }

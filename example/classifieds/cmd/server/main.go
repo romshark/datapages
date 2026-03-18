@@ -165,8 +165,7 @@ func initMetrics(m *app.Metrics, opts *[]datapagesgen.ServerOption) {
 			Namespace: "app",
 			Subsystem: "messaging",
 			Name:      "chat_messages_sent_total",
-			Help: "Total number of chat message " +
-				"send attempts",
+			Help:      "Total number of chat message send attempts",
 		},
 		[]string{"result"},
 	)
