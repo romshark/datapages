@@ -219,7 +219,7 @@ The `query` tag specifies the query parameter name. `query:"t"` maps to `?t=...`
 
 ## Step 6: Add Actions
 
-Actions handle POST, PUT, or DELETE. They are methods on page types similar to GET.
+Actions handle POST, PUT, PATCH, or DELETE. They are methods on page types similar to GET.
 Give each one a doc comment with a route.
 
 ```go
@@ -230,9 +230,9 @@ func (PageLogin) POSTSubmit(r *http.Request) error {
 ```
 
 Action names: `POST` then uppercase letter then letters and digits.
-Same for `PUT` and `DELETE`.
+Same for `PUT`, `PATCH`, and `DELETE`.
 `POSTSubmit` works. `POSTsubmit` does not. `POST_Submit` does not.
-No underscores. No lowercase after `POST`/`PUT`/`DELETE`.
+No underscores. No lowercase after `POST`/`PUT`/`PATCH`/`DELETE`.
 
 Actions can also be defined on `*App` (pointer receiver) for global actions not tied to a specific page:
 

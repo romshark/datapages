@@ -256,7 +256,7 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 		p := findPage(app, "PageActions")
 		require.NotNil(p)
 		require.Equal("/actions", p.Route)
-		require.Len(p.Actions, 4)
+		require.Len(p.Actions, 5)
 		require.Len(p.EventHandlers, 1)
 
 		// POST without SSE
@@ -277,6 +277,12 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 		require.NotNil(putWith)
 		require.Equal("PUT", putWith.HTTPMethod)
 		require.NotNil(putWith.InputSSE)
+
+		// PATCH with SSE
+		patchWith := findActionByMethod(p.Actions, "PATCH", "WithSSE")
+		require.NotNil(patchWith)
+		require.Equal("PATCH", patchWith.HTTPMethod)
+		require.NotNil(patchWith.InputSSE)
 
 		// DELETE without SSE
 		deleteWithout := findActionByMethod(p.Actions, "DELETE", "WithoutSSE")
@@ -299,6 +305,7 @@ func TestParse_ErrActionHandlerNoName(t *testing.T) {
 	requireParseErrors(t, err,
 		parser.ErrActionNameMissing, // POST
 		parser.ErrActionNameMissing, // DELETE
+		parser.ErrActionNameMissing, // PATCH
 		parser.ErrActionNameMissing, // PUT
 	)
 }

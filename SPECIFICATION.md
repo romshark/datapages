@@ -38,6 +38,7 @@ special methods:
 - `GET`: handles `GET` requests.
 - `POSTXXX`: handles `POST` action requests.
 - `PUTXXX`: handles `PUT` action requests.
+- `PATCHXXX`: handles `PATCH` action requests.
 - `DELETEXXX`: handles `DELETE` action requests.
 - `OnXXX`: subscribes to events in the SSE listener.
 
@@ -104,7 +105,7 @@ func (*App) POSTSignOut(r *http.Request, session Session) (
 }
 ```
 
-The SSE action handlers `POSTXXX`, `DELETEXXX` and `PUTXXX` method parameter lists must
+The SSE action handlers `POSTXXX`, `PUTXXX`, `PATCHXXX` and `DELETEXXX` method parameter lists must
 include `r *http.Request` and may include the following optional parameters:
 
 ```go
@@ -428,8 +429,8 @@ type Session struct {
 sse *datastar.ServerSentEventGenerator
 ```
 
-This parameter is allowed only on `POSTXXX` page methods handling
-`POST` [action requests](https://data-star.dev/reference/actions) and
+This parameter is allowed on `POSTXXX`, `PUTXXX`, `PATCHXXX`, and `DELETEXXX` page methods
+handling [action requests](https://data-star.dev/reference/actions) and
 `OnXXX` event handler page methods.
 This gives you a handle to patch page elements, execute scripts, etc.
 

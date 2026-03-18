@@ -43,6 +43,7 @@ func PageTypeName(name string) error {
 //
 //	POSTX...
 //	PUTX...
+//	PATCHX...
 //	DELETEX...
 //
 // where X is [A-Z], followed by [A-Za-z0-9]*.
@@ -75,6 +76,10 @@ func ActionMethodName(name string) error {
 		}
 	case strings.HasPrefix(name, "PUT"):
 		if isValidActionSuffix(name, 3) {
+			return nil
+		}
+	case strings.HasPrefix(name, "PATCH"):
+		if isValidActionSuffix(name, 5) {
 			return nil
 		}
 	case strings.HasPrefix(name, "DELETE"):

@@ -38,6 +38,12 @@ func (PageForm) DELETE(r *http.Request) error {
 	return nil
 }
 
+// PATCH is /form/patch/{$}
+func (PageForm) PATCH(r *http.Request) error {
+	_ = r
+	return nil
+}
+
 // PUT is /form/update/{$}
 func (PageForm) PUT(
 	r *http.Request,

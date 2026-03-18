@@ -1,5 +1,5 @@
 // Package methodkind classifies handler method names into
-// HTTP method kinds (GET, POST, PUT, DELETE) or event handlers.
+// HTTP method kinds (GET, POST, PUT, PATCH, DELETE) or event handlers.
 package methodkind
 
 import "strings"
@@ -12,16 +12,18 @@ const (
 	GETHandler
 	ActionPOSTHandler
 	ActionPUTHandler
+	ActionPATCHHandler
 	ActionDELETEHandler
 	EventHandler
 )
 
 // IsAction reports whether the kind is an action
-// (POST, PUT, or DELETE).
+// (POST, PUT, PATCH, or DELETE).
 func (k Kind) IsAction() bool {
 	switch k {
 	case ActionPOSTHandler,
 		ActionPUTHandler,
+		ActionPATCHHandler,
 		ActionDELETEHandler:
 		return true
 	}
@@ -37,6 +39,8 @@ func (k Kind) HTTPMethod() string {
 		return "POST"
 	case ActionPUTHandler:
 		return "PUT"
+	case ActionPATCHHandler:
+		return "PATCH"
 	case ActionDELETEHandler:
 		return "DELETE"
 	}
@@ -63,6 +67,8 @@ func Classify(name string) (kind Kind, suffix string) {
 		return ActionPOSTHandler, name[len("POST"):]
 	case strings.HasPrefix(name, "PUT"):
 		return ActionPUTHandler, name[len("PUT"):]
+	case strings.HasPrefix(name, "PATCH"):
+		return ActionPATCHHandler, name[len("PATCH"):]
 	case strings.HasPrefix(name, "DELETE"):
 		return ActionDELETEHandler, name[len("DELETE"):]
 	case strings.HasPrefix(name, "On"):

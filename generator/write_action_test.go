@@ -41,6 +41,13 @@ func TestWritePkgAction(t *testing.T) {
 			}},
 			golden: "action_put_method.go.txt",
 		},
+		"patch method": {
+			app: &model.App{Pages: []*model.Page{
+				actionPage("PageItem",
+					actionHandler("patch", "Update", "/item/update/{$}", nil)),
+			}},
+			golden: "action_patch_method.go.txt",
+		},
 		"delete method": {
 			app: &model.App{Pages: []*model.Page{
 				actionPage("PagePost",
