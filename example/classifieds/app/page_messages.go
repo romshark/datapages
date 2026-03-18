@@ -281,15 +281,12 @@ func (p PageMessages) OnMessagingRead(
 	event EventMessagingRead,
 	sse *datastar.ServerSentEventGenerator,
 	session Session,
-	signals struct {
-		Chat string `json:"chatselected"`
-	},
 ) error {
 	if err := p.Base.OnMessagingRead(event, sse, session); err != nil {
 		return err
 	}
 	base, chats, openChat, messages, err := p.getPageData(
-		sse.Context(), session, signals.Chat,
+		sse.Context(), session, event.ChatID,
 	)
 	if err != nil {
 		return err
@@ -325,15 +322,12 @@ func (p PageMessages) OnMessagingSent(
 	event EventMessagingSent,
 	sse *datastar.ServerSentEventGenerator,
 	session Session,
-	signals struct {
-		Chat string `json:"chatselected"`
-	},
 ) error {
 	if err := p.Base.OnMessagingSent(event, sse, session); err != nil {
 		return err
 	}
 	base, chats, openChat, messages, err := p.getPageData(
-		sse.Context(), session, signals.Chat,
+		sse.Context(), session, event.ChatID,
 	)
 	if err != nil {
 		return err

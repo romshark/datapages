@@ -426,8 +426,10 @@ func (s *Server) writeHTML(
 	w.Raw(`head, body templ.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, ` + "`" + `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="` + "`" + `+s.datastarJSSrc+` + "`" + `"></script>` + "`" + `)
+	_, err := io.WriteString(w, ` + "`" +
+		`<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+		<script type="module" src="` + "`" +
+		`+s.datastarJSSrc+` + "`" + `"></script>` + "`" + `)
 	if err != nil {
 		return err
 	}
@@ -1868,7 +1870,9 @@ func (w *Writer) writeMethodCall(
 		ownerName := actionOwnerName(p, isAppLevel)
 
 		if m.GlobalHeadGenerator != nil {
-			w.writeGenericHeadCall(m.GlobalHeadGenerator, appPkg, hasSessionInput(h), false)
+			w.writeGenericHeadCall(
+				m.GlobalHeadGenerator, appPkg, hasSessionInput(h), false,
+			)
 		}
 
 		w.Line(1, "if err := s.writeHTML(")
@@ -1876,7 +1880,8 @@ func (w *Writer) writeMethodCall(
 		if m.Session != nil {
 			sessArg := "sess"
 			headNeedsSession := m.GlobalHeadGenerator != nil &&
-				(m.GlobalHeadGenerator.InputSession || m.GlobalHeadGenerator.InputSessionToken)
+				(m.GlobalHeadGenerator.InputSession ||
+					m.GlobalHeadGenerator.InputSessionToken)
 			if !hasSessionInput(h) && !headNeedsSession {
 				sessArg = appPkg + ".Session{}"
 			}
@@ -2003,7 +2008,8 @@ func (w *Writer) writeDispatchClosure(d *model.InputDispatch, appPkg string) {
 				w.Raw("}\n")
 			}
 		} else if ev != nil {
-			w.Raw("\t\t\terr = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, ")
+			w.Raw("\t\t\terr = s.messageBroker.Publish(r.Context(), " +
+				"s.messageBrokerMetrics, ")
 			w.Raw(evSubjConst(ev))
 			w.Raw(", j)\n")
 			w.Line(3, "if err != nil {")
@@ -2138,7 +2144,8 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, contex
 		headNeedsSession := m.GlobalHeadGenerator != nil &&
 			(m.GlobalHeadGenerator.InputSession || m.GlobalHeadGenerator.InputSessionToken)
 		if p.PageSpecialization == model.PageTypeError500 ||
-			(p.PageSpecialization == model.PageTypeError404 && context == "render404" && !headNeedsSession) {
+			(p.PageSpecialization == model.PageTypeError404 &&
+				context == "render404" && !headNeedsSession) {
 			sessArg = appPkg + ".Session{}"
 		}
 		w.Raw(sessArg)

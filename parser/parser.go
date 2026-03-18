@@ -698,8 +698,6 @@ func validateAndAttachEventHandler(
 						recv, fd.Name.Name,
 					))
 				}
-			case paramvalidation.IsSignalsParam(f):
-				// Valid, no extra validation needed.
 			default:
 				p := f.Type.Pos()
 				if len(f.Names) > 0 {
@@ -1135,10 +1133,6 @@ func parseEventHandler(
 			h.InputSession = parseInput(f, info)
 			h.InputSession.Kind = model.InputKindSession
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
-		case paramvalidation.IsSignalsParam(f):
-			h.InputSignals = parseInput(f, info)
-			h.InputSignals.Kind = model.InputKindSignals
-			h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
 		}
 	}
 

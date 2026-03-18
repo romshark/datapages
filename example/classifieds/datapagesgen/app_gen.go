@@ -1680,14 +1680,6 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	var signals struct {
-		Chat string `json:"chatselected"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
-		s.httpErrBad(w, "reading signals", err)
-		return
-	}
-
 	p := app.PageMessages{
 		App: s.app,
 		Base: app.Base{
@@ -1705,7 +1697,7 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 					s.logErr("unmarshaling EventMessagingRead JSON", err)
 					continue
 				}
-				if err := p.OnMessagingRead(e, sse, sess, signals); err != nil {
+				if err := p.OnMessagingRead(e, sse, sess); err != nil {
 					s.logErr("handling PageMessages.OnMessagingRead", err)
 				}
 			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingWriting):
@@ -1732,7 +1724,7 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 					s.logErr("unmarshaling EventMessagingSent JSON", err)
 					continue
 				}
-				if err := p.OnMessagingSent(e, sse, sess, signals); err != nil {
+				if err := p.OnMessagingSent(e, sse, sess); err != nil {
 					s.logErr("handling PageMessages.OnMessagingSent", err)
 				}
 			}

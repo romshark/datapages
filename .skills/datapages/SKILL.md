@@ -377,9 +377,10 @@ dispatch func(EventMessageSent, EventUserActive) error
 
 ### Handle Events on Pages
 
-Method name starts with `On`. The `event` and `sse` parameters are required. Optional parameters: `session Session`, `sessionToken string`, `signals struct{...}`.
+Method name starts with `On`. The `event` and `sse` parameters are required. Optional parameters: `session Session`, `sessionToken string`.
 Parameters may appear in any order.
-The `signals` parameter carries the client's Datastar signal values from the initial SSE connection request, not from the time each event fires.
+
+`On` handlers do **not** accept `signals`. If the handler needs client-side signal values, add them as fields on the event type and populate them in the action handler that dispatches the event.
 
 ```go
 func (PageChat) OnMessageSent(
@@ -387,7 +388,6 @@ func (PageChat) OnMessageSent(
 	sse *datastar.ServerSentEventGenerator,
 	session Session, // Optional
 	sessionToken string, // Optional
-	signals struct{...}, // Optional
 ) error {
 	return sse.PatchElementTempl(messageComponent(event.Message))
 }

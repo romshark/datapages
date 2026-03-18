@@ -1656,12 +1656,8 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		// 4 own event handlers
 		// (override Base's OnMessagingSent, OnMessagingRead)
 		require.Len(p.EventHandlers, 4)
-		sentEH := findEventHandler(p.EventHandlers, "MessagingSent")
-		require.NotNil(sentEH)
-		require.NotNil(sentEH.InputSignals)
-		readEH := findEventHandler(p.EventHandlers, "MessagingRead")
-		require.NotNil(readEH)
-		require.NotNil(readEH.InputSignals)
+		require.NotNil(findEventHandler(p.EventHandlers, "MessagingSent"))
+		require.NotNil(findEventHandler(p.EventHandlers, "MessagingRead"))
 		require.NotNil(findEventHandler(p.EventHandlers, "MessagingWriting"))
 		require.NotNil(findEventHandler(p.EventHandlers, "MessagingWritingStopped"))
 	}

@@ -31,12 +31,10 @@ var (
 		"path struct field has unsupported type",
 	)
 	ErrPathFieldNotInRoute = errors.New(
-		"path struct field tag does not match " +
-			"any route variable",
+		"path struct field tag does not match any route variable",
 	)
 	ErrPathMissingRouteVar = errors.New(
-		"route variable has no matching " +
-			"path struct field",
+		"route variable has no matching path struct field",
 	)
 	ErrPathFieldDuplicateTag = errors.New(
 		"path struct field has duplicate path tag value",

@@ -192,9 +192,6 @@ func eventHandlerInputArgs(eh *model.EventHandler) []string {
 	if eh.InputSession != nil {
 		args = append(args, "sess")
 	}
-	if eh.InputSignals != nil {
-		args = append(args, "signals")
-	}
 	return args
 }
 
@@ -718,31 +715,6 @@ func (w *Writer) writePageGETStreamHandler(
 			w.Raw("))\n")
 			w.Line(2, "return")
 			w.Line(1, "}")
-		}
-	}
-
-	// Read signals if any event handler takes signals.
-	hasStreamSignals := false
-	for _, eh := range p.EventHandlers {
-		if eh.InputSignals != nil {
-			hasStreamSignals = true
-			break
-		}
-	}
-	if hasStreamSignals {
-		// Find the signals type from the first event handler that has it.
-		for _, eh := range p.EventHandlers {
-			if eh.InputSignals != nil {
-				w.Line(0, "")
-				w.Raw("\tvar signals ")
-				w.Raw(renderSignalsType(eh.InputSignals, m))
-				w.Byte('\n')
-				w.Line(1, "if err := datastar.ReadSignals(r, &signals); err != nil {")
-				w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
-				w.Line(2, "return")
-				w.Line(1, "}")
-				break
-			}
 		}
 	}
 

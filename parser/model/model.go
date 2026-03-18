@@ -120,7 +120,6 @@ type EventHandler struct {
 	InputSSE          *Input
 	InputSessionToken *Input
 	InputSession      *Input
-	InputSignals      *Input
 	OrderedInputs     []*Input // Inputs in user-defined order.
 
 	OutputErr *Output

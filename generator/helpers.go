@@ -329,11 +329,6 @@ func computeAppUsage(m *model.App) appUsage {
 			if pageHasSignalScopedEvent(p, eventByName) {
 				u.httpErrBad = true
 			}
-			for _, eh := range p.EventHandlers {
-				if eh.InputSignals != nil {
-					u.httpErrBad = true
-				}
-			}
 		}
 		for _, h := range p.Actions {
 			checkHandler(h)

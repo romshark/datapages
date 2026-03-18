@@ -80,7 +80,9 @@ func testEvent(typeName, subject string, private bool) *model.Event {
 	return e
 }
 
-func testSignalEvent(typeName, subject string, fields ...model.SubjectField) *model.Event {
+func testSignalEvent(
+	typeName, subject string, fields ...model.SubjectField,
+) *model.Event {
 	return &model.Event{
 		TypeName:      typeName,
 		Subject:       subject,
@@ -103,10 +105,13 @@ func testEventHandler(
 	return eh
 }
 
-func withEHSession(eh *model.EventHandler)   { eh.InputSession = &model.Input{Name: "sess"} }
-func withEHErr(eh *model.EventHandler)       { eh.OutputErr = &model.Output{Name: "err"} }
-func withEHSignals(eh *model.EventHandler)   { eh.InputSignals = &model.Input{Name: "signals"} }
-func withEHSessToken(eh *model.EventHandler) { eh.InputSessionToken = &model.Input{Name: "sessToken"} }
+func withEHSession(eh *model.EventHandler) {
+	eh.InputSession = &model.Input{Name: "sess"}
+}
+
+func withEHErr(eh *model.EventHandler) {
+	eh.OutputErr = &model.Output{Name: "err"}
+}
 
 func TestWriteEvSubjPageFuncs(t *testing.T) {
 	privateEvent := testEvent("EventMessagingSent", "messaging.sent", true)
@@ -122,7 +127,9 @@ func TestWriteEvSubjPageFuncs(t *testing.T) {
 				TypeName: "PageMessaging",
 				Route:    "/messaging/",
 				EventHandlers: []*model.EventHandler{
-					testEventHandler("MessagingSent", "EventMessagingSent", withEHSession),
+					testEventHandler(
+						"MessagingSent", "EventMessagingSent", withEHSession,
+					),
 				},
 			}},
 			eventMap: map[string]*model.Event{
@@ -178,7 +185,9 @@ func TestWriteEvSubjPageFuncs(t *testing.T) {
 				TypeName: "PageDashboard",
 				Route:    "/dashboard/",
 				EventHandlers: []*model.EventHandler{
-					testEventHandler("MessagingSent", "EventMessagingSent", withEHSession),
+					testEventHandler(
+						"MessagingSent", "EventMessagingSent", withEHSession,
+					),
 					testEventHandler("CalcUpdated", "EventCalcUpdated"),
 				},
 			}},
@@ -195,7 +204,9 @@ func TestWriteEvSubjPageFuncs(t *testing.T) {
 				Route:    "/dashboard/",
 				EventHandlers: []*model.EventHandler{
 					testEventHandler("PostsArchived", "EventPostsArchived"),
-					testEventHandler("MessagingSent", "EventMessagingSent", withEHSession),
+					testEventHandler(
+						"MessagingSent", "EventMessagingSent", withEHSession,
+					),
 					testEventHandler("CalcUpdated", "EventCalcUpdated"),
 				},
 			}},
@@ -203,7 +214,11 @@ func TestWriteEvSubjPageFuncs(t *testing.T) {
 				"EventPostsArchived": publicEvent,
 				"EventMessagingSent": privateEvent,
 				"EventCalcUpdated": testSignalEvent("EventCalcUpdated", "calc.updated",
-					model.SubjectField{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id"}),
+					model.SubjectField{
+						FieldName:  "SubjectInstance",
+						Name:       "Instance",
+						SignalName: "instance_id",
+					}),
 			},
 			golden: "app_evsubj_private_signal_public.txt",
 		},
@@ -420,7 +435,9 @@ func TestWriteAppActionHandler(t *testing.T) {
 		"body output": {
 			handler: &model.Handler{
 				HTTPMethod: "POST", Name: "Render", Route: "/render/{$}",
-				OutputBody:           &model.TemplComponent{Output: &model.Output{Name: "body"}},
+				OutputBody: &model.TemplComponent{
+					Output: &model.Output{Name: "body"},
+				},
 				OutputEnableBgStream: &model.Output{Name: "enableBgStream"},
 				OutputDisableRefresh: &model.Output{Name: "disableRefresh"},
 				OutputErr:            &model.Output{Name: "err"},
@@ -469,8 +486,10 @@ func TestWriteSetupHandlers(t *testing.T) {
 						Route:              "/",
 						PageSpecialization: model.PageTypeIndex,
 						GET: &model.HandlerGET{
-							Handler:    &model.Handler{},
-							OutputBody: &model.TemplComponent{Output: &model.Output{Name: "body"}},
+							Handler: &model.Handler{},
+							OutputBody: &model.TemplComponent{
+								Output: &model.Output{Name: "body"},
+							},
 						},
 					},
 					{TypeName: "PageNoGET", Route: "/noget/"},
@@ -478,14 +497,20 @@ func TestWriteSetupHandlers(t *testing.T) {
 						TypeName: "PagePost",
 						Route:    "/post/{slug}",
 						GET: &model.HandlerGET{
-							Handler:    &model.Handler{},
-							OutputBody: &model.TemplComponent{Output: &model.Output{Name: "body"}},
+							Handler: &model.Handler{},
+							OutputBody: &model.TemplComponent{
+								Output: &model.Output{Name: "body"},
+							},
 						},
 						EventHandlers: []*model.EventHandler{
 							testEventHandler("PostsArchived", "EventPostsArchived"),
 						},
 						Actions: []*model.Handler{
-							{HTTPMethod: "POST", Name: "Comment", Route: "/post/{slug}/comment"},
+							{
+								HTTPMethod: "POST",
+								Name:       "Comment",
+								Route:      "/post/{slug}/comment",
+							},
 						},
 					},
 				},
@@ -698,7 +723,10 @@ func TestWritePageGETHandler(t *testing.T) {
 						InputRequest: &model.Input{Name: "r"},
 						InputSession: &model.Input{Name: "session"},
 						InputDispatch: &model.InputDispatch{
-							Input:          &model.Input{Name: "dispatch", Kind: model.InputKindDispatch},
+							Input: &model.Input{
+								Name: "dispatch",
+								Kind: model.InputKindDispatch,
+							},
 							EventTypeNames: []string{"EventFoo"},
 						},
 						OutputErr: &model.Output{Name: "err"},
@@ -733,10 +761,12 @@ func TestWritePageGETHandler(t *testing.T) {
 				},
 			},
 			app: &model.App{
-				PkgPath:             testAppPkgPath,
-				Fset:                token.NewFileSet(),
-				Session:             &model.SessionType{},
-				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}, InputSession: true},
+				PkgPath: testAppPkgPath,
+				Fset:    token.NewFileSet(),
+				Session: &model.SessionType{},
+				GlobalHeadGenerator: &model.GlobalHead{
+					Expr: &ast.Ident{Name: "Head"}, InputSession: true,
+				},
 			},
 			golden: "app_page_get_head_session.txt",
 		},
@@ -778,10 +808,12 @@ func TestWritePageGETHandler(t *testing.T) {
 				},
 			},
 			app: &model.App{
-				PkgPath:             testAppPkgPath,
-				Fset:                token.NewFileSet(),
-				Session:             &model.SessionType{},
-				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}, InputSession: true},
+				PkgPath: testAppPkgPath,
+				Fset:    token.NewFileSet(),
+				Session: &model.SessionType{},
+				GlobalHeadGenerator: &model.GlobalHead{
+					Expr: &ast.Ident{Name: "Head"}, InputSession: true,
+				},
 			},
 			golden: "app_page_get_head_session_not_in_scope.txt",
 		},
@@ -844,31 +876,13 @@ func TestWritePageGETStreamHandler(t *testing.T) {
 			},
 			golden: "app_stream_handler_no_err.txt",
 		},
-		"handler with signals and session token": {
-			page: &model.Page{
-				TypeName: "PageChat",
-				Route:    "/chat/",
-				EventHandlers: []*model.EventHandler{
-					testEventHandler("MessagingSent", "EventMessagingSent",
-						withEHSession, withEHSessToken, withEHSignals, withEHErr),
-				},
-			},
-			app: &model.App{
-				PkgPath: testAppPkgPath,
-				Fset:    token.NewFileSet(),
-				Events:  []*model.Event{privateEvent},
-			},
-			eventMap: map[string]*model.Event{
-				"EventMessagingSent": privateEvent,
-			},
-			golden: "app_stream_signals_sesstoken.txt",
-		},
 		"private with signal-scoped": {
 			page: &model.Page{
 				TypeName: "PageDashboard",
 				Route:    "/dashboard/",
 				EventHandlers: []*model.EventHandler{
-					testEventHandler("MessagingSent", "EventMessagingSent", withEHSession, withEHErr),
+					testEventHandler(
+						"MessagingSent", "EventMessagingSent", withEHSession, withEHErr),
 					testEventHandler("CalcUpdated", "EventCalcUpdated", withEHErr),
 				},
 			},
@@ -878,13 +892,21 @@ func TestWritePageGETStreamHandler(t *testing.T) {
 				Events: []*model.Event{
 					privateEvent,
 					testSignalEvent("EventCalcUpdated", "calc.updated",
-						model.SubjectField{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id"}),
+						model.SubjectField{
+							FieldName:  "SubjectInstance",
+							Name:       "Instance",
+							SignalName: "instance_id",
+						}),
 				},
 			},
 			eventMap: map[string]*model.Event{
 				"EventMessagingSent": privateEvent,
 				"EventCalcUpdated": testSignalEvent("EventCalcUpdated", "calc.updated",
-					model.SubjectField{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id"}),
+					model.SubjectField{
+						FieldName:  "SubjectInstance",
+						Name:       "Instance",
+						SignalName: "instance_id",
+					}),
 			},
 			golden: "app_stream_private_signal.txt",
 		},
