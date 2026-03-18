@@ -159,7 +159,7 @@ func TestSuggest(t *testing.T) {
 				Recv:       "PageProfile",
 				MethodName: "POSTFoo",
 			},
-			want: "fix: First doc comment line must be `// POSTFoo is /foo`",
+			want: "fix: First doc comment line must be `// POSTFoo is /profile/foo`",
 		},
 		"ErrActionInvalidPathComm/app": {
 			err: &parser.ErrorActionInvalidPathComm{
@@ -431,6 +431,16 @@ func TestSuggest(t *testing.T) {
 				ExpectedName: "sessionToken",
 			},
 			want: "fix: Rename parameter s to sessionToken",
+		},
+		"ErrSignatureUnsupportedInput/name already matches expected": {
+			err: &parser.ErrorSignatureUnsupportedInput{
+				ParamName:    "signals",
+				ParamType:    `struct{InstanceID string "json:\"instance_id\""}`,
+				Recv:         "PageIndex",
+				MethodName:   "OnCalcUpdated",
+				ExpectedName: "signals",
+			},
+			want: "fix: Remove parameter signals",
 		},
 		"ErrSignatureUnsupportedInput/type struct multiple candidates": {
 			err: &parser.ErrorSignatureUnsupportedInput{

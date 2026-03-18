@@ -143,9 +143,10 @@ func Suggest(err error) string {
 			return ""
 		}
 		suffix := methodPathSuffix(d.MethodName)
+		path := pageTypePath(d.Recv) + suffix
 		return fmt.Sprintf(
-			"fix: First doc comment line must be `// %s is /%s`",
-			d.MethodName, suffix,
+			"fix: First doc comment line must be `// %s is %s`",
+			d.MethodName, path,
 		)
 
 	case errors.Is(err, parser.ErrEventCommMissing):
@@ -395,7 +396,7 @@ func Suggest(err error) string {
 				others = append(others, c)
 			}
 		}
-		if d.ExpectedName != "" {
+		if d.ExpectedName != "" && d.ExpectedName != d.ParamName {
 			s := fmt.Sprintf(
 				"fix: Rename parameter %s to %s",
 				d.ParamName, d.ExpectedName)

@@ -22,7 +22,7 @@ type App struct {
 
 	Pages   []*Page
 	Events  []*Event
-	Actions []*Handler // App-level POST/PUT/DELETE actions.
+	Actions []*Handler // App-level POST/PUT/PATCH/DELETE actions.
 }
 
 type GlobalHead struct {

@@ -60,12 +60,16 @@ func TestActionMethodName(t *testing.T) {
 	f(nil, "POSTDoThing")
 	f(nil, "PUTA")
 	f(nil, "PUTDoThing2")
+	f(nil, "PATCHA")
+	f(nil, "PATCHThing")
 	f(nil, "DELETEA")
 	f(nil, "DELETEThing99")
 	// missing suffix
 	f(validate.ErrActionMethodNameInvalid, "POST")
 	// missing suffix
 	f(validate.ErrActionMethodNameInvalid, "PUT")
+	// missing suffix
+	f(validate.ErrActionMethodNameInvalid, "PATCH")
 	// missing suffix
 	f(validate.ErrActionMethodNameInvalid, "DELETE")
 	// suffix must start with A-Z
@@ -76,8 +80,6 @@ func TestActionMethodName(t *testing.T) {
 	f(validate.ErrActionMethodNameInvalid, "DELETE do")
 	// wrong verb
 	f(validate.ErrActionMethodNameInvalid, "GETThing")
-	// wrong verb
-	f(validate.ErrActionMethodNameInvalid, "PATCHThing")
 	// wrong case
 	f(validate.ErrActionMethodNameInvalid, "postThing")
 	// invalid char after valid start

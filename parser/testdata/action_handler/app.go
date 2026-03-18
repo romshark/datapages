@@ -58,6 +58,16 @@ func (PageActions) PUTWithSSE(
 	return nil
 }
 
+// PATCHWithSSE is /actions/patch-with-sse
+func (PageActions) PATCHWithSSE(
+	r *http.Request,
+	sse *datastar.ServerSentEventGenerator,
+) error {
+	_ = r
+	_ = sse
+	return nil
+}
+
 // DELETEWithoutSSE is /actions/delete-without-sse
 func (PageActions) DELETEWithoutSSE(r *http.Request) error {
 	_ = r
