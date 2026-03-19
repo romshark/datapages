@@ -721,11 +721,9 @@ func TestNotifyClosed(t *testing.T) {
 
 		require.NoError(t, sm.CloseSession(ctx, token))
 
-		// Barrier: by the time this NATS round-trip completes,
-		// the watcher goroutine has seen the delete event.
-		_ = maps.Collect(sm.UserSessions(ctx, "alice"))
-
-		require.Equal(t, int32(1), called.Load())
+		require.Eventually(t, func() bool {
+			return called.Load() == 1
+		}, 5*time.Second, 10*time.Millisecond)
 	})
 
 	t.Run("context cancellation stops watcher", func(t *testing.T) {
