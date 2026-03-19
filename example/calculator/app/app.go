@@ -51,6 +51,7 @@ func (a *App) newID() (string, error) {
 var (
 	errInvalidID  = errors.New("invalid instance ID")
 	errInvalidNum = errors.New("invalid num parameter")
+	errInvalidBtn = errors.New("invalid btn parameter")
 	numRe         = regexp.MustCompile(`^-?\d*\.?\d+$`)
 )
 
@@ -124,7 +125,11 @@ func (p PageIndex) POSTInput(
 			Fresh:             false,
 		})
 	}
-	input, fresh := calc.Press(signals.Input, signals.Fresh, calc.CalcButton(query.Btn))
+	btn := calc.CalcButton(query.Btn)
+	if !calc.ValidButton(btn) {
+		return errInvalidBtn
+	}
+	input, fresh := calc.Press(signals.Input, signals.Fresh, btn)
 	return dispatch(EventCalcUpdated{
 		SubjectInstanceID: signals.InstanceID,
 		Input:             input,

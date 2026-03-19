@@ -23,7 +23,13 @@ const (
 	CalcButton0
 	CalcButtonDot
 	CalcButtonEq
+	calcButtonCount // must remain last
 )
+
+// ValidButton reports whether btn is a known calculator button.
+func ValidButton(btn CalcButton) bool {
+	return btn >= 0 && btn < calcButtonCount
+}
 
 // Press applies a button press to the current calculator state
 // and returns the new input string and fresh flag.
