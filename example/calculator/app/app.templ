@@ -22,6 +22,14 @@ templ head() {
 			return null;
 		}
 		function calcKey(evt) {
+			if ((evt.metaKey || evt.ctrlKey) && evt.key === 'c') {
+				var d = document.querySelector('#page-calculator .display');
+				if (d) {
+					navigator.clipboard.writeText(d.textContent.trim());
+					evt.preventDefault();
+				}
+				return;
+			}
 			var m = {
 				'0':'0','1':'1','2':'2','3':'3','4':'4',
 				'5':'5','6':'6','7':'7','8':'8','9':'9',
