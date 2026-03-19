@@ -97,7 +97,7 @@ func (p PageIndex) POSTInput(
 	signals struct {
 		InstanceID string `json:"instance_id"`
 		Input      string `json:"input"`
-		Fresh      bool   `json:"_fresh"`
+		Fresh      bool   `json:"fresh"`
 	},
 ) error {
 	if err := p.App.verifyID(signals.InstanceID); err != nil {

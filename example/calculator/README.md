@@ -28,7 +28,7 @@ for the event message broker.
 ### Server Mode
 
 ```sh
-go run ./cmd/server
+mage runServer
 ```
 
 Then open http://localhost:8080/.

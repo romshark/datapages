@@ -568,7 +568,7 @@ func (s *Server) handlePageIndexPOSTInput(
 	var signals struct {
 		InstanceID string `json:"instance_id"`
 		Input      string `json:"input"`
-		Fresh      bool   `json:"_fresh"`
+		Fresh      bool   `json:"fresh"`
 	}
 	if err := datastar.ReadSignals(r, &signals); err != nil {
 		s.httpErrBad(w, "reading signals", err)

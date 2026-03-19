@@ -41,7 +41,7 @@ templ pageCalculator(input string, fresh bool, instanceID string) {
 		id="page-calculator"
 		class="card"
 		data-signals:input={ fmt.Sprintf("'%s'", input) }
-		data-signals:_fresh={ fmt.Sprintf("%t", fresh) }
+		data-signals:fresh={ fmt.Sprintf("%t", fresh) }
 		data-signals:instance_id={ fmt.Sprintf("'%s'", instanceID) }
 		data-on:keydown__window="calcKey(evt)"
 	>
