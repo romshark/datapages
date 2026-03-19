@@ -246,15 +246,17 @@ type appUsage struct {
 	streamAuth bool
 	// dsRequest: func (s *Server) checkIsDSReq(...)
 	dsRequest bool
-	// recover500: isDSReq called in httpErrIntern when Recover500+PageError500 exist
-	recover500 bool
+	// recoverError: isDSReq called in httpErrIntern when RecoverError+PageError500 exist
+	recoverError bool
 	// httpErrBad: whether the httpErrBad helper is needed.
 	httpErrBad bool
+	// httperr: whether any action handler returns an error (needs httperr import).
+	httperr bool
 }
 
 // needsIsDSReq returns true if the isDSReq helper must be emitted.
 func (u appUsage) needsIsDSReq() bool {
-	return u.stream || u.dsRequest || u.httpRedirect || u.recover500
+	return u.stream || u.dsRequest || u.httpRedirect || u.recoverError
 }
 
 // needsCheckIsDSReq returns true if the checkIsDSReq method must be emitted.
@@ -273,8 +275,8 @@ func computeAppUsage(m *model.App) appUsage {
 
 	u.hasSession = m.Session != nil
 
-	if m.Recover500 != nil && m.PageError500 != nil {
-		u.recover500 = true
+	if m.RecoverError != nil && m.PageError500 != nil {
+		u.recoverError = true
 	}
 
 	checkHandler := func(h *model.Handler) {
@@ -312,6 +314,9 @@ func computeAppUsage(m *model.App) appUsage {
 
 	for _, h := range m.Actions {
 		checkHandler(h)
+		if h.OutputErr != nil {
+			u.httperr = true
+		}
 	}
 	for _, p := range m.Pages {
 		if p.GET != nil {
@@ -332,6 +337,9 @@ func computeAppUsage(m *model.App) appUsage {
 		}
 		for _, h := range p.Actions {
 			checkHandler(h)
+			if h.OutputErr != nil {
+				u.httperr = true
+			}
 		}
 	}
 	if m.PageError404 != nil && m.PageError404.GET != nil {

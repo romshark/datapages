@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/starfederation/datastar-go/datastar"
 
 	"github.com/romshark/datapages/example/calculator/app/calc"
+	"github.com/romshark/datapages/example/calculator/datapagesgen/httperr"
 )
 
 // EventCalcUpdated is "calc.updated"
@@ -108,12 +110,12 @@ func (p PageIndex) POSTInput(
 	},
 ) error {
 	if err := p.App.verifyID(signals.InstanceID); err != nil {
-		return err
+		return fmt.Errorf("%w: %w", httperr.BadRequest, err)
 	}
 
 	if query.Num != "" {
 		if !numRe.MatchString(query.Num) {
-			return errInvalidNum
+			return fmt.Errorf("%w: %w", httperr.BadRequest, errInvalidNum)
 		}
 		input := signals.Input
 		if signals.Fresh {
@@ -127,7 +129,7 @@ func (p PageIndex) POSTInput(
 	}
 	btn := calc.CalcButton(query.Btn)
 	if !calc.ValidButton(btn) {
-		return errInvalidBtn
+		return fmt.Errorf("%w: %w", httperr.BadRequest, errInvalidBtn)
 	}
 	input, fresh := calc.Press(signals.Input, signals.Fresh, btn)
 	return dispatch(EventCalcUpdated{

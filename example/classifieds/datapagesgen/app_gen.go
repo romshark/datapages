@@ -31,6 +31,7 @@ import (
 	"github.com/romshark/datapages/example/classifieds/app"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/assets"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
+	"github.com/romshark/datapages/example/classifieds/datapagesgen/httperr"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -1267,19 +1268,27 @@ func (s *Server) httpErrIntern(
 	if sse == nil {
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
 	}
-	errRecover := s.app.Recover500(err, sse)
+	errRecover := s.app.RecoverError(err, sse)
 	if errRecover == nil {
 		mInternalErrorsRecovered.Inc()
 		return // Feedback delivered gracefully.
 	}
-	// Fallback to ugly 500
+	// RecoverError failed — fall back to HTTP error response.
 	mInternalErrorsNotRecovered.Inc()
-	s.logger.Error("recovering 500",
+	s.logger.Error("recovering error",
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
+	switch {
+	case errors.Is(err, httperr.BadRequest):
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+	case errors.Is(err, httperr.Forbidden):
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+	case errors.Is(err, httperr.NotFound):
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+	default:
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {

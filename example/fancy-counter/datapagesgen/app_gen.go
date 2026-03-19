@@ -24,6 +24,7 @@ import (
 
 	"github.com/romshark/datapages/example/fancy-counter/app"
 	"github.com/romshark/datapages/example/fancy-counter/datapagesgen/href"
+	"github.com/romshark/datapages/example/fancy-counter/datapagesgen/httperr"
 
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -445,8 +446,16 @@ func (s *Server) httpErrIntern(
 	_ *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.logErr(msg, err)
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
+	switch {
+	case errors.Is(err, httperr.BadRequest):
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+	case errors.Is(err, httperr.Forbidden):
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+	case errors.Is(err, httperr.NotFound):
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+	default:
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {

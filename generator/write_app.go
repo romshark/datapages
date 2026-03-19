@@ -164,6 +164,11 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 		w.writeQuoted(w.genImport + "/href")
 		w.Byte('\n')
 	}
+	if w.usage.httperr && w.genImport != "" {
+		w.Byte('\t')
+		w.writeQuoted(w.genImport + "/httperr")
+		w.Byte('\n')
+	}
 	w.Line(0, "")
 	if w.prometheus {
 		w.Line(1, `"github.com/prometheus/client_golang/prometheus"`)
@@ -1565,9 +1570,29 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 	w.Line(0, "}")
 }
 
+func (w *Writer) writeHTTPErrFallback() {
+	if !w.usage.httperr {
+		w.Raw(`	const code = http.StatusInternalServerError
+	http.Error(w, http.StatusText(code), code)
+`)
+		return
+	}
+	w.Raw(`	switch {
+	case errors.Is(err, httperr.BadRequest):
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+	case errors.Is(err, httperr.Forbidden):
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+	case errors.Is(err, httperr.NotFound):
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+	default:
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	}
+`)
+}
+
 func (w *Writer) writeAppErrHelpers(m *model.App, appPkg string) {
-	// httpErrIntern calls Recover500 if available.
-	if m.Recover500 != nil && m.PageError500 != nil {
+	// httpErrIntern calls RecoverError if available.
+	if m.RecoverError != nil && m.PageError500 != nil {
 		w.Raw(`
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
@@ -1583,7 +1608,7 @@ func (s *Server) httpErrIntern(
 	}
 	errRecover := s.`)
 		w.Raw(appPkg)
-		w.Raw(`.Recover500(err, sse)
+		w.Raw(`.RecoverError(err, sse)
 	if errRecover == nil {
 `)
 		if w.prometheus {
@@ -1592,19 +1617,19 @@ func (s *Server) httpErrIntern(
 		}
 		w.Raw(`		return // Feedback delivered gracefully.
 	}
-	// Fallback to ugly 500
+	// RecoverError failed — fall back to HTTP error response.
 `)
 		if w.prometheus {
 			w.Raw(`	mInternalErrorsNotRecovered.Inc()
 `)
 		}
-		w.Raw(`	s.logger.Error("recovering 500",
+		w.Raw(`	s.logger.Error("recovering error",
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
-}
+`)
+		w.writeHTTPErrFallback()
+		w.Raw(`}
 `)
 	} else {
 		w.Raw(`
@@ -1613,9 +1638,9 @@ func (s *Server) httpErrIntern(
 	_ *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.logErr(msg, err)
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
-}
+`)
+		w.writeHTTPErrFallback()
+		w.Raw(`}
 `)
 	}
 }

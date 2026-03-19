@@ -240,14 +240,14 @@ func TestWriteAppErrHelpers(t *testing.T) {
 		app    *model.App
 		golden string
 	}{
-		"without recover500": {
+		"without recoverError": {
 			app:    &model.App{PkgPath: testAppPkgPath},
 			golden: "app_err_helpers_no_recover.txt",
 		},
-		"with recover500": {
+		"with recoverError": {
 			app: &model.App{
 				PkgPath:      testAppPkgPath,
-				Recover500:   &ast.Ident{Name: "Recover500"},
+				RecoverError: &ast.Ident{Name: "RecoverError"},
 				PageError500: &model.Page{TypeName: "PageError500"},
 			},
 			golden: "app_err_helpers_with_recover.txt",

@@ -27,7 +27,7 @@ func (*App) Head(r *http.Request) templ.Component {
 	return nil
 }
 
-func (*App) Recover500(
+func (*App) RecoverError(
 	err error,
 	sse *datastar.ServerSentEventGenerator,
 ) error {

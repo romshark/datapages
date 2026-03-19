@@ -16,7 +16,7 @@ func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
 	return nil, nil
 }
 
-/* ErrAppRecover500InvalidSignature */
+/* ErrAppRecoverErrorInvalidSignature */
 
-func (*App) Recover500(err error, sse *datastar.ServerSentEventGenerator) {
+func (*App) RecoverError(err error, sse *datastar.ServerSentEventGenerator) {
 }

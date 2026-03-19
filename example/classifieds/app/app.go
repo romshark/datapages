@@ -77,7 +77,7 @@ func (*App) POSTCause500(r *http.Request) error {
 	return fmt.Errorf("this is an intentional 500 internal error")
 }
 
-func (*App) Recover500(
+func (*App) RecoverError(
 	err error,
 	sse *datastar.ServerSentEventGenerator,
 ) error {

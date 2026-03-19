@@ -11,14 +11,14 @@ func (s *Server) httpErrIntern(
 	if sse == nil {
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
 	}
-	errRecover := s.testapp.Recover500(err, sse)
+	errRecover := s.testapp.RecoverError(err, sse)
 	if errRecover == nil {
 		mInternalErrorsRecovered.Inc()
 		return // Feedback delivered gracefully.
 	}
-	// Fallback to ugly 500
+	// RecoverError failed — fall back to HTTP error response.
 	mInternalErrorsNotRecovered.Inc()
-	s.logger.Error("recovering 500",
+	s.logger.Error("recovering error",
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))

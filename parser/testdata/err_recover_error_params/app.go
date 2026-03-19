@@ -15,6 +15,6 @@ func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
 	return nil, nil
 }
 
-/* ErrAppRecover500InvalidSignature */
+/* ErrAppRecoverErrorInvalidSignature */
 
-func (*App) Recover500(foo string) error { return nil }
+func (*App) RecoverError(foo string) error { return nil }
