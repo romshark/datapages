@@ -549,7 +549,6 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 					s.logErr("unmarshaling EventCalcUpdated JSON", err)
 					continue
 				}
-				e.SubjectInstanceID = strings.TrimPrefix(msg.Subject, EvSubjPrefCalcUpdated)
 				if err := p.OnCalcUpdated(e, sse); err != nil {
 					s.logErr("handling PageIndex.OnCalcUpdated", err)
 				}
