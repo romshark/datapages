@@ -1,0 +1,11 @@
+url: http://localhost:8080
+---
+# Division by zero shows Error.
+- launchApp
+- tapOn: "5"
+- tapOn:
+    text: "\u00f7"
+- tapOn: "0"
+- tapOn: "="
+- assertVisible: "Error"
+- takeScreenshot: .maestro/screenshots/13_division_by_zero

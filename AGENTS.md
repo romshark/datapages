@@ -27,6 +27,7 @@
 - `parser/internal/` - internal utilities (e.g. route pattern parsing).
 - `parser/testdata/` - each subdirectory is a self-contained Go module
   used as a test fixture. Prefix `err_` for expected-error cases.
+- `example/calculator/` - basic calculator with server-side evaluation (separate module).
 - `example/counter/` - minimal counter example (separate module).
 - `example/fancy-counter/` - polished counter with animations (separate module).
 - `example/classifieds/` - full example application (separate module).

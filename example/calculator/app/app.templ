@@ -1,0 +1,108 @@
+package app
+
+import (
+	"fmt"
+
+	"github.com/romshark/datapages/example/calculator/app/calc"
+	"github.com/romshark/datapages/example/calculator/datapagesgen/action"
+	"github.com/romshark/datapages/example/calculator/datapagesgen/assets"
+)
+
+type button struct {
+	Class string
+	Label string
+	Btn   calc.CalcButton
+}
+
+var buttons = [...]button{
+	{"btn-fn", "C", calc.CalcButtonClear},
+	{"btn-fn", "\u21d0", calc.CalcButtonBackspace},
+	{"btn-fn", "()", calc.CalcButtonParen},
+	{"btn-op", "\u00f7", calc.CalcButtonDiv},
+	{"btn-digit", "7", calc.CalcButton7},
+	{"btn-digit", "8", calc.CalcButton8},
+	{"btn-digit", "9", calc.CalcButton9},
+	{"btn-op", "\u00d7", calc.CalcButtonMul},
+	{"btn-digit", "4", calc.CalcButton4},
+	{"btn-digit", "5", calc.CalcButton5},
+	{"btn-digit", "6", calc.CalcButton6},
+	{"btn-op", "\u2212", calc.CalcButtonSub},
+	{"btn-digit", "1", calc.CalcButton1},
+	{"btn-digit", "2", calc.CalcButton2},
+	{"btn-digit", "3", calc.CalcButton3},
+	{"btn-op", "+", calc.CalcButtonAdd},
+	{"btn-digit", "0", calc.CalcButton0},
+	{"btn-digit", ".", calc.CalcButtonDot},
+	{"btn-eq", "=", calc.CalcButtonEq},
+}
+
+templ head() {
+	<title>Calculator</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<link rel="icon" type="image/svg+xml" href={ assets.Path("favicon.svg") }/>
+	<link rel="stylesheet" href={ assets.Path("style.css") }/>
+	<script>
+		function calcPaste(evt) {
+			var t = (evt.clipboardData || window.clipboardData).getData('text').trim();
+			if (/^-?\d*\.?\d+$/.test(t)) {
+				evt.preventDefault();
+				return t;
+			}
+			return null;
+		}
+		function calcKey(evt) {
+			var m = {
+				'0':'0','1':'1','2':'2','3':'3','4':'4',
+				'5':'5','6':'6','7':'7','8':'8','9':'9',
+				'.':'.','+':'+','-':'\u2212','*':'\u00d7','/':'\u00f7',
+				'(':'()', ')':'()',
+				'Enter':'=','=':'=',
+				'Backspace':'\u21d0','Escape':'C'
+			};
+			var label = m[evt.key];
+			if (!label) return;
+			var btns = document.querySelectorAll('#page-calculator .buttons button');
+			for (var i = 0; i < btns.length; i++) {
+				if (btns[i].textContent.trim() === label) {
+					evt.preventDefault();
+					btns[i].click();
+					return;
+				}
+			}
+		}
+	</script>
+}
+
+templ pageCalculator(input string, fresh bool, instanceID string) {
+	<div
+		id="page-calculator"
+		class="card"
+		data-signals:input={ fmt.Sprintf("'%s'", input) }
+		data-signals:fresh={ fmt.Sprintf("%t", fresh) }
+		data-signals:instance_id={ fmt.Sprintf("'%s'", instanceID) }
+		data-on:keydown__window="calcKey(evt)"
+		data-on:copy__window="
+			evt.preventDefault();
+			evt.clipboardData.setData('text/plain',$input||'0')
+		"
+		data-on:paste__window="var v=calcPaste(evt);if(v!==null)@post('/input/?num='+encodeURIComponent(v))"
+	>
+		<h1>Calculator</h1>
+		<div class="display">{ calc.FormatDisplay(input) }</div>
+		<div class="buttons">
+			for _, b := range buttons {
+				<button
+					class={ b.Class }
+					data-on:click={ action.POSTPageIndexInput(
+						action.QueryPOSTPageIndexInput{Btn: int(b.Btn)}) }
+				>{ b.Label }</button>
+			}
+		</div>
+		<p class="hint">
+			Expression is evaluated server-side
+		</p>
+		<span id="attribution" class="attribution">
+			Built with <a href="https://github.com/romshark/datapages">Datapages</a>
+		</span>
+	</div>
+}

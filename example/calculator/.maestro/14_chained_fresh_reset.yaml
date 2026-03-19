@@ -1,0 +1,19 @@
+url: http://localhost:8080
+---
+# After two consecutive calculations, pressing a digit must still
+# start a fresh expression (not append to the second result).
+- launchApp
+- tapOn: "3"
+- tapOn: "+"
+- tapOn: "5"
+- tapOn: "="
+- assertVisible: "8"
+- tapOn: "9"
+- assertVisible: "9"
+- tapOn: "+"
+- tapOn: "1"
+- tapOn: "="
+- assertVisible: "10"
+- tapOn: "2"
+- assertVisible: "2"
+- takeScreenshot: .maestro/screenshots/14_chained_fresh_reset

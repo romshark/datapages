@@ -1,0 +1,14 @@
+url: http://localhost:8080
+---
+# Decimal arithmetic: 1.5 + 2.5 = 4
+- launchApp
+- tapOn: "1"
+- tapOn: "."
+- tapOn: "5"
+- tapOn: "+"
+- tapOn: "2"
+- tapOn: "."
+- tapOn: "5"
+- tapOn: "="
+- assertVisible: "4"
+- takeScreenshot: .maestro/screenshots/12_decimal

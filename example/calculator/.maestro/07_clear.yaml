@@ -1,0 +1,10 @@
+url: http://localhost:8080
+---
+# Pressing C resets the display to 0.
+- launchApp
+- tapOn: "5"
+- tapOn: "3"
+- assertVisible: "53"
+- tapOn: "C"
+- assertVisible: "0"
+- takeScreenshot: .maestro/screenshots/07_clear

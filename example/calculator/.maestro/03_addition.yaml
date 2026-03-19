@@ -1,0 +1,10 @@
+url: http://localhost:8080
+---
+# 3 + 5 = 8
+- launchApp
+- tapOn: "3"
+- tapOn: "+"
+- tapOn: "5"
+- tapOn: "="
+- assertVisible: "8"
+- takeScreenshot: .maestro/screenshots/03_addition

@@ -1,0 +1,13 @@
+{
+  "name": "calculator",
+  "outputfilename": "calculator",
+  "wailsjsdir": "",
+  "assetdir": "",
+  "reloaddirs": "",
+  "frontend:install": "",
+  "frontend:build": "",
+  "author": {
+    "name": "",
+    "email": ""
+  }
+}

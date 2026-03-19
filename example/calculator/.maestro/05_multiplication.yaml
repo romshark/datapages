@@ -1,0 +1,11 @@
+url: http://localhost:8080
+---
+# 6 x 7 = 42
+- launchApp
+- tapOn: "6"
+- tapOn:
+    text: "\u00d7"
+- tapOn: "7"
+- tapOn: "="
+- assertVisible: "42"
+- takeScreenshot: .maestro/screenshots/05_multiplication
