@@ -1,5 +1,7 @@
 # Calculator
 
+https://github.com/user-attachments/assets/3806da2c-c07f-4595-8329-334f8014a364
+
 A basic calculator with server-side evaluation.
 Demonstrates the
 [fat-morph](https://data-star.dev/guide/the_tao_of_datastar#in-morph-we-trust)
