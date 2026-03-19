@@ -456,7 +456,7 @@ type EventExample struct {
 
 Events can declare subject fields to build targeted NATS subjects.
 Any field whose name starts with `Subject` is a subject field.
-Subject fields must have type `string` or `[]string` and the struct tag `json:"-"`.
+Subject fields must have type `string` or `[]string`.
 Subject fields must be defined before any payload fields.
 
 - `[]string` — multiple values; the Cartesian product of all `[]string` subject field
@@ -494,8 +494,8 @@ will receive the event). It can be `string` (single user) or `[]string` (multipl
 ```go
 // Multiple recipients:
 type EventMessageSent struct {
-	SubjectUser     []string `json:"-"`
-	SubjectChatRoom []string `json:"-"`
+	SubjectUser     []string `json:"subject_user"`
+	SubjectChatRoom []string `json:"subject_chat_room"`
 
 	Message string `json:"message"`
 	Sender  string `json:"sender"`
@@ -503,7 +503,7 @@ type EventMessageSent struct {
 
 // Single recipient:
 type EventDirectMessage struct {
-	SubjectUser string `json:"-"`
+	SubjectUser string `json:"subject_user"`
 
 	Text   string `json:"text"`
 	Sender string `json:"sender"`
@@ -518,7 +518,7 @@ SSE stream, the server reads the signal value and uses it to build the subscript
 subject. This enables per-instance event routing without authentication.
 
 The signal name must start with a lowercase letter and contain only lowercase letters,
-digits, underscores, or dots (e.g. `signal:"instance_id"`, `signal:"form.calc_id"`).
+digits, underscores, or periods (e.g. `signal:"instance_id"`, `signal:"form.calc_id"`).
 
 Signal-scoped subject fields must have type `string` (singular), since the signal
 provides exactly one value. `SubjectUser` must not have a signal tag.
@@ -526,7 +526,7 @@ provides exactly one value. `SubjectUser` must not have a signal tag.
 ```go
 // EventCalcUpdated is "calc.updated"
 type EventCalcUpdated struct {
-	SubjectInstance string `json:"-" signal:"instance_id"`
+	SubjectInstance string `json:"subject_instance" signal:"instance_id"`
 
 	Result float64 `json:"result"`
 }
@@ -541,9 +541,9 @@ public events on the same page. They can also coexist with non-signal subject fi
 ```go
 // EventRoomUpdate is "room.update"
 type EventRoomUpdate struct {
-	SubjectUser []string `json:"-"`
-	SubjectRoom []string `json:"-"`
-	SubjectCalc string   `json:"-" signal:"calc_id"`
+	SubjectUser []string `json:"subject_user"`
+	SubjectRoom []string `json:"subject_chat_room"`
+	SubjectCalc string   `signal:"calc_id"`
 
 	Data string `json:"data"`
 }
@@ -560,7 +560,7 @@ The following is invalid because a subject field appears after a payload field:
 ```go
 type EventInvalid struct {
 	Message     string   `json:"message"`
-	SubjectUser []string `json:"-"` // ERROR: subject field after payload field
+	SubjectUser []string // ERROR: subject field after payload field
 }
 ```
 
@@ -617,8 +617,8 @@ dispatch func(EventTypeA, EventTypeB, EventTypeC) error
 ```go
 // EventMessageSent is "chat.sent"
 type EventMessageSent struct {
-	SubjectUser     []string `json:"-"`
-	SubjectChatRoom []string `json:"-"`
+	SubjectUser     []string `json:"subject_user"`
+	SubjectChatRoom []string `json:"subject_chat_room"`
 
 	Message string `json:"message"`
 	Sender  string `json:"sender"`

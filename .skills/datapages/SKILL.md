@@ -395,7 +395,7 @@ func (PageChat) OnMessageSent(
 
 ### Subject Fields
 
-Any field named `Subject<Name>` with type `[]string` and tag `json:"-"` is a subject field. Subject fields must appear before any payload fields.
+Any field named `Subject<Name>` with type `string` or `[]string` is a subject field. Subject fields must appear before any payload fields.
 
 The values of all subject fields are combined as a Cartesian product and appended to the event's base NATS subject. For example, if an event has `SubjectUser` with values `["u1", "u2"]`, the base subject `messaging.sent` becomes `messaging.sent.u1` and `messaging.sent.u2`.
 
@@ -404,7 +404,7 @@ The values of all subject fields are combined as a Cartesian product and appende
 ```go
 // EventDirectMessage is "messaging.direct"
 type EventDirectMessage struct {
-	SubjectUser []string `json:"-"`
+	SubjectUser []string `json:"subject_user"`
 
 	Content string `json:"content"`
 }

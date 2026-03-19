@@ -112,6 +112,11 @@ func validateEventType(
 		f := st.Field(i)
 		tag := st.Tag(i)
 
+		// Subject fields are validated separately; skip all checks.
+		if strings.HasPrefix(f.Name(), "Subject") {
+			continue
+		}
+
 		// Fields marked json:"-" are intentionally excluded from JSON; skip all checks.
 		if structtag.JSONTagExcluded(tag) {
 			continue
