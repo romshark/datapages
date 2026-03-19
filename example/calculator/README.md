@@ -83,6 +83,9 @@ it (see `mage runDesktop`). The desktop mode uses [Wails v3](https://v3.wails.io
 in-memory message broker instead of NATS, since it's a single-user, single-process system.
 No code in the `app` package needs to change between server and desktop modes.
 
+The only JavaScript in this example is a small inline `<script>` that maps
+keyboard events to button clicks and validates clipboard paste input.
+
 ## Prerequisites
 
 - [Go](https://go.dev/dl/) 1.26+
