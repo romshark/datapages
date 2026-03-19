@@ -20,7 +20,7 @@ func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
 
 // EventChat is "chat"
 type EventChat struct {
-	SubjectUser []string `json:"-"`
+	SubjectUser []string
 
 	Message string `json:"message"`
 }

@@ -154,7 +154,7 @@ type SubjectFieldResult struct {
 }
 
 // SubjectFields inspects a type spec for Subject-prefixed fields.
-// A valid Subject field has type []string and struct tag json:"-".
+// A valid Subject field has type string or []string.
 // Returns the list of subject fields and whether any appear after payload fields.
 func SubjectFields(
 	ts *ast.TypeSpec, info *types.Info,
@@ -201,20 +201,13 @@ func SubjectFields(
 			continue
 		}
 
-		// Validate json:"-" tag.
-		if f.Tag == nil {
-			continue
-		}
-		tag, err := strconv.Unquote(f.Tag.Value)
-		if err != nil {
-			continue
-		}
-		if !strings.Contains(tag, `json:"-"`) {
-			continue
-		}
-
 		// Extract optional signal:"xxx" tag for signal-scoped subject fields.
-		signalName := reflect.StructTag(tag).Get("signal")
+		var signalName string
+		if f.Tag != nil {
+			if tag, err := strconv.Unquote(f.Tag.Value); err == nil {
+				signalName = reflect.StructTag(tag).Get("signal")
+			}
+		}
 
 		sf := SubjectField{
 			FieldName:  name,

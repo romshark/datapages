@@ -26,8 +26,8 @@ func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
 
 // EventBad is "bad"
 type EventBad struct {
-	SubjectFoo []string `json:"-" signal:"instance_id"`
-	SubjectBar []string `json:"-" signal:"instance_id"`
+	SubjectFoo []string `signal:"instance_id"`
+	SubjectBar []string `signal:"instance_id"`
 
 	Message string `json:"message"`
 }
