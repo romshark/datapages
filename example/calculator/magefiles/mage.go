@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -17,7 +18,11 @@ func TestUIWorkflows() error {
 	if err := run("go", "build", "-o", "server", "./cmd/server"); err != nil {
 		return err
 	}
-	defer os.Remove("server")
+	defer func() {
+		if err := os.Remove("server"); err != nil {
+			log.Printf("ERR: removing server executable: %v", err)
+		}
+	}()
 
 	fmt.Println("==> starting server on localhost:8080")
 	cmd := exec.Command("./server", "-host", "localhost:8080")
@@ -80,7 +85,11 @@ func RunServer() error {
 	if err := run("go", "build", "-o", "server", "./cmd/server"); err != nil {
 		return err
 	}
-	defer os.Remove("server")
+	defer func() {
+		if err := os.Remove("server"); err != nil {
+			log.Printf("ERR: removing server executable: %v", err)
+		}
+	}()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -127,7 +136,9 @@ func dockerComposeUp() (stop func(), err error) {
 
 func setDevEnv() {
 	if os.Getenv("HMAC_SECRET_KEY") == "" {
-		os.Setenv("HMAC_SECRET_KEY", "dev-secret")
+		if err := os.Setenv("HMAC_SECRET_KEY", "dev-secret"); err != nil {
+			log.Printf("ERR: setting env var HMAC_SECRET_KEY: %v", err)
+		}
 	}
 }
 
