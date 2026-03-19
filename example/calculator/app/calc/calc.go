@@ -2,11 +2,13 @@ package calc
 
 import (
 	"fmt"
-	"math"
-	"strconv"
+	"math/big"
 	"strings"
 	"unicode"
 )
+
+// precision is the number of bits of mantissa used for calculations.
+const precision = 256
 
 // Evaluate parses and evaluates a mathematical expression string.
 // It supports +, -, *, / (and Unicode × ÷), parentheses, and unary minus.
@@ -23,10 +25,7 @@ func Evaluate(expr string) string {
 	if err != nil || p.pos < len(p.input) {
 		return "Error"
 	}
-	if math.IsInf(result, 0) || math.IsNaN(result) {
-		return "Error"
-	}
-	return strconv.FormatFloat(result, 'f', -1, 64)
+	return result.Text('f', -1)
 }
 
 type parser struct {
@@ -48,10 +47,10 @@ func (p *parser) peek() byte {
 	return p.input[p.pos]
 }
 
-func (p *parser) parseExpr() (float64, error) {
+func (p *parser) parseExpr() (*big.Float, error) {
 	left, err := p.parseTerm()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	for {
 		op := p.peek()
@@ -61,21 +60,21 @@ func (p *parser) parseExpr() (float64, error) {
 		p.pos++
 		right, err := p.parseTerm()
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		if op == '+' {
-			left += right
+			left.Add(left, right)
 		} else {
-			left -= right
+			left.Sub(left, right)
 		}
 	}
 	return left, nil
 }
 
-func (p *parser) parseTerm() (float64, error) {
+func (p *parser) parseTerm() (*big.Float, error) {
 	left, err := p.parseFactor()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	for {
 		op := p.peek()
@@ -83,20 +82,23 @@ func (p *parser) parseTerm() (float64, error) {
 			p.pos++
 			right, err := p.parseFactor()
 			if err != nil {
-				return 0, err
+				return nil, err
 			}
 			if op == '*' {
-				left *= right
+				left.Mul(left, right)
 			} else {
-				left /= right
+				if right.Sign() == 0 {
+					return nil, fmt.Errorf("division by zero")
+				}
+				left.Quo(left, right)
 			}
 		} else if op == '(' || unicode.IsDigit(rune(op)) {
 			// Implicit multiplication: 6(2) or (2)(3).
 			right, err := p.parseFactor()
 			if err != nil {
-				return 0, err
+				return nil, err
 			}
-			left *= right
+			left.Mul(left, right)
 		} else {
 			break
 		}
@@ -104,27 +106,27 @@ func (p *parser) parseTerm() (float64, error) {
 	return left, nil
 }
 
-func (p *parser) parseFactor() (float64, error) {
+func (p *parser) parseFactor() (*big.Float, error) {
 	p.skipSpaces()
 	if p.pos >= len(p.input) {
-		return 0, fmt.Errorf("unexpected end of expression")
+		return nil, fmt.Errorf("unexpected end of expression")
 	}
 	if p.input[p.pos] == '-' {
 		p.pos++
 		val, err := p.parseFactor()
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-		return -val, nil
+		return val.Neg(val), nil
 	}
 	if p.input[p.pos] == '(' {
 		p.pos++
 		val, err := p.parseExpr()
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		if p.peek() != ')' {
-			return 0, fmt.Errorf("missing closing parenthesis")
+			return nil, fmt.Errorf("missing closing parenthesis")
 		}
 		p.pos++
 		return val, nil
@@ -132,7 +134,7 @@ func (p *parser) parseFactor() (float64, error) {
 	return p.parseNumber()
 }
 
-func (p *parser) parseNumber() (float64, error) {
+func (p *parser) parseNumber() (*big.Float, error) {
 	p.skipSpaces()
 	start := p.pos
 	for p.pos < len(p.input) &&
@@ -140,7 +142,11 @@ func (p *parser) parseNumber() (float64, error) {
 		p.pos++
 	}
 	if p.pos == start {
-		return 0, fmt.Errorf("expected number at position %d", p.pos)
+		return nil, fmt.Errorf("expected number at position %d", p.pos)
 	}
-	return strconv.ParseFloat(p.input[start:p.pos], 64)
+	f, _, err := new(big.Float).SetPrec(precision).Parse(p.input[start:p.pos], 10)
+	if err != nil {
+		return nil, fmt.Errorf("invalid number: %w", err)
+	}
+	return f, nil
 }
