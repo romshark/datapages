@@ -14,6 +14,8 @@ import (
 // TestUIWorkflows builds and starts the calculator server,
 // runs Maestro flows against it, then stops the server.
 func TestUIWorkflows() error {
+	setDevEnv()
+
 	fmt.Println("==> go build ./cmd/server")
 	if err := run("go", "build", "-o", "server", "./cmd/server"); err != nil {
 		return err
