@@ -39,13 +39,18 @@ func TestUIWorkflows() error {
 	}()
 
 	// Wait for server readiness.
+	ready := false
 	for range 50 {
 		resp, err := http.Get("http://localhost:8080")
 		if err == nil {
 			_ = resp.Body.Close()
+			ready = true
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+	if !ready {
+		return fmt.Errorf("server did not become ready within 5s")
 	}
 
 	fmt.Println("==> maestro test .maestro/")
