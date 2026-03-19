@@ -17,7 +17,7 @@ import (
 
 // EventCalcUpdated is "calc.updated"
 type EventCalcUpdated struct {
-	SubjectInstanceID string `json:"-" signal:"instance_id"`
+	SubjectInstanceID string `json:"subject_id" signal:"instance_id"`
 
 	Input string `json:"input"`
 	Fresh bool   `json:"fresh"`
