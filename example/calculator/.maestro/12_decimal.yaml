@@ -11,4 +11,4 @@ url: http://localhost:8080
 - tapOn: "5"
 - tapOn: "="
 - assertVisible: "4"
-- takeScreenshot: 12_decimal
+- takeScreenshot: .maestro/screenshots/12_decimal

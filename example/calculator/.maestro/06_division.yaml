@@ -8,4 +8,4 @@ url: http://localhost:8080
 - tapOn: "2"
 - tapOn: "="
 - assertVisible: "4"
-- takeScreenshot: 06_division
+- takeScreenshot: .maestro/screenshots/06_division

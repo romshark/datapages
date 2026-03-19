@@ -11,4 +11,4 @@ url: http://localhost:8080
 - tapOn: "1"
 - tapOn: "="
 - assertVisible: "6"
-- takeScreenshot: 10_operator_after_equals
+- takeScreenshot: .maestro/screenshots/10_operator_after_equals

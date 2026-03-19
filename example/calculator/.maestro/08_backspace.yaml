@@ -9,4 +9,4 @@ url: http://localhost:8080
 - tapOn:
     text: "\u21d0"
 - assertVisible: "12"
-- takeScreenshot: 08_backspace
+- takeScreenshot: .maestro/screenshots/08_backspace

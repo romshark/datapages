@@ -4,4 +4,4 @@ url: http://localhost:8080
 - launchApp
 - assertVisible: "Calculator"
 - assertVisible: "0"
-- takeScreenshot: 01_initial_state
+- takeScreenshot: .maestro/screenshots/01_initial_state

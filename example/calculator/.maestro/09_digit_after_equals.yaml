@@ -10,4 +10,4 @@ url: http://localhost:8080
 - assertVisible: "5"
 - tapOn: "9"
 - assertVisible: "9"
-- takeScreenshot: 09_digit_after_equals
+- takeScreenshot: .maestro/screenshots/09_digit_after_equals

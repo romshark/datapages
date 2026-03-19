@@ -16,4 +16,4 @@ url: http://localhost:8080
 - assertVisible: "10"
 - tapOn: "2"
 - assertVisible: "2"
-- takeScreenshot: 14_chained_fresh_reset
+- takeScreenshot: .maestro/screenshots/14_chained_fresh_reset
