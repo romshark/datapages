@@ -70,14 +70,11 @@ func RunServer() error {
 		return err
 	}
 
-	fmt.Println("==> docker compose up -d")
-	if err := run("docker", "compose", "up", "-d"); err != nil {
-		return fmt.Errorf("starting docker compose: %w", err)
+	stop, err := dockerComposeUp()
+	if err != nil {
+		return err
 	}
-	defer func() {
-		fmt.Println("==> docker compose down")
-		_ = run("docker", "compose", "down")
-	}()
+	defer stop()
 
 	fmt.Println("==> go build ./cmd/server")
 	if err := run("go", "build", "-o", "server", "./cmd/server"); err != nil {
@@ -85,12 +82,10 @@ func RunServer() error {
 	}
 	defer os.Remove("server")
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
 
-	if os.Getenv("HMAC_SECRET_KEY") == "" {
-		os.Setenv("HMAC_SECRET_KEY", "dev-secret")
-	}
+	setDevEnv()
 
 	fmt.Println("==> starting server on localhost:8080")
 	cmd := exec.CommandContext(ctx, "./server", "-host", "localhost:8080")
@@ -102,6 +97,38 @@ func RunServer() error {
 		return fmt.Errorf("running server: %w", err)
 	}
 	return nil
+}
+
+// Dev starts NATS via docker compose and runs datapages watch with dev env vars.
+// Press Ctrl+C to stop.
+func Dev() error {
+	stop, err := dockerComposeUp()
+	if err != nil {
+		return err
+	}
+	defer stop()
+
+	setDevEnv()
+
+	fmt.Println("==> datapages watch")
+	return run("datapages", "watch")
+}
+
+func dockerComposeUp() (stop func(), err error) {
+	fmt.Println("==> docker compose up -d")
+	if err := run("docker", "compose", "up", "-d"); err != nil {
+		return nil, fmt.Errorf("starting docker compose: %w", err)
+	}
+	return func() {
+		fmt.Println("==> docker compose down")
+		_ = run("docker", "compose", "down")
+	}, nil
+}
+
+func setDevEnv() {
+	if os.Getenv("HMAC_SECRET_KEY") == "" {
+		os.Setenv("HMAC_SECRET_KEY", "dev-secret")
+	}
 }
 
 func Gen() error {

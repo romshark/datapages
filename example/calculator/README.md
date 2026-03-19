@@ -44,7 +44,7 @@ Opens the calculator in a native webview window (WebKit on macOS, Edge on Window
 ## Develop
 
 ```sh
-datapages watch
+mage dev
 ```
 
 Then open http://localhost:7331/.
