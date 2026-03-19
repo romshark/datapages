@@ -306,6 +306,15 @@ Close session:
 }
 ```
 
+HTTP error status (use the generated `datapagesgen/httperr` sentinels):
+```go
+return httperr.BadRequest                                    // 400, zero alloc
+return httperr.Forbidden                                     // 403
+return fmt.Errorf("%w: %w", httperr.NotFound, errOriginal)   // 404, preserves original
+```
+
+Errors without a sentinel default to 500 (or `RecoverError` if defined).
+
 ## Step 7: Add Signals
 
 Signals are Datastar frontend state. Inline struct with `json` tags.
@@ -482,10 +491,10 @@ func (*App) Head(
 
 ## Step 12: Add Error Recovery (Optional)
 
-When a handler returns an error during a Datastar SSE request, a plain HTTP 500 is invisible to the user - there is no visible feedback, only a console log that normal users never see. `Recover500` lets you handle this gracefully by patching in an error UI (e.g. a toast notification) over SSE instead.
+When a handler returns an error during a Datastar SSE request, a plain HTTP error is invisible to the user - there is no visible feedback, only a console log that normal users never see. `RecoverError` lets you handle this gracefully by patching in an error UI (e.g. a toast notification) over SSE instead. All action handler errors (including httperr sentinels) are routed through `RecoverError` when defined. Use `errors.Is(err, httperr.BadRequest)` etc. inside `RecoverError` to distinguish error types.
 
 ```go
-func (*App) Recover500(
+func (*App) RecoverError(
 	err error,
 	sse *datastar.ServerSentEventGenerator,
 ) error {

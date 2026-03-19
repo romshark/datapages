@@ -15,7 +15,7 @@ type App struct {
 	PageError404 *Page
 	PageError500 *Page
 
-	Recover500          ast.Expr    // Nullable.
+	RecoverError        ast.Expr    // Nullable.
 	GlobalHeadGenerator *GlobalHead // Nullable.
 
 	Session *SessionType // Nullable.

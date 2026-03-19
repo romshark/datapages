@@ -482,7 +482,7 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 			}
 			recv := structinspect.ReceiverTypeName(fd.Recv.List[0].Type)
 
-			// App hooks: (*App).Head, (*App).Recover500, and App-level actions.
+			// App hooks: (*App).Head, (*App).RecoverError, and App-level actions.
 			if recv == "App" {
 				switch fd.Name.Name {
 				case "Head":
@@ -526,7 +526,7 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 					}
 
 					ctx.app.GlobalHeadGenerator = gh
-				case "Recover500":
+				case "RecoverError":
 					info := ctx.pkg.TypesInfo
 					pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 					params := fd.Type.Params
@@ -536,10 +536,10 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 						!typecheck.IsPtrToDatastarSSE(params.List[1].Type, info) ||
 						results == nil || results.NumFields() != 1 ||
 						!typecheck.IsError(info.TypeOf(results.List[0].Type)) {
-						errs.ErrAt(pos, ErrAppRecover500InvalidSignature)
+						errs.ErrAt(pos, ErrAppRecoverErrorInvalidSignature)
 						continue
 					}
-					ctx.app.Recover500 = fd.Name
+					ctx.app.RecoverError = fd.Name
 				default:
 					kind, suffix := methodkind.Classify(fd.Name.Name)
 					if kind.IsAction() {

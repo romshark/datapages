@@ -1053,14 +1053,7 @@ func (w *Writer) writeActionMethodCall(
 			w.Raw("\tif err := ")
 			w.writeCallExpr("p", methodName, args)
 			w.Raw("; err != nil {\n")
-			w.Raw("\t\ts.httpErrIntern(w, r, ")
-			w.Raw(sseRef)
-			w.Raw(", \"handling action ")
-			w.Raw(p.TypeName)
-			w.Byte('.')
-			w.Raw(h.Name)
-			w.Raw("\", err)\n")
-			w.Line(2, "return")
+			w.writeActionErrCheck(p, h, sseRef)
 			w.Line(1, "}")
 		} else {
 			w.Byte('\t')
@@ -1082,14 +1075,7 @@ func (w *Writer) writeActionMethodCall(
 			sseRef = "sse"
 		}
 		w.Line(1, "if err != nil {")
-		w.Raw("\t\ts.httpErrIntern(w, r, ")
-		w.Raw(sseRef)
-		w.Raw(", \"handling action ")
-		w.Raw(p.TypeName)
-		w.Byte('.')
-		w.Raw(h.Name)
-		w.Raw("\", err)\n")
-		w.Line(2, "return")
+		w.writeActionErrCheck(p, h, sseRef)
 		w.Line(1, "}")
 	}
 
@@ -1167,6 +1153,22 @@ func (w *Writer) writeActionMethodCall(
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
+}
+
+// writeActionErrCheck emits the error-handling body for action handlers.
+// All errors are routed through httpErrIntern, which calls RecoverError
+// if available and falls back to httperr sentinel checks or 500.
+func (w *Writer) writeActionErrCheck(
+	p *model.Page, h *model.Handler, sseRef string,
+) {
+	w.Raw("\t\ts.httpErrIntern(w, r, ")
+	w.Raw(sseRef)
+	w.Raw(", \"handling action ")
+	w.Raw(p.TypeName)
+	w.Byte('.')
+	w.Raw(h.Name)
+	w.Raw("\", err)\n")
+	w.Line(2, "return")
 }
 
 func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {

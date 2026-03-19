@@ -124,6 +124,22 @@ func Generate(
 		return fmt.Errorf("writing href/href_gen.go: %w", err)
 	}
 
+	// Generate httperr/httperr_gen.go
+	w.Reset()
+	w.WritePkgHTTPErr()
+	httperrDir := filepath.Join(dstDir, "httperr")
+	httperrGenPath := filepath.Join(httperrDir, "httperr_gen.go")
+	w.Buf, err = goimports.Process(httperrGenPath, w.Buf, nil)
+	if err != nil {
+		return fmt.Errorf("formatting httperr/httperr_gen.go: %w", err)
+	}
+	if err := os.MkdirAll(httperrDir, 0o755); err != nil {
+		return fmt.Errorf("creating directory %s: %w", httperrDir, err)
+	}
+	if err := os.WriteFile(httperrGenPath, w.Buf, perm); err != nil {
+		return fmt.Errorf("writing httperr/httperr_gen.go: %w", err)
+	}
+
 	return nil
 }
 
@@ -134,6 +150,7 @@ func generateStubs(dstDir, pkgName string, perm os.FileMode, hasAssets bool) err
 		{dstDir, pkgName, "app_gen.go"},
 		{filepath.Join(dstDir, "action"), "action", "action_gen.go"},
 		{filepath.Join(dstDir, "href"), "href", "href_gen.go"},
+		{filepath.Join(dstDir, "httperr"), "httperr", "httperr_gen.go"},
 	}
 	assetsDir := filepath.Join(dstDir, "assets")
 	if hasAssets {

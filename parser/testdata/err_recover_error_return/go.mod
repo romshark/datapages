@@ -1,4 +1,4 @@
-module datapagestest/fixture/err_recover500_return
+module datapagestest/fixture/err_recover_error_return
 
 go 1.26
 
