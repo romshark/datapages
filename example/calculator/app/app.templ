@@ -2,10 +2,39 @@ package app
 
 import (
 	"fmt"
+
 	"github.com/romshark/datapages/example/calculator/app/calc"
 	"github.com/romshark/datapages/example/calculator/datapagesgen/action"
 	"github.com/romshark/datapages/example/calculator/datapagesgen/assets"
 )
+
+type button struct {
+	Class string
+	Label string
+	Btn   calc.CalcButton
+}
+
+var buttons = [...]button{
+	{"btn-fn", "C", calc.CalcButtonClear},
+	{"btn-fn", "\u21d0", calc.CalcButtonBackspace},
+	{"btn-fn", "()", calc.CalcButtonParen},
+	{"btn-op", "\u00f7", calc.CalcButtonDiv},
+	{"btn-digit", "7", calc.CalcButton7},
+	{"btn-digit", "8", calc.CalcButton8},
+	{"btn-digit", "9", calc.CalcButton9},
+	{"btn-op", "\u00d7", calc.CalcButtonMul},
+	{"btn-digit", "4", calc.CalcButton4},
+	{"btn-digit", "5", calc.CalcButton5},
+	{"btn-digit", "6", calc.CalcButton6},
+	{"btn-op", "\u2212", calc.CalcButtonSub},
+	{"btn-digit", "1", calc.CalcButton1},
+	{"btn-digit", "2", calc.CalcButton2},
+	{"btn-digit", "3", calc.CalcButton3},
+	{"btn-op", "+", calc.CalcButtonAdd},
+	{"btn-digit", "0", calc.CalcButton0},
+	{"btn-digit", ".", calc.CalcButtonDot},
+	{"btn-eq", "=", calc.CalcButtonEq},
+}
 
 templ head() {
 	<title>Calculator</title>
@@ -22,14 +51,6 @@ templ head() {
 			return null;
 		}
 		function calcKey(evt) {
-			if ((evt.metaKey || evt.ctrlKey) && evt.key === 'c') {
-				var d = document.querySelector('#page-calculator .display');
-				if (d) {
-					navigator.clipboard.writeText(d.textContent.trim());
-					evt.preventDefault();
-				}
-				return;
-			}
 			var m = {
 				'0':'0','1':'1','2':'2','3':'3','4':'4',
 				'5':'5','6':'6','7':'7','8':'8','9':'9',
@@ -60,87 +81,22 @@ templ pageCalculator(input string, fresh bool, instanceID string) {
 		data-signals:fresh={ fmt.Sprintf("%t", fresh) }
 		data-signals:instance_id={ fmt.Sprintf("'%s'", instanceID) }
 		data-on:keydown__window="calcKey(evt)"
-		data-on:paste__window="var v=calcPaste(evt);if(v!==null){$input=$fresh?v:$input+v;$fresh=false}"
+		data-on:copy__window="
+			evt.preventDefault();
+			evt.clipboardData.setData('text/plain',$input||'0')
+		"
+		data-on:paste__window="var v=calcPaste(evt);if(v!==null)@post('/input/?num='+encodeURIComponent(v))"
 	>
 		<h1>Calculator</h1>
-		<div class="display" data-text="$input || '0'"></div>
+		<div class="display">{ calc.FormatDisplay(input) }</div>
 		<div class="buttons">
-			<button
-				class="btn-fn"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonClear)) }
-			>C</button>
-			<button
-				class="btn-fn"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonBackspace)) }
-			>&lArr;</button>
-			<button
-				class="btn-fn"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonParen)) }
-			>()</button>
-			<button
-				class="btn-op"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonDiv)) }
-			>&divide;</button>
-			<button
-				class="btn-digit"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton7)) }
-			>7</button>
-			<button
-				class="btn-digit"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton8)) }
-			>8</button>
-			<button
-				class="btn-digit"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton9)) }
-			>9</button>
-			<button
-				class="btn-op"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonMul)) }
-			>&times;</button>
-			<button
-				class="btn-digit"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton4)) }
-			>4</button>
-			<button
-				class="btn-digit"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton5)) }
-			>5</button>
-			<button
-				class="btn-digit"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton6)) }
-			>6</button>
-			<button
-				class="btn-op"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonSub)) }
-			>&minus;</button>
-			<button
-				class="btn-digit"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton1)) }
-			>1</button>
-			<button
-				class="btn-digit"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton2)) }
-			>2</button>
-			<button
-				class="btn-digit"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton3)) }
-			>3</button>
-			<button
-				class="btn-op"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonAdd)) }
-			>+</button>
-			<button
-				class="btn-digit"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButton0)) }
-			>0</button>
-			<button
-				class="btn-digit"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonDot)) }
-			>.</button>
-			<button
-				class="btn-eq"
-				data-on:click={ action.POSTPageIndexInput(int(calc.CalcButtonEq)) }
-			>=</button>
+			for _, b := range buttons {
+				<button
+					class={ b.Class }
+					data-on:click={ action.POSTPageIndexInput(
+						action.QueryPOSTPageIndexInput{Btn: int(b.Btn)}) }
+				>{ b.Label }</button>
+			}
 		</div>
 		<p class="hint">
 			Expression is evaluated server-side

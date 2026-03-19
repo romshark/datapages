@@ -42,3 +42,26 @@ func TestEvaluate(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatDisplay(t *testing.T) {
+	for name, tt := range map[string]struct {
+		input string
+		want  string
+	}{
+		"empty":       {input: "", want: "0"},
+		"zero":        {input: "0", want: "0"},
+		"small":       {input: "999", want: "999"},
+		"thousands":   {input: "1000", want: "1,000"},
+		"millions":    {input: "1234567", want: "1,234,567"},
+		"decimal":     {input: "1234.56", want: "1,234.56"},
+		"expression":  {input: "1000+2000", want: "1,000+2,000"},
+		"negative":    {input: "-1234567", want: "-1,234,567"},
+		"unicode_ops": {input: "1000\u00d72000", want: "1,000\u00d72,000"},
+		"no_frac_sep": {input: "1.123456", want: "1.123456"},
+		"large":       {input: "999999999999", want: "999,999,999,999"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tt.want, FormatDisplay(tt.input))
+		})
+	}
+}

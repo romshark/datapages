@@ -87,12 +87,13 @@ func (p PageIndex) GET(r *http.Request) (
 	return pageCalculator("", false, id), true, nil
 }
 
-// POSTInput is /input/{btn}/{$}
+// POSTInput is /input/{$}
 func (p PageIndex) POSTInput(
 	r *http.Request,
 	dispatch func(EventCalcUpdated) error,
-	path struct {
-		Btn int `path:"btn"`
+	query struct {
+		Btn int    `query:"btn"`
+		Num string `query:"num"`
 	},
 	signals struct {
 		InstanceID string `json:"instance_id"`
@@ -103,7 +104,19 @@ func (p PageIndex) POSTInput(
 	if err := p.App.verifyID(signals.InstanceID); err != nil {
 		return err
 	}
-	input, fresh := calc.Press(signals.Input, signals.Fresh, calc.CalcButton(path.Btn))
+
+	if query.Num != "" {
+		input := signals.Input
+		if signals.Fresh {
+			input = ""
+		}
+		return dispatch(EventCalcUpdated{
+			SubjectInstanceID: signals.InstanceID,
+			Input:             input + query.Num,
+			Fresh:             false,
+		})
+	}
+	input, fresh := calc.Press(signals.Input, signals.Fresh, calc.CalcButton(query.Btn))
 	return dispatch(EventCalcUpdated{
 		SubjectInstanceID: signals.InstanceID,
 		Input:             input,

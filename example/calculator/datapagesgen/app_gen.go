@@ -470,7 +470,7 @@ func setupHandlers(s *Server) {
 		"GET /_$/{$}",
 		s.handlePageIndexGETStream)
 	s.mux.HandleFunc(
-		"POST /input/{btn}/{$}",
+		"POST /input/{$}",
 		s.handlePageIndexPOSTInput)
 }
 
@@ -574,18 +574,22 @@ func (s *Server) handlePageIndexPOSTInput(
 		return
 	}
 
-	var path struct {
-		Btn int `path:"btn"`
+	q := r.URL.Query()
+	var query struct {
+		Btn int    `query:"btn"`
+		Num string `query:"num"`
 	}
 	{
-		v := r.PathValue("btn")
-		i, err := strconv.ParseInt(v, 10, 0)
-		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: btn", err)
-			return
+		if q := q.Get("btn"); q != "" {
+			i, err := strconv.ParseInt(q, 10, 0)
+			if err != nil {
+				s.httpErrBad(w, "unexpected value for query parameter: btn", err)
+				return
+			}
+			query.Btn = int(i)
 		}
-		path.Btn = int(i)
 	}
+	query.Num = q.Get("num")
 
 	dispatch := func(
 		e1 app.EventCalcUpdated,
@@ -607,7 +611,7 @@ func (s *Server) handlePageIndexPOSTInput(
 	p := app.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTInput(r, dispatch, path, signals)
+	err := p.POSTInput(r, dispatch, query, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Input", err)
 		return

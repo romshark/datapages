@@ -2,11 +2,41 @@ package calc
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 
 	"github.com/shopspring/decimal"
 )
+
+var numRe = regexp.MustCompile(`-?\d+(\.\d+)?`)
+
+// FormatDisplay adds thousands separators to numeric segments in the input.
+// Non-numeric parts (operators, parentheses) are left unchanged.
+func FormatDisplay(input string) string {
+	if input == "" {
+		return "0"
+	}
+	return numRe.ReplaceAllStringFunc(input, func(m string) string {
+		intPart, frac, hasFrac := strings.Cut(m, ".")
+		neg := ""
+		if intPart[0] == '-' {
+			neg = "-"
+			intPart = intPart[1:]
+		}
+		var b strings.Builder
+		for i, ch := range intPart {
+			if i > 0 && (len(intPart)-i)%3 == 0 {
+				b.WriteByte(',')
+			}
+			b.WriteRune(ch)
+		}
+		if hasFrac {
+			return neg + b.String() + "." + frac
+		}
+		return neg + b.String()
+	})
+}
 
 // Evaluate parses and evaluates a mathematical expression string.
 // It supports +, -, *, / (and Unicode × ÷), parentheses, and unary minus.

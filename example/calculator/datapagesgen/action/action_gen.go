@@ -134,18 +134,72 @@ func beforeAfterLen(options []option) (before, after int) {
 	return
 }
 
-// POSTPageIndexInput references /input/{btn}/
-func POSTPageIndexInput(btn int, options ...option) string {
-	s_btn := strconv.FormatInt(int64(btn), 10)
+// POSTPageIndexInput references /input/
+func POSTPageIndexInput(query QueryPOSTPageIndexInput, options ...option) string {
+	var (
+		btnStr string
+	)
+
+	if query.Btn != 0 {
+		btnStr = strconv.FormatInt(int64(query.Btn), 10)
+	}
+
+	anyQuery := query.Btn != 0 ||
+		query.Num != ""
+
 	var b strings.Builder
 	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@post('/input/") + len(s_btn) + len("/'") + optionsLen(options) + len(")") + al)
+	l := bl + len("@post('/input/'") + optionsLen(options) + len(")") + al
+	if anyQuery {
+		l += len("?")
+	}
+	n := 0
+	if query.Btn != 0 {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("btn=") + len(btnStr)
+	}
+	if query.Num != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		l += len("num=") + len(query.Num)
+	}
+
+	b.Grow(l)
+
 	writeBefore(&b, options)
 	b.WriteString("@post('/input/")
-	b.WriteString(s_btn)
-	b.WriteString("/'")
+	if anyQuery {
+		b.WriteString("?")
+	}
+	n = 0
+	if query.Btn != 0 {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("btn=")
+		b.WriteString(btnStr)
+	}
+	if query.Num != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("num=")
+		b.WriteString(query.Num)
+	}
+	b.WriteString("'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
 	writeAfter(&b, options)
+
 	return b.String()
+}
+
+type QueryPOSTPageIndexInput struct {
+	Btn int    `query:"btn"`
+	Num string `query:"num"`
 }

@@ -4,7 +4,7 @@ package calc
 type CalcButton int
 
 const (
-	CalcButtonClear     CalcButton = iota
+	CalcButtonClear CalcButton = iota
 	CalcButtonBackspace
 	CalcButtonParen
 	CalcButtonDiv

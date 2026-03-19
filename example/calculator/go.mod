@@ -8,6 +8,7 @@ require (
 	github.com/a-h/templ v0.3.1001
 	github.com/nats-io/nats.go v1.49.0
 	github.com/romshark/datapages v0.5.0
+	github.com/shopspring/decimal v1.4.0
 	github.com/starfederation/datastar-go v1.1.0
 	github.com/stretchr/testify v1.11.1
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.74
@@ -53,7 +54,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/samber/lo v1.52.0 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
-	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/skeema/knownhosts v1.3.2 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/wailsapp/go-webview2 v1.0.23 // indirect
