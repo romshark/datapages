@@ -40,5 +40,6 @@ example/classifieds/server
 example/calculator/server
 example/calculator/calculator
 example/calculator/build/
+example/calculator/**/*.png
 example/**/certs/*
 example/**/grafana/data/

@@ -16,6 +16,12 @@ import (
 func TestUIWorkflows() error {
 	setDevEnv()
 
+	stop, err := dockerComposeUp()
+	if err != nil {
+		return err
+	}
+	defer stop()
+
 	fmt.Println("==> go build ./cmd/server")
 	if err := run("go", "build", "-o", "server", "./cmd/server"); err != nil {
 		return err
