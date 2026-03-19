@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/a-h/templ"
@@ -47,7 +48,11 @@ func (a *App) newID() (string, error) {
 	return token + "~" + sig, nil
 }
 
-var errInvalidID = errors.New("invalid instance ID")
+var (
+	errInvalidID  = errors.New("invalid instance ID")
+	errInvalidNum = errors.New("invalid num parameter")
+	numRe         = regexp.MustCompile(`^-?\d*\.?\d+$`)
+)
 
 func (a *App) verifyID(id string) error {
 	parts := strings.SplitN(id, "~", 2)
@@ -106,6 +111,9 @@ func (p PageIndex) POSTInput(
 	}
 
 	if query.Num != "" {
+		if !numRe.MatchString(query.Num) {
+			return errInvalidNum
+		}
 		input := signals.Input
 		if signals.Fresh {
 			input = ""
