@@ -13,6 +13,14 @@ templ head() {
 	<link rel="icon" type="image/svg+xml" href={ assets.Path("favicon.svg") }/>
 	<link rel="stylesheet" href={ assets.Path("style.css") }/>
 	<script>
+		function calcPaste(evt) {
+			var t = (evt.clipboardData || window.clipboardData).getData('text').trim();
+			if (/^-?\d*\.?\d+$/.test(t)) {
+				evt.preventDefault();
+				return t;
+			}
+			return null;
+		}
 		function calcKey(evt) {
 			var m = {
 				'0':'0','1':'1','2':'2','3':'3','4':'4',
@@ -44,6 +52,7 @@ templ pageCalculator(input string, fresh bool, instanceID string) {
 		data-signals:fresh={ fmt.Sprintf("%t", fresh) }
 		data-signals:instance_id={ fmt.Sprintf("'%s'", instanceID) }
 		data-on:keydown__window="calcKey(evt)"
+		data-on:paste__window="var v=calcPaste(evt);if(v!==null){$input=$fresh?v:$input+v;$fresh=false}"
 	>
 		<h1>Calculator</h1>
 		<div class="display" data-text="$input || '0'"></div>
