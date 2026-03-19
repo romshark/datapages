@@ -1,17 +1,19 @@
 # Calculator
 
 A basic calculator with server-side evaluation.
-Demonstrates the [fat-morph](https://data-star.dev/guide/the_tao_of_datastar#in-morph-we-trust)
+Demonstrates the
+[fat-morph](https://data-star.dev/guide/the_tao_of_datastar#in-morph-we-trust)
 pattern: the UI holds state in signals and sends commands to the server, which
 evaluates and returns the updated page. Expression evaluation uses
-arbitrary-precision arithmetic (`math/big.Float`) to avoid floating-point
-rounding on large numbers. The calculator supports full keyboard input
+arbitrary-precision decimal arithmetic (`github.com/shopspring/decimal`) to avoid
+floating-point rounding. The calculator supports full keyboard input
 (digits, operators, Enter, Escape, Backspace) and clipboard integration
 (Cmd+C to copy, Cmd+V to paste numbers).
 
 ## Architecture
 
-This example uses a [CQRS](https://data-star.dev/guide/the_tao_of_datastar#cqrs) approach with a thin HTML client.
+This example uses a [CQRS](https://data-star.dev/guide/the_tao_of_datastar#cqrs) approach
+with a thin HTML client.
 In this example Application the server is completely stateless and state is held in
 browser tab memory using signals but it isn't _managed_ on the client-side,
 instead it's sent to the server on every interaction via actions, processed there and
@@ -118,7 +120,8 @@ Then open http://localhost:7331/.
 ## E2E Tests
 
 End-to-end UI tests use [Maestro](https://maestro.dev),
-a free and open-source ([Apache 2.0](https://github.com/mobile-dev-inc/maestro/blob/main/LICENSE))
+a free and open-source
+([Apache 2.0](https://github.com/mobile-dev-inc/maestro/blob/main/LICENSE))
 E2E testing framework for mobile and web.
 Each YAML flow in `.maestro/` is a self-contained test scenario.
 
