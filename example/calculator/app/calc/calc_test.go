@@ -35,6 +35,7 @@ func TestEvaluate(t *testing.T) {
 		"unary_minus_only": {expr: "-", want: "Error"},
 		"empty_parens":     {expr: "()", want: "Error"},
 		"large_multiply":   {expr: "999999999999999999999999999999999*2", want: "1999999999999999999999999999999998"},
+		"decimal_addition": {expr: "2.3+5.6", want: "7.9"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tt.want, Evaluate(tt.expr))

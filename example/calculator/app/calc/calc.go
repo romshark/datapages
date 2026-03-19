@@ -2,13 +2,11 @@ package calc
 
 import (
 	"fmt"
-	"math/big"
 	"strings"
 	"unicode"
-)
 
-// precision is the number of bits of mantissa used for calculations.
-const precision = 256
+	"github.com/shopspring/decimal"
+)
 
 // Evaluate parses and evaluates a mathematical expression string.
 // It supports +, -, *, / (and Unicode × ÷), parentheses, and unary minus.
@@ -25,7 +23,7 @@ func Evaluate(expr string) string {
 	if err != nil || p.pos < len(p.input) {
 		return "Error"
 	}
-	return result.Text('f', -1)
+	return result.String()
 }
 
 type parser struct {
@@ -47,10 +45,10 @@ func (p *parser) peek() byte {
 	return p.input[p.pos]
 }
 
-func (p *parser) parseExpr() (*big.Float, error) {
+func (p *parser) parseExpr() (decimal.Decimal, error) {
 	left, err := p.parseTerm()
 	if err != nil {
-		return nil, err
+		return decimal.Decimal{}, err
 	}
 	for {
 		op := p.peek()
@@ -60,21 +58,21 @@ func (p *parser) parseExpr() (*big.Float, error) {
 		p.pos++
 		right, err := p.parseTerm()
 		if err != nil {
-			return nil, err
+			return decimal.Decimal{}, err
 		}
 		if op == '+' {
-			left.Add(left, right)
+			left = left.Add(right)
 		} else {
-			left.Sub(left, right)
+			left = left.Sub(right)
 		}
 	}
 	return left, nil
 }
 
-func (p *parser) parseTerm() (*big.Float, error) {
+func (p *parser) parseTerm() (decimal.Decimal, error) {
 	left, err := p.parseFactor()
 	if err != nil {
-		return nil, err
+		return decimal.Decimal{}, err
 	}
 	for {
 		op := p.peek()
@@ -82,23 +80,23 @@ func (p *parser) parseTerm() (*big.Float, error) {
 			p.pos++
 			right, err := p.parseFactor()
 			if err != nil {
-				return nil, err
+				return decimal.Decimal{}, err
 			}
 			if op == '*' {
-				left.Mul(left, right)
+				left = left.Mul(right)
 			} else {
-				if right.Sign() == 0 {
-					return nil, fmt.Errorf("division by zero")
+				if right.IsZero() {
+					return decimal.Decimal{}, fmt.Errorf("division by zero")
 				}
-				left.Quo(left, right)
+				left = left.Div(right)
 			}
 		} else if op == '(' || unicode.IsDigit(rune(op)) {
 			// Implicit multiplication: 6(2) or (2)(3).
 			right, err := p.parseFactor()
 			if err != nil {
-				return nil, err
+				return decimal.Decimal{}, err
 			}
-			left.Mul(left, right)
+			left = left.Mul(right)
 		} else {
 			break
 		}
@@ -106,27 +104,27 @@ func (p *parser) parseTerm() (*big.Float, error) {
 	return left, nil
 }
 
-func (p *parser) parseFactor() (*big.Float, error) {
+func (p *parser) parseFactor() (decimal.Decimal, error) {
 	p.skipSpaces()
 	if p.pos >= len(p.input) {
-		return nil, fmt.Errorf("unexpected end of expression")
+		return decimal.Decimal{}, fmt.Errorf("unexpected end of expression")
 	}
 	if p.input[p.pos] == '-' {
 		p.pos++
 		val, err := p.parseFactor()
 		if err != nil {
-			return nil, err
+			return decimal.Decimal{}, err
 		}
-		return val.Neg(val), nil
+		return val.Neg(), nil
 	}
 	if p.input[p.pos] == '(' {
 		p.pos++
 		val, err := p.parseExpr()
 		if err != nil {
-			return nil, err
+			return decimal.Decimal{}, err
 		}
 		if p.peek() != ')' {
-			return nil, fmt.Errorf("missing closing parenthesis")
+			return decimal.Decimal{}, fmt.Errorf("missing closing parenthesis")
 		}
 		p.pos++
 		return val, nil
@@ -134,7 +132,7 @@ func (p *parser) parseFactor() (*big.Float, error) {
 	return p.parseNumber()
 }
 
-func (p *parser) parseNumber() (*big.Float, error) {
+func (p *parser) parseNumber() (decimal.Decimal, error) {
 	p.skipSpaces()
 	start := p.pos
 	for p.pos < len(p.input) &&
@@ -142,11 +140,11 @@ func (p *parser) parseNumber() (*big.Float, error) {
 		p.pos++
 	}
 	if p.pos == start {
-		return nil, fmt.Errorf("expected number at position %d", p.pos)
+		return decimal.Decimal{}, fmt.Errorf("expected number at position %d", p.pos)
 	}
-	f, _, err := new(big.Float).SetPrec(precision).Parse(p.input[start:p.pos], 10)
+	d, err := decimal.NewFromString(p.input[start:p.pos])
 	if err != nil {
-		return nil, fmt.Errorf("invalid number: %w", err)
+		return decimal.Decimal{}, fmt.Errorf("invalid number: %w", err)
 	}
-	return f, nil
+	return d, nil
 }
