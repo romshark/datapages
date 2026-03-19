@@ -38,14 +38,18 @@ func main() {
 	serverCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	serverErr := make(chan error, 1)
 	go func() {
-		if err := s.ListenAndServe(serverCtx, addr); err != nil {
-			panic(err)
-		}
+		serverErr <- s.ListenAndServe(serverCtx, addr)
 	}()
 
 	// Wait for the HTTP server to be ready before launching the window.
 	for {
+		select {
+		case err := <-serverErr:
+			panic(fmt.Sprintf("server failed to start: %v", err))
+		default:
+		}
 		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
 		if err == nil {
 			_ = conn.Close()
