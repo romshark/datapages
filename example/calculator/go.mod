@@ -7,7 +7,7 @@ replace github.com/romshark/datapages => ../../
 require (
 	github.com/a-h/templ v0.3.1001
 	github.com/nats-io/nats.go v1.49.0
-	github.com/romshark/datapages v0.6.2
+	github.com/romshark/datapages v0.7.0
 	github.com/shopspring/decimal v1.4.0
 	github.com/starfederation/datastar-go v1.1.0
 	github.com/stretchr/testify v1.11.1
@@ -39,7 +39,7 @@ require (
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/kevinburke/ssh_config v1.6.0 // indirect
-	github.com/klauspost/compress v1.18.4 // indirect
+	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leaanthony/go-ansi-parser v1.6.1 // indirect
 	github.com/leaanthony/u v1.1.1 // indirect
