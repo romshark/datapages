@@ -74,6 +74,7 @@ import myhref "example.com/myapp/datapagesgen/href"
 	got := resolvePkgMatcher(pkg, "/href", "href")
 	if got == nil {
 		t.Fatal("resolvePkgMatcher returned nil for aliased import")
+		return
 	}
 	if got.localName != "myhref" {
 		t.Errorf("localName = %q, want %q", got.localName, "myhref")
@@ -102,6 +103,7 @@ import "example.com/myapp/datapagesgen/href"
 	got := resolvePkgMatcher(pkg, "/href", "href")
 	if got == nil {
 		t.Fatal("resolvePkgMatcher returned nil for default import")
+		return
 	}
 	if got.localName != "href" {
 		t.Errorf("localName = %q, want %q", got.localName, "href")
