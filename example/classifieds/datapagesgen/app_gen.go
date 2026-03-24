@@ -411,6 +411,10 @@ func (s *Server) listenAndServe(
 
 	g, ctx := errgroup.WithContext(ctx)
 
+	s.httpServer.BaseContext = func(net.Listener) context.Context {
+		return ctx
+	}
+
 	// Main frontend server
 	g.Go(func() error {
 		if err := listenAndServe(); err != nil &&

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"slices"
@@ -107,6 +108,10 @@ func (s *Server) listenAndServe(
 	s.runCancel = cancel
 
 	g, ctx := errgroup.WithContext(ctx)
+
+	s.httpServer.BaseContext = func(net.Listener) context.Context {
+		return ctx
+	}
 
 	// Main frontend server
 	g.Go(func() error {
