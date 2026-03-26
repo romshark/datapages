@@ -295,12 +295,6 @@ func GenDocs() error {
 
 // All runs test, vulncheck, fmt, mod-tidy, gen-templ, and gen-docs.
 func All() error {
-	if err := Test(); err != nil {
-		return err
-	}
-	if err := Vulncheck(); err != nil {
-		return err
-	}
 	if err := Fmt(); err != nil {
 		return err
 	}
@@ -310,5 +304,11 @@ func All() error {
 	if err := GenTempl(); err != nil {
 		return err
 	}
-	return GenDocs()
+	if err := GenDocs(); err != nil {
+		return err
+	}
+	if err := Test(); err != nil {
+		return err
+	}
+	return Vulncheck()
 }
