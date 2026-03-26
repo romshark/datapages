@@ -419,7 +419,80 @@ type EventDirectMessage struct {
 }
 ```
 
-## Step 9: Share Handlers Across Pages
+## Step 9: Add Stream Hooks (Optional)
+
+`OnStreamOpen` and `OnStreamClosed` run when a page's SSE stream opens and closes.
+
+### When to use stream hooks
+
+- **Per-tab server-side state.** Store filters, sort order, or view preferences
+  keyed by `streamID`. Event handlers (which don't receive signals) can then look
+  up the current tab's state to render correctly filtered responses. Clean up in
+  `OnStreamClosed`.
+- **CQRS read-model binding.** In a CQRS architecture, actions (commands) dispatch
+  events and event handlers (queries) render the updated UI. The event handler
+  needs context about *which* tab it is rendering for (e.g. which item is being
+  viewed, which filters are active). `OnStreamOpen` is the place to capture that
+  context — read initial signals, store them alongside the `streamID`, and use them
+  later in event handlers to produce the right fat morph.
+- **HMAC-signed tab identifiers.** Generate an HMAC of the `streamID` in
+  `OnStreamOpen`, patch it to the client as a signal via `sse.MarshalAndPatchSignals`,
+  and validate it in action handlers. Because only the server knows the HMAC key,
+  clients cannot forge a tab ID for a stream they don't own, which prevents
+  one tab from impersonating another when calling actions.
+- **Resource lifecycle.** Acquire per-stream resources (subscriptions, connections,
+  counters) in `OnStreamOpen` and release them in `OnStreamClosed`.
+
+### Signature
+
+Both require `r *http.Request` and `streamID uint64`. They return only `error`.
+The `streamID` is a per-process unique identifier for the SSE stream instance.
+Use it to correlate open and close for the same stream.
+It is intended for internal server-side bookkeeping only and must not be exposed
+to clients, as it could leak information about server activity and connection volume.
+
+`OnStreamOpen` runs after the SSE stream is established, before any event handler.
+It additionally accepts these optional parameters:
+`sse *datastar.ServerSentEventGenerator`, `sessionToken string`, `session Session`,
+`signals struct{...}`, `dispatch func(...) error`.
+
+`OnStreamClosed` runs when the stream closes.
+It additionally accepts these optional parameters: `sessionToken string`,
+`session Session`, `dispatch func(...) error`.
+Note: `OnStreamClosed` does **not** accept `sse` or `signals`.
+
+```go
+func (PageIndex) OnStreamOpen(
+	r *http.Request,
+	streamID uint64,
+	sse *datastar.ServerSentEventGenerator, // Optional
+	sessionToken string, // Optional
+	session Session, // Optional
+	signals struct{ // Optional
+		Instance string `json:"instance"`
+	},
+	dispatch func(EventPing) error, // Optional
+) error {
+	// Set up per-tab state, patch signals to the client, etc.
+	return nil
+}
+
+func (PageIndex) OnStreamClosed(
+	r *http.Request,
+	streamID uint64,
+	sessionToken string, // Optional
+	session Session, // Optional
+	dispatch func(EventPing) error, // Optional
+) error {
+	// Clean up per-tab state.
+	return nil
+}
+```
+
+Stream hooks can also be defined on abstract types and embedded in pages,
+following the same pattern as event handlers (see next step).
+
+## Step 10: Share Handlers Across Pages
 
 When multiple pages need the same event handler or action, define it once on an abstract type and embed it. This avoids duplicating handler methods across pages.
 Abstract types are not pages. No `Page` prefix. No route.
@@ -460,7 +533,7 @@ func (p PageChat) OnMessageSent(
 }
 ```
 
-## Step 10: Add Custom Error Pages (Optional)
+## Step 11: Add Custom Error Pages (Optional)
 
 Without these, Datapages serves default error responses. Define custom error pages to match your app's look and feel and provide helpful navigation back to valid pages.
 
@@ -475,7 +548,7 @@ func (PageError404) GET(r *http.Request) (body templ.Component, err error) {
 
 Same pattern for `PageError500`.
 
-## Step 11: Add Global Head (Optional)
+## Step 12: Add Global Head (Optional)
 
 Adds shared `<head>` content (meta tags, stylesheets, scripts) to every page, so you don't have to repeat it in each page's `head` return value. Pointer receiver on App.
 
@@ -489,7 +562,7 @@ func (*App) Head(
 }
 ```
 
-## Step 12: Add Error Recovery (Optional)
+## Step 13: Add Error Recovery (Optional)
 
 When a handler returns an error during a Datastar SSE request, a plain HTTP error is invisible to the user - there is no visible feedback, only a console log that normal users never see. `RecoverError` lets you handle this gracefully by patching in an error UI (e.g. a toast notification) over SSE instead. All action handler errors (including httperr sentinels) are routed through `RecoverError` when defined. Use `errors.Is(err, httperr.BadRequest)` etc. inside `RecoverError` to distinguish error types.
 
@@ -502,7 +575,7 @@ func (*App) RecoverError(
 }
 ```
 
-## Step 13: Configure the Server Entry Point
+## Step 14: Configure the Server Entry Point
 
 `datapages gen` generates `cmd/server/main.go` on the first run. After that, you own this file - it is not regenerated or overwritten. Edit it to configure dependencies, middleware, and server options.
 
@@ -598,7 +671,7 @@ s.ListenAndServe(ctx, "localhost:8080")
 s.ListenAndServeTLS(ctx, "localhost:8443", certPath, keyPath)
 ```
 
-## Step 14: Serve Static Files (Optional)
+## Step 15: Serve Static Files (Optional)
 
 If your app needs to serve static assets (CSS, JS, images, fonts), place them in a directory inside your app package (e.g. `app/static/`) and use Go's `embed` package to bundle them into the binary.
 
@@ -626,7 +699,7 @@ The URL path prefix is the generated `assets.URLPrefix` constant (configured via
 
 Reference static files in templates using the static prefix (e.g. `/static/style.css`).
 
-## Step 15: Generate and Run
+## Step 16: Generate and Run
 
 Build workflow after editing `app.go` or `.templ` files:
 
@@ -650,7 +723,7 @@ datapages help            # show help for all commands and flags
 datapages help <command>  # show help for a specific command
 ```
 
-## Step 16: Use Generated URL Packages
+## Step 17: Use Generated URL Packages
 
 `datapages gen` produces two packages with type-safe URL builders. **Always use these instead of hardcoding URLs.**
 
