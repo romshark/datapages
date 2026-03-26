@@ -19,6 +19,12 @@ func IsInt(t types.Type) bool {
 	return ok && b.Kind() == types.Int
 }
 
+// IsUint64 reports whether t's underlying type is uint64.
+func IsUint64(t types.Type) bool {
+	b, ok := t.Underlying().(*types.Basic)
+	return ok && b.Kind() == types.Uint64
+}
+
 // IsBool reports whether t's underlying type is bool.
 func IsBool(t types.Type) bool {
 	b, ok := t.Underlying().(*types.Basic)

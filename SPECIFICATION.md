@@ -44,6 +44,8 @@ special methods:
 - `PUTXXX`: handles `PUT` action requests.
 - `PATCHXXX`: handles `PATCH` action requests.
 - `DELETEXXX`: handles `DELETE` action requests.
+- `OnStreamOpen`: runs when the page SSE stream opens.
+- `OnStreamClosed`: runs when the page SSE stream closes.
 - `OnXXX`: subscribes to events in the SSE listener.
 
 `XXX` is just a name placeholder.
@@ -178,6 +180,55 @@ func (PageIndex) OnSomethingHappened(
 	sse *datastar.ServerSentEventGenerator,
 	sessionToken string, // Optional
 	session Session, // Optional
+) error {
+	// ...
+}
+```
+
+`OnStreamOpen` runs after the page SSE stream has been established and before
+any event handler is invoked.
+It may return only `error`. If it returns an error, stream setup stops immediately and
+the stream is closed.
+Datapages handles the error like any other Datastar request error: if `RecoverError`
+is defined it is invoked, otherwise the server falls back to its internal-error path.
+The `streamID` is a per-process unique identifier for the SSE stream instance.
+Use it to correlate `OnStreamOpen` and `OnStreamClosed` for the same stream.
+It's intended for internal server-side bookkeeping only and
+should not be exposed to clients.
+
+```go
+func (PageIndex) OnStreamOpen(
+	r *http.Request,
+	streamID uint64,
+	sse *datastar.ServerSentEventGenerator, // Optional
+	sessionToken string, // Optional
+	session Session, // Optional
+	signals struct{...}, // Optional
+	dispatch(
+		EventSomethingHappened,
+		EventSomethingElseHappened,
+		//...
+	) error, // Optional
+) error {
+	// ...
+}
+```
+
+`OnStreamClosed` runs when the page SSE stream closes.
+It may return only `error`.
+If it returns an error, datapages logs the error server-side.
+
+```go
+func (PageIndex) OnStreamClosed(
+	r *http.Request,
+	streamID uint64,
+	sessionToken string, // Optional
+	session Session, // Optional
+	dispatch(
+		EventSomethingHappened,
+		EventSomethingElseHappened,
+		//...
+	) error, // Optional
 ) error {
 	// ...
 }

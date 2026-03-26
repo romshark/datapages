@@ -16,7 +16,11 @@ func (s *Server) handlePageFeedGETStreamAnon(w http.ResponseWriter, r *http.Requ
 	p := testapp.PageFeed{
 	App: s.app,
 }
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageFeed(sess.UserID), func(
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageFeed(sess.UserID),
+	nil,
+	nil,
+	func(
+		streamID uint64,
 		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 	) {
 		for msg := range ch {

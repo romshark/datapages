@@ -582,6 +582,8 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 			}
 
 			switch kind {
+			case methodkind.StreamOpenHook, methodkind.StreamClosedHook:
+				validateAndAttachStreamHook(ctx, errs, recv, fd, pg, ap, kind)
 			case methodkind.EventHandler:
 				if err := validate.EventHandlerMethodName(fd.Name.Name); err != nil {
 					errs.ErrAt(pos,
@@ -730,6 +732,39 @@ func validateAndAttachEventHandler(
 		pg.EventHandlers = append(pg.EventHandlers, h)
 	} else {
 		ap.EventHandlers = append(ap.EventHandlers, h)
+	}
+}
+
+func validateAndAttachStreamHook(
+	ctx *parseCtx,
+	errs *Errors,
+	recv string,
+	fd *ast.FuncDecl,
+	pg *model.Page,
+	ap *model.AbstractPage,
+	kind methodkind.Kind,
+) {
+	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
+
+	h, herr := parseStreamHook(
+		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset, ctx.eventTypeNames, kind,
+	)
+	if herr != nil {
+		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
+	}
+
+	if pg != nil {
+		if kind == methodkind.StreamOpenHook {
+			pg.StreamOpen = h
+		} else {
+			pg.StreamClosed = h
+		}
+		return
+	}
+	if kind == methodkind.StreamOpenHook {
+		ap.StreamOpen = h
+	} else {
+		ap.StreamClosed = h
 	}
 }
 
@@ -913,6 +948,10 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	// GET ownership tracking
 	getOwner := ""             // "page" or abstract type name
 	getOwnerPos := token.NoPos // IMPORTANT: now points to embed site for embedded GET
+	streamOpenOwner := ""
+	streamOpenOwnerPos := token.NoPos
+	streamClosedOwner := ""
+	streamClosedOwnerPos := token.NoPos
 
 	// Register own methods
 	if pg.GET != nil {
@@ -924,6 +963,18 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	}
 	for _, a := range pg.Actions {
 		ownedMethods[a.Name] = true
+	}
+	if pg.StreamOpen != nil {
+		streamOpenOwner = "page"
+		if pg.StreamOpen.Expr != nil {
+			streamOpenOwnerPos = pg.StreamOpen.Expr.Pos()
+		}
+	}
+	if pg.StreamClosed != nil {
+		streamClosedOwner = "page"
+		if pg.StreamClosed.Expr != nil {
+			streamClosedOwnerPos = pg.StreamClosed.Expr.Pos()
+		}
 	}
 	for _, h := range pg.EventHandlers {
 		if h.EventTypeName != "" {
@@ -1024,6 +1075,67 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 			}
 			ownedMethods[m.Name] = true
 			pg.Actions = append(pg.Actions, m)
+		}
+
+		if ap.StreamOpen != nil {
+			switch streamOpenOwner {
+			case "":
+				streamOpenOwner = ap.TypeName
+				if ap.StreamOpen.Expr != nil {
+					streamOpenOwnerPos = ap.StreamOpen.Expr.Pos()
+				}
+				pg.StreamOpen = ap.StreamOpen
+			case "page", ap.TypeName:
+				// Page-owned or already inherited from the same abstract wins.
+			default:
+				pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
+				if it.embedPos != token.NoPos {
+					pos = ctx.pkg.Fset.Position(it.embedPos)
+				}
+				prevPos := token.Position{}
+				if streamOpenOwnerPos != token.NoPos {
+					prevPos = ctx.pkg.Fset.Position(streamOpenOwnerPos)
+				}
+				errs.ErrAt(pos, fmt.Errorf(
+					"%w: %s inherits %s and %s which both "+
+						"define OnStreamOpen (previous at %s)",
+					ErrStreamHookDuplicateEmbed,
+					pg.TypeName,
+					streamOpenOwner,
+					ap.TypeName,
+					prevPos,
+				))
+			}
+		}
+
+		if ap.StreamClosed != nil {
+			switch streamClosedOwner {
+			case "":
+				streamClosedOwner = ap.TypeName
+				if ap.StreamClosed.Expr != nil {
+					streamClosedOwnerPos = ap.StreamClosed.Expr.Pos()
+				}
+				pg.StreamClosed = ap.StreamClosed
+			case "page", ap.TypeName:
+				// Page-owned or already inherited from the same abstract wins.
+			default:
+				pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
+				if it.embedPos != token.NoPos {
+					pos = ctx.pkg.Fset.Position(it.embedPos)
+				}
+				prevPos := token.Position{}
+				if streamClosedOwnerPos != token.NoPos {
+					prevPos = ctx.pkg.Fset.Position(streamClosedOwnerPos)
+				}
+				errs.ErrAt(pos, fmt.Errorf(
+					"%w: %s inherits %s and %s which both define OnStreamClosed (previous at %s)",
+					ErrStreamHookDuplicateEmbed,
+					pg.TypeName,
+					streamClosedOwner,
+					ap.TypeName,
+					prevPos,
+				))
+			}
 		}
 
 		// EventHandlers
@@ -1144,6 +1256,187 @@ func parseEventHandler(
 	}
 
 	return h
+}
+
+func parseStreamHook(
+	recv string,
+	fd *ast.FuncDecl,
+	info *types.Info,
+	fset *token.FileSet,
+	eventTypeNames map[string]struct{},
+	kind methodkind.Kind,
+) (*model.Handler, error) {
+	h := &model.Handler{
+		Expr: fd.Name,
+		Name: fd.Name.Name,
+	}
+
+	params := fd.Type.Params
+	if params == nil || len(params.List) == 0 {
+		return h, fmt.Errorf("%w in %s.%s",
+			ErrSignatureMissingReq, recv, fd.Name.Name)
+	}
+	expandedParams := expandFieldList(params.List)
+
+	var unsupErrs []error
+	foundReq := false
+	foundStreamID := false
+	for _, f := range expandedParams {
+		fieldErr := func(err error) *positionedError {
+			p := f.Type.Pos()
+			if len(f.Names) > 0 {
+				p = f.Names[0].Pos()
+			}
+			return &positionedError{pos: fset.Position(p), err: err}
+		}
+
+		switch {
+		case typecheck.IsPtrToNetHTTPReq(f.Type, info):
+			if h.InputRequest != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+				continue
+			}
+			h.InputRequest = parseInput(f, info)
+			h.InputRequest.Kind = model.InputKindRequest
+			h.OrderedInputs = append(h.OrderedInputs, h.InputRequest)
+			foundReq = true
+
+		case len(f.Names) == 1 && f.Names[0].Name == "streamID":
+			if h.InputStreamID != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+				continue
+			}
+			if !typecheck.IsUint64(info.TypeOf(f.Type)) {
+				return h, fieldErr(fmt.Errorf("%w in %s.%s",
+					ErrStreamIDParamNotUint64, recv, fd.Name.Name))
+			}
+			h.InputStreamID = parseInput(f, info)
+			h.InputStreamID.Kind = model.InputKindStreamID
+			h.OrderedInputs = append(h.OrderedInputs, h.InputStreamID)
+			foundStreamID = true
+
+		case typecheck.IsPtrToDatastarSSE(f.Type, info):
+			if kind != methodkind.StreamOpenHook {
+				unsupErrs = append(unsupErrs,
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+				continue
+			}
+			if h.InputSSE != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+				continue
+			}
+			h.InputSSE = parseInput(f, info)
+			h.InputSSE.Kind = model.InputKindSSE
+			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
+
+		case paramvalidation.IsSessionTokenParam(f):
+			if h.InputSessionToken != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+				continue
+			}
+			if !typecheck.IsString(info.TypeOf(f.Type)) {
+				return h, fieldErr(fmt.Errorf("%w in %s.%s",
+					ErrSessionTokenParamNotString, recv, fd.Name.Name))
+			}
+			h.InputSessionToken = parseInput(f, info)
+			h.InputSessionToken.Kind = model.InputKindSessionToken
+			h.OrderedInputs = append(h.OrderedInputs, h.InputSessionToken)
+
+		case paramvalidation.IsSessionParam(f):
+			if h.InputSession != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+				continue
+			}
+			if !typecheck.IsSessionType(f.Type, info) {
+				return h, fieldErr(fmt.Errorf("%w in %s.%s",
+					ErrSessionParamNotSessionType, recv, fd.Name.Name))
+			}
+			h.InputSession = parseInput(f, info)
+			h.InputSession.Kind = model.InputKindSession
+			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
+
+		case paramvalidation.IsSignalsParam(f):
+			if kind != methodkind.StreamOpenHook {
+				unsupErrs = append(unsupErrs,
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+				continue
+			}
+			if h.InputSignals != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+				continue
+			}
+			sigErr := paramvalidation.ValidateSignalsStruct(
+				f, info, recv, fd.Name.Name,
+			)
+			if sigErr != nil {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sigErr)
+				continue
+			}
+			h.InputSignals = parseInput(f, info)
+			h.InputSignals.Kind = model.InputKindSignals
+			h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
+
+		case paramvalidation.IsDispatchParam(f):
+			if h.InputDispatch != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+				continue
+			}
+			eventNames, dispErr := paramvalidation.ValidateDispatchFunc(
+				f, info, eventTypeNames, recv, fd.Name.Name,
+			)
+			if dispErr != nil {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(), dispErr)
+				continue
+			}
+			inp := parseInput(f, info)
+			inp.Kind = model.InputKindDispatch
+			h.InputDispatch = &model.InputDispatch{
+				Input:          inp,
+				EventTypeNames: eventNames,
+			}
+			h.OrderedInputs = append(h.OrderedInputs, inp)
+
+		default:
+			unsupErrs = append(unsupErrs,
+				fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+		}
+	}
+
+	if !foundReq {
+		return h, fmt.Errorf("%w in %s.%s",
+			ErrSignatureMissingReq, recv, fd.Name.Name)
+	}
+	if !foundStreamID {
+		return h, fmt.Errorf("%w in %s.%s",
+			ErrSignatureMissingStreamID, recv, fd.Name.Name)
+	}
+	if len(unsupErrs) > 0 {
+		return h, errors.Join(unsupErrs...)
+	}
+	if !eventHandlerReturnsOnlyError(fd, info) {
+		retPos := fset.Position(fd.Name.Pos())
+		if fd.Type.Results != nil {
+			retPos = fset.Position(fd.Type.Results.Pos())
+		}
+		return h, &positionedError{
+			pos: retPos,
+			err: fmt.Errorf("%w: %s.%s",
+				ErrSignatureStreamHookReturnMustBeError, recv, fd.Name.Name),
+		}
+	}
+
+	h.OutputErr = &model.Output{
+		Kind: model.OutputKindErr,
+		Type: makeType(fd.Type.Results.List[0].Type, info),
+	}
+	return h, nil
 }
 
 func loadPackage(appPackagePath string) (*packages.Package, error) {
@@ -1327,7 +1620,9 @@ func unwrapPositioned(e error) error {
 
 // reportErrorsWithFset is like reportErrors but also resolves ASTPos()
 // positions using the provided FileSet.
-func reportErrorsWithFset(errs *Errors, fset *token.FileSet, pos token.Position, err error) {
+func reportErrorsWithFset(
+	errs *Errors, fset *token.FileSet, pos token.Position, err error,
+) {
 	if joined, ok := err.(interface{ Unwrap() []error }); ok {
 		for _, e := range joined.Unwrap() {
 			p := resolveErrorPos(e, fset, pos)
@@ -1364,7 +1659,7 @@ func appendPositioned(dst *[]error, fset *token.FileSet, fallback token.Pos, err
 // knownParamNames lists the recognized handler parameter names
 // used for fuzzy matching in unsupportedInputError.
 var knownParamNames = []string{
-	"sessionToken", "session", "path", "query", "signals", "dispatch",
+	"streamID", "sessionToken", "session", "path", "query", "signals", "dispatch",
 }
 
 // unsupportedInputError builds an ErrorSignatureUnsupportedInput for a
@@ -1429,6 +1724,7 @@ func typeCandidates(
 
 	isSession := typecheck.IsSessionType(f.Type, info)
 	isString := typecheck.IsString(t)
+	isUint64 := typecheck.IsUint64(t)
 	isStruct := isStructType(t)
 	isFunc := isFuncType(t)
 
@@ -1438,6 +1734,7 @@ func typeCandidates(
 		match    bool
 	}
 	all := []candidate{
+		{"streamID", h.InputStreamID != nil, isUint64},
 		{"session", h.InputSession != nil, isSession},
 		{"sessionToken", h.InputSessionToken != nil, isString},
 		// Only suggest path/query/signals for plain structs,
@@ -1496,6 +1793,8 @@ func fuzzyMatchParamName(name string, h *model.Handler) (string, bool) {
 // consumed in h.
 func isParamConsumed(h *model.Handler, name string) bool {
 	switch name {
+	case "streamID":
+		return h.InputStreamID != nil
 	case "sessionToken":
 		return h.InputSessionToken != nil
 	case "session":

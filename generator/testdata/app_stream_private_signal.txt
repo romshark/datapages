@@ -28,7 +28,11 @@ func (s *Server) handlePageDashboardGETStream(w http.ResponseWriter, r *http.Req
 	p := testapp.PageDashboard{
 	App: s.app,
 }
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageDashboard(sess.UserID, subjSignals.Instance), func(
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageDashboard(sess.UserID, subjSignals.Instance),
+	nil,
+	nil,
+	func(
+		streamID uint64,
 		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 	) {
 		for msg := range ch {

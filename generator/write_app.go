@@ -95,7 +95,7 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 		if pageHasStream(p) {
 			w.writePageGETStreamHandler(p, m, appPkg)
 			if pageHasAnonStream(p, w.eventMap) {
-				w.writePageGETStreamAnonHandler(p, appPkg)
+				w.writePageGETStreamAnonHandler(p, m, appPkg)
 			}
 		}
 		for _, h := range p.Actions {
@@ -111,6 +111,14 @@ func needsJSON(m *model.App) bool {
 		}
 	}
 	for _, p := range m.Pages {
+		if len(p.EventHandlers) > 0 {
+			return true
+		}
+		for _, h := range []*model.Handler{p.StreamOpen, p.StreamClosed} {
+			if h != nil && h.InputDispatch != nil {
+				return true
+			}
+		}
 		for _, h := range p.Actions {
 			if h.InputDispatch != nil {
 				return true
@@ -142,6 +150,9 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"strconv"`)
 	w.Line(1, `"strings"`)
 	w.Line(1, `"sync"`)
+	if w.usage.stream {
+		w.Line(1, `"sync/atomic"`)
+	}
 	w.Line(1, `"time"`)
 	w.Line(0, "")
 	w.Line(1, `"github.com/a-h/templ"`)
@@ -591,7 +602,13 @@ func (s *Server) handleStreamRequest(
 	}
 	w.Raw(`
 	subjects []string,
+	onOpen func(
+		streamID uint64,
+		sse *datastar.ServerSentEventGenerator,
+	) error,
+	onClose func(streamID uint64),
 	fn func(
+		streamID uint64,
 		sse *datastar.ServerSentEventGenerator,
 		ch <-chan msgbroker.Message,
 	),
@@ -600,6 +617,7 @@ func (s *Server) handleStreamRequest(
 		return
 	}
 
+	streamID := s.streamSeq.Add(1)
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 `)
 	if w.prometheus {
@@ -617,6 +635,13 @@ func (s *Server) handleStreamRequest(
 	}
 
 	subC := sub.C()
+	if onOpen != nil {
+		if err := onOpen(streamID, sse); err != nil {
+			sub.Close()
+			s.httpErrIntern(w, r, sse, "handling stream open hook", err)
+			return
+		}
+	}
 `)
 	if w.usage.streamAuth {
 		w.Raw(`	sessionClosed := make(chan struct{})
@@ -664,9 +689,12 @@ func (s *Server) handleStreamRequest(
 `)
 	}
 	w.Raw(`		sub.Close()
+		if onClose != nil {
+			onClose(streamID)
+		}
 	}()
 
-	fn(sse, subC)
+	fn(streamID, sse, subC)
 }
 `)
 }
@@ -680,6 +708,7 @@ type Server struct {
 	httpServer           *http.Server
 	messageBroker        msgbroker.MessageBroker
 	messageBrokerMetrics brokerMetrics
+	streamSeq            atomic.Uint64
 	app                  *`)
 	w.Raw(appPkg)
 	w.Raw(`.App
@@ -941,6 +970,15 @@ func (w *Writer) writeMessageBrokerStreamSubjects(events []*model.Event) {
 func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 	for _, p := range pages {
 		if !pageHasStream(p) {
+			continue
+		}
+		if len(p.EventHandlers) == 0 {
+			w.Line(0, "")
+			w.Raw("func evSubj")
+			w.Raw(p.TypeName)
+			w.Raw("() []string {\n")
+			w.Line(1, "return []string{}")
+			w.Line(0, "}")
 			continue
 		}
 
@@ -1947,8 +1985,16 @@ func (w *Writer) writeMethodCall(
 }
 
 func (w *Writer) writeDispatchClosure(d *model.InputDispatch, appPkg string) {
+	w.writeDispatchClosureAs("dispatch", d, appPkg, "r.Context()")
+}
+
+func (w *Writer) writeDispatchClosureAs(
+	name string, d *model.InputDispatch, appPkg string, ctxExpr string,
+) {
 	w.Line(0, "")
-	w.Line(1, "dispatch := func(")
+	w.Raw("\t")
+	w.Raw(name)
+	w.Raw(" := func(\n")
 	for i, evName := range d.EventTypeNames {
 		w.Raw("\t\te")
 		w.Raw(itoa(i + 1))
@@ -2020,7 +2066,9 @@ func (w *Writer) writeDispatchClosure(d *model.InputDispatch, appPkg string) {
 			for range innerIndent {
 				w.Byte('\t')
 			}
-			w.Raw("err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)\n")
+			w.Raw("err = s.messageBroker.Publish(")
+			w.Raw(ctxExpr)
+			w.Raw(", s.messageBrokerMetrics, subj, j)\n")
 			for range innerIndent {
 				w.Byte('\t')
 			}
@@ -2047,8 +2095,9 @@ func (w *Writer) writeDispatchClosure(d *model.InputDispatch, appPkg string) {
 				w.Raw("}\n")
 			}
 		} else if ev != nil {
-			w.Raw("\t\t\terr = s.messageBroker.Publish(r.Context(), " +
-				"s.messageBrokerMetrics, ")
+			w.Raw("\t\t\terr = s.messageBroker.Publish(")
+			w.Raw(ctxExpr)
+			w.Raw(", s.messageBrokerMetrics, ")
 			w.Raw(evSubjConst(ev))
 			w.Raw(", j)\n")
 			w.Line(3, "if err != nil {")

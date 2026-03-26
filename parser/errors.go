@@ -21,6 +21,7 @@ var (
 	ErrAppMissingTypeApp         = errors.New(`missing required type "App"`)
 	ErrAppMissingPageIndex       = errors.New(`missing required page type "PageIndex"`)
 	ErrSignatureMissingReq       = errors.New(`missing the *http.Request parameter`)
+	ErrSignatureMissingStreamID  = errors.New(`missing the streamID uint64 parameter`)
 	ErrSignatureMultiErrRet      = errors.New(`multiple error return values`)
 	ErrSignatureUnsupportedInput = errors.New(`unsupported input parameter`)
 	// Deprecated: use ErrSignatureUnsupportedInput.
@@ -57,8 +58,9 @@ var (
 	)
 	ErrAppHeadUnsupportedInput = errors.New("head has unsupported input parameter")
 
-	ErrAppRecoverErrorInvalidSignature = errors.New(`"RecoverError" must have signature ` +
-		`(error, *datastar.ServerSentEventGenerator) error`)
+	ErrAppRecoverErrorInvalidSignature = errors.New(
+		`"RecoverError" must have signature ` +
+			`(error, *datastar.ServerSentEventGenerator) error`)
 
 	ErrPageMissingFieldApp     = errors.New(`page is missing the "App *App" field`)
 	ErrPageHasExtraFields      = errors.New(`page struct has unsupported fields`)
@@ -128,6 +130,7 @@ var (
 	ErrSessionTokenParamNotString = errors.New(
 		"sessionToken parameter must be of type string",
 	)
+	ErrStreamIDParamNotUint64 = errors.New("streamID parameter must be of type uint64")
 
 	ErrRedirectNotString             = errors.New("redirect must be a string")
 	ErrRedirectStatusNotInt          = errors.New("redirectStatus must be an int")
@@ -155,7 +158,15 @@ var (
 		"disableRefreshAfterHidden can only be used in GET handlers",
 	)
 
-	ErrSignatureUnsupportedOutput = errors.New("unsupported output return value")
+	ErrSignatureUnsupportedOutput = errors.New(
+		"unsupported output return value",
+	)
+	ErrSignatureStreamHookReturnMustBeError = errors.New(
+		"stream hook must return only error",
+	)
+	ErrStreamHookDuplicateEmbed = errors.New(
+		"conflicting stream hook in embedded",
+	)
 
 	ErrEventSubjectUserNoSession = errors.New(
 		"event with SubjectUser requires a Session type",

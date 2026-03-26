@@ -13,6 +13,8 @@ func handlerArgVar(kind string, skipSSE bool) string {
 	switch kind {
 	case model.InputKindRequest:
 		return "r"
+	case model.InputKindStreamID:
+		return "streamID"
 	case model.InputKindSSE:
 		if skipSSE {
 			return ""
@@ -142,6 +144,9 @@ func handlerInputArgs(h *model.Handler, skipSSE bool) []string {
 	if h.InputRequest != nil {
 		args = append(args, "r")
 	}
+	if h.InputStreamID != nil {
+		args = append(args, "streamID")
+	}
 	if h.InputSSE != nil && !skipSSE {
 		args = append(args, "sse")
 	}
@@ -164,6 +169,27 @@ func handlerInputArgs(h *model.Handler, skipSSE bool) []string {
 		args = append(args, "dispatch")
 	}
 	return args
+}
+
+func handlerInputArgsWithDispatchVar(
+	h *model.Handler, skipSSE bool, dispatchVar string,
+) []string {
+	if len(h.OrderedInputs) > 0 {
+		args := make([]string, 0, len(h.OrderedInputs))
+		for _, inp := range h.OrderedInputs {
+			if inp.Kind == model.InputKindDispatch {
+				if dispatchVar != "" {
+					args = append(args, dispatchVar)
+				}
+				continue
+			}
+			if v := handlerArgVar(inp.Kind, skipSSE); v != "" {
+				args = append(args, v)
+			}
+		}
+		return args
+	}
+	return handlerInputArgs(h, skipSSE)
 }
 
 // eventHandlerInputArgs builds the argument list for an event handler call
@@ -684,14 +710,17 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Line(2, "return")
 	w.Line(1, "}")
 
+	needsAuth := pageStreamNeedsAuth(p, w.eventMap)
 	hasPrivate := pageHasPrivateEvent(p, w.eventMap)
 	hasSignalScoped := pageHasSignalScopedEvent(p, w.eventMap)
-	if hasPrivate {
+	if needsAuth {
 		w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
 		w.Line(1, "if !ok {")
 		w.Line(2, "return")
 		w.Line(1, "}")
+	}
 
+	if hasPrivate {
 		// Check if anon stream exists - if so, redirect unauthenticated to anon.
 		hasAnon := pageHasAnonStream(p, w.eventMap)
 		if hasAnon {
@@ -740,6 +769,30 @@ func (w *Writer) writePageGETStreamHandler(
 		}
 	}
 
+	if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
+		w.Line(0, "")
+		w.Raw("\tvar signals ")
+		w.Raw(renderSignalsType(p.StreamOpen.InputSignals, m))
+		w.Byte('\n')
+		w.Line(1, "if err := datastar.ReadSignals(r, &signals); err != nil {")
+		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
+		w.Line(2, "return")
+		w.Line(1, "}")
+	}
+
+	if p.StreamOpen != nil && p.StreamOpen.InputDispatch != nil {
+		w.writeDispatchClosureAs(
+			"dispatchOpen", p.StreamOpen.InputDispatch, appPkg,
+			"context.WithoutCancel(r.Context())",
+		)
+	}
+	if p.StreamClosed != nil && p.StreamClosed.InputDispatch != nil {
+		w.writeDispatchClosureAs(
+			"dispatchClosed", p.StreamClosed.InputDispatch, appPkg,
+			"context.WithoutCancel(r.Context())",
+		)
+	}
+
 	// Page constructor.
 	w.Raw("\n\tp := ")
 	w.writePageConstructor(p, appPkg)
@@ -748,7 +801,7 @@ func (w *Writer) writePageGETStreamHandler(
 	// evSubj call.
 	evSubjName := "evSubj" + p.TypeName
 	w.Raw("\ts.handleStreamRequest(w, r,")
-	if hasPrivate {
+	if needsAuth {
 		w.Raw(" sessToken, sess,")
 	} else if w.usage.streamAuth {
 		w.Raw(` "", `)
@@ -763,9 +816,9 @@ func (w *Writer) writePageGETStreamHandler(
 			w.Raw(", subjSignals.")
 			w.Raw(sf.Name)
 		}
-		w.Raw("), func(\n")
+		w.Raw("),\n")
 	} else if hasPrivate {
-		w.Raw("(sess.UserID), func(\n")
+		w.Raw("(sess.UserID),\n")
 	} else if hasSignalScoped {
 		w.Raw("(")
 		for i, sf := range signalFields {
@@ -775,31 +828,40 @@ func (w *Writer) writePageGETStreamHandler(
 			w.Raw("subjSignals.")
 			w.Raw(sf.Name)
 		}
-		w.Raw("), func(\n")
+		w.Raw("),\n")
 	} else {
-		w.Raw("(), func(\n")
+		w.Raw("(),\n")
 	}
+	w.writePageStreamOpenHook(p)
+	w.writePageStreamClosedHook(p)
+	w.Line(1, "func(")
+	w.Line(2, "streamID uint64,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")
 	w.Line(1, ") {")
-	w.Line(2, "for msg := range ch {")
-	needsPrefixMatch := hasPrivate || hasSignalScoped
-	if needsPrefixMatch {
-		w.Line(3, "switch {")
+	if len(p.EventHandlers) == 0 {
+		w.Line(2, "for range ch {")
+		w.Line(2, "}")
 	} else {
-		w.Line(3, "switch msg.Subject {")
-	}
-
-	// Generate case for each event handler.
-	for _, eh := range p.EventHandlers {
-		ev := w.eventMap[eh.EventTypeName]
-		if ev == nil {
-			continue
+		w.Line(2, "for msg := range ch {")
+		needsPrefixMatch := hasPrivate || hasSignalScoped
+		if needsPrefixMatch {
+			w.Line(3, "switch {")
+		} else {
+			w.Line(3, "switch msg.Subject {")
 		}
-		w.writeStreamEventCase(p, eh, ev, appPkg, !needsPrefixMatch)
-	}
 
-	w.Line(3, "}")
-	w.Line(2, "}")
+		// Generate case for each event handler.
+		for _, eh := range p.EventHandlers {
+			ev := w.eventMap[eh.EventTypeName]
+			if ev == nil {
+				continue
+			}
+			w.writeStreamEventCase(p, eh, ev, appPkg, !needsPrefixMatch)
+		}
+
+		w.Line(3, "}")
+		w.Line(2, "}")
+	}
 	w.Line(1, "})")
 	w.Line(0, "}")
 }
@@ -864,9 +926,54 @@ func (w *Writer) writeEventHandlerCall(
 	}
 }
 
+func (w *Writer) writePageStreamOpenHook(p *model.Page) {
+	if p.StreamOpen == nil {
+		w.Line(1, "nil,")
+		return
+	}
+	dispatchVar := ""
+	if p.StreamOpen.InputDispatch != nil {
+		dispatchVar = "dispatchOpen"
+	}
+	w.Line(1, "func(")
+	w.Line(2, "streamID uint64,")
+	w.Line(2, "sse *datastar.ServerSentEventGenerator,")
+	w.Line(1, ") error {")
+	w.Raw("\t\treturn ")
+	w.writeCallExpr(
+		"p", "OnStreamOpen",
+		handlerInputArgsWithDispatchVar(p.StreamOpen, false, dispatchVar),
+	)
+	w.Byte('\n')
+	w.Line(1, "},")
+}
+
+func (w *Writer) writePageStreamClosedHook(p *model.Page) {
+	if p.StreamClosed == nil {
+		w.Line(1, "nil,")
+		return
+	}
+	dispatchVar := ""
+	if p.StreamClosed.InputDispatch != nil {
+		dispatchVar = "dispatchClosed"
+	}
+	w.Line(1, "func(streamID uint64) {")
+	w.Raw("\t\tif err := ")
+	w.writeCallExpr(
+		"p", "OnStreamClosed",
+		handlerInputArgsWithDispatchVar(p.StreamClosed, false, dispatchVar),
+	)
+	w.Raw("; err != nil {\n")
+	w.Raw("\t\t\ts.logErr(\"handling ")
+	w.Raw(p.TypeName)
+	w.Raw(".OnStreamClosed\", err)\n")
+	w.Line(2, "}")
+	w.Line(1, "},")
+}
+
 // writePageGETStreamAnonHandler generates the anonymous stream handler for a page.
 func (w *Writer) writePageGETStreamAnonHandler(
-	p *model.Page, appPkg string,
+	p *model.Page, m *model.App, appPkg string,
 ) {
 	w.Line(0, "")
 	w.Raw("func (s *Server) handle")
@@ -886,6 +993,29 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Line(2, "return")
 	w.Line(1, "}")
 
+	if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
+		w.Line(0, "")
+		w.Raw("\tvar signals ")
+		w.Raw(renderSignalsType(p.StreamOpen.InputSignals, m))
+		w.Byte('\n')
+		w.Line(1, "if err := datastar.ReadSignals(r, &signals); err != nil {")
+		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
+		w.Line(2, "return")
+		w.Line(1, "}")
+	}
+	if p.StreamOpen != nil && p.StreamOpen.InputDispatch != nil {
+		w.writeDispatchClosureAs(
+			"dispatchOpen", p.StreamOpen.InputDispatch, appPkg,
+			"context.WithoutCancel(r.Context())",
+		)
+	}
+	if p.StreamClosed != nil && p.StreamClosed.InputDispatch != nil {
+		w.writeDispatchClosureAs(
+			"dispatchClosed", p.StreamClosed.InputDispatch, appPkg,
+			"context.WithoutCancel(r.Context())",
+		)
+	}
+
 	// Page constructor.
 	w.Raw("\n\tp := ")
 	w.writePageConstructor(p, appPkg)
@@ -894,7 +1024,11 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	// evSubj call (for anon, pass empty userID to get public-only subjects).
 	w.Raw("\ts.handleStreamRequest(w, r, sessToken, sess, evSubj")
 	w.Raw(p.TypeName)
-	w.Raw("(sess.UserID), func(\n")
+	w.Raw("(sess.UserID),\n")
+	w.writePageStreamOpenHook(p)
+	w.writePageStreamClosedHook(p)
+	w.Line(1, "func(")
+	w.Line(2, "streamID uint64,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")
 	w.Line(1, ") {")
 	w.Line(2, "for msg := range ch {")

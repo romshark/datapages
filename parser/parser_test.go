@@ -298,6 +298,112 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 	}
 }
 
+func TestParse_StreamHooks(t *testing.T) {
+	app, err := parse(t, "stream_hooks")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+	require.NotNil(app.PageIndex)
+
+	p := app.PageIndex
+	require.NotNil(p.StreamOpen)
+	require.NotNil(p.StreamClosed)
+
+	require.Equal("OnStreamOpen", p.StreamOpen.Name)
+	require.NotNil(p.StreamOpen.InputRequest)
+	require.NotNil(p.StreamOpen.InputStreamID)
+	require.NotNil(p.StreamOpen.InputSSE)
+	require.NotNil(p.StreamOpen.InputSessionToken)
+	require.NotNil(p.StreamOpen.InputSession)
+	require.NotNil(p.StreamOpen.InputSignals)
+	require.NotNil(p.StreamOpen.InputDispatch)
+	require.NotNil(p.StreamOpen.OutputErr)
+
+	require.Equal("OnStreamClosed", p.StreamClosed.Name)
+	require.NotNil(p.StreamClosed.InputRequest)
+	require.NotNil(p.StreamClosed.InputStreamID)
+	require.Nil(p.StreamClosed.InputSSE)
+	require.NotNil(p.StreamClosed.InputSessionToken)
+	require.NotNil(p.StreamClosed.InputSession)
+	require.Nil(p.StreamClosed.InputSignals)
+	require.NotNil(p.StreamClosed.InputDispatch)
+	require.NotNil(p.StreamClosed.OutputErr)
+
+	{ // PageStreamMin: only required params (r, streamID)
+		p := findPage(app, "PageStreamMin")
+		require.NotNil(p)
+
+		require.NotNil(p.StreamOpen)
+		require.Equal("OnStreamOpen", p.StreamOpen.Name)
+		require.NotNil(p.StreamOpen.InputRequest)
+		require.NotNil(p.StreamOpen.InputStreamID)
+		require.Nil(p.StreamOpen.InputSSE)
+		require.Nil(p.StreamOpen.InputSessionToken)
+		require.Nil(p.StreamOpen.InputSession)
+		require.Nil(p.StreamOpen.InputSignals)
+		require.Nil(p.StreamOpen.InputDispatch)
+		require.NotNil(p.StreamOpen.OutputErr)
+
+		require.NotNil(p.StreamClosed)
+		require.Equal("OnStreamClosed", p.StreamClosed.Name)
+		require.NotNil(p.StreamClosed.InputRequest)
+		require.NotNil(p.StreamClosed.InputStreamID)
+		require.Nil(p.StreamClosed.InputSSE)
+		require.Nil(p.StreamClosed.InputSessionToken)
+		require.Nil(p.StreamClosed.InputSession)
+		require.Nil(p.StreamClosed.InputSignals)
+		require.Nil(p.StreamClosed.InputDispatch)
+		require.NotNil(p.StreamClosed.OutputErr)
+	}
+
+	{ // PageStreamMax: all optional params directly
+		p := findPage(app, "PageStreamMax")
+		require.NotNil(p)
+
+		require.NotNil(p.StreamOpen)
+		require.Equal("OnStreamOpen", p.StreamOpen.Name)
+		require.NotNil(p.StreamOpen.InputRequest)
+		require.NotNil(p.StreamOpen.InputStreamID)
+		require.NotNil(p.StreamOpen.InputSSE)
+		require.NotNil(p.StreamOpen.InputSessionToken)
+		require.NotNil(p.StreamOpen.InputSession)
+		require.NotNil(p.StreamOpen.InputSignals)
+		require.NotNil(p.StreamOpen.InputDispatch)
+		require.NotNil(p.StreamOpen.OutputErr)
+
+		require.NotNil(p.StreamClosed)
+		require.Equal("OnStreamClosed", p.StreamClosed.Name)
+		require.NotNil(p.StreamClosed.InputRequest)
+		require.NotNil(p.StreamClosed.InputStreamID)
+		require.Nil(p.StreamClosed.InputSSE)
+		require.NotNil(p.StreamClosed.InputSessionToken)
+		require.NotNil(p.StreamClosed.InputSession)
+		require.Nil(p.StreamClosed.InputSignals)
+		require.NotNil(p.StreamClosed.InputDispatch)
+		require.NotNil(p.StreamClosed.OutputErr)
+	}
+}
+
+func TestParse_ErrStreamHooks(t *testing.T) {
+	_, err := parse(t, "err_stream_hooks")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrSignatureMissingReq,
+		parser.ErrSignatureMissingStreamID,
+		parser.ErrStreamIDParamNotUint64,
+		parser.ErrSignatureUnsupportedInput, // OnStreamClosed with signals
+		parser.ErrSignatureStreamHookReturnMustBeError,
+		parser.ErrSignatureUnsupportedInput, // OnStreamClosed with sse
+		parser.ErrSignatureUnsupportedInput, // OnStreamOpen with path
+		parser.ErrSignatureUnsupportedInput, // OnStreamClosed with path
+		parser.ErrSignatureUnsupportedInput, // OnStreamOpen with query
+		parser.ErrSignatureUnsupportedInput, // OnStreamClosed with query
+		parser.ErrSignatureUnsupportedInput, // action handler with streamID
+		parser.ErrStreamIDParamNotUint64,    // OnStreamOpen with streamID int
+	)
+}
+
 func TestParse_ErrActionHandlerNoName(t *testing.T) {
 	_, err := parse(t, "err_action_handler_no_name")
 	require.NotZero(t, err.Error())

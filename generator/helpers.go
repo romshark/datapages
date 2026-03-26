@@ -65,7 +65,31 @@ func stripPagePrefix(typeName string) string {
 
 // pageHasStream returns true if the page has event handlers and needs a stream.
 func pageHasStream(p *model.Page) bool {
-	return len(p.EventHandlers) > 0
+	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClosed != nil
+}
+
+// pageStreamNeedsAuth returns true if handling the page's SSE stream requires
+// loading session context.
+func pageStreamNeedsAuth(
+	p *model.Page, eventByName map[string]*model.Event,
+) bool {
+	if pageHasPrivateEvent(p, eventByName) {
+		return true
+	}
+	for _, eh := range p.EventHandlers {
+		if eh.InputSession != nil || eh.InputSessionToken != nil {
+			return true
+		}
+	}
+	for _, h := range []*model.Handler{p.StreamOpen, p.StreamClosed} {
+		if h == nil {
+			continue
+		}
+		if h.InputSession != nil || h.InputSessionToken != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // pageHasPrivateEvent returns true if any event handler on the page
@@ -322,9 +346,9 @@ func computeAppUsage(m *model.App) appUsage {
 		if p.GET != nil {
 			checkHandler(p.GET.Handler)
 		}
-		if len(p.EventHandlers) > 0 {
+		if pageHasStream(p) {
 			u.stream = true
-			if pageHasPrivateEvent(p, eventByName) {
+			if pageStreamNeedsAuth(p, eventByName) {
 				u.streamAuth = true
 				u.auth = true
 			}
@@ -332,6 +356,9 @@ func computeAppUsage(m *model.App) appUsage {
 				u.httpErrBad = true
 			}
 			if pageHasSignalScopedEvent(p, eventByName) {
+				u.httpErrBad = true
+			}
+			if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
 				u.httpErrBad = true
 			}
 		}

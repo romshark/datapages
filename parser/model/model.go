@@ -53,6 +53,8 @@ type Page struct {
 
 	GET           *HandlerGET
 	Actions       []*Handler
+	StreamOpen    *Handler
+	StreamClosed  *Handler
 	EventHandlers []*EventHandler
 	Embeds        []*AbstractPage
 }
@@ -62,6 +64,8 @@ type AbstractPage struct {
 	TypeName string
 
 	Methods       []*Handler
+	StreamOpen    *Handler
+	StreamClosed  *Handler
 	EventHandlers []*EventHandler
 	Embeds        []*AbstractPage
 }
@@ -85,6 +89,7 @@ type Handler struct {
 	Route      string
 
 	InputRequest      *Input
+	InputStreamID     *Input
 	InputSSE          *Input
 	InputSessionToken *Input
 	InputSession      *Input
@@ -128,6 +133,7 @@ type EventHandler struct {
 // InputKind constants identify handler input parameter kinds.
 const (
 	InputKindRequest      = "request"
+	InputKindStreamID     = "streamID"
 	InputKindSSE          = "sse"
 	InputKindSessionToken = "sessionToken"
 	InputKindSession      = "session"

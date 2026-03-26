@@ -113,6 +113,41 @@ func withEHErr(eh *model.EventHandler) {
 	eh.OutputErr = &model.Output{Name: "err"}
 }
 
+func testStreamHook(name string, opts ...func(*model.Handler)) *model.Handler {
+	h := &model.Handler{
+		Name:          name,
+		InputRequest:  &model.Input{Name: "r"},
+		InputStreamID: &model.Input{Name: "streamID"},
+		OutputErr:     &model.Output{Name: "err"},
+	}
+	for _, o := range opts {
+		o(h)
+	}
+	return h
+}
+
+func withHookSSE(h *model.Handler) {
+	h.InputSSE = &model.Input{Name: "sse"}
+}
+
+func withHookSignals(h *model.Handler) {
+	h.InputSignals = &model.Input{
+		Name: "signals",
+		Type: model.Type{Resolved: testStruct(
+			testFieldDef{"InstanceID", types.Typ[types.String], `json:"instance_id"`},
+		)},
+	}
+}
+
+func withHookDispatch(eventTypeNames ...string) func(*model.Handler) {
+	return func(h *model.Handler) {
+		h.InputDispatch = &model.InputDispatch{
+			Input:          &model.Input{Name: "dispatch"},
+			EventTypeNames: eventTypeNames,
+		}
+	}
+}
+
 func TestWriteEvSubjPageFuncs(t *testing.T) {
 	privateEvent := testEvent("EventMessagingSent", "messaging.sent", true)
 	publicEvent := testEvent("EventPostsArchived", "posts.archived", false)
@@ -149,6 +184,15 @@ func TestWriteEvSubjPageFuncs(t *testing.T) {
 				"EventPostsArchived": publicEvent,
 			},
 			golden: "app_evsubj_public_only.txt",
+		},
+		"hooks only": {
+			pages: []*model.Page{{
+				TypeName:   "PageFeed",
+				Route:      "/feed/",
+				StreamOpen: testStreamHook("OnStreamOpen", withHookSSE),
+			}},
+			eventMap: map[string]*model.Event{},
+			golden:   "app_evsubj_hooks_only.txt",
 		},
 		"signal-scoped only": {
 			pages: []*model.Page{{
@@ -513,6 +557,17 @@ func TestWriteSetupHandlers(t *testing.T) {
 							},
 						},
 					},
+					{
+						TypeName: "PageHooks",
+						Route:    "/hooks/",
+						GET: &model.HandlerGET{
+							Handler: &model.Handler{},
+							OutputBody: &model.TemplComponent{
+								Output: &model.Output{Name: "body"},
+							},
+						},
+						StreamOpen: testStreamHook("OnStreamOpen", withHookSSE),
+					},
 				},
 				Actions: []*model.Handler{
 					{HTTPMethod: "POST", Name: "SignOut", Route: "/sign-out"},
@@ -858,6 +913,23 @@ func TestWritePageGETStreamHandler(t *testing.T) {
 			},
 			golden: "app_stream_public_only.txt",
 		},
+		"hooks only": {
+			page: &model.Page{
+				TypeName:     "PageFeed",
+				Route:        "/feed/",
+				StreamOpen:   testStreamHook("OnStreamOpen", withHookSSE, withHookSignals, withHookDispatch("EventPostsCreated")),
+				StreamClosed: testStreamHook("OnStreamClosed", withHookDispatch("EventPostsCreated")),
+			},
+			app: &model.App{
+				PkgPath: testAppPkgPath,
+				Fset:    token.NewFileSet(),
+				Events:  []*model.Event{publicEvent},
+			},
+			eventMap: map[string]*model.Event{
+				"EventPostsCreated": publicEvent,
+			},
+			golden: "app_stream_hooks_only.txt",
+		},
 		"handler without error": {
 			page: &model.Page{
 				TypeName: "PageFeed",
@@ -974,7 +1046,11 @@ func TestWritePageGETStreamAnonHandler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
 			w.eventMap = tt.eventMap
-			w.writePageGETStreamAnonHandler(tt.page, testAppPkg)
+			w.writePageGETStreamAnonHandler(
+				tt.page,
+				&model.App{PkgPath: testAppPkgPath, Fset: token.NewFileSet()},
+				testAppPkg,
+			)
 			compareGolden(t, tt.golden, w.Buf)
 		})
 	}
@@ -1098,6 +1174,21 @@ func TestWriteGETBodyAttrs(t *testing.T) {
 				Events:  []*model.Event{publicEvent},
 			},
 			golden: "app_body_attrs_public_only.txt",
+		},
+		"hooks only stream static path": {
+			page: &model.Page{
+				TypeName: "PageFeed",
+				Route:    "/feed/",
+				GET: &model.HandlerGET{
+					Handler: &model.Handler{},
+				},
+				StreamOpen: testStreamHook("OnStreamOpen", withHookSSE),
+			},
+			app: &model.App{
+				PkgPath: testAppPkgPath,
+				Fset:    token.NewFileSet(),
+			},
+			golden: "app_body_attrs_hooks_only.txt",
 		},
 		"enable bg stream": {
 			page: &model.Page{

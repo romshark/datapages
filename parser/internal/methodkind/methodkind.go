@@ -14,6 +14,8 @@ const (
 	ActionPUTHandler
 	ActionPATCHHandler
 	ActionDELETEHandler
+	StreamOpenHook
+	StreamClosedHook
 	EventHandler
 )
 
@@ -71,6 +73,10 @@ func Classify(name string) (kind Kind, suffix string) {
 		return ActionPATCHHandler, name[len("PATCH"):]
 	case strings.HasPrefix(name, "DELETE"):
 		return ActionDELETEHandler, name[len("DELETE"):]
+	case name == "OnStreamOpen":
+		return StreamOpenHook, ""
+	case name == "OnStreamClosed":
+		return StreamClosedHook, ""
 	case strings.HasPrefix(name, "On"):
 		return EventHandler, name[len("On"):]
 	default:
