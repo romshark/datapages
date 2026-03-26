@@ -189,7 +189,7 @@ func TestWriteEvSubjPageFuncs(t *testing.T) {
 			pages: []*model.Page{{
 				TypeName:   "PageFeed",
 				Route:      "/feed/",
-				StreamOpen: testStreamHook("OnStreamOpen", withHookSSE),
+				StreamOpen: testStreamHook("StreamOpen", withHookSSE),
 			}},
 			eventMap: map[string]*model.Event{},
 			golden:   "app_evsubj_hooks_only.txt",
@@ -566,7 +566,7 @@ func TestWriteSetupHandlers(t *testing.T) {
 								Output: &model.Output{Name: "body"},
 							},
 						},
-						StreamOpen: testStreamHook("OnStreamOpen", withHookSSE),
+						StreamOpen: testStreamHook("StreamOpen", withHookSSE),
 					},
 				},
 				Actions: []*model.Handler{
@@ -915,10 +915,10 @@ func TestWritePageGETStreamHandler(t *testing.T) {
 		},
 		"hooks only": {
 			page: &model.Page{
-				TypeName:     "PageFeed",
-				Route:        "/feed/",
-				StreamOpen:   testStreamHook("OnStreamOpen", withHookSSE, withHookSignals, withHookDispatch("EventPostsCreated")),
-				StreamClosed: testStreamHook("OnStreamClosed", withHookDispatch("EventPostsCreated")),
+				TypeName:    "PageFeed",
+				Route:       "/feed/",
+				StreamOpen:  testStreamHook("StreamOpen", withHookSSE, withHookSignals, withHookDispatch("EventPostsCreated")),
+				StreamClose: testStreamHook("StreamClose", withHookDispatch("EventPostsCreated")),
 			},
 			app: &model.App{
 				PkgPath: testAppPkgPath,
@@ -1182,7 +1182,7 @@ func TestWriteGETBodyAttrs(t *testing.T) {
 				GET: &model.HandlerGET{
 					Handler: &model.Handler{},
 				},
-				StreamOpen: testStreamHook("OnStreamOpen", withHookSSE),
+				StreamOpen: testStreamHook("StreamOpen", withHookSSE),
 			},
 			app: &model.App{
 				PkgPath: testAppPkgPath,

@@ -65,7 +65,7 @@ func stripPagePrefix(typeName string) string {
 
 // pageHasStream returns true if the page has event handlers and needs a stream.
 func pageHasStream(p *model.Page) bool {
-	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClosed != nil
+	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil
 }
 
 // pageStreamNeedsAuth returns true if handling the page's SSE stream requires
@@ -81,7 +81,7 @@ func pageStreamNeedsAuth(
 			return true
 		}
 	}
-	for _, h := range []*model.Handler{p.StreamOpen, p.StreamClosed} {
+	for _, h := range []*model.Handler{p.StreamOpen, p.StreamClose} {
 		if h == nil {
 			continue
 		}

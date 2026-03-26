@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/a-h/templ"
@@ -289,7 +290,13 @@ func (s *Server) writeHTML(
 func (s *Server) handleStreamRequest(
 	w http.ResponseWriter, r *http.Request,
 	subjects []string,
+	onOpen func(
+		streamID uint64,
+		sse *datastar.ServerSentEventGenerator,
+	) error,
+	onClose func(streamID uint64),
 	fn func(
+		streamID uint64,
 		sse *datastar.ServerSentEventGenerator,
 		ch <-chan msgbroker.Message,
 	),
@@ -298,6 +305,7 @@ func (s *Server) handleStreamRequest(
 		return
 	}
 
+	streamID := s.streamSeq.Add(1)
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
 	ctx := r.Context()
@@ -308,15 +316,25 @@ func (s *Server) handleStreamRequest(
 	}
 
 	subC := sub.C()
+	if onOpen != nil {
+		if err := onOpen(streamID, sse); err != nil {
+			sub.Close()
+			s.httpErrIntern(w, r, sse, "handling stream open hook", err)
+			return
+		}
+	}
 	go func() {
 		select {
 		case <-r.Context().Done():
 		case <-s.shutdownCh:
 		}
 		sub.Close()
+		if onClose != nil {
+			onClose(streamID)
+		}
 	}()
 
-	fn(sse, subC)
+	fn(streamID, sse, subC)
 }
 
 type Server struct {
@@ -326,6 +344,7 @@ type Server struct {
 	httpServer           *http.Server
 	messageBroker        msgbroker.MessageBroker
 	messageBrokerMetrics brokerMetrics
+	streamSeq            atomic.Uint64
 	app                  *app.App
 	mux                  *http.ServeMux
 	logger               *slog.Logger
@@ -501,23 +520,27 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	p := app.PageIndex{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageIndex(), func(
-		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
-	) {
-		for msg := range ch {
-			switch msg.Subject {
-			case EvSubjCounterUpdated:
-				var e app.EventCounterUpdated
-				if err := json.Unmarshal(msg.Data, &e); err != nil {
-					s.logErr("unmarshaling EventCounterUpdated JSON", err)
-					continue
-				}
-				if err := p.OnCounterUpdated(e, sse); err != nil {
-					s.logErr("handling PageIndex.OnCounterUpdated", err)
+	s.handleStreamRequest(w, r, evSubjPageIndex(),
+		nil,
+		nil,
+		func(
+			streamID uint64,
+			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+		) {
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjCounterUpdated:
+					var e app.EventCounterUpdated
+					if err := json.Unmarshal(msg.Data, &e); err != nil {
+						s.logErr("unmarshaling EventCounterUpdated JSON", err)
+						continue
+					}
+					if err := p.OnCounterUpdated(e, sse); err != nil {
+						s.logErr("handling PageIndex.OnCounterUpdated", err)
+					}
 				}
 			}
-		}
-	})
+		})
 }
 
 func (s *Server) handlePageIndexPOSTAdd(

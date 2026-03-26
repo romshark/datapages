@@ -786,9 +786,9 @@ func (w *Writer) writePageGETStreamHandler(
 			"context.WithoutCancel(r.Context())",
 		)
 	}
-	if p.StreamClosed != nil && p.StreamClosed.InputDispatch != nil {
+	if p.StreamClose != nil && p.StreamClose.InputDispatch != nil {
 		w.writeDispatchClosureAs(
-			"dispatchClosed", p.StreamClosed.InputDispatch, appPkg,
+			"dispatchClosed", p.StreamClose.InputDispatch, appPkg,
 			"context.WithoutCancel(r.Context())",
 		)
 	}
@@ -833,7 +833,7 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Raw("(),\n")
 	}
 	w.writePageStreamOpenHook(p)
-	w.writePageStreamClosedHook(p)
+	w.writePageStreamCloseHook(p)
 	w.Line(1, "func(")
 	w.Line(2, "streamID uint64,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")
@@ -941,32 +941,32 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 	w.Line(1, ") error {")
 	w.Raw("\t\treturn ")
 	w.writeCallExpr(
-		"p", "OnStreamOpen",
+		"p", "StreamOpen",
 		handlerInputArgsWithDispatchVar(p.StreamOpen, false, dispatchVar),
 	)
 	w.Byte('\n')
 	w.Line(1, "},")
 }
 
-func (w *Writer) writePageStreamClosedHook(p *model.Page) {
-	if p.StreamClosed == nil {
+func (w *Writer) writePageStreamCloseHook(p *model.Page) {
+	if p.StreamClose == nil {
 		w.Line(1, "nil,")
 		return
 	}
 	dispatchVar := ""
-	if p.StreamClosed.InputDispatch != nil {
+	if p.StreamClose.InputDispatch != nil {
 		dispatchVar = "dispatchClosed"
 	}
 	w.Line(1, "func(streamID uint64) {")
 	w.Raw("\t\tif err := ")
 	w.writeCallExpr(
-		"p", "OnStreamClosed",
-		handlerInputArgsWithDispatchVar(p.StreamClosed, false, dispatchVar),
+		"p", "StreamClose",
+		handlerInputArgsWithDispatchVar(p.StreamClose, false, dispatchVar),
 	)
 	w.Raw("; err != nil {\n")
 	w.Raw("\t\t\ts.logErr(\"handling ")
 	w.Raw(p.TypeName)
-	w.Raw(".OnStreamClosed\", err)\n")
+	w.Raw(".StreamClose\", err)\n")
 	w.Line(2, "}")
 	w.Line(1, "},")
 }
@@ -1009,9 +1009,9 @@ func (w *Writer) writePageGETStreamAnonHandler(
 			"context.WithoutCancel(r.Context())",
 		)
 	}
-	if p.StreamClosed != nil && p.StreamClosed.InputDispatch != nil {
+	if p.StreamClose != nil && p.StreamClose.InputDispatch != nil {
 		w.writeDispatchClosureAs(
-			"dispatchClosed", p.StreamClosed.InputDispatch, appPkg,
+			"dispatchClosed", p.StreamClose.InputDispatch, appPkg,
 			"context.WithoutCancel(r.Context())",
 		)
 	}
@@ -1026,7 +1026,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Raw(p.TypeName)
 	w.Raw("(sess.UserID),\n")
 	w.writePageStreamOpenHook(p)
-	w.writePageStreamClosedHook(p)
+	w.writePageStreamCloseHook(p)
 	w.Line(1, "func(")
 	w.Line(2, "streamID uint64,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")

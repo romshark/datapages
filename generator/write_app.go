@@ -114,7 +114,7 @@ func needsJSON(m *model.App) bool {
 		if len(p.EventHandlers) > 0 {
 			return true
 		}
-		for _, h := range []*model.Handler{p.StreamOpen, p.StreamClosed} {
+		for _, h := range []*model.Handler{p.StreamOpen, p.StreamClose} {
 			if h != nil && h.InputDispatch != nil {
 				return true
 			}

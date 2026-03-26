@@ -422,27 +422,27 @@ type EventDirectMessage struct {
 
 ## Step 9: Add Stream Hooks (Optional)
 
-`OnStreamOpen` and `OnStreamClosed` run when a page's SSE stream opens and closes.
+`StreamOpen` and `StreamClose` run when a page's SSE stream opens and closes.
 
 ### When to use stream hooks
 
 - **Per-tab server-side state.** Store filters, sort order, or view preferences
   keyed by `streamID`. Event handlers (which don't receive signals) can then look
   up the current tab's state to render correctly filtered responses. Clean up in
-  `OnStreamClosed`.
+  `StreamClose`.
 - **CQRS read-model binding.** In a CQRS architecture, actions (commands) dispatch
   events and event handlers (queries) render the updated UI. The event handler
   needs context about *which* tab it is rendering for (e.g. which item is being
-  viewed, which filters are active). `OnStreamOpen` is the place to capture that
+  viewed, which filters are active). `StreamOpen` is the place to capture that
   context — read initial signals, store them alongside the `streamID`, and use them
   later in event handlers to produce the right fat morph.
 - **HMAC-signed tab identifiers.** Generate an HMAC of the `streamID` in
-  `OnStreamOpen`, patch it to the client as a signal via `sse.MarshalAndPatchSignals`,
+  `StreamOpen`, patch it to the client as a signal via `sse.MarshalAndPatchSignals`,
   and validate it in action handlers. Because only the server knows the HMAC key,
   clients cannot forge a tab ID for a stream they don't own, which prevents
   one tab from impersonating another when calling actions.
 - **Resource lifecycle.** Acquire per-stream resources (subscriptions, connections,
-  counters) in `OnStreamOpen` and release them in `OnStreamClosed`.
+  counters) in `StreamOpen` and release them in `StreamClose`.
 
 ### Signature
 
@@ -452,18 +452,18 @@ Use it to correlate open and close for the same stream.
 It is intended for internal server-side bookkeeping only and must not be exposed
 to clients, as it could leak information about server activity and connection volume.
 
-`OnStreamOpen` runs after the SSE stream is established, before any event handler.
+`StreamOpen` runs after the SSE stream is established, before any event handler.
 It additionally accepts these optional parameters:
 `sse *datastar.ServerSentEventGenerator`, `sessionToken string`, `session Session`,
 `signals struct{...}`, `dispatch func(...) error`.
 
-`OnStreamClosed` runs when the stream closes.
+`StreamClose` runs when the stream closes.
 It additionally accepts these optional parameters: `sessionToken string`,
 `session Session`, `dispatch func(...) error`.
-Note: `OnStreamClosed` does **not** accept `sse` or `signals`.
+Note: `StreamClose` does **not** accept `sse` or `signals`.
 
 ```go
-func (PageIndex) OnStreamOpen(
+func (PageIndex) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 	sse *datastar.ServerSentEventGenerator, // Optional
@@ -478,7 +478,7 @@ func (PageIndex) OnStreamOpen(
 	return nil
 }
 
-func (PageIndex) OnStreamClosed(
+func (PageIndex) StreamClose(
 	r *http.Request,
 	streamID uint64,
 	sessionToken string, // Optional

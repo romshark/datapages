@@ -19,12 +19,6 @@ func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
 	return body, err
 }
 
-// GET handler with SSE parameter (optional for GET)
-func (PageIndex) HEAD(r *http.Request, sse *datastar.ServerSentEventGenerator) (head templ.Component, err error) {
-	_ = sse
-	return head, err
-}
-
 // PageActions is /actions
 type PageActions struct{ App *App }
 

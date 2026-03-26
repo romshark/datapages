@@ -565,6 +565,12 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 
 			kind, suffix := methodkind.Classify(fd.Name.Name)
 			if kind == 0 {
+				if fd.Name.IsExported() {
+					errs.ErrAt(
+						ctx.pkg.Fset.Position(fd.Name.Pos()),
+						fmt.Errorf("%w: %s.%s", ErrUnsupportedMethod, recv, fd.Name.Name),
+					)
+				}
 				continue
 			}
 
@@ -582,7 +588,7 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 			}
 
 			switch kind {
-			case methodkind.StreamOpenHook, methodkind.StreamClosedHook:
+			case methodkind.StreamOpenHook, methodkind.StreamCloseHook:
 				validateAndAttachStreamHook(ctx, errs, recv, fd, pg, ap, kind)
 			case methodkind.EventHandler:
 				if err := validate.EventHandlerMethodName(fd.Name.Name); err != nil {
@@ -757,14 +763,14 @@ func validateAndAttachStreamHook(
 		if kind == methodkind.StreamOpenHook {
 			pg.StreamOpen = h
 		} else {
-			pg.StreamClosed = h
+			pg.StreamClose = h
 		}
 		return
 	}
 	if kind == methodkind.StreamOpenHook {
 		ap.StreamOpen = h
 	} else {
-		ap.StreamClosed = h
+		ap.StreamClose = h
 	}
 }
 
@@ -970,10 +976,10 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 			streamOpenOwnerPos = pg.StreamOpen.Expr.Pos()
 		}
 	}
-	if pg.StreamClosed != nil {
+	if pg.StreamClose != nil {
 		streamClosedOwner = "page"
-		if pg.StreamClosed.Expr != nil {
-			streamClosedOwnerPos = pg.StreamClosed.Expr.Pos()
+		if pg.StreamClose.Expr != nil {
+			streamClosedOwnerPos = pg.StreamClose.Expr.Pos()
 		}
 	}
 	for _, h := range pg.EventHandlers {
@@ -1098,7 +1104,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				}
 				errs.ErrAt(pos, fmt.Errorf(
 					"%w: %s inherits %s and %s which both "+
-						"define OnStreamOpen (previous at %s)",
+						"define StreamOpen (previous at %s)",
 					ErrStreamHookDuplicateEmbed,
 					pg.TypeName,
 					streamOpenOwner,
@@ -1108,14 +1114,14 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 			}
 		}
 
-		if ap.StreamClosed != nil {
+		if ap.StreamClose != nil {
 			switch streamClosedOwner {
 			case "":
 				streamClosedOwner = ap.TypeName
-				if ap.StreamClosed.Expr != nil {
-					streamClosedOwnerPos = ap.StreamClosed.Expr.Pos()
+				if ap.StreamClose.Expr != nil {
+					streamClosedOwnerPos = ap.StreamClose.Expr.Pos()
 				}
-				pg.StreamClosed = ap.StreamClosed
+				pg.StreamClose = ap.StreamClose
 			case "page", ap.TypeName:
 				// Page-owned or already inherited from the same abstract wins.
 			default:
@@ -1128,7 +1134,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 					prevPos = ctx.pkg.Fset.Position(streamClosedOwnerPos)
 				}
 				errs.ErrAt(pos, fmt.Errorf(
-					"%w: %s inherits %s and %s which both define OnStreamClosed (previous at %s)",
+					"%w: %s inherits %s and %s which both define StreamClose (previous at %s)",
 					ErrStreamHookDuplicateEmbed,
 					pg.TypeName,
 					streamClosedOwner,

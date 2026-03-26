@@ -54,7 +54,7 @@ type Page struct {
 	GET           *HandlerGET
 	Actions       []*Handler
 	StreamOpen    *Handler
-	StreamClosed  *Handler
+	StreamClose   *Handler
 	EventHandlers []*EventHandler
 	Embeds        []*AbstractPage
 }
@@ -65,7 +65,7 @@ type AbstractPage struct {
 
 	Methods       []*Handler
 	StreamOpen    *Handler
-	StreamClosed  *Handler
+	StreamClose   *Handler
 	EventHandlers []*EventHandler
 	Embeds        []*AbstractPage
 }

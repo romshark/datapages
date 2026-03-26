@@ -71,6 +71,12 @@ var (
 	ErrPageInvalidPathComm     = errors.New("page has invalid path comment")
 	ErrPageIndexPathMustBeRoot = errors.New(`PageIndex path must be "/"`)
 
+	ErrUnsupportedMethod = errors.New(
+		"unsupported public method on page type; " +
+			"use GET, POST*/PUT*/PATCH*/DELETE* (actions), " +
+			"On* (event handlers), or StreamOpen/StreamClose (stream hooks)",
+	)
+
 	ErrActionNameMissing      = errors.New("action handler must have a name")
 	ErrActionNameInvalid      = errors.New("action has invalid name")
 	ErrActionMissingPathComm  = errors.New("action handler is missing path comment")

@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/a-h/templ"
@@ -295,6 +296,7 @@ type Server struct {
 	httpServer           *http.Server
 	messageBroker        msgbroker.MessageBroker
 	messageBrokerMetrics brokerMetrics
+	streamSeq            atomic.Uint64
 	app                  *app.App
 	mux                  *http.ServeMux
 	logger               *slog.Logger

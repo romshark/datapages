@@ -50,11 +50,11 @@ func (s *Server) handlePageFeedGETStream(w http.ResponseWriter, r *http.Request)
 		streamID uint64,
 		sse *datastar.ServerSentEventGenerator,
 	) error {
-		return p.OnStreamOpen(r, streamID, sse, signals, dispatch)
+		return p.StreamOpen(r, streamID, sse, signals, dispatch)
 	},
 	func(streamID uint64) {
-		if err := p.OnStreamClosed(r, streamID, dispatch); err != nil {
-			s.logErr("handling PageFeed.OnStreamClosed", err)
+		if err := p.StreamClose(r, streamID, dispatch); err != nil {
+			s.logErr("handling PageFeed.StreamClose", err)
 		}
 	},
 	func(

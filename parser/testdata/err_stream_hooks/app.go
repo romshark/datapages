@@ -18,7 +18,7 @@ func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
 
 /* ErrSignatureMissingReq */
 
-func (PageIndex) OnStreamOpen(streamID uint64) error {
+func (PageIndex) StreamOpen(streamID uint64) error {
 	return nil
 }
 
@@ -33,7 +33,7 @@ func (PageMissingStreamID) GET(
 
 /* ErrSignatureMissingStreamID */
 
-func (PageMissingStreamID) OnStreamOpen(r *http.Request) error {
+func (PageMissingStreamID) StreamOpen(r *http.Request) error {
 	return nil
 }
 
@@ -48,7 +48,7 @@ func (PageWrongStreamID) GET(
 
 /* ErrStreamIDParamNotUint64 */
 
-func (PageWrongStreamID) OnStreamOpen(
+func (PageWrongStreamID) StreamOpen(
 	r *http.Request, streamID string,
 ) error {
 	return nil
@@ -63,9 +63,9 @@ func (PageClosedSignals) GET(
 	return nil, nil
 }
 
-/* ErrSignatureUnsupportedInput: signals not allowed on OnStreamClosed */
+/* ErrSignatureUnsupportedInput: signals not allowed on StreamClose */
 
-func (PageClosedSignals) OnStreamClosed(
+func (PageClosedSignals) StreamClose(
 	r *http.Request,
 	streamID uint64,
 	signals struct {
@@ -86,7 +86,7 @@ func (PageClosedBadReturn) GET(
 
 /* ErrSignatureStreamHookReturnMustBeError */
 
-func (PageClosedBadReturn) OnStreamClosed(
+func (PageClosedBadReturn) StreamClose(
 	r *http.Request, streamID uint64,
 ) {
 }
@@ -100,9 +100,9 @@ func (PageClosedSSE) GET(
 	return nil, nil
 }
 
-/* ErrSignatureUnsupportedInput: sse not allowed on OnStreamClosed */
+/* ErrSignatureUnsupportedInput: sse not allowed on StreamClose */
 
-func (PageClosedSSE) OnStreamClosed(
+func (PageClosedSSE) StreamClose(
 	r *http.Request,
 	streamID uint64,
 	sse *datastar.ServerSentEventGenerator,
@@ -119,9 +119,9 @@ func (PageOpenPath) GET(
 	return nil, nil
 }
 
-/* ErrSignatureUnsupportedInput: path not allowed on OnStreamOpen */
+/* ErrSignatureUnsupportedInput: path not allowed on StreamOpen */
 
-func (PageOpenPath) OnStreamOpen(
+func (PageOpenPath) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 	path struct {
@@ -140,9 +140,9 @@ func (PageClosedPath) GET(
 	return nil, nil
 }
 
-/* ErrSignatureUnsupportedInput: path not allowed on OnStreamClosed */
+/* ErrSignatureUnsupportedInput: path not allowed on StreamClose */
 
-func (PageClosedPath) OnStreamClosed(
+func (PageClosedPath) StreamClose(
 	r *http.Request,
 	streamID uint64,
 	path struct {
@@ -161,9 +161,9 @@ func (PageOpenQuery) GET(
 	return nil, nil
 }
 
-/* ErrSignatureUnsupportedInput: query not allowed on OnStreamOpen */
+/* ErrSignatureUnsupportedInput: query not allowed on StreamOpen */
 
-func (PageOpenQuery) OnStreamOpen(
+func (PageOpenQuery) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 	query struct {
@@ -182,9 +182,9 @@ func (PageClosedQuery) GET(
 	return nil, nil
 }
 
-/* ErrSignatureUnsupportedInput: query not allowed on OnStreamClosed */
+/* ErrSignatureUnsupportedInput: query not allowed on StreamClose */
 
-func (PageClosedQuery) OnStreamClosed(
+func (PageClosedQuery) StreamClose(
 	r *http.Request,
 	streamID uint64,
 	query struct {
@@ -224,7 +224,7 @@ func (PageWrongStreamIDType) GET(
 
 /* ErrStreamIDParamNotUint64: streamID int instead of uint64 */
 
-func (PageWrongStreamIDType) OnStreamOpen(
+func (PageWrongStreamIDType) StreamOpen(
 	r *http.Request, streamID int,
 ) error {
 	return nil

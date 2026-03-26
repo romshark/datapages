@@ -20,7 +20,7 @@ type EventPing struct{}
 
 type Base struct{ App *App }
 
-func (Base) OnStreamOpen(
+func (Base) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 	sse *datastar.ServerSentEventGenerator,
@@ -34,7 +34,7 @@ func (Base) OnStreamOpen(
 	return nil
 }
 
-func (Base) OnStreamClosed(
+func (Base) StreamClose(
 	r *http.Request,
 	streamID uint64,
 	sessionToken string,
@@ -61,14 +61,14 @@ func (PageStreamMin) GET(r *http.Request) (body templ.Component, err error) {
 	return nil, nil
 }
 
-func (PageStreamMin) OnStreamOpen(
+func (PageStreamMin) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 ) error {
 	return nil
 }
 
-func (PageStreamMin) OnStreamClosed(
+func (PageStreamMin) StreamClose(
 	r *http.Request,
 	streamID uint64,
 ) error {
@@ -82,7 +82,7 @@ func (PageStreamMax) GET(r *http.Request) (body templ.Component, err error) {
 	return nil, nil
 }
 
-func (PageStreamMax) OnStreamOpen(
+func (PageStreamMax) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 	sse *datastar.ServerSentEventGenerator,
@@ -96,7 +96,7 @@ func (PageStreamMax) OnStreamOpen(
 	return nil
 }
 
-func (PageStreamMax) OnStreamClosed(
+func (PageStreamMax) StreamClose(
 	r *http.Request,
 	streamID uint64,
 	sessionToken string,
