@@ -1,13 +1,12 @@
 # Todo List
 
-A collaborative real-time todo list demonstrating per-tab server-side state handling,
-HMAC-signed tab identifiers, and the
-[CQRS](https://data-star.dev/guide/the_tao_of_datastar#cqrs) &
-[fat morphs](https://data-star.dev/guide/the_tao_of_datastar#in-morph-we-trust)
-architecture.
+A collaborative real-time todo list demonstrating per-tab server-side state handling.
+Changes made in one tab are immediately reflected in all other open tabs across all
+connected clients. For simplicity reasons,
+all data is stored in memory and lost on restart.
 
-Changes made in one tab are immediately reflected in all other open tabs.
-All data is stored in memory and lost on restart.
+This example implements the official Datastar design recommendtations following
+[The Tao of Datastar](https://data-star.dev/guide/the_tao_of_datastar).
 
 ## Prerequisites
 
@@ -34,26 +33,22 @@ Then open http://localhost:7331/.
 
 ## Architecture
 
-This example uses a [CQRS](https://data-star.dev/guide/the_tao_of_datastar#cqrs)
-approach with
-[fat morphs](https://data-star.dev/guide/the_tao_of_datastar#in-morph-we-trust).
-Actions (commands) modify state and dispatch `EventTodoUpdated`.
-Event handlers (queries) re-render the relevant page fragment via SSE.
-
-- Toggling done is supported on both pages.
-- All state lives on the server. No JavaScript.
-
-Tab identity is established by HMAC-signing the `streamID` in `StreamOpen`
-and patching the result to the client as a `tab_id` signal. Every action handler
-verifies this signature, preventing one tab from impersonating another.
-
-Editing and toggling are handled by a single shared App-level action
-`PUTEdit /{id}`. When called with `?toggle=true` (from PageIndex checkboxes),
-it flips the done state server-side. When called without (from PageItem inputs),
-it updates all fields from signals. Both paths dispatch `EventTodoUpdated`.
-
-Filter and sort state is synced to the URL via `reflectsignal` query parameters,
-so reloading the page preserves the current view.
+- Following the [CQRS](https://data-star.dev/guide/the_tao_of_datastar#cqrs)
+  architecture, actions (commands) transmit user inputs to the server while UI
+  updates are received via SSE. To reduce code complexity, the server sends the
+  whole page template rerendered with new data
+  (["fat morph"](https://data-star.dev/guide/the_tao_of_datastar#in-morph-we-trust)),
+  which isn't a problem thanks to
+  [Brotli compression](https://andersmurphy.com/2025/04/15/why-you-should-use-brotli-sse.html).
+- HMAC-signed identifiers securily identify each individual browser tab
+  (or rather the SSE stream that tab opens). Every action handler verifies this
+  signature, preventing one tab from impersonating another.
+- All application state is managed by the server and stored on the server
+  (see [State in the Right Place](https://data-star.dev/guide/the_tao_of_datastar#state-in-the-right-place)).
+- For simplicity reasons, an in-memory message broker is used since this example
+  doesn't require a multi-instance setup.
+- Filter and sort state is synced to the URL via `reflectsignal` query parameters,
+  so reloading the page preserves the current view.
 
 ### Interaction flow
 
