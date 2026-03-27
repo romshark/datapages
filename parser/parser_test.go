@@ -329,7 +329,7 @@ func TestParse_StreamHooks(t *testing.T) {
 	require.NotNil(p.StreamClose.InputDispatch)
 	require.NotNil(p.StreamClose.OutputErr)
 
-	{ // PageStreamMin: only required params (r, streamID)
+	{ // PageStreamMin: only required params (r, streamID), no error return
 		p := findPage(app, "PageStreamMin")
 		require.NotNil(p)
 
@@ -342,7 +342,7 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.Nil(p.StreamOpen.InputSession)
 		require.Nil(p.StreamOpen.InputSignals)
 		require.Nil(p.StreamOpen.InputDispatch)
-		require.NotNil(p.StreamOpen.OutputErr)
+		require.Nil(p.StreamOpen.OutputErr)
 
 		require.NotNil(p.StreamClose)
 		require.Equal("StreamClose", p.StreamClose.Name)
@@ -353,7 +353,7 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.Nil(p.StreamClose.InputSession)
 		require.Nil(p.StreamClose.InputSignals)
 		require.Nil(p.StreamClose.InputDispatch)
-		require.NotNil(p.StreamClose.OutputErr)
+		require.Nil(p.StreamClose.OutputErr)
 	}
 
 	{ // PageStreamMax: all optional params directly

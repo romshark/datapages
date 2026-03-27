@@ -1426,11 +1426,10 @@ func parseStreamHook(
 	if len(unsupErrs) > 0 {
 		return h, errors.Join(unsupErrs...)
 	}
-	if !eventHandlerReturnsOnlyError(fd, info) {
-		retPos := fset.Position(fd.Name.Pos())
-		if fd.Type.Results != nil {
-			retPos = fset.Position(fd.Type.Results.Pos())
-		}
+	// Stream hooks may return error or nothing.
+	noReturn := fd.Type.Results == nil || len(fd.Type.Results.List) == 0
+	if !noReturn && !eventHandlerReturnsOnlyError(fd, info) {
+		retPos := fset.Position(fd.Type.Results.Pos())
 		return h, &positionedError{
 			pos: retPos,
 			err: fmt.Errorf("%w: %s.%s",
@@ -1438,9 +1437,11 @@ func parseStreamHook(
 		}
 	}
 
-	h.OutputErr = &model.Output{
-		Kind: model.OutputKindErr,
-		Type: makeType(fd.Type.Results.List[0].Type, info),
+	if !noReturn {
+		h.OutputErr = &model.Output{
+			Kind: model.OutputKindErr,
+			Type: makeType(fd.Type.Results.List[0].Type, info),
+		}
 	}
 	return h, nil
 }

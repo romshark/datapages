@@ -939,12 +939,19 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 	w.Line(2, "streamID uint64,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator,")
 	w.Line(1, ") error {")
-	w.Raw("\t\treturn ")
+	if p.StreamOpen.OutputErr != nil {
+		w.Raw("\t\treturn ")
+	} else {
+		w.Raw("\t\t")
+	}
 	w.writeCallExpr(
 		"p", "StreamOpen",
 		handlerInputArgsWithDispatchVar(p.StreamOpen, false, dispatchVar),
 	)
 	w.Byte('\n')
+	if p.StreamOpen.OutputErr == nil {
+		w.Line(2, "return nil")
+	}
 	w.Line(1, "},")
 }
 
@@ -958,16 +965,25 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 		dispatchVar = "dispatchClosed"
 	}
 	w.Line(1, "func(streamID uint64) {")
-	w.Raw("\t\tif err := ")
-	w.writeCallExpr(
-		"p", "StreamClose",
-		handlerInputArgsWithDispatchVar(p.StreamClose, false, dispatchVar),
-	)
-	w.Raw("; err != nil {\n")
-	w.Raw("\t\t\ts.logErr(\"handling ")
-	w.Raw(p.TypeName)
-	w.Raw(".StreamClose\", err)\n")
-	w.Line(2, "}")
+	if p.StreamClose.OutputErr != nil {
+		w.Raw("\t\tif err := ")
+		w.writeCallExpr(
+			"p", "StreamClose",
+			handlerInputArgsWithDispatchVar(p.StreamClose, false, dispatchVar),
+		)
+		w.Raw("; err != nil {\n")
+		w.Raw("\t\t\ts.logErr(\"handling ")
+		w.Raw(p.TypeName)
+		w.Raw(".StreamClose\", err)\n")
+		w.Line(2, "}")
+	} else {
+		w.Raw("\t\t")
+		w.writeCallExpr(
+			"p", "StreamClose",
+			handlerInputArgsWithDispatchVar(p.StreamClose, false, dispatchVar),
+		)
+		w.Byte('\n')
+	}
 	w.Line(1, "},")
 }
 

@@ -88,7 +88,8 @@ func (PageClosedBadReturn) GET(
 
 func (PageClosedBadReturn) StreamClose(
 	r *http.Request, streamID uint64,
-) {
+) int {
+	return 0
 }
 
 // PageClosedSSE is /closed-sse

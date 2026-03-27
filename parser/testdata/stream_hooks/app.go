@@ -64,15 +64,13 @@ func (PageStreamMin) GET(r *http.Request) (body templ.Component, err error) {
 func (PageStreamMin) StreamOpen(
 	r *http.Request,
 	streamID uint64,
-) error {
-	return nil
+) {
 }
 
 func (PageStreamMin) StreamClose(
 	r *http.Request,
 	streamID uint64,
-) error {
-	return nil
+) {
 }
 
 // PageStreamMax is /stream-max
