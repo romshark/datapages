@@ -8,6 +8,8 @@ all data is stored in memory and lost on restart.
 This example implements the official Datastar design recommendtations following
 [The Tao of Datastar](https://data-star.dev/guide/the_tao_of_datastar).
 
+https://github.com/user-attachments/assets/bac07de1-bce6-43fe-af32-41a10c2e0add
+
 ## Prerequisites
 
 - [Go](https://go.dev/dl/) 1.26+
