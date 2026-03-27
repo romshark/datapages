@@ -62,6 +62,30 @@ func (PageActions) PATCHWithSSE(
 	return nil
 }
 
+// POSTSamePath is /actions
+func (PageActions) POSTSamePath(r *http.Request) error {
+	_ = r
+	return nil
+}
+
+// PUTSamePath is /actions
+func (PageActions) PUTSamePath(r *http.Request) error {
+	_ = r
+	return nil
+}
+
+// PATCHSamePath is /actions
+func (PageActions) PATCHSamePath(r *http.Request) error {
+	_ = r
+	return nil
+}
+
+// DELETESamePath is /actions
+func (PageActions) DELETESamePath(r *http.Request) error {
+	_ = r
+	return nil
+}
+
 // DELETEWithoutSSE is /actions/delete-without-sse
 func (PageActions) DELETEWithoutSSE(r *http.Request) error {
 	_ = r

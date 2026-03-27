@@ -256,8 +256,15 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 		p := findPage(app, "PageActions")
 		require.NotNil(p)
 		require.Equal("/actions", p.Route)
-		require.Len(p.Actions, 5)
+		require.Len(p.Actions, 9)
 		require.Len(p.EventHandlers, 1)
+
+		// Actions at same path as page
+		for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
+			a := findAction(p.Actions, "SamePath")
+			require.NotNil(a, "missing %sSamePath", method)
+			require.Equal("/actions", a.Route)
+		}
 
 		// POST without SSE
 		actionWithout := findAction(p.Actions, "WithoutSSE")

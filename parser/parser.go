@@ -2265,7 +2265,7 @@ func actionIsUnderPage(page, action string) bool {
 		return false
 	}
 	if len(action) == len(page) {
-		return false // disallow exact match
+		return true // exact match: action at same path as page
 	}
 	return action[len(page)] == '/'
 }
