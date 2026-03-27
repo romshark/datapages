@@ -178,6 +178,7 @@ The `XXX` placeholder must always match the event name after the type's `Event` 
 func (PageIndex) OnSomethingHappened(
 	event EventSomethingHappened,
 	sse *datastar.ServerSentEventGenerator,
+	streamID uint64, // Optional
 	sessionToken string, // Optional
 	session Session, // Optional
 ) error {

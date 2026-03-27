@@ -387,15 +387,18 @@ dispatch func(EventMessageSent, EventUserActive) error
 
 ### Handle Events on Pages
 
-Method name starts with `On`. The `event` and `sse` parameters are required. Optional parameters: `session Session`, `sessionToken string`.
+Method name starts with `On`. The `event` and `sse` parameters are required. Optional parameters: `streamID uint64`, `session Session`, `sessionToken string`.
 Parameters may appear in any order.
 
 `On` handlers do **not** accept `signals`. If the handler needs client-side signal values, add them as fields on the event type and populate them in the action handler that dispatches the event.
+
+Use `streamID` to look up per-tab state registered in `StreamOpen` (see Step 9).
 
 ```go
 func (PageChat) OnMessageSent(
 	event EventMessageSent,
 	sse *datastar.ServerSentEventGenerator,
+	streamID uint64, // Optional
 	session Session, // Optional
 	sessionToken string, // Optional
 ) error {

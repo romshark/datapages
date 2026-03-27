@@ -381,6 +381,16 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.Nil(p.StreamClose.InputSignals)
 		require.NotNil(p.StreamClose.InputDispatch)
 		require.NotNil(p.StreamClose.OutputErr)
+
+		// Event handler with streamID
+		require.Len(p.EventHandlers, 1)
+		eh := p.EventHandlers[0]
+		require.Equal("Ping", eh.Name)
+		require.NotNil(eh.InputEvent)
+		require.NotNil(eh.InputSSE)
+		require.NotNil(eh.InputStreamID)
+		require.Nil(eh.InputSessionToken)
+		require.Nil(eh.InputSession)
 	}
 }
 

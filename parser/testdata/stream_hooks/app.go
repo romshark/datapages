@@ -103,3 +103,11 @@ func (PageStreamMax) StreamClose(
 ) error {
 	return nil
 }
+
+func (PageStreamMax) OnPing(
+	event EventPing,
+	sse *datastar.ServerSentEventGenerator,
+	streamID uint64,
+) error {
+	return nil
+}

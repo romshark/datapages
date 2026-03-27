@@ -212,6 +212,9 @@ func eventHandlerInputArgs(eh *model.EventHandler) []string {
 	if eh.InputSSE != nil {
 		args = append(args, "sse")
 	}
+	if eh.InputStreamID != nil {
+		args = append(args, "streamID")
+	}
 	if eh.InputSessionToken != nil {
 		args = append(args, "sessToken")
 	}

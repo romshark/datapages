@@ -706,6 +706,14 @@ func validateAndAttachEventHandler(
 						recv, fd.Name.Name,
 					))
 				}
+			case len(f.Names) == 1 && f.Names[0].Name == "streamID":
+				if !typecheck.IsUint64(ctx.pkg.TypesInfo.TypeOf(f.Type)) {
+					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), fmt.Errorf(
+						"%w in %s.%s",
+						ErrStreamIDParamNotUint64,
+						recv, fd.Name.Name,
+					))
+				}
 			default:
 				p := f.Type.Pos()
 				if len(f.Names) > 0 {
@@ -1243,6 +1251,11 @@ func parseEventHandler(
 			h.InputSSE = parseInput(f, info)
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
+		case len(f.Names) == 1 && f.Names[0].Name == "streamID" &&
+			typecheck.IsUint64(info.TypeOf(f.Type)):
+			h.InputStreamID = parseInput(f, info)
+			h.InputStreamID.Kind = model.InputKindStreamID
+			h.OrderedInputs = append(h.OrderedInputs, h.InputStreamID)
 		case paramvalidation.IsSessionTokenParam(f):
 			h.InputSessionToken = parseInput(f, info)
 			h.InputSessionToken.Kind = model.InputKindSessionToken
