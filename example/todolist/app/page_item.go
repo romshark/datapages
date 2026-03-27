@@ -5,8 +5,9 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/romshark/datapages/example/todolist/datapagesgen/httperr"
 	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages/example/todolist/datapagesgen/httperr"
 )
 
 // PageItem is /item/{id}

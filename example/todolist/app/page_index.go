@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/a-h/templ"
+	"github.com/starfederation/datastar-go/datastar"
+
 	"github.com/romshark/datapages/example/todolist/datapagesgen/httperr"
 	"github.com/romshark/datapages/example/todolist/list"
-	"github.com/starfederation/datastar-go/datastar"
 )
 
 // PageIndex is /
