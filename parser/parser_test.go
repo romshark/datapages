@@ -256,8 +256,15 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 		p := findPage(app, "PageActions")
 		require.NotNil(p)
 		require.Equal("/actions", p.Route)
-		require.Len(p.Actions, 5)
+		require.Len(p.Actions, 9)
 		require.Len(p.EventHandlers, 1)
+
+		// Actions at same path as page
+		for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
+			a := findAction(p.Actions, "SamePath")
+			require.NotNil(a, "missing %sSamePath", method)
+			require.Equal("/actions", a.Route)
+		}
 
 		// POST without SSE
 		actionWithout := findAction(p.Actions, "WithoutSSE")
@@ -381,6 +388,16 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.Nil(p.StreamClose.InputSignals)
 		require.NotNil(p.StreamClose.InputDispatch)
 		require.NotNil(p.StreamClose.OutputErr)
+
+		// Event handler with streamID
+		require.Len(p.EventHandlers, 1)
+		eh := p.EventHandlers[0]
+		require.Equal("Ping", eh.Name)
+		require.NotNil(eh.InputEvent)
+		require.NotNil(eh.InputSSE)
+		require.NotNil(eh.InputStreamID)
+		require.Nil(eh.InputSessionToken)
+		require.Nil(eh.InputSession)
 	}
 }
 

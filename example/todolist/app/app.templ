@@ -1,0 +1,200 @@
+package app
+
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/romshark/datapages/example/todolist/datapagesgen/action"
+	"github.com/romshark/datapages/example/todolist/datapagesgen/assets"
+	"github.com/romshark/datapages/example/todolist/datapagesgen/href"
+	"github.com/romshark/datapages/example/todolist/list"
+)
+
+// jsStr returns a JSON-encoded string, safe for use in data-signals attributes.
+func jsStr(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+// formatDue formats a time for the datetime-local input value.
+func formatDue(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02T15:04")
+}
+
+templ head() {
+	<title>Todo List</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<link rel="stylesheet" href={ assets.Path("style.css") }/>
+}
+
+templ pageIndex(todos []list.Item, search, filter, sortMode string) {
+	<div
+		id="page-index"
+		class="container"
+		data-signals:tab_id="''"
+		data-signals:search={ jsStr(search) }
+		data-signals:filter={ jsStr(filter) }
+		data-signals:sort={ jsStr(sortMode) }
+		data-signals:showModal="false"
+		data-signals:newTitle="''"
+		data-signals:newDesc="''"
+		data-signals:newDue="''"
+	>
+		<h1>Todo List</h1>
+		<div class="toolbar">
+			<input
+				type="text"
+				placeholder="Search..."
+				data-bind="search"
+				data-on:input__debounce.200ms={ action.POSTPageIndexFilter() }
+			/>
+			<select data-bind="filter" data-on:change={ action.POSTPageIndexFilter() }>
+				<option value="all">All</option>
+				<option value="done">Done</option>
+				<option value="pending">Pending</option>
+			</select>
+			<select data-bind="sort" data-on:change={ action.POSTPageIndexFilter() }>
+				<option value="alpha">Alphabetical</option>
+				<option value="created">Created</option>
+				<option value="due">Due Date</option>
+			</select>
+			<button class="btn-primary" data-on:click="$showModal=true">
+				+ New Todo
+			</button>
+		</div>
+		@todoList(todos)
+		<div class="modal-overlay" style="display:none" data-show="$showModal">
+			<div class="modal">
+				<h2>New Todo</h2>
+				<label>Title</label>
+				<input
+					type="text"
+					data-bind="newTitle"
+					placeholder="What needs to be done?"
+				/>
+				<label>Description</label>
+				<textarea data-bind="newDesc" placeholder="Details..."></textarea>
+				<label>Due Date</label>
+				<input type="datetime-local" data-bind="newDue"/>
+				<div class="modal-actions">
+					<button
+						data-on:click="
+							$showModal=false;$newTitle='';$newDesc='';$newDue=''
+						"
+					>
+						Cancel
+					</button>
+					<button
+						class="btn-primary"
+						data-on:click={ action.POSTPageIndexCreate(
+							action.WithAfter(
+								"$showModal=false;$newTitle='';$newDesc='';$newDue=''",
+							),
+						) }
+					>
+						Create
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+templ todoList(todos []list.Item) {
+	<div id="todo-list">
+		if len(todos) == 0 {
+			<p class="empty">No todos found.</p>
+		}
+		for _, t := range todos {
+			<div id={ "todo-" + t.ID } class={ "todo-row", templ.KV("done", t.Done) }>
+				// The checkbox id includes the done state so that the morph
+				// replaces the element instead of patching it in place.
+				// Patching only updates the HTML checked attribute, not the
+				// DOM checked property, leaving the checkbox visually stale.
+				<input
+					id={ fmt.Sprintf("check-%s-%t", t.ID, t.Done) }
+					type="checkbox"
+					if t.Done {
+						checked
+					}
+					data-on:click={ action.PUTAppEdit(
+						t.ID, action.QueryPUTAppEdit{Toggle: true},
+					) }
+				/>
+				<a href={ href.PageItem(t.ID) } class="todo-content">
+					<span class="todo-title">{ t.Title }</span>
+					if t.Description != "" {
+						<span class="todo-desc">{ t.Description }</span>
+					}
+				</a>
+				if !t.DueAt.IsZero() {
+					<span class="due">Due by { t.DueAt.Format("Jan 2, 15:04") }</span>
+				}
+			</div>
+		}
+	</div>
+}
+
+templ pageItem(todo list.Item) {
+	<div
+		id="page-item"
+		class="container"
+		data-signals:tab_id="''"
+		data-signals:itemId={ jsStr(todo.ID) }
+		data-signals:title={ jsStr(todo.Title) }
+		data-signals:description={ jsStr(todo.Description) }
+		data-signals:done={ fmt.Sprintf("%t", todo.Done) }
+		data-signals:due={ jsStr(formatDue(todo.DueAt)) }
+	>
+		<a href={ href.PageIndex(href.QueryPageIndex{}) } class="back">
+			&larr; Back to list
+		</a>
+		<h1>{ todo.Title }</h1>
+		<div class="form">
+			<label>Title</label>
+			<input
+				type="text"
+				data-bind="title"
+				data-on:input__debounce.200ms={ action.PUTAppEdit(
+					todo.ID, action.QueryPUTAppEdit{},
+				) }
+			/>
+			<label>Description</label>
+			<textarea
+				data-bind="description"
+				data-on:input__debounce.200ms={ action.PUTAppEdit(
+					todo.ID, action.QueryPUTAppEdit{},
+				) }
+			></textarea>
+			<label class="checkbox-label">
+				<input
+					type="checkbox"
+					data-bind="done"
+					data-on:change={ action.PUTAppEdit(
+						todo.ID, action.QueryPUTAppEdit{},
+					) }
+				/>
+				Done
+			</label>
+			<label>Due Date</label>
+			<input
+				type="datetime-local"
+				data-bind="due"
+				data-on:change={ action.PUTAppEdit(todo.ID, action.QueryPUTAppEdit{}) }
+			/>
+			<p class="created">
+				Created: { todo.CreatedAt.Format("Jan 2, 2006 15:04") }
+			</p>
+			<button
+				class="btn-danger"
+				data-on:click={ action.DELETEPageItemItem(todo.ID) }
+			>
+				Delete
+			</button>
+		</div>
+	</div>
+}

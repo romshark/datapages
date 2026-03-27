@@ -123,6 +123,7 @@ type EventHandler struct {
 
 	InputEvent        *Input
 	InputSSE          *Input
+	InputStreamID     *Input
 	InputSessionToken *Input
 	InputSession      *Input
 	OrderedInputs     []*Input // Inputs in user-defined order.
