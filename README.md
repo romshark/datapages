@@ -28,8 +28,15 @@ or simple [HTMX](https://htmx.org/)-style websites - Datapages will serve you we
 
 - [`counter`](example/counter/) — Minimal real-time counter. Bare bones starting point.
 - [`fancy-counter`](example/fancy-counter/) — Fancy real-time collaborative counter.
-- [`classifieds`](example/classifieds/) — Full-featured classifieds marketplace with sessions, auth, Prometheus metrics, and load testing.
-- [`tailwindcss`](example/tailwindcss/) — Minimal static page demonstrating Tailwind CSS integration.
+- [`todolist`](example/todolist/) — Real-time collaborative todo list with per-tab
+  server-side state (Most [Tao](https://data-star.dev/guide/the_tao_of_datastar) conform example).
+- [`calculator`](example/calculator/) — Hybrid calculator app that runs both as
+  a multi-client server and single-client Desktop app.
+- [`classifieds`](example/classifieds/) —
+  Full-featured classifieds marketplace with sessions, auth, Prometheus metrics,
+  Grafana dashboards and load testing.
+- [`tailwindcss`](example/tailwindcss/) —
+  Minimal static page demonstrating Tailwind CSS integration.
 
 ## Getting Started
 
