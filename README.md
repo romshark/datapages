@@ -22,28 +22,7 @@ so your application code stays clean and takes full advantage of Go's strong
 static typing and high performance.
 
 No matter whether you're building **real-time collaborative dynamic web app**
-or simple [HTMX](https://htmx.org/)-style websites** - Datapages will serve you well.
-
-## Who This Is For
-
-Datapages is a good fit if you:
-
-- **Already write your backend in Go** and want to build your web frontend
-  in the same language and toolchain.
-- **Are building a server-rendered application**, where the server owns the data;
-  not a local-first offline-capable SPA.
-- **Already use [Datastar](https://data-star.dev)** and want a Go framework
-  that generates the boilerplate around it and keeps your code
-  well maintained over time.
-- **Already use [Templ](https://templ.guide)** and want a full framework
-  built around it.
-- **Use [HTMX](https://htmx.org/),
-  [idiomorph](https://htmx.org/extensions/idiomorph/)
-  and [Alpine.js](https://alpinejs.dev/)**, and instead want a single cohesive stack
-  with a smaller bundle size and less spaghetti-code.
-- **Don't want to maintain a separate REST/GraphQL API** just to feed your frontend.
-- **Want to deploy as a single, statically compiled binary** that makes
-  the most of your hardware.
+or simple [HTMX](https://htmx.org/)-style websites - Datapages will serve you well.
 
 ## Examples
 
@@ -132,18 +111,6 @@ including handler signatures, parameters, return values, events, sessions, and m
 
 See [FAQ.md](FAQ.md) for frequently asked questions.
 
-## Technical Limitations
-
-- For now, with CSRF protection enabled, you will not be able to use plain HTML forms,
-  since the CSRF token is auto-injected for Datastar `fetch` requests
-  (where `Datastar-Request` header is `true`).
-  You must use Datastar actions for any sort of server interactivity.
-
-- The href linter cannot detect absolute links to your own domain
-  (e.g. `href="https://mydomain.com/login"`). These bypass the linter because they
-  have an explicit URL scheme, which the linter treats as external.
-  Use the generated `href.PageXxx()` builders instead.
-
 ## Modules
 
 Datapages ships pluggable modules with swappable implementations:
@@ -159,36 +126,64 @@ Datapages ships pluggable modules with swappable implementations:
 - [`TokenGenerator`](modules/sessmanager/sessmanager.go)
   - [`sesstokgen`](https://pkg.go.dev/github.com/romshark/datapages/modules/sesstokgen) - Cryptographically random session tokens (256-bit)
 
-## Development
+## Motivation
 
-### Prerequisites
+The reason I built Datapages is that the combination of
+[Datastar](https://data-star.dev) + [Go](https://go.dev) +
+[Templ](https://templ.guide) is my preferred way of writing server-centric
+web applications. But in every project I used this tech stack for I kept
+repeating the same code patterns and solving the same problems over and over again.
+I realized many developers are repeating the same patterns too and struggle with the
+common pitfalls:
 
-- [Go](https://go.dev/dl/) (see version in `go.mod`)
-- [Mage](https://magefile.org/) (or use `go run github.com/magefile/mage@latest`)
+- How to handle SSE streams correctly?
+- How to use NATS effectively?
+- How to approach security and authentication?
+- How to configure a convenient hot-reload for development?
+- How to keep the code maintainable over time,
+  especially when you add more developers and/or AI assistants?
+- How to achieve optimal performance and a good UX for endusers?
 
-### Commands
+Datapages allows you to start quickly and jump straight into building your application
+providing both a [Datastar Tao oriented](https://data-star.dev/guide/the_tao_of_datastar) 
+default with examples and enough flexibility to go beyond if you need to.
 
-```sh
-mage test          # Lint + test with coverage
-mage lint          # Format check, module tidy check, datapages lint, golangci-lint
-mage fmt           # Format all Go files (gofumpt + gci)
-mage modTidy       # Tidy all go.mod files
-mage lintDatapages # Run datapages lint on all examples
-mage vulncheck     # Run govulncheck on all modules
-mage build         # Build CLI and all examples
-mage gen           # Generate all (templ + datapages + docs)
-mage genTempl      # Generate templ templates
-mage genDatapages  # Generate datapages code for all examples
-mage genDocs       # Generate documentation pages
-mage goFix         # Run go fix on all modules
-mage all           # Run everything
-```
+- `datapages lint` can be used in CI/CD workflows for extensive static code analysis.
+- `datapages gen` generates all boilerplate code consistently, runs lint too and
+  guides your AI coding agents.
+- `datapages watch` opens interactive hot-reload environment for fast a feedback loop
+  with error reporting directly in the browser.
 
-### Contributing
+This tooling also allows LLM coding agents to be more effective at using this tech stack,
+by consistently guiding it on to the right path when it drifts.
+
+
+## Who This Is For
+
+Datapages is a good fit if you:
+
+- **Already write your backend in Go** and want to build your web frontend
+  in the same language and toolchain.
+- **Are building a server-rendered application**, where the server owns the data;
+  not a local-first offline-capable SPA.
+- **Already use [Datastar](https://data-star.dev)** and want a Go framework
+  to help you ship faster with less code while preserving maintainability.
+- **Already use [Templ](https://templ.guide)** and want a full framework
+  built around it.
+- **Use [HTMX](https://htmx.org/),
+  [idiomorph](https://htmx.org/extensions/idiomorph/)
+  and [Alpine.js](https://alpinejs.dev/)**, and instead want a single cohesive stack
+  with a smaller bundle size and less spaghetti-code.
+- **Don't want to maintain a separate REST/GraphQL API** just to feed your frontend.
+- **Want to deploy as a single, statically compiled binary** that makes
+  the most of your hardware.
+- **Want to develop hybrid desktop apps** in Go and HTML5 (see
+  [Calculator example](https://github.com/romshark/datapages/tree/main/example/calculator))
+
+## Contributing
 
 See [CLAUDE.md](CLAUDE.md) for code style, testing
 conventions, commit message format, and project structure.
 
 Use the `example/classifieds/` application as a real-world
 test fixture when developing Datapages.
-

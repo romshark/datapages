@@ -36,6 +36,31 @@ For development setup, commands, code style, testing conventions,
 and commit message format, see the
 [Development](README.md#development) section in the README.
 
+## Development
+
+### Prerequisites
+
+- [Go](https://go.dev/dl/) (see version in `go.mod`)
+- [Mage](https://magefile.org/) (or use `go run github.com/magefile/mage@latest`)
+
+### Commands
+
+```sh
+mage test          # Lint + test with coverage
+mage lint          # Format check, module tidy check, datapages lint, golangci-lint
+mage fmt           # Format all Go files (gofumpt + gci)
+mage modTidy       # Tidy all go.mod files
+mage lintDatapages # Run datapages lint on all examples
+mage vulncheck     # Run govulncheck on all modules
+mage build         # Build CLI and all examples
+mage gen           # Generate all (templ + datapages + docs)
+mage genTempl      # Generate templ templates
+mage genDatapages  # Generate datapages code for all examples
+mage genDocs       # Generate documentation pages
+mage goFix         # Run go fix on all modules
+mage all           # Run everything
+```
+
 ## License
 
 By contributing, you agree that your contributions will be

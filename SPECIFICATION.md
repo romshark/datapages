@@ -914,22 +914,12 @@ cross-page action ownership errors.
 
 ## Technical Limitations
 
-- Plain HTML forms are not supported. CSRF tokens are auto-injected for
-  Datastar `fetch` requests (where `Datastar-Request` header is `true`),
-  so plain form submissions will not include the CSRF token.
-  Use `data-on:submit` with Datastar actions for server interactivity.
+- For now, with CSRF protection enabled, you will not be able to use plain HTML forms,
+  since the CSRF token is auto-injected for Datastar `fetch` requests
+  (where `Datastar-Request` header is `true`).
+  You must use Datastar actions for any sort of server interactivity.
 
-## Modules
-
-Datapages ships pluggable modules with swappable implementations:
-
-- [`SessionManager[S]`](modules/sessmanager/sessmanager.go)
-  - [`natskv`](https://pkg.go.dev/github.com/romshark/datapages/modules/sessmanager/natskv) - NATS KV store with AES-128-GCM encrypted cookies
-  - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/sessmanager/inmem) - In-memory sessions (lost on restart; single-instance only)
-- [`MessageBroker`](modules/msgbroker/msgbroker.go)
-  - [`natsjs`](https://pkg.go.dev/github.com/romshark/datapages/modules/msgbroker/natsjs) - NATS JetStream backed message broker
-  - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/msgbroker/inmem) - In-memory fan-out message broker (single-instance only)
-- [`TokenManager`](modules/csrf/csrf.go)
-  - [`hmac`](https://pkg.go.dev/github.com/romshark/datapages/modules/csrf/hmac) - HMAC-SHA256 with BREACH-resistant masking
-- [`TokenGenerator`](modules/sessmanager/sessmanager.go)
-  - [`sesstokgen`](https://pkg.go.dev/github.com/romshark/datapages/modules/sesstokgen) - Cryptographically random session tokens (256-bit)
+- The href linter cannot detect absolute links to your own domain
+  (e.g. `href="https://mydomain.com/login"`). These bypass the linter because they
+  have an explicit URL scheme, which the linter treats as external.
+  Use the generated `href.PageXxx()` builders instead.
