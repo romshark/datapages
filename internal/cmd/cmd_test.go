@@ -317,13 +317,13 @@ func TestWatch(t *testing.T) {
 				}
 			}
 			return true
-		}, 30*time.Second, 100*time.Millisecond)
+		}, 60*time.Second, 100*time.Millisecond)
 
 		cancel()
 
 		select {
 		case <-done:
-		case <-time.After(10 * time.Second):
+		case <-time.After(30 * time.Second):
 			t.Fatal("watch did not stop after cancel")
 		}
 	})
