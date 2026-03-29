@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/semver"
 )
 
 // Run executes the datapages CLI with the given arguments.
@@ -41,9 +42,9 @@ and type-safe href/action helpers, and provides a live-reloading dev server.`,
 	root.CompletionOptions.DisableDefaultCmd = true
 
 	root.AddCommand(
-		newGenCmd(stderr),
+		newGenCmd(stderr, version),
 		newInitCmd(stderr),
-		newLintCmd(stderr),
+		newLintCmd(stderr, version),
 		newVersionCmd(stdout, version, commit, buildDate),
 		newWatchCmd(stderr, version),
 	)
@@ -105,6 +106,87 @@ func readModulePath(moduleDir string) (string, error) {
 		return "", errors.New("go.mod has no module directive")
 	}
 	return f.Module.Mod.Path, nil
+}
+
+// checkGoModVersion returns an error if go.mod requires a newer version of
+// datapages than the running binary. It is a no-op for dev builds (empty
+// version) or when the dependency is missing or up to date.
+func checkGoModVersion(moduleDir, version string) error {
+	if version == "" {
+		return nil
+	}
+	gomodPath := filepath.Join(moduleDir, "go.mod")
+	data, err := os.ReadFile(gomodPath)
+	if err != nil {
+		return fmt.Errorf("reading go.mod: %w", err)
+	}
+	f, err := modfile.Parse("go.mod", data, nil)
+	if err != nil {
+		return fmt.Errorf("parsing go.mod: %w", err)
+	}
+	running := "v" + version
+	if !semver.IsValid(running) {
+		return nil
+	}
+	for _, req := range f.Require {
+		if req.Mod.Path != datapagesModulePath {
+			continue
+		}
+		if semver.Compare(running, req.Mod.Version) < 0 {
+			return fmt.Errorf(
+				"go.mod requires %s %s but you are running %s\n"+
+					"  run: go install %s@%s",
+				datapagesModulePath, req.Mod.Version, running,
+				datapagesModulePath, req.Mod.Version,
+			)
+		}
+		return nil
+	}
+	return nil
+}
+
+// upgradeGoMod updates the datapages require in go.mod to match the running
+// version when the running version is strictly newer. Returns an error when
+// go.mod requires a newer version than the running binary (the user should
+// upgrade). It is a no-op for dev builds (empty version).
+func upgradeGoMod(moduleDir, version string) error {
+	if err := checkGoModVersion(moduleDir, version); err != nil {
+		return err
+	}
+	if version == "" {
+		return nil
+	}
+	gomodPath := filepath.Join(moduleDir, "go.mod")
+	data, err := os.ReadFile(gomodPath)
+	if err != nil {
+		return fmt.Errorf("reading go.mod: %w", err)
+	}
+	f, err := modfile.Parse("go.mod", data, nil)
+	if err != nil {
+		return fmt.Errorf("parsing go.mod: %w", err)
+	}
+	running := "v" + version
+	for _, req := range f.Require {
+		if req.Mod.Path != datapagesModulePath {
+			continue
+		}
+		if semver.Compare(running, req.Mod.Version) <= 0 {
+			return nil // already up to date
+		}
+		if err := f.AddRequire(req.Mod.Path, running); err != nil {
+			return fmt.Errorf("updating go.mod: %w", err)
+		}
+		f.Cleanup()
+		out, err := f.Format()
+		if err != nil {
+			return fmt.Errorf("formatting go.mod: %w", err)
+		}
+		if err := os.WriteFile(gomodPath, out, 0o644); err != nil {
+			return fmt.Errorf("writing go.mod: %w", err)
+		}
+		return nil
+	}
+	return nil
 }
 
 // checkCmdPackage checks the package at dir. Returns true if the directory

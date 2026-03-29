@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/mod/modfile"
 
 	"github.com/romshark/datapages/internal/cmd"
 )
@@ -429,6 +430,138 @@ func TestLintGen(t *testing.T) {
 			if tc.checkGen != nil {
 				tc.checkGen(t, dir)
 			}
+		})
+	}
+}
+
+func readDatapagesVersion(t *testing.T, dir string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	require.NoError(t, err)
+	f, err := modfile.ParseLax("go.mod", data, nil)
+	require.NoError(t, err)
+	for _, req := range f.Require {
+		if req.Mod.Path == "github.com/romshark/datapages" {
+			return req.Mod.Version
+		}
+	}
+	return ""
+}
+
+func setDatapagesVersion(t *testing.T, dir, version string) {
+	t.Helper()
+	goModPath := filepath.Join(dir, "go.mod")
+	f, err := os.OpenFile(goModPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	require.NoError(t, err)
+	_, err = fmt.Fprintf(f, "\nrequire github.com/romshark/datapages %s\n", version)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+}
+
+func TestLintGoModVersion(t *testing.T) {
+	for name, tc := range map[string]struct {
+		goModVersion string
+		runVersion   string
+		wantCode     int
+		wantStderr   string
+	}{
+		"ok when current": {
+			goModVersion: "v0.8.0",
+			runVersion:   "0.8.0",
+			wantCode:     0,
+		},
+		"ok when older": {
+			goModVersion: "v0.7.0",
+			runVersion:   "0.8.0",
+			wantCode:     0,
+		},
+		"error when go.mod is newer": {
+			goModVersion: "v0.8.0",
+			runVersion:   "0.7.0",
+			wantCode:     1,
+			wantStderr:   "go install github.com/romshark/datapages@v0.8.0",
+		},
+		"dev build skips check": {
+			goModVersion: "v0.8.0",
+			runVersion:   "",
+			wantCode:     0,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := setupProject(t, "valid.go")
+			setDatapagesVersion(t, dir, tc.goModVersion)
+
+			var stdout, stderr bytes.Buffer
+			code := cmd.Run(
+				context.Background(), []string{"datapages", "lint"},
+				nil, &stdout, &stderr,
+				tc.runVersion, "xxxxxxx", "2026-2-23",
+			)
+			require.Equal(t, tc.wantCode, code,
+				"stdout: %s\nstderr: %s", stdout.String(), stderr.String())
+			if tc.wantStderr != "" {
+				require.Contains(t, stderr.String(), tc.wantStderr)
+			}
+
+			// Lint must never modify go.mod.
+			got := readDatapagesVersion(t, dir)
+			require.Equal(t, tc.goModVersion, got)
+		})
+	}
+}
+
+func TestGenGoModUpgrade(t *testing.T) {
+	for name, tc := range map[string]struct {
+		goModVersion string // datapages version to inject into go.mod
+		runVersion   string // running CLI version
+		wantVersion  string // expected datapages version in go.mod after gen
+		wantCode     int
+		wantStderr   string // substring expected in stderr
+	}{
+		"upgrades older version": {
+			goModVersion: "v0.7.0",
+			runVersion:   "0.8.0",
+			wantVersion:  "v0.8.0",
+			wantCode:     0,
+		},
+		"no change when current": {
+			goModVersion: "v0.8.0",
+			runVersion:   "0.8.0",
+			wantVersion:  "v0.8.0",
+			wantCode:     0,
+		},
+		"error when go.mod is newer": {
+			goModVersion: "v0.8.0",
+			runVersion:   "0.7.0",
+			wantVersion:  "v0.8.0",
+			wantCode:     1,
+			wantStderr:   "go install github.com/romshark/datapages@v0.8.0",
+		},
+		"dev build skips upgrade": {
+			goModVersion: "v0.7.0",
+			runVersion:   "",
+			wantVersion:  "v0.7.0",
+			wantCode:     0,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := setupProject(t, "valid.go")
+			setDatapagesVersion(t, dir, tc.goModVersion)
+
+			var stdout, stderr bytes.Buffer
+			code := cmd.Run(
+				context.Background(), []string{"datapages", "gen"},
+				nil, &stdout, &stderr,
+				tc.runVersion, "xxxxxxx", "2026-2-23",
+			)
+			require.Equal(t, tc.wantCode, code,
+				"stdout: %s\nstderr: %s", stdout.String(), stderr.String())
+			if tc.wantStderr != "" {
+				require.Contains(t, stderr.String(), tc.wantStderr)
+			}
+
+			got := readDatapagesVersion(t, dir)
+			require.Equal(t, tc.wantVersion, got, "go.mod datapages version")
 		})
 	}
 }

@@ -193,7 +193,7 @@ func runInit(
 	if err != nil {
 		return err
 	}
-	if err := runGen(projectDir, conf, stderr); err != nil {
+	if err := runGen(projectDir, conf, stderr, ""); err != nil {
 		return err
 	}
 

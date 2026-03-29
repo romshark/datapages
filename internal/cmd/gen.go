@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -15,7 +16,7 @@ import (
 	"github.com/romshark/datapages/parser/model"
 )
 
-func newGenCmd(stderr io.Writer) *cobra.Command {
+func newGenCmd(stderr io.Writer, version string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "gen",
 		Args:  cobra.NoArgs,
@@ -47,14 +48,18 @@ parsing fails.`,
 			if !found {
 				return config.ErrNoConfig
 			}
-			return runGen(moduleDir, conf, stderr)
+			return runGen(moduleDir, conf, stderr, version)
 		},
 	}
 }
 
-func runGen(moduleDir string, cfg config.Config, stderr io.Writer) error {
+func runGen(moduleDir string, cfg config.Config, stderr io.Writer, version string) error {
 	modulePath, err := readModulePath(moduleDir)
 	if err != nil {
+		return err
+	}
+
+	if err := upgradeGoMod(moduleDir, version); err != nil {
 		return err
 	}
 
@@ -100,6 +105,14 @@ func runGen(moduleDir string, cfg config.Config, stderr io.Writer) error {
 		); err != nil {
 			return fmt.Errorf("generating cmd: %w", err)
 		}
+	}
+
+	// Run go mod tidy after generation so that go.sum stays in sync,
+	// especially after upgradeGoMod bumps the datapages version.
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Dir = moduleDir
+	if out, err := tidy.CombinedOutput(); err != nil {
+		return fmt.Errorf("go mod tidy: %s", out)
 	}
 
 	return parseErr

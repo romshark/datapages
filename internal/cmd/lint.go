@@ -9,7 +9,7 @@ import (
 	"github.com/romshark/datapages/internal/cmd/config"
 )
 
-func newLintCmd(stderr io.Writer) *cobra.Command {
+func newLintCmd(stderr io.Writer, version string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "lint",
 		Args:  cobra.NoArgs,
@@ -29,6 +29,10 @@ Requires a datapages.yaml config file. Run "datapages init" to create one first.
 			}
 			if !found {
 				return config.ErrNoConfig
+			}
+
+			if err := checkGoModVersion(moduleDir, version); err != nil {
+				return err
 			}
 
 			_, err = parseApp(filepath.Join(moduleDir, conf.App), stderr)

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -225,6 +226,79 @@ func TestCheckCmdPackage(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestUpgradeGoMod(t *testing.T) {
+	const goModTemplate = `module example.com/myapp
+
+go 1.26.1
+
+require (
+	github.com/romshark/datapages %s
+)
+`
+
+	writeGoMod := func(t *testing.T, dir, version string) {
+		t.Helper()
+		err := os.WriteFile(
+			filepath.Join(dir, "go.mod"),
+			[]byte(fmt.Sprintf(goModTemplate, version)),
+			0o644,
+		)
+		require.NoError(t, err)
+	}
+
+	readGoMod := func(t *testing.T, dir string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+		require.NoError(t, err)
+		return string(data)
+	}
+
+	for name, tc := range map[string]struct {
+		goModVersion string // version in go.mod
+		runVersion   string // running datapages version
+		wantVersion  string // expected version in go.mod after call
+		wantErr      string // expected error substring, empty if no error
+	}{
+		"upgrades older version": {
+			goModVersion: "v0.7.1",
+			runVersion:   "0.8.0",
+			wantVersion:  "v0.8.0",
+		},
+		"no-op when already current": {
+			goModVersion: "v0.8.0",
+			runVersion:   "0.8.0",
+			wantVersion:  "v0.8.0",
+		},
+		"error when go.mod is newer": {
+			goModVersion: "v0.9.0",
+			runVersion:   "0.8.0",
+			wantVersion:  "v0.9.0",
+			wantErr:      "go install github.com/romshark/datapages@v0.9.0",
+		},
+		"no-op for dev build": {
+			goModVersion: "v0.7.1",
+			runVersion:   "",
+			wantVersion:  "v0.7.1",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeGoMod(t, dir, tc.goModVersion)
+
+			err := upgradeGoMod(dir, tc.runVersion)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			content := readGoMod(t, dir)
+			require.Contains(t, content, datapagesModulePath+" "+tc.wantVersion)
 		})
 	}
 }

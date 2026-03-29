@@ -52,7 +52,7 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 			return err
 		}
 	}
-	if err := runGen(moduleDir, conf, stderr); err != nil {
+	if err := runGen(moduleDir, conf, stderr, version); err != nil {
 		// Non-fatal: individual parse errors are already on stderr.
 		// The gen watcher will retry and surface errors in the browser on next save.
 		_, _ = fmt.Fprintln(stderr, err)
