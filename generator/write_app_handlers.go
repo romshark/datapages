@@ -307,6 +307,19 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	// Build output list in user-defined order.
 	outs := handlerGETOutputVars(h, p.GET)
 
+	// enableBackgroundStreaming is used in bodyAttrs (when there's no
+	// disableRefresh) and in bodySuffix (when the page has a stream).
+	// If neither applies, blank it to avoid an unused-variable error.
+	if h.OutputEnableBgStream != nil &&
+		h.OutputDisableRefresh != nil && !pageHasStream(p) {
+		for i, o := range outs {
+			if o == h.OutputEnableBgStream.Name {
+				outs[i] = "_"
+				break
+			}
+		}
+	}
+
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false)
 

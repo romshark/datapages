@@ -872,6 +872,51 @@ func TestWritePageGETHandler(t *testing.T) {
 			},
 			golden: "app_page_get_head_session_not_in_scope.txt",
 		},
+		"enable bg stream without stream": {
+			page: &model.Page{
+				TypeName: "PageProjectDir",
+				Route:    "/project/{dir}/",
+				GET: &model.HandlerGET{
+					Handler: &model.Handler{
+						InputRequest:         &model.Input{Name: "r"},
+						OutputEnableBgStream: &model.Output{Name: "enableBackgroundStreaming"},
+						OutputErr:            &model.Output{Name: "err"},
+					},
+					OutputBody: &model.TemplComponent{
+						Output: &model.Output{Name: "body"},
+					},
+				},
+			},
+			app: &model.App{
+				PkgPath:             testAppPkgPath,
+				Fset:                token.NewFileSet(),
+				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
+			},
+			golden: "app_page_get_enable_bg_stream_no_stream.txt",
+		},
+		"both disable refresh and enable bg stream without stream": {
+			page: &model.Page{
+				TypeName: "PageProjectDir",
+				Route:    "/project/{dir}/",
+				GET: &model.HandlerGET{
+					Handler: &model.Handler{
+						InputRequest:         &model.Input{Name: "r"},
+						OutputEnableBgStream: &model.Output{Name: "enableBackgroundStreaming"},
+						OutputDisableRefresh: &model.Output{Name: "disableRefreshAfterHidden"},
+						OutputErr:            &model.Output{Name: "err"},
+					},
+					OutputBody: &model.TemplComponent{
+						Output: &model.Output{Name: "body"},
+					},
+				},
+			},
+			app: &model.App{
+				PkgPath:             testAppPkgPath,
+				Fset:                token.NewFileSet(),
+				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
+			},
+			golden: "app_page_get_both_flags_no_stream.txt",
+		},
 	}
 
 	w := Writer{}

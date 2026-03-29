@@ -1,0 +1,25 @@
+
+func (s *Server) handlePageProjectDirGET(w http.ResponseWriter, r *http.Request) {
+	p := testapp.PageProjectDir{
+	App: s.app,
+}
+	body, _, disableRefreshAfterHidden, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageProjectDir.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		if !disableRefreshAfterHidden {
+			writeBodyAttrOnVisibilityChange(w)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, genericHead, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.logErr("rendering PageProjectDir", err)
+		return
+	}
+}
