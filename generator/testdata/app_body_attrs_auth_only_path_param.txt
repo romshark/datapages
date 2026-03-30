@@ -1,0 +1,15 @@
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, `/tik/`)
+		_, _ = io.WriteString(w, path.ID)
+		_, _ = io.WriteString(w, `/`)
+		if sess.UserID != "" {
+			_, _ = io.WriteString(w, `/_$/')"`)
+		}
+	}

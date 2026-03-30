@@ -1306,6 +1306,36 @@ func TestWriteGETBodyAttrs(t *testing.T) {
 			},
 			golden: "app_body_attrs_reflect_root.txt",
 		},
+		"auth only stream path param": {
+			page: &model.Page{
+				TypeName: "PageTIK",
+				Route:    "/tik/{id}/{$}",
+				GET: &model.HandlerGET{
+					Handler: &model.Handler{
+						InputPath: &model.Input{
+							Name: "path",
+							Type: model.Type{Resolved: testStruct(
+								testFieldDef{
+									"ID", types.Typ[types.String],
+									`path:"id"`,
+								},
+							)},
+						},
+						InputSession: &model.Input{Name: "sess"},
+					},
+				},
+				EventHandlers: []*model.EventHandler{
+					testEventHandler("MessagingSent", "EventMessagingSent",
+						withEHSession),
+				},
+			},
+			app: &model.App{
+				PkgPath: testAppPkgPath,
+				Fset:    token.NewFileSet(),
+				Events:  []*model.Event{privateEvent},
+			},
+			golden: "app_body_attrs_auth_only_path_param.txt",
+		},
 		"reflect signals with path param": {
 			page: &model.Page{
 				TypeName: "PageTIK",

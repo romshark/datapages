@@ -556,7 +556,27 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				}
 			} else {
 				// Auth-only stream.
-				if hasEnableBgStream {
+				if h.InputPath != nil {
+					w.Line(0, "")
+					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
+					w.writeStreamPathSegments(p.Route, h.InputPath)
+					if hasEnableBgStream {
+						w.Line(2, `if sess.UserID != "" {`)
+						w.Line(3, "_, _ = io.WriteString(w, `/_$/'`)")
+						w.Raw("\t\t\tif ")
+						w.Raw(h.OutputEnableBgStream.Name)
+						w.Raw(" {\n")
+						w.Line(4, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+						w.Line(3, "} else {")
+						w.Line(4, "_, _ = io.WriteString(w, `)\"`)")
+						w.Line(3, "}")
+						w.Line(2, "}")
+					} else {
+						w.Line(2, `if sess.UserID != "" {`)
+						w.Line(3, "_, _ = io.WriteString(w, `/_$/')\"`)")
+						w.Line(2, "}")
+					}
+				} else if hasEnableBgStream {
 					w.Line(0, "")
 					w.Line(2, `if sess.UserID != "" {`)
 					w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
