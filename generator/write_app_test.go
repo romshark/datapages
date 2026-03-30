@@ -1306,6 +1306,39 @@ func TestWriteGETBodyAttrs(t *testing.T) {
 			},
 			golden: "app_body_attrs_reflect_root.txt",
 		},
+		"reflect signals with path param": {
+			page: &model.Page{
+				TypeName: "PageTIK",
+				Route:    "/tik/{id}/{$}",
+				GET: &model.HandlerGET{
+					Handler: &model.Handler{
+						InputPath: &model.Input{
+							Name: "path",
+							Type: model.Type{Resolved: testStruct(
+								testFieldDef{
+									"ID", types.Typ[types.String],
+									`path:"id"`,
+								},
+							)},
+						},
+						InputQuery: &model.Input{
+							Name: "query",
+							Type: model.Type{Resolved: testStruct(
+								testFieldDef{
+									"Sidebar", types.Typ[types.String],
+									`query:"s" reflectsignal:"sidebaropen"`,
+								},
+							)},
+						},
+					},
+				},
+			},
+			app: &model.App{
+				PkgPath: testAppPkgPath,
+				Fset:    token.NewFileSet(),
+			},
+			golden: "app_body_attrs_reflect_path_param.txt",
+		},
 	}
 
 	w := Writer{}

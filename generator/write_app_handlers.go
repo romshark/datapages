@@ -638,12 +638,51 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			w.Raw(");\n")
 		}
 		w.Line(3, "const query = params.toString();")
-		w.Raw("\t\t\twindow.history.replaceState(null, '', query ? '")
-		w.Raw(route)
-		w.Raw("?' + query : '")
-		w.Raw(route)
-		w.Raw("');\n")
-		w.Line(2, "\"`)")
+		if h.InputPath != nil {
+			// Route has path parameters that must be interpolated
+			// with HTML escaping.
+			fields := w.structFields(h.InputPath.Type.Resolved)
+			tagToField := make(map[string]structFieldInfo, len(fields))
+			for _, f := range fields {
+				if tag := pathTagValue(f.Tag); tag != "" {
+					tagToField[tag] = f
+				}
+			}
+			// writeRoute writes the route with path params replaced by
+			// template.HTMLEscape calls. It assumes we are mid-backtick
+			// in an io.WriteString and leaves us mid-backtick.
+			writeRoute := func(r string) {
+				for {
+					i := strings.IndexByte(r, '{')
+					if i < 0 {
+						w.Raw(r)
+						return
+					}
+					j := strings.IndexByte(r[i:], '}')
+					w.Raw(r[:i])
+					w.Raw("`)\n")
+					f := tagToField[r[i+1:i+j]]
+					w.Raw("\t\ttemplate.HTMLEscape(w, []byte(")
+					w.writeFieldToString("path", f)
+					w.Raw("))\n")
+					w.Raw("\t\t_, _ = io.WriteString(w, `")
+					r = r[i+j+1:]
+				}
+			}
+			w.Raw("\t\t\twindow.history.replaceState(null, '', query ? '")
+			writeRoute(route)
+			w.Raw("?' + query : '")
+			writeRoute(route)
+			w.Raw("');\n")
+			w.Line(2, "\"`)")
+		} else {
+			w.Raw("\t\t\twindow.history.replaceState(null, '', query ? '")
+			w.Raw(route)
+			w.Raw("?' + query : '")
+			w.Raw(route)
+			w.Raw("');\n")
+			w.Line(2, "\"`)")
+		}
 	}
 
 	w.Line(1, "}")
