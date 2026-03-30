@@ -8,7 +8,7 @@ require (
 	github.com/fatih/color v1.19.0
 	github.com/lithammer/fuzzysearch v1.1.8
 	github.com/nats-io/nats.go v1.50.0
-	github.com/romshark/templier v0.11.4
+	github.com/romshark/templier v0.11.5
 	github.com/romshark/yamagiconf v1.1.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
@@ -70,7 +70,7 @@ require (
 	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
-	github.com/lufia/plan9stats v0.0.0-20260324052639-156f7da3f749 // indirect
+	github.com/lufia/plan9stats v0.0.0-20260330125221-c963978e514e // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
