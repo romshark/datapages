@@ -8,7 +8,7 @@ require (
 	github.com/fatih/color v1.19.0
 	github.com/lithammer/fuzzysearch v1.1.8
 	github.com/nats-io/nats.go v1.50.0
-	github.com/romshark/templier v0.11.5
+	github.com/romshark/templier v0.11.6
 	github.com/romshark/yamagiconf v1.1.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
