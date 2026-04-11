@@ -1,6 +1,6 @@
 # Web Components + esbuild Example
 
-This example demonstrates how to integrate a TypeScript [Web Component](https://developer.mozilla.org/en-US/docs/Web/API/Web_components) bundle into a Datapages project using [esbuild](https://esbuild.github.io) through a custom watcher, so edits to `.ts`, `.templ`, and `.go` all hot-reload through one dev loop.
+This example demonstrates how to integrate a TypeScript [Web Component](https://developer.mozilla.org/en-US/docs/Web/API/Web_components) bundle into a Datapages project using [esbuild](https://esbuild.github.io) through a custom watcher, so edits to `.ts`, `.templ`, and `.go` all hot-reload through `datapages watch`.
 
 The example is a minimal "flash sale" landing page with two Web Components:
 
@@ -28,7 +28,7 @@ custom-watchers:
 The page references it via `assets.Path("bundle.js")` so the URL is
 consistent in dev and production.
 
-In dev mode, static files are served directly from `./app/static/` on disk, so a fresh bundle is picked up on browser reload without restarting the Go server. In production, `app/static/` is embedded into the binary via `//go:embed`.
+In dev mode, static files are served directly from `./app/static/` on disk, so a fresh bundle is picked up on browser reload without needing to rebuild and restart the server. In production, `app/static/` is embedded into the binary.
 
 ## Prerequisites
 
