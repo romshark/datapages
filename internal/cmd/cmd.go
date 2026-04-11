@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/semver"
@@ -50,7 +51,13 @@ and type-safe href/action helpers, and provides a live-reloading dev server.`,
 	)
 
 	if err := root.Execute(); err != nil {
-		_, _ = fmt.Fprintln(stderr, "error:", err)
+		label := color.New(color.FgRed, color.Bold)
+		if wantColorFor(stderr) {
+			label.EnableColor()
+		} else {
+			label.DisableColor()
+		}
+		_, _ = fmt.Fprintln(stderr, label.Sprint("error:"), err)
 		return 1
 	}
 	return 0

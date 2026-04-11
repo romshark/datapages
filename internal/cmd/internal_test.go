@@ -244,7 +244,7 @@ require (
 		t.Helper()
 		err := os.WriteFile(
 			filepath.Join(dir, "go.mod"),
-			[]byte(fmt.Sprintf(goModTemplate, version)),
+			fmt.Appendf(nil, goModTemplate, version),
 			0o644,
 		)
 		require.NoError(t, err)

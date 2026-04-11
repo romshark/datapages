@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/romshark/datapages/generator"
@@ -120,17 +121,47 @@ func runGen(moduleDir string, cfg config.Config, stderr io.Writer, version strin
 
 func parseApp(appDir string, stderr io.Writer) (*model.App, error) {
 	app, errs := datapagesparser.Parse(appDir)
-	if errs.Len() > 0 {
-		for _, err := range errs.All() {
-			_, _ = fmt.Fprintln(stderr, err)
-			if hint := errsuggest.Suggest(err); hint != "" {
-				_, _ = fmt.Fprintln(stderr, "")
-				_, _ = fmt.Fprintln(stderr, hint)
+	if errs.Len() == 0 {
+		return app, nil
+	}
+	loc := color.New(color.FgCyan)
+	msg := color.New(color.FgRed, color.Bold)
+	fix := color.New(color.FgGreen)
+	fixLabel := color.New(color.FgGreen, color.Bold)
+	count := color.New(color.FgRed, color.Bold)
+	if wantColorFor(stderr) {
+		loc.EnableColor()
+		msg.EnableColor()
+		fix.EnableColor()
+		fixLabel.EnableColor()
+		count.EnableColor()
+	} else {
+		loc.DisableColor()
+		msg.DisableColor()
+		fix.DisableColor()
+		fixLabel.DisableColor()
+		count.DisableColor()
+	}
+	for i := 0; i < errs.Len(); i++ {
+		pos, innerErr := errs.Entry(i)
+		if i > 0 {
+			_, _ = fmt.Fprintln(stderr)
+		}
+		_, _ = fmt.Fprintf(stderr, "%s %s\n",
+			loc.Sprintf("at %s:%d:%d:", pos.Filename, pos.Line, pos.Column),
+			msg.Sprint(innerErr.Error()),
+		)
+		if hint := errsuggest.Suggest(innerErr); hint != "" {
+			if label, rest, ok := strings.Cut(hint, " "); ok && label == "fix:" {
+				_, _ = fmt.Fprintln(stderr, fixLabel.Sprint("fix:"), fix.Sprint(rest))
+			} else {
+				_, _ = fmt.Fprintln(stderr, fix.Sprint(hint))
 			}
 		}
-		// Return the partial model alongside the error: callers may still
-		// generate code from whatever was successfully parsed.
-		return app, fmt.Errorf("parsing app package: %d error(s)", errs.Len())
 	}
-	return app, nil
+	_, _ = fmt.Fprintln(stderr)
+	// Return the partial model alongside the error: callers may still
+	// generate code from whatever was successfully parsed.
+	return app, fmt.Errorf("parsing app package: %s",
+		count.Sprintf("%d error(s)", errs.Len()))
 }
