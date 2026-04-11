@@ -27,6 +27,8 @@ jobs:
             name: "example/classifieds"
           - path: "example/tailwindcss"
             name: "example/tailwindcss"
+          - path: "example/webcomponents"
+            name: "example/webcomponents"
     steps:
       - uses: actions/setup-go@v6
         with:
