@@ -2,7 +2,7 @@
 
 This example demonstrates how to integrate a TypeScript [Web Component](https://developer.mozilla.org/en-US/docs/Web/API/Web_components) bundle into a Datapages project using [esbuild](https://esbuild.github.io) through a custom watcher, so edits to `.ts`, `.templ`, and `.go` all hot-reload through one dev loop.
 
-The example is a minimal "flash sale" landing page with two Web Components, showing both flavors you're likely to want in a real project:
+The example is a minimal "flash sale" landing page with two Web Components:
 
 - [`<wc-counter>`](./js/src/wc-counter.ts) — a **vanilla** shadow-DOM custom element with no runtime dependencies.
 - [`<wc-particles>`](./js/src/wc-particles.ts) — built with [**Lit**](https://lit.dev).
