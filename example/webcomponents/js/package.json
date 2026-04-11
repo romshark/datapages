@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "lit": "^3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24",
+    "typescript": "^5"
+  }
+}

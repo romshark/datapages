@@ -1,0 +1,50 @@
+package app
+
+import "github.com/romshark/datapages/example/webcomponents/datapagesgen/assets"
+
+templ head() {
+	<title>Flash Sale — 50% off Emotional Support Rubber Ducks™</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<link rel="icon" type="image/svg+xml" href={ assets.Path("favicon.svg") }/>
+	<link rel="stylesheet" href={ assets.Path("style.css") }/>
+	<script src={ assets.Path("bundle.js") } defer></script>
+}
+
+templ pageIndex() {
+	<main class="wrap">
+		<span class="eyebrow">🦆 Limited stock</span>
+		<h1>
+			Flash Sale: <em>50% off</em>
+			<br/>
+			Emotional Support Rubber Ducks™
+		</h1>
+		<p class="sub">
+			Artisanal, free-range, ethically squeaked. Each duck ships
+			pre-trained on over 4 billion lines of legacy PHP and will
+			stare at you judgmentally until you fix the bug.
+		</p>
+		<div class="countdown">
+			<wc-counter from="10h"></wc-counter>
+		</div>
+		<wc-particles
+			data-ref="particles"
+			characters="🦆⭐"
+			particles="10"
+			radius="180"
+		>
+			<a class="cta" href="#cta" data-on:click="$particles.emit()">
+				Get your duckscription now!
+			</a>
+		</wc-particles>
+		<blockquote class="quote">
+			“It stared at me for six hours and now I have a promotion.”
+			<cite>— junior engineer who got replaced by AI</cite>
+		</blockquote>
+		<p class="fineprint">
+			Countdown and click burst above are
+			<code>&lt;wc-counter&gt;</code>
+			and <code>&lt;wc-particles&gt;</code>
+			Web Components bundled from TypeScript with esbuild.
+		</p>
+	</main>
+}
