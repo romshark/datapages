@@ -7,6 +7,8 @@ The example is a minimal "flash sale" landing page with two Web Components, show
 - [`<wc-counter>`](./js/src/wc-counter.ts) — a **vanilla** shadow-DOM custom element with no runtime dependencies.
 - [`<wc-particles>`](./js/src/wc-particles.ts) — built with [**Lit**](https://lit.dev).
 
+https://github.com/user-attachments/assets/34554ecd-cb9b-485d-976a-405f036e0528
+
 ## How It Works
 
 The `datapages.yaml` defines a custom watcher that runs esbuild whenever any TypeScript source in `js/src/` changes:
