@@ -29,6 +29,8 @@ jobs:
             name: "example/tailwindcss"
           - path: "example/webcomponents"
             name: "example/webcomponents"
+          - path: "example/sqlitesessions"
+            name: "example/sqlitesessions"
     steps:
       - uses: actions/setup-go@v6
         with:

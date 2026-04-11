@@ -33,6 +33,7 @@
 - `example/classifieds/` - full example application (separate module).
 - `example/tailwindcss/` - minimal static page with Tailwind CSS (separate module).
 - `example/webcomponents/` - landing page with vanilla and Lit Web Components bundled via esbuild.
+- `example/sqlitesessions/` - custom sessmanager.SessionManager backed by SQLite via sqinn-go.
 - `generator/` - code generation from parsed model.
 - `modules/` - pluggable modules (csrf, msgbroker, sessmanager, sesstokgen).
 - `internal/cmd/` - CLI command implementations.

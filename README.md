@@ -40,6 +40,9 @@ or simple [HTMX](https://htmx.org/)-style websites - Datapages will serve you we
 - [`webcomponents`](example/webcomponents/) —
   Landing page with vanilla and [Lit](https://lit.dev)-based Web Components
   bundled via esbuild through a custom watcher.
+- [`sqlitesessions`](example/sqlitesessions/) —
+  Custom `sessmanager.SessionManager` implementation backed by SQLite
+  via [sqinn-go](https://github.com/cvilsmeier/sqinn-go) (no cgo).
 
 ## Getting Started
 

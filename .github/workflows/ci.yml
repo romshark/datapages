@@ -32,6 +32,9 @@ jobs:
           - path: "example/webcomponents"
             name: "webcomponents"
             has_templ: true
+          - path: "example/sqlitesessions"
+            name: "sqlitesessions"
+            has_templ: true
         deps: [locked, latest]
         exclude:
           # Only run latest-deps for the root module.
@@ -43,6 +46,9 @@ jobs:
             deps: latest
           - project:
               name: "webcomponents"
+            deps: latest
+          - project:
+              name: "sqlitesessions"
             deps: latest
     steps:
       - name: Install Go 1.26.2

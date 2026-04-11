@@ -27,6 +27,8 @@ jobs:
             name: "tailwindcss"
           - path: "example/webcomponents"
             name: "webcomponents"
+          - path: "example/sqlitesessions"
+            name: "sqlitesessions"
     steps:
       - uses: actions/checkout@v6
         with:

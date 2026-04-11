@@ -42,5 +42,12 @@ example/calculator/calculator
 example/calculator/build/
 example/calculator/.maestro/screenshots/
 example/webcomponents/server
+example/sqlitesessions/server
 example/**/certs/*
 example/**/grafana/data/
+
+# sqinn-go SQLite
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
