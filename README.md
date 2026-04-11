@@ -37,6 +37,9 @@ or simple [HTMX](https://htmx.org/)-style websites - Datapages will serve you we
   Grafana dashboards and load testing.
 - [`tailwindcss`](example/tailwindcss/) —
   Minimal static page demonstrating Tailwind CSS integration.
+- [`webcomponents`](example/webcomponents/) —
+  Landing page with vanilla and [Lit](https://lit.dev)-based Web Components
+  bundled via esbuild through a custom watcher.
 
 ## Getting Started
 
