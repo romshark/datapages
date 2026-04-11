@@ -41,5 +41,6 @@ example/calculator/server
 example/calculator/calculator
 example/calculator/build/
 example/calculator/.maestro/screenshots/
+example/webcomponents/server
 example/**/certs/*
 example/**/grafana/data/
