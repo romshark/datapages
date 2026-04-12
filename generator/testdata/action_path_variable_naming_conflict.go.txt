@@ -5,7 +5,6 @@
 package action
 
 import (
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -80,30 +79,47 @@ func WithContentType(ct ContentType) option {
 //
 // See https://data-star.dev/reference/actions#options
 func WithFilterSignals(include, exclude string) option {
-	if exclude == "" {
-		return option{key: "filterSignals", value: "{include: /" + include + "/}"}
+	n := len("{include: /") + len(include) + len("/}")
+	if exclude != "" {
+		n += len(", exclude: /") + len(exclude) + len("/") // before closing }
 	}
-	return option{key: "filterSignals", value: "{include: /" + include + "/, exclude: /" + exclude + "/}"}
+	var b strings.Builder
+	b.Grow(n)
+	b.WriteString("{include: /")
+	b.WriteString(include)
+	if exclude != "" {
+		b.WriteString("/, exclude: /")
+		b.WriteString(exclude)
+	}
+	b.WriteString("/}")
+	return option{key: "filterSignals", value: b.String()}
 }
 
-// WithHeaders creates an action option with HTTP headers to send
-// with the request.
+// WithHeaders creates an action option with HTTP headers to send with the request.
 func WithHeaders(headers map[string]string) option {
-	keys := make([]string, 0, len(headers))
-	for k := range headers {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	var b strings.Builder
-	b.WriteByte('{')
-	for i, k := range keys {
+	// Pre-calculate size assuming no escaping needed (lower bound).
+	n := 2 // {}
+	i := 0
+	for k, v := range headers {
 		if i > 0 {
+			n += 2 // ", "
+		}
+		i++
+		n += len(k) + len(v) + 6 // 'k': 'v'
+	}
+	var b strings.Builder
+	b.Grow(n)
+	b.WriteByte('{')
+	first := true
+	for k, v := range headers {
+		if !first {
 			b.WriteString(", ")
 		}
+		first = false
 		b.WriteString("'")
-		b.WriteString(k)
+		b.WriteString(escapeJS(k))
 		b.WriteString("': '")
-		b.WriteString(headers[k])
+		b.WriteString(escapeJS(v))
 		b.WriteString("'")
 	}
 	b.WriteByte('}')
@@ -128,7 +144,7 @@ func WithPayload(expr string) option {
 // the form to send when ContentType is ContentTypeForm.
 // If not specified, the closest form to the element is used.
 func WithSelector(selector string) option {
-	return option{key: "selector", value: "'" + selector + "'"}
+	return option{key: "selector", value: "'" + escapeJS(selector) + "'"}
 }
 
 // Retry determines when to retry requests.
@@ -156,8 +172,8 @@ func WithRetry(r Retry) option {
 	return option{key: "retry", value: string(r)}
 }
 
-// WithRetryInterval creates an action option for the retry interval
-// in milliseconds. Defaults to 1000 (one second).
+// WithRetryInterval creates an action option for the retry interval in milliseconds.
+// Defaults to 1000 (one second).
 func WithRetryInterval(ms int) option {
 	return option{key: "retryInterval", value: strconv.Itoa(ms)}
 }
@@ -212,6 +228,13 @@ func WithRequestCancellation(rc RequestCancellation) option {
 // See https://data-star.dev/reference/actions#request-cancellation
 func WithRequestCancellationController(expr string) option {
 	return option{key: "requestCancellation", value: expr}
+}
+
+// escapeJS escapes single quotes and backslashes for use in JS single-quoted strings.
+func escapeJS(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "'", "\\'")
+	return s
 }
 
 func writeOptions(b *strings.Builder, options []option) {
