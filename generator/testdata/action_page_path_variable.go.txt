@@ -79,6 +79,9 @@ func WithContentType(ct ContentType) option {
 //
 // See https://data-star.dev/reference/actions#options
 func WithFilterSignals(include, exclude string) option {
+	if include == "" {
+		include = ".*"
+	}
 	n := len("{include: /") + len(include) + len("/}")
 	if exclude != "" {
 		n += len(", exclude: /") + len(exclude) + len("/") // before closing }
@@ -97,6 +100,9 @@ func WithFilterSignals(include, exclude string) option {
 
 // WithHeaders creates an action option with HTTP headers to send with the request.
 func WithHeaders(headers map[string]string) option {
+	if len(headers) == 0 {
+		return option{}
+	}
 	// Pre-calculate size assuming no escaping needed (lower bound).
 	n := 2 // {}
 	i := 0
