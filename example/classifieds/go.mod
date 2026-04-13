@@ -17,7 +17,7 @@ require (
 	golang.org/x/sync v0.20.0
 )
 
-require github.com/romshark/datapages v0.8.5
+require github.com/romshark/datapages v0.9.0
 
 require (
 	github.com/CAFxX/httpcompression v0.0.9 // indirect
