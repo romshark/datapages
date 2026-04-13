@@ -194,6 +194,44 @@ var (
 		"invalid signal tag value",
 	)
 
+	ErrStateParamNotPointer = errors.New(
+		"state parameter must be a pointer to a named type",
+	)
+	ErrStateParamInvalidType = errors.New(
+		"state parameter has invalid type",
+	)
+	ErrStateOnGET = errors.New(
+		"state parameter is not allowed on GET handlers",
+	)
+	ErrStateDuplicate = errors.New(
+		"handler has multiple state parameters",
+	)
+	ErrStateConflict = errors.New(
+		"page references multiple state types via its handlers and embeds",
+	)
+	ErrStateWithoutStream = errors.New(
+		"page takes state but has no StreamOpen, StreamClose, or OnXXX handler " +
+			"to anchor its lifecycle",
+	)
+	ErrStateIDParamNotString = errors.New(
+		"stateID parameter must be of type string",
+	)
+	ErrStateIDWithoutState = errors.New(
+		"stateID parameter requires the handler to also take state *T",
+	)
+	ErrSubjectStateIDNotSingular = errors.New(
+		"SubjectStateID must be of type string",
+	)
+	ErrSubjectStateIDWithSignal = errors.New(
+		"SubjectStateID must not have a signal tag",
+	)
+	ErrSubjectStateIDWithoutState = errors.New(
+		"event with SubjectStateID can only be handled by stateful pages",
+	)
+	ErrSubjectStateIDMixed = errors.New(
+		"SubjectStateID must be the only subject field on the event",
+	)
+
 	ErrTemplHrefRelative                 = templcheck.ErrHrefRelative
 	ErrTemplActionHardcoded              = templcheck.ErrActionHardcoded
 	ErrTemplFormAction                   = templcheck.ErrFormAction

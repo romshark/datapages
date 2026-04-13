@@ -18,8 +18,8 @@ func (w *Writer) WritePkgHTTPErr() {
 //
 // If an error wraps multiple sentinels (e.g. both BadRequest and NotFound),
 // the first match wins. Sentinels are checked in order: BadRequest, Forbidden,
-// NotFound. Wrapping multiple sentinels in a single error is a programming
-// mistake and should be avoided.
+// NotFound, Conflict. Wrapping multiple sentinels in a single error is a
+// programming mistake and should be avoided.
 package httperr
 
 import (
@@ -34,6 +34,7 @@ var (
 	BadRequest = errors.New(http.StatusText(http.StatusBadRequest)) // 400
 	Forbidden  = errors.New(http.StatusText(http.StatusForbidden))  // 403
 	NotFound   = errors.New(http.StatusText(http.StatusNotFound))   // 404
+	Conflict   = errors.New(http.StatusText(http.StatusConflict))   // 409
 )
 `)
 }

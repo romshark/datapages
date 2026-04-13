@@ -44,7 +44,7 @@ func (p PageIndex) GET(
 func (p PageIndex) StreamOpen(
 	r *http.Request,
 	streamID uint64,
-	sse *datastar.ServerSentEventGenerator,
+	state *StateIndex,
 	signals struct {
 		Search string `json:"search"`
 		Filter string `json:"filter"`
@@ -59,38 +59,24 @@ func (p PageIndex) StreamOpen(
 	if sortMode == "" {
 		sortMode = "created"
 	}
-	p.App.lockTabs.Lock()
-	p.App.streamIDToTabState[streamID] = &tabState{
-		ViewParameters: list.ViewParameters{
-			Search: signals.Search,
-			Filter: filter,
-			Sort:   sortMode,
-		},
+	state.ViewParameters = list.ViewParameters{
+		Search: signals.Search,
+		Filter: filter,
+		Sort:   sortMode,
 	}
-	p.App.lockTabs.Unlock()
-	return p.App.patchTabID(streamID, sse)
-}
-
-func (p PageIndex) StreamClose(r *http.Request, streamID uint64) {
-	p.App.lockTabs.Lock()
-	delete(p.App.streamIDToTabState, streamID)
-	p.App.lockTabs.Unlock()
+	return nil
 }
 
 // POSTCreate is /
 func (p PageIndex) POSTCreate(
 	r *http.Request,
 	signals struct {
-		TabID    string `json:"tab_id"`
 		NewTitle string `json:"newTitle"`
 		NewDesc  string `json:"newDesc"`
 		NewDue   string `json:"newDue"`
 	},
 	dispatch func(EventTodoUpdated) error,
 ) error {
-	if _, err := p.App.verifyTabID(signals.TabID); err != nil {
-		return fmt.Errorf("%w: %w", httperr.BadRequest, err)
-	}
 	title := strings.TrimSpace(signals.NewTitle)
 	if title == "" {
 		return fmt.Errorf("%w: title is required", httperr.BadRequest)
@@ -111,42 +97,26 @@ func (p PageIndex) POSTCreate(
 func (p PageIndex) POSTFilter(
 	r *http.Request,
 	sse *datastar.ServerSentEventGenerator,
+	state *StateIndex,
 	signals struct {
-		TabID  string `json:"tab_id"`
 		Search string `json:"search"`
 		Filter string `json:"filter"`
 		Sort   string `json:"sort"`
 	},
 ) error {
-	streamID, err := p.App.verifyTabID(signals.TabID)
-	if err != nil {
-		return fmt.Errorf("%w: %w", httperr.BadRequest, err)
-	}
+	state.ViewParameters.Search = signals.Search
+	state.ViewParameters.Filter = signals.Filter
+	state.ViewParameters.Sort = signals.Sort
 
-	// Update server-side tab state so event handlers use current filters.
-	p.App.lockTabs.Lock()
-	if ts := p.App.streamIDToTabState[streamID]; ts != nil {
-		ts.ViewParameters.Search = signals.Search
-		ts.ViewParameters.Filter = signals.Filter
-		ts.ViewParameters.Sort = signals.Sort
-	}
-	p.App.lockTabs.Unlock()
-
-	vp := list.ViewParameters{
-		Search: signals.Search,
-		Filter: signals.Filter,
-		Sort:   signals.Sort,
-	}
-	todos := p.App.list.GetItems(vp)
+	todos := p.App.list.GetItems(state.ViewParameters)
 	return sse.PatchElementTempl(todoList(todos))
 }
 
 func (p PageIndex) OnTodoUpdated(
 	event EventTodoUpdated,
 	sse *datastar.ServerSentEventGenerator,
-	streamID uint64,
+	state *StateIndex,
 ) error {
-	s := p.App.streamState(streamID)
-	todos := p.App.list.GetItems(s.ViewParameters)
+	todos := p.App.list.GetItems(state.ViewParameters)
 	return sse.PatchElementTempl(todoList(todos))
 }

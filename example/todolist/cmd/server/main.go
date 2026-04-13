@@ -42,10 +42,14 @@ func main() {
 		l.AddItem(s.title, s.desc, now.Add(s.due))
 	}
 
-	a := app.NewApp(sha256.Sum256([]byte(hmacSecret)), l)
+	a := app.NewApp(l)
 	msgBroker := inmem.New(8)
+	hmacKey := sha256.Sum256([]byte(hmacSecret))
 	s := datapagesgen.NewServer(a, msgBroker,
-		datapagesgen.WithAssets(app.StaticFS))
+		datapagesgen.WithAssets(app.StaticFS),
+		datapagesgen.WithStateConfig(datapagesgen.StateConfig{
+			HMACKey: hmacKey[:],
+		}))
 
 	fmt.Fprintf(os.Stderr, "listening on http://%s\n", *fHost)
 	err := s.ListenAndServe(context.Background(), *fHost)

@@ -74,6 +74,7 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	if w.prometheus {
 		w.writeBrokerSubjectKind(m.Events)
 	}
+	w.writeStateRuntime(m, appPkg)
 	w.writeSetupHandlers(m)
 	w.writeAppErrHelpers(m, appPkg)
 
@@ -154,6 +155,12 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 		w.Line(1, `"sync/atomic"`)
 	}
 	w.Line(1, `"time"`)
+	if w.usage.stateRuntime {
+		w.Line(1, `"crypto/hmac"`)
+		w.Line(1, `"crypto/rand"`)
+		w.Line(1, `"crypto/sha256"`)
+		w.Line(1, `"encoding/base64"`)
+	}
 	w.Line(0, "")
 	w.Line(1, `"github.com/a-h/templ"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/csrf"`)
@@ -508,6 +515,40 @@ func (s *Server) writeHTML(
 	}
 `)
 	}
+	if w.usage.stateRuntime {
+		// When the page GET minted a Datapages-Instance header for this
+		// response, embed the id into the HTML so the browser can echo it
+		// on subsequent Datastar action and stream requests. On 409 +
+		// Datapages-Retry: reconnect we reload the page to get a fresh
+		// server-side slot. Also discard on back/forward-cache restores,
+		// since the server-side slot is long gone.
+		w.Raw("\tif stateInstanceID := w.Header().Get(stateInstanceIDHeader); stateInstanceID != \"\" {\n")
+		w.Raw("\t\tif _, err := io.WriteString(w, `\n\t<script type=\"module\">\n")
+		w.Raw("\t\tlet __dpInstance=\"`); err != nil { return err }\n")
+		w.Raw("\t\tif _, err := io.WriteString(w, stateInstanceID); err != nil { return err }\n")
+		w.Raw("\t\tif _, err := io.WriteString(w, `\"\n")
+		w.Raw(`		const o2 = globalThis.fetch.bind(globalThis)
+		globalThis.fetch=(i,init={}) => {
+			const isReq=i instanceof Request
+			const r=isReq ? i:new Request(i,init)
+			if (r.headers.get("Datastar-Request")!=="true") return isReq ? o2(r,init):o2(r)
+			const h=new Headers(r.headers)
+			if (__dpInstance) h.set("Datapages-Instance",__dpInstance)
+			return o2(new Request(r,{...init,headers:h})).then(resp => {
+				if (resp.status===409 && resp.headers.get("Datapages-Retry")==="reconnect") {
+					__dpInstance=""
+					globalThis.location.reload()
+				}
+				return resp
+			})
+		}
+		globalThis.addEventListener("pageshow", e => {
+			if (e.persisted) globalThis.location.reload()
+		})
+	</script>`)
+		w.Raw("`); err != nil { return err }\n")
+		w.Raw("\t}\n")
+	}
 	w.Raw(`	if _, err := io.WriteString(w, "</head><body "); err != nil {
 		return err
 	}
@@ -734,6 +775,10 @@ type Server struct {
 		w.Raw(appPkg)
 		w.Raw(`.Session]
 	csrfConf              *CSRFConfig`)
+	}
+	if w.usage.stateRuntime {
+		w.Raw(`
+	stateConf             *StateConfig`)
 	}
 	w.Raw(`
 }
@@ -986,6 +1031,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 		hasPublic := false
 		hasPrivate := false
 		hasSignalScoped := false
+		hasStateIDScoped := false
 		for _, eh := range p.EventHandlers {
 			ev := w.eventMap[eh.EventTypeName]
 			if ev == nil {
@@ -996,6 +1042,8 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 				hasPrivate = true
 			case ev.IsSignalScoped():
 				hasSignalScoped = true
+			case ev.IsStateIDScoped():
+				hasStateIDScoped = true
 			default:
 				hasPublic = true
 			}
@@ -1004,6 +1052,13 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 		name := "evSubj" + p.TypeName
 
 		signalFields := pageSignalSubjectFields(p, w.eventMap)
+
+		// State-id-scoped events cannot mix with private/signal-scoped
+		// (enforced by the parser), so a simple dedicated builder suffices.
+		if hasStateIDScoped {
+			w.writeEvSubjStateIDFunc(p, name, hasPublic)
+			continue
+		}
 
 		if hasSignalScoped && !hasPrivate {
 			// Signal-scoped events (possibly mixed with public).
@@ -1180,6 +1235,45 @@ func (w *Writer) writeEvSubjSignalFunc(
 		w.Raw("\t\t")
 		w.writeEvSignalSubExpr(ev)
 		w.Raw(",\n")
+	}
+
+	w.Line(1, "}")
+	w.Line(0, "}")
+}
+
+// writeEvSubjStateIDFunc emits the evSubjPageXxx function for a page
+// whose events are state-id-scoped (possibly mixed with plain public
+// events). Takes the validated Datapages-Instance identifier and builds
+// subscription subjects of the form "<base>.<stateID>".
+func (w *Writer) writeEvSubjStateIDFunc(p *model.Page, name string, hasPublic bool) {
+	w.Line(0, "")
+	w.Raw("func ")
+	w.Raw(name)
+	w.Raw("(stateID string) []string {\n")
+	w.Line(1, "return []string{")
+
+	// Public events first.
+	if hasPublic {
+		for _, eh := range p.EventHandlers {
+			ev := w.eventMap[eh.EventTypeName]
+			if ev == nil || ev.IsStateIDScoped() {
+				continue
+			}
+			w.Raw("\t\t")
+			w.Raw(evSubjConst(ev))
+			w.Raw(",\n")
+		}
+	}
+
+	// State-id-scoped events: subject is "<base>.<stateID>".
+	for _, eh := range p.EventHandlers {
+		ev := w.eventMap[eh.EventTypeName]
+		if ev == nil || !ev.IsStateIDScoped() {
+			continue
+		}
+		w.Raw("\t\t")
+		w.Raw(evSubjConst(ev))
+		w.Raw(` + "." + stateID,` + "\n")
 	}
 
 	w.Line(1, "}")
@@ -1626,6 +1720,8 @@ func (w *Writer) writeHTTPErrFallback() {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 	case errors.Is(err, httperr.NotFound):
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+	case errors.Is(err, httperr.Conflict):
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
@@ -1765,6 +1861,15 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 		w.Line(2, "return")
 		w.Line(1, "}")
 		w.Line(0, "")
+	}
+
+	// Stateful App-level action: verify the Datapages-Instance header,
+	// look up the slot in the map for the referenced StateXXX type, and
+	// take its mutex. The action only succeeds when the calling tab is
+	// bound to a page that uses this same StateXXX.
+	if h.InputState != nil {
+		w.writeVerifyInstanceIDHeader()
+		w.writeLookupSlotOrReject(stateTypeRef(m, h.InputState.StateTypeName))
 	}
 
 	// Auth.

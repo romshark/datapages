@@ -57,6 +57,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	flattenPages(&ctx, &errs)
 	validateRequiredHandlers(&ctx, &errs)
 	finalizePages(&ctx)
+	finalizeStates(&ctx, &errs)
 	assignSpecialPages(&ctx, &errs)
 	checkTemplFiles(&ctx, &errs)
 
@@ -164,6 +165,8 @@ func firstPassTypes(ctx *parseCtx, errs *Errors) {
 		}
 
 		// Pages / abstracts are structs only.
+		// State types are detected usage-driven on the first handler that
+		// accepts `state *SomeType`, not by name.
 		firstPassPageOrAbstractType(ctx, errs, name, ts)
 	}
 }
@@ -210,9 +213,7 @@ func firstPassSessionType(
 	ctx.app.Session = &model.SessionType{Expr: ts.Name}
 }
 
-func firstPassEventType(
-	ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSpec,
-) {
+func firstPassEventType(ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSpec) {
 	typePos := ctx.pkg.Fset.Position(ts.Name.Pos())
 	doc := pickDoc(name, ctx.docByType, ctx.genDocByType)
 
@@ -271,6 +272,26 @@ func firstPassEventType(
 			},
 		)
 	}
+	for _, sf := range sfResult.Fields {
+		if sf.Name != "StateID" {
+			continue
+		}
+		if !sf.Singular {
+			errs.ErrAt(ctx.pkg.Fset.Position(sf.Pos),
+				fmt.Errorf("%w: %s.%s",
+					ErrSubjectStateIDNotSingular, name, sf.FieldName))
+		}
+		if sf.SignalName != "" {
+			errs.ErrAt(ctx.pkg.Fset.Position(sf.Pos),
+				fmt.Errorf("%w: %s.%s",
+					ErrSubjectStateIDWithSignal, name, sf.FieldName))
+		}
+		if len(sfResult.Fields) > 1 {
+			errs.ErrAt(ctx.pkg.Fset.Position(sf.Pos),
+				fmt.Errorf("%w: %s.%s",
+					ErrSubjectStateIDMixed, name, sf.FieldName))
+		}
+	}
 
 	var subjectFields []model.SubjectField
 	for _, sf := range sfResult.Fields {
@@ -290,9 +311,7 @@ func firstPassEventType(
 	})
 }
 
-func extractEventSubject(
-	typeName string, doc *ast.CommentGroup,
-) (string, error) {
+func extractEventSubject(typeName string, doc *ast.CommentGroup) (string, error) {
 	// Validate first (sentinel errors).
 	if err := validate.EventSubjectComment(typeName, doc); err != nil {
 		return "", err
@@ -436,9 +455,106 @@ func firstPassPageOrAbstractType(
 		return
 	}
 	ctx.abstracts[name] = &model.AbstractPage{
-		Expr:     ts.Name,
-		TypeName: name,
+		Expr:       ts.Name,
+		TypeName:   name,
+		TypeParams: typeParamNames(ts),
 	}
+}
+
+// abstractTypeParams returns the declared type parameter names of the
+// given receiver when it names an abstract page; empty otherwise.
+func abstractTypeParams(ctx *parseCtx, recv string) []string {
+	if ap, ok := ctx.abstracts[recv]; ok {
+		return ap.TypeParams
+	}
+	return nil
+}
+
+// resolveTypeArgs zips an abstract's type parameter names with the
+// concrete type argument names supplied at the embed site and returns a
+// substitution map param → arg. Returns nil when the abstract is not
+// generic, when no args were supplied, or when the counts do not match.
+func resolveTypeArgs(params, args []string) map[string]string {
+	if len(params) == 0 || len(args) != len(params) {
+		return nil
+	}
+	out := make(map[string]string, len(params))
+	for i, p := range params {
+		out[p] = args[i]
+	}
+	return out
+}
+
+// substituteStateTypeParam clones h when its state parameter references
+// an abstract's type parameter and the embed site supplied a concrete
+// substitution for that parameter. The clone's InputState loses
+// IsTypeParam and gains the concrete StateTypeName. Returns h unchanged
+// when no substitution applies.
+func substituteStateTypeParam(
+	h *model.Handler, typeArgs map[string]string,
+) *model.Handler {
+	if h == nil || h.InputState == nil || !h.InputState.IsTypeParam {
+		return h
+	}
+	concrete, ok := typeArgs[h.InputState.StateTypeName]
+	if !ok {
+		return h
+	}
+	clone := *h
+	innerInput := *h.InputState.Input
+	clone.InputState = &model.InputState{
+		Input:         &innerInput,
+		StateTypeName: concrete,
+	}
+	clone.OrderedInputs = append([]*model.Input(nil), h.OrderedInputs...)
+	for i, inp := range clone.OrderedInputs {
+		if inp == h.InputState.Input {
+			clone.OrderedInputs[i] = clone.InputState.Input
+		}
+	}
+	return &clone
+}
+
+// substituteEventHandlerStateTypeParam is the EventHandler analogue of
+// substituteStateTypeParam.
+func substituteEventHandlerStateTypeParam(
+	eh *model.EventHandler, typeArgs map[string]string,
+) *model.EventHandler {
+	if eh == nil || eh.InputState == nil || !eh.InputState.IsTypeParam {
+		return eh
+	}
+	concrete, ok := typeArgs[eh.InputState.StateTypeName]
+	if !ok {
+		return eh
+	}
+	clone := *eh
+	innerInput := *eh.InputState.Input
+	clone.InputState = &model.InputState{
+		Input:         &innerInput,
+		StateTypeName: concrete,
+	}
+	clone.OrderedInputs = append([]*model.Input(nil), eh.OrderedInputs...)
+	for i, inp := range clone.OrderedInputs {
+		if inp == eh.InputState.Input {
+			clone.OrderedInputs[i] = clone.InputState.Input
+		}
+	}
+	return &clone
+}
+
+// typeParamNames returns the declared type parameter names of a type spec
+// in source order. Empty when the type is not generic.
+func typeParamNames(ts *ast.TypeSpec) []string {
+	if ts == nil || ts.TypeParams == nil {
+		return nil
+	}
+	var out []string
+	for _, f := range ts.TypeParams.List {
+		for _, n := range f.Names {
+			out = append(out, n.Name)
+		}
+	}
+	return out
 }
 
 func secondPassEmbeds(ctx *parseCtx, errs *Errors) {
@@ -714,6 +830,17 @@ func validateAndAttachEventHandler(
 						recv, fd.Name.Name,
 					))
 				}
+			case paramvalidation.IsStateParam(f):
+				// Delegated to parseEventHandler which resolves the
+				// pointer element type against declared StateXXX types.
+			case paramvalidation.IsStateIDParam(f):
+				if !typecheck.IsString(ctx.pkg.TypesInfo.TypeOf(f.Type)) {
+					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), fmt.Errorf(
+						"%w: %s.%s",
+						ErrStateIDParamNotString,
+						recv, fd.Name.Name,
+					))
+				}
 			default:
 				p := f.Type.Pos()
 				if len(f.Names) > 0 {
@@ -736,7 +863,14 @@ func validateAndAttachEventHandler(
 			ErrSignatureEvHandReturnMustBeError, recv, fd.Name.Name))
 	}
 
-	h := parseEventHandler(fd, ctx.pkg.TypesInfo, suffix, evName)
+	h, ehErr := parseEventHandler(
+		fd, ctx.pkg.TypesInfo, ctx,
+		abstractTypeParams(ctx, recv),
+		recv, suffix, evName,
+	)
+	if ehErr != nil {
+		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, ehErr)
+	}
 
 	// If it was valid, or best-effort (even if invalid arguments), we attach it.
 	// But if evName is empty, it won't be useful for flattening override checks.
@@ -761,7 +895,9 @@ func validateAndAttachStreamHook(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	h, herr := parseStreamHook(
-		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset, ctx.eventTypeNames, kind,
+		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset,
+		ctx.eventTypeNames, ctx,
+		abstractTypeParams(ctx, recv), kind,
 	)
 	if herr != nil {
 		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
@@ -822,7 +958,9 @@ func attachHTTPHandler(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	h, outputs, herr := parseHandler(
-		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset, ctx.eventTypeNames, kind, suffix,
+		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset,
+		ctx.eventTypeNames, ctx,
+		abstractTypeParams(ctx, recv), kind, suffix,
 	)
 	if herr != nil {
 		// Keep going; still attach a best-effort handler model.
@@ -913,7 +1051,9 @@ func attachAppAction(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	h, outputs, herr := parseHandler(
-		"App", fd, ctx.pkg.TypesInfo, ctx.pkg.Fset, ctx.eventTypeNames, kind, suffix,
+		"App", fd, ctx.pkg.TypesInfo, ctx.pkg.Fset,
+		ctx.eventTypeNames, ctx,
+		nil /* no type params on App */, kind, suffix,
 	)
 	if herr != nil {
 		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
@@ -1002,18 +1142,24 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	}
 
 	// Queue items carry the embed site position that introduced this abstract.
+	// typeArgs holds the concrete type arguments supplied at the embed site,
+	// keyed by the abstract's type parameter names (empty when non-generic).
 	type qitem struct {
 		ap       *model.AbstractPage
-		embedPos token.Pos // position of the embedded field identifier
+		embedPos token.Pos
+		typeArgs map[string]string
 	}
 
 	// seed queue from the page's struct embed sites
-	pageEmbPos := structinspect.EmbeddedFieldPosMap(typeStruct(ctx, pg.TypeName))
+	pageSt := typeStruct(ctx, pg.TypeName)
+	pageEmbPos := structinspect.EmbeddedFieldPosMap(pageSt)
+	pageEmbArgs := structinspect.EmbeddedTypeArgNames(pageSt)
 	queue := make([]qitem, 0, len(pg.Embeds))
 	for _, ap := range pg.Embeds {
 		queue = append(queue, qitem{
 			ap:       ap,
 			embedPos: pageEmbPos[ap.TypeName],
+			typeArgs: resolveTypeArgs(ap.TypeParams, pageEmbArgs[ap.TypeName]),
 		})
 	}
 
@@ -1028,11 +1174,14 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 		visited[ap.TypeName] = true
 
 		// enqueue children, carrying THEIR embed positions (in the parent abstract)
-		apEmbPos := structinspect.EmbeddedFieldPosMap(typeStruct(ctx, ap.TypeName))
+		apSt := typeStruct(ctx, ap.TypeName)
+		apEmbPos := structinspect.EmbeddedFieldPosMap(apSt)
+		apEmbArgs := structinspect.EmbeddedTypeArgNames(apSt)
 		for _, child := range ap.Embeds {
 			queue = append(queue, qitem{
 				ap:       child,
 				embedPos: apEmbPos[child.TypeName],
+				typeArgs: resolveTypeArgs(child.TypeParams, apEmbArgs[child.TypeName]),
 			})
 		}
 
@@ -1088,7 +1237,8 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				continue
 			}
 			ownedMethods[m.Name] = true
-			pg.Actions = append(pg.Actions, m)
+			pg.Actions = append(pg.Actions,
+				substituteStateTypeParam(m, it.typeArgs))
 		}
 
 		if ap.StreamOpen != nil {
@@ -1098,7 +1248,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				if ap.StreamOpen.Expr != nil {
 					streamOpenOwnerPos = ap.StreamOpen.Expr.Pos()
 				}
-				pg.StreamOpen = ap.StreamOpen
+				pg.StreamOpen = substituteStateTypeParam(ap.StreamOpen, it.typeArgs)
 			case "page", ap.TypeName:
 				// Page-owned or already inherited from the same abstract wins.
 			default:
@@ -1129,7 +1279,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				if ap.StreamClose.Expr != nil {
 					streamClosedOwnerPos = ap.StreamClose.Expr.Pos()
 				}
-				pg.StreamClose = ap.StreamClose
+				pg.StreamClose = substituteStateTypeParam(ap.StreamClose, it.typeArgs)
 			case "page", ap.TypeName:
 				// Page-owned or already inherited from the same abstract wins.
 			default:
@@ -1160,7 +1310,8 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 					continue
 				}
 				ownedMethods[h.Name] = true
-				pg.EventHandlers = append(pg.EventHandlers, h)
+				pg.EventHandlers = append(pg.EventHandlers,
+					substituteEventHandlerStateTypeParam(h, it.typeArgs))
 				continue
 			}
 
@@ -1197,7 +1348,8 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 			if h.Expr != nil {
 				handledEventPos[ev] = h.Expr.Pos()
 			}
-			pg.EventHandlers = append(pg.EventHandlers, h)
+			pg.EventHandlers = append(pg.EventHandlers,
+				substituteEventHandlerStateTypeParam(h, it.typeArgs))
 		}
 	}
 }
@@ -1219,6 +1371,110 @@ func finalizePages(ctx *parseCtx) {
 	}
 }
 
+// finalizeStates binds each page and each abstract page to its single
+// state type. Handler-driven registration populates ctx.app.States on
+// demand in parseStateParam; this pass only resolves the per-page
+// binding and flags multi-state conflicts.
+func finalizeStates(ctx *parseCtx, errs *Errors) {
+	if len(ctx.app.States) == 0 {
+		return
+	}
+	for _, name := range slices.Sorted(maps.Keys(ctx.abstracts)) {
+		ap := ctx.abstracts[name]
+		names := collectAbstractStateNames(ap)
+		if len(names) > 1 {
+			pos := ctx.pkg.Fset.Position(ap.Expr.Pos())
+			errs.ErrAt(pos, fmt.Errorf("%w: %s", ErrStateConflict, ap.TypeName))
+			continue
+		}
+		for n := range names {
+			ap.State = ctx.app.States[n]
+		}
+	}
+	for _, pg := range ctx.pages {
+		names := collectPageStateNames(pg)
+		if len(names) > 1 {
+			pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
+			errs.ErrAt(pos, fmt.Errorf("%w: %s", ErrStateConflict, pg.TypeName))
+			continue
+		}
+		for n := range names {
+			pg.State = ctx.app.States[n]
+		}
+		// State lifecycle is anchored to the SSE stream: allocation
+		// happens in StreamOpen, release on StreamClose + grace. A page
+		// with state therefore needs at least one stream-level handler.
+		if pg.State != nil && !pageHasStreamLifecycle(pg) {
+			pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
+			errs.ErrAt(pos, fmt.Errorf("%w: %s", ErrStateWithoutStream, pg.TypeName))
+		}
+		// A page handling a state-id-scoped event needs state itself
+		// (the runtime reads the validated instance-id header, which is
+		// only available on stateful pages).
+		if pg.State == nil {
+			eventByName := map[string]*model.Event{}
+			for _, e := range ctx.app.Events {
+				eventByName[e.TypeName] = e
+			}
+			for _, eh := range pg.EventHandlers {
+				if e, ok := eventByName[eh.EventTypeName]; ok && e.IsStateIDScoped() {
+					pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
+					errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+						ErrSubjectStateIDWithoutState, pg.TypeName, eh.Name))
+				}
+			}
+		}
+	}
+}
+
+// pageHasStreamLifecycle reports whether a page has at least one
+// stream-lifecycle handler — a `StreamOpen`, `StreamClose`, or any
+// `OnXXX` event handler — so that per-tab state can be allocated,
+// observed, and released along with the SSE stream.
+func pageHasStreamLifecycle(pg *model.Page) bool {
+	return pg.StreamOpen != nil || pg.StreamClose != nil || len(pg.EventHandlers) > 0
+}
+
+func collectAbstractStateNames(ap *model.AbstractPage) map[string]struct{} {
+	out := map[string]struct{}{}
+	add := func(h *model.Handler) {
+		if h != nil && h.InputState != nil {
+			out[h.InputState.StateTypeName] = struct{}{}
+		}
+	}
+	for _, h := range ap.Methods {
+		add(h)
+	}
+	add(ap.StreamOpen)
+	add(ap.StreamClose)
+	for _, eh := range ap.EventHandlers {
+		if eh.InputState != nil {
+			out[eh.InputState.StateTypeName] = struct{}{}
+		}
+	}
+	return out
+}
+
+func collectPageStateNames(pg *model.Page) map[string]struct{} {
+	out := map[string]struct{}{}
+	add := func(h *model.Handler) {
+		if h != nil && h.InputState != nil {
+			out[h.InputState.StateTypeName] = struct{}{}
+		}
+	}
+	for _, h := range pg.Actions {
+		add(h)
+	}
+	add(pg.StreamOpen)
+	add(pg.StreamClose)
+	for _, eh := range pg.EventHandlers {
+		if eh.InputState != nil {
+			out[eh.InputState.StateTypeName] = struct{}{}
+		}
+	}
+	return out
+}
+
 func assignSpecialPages(ctx *parseCtx, errs *Errors) {
 	ctx.app.PageIndex = ctx.pages["PageIndex"]
 	ctx.app.PageError404 = ctx.pages["PageError404"]
@@ -1230,8 +1486,11 @@ func assignSpecialPages(ctx *parseCtx, errs *Errors) {
 }
 
 func parseEventHandler(
-	fd *ast.FuncDecl, info *types.Info, name, eventTypeName string,
-) *model.EventHandler {
+	fd *ast.FuncDecl, info *types.Info,
+	ctx *parseCtx,
+	typeParams []string,
+	recv, name, eventTypeName string,
+) (*model.EventHandler, error) {
 	params := fd.Type.Params.List
 
 	h := &model.EventHandler{
@@ -1264,7 +1523,34 @@ func parseEventHandler(
 			h.InputSession = parseInput(f, info)
 			h.InputSession.Kind = model.InputKindSession
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
+		case paramvalidation.IsStateParam(f):
+			if h.InputState != nil {
+				continue
+			}
+			is, sterr := parseStateParam(f, info, ctx, typeParams, recv, fd.Name.Name)
+			if sterr != nil {
+				return h, sterr
+			}
+			h.InputState = is
+			h.OrderedInputs = append(h.OrderedInputs, is.Input)
+		case paramvalidation.IsStateIDParam(f):
+			if h.InputStateID != nil {
+				continue
+			}
+			if !typecheck.IsString(info.TypeOf(f.Type)) {
+				return h, fmt.Errorf("%w in %s.%s",
+					ErrStateIDParamNotString, recv, fd.Name.Name)
+			}
+			inp := parseInput(f, info)
+			inp.Kind = model.InputKindStateID
+			h.InputStateID = inp
+			h.OrderedInputs = append(h.OrderedInputs, inp)
 		}
+	}
+
+	if h.InputStateID != nil && h.InputState == nil {
+		return h, fmt.Errorf("%w in %s.%s",
+			ErrStateIDWithoutState, recv, fd.Name.Name)
 	}
 
 	if fd.Type.Results != nil && len(fd.Type.Results.List) > 0 {
@@ -1274,7 +1560,7 @@ func parseEventHandler(
 		}
 	}
 
-	return h
+	return h, nil
 }
 
 func parseStreamHook(
@@ -1283,6 +1569,8 @@ func parseStreamHook(
 	info *types.Info,
 	fset *token.FileSet,
 	eventTypeNames map[string]struct{},
+	ctx *parseCtx,
+	typeParams []string,
 	kind methodkind.Kind,
 ) (*model.Handler, error) {
 	h := &model.Handler{
@@ -1422,6 +1710,38 @@ func parseStreamHook(
 			}
 			h.OrderedInputs = append(h.OrderedInputs, inp)
 
+		case paramvalidation.IsStateParam(f):
+			if h.InputState != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(fmt.Errorf("%w in %s.%s",
+						ErrStateDuplicate, recv, fd.Name.Name)))
+				continue
+			}
+			is, sterr := parseStateParam(f, info, ctx, typeParams, recv, fd.Name.Name)
+			if sterr != nil {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sterr)
+				continue
+			}
+			h.InputState = is
+			h.OrderedInputs = append(h.OrderedInputs, is.Input)
+
+		case paramvalidation.IsStateIDParam(f):
+			if h.InputStateID != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+				continue
+			}
+			if !typecheck.IsString(info.TypeOf(f.Type)) {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
+					fmt.Errorf("%w in %s.%s",
+						ErrStateIDParamNotString, recv, fd.Name.Name))
+				continue
+			}
+			inp := parseInput(f, info)
+			inp.Kind = model.InputKindStateID
+			h.InputStateID = inp
+			h.OrderedInputs = append(h.OrderedInputs, inp)
+
 		default:
 			unsupErrs = append(unsupErrs,
 				fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
@@ -1431,6 +1751,10 @@ func parseStreamHook(
 	if !foundReq {
 		return h, fmt.Errorf("%w in %s.%s",
 			ErrSignatureMissingReq, recv, fd.Name.Name)
+	}
+	if h.InputStateID != nil && h.InputState == nil {
+		return h, fmt.Errorf("%w in %s.%s",
+			ErrStateIDWithoutState, recv, fd.Name.Name)
 	}
 	if !foundStreamID {
 		return h, fmt.Errorf("%w in %s.%s",
@@ -1831,6 +2155,84 @@ func isParamConsumed(h *model.Handler, name string) bool {
 	return false
 }
 
+// parseStateParam attempts to match f as a `state *StateXXX` parameter.
+// Returns (nil, nil) when the field is not a state parameter at all.
+// Returns (inputState, nil) on success.
+// Returns (nil, error) when the field is a state parameter but the
+// pointer element type is missing or unknown.
+func parseStateParam(
+	f *ast.Field,
+	info *types.Info,
+	ctx *parseCtx,
+	typeParams []string,
+	recv, method string,
+) (*model.InputState, error) {
+	if !paramvalidation.IsStateParam(f) {
+		return nil, nil
+	}
+	elemName := paramvalidation.StateParamElementName(f)
+	if elemName == "" {
+		return nil, fmt.Errorf("%w in %s.%s",
+			ErrStateParamNotPointer, recv, method)
+	}
+
+	// Type parameter of the enclosing abstract page — accept as a
+	// placeholder; the concrete state binding is resolved at each
+	// embed site during flattening.
+	for _, tp := range typeParams {
+		if tp == elemName {
+			inp := parseInput(f, info)
+			inp.Kind = model.InputKindState
+			return &model.InputState{
+				Input:         inp,
+				StateTypeName: elemName,
+				IsTypeParam:   true,
+			}, nil
+		}
+	}
+
+	// Concrete state type: must be a declared, exported struct in the
+	// app source package. Register it on first encounter; subsequent
+	// handlers that reference the same type reuse the same entry.
+	if err := registerStateType(ctx, elemName); err != nil {
+		return nil, fmt.Errorf("%w in %s.%s: %s",
+			ErrStateParamInvalidType, recv, method, err)
+	}
+	inp := parseInput(f, info)
+	inp.Kind = model.InputKindState
+	return &model.InputState{Input: inp, StateTypeName: elemName}, nil
+}
+
+// registerStateType validates that name refers to a declared exported
+// struct in the app source package and records it in ctx.app.States.
+// Returns a descriptive error when the type is missing, unexported, or
+// not a struct.
+func registerStateType(ctx *parseCtx, name string) error {
+	if ctx.app.States != nil {
+		if _, ok := ctx.app.States[name]; ok {
+			return nil
+		}
+	}
+	if name == "" || name[0] < 'A' || name[0] > 'Z' {
+		return fmt.Errorf("state type %q must be exported", name)
+	}
+	ts, ok := ctx.typeSpecByName[name]
+	if !ok {
+		return fmt.Errorf("state type %q is not declared in the app package", name)
+	}
+	if _, ok := ts.Type.(*ast.StructType); !ok {
+		return fmt.Errorf("state type %q must be a struct type", name)
+	}
+	if ctx.app.States == nil {
+		ctx.app.States = map[string]*model.StateType{}
+	}
+	ctx.app.States[name] = &model.StateType{
+		Expr:     ts.Name,
+		TypeName: name,
+	}
+	return nil
+}
+
 func parseInput(f *ast.Field, info *types.Info) *model.Input {
 	// request param should be named, but keep best-effort
 	name := ""
@@ -1910,6 +2312,8 @@ func parseHandler(
 	info *types.Info,
 	fset *token.FileSet,
 	eventTypeNames map[string]struct{},
+	ctx *parseCtx,
+	typeParams []string,
 	kind methodkind.Kind,
 	name string,
 ) (*model.Handler, []*model.Output, error) {
@@ -2062,6 +2466,44 @@ func parseHandler(
 			}
 			h.OrderedInputs = append(h.OrderedInputs, inp)
 
+		case paramvalidation.IsStateParam(f):
+			if h.InputState != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(fmt.Errorf("%w in %s.%s",
+						ErrStateDuplicate, recv, fd.Name.Name)))
+				continue
+			}
+			is, sterr := parseStateParam(f, info, ctx, typeParams, recv, fd.Name.Name)
+			if sterr != nil {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sterr)
+				continue
+			}
+			if kind == methodkind.GETHandler {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
+					fmt.Errorf("%w in %s.%s",
+						ErrStateOnGET, recv, fd.Name.Name))
+				continue
+			}
+			h.InputState = is
+			h.OrderedInputs = append(h.OrderedInputs, is.Input)
+
+		case paramvalidation.IsStateIDParam(f):
+			if h.InputStateID != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+				continue
+			}
+			if !typecheck.IsString(info.TypeOf(f.Type)) {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
+					fmt.Errorf("%w in %s.%s",
+						ErrStateIDParamNotString, recv, fd.Name.Name))
+				continue
+			}
+			inp := parseInput(f, info)
+			inp.Kind = model.InputKindStateID
+			h.InputStateID = inp
+			h.OrderedInputs = append(h.OrderedInputs, inp)
+
 		default:
 			unsupErrs = append(unsupErrs,
 				fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
@@ -2071,6 +2513,10 @@ func parseHandler(
 	if !foundReq {
 		return h, nil, fmt.Errorf("%w in %s.%s",
 			ErrSignatureMissingReq, recv, fd.Name.Name)
+	}
+	if h.InputStateID != nil && h.InputState == nil {
+		return h, nil, fmt.Errorf("%w in %s.%s",
+			ErrStateIDWithoutState, recv, fd.Name.Name)
 	}
 
 	if len(unsupErrs) > 0 {

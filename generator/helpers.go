@@ -63,6 +63,7 @@ func stripPagePrefix(typeName string) string {
 	return strings.TrimPrefix(typeName, "Page")
 }
 
+
 // pageHasStream returns true if the page has event handlers and needs a stream.
 func pageHasStream(p *model.Page) bool {
 	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil
@@ -108,6 +109,17 @@ func pageHasPrivateEvent(p *model.Page, eventByName map[string]*model.Event) boo
 func pageHasSignalScopedEvent(p *model.Page, eventByName map[string]*model.Event) bool {
 	for _, eh := range p.EventHandlers {
 		if e, ok := eventByName[eh.EventTypeName]; ok && e.IsSignalScoped() {
+			return true
+		}
+	}
+	return false
+}
+
+// pageHasStateIDScopedEvent returns true if any event handler on the page
+// handles a state-id-scoped event (has a SubjectStateID field).
+func pageHasStateIDScopedEvent(p *model.Page, eventByName map[string]*model.Event) bool {
+	for _, eh := range p.EventHandlers {
+		if e, ok := eventByName[eh.EventTypeName]; ok && e.IsStateIDScoped() {
 			return true
 		}
 	}
@@ -276,6 +288,9 @@ type appUsage struct {
 	httpErrBad bool
 	// httperr: whether any action handler returns an error (needs httperr import).
 	httperr bool
+	// stateRuntime: whether any page (including via embedded abstract pages)
+	// references a StateXXX type; enables the per-page-instance state runtime.
+	stateRuntime bool
 }
 
 // needsIsDSReq returns true if the isDSReq helper must be emitted.
@@ -367,6 +382,9 @@ func computeAppUsage(m *model.App) appUsage {
 			if h.OutputErr != nil {
 				u.httperr = true
 			}
+		}
+		if p.State != nil {
+			u.stateRuntime = true
 		}
 	}
 	if m.PageError404 != nil && m.PageError404.GET != nil {

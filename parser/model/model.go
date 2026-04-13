@@ -23,6 +23,11 @@ type App struct {
 	Pages   []*Page
 	Events  []*Event
 	Actions []*Handler // App-level POST/PUT/PATCH/DELETE actions.
+
+	// States are all declared StateXXX types in the source package,
+	// keyed by type name. A state type may be referenced by at most
+	// one concrete page (directly or through embedded abstract pages).
+	States map[string]*StateType
 }
 
 type GlobalHead struct {
@@ -33,6 +38,13 @@ type GlobalHead struct {
 
 type SessionType struct {
 	Expr ast.Expr
+}
+
+// StateType represents a per-page-instance server-side state type
+// declared as `type StateXXX struct`.
+type StateType struct {
+	Expr     ast.Expr
+	TypeName string
 }
 
 type PageSpecialization int8
@@ -57,17 +69,32 @@ type Page struct {
 	StreamClose   *Handler
 	EventHandlers []*EventHandler
 	Embeds        []*AbstractPage
+
+	// State is the state type referenced by any stateful handler on
+	// this page (or its embedded abstract pages). Nullable.
+	State *StateType
 }
 
 type AbstractPage struct {
 	Expr     ast.Expr
 	TypeName string
 
+	// TypeParams lists the abstract page's type parameter names in
+	// declaration order, e.g. ["S"] for `type Base[S any] struct {...}`.
+	// Empty when the abstract is not generic.
+	TypeParams []string
+
 	Methods       []*Handler
 	StreamOpen    *Handler
 	StreamClose   *Handler
 	EventHandlers []*EventHandler
 	Embeds        []*AbstractPage
+
+	// State is the state type referenced by any stateful handler on
+	// this abstract page. Nullable. Not meaningful when the handler's
+	// state parameter references a type parameter — the concrete
+	// binding is resolved at each embed site during flattening.
+	State *StateType
 }
 
 type TemplComponent struct {
@@ -96,6 +123,8 @@ type Handler struct {
 	InputPath         *Input
 	InputQuery        *Input
 	InputSignals      *Input
+	InputState        *InputState // state *StateXXX; nullable.
+	InputStateID      *Input      // stateID string; nullable.
 	InputDispatch     *InputDispatch
 	OrderedInputs     []*Input // Inputs in user-defined order.
 
@@ -115,6 +144,17 @@ type InputDispatch struct {
 	EventTypeNames []string
 }
 
+// InputState wraps the state input with the referenced StateXXX type name.
+//
+// When IsTypeParam is true, StateTypeName holds the type-parameter name
+// (e.g. "S") of the enclosing abstract page, not a concrete StateXXX.
+// The concrete binding is resolved per-page during embed flattening.
+type InputState struct {
+	*Input
+	StateTypeName string
+	IsTypeParam   bool
+}
+
 type EventHandler struct {
 	Expr ast.Expr
 
@@ -126,6 +166,8 @@ type EventHandler struct {
 	InputStreamID     *Input
 	InputSessionToken *Input
 	InputSession      *Input
+	InputState        *InputState // state *StateXXX; nullable.
+	InputStateID      *Input      // stateID string; nullable.
 	OrderedInputs     []*Input // Inputs in user-defined order.
 
 	OutputErr *Output
@@ -143,6 +185,8 @@ const (
 	InputKindSignals      = "signals"
 	InputKindDispatch     = "dispatch"
 	InputKindEvent        = "event"
+	InputKindState        = "state"
+	InputKindStateID      = "stateID"
 )
 
 // OutputKind constants identify handler output return value kinds.
@@ -214,6 +258,20 @@ func (e *Event) HasSubjectUser() bool {
 	return false
 }
 
+// HasSubjectStateID reports whether the event has a SubjectStateID field.
+// Like SubjectUser, SubjectStateID is a special subject field resolved on
+// the server side at stream connect — it uses the HMAC-validated
+// Datapages-Instance header of the connecting tab, so only the tab whose
+// state-id matches the dispatched value receives the event.
+func (e *Event) HasSubjectStateID() bool {
+	for _, sf := range e.SubjectFields {
+		if sf.Name == "StateID" {
+			return true
+		}
+	}
+	return false
+}
+
 // IsPrivate reports whether the event targets specific users
 // (has a SubjectUser field).
 func (e *Event) IsPrivate() bool { return e.HasSubjectUser() }
@@ -235,3 +293,10 @@ func (e *Event) HasSignalSubjectFields() bool {
 // IsSignalScoped reports whether the event uses signal-based
 // subject routing (has at least one signal-tagged subject field).
 func (e *Event) IsSignalScoped() bool { return e.HasSignalSubjectFields() }
+
+// IsStateIDScoped reports whether the event uses state-id-based
+// subject routing (has a SubjectStateID field). At stream connect
+// the server uses the validated Datapages-Instance header as the
+// subject segment, so the event is delivered only to the tab whose
+// state-id matches the dispatched value.
+func (e *Event) IsStateIDScoped() bool { return e.HasSubjectStateID() }

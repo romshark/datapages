@@ -14,34 +14,51 @@ import (
 )
 
 // ReceiverTypeName extracts the type name from a method
-// receiver expression, handling both T and *T forms.
+// receiver expression, handling T, *T, and generic instantiations
+// T[X], *T[X, Y], etc. Returns "" for anything that isn't rooted
+// at a plain identifier.
 func ReceiverTypeName(expr ast.Expr) string {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		if id, ok := t.X.(*ast.Ident); ok {
-			return id.Name
-		}
+	if id := embeddedBaseIdent(expr); id != nil {
+		return id.Name
 	}
 	return ""
 }
 
+// embeddedBaseIdent returns the base *ast.Ident of an embedded field
+// type, unwrapping pointer and generic-instantiation syntax. It handles:
+//
+//	T           → T
+//	*T          → T
+//	T[A]        → T
+//	T[A, B]     → T
+//
+// Returns nil when the field is not a plain embedded type (e.g. a
+// qualified identifier from another package, unsupported here).
+func embeddedBaseIdent(expr ast.Expr) *ast.Ident {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t
+	case *ast.StarExpr:
+		return embeddedBaseIdent(t.X)
+	case *ast.IndexExpr:
+		return embeddedBaseIdent(t.X)
+	case *ast.IndexListExpr:
+		return embeddedBaseIdent(t.X)
+	}
+	return nil
+}
+
 // EmbeddedTypeNames returns the names of all embedded types
-// in a struct.
+// in a struct. Generic instantiations (e.g. Base[StateXXX]) are
+// collapsed to their base type name (Base).
 func EmbeddedTypeNames(st *ast.StructType) []string {
 	var out []string
 	for _, f := range st.Fields.List {
 		if len(f.Names) != 0 {
 			continue
 		}
-		switch t := f.Type.(type) {
-		case *ast.Ident:
-			out = append(out, t.Name)
-		case *ast.StarExpr:
-			if id, ok := t.X.(*ast.Ident); ok {
-				out = append(out, id.Name)
-			}
+		if id := embeddedBaseIdent(f.Type); id != nil {
+			out = append(out, id.Name)
 		}
 	}
 	return out
@@ -60,13 +77,50 @@ func EmbeddedFieldPosMap(
 		if len(f.Names) != 0 {
 			continue
 		}
+		if id := embeddedBaseIdent(f.Type); id != nil {
+			out[id.Name] = id.Pos()
+		}
+	}
+	return out
+}
+
+// EmbeddedTypeArgNames returns a map from embedded abstract-page
+// type name to the list of type argument names written at the embed
+// site. Non-identifier type arguments (e.g. `Base[*StateFoo]` where
+// the argument is starred) are returned as their base identifier name.
+//
+// For a non-generic embed `Base`, the entry maps to nil. For a generic
+// embed `Base[StateFoo]`, the entry is ["StateFoo"]. For a list
+// instantiation `Base[StateA, StateB]`, the entry is ["StateA",
+// "StateB"].
+func EmbeddedTypeArgNames(st *ast.StructType) map[string][]string {
+	out := map[string][]string{}
+	if st == nil || st.Fields == nil {
+		return out
+	}
+	for _, f := range st.Fields.List {
+		if len(f.Names) != 0 {
+			continue
+		}
+		base := embeddedBaseIdent(f.Type)
+		if base == nil {
+			continue
+		}
 		switch t := f.Type.(type) {
-		case *ast.Ident:
-			out[t.Name] = t.Pos()
-		case *ast.StarExpr:
-			if id, ok := t.X.(*ast.Ident); ok {
-				out[id.Name] = id.Pos()
+		case *ast.IndexExpr:
+			if id := embeddedBaseIdent(t.Index); id != nil {
+				out[base.Name] = []string{id.Name}
 			}
+		case *ast.IndexListExpr:
+			args := make([]string, 0, len(t.Indices))
+			for _, a := range t.Indices {
+				if id := embeddedBaseIdent(a); id != nil {
+					args = append(args, id.Name)
+				}
+			}
+			out[base.Name] = args
+		default:
+			out[base.Name] = nil
 		}
 	}
 	return out

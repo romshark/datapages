@@ -34,6 +34,14 @@ func handlerArgVar(kind string, skipSSE bool) string {
 		return "dispatch"
 	case model.InputKindEvent:
 		return "e"
+	case model.InputKindState:
+		// The generated handler wrapper exposes the checked-out
+		// *StateXXX as `slot.state`.
+		return "slot.state"
+	case model.InputKindStateID:
+		// The verified Datapages-Instance header is held in the
+		// generator-local `instanceID` variable alongside `slot`.
+		return "instanceID"
 	default:
 		return ""
 	}
@@ -284,6 +292,13 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	if h.InputDispatch != nil {
 		hasBody = true
 		w.writeDispatchClosure(h.InputDispatch, appPkg)
+	}
+
+	// Stateful page: mint the Datapages-Instance header so the client can
+	// echo it on actions and on the SSE stream connect.
+	if p.State != nil {
+		hasBody = true
+		w.writeMintInstanceIDOnGET()
 	}
 
 	// Page constructor.
@@ -868,6 +883,14 @@ func (w *Writer) writePageGETStreamHandler(
 		)
 	}
 
+	// Stateful page: verify Datapages-Instance header and declare the slot
+	// handle that is captured by the onOpen/onClose/event-loop closures.
+	if p.State != nil {
+		w.Line(0, "")
+		w.writeVerifyInstanceIDHeader()
+		w.Linef(1, "var slot *%s", pageStateSlotTypeName(p))
+	}
+
 	// Page constructor.
 	w.Raw("\n\tp := ")
 	w.writePageConstructor(p, appPkg)
@@ -885,16 +908,19 @@ func (w *Writer) writePageGETStreamHandler(
 	}
 	w.Raw(" ")
 	w.Raw(evSubjName)
-	if hasPrivate && hasSignalScoped {
+	switch {
+	case pageHasStateIDScopedEvent(p, w.eventMap):
+		w.Raw("(instanceID),\n")
+	case hasPrivate && hasSignalScoped:
 		w.Raw("(sess.UserID")
 		for _, sf := range signalFields {
 			w.Raw(", subjSignals.")
 			w.Raw(sf.Name)
 		}
 		w.Raw("),\n")
-	} else if hasPrivate {
+	case hasPrivate:
 		w.Raw("(sess.UserID),\n")
-	} else if hasSignalScoped {
+	case hasSignalScoped:
 		w.Raw("(")
 		for i, sf := range signalFields {
 			if i > 0 {
@@ -904,7 +930,7 @@ func (w *Writer) writePageGETStreamHandler(
 			w.Raw(sf.Name)
 		}
 		w.Raw("),\n")
-	} else {
+	default:
 		w.Raw("(),\n")
 	}
 	w.writePageStreamOpenHook(p)
@@ -984,6 +1010,18 @@ func (w *Writer) writeEventHandlerCall(
 
 	methodName := "On" + eh.Name
 
+	// Stateful event handlers run under the per-slot mutex to serialize
+	// with concurrent action calls and with StreamOpen / StreamClose.
+	// slot can be nil here if the stream closed concurrently; skip in
+	// that case so we never deref nil.
+	stateful := eh.InputState != nil
+	if stateful {
+		w.Line(4, "if slot == nil {")
+		w.Line(5, "continue")
+		w.Line(4, "}")
+		w.Line(4, "slot.mu.Lock()")
+	}
+
 	if eh.OutputErr != nil {
 		w.Raw("\t\t\t\tif err := ")
 		w.writeCallExpr(receiver, methodName, args)
@@ -999,9 +1037,19 @@ func (w *Writer) writeEventHandlerCall(
 		w.writeCallExpr(receiver, methodName, args)
 		w.Byte('\n')
 	}
+
+	if stateful {
+		w.Line(4, "slot.mu.Unlock()")
+	}
 }
 
 func (w *Writer) writePageStreamOpenHook(p *model.Page) {
+	// Stateful page: always emit an onOpen closure so the slot is
+	// allocated / reconnected even when the user did not define StreamOpen.
+	if p.State != nil {
+		w.writeStatefulStreamOpenHook(p)
+		return
+	}
 	if p.StreamOpen == nil {
 		w.Line(1, "nil,")
 		return
@@ -1030,7 +1078,57 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 	w.Line(1, "},")
 }
 
+// writeStatefulStreamOpenHook emits the onOpen closure for a stateful
+// page. The closure reconnects to an existing slot (grace-period reuse)
+// or allocates a fresh slot from the pool, stashes it in the outer
+// `slot` variable, and — if the user defined StreamOpen — calls it
+// under the slot mutex.
+func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
+	suffix := stateSuffix(p.State)
+	w.Line(1, "func(")
+	w.Line(2, "streamID uint64,")
+	w.Line(2, "sse *datastar.ServerSentEventGenerator,")
+	w.Line(1, ") error {")
+	w.Linef(2, "if existing, ok := s.reconnect%s(instanceID, streamID); ok {", suffix)
+	w.Line(3, "slot = existing")
+	w.Line(2, "} else {")
+	w.Linef(3, "slot = s.allocate%s(instanceID, streamID)", suffix)
+	w.Line(2, "}")
+	w.Line(2, "slot.mu.Lock()")
+	w.Line(2, "defer slot.mu.Unlock()")
+	if p.StreamOpen == nil {
+		w.Line(2, "return nil")
+		w.Line(1, "},")
+		return
+	}
+	dispatchVar := ""
+	if p.StreamOpen.InputDispatch != nil {
+		dispatchVar = "dispatchOpen"
+	}
+	if p.StreamOpen.OutputErr != nil {
+		w.Raw("\t\treturn ")
+	} else {
+		w.Raw("\t\t")
+	}
+	w.writeCallExpr(
+		"p", "StreamOpen",
+		handlerInputArgsWithDispatchVar(p.StreamOpen, false, dispatchVar),
+	)
+	w.Byte('\n')
+	if p.StreamOpen.OutputErr == nil {
+		w.Line(2, "return nil")
+	}
+	w.Line(1, "},")
+}
+
 func (w *Writer) writePageStreamCloseHook(p *model.Page) {
+	// Stateful page: always emit an onClose closure so the slot is
+	// detached and the grace timer is armed, even when the user did
+	// not define StreamClose.
+	if p.State != nil {
+		w.writeStatefulStreamCloseHook(p)
+		return
+	}
 	if p.StreamClose == nil {
 		w.Line(1, "nil,")
 		return
@@ -1059,6 +1157,45 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 		)
 		w.Byte('\n')
 	}
+	w.Line(1, "},")
+}
+
+// writeStatefulStreamCloseHook emits the onClose closure for a stateful
+// page. If the user defined StreamClose, it runs under the slot mutex.
+// In all cases the slot is detached and the grace-period reaper is armed.
+func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
+	suffix := stateSuffix(p.State)
+	w.Line(1, "func(streamID uint64) {")
+	w.Line(2, "if slot != nil {")
+	w.Line(3, "slot.mu.Lock()")
+	if p.StreamClose != nil {
+		dispatchVar := ""
+		if p.StreamClose.InputDispatch != nil {
+			dispatchVar = "dispatchClosed"
+		}
+		if p.StreamClose.OutputErr != nil {
+			w.Raw("\t\t\tif err := ")
+			w.writeCallExpr(
+				"p", "StreamClose",
+				handlerInputArgsWithDispatchVar(p.StreamClose, false, dispatchVar),
+			)
+			w.Raw("; err != nil {\n")
+			w.Raw("\t\t\t\ts.logErr(\"handling ")
+			w.Raw(p.TypeName)
+			w.Raw(".StreamClose\", err)\n")
+			w.Line(3, "}")
+		} else {
+			w.Raw("\t\t\t")
+			w.writeCallExpr(
+				"p", "StreamClose",
+				handlerInputArgsWithDispatchVar(p.StreamClose, false, dispatchVar),
+			)
+			w.Byte('\n')
+		}
+	}
+	w.Line(3, "slot.mu.Unlock()")
+	w.Line(2, "}")
+	w.Linef(2, "s.closeStream%s(instanceID)", suffix)
 	w.Line(1, "},")
 }
 
@@ -1191,6 +1328,14 @@ func (w *Writer) writePageActionHandler(
 		w.Line(1, "if !s.checkIsDSReq(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
+	}
+
+	// Stateful action: verify Datapages-Instance header and check out the
+	// live slot. On a miss the client is told to reconnect and retry.
+	// The per-slot mutex serializes all handlers touching this state.
+	if h.InputState != nil {
+		w.writeVerifyInstanceIDHeader()
+		w.writeLookupSlotOrReject(p.State)
 	}
 
 	// Auth.

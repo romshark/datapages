@@ -429,23 +429,20 @@ type EventDirectMessage struct {
 
 ### When to use stream hooks
 
-- **Per-tab server-side state.** Store filters, sort order, or view preferences
-  keyed by `streamID`. Event handlers (which don't receive signals) can then look
-  up the current tab's state to render correctly filtered responses. Clean up in
-  `StreamClose`.
-- **CQRS read-model binding.** In a CQRS architecture, actions (commands) dispatch
-  events and event handlers (queries) render the updated UI. The event handler
-  needs context about *which* tab it is rendering for (e.g. which item is being
-  viewed, which filters are active). `StreamOpen` is the place to capture that
-  context — read initial signals, store them alongside the `streamID`, and use them
-  later in event handlers to produce the right fat morph.
-- **HMAC-signed tab identifiers.** Generate an HMAC of the `streamID` in
-  `StreamOpen`, patch it to the client as a signal via `sse.MarshalAndPatchSignals`,
-  and validate it in action handlers. Because only the server knows the HMAC key,
-  clients cannot forge a tab ID for a stream they don't own, which prevents
-  one tab from impersonating another when calling actions.
-- **Resource lifecycle.** Acquire per-stream resources (subscriptions, connections,
-  counters) in `StreamOpen` and release them in `StreamClose`.
+- **Per-tab server-side state.** Declare a `StateXXX` struct and take
+  `state *StateXXX` in `StreamOpen`, actions, and `OnXXX` handlers. The
+  generator allocates one state per tab from a pool, serializes handler calls
+  with a per-instance mutex, and returns state to the pool after
+  `StreamClose` + a grace period. No manual tab-id signing or map bookkeeping.
+  See Step 10.
+- **CQRS read-model binding.** In a CQRS architecture, actions (commands)
+  dispatch events and event handlers (queries) render the updated UI. The
+  event handler needs context about *which* tab it is rendering for (e.g.
+  which item is being viewed, which filters are active). Capture that context
+  into `state *StateXXX` inside `StreamOpen`, then read it from the event
+  handler via the same `state` parameter.
+- **Resource lifecycle.** Acquire per-stream resources (subscriptions,
+  connections, counters) in `StreamOpen` and release them in `StreamClose`.
 
 ### Signature
 
@@ -496,7 +493,112 @@ func (PageIndex) StreamClose(
 Stream hooks can also be defined on abstract types and embedded in pages,
 following the same pattern as event handlers (see next step).
 
-## Step 10: Share Handlers Across Pages
+## Step 10: Per-Tab Server-Side State (Optional)
+
+When a page needs state that lives across a tab's lifetime but must not leak
+between tabs — filters, cursors, which item is being viewed, a per-tab
+counter — declare any exported struct type and accept `state *T` on the
+handlers that read or write it.
+
+```go
+type IndexState struct {
+    Filter string
+    Cursor int
+}
+
+func (PageIndex) StreamOpen(
+    r *http.Request,
+    streamID uint64,
+    state *IndexState,
+    signals struct {
+        Filter string `json:"filter"`
+    },
+) error {
+    state.Filter = signals.Filter
+    return nil
+}
+
+// POSTFilter is /filter
+func (PageIndex) POSTFilter(
+    r *http.Request,
+    sse *datastar.ServerSentEventGenerator,
+    state *IndexState,
+    signals struct {
+        Filter string `json:"filter"`
+    },
+) error {
+    state.Filter = signals.Filter
+    return sse.PatchElementTempl(itemList(p.App.filter(state.Filter)))
+}
+
+func (PageIndex) OnItemsChanged(
+    event EventItemsChanged,
+    sse *datastar.ServerSentEventGenerator,
+    state *IndexState,
+) error {
+    return sse.PatchElementTempl(itemList(p.App.filter(state.Filter)))
+}
+```
+
+**Rules**:
+
+- The state type is any exported named struct in the app package.
+- A page (including any embedded abstract types) may reference at most one
+  state type. Conflicts are generator errors.
+- `GET` handlers cannot take `state` (no instance exists at render time).
+- A page that takes `state` must declare at least one of `StreamOpen`,
+  `StreamClose`, or an `OnXXX` handler. The SSE stream anchors the state
+  lifecycle; without a stream there is nothing to bind the slot to.
+- Global `*App` actions can take `state *T`, but they only succeed when the
+  calling tab is bound to a page that uses that same `T` — otherwise the
+  runtime returns `409 Conflict`. App actions intended to work from every
+  page should remain stateless.
+- Always a pointer: `state *T`, never `state T`.
+- A generic abstract page may declare `state *S` on its handlers where
+  `S` is a type parameter; concrete pages then embed `Base[ConcreteState]`
+  and the parser substitutes `S` at the embed site, letting one shared
+  abstract layer compose with different per-page state shapes.
+- A stateful handler may take `stateID string` alongside `state *T` — it
+  receives the validated per-tab identifier, usable as the subject of a
+  tab-scoped event. Pair it with `SubjectStateID string` on an event type:
+  the generator auto-subscribes to `<base>.<state_id>` at stream connect
+  so only the originating tab receives the event. `SubjectStateID` must
+  be the event's only subject field and the subscribing page must be
+  stateful.
+
+**What the generator does for you**:
+
+- Pools state values, zero-resets on checkout.
+- Signs an instance identifier on `GET` and threads it through the browser
+  via a `Datapages-Instance` header (no cookies, no storage — in-memory only
+  so other tabs on the same origin cannot impersonate).
+- Serializes every handler call on the same instance under a per-instance
+  mutex, so you never need to lock inside a handler.
+- Returns `409 Conflict` with `Datapages-Retry: reconnect` if an action
+  arrives before the SSE stream opens; the client shim retries after
+  reconnecting.
+- Keeps the state alive for a grace period (default 30s) after `StreamClose`
+  so transient network blips don't wipe per-tab state.
+
+**Server configuration**. Stateful apps must opt in via `WithStateConfig`:
+
+```go
+hmacKey := sha256.Sum256([]byte(hmacSecret))
+s := datapagesgen.NewServer(a, msgBroker,
+    datapagesgen.WithStateConfig(datapagesgen.StateConfig{
+        HMACKey:     hmacKey[:],
+        GracePeriod: 30 * time.Second, // optional
+    }),
+)
+```
+
+**Multi-server deployments**. State lives in process memory, so the load
+balancer must route each client consistently to the same backend (cookie
+hashing or hashing on the `Datapages-Instance` header). Round-robin load
+balancing is incompatible — every other request will hit a server without the
+state and get rejected with `409`.
+
+## Step 11: Share Handlers Across Pages
 
 When multiple pages need the same event handler or action, define it once on an abstract type and embed it. This avoids duplicating handler methods across pages.
 Abstract types are not pages. No `Page` prefix. No route.
@@ -537,7 +639,7 @@ func (p PageChat) OnMessageSent(
 }
 ```
 
-## Step 11: Add Custom Error Pages (Optional)
+## Step 12: Add Custom Error Pages (Optional)
 
 Without these, Datapages serves default error responses. Define custom error pages to match your app's look and feel and provide helpful navigation back to valid pages.
 
@@ -552,7 +654,7 @@ func (PageError404) GET(r *http.Request) (body templ.Component, err error) {
 
 Same pattern for `PageError500`.
 
-## Step 12: Add Global Head (Optional)
+## Step 13: Add Global Head (Optional)
 
 Adds shared `<head>` content (meta tags, stylesheets, scripts) to every page, so you don't have to repeat it in each page's `head` return value. Pointer receiver on App.
 
@@ -566,7 +668,7 @@ func (*App) Head(
 }
 ```
 
-## Step 13: Add Error Recovery (Optional)
+## Step 14: Add Error Recovery (Optional)
 
 When a handler returns an error during a Datastar SSE request, a plain HTTP error is invisible to the user - there is no visible feedback, only a console log that normal users never see. `RecoverError` lets you handle this gracefully by patching in an error UI (e.g. a toast notification) over SSE instead. All action handler errors (including httperr sentinels) are routed through `RecoverError` when defined. Use `errors.Is(err, httperr.BadRequest)` etc. inside `RecoverError` to distinguish error types.
 
@@ -579,7 +681,7 @@ func (*App) RecoverError(
 }
 ```
 
-## Step 14: Configure the Server Entry Point
+## Step 15: Configure the Server Entry Point
 
 `datapages gen` generates `cmd/server/main.go` on the first run. After that, you own this file - it is not regenerated or overwritten. Edit it to configure dependencies, middleware, and server options.
 
@@ -675,7 +777,7 @@ s.ListenAndServe(ctx, "localhost:8080")
 s.ListenAndServeTLS(ctx, "localhost:8443", certPath, keyPath)
 ```
 
-## Step 15: Serve Static Files (Optional)
+## Step 16: Serve Static Files (Optional)
 
 If your app needs to serve static assets (CSS, JS, images, fonts), place them in a directory inside your app package (e.g. `app/static/`) and use Go's `embed` package to bundle them into the binary.
 
@@ -703,7 +805,7 @@ The URL path prefix is the generated `assets.URLPrefix` constant (configured via
 
 Reference static files in templates using the static prefix (e.g. `/static/style.css`).
 
-## Step 16: Generate and Run
+## Step 17: Generate and Run
 
 Build workflow after editing `app.go` or `.templ` files:
 
@@ -727,7 +829,7 @@ datapages help            # show help for all commands and flags
 datapages help <command>  # show help for a specific command
 ```
 
-## Step 17: Use Generated URL Packages
+## Step 18: Use Generated URL Packages
 
 `datapages gen` produces two packages with type-safe URL builders. **Always use these instead of hardcoding URLs.**
 

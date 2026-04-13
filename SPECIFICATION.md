@@ -48,6 +48,10 @@ special methods:
 - `StreamClose`: runs when the page SSE stream closes.
 - `OnXXX`: subscribes to events in the SSE listener.
 
+Any action method, `OnXXX`, `StreamOpen`, or `StreamClose` may also take
+`state *StateXXX` to opt the page into per-tab server-side state — see
+[Parameter: `state *StateXXX`](#parameter-state-statexxx).
+
 `XXX` is just a name placeholder.
 
 Page types must only contain the exported `App *App` field, no more, no less.
@@ -333,6 +337,145 @@ func (p PageExample) OnSomethingHappened(
 ```
 
 </details>
+
+#### Parameter: `state *StateXXX`
+
+```go
+state *StateXXX
+```
+
+Provides per-page-instance server-side state. A **page instance** corresponds to
+an open browser tab: two tabs on the same page receive independent `*StateXXX`
+values. State is held in server memory. Handlers on the same instance are
+serialized by a per-instance mutex, so fields may be read and written without
+additional synchronization inside a handler.
+
+A page opts into state by declaring a struct whose type name matches `StateXXX`
+and referencing it via `state *StateXXX` on one or more action methods,
+`OnXXX` handlers, `StreamOpen`, or `StreamClose`:
+
+```go
+type StateIndex struct {
+    Filter string
+    Count  int
+}
+
+func (PageIndex) StreamOpen(
+    r *http.Request,
+    streamID uint64,
+    state *StateIndex,
+) error { /* ... */ }
+
+func (PageIndex) POSTIncrement(
+    r *http.Request,
+    state *StateIndex,
+) error {
+    state.Count++
+    return nil
+}
+
+func (PageIndex) OnSomething(
+    event EventSomething,
+    sse *datastar.ServerSentEventGenerator,
+    state *StateIndex,
+) error { /* read state.Count, etc. */ }
+```
+
+**Declaration rules**:
+
+- The state type is a named exported struct declared at the source
+  package level.
+- The parameter name is `state` and the type is a pointer to a named
+  struct. A value-type parameter is a generator error.
+- All handlers on a page, including those inherited from embedded abstract
+  pages, must reference the same state type.
+- Abstract (embedded) page types may reference a state type on their own
+  handlers; the binding flows into every concrete page that embeds them.
+- Global `*App` actions may take `state *T`. The runtime resolves the slot
+  using the calling tab's `Datapages-Instance` header against the map for
+  `T`; an App action succeeds only when the calling tab is bound to a page
+  that uses the same `T`, and otherwise receives `409 Conflict` with
+  `Datapages-Retry: reconnect`. An App action that must be callable from
+  every page must remain stateless.
+- `GET` handlers must not take `state`: no instance exists at render time.
+- A page that takes `state` must declare at least one of `StreamOpen`,
+  `StreamClose`, or an `OnXXX` event handler. The SSE stream anchors the
+  state lifecycle — without a stream there is nothing to bind the slot to,
+  and actions would be rejected indefinitely with `409 Conflict`.
+
+**Generic abstract pages**. A generic abstract may declare `state *S` on
+its handlers where `S` is one of its type parameters. Each concrete page
+then embeds the abstract with a concrete type argument
+(e.g. `Base[UserContext]`); the parser substitutes `S` with that argument
+at the embed site. This lets a single shared abstract layer cooperate with
+different per-page state shapes without forcing every page to use the same
+state fields.
+
+**Parameter: `stateID string`**. A stateful handler may take `stateID
+string` alongside `state *T`. The parameter receives the validated
+`Datapages-Instance` value of the calling tab and is used to dispatch
+events targeted at the same tab (see `SubjectStateID`). `stateID` requires
+the handler to also take `state *T`.
+
+**Subject field: `SubjectStateID string`**. An event may declare a subject
+field named exactly `SubjectStateID` of type `string`. At SSE stream
+connect the server subscribes to `<base>.<state_id>` using the validated
+`Datapages-Instance` header, so only the tab whose state-id matches the
+dispatched value receives the event. Rules:
+
+- `SubjectStateID` must be a singular `string`; `[]string` is rejected.
+- `SubjectStateID` must not carry a `signal:"..."` tag.
+- `SubjectStateID` must be the only subject field on the event — mixing
+  with `SubjectUser`, other signal-scoped fields, or additional subject
+  fields is rejected.
+- Any page with an `OnXXX` for a `SubjectStateID` event must be stateful.
+
+**Lifecycle**:
+
+1. On `GET` of a stateful page, the server mints a fresh HMAC-signed
+   identifier, sets it on the `Datapages-Instance` response header, and
+   embeds it in the HTML so the client echoes it on subsequent requests.
+2. The generated client shim attaches `Datapages-Instance` to every
+   subsequent Datastar action request and to the SSE stream connect.
+3. On `StreamOpen`, the server checks a `*T` (the page's bound state type)
+   out of a `sync.Pool`, zero-resets it, and registers the `id → slot`
+   mapping. When `StreamOpen` declares `state`, the freshly zeroed pointer
+   is passed to it.
+4. For stateful action and `OnXXX` calls, the server verifies the header,
+   looks up the slot, acquires its mutex, and invokes the user handler with
+   `state`. A missing slot (for example, an action fired before `StreamOpen`
+   completes) yields `409 Conflict` with `Datapages-Retry: reconnect`.
+5. On `StreamClose`, the server arms a grace timer (default 30s). A
+   reconnect with the same id inside the window reuses the slot as-is
+   without reset. Otherwise the state is returned to the pool.
+
+**Configuration**. `WithStateConfig` is required on `NewServer` when any
+handler takes `state`:
+
+```go
+s := datapagesgen.NewServer(a, msgBroker,
+    datapagesgen.WithStateConfig(datapagesgen.StateConfig{
+        HMACKey:     hmacKey,                // required, non-empty
+        GracePeriod: 30 * time.Second,       // optional, default 30s
+    }),
+)
+```
+
+`HMACKey` signs the instance identifier. Key rotation or process restart
+invalidates every live instance; connected clients recover by reloading the
+page on the next rejected request.
+
+**Sticky sessions on multi-server deployments**. State lives in process
+memory, so each client's requests must land on the same backend. A load
+balancer that hashes on a client-stable value — the session cookie or the
+`Datapages-Instance` header — satisfies this. A round-robin balancer will
+produce frequent `409` rejections followed by reloads.
+
+**Security**. The instance id is embedded in the HTML response and held in
+an in-memory JavaScript module variable — it is not stored in cookies,
+`localStorage`, `sessionStorage`, or `IndexedDB`. This prevents another tab
+on the same origin from observing another tab's id. The HMAC signature
+rejects forged values.
 
 #### Parameter: `signals struct {...}`
 
@@ -782,6 +925,7 @@ Available sentinels:
 - `httperr.BadRequest` — 400
 - `httperr.Forbidden` — 403
 - `httperr.NotFound` — 404
+- `httperr.Conflict` — 409
 
 Return a sentinel directly, or wrap into the original error. When `RecoverError` is
 defined, all errors (including httperr sentinels) are routed through it first. If

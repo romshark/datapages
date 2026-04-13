@@ -1473,6 +1473,194 @@ func requirePosEqual(
 		wantFile, wantLine, wantCol, fName, p.Line, p.Column)
 }
 
+func TestParse_State(t *testing.T) {
+	app, err := parse(t, "state")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	require.Len(app.States, 2)
+	require.Contains(app.States, "StateIndex")
+	require.Contains(app.States, "TabContext")
+
+	// PageIndex
+	pi := app.PageIndex
+	require.NotNil(pi)
+	require.NotNil(pi.State)
+	require.Equal("StateIndex", pi.State.TypeName)
+
+	require.NotNil(pi.StreamOpen)
+	require.NotNil(pi.StreamOpen.InputState)
+	require.Equal("StateIndex", pi.StreamOpen.InputState.StateTypeName)
+	require.Equal("state", pi.StreamOpen.InputState.Name)
+
+	require.NotNil(pi.StreamClose)
+	require.NotNil(pi.StreamClose.InputState)
+	require.Equal("StateIndex", pi.StreamClose.InputState.StateTypeName)
+
+	require.Len(pi.Actions, 1)
+	require.Equal("Increment", pi.Actions[0].Name)
+	require.NotNil(pi.Actions[0].InputState)
+	require.Equal("StateIndex", pi.Actions[0].InputState.StateTypeName)
+
+	require.Len(pi.EventHandlers, 1)
+	require.NotNil(pi.EventHandlers[0].InputState)
+	require.Equal("StateIndex", pi.EventHandlers[0].InputState.StateTypeName)
+
+	// PageBase: state comes via embedded Base.
+	pb := findPage(app, "PageBase")
+	require.NotNil(pb)
+	require.NotNil(pb.State)
+	require.Equal("TabContext", pb.State.TypeName)
+
+	// App-level action takes state.
+	require.Len(app.Actions, 1)
+	appAct := app.Actions[0]
+	require.Equal("AppLevel", appAct.Name)
+	require.NotNil(appAct.InputState)
+	require.Equal("StateIndex", appAct.InputState.StateTypeName)
+}
+
+func TestParse_StateGenericAbstract(t *testing.T) {
+	app, err := parse(t, "state_generic_abstract")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// Two distinct state types, both referenced via the same generic
+	// abstract instantiated with different type arguments.
+	require.Len(app.States, 2)
+	require.Contains(app.States, "StateA")
+	require.Contains(app.States, "StateB")
+
+	// PageA: embeds Base[StateA]; inherits StreamOpen + OnPing with
+	// their `state *S` parameter substituted to `*StateA`.
+	pa := findPage(app, "PageA")
+	require.NotNil(pa)
+	require.NotNil(pa.State)
+	require.Equal("StateA", pa.State.TypeName)
+
+	require.NotNil(pa.StreamOpen)
+	require.NotNil(pa.StreamOpen.InputState)
+	require.Equal("StateA", pa.StreamOpen.InputState.StateTypeName)
+	require.False(pa.StreamOpen.InputState.IsTypeParam,
+		"type parameter must be substituted away at the embed site")
+
+	require.Len(pa.EventHandlers, 1)
+	require.Equal("Ping", pa.EventHandlers[0].Name)
+	require.NotNil(pa.EventHandlers[0].InputState)
+	require.Equal("StateA", pa.EventHandlers[0].InputState.StateTypeName)
+	require.False(pa.EventHandlers[0].InputState.IsTypeParam)
+
+	require.Len(pa.Actions, 1)
+	require.Equal("Extend", pa.Actions[0].Name)
+	require.NotNil(pa.Actions[0].InputState)
+	require.Equal("StateA", pa.Actions[0].InputState.StateTypeName)
+
+	// PageB: same generic abstract, different instantiation. Verifies
+	// that the flattening clones the inherited handlers per embed site
+	// rather than sharing a single model.Handler.
+	pb := findPage(app, "PageB")
+	require.NotNil(pb)
+	require.NotNil(pb.State)
+	require.Equal("StateB", pb.State.TypeName)
+
+	require.NotNil(pb.StreamOpen)
+	require.NotNil(pb.StreamOpen.InputState)
+	require.Equal("StateB", pb.StreamOpen.InputState.StateTypeName)
+
+	require.Len(pb.EventHandlers, 1)
+	require.Equal("StateB", pb.EventHandlers[0].InputState.StateTypeName)
+
+	// The same Base.StreamOpen pointer must NOT appear on both pages —
+	// the substitute helper clones per embed site.
+	require.NotSame(pa.StreamOpen, pb.StreamOpen)
+	require.NotSame(pa.EventHandlers[0], pb.EventHandlers[0])
+
+	// Abstract itself records "S" as the unsubstituted type parameter.
+	// (Probe via the model: find Base by walking Pages' Embeds.)
+	var base *model.AbstractPage
+	for _, e := range pa.Embeds {
+		if e.TypeName == "Base" {
+			base = e
+			break
+		}
+	}
+	require.NotNil(base)
+	require.Equal([]string{"S"}, base.TypeParams)
+	require.NotNil(base.StreamOpen.InputState)
+	require.True(base.StreamOpen.InputState.IsTypeParam,
+		"abstract's StreamOpen must retain the type-parameter marker")
+	require.Equal("S", base.StreamOpen.InputState.StateTypeName)
+}
+
+func TestParse_StateSubjectID(t *testing.T) {
+	app, err := parse(t, "state_subject_id")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// Event uses SubjectStateID.
+	var ev *model.Event
+	for _, e := range app.Events {
+		if e.TypeName == "EventFiltersUpdated" {
+			ev = e
+			break
+		}
+	}
+	require.NotNil(ev)
+	require.True(ev.HasSubjectStateID())
+	require.True(ev.IsStateIDScoped())
+	require.False(ev.IsPrivate())
+	require.False(ev.IsSignalScoped())
+
+	pi := app.PageIndex
+	require.NotNil(pi)
+	require.NotNil(pi.State)
+	require.Equal("TabState", pi.State.TypeName)
+
+	// OnFiltersUpdated takes stateID in addition to state.
+	require.Len(pi.EventHandlers, 1)
+	eh := pi.EventHandlers[0]
+	require.Equal("FiltersUpdated", eh.Name)
+	require.NotNil(eh.InputState)
+	require.NotNil(eh.InputStateID)
+	require.Equal("stateID", eh.InputStateID.Name)
+
+	// POSTUpdate takes stateID alongside state and dispatches
+	// EventFiltersUpdated keyed on it.
+	require.Len(pi.Actions, 1)
+	act := pi.Actions[0]
+	require.Equal("Update", act.Name)
+	require.NotNil(act.InputState)
+	require.NotNil(act.InputStateID)
+	require.Equal("stateID", act.InputStateID.Name)
+}
+
+func TestParse_ErrStateOnGET(t *testing.T) {
+	_, err := parse(t, "err_state_on_get")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateOnGET)
+}
+
+func TestParse_ErrStateConflict(t *testing.T) {
+	_, err := parse(t, "err_state_conflict")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateConflict)
+}
+
+func TestParse_ErrStateNotPointer(t *testing.T) {
+	_, err := parse(t, "err_state_not_pointer")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateParamNotPointer)
+}
+
+func TestParse_ErrStateWithoutStream(t *testing.T) {
+	_, err := parse(t, "err_state_without_stream")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateWithoutStream)
+}
+
 func fixtureDir(t *testing.T, name string) string {
 	t.Helper()
 	return filepath.Join("testdata", name)
