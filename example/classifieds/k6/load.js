@@ -42,6 +42,7 @@ const SCENARIO = __ENV.SCENARIO || 'full';
 export default function () {
   if (SCENARIO === 'homepage') return homepageSmoke();
   if (SCENARIO === 'search') return searchSmoke();
+  if (SCENARIO === 'login') return loginSmoke();
   return fullFlow();
 }
 
@@ -130,6 +131,17 @@ function fullFlow() {
     'sign-out ok': (r) => r.status < 400,
   });
   sleep(0.3 + Math.random() * 0.3);
+}
+
+// loginSmoke hammers the unauthenticated /login/ page.
+export function loginSmoke() {
+  const res = http.get(`${BASE}/login/`, {
+    tags: { endpoint: 'login-page', type: 'page' },
+  });
+  check(res, {
+    'login 2xx': (r) => r.status >= 200 && r.status < 300,
+  });
+  sleep(0.1 + Math.random() * 0.2);
 }
 
 // homepageSmoke hammers the unauthenticated index page.

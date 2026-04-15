@@ -45,7 +45,9 @@ func main() {
 
 	var opts []datapagesgen.ServerOption
 
-	withAccessLogger(&opts)
+	if os.Getenv("DISABLE_ACCESS_LOG") == "" {
+		withAccessLogger(&opts)
+	}
 	withAuth(&opts)
 	withCSRFProtection(&opts)
 	withAssets(&opts)

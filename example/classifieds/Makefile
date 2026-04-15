@@ -1,16 +1,16 @@
 NATS_CONTAINER_NAME := nats-datapages-demo
 NATS_PORT := 4222
 NATS_HTTP_PORT := 8222
-NATS_IMAGE := nats:2.12.3
+NATS_IMAGE := nats:2.12.7
 
 PROM_CONTAINER_NAME := prometheus-datapages-demo
 PROM_PORT := 9091
-PROM_IMAGE := prom/prometheus:v3.5.1
+PROM_IMAGE := prom/prometheus:v3.11.2
 PROM_CONFIG := ./prometheus.yml
 
 GRAFANA_CONTAINER_NAME := grafana-datapages-demo
 GRAFANA_PORT := 3000
-GRAFANA_IMAGE := grafana/grafana:12.3.0
+GRAFANA_IMAGE := grafana/grafana:13.0.0
 
 GRAFANA_DATA := ./grafana/data
 GRAFANA_PROVISIONING := ./grafana/provisioning
@@ -32,6 +32,12 @@ MKCERT_HOSTS := $(STAGE_HOST) localhost 127.0.0.1 ::1
 K6 := k6
 LOAD_SCRIPT := ./k6/load.js
 LOAD_ENV ?= ./.env.dev
+
+# wrk defaults. Override on the CLI: `WRK_THREADS=4 WRK_CONNS=200 make ...`.
+WRK := wrk
+WRK_THREADS ?= 16
+WRK_CONNS   ?= 10000
+WRK_DURATION ?= 60s
 
 down: down-nats down-prom down-grafana
 
@@ -146,3 +152,26 @@ load-smoke-homepage:
 
 load-smoke-search:
 	$(call run_k6,search smoke,search)
+
+load-smoke-login:
+	$(call run_k6,login smoke,login)
+
+define run_wrk
+	@command -v $(WRK) >/dev/null 2>&1 || { \
+		echo "wrk not found. Install it (e.g. 'sudo apt install wrk' or 'brew install wrk')"; \
+		exit 1; }
+	@set -a; [ -f $(LOAD_ENV) ] && . $(LOAD_ENV); set +a; \
+	scheme=$${SCHEME:-$$( [ "$$PORT" = "443" ] && echo https || echo http )}; \
+	echo "wrk -t$(WRK_THREADS) -c$(WRK_CONNS) -d$(WRK_DURATION) $$scheme://$$HOST:$$PORT$(1)"; \
+	$(WRK) -t$(WRK_THREADS) -c$(WRK_CONNS) -d$(WRK_DURATION) --latency \
+		"$$scheme://$$HOST:$$PORT$(1)"
+endef
+
+wrk-homepage:
+	$(call run_wrk,/)
+
+wrk-search:
+	$(call run_wrk,/search/?t=bike)
+
+wrk-login:
+	$(call run_wrk,/login/)
