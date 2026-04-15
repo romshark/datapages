@@ -27,7 +27,7 @@ Increase the number of virtual users (`VU`) to apply more load to the server whe
 
 Start the server first with either:
 
-- `make stage` (`./.env.stage`; recommended for smoke testing)
+- `DISABLE_ACCESS_LOG=1 make stage` (`./.env.stage`; recommended for smoke testing)
 - or `make dev` (`./.env.dev`)
 
 then in another terminal run one of:
