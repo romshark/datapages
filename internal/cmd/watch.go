@@ -155,16 +155,11 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 	}
 
 	err = e.Run(ctx)
-	// Turn templier's "address already in use" into a user-friendly message:
-	// without this a second `datapages watch` would half-start (Go process
-	// alive, HTTP server not bound), leaving two PIDs in `pgrep datapages
-	// watch` while the browser talks to the older instance.
+	// Without this a second `datapages watch` would half-start
+	// (Go process alive, HTTP server not bound)
 	if err != nil && errors.Is(err, syscall.EADDRINUSE) {
-		return fmt.Errorf(
-			"%s is already in use. "+
-				"Make sure no other `datapages watch` is running on that port.",
-			host,
-		)
+		return fmt.Errorf("%s is already in use (another `datapages watch` running?)",
+			host)
 	}
 	return err
 }
