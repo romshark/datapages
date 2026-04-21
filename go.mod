@@ -9,7 +9,7 @@ require (
 	github.com/lithammer/fuzzysearch v1.1.8
 	github.com/mattn/go-isatty v0.0.21
 	github.com/nats-io/nats.go v1.51.0
-	github.com/romshark/templier v0.11.7
+	github.com/romshark/templier v0.11.8
 	github.com/romshark/yamagiconf v1.1.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
