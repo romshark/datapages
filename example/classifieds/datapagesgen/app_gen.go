@@ -1398,6 +1398,7 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/not-found/_$/')"`)
 		}
@@ -1517,6 +1518,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
 		}
@@ -1698,6 +1700,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/messages/_$/'`)
 			if enableBackgroundStreaming {
@@ -2040,6 +2043,7 @@ func (s *Server) handlePageMyPostsGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/my-posts/_$/')"`)
 		}
@@ -2137,6 +2141,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/post/`)
 		_, _ = io.WriteString(w, path.Slug)
@@ -2385,6 +2390,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/search/_$/')"`)
 		}
@@ -2517,6 +2523,7 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/settings/_$/')"`)
 		}
@@ -2753,6 +2760,7 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/user/`)
 		_, _ = io.WriteString(w, path.Name)
