@@ -5,8 +5,8 @@ github.com/a-h/templ v0.3.1001/go.mod h1:oCZcnKRf5jjsGpf2yELzQfodLphd2mwecwG4Crk
 github.com/andybalholm/brotli v1.0.5/go.mod h1:fO7iG3H7G2nSZ7m0zPUDn85XEX2GTukHGRSepvi9Eig=
 github.com/andybalholm/brotli v1.2.1 h1:R+f5xP285VArJDRgowrfb9DqL18yVK0gKAW/F+eTWro=
 github.com/andybalholm/brotli v1.2.1/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
-github.com/cvilsmeier/sqinn-go/v2 v2.1.3 h1:Cbyb8bqnKXfHwC/KHMFvaqhd1zJG86LKJHlzowN2CF4=
-github.com/cvilsmeier/sqinn-go/v2 v2.1.3/go.mod h1:Rk7mPvBs9CamMk/JXbnyFGIckBuIKNm3KnGx0MkbvlQ=
+github.com/cvilsmeier/sqinn-go/v2 v2.1.4 h1:/JwOxmj3vn3ONvhuIaUY7oIkxqF2J/tsCshSSr23V6s=
+github.com/cvilsmeier/sqinn-go/v2 v2.1.4/go.mod h1:Rk7mPvBs9CamMk/JXbnyFGIckBuIKNm3KnGx0MkbvlQ=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -22,8 +22,8 @@ github.com/pierrec/lz4/v4 v4.1.18 h1:xaKrnTkyoqfh1YItXl56+6KJNVYWlEEPuAQW9xsplYQ
 github.com/pierrec/lz4/v4 v4.1.18/go.mod h1:gZWDp/Ze/IJXGXf23ltt2EXimqmTUXEy0GFuRQyBid4=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/starfederation/datastar-go v1.1.0 h1:UVOYpbNfKPfrEq3MBOa1FRPO/YsxxcIduUxUTJiEQbQ=
-github.com/starfederation/datastar-go v1.1.0/go.mod h1:stm83LQkhZkwa5GzzdPEN6dLuu8FVwxIv0w1DYkbD3w=
+github.com/starfederation/datastar-go v1.2.1 h1:YKuI0rZIWmd7EjvayxJwLuPpFLpr8gEgtS4Ny+/fsuA=
+github.com/starfederation/datastar-go v1.2.1/go.mod h1:stm83LQkhZkwa5GzzdPEN6dLuu8FVwxIv0w1DYkbD3w=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.4.0/go.mod h1:YvHI0jy2hoMjB+UWwv71VJQ9isScKT/TqJzVSSt89Yw=
 github.com/stretchr/objx v0.5.0/go.mod h1:Yh+to48EsGEfYuaHDzXPcE3xhTkx73EhmCGUpEOglKo=
