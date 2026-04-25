@@ -160,7 +160,7 @@ Not only does Datapages allow you to start quickly with `datapages init` and jum
 - Providing a [Datastar Tao oriented](https://data-star.dev/guide/the_tao_of_datastar) architecture as a good default while preserving enough flexibility to go beyond if you need to.
 - Providing `datapages gen` to generate all boilerplate code consistently and guide you and your AI coding agents.
 - Providing `datapages lint` that can be used in CI/CD workflows for extensive static code analysis.
-- Providing `datapages watch` to give you an interactive hot-reload environment for fast a feedback loop with error reporting directly in the browser.
+- Providing `datapages watch` to give you an interactive hot-reload environment for a fast feedback loop with error reporting directly in the browser preview.
 
 Agentic coding is a big topic right now and likely here to stay. But LLMs tend to drift over time and introduce accidental complexity.
 So for AI to be used more effectively I wanted to provide the skills and instructions necessary for agents to know how to deal with this tech stack and call into Datapages CLI help them when they drift by providing them with useful feedback.
