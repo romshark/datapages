@@ -141,13 +141,7 @@ Datapages ships pluggable modules with swappable implementations:
 
 ## Motivation
 
-The reason I built Datapages is that the combination of
-[Datastar](https://data-star.dev) + [Go](https://go.dev) +
-[Templ](https://templ.guide) is my preferred way of writing server-centric
-web applications. But in every project I used this tech stack for I kept
-repeating the same code patterns and solving the same problems over and over again.
-I realized many developers are repeating the same patterns too and struggle with the
-common pitfalls:
+The reason I built Datapages is that the combination of [Datastar](https://data-star.dev) + [Go](https://go.dev) + [Templ](https://templ.guide) is my preferred way of writing server-centric web applications. But in every project I used this tech stack for I kept repeating the same code patterns and solving the same problems over and over again. I realized many developers are repeating the same patterns too and struggle with the common pitfalls:
 
 - How to handle SSE streams correctly?
 - How to use NATS effectively?
@@ -155,21 +149,21 @@ common pitfalls:
 - How to configure a convenient hot-reload for development?
 - How to keep the code maintainable over time,
   especially when you add more developers and/or AI assistants?
+- How to keep AI coding assistants from drifting too much?
 - How to achieve optimal performance and a good UX for endusers?
 
-Datapages allows you to start quickly and jump straight into building your application
-providing both a [Datastar Tao oriented](https://data-star.dev/guide/the_tao_of_datastar) 
-default with examples and enough flexibility to go beyond if you need to.
+Your Datastar frontends are your *rocket* to extraterrestrial worlds of the internet.
+The further you want to go, the heavier a rocket you'll require. Hence, you need powerful boosters to get it off the ground and overcome Earth's gravity. Such boosters exist in the form of awesome templates like [zangster300/northstar](https://github.com/zangster300/northstar), which will quickly get your rocket to the stratosphere and beyond. But power alone is not enough — you also need good stabilizing fins and thrust vectoring to keep your rocket steady as it flies. I felt like this part was lacking in the Go ecosystem of Datastar. By enforcing a common structure of types, methods and other conventions with tooling, Datapages provides not only the power but also the stability your rocket needs to stay in flight for long and consume as little brain fuel as possible.
 
-- `datapages lint` can be used in CI/CD workflows for extensive static code analysis.
-- `datapages gen` generates all boilerplate code consistently, runs lint too and
-  guides your AI coding agents.
-- `datapages watch` opens interactive hot-reload environment for fast a feedback loop
-  with error reporting directly in the browser.
+Not only does Datapages allow you to start quickly with `datapages init` and jump straight into building your application, but it also continuously supports you keeping accidental complexity low by:
 
-This tooling also allows LLM coding agents to be more effective at using this tech stack,
-by consistently guiding it on to the right path when it drifts.
+- Providing a [Datastar Tao oriented](https://data-star.dev/guide/the_tao_of_datastar) architecture as a good default while preserving enough flexibility to go beyond if you need to.
+- Providing `datapages gen` to generate all boilerplate code consistently and guide you and your AI coding agents.
+- Providing `datapages lint` that can be used in CI/CD workflows for extensive static code analysis.
+- Providing `datapages watch` to give you an interactive hot-reload environment for fast a feedback loop with error reporting directly in the browser.
 
+Agentic coding is a big topic right now and likely here to stay. But LLMs tend to drift over time and introduce accidental complexity.
+So for AI to be used more effectively I wanted to provide the skills and instructions necessary for agents to know how to deal with this tech stack and call into Datapages CLI help them when they drift by providing them with useful feedback.
 
 ## Who This Is For
 
