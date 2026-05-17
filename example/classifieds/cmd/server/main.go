@@ -182,7 +182,8 @@ func initMetrics(m *app.Metrics, opts *[]datapagesgen.ServerOption) {
 	}
 
 	addr := net.JoinHostPort(host, port)
-	*opts = append(*opts,
+	*opts = append(
+		*opts,
 		datapagesgen.WithPrometheus(datapagesgen.PrometheusConfig{
 			Host: addr,
 			Collectors: []prometheus.Collector{

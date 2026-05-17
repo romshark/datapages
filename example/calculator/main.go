@@ -31,7 +31,8 @@ func main() {
 	// nor the NATS message broker, since it's a single-user system.
 	a := app.NewApp([32]byte{})
 	msgBroker := inmem.New(8)
-	s := datapagesgen.NewServer(a, msgBroker,
+	s := datapagesgen.NewServer(
+		a, msgBroker,
 		datapagesgen.WithAssets(app.StaticFS),
 	)
 

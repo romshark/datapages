@@ -405,7 +405,8 @@ func TestParse_ErrStreamHooks(t *testing.T) {
 	_, err := parse(t, "err_stream_hooks")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrSignatureMissingReq,
 		parser.ErrSignatureMissingStreamID,
 		parser.ErrStreamIDParamNotUint64,
@@ -425,7 +426,8 @@ func TestParse_ErrUnsupportedMethod(t *testing.T) {
 	_, err := parse(t, "err_unsupported_method")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrUnsupportedMethod, // Foo
 		parser.ErrUnsupportedMethod, // Helper
 	)
@@ -435,7 +437,8 @@ func TestParse_ErrActionHandlerNoName(t *testing.T) {
 	_, err := parse(t, "err_action_handler_no_name")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrActionNameMissing, // POST
 		parser.ErrActionNameMissing, // DELETE
 		parser.ErrActionNameMissing, // PATCH
@@ -481,7 +484,8 @@ func TestParse_ErrPageIndexPath(t *testing.T) {
 	_, err := parse(t, "err_page_index_path")
 	require.NotZero(err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrPageIndexPathMustBeRoot,
 	)
 }
@@ -491,7 +495,8 @@ func TestParse_ErrPages(t *testing.T) {
 	_, err := parse(t, "err_pages")
 	require.NotZero(err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrPageMissingFieldApp,
 		parser.ErrSignatureMissingReq,
 		parser.ErrPageMissingGET,
@@ -516,7 +521,8 @@ func TestParse_ErrGET(t *testing.T) {
 	_, err := parse(t, "err_get")
 	require.NotZero(err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrSignatureMissingReq,
 		parser.ErrSignatureMultiErrRet,
 		parser.ErrSignatureUnsupportedInput,
@@ -533,7 +539,8 @@ func TestParse_ErrEvents(t *testing.T) {
 	_, err := parse(t, "err_events")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrEventCommMissing,
 		parser.ErrEventSubjectInvalid,
 		parser.ErrSignatureEvHandMissingEvent, // OnFirstArgNotNamed: no "event" param
@@ -561,7 +568,8 @@ func TestParse_ErrEventHandler(t *testing.T) {
 	_, err := parse(t, "err_event_handler")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrSignatureEvHandMissingSSE, // OnEventQux: no SSE param
 		parser.ErrSignatureUnsupportedInput, // OnEventCorge: unknownParam
 		parser.ErrSignatureEvHandMissingSSE, // OnEventQuux: no SSE param
@@ -577,7 +585,8 @@ func TestParse_ErrEventSubjectUserNoSession(t *testing.T) {
 	_, err := parse(t, "err_event_target_no_session")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrEventSubjectUserNoSession,
 	)
 }
@@ -586,7 +595,8 @@ func TestParse_ErrEventSubjectAfterPayload(t *testing.T) {
 	_, err := parse(t, "err_event_subjprefix_after_payload")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrEventSubjectAfterPayload,
 	)
 }
@@ -595,7 +605,8 @@ func TestParse_ErrEventSubjectDuplicateSignal(t *testing.T) {
 	_, err := parse(t, "err_event_subj_duplicate_signal")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrEventSubjectDuplicateSignal,
 	)
 }
@@ -604,7 +615,8 @@ func TestParse_ErrEventSubjectSignalInvalid(t *testing.T) {
 	_, err := parse(t, "err_event_subj_signal_invalid")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrEventSubjectSignalInvalid,
 	)
 }
@@ -613,7 +625,8 @@ func TestParse_ErrEventSubjectUserSignal(t *testing.T) {
 	_, err := parse(t, "err_event_subj_user_signal")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrEventSubjectUserSignal,
 	)
 }
@@ -693,7 +706,8 @@ func TestParse_ErrEmbedDuplicateEventHandler(t *testing.T) {
 	_, err := parse(t, "err_embed_duplicate_event_handler")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrEvHandDuplicateEmbed,
 	)
 }
@@ -743,7 +757,8 @@ func TestParse_ErrPath(t *testing.T) {
 	_, err := parse(t, "err_path")
 	require.NotZero(err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrPathParamNotStruct,
 		parser.ErrPathFieldUnexported,
 		parser.ErrPathFieldUnsupportedType,
@@ -788,7 +803,8 @@ func TestParse_ErrQuery(t *testing.T) {
 	_, err := parse(t, "err_query")
 	require.NotZero(err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrQueryParamNotStruct,
 		parser.ErrQueryFieldUnexported,
 		parser.ErrQueryFieldUnsupportedType,
@@ -890,7 +906,8 @@ func TestParse_ErrDispatch(t *testing.T) {
 	_, err := parse(t, "err_dispatch")
 	require.NotZero(err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrDispatchParamNotFunc,
 		parser.ErrDispatchMustReturnError,
 		parser.ErrDispatchMustReturnError,
@@ -986,7 +1003,8 @@ func TestParse_ErrSession(t *testing.T) {
 	_, err := parse(t, "err_session")
 	require.NotZero(err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrSessionMissingUserID,
 		parser.ErrSessionMissingIssuedAt,
 		parser.ErrSessionParamNotSessionType,
@@ -999,7 +1017,8 @@ func TestParse_ErrSessionMissingIssuedAt(t *testing.T) {
 	_, err := parse(t, "err_session_missing_issued_at")
 	require.NotZero(err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrSessionMissingIssuedAt,
 	)
 }
@@ -1009,7 +1028,8 @@ func TestParse_ErrSessionWrongType(t *testing.T) {
 	_, err := parse(t, "err_session_wrong_type")
 	require.NotZero(err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrSessionNotStruct,
 	)
 }
@@ -1052,7 +1072,8 @@ func TestParse_ErrRedirect(t *testing.T) {
 	_, err := parse(t, "err_redirect")
 	require.NotZero(err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrRedirectNotString,
 		parser.ErrRedirectStatusNotInt,
 		parser.ErrRedirectStatusWithoutRedirect,
@@ -1064,7 +1085,8 @@ func TestParse_ErrUnsupportedOutput(t *testing.T) {
 	_, err := parse(t, "err_unsupported_output")
 	require.NotZero(err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrSignatureUnsupportedOutput,
 		parser.ErrSignatureGETBodyWrongName,
 		parser.ErrSignatureUnsupportedOutput,
@@ -1117,7 +1139,8 @@ func TestParse_ErrSessionOutput(t *testing.T) {
 	_, err := parse(t, "err_session_output")
 	require.NotZero(err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrNewSessionNotSessionType,
 		parser.ErrCloseSessionNotBool,
 		parser.ErrNewSessionWithSSE,
@@ -1165,7 +1188,8 @@ func TestParse_ErrGETOptions(t *testing.T) {
 	_, err := parse(t, "err_get_options")
 	require.NotZero(err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrEnableBgStreamNotGET,
 		parser.ErrDisableRefreshNotGET,
 		parser.ErrEnableBgStreamNotBool,
@@ -1178,7 +1202,8 @@ func TestParse_ErrSignals(t *testing.T) {
 	_, err := parse(t, "err_signals")
 	require.NotZero(err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrSignalsParamNotStruct,
 		parser.ErrSignalsFieldUnexported,
 		parser.ErrSignalsFieldMissingTag,
@@ -1440,7 +1465,8 @@ func TestParse_ErrorPositions(t *testing.T) {
 				require.True(t, errors.Is(err, want.err),
 					"%s[%d]: want Is(%v) got %T: %v", name, i, want.err, err, err)
 				gotFile := filepath.Base(pos.Filename)
-				require.True(t,
+				require.True(
+					t,
 					gotFile == want.file &&
 						pos.Line == want.line &&
 						pos.Column == want.col,
@@ -1502,7 +1528,8 @@ func requireParseErrors(t *testing.T, got parser.Errors, want ...error) {
 
 	// Compare length first with a readable dump.
 	if got.Len() != len(want) {
-		require.Failf(t, "unexpected number of errors",
+		require.Failf(
+			t, "unexpected number of errors",
 			"want=%d got=%d\n\nEXPECTED:\n%s\n\nACTUAL:\n%s\n",
 			len(want), got.Len(),
 			strings.Join(wantLines, "\n"),
@@ -1521,7 +1548,8 @@ func requireParseErrors(t *testing.T, got parser.Errors, want ...error) {
 		}
 	}
 	if len(mismatches) > 0 {
-		require.Failf(t, "error mismatch",
+		require.Failf(
+			t, "error mismatch",
 			"\nMISMATCHES:\n%s\n\nEXPECTED:\n%s\n\nACTUAL:\n%s\n",
 			strings.Join(mismatches, "\n"),
 			strings.Join(wantLines, "\n"),
