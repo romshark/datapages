@@ -21,6 +21,7 @@ const (
 // that mage commands need to operate on.
 var submoduleRoots = []string{
 	"example",
+	"internal/templatingbench",
 	"parser/testdata",
 	"parser/internal/templcheck/testdata",
 }
