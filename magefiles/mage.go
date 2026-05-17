@@ -13,7 +13,7 @@ const (
 	toolGCI         = "github.com/daixiang0/gci@latest"
 	toolGolangCI    = "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
 	toolGovulncheck = "golang.org/x/vuln/cmd/govulncheck@latest"
-	toolTempl       = "github.com/a-h/templ/cmd/templ@v0.3.1001"
+	toolTempl       = "github.com/a-h/templ/cmd/templ@v0.3.1020"
 	toolMinify      = "github.com/tdewolff/minify/v2/cmd/minify@latest"
 )
 

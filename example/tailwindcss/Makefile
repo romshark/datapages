@@ -18,7 +18,7 @@ css: node_modules
 	npx tailwindcss -i $(CSS_INPUT) -o $(CSS_OUTPUT)
 
 gen: css
-	go run github.com/a-h/templ/cmd/templ@v0.3.1001 generate
+	go run github.com/a-h/templ/cmd/templ@v0.3.1020 generate
 	datapages gen
 
 # Fail if running all generators produces a diff (generated files out of date).

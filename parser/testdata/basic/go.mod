@@ -3,7 +3,7 @@ module datapagestest/fixture/basic
 go 1.26
 
 require (
-	github.com/a-h/templ v0.3.1001
+	github.com/a-h/templ v0.3.1020
 	github.com/starfederation/datastar-go v1.2.1
 )
 

@@ -1,11 +1,11 @@
 module github.com/romshark/datapages/example/todolist
 
-go 1.26.2
+go 1.26.3
 
 replace github.com/romshark/datapages => ../../
 
 require (
-	github.com/a-h/templ v0.3.1001
+	github.com/a-h/templ v0.3.1020
 	github.com/romshark/datapages v0.9.2
 	github.com/starfederation/datastar-go v1.2.1
 	golang.org/x/sync v0.20.0

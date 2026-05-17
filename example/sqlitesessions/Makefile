@@ -9,7 +9,7 @@ build:
 	go build -o $(SERVER_BIN) ./cmd/server/
 
 gen:
-	go run github.com/a-h/templ/cmd/templ@v0.3.1001 generate
+	go run github.com/a-h/templ/cmd/templ@v0.3.1020 generate
 	datapages gen
 
 check-gen: gen

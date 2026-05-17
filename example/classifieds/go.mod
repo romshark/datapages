@@ -1,6 +1,6 @@
 module github.com/romshark/datapages/example/classifieds
 
-go 1.26.2
+go 1.26.3
 
 replace github.com/romshark/datapages => ../../
 
@@ -9,11 +9,11 @@ require github.com/oklog/ulid/v2 v2.1.1
 
 // Required by Datapages
 require (
-	github.com/a-h/templ v0.3.1001
-	github.com/nats-io/nats.go v1.51.0
+	github.com/a-h/templ v0.3.1020
+	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/starfederation/datastar-go v1.2.1
-	golang.org/x/crypto v0.50.0
+	golang.org/x/crypto v0.51.0
 	golang.org/x/sync v0.20.0
 )
 
@@ -33,6 +33,6 @@ require (
 	github.com/prometheus/procfs v0.20.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
-	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )

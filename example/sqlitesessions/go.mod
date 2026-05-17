@@ -1,15 +1,15 @@
 module github.com/romshark/datapages/example/sqlitesessions
 
-go 1.26.2
+go 1.26.3
 
 replace github.com/romshark/datapages => ../../
 
 require (
-	github.com/a-h/templ v0.3.1001
+	github.com/a-h/templ v0.3.1020
 	github.com/cvilsmeier/sqinn-go/v2 v2.1.4
 	github.com/romshark/datapages v0.9.2
 	github.com/starfederation/datastar-go v1.2.1
-	golang.org/x/crypto v0.50.0
+	golang.org/x/crypto v0.51.0
 	golang.org/x/sync v0.20.0
 )
 

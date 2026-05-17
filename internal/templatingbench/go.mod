@@ -1,10 +1,10 @@
 module github.com/romshark/datapages/internal/templatingbench
 
-go 1.26.2
+go 1.26.3
 
 require (
 	github.com/CloudyKit/jet/v6 v6.3.1
-	github.com/a-h/templ v0.3.1001
+	github.com/a-h/templ v0.3.1020
 	github.com/stretchr/testify v1.11.1
 	github.com/valyala/quicktemplate v1.8.0
 	maragu.dev/gomponents v1.2.0
