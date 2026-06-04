@@ -39,7 +39,7 @@ const (
 	DefaultHTTPMaxHeaderBytes    = 1 << 20 // 1 MB
 
 	// DefaultDatastarJSSrc is the default URL for the Datastar JavaScript bundle.
-	DefaultDatastarJSSrc = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.1/bundles/datastar.js"
+	DefaultDatastarJSSrc = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.2/bundles/datastar.js"
 )
 
 // IsDevMode returns true when in the development environment.
@@ -503,7 +503,6 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
-
 		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
 	}
 
@@ -549,7 +548,6 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 func (s *Server) handlePageIndexPOSTAdd(
 	w http.ResponseWriter, r *http.Request,
 ) {
-
 	q := r.URL.Query()
 	var query struct {
 		Delta int32 `query:"delta"`
