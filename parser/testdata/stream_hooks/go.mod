@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/a-h/templ v0.3.1020
-	github.com/starfederation/datastar-go v1.2.1
+	github.com/starfederation/datastar-go v1.2.2
 )
 
 require (

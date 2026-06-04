@@ -233,7 +233,7 @@ func TestCheckCmdPackage(t *testing.T) {
 func TestUpgradeGoMod(t *testing.T) {
 	const goModTemplate = `module example.com/myapp
 
-go 1.26.3
+go 1.26.4
 
 require (
 	github.com/romshark/datapages %s
