@@ -9,8 +9,8 @@ require (
 	github.com/cvilsmeier/sqinn-go/v2 v2.1.4
 	github.com/romshark/datapages v0.9.3
 	github.com/starfederation/datastar-go v1.2.2
-	golang.org/x/crypto v0.52.0
-	golang.org/x/sync v0.20.0
+	golang.org/x/crypto v0.53.0
+	golang.org/x/sync v0.21.0
 )
 
 require (

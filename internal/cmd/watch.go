@@ -99,6 +99,7 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 			Host:       appHost,
 		},
 		Compiler:       buildCompilerConfig(w.Compiler),
+		WatcherIgnore:  w.WatcherIgnore,
 		Debounce:       w.Debounce,
 		ProxyTimeout:   w.ProxyTimeout,
 		Lint:           w.Lint,

@@ -59,6 +59,7 @@ type WatchConfig struct {
 	Format         bool                 `yaml:"format"`
 	Lint           bool                 `yaml:"lint"`
 	Exclude        []string             `yaml:"exclude"`
+	WatcherIgnore  []string             `yaml:"watcher-ignore"`
 	Flags          string               `yaml:"flags"`
 	DirWork        string               `yaml:"dir-work"`
 	Log            WatchLog             `yaml:"log"`
