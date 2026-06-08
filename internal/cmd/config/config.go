@@ -59,6 +59,7 @@ type WatchConfig struct {
 	Format         bool                 `yaml:"format"`
 	Lint           bool                 `yaml:"lint"`
 	Exclude        []string             `yaml:"exclude"`
+	WatcherIgnore  []string             `yaml:"watcher-ignore"`
 	Flags          string               `yaml:"flags"`
 	DirWork        string               `yaml:"dir-work"`
 	Log            WatchLog             `yaml:"log"`
@@ -185,31 +186,43 @@ func (r *WatcherRequires) UnmarshalText(text []byte) error {
 // Sentinel errors for assets validation.
 var (
 	ErrAssetsDirRequired = errors.New(
-		"assets.dir is required when embedded asset serving is enabled")
+		"assets.dir is required when embedded asset serving is enabled",
+	)
 	ErrAssetsURLPrefixRequired = errors.New(
-		"assets.url-prefix is required when embedded asset serving is enabled")
+		"assets.url-prefix is required when embedded asset serving is enabled",
+	)
 	ErrAssetsURLPrefixNoLeadingSlash = errors.New(
-		"assets.url-prefix must start with '/'")
+		"assets.url-prefix must start with '/'",
+	)
 	ErrAssetsURLPrefixNoTrailingSlash = errors.New(
-		"assets.url-prefix must end with '/'")
+		"assets.url-prefix must end with '/'",
+	)
 	ErrAssetsURLPrefixDoubleSlash = errors.New(
-		"assets.url-prefix must not contain double slashes")
+		"assets.url-prefix must not contain double slashes",
+	)
 	ErrAssetsURLPrefixQueryString = errors.New(
-		"assets.url-prefix must not contain a query string")
+		"assets.url-prefix must not contain a query string",
+	)
 	ErrAssetsURLPrefixFragment = errors.New(
-		"assets.url-prefix must not contain a fragment")
+		"assets.url-prefix must not contain a fragment",
+	)
 	ErrAssetsURLPrefixDotSegment = errors.New(
-		"assets.url-prefix must not contain dot segments")
+		"assets.url-prefix must not contain dot segments",
+	)
 	ErrAssetsURLPrefixBackslash = errors.New(
-		"assets.url-prefix must not contain backslashes")
+		"assets.url-prefix must not contain backslashes",
+	)
 	ErrAssetsURLPrefixEncodedTraversal = errors.New(
 		"assets.url-prefix must not contain percent-encoded dots, " +
-			"slashes, or backslashes")
+			"slashes, or backslashes",
+	)
 	ErrAssetsURLPrefixRoot = errors.New(
-		"assets.url-prefix must not be \"/\"; it would conflict with page routes")
+		"assets.url-prefix must not be \"/\"; it would conflict with page routes",
+	)
 	ErrAssetsURLPrefixInvalidChar = errors.New(
 		"assets.url-prefix contains invalid characters; " +
-			"use only ASCII letters, digits, hyphens, underscores, and slashes")
+			"use only ASCII letters, digits, hyphens, underscores, and slashes",
+	)
 )
 
 // ValidateAssetsURLPrefix checks that s is a valid URL path prefix for embedded files.

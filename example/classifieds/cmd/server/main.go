@@ -45,7 +45,9 @@ func main() {
 
 	var opts []datapagesgen.ServerOption
 
-	withAccessLogger(&opts)
+	if os.Getenv("DISABLE_ACCESS_LOG") == "" {
+		withAccessLogger(&opts)
+	}
 	withAuth(&opts)
 	withCSRFProtection(&opts)
 	withAssets(&opts)
@@ -180,7 +182,8 @@ func initMetrics(m *app.Metrics, opts *[]datapagesgen.ServerOption) {
 	}
 
 	addr := net.JoinHostPort(host, port)
-	*opts = append(*opts,
+	*opts = append(
+		*opts,
 		datapagesgen.WithPrometheus(datapagesgen.PrometheusConfig{
 			Host: addr,
 			Collectors: []prometheus.Collector{

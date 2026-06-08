@@ -1,16 +1,16 @@
 NATS_CONTAINER_NAME := nats-datapages-demo
 NATS_PORT := 4222
 NATS_HTTP_PORT := 8222
-NATS_IMAGE := nats:2.12.3
+NATS_IMAGE := nats:2.12.7
 
 PROM_CONTAINER_NAME := prometheus-datapages-demo
 PROM_PORT := 9091
-PROM_IMAGE := prom/prometheus:v3.5.1
+PROM_IMAGE := prom/prometheus:v3.11.2
 PROM_CONFIG := ./prometheus.yml
 
 GRAFANA_CONTAINER_NAME := grafana-datapages-demo
 GRAFANA_PORT := 3000
-GRAFANA_IMAGE := grafana/grafana:12.3.0
+GRAFANA_IMAGE := grafana/grafana:13.0.0
 
 GRAFANA_DATA := ./grafana/data
 GRAFANA_PROVISIONING := ./grafana/provisioning
@@ -33,12 +33,20 @@ K6 := k6
 LOAD_SCRIPT := ./k6/load.js
 LOAD_ENV ?= ./.env.dev
 
-dev: nats-stop nats-up prom-stop prom-up grafana-stop grafana-up
+# wrk defaults. Override on the CLI: `WRK_THREADS=4 WRK_CONNS=200 make ...`.
+WRK := wrk
+WRK_THREADS ?= 16
+WRK_CONNS   ?= 10000
+WRK_DURATION ?= 60s
+
+down: down-nats down-prom down-grafana
+
+dev: down-nats up-nats down-prom up-prom down-grafana up-grafana
 	@set -a; [ -f .env.dev ] && . .env.dev; set +a; \
 	datapages watch
 
 # make stage runs the server in a production-grade mode for QA testing.
-stage: check-hosts nats-stop nats-up prom-stop prom-up grafana-stop grafana-up certstage build
+stage: check-hosts down-nats up-nats down-prom up-prom down-grafana up-grafana certstage build
 	@set -a; [ -f $(STAGE_ENV) ] && . $(STAGE_ENV); set +a; \
 	sudo -E $(STAGE_SERVER_BIN); status=$$?; rm -f $(STAGE_SERVER_BIN); exit $$status
 
@@ -63,10 +71,10 @@ check-hosts:
 		exit 1; \
 	fi
 
-nats-stop:
+down-nats:
 	@docker stop $(NATS_CONTAINER_NAME) 2>/dev/null || true
 
-nats-up:
+up-nats:
 	@docker ps --format '{{.Names}}' | grep -qx '$(NATS_CONTAINER_NAME)' || \
 	docker run -d --rm \
 		--name $(NATS_CONTAINER_NAME) \
@@ -75,24 +83,27 @@ nats-up:
 		$(NATS_IMAGE) \
 		-js
 
-prom-stop:
+down-prom:
 	@docker stop $(PROM_CONTAINER_NAME) 2>/dev/null || true
 
-prom-up: $(PROM_CONFIG)
+up-prom: $(PROM_CONFIG)
 	@docker ps --format '{{.Names}}' | grep -qx '$(PROM_CONTAINER_NAME)' || \
 	docker run -d --rm \
 		--name $(PROM_CONTAINER_NAME) \
+		--add-host=host.docker.internal:host-gateway \
 		-p $(PROM_PORT):9090 \
 		-v $(abspath $(PROM_CONFIG)):/etc/prometheus/prometheus.yml:ro \
 		$(PROM_IMAGE)
 
-grafana-stop:
+down-grafana:
 	@docker stop $(GRAFANA_CONTAINER_NAME) 2>/dev/null || true
 
-grafana-up: $(GRAFANA_DATA)
+up-grafana: $(GRAFANA_DATA)
 	@docker ps --format '{{.Names}}' | grep -qx '$(GRAFANA_CONTAINER_NAME)' || \
 	docker run -d --rm \
 		--name $(GRAFANA_CONTAINER_NAME) \
+		--user $$(id -u):$$(id -g) \
+		--add-host=host.docker.internal:host-gateway \
 		-p $(GRAFANA_PORT):3000 \
 		-v $(abspath $(GRAFANA_DATA)):/var/lib/grafana \
 		-v $(abspath $(GRAFANA_PROVISIONING)):/etc/grafana/provisioning:ro \
@@ -118,13 +129,49 @@ $(STAGE_CERT_FILE) $(STAGE_KEY_FILE): | $(STAGE_CERT_DIR)
 	mkcert -cert-file $(STAGE_CERT_FILE) -key-file $(STAGE_KEY_FILE) \
 		$$HOST localhost 127.0.0.1 ::1
 
-load:
+define run_k6
 	@command -v $(K6) >/dev/null 2>&1 || { \
 		echo "k6 not found. Install from https://k6.io"; exit 1; }
-	@echo "Running load test using $(LOAD_ENV)"
+	@echo "Running $(1) using $(LOAD_ENV)"
 	@set -a; [ -f $(LOAD_ENV) ] && . $(LOAD_ENV); set +a; \
 	$(K6) run \
 		-e HOST=$$HOST \
 		-e PORT=$$PORT \
 		-e CSRF_DEV_BYPASS=$$CSRF_DEV_BYPASS \
+		-e SCENARIO=$(2) \
+		$(if $(VUS),-e VUS=$(VUS)) \
+		$(if $(DURATION),-e DURATION=$(DURATION)) \
 		$(LOAD_SCRIPT)
+endef
+
+load:
+	$(call run_k6,full flow,full)
+
+load-smoke-homepage:
+	$(call run_k6,homepage smoke,homepage)
+
+load-smoke-search:
+	$(call run_k6,search smoke,search)
+
+load-smoke-login:
+	$(call run_k6,login smoke,login)
+
+define run_wrk
+	@command -v $(WRK) >/dev/null 2>&1 || { \
+		echo "wrk not found. Install it (e.g. 'sudo apt install wrk' or 'brew install wrk')"; \
+		exit 1; }
+	@set -a; [ -f $(LOAD_ENV) ] && . $(LOAD_ENV); set +a; \
+	scheme=$${SCHEME:-$$( [ "$$PORT" = "443" ] && echo https || echo http )}; \
+	echo "wrk -t$(WRK_THREADS) -c$(WRK_CONNS) -d$(WRK_DURATION) $$scheme://$$HOST:$$PORT$(1)"; \
+	$(WRK) -t$(WRK_THREADS) -c$(WRK_CONNS) -d$(WRK_DURATION) --latency \
+		"$$scheme://$$HOST:$$PORT$(1)"
+endef
+
+wrk-homepage:
+	$(call run_wrk,/)
+
+wrk-search:
+	$(call run_wrk,/search/?t=bike)
+
+wrk-login:
+	$(call run_wrk,/login/)

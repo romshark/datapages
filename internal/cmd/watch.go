@@ -2,14 +2,17 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/romshark/templier/engine"
 	"github.com/spf13/cobra"
@@ -75,6 +78,17 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 		dirWork = filepath.Join(moduleDir, w.DirWork)
 	}
 
+	// Templier v0.11.7 stores conf.Log.Level but never applies it to its
+	// slog logger, so setting `watch.log.level: debug` in datapages.yaml
+	// has no effect on its own. Configure slog.Default() here so templier's
+	// logger.Debug calls (which tell us what the file-watcher/reload
+	// broadcaster are doing) actually render.
+	if w.Log.Level == config.LogLevelDebug {
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		})))
+	}
+
 	engineConf := engine.Config{
 		App: engine.AppConfig{
 			DirSrcRoot: moduleDir,
@@ -85,6 +99,7 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 			Host:       appHost,
 		},
 		Compiler:       buildCompilerConfig(w.Compiler),
+		WatcherIgnore:  w.WatcherIgnore,
 		Debounce:       w.Debounce,
 		ProxyTimeout:   w.ProxyTimeout,
 		Lint:           w.Lint,
@@ -140,7 +155,14 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 		return fmt.Errorf("initializing watch engine: %w", err)
 	}
 
-	return e.Run(ctx)
+	err = e.Run(ctx)
+	// Without this a second `datapages watch` would half-start
+	// (Go process alive, HTTP server not bound)
+	if err != nil && errors.Is(err, syscall.EADDRINUSE) {
+		return fmt.Errorf("%s is already in use (another `datapages watch` running?)",
+			host)
+	}
+	return err
 }
 
 func splitFlags(s string) []string {

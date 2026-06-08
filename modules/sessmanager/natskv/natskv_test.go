@@ -37,7 +37,8 @@ func setupNATS(t *testing.T) *nats.Conn {
 	// The testcontainers NATS module only waits for the port to be open, not
 	// for the server to be fully initialized. Use nats.RetryOnFailedConnect
 	// so the client keeps retrying until NATS is ready.
-	conn, err := nats.Connect(url,
+	conn, err := nats.Connect(
+		url,
 		nats.RetryOnFailedConnect(true),
 		nats.MaxReconnects(50),
 		nats.ReconnectWait(200*time.Millisecond),

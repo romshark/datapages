@@ -3,3 +3,6 @@
 // Package action provides generators for datastar action attribute expressions.
 // Use these in templates instead of hardcoding action URLs.
 package action
+
+// This package is empty because the application defines no actions.
+// Define action handlers in your app package to generate action helpers.

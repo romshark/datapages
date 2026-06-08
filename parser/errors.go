@@ -60,7 +60,8 @@ var (
 
 	ErrAppRecoverErrorInvalidSignature = errors.New(
 		`"RecoverError" must have signature ` +
-			`(error, *datastar.ServerSentEventGenerator) error`)
+			`(error, *datastar.ServerSentEventGenerator) error`,
+	)
 
 	ErrPageMissingFieldApp     = errors.New(`page is missing the "App *App" field`)
 	ErrPageHasExtraFields      = errors.New(`page struct has unsupported fields`)

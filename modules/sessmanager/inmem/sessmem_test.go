@@ -130,7 +130,8 @@ func TestCreateSession(t *testing.T) {
 			require.NotEmpty(t, token)
 
 			sess, retTok, uid, ok, err := sm.ReadSessionFromCookie(
-				&http.Cookie{Value: token})
+				&http.Cookie{Value: token},
+			)
 			require.NoError(t, err)
 			require.True(t, ok)
 			require.Equal(t, token, retTok)
@@ -186,7 +187,8 @@ func TestCreateSessionTokenCollisionOverwrites(t *testing.T) {
 
 	// The second session overwrites the first.
 	sess, retTok, uid, ok, err := sm.ReadSessionFromCookie(
-		&http.Cookie{Value: tok1})
+		&http.Cookie{Value: tok1},
+	)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, tok1, retTok)
@@ -229,7 +231,8 @@ func TestCloseSession(t *testing.T) {
 			require.NoError(t, err)
 
 			_, _, _, ok, err := sm.ReadSessionFromCookie(
-				&http.Cookie{Value: token})
+				&http.Cookie{Value: token},
+			)
 			require.NoError(t, err)
 			require.False(t, ok)
 		})
@@ -708,7 +711,8 @@ func TestConcurrentCreateAndRead(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			sess, _, _, ok, err := sm.ReadSessionFromCookie(
-				&http.Cookie{Value: tokens[i]})
+				&http.Cookie{Value: tokens[i]},
+			)
 			readErrs[i] = err
 			readOK[i] = ok
 			readSess[i] = sess
@@ -753,7 +757,8 @@ func TestConcurrentCreateAndClose(t *testing.T) {
 
 	for _, tok := range tokens {
 		_, _, _, ok, err := sm.ReadSessionFromCookie(
-			&http.Cookie{Value: tok})
+			&http.Cookie{Value: tok},
+		)
 		require.NoError(t, err)
 		require.False(t, ok)
 	}
@@ -848,7 +853,8 @@ func TestConcurrentReadDuringClose(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		readSess, _, _, readOK, readErr = sm.ReadSessionFromCookie(
-			&http.Cookie{Value: token})
+			&http.Cookie{Value: token},
+		)
 	}()
 
 	go func() {

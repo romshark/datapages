@@ -147,7 +147,8 @@ func parseApp(appDir string, stderr io.Writer) (*model.App, error) {
 		if i > 0 {
 			_, _ = fmt.Fprintln(stderr)
 		}
-		_, _ = fmt.Fprintf(stderr, "%s %s\n",
+		_, _ = fmt.Fprintf(
+			stderr, "%s %s\n",
 			loc.Sprintf("at %s:%d:%d:", pos.Filename, pos.Line, pos.Column),
 			msg.Sprint(innerErr.Error()),
 		)

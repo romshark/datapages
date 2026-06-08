@@ -184,7 +184,8 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf(
 			"fix: Add a non-empty name to the path tag of field %s, e.g. `path:\"%s\"`",
-			d.FieldName, toSnakeCase(d.FieldName))
+			d.FieldName, toSnakeCase(d.FieldName),
+		)
 
 	case errors.Is(err, parser.ErrQueryFieldMissingTag):
 		var d *paramvalidation.ErrorQueryFieldMissingTag
@@ -201,7 +202,8 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf(
 			"fix: Add a non-empty name to the query tag of field %s, e.g. `query:\"%s\"`",
-			d.FieldName, toSnakeCase(d.FieldName))
+			d.FieldName, toSnakeCase(d.FieldName),
+		)
 
 	case errors.Is(err, parser.ErrSignalsFieldMissingTag):
 		var d *paramvalidation.ErrorSignalsFieldMissingTag
@@ -218,7 +220,8 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf(
 			"fix: Add a non-empty name to the json tag of field %s, e.g. `json:\"%s\"`",
-			d.FieldName, toSnakeCase(d.FieldName))
+			d.FieldName, toSnakeCase(d.FieldName),
+		)
 
 	case errors.Is(err, parser.ErrEventFieldMissingTag):
 		var d *parser.ErrorEventFieldMissingTag
@@ -235,7 +238,8 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf(
 			"fix: Add a non-empty name to the json tag of field %s, e.g. `json:\"%s\"`",
-			d.FieldName, toSnakeCase(d.FieldName))
+			d.FieldName, toSnakeCase(d.FieldName),
+		)
 
 	case errors.Is(err, parser.ErrEventSubjectUserNoSession):
 		var d *parser.ErrorEventSubjectUserNoSession
@@ -251,7 +255,8 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf(
 			"fix: Move %s before payload fields in %s",
-			d.FieldName, d.TypeName)
+			d.FieldName, d.TypeName,
+		)
 
 	case errors.Is(err, parser.ErrEventSubjectDuplicateSignal):
 		var d *parser.ErrorEventSubjectDuplicateSignal
@@ -260,7 +265,8 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf(
 			"fix: Use a unique signal tag for %s in %s (signal %q is already used by %s)",
-			d.FieldName, d.TypeName, d.SignalName, d.FirstFieldName)
+			d.FieldName, d.TypeName, d.SignalName, d.FirstFieldName,
+		)
 
 	case errors.Is(err, parser.ErrEventSubjectUserSignal):
 		return "fix: Remove the signal tag from SubjectUser — it is always bound to the authenticated user's ID"
@@ -272,7 +278,8 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf(
 			"fix: Use a valid signal name for %s in %s (must start with a lowercase letter, then lowercase/digits/underscores/dots)",
-			d.FieldName, d.TypeName)
+			d.FieldName, d.TypeName,
+		)
 
 	case errors.Is(err, parser.ErrTemplHrefRelative):
 		var d *parser.ErrorTemplHrefRelative
@@ -285,7 +292,8 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf(
 			"fix: Use href={ href.Xxx(...) } from the generated href package "+
-				"instead of %q", d.URL)
+				"instead of %q", d.URL,
+		)
 
 	case errors.Is(err, parser.ErrTemplHrefUnverifiable):
 		var d *parser.ErrorTemplHrefUnverifiable
@@ -295,7 +303,8 @@ func Suggest(err error) string {
 		return fmt.Sprintf(
 			"fix: Use href={ href.Xxx(...) } from the generated href package, "+
 				"or href={ href.External(url) } for external URLs "+
-				"instead of %q", d.Expr)
+				"instead of %q", d.Expr,
+		)
 
 	case errors.Is(err, parser.ErrTemplHrefExternalIsRelative):
 		var d *parser.ErrorTemplHrefExternalIsRelative
@@ -305,11 +314,13 @@ func Suggest(err error) string {
 		if fn := hrefFuncFromURL(d.URL); fn != "" {
 			return fmt.Sprintf(
 				"fix: Use href={ href.%s(...) } instead of href.External(%q)",
-				fn, d.URL)
+				fn, d.URL,
+			)
 		}
 		return fmt.Sprintf(
 			"fix: Use href={ href.Xxx(...) } from the generated href package "+
-				"instead of href.External(%q)", d.URL)
+				"instead of href.External(%q)", d.URL,
+		)
 
 	case errors.Is(err, parser.ErrTemplActionWrongPage):
 		var d *parser.ErrorTemplActionWrongPage
@@ -319,7 +330,8 @@ func Suggest(err error) string {
 		return fmt.Sprintf(
 			"fix: Move this action reference to a template used by %s, "+
 				"or use an action owned by %s",
-			d.OwnerPage, d.PageType)
+			d.OwnerPage, d.PageType,
+		)
 
 	case errors.Is(err, parser.ErrTemplActionHardcoded):
 		var d *parser.ErrorTemplActionHardcoded
@@ -332,7 +344,8 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf(
 			"fix: Use action={ action.Xxx(...) } from the generated action package "+
-				"instead of %q", d.URL)
+				"instead of %q", d.URL,
+		)
 
 	case errors.Is(err, parser.ErrTemplActionUnverifiableWithPrefix):
 		var d *parser.ErrorTemplActionUnverifiableWithPrefix
@@ -342,7 +355,8 @@ func Suggest(err error) string {
 		return fmt.Sprintf(
 			"fix: Use action.%s(action.WithBefore(%s)) "+
 				"instead of concatenating a prefix",
-			d.ActionFunc, d.Prefix)
+			d.ActionFunc, d.Prefix,
+		)
 
 	case errors.Is(err, parser.ErrTemplActionUnverifiableWithSuffix):
 		var d *parser.ErrorTemplActionUnverifiableWithSuffix
@@ -352,7 +366,8 @@ func Suggest(err error) string {
 		return fmt.Sprintf(
 			"fix: Use action.%s(action.WithAfter(%s)) "+
 				"instead of concatenating a suffix",
-			d.ActionFunc, d.Suffix)
+			d.ActionFunc, d.Suffix,
+		)
 
 	case errors.Is(err, parser.ErrTemplActionUnverifiable):
 		var d *parser.ErrorTemplActionUnverifiable
@@ -361,7 +376,8 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf(
 			"fix: Use action={ action.Xxx(...) } from the generated action package "+
-				"instead of %q", d.Expr)
+				"instead of %q", d.Expr,
+		)
 
 	case errors.Is(err, parser.ErrTemplFormAction):
 		return "fix: Remove the action attribute and use " +
@@ -375,7 +391,8 @@ func Suggest(err error) string {
 		return fmt.Sprintf(
 			"fix: href.%s() returns a URL path, not a Datastar action — "+
 				"use action.Xxx(...) from the generated action package instead",
-			d.HrefFunc)
+			d.HrefFunc,
+		)
 
 	case errors.Is(err, parser.ErrTemplActionContext):
 		var d *parser.ErrorTemplActionContext
@@ -385,7 +402,8 @@ func Suggest(err error) string {
 		return fmt.Sprintf(
 			"fix: action.%s() is a Datastar action, not a URL — "+
 				"use href.PageXxx(...) from the generated href package instead",
-			d.ActionFunc)
+			d.ActionFunc,
+		)
 
 	case errors.Is(err, parser.ErrSignatureUnsupportedInput):
 		var d *parser.ErrorSignatureUnsupportedInput
@@ -402,18 +420,21 @@ func Suggest(err error) string {
 		if d.ExpectedName != "" && d.ExpectedName != d.ParamName {
 			s := fmt.Sprintf(
 				"fix: Rename parameter %s to %s",
-				d.ParamName, d.ExpectedName)
+				d.ParamName, d.ExpectedName,
+			)
 			if len(others) > 0 {
 				s += fmt.Sprintf(
 					". Other candidates: %s",
-					strings.Join(others, ", "))
+					strings.Join(others, ", "),
+				)
 			}
 			return s
 		}
 		if len(d.CandidateNames) > 0 {
 			return fmt.Sprintf(
 				"fix: Potential candidates: %s",
-				strings.Join(d.CandidateNames, ", "))
+				strings.Join(d.CandidateNames, ", "),
+			)
 		}
 		return fmt.Sprintf("fix: Remove parameter %s", d.ParamName)
 

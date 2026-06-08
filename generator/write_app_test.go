@@ -999,7 +999,8 @@ func TestWritePageGETStreamHandler(t *testing.T) {
 				Route:    "/dashboard/",
 				EventHandlers: []*model.EventHandler{
 					testEventHandler(
-						"MessagingSent", "EventMessagingSent", withEHSession, withEHErr),
+						"MessagingSent", "EventMessagingSent", withEHSession, withEHErr,
+					),
 					testEventHandler("CalcUpdated", "EventCalcUpdated", withEHErr),
 				},
 			},

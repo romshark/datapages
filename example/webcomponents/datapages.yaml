@@ -16,6 +16,9 @@ watch:
     - ".git/**"
     - ".*"
     - "*~"
+  watcher-ignore:
+    # Drop node_modules from the fs watcher entirely: it's a large tree that
+    # would otherwise consume OS watch descriptors and be checksummed at startup.
     - "js/node_modules/**"
   custom-watchers:
     - name: "Bundle web components (esbuild)"

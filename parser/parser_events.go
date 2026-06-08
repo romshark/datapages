@@ -18,7 +18,8 @@ func init() {
 	byteSlice := types.NewSlice(types.Typ[types.Byte])
 	errType := types.Universe.Lookup("error").Type()
 	makeIface := func(methodName string) *types.Interface {
-		sig := types.NewSignatureType(nil, nil, nil,
+		sig := types.NewSignatureType(
+			nil, nil, nil,
 			types.NewTuple(types.NewVar(token.NoPos, nil, "", byteSlice)),
 			types.NewTuple(types.NewVar(token.NoPos, nil, "", errType)),
 			false,

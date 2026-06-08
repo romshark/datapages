@@ -22,7 +22,8 @@ var stdTmpl = template.Must(template.New("hello").Parse(
 
 var (
 	jetSet     = jet.NewSet(jet.NewInMemLoader())
-	jetTmpl, _ = jetSet.Parse("hello",
+	jetTmpl, _ = jetSet.Parse(
+		"hello",
 		`<div><h1>Hello, {{name}}!</h1><p>Welcome to the benchmark.</p></div>`,
 	)
 )

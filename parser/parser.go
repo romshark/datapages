@@ -2638,7 +2638,8 @@ func parseHandler(
 					return h, nil, retErr(fmt.Errorf(
 						"%w %s %s in %s.%s",
 						ErrSignatureUnsupportedOutput, n.Name, t.Resolved,
-						recv, fd.Name.Name))
+						recv, fd.Name.Name,
+					))
 				}
 				// templ.Component returns are validated later
 				// by buildHandlerGET / action body detection.

@@ -59,7 +59,8 @@ func TestStartUpdateCheck(t *testing.T) {
 						TagName string `json:"tag_name"`
 						HTMLURL string `json:"html_url"`
 					}{TagName: tc.responseTag, HTMLURL: tc.responseHTMLURL})
-				}))
+				}),
+			)
 			t.Cleanup(srv.Close)
 
 			// Redirect all requests to the test server.
@@ -116,7 +117,8 @@ func TestPrintUpdateNotice(t *testing.T) {
 
 	var buf bytes.Buffer
 	printUpdateNotice(&buf, "v1.2.3", "https://example.com/changelog")
-	require.Equal(t,
+	require.Equal(
+		t,
 		"update available: v1.2.3 — run: go install "+
 			datapagesModulePath+
 			"@latest\nchangelog: https://example.com/changelog\n",

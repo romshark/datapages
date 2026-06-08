@@ -46,7 +46,8 @@ func main() {
 	}
 
 	a := app.NewApp(sha256.Sum256([]byte(hmacSecret)))
-	s := datapagesgen.NewServer(a, msgBroker,
+	s := datapagesgen.NewServer(
+		a, msgBroker,
 		datapagesgen.WithAssets(app.StaticFS),
 	)
 

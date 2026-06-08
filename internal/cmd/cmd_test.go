@@ -60,7 +60,8 @@ func TestRun(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code := cmd.Run(context.Background(), tc.args,
+			code := cmd.Run(
+				context.Background(), tc.args,
 				nil, &stdout, &stderr,
 				"0.0.0", "xxxxxxx", "2026-2-23",
 			)
