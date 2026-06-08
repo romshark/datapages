@@ -710,6 +710,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
 
 		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
@@ -849,6 +850,7 @@ func (s *Server) handlePageIndexPOSTFilter(
 }
 
 func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
+
 	var path struct {
 		ID string `path:"id"`
 	}
@@ -872,6 +874,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/item/`)
 		_, _ = io.WriteString(w, path.ID)

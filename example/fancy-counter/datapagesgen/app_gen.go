@@ -503,6 +503,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
 	}
 
@@ -548,6 +549,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 func (s *Server) handlePageIndexPOSTAdd(
 	w http.ResponseWriter, r *http.Request,
 ) {
+
 	q := r.URL.Query()
 	var query struct {
 		Delta int32 `query:"delta"`

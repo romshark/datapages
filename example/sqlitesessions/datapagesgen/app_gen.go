@@ -843,6 +843,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		if sess.UserID != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
 		}
