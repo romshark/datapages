@@ -126,9 +126,9 @@ func (p PageIndex) POSTFilter(
 	// Update server-side tab state so event handlers use current filters.
 	p.App.lockTabs.Lock()
 	if ts := p.App.streamIDToTabState[streamID]; ts != nil {
-		ts.ViewParameters.Search = signals.Search
-		ts.ViewParameters.Filter = signals.Filter
-		ts.ViewParameters.Sort = signals.Sort
+		ts.Search = signals.Search
+		ts.Filter = signals.Filter
+		ts.Sort = signals.Sort
 	}
 	p.App.lockTabs.Unlock()
 
