@@ -5,8 +5,8 @@ github.com/a-h/templ v0.3.1020/go.mod h1:A2DlK61v+K+NRoGnhmYbNYVmtYHcFO5/AisMvBd
 github.com/andybalholm/brotli v1.0.5/go.mod h1:fO7iG3H7G2nSZ7m0zPUDn85XEX2GTukHGRSepvi9Eig=
 github.com/andybalholm/brotli v1.2.2 h1:HzTuoo2ErYQqf5qvcJInB8uvqSVxRttzkFexPWtnceM=
 github.com/andybalholm/brotli v1.2.2/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
-github.com/cvilsmeier/sqinn-go/v2 v2.1.4 h1:/JwOxmj3vn3ONvhuIaUY7oIkxqF2J/tsCshSSr23V6s=
-github.com/cvilsmeier/sqinn-go/v2 v2.1.4/go.mod h1:Rk7mPvBs9CamMk/JXbnyFGIckBuIKNm3KnGx0MkbvlQ=
+github.com/cvilsmeier/sqinn-go/v2 v2.1.5 h1:MnyYfNs8sbmIJ86FU5V8tyDO5CgiQ5hZfXVOoc45qUE=
+github.com/cvilsmeier/sqinn-go/v2 v2.1.5/go.mod h1:wK7kFC7YWioctgSee5YIZFwhDm6yrjrHuDiqaXiSPuU=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
