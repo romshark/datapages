@@ -9,8 +9,8 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/starfederation/datastar-go/datastar"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/assets"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
@@ -79,11 +79,11 @@ func (*App) POSTCause500(r *http.Request) error {
 
 func (*App) RecoverError(
 	err error,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
 	return sse.PatchElementTempl(toastError500(),
-		datastar.WithSelectorID("toaster"),
-		datastar.WithModeAppend())
+		datapages.WithSelectorID("toaster"),
+		datapages.WithModeAppend())
 	// Or use script execution:
 	//
 	// 	return sse.ExecuteScript(`
@@ -149,7 +149,7 @@ func (b Base) baseData(
 
 func (b Base) OnMessagingSent(
 	event EventMessagingSent,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID)
@@ -179,7 +179,7 @@ func (b Base) OnMessagingSent(
 
 func (b Base) OnMessagingRead(
 	event EventMessagingRead,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID)

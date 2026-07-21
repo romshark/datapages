@@ -20,12 +20,12 @@
 
 # Project Structure
 
-- `parser/` - main parser package, parses a Datapages application model from
-  a Go source package.
-- `parser/model/` - data model of a Datapages application.
-- `parser/validate/` - naming convention validation.
-- `parser/internal/` - internal utilities (e.g. route pattern parsing).
-- `parser/testdata/` - each subdirectory is a self-contained Go module
+- `internal/parser/` - main parser package, parses a Datapages application model
+  from a Go source package.
+- `internal/parser/model/` - data model of a Datapages application.
+- `internal/parser/validate/` - naming convention validation.
+- `internal/parser/internal/` - internal utilities (e.g. route pattern parsing).
+- `internal/parser/testdata/` - each subdirectory is a self-contained Go module
   used as a test fixture. Prefix `err_` for expected-error cases.
 - `example/calculator/` - basic calculator with server-side evaluation (separate module).
 - `example/counter/` - minimal counter example (separate module).
@@ -34,11 +34,45 @@
 - `example/tailwindcss/` - minimal static page with Tailwind CSS (separate module).
 - `example/webcomponents/` - landing page with vanilla and Lit Web Components bundled via esbuild.
 - `example/sqlitesessions/` - custom sessmanager.SessionManager backed by SQLite via sqinn-go.
-- `generator/` - code generation from parsed model.
-- `modules/` - pluggable modules (csrf, msgbroker, sessmanager, sesstokgen).
+- `example/offline-cache/` - service-worker offline support (handler-written cache,
+  `PageOffline` fallback) on a ticketing app with live search and sessions.
+- root package `datapages` (`datapages.go`) - core handler-parameter types
+  (`datapages.SSE`, `datapages.OfflineCacheWriter`); the CLI entrypoint lives in
+  `cmd/datapages/`.
+- `internal/generator/` - code generation from parsed model.
 - `internal/cmd/` - CLI command implementations.
+- `internal/tools/render-pages/` - build-time tool rendering `docs/index.html`.
+- `internal/docs-src/` - templ source and CSS for the project's docs page.
+- `docs/` - generated GitHub Pages output (committed).
 - `magefiles/` - build targets (mage).
-- `scripts/` - utility scripts.
+
+Only packages that generated code or application code imports may live outside
+`internal/`. Everything the CLI and build tooling use (parser, generator,
+render-pages, docs-src) is internal. `cmd/` is reserved for the shipped binary, so
+build-time tools go under `internal/tools/`, NOT `cmd/` (which would make them
+`go install`-able by users) and NOT `internal/cmd/` (which is the datapages CLI
+implementation, `package cmd`, plus its own subpackages such as `config`). The
+non-internal packages besides the root are:
+
+- `modules/` - pluggable modules (csrf, msgbroker, offline, sessmanager, sesstokgen),
+  imported by application code.
+- `hrefcheck/` - imported by generated `href` packages.
+
+These cannot be moved into `internal/`: generated code lives in the user's own
+module, which may not import `github.com/romshark/datapages/internal/...`. Note the
+`example/*` modules would NOT catch such a mistake, since their paths sit under the
+`github.com/romshark/datapages/` prefix and so satisfy the internal-import rule.
+
+Runtime support is generated into `datapagesgen` rather than imported, so it needs
+no package of its own and stays out of the public API:
+
+- `writeSSEWrapper` emits the `datapages.SSE` implementation (`newSSE`/`sseWrapper`).
+- `writeOfflineCache` emits the `datapages.OfflineCacheWriter` implementation
+  (`newOfflineCache`/`offlineCacheWriter`) and its delivery lifecycle
+  (`flush`, `writeBake`, `redirectScript`).
+
+Prefer this over adding a public runtime package: it also removes version skew
+between the generator and a separately pinned runtime dependency.
 
 # Datapages Framework
 

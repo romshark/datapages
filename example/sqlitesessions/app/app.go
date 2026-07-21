@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/sqlitesessions/app/userstore"
 	"github.com/romshark/datapages/example/sqlitesessions/datapagesgen/href"
 )
@@ -80,7 +80,7 @@ func (p PageIndex) GET(r *http.Request, session Session) (
 // re-fetch PageIndex as a guest.
 func (p PageIndex) OnSessionClosed(
 	event EventSessionClosed,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	sessionToken string,
 ) error {
 	if event.Token != sessionToken {

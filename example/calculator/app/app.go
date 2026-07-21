@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/calculator/app/calc"
 	"github.com/romshark/datapages/example/calculator/datapagesgen/httperr"
 )
@@ -141,7 +141,7 @@ func (p PageIndex) POSTInput(
 
 func (PageIndex) OnCalcUpdated(
 	event EventCalcUpdated,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
 	return sse.PatchElementTempl(
 		pageCalculator(event.Input, event.Fresh, event.SubjectInstanceID),

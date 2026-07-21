@@ -148,6 +148,21 @@ Routes use Go standard library `net/http.ServeMux` pattern syntax.
 `/item/{id}` captures a path segment. `/{path...}` captures the rest.
 See https://pkg.go.dev/net/http#hdr-Patterns-ServeMux for the full spec.
 
+### GET Parameters
+
+Parameters may be in any order. Skip what you don't need.
+
+```go
+r *http.Request
+sessionToken string // optional
+session Session // optional
+offlineCache datapages.OfflineCacheWriter // optional, see Step 18
+path struct { ID string `path:"id"` } // optional
+query struct { P int `query:"p"` } // optional
+```
+
+`sse`, `signals` and `dispatch` belong to action handlers, not GET.
+
 ### GET Return Values
 
 The minimum is `(body templ.Component, err error)`.
@@ -254,16 +269,22 @@ Parameters may be in any order. Skip what you don't need.
 
 ```go
 r *http.Request
-sse *datastar.ServerSentEventGenerator // optional
+sse datapages.SSE // optional
 sessionToken string // optional
 session Session // optional
+offlineCache datapages.OfflineCacheWriter // optional, see Step 18
 path struct { ID string `path:"id"` } // optional
 query struct { P int `query:"p"` } // optional
 signals struct { V string `json:"v"` } // optional
 dispatch func(EventFoo) error // optional
 ```
 
-Import `"github.com/starfederation/datastar-go/datastar"` for SSE.
+Import `"github.com/romshark/datapages"` for `datapages.SSE` and
+`datapages.OfflineCacheWriter`.
+
+See [Parameter: `sse datapages.SSE`](../../SPECIFICATION.md#parameter-sse-datapagessse)
+for the interface. `datapages.SSE` is the only accepted SSE parameter type, in
+action handlers, event handlers (`OnXXX`), stream hooks and `RecoverError`.
 
 ### Action Return Types
 
@@ -397,7 +418,7 @@ Use `streamID` to look up per-tab state registered in `StreamOpen` (see Step 9).
 ```go
 func (PageChat) OnMessageSent(
 	event EventMessageSent,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	streamID uint64, // Optional
 	session Session, // Optional
 	sessionToken string, // Optional
@@ -457,7 +478,7 @@ to clients, as it could leak information about server activity and connection vo
 
 `StreamOpen` runs after the SSE stream is established, before any event handler.
 It additionally accepts these optional parameters:
-`sse *datastar.ServerSentEventGenerator`, `sessionToken string`, `session Session`,
+`sse datapages.SSE`, `sessionToken string`, `session Session`,
 `signals struct{...}`, `dispatch func(...) error`.
 
 `StreamClose` runs when the stream closes.
@@ -469,7 +490,7 @@ Note: `StreamClose` does **not** accept `sse` or `signals`.
 func (PageIndex) StreamOpen(
 	r *http.Request,
 	streamID uint64,
-	sse *datastar.ServerSentEventGenerator, // Optional
+	sse datapages.SSE, // Optional
 	sessionToken string, // Optional
 	session Session, // Optional
 	signals struct{ // Optional
@@ -506,7 +527,7 @@ type Base struct{ App *App }
 
 func (Base) OnMessageSent(
 	event EventMessageSent,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
 	return sse.PatchElementTempl(notificationComponent())
 }
@@ -528,7 +549,7 @@ To override, redefine the method on the page - the page-level method replaces th
 ```go
 func (p PageChat) OnMessageSent(
 	event EventMessageSent,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
 	// Custom logic before
 	log.Println("chat-specific handling")
@@ -573,7 +594,7 @@ When a handler returns an error during a Datastar SSE request, a plain HTTP erro
 ```go
 func (*App) RecoverError(
 	err error,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
 	return sse.PatchElementTempl(errorToast(err))
 }
@@ -787,3 +808,144 @@ All generated action functions accept variadic modifier arguments:
 - `action.WithAfter(expr)` — appends a JavaScript expression after the action call, separated by `"; "`.
 
 Naming convention: `{METHOD}Page{PageName}{HandlerName}` for page actions, `{METHOD}App{HandlerName}` for app-level actions. Query parameter structs are generated as `action.Query<FunctionName>`.
+
+## Step 18: Add Offline Support (Optional)
+
+The `modules/offline` module registers a service worker that serves cached page
+snapshots when the browser is offline. Handlers decide what gets cached through the
+`offlineCache datapages.OfflineCacheWriter` parameter.
+
+### Wire the module
+
+```go
+opts := []datapagesgen.ServerOption{
+	// Self-host Datastar so the app also works offline (the CDN is unreachable).
+	datapagesgen.WithDatastarJS(assets.Path("datastar.js")),
+	// Generated because the app declares PageOffline; it passes that page's
+	// route to the worker, so the route is declared only on the page type.
+	datapagesgen.WithOffline(app.OfflineConfig()),
+}
+```
+
+```go
+// OfflineWorkerVersion is the worker's own version. Bump it whenever the worker
+// script or the precached asset set changes; the browser then installs the new
+// worker and drops caches from older versions.
+const OfflineWorkerVersion = 1
+
+func OfflineConfig() offline.Config {
+	return offline.Config{
+		WorkerVersion: OfflineWorkerVersion,
+		// App shell precached on install so cached pages still render offline.
+		Assets: []string{
+			assets.Path("style.css"), assets.Path("datastar.js"),
+		},
+	}
+}
+```
+
+```go
+// PageOffline is /offline
+type PageOffline struct{ App *App }
+
+func (PageOffline) GET(r *http.Request) (body templ.Component, err error) {
+	return pageOffline(), nil
+}
+```
+
+While the browser is offline the module toggles a class on `<html>`, so offline
+state can be styled without any Go code. It defaults to `is-offline` and is
+configurable through `Config.OfflineClass`.
+
+```css
+.is-offline [data-needs-network] { opacity: .5; pointer-events: none }
+```
+
+### Write the cache from handlers
+
+```go
+func (p PageTicket) GET(
+	r *http.Request,
+	session Session,
+	offlineCache datapages.OfflineCacheWriter,
+	path struct{ Slug string `path:"nameslug"` },
+) (body templ.Component, err error) {
+	// ...
+	view := pageTicket(ticket)
+	if ver := ticketVersion(ticket); offlineCache.Version() != ver {
+		offlineCache.Set(href.PageTicket(path.Slug), offlineDoc(view), ver)
+	}
+	return view, nil
+}
+```
+
+See [Parameter: `offlineCache datapages.OfflineCacheWriter`](../../SPECIFICATION.md#parameter-offlinecache-datapagesofflinecachewriter)
+for the interface. `Version()` reports the version the client holds for **this
+request's URL**, so compare it against the resource's server-side version before
+re-caching. It cannot report the version held for any other URL, so eagerly
+caching other pages is always unconditional.
+
+### Rules
+
+- **Cache full documents, not fragments.** The worker serves the entry standalone,
+  so a body without `<head>` renders unstyled. Wrap page bodies in a document
+  helper (`offlineDoc` above) that emits `<!DOCTYPE html><html><head>…`.
+- **A cached page is only as complete as its assets.** Caching the HTML is not
+  enough: its stylesheets, scripts, fonts and images must be in the cache too. The
+  app shell goes in `Config.Assets` and is precached when the worker installs;
+  everything else is cached the first time it loads online: all same-origin files,
+  and cross-origin requests whose destination is listed in
+  `Config.CrossOriginDestinations` (stylesheets, scripts, fonts and images by
+  default). An asset that is neither listed nor ever loaded online is missing
+  offline. Self-host Datastar via `WithDatastarJS` since the CDN is unreachable
+  offline.
+- **Version by everything the snapshot depends on.** A constant version caches once
+  and never refreshes. Include the content state (item count, ownership flags).
+
+  ```go
+  // The body renders a different call-to-action depending on ownership, so the
+  // version has to account for it. A constant would freeze the first snapshot.
+  ver := snapshotVersion(session.UserID, owned) // e.g. an FNV-1a hash of both
+  if offlineCache.Version() != ver {
+  	offlineCache.Set(href.PageItem(id), offlineDoc(view), ver)
+  }
+  ```
+- **Use `!=`, not `<`, for unordered version keys** (e.g. a hash). `<` only
+  re-caches on increase, so it silently keeps stale snapshots.
+- **When one change invalidates many pages, use `ClearAll()`.**
+  Re-caching every affected URL from a single handler is impractical or straight
+	impossible. `ClearAll()` drops the whole cache, `Clear(url)` drops one entry.
+	Nothing repopulates on its own; an entry comes back only when some handler `Set`s
+	that URL again. For a page that caches lazily this happens on its next online visit,
+	because after a clear `Version()` reports 0 and the version guard fires. This applies
+	to anything that changes how pages render across the board, such as a locale or
+	permission change. Signing in and out is the common case: a snapshot cached for a guest
+  still shows the signed-out navigation after login, so call `ClearAll()` in both
+  actions.
+- **A cached page stays stale until something `Set`s it again.** A lazily cached
+  page refreshes on its next online visit; when a state change elsewhere
+  invalidates it, re-`Set` it from the action that caused the change.
+
+### Caching Strategies
+
+- **Eager pre-caching**: a handler caches URLs other than the one it serves, so a
+  page is available before it's ever opened. Example: a ticket purchase action caches
+	the ticket viewing pages, making the ticket viewable offline.
+- **Lazy caching**: a handler caches the page it renders, so the copy exists from
+  the first visit on and unvisited pages cost nothing. Example: a news article is
+  cached when read.
+
+### Delivery
+
+Queued writes reach the worker differently depending on the handler, handled for
+you by the generated code:
+
+| Handler | Delivery |
+| --- | --- |
+| GET | trailing `<script>` baked into the HTML response |
+| Action with `sse` | script flushed over the SSE stream |
+| Action returning `redirect` | JS in the `text/javascript` redirect response, posted **before** navigating |
+
+`newSession` and `closeSession` cannot be combined with an `sse` parameter. Sign-in
+and sign-out therefore take `offlineCache` and return a `redirect`; their queued
+writes are posted before the navigation runs.

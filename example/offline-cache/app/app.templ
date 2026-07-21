@@ -1,0 +1,486 @@
+package app
+
+import (
+	"fmt"
+
+	"github.com/romshark/datapages/example/offline-cache/app/domain"
+	"github.com/romshark/datapages/example/offline-cache/datapagesgen/action"
+	"github.com/romshark/datapages/example/offline-cache/datapagesgen/href"
+)
+
+// dateLayout is the human-readable format used to render show start times.
+const dateLayout = "Mon, Jan 2 2006 · 3:04 PM"
+
+templ head() {
+	<title>Showtime — Datapages Demo</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<meta name="description" content="Browse shows and buy tickets — a Datapages demo app."/>
+	<meta property="og:title" content="Showtime — Datapages Demo"/>
+	<meta property="og:description" content="Demo — Go + Templ + Datastar + Datapages"/>
+	<link rel="icon" href="/static/favicon.svg"/>
+	// Basecoat UI, self-hosted so the app works fully offline. Loaded before our
+	// stylesheet so our design-token overrides win the cascade.
+	<link rel="stylesheet" href="/static/basecoat.css"/>
+	<script src="/static/basecoat.js" defer></script>
+	<link rel="stylesheet" href="/static/style.css"/>
+}
+
+// page is the shared wrapper for all pages.
+// page wraps every page body. Reloading when connectivity drops makes the service
+// worker serve the cached copy of this URL, or the offline page when there is none.
+templ page(id string) {
+	<div id="content" data-on:offline__window="window.location.reload()">
+		<div id={ id }>
+			{ children... }
+		</div>
+	</div>
+}
+
+templ fragmentNavbar(session Session, baseData baseData) {
+	<nav id="navbar">
+		<a class="brand" href={ href.PageIndex(href.QueryPageIndex{}) }>
+			@iconTicket()
+			<b>Showtime</b>
+		</a>
+		<span class="spacer"></span>
+		<a id="nav-shows" href={ href.PageIndex(href.QueryPageIndex{}) }>
+			@iconSearch()
+			Browse
+		</a>
+		if session.UserID != "" {
+			<a id="nav-tickets" href={ href.PageTickets() }>
+				@iconTicket()
+				My Tickets
+				if baseData.TicketCount > 0 {
+					<span class="badge-outline">{ baseData.TicketCount }</span>
+				}
+			</a>
+			@menuAccount("navbar-menu", baseData.UserName, baseData.UserAvatarURL)
+		} else {
+			<a class="btn-secondary" href={ href.PageLogin(href.QueryPageLogin{}) }>Sign in</a>
+		}
+	</nav>
+}
+
+templ menuAccount(id, userName, userAvatarURL string) {
+	<div id={ id } class="dropdown-menu">
+		<button
+			type="button"
+			id={ id + "-trigger" }
+			aria-haspopup="menu"
+			aria-controls={ id + "-menu" }
+			aria-expanded="false"
+			class="btn-ghost"
+		>
+			if userAvatarURL != "" {
+				<img src={ userAvatarURL } class="avatar"/>
+			} else {
+				@iconUser()
+			}
+			<span class="username">{ userName }</span>
+		</button>
+		<div
+			id={ id + "-popover" }
+			data-popover
+			data-side="bottom"
+			data-align="end"
+			aria-hidden="true"
+			class="min-w-56"
+		>
+			<div role="menu" id={ id + "-menu" } aria-labelledby={ id + "-trigger" }>
+				<div role="group">
+					<a href={ href.PageTickets() } role="menuitem">
+						@iconTicket()
+						My Tickets
+					</a>
+					<button type="button" role="menuitem" data-on:click={ action.POSTAppSignOut() }>
+						@iconClose()
+						Sign out
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+templ fragmentFooter() {
+	<div id="footer">
+		<p>
+			This is a
+			<a target="_blank" href="https://github.com/romshark/datapages">Datapages</a>
+			demo.
+		</p>
+		<p>
+			by
+			<a target="_blank" href="https://github.com/romshark/">github.com/romshark</a>
+		</p>
+	</div>
+}
+
+// --- Shows listing (page 1) ---
+
+templ pageShows(
+	session Session, query SearchParams, shows []domain.Show, baseData baseData,
+) {
+	@fragmentNavbar(session, baseData)
+	@page("page-shows") {
+		<header class="shows-header">
+			<h1>Live shows &amp; events</h1>
+			<p class="subtitle">Find something to see tonight — search and book in seconds.</p>
+			<label class="search-box">
+				@iconSearch()
+				<input
+					class="input"
+					type="search"
+					id="shows-search"
+					value={ query.Term }
+					data-bind="q"
+					data-on:input__debounce.250ms={ action.POSTPageIndexSearch() }
+					placeholder="Search by title, genre, venue or city…"
+					autocomplete="off"
+				/>
+			</label>
+		</header>
+		@fragmentShowResults(shows)
+	}
+	@fragmentFooter()
+}
+
+templ fragmentShowResults(shows []domain.Show) {
+	<div id="show-results">
+		if len(shows) < 1 {
+			<p class="empty">No shows match your search 🤷</p>
+		} else {
+			<ul class="show-cards">
+				for _, show := range shows {
+					@fragmentShowCard(show)
+				}
+			</ul>
+		}
+	</div>
+}
+
+templ fragmentShowCard(show domain.Show) {
+	<li class="card">
+		<a class="card-image" href={ href.PageShow(show.Slug) }>
+			<img src={ show.ImageURL } alt={ show.Title }/>
+			<span class="genre-badge">{ show.Genre }</span>
+		</a>
+		<div class="body">
+			<a class="title" href={ href.PageShow(show.Slug) }>{ show.Title }</a>
+			<p class="meta">
+				@iconCalendar()
+				{ show.StartsAt.Format(dateLayout) }
+			</p>
+			<p class="meta">
+				@iconLocation()
+				{ show.Venue }, { show.City }
+			</p>
+			<div class="card-footer">
+				<span class="price">{ show.Price }€</span>
+				if show.Available > 0 {
+					<span class="availability">{ show.Available } left</span>
+				} else {
+					<span class="availability sold-out">Sold out</span>
+				}
+			</div>
+		</div>
+	</li>
+}
+
+// --- Show detail (page 2) ---
+
+templ headShow(show domain.Show) {
+	<meta name="description" content={ show.Description }/>
+	<meta property="og:type" content="website"/>
+	<meta property="og:title" content={ show.Title }/>
+	<meta property="og:description" content={ show.Description }/>
+	<meta property="og:image" content={ show.ImageURL }/>
+}
+
+templ pageShow(session Session, show domain.Show, hasTicket bool, baseData baseData) {
+	@fragmentNavbar(session, baseData)
+	@page("page-show") {
+		<a class="back-link" href={ href.PageIndex(href.QueryPageIndex{}) }>← Back to all shows</a>
+		<div class="show-hero">
+			<img class="show-image" src={ show.ImageURL } alt={ show.Title }/>
+			<div class="show-info">
+				<span class="genre-badge">{ show.Genre }</span>
+				<h1>{ show.Title }</h1>
+				<p class="meta">
+					@iconCalendar()
+					{ show.StartsAt.Format(dateLayout) }
+				</p>
+				<p class="meta">
+					@iconLocation()
+					{ show.Venue }, { show.City }
+				</p>
+				<p class="price-large">{ show.Price }€</p>
+				<div class="show-cta">
+					if hasTicket {
+						<a class="btn" href={ href.PageTicket(show.Slug) }>
+							@iconTicket()
+							View your ticket
+						</a>
+						<p class="owned-note">
+							@iconCheck()
+							You already have a ticket for this show.
+						</p>
+					} else if show.Available < 1 {
+						<button class="btn" disabled>Sold out</button>
+					} else if session.UserID != "" {
+						<a class="btn" href={ href.PagePurchase(show.Slug) }>
+							@iconTicket()
+							Buy ticket
+						</a>
+					} else {
+						<a class="btn" href={ href.PageLogin(href.QueryPageLogin{Next: href.PagePurchase(show.Slug)}) }>
+							Sign in to buy
+						</a>
+					}
+				</div>
+			</div>
+		</div>
+		<section class="show-description">
+			<h2>About this show</h2>
+			<p>{ show.Description }</p>
+		</section>
+	}
+	@fragmentFooter()
+}
+
+// --- Purchase (page 3) ---
+
+templ pagePurchase(session Session, show domain.Show, baseData baseData) {
+	@fragmentNavbar(session, baseData)
+	@page("page-purchase") {
+		<div data-signals:_buying="false"></div>
+		<a class="back-link" href={ href.PageShow(show.Slug) }>← Back to show</a>
+		<h1>Confirm your booking</h1>
+		<div class="card purchase-card">
+			<img class="thumb" src={ show.ImageURL } alt={ show.Title }/>
+			<div class="summary">
+				<h2>{ show.Title }</h2>
+				<p class="meta">
+					@iconCalendar()
+					{ show.StartsAt.Format(dateLayout) }
+				</p>
+				<p class="meta">
+					@iconLocation()
+					{ show.Venue }, { show.City }
+				</p>
+			</div>
+			<div class="totals">
+				<div class="line">
+					<span>General admission × 1</span>
+					<span>{ show.Price }€</span>
+				</div>
+				<div class="line total">
+					<span>Total</span>
+					<span>{ show.Price }€</span>
+				</div>
+				<button
+					class="btn buy"
+					data-attr:disabled="$_buying"
+					data-on:click={ action.POSTPagePurchaseConfirm(
+						show.Slug, action.WithBefore("$_buying = true"),
+					) }
+				>
+					<span data-show="!$_buying">Pay { show.Price }€ &amp; get ticket</span>
+					<span data-show="$_buying">Processing…</span>
+				</button>
+				<p class="fine-print">
+					This is a demo — no real payment is taken.
+				</p>
+			</div>
+		</div>
+	}
+	@fragmentFooter()
+}
+
+// --- Ticket (page 4) ---
+
+templ pageTicket(session Session, ticket domain.Ticket, qr templ.SafeURL, baseData baseData) {
+	@fragmentNavbar(session, baseData)
+	@page("page-ticket") {
+		<div class="ticket">
+			<div class="ticket-main">
+				<span class="ticket-label">Admit one</span>
+				<h1>{ ticket.ShowTitle }</h1>
+				<p class="meta">
+					@iconCalendar()
+					{ ticket.ShowStartsAt.Format(dateLayout) }
+				</p>
+				<p class="meta">
+					@iconLocation()
+					{ ticket.ShowVenue }, { ticket.ShowCity }
+				</p>
+				<dl class="ticket-holder">
+					<div>
+						<dt>Ticket holder</dt>
+						<dd>{ ticket.UserName }</dd>
+					</div>
+					<div>
+						<dt>Purchased</dt>
+						<dd>{ ticket.PurchasedAt.Format(dateLayout) }</dd>
+					</div>
+				</dl>
+			</div>
+			<div class="ticket-stub">
+				<img class="ticket-qr" src={ qr } alt="Ticket QR code" width="180" height="180"/>
+				<span class="ticket-code">{ ticket.Code }</span>
+				<span class="ticket-hint">Show this at the door</span>
+			</div>
+		</div>
+		<div class="ticket-actions">
+			<a class="btn-secondary" href={ href.PageShow(ticket.ShowSlug) }>View show</a>
+			<a class="btn-ghost" href={ href.PageTickets() }>All my tickets</a>
+		</div>
+	}
+	@fragmentFooter()
+}
+
+// --- All tickets (page 5) ---
+
+templ pageTickets(session Session, tickets []domain.Ticket, baseData baseData) {
+	@fragmentNavbar(session, baseData)
+	@page("page-tickets") {
+		<h1>My Tickets</h1>
+		if len(tickets) < 1 {
+			<div class="empty tickets-empty">
+				<p>You have not booked any tickets yet.</p>
+				<a class="btn" href={ href.PageIndex(href.QueryPageIndex{}) }>Browse shows</a>
+			</div>
+		} else {
+			<ul class="ticket-list">
+				for _, ticket := range tickets {
+					<li>
+						<a class="ticket-row" href={ href.PageTicket(ticket.ShowSlug) }>
+							<div class="ticket-row-main">
+								<span class="ticket-label">Admit one</span>
+								<b>{ ticket.ShowTitle }</b>
+								<p class="meta">
+									@iconCalendar()
+									{ ticket.ShowStartsAt.Format(dateLayout) }
+								</p>
+								<p class="meta">
+									@iconLocation()
+									{ ticket.ShowVenue }, { ticket.ShowCity }
+								</p>
+							</div>
+							<div class="ticket-row-code">
+								<span class="ticket-code">{ ticket.Code }</span>
+								@iconTicket()
+							</div>
+						</a>
+					</li>
+				}
+			</ul>
+		}
+	}
+	@fragmentFooter()
+}
+
+// --- Login ---
+
+templ pageLogin(wrongCreds bool, next string) {
+	@page("page-login") {
+		<div data-signals:next={ fmt.Sprintf("%q", next) }></div>
+		<div class="card">
+			<header>
+				<h1>Sign in</h1>
+				<a href={ href.PageIndex(href.QueryPageIndex{}) }>continue as guest</a>
+			</header>
+			<section>
+				<form data-on:submit__prevent={ action.POSTPageLoginSubmit() }>
+					<input
+						class="input"
+						id="elInEmail"
+						data-bind="emailorusername"
+						type="text"
+						placeholder="email or username"
+						autocomplete="username"
+					/>
+					<input
+						class="input"
+						id="elInPass"
+						data-bind="password"
+						type="password"
+						placeholder="password"
+						autocomplete="current-password"
+					/>
+					if wrongCreds {
+						<div class="alert">
+							@iconClose()
+							<section>Wrong credentials, please try again.</section>
+						</div>
+					}
+					<button
+						class="btn"
+						type="submit"
+						data-attr:disabled="$emailorusername == '' || $password == ''"
+					>Sign in</button>
+				</form>
+			</section>
+		</div>
+		<div class="hint">
+			<i>Try one of these demo accounts:</i>
+			<div role="group" class="button-group">
+				<button
+					class="btn-secondary"
+					data-on:click="$emailorusername = 'moviebuff'; $password = 'demopass';"
+				>moviebuff</button>
+				<button
+					class="btn-secondary"
+					data-on:click="$emailorusername = 'jazzfan'; $password = 'demopass';"
+				>jazzfan</button>
+			</div>
+		</div>
+	}
+}
+
+// --- Error pages ---
+
+templ pageError404(session Session, baseData baseData) {
+	@fragmentNavbar(session, baseData)
+	@page("page-not-found") {
+		<h1>Oh-oh!</h1>
+		<p>This page does not exist.</p>
+		<a href={ href.PageIndex(href.QueryPageIndex{}) }>Back to all shows.</a>
+	}
+}
+
+templ pageError500() {
+	@page("page-error") {
+		<h1>Oh no!</h1>
+		<p>Something went wrong on our side.</p>
+		<a href={ href.PageIndex(href.QueryPageIndex{}) }>Try to go back to the shows.</a>
+	}
+}
+
+// pageOffline is precached and served by the service worker when the browser is
+// offline and the requested page has no cached copy.
+templ pageOffline() {
+	<nav id="navbar">
+		<a class="brand" href={ href.PageIndex(href.QueryPageIndex{}) }>
+			@iconTicket()
+			<b>Showtime</b>
+		</a>
+	</nav>
+	@page("page-offline") {
+		<div class="offline-hero">
+			<div class="offline-badge">
+				@iconTicket()
+			</div>
+			<h1>You&#39;re currently offline</h1>
+			<p class="offline-lead">Come back when you&#39;re back online.</p>
+			<p class="offline-sub">
+				Good news: tickets you have already bought are still available offline.
+			</p>
+			<a class="btn" href={ href.PageTickets() }>
+				@iconTicket()
+				View my tickets
+			</a>
+		</div>
+	}
+}

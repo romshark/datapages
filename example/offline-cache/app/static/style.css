@@ -1,0 +1,764 @@
+:root {
+    /* Brand + semantic tokens (namespaced to avoid clashing with Basecoat's
+       own --accent/--muted/etc. custom properties). */
+    --brand: #6d28d9;        /* brand accent for icons / links */
+    --brand-ink: #5b21b6;    /* brand text on tinted surfaces (higher contrast) */
+    --brand-2: #be185d;      /* secondary accent */
+    --btn-bg: #6d28d9;       /* primary button background */
+    --btn-bg-hover: #581c9c; /* primary button hover */
+    --btn-fg: #ffffff;       /* primary button text */
+    --bg: #f7f6fb;
+    --surface: #ffffff;
+    --surface-2: #e9e6f2;
+    --navbar-bg: rgba(255, 255, 255, 0.88);
+    --text: #1a1725;
+    --text-muted: #56526a;   /* ~7:1 on white */
+    --border: #e4e1ee;
+    --border-dashed: #cdbdf0;
+    --shadow: rgba(24, 16, 48, 0.08);
+    --shadow-hover: rgba(109, 40, 217, 0.16);
+    --ok: #15803d;
+    --bad: #b91c1c;
+    --ticket-grad: linear-gradient(135deg, #ffffff 0%, #f4eeff 100%);
+    --radius: 14px;
+    color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        /* Our own semantic tokens. */
+        --brand: #c4b5fd;        /* readable brand text/icon on dark */
+        --brand-ink: #ddd2ff;
+        --brand-2: #f9a8d4;
+        --btn-bg: #7c3aed;       /* mid violet: white text stays legible */
+        --btn-bg-hover: #8b5cf6;
+        --btn-fg: #ffffff;
+        --bg: #0e0b16;
+        --surface: #18141f;
+        --surface-2: #272031;
+        --navbar-bg: rgba(24, 20, 31, 0.88);
+        --text: #f2f1f7;
+        --text-muted: #b0adc0;   /* ~7:1 on dark surface */
+        --border: rgba(255, 255, 255, 0.12);
+        --border-dashed: rgba(196, 181, 253, 0.40);
+        --shadow: rgba(0, 0, 0, 0.5);
+        --shadow-hover: rgba(139, 92, 246, 0.30);
+        --ok: #4ade80;
+        --bad: #fca5a5;
+        --ticket-grad: linear-gradient(135deg, #1d1830 0%, #251b39 100%);
+        color-scheme: dark;
+
+        /* Basecoat UI tokens (mirrors basecoat-css .dark) so its .btn, .card,
+           .input, .alert, dropdown and popover components adapt automatically. */
+        --background: oklch(.145 0 0);
+        --foreground: oklch(.985 0 0);
+        --card: oklch(.205 0 0);
+        --card-foreground: oklch(.985 0 0);
+        --popover: oklch(.269 0 0);
+        --popover-foreground: oklch(.985 0 0);
+        --primary: oklch(.922 0 0);
+        --primary-foreground: oklch(.205 0 0);
+        --secondary: oklch(.269 0 0);
+        --secondary-foreground: oklch(.985 0 0);
+        --muted: oklch(.269 0 0);
+        --muted-foreground: oklch(.708 0 0);
+        --accent: oklch(.371 0 0);
+        --accent-foreground: oklch(.985 0 0);
+        --destructive: oklch(.704 .191 22.216);
+        --input: oklch(1 0 0 / 15%);
+        --ring: oklch(.556 0 0);
+    }
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+h1 {
+    font-weight: 800;
+    font-size: 2rem;
+    line-height: 1.15;
+}
+
+h2 {
+    font-weight: 700;
+    font-size: 1.4rem;
+}
+
+a {
+    color: inherit;
+}
+
+/* Cohesive, on-brand primary button with a strong white-on-violet contrast in
+   both themes. Basecoat still supplies sizing, radius and the other variants. */
+.btn {
+    background-color: var(--btn-bg);
+    color: var(--btn-fg);
+    border-color: transparent;
+}
+
+.btn:hover:not(:disabled) {
+    background-color: var(--btn-bg-hover);
+}
+
+.btn:disabled {
+    opacity: 0.55;
+}
+
+.badge-outline {
+    border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+    color: var(--brand-ink);
+}
+
+.meta {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-muted);
+    margin: 0.15rem 0;
+    font-size: 0.9rem;
+}
+
+.meta svg {
+    width: 1.1rem;
+    height: 1.1rem;
+    flex-shrink: 0;
+}
+
+.genre-badge {
+    display: inline-block;
+    background: color-mix(in srgb, var(--brand) 20%, var(--surface));
+    color: var(--brand-ink);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    width: fit-content;
+}
+
+#content {
+    padding: 0 1rem 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* ---------- Navbar ---------- */
+
+#navbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    background-color: var(--navbar-bg);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    max-width: 1200px;
+    margin: 0 auto;
+
+    & .spacer {
+        flex-grow: 1;
+    }
+
+    & a {
+        text-decoration: none;
+        text-wrap: nowrap;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    & .brand {
+        font-size: 1.15rem;
+        color: var(--brand);
+    }
+
+    & .brand svg {
+        color: var(--brand-2);
+    }
+
+    & #nav-tickets .badge-outline {
+        margin-left: 0.1rem;
+    }
+
+    & .username {
+        max-width: 8rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    & .avatar {
+        height: 1.6rem;
+        width: 1.6rem;
+        object-fit: cover;
+        border-radius: 1rem;
+    }
+}
+
+/* ---------- Cards grid (shows) ---------- */
+
+.show-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 1.25rem;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+
+    & .card {
+        display: flex;
+        flex-direction: column;
+        background: var(--surface);
+        border-radius: var(--radius);
+        overflow: hidden;
+        box-shadow: 0 1px 3px var(--shadow);
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    & .card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 24px var(--shadow-hover);
+    }
+
+    & .card-image {
+        position: relative;
+        display: block;
+    }
+
+    & .card-image img {
+        width: 100%;
+        aspect-ratio: 3 / 2;
+        object-fit: cover;
+        display: block;
+        background: var(--surface-2);
+    }
+
+    & .card-image .genre-badge {
+        position: absolute;
+        top: 0.6rem;
+        left: 0.6rem;
+        background: color-mix(in srgb, var(--brand) 22%, var(--surface));
+        backdrop-filter: blur(2px);
+    }
+
+    & .body {
+        padding: 0.8rem 0.9rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        flex-grow: 1;
+    }
+
+    & .title {
+        font-size: 1rem;
+        font-weight: 700;
+        line-height: 1.25;
+        text-decoration: none;
+        color: var(--text);
+        margin-bottom: 0.25rem;
+
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    & .title:hover {
+        color: var(--brand);
+    }
+
+    & .card-footer {
+        margin-top: auto;
+        padding-top: 0.6rem;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+    }
+
+    & .price {
+        font-size: 1.1rem;
+        font-weight: 800;
+    }
+
+    & .availability {
+        font-size: 0.8rem;
+        color: var(--ok);
+    }
+
+    & .availability.sold-out {
+        color: var(--bad);
+    }
+}
+
+/* ---------- Shows page ---------- */
+
+#page-shows {
+    & .shows-header {
+        padding: 1.5rem 0 1.25rem;
+    }
+
+    & .subtitle {
+        color: var(--text-muted);
+        margin: 0.25rem 0 1.25rem;
+        font-size: 1.05rem;
+    }
+
+    & .search-box {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.5rem 1rem;
+        max-width: 620px;
+        box-shadow: 0 1px 3px var(--shadow);
+    }
+
+    & .search-box:focus-within {
+        border-color: var(--brand);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 25%, transparent);
+    }
+
+    & .search-box svg {
+        color: var(--text-muted);
+        flex-shrink: 0;
+    }
+
+    & .search-box .input {
+        border: none;
+        outline: none;
+        background: transparent;
+        color: var(--text);
+        flex-grow: 1;
+        font-size: 1rem;
+        padding: 0.15rem 0;
+    }
+}
+
+.empty {
+    padding: 2.5rem 1rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+}
+
+/* ---------- Show detail ---------- */
+
+.back-link {
+    display: inline-block;
+    margin: 1rem 0;
+    color: var(--text-muted);
+    text-decoration: none;
+}
+
+.back-link:hover {
+    color: var(--brand);
+}
+
+#page-show {
+    & .show-hero {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+
+        @media (min-width: 768px) {
+            flex-direction: row;
+            align-items: flex-start;
+        }
+    }
+
+    & .show-image {
+        width: 100%;
+        border-radius: var(--radius);
+        object-fit: cover;
+        background: var(--surface-2);
+        aspect-ratio: 3 / 2;
+
+        @media (min-width: 768px) {
+            width: 55%;
+            max-width: 640px;
+        }
+    }
+
+    & .show-info {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        flex: 1;
+    }
+
+    & .show-info h1 {
+        margin: 0.3rem 0;
+    }
+
+    & .price-large {
+        font-size: 1.8rem;
+        font-weight: 800;
+        margin: 0.6rem 0;
+    }
+
+    & .show-cta {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.6rem;
+    }
+
+    & .show-cta .btn {
+        font-size: 1.05rem;
+        padding: 0.6rem 1.4rem;
+    }
+
+    & .owned-note {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        color: var(--ok);
+        font-size: 0.9rem;
+        margin: 0;
+    }
+
+    & .show-description {
+        margin-top: 2.5rem;
+        border-top: 1px solid var(--border);
+        padding-top: 1.25rem;
+        max-width: 720px;
+        line-height: 1.6;
+    }
+}
+
+/* ---------- Purchase ---------- */
+
+#page-purchase {
+    max-width: 640px;
+
+    & .purchase-card {
+        display: grid;
+        grid-template-columns: 96px 1fr;
+        gap: 1rem 1.25rem;
+        align-items: start;
+        padding: 1.25rem;
+    }
+
+    & .thumb {
+        width: 96px;
+        height: 96px;
+        object-fit: cover;
+        border-radius: 10px;
+        background: var(--surface-2);
+    }
+
+    & .summary h2 {
+        margin: 0 0 0.35rem;
+        font-size: 1.15rem;
+    }
+
+    & .totals {
+        grid-column: 1 / -1;
+        border-top: 1px dashed var(--border-dashed);
+        padding-top: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    & .line {
+        display: flex;
+        justify-content: space-between;
+        color: var(--text-muted);
+    }
+
+    & .line.total {
+        color: var(--text);
+        font-weight: 800;
+        font-size: 1.15rem;
+    }
+
+    & .btn.buy {
+        margin-top: 0.75rem;
+        font-size: 1.05rem;
+        padding: 0.7rem 1rem;
+    }
+
+    & .fine-print {
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        margin: 0.25rem 0 0;
+    }
+}
+
+/* ---------- Ticket ---------- */
+
+.ticket-label {
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--brand-2);
+}
+
+#page-ticket {
+    & .ticket {
+        display: flex;
+        flex-direction: column;
+        max-width: 640px;
+        margin: 1.5rem auto 0;
+        background: var(--surface);
+        border-radius: 18px;
+        overflow: hidden;
+        box-shadow: 0 10px 30px var(--shadow-hover);
+
+        @media (min-width: 560px) {
+            flex-direction: row;
+        }
+    }
+
+    & .ticket-main {
+        padding: 1.75rem;
+        flex-grow: 1;
+        background: var(--ticket-grad);
+    }
+
+    & .ticket-main h1 {
+        margin: 0.4rem 0 0.75rem;
+        font-size: 1.5rem;
+    }
+
+    & .ticket-holder {
+        display: flex;
+        gap: 2rem;
+        margin: 1.25rem 0 0;
+    }
+
+    & .ticket-holder dt {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+    }
+
+    & .ticket-holder dd {
+        margin: 0.15rem 0 0;
+        font-weight: 600;
+    }
+
+    & .ticket-stub {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 1.75rem;
+        background: var(--surface);
+        border-top: 2px dashed var(--border-dashed);
+
+        @media (min-width: 560px) {
+            border-top: none;
+            border-left: 2px dashed var(--border-dashed);
+        }
+    }
+
+    & .ticket-qr {
+        width: 180px;
+        height: 180px;
+        image-rendering: pixelated;
+        background: #fff;
+        padding: 8px;
+        border-radius: 8px;
+    }
+
+    & .ticket-code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        font-size: 1rem;
+    }
+
+    & .ticket-hint {
+        color: var(--text-muted);
+        font-size: 0.8rem;
+    }
+
+    & .ticket-actions {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: center;
+        margin-top: 1.5rem;
+    }
+}
+
+/* ---------- Tickets list ---------- */
+
+#page-tickets {
+    & h1 {
+        margin: 1.5rem 0 1rem;
+    }
+
+    & .ticket-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+    }
+
+    & .ticket-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        background: var(--surface);
+        border-radius: var(--radius);
+        padding: 1rem 1.25rem;
+        text-decoration: none;
+        box-shadow: 0 1px 3px var(--shadow);
+        transition: box-shadow 0.12s ease;
+    }
+
+    & .ticket-row:hover {
+        box-shadow: 0 6px 18px var(--shadow-hover);
+    }
+
+    & .ticket-row-main b {
+        display: block;
+        font-size: 1.05rem;
+        margin: 0.2rem 0;
+    }
+
+    & .ticket-row-code {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.3rem;
+        color: var(--brand);
+        text-align: right;
+    }
+
+    & .tickets-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+    }
+}
+
+/* ---------- Login ---------- */
+
+#page-login {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    min-height: 80vh;
+    gap: 2.5rem;
+
+    & .card {
+        width: 24rem;
+        max-width: 100%;
+    }
+
+    & .card section,
+    & .card form {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+    }
+
+    & .hint {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+    }
+}
+
+/* ---------- Offline ---------- */
+
+#datapages-offline-banner {
+    position: fixed;
+    left: 50%;
+    bottom: 1rem;
+    transform: translateX(-50%);
+    z-index: 50;
+    background: var(--brand-2);
+    color: #fff;
+    padding: 0.55rem 1.1rem;
+    border-radius: 999px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+
+#page-offline {
+    display: flex;
+    justify-content: center;
+}
+
+.offline-hero {
+    max-width: 30rem;
+    margin: 3rem auto;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.65rem;
+
+    & .offline-badge {
+        width: 4.5rem;
+        height: 4.5rem;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--brand) 18%, var(--surface));
+        color: var(--brand-ink);
+        margin-bottom: 0.5rem;
+    }
+
+    & .offline-badge svg {
+        width: 2.2rem;
+        height: 2.2rem;
+    }
+
+    & .offline-lead {
+        font-size: 1.15rem;
+        margin: 0;
+    }
+
+    & .offline-sub {
+        color: var(--text-muted);
+        margin: 0 0 0.75rem;
+    }
+}
+
+/* ---------- Footer ---------- */
+
+#footer {
+    margin-top: 3.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    align-items: center;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+
+    & p {
+        margin: 0;
+    }
+}

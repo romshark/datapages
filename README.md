@@ -43,13 +43,16 @@ or simple [HTMX](https://htmx.org/)-style websites - Datapages will serve you we
 - [`sqlitesessions`](example/sqlitesessions/) —
   Custom `sessmanager.SessionManager` implementation backed by SQLite
   via [sqinn-go](https://github.com/cvilsmeier/sqinn-go) (no cgo).
+- [`offline-cache`](example/offline-cache/) —
+  Service-worker offline support: pages cached from handlers, a `PageOffline`
+  fallback, and purchased tickets that stay viewable without a connection.
 
 ## Getting Started
 
 ### Install
 
 ```sh
-go install github.com/romshark/datapages@latest
+go install github.com/romshark/datapages/cmd/datapages@latest
 ```
 
 ### Initialize New Project

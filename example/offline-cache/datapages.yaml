@@ -1,0 +1,18 @@
+app: app
+gen:
+  package: datapagesgen
+  prometheus: false
+cmd: cmd/server
+assets:
+  url-prefix: /static/
+  dir: ./app/static/
+watch:
+  exclude:
+    - ".git/**" # git internals
+    - ".*"      # hidden files/directories
+    - "*~"      # editor backup files
+  custom-watchers:
+    - name: "CSS"
+      include:
+        - "app/static/style.css"
+      requires: reload

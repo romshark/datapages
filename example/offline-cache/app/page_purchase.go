@@ -1,0 +1,150 @@
+package app
+
+import (
+	"errors"
+	"fmt"
+	"net/http"
+	"strconv"
+
+	"github.com/a-h/templ"
+
+	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/example/offline-cache/app/domain"
+	"github.com/romshark/datapages/example/offline-cache/datapagesgen/href"
+	"github.com/romshark/datapages/example/offline-cache/datapagesgen/httperr"
+)
+
+// PagePurchase is /shows/{nameslug}/purchase
+type PagePurchase struct {
+	App *App
+	Base
+}
+
+func (p PagePurchase) GET(
+	r *http.Request,
+	session Session,
+	path struct {
+		Slug string `path:"nameslug"`
+	},
+) (body templ.Component, redirect string, err error) {
+	if session.UserID == "" {
+		// Guests must sign in before purchasing.
+		return nil, href.PageLogin(href.QueryPageLogin{
+			Next: href.PagePurchase(path.Slug),
+		}), nil
+	}
+
+	show, err := p.App.repo.ShowBySlug(r.Context(), path.Slug)
+	if err != nil {
+		if errors.Is(err, domain.ErrShowNotFound) {
+			return nil, "", httperr.NotFound
+		}
+		return nil, "", err
+	}
+
+	// If the user already owns a ticket, jump straight to it.
+	if _, ok, err := p.App.repo.TicketForShow(
+		r.Context(), session.UserID, show.Slug,
+	); err != nil {
+		return nil, "", err
+	} else if ok {
+		return nil, href.PageTicket(show.Slug), nil
+	}
+
+	baseData, err := p.baseData(r.Context(), session)
+	if err != nil {
+		return nil, "", err
+	}
+	return pagePurchase(session, show, baseData), "", nil
+}
+
+// POSTConfirm is /shows/{nameslug}/purchase/confirm
+func (p PagePurchase) POSTConfirm(
+	r *http.Request,
+	sse datapages.SSE,
+	offlineCache datapages.OfflineCacheWriter,
+	session Session,
+	path struct {
+		Slug string `path:"nameslug"`
+	},
+) error {
+	if session.UserID == "" {
+		return navigate(sse, href.PageLogin(href.QueryPageLogin{
+			Next: href.PagePurchase(path.Slug),
+		}))
+	}
+
+	_, err := p.App.repo.BuyTicket(r.Context(), session.UserID, path.Slug)
+	switch {
+	case err == nil, errors.Is(err, domain.ErrTicketExists):
+		// Refresh the offline cache so the new ticket and the updated tickets
+		// list are viewable offline right away, then navigate to the ticket.
+		if err := p.refreshOfflineCache(r, offlineCache, session, path.Slug); err != nil {
+			return err
+		}
+		return navigate(sse, href.PageTicket(path.Slug))
+	case errors.Is(err, domain.ErrShowNotFound):
+		return httperr.NotFound
+	case errors.Is(err, domain.ErrShowSoldOut):
+		return httperr.BadRequest
+	default:
+		return err
+	}
+}
+
+// refreshOfflineCache re-caches the tickets list and the just-purchased ticket
+// so both are available offline immediately after a purchase.
+func (p PagePurchase) refreshOfflineCache(
+	r *http.Request,
+	offlineCache datapages.OfflineCacheWriter,
+	session Session,
+	slug string,
+) error {
+	ctx := r.Context()
+	baseData, err := p.baseData(ctx, session)
+	if err != nil {
+		return err
+	}
+
+	tickets, err := p.App.repo.TicketsByUser(ctx, session.UserID)
+	if err != nil {
+		return err
+	}
+	offlineCache.Set(
+		href.PageTickets(),
+		offlineDoc(pageTickets(session, tickets, baseData)),
+		ticketsOfflineVersion(session, tickets),
+	)
+
+	ticket, ok, err := p.App.repo.TicketForShow(ctx, session.UserID, slug)
+	if err != nil {
+		return err
+	}
+	if ok {
+		qr, err := qrDataURI(ticket.Code)
+		if err != nil {
+			return err
+		}
+		offlineCache.Set(
+			href.PageTicket(slug),
+			offlineDoc(pageTicket(session, ticket, qr, baseData)),
+			offlineCacheVersion(session, strconv.FormatInt(ticket.PurchasedAt.Unix(), 10)),
+		)
+	}
+
+	// Refresh the show page too so its offline call-to-action flips from "Buy" to
+	// "View your ticket".
+	if show, err := p.App.repo.ShowBySlug(ctx, slug); err == nil {
+		offlineCache.Set(
+			href.PageShow(slug),
+			offlineDoc(pageShow(session, show, true, baseData)),
+			showOfflineVersion(session, true),
+		)
+	}
+	return nil
+}
+
+// navigate performs a client-side redirect over the SSE stream.
+func navigate(sse datapages.SSE, url string) error {
+	return sse.ExecuteScript(fmt.Sprintf("window.location=%q", url))
+}

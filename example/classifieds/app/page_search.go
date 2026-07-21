@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 )
 
@@ -47,7 +47,7 @@ func (p PageSearch) GET(
 // POSTParamChange is /search/paramchange/{$}
 func (p PageSearch) POSTParamChange(
 	r *http.Request,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 	signals SearchParams,
 ) error {

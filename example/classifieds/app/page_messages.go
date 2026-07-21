@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 )
@@ -279,7 +279,7 @@ func (p PageMessages) POSTSendMessage(
 
 func (p PageMessages) OnMessagingRead(
 	event EventMessagingRead,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	if err := p.Base.OnMessagingRead(event, sse, session); err != nil {
@@ -296,7 +296,7 @@ func (p PageMessages) OnMessagingRead(
 
 func (PageMessages) OnMessagingWriting(
 	event EventMessagingWriting,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	return sse.MarshalAndPatchSignals(struct {
@@ -308,7 +308,7 @@ func (PageMessages) OnMessagingWriting(
 
 func (PageMessages) OnMessagingWritingStopped(
 	event EventMessagingWritingStopped,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	return sse.MarshalAndPatchSignals(struct {
@@ -320,7 +320,7 @@ func (PageMessages) OnMessagingWritingStopped(
 
 func (p PageMessages) OnMessagingSent(
 	event EventMessagingSent,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	if err := p.Base.OnMessagingSent(event, sse, session); err != nil {

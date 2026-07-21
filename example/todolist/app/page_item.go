@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/todolist/datapagesgen/httperr"
 )
 
@@ -29,7 +29,7 @@ func (p PageItem) GET(
 func (p PageItem) StreamOpen(
 	r *http.Request,
 	streamID uint64,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	signals struct {
 		ItemID string `json:"itemId"`
 	},
@@ -73,7 +73,7 @@ func (p PageItem) DELETEItem(
 
 func (p PageItem) OnTodoUpdated(
 	event EventTodoUpdated,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	streamID uint64,
 ) error {
 	ts := p.App.streamState(streamID)

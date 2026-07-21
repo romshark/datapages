@@ -28,7 +28,7 @@ an HTTP error response using the appropriate status code.
 ```go
 func (*App) RecoverError(
 	err error,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
 	return sse.PatchElementTempl(errorToast(err))
 }
@@ -58,9 +58,16 @@ in [net/http Mux pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns-ServeM
 
 The page type `PageIndex` (for URL `/`) is required.
 
-Page types `PageError500` and `PageError404` are optional special error pages for the
-response codes `500` and `404` respectively.
+Page types `PageError500`, `PageError404` and `PageOffline` are optional special
+pages. `PageError500` and `PageError404` render the `500` and `404` responses;
+`PageOffline` is the offline fallback the [service worker](#service-worker) serves
+when the browser is offline and the requested URL is not cached.
 Otherwise datapages will use its own defaults.
+
+Each declares its route by comment like any other page. `PageError500` and
+`PageOffline` always render with a zero `Session`: the former runs after handling
+has already failed, and the latter is precached once by the service worker and
+served to every visitor, so neither may depend on who is signed in.
 
 Handler method parameters and return values are defined and enforced by datapages.
 Parameters and return values may be in any order. Using unsupported parameter or
@@ -118,7 +125,7 @@ include `r *http.Request` and may include the following optional parameters:
 // POSTActionName is <path>
 func (PageIndex) POSTActionName(
 	r *http.Request,
-	sse *datastar.ServerSentEventGenerator, // Optional
+	sse datapages.SSE, // Optional
 	sessionToken string, // Optional
 	session Session, // Optional
 	path struct{...}, // Required only when path variables are used in the URL
@@ -171,13 +178,13 @@ func (PageIndex) POSTActionName(
 
 All `OnXXX` method parameter lists must include
 the `event` parameter of an event type and
-`sse *datastar.ServerSentEventGenerator`. Parameters may be in any order.
+`sse datapages.SSE`. Parameters may be in any order.
 The `XXX` placeholder must always match the event name after the type's `Event` prefix.
 
 ```go
 func (PageIndex) OnSomethingHappened(
 	event EventSomethingHappened,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	streamID uint64, // Optional
 	sessionToken string, // Optional
 	session Session, // Optional
@@ -201,7 +208,7 @@ should not be exposed to clients.
 func (PageIndex) StreamOpen(
 	r *http.Request,
 	streamID uint64,
-	sse *datastar.ServerSentEventGenerator, // Optional
+	sse datapages.SSE, // Optional
 	sessionToken string, // Optional
 	session Session, // Optional
 	signals struct{...}, // Optional
@@ -244,7 +251,7 @@ type Base struct{ App *App }
 
 func (Base) OnSomethingHappened(
 	event EventSomethingHappened,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	// ...
@@ -324,7 +331,7 @@ func (p PageExample) POSTButtonClicked(
 
 func (p PageExample) OnSomethingHappened(
 	event EventSomethingHappened,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	// When something happens, patch the page.
@@ -479,16 +486,140 @@ type Session struct {
 }
 ```
 
-#### Parameter: `sse *datastar.ServerSentEventGenerator`
+#### Parameter: `sse datapages.SSE`
 
 ```go
-sse *datastar.ServerSentEventGenerator
+sse datapages.SSE
 ```
 
 This parameter is allowed on `POSTXXX`, `PUTXXX`, `PATCHXXX`, and `DELETEXXX` page methods
 handling [action requests](https://data-star.dev/reference/actions) and
 `OnXXX` event handler page methods.
 This gives you a handle to patch page elements, execute scripts, etc.
+
+`datapages.SSE` (from `github.com/romshark/datapages`) hides the underlying
+Datastar generator so handler signatures never depend on the datastar package
+directly.
+
+The interface (from `github.com/romshark/datapages`):
+
+```go
+type SSE interface {
+	// Context returns the context of the SSE stream.
+	Context() context.Context
+	// PatchElementTempl patches (morphs) the elements rendered by c into the DOM.
+	PatchElementTempl(c templ.Component, opts ...PatchOption) error
+	// ExecuteScript runs a script on the client.
+	ExecuteScript(script string) error
+	// MarshalAndPatchSignals updates client-side signals from v.
+	MarshalAndPatchSignals(v any) error
+	// Redirect navigates the client to url.
+	Redirect(url string) error
+}
+```
+
+The `PatchOption` values (`WithSelector`, `WithSelectorID`, `WithModeAppend`, …)
+are provided by the same package, wrapping the corresponding Datastar options.
+
+#### Parameter: `offlineCache datapages.OfflineCacheWriter`
+
+```go
+offlineCache datapages.OfflineCacheWriter
+```
+
+This parameter is allowed on `GET` page methods and on `POSTXXX`, `PUTXXX`,
+`PATCHXXX`, and `DELETEXXX` action methods (including app-level actions). It allows
+utilizing the client's
+[service-worker](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API)
+cache: for a given URL, which the browser can use to render pages for the cached URLs 
+when it's offline. The offline body is a component the handler provides (typically a
+dedicated offline-version of the page) and need not match the page's actual body.
+Datapages registers the service worker automatically.
+
+The interface (from `github.com/romshark/datapages`):
+
+```go
+type OfflineCacheWriter interface {
+	// Version returns the version at which the current request's URL is
+	// cached in the browser's service worker (0 if not cached). Compare it against the
+	// resource's own server-side version to decide whether to (re)cache the page.
+	Version() uint64
+
+	// Set caches body in the browser's service worker for url and stamps the entry
+	// with version, which [Version] reports back on the next request. url must be
+	// produced by the generated href package.
+	Set(url string, body templ.Component, version uint64)
+
+	// Clear removes a single url from the client's cache. url must be
+	// produced by the generated href package.
+	Clear(url string)
+
+	// ClearAll wipes the client's ENTIRE cache, including all entries!
+	// Use it only for a full reset such as a major version migration.
+	ClearAll()
+}
+```
+
+The writes are **deferred and atomic**: nothing is applied on the client until
+the handler returns without error, at which point all `Set`, `Clear` and
+`ClearAll` calls take effect together. `Set` merges on top of the existing cache;
+`ClearAll` wipes everything first. If the handler returns an error, no cache
+mutation happens.
+
+Each cached URL carries its own individual version, chosen by the framework user.
+`Version()` reports the version the client holds for the current request's URL
+(0 if none); compare it against the resource's server-side version to decide whether
+to re-`Set` it.
+
+Delivery is chosen by the framework from the handler kind:
+
+- On a **`GET`** page method the queued writes are rendered and baked into the
+  page's HTML; the service worker applies them on load, adding no extra request.
+- On an **action** the queued writes are delivered over the SSE stream.
+
+A page can lazily cache itself on visit, versioned by its own data so it
+refreshes whenever that data changes:
+
+```go
+// PageItem is /item/{id}
+func (p PageItem) GET(
+	r *http.Request,
+	offlineCache datapages.OfflineCacheWriter,
+	path struct {
+		ID string `path:"id"`
+	},
+) (body templ.Component, err error) {
+	item := p.App.item(path.ID)
+	if offlineCache.Version() < item.Revision {
+		// Missing, or cached before the item last changed.
+		offlineCache.Set(href.PageItem(path.ID), itemOffline(item), item.Revision)
+	}
+	return itemView(item), nil
+}
+```
+
+An action can eagerly precache URLs the user has not visited yet (for example via
+`data-init`). `Version()` only refers to the current request's URL, so an
+action has no per-URL gate: pass each resource's version to `Set` and the service
+worker skips storing entries it already holds at that version.
+
+```go
+// POSTPrecache is /precache
+//
+// This is called on data-init to pre-cache an array of ticket pages.
+func (a *App) POSTPrecache(
+	r *http.Request,
+	session Session,
+	offlineCache datapages.OfflineCacheWriter,
+) error {
+	for _, t := range a.userTickets(r.Context(), session.UserID) {
+		offlineCache.Set(href.PageTicket(t.Slug), ticketOffline(t), t.Revision)
+	}
+	return nil
+}
+```
+
+See [Service Worker](#service-worker) for how these entries are stored and served.
 
 #### Parameter: `dispatch func(...) error`
 
@@ -709,7 +840,7 @@ func (PageChat) POSTSendMessage(
 
 func (PageChat) OnMessageSent(
 	event EventMessageSent,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	// Use sse to patch the new message into view.
@@ -923,3 +1054,73 @@ cross-page action ownership errors.
   (e.g. `href="https://mydomain.com/login"`). These bypass the linter because they
   have an explicit URL scheme, which the linter treats as external.
   Use the generated `href.PageXxx()` builders instead.
+
+## Service Worker
+
+The service worker backs the
+[`offlineCache`](#parameter-offlinecache-datapagesofflinecachewriter) parameter.
+It runs only in a secure context (HTTPS or localhost); otherwise the offline API
+does nothing.
+
+The worker is registered with whole-origin scope: its script response sends a
+`Service-Worker-Allowed: /` header, so it controls every page on the origin
+regardless of the path the script itself is served from.
+
+Installation and updates are driven by the `X-Datapages-Worker-Version` request
+header, not tied to a specific page. The installed worker sets it to its own
+version (a `uint64`) on every request. This is the service worker's own version,
+which Datapages bumps whenever it ships a changed worker script. It is independent
+of the Datapages release version and of the per-URL cache versions passed to
+`Set`. The server compares the header against the worker version it currently
+ships:
+
+- Header absent: no worker is installed yet. The server injects the registration
+  script into the current response, whatever page was requested, so the worker
+  installs during this request.
+- Header lower than the shipped worker version: the server serves the newer
+  worker script and it re-registers, replacing the old one.
+- Header equal: the worker is up to date and nothing is injected.
+
+The worker holds one cache of offline bodies keyed by URL. Each entry stores the
+rendered HTML and its version.
+
+Writes reach the worker in one of three ways, depending on how the handler
+responds:
+
+- `GET`: the queued entries are embedded in the page and an inline script passes
+  them to the worker after load.
+- Action opening an SSE stream: they are sent over that stream.
+- Action returning a redirect: they are carried in its `text/javascript` response
+  and handed to the worker before the navigation runs, so they are not lost to the
+  page unload.
+
+The worker applies a request's `Set`, `Clear` and `ClearAll` calls together, once
+the handler returns without error. `Set` writes or overwrites one entry, `Clear`
+deletes one, `ClearAll` empties the cache.
+
+On every navigation the worker sets the `X-Datapages-Offline-Version` request
+header to the version it holds for the requested URL, or omits it when the URL is
+not cached. The server reads it back through `Version()` (which returns 0 when the
+header is absent).
+
+Serving works as follows:
+
+- Online: the worker passes the request to the network and returns the live
+  response. It never serves a cached body while online.
+- Offline and the URL is cached: the worker returns the stored offline body.
+- Offline and the URL is not cached: the worker returns the `PageOffline` fallback.
+  `PageOffline` declares its route by comment like any other page, and the worker
+  precaches it when it installs. Declaring the page generates a `WithOffline`
+  server option that passes that route to the worker, so the route is never
+  configured a second time. Datapages uses its own minimal page when `PageOffline`
+  is not defined or precaching it failed.
+
+Assets that cached pages reference are cached as well, so those pages render fully
+offline and not just as unstyled HTML. All same-origin requests are cached on first
+load. Cross-origin requests are cached only for the request destinations the
+application opts in to, by default stylesheets, scripts, fonts and images; such
+responses are often opaque and are stored as such. Restricting them by destination
+keeps API and analytics calls out of the cache, as they must not be answered from a
+stale copy. The application shell declared for precaching is stored when the worker
+installs. An asset that is neither declared nor ever loaded while online is
+unavailable offline.

@@ -5,7 +5,8 @@ import (
 	"sync/atomic"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages"
 )
 
 // EventCounterUpdated is "counter.updated"
@@ -52,7 +53,7 @@ func (p PageIndex) POSTSet(
 }
 
 func (p PageIndex) OnCounterUpdated(
-	event EventCounterUpdated, sse *datastar.ServerSentEventGenerator,
+	event EventCounterUpdated, sse datapages.SSE,
 ) error {
 	return sse.PatchElementTempl(counterValue(p.App.counter.Load()))
 }

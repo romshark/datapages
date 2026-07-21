@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 )
@@ -71,7 +71,7 @@ func (p PagePost) GET(
 // POSTSendMessage is /post/{slug}/send-message/{$}
 func (p PagePost) POSTSendMessage(
 	r *http.Request,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 	path struct {
 		Slug string `path:"slug"`
@@ -120,7 +120,7 @@ func (p PagePost) POSTSendMessage(
 
 func (p PagePost) OnPostArchived(
 	event EventPostArchived,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	return sse.ExecuteScript("location.replace(location.href);")

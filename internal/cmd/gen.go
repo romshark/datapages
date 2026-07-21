@@ -10,11 +10,11 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/romshark/datapages/generator"
 	"github.com/romshark/datapages/internal/cmd/config"
-	datapagesparser "github.com/romshark/datapages/parser"
-	"github.com/romshark/datapages/parser/errsuggest"
-	"github.com/romshark/datapages/parser/model"
+	"github.com/romshark/datapages/internal/generator"
+	datapagesparser "github.com/romshark/datapages/internal/parser"
+	"github.com/romshark/datapages/internal/parser/errsuggest"
+	"github.com/romshark/datapages/internal/parser/model"
 )
 
 func newGenCmd(stderr io.Writer, version string) *cobra.Command {
