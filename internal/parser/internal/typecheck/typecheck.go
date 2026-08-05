@@ -198,10 +198,10 @@ func IsDatapagesSSE(expr ast.Expr, info *types.Info) bool {
 	return isNamedFromPkg(expr, info, datapagesPkgPath, "SSE")
 }
 
-// IsDatapagesOffline reports whether expr resolves to
-// datapages.OfflineCacheWriter.
-func IsDatapagesOffline(expr ast.Expr, info *types.Info) bool {
-	return isNamedFromPkg(expr, info, datapagesPkgPath, "OfflineCacheWriter")
+// IsDatapagesPageCache reports whether expr resolves to
+// datapages.PageCacheWriter.
+func IsDatapagesPageCache(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "PageCacheWriter")
 }
 
 // isSSEParam reports whether expr is a valid SSE parameter type: either

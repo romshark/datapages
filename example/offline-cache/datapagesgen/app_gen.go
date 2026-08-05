@@ -307,7 +307,7 @@ func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status 
 }
 
 func httpRedirectOffline(
-	w http.ResponseWriter, r *http.Request, target string, status int, oc *offlineCacheWriter,
+	w http.ResponseWriter, r *http.Request, target string, status int, oc *pageCacheWriter,
 ) (exit bool) {
 	if target == "" {
 		return false
@@ -381,71 +381,131 @@ func (s sseWrapper) Redirect(url string) error {
 	return s.gen.Redirect(url)
 }
 
-// newOfflineCache builds the offline cache handle for the request. sse is the
+// newPageCache builds the page cache handle for the request. sse is the
 // action's SSE generator, or nil for GET and redirect handlers.
-func newOfflineCache(
-	r *http.Request, sse *datastar.ServerSentEventGenerator,
-) *offlineCacheWriter {
-	return &offlineCacheWriter{r: r, sse: sse}
+func newPageCache(
+	s *Server, r *http.Request, sse *datastar.ServerSentEventGenerator,
+) *pageCacheWriter {
+	return &pageCacheWriter{s: s, r: r, sse: sse}
 }
 
-type offlineCacheWriter struct {
+// pageCacheBuf adapts a buffer to http.ResponseWriter. Cached bodies render
+// through the same writeHTML the live pages use.
+type pageCacheBuf struct {
+	b strings.Builder
+	h http.Header
+}
+
+func (p *pageCacheBuf) Header() http.Header {
+	if p.h == nil {
+		p.h = http.Header{}
+	}
+	return p.h
+}
+func (p *pageCacheBuf) Write(b []byte) (int, error) { return p.b.Write(b) }
+func (p *pageCacheBuf) WriteHeader(int)             {}
+
+func (s *Server) pageCacheHead(r *http.Request) templ.Component {
+	return s.app.Head(r)
+}
+
+type pageCacheWriter struct {
+	s        *Server
 	r        *http.Request
 	sse      *datastar.ServerSentEventGenerator // nil for GET handlers
 	clearAll bool
-	sets     []offlinePendingSet
+	sets     []pageCachePendingSet
 	clears   []string
 }
 
-type offlinePendingSet struct {
+type pageCachePendingSet struct {
 	url     string
 	body    templ.Component
 	version uint64
+	shim    bool
 }
 
 // Version reports the version the client holds for this request's URL. A missing
-// or malformed header parses to 0, meaning nothing cached, so the handler
+// or malformed header parses to 0, meaning nothing cached. The handler
 // re-caches instead of trusting a bad value.
-func (c *offlineCacheWriter) Version() uint64 {
+func (c *pageCacheWriter) Version() uint64 {
 	v, _ := strconv.ParseUint(
 		c.r.Header.Get(datapages.HeaderOfflineVersion), 10, 64,
 	)
 	return v
 }
 
-func (c *offlineCacheWriter) Set(url string, body templ.Component, version uint64) {
-	c.sets = append(c.sets, offlinePendingSet{url: url, body: body, version: version})
+func (c *pageCacheWriter) Set(url string, body templ.Component, version uint64) {
+	c.sets = append(c.sets, pageCachePendingSet{url: url, body: body, version: version})
 }
 
-func (c *offlineCacheWriter) Clear(url string) { c.clears = append(c.clears, url) }
+func (c *pageCacheWriter) SetShim(
+	url string, body templ.Component, version uint64,
+) {
+	c.sets = append(c.sets, pageCachePendingSet{
+		url: url, body: body, version: version, shim: true,
+	})
+}
 
-func (c *offlineCacheWriter) ClearAll() { c.clearAll = true }
+func (c *pageCacheWriter) Clear(url string) { c.clears = append(c.clears, url) }
 
-type offlineEntry struct {
+func (c *pageCacheWriter) ClearAll() { c.clearAll = true }
+
+type pageCacheEntry struct {
 	URL     string `json:"url"`
 	HTML    string `json:"html"`
 	Version uint64 `json:"version"`
+	Shim    bool   `json:"shim,omitempty"`
 }
 
-func (c *offlineCacheWriter) payload() (string, error) {
+// shimHydrateScript is appended to every shim. Datastar has no imperative API,
+// so the script adds a data-init element. Datastar's MutationObserver sees it,
+// requests this URL, and morphs in the live page the worker prefetched. The
+// element stays in the DOM (removing it on a timer can beat Datastar's deferred
+// module load); the morph drops it, as the live page has no such element.
+func withShimHydrate(body templ.Component) templ.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		if err := body.Render(ctx, w); err != nil {
+			return err
+		}
+		_, err := io.WriteString(w, shimHydrateScript)
+		return err
+	})
+}
+
+const shimHydrateScript = `<script>(function(){
+var el=document.createElement("div");
+el.setAttribute("data-init","@get(window.location.pathname)");
+document.body.appendChild(el);
+})();</script>`
+
+func (c *pageCacheWriter) payload() (string, error) {
 	if !c.clearAll && len(c.sets) == 0 && len(c.clears) == 0 {
 		return "", nil
 	}
-	entries := make([]offlineEntry, 0, len(c.sets))
+	entries := make([]pageCacheEntry, 0, len(c.sets))
 	for _, s := range c.sets {
-		var sb strings.Builder
-		if err := s.body.Render(c.r.Context(), &sb); err != nil {
-			return "", fmt.Errorf("rendering offline body for %s: %w", s.url, err)
+		// Cached entries are served standalone. Render a complete document, the
+		// same <head>, stylesheets and Datastar bundle as a live page.
+		var buf pageCacheBuf
+		body := s.body
+		if s.shim {
+			body = withShimHydrate(body)
 		}
-		entries = append(entries, offlineEntry{
-			URL: s.url, HTML: sb.String(), Version: s.version,
+		if err := c.s.writeHTML(
+			&buf, c.r, app.Session{}, c.s.pageCacheHead(c.r), nil, body, nil, nil,
+		); err != nil {
+			return "", fmt.Errorf("rendering page cache body for %s: %w", s.url, err)
+		}
+		entries = append(entries, pageCacheEntry{
+			URL: s.url, HTML: buf.b.String(), Version: s.version, Shim: s.shim,
 		})
 	}
 	msg := struct {
-		Type     string         `json:"type"`
-		ClearAll bool           `json:"clearAll"`
-		Sets     []offlineEntry `json:"sets"`
-		Clears   []string       `json:"clears"`
+		Type     string           `json:"type"`
+		ClearAll bool             `json:"clearAll"`
+		Sets     []pageCacheEntry `json:"sets"`
+		Clears   []string         `json:"clears"`
 	}{
 		Type:     "datapages-offline:apply",
 		ClearAll: c.clearAll,
@@ -459,14 +519,14 @@ func (c *offlineCacheWriter) payload() (string, error) {
 	return string(b), nil
 }
 
-func offlinePostToWorkerJS(payloadJSON string) string {
+func pageCachePostToWorkerJS(payloadJSON string) string {
 	return "navigator.serviceWorker&&navigator.serviceWorker.ready.then(function(reg){" +
 		"var w=reg.active||navigator.serviceWorker.controller;if(w)w.postMessage(" +
 		payloadJSON + ");});"
 }
 
 // flush delivers the queued writes over the action's SSE stream.
-func (c *offlineCacheWriter) flush() error {
+func (c *pageCacheWriter) flush() error {
 	if c.sse == nil {
 		return nil
 	}
@@ -474,26 +534,26 @@ func (c *offlineCacheWriter) flush() error {
 	if err != nil || payload == "" {
 		return err
 	}
-	return c.sse.ExecuteScript(offlinePostToWorkerJS(payload))
+	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
 // writeBake writes the queued writes as a trailing <script> into a GET response
 // so the worker applies them on load.
-func (c *offlineCacheWriter) writeBake(w http.ResponseWriter) error {
+func (c *pageCacheWriter) writeBake(w http.ResponseWriter) error {
 	payload, err := c.payload()
 	if err != nil || payload == "" {
 		return err
 	}
-	_, err = fmt.Fprintf(w, "<script>%s</script>", offlinePostToWorkerJS(payload))
+	_, err = fmt.Fprintf(w, "<script>%s</script>", pageCachePostToWorkerJS(payload))
 	return err
 }
 
 // redirectScript returns JavaScript that delivers the queued writes to the worker
 // and then navigates to target. Used by redirect-returning actions, whose response
 // is a text/javascript body rather than an SSE stream. The navigation runs only
-// after the message is posted, so a ClearAll on sign-in or sign-out is not lost to
+// after the message is posted. A ClearAll on sign-in or sign-out is not lost to
 // the page unload.
-func (c *offlineCacheWriter) redirectScript(target string) (string, error) {
+func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 	tj, err := json.Marshal(target)
 	if err != nil {
 		return "", err
@@ -1006,8 +1066,8 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	offlineCache := newOfflineCache(r, nil)
-	closeSession, redirect, err := s.app.POSTSignOut(r, sess, offlineCache)
+	pageCache := newPageCache(s, r, nil)
+	closeSession, redirect, err := s.app.POSTSignOut(r, sess, pageCache)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.SignOut", err)
 		return
@@ -1018,7 +1078,7 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if httpRedirectOffline(w, r, redirect, 0, offlineCache) {
+	if httpRedirectOffline(w, r, redirect, 0, pageCache) {
 		return
 	}
 }
@@ -1093,7 +1153,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	var query app.SearchParams
 	query.Term = q.Get("q")
-	offlineCache := newOfflineCache(r, nil)
+	pageCache := newPageCache(s, r, nil)
 
 	p := app.PageIndex{
 		App: s.app,
@@ -1101,7 +1161,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	body, err := p.GET(r, sess, offlineCache, query)
+	body, err := p.GET(r, sess, pageCache, query)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
@@ -1131,7 +1191,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		s.logErr("rendering PageIndex", err)
 		return
 	}
-	_ = offlineCache.writeBake(w)
+	_ = pageCache.writeBake(w)
 }
 
 func (s *Server) handlePageIndexPOSTSearch(
@@ -1171,12 +1231,12 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 		Next string `query:"next"`
 	}
 	query.Next = q.Get("next")
-	offlineCache := newOfflineCache(r, nil)
+	pageCache := newPageCache(s, r, nil)
 
 	p := app.PageLogin{
 		App: s.app,
 	}
-	body, redirect, disableRefreshAfterHidden, err := p.GET(r, sess, offlineCache, query)
+	body, redirect, disableRefreshAfterHidden, err := p.GET(r, sess, pageCache, query)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
 		return
@@ -1198,7 +1258,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 		s.logErr("rendering PageLogin", err)
 		return
 	}
-	_ = offlineCache.writeBake(w)
+	_ = pageCache.writeBake(w)
 }
 
 func (s *Server) handlePageLoginPOSTSubmit(
@@ -1221,11 +1281,11 @@ func (s *Server) handlePageLoginPOSTSubmit(
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
-	offlineCache := newOfflineCache(r, nil)
+	pageCache := newPageCache(s, r, nil)
 	p := app.PageLogin{
 		App: s.app,
 	}
-	body, redirect, redirectStatus, newSession, err := p.POSTSubmit(r, sess, offlineCache, signals)
+	body, redirect, redirectStatus, newSession, err := p.POSTSubmit(r, sess, pageCache, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.Submit", err)
 		return
@@ -1235,7 +1295,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 			s.httpErrIntern(w, r, nil, "creating session", err)
 		}
 	}
-	if httpRedirectOffline(w, r, redirect, redirectStatus, offlineCache) {
+	if httpRedirectOffline(w, r, redirect, redirectStatus, pageCache) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -1328,19 +1388,19 @@ func (s *Server) handlePagePurchasePOSTConfirm(
 	path.Slug = r.PathValue("nameslug")
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	offlineCache := newOfflineCache(r, sse)
+	pageCache := newPageCache(s, r, sse)
 	p := app.PagePurchase{
 		App: s.app,
 		Base: app.Base{
 			App: s.app,
 		},
 	}
-	err := p.POSTConfirm(r, newSSE(sse), offlineCache, sess, path)
+	err := p.POSTConfirm(r, newSSE(sse), pageCache, sess, path)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PagePurchase.Confirm", err)
 		return
 	}
-	_ = offlineCache.flush()
+	_ = pageCache.flush()
 }
 
 func (s *Server) handlePageShowGET(w http.ResponseWriter, r *http.Request) {
@@ -1353,7 +1413,7 @@ func (s *Server) handlePageShowGET(w http.ResponseWriter, r *http.Request) {
 		Slug string `path:"nameslug"`
 	}
 	path.Slug = r.PathValue("nameslug")
-	offlineCache := newOfflineCache(r, nil)
+	pageCache := newPageCache(s, r, nil)
 
 	p := app.PageShow{
 		App: s.app,
@@ -1361,7 +1421,7 @@ func (s *Server) handlePageShowGET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	body, head, err := p.GET(r, sess, offlineCache, path)
+	body, head, err := p.GET(r, sess, pageCache, path)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageShow.GET", err)
 		return
@@ -1378,7 +1438,7 @@ func (s *Server) handlePageShowGET(w http.ResponseWriter, r *http.Request) {
 		s.logErr("rendering PageShow", err)
 		return
 	}
-	_ = offlineCache.writeBake(w)
+	_ = pageCache.writeBake(w)
 }
 
 func (s *Server) handlePageTicketGET(w http.ResponseWriter, r *http.Request) {
@@ -1391,7 +1451,7 @@ func (s *Server) handlePageTicketGET(w http.ResponseWriter, r *http.Request) {
 		Slug string `path:"nameslug"`
 	}
 	path.Slug = r.PathValue("nameslug")
-	offlineCache := newOfflineCache(r, nil)
+	pageCache := newPageCache(s, r, nil)
 
 	p := app.PageTicket{
 		App: s.app,
@@ -1399,7 +1459,7 @@ func (s *Server) handlePageTicketGET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	body, redirect, err := p.GET(r, sess, offlineCache, path)
+	body, redirect, err := p.GET(r, sess, pageCache, path)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageTicket.GET", err)
 		return
@@ -1419,7 +1479,7 @@ func (s *Server) handlePageTicketGET(w http.ResponseWriter, r *http.Request) {
 		s.logErr("rendering PageTicket", err)
 		return
 	}
-	_ = offlineCache.writeBake(w)
+	_ = pageCache.writeBake(w)
 }
 
 func (s *Server) handlePageTicketsGET(w http.ResponseWriter, r *http.Request) {
@@ -1427,7 +1487,7 @@ func (s *Server) handlePageTicketsGET(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	offlineCache := newOfflineCache(r, nil)
+	pageCache := newPageCache(s, r, nil)
 
 	p := app.PageTickets{
 		App: s.app,
@@ -1435,7 +1495,7 @@ func (s *Server) handlePageTicketsGET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
-	body, redirect, err := p.GET(r, sess, offlineCache)
+	body, redirect, err := p.GET(r, sess, pageCache)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageTickets.GET", err)
 		return
@@ -1455,5 +1515,5 @@ func (s *Server) handlePageTicketsGET(w http.ResponseWriter, r *http.Request) {
 		s.logErr("rendering PageTickets", err)
 		return
 	}
-	_ = offlineCache.writeBake(w)
+	_ = pageCache.writeBake(w)
 }

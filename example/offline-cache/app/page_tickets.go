@@ -18,7 +18,7 @@ type PageTickets struct {
 func (p PageTickets) GET(
 	r *http.Request,
 	session Session,
-	offlineCache datapages.OfflineCacheWriter,
+	pageCache datapages.PageCacheWriter,
 ) (
 	body templ.Component,
 	redirect string,
@@ -42,8 +42,8 @@ func (p PageTickets) GET(
 	view := pageTickets(session, tickets, baseData)
 	// Cache the tickets list with the tickets so it is viewable offline. Versioned
 	// by session and ticket count so a purchase or a different user refreshes it.
-	if ver := ticketsOfflineVersion(session, tickets); offlineCache.Version() != ver {
-		offlineCache.Set(href.PageTickets(), offlineDoc(view), ver)
+	if ver := ticketsOfflineVersion(session, tickets); pageCache.Version() != ver {
+		pageCache.Set(href.PageTickets(), view, ver)
 	}
 	return view, "", nil
 }

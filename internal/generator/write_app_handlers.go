@@ -33,8 +33,8 @@ func handlerArgVar(kind string, skipSSE bool) string {
 		return "signals"
 	case model.InputKindDispatch:
 		return "dispatch"
-	case model.InputKindOffline:
-		return "offlineCache"
+	case model.InputKindPageCache:
+		return "pageCache"
 	case model.InputKindEvent:
 		return "e"
 	default:
@@ -291,8 +291,8 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	}
 
 	// Offline cache handle for GET (queued writes are baked after writeHTML).
-	if h.InputOffline != nil {
-		w.Line(1, "offlineCache := newOfflineCache(r, nil)")
+	if h.InputPageCache != nil {
+		w.Line(1, "pageCache := newPageCache(s, r, nil)")
 	}
 
 	// Page constructor.
@@ -421,8 +421,8 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	w.Line(1, "}")
 
 	// Bake queued offline writes as a trailing script after the page HTML.
-	if h.InputOffline != nil {
-		w.Line(1, "_ = offlineCache.writeBake(w)")
+	if h.InputPageCache != nil {
+		w.Line(1, "_ = pageCache.writeBake(w)")
 	}
 }
 
@@ -1205,7 +1205,7 @@ func (w *Writer) writePageActionHandler(
 	w.Line(1, "w http.ResponseWriter, r *http.Request,")
 	w.Line(0, ") {")
 
-	if h.InputSSE != nil || h.InputSignals != nil || h.InputOffline != nil {
+	if h.InputSSE != nil || h.InputSignals != nil || h.InputPageCache != nil {
 		w.Line(1, "if !s.checkIsDSReq(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1259,15 +1259,15 @@ func (w *Writer) writePageActionHandler(
 		w.writeDispatchClosure(h.InputDispatch, appPkg)
 	}
 
-	// SSE for actions that take it, or need it to flush the offline cache. A
+	// SSE for actions that take it, or need it to flush the page cache. A
 	// redirect-returning action delivers its offline writes through the redirect
-	// response instead (see offlineViaRedirect), so it needs no SSE stream.
-	if h.InputSSE != nil || (h.InputOffline != nil && !offlineViaRedirect(h)) {
+	// response instead (see pageCacheViaRedirect). It needs no SSE stream.
+	if h.InputSSE != nil || (h.InputPageCache != nil && !pageCacheViaRedirect(h)) {
 		w.Line(0, "")
 		w.Line(1, "sse := datastar.NewSSE(w, r, datastar.WithCompression())")
 	}
 
-	// datapages runtime handles (datapages.SSE wrapper, offline cache).
+	// datapages runtime handles (datapages.SSE wrapper, page cache).
 	w.writeDatapagesHandles(h)
 
 	// Page constructor.
@@ -1280,29 +1280,29 @@ func (w *Writer) writePageActionHandler(
 
 	// Deliver queued offline writes over the SSE stream on success. Redirect
 	// actions deliver via httpRedirectOffline instead (see writeActionMethodCall).
-	if h.InputOffline != nil && !offlineViaRedirect(h) {
-		w.Line(1, "_ = offlineCache.flush()")
+	if h.InputPageCache != nil && !pageCacheViaRedirect(h) {
+		w.Line(1, "_ = pageCache.flush()")
 	}
 
 	w.Line(0, "}")
 }
 
-// offlineViaRedirect reports whether h delivers its offline writes through a
+// pageCacheViaRedirect reports whether h delivers its offline writes through a
 // redirect response (a text/javascript body) rather than an SSE stream. That is
 // the case for actions that return a redirect and do not take an SSE stream of
 // their own, e.g. sign-in and sign-out, which navigate via window.location.
-func offlineViaRedirect(h *model.Handler) bool {
-	return h.InputOffline != nil && h.OutputRedirect != nil && h.InputSSE == nil
+func pageCacheViaRedirect(h *model.Handler) bool {
+	return h.InputPageCache != nil && h.OutputRedirect != nil && h.InputSSE == nil
 }
 
 // writeDatapagesHandles emits, for an action handler, the datapages.SSE wrapper
-// (dpSSE) and the offline cache handle (offlineCache) when requested.
+// (dpSSE) and the page cache handle (pageCache) when requested.
 func (w *Writer) writeDatapagesHandles(h *model.Handler) {
-	if h.InputOffline != nil {
-		if offlineViaRedirect(h) {
-			w.Line(1, "offlineCache := newOfflineCache(r, nil)")
+	if h.InputPageCache != nil {
+		if pageCacheViaRedirect(h) {
+			w.Line(1, "pageCache := newPageCache(s, r, nil)")
 		} else {
-			w.Line(1, "offlineCache := newOfflineCache(r, sse)")
+			w.Line(1, "pageCache := newPageCache(s, r, sse)")
 		}
 	}
 }
@@ -1378,19 +1378,19 @@ func (w *Writer) writeActionMethodCall(
 		w.Line(1, "}")
 	}
 
-	// Redirect. A redirect-returning action that also writes the offline cache
+	// Redirect. A redirect-returning action that also writes the page cache
 	// delivers its queued writes as JS in the redirect response, then navigates.
 	if h.OutputRedirect != nil {
 		statusArg := "0"
 		if h.OutputRedirectStatus != nil {
 			statusArg = h.OutputRedirectStatus.Name
 		}
-		if offlineViaRedirect(h) {
+		if pageCacheViaRedirect(h) {
 			w.Raw("\tif httpRedirectOffline(w, r, ")
 			w.Raw(h.OutputRedirect.Name)
 			w.Raw(", ")
 			w.Raw(statusArg)
-			w.Raw(", offlineCache) {\n")
+			w.Raw(", pageCache) {\n")
 		} else {
 			w.Raw("\tif httpRedirect(w, r, ")
 			w.Raw(h.OutputRedirect.Name)

@@ -52,7 +52,7 @@ func WithModeAppend() PatchOption {
 // Service-worker protocol HTTP request headers.
 const (
 	// HeaderOfflineVersion carries the version the service worker holds for the
-	// requested URL. It is surfaced to handlers through OfflineCacheWriter.Version.
+	// requested URL. It is surfaced to handlers through PageCacheWriter.Version.
 	HeaderOfflineVersion = "X-Datapages-Offline-Version"
 
 	// HeaderWorkerVersion carries the installed service worker's own version.
@@ -61,18 +61,26 @@ const (
 	HeaderWorkerVersion = "X-Datapages-Worker-Version"
 )
 
-// OfflineCacheWriter writes to the client's service-worker cache. It is passed
-// to GET page methods and action methods as the offlineCache parameter. Writes
+// PageCacheWriter writes to the client's service-worker cache. It is passed
+// to GET page methods and action methods as the pageCache parameter. Writes
 // are deferred and applied atomically once the handler returns without error.
-type OfflineCacheWriter interface {
+type PageCacheWriter interface {
 	// Version returns the version at which the current request's URL is cached
 	// in the service worker (0 if not cached).
 	Version() uint64
 
-	// Set caches body for url and stamps the entry with version, which Version
-	// reports back on the next request. url must come from the generated href
-	// package.
+	// Set caches body for url and stamps it with version, which Version reports
+	// back on the next request. url must come from the generated href package. The
+	// entry is served only while offline and may differ from the live page.
 	Set(url string, body templ.Component, version uint64)
+
+	// SetShim caches body for url like [Set], but marks it servable while online.
+	// The service worker serves the entry at once, then fetches the live page and
+	// morphs it in. Datapages adds the trigger for that fetch. body is a
+	// placeholder rendering, usually the page chrome with skeletons in place of
+	// slow parts. It is shown online too and must not state anything that is only
+	// true offline.
+	SetShim(url string, body templ.Component, version uint64)
 
 	// Clear removes a single url from the cache.
 	Clear(url string)

@@ -34,10 +34,11 @@
 - `example/tailwindcss/` - minimal static page with Tailwind CSS (separate module).
 - `example/webcomponents/` - landing page with vanilla and Lit Web Components bundled via esbuild.
 - `example/sqlitesessions/` - custom sessmanager.SessionManager backed by SQLite via sqinn-go.
+- `example/fast-shim/` - instant loads via cached shims morphed by Datastar.
 - `example/offline-cache/` - service-worker offline support (handler-written cache,
   `PageOffline` fallback) on a ticketing app with live search and sessions.
 - root package `datapages` (`datapages.go`) - core handler-parameter types
-  (`datapages.SSE`, `datapages.OfflineCacheWriter`); the CLI entrypoint lives in
+  (`datapages.SSE`, `datapages.PageCacheWriter`); the CLI entrypoint lives in
   `cmd/datapages/`.
 - `internal/generator/` - code generation from parsed model.
 - `internal/cmd/` - CLI command implementations.
@@ -67,8 +68,8 @@ Runtime support is generated into `datapagesgen` rather than imported, so it nee
 no package of its own and stays out of the public API:
 
 - `writeSSEWrapper` emits the `datapages.SSE` implementation (`newSSE`/`sseWrapper`).
-- `writeOfflineCache` emits the `datapages.OfflineCacheWriter` implementation
-  (`newOfflineCache`/`offlineCacheWriter`) and its delivery lifecycle
+- `writeOfflineCache` emits the `datapages.PageCacheWriter` implementation
+  (`newPageCache`/`pageCacheWriter`) and its delivery lifecycle
   (`flush`, `writeBake`, `redirectScript`).
 
 Prefer this over adding a public runtime package: it also removes version skew

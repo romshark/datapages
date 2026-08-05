@@ -279,9 +279,9 @@ type appUsage struct {
 	// datapagesSSE: whether any handler takes a datapages.SSE param (needs the
 	// datapages import and the generated sseWrapper).
 	datapagesSSE bool
-	// offlineCache: whether any handler takes an offlineCache param (needs the
-	// datapages import and the generated offlineCacheWriter).
-	offlineCache bool
+	// pageCache: whether any handler takes an pageCache param (needs the
+	// datapages import and the generated pageCacheWriter).
+	pageCache bool
 	// offlinePage: whether PageOffline is declared (needs the offline module
 	// import and the generated WithOffline option).
 	offlinePage bool
@@ -336,8 +336,8 @@ func computeAppUsage(m *model.App) appUsage {
 		if h.InputSSE != nil {
 			u.datapagesSSE = true
 		}
-		if h.InputOffline != nil {
-			u.offlineCache = true
+		if h.InputPageCache != nil {
+			u.pageCache = true
 		}
 		if h.InputSignals != nil {
 			u.httpErrBad = true

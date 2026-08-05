@@ -43,6 +43,9 @@ or simple [HTMX](https://htmx.org/)-style websites - Datapages will serve you we
 - [`sqlitesessions`](example/sqlitesessions/) —
   Custom `sessmanager.SessionManager` implementation backed by SQLite
   via [sqinn-go](https://github.com/cvilsmeier/sqinn-go) (no cgo).
+- [`fast-shim`](example/fast-shim/) —
+  Instant page loads: the worker paints a cached shim, then Datastar morphs in
+  the live page fetched in the background.
 - [`offline-cache`](example/offline-cache/) —
   Service-worker offline support: pages cached from handlers, a `PageOffline`
   fallback, and purchased tickets that stay viewable without a connection.

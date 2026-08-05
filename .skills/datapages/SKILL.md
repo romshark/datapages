@@ -156,7 +156,7 @@ Parameters may be in any order. Skip what you don't need.
 r *http.Request
 sessionToken string // optional
 session Session // optional
-offlineCache datapages.OfflineCacheWriter // optional, see Step 18
+pageCache datapages.PageCacheWriter // optional, see Step 18
 path struct { ID string `path:"id"` } // optional
 query struct { P int `query:"p"` } // optional
 ```
@@ -272,7 +272,7 @@ r *http.Request
 sse datapages.SSE // optional
 sessionToken string // optional
 session Session // optional
-offlineCache datapages.OfflineCacheWriter // optional, see Step 18
+pageCache datapages.PageCacheWriter // optional, see Step 18
 path struct { ID string `path:"id"` } // optional
 query struct { P int `query:"p"` } // optional
 signals struct { V string `json:"v"` } // optional
@@ -280,7 +280,7 @@ dispatch func(EventFoo) error // optional
 ```
 
 Import `"github.com/romshark/datapages"` for `datapages.SSE` and
-`datapages.OfflineCacheWriter`.
+`datapages.PageCacheWriter`.
 
 See [Parameter: `sse datapages.SSE`](../../SPECIFICATION.md#parameter-sse-datapagessse)
 for the interface. `datapages.SSE` is the only accepted SSE parameter type, in
@@ -813,7 +813,7 @@ Naming convention: `{METHOD}Page{PageName}{HandlerName}` for page actions, `{MET
 
 The `modules/offline` module registers a service worker that serves cached page
 snapshots when the browser is offline. Handlers decide what gets cached through the
-`offlineCache datapages.OfflineCacheWriter` parameter.
+`pageCache datapages.PageCacheWriter` parameter.
 
 ### Wire the module
 
@@ -867,19 +867,19 @@ configurable through `Config.OfflineClass`.
 func (p PageTicket) GET(
 	r *http.Request,
 	session Session,
-	offlineCache datapages.OfflineCacheWriter,
+	pageCache datapages.PageCacheWriter,
 	path struct{ Slug string `path:"nameslug"` },
 ) (body templ.Component, err error) {
 	// ...
 	view := pageTicket(ticket)
-	if ver := ticketVersion(ticket); offlineCache.Version() != ver {
-		offlineCache.Set(href.PageTicket(path.Slug), offlineDoc(view), ver)
+	if ver := ticketVersion(ticket); pageCache.Version() != ver {
+		pageCache.Set(href.PageTicket(path.Slug), offlineDoc(view), ver)
 	}
 	return view, nil
 }
 ```
 
-See [Parameter: `offlineCache datapages.OfflineCacheWriter`](../../SPECIFICATION.md#parameter-offlinecache-datapagesofflinecachewriter)
+See [Parameter: `pageCache datapages.PageCacheWriter`](../../SPECIFICATION.md#parameter-offlinecache-datapagesofflinecachewriter)
 for the interface. `Version()` reports the version the client holds for **this
 request's URL**, so compare it against the resource's server-side version before
 re-caching. It cannot report the version held for any other URL, so eagerly
@@ -887,9 +887,10 @@ caching other pages is always unconditional.
 
 ### Rules
 
-- **Cache full documents, not fragments.** The worker serves the entry standalone,
-  so a body without `<head>` renders unstyled. Wrap page bodies in a document
-  helper (`offlineDoc` above) that emits `<!DOCTYPE html><html><head>…`.
+- **Pass the page body, not a document.** Datapages wraps cached entries in the
+  same document shell as a live page (`<head>`, stylesheets, Datastar bundle), so
+  hand-rolling `<!DOCTYPE html>` around the body nests one document inside
+  another.
 - **A cached page is only as complete as its assets.** Caching the HTML is not
   enough: its stylesheets, scripts, fonts and images must be in the cache too. The
   app shell goes in `Config.Assets` and is precached when the worker installs;
@@ -906,8 +907,8 @@ caching other pages is always unconditional.
   // The body renders a different call-to-action depending on ownership, so the
   // version has to account for it. A constant would freeze the first snapshot.
   ver := snapshotVersion(session.UserID, owned) // e.g. an FNV-1a hash of both
-  if offlineCache.Version() != ver {
-  	offlineCache.Set(href.PageItem(id), offlineDoc(view), ver)
+  if pageCache.Version() != ver {
+  	pageCache.Set(href.PageItem(id), offlineDoc(view), ver)
   }
   ```
 - **Use `!=`, not `<`, for unordered version keys** (e.g. a hash). `<` only
@@ -947,5 +948,5 @@ you by the generated code:
 | Action returning `redirect` | JS in the `text/javascript` redirect response, posted **before** navigating |
 
 `newSession` and `closeSession` cannot be combined with an `sse` parameter. Sign-in
-and sign-out therefore take `offlineCache` and return a `redirect`; their queued
+and sign-out therefore take `pageCache` and return a `redirect`; their queued
 writes are posted before the navigation runs.

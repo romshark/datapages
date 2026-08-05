@@ -38,6 +38,9 @@ jobs:
           - path: "example/offline-cache"
             name: "offline-cache"
             has_templ: true
+          - path: "example/fast-shim"
+            name: "fast-shim"
+            has_templ: false
         deps: [locked, latest]
         exclude:
           # Only run latest-deps for the root module.
@@ -55,6 +58,9 @@ jobs:
             deps: latest
           - project:
               name: "offline-cache"
+            deps: latest
+          - project:
+              name: "fast-shim"
             deps: latest
     steps:
       - name: Install Go 1.26.5

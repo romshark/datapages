@@ -62,7 +62,7 @@ func (p PagePurchase) GET(
 func (p PagePurchase) POSTConfirm(
 	r *http.Request,
 	sse datapages.SSE,
-	offlineCache datapages.OfflineCacheWriter,
+	pageCache datapages.PageCacheWriter,
 	session Session,
 	path struct {
 		Slug string `path:"nameslug"`
@@ -79,7 +79,7 @@ func (p PagePurchase) POSTConfirm(
 	case err == nil, errors.Is(err, domain.ErrTicketExists):
 		// Refresh the offline cache so the new ticket and the updated tickets
 		// list are viewable offline right away, then navigate to the ticket.
-		if err := p.refreshOfflineCache(r, offlineCache, session, path.Slug); err != nil {
+		if err := p.refreshOfflineCache(r, pageCache, session, path.Slug); err != nil {
 			return err
 		}
 		return navigate(sse, href.PageTicket(path.Slug))
@@ -96,7 +96,7 @@ func (p PagePurchase) POSTConfirm(
 // so both are available offline immediately after a purchase.
 func (p PagePurchase) refreshOfflineCache(
 	r *http.Request,
-	offlineCache datapages.OfflineCacheWriter,
+	pageCache datapages.PageCacheWriter,
 	session Session,
 	slug string,
 ) error {
@@ -110,9 +110,9 @@ func (p PagePurchase) refreshOfflineCache(
 	if err != nil {
 		return err
 	}
-	offlineCache.Set(
+	pageCache.Set(
 		href.PageTickets(),
-		offlineDoc(pageTickets(session, tickets, baseData)),
+		pageTickets(session, tickets, baseData),
 		ticketsOfflineVersion(session, tickets),
 	)
 
@@ -125,9 +125,9 @@ func (p PagePurchase) refreshOfflineCache(
 		if err != nil {
 			return err
 		}
-		offlineCache.Set(
+		pageCache.Set(
 			href.PageTicket(slug),
-			offlineDoc(pageTicket(session, ticket, qr, baseData)),
+			pageTicket(session, ticket, qr, baseData),
 			offlineCacheVersion(session, strconv.FormatInt(ticket.PurchasedAt.Unix(), 10)),
 		)
 	}
@@ -135,9 +135,9 @@ func (p PagePurchase) refreshOfflineCache(
 	// Refresh the show page too so its offline call-to-action flips from "Buy" to
 	// "View your ticket".
 	if show, err := p.App.repo.ShowBySlug(ctx, slug); err == nil {
-		offlineCache.Set(
+		pageCache.Set(
 			href.PageShow(slug),
-			offlineDoc(pageShow(session, show, true, baseData)),
+			pageShow(session, show, true, baseData),
 			showOfflineVersion(session, true),
 		)
 	}

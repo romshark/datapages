@@ -11,7 +11,7 @@ const OfflineWorkerVersion = 3
 
 // OfflineConfig builds the offline module configuration. The PageOffline route is
 // supplied by the generated datapagesgen.WithOffline option, not configured here.
-// Per-page offline snapshots are written by handlers through the offlineCache
+// Per-page offline snapshots are written by handlers through the pageCache
 // parameter (see PageTicket.GET).
 func OfflineConfig() offline.Config {
 	return offline.Config{

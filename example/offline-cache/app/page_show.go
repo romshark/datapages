@@ -21,7 +21,7 @@ type PageShow struct {
 func (p PageShow) GET(
 	r *http.Request,
 	session Session,
-	offlineCache datapages.OfflineCacheWriter,
+	pageCache datapages.PageCacheWriter,
 	path struct {
 		Slug string `path:"nameslug"`
 	},
@@ -52,8 +52,8 @@ func (p PageShow) GET(
 	view := pageShow(session, show, hasTicket, baseData)
 	// Cache this show lazily so it stays viewable offline once visited. Versioned
 	// by session and ticket ownership so login/logout or a purchase refreshes it.
-	if ver := showOfflineVersion(session, hasTicket); offlineCache.Version() != ver {
-		offlineCache.Set(href.PageShow(show.Slug), offlineDoc(view), ver)
+	if ver := showOfflineVersion(session, hasTicket); pageCache.Version() != ver {
+		pageCache.Set(href.PageShow(show.Slug), view, ver)
 	}
 	head = headShow(show)
 	return view, head, nil

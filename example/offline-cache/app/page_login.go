@@ -18,7 +18,7 @@ type PageLogin struct{ App *App }
 func (PageLogin) GET(
 	r *http.Request,
 	session Session,
-	offlineCache datapages.OfflineCacheWriter,
+	pageCache datapages.PageCacheWriter,
 	query struct {
 		Next string `query:"next"`
 	},
@@ -35,10 +35,10 @@ func (PageLogin) GET(
 
 	// Sign-in needs the server, so the offline snapshot just says so. Only guests
 	// reach this point, so the snapshot is stable.
-	if ver := offlineCacheVersion(session, ""); offlineCache.Version() != ver {
-		offlineCache.Set(
+	if ver := offlineCacheVersion(session, ""); pageCache.Version() != ver {
+		pageCache.Set(
 			href.PageLogin(href.QueryPageLogin{}),
-			offlineDoc(loginOffline()),
+			loginOffline(),
 			ver,
 		)
 	}
@@ -49,7 +49,7 @@ func (PageLogin) GET(
 func (p PageLogin) POSTSubmit(
 	r *http.Request,
 	session Session,
-	offlineCache datapages.OfflineCacheWriter,
+	pageCache datapages.PageCacheWriter,
 	signals struct {
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`
@@ -82,7 +82,7 @@ func (p PageLogin) POSTSubmit(
 	// A new identity signed in: drop the previous (guest) offline cache so no
 	// stale, wrong-session page is served offline. Pages re-cache with the correct
 	// navbar as they are visited; the redirect below re-bakes the landing page.
-	offlineCache.ClearAll()
+	pageCache.ClearAll()
 	dest := signals.Next
 	if !isSafeRelativePath(dest) {
 		dest = href.PageIndex(href.QueryPageIndex{})

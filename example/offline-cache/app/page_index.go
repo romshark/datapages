@@ -20,7 +20,7 @@ type PageIndex struct {
 func (p PageIndex) GET(
 	r *http.Request,
 	session Session,
-	offlineCache datapages.OfflineCacheWriter,
+	pageCache datapages.PageCacheWriter,
 	query SearchParams,
 ) (body templ.Component, err error) {
 	shows, err := p.App.repo.SearchShows(r.Context(), query.Term)
@@ -35,10 +35,10 @@ func (p PageIndex) GET(
 	// Keep a search-less offline shell for "/" so it renders while offline
 	// instead of the generic fallback. Versioned by session so it re-caches with
 	// the right navbar after login/logout.
-	if ver := offlineCacheVersion(session, ""); offlineCache.Version() != ver {
-		offlineCache.Set(
+	if ver := offlineCacheVersion(session, ""); pageCache.Version() != ver {
+		pageCache.Set(
 			href.PageIndex(href.QueryPageIndex{}),
-			offlineDoc(indexOffline(session, baseData)),
+			indexOffline(session, baseData),
 			ver,
 		)
 	}

@@ -193,7 +193,7 @@ func TestServiceWorkerCrossOriginDestinations(t *testing.T) {
 func TestConfigDefaults(t *testing.T) {
 	t.Parallel()
 
-	// The zero value must produce a usable worker: version 1, so a client
+	// The zero value must produce a usable worker at version 1. A client
 	// reporting no version is recognised as having none installed.
 	js := string(offline.ServiceWorkerJS("", offline.Config{}))
 	require.Contains(t, js, `"workerVersion":1`)

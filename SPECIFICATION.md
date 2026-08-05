@@ -521,10 +521,10 @@ type SSE interface {
 The `PatchOption` values (`WithSelector`, `WithSelectorID`, `WithModeAppend`, …)
 are provided by the same package, wrapping the corresponding Datastar options.
 
-#### Parameter: `offlineCache datapages.OfflineCacheWriter`
+#### Parameter: `pageCache datapages.PageCacheWriter`
 
 ```go
-offlineCache datapages.OfflineCacheWriter
+pageCache datapages.PageCacheWriter
 ```
 
 This parameter is allowed on `GET` page methods and on `POSTXXX`, `PUTXXX`,
@@ -539,23 +539,33 @@ Datapages registers the service worker automatically.
 The interface (from `github.com/romshark/datapages`):
 
 ```go
-type OfflineCacheWriter interface {
-	// Version returns the version at which the current request's URL is
-	// cached in the browser's service worker (0 if not cached). Compare it against the
-	// resource's own server-side version to decide whether to (re)cache the page.
+// PageCacheWriter writes to the client's service-worker cache. It is passed
+// to GET page methods and action methods as the pageCache parameter. Writes
+// are deferred and applied atomically once the handler returns without error.
+type PageCacheWriter interface {
+	// Version returns the version at which the current request's URL is cached
+	// in the service worker (0 if not cached).
 	Version() uint64
 
-	// Set caches body in the browser's service worker for url and stamps the entry
-	// with version, which [Version] reports back on the next request. url must be
-	// produced by the generated href package.
+	// Set caches body for url and stamps the entry with version, which Version
+	// reports back on the next request. url must come from the generated href
+	// package. The entry is served only while the browser is offline, so it may
+	// differ from the live page.
 	Set(url string, body templ.Component, version uint64)
 
-	// Clear removes a single url from the client's cache. url must be
-	// produced by the generated href package.
+	// SetShim caches body for url like [Set], but marks it servable while online.
+	// The service worker answers navigations to url from the cache without waiting
+	// for the network, so the page paints immediately, then fetches the live page
+	// and morphs it in. Datapages adds what triggers that fetch, so body is just a
+	// placeholder rendering of the page, typically its chrome with the slow parts
+	// replaced by skeletons. Since it is shown online too, it must not state
+	// anything that is only true offline.
+	SetShim(url string, body templ.Component, version uint64)
+
+	// Clear removes a single url from the cache.
 	Clear(url string)
 
-	// ClearAll wipes the client's ENTIRE cache, including all entries!
-	// Use it only for a full reset such as a major version migration.
+	// ClearAll wipes the entire cache.
 	ClearAll()
 }
 ```
@@ -584,36 +594,38 @@ refreshes whenever that data changes:
 // PageItem is /item/{id}
 func (p PageItem) GET(
 	r *http.Request,
-	offlineCache datapages.OfflineCacheWriter,
+	pageCache datapages.PageCacheWriter,
 	path struct {
 		ID string `path:"id"`
 	},
 ) (body templ.Component, err error) {
 	item := p.App.item(path.ID)
-	if offlineCache.Version() < item.Revision {
+	if pageCache.Version() < item.Revision {
 		// Missing, or cached before the item last changed.
-		offlineCache.Set(href.PageItem(path.ID), itemOffline(item), item.Revision)
+		pageCache.Set(href.PageItem(path.ID), itemOffline(item), item.Revision)
 	}
 	return itemView(item), nil
 }
 ```
 
-An action can eagerly precache URLs the user has not visited yet (for example via
-`data-init`). `Version()` only refers to the current request's URL, so an
-action has no per-URL gate: pass each resource's version to `Set` and the service
-worker skips storing entries it already holds at that version.
+An action handler can `Set` URLs other than the one being requested, which
+precaches pages the user has not opened yet. `Version()` only refers to the
+current request's URL, so such an action has no per-URL gate and every `Set` it
+makes is written unconditionally. The version passed is stamped on the entry and
+reported back the next time that URL is requested, so a later visit can skip
+re-caching it.
 
 ```go
 // POSTPrecache is /precache
 //
-// This is called on data-init to pre-cache an array of ticket pages.
+// Precaches every ticket page the signed-in user owns.
 func (a *App) POSTPrecache(
 	r *http.Request,
 	session Session,
-	offlineCache datapages.OfflineCacheWriter,
+	pageCache datapages.PageCacheWriter,
 ) error {
 	for _, t := range a.userTickets(r.Context(), session.UserID) {
-		offlineCache.Set(href.PageTicket(t.Slug), ticketOffline(t), t.Revision)
+		pageCache.Set(href.PageTicket(t.Slug), ticketOffline(t), t.Revision)
 	}
 	return nil
 }
@@ -1058,7 +1070,7 @@ cross-page action ownership errors.
 ## Service Worker
 
 The service worker backs the
-[`offlineCache`](#parameter-offlinecache-datapagesofflinecachewriter) parameter.
+[`pageCache`](#parameter-offlinecache-datapagesofflinecachewriter) parameter.
 It runs only in a secure context (HTTPS or localhost); otherwise the offline API
 does nothing.
 

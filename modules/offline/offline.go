@@ -8,8 +8,8 @@
 // has no current worker. The application's templates and its <head> stay
 // untouched.
 //
-// The offline cache itself is written by handlers through the
-// datapages.OfflineCacheWriter parameter; this module only serves and registers
+// The page cache itself is written by handlers through the
+// datapages.PageCacheWriter parameter; this module only serves and registers
 // the worker that stores and serves those entries. See the Service Worker
 // section of SPECIFICATION.md.
 package offline

@@ -99,7 +99,7 @@ type Handler struct {
 	InputQuery        *Input
 	InputSignals      *Input
 	InputDispatch     *InputDispatch
-	InputOffline      *Input   // datapages.Offline handle.
+	InputPageCache    *Input   // datapages.PageCacheWriter handle.
 	OrderedInputs     []*Input // Inputs in user-defined order.
 
 	OutputBody           *TemplComponent // templ.Component body (actions only)
@@ -145,7 +145,7 @@ const (
 	InputKindQuery        = "query"
 	InputKindSignals      = "signals"
 	InputKindDispatch     = "dispatch"
-	InputKindOffline      = "offline"
+	InputKindPageCache    = "pageCache"
 	InputKindEvent        = "event"
 )
 

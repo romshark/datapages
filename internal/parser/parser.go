@@ -1968,15 +1968,15 @@ func parseHandler(
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
 
-		case typecheck.IsDatapagesOffline(f.Type, info):
-			if h.InputOffline != nil {
+		case typecheck.IsDatapagesPageCache(f.Type, info):
+			if h.InputPageCache != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			h.InputOffline = parseInput(f, info)
-			h.InputOffline.Kind = model.InputKindOffline
-			h.OrderedInputs = append(h.OrderedInputs, h.InputOffline)
+			h.InputPageCache = parseInput(f, info)
+			h.InputPageCache.Kind = model.InputKindPageCache
+			h.OrderedInputs = append(h.OrderedInputs, h.InputPageCache)
 
 		case paramvalidation.IsSessionTokenParam(f):
 			if h.InputSessionToken != nil {

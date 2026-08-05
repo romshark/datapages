@@ -46,7 +46,7 @@ func (*App) Head(r *http.Request) templ.Component {
 func (*App) POSTSignOut(
 	r *http.Request,
 	session Session,
-	offlineCache datapages.OfflineCacheWriter,
+	pageCache datapages.PageCacheWriter,
 ) (
 	closeSession bool,
 	redirect string,
@@ -55,7 +55,7 @@ func (*App) POSTSignOut(
 	// Signing out drops the offline cache so this browser's signed-in pages are
 	// not served offline to the next (guest) visitor. "/" re-bakes on the
 	// redirect below; other pages re-cache as they are visited.
-	offlineCache.ClearAll()
+	pageCache.ClearAll()
 	return true, href.PageIndex(href.QueryPageIndex{}), nil
 }
 
