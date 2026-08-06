@@ -1,6 +1,6 @@
 module github.com/romshark/datapages/internal/templatingbench
 
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/CloudyKit/jet/v6 v6.3.2
