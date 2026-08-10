@@ -1013,14 +1013,18 @@ func (w *Writer) writeEventHandlerCall(
 
 	// Stateful event handlers run under the per-slot mutex to serialize
 	// with concurrent action calls and with StreamOpen / StreamClose.
-	// slot can be nil here if the stream closed concurrently; skip in
-	// that case so we never deref nil.
+	// The loop outlives the grace period, whose timer returns the state to
+	// the pool. Both checks guard the state passed to the user.
 	stateful := eh.InputState != nil
 	if stateful {
 		w.Line(4, "if slot == nil {")
 		w.Line(5, "continue")
 		w.Line(4, "}")
 		w.Line(4, "slot.mu.Lock()")
+		w.Line(4, "if slot.dead {")
+		w.Line(5, "slot.mu.Unlock()")
+		w.Line(5, "continue")
+		w.Line(4, "}")
 	}
 
 	if eh.OutputErr != nil {
@@ -1163,30 +1167,45 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 
 // writeStatefulStreamCloseHook emits the onClose closure for a stateful
 // page. If the user defined StreamClose, it runs under the slot mutex.
-// In all cases the slot is detached and the grace-period reaper is armed.
+// In all cases the slot is detached and the grace timer is armed.
+//
+// This closure runs on the watchdog goroutine, outside net/http. A panic
+// here takes the process down, which is why a StreamClose that reads state
+// runs only while the slot is alive.
 func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 	suffix := stateSuffix(p.State)
 	w.Line(1, "func(streamID uint64) {")
 	w.Line(2, "if slot != nil {")
 	w.Line(3, "slot.mu.Lock()")
+
+	ind := 3
+	guard := p.StreamClose != nil && p.StreamClose.InputState != nil
+	if guard {
+		w.Line(3, "if !slot.dead {")
+		ind = 4
+	}
+	tabs := strings.Repeat("\t", ind)
+
 	if p.StreamClose != nil {
 		dispatchVar := ""
 		if p.StreamClose.InputDispatch != nil {
 			dispatchVar = "dispatchClosed"
 		}
 		if p.StreamClose.OutputErr != nil {
-			w.Raw("\t\t\tif err := ")
+			w.Raw(tabs)
+			w.Raw("if err := ")
 			w.writeCallExpr(
 				"p", "StreamClose",
 				handlerInputArgsWithDispatchVar(p.StreamClose, false, dispatchVar),
 			)
 			w.Raw("; err != nil {\n")
-			w.Raw("\t\t\t\ts.logErr(\"handling ")
+			w.Raw(tabs)
+			w.Raw("\ts.logErr(\"handling ")
 			w.Raw(p.TypeName)
 			w.Raw(".StreamClose\", err)\n")
-			w.Line(3, "}")
+			w.Line(ind, "}")
 		} else {
-			w.Raw("\t\t\t")
+			w.Raw(tabs)
 			w.writeCallExpr(
 				"p", "StreamClose",
 				handlerInputArgsWithDispatchVar(p.StreamClose, false, dispatchVar),
@@ -1194,6 +1213,10 @@ func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 			w.Byte('\n')
 		}
 	}
+	if guard {
+		w.Line(3, "}")
+	}
+
 	w.Line(3, "slot.mu.Unlock()")
 	w.Line(2, "}")
 	w.Linef(2, "s.closeStream%s(instanceID)", suffix)

@@ -50,6 +50,8 @@ func (w *Writer) writeVerifyInstanceIDHeader() {
 // writeLookupSlotOrReject emits the code that looks up an allocated slot
 // by instanceID, responding 409+reconnect if missing. Used by stateful
 // action handlers; the stream handler uses allocate/reconnect instead.
+// The grace timer can expire between the lookup and the lock and return
+// the state to the pool, which is why liveness is re-checked under the lock.
 func (w *Writer) writeLookupSlotOrReject(st *model.StateType) {
 	suffix := stateSuffix(st)
 	w.Linef(1, "slot, ok := s.lookup%s(instanceID)", suffix)
@@ -60,6 +62,11 @@ func (w *Writer) writeLookupSlotOrReject(st *model.StateType) {
 	w.Line(1, "}")
 	w.Line(1, "slot.mu.Lock()")
 	w.Line(1, "defer slot.mu.Unlock()")
+	w.Line(1, "if slot.dead {")
+	w.Line(2, "w.Header().Set(stateRetryHeader, stateRetryReconnect)")
+	w.Line(2, "http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)")
+	w.Line(2, "return")
+	w.Line(1, "}")
 }
 
 // State runtime symbols are derived from the state type's full Go name.
@@ -237,7 +244,8 @@ func (w *Writer) writePageStateSlot(p *model.Page, appPkg string) {
 	w.Linef(1, "state    *%s.%s", appPkg, stateType)
 	w.Line(1, "mu       sync.Mutex // serializes all stateful handler calls on this instance")
 	w.Line(1, "streamID uint64     // currently-associated SSE stream (0 when detached)")
-	w.Line(1, "timer    *time.Timer // grace-period reaper; nil while a stream is attached")
+	w.Line(1, "timer    *time.Timer // grace-period timer; nil while a stream is attached")
+	w.Line(1, "dead     bool        // true once the state went back to the pool")
 	w.Line(0, "}")
 
 	w.Raw("\n")
@@ -297,6 +305,7 @@ func (w *Writer) writePageStateMethods(p *model.Page, appPkg string) {
 	w.Linef(0, "// reconnect%s tries to reattach an existing slot (grace-period reconnect)", suffix)
 	w.Line(0, "// to a new SSE streamID. Returns (slot, true) on success; (nil, false)")
 	w.Line(0, "// when the id is unknown (e.g. grace period already elapsed).")
+	w.Line(0, "// A slot whose state already went back to the pool is refused.")
 	w.Linef(0, "func (s *Server) reconnect%s(id string, streamID uint64) (*%s, bool) {",
 		suffix, slot)
 	w.Linef(1, "slot, ok := s.lookup%s(id)", suffix)
@@ -304,18 +313,21 @@ func (w *Writer) writePageStateMethods(p *model.Page, appPkg string) {
 	w.Line(2, "return nil, false")
 	w.Line(1, "}")
 	w.Line(1, "slot.mu.Lock()")
+	w.Line(1, "defer slot.mu.Unlock()")
+	w.Line(1, "if slot.dead {")
+	w.Line(2, "return nil, false")
+	w.Line(1, "}")
 	w.Line(1, "if slot.timer != nil {")
 	w.Line(2, "slot.timer.Stop()")
 	w.Line(2, "slot.timer = nil")
 	w.Line(1, "}")
 	w.Line(1, "slot.streamID = streamID")
-	w.Line(1, "slot.mu.Unlock()")
 	w.Line(1, "return slot, true")
 	w.Line(0, "}")
 
 	w.Raw("\n")
 	w.Linef(0, "// closeStream%s marks id as detached from its SSE stream and starts", suffix)
-	w.Line(0, "// the grace-period reaper. If the client reconnects with the same id")
+	w.Line(0, "// the grace timer. If the client reconnects with the same id")
 	w.Line(0, "// before the timer fires, the slot is reused as-is.")
 	w.Linef(0, "func (s *Server) closeStream%s(id string) {", suffix)
 	w.Linef(1, "slot, ok := s.lookup%s(id)", suffix)
@@ -328,11 +340,18 @@ func (w *Writer) writePageStateMethods(p *model.Page, appPkg string) {
 	w.Line(2, "slot.timer.Stop()")
 	w.Line(1, "}")
 	w.Line(1, "slot.timer = time.AfterFunc(s.stateConf.GracePeriod, func() {")
-	w.Linef(2, "%s.Delete(id)", instances)
 	w.Line(2, "slot.mu.Lock()")
+	w.Line(2, "// A stream reattached while this timer was already running,")
+	w.Line(2, "// or another timer got here first.")
+	w.Line(2, "if slot.streamID != 0 || slot.dead {")
+	w.Line(3, "slot.mu.Unlock()")
+	w.Line(3, "return")
+	w.Line(2, "}")
+	w.Line(2, "slot.dead = true")
 	w.Line(2, "st := slot.state")
 	w.Line(2, "slot.state = nil")
 	w.Line(2, "slot.mu.Unlock()")
+	w.Linef(2, "%s.Delete(id)", instances)
 	w.Line(2, "if st != nil {")
 	w.Linef(3, "%s.Put(st)", pool)
 	w.Line(2, "}")

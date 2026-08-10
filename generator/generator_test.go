@@ -178,6 +178,56 @@ func TestGenerateStateFromGenericEmbedOnly(t *testing.T) {
 		"the stream handler must allocate the slot on open")
 }
 
+// TestGenerateStateSlotLifecycle covers the window between finding a slot and using it.
+//
+// A slot is found through a map, then locked. The grace timer runs on its own
+// goroutine and can return the state to the pool in between.
+// Every user of a slot must therefore re-check under the lock that the slot is
+// still alive, and the timer must leave slots alone that a stream reattached to.
+func TestGenerateStateSlotLifecycle(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "parser", "testdata", "state"),
+	)
+	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+	require.NotNil(t, app, "parser returned nil model")
+
+	tmpDir := t.TempDir()
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
+		GenImport: "datapagestest/fixture/state/datapagesgen",
+	})
+	require.NoError(t, err)
+
+	b, err := os.ReadFile(filepath.Join(tmpDir, "app_gen.go"))
+	require.NoError(t, err)
+	got := string(b)
+
+	mustContain := func(sub, why string) {
+		t.Helper()
+		require.True(t, strings.Contains(got, sub), "%s, missing: %s", why, sub)
+	}
+
+	mustContain("dead     bool",
+		"a slot must stay recognizable after its state went back to the pool")
+	mustContain("if slot.streamID != 0 || slot.dead {",
+		"the grace timer must skip a reattached or already released slot")
+	mustContain("if slot.dead {\n\t\treturn nil, false\n\t}",
+		"reconnect must refuse a released slot")
+
+	// Action handlers hold the lock for the whole call.
+	// The check belongs after the lock and before the state reaches the user handler.
+	mustContain("slot.mu.Lock()\n\tdefer slot.mu.Unlock()\n\tif slot.dead {",
+		"a stateful action must reject a released slot")
+
+	// StreamClose runs on the watchdog goroutine, outside net/http. A panic
+	// there is not recovered and ends the process.
+	mustContain("if !slot.dead {",
+		"StreamClose must not read state of a released slot")
+
+	// The stream loop keeps its slot across events. It outlives the grace timer.
+	mustContain("if slot.dead {\n\t\t\t\t\t\tslot.mu.Unlock()\n\t\t\t\t\t\tcontinue",
+		"the stream loop must skip a released slot")
+}
+
 func TestGenerateCmd(t *testing.T) {
 	tests := map[string]struct {
 		appImport  string
