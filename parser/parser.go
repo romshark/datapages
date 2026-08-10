@@ -1200,6 +1200,23 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 		}
 		visited[ap.TypeName] = true
 
+		// The type argument at an embed site can be the only place a state type appears.
+		// Bind it while walking the embeds, before the page level state resolution runs.
+		substHandler := func(h *model.Handler) *model.Handler {
+			out := substituteStateTypeParam(h, it.typeArgs)
+			if out != nil {
+				bindStateTypeArg(ctx, errs, out.InputState, it.embedPos)
+			}
+			return out
+		}
+		substEventHandler := func(eh *model.EventHandler) *model.EventHandler {
+			out := substituteEventHandlerStateTypeParam(eh, it.typeArgs)
+			if out != nil {
+				bindStateTypeArg(ctx, errs, out.InputState, it.embedPos)
+			}
+			return out
+		}
+
 		// enqueue children, carrying THEIR embed positions (in the parent abstract)
 		apSt := typeStruct(ctx, ap.TypeName)
 		apEmbPos := structinspect.EmbeddedFieldPosMap(apSt)
@@ -1265,7 +1282,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 			}
 			ownedMethods[m.Name] = true
 			pg.Actions = append(pg.Actions,
-				substituteStateTypeParam(m, it.typeArgs))
+				substHandler(m))
 		}
 
 		if ap.StreamOpen != nil {
@@ -1275,7 +1292,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				if ap.StreamOpen.Expr != nil {
 					streamOpenOwnerPos = ap.StreamOpen.Expr.Pos()
 				}
-				pg.StreamOpen = substituteStateTypeParam(ap.StreamOpen, it.typeArgs)
+				pg.StreamOpen = substHandler(ap.StreamOpen)
 			case "page", ap.TypeName:
 				// Page-owned or already inherited from the same abstract wins.
 			default:
@@ -1306,7 +1323,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				if ap.StreamClose.Expr != nil {
 					streamClosedOwnerPos = ap.StreamClose.Expr.Pos()
 				}
-				pg.StreamClose = substituteStateTypeParam(ap.StreamClose, it.typeArgs)
+				pg.StreamClose = substHandler(ap.StreamClose)
 			case "page", ap.TypeName:
 				// Page-owned or already inherited from the same abstract wins.
 			default:
@@ -1338,7 +1355,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				}
 				ownedMethods[h.Name] = true
 				pg.EventHandlers = append(pg.EventHandlers,
-					substituteEventHandlerStateTypeParam(h, it.typeArgs))
+					substEventHandler(h))
 				continue
 			}
 
@@ -1376,7 +1393,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				handledEventPos[ev] = h.Expr.Pos()
 			}
 			pg.EventHandlers = append(pg.EventHandlers,
-				substituteEventHandlerStateTypeParam(h, it.typeArgs))
+				substEventHandler(h))
 		}
 	}
 }
@@ -2258,6 +2275,22 @@ func registerStateType(ctx *parseCtx, name string) error {
 		TypeName: name,
 	}
 	return nil
+}
+
+// bindStateTypeArg records the state type of a handler inherited from a
+// generic abstract page. The type comes from the embed site,
+// not from a `state *T` parameter, and is otherwise unknown to the app model.
+// Already registered types are kept as they are.
+func bindStateTypeArg(
+	ctx *parseCtx, errs *Errors, is *model.InputState, embedPos token.Pos,
+) {
+	if is == nil || is.IsTypeParam {
+		return
+	}
+	if err := registerStateType(ctx, is.StateTypeName); err != nil {
+		errs.ErrAt(ctx.pkg.Fset.Position(embedPos),
+			fmt.Errorf("%w: %s", ErrStateParamInvalidType, err))
+	}
 }
 
 func parseInput(f *ast.Field, info *types.Info) *model.Input {

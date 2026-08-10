@@ -141,6 +141,43 @@ func TestGenerateGenericAbstract(t *testing.T) {
 		"PageB must construct its embed as Base[StateB]")
 }
 
+// TestGenerateStateFromGenericEmbedOnly covers a page that reaches its state
+// type only through the type argument of an embedded generic abstract page.
+//
+// The state runtime is emitted per state type. A page bound this way needs
+// the same slot type, pool and allocation as a page that names the state
+// type in one of its own handlers.
+func TestGenerateStateFromGenericEmbedOnly(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "parser", "testdata", "state_generic_embed_only"),
+	)
+	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+	require.NotNil(t, app, "parser returned nil model")
+
+	tmpDir := t.TempDir()
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
+		GenImport: "datapagestest/fixture/state_generic_embed_only/datapagesgen",
+	})
+	require.NoError(t, err)
+
+	b, err := os.ReadFile(filepath.Join(tmpDir, "app_gen.go"))
+	require.NoError(t, err)
+	got := string(b)
+
+	// Asserting with require.True keeps a failure short.
+	// require.Contains would print the whole generated file.
+	mustContain := func(sub, why string) {
+		t.Helper()
+		require.True(t, strings.Contains(got, sub), "%s, missing: %s", why, sub)
+	}
+	mustContain("type stateSlotTabState struct",
+		"the state runtime must be emitted for the embedded state type")
+	mustContain("var slot *stateSlotTabState",
+		"the stream handler must declare the slot it passes to handlers")
+	mustContain("s.allocateTabState(instanceID, streamID)",
+		"the stream handler must allocate the slot on open")
+}
+
 func TestGenerateCmd(t *testing.T) {
 	tests := map[string]struct {
 		appImport  string

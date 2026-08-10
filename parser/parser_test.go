@@ -1620,6 +1620,32 @@ func TestParse_StateGenericAbstract(t *testing.T) {
 	require.Equal("S", base.StreamOpen.InputState.StateTypeName)
 }
 
+// TestParse_StateGenericEmbedOnly covers a page whose only reference to a
+// state type is the type argument of an embedded generic abstract page.
+// The type argument alone must bind the page to that state type.
+func TestParse_StateGenericEmbedOnly(t *testing.T) {
+	app, err := parse(t, "state_generic_embed_only")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	require.Contains(app.States, "TabState")
+
+	pi := app.PageIndex
+	require.NotNil(pi)
+	require.NotNil(pi.State, "page must be stateful")
+	require.Equal("TabState", pi.State.TypeName)
+
+	require.NotNil(pi.StreamOpen)
+	require.NotNil(pi.StreamOpen.InputState)
+	require.Equal("TabState", pi.StreamOpen.InputState.StateTypeName)
+	require.False(pi.StreamOpen.InputState.IsTypeParam)
+
+	require.Len(pi.EventHandlers, 1)
+	require.NotNil(pi.EventHandlers[0].InputState)
+	require.Equal("TabState", pi.EventHandlers[0].InputState.StateTypeName)
+}
+
 func TestParse_StateSubjectID(t *testing.T) {
 	app, err := parse(t, "state_subject_id")
 	require := require.New(t)
