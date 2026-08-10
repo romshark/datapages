@@ -588,11 +588,16 @@ func (PageIndex) OnItemsChanged(
 hmacKey := sha256.Sum256([]byte(hmacSecret))
 s := datapagesgen.NewServer(a, msgBroker,
     datapagesgen.WithStateConfig(datapagesgen.StateConfig{
-        HMACKey:     hmacKey[:],
-        GracePeriod: 30 * time.Second, // optional
+        HMACKey:                hmacKey[:],
+        GracePeriod:            30 * time.Second, // optional, default 30s
+        MaxConcurrentInstances: 10_000,           // optional, default 10_000
     }),
 )
 ```
+
+`NewServer` panics without this option. `MaxConcurrentInstances` caps how
+many instances exist at the same time. A stream connect past the cap gets
+`503` and Datastar retries it.
 
 **Multi-server deployments**. State lives in process memory, so the load
 balancer must route each client consistently to the same backend (cookie

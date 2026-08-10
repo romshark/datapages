@@ -459,15 +459,32 @@ handler takes `state`:
 ```go
 s := datapagesgen.NewServer(a, msgBroker,
     datapagesgen.WithStateConfig(datapagesgen.StateConfig{
-        HMACKey:     hmacKey,                // required, non-empty
-        GracePeriod: 30 * time.Second,       // optional, default 30s
+        HMACKey:                hmacKey,          // required, non-empty
+        GracePeriod:            30 * time.Second, // optional, default 30s
+        MaxConcurrentInstances: 10_000,           // optional, default 10_000
     }),
 )
 ```
 
+`NewServer` panics when an app with stateful pages receives no `StateConfig`.
+
 `HMACKey` signs the instance identifier. Key rotation or process restart
 invalidates every live instance; connected clients recover by reloading the
 page on the next rejected request.
+
+`MaxConcurrentInstances` caps how many instances exist at the same time,
+across all state types. A page load plus an SSE connect creates one, which
+anyone who reaches the server can ask for. An instance keeps its place for
+`GracePeriod` after its stream closes, which means a client that opens and
+closes streams in a loop holds several at once. Size the cap by the memory
+one state value costs.
+
+A stream connect that would exceed the cap receives `503 Service Unavailable`
+with `Retry-After`. Datastar retries the connect on its own.
+A reconnect within `GracePeriod` reuses its instance and is never refused.
+Actions of a tab that already holds an instance keep working.
+Nothing in the app is notified, which makes the cap a limit to watch rather than
+one to rely on.
 
 **Sticky sessions on multi-server deployments**. State lives in process
 memory, so each client's requests must land on the same backend. A load

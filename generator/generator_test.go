@@ -264,6 +264,11 @@ func TestGenerateStateSlotOwnership(t *testing.T) {
 		"only the attached stream may detach the slot and start the timer")
 	mustContain("s.closeStreamStateIndex(instanceID, streamID)",
 		"the close hook must pass the stream it belongs to")
+
+	// An id outlives the slot behind it. A new stream can allocate a fresh
+	// slot under the same id while the previous one is still being released.
+	mustContain("stateInstancesStateIndex.CompareAndDelete(id, slot)",
+		"releasing a slot must not drop a newer slot under the same id")
 }
 
 // TestGenerateSharedStateType covers two pages bound to the same state type,
@@ -428,6 +433,57 @@ func TestGenerateStateConfigRequired(t *testing.T) {
 		"NewServer must reject a stateful app without a state config")
 	require.True(t, strings.Contains(got, `panic("missing state config`),
 		"the failure must name what is missing, like the other prerequisites")
+}
+
+// TestGenerateStateInstanceLimit covers how many instances a server keeps.
+//
+// A page load mints an identifier and an SSE connect turns it into a live
+// instance that outlives its stream by the grace period. Both are cheap to
+// ask for from outside, which puts the count under the caller's control.
+func TestGenerateStateInstanceLimit(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "parser", "testdata", "state"),
+	)
+	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+	require.NotNil(t, app, "parser returned nil model")
+
+	tmpDir := t.TempDir()
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
+		GenImport: "datapagestest/fixture/state/datapagesgen",
+	})
+	require.NoError(t, err)
+
+	b, err := os.ReadFile(filepath.Join(tmpDir, "app_gen.go"))
+	require.NoError(t, err)
+	got := string(b)
+
+	mustContain := func(sub, why string) {
+		t.Helper()
+		require.True(t, strings.Contains(got, sub), "%s, missing: %s", why, sub)
+	}
+
+	mustContain("MaxConcurrentInstances int",
+		"the limit belongs to the server configuration")
+	mustContain("var stateLiveInstances atomic.Int64",
+		"the count spans all state types, since memory does too")
+	mustContain("stateLiveInstances.Add(-1)",
+		"releasing an instance must lower the count")
+
+	// A refused allocation has to reach the stream open hook. It answers
+	// with an error instead of a slot nothing can use.
+	mustContain("if slot == nil {",
+		"the stream open hook must handle a refused allocation")
+
+	// The stream request commits 200 and the SSE headers before the open
+	// hook runs. A full server has to say so before that point, while the
+	// status line is still free.
+	mustContain("func (s *Server) stateHasCapacity() bool {",
+		"the stream handler needs to ask about capacity before it opens")
+	mustContain(
+		"if _, live := s.lookupStateIndex(instanceID); !live && !s.stateHasCapacity() {",
+		"a reconnect needs no new instance and must pass the check")
+	mustContain("http.StatusServiceUnavailable",
+		"a full server is a temporary condition, not a broken request")
 }
 
 func TestGenerateCmd(t *testing.T) {

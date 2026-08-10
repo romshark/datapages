@@ -103,6 +103,21 @@ func (w *Writer) writeVerifyInstanceIDHeader() {
 	w.Line(1, "}")
 }
 
+// writeStateCapacityCheck emits the capacity check of a stateful stream handler.
+// The stream request commits its status line before the open hook runs,
+// which leaves this as the last point where a full server can say so.
+// A reconnect reuses its instance and passes.
+func (w *Writer) writeStateCapacityCheck(st *model.StateType) {
+	w.Linef(1, "if _, live := s.lookup%s(instanceID); !live && !s.stateHasCapacity() {",
+		stateSuffix(st))
+	w.Line(2, `w.Header().Set("Retry-After", "5")`)
+	w.Line(2, "http.Error(w,")
+	w.Line(3, "http.StatusText(http.StatusServiceUnavailable),")
+	w.Line(3, "http.StatusServiceUnavailable)")
+	w.Line(2, "return")
+	w.Line(1, "}")
+}
+
 // writeStateRouteKeyVar emits the local that names this tab in message broker subjects.
 // Handlers receive it as their `stateID` parameter and
 // dispatch tab-scoped events with it.
@@ -218,6 +233,13 @@ type StateConfig struct {
 	// stream closes, waiting for the client to reconnect (e.g. after a
 	// transient network blip). Default 30s.
 	GracePeriod time.Duration
+
+	// MaxConcurrentInstances caps how many instances exist at the same time,
+	// across all state types. A page load plus an SSE connect creates one,
+	// which anyone who reaches the server can ask for. An instance keeps its
+	// place for GracePeriod after its stream closes. Stream opens beyond the
+	// cap fail. Default 10_000.
+	MaxConcurrentInstances int
 }
 `)
 }
@@ -237,6 +259,9 @@ func WithStateConfig(conf StateConfig) ServerOption {
 		}
 		if conf.GracePeriod <= 0 {
 			conf.GracePeriod = 30 * time.Second
+		}
+		if conf.MaxConcurrentInstances <= 0 {
+			conf.MaxConcurrentInstances = 10_000
 		}
 		s.stateConf = &conf
 		return nil
@@ -319,6 +344,30 @@ func (s *Server) stateRouteKey(id string) string {
 	mac.Write([]byte(id))
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)[:16])
 }
+
+// stateLiveInstances counts the instances of every state type. Memory is
+// shared between them, and so is the budget in StateConfig.MaxConcurrentInstances.
+var stateLiveInstances atomic.Int64
+
+// stateReserveInstance takes one slot out of the budget. It reports false
+// when the server is full, which fails the stream open that asked for it.
+func (s *Server) stateReserveInstance() bool {
+	if stateLiveInstances.Add(1) > int64(s.stateConf.MaxConcurrentInstances) {
+		stateLiveInstances.Add(-1)
+		return false
+	}
+	return true
+}
+
+// stateHasCapacity reports whether the budget has room right now. It is a
+// look, not a claim, and callers use it before a stream commits its status
+// line. stateReserveInstance is what actually holds the bound.
+func (s *Server) stateHasCapacity() bool {
+	return stateLiveInstances.Load() < int64(s.stateConf.MaxConcurrentInstances)
+}
+
+// errStateAtCapacity fails a stream open that finds no free instance.
+var errStateAtCapacity = errors.New("state instance limit reached")
 `)
 }
 
@@ -371,9 +420,13 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 		"// allocate%s checks a state value out of %s, zeroes it, registers it",
 		suffix, pool)
 	w.Line(0, "// under id, and attaches it to the given SSE streamID.")
-	w.Line(0, "// Returns the slot so callers (StreamOpen) can pass the state to the user.")
+	w.Line(0, "// Returns the slot so callers (StreamOpen) can pass the state to the user,")
+	w.Line(0, "// or nil when the server holds as many instances as it may.")
 	w.Linef(0, "func (s *Server) allocate%s(id string, streamID uint64) *%s {",
 		suffix, slot)
+	w.Line(1, "if !s.stateReserveInstance() {")
+	w.Line(2, "return nil")
+	w.Line(1, "}")
 	w.Linef(1, "st := %s.Get().(*%s.%s)", pool, appPkg, stateType)
 	w.Linef(1, "*st = %s.%s{} // total reset; safe reuse across tenants", appPkg, stateType)
 	w.Linef(1, "slot := &%s{state: st, streamID: streamID}", slot)
@@ -450,7 +503,10 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	w.Line(2, "st := slot.state")
 	w.Line(2, "slot.state = nil")
 	w.Line(2, "slot.mu.Unlock()")
-	w.Linef(2, "%s.Delete(id)", instances)
+	w.Line(2, "// A stream can allocate a fresh slot under this id while this")
+	w.Line(2, "// one is on its way out. Drop only the slot this timer owns.")
+	w.Linef(2, "%s.CompareAndDelete(id, slot)", instances)
+	w.Line(2, "stateLiveInstances.Add(-1)")
 	w.Line(2, "if st != nil {")
 	w.Linef(3, "%s.Put(st)", pool)
 	w.Line(2, "}")

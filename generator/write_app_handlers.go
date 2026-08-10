@@ -888,6 +888,7 @@ func (w *Writer) writePageGETStreamHandler(
 	if p.State != nil {
 		w.Line(0, "")
 		w.writeVerifyInstanceIDHeader()
+		w.writeStateCapacityCheck(p.State)
 		if pageNeedsStateRouteKey(p, w.eventMap) {
 			w.writeStateRouteKeyVar()
 		}
@@ -1101,6 +1102,9 @@ func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 	w.Line(3, "slot = existing")
 	w.Line(2, "} else {")
 	w.Linef(3, "slot = s.allocate%s(instanceID, streamID)", suffix)
+	w.Line(2, "}")
+	w.Line(2, "if slot == nil {")
+	w.Line(3, "return errStateAtCapacity")
 	w.Line(2, "}")
 	w.Line(2, "slot.mu.Lock()")
 	w.Line(2, "defer slot.mu.Unlock()")
