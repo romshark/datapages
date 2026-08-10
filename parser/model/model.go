@@ -24,9 +24,9 @@ type App struct {
 	Events  []*Event
 	Actions []*Handler // App-level POST/PUT/PATCH/DELETE actions.
 
-	// States are all declared StateXXX types in the source package,
-	// keyed by type name. A state type may be referenced by at most
-	// one concrete page (directly or through embedded abstract pages).
+	// States are all declared StateXXX types in the source package, keyed by type name.
+	// Pages reference them directly or through embedded abstract pages.
+	// Several pages may share one state type.
 	States map[string]*StateType
 }
 

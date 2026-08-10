@@ -266,6 +266,42 @@ func TestGenerateStateSlotOwnership(t *testing.T) {
 		"the close hook must pass the stream it belongs to")
 }
 
+// TestGenerateSharedStateType covers two pages bound to the same state type,
+// which happens as soon as they embed the same stateful abstract page.
+//
+// The state runtime belongs to the state type, not to the page. One slot type,
+// one pool and one instance map serve every page that uses that state.
+func TestGenerateSharedStateType(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "parser", "testdata", "state_shared"),
+	)
+	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+	require.NotNil(t, app, "parser returned nil model")
+
+	tmpDir := t.TempDir()
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
+		GenImport: "datapagestest/fixture/state_shared/datapagesgen",
+	})
+	require.NoError(t, err)
+
+	b, err := os.ReadFile(filepath.Join(tmpDir, "app_gen.go"))
+	require.NoError(t, err)
+	got := string(b)
+
+	for _, decl := range []string{
+		"type stateSlotTabContext struct",
+		"var statePoolTabContext",
+		"var stateInstancesTabContext",
+		"func (s *Server) allocateTabContext(",
+		"func (s *Server) lookupTabContext(",
+		"func (s *Server) reconnectTabContext(",
+		"func (s *Server) closeStreamTabContext(",
+	} {
+		require.Equal(t, 1, strings.Count(got, decl),
+			"declared once for the state type, not once per page: %s", decl)
+	}
+}
+
 func TestGenerateCmd(t *testing.T) {
 	tests := map[string]struct {
 		appImport  string

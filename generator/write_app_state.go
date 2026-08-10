@@ -70,9 +70,9 @@ func (w *Writer) writeLookupSlotOrReject(st *model.StateType) {
 }
 
 // State runtime symbols are derived from the state type's full Go name.
-// Each state type binds to exactly one page, so this remains unique while
-// letting App-level action handlers — which are not tied to a single
-// page — resolve the right helpers purely from their `state *T` parameter.
+// The runtime belongs to the state type. Pages that share a state type share
+// its slot type, pool and instance map. App-level action handlers,
+// which belong to no page, resolve the same symbols from their `state *T` parameter.
 
 func stateSlotTypeName(st *model.StateType) string {
 	return "stateSlot" + st.TypeName
@@ -103,10 +103,25 @@ func statefulPages(m *model.App) []*model.Page {
 	return out
 }
 
-// writeStateRuntime emits the per-page server-side state runtime:
+// boundStateTypes returns every state type bound by a page, in page order,
+// each one once. Several pages may share a state type.
+func boundStateTypes(m *model.App) []*model.StateType {
+	var out []*model.StateType
+	seen := map[string]bool{}
+	for _, p := range statefulPages(m) {
+		if seen[p.State.TypeName] {
+			continue
+		}
+		seen[p.State.TypeName] = true
+		out = append(out, p.State)
+	}
+	return out
+}
+
+// writeStateRuntime emits the server-side state runtime:
 //
 //   - StateConfig + WithStateConfig option
-//   - Per-page slot type + sync.Pool + sync.Map of live instances
+//   - Per state type: slot type + sync.Pool + sync.Map of live instances
 //   - HMAC sign/verify helpers for Datapages-Instance header
 //   - Mint/lookup/release/reconnect helpers
 //
@@ -120,8 +135,8 @@ func (w *Writer) writeStateRuntime(m *model.App, appPkg string) {
 	w.writeStateConfigOption()
 	w.writeStateHMACHelpers()
 
-	for _, p := range statefulPages(m) {
-		w.writePageStateSlot(p, appPkg)
+	for _, st := range boundStateTypes(m) {
+		w.writeStateSlot(st, appPkg)
 	}
 }
 
@@ -230,14 +245,14 @@ func (s *Server) verifyStateInstanceID(id string) bool {
 `)
 }
 
-func (w *Writer) writePageStateSlot(p *model.Page, appPkg string) {
-	slot := stateSlotTypeName(p.State)
-	pool := statePoolName(p.State)
-	instances := stateMapName(p.State)
-	stateType := p.State.TypeName
+func (w *Writer) writeStateSlot(st *model.StateType, appPkg string) {
+	slot := stateSlotTypeName(st)
+	pool := statePoolName(st)
+	instances := stateMapName(st)
+	stateType := st.TypeName
 
 	w.Raw("\n")
-	w.Linef(0, "// %s holds the per-instance server-side state for %s.", slot, p.TypeName)
+	w.Linef(0, "// %s holds one instance of %s.", slot, stateType)
 	w.Linef(0, "// It is checked out of %s on StreamOpen and returned", pool)
 	w.Linef(0, "// when StreamClose elapses without a reconnect within GracePeriod.")
 	w.Linef(0, "type %s struct {", slot)
@@ -259,20 +274,20 @@ func (w *Writer) writePageStateSlot(p *model.Page, appPkg string) {
 	w.Linef(0, "// %s maps a verified Datapages-Instance id to the live slot.", instances)
 	w.Linef(0, "var %s sync.Map // key: string (instance id), value: *%s", instances, slot)
 
-	w.writePageStateMethods(p, appPkg)
+	w.writeStateMethods(st, appPkg)
 }
 
-// writePageStateMethods emits the per-page allocate/lookup/close methods.
-// - allocate<Page>: called by StreamOpen; zeroes pooled state, registers slot.
-// - lookup<Page>:   called by actions/OnXXX; returns the slot or (nil, false).
-// - closeStream<Page>: called by StreamClose; starts grace timer, detaches streamID.
-// - reconnect<Page>: called by StreamOpen on repeat id; cancels timer, attaches streamID.
-func (w *Writer) writePageStateMethods(p *model.Page, appPkg string) {
-	slot := stateSlotTypeName(p.State)
-	pool := statePoolName(p.State)
-	instances := stateMapName(p.State)
-	stateType := p.State.TypeName
-	suffix := p.State.TypeName
+// writeStateMethods emits the allocate/lookup/close methods of a state type.
+// - allocate<T>: called by StreamOpen; zeroes pooled state, registers slot.
+// - lookup<T>:   called by actions/OnXXX; returns the slot or (nil, false).
+// - closeStream<T>: called by StreamClose; starts grace timer, detaches streamID.
+// - reconnect<T>: called by StreamOpen on repeat id; cancels timer, attaches streamID.
+func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
+	slot := stateSlotTypeName(st)
+	pool := statePoolName(st)
+	instances := stateMapName(st)
+	stateType := st.TypeName
+	suffix := st.TypeName
 
 	w.Raw("\n")
 	w.Linef(0,
