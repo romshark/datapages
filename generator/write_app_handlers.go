@@ -944,7 +944,8 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Line(2, "}")
 	} else {
 		w.Line(2, "for msg := range ch {")
-		needsPrefixMatch := hasPrivate || hasSignalScoped
+		needsPrefixMatch := hasPrivate || hasSignalScoped ||
+			pageHasStateIDScopedEvent(p, w.eventMap)
 		if needsPrefixMatch {
 			w.Line(3, "switch {")
 		} else {
@@ -973,7 +974,7 @@ func (w *Writer) writeStreamEventCase(
 ) {
 	constName := eventConstName(ev.TypeName)
 
-	if ev.IsPrivate() || ev.IsSignalScoped() {
+	if evUsesPrefixMatch(ev) {
 		w.Raw("\t\t\tcase strings.HasPrefix(msg.Subject, EvSubjPref")
 		w.Raw(constName)
 		w.Raw("):\n")

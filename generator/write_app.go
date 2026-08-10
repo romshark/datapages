@@ -975,10 +975,11 @@ func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
 
 	w.Line(0, ")")
 
-	// EvSubjPref* constants (prefix for matching private and signal-scoped events).
+	// EvSubjPref* constants (prefix for matching events whose concrete
+	// subject is only known at runtime).
 	hasPrefixed := false
 	for _, e := range events {
-		if e.IsPrivate() || e.IsSignalScoped() {
+		if evUsesPrefixMatch(e) {
 			hasPrefixed = true
 			break
 		}
@@ -987,7 +988,7 @@ func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
 		w.Line(0, "")
 		w.Line(0, "const (")
 		for _, e := range events {
-			if e.IsPrivate() || e.IsSignalScoped() {
+			if evUsesPrefixMatch(e) {
 				w.Byte('\t')
 				w.Raw(evSubjPrefConst(e))
 				w.Raw(" = ")
@@ -1265,15 +1266,18 @@ func (w *Writer) writeEvSubjStateIDFunc(p *model.Page, name string, hasPublic bo
 		}
 	}
 
-	// State-id-scoped events: subject is "<base>.<stateID>".
+	// State-id-scoped events: subject is "<base>.<stateID>", built from the
+	// subject prefix constant. It must NOT be built from evSubjConst, which
+	// is the wildcard subscription constant ("<base>.*") and would yield a
+	// subject no publisher ever writes to.
 	for _, eh := range p.EventHandlers {
 		ev := w.eventMap[eh.EventTypeName]
 		if ev == nil || !ev.IsStateIDScoped() {
 			continue
 		}
 		w.Raw("\t\t")
-		w.Raw(evSubjConst(ev))
-		w.Raw(` + "." + stateID,` + "\n")
+		w.Raw(evSubjPrefConst(ev))
+		w.Raw(" + stateID,\n")
 	}
 
 	w.Line(1, "}")

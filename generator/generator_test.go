@@ -48,6 +48,63 @@ func TestGenerateClassifieds(t *testing.T) {
 			"datapagesgen", "assets", "assets_gen.go"))
 }
 
+// TestGenerateStateful covers the per-tab state runtime and the routing of
+// state-id-scoped events (events that carry SubjectStateID).
+//
+// Four places in the generated code must use the same subject:
+// the prefix constant, the page's subscription, the publish call in the dispatch closure,
+// and the match in the stream loop. If any two of them disagree, the event is never
+// delivered and nothing reports it. Each place is checked on its own below.
+// A failure then names the place that is wrong.
+// End-to-end coverage lives in example/reprod.
+func TestGenerateStateful(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "example", "reprod", "app"),
+	)
+	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+	require.NotNil(t, app, "parser returned nil model")
+
+	tmpDir := t.TempDir()
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
+		GenImport: "github.com/romshark/datapages/example/reprod/datapagesgen",
+	})
+	require.NoError(t, err)
+
+	genPath := filepath.Join(tmpDir, "app_gen.go")
+	compareFile(t, "app_gen.go", genPath,
+		filepath.Join("..", "example", "reprod", "datapagesgen", "app_gen.go"))
+
+	b, err := os.ReadFile(genPath)
+	require.NoError(t, err)
+	got := string(b)
+
+	// The page subscribes to the prefix plus the state id.
+	// The wildcard constant EvSubjFiltersUpdated ("filters.updated.*") is
+	// the stream filter. It must not be used to build a subscription.
+	require.Contains(t, got, `EvSubjPrefFiltersUpdated = "filters.updated."`,
+		"state-id-scoped events need a subject prefix constant")
+	require.Contains(t, got, "EvSubjPrefFiltersUpdated + stateID",
+		"subscription must be built from the prefix, not the wildcard constant")
+
+	// The dispatch closure publishes to that same subject.
+	require.Contains(t, got, `subj := "filters.updated." + p0`,
+		"dispatch must publish to the subject the page subscribes to")
+
+	// Incoming events are matched by prefix. The real subject ends with the state id.
+	// No equality test against a constant can match it.
+	require.Contains(t,
+		got, "case strings.HasPrefix(msg.Subject, EvSubjPrefFiltersUpdated):",
+		"state-id-scoped events must be matched by subject prefix")
+
+	// The instance id is used as one subject token, exactly as it is.
+	// Its separator must not be ".". A "." would split the id into two tokens
+	// and break single-"*" filters like the one MessageBrokerStreamSubjects exports.
+	// The separator also stays outside the base64url alphabet to
+	// keep the split point unambiguous.
+	require.Contains(t, got, "const stateInstanceIDSep = '~'",
+		"the instance id must stay a single message-broker subject token")
+}
+
 func TestGenerateCmd(t *testing.T) {
 	tests := map[string]struct {
 		appImport  string

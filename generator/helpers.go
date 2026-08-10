@@ -25,12 +25,20 @@ func evSubjConst(e *model.Event) string {
 	return "EvSubj" + eventConstName(e.TypeName)
 }
 
+// evUsesPrefixMatch reports whether the event's concrete subject is only
+// known at runtime. Both subscription building and inbound matching must then
+// go through the subject prefix instead of the wildcard constant.
+// True for private (SubjectUser), signal-scoped and state-id-scoped events.
+func evUsesPrefixMatch(e *model.Event) bool {
+	return e.IsPrivate() || e.IsSignalScoped() || e.IsStateIDScoped()
+}
+
 // evSubjPrefConst returns the subject prefix constant name for events
-// that use prefix-based subject matching (private or signal-scoped).
+// that use prefix-based subject matching.
 // Returns "" for plain public events.
 // "EventMessagingSent" -> "EvSubjPrefMessagingSent"
 func evSubjPrefConst(e *model.Event) string {
-	if !e.IsPrivate() && !e.IsSignalScoped() {
+	if !evUsesPrefixMatch(e) {
 		return ""
 	}
 	return "EvSubjPref" + eventConstName(e.TypeName)
@@ -62,7 +70,6 @@ func evSubjPrefValue(e *model.Event) string {
 func stripPagePrefix(typeName string) string {
 	return strings.TrimPrefix(typeName, "Page")
 }
-
 
 // pageHasStream returns true if the page has event handlers and needs a stream.
 func pageHasStream(p *model.Page) bool {

@@ -168,7 +168,7 @@ type EventHandler struct {
 	InputSession      *Input
 	InputState        *InputState // state *StateXXX; nullable.
 	InputStateID      *Input      // stateID string; nullable.
-	OrderedInputs     []*Input // Inputs in user-defined order.
+	OrderedInputs     []*Input    // Inputs in user-defined order.
 
 	OutputErr *Output
 }

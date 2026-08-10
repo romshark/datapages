@@ -173,9 +173,16 @@ const stateRetryHeader = "Datapages-Retry"
 // stateRetryReconnect is the only value currently emitted on stateRetryHeader.
 const stateRetryReconnect = "reconnect"
 
+// stateInstanceIDSep separates payload and signature in a Datapages-Instance value.
+// It must not be "." and must not appear in the base64url alphabet:
+// the identifier is used verbatim as a single message-broker subject token
+// (see the SubjectStateID event routing), and "." would split it in two,
+// breaking single-token wildcard matching.
+const stateInstanceIDSep = '~'
+
 // signStateInstanceID produces an HMAC-signed Datapages-Instance value.
-// The payload is 16 random bytes; the output is
-// base64url(payload) + "." + base64url(hmacSHA256(payload)).
+// The payload is 16 random bytes; the output is:
+// base64url(payload) + "~" + base64url(hmacSHA256(payload)).
 func (s *Server) signStateInstanceID() (string, error) {
 	if s.stateConf == nil {
 		return "", errors.New("state runtime not configured")
@@ -187,7 +194,8 @@ func (s *Server) signStateInstanceID() (string, error) {
 	mac := hmac.New(sha256.New, s.stateConf.HMACKey)
 	mac.Write(payload[:])
 	return base64.RawURLEncoding.EncodeToString(payload[:]) +
-		"." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+		string(stateInstanceIDSep) +
+		base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
 }
 
 // verifyStateInstanceID returns true when the supplied Datapages-Instance
@@ -196,15 +204,15 @@ func (s *Server) verifyStateInstanceID(id string) bool {
 	if s.stateConf == nil || id == "" {
 		return false
 	}
-	dot := strings.IndexByte(id, '.')
-	if dot <= 0 || dot == len(id)-1 {
+	sep := strings.IndexByte(id, stateInstanceIDSep)
+	if sep <= 0 || sep == len(id)-1 {
 		return false
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(id[:dot])
+	payload, err := base64.RawURLEncoding.DecodeString(id[:sep])
 	if err != nil {
 		return false
 	}
-	sig, err := base64.RawURLEncoding.DecodeString(id[dot+1:])
+	sig, err := base64.RawURLEncoding.DecodeString(id[sep+1:])
 	if err != nil {
 		return false
 	}
