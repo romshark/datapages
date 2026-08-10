@@ -33,6 +33,62 @@ func (w *Writer) writeMintInstanceIDOnGET() {
 	w.Line(2, "return")
 	w.Line(1, "}")
 	w.Line(1, "w.Header().Set(stateInstanceIDHeader, instanceID)")
+	w.Line(1, "// The page carries an identifier that stands for one tab's state.")
+	w.Line(1, "// A cache that hands it to a second visitor hands over the state.")
+	w.Line(1, `w.Header().Set("Cache-Control", "no-store")`)
+}
+
+// writeStateFetchWrapper emits the inline script that replaces globalThis.fetch
+// on a stateful page. The wrapper adds the instance id to every same-origin
+// Datastar request, reloads once when the server rejects the id, and reloads on
+// a back/forward-cache restore. Nothing else on the page sees the id.
+//
+// It is written before the Datastar bundle and runs at parse time.
+// A module script would be deferred and would miss requests made before it installs.
+//
+// The id is read back from the response header set by the page GET.
+// It is verified again here: the value reaches the page inside a
+// JavaScript string literal, and only a value the server signed may get there.
+func (w *Writer) writeStateFetchWrapper() {
+	if !w.usage.stateRuntime {
+		return
+	}
+	w.Raw("\tif id := w.Header().Get(stateInstanceIDHeader); s.verifyStateInstanceID(id) {\n")
+	w.Raw("\t\tif _, err := io.WriteString(w, `<script>(() => {\n")
+	w.Raw("\t\tlet __dpInstance=\"`); err != nil { return err }\n")
+	w.Raw("\t\tif _, err := io.WriteString(w, id); err != nil { return err }\n")
+	w.Raw("\t\tif _, err := io.WriteString(w, `\"\n")
+	w.Raw(`		const k="datapages-reloaded:"+location.pathname
+		const mark=v => { try { v ? sessionStorage.setItem(k,"1"):sessionStorage.removeItem(k) } catch {} }
+		const marked=() => { try { return !!sessionStorage.getItem(k) } catch { return false } }
+		const o2 = globalThis.fetch.bind(globalThis)
+		globalThis.fetch=(i,init={}) => {
+			const isReq=i instanceof Request
+			const r=isReq ? i:new Request(i,init)
+			if (r.headers.get("Datastar-Request")!=="true" ||
+				new URL(r.url,location.href).origin!==location.origin
+			) return isReq ? o2(r,init):o2(r)
+			const h=new Headers(r.headers)
+			if (__dpInstance) h.set("Datapages-Instance",__dpInstance)
+			return o2(new Request(r,{...init,headers:h})).then(resp => {
+				if (resp.status===409 && resp.headers.get("Datapages-Retry")==="reconnect") {
+					__dpInstance=""
+					if (!marked()) {
+						mark(true)
+						location.reload()
+					}
+				} else if (resp.ok) {
+					mark(false)
+				}
+				return resp
+			})
+		}
+		globalThis.addEventListener("pageshow", e => {
+			if (e.persisted) location.reload()
+		})
+	})()</script>`)
+	w.Raw("`); err != nil { return err }\n")
+	w.Raw("\t}\n")
 }
 
 // writeVerifyInstanceIDHeader emits the header-read + HMAC-verify preamble

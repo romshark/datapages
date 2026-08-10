@@ -302,6 +302,63 @@ func TestGenerateSharedStateType(t *testing.T) {
 	}
 }
 
+// TestGenerateStateFetchWrapper covers the inline script that replaces
+// globalThis.fetch on a stateful page and adds the instance id to every
+// same-origin Datastar request.
+//
+// The script is the only client-side part of the state feature.
+// It reads and changes every request the app makes, the id it holds stands
+// for one tab's server-side state, and text that reaches it runs as page JavaScript.
+func TestGenerateStateFetchWrapper(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "parser", "testdata", "state"),
+	)
+	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+	require.NotNil(t, app, "parser returned nil model")
+
+	tmpDir := t.TempDir()
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
+		GenImport: "datapagestest/fixture/state/datapagesgen",
+	})
+	require.NoError(t, err)
+
+	b, err := os.ReadFile(filepath.Join(tmpDir, "app_gen.go"))
+	require.NoError(t, err)
+	got := string(b)
+
+	mustContain := func(sub, why string) {
+		t.Helper()
+		require.True(t, strings.Contains(got, sub), "%s, missing: %s", why, sub)
+	}
+
+	// The value reaches the page as a JavaScript string literal.
+	// Only a value the server signed may get there.
+	mustContain("s.verifyStateInstanceID(id)",
+		"the embedded id must be verified before it reaches the page")
+
+	// The id is a bearer token for one tab.
+	// A shared cache must not hand the same page to a second visitor.
+	mustContain(`w.Header().Set("Cache-Control", "no-store")`,
+		"a stateful page response must not be stored")
+
+	// The wrapper replaces fetch.
+	// Anything that fetches before it is installed sends no instance header.
+	require.Less(t,
+		strings.Index(got, "__dpInstance"), strings.Index(got, "+s.datastarJSSrc+"),
+		"the wrapper must be written before the Datastar bundle")
+	mustContain("<script>(() => {",
+		"the wrapper must run at parse time, which a module script does not")
+
+	// The header is a credential. It belongs to this origin only.
+	mustContain("location.origin",
+		"the instance header must stay on same-origin requests")
+
+	// A rejected action reloads the page.
+	// A reload that changes nothing must not reload again.
+	mustContain("sessionStorage",
+		"a reload after 409 must happen at most once per document")
+}
+
 func TestGenerateCmd(t *testing.T) {
 	tests := map[string]struct {
 		appImport  string

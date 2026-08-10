@@ -455,14 +455,34 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, ` + "`" +
-		`<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+`)
+
+	if !w.usage.stateRuntime {
+		w.Raw(`	_, err := io.WriteString(w, ` + "`" +
+			`<!DOCTYPE html><html><head><meta charset="UTF-8"/>
 		<script type="module" src="` + "`" +
-		`+s.datastarJSSrc+` + "`" + `"></script>` + "`" + `)
+			`+s.datastarJSSrc+` + "`" + `"></script>` + "`" + `)
 	if err != nil {
 		return err
 	}
 `)
+	} else {
+		// The fetch wrapper goes between the two writes.
+		// It must be installed before anything else on the page can fetch.
+		w.Raw(`	_, err := io.WriteString(w, ` + "`" +
+			`<!DOCTYPE html><html><head><meta charset="UTF-8"/>` + "`" + `)
+	if err != nil {
+		return err
+	}
+`)
+		w.writeStateFetchWrapper()
+		w.Raw(`	if _, err := io.WriteString(w, ` + "`" +
+			`<script type="module" src="` + "`" +
+			`+s.datastarJSSrc+` + "`" + `"></script>` + "`" + `); err != nil {
+		return err
+	}
+`)
+	}
 
 	if m.GlobalHeadGenerator != nil {
 		w.Raw(`	if headGeneric != nil {
@@ -515,40 +535,6 @@ func (s *Server) writeHTML(
 		}
 	}
 `)
-	}
-	if w.usage.stateRuntime {
-		// When the page GET minted a Datapages-Instance header for this
-		// response, embed the id into the HTML so the browser can echo it
-		// on subsequent Datastar action and stream requests. On 409 +
-		// Datapages-Retry: reconnect we reload the page to get a fresh
-		// server-side slot. Also discard on back/forward-cache restores,
-		// since the server-side slot is long gone.
-		w.Raw("\tif stateInstanceID := w.Header().Get(stateInstanceIDHeader); stateInstanceID != \"\" {\n")
-		w.Raw("\t\tif _, err := io.WriteString(w, `\n\t<script type=\"module\">\n")
-		w.Raw("\t\tlet __dpInstance=\"`); err != nil { return err }\n")
-		w.Raw("\t\tif _, err := io.WriteString(w, stateInstanceID); err != nil { return err }\n")
-		w.Raw("\t\tif _, err := io.WriteString(w, `\"\n")
-		w.Raw(`		const o2 = globalThis.fetch.bind(globalThis)
-		globalThis.fetch=(i,init={}) => {
-			const isReq=i instanceof Request
-			const r=isReq ? i:new Request(i,init)
-			if (r.headers.get("Datastar-Request")!=="true") return isReq ? o2(r,init):o2(r)
-			const h=new Headers(r.headers)
-			if (__dpInstance) h.set("Datapages-Instance",__dpInstance)
-			return o2(new Request(r,{...init,headers:h})).then(resp => {
-				if (resp.status===409 && resp.headers.get("Datapages-Retry")==="reconnect") {
-					__dpInstance=""
-					globalThis.location.reload()
-				}
-				return resp
-			})
-		}
-		globalThis.addEventListener("pageshow", e => {
-			if (e.persisted) globalThis.location.reload()
-		})
-	</script>`)
-		w.Raw("`); err != nil { return err }\n")
-		w.Raw("\t}\n")
 	}
 	w.Raw(`	if _, err := io.WriteString(w, "</head><body "); err != nil {
 		return err
