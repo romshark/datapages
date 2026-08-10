@@ -359,6 +359,49 @@ func TestGenerateStateFetchWrapper(t *testing.T) {
 		"a reload after 409 must happen at most once per document")
 }
 
+// TestGenerateStateRouteKey covers the value that names a tab in message broker subjects.
+//
+// The Datapages-Instance id is what a request presents to claim a tab's state.
+// Subjects travel further than the request does: into broker logs,
+// stream storage, traces and metrics.
+// The value used there is derived from the id and grants nothing on its own.
+func TestGenerateStateRouteKey(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "parser", "testdata", "state_subject_id"),
+	)
+	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+	require.NotNil(t, app, "parser returned nil model")
+
+	tmpDir := t.TempDir()
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
+		GenImport: "datapagestest/fixture/state_subject_id/datapagesgen",
+	})
+	require.NoError(t, err)
+
+	b, err := os.ReadFile(filepath.Join(tmpDir, "app_gen.go"))
+	require.NoError(t, err)
+	got := string(b)
+
+	mustContain := func(sub, why string) {
+		t.Helper()
+		require.True(t, strings.Contains(got, sub), "%s, missing: %s", why, sub)
+	}
+
+	mustContain("func (s *Server) stateRouteKey(id string) string {",
+		"subjects need a value that is not the id itself")
+	mustContain("stateID := s.stateRouteKey(instanceID)",
+		"the stateID a handler receives is the derived value")
+
+	// The subscription subject and the value handed to handlers must be the
+	// same derived value. A handler dispatches events with what it receives.
+	mustContain("evSubjPageIndex(stateID)",
+		"the subscription must use the derived value")
+	require.NotContains(t, got, "evSubjPageIndex(instanceID)",
+		"the id must not reach a subject")
+	require.NotContains(t, got, "slot.state, instanceID",
+		"the id must not reach a handler")
+}
+
 func TestGenerateCmd(t *testing.T) {
 	tests := map[string]struct {
 		appImport  string

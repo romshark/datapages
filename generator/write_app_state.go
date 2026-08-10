@@ -103,6 +103,13 @@ func (w *Writer) writeVerifyInstanceIDHeader() {
 	w.Line(1, "}")
 }
 
+// writeStateRouteKeyVar emits the local that names this tab in message broker subjects.
+// Handlers receive it as their `stateID` parameter and
+// dispatch tab-scoped events with it.
+func (w *Writer) writeStateRouteKeyVar() {
+	w.Line(1, "stateID := s.stateRouteKey(instanceID)")
+}
+
 // writeLookupSlotOrReject emits the code that looks up an allocated slot
 // by instanceID, responding 409+reconnect if missing. Used by stateful
 // action handlers; the stream handler uses allocate/reconnect instead.
@@ -297,6 +304,20 @@ func (s *Server) verifyStateInstanceID(id string) bool {
 	mac := hmac.New(sha256.New, s.stateConf.HMACKey)
 	mac.Write(payload)
 	return hmac.Equal(mac.Sum(nil), sig)
+}
+
+// stateRouteKey derives the value that names a tab in message broker
+// subjects. Subjects travel further than a request does: into broker logs,
+// stream storage, traces and metrics. The Datapages-Instance id itself
+// stays out of them, since presenting it is what claims a tab's state.
+// Knowing the routing key only lets a dispatcher address that tab.
+//
+// Callers must verify the id first.
+func (s *Server) stateRouteKey(id string) string {
+	mac := hmac.New(sha256.New, s.stateConf.HMACKey)
+	mac.Write([]byte("datapages-route\x00"))
+	mac.Write([]byte(id))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)[:16])
 }
 `)
 }

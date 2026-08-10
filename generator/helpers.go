@@ -133,6 +133,26 @@ func pageHasStateIDScopedEvent(p *model.Page, eventByName map[string]*model.Even
 	return false
 }
 
+// pageNeedsStateRouteKey returns true if the page's stream handler has to
+// derive the tab's routing key, either to subscribe or to pass it on to a
+// handler that takes stateID.
+func pageNeedsStateRouteKey(p *model.Page, eventByName map[string]*model.Event) bool {
+	if pageHasStateIDScopedEvent(p, eventByName) {
+		return true
+	}
+	for _, h := range []*model.Handler{p.StreamOpen, p.StreamClose} {
+		if h != nil && h.InputStateID != nil {
+			return true
+		}
+	}
+	for _, eh := range p.EventHandlers {
+		if eh.InputStateID != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // pageSignalSubjectFields returns the unique signal-scoped subject fields
 // across all events handled by the page, in first-seen order.
 func pageSignalSubjectFields(p *model.Page, eventByName map[string]*model.Event) []model.SubjectField {

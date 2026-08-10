@@ -1861,6 +1861,9 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 	if h.InputState != nil {
 		w.writeVerifyInstanceIDHeader()
 		w.writeLookupSlotOrReject(stateTypeRef(m, h.InputState.StateTypeName))
+		if h.InputStateID != nil {
+			w.writeStateRouteKeyVar()
+		}
 	}
 
 	// Auth.

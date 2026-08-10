@@ -558,9 +558,11 @@ func (PageIndex) OnItemsChanged(
   `S` is a type parameter; concrete pages then embed `Base[ConcreteState]`
   and the parser substitutes `S` at the embed site, letting one shared
   abstract layer compose with different per-page state shapes.
-- A stateful handler may take `stateID string` alongside `state *T` — it
-  receives the validated per-tab identifier, usable as the subject of a
-  tab-scoped event. Pair it with `SubjectStateID string` on an event type:
+- A stateful handler may take `stateID string` alongside `state *T`.
+  It names the calling tab in message broker subjects. The value is derived
+  from the instance id and grants nothing on its own, which keeps the id
+  out of broker logs and storage. Pair it with `SubjectStateID string` on
+  an event type:
   the generator auto-subscribes to `<base>.<state_id>` at stream connect
   so only the originating tab receives the event. `SubjectStateID` must
   be the event's only subject field and the subscribing page must be

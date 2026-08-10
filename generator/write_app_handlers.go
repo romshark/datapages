@@ -39,9 +39,9 @@ func handlerArgVar(kind string, skipSSE bool) string {
 		// *StateXXX as `slot.state`.
 		return "slot.state"
 	case model.InputKindStateID:
-		// The verified Datapages-Instance header is held in the
-		// generator-local `instanceID` variable alongside `slot`.
-		return "instanceID"
+		// The derived routing key of the tab, not the instance id.
+		// See writeStateRouteKeyVar.
+		return "stateID"
 	default:
 		return ""
 	}
@@ -888,6 +888,9 @@ func (w *Writer) writePageGETStreamHandler(
 	if p.State != nil {
 		w.Line(0, "")
 		w.writeVerifyInstanceIDHeader()
+		if pageNeedsStateRouteKey(p, w.eventMap) {
+			w.writeStateRouteKeyVar()
+		}
 		w.Linef(1, "var slot *%s", pageStateSlotTypeName(p))
 	}
 
@@ -910,7 +913,7 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Raw(evSubjName)
 	switch {
 	case pageHasStateIDScopedEvent(p, w.eventMap):
-		w.Raw("(instanceID),\n")
+		w.Raw("(stateID),\n")
 	case hasPrivate && hasSignalScoped:
 		w.Raw("(sess.UserID")
 		for _, sf := range signalFields {
@@ -1360,6 +1363,9 @@ func (w *Writer) writePageActionHandler(
 	if h.InputState != nil {
 		w.writeVerifyInstanceIDHeader()
 		w.writeLookupSlotOrReject(p.State)
+		if h.InputStateID != nil {
+			w.writeStateRouteKeyVar()
+		}
 	}
 
 	// Auth.

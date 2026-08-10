@@ -412,16 +412,20 @@ different per-page state shapes without forcing every page to use the same
 state fields.
 
 **Parameter: `stateID string`**. A stateful handler may take `stateID
-string` alongside `state *T`. The parameter receives the validated
-`Datapages-Instance` value of the calling tab and is used to dispatch
-events targeted at the same tab (see `SubjectStateID`). `stateID` requires
-the handler to also take `state *T`.
+string` alongside `state *T`. The parameter names the calling tab in message
+broker subjects and is used to dispatch events targeted at that tab (see
+`SubjectStateID`). `stateID` requires the handler to also take `state *T`.
+
+The value is derived from the `Datapages-Instance` id with the server's HMAC
+key and is stable for the tab's lifetime. It is not the id itself.
+Subjects reach broker logs, stream storage, traces and metrics,
+and presenting the id is what claims a tab's state.
+Knowing a `stateID` only allows addressing events at that tab.
 
 **Subject field: `SubjectStateID string`**. An event may declare a subject
 field named exactly `SubjectStateID` of type `string`. At SSE stream
-connect the server subscribes to `<base>.<state_id>` using the validated
-`Datapages-Instance` header, so only the tab whose state-id matches the
-dispatched value receives the event. Rules:
+connect the server subscribes to `<base>.<state_id>`. Only the tab whose
+state-id matches the dispatched value receives the event. Rules:
 
 - `SubjectStateID` must be a singular `string`; `[]string` is rejected.
 - `SubjectStateID` must not carry a `signal:"..."` tag.
