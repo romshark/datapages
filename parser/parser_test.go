@@ -1713,6 +1713,14 @@ func TestParse_ErrStateWithoutStream(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrStateWithoutStream)
 }
 
+// TestParse_ErrStateAppActionUnbound covers an app-level action that takes a
+// state type no page binds. Such an action can never find a slot.
+func TestParse_ErrStateAppActionUnbound(t *testing.T) {
+	_, err := parse(t, "err_state_app_action_unbound")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateAppActionUnbound)
+}
+
 func fixtureDir(t *testing.T, name string) string {
 	t.Helper()
 	return filepath.Join("testdata", name)

@@ -214,6 +214,9 @@ var (
 		"page takes state but has no StreamOpen, StreamClose, or OnXXX handler " +
 			"to anchor its lifecycle",
 	)
+	ErrStateAppActionUnbound = errors.New(
+		"app-level action takes a state type that no page binds",
+	)
 	ErrStateIDParamNotString = errors.New(
 		"stateID parameter must be of type string",
 	)

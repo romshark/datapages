@@ -1469,6 +1469,30 @@ func finalizeStates(ctx *parseCtx, errs *Errors) {
 			}
 		}
 	}
+	checkAppActionStates(ctx, errs)
+}
+
+// checkAppActionStates rejects app-level actions whose state type no page binds.
+// Such an action resolves its slot from the calling tab,
+// and only a page bound to the same state type ever allocates one.
+func checkAppActionStates(ctx *parseCtx, errs *Errors) {
+	bound := map[string]struct{}{}
+	for _, pg := range ctx.pages {
+		if pg.State != nil {
+			bound[pg.State.TypeName] = struct{}{}
+		}
+	}
+	for _, h := range ctx.app.Actions {
+		if h.InputState == nil {
+			continue
+		}
+		if _, ok := bound[h.InputState.StateTypeName]; ok {
+			continue
+		}
+		errs.ErrAt(ctx.pkg.Fset.Position(h.Expr.Pos()),
+			fmt.Errorf("%w: App.%s takes %s",
+				ErrStateAppActionUnbound, h.Name, h.InputState.StateTypeName))
+	}
 }
 
 // pageHasStreamLifecycle reports whether a page has at least one
