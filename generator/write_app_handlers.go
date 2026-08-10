@@ -1219,7 +1219,7 @@ func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 
 	w.Line(3, "slot.mu.Unlock()")
 	w.Line(2, "}")
-	w.Linef(2, "s.closeStream%s(instanceID)", suffix)
+	w.Linef(2, "s.closeStream%s(instanceID, streamID)", suffix)
 	w.Line(1, "},")
 }
 

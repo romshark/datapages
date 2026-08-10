@@ -228,6 +228,44 @@ func TestGenerateStateSlotLifecycle(t *testing.T) {
 		"the stream loop must skip a released slot")
 }
 
+// TestGenerateStateSlotOwnership covers which stream may end a slot's life.
+//
+// One tab can hold two SSE streams at once. A browser opens the new one before
+// the server notices that the old one is gone, and both carry the same instance id.
+// The slot then belongs to the newer stream.
+// A close arriving from the older stream must leave it alone.
+func TestGenerateStateSlotOwnership(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "parser", "testdata", "state"),
+	)
+	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+	require.NotNil(t, app, "parser returned nil model")
+
+	tmpDir := t.TempDir()
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
+		GenImport: "datapagestest/fixture/state/datapagesgen",
+	})
+	require.NoError(t, err)
+
+	b, err := os.ReadFile(filepath.Join(tmpDir, "app_gen.go"))
+	require.NoError(t, err)
+	got := string(b)
+
+	mustContain := func(sub, why string) {
+		t.Helper()
+		require.True(t, strings.Contains(got, sub), "%s, missing: %s", why, sub)
+	}
+
+	mustContain(
+		"func (s *Server) closeStreamStateIndex(id string, streamID uint64) {",
+		"closing a slot must name the stream that closes",
+	)
+	mustContain("if slot.streamID != streamID {",
+		"only the attached stream may detach the slot and start the timer")
+	mustContain("s.closeStreamStateIndex(instanceID, streamID)",
+		"the close hook must pass the stream it belongs to")
+}
+
 func TestGenerateCmd(t *testing.T) {
 	tests := map[string]struct {
 		appImport  string
