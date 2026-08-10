@@ -1721,6 +1721,15 @@ func TestParse_ErrStateAppActionUnbound(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrStateAppActionUnbound)
 }
 
+// TestParse_ErrSubjectStateIDPageMixed covers a page that handles a
+// SubjectStateID event next to a private or signal-scoped one.
+// A page holds one subscription list, and these kinds name their subjects differently.
+func TestParse_ErrSubjectStateIDPageMixed(t *testing.T) {
+	_, err := parse(t, "err_state_subject_id_mixed_page")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrSubjectStateIDPageMixed)
+}
+
 func fixtureDir(t *testing.T, name string) string {
 	t.Helper()
 	return filepath.Join("testdata", name)

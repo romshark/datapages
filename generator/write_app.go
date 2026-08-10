@@ -1587,12 +1587,13 @@ func (s *Server) auth(
 
 func (w *Writer) writeBrokerSubjectKind(events []*model.Event) {
 	w.Raw(`
-// brokerSubjectKind collapses high-cardinality subjects (per-user) into stable kinds.
+// brokerSubjectKind folds subjects that carry a user or a tab back into the event name.
+// A metric labelled with the raw subject would carry one value per user or per tab.
 func brokerSubjectKind(subject string) string {
 	switch {
 `)
 	for _, e := range events {
-		if e.IsPrivate() {
+		if evUsesPrefixMatch(e) {
 			w.Raw("\tcase strings.HasPrefix(subject, ")
 			w.Raw(evSubjPrefConst(e))
 			w.Raw("):\n")

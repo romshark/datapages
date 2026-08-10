@@ -1159,7 +1159,8 @@ func (s *Server) auth(
 	return sess, token, true
 }
 
-// brokerSubjectKind collapses high-cardinality subjects (per-user) into stable kinds.
+// brokerSubjectKind folds subjects that carry a user or a tab back into the event name.
+// A metric labelled with the raw subject would carry one value per user or per tab.
 func brokerSubjectKind(subject string) string {
 	switch {
 	case strings.HasPrefix(subject, EvSubjPrefMessagingRead):

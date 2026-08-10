@@ -301,9 +301,52 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="`+s.datastarJSSrc+`"></script>`)
+	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>`)
 	if err != nil {
+		return err
+	}
+	if id := w.Header().Get(stateInstanceIDHeader); s.verifyStateInstanceID(id) {
+		if _, err := io.WriteString(w, `<script>(() => {
+		let __dpInstance="`); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, id); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, `"
+		const k="datapages-reloaded:"+location.pathname
+		const mark=v => { try { v ? sessionStorage.setItem(k,"1"):sessionStorage.removeItem(k) } catch {} }
+		const marked=() => { try { return !!sessionStorage.getItem(k) } catch { return false } }
+		const o2 = globalThis.fetch.bind(globalThis)
+		globalThis.fetch=(i,init={}) => {
+			const isReq=i instanceof Request
+			const r=isReq ? i:new Request(i,init)
+			if (r.headers.get("Datastar-Request")!=="true" ||
+				new URL(r.url,location.href).origin!==location.origin
+			) return isReq ? o2(r,init):o2(r)
+			const h=new Headers(r.headers)
+			if (__dpInstance) h.set("Datapages-Instance",__dpInstance)
+			return o2(new Request(r,{...init,headers:h})).then(resp => {
+				if (resp.status===409 && resp.headers.get("Datapages-Retry")==="reconnect") {
+					__dpInstance=""
+					if (!marked()) {
+						mark(true)
+						location.reload()
+					}
+				} else if (resp.ok) {
+					mark(false)
+				}
+				return resp
+			})
+		}
+		globalThis.addEventListener("pageshow", e => {
+			if (e.persisted) location.reload()
+		})
+	})()</script>`); err != nil {
+			return err
+		}
+	}
+	if _, err := io.WriteString(w, `<script type="module" src="`+s.datastarJSSrc+`"></script>`); err != nil {
 		return err
 	}
 	if headGeneric != nil {
@@ -313,38 +356,6 @@ func (s *Server) writeHTML(
 	}
 	if head != nil {
 		if err := head.Render(r.Context(), w); err != nil {
-			return err
-		}
-	}
-	if stateInstanceID := w.Header().Get(stateInstanceIDHeader); stateInstanceID != "" {
-		if _, err := io.WriteString(w, `
-	<script type="module">
-		let __dpInstance="`); err != nil {
-			return err
-		}
-		if _, err := io.WriteString(w, stateInstanceID); err != nil {
-			return err
-		}
-		if _, err := io.WriteString(w, `"
-		const o2 = globalThis.fetch.bind(globalThis)
-		globalThis.fetch=(i,init={}) => {
-			const isReq=i instanceof Request
-			const r=isReq ? i:new Request(i,init)
-			if (r.headers.get("Datastar-Request")!=="true") return isReq ? o2(r,init):o2(r)
-			const h=new Headers(r.headers)
-			if (__dpInstance) h.set("Datapages-Instance",__dpInstance)
-			return o2(new Request(r,{...init,headers:h})).then(resp => {
-				if (resp.status===409 && resp.headers.get("Datapages-Retry")==="reconnect") {
-					__dpInstance=""
-					globalThis.location.reload()
-				}
-				return resp
-			})
-		}
-		globalThis.addEventListener("pageshow", e => {
-			if (e.persisted) globalThis.location.reload()
-		})
-	</script>`); err != nil {
 			return err
 		}
 	}
@@ -515,6 +526,10 @@ func NewServer(
 			panic(fmt.Sprintf("initializing message broker streams: %v", err))
 		}
 	}
+	if s.stateConf == nil {
+		panic("missing state config: this app has stateful pages, " +
+			"pass WithStateConfig to NewServer")
+	}
 
 	setupHandlers(s)
 	if s.assetsFS != nil {
@@ -566,6 +581,13 @@ type StateConfig struct {
 	// stream closes, waiting for the client to reconnect (e.g. after a
 	// transient network blip). Default 30s.
 	GracePeriod time.Duration
+
+	// MaxConcurrentInstances caps how many instances exist at the same time,
+	// across all state types. A page load plus an SSE connect creates one,
+	// which anyone who reaches the server can ask for. An instance keeps its
+	// place for GracePeriod after its stream closes. Stream opens beyond the
+	// cap fail. Default 10_000.
+	MaxConcurrentInstances int
 }
 
 // WithStateConfig enables the per-page-instance server-side state runtime.
@@ -581,6 +603,9 @@ func WithStateConfig(conf StateConfig) ServerOption {
 		}
 		if conf.GracePeriod <= 0 {
 			conf.GracePeriod = 30 * time.Second
+		}
+		if conf.MaxConcurrentInstances <= 0 {
+			conf.MaxConcurrentInstances = 10_000
 		}
 		s.stateConf = &conf
 		return nil
@@ -598,9 +623,16 @@ const stateRetryHeader = "Datapages-Retry"
 // stateRetryReconnect is the only value currently emitted on stateRetryHeader.
 const stateRetryReconnect = "reconnect"
 
+// stateInstanceIDSep separates payload and signature in a Datapages-Instance value.
+// It must not be "." and must not appear in the base64url alphabet:
+// the identifier is used verbatim as a single message-broker subject token
+// (see the SubjectStateID event routing), and "." would split it in two,
+// breaking single-token wildcard matching.
+const stateInstanceIDSep = '~'
+
 // signStateInstanceID produces an HMAC-signed Datapages-Instance value.
-// The payload is 16 random bytes; the output is
-// base64url(payload) + "." + base64url(hmacSHA256(payload)).
+// The payload is 16 random bytes; the output is:
+// base64url(payload) + "~" + base64url(hmacSHA256(payload)).
 func (s *Server) signStateInstanceID() (string, error) {
 	if s.stateConf == nil {
 		return "", errors.New("state runtime not configured")
@@ -612,7 +644,8 @@ func (s *Server) signStateInstanceID() (string, error) {
 	mac := hmac.New(sha256.New, s.stateConf.HMACKey)
 	mac.Write(payload[:])
 	return base64.RawURLEncoding.EncodeToString(payload[:]) +
-		"." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+		string(stateInstanceIDSep) +
+		base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
 }
 
 // verifyStateInstanceID returns true when the supplied Datapages-Instance
@@ -621,15 +654,15 @@ func (s *Server) verifyStateInstanceID(id string) bool {
 	if s.stateConf == nil || id == "" {
 		return false
 	}
-	dot := strings.IndexByte(id, '.')
-	if dot <= 0 || dot == len(id)-1 {
+	sep := strings.IndexByte(id, stateInstanceIDSep)
+	if sep <= 0 || sep == len(id)-1 {
 		return false
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(id[:dot])
+	payload, err := base64.RawURLEncoding.DecodeString(id[:sep])
 	if err != nil {
 		return false
 	}
-	sig, err := base64.RawURLEncoding.DecodeString(id[dot+1:])
+	sig, err := base64.RawURLEncoding.DecodeString(id[sep+1:])
 	if err != nil {
 		return false
 	}
@@ -638,14 +671,53 @@ func (s *Server) verifyStateInstanceID(id string) bool {
 	return hmac.Equal(mac.Sum(nil), sig)
 }
 
-// stateSlotStateIndex holds the per-instance server-side state for PageIndex.
+// stateRouteKey derives the value that names a tab in message broker
+// subjects. Subjects travel further than a request does: into broker logs,
+// stream storage, traces and metrics. The Datapages-Instance id itself
+// stays out of them, since presenting it is what claims a tab's state.
+// Knowing the routing key only lets a dispatcher address that tab.
+//
+// Callers must verify the id first.
+func (s *Server) stateRouteKey(id string) string {
+	mac := hmac.New(sha256.New, s.stateConf.HMACKey)
+	mac.Write([]byte("datapages-route\x00"))
+	mac.Write([]byte(id))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)[:16])
+}
+
+// stateLiveInstances counts the instances of every state type. Memory is
+// shared between them, and so is the budget in StateConfig.MaxConcurrentInstances.
+var stateLiveInstances atomic.Int64
+
+// stateReserveInstance takes one slot out of the budget. It reports false
+// when the server is full, which fails the stream open that asked for it.
+func (s *Server) stateReserveInstance() bool {
+	if stateLiveInstances.Add(1) > int64(s.stateConf.MaxConcurrentInstances) {
+		stateLiveInstances.Add(-1)
+		return false
+	}
+	return true
+}
+
+// stateHasCapacity reports whether the budget has room right now. It is a
+// look, not a claim, and callers use it before a stream commits its status
+// line. stateReserveInstance is what actually holds the bound.
+func (s *Server) stateHasCapacity() bool {
+	return stateLiveInstances.Load() < int64(s.stateConf.MaxConcurrentInstances)
+}
+
+// errStateAtCapacity fails a stream open that finds no free instance.
+var errStateAtCapacity = errors.New("state instance limit reached")
+
+// stateSlotStateIndex holds one instance of StateIndex.
 // It is checked out of statePoolStateIndex on StreamOpen and returned
 // when StreamClose elapses without a reconnect within GracePeriod.
 type stateSlotStateIndex struct {
 	state    *app.StateIndex
 	mu       sync.Mutex  // serializes all stateful handler calls on this instance
 	streamID uint64      // currently-associated SSE stream (0 when detached)
-	timer    *time.Timer // grace-period reaper; nil while a stream is attached
+	timer    *time.Timer // grace-period timer; nil while a stream is attached
+	dead     bool        // true once the state went back to the pool
 }
 
 // statePoolStateIndex pools StateIndex values across instance checkouts.
@@ -659,8 +731,12 @@ var stateInstancesStateIndex sync.Map // key: string (instance id), value: *stat
 
 // allocateStateIndex checks a state value out of statePoolStateIndex, zeroes it, registers it
 // under id, and attaches it to the given SSE streamID.
-// Returns the slot so callers (StreamOpen) can pass the state to the user.
+// Returns the slot so callers (StreamOpen) can pass the state to the user,
+// or nil when the server holds as many instances as it may.
 func (s *Server) allocateStateIndex(id string, streamID uint64) *stateSlotStateIndex {
+	if !s.stateReserveInstance() {
+		return nil
+	}
 	st := statePoolStateIndex.Get().(*app.StateIndex)
 	*st = app.StateIndex{} // total reset; safe reuse across tenants
 	slot := &stateSlotStateIndex{state: st, streamID: streamID}
@@ -682,40 +758,61 @@ func (s *Server) lookupStateIndex(id string) (*stateSlotStateIndex, bool) {
 // reconnectStateIndex tries to reattach an existing slot (grace-period reconnect)
 // to a new SSE streamID. Returns (slot, true) on success; (nil, false)
 // when the id is unknown (e.g. grace period already elapsed).
+// A slot whose state already went back to the pool is refused.
 func (s *Server) reconnectStateIndex(id string, streamID uint64) (*stateSlotStateIndex, bool) {
 	slot, ok := s.lookupStateIndex(id)
 	if !ok {
 		return nil, false
 	}
 	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		return nil, false
+	}
 	if slot.timer != nil {
 		slot.timer.Stop()
 		slot.timer = nil
 	}
 	slot.streamID = streamID
-	slot.mu.Unlock()
 	return slot, true
 }
 
-// closeStreamStateIndex marks id as detached from its SSE stream and starts
-// the grace-period reaper. If the client reconnects with the same id
+// closeStreamStateIndex marks id as detached from streamID and starts
+// the grace timer. If the client reconnects with the same id
 // before the timer fires, the slot is reused as-is.
-func (s *Server) closeStreamStateIndex(id string) {
+//
+// A tab can hold two streams at once while the server still
+// tears the older one down. Only the attached stream may detach.
+func (s *Server) closeStreamStateIndex(id string, streamID uint64) {
 	slot, ok := s.lookupStateIndex(id)
 	if !ok {
 		return
 	}
 	slot.mu.Lock()
+	if slot.streamID != streamID {
+		slot.mu.Unlock()
+		return
+	}
 	slot.streamID = 0
 	if slot.timer != nil {
 		slot.timer.Stop()
 	}
 	slot.timer = time.AfterFunc(s.stateConf.GracePeriod, func() {
-		stateInstancesStateIndex.Delete(id)
 		slot.mu.Lock()
+		// A stream reattached while this timer was already running,
+		// or another timer got here first.
+		if slot.streamID != 0 || slot.dead {
+			slot.mu.Unlock()
+			return
+		}
+		slot.dead = true
 		st := slot.state
 		slot.state = nil
 		slot.mu.Unlock()
+		// A stream can allocate a fresh slot under this id while this
+		// one is on its way out. Drop only the slot this timer owns.
+		stateInstancesStateIndex.CompareAndDelete(id, slot)
+		stateLiveInstances.Add(-1)
 		if st != nil {
 			statePoolStateIndex.Put(st)
 		}
@@ -723,14 +820,15 @@ func (s *Server) closeStreamStateIndex(id string) {
 	slot.mu.Unlock()
 }
 
-// stateSlotStateItem holds the per-instance server-side state for PageItem.
+// stateSlotStateItem holds one instance of StateItem.
 // It is checked out of statePoolStateItem on StreamOpen and returned
 // when StreamClose elapses without a reconnect within GracePeriod.
 type stateSlotStateItem struct {
 	state    *app.StateItem
 	mu       sync.Mutex  // serializes all stateful handler calls on this instance
 	streamID uint64      // currently-associated SSE stream (0 when detached)
-	timer    *time.Timer // grace-period reaper; nil while a stream is attached
+	timer    *time.Timer // grace-period timer; nil while a stream is attached
+	dead     bool        // true once the state went back to the pool
 }
 
 // statePoolStateItem pools StateItem values across instance checkouts.
@@ -744,8 +842,12 @@ var stateInstancesStateItem sync.Map // key: string (instance id), value: *state
 
 // allocateStateItem checks a state value out of statePoolStateItem, zeroes it, registers it
 // under id, and attaches it to the given SSE streamID.
-// Returns the slot so callers (StreamOpen) can pass the state to the user.
+// Returns the slot so callers (StreamOpen) can pass the state to the user,
+// or nil when the server holds as many instances as it may.
 func (s *Server) allocateStateItem(id string, streamID uint64) *stateSlotStateItem {
+	if !s.stateReserveInstance() {
+		return nil
+	}
 	st := statePoolStateItem.Get().(*app.StateItem)
 	*st = app.StateItem{} // total reset; safe reuse across tenants
 	slot := &stateSlotStateItem{state: st, streamID: streamID}
@@ -767,40 +869,61 @@ func (s *Server) lookupStateItem(id string) (*stateSlotStateItem, bool) {
 // reconnectStateItem tries to reattach an existing slot (grace-period reconnect)
 // to a new SSE streamID. Returns (slot, true) on success; (nil, false)
 // when the id is unknown (e.g. grace period already elapsed).
+// A slot whose state already went back to the pool is refused.
 func (s *Server) reconnectStateItem(id string, streamID uint64) (*stateSlotStateItem, bool) {
 	slot, ok := s.lookupStateItem(id)
 	if !ok {
 		return nil, false
 	}
 	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		return nil, false
+	}
 	if slot.timer != nil {
 		slot.timer.Stop()
 		slot.timer = nil
 	}
 	slot.streamID = streamID
-	slot.mu.Unlock()
 	return slot, true
 }
 
-// closeStreamStateItem marks id as detached from its SSE stream and starts
-// the grace-period reaper. If the client reconnects with the same id
+// closeStreamStateItem marks id as detached from streamID and starts
+// the grace timer. If the client reconnects with the same id
 // before the timer fires, the slot is reused as-is.
-func (s *Server) closeStreamStateItem(id string) {
+//
+// A tab can hold two streams at once while the server still
+// tears the older one down. Only the attached stream may detach.
+func (s *Server) closeStreamStateItem(id string, streamID uint64) {
 	slot, ok := s.lookupStateItem(id)
 	if !ok {
 		return
 	}
 	slot.mu.Lock()
+	if slot.streamID != streamID {
+		slot.mu.Unlock()
+		return
+	}
 	slot.streamID = 0
 	if slot.timer != nil {
 		slot.timer.Stop()
 	}
 	slot.timer = time.AfterFunc(s.stateConf.GracePeriod, func() {
-		stateInstancesStateItem.Delete(id)
 		slot.mu.Lock()
+		// A stream reattached while this timer was already running,
+		// or another timer got here first.
+		if slot.streamID != 0 || slot.dead {
+			slot.mu.Unlock()
+			return
+		}
+		slot.dead = true
 		st := slot.state
 		slot.state = nil
 		slot.mu.Unlock()
+		// A stream can allocate a fresh slot under this id while this
+		// one is on its way out. Drop only the slot this timer owns.
+		stateInstancesStateItem.CompareAndDelete(id, slot)
+		stateLiveInstances.Add(-1)
 		if st != nil {
 			statePoolStateItem.Put(st)
 		}
@@ -986,6 +1109,9 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set(stateInstanceIDHeader, instanceID)
+	// The page carries an identifier that stands for one tab's state.
+	// A cache that hands it to a second visitor hands over the state.
+	w.Header().Set("Cache-Control", "no-store")
 
 	p := app.PageIndex{
 		App: s.app,
@@ -1055,6 +1181,13 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
+	if _, live := s.lookupStateIndex(instanceID); !live && !s.stateHasCapacity() {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
 	var slot *stateSlotStateIndex
 
 	p := app.PageIndex{
@@ -1070,6 +1203,9 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			} else {
 				slot = s.allocateStateIndex(instanceID, streamID)
 			}
+			if slot == nil {
+				return errStateAtCapacity
+			}
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
 			return p.StreamOpen(r, streamID, slot.state, signals)
@@ -1079,7 +1215,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 				slot.mu.Lock()
 				slot.mu.Unlock()
 			}
-			s.closeStreamStateIndex(instanceID)
+			s.closeStreamStateIndex(instanceID, streamID)
 		},
 		func(
 			streamID uint64,
@@ -1097,6 +1233,10 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						continue
 					}
 					slot.mu.Lock()
+					if slot.dead {
+						slot.mu.Unlock()
+						continue
+					}
 					if err := p.OnTodoUpdated(e, sse, slot.state); err != nil {
 						s.logErr("handling PageIndex.OnTodoUpdated", err)
 					}
@@ -1168,6 +1308,11 @@ func (s *Server) handlePageIndexPOSTFilter(
 	}
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
+	if slot.dead {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
 	var signals struct {
 		Search string `json:"search"`
 		Filter string `json:"filter"`
@@ -1205,6 +1350,9 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set(stateInstanceIDHeader, instanceID)
+	// The page carries an identifier that stands for one tab's state.
+	// A cache that hands it to a second visitor hands over the state.
+	w.Header().Set("Cache-Control", "no-store")
 
 	p := app.PageItem{
 		App: s.app,
@@ -1259,6 +1407,13 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
+	if _, live := s.lookupStateItem(instanceID); !live && !s.stateHasCapacity() {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
 	var slot *stateSlotStateItem
 
 	p := app.PageItem{
@@ -1274,6 +1429,9 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 			} else {
 				slot = s.allocateStateItem(instanceID, streamID)
 			}
+			if slot == nil {
+				return errStateAtCapacity
+			}
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
 			return p.StreamOpen(r, streamID, slot.state, signals)
@@ -1283,7 +1441,7 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 				slot.mu.Lock()
 				slot.mu.Unlock()
 			}
-			s.closeStreamStateItem(instanceID)
+			s.closeStreamStateItem(instanceID, streamID)
 		},
 		func(
 			streamID uint64,
@@ -1301,6 +1459,10 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 						continue
 					}
 					slot.mu.Lock()
+					if slot.dead {
+						slot.mu.Unlock()
+						continue
+					}
 					if err := p.OnTodoUpdated(e, sse, slot.state); err != nil {
 						s.logErr("handling PageItem.OnTodoUpdated", err)
 					}

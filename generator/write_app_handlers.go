@@ -1275,6 +1275,19 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		)
 	}
 
+	// Per-tab state is unrelated to the session. A signed-out client on
+	// this endpoint holds an instance like any other client,
+	// and the stream hooks below expect the same locals as the main handler.
+	if p.State != nil {
+		w.Line(0, "")
+		w.writeVerifyInstanceIDHeader()
+		w.writeStateCapacityCheck(p.State)
+		if pageNeedsStateRouteKey(p, w.eventMap) {
+			w.writeStateRouteKeyVar()
+		}
+		w.Linef(1, "var slot *%s", pageStateSlotTypeName(p))
+	}
+
 	// Page constructor.
 	w.Raw("\n\tp := ")
 	w.writePageConstructor(p, appPkg)

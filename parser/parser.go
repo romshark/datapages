@@ -58,6 +58,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	validateRequiredHandlers(&ctx, &errs)
 	finalizePages(&ctx)
 	finalizeStates(&ctx, &errs)
+	checkPageSubjectKinds(&ctx, &errs)
 	assignSpecialPages(&ctx, &errs)
 	checkTemplFiles(&ctx, &errs)
 
@@ -1470,6 +1471,44 @@ func finalizeStates(ctx *parseCtx, errs *Errors) {
 		}
 	}
 	checkAppActionStates(ctx, errs)
+}
+
+// checkPageSubjectKinds rejects a page that handles a SubjectStateID event
+// next to a private or signal-scoped one. A page subscribes once,
+// with one list of subjects. A subject that ends in a tab id cannot share
+// that list with one that ends in a user id or a signal value.
+func checkPageSubjectKinds(ctx *parseCtx, errs *Errors) {
+	eventByName := make(map[string]*model.Event, len(ctx.app.Events))
+	for _, e := range ctx.app.Events {
+		eventByName[e.TypeName] = e
+	}
+	for _, name := range slices.Sorted(maps.Keys(ctx.pages)) {
+		pg := ctx.pages[name]
+		var byStateID, byOther *model.EventHandler
+		for _, eh := range pg.EventHandlers {
+			e, ok := eventByName[eh.EventTypeName]
+			if !ok {
+				continue
+			}
+			switch {
+			case e.IsStateIDScoped():
+				if byStateID == nil {
+					byStateID = eh
+				}
+			case e.IsPrivate() || e.IsSignalScoped():
+				if byOther == nil {
+					byOther = eh
+				}
+			}
+		}
+		if byStateID == nil || byOther == nil {
+			continue
+		}
+		errs.ErrAt(ctx.pkg.Fset.Position(pg.Expr.Pos()),
+			fmt.Errorf("%w: %s handles On%s and On%s",
+				ErrSubjectStateIDPageMixed, pg.TypeName,
+				byStateID.Name, byOther.Name))
+	}
 }
 
 // checkAppActionStates rejects app-level actions whose state type no page binds.

@@ -481,9 +481,80 @@ func TestGenerateStateInstanceLimit(t *testing.T) {
 		"the stream handler needs to ask about capacity before it opens")
 	mustContain(
 		"if _, live := s.lookupStateIndex(instanceID); !live && !s.stateHasCapacity() {",
-		"a reconnect needs no new instance and must pass the check")
+		"a reconnect needs no new instance and must pass the check",
+	)
 	mustContain("http.StatusServiceUnavailable",
 		"a full server is a temporary condition, not a broken request")
+}
+
+// TestGenerateBrokerSubjectKind covers the metric label of a published subject.
+//
+// A subject whose last token names a user or a tab is one value per user or per tab.
+// brokerSubjectKind exists to fold those back into the event name
+// before they reach a metric.
+func TestGenerateBrokerSubjectKind(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "parser", "testdata", "state_subject_id"),
+	)
+	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+	require.NotNil(t, app, "parser returned nil model")
+
+	tmpDir := t.TempDir()
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
+		Prometheus: true,
+		GenImport:  "datapagestest/fixture/state_subject_id/datapagesgen",
+	})
+	require.NoError(t, err)
+
+	b, err := os.ReadFile(filepath.Join(tmpDir, "app_gen.go"))
+	require.NoError(t, err)
+	got := string(b)
+
+	require.True(t, strings.Contains(got,
+		"case strings.HasPrefix(subject, EvSubjPrefFiltersUpdated):"),
+		"a per-tab subject must fold into its event name")
+	require.NotContains(t, got, "case subject == EvSubjFiltersUpdated:",
+		"a per-tab subject never equals the wildcard constant")
+}
+
+// TestGenerateStatefulAnonStream covers a stateful page that serves
+// signed-out clients on its own stream endpoint.
+//
+// A page with public and private events gets a second stream handler for
+// clients without a session. Per-tab state is unrelated to sessions,
+// and both handlers reach the same instance.
+func TestGenerateStatefulAnonStream(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "parser", "testdata", "state_anon_stream"),
+	)
+	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+	require.NotNil(t, app, "parser returned nil model")
+
+	tmpDir := t.TempDir()
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
+		GenImport: "datapagestest/fixture/state_anon_stream/datapagesgen",
+	})
+	require.NoError(t, err)
+
+	b, err := os.ReadFile(filepath.Join(tmpDir, "app_gen.go"))
+	require.NoError(t, err)
+	got := string(b)
+
+	start := strings.Index(got, "func (s *Server) handlePageIndexGETStreamAnon(")
+	require.GreaterOrEqual(t, start, 0, "no anonymous stream handler generated")
+	anon := got[start:]
+	if end := strings.Index(anon[1:], "\nfunc "); end >= 0 {
+		anon = anon[:end]
+	}
+
+	for _, decl := range []string{
+		"instanceID := r.Header.Get(stateInstanceIDHeader)",
+		"var slot *stateSlotTabState",
+	} {
+		require.True(t, strings.Contains(anon, decl),
+			"the anonymous stream handler uses the state runtime, missing: %s",
+			decl)
+	}
 }
 
 func TestGenerateCmd(t *testing.T) {

@@ -235,6 +235,10 @@ var (
 	ErrSubjectStateIDMixed = errors.New(
 		"SubjectStateID must be the only subject field on the event",
 	)
+	ErrSubjectStateIDPageMixed = errors.New(
+		"page handles a SubjectStateID event next to a private " +
+			"or signal-scoped one",
+	)
 
 	ErrTemplHrefRelative                 = templcheck.ErrHrefRelative
 	ErrTemplActionHardcoded              = templcheck.ErrActionHardcoded
