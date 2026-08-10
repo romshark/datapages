@@ -427,6 +427,8 @@ type Writer struct {
 	appDir string
 	// genImport is the full import path of the generated root package
 	genImport string
+	// appPkgPath is the import path of the app source package
+	appPkgPath string
 	// usage is computed once per WriteApp
 	usage appUsage
 }
@@ -436,6 +438,7 @@ func (w *Writer) Reset() {
 	clear(w.eventMap)
 	w.fields = w.fields[:0]
 	w.usage = appUsage{}
+	w.appPkgPath = ""
 }
 
 // buildEventMap populates w.eventMap from the given events.
@@ -488,27 +491,39 @@ func (w *Writer) writePageConstructor(p *model.Page, appPkg string) {
 	w.Raw("{\n")
 	w.Raw("\tApp: s.app,\n")
 	for _, embed := range p.Embeds {
-		w.writeEmbedInit(embed, appPkg, "\t")
+		w.writeEmbedInit(p, embed, appPkg, "\t")
 	}
 	w.Byte('}')
 }
 
 // writeEmbedInit recursively appends an embed field initialization.
-func (w *Writer) writeEmbedInit(ap *model.AbstractPage, appPkg, indent string) {
+func (w *Writer) writeEmbedInit(
+	p *model.Page, ap *model.AbstractPage, appPkg, indent string,
+) {
 	w.Raw(indent)
 	w.Raw(ap.TypeName)
 	w.Raw(": ")
-	w.Raw(appPkg)
-	w.Byte('.')
-	w.Raw(ap.TypeName)
+	w.Raw(w.embedTypeExpr(p, ap, appPkg))
 	w.Raw("{\n")
 	w.Raw(indent)
 	w.Raw("\tApp: s.app,\n")
 	for _, sub := range ap.Embeds {
-		w.writeEmbedInit(sub, appPkg, indent+"\t")
+		w.writeEmbedInit(p, sub, appPkg, indent+"\t")
 	}
 	w.Raw(indent)
 	w.Raw("},\n")
+}
+
+// embedTypeExpr returns the type to use in the embed's composite literal.
+// A generic abstract page must be instantiated with the type arguments
+// written at the embed site, e.g. "app.Base[app.StateFoo]".
+func (w *Writer) embedTypeExpr(
+	p *model.Page, ap *model.AbstractPage, appPkg string,
+) string {
+	if t, ok := p.EmbedTypes[ap.TypeName]; ok && t.Resolved != nil {
+		return renderType(t, w.appPkgPath)
+	}
+	return appPkg + "." + ap.TypeName
 }
 
 // itoa converts a small non-negative integer to a string without allocation.

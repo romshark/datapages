@@ -84,6 +84,25 @@ func EmbeddedFieldPosMap(
 	return out
 }
 
+// EmbeddedFieldTypeExprs returns a map from embedded type name to the
+// type expression written at the embed site. For a generic embed the expression carries
+// the type arguments, e.g. `Base` maps to the expression `Base[StateFoo]`.
+func EmbeddedFieldTypeExprs(st *ast.StructType) map[string]ast.Expr {
+	out := map[string]ast.Expr{}
+	if st == nil || st.Fields == nil {
+		return out
+	}
+	for _, f := range st.Fields.List {
+		if len(f.Names) != 0 {
+			continue
+		}
+		if id := embeddedBaseIdent(f.Type); id != nil {
+			out[id.Name] = f.Type
+		}
+	}
+	return out
+}
+
 // EmbeddedTypeArgNames returns a map from embedded abstract-page
 // type name to the list of type argument names written at the embed
 // site. Non-identifier type arguments (e.g. `Base[*StateFoo]` where

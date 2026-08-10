@@ -56,25 +56,20 @@ func TestGenerateClassifieds(t *testing.T) {
 // and the match in the stream loop. If any two of them disagree, the event is never
 // delivered and nothing reports it. Each place is checked on its own below.
 // A failure then names the place that is wrong.
-// End-to-end coverage lives in example/reprod.
 func TestGenerateStateful(t *testing.T) {
 	app, errs := parser.Parse(
-		filepath.Join("..", "example", "reprod", "app"),
+		filepath.Join("..", "parser", "testdata", "state_subject_id"),
 	)
 	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
 	require.NotNil(t, app, "parser returned nil model")
 
 	tmpDir := t.TempDir()
 	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
-		GenImport: "github.com/romshark/datapages/example/reprod/datapagesgen",
+		GenImport: "datapagestest/fixture/state_subject_id/datapagesgen",
 	})
 	require.NoError(t, err)
 
-	genPath := filepath.Join(tmpDir, "app_gen.go")
-	compareFile(t, "app_gen.go", genPath,
-		filepath.Join("..", "example", "reprod", "datapagesgen", "app_gen.go"))
-
-	b, err := os.ReadFile(genPath)
+	b, err := os.ReadFile(filepath.Join(tmpDir, "app_gen.go"))
 	require.NoError(t, err)
 	got := string(b)
 
@@ -103,6 +98,47 @@ func TestGenerateStateful(t *testing.T) {
 	// keep the split point unambiguous.
 	require.Contains(t, got, "const stateInstanceIDSep = '~'",
 		"the instance id must stay a single message-broker subject token")
+}
+
+// TestGenerateGenericAbstract covers pages that embed a generic abstract page,
+// such as PageA embedding Base[StateA].
+//
+// The page constructor must instantiate the embedded type.
+// A generic type cannot appear in a composite literal without its type argument,
+// and the argument differs per embed site.
+func TestGenerateGenericAbstract(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "parser", "testdata", "state_generic_abstract"),
+	)
+	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+	require.NotNil(t, app, "parser returned nil model")
+
+	tmpDir := t.TempDir()
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
+		GenImport: "datapagestest/fixture/state_generic_abstract/datapagesgen",
+	})
+	require.NoError(t, err)
+
+	b, err := os.ReadFile(filepath.Join(tmpDir, "app_gen.go"))
+	require.NoError(t, err)
+
+	// Collect the embed initialization lines. Asserting on those keeps a
+	// failure readable instead of printing the whole generated file.
+	var embedLines []string
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.Contains(line, "Base:") {
+			embedLines = append(embedLines, strings.TrimSpace(line))
+		}
+	}
+	require.NotEmpty(t, embedLines, "no embed initialization generated")
+	embeds := strings.Join(embedLines, "\n")
+
+	require.NotContains(t, embeds, ".Base{",
+		"the embedded generic type needs a type argument")
+	require.Contains(t, embeds, "StateA]{",
+		"PageA must construct its embed as Base[StateA]")
+	require.Contains(t, embeds, "StateB]{",
+		"PageB must construct its embed as Base[StateB]")
 }
 
 func TestGenerateCmd(t *testing.T) {

@@ -23,6 +23,7 @@ var appStaticContent2 string
 // pkgName is the Go package name (e.g. "datapagesgen").
 func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	appPkg := appPkgName(m.PkgPath)
+	w.appPkgPath = m.PkgPath
 	w.buildEventMap(m.Events)
 	w.usage = computeAppUsage(m)
 
@@ -1829,24 +1830,24 @@ func (w *Writer) writePageConstructorStmt(varName string, p *model.Page, appPkg 
 	w.Raw("{\n")
 	w.Line(2, "App: s.app,")
 	for _, embed := range p.Embeds {
-		w.writeEmbedInitStmt(embed, appPkg, 2)
+		w.writeEmbedInitStmt(p, embed, appPkg, 2)
 	}
 	w.Line(1, "}")
 }
 
-func (w *Writer) writeEmbedInitStmt(ap *model.AbstractPage, appPkg string, indent int) {
+func (w *Writer) writeEmbedInitStmt(
+	p *model.Page, ap *model.AbstractPage, appPkg string, indent int,
+) {
 	for range indent {
 		w.Byte('\t')
 	}
 	w.Raw(ap.TypeName)
 	w.Raw(": ")
-	w.Raw(appPkg)
-	w.Byte('.')
-	w.Raw(ap.TypeName)
+	w.Raw(w.embedTypeExpr(p, ap, appPkg))
 	w.Raw("{\n")
 	w.Line(indent+1, "App: s.app,")
 	for _, sub := range ap.Embeds {
-		w.writeEmbedInitStmt(sub, appPkg, indent+1)
+		w.writeEmbedInitStmt(p, sub, appPkg, indent+1)
 	}
 	w.Line(indent, "},")
 }

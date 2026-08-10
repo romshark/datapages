@@ -559,8 +559,17 @@ func typeParamNames(ts *ast.TypeSpec) []string {
 
 func secondPassEmbeds(ctx *parseCtx, errs *Errors) {
 	for _, pg := range ctx.pages {
+		embedTypes := embeddedFieldTypes(ctx, pg.TypeName)
 		resolveEmbedsForStruct(ctx, errs, pg.TypeName, func(ap *model.AbstractPage) {
 			pg.Embeds = append(pg.Embeds, ap)
+			t, ok := embedTypes[ap.TypeName]
+			if !ok {
+				return
+			}
+			if pg.EmbedTypes == nil {
+				pg.EmbedTypes = map[string]model.Type{}
+			}
+			pg.EmbedTypes[ap.TypeName] = t
 		})
 	}
 	for _, ap := range ctx.abstracts {
@@ -568,6 +577,24 @@ func secondPassEmbeds(ctx *parseCtx, errs *Errors) {
 			ap.Embeds = append(ap.Embeds, sub)
 		})
 	}
+}
+
+// embeddedFieldTypes resolves the type written at each embed site of the named struct,
+// keyed by the embedded type's base name.
+func embeddedFieldTypes(ctx *parseCtx, typeName string) map[string]model.Type {
+	out := map[string]model.Type{}
+	st := typeStruct(ctx, typeName)
+	if st == nil {
+		return out
+	}
+	for name, expr := range structinspect.EmbeddedFieldTypeExprs(st) {
+		resolved := ctx.pkg.TypesInfo.TypeOf(expr)
+		if resolved == nil {
+			continue
+		}
+		out[name] = model.Type{Resolved: resolved, TypeExpr: expr}
+	}
+	return out
 }
 
 func resolveEmbedsForStruct(
