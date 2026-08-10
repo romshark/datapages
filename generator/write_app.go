@@ -897,6 +897,13 @@ func NewServer(
 		}
 	}
 `)
+	if w.usage.stateRuntime {
+		w.Raw(`	if s.stateConf == nil {
+		panic("missing state config: this app has stateful pages, " +
+			"pass WithStateConfig to NewServer")
+	}
+`)
+	}
 	if w.usage.hasSession {
 		w.Raw(`	if s.csrfConf == nil {
 		panic("missing option WithCSRFProtection")

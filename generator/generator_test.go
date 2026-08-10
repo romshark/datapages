@@ -402,6 +402,34 @@ func TestGenerateStateRouteKey(t *testing.T) {
 		"the id must not reach a handler")
 }
 
+// TestGenerateStateConfigRequired covers what happens when an app with
+// stateful pages starts without WithStateConfig.
+//
+// Without it the server has no key to sign instance identifiers with.
+// Every stateful page then fails, and it fails on request rather than on start.
+func TestGenerateStateConfigRequired(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "parser", "testdata", "state"),
+	)
+	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+	require.NotNil(t, app, "parser returned nil model")
+
+	tmpDir := t.TempDir()
+	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
+		GenImport: "datapagestest/fixture/state/datapagesgen",
+	})
+	require.NoError(t, err)
+
+	b, err := os.ReadFile(filepath.Join(tmpDir, "app_gen.go"))
+	require.NoError(t, err)
+	got := string(b)
+
+	require.True(t, strings.Contains(got, "if s.stateConf == nil {"),
+		"NewServer must reject a stateful app without a state config")
+	require.True(t, strings.Contains(got, `panic("missing state config`),
+		"the failure must name what is missing, like the other prerequisites")
+}
+
 func TestGenerateCmd(t *testing.T) {
 	tests := map[string]struct {
 		appImport  string
