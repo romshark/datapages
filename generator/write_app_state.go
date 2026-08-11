@@ -199,7 +199,8 @@ func boundStateTypes(m *model.App) []*model.StateType {
 // writeStateRuntime emits the server-side state runtime:
 //
 //   - StateConfig + WithStateConfig option
-//   - Per state type: slot type + sync.Pool + sync.Map of live instances
+//   - The sharded instance store, shared by all state types
+//   - Per state type: slot type + sync.Pool + store of live instances
 //   - HMAC sign/verify helpers for Datapages-Instance header
 //   - Mint/lookup/release/reconnect helpers
 //
@@ -212,10 +213,81 @@ func (w *Writer) writeStateRuntime(m *model.App, appPkg string) {
 	w.writeStateConfigType()
 	w.writeStateConfigOption()
 	w.writeStateHMACHelpers()
+	w.writeStateStoreType()
 
 	for _, st := range boundStateTypes(m) {
 		w.writeStateSlot(st, appPkg)
 	}
+}
+
+// writeStateStoreType emits the map that holds live instances.
+// One type serves every state type, instantiated per slot type.
+func (w *Writer) writeStateStoreType() {
+	w.Raw(`
+// stateStoreShards is how many independent maps a stateStore spreads its keys over.
+// Instance ids are random, so they distribute evenly,
+// and each shard carries its own lock.
+const stateStoreShards = 32
+
+// stateStoreSeed randomizes shard selection per process.
+var stateStoreSeed = maphash.MakeSeed()
+
+// stateStoreShard is one lock and the keys that belong to it.
+type stateStoreShard[S any] struct {
+	mu sync.RWMutex
+	m  map[string]*S
+}
+
+// stateStore maps a verified Datapages-Instance id to the live slot it names.
+//
+// Every key is written once and deleted once, and none is read after its deletion.
+// That is the opposite of what sync.Map is tuned for,
+// which is a read-mostly set of stable keys. Sharded plain maps read without a write
+// barrier and delete without leaving a tombstone behind.
+//
+// The zero value is ready to use.
+type stateStore[S any] struct {
+	shards [stateStoreShards]stateStoreShard[S]
+}
+
+func (s *stateStore[S]) shard(id string) *stateStoreShard[S] {
+	return &s.shards[maphash.String(stateStoreSeed, id)%stateStoreShards]
+}
+
+// Load returns the slot registered under id, or (nil, false).
+func (s *stateStore[S]) Load(id string) (*S, bool) {
+	sh := s.shard(id)
+	sh.mu.RLock()
+	slot, ok := sh.m[id]
+	sh.mu.RUnlock()
+	return slot, ok
+}
+
+// Store registers slot under id, replacing whatever was there.
+func (s *stateStore[S]) Store(id string, slot *S) {
+	sh := s.shard(id)
+	sh.mu.Lock()
+	if sh.m == nil {
+		sh.m = make(map[string]*S)
+	}
+	sh.m[id] = slot
+	sh.mu.Unlock()
+}
+
+// CompareAndDelete removes id only while it still names slot.
+// A stream can allocate a fresh slot under an id whose predecessor is on its way out,
+// and the one leaving must not take the new one with it.
+func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
+	sh := s.shard(id)
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	if sh.m[id] != slot {
+		return false
+	}
+	delete(sh.m, id)
+	return true
+}
+`)
 }
 
 func (w *Writer) writeStateConfigType() {
@@ -225,20 +297,20 @@ func (w *Writer) writeStateConfigType() {
 type StateConfig struct {
 	// HMACKey signs the Datapages-Instance identifier that rides on
 	// request/response headers. Required; must be non-empty.
-	// Rotating the key invalidates all live instances; clients recover
-	// by reloading the page.
+	// Rotating the key invalidates all live instances;
+	// clients recover by reloading the page.
 	HMACKey []byte
 
-	// GracePeriod is how long a stateful instance survives after its SSE
-	// stream closes, waiting for the client to reconnect (e.g. after a
-	// transient network blip). Default 30s.
+	// GracePeriod is how long a stateful instance survives after its SSE stream closes,
+	// waiting for the client to reconnect (e.g. after a transient network blip).
+	// Default 30s.
 	GracePeriod time.Duration
 
 	// MaxConcurrentInstances caps how many instances exist at the same time,
 	// across all state types. A page load plus an SSE connect creates one,
 	// which anyone who reaches the server can ask for. An instance keeps its
-	// place for GracePeriod after its stream closes. Stream opens beyond the
-	// cap fail. Default 10_000.
+	// place for GracePeriod after its stream closes. Stream opens beyond the cap fail.
+	// Default 10_000.
 	MaxConcurrentInstances int
 }
 `)
@@ -250,8 +322,8 @@ func (w *Writer) writeStateConfigOption() {
 // Required when at least one page declares a StateXXX type.
 //
 // On multi-server deployments the load balancer MUST route requests for a
-// given client consistently to the same backend (sticky sessions), since
-// state lives in process memory.
+// given client consistently to the same backend (sticky sessions),
+// since state lives in process memory.
 func WithStateConfig(conf StateConfig) ServerOption {
 	return func(s *Server) error {
 		if len(conf.HMACKey) == 0 {
@@ -331,8 +403,8 @@ func (s *Server) verifyStateInstanceID(id string) bool {
 	return hmac.Equal(mac.Sum(nil), sig)
 }
 
-// stateRouteKey derives the value that names a tab in message broker
-// subjects. Subjects travel further than a request does: into broker logs,
+// stateRouteKey derives the value that names a tab in message broker subjects.
+// Subjects travel further than a request does: into broker logs,
 // stream storage, traces and metrics. The Datapages-Instance id itself
 // stays out of them, since presenting it is what claims a tab's state.
 // Knowing the routing key only lets a dispatcher address that tab.
@@ -345,8 +417,9 @@ func (s *Server) stateRouteKey(id string) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)[:16])
 }
 
-// stateLiveInstances counts the instances of every state type. Memory is
-// shared between them, and so is the budget in StateConfig.MaxConcurrentInstances.
+// stateLiveInstances counts the instances of every state type.
+// Memory is shared between them,
+// and so is the budget in StateConfig.MaxConcurrentInstances.
 var stateLiveInstances atomic.Int64
 
 // stateReserveInstance takes one slot out of the budget. It reports false
@@ -359,9 +432,9 @@ func (s *Server) stateReserveInstance() bool {
 	return true
 }
 
-// stateHasCapacity reports whether the budget has room right now. It is a
-// look, not a claim, and callers use it before a stream commits its status
-// line. stateReserveInstance is what actually holds the bound.
+// stateHasCapacity reports whether the budget has room right now.
+// It is a look, not a claim, and callers use it before a stream commits its status line.
+// stateReserveInstance is what actually holds the bound.
 func (s *Server) stateHasCapacity() bool {
 	return stateLiveInstances.Load() < int64(s.stateConf.MaxConcurrentInstances)
 }
@@ -398,7 +471,7 @@ func (w *Writer) writeStateSlot(st *model.StateType, appPkg string) {
 
 	w.Raw("\n")
 	w.Linef(0, "// %s maps a verified Datapages-Instance id to the live slot.", instances)
-	w.Linef(0, "var %s sync.Map // key: string (instance id), value: *%s", instances, slot)
+	w.Linef(0, "var %s stateStore[%s]", instances, slot)
 
 	w.writeStateMethods(st, appPkg)
 }
@@ -439,11 +512,7 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	w.Line(0, "// when no live instance matches. The id is not HMAC-verified here;")
 	w.Line(0, "// call verifyStateInstanceID first.")
 	w.Linef(0, "func (s *Server) lookup%s(id string) (*%s, bool) {", suffix, slot)
-	w.Linef(1, "v, ok := %s.Load(id)", instances)
-	w.Line(1, "if !ok {")
-	w.Line(2, "return nil, false")
-	w.Line(1, "}")
-	w.Linef(1, "return v.(*%s), true", slot)
+	w.Linef(1, "return %s.Load(id)", instances)
 	w.Line(0, "}")
 
 	w.Raw("\n")

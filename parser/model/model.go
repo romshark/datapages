@@ -9,6 +9,9 @@ import (
 type App struct {
 	Fset    *token.FileSet
 	PkgPath string
+	// PkgName is the name the app package declares. It qualifies app types
+	// in generated code and need not match the last element of PkgPath.
+	PkgName string
 	Expr    ast.Expr
 
 	PageIndex    *Page

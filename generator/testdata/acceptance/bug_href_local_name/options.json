@@ -1,0 +1,4 @@
+{
+  "known_bug": "b redeclared in this block",
+  "known_bug_reason": "A path variable named b collides with the strings.Builder the URL writer declares for itself and datapagesgen/href does not compile. Any name the writer uses for its own locals is at risk."
+}

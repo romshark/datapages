@@ -1,0 +1,4 @@
+{
+  "known_bug": "FAIL: TestRecoverFallbackStatus",
+  "known_bug_reason": "When RecoverError returns an error, the generated fallback calls http.Error after the SSE generator has already written 200 OK. The status is dropped (Go logs a superfluous WriteHeader call) and the status text is appended to the event stream. The client sees a successful request with garbage at the end of its body."
+}

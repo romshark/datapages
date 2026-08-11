@@ -1,0 +1,4 @@
+{
+  "known_bug": "FAIL: TestWildcardSubjectDelivery",
+  "known_bug_reason": "A subject field without a signal tag makes the generator subscribe with a NATS wildcard, while modules/msgbroker/inmem matches subjects as exact map keys. Every such event is dropped without an error: the dispatch returns nil and the handler never runs. The same app works on NATS."
+}

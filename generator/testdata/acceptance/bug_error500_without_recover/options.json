@@ -1,0 +1,4 @@
+{
+  "known_bug": "FAIL: TestError500PageIsRendered",
+  "known_bug_reason": "PageError500 is rendered for a failed request only when the app also defines RecoverError. Without it the generated httpErrIntern calls http.Error directly and the supplied 500 page is reachable only by its own route. The specification ties the two features to different things and requires neither for the other."
+}

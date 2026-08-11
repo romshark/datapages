@@ -104,9 +104,9 @@ func (p PageIndex) POSTFilter(
 		Sort   string `json:"sort"`
 	},
 ) error {
-	state.ViewParameters.Search = signals.Search
-	state.ViewParameters.Filter = signals.Filter
-	state.ViewParameters.Sort = signals.Sort
+	state.Search = signals.Search
+	state.Filter = signals.Filter
+	state.Sort = signals.Sort
 
 	todos := p.App.list.GetItems(state.ViewParameters)
 	return sse.PatchElementTempl(todoList(todos))

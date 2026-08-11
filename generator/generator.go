@@ -34,44 +34,43 @@ type Options struct {
 // destination directory dstDir. pkgName is the Go package name for the generated
 // root package (e.g. "datapagesgen"). When m is nil, minimal stub files containing
 // only the package declaration are written so that IDEs can resolve the import.
+//
+// Nothing is written unless every file renders. On error the destination is
+// left as it was.
+// A failed run cannot replace working generated code with code that does not build.
 func Generate(
 	dstDir string, pkgName string, m *model.App, perm os.FileMode, opts Options,
 ) error {
 	if m == nil {
 		return generateStubs(dstDir, pkgName, perm, opts.AssetsURLPrefix != "")
 	}
+	if err := validateModel(m); err != nil {
+		return err
+	}
 
 	w := writerPool.Get().(*Writer)
 	defer writerPool.Put(w)
 
-	var err error
-
-	assetsDir := filepath.Join(dstDir, "assets")
-
-	// Generate assets/assets_gen.go first so goimports can resolve the import.
-	// When assets are disabled, remove any previously generated assets directory.
-	if opts.AssetsURLPrefix != "" {
-		w.Reset()
-		w.assetsURLPrefix = opts.AssetsURLPrefix
-		w.assetsDir = opts.AssetsDir
-		w.appDir = opts.AppDir
-		w.WritePkgAssets()
-		assetsGenPath := filepath.Join(assetsDir, "assets_gen.go")
-		w.Buf, err = goimports.Process(assetsGenPath, w.Buf, nil)
-		if err != nil {
-			return fmt.Errorf("formatting assets/assets_gen.go: %w", err)
-		}
-		if err := os.MkdirAll(assetsDir, 0o755); err != nil {
-			return fmt.Errorf("creating directory %s: %w", assetsDir, err)
-		}
-		if err := os.WriteFile(assetsGenPath, w.Buf, perm); err != nil {
-			return fmt.Errorf("writing assets/assets_gen.go: %w", err)
-		}
-	} else {
-		_ = os.RemoveAll(assetsDir)
+	// rendered holds every file to write.
+	// They are written only after all of them are formatted.
+	type file struct {
+		path    string
+		content []byte
 	}
+	var rendered []file
 
-	// Generate app_gen.go
+	render := func(rel string, write func()) error {
+		path := filepath.Join(dstDir, rel)
+		write()
+		out, err := goimports.Process(path, w.Buf, nil)
+		if err != nil {
+			return fmt.Errorf("formatting %s: %w", rel, err)
+		}
+		// goimports may hand back the writer's own buffer,
+		// which the next file reuses.
+		rendered = append(rendered, file{path, append([]byte(nil), out...)})
+		return nil
+	}
 
 	w.Reset()
 	w.prometheus = opts.Prometheus
@@ -79,65 +78,59 @@ func Generate(
 	w.assetsDir = opts.AssetsDir
 	w.appDir = opts.AppDir
 	w.genImport = opts.GenImport
-	w.WriteApp(pkgName, m)
-	appGenPath := filepath.Join(dstDir, "app_gen.go")
-	w.Buf, err = goimports.Process(appGenPath, w.Buf, nil)
-	if err != nil {
-		return fmt.Errorf("formatting app_gen.go: %w", err)
-	}
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
-		return fmt.Errorf("creating directory %s: %w", dstDir, err)
-	}
-	if err := os.WriteFile(appGenPath, w.Buf, perm); err != nil {
-		return fmt.Errorf("writing app_gen.go: %w", err)
+
+	assetsDir := filepath.Join(dstDir, "assets")
+	if opts.AssetsURLPrefix != "" {
+		// Rendered first. goimports resolves the import from app_gen.go against it.
+		if err := render(filepath.Join("assets", "assets_gen.go"),
+			w.WritePkgAssets); err != nil {
+			return err
+		}
 	}
 
-	// Generate action/action_gen.go
-	w.Reset()
-	w.WritePkgAction(m)
-	actionDir := filepath.Join(dstDir, "action")
-	actionGenPath := filepath.Join(actionDir, "action_gen.go")
-	w.Buf, err = goimports.Process(actionGenPath, w.Buf, nil)
-	if err != nil {
-		return fmt.Errorf("formatting action/action_gen.go: %w", err)
+	if err := render("app_gen.go", func() {
+		w.Reset()
+		w.prometheus = opts.Prometheus
+		w.assetsURLPrefix = opts.AssetsURLPrefix
+		w.assetsDir = opts.AssetsDir
+		w.appDir = opts.AppDir
+		w.genImport = opts.GenImport
+		w.WriteApp(pkgName, m)
+	}); err != nil {
+		return err
 	}
-	if err := os.MkdirAll(actionDir, 0o755); err != nil {
-		return fmt.Errorf("creating directory %s: %w", actionDir, err)
+	if err := render(filepath.Join("action", "action_gen.go"), func() {
+		w.Reset()
+		w.WritePkgAction(m)
+	}); err != nil {
+		return err
 	}
-	if err := os.WriteFile(actionGenPath, w.Buf, perm); err != nil {
-		return fmt.Errorf("writing action/action_gen.go: %w", err)
+	if err := render(filepath.Join("href", "href_gen.go"), func() {
+		w.Reset()
+		w.WritePkgHref(m)
+	}); err != nil {
+		return err
 	}
-
-	// Generate href/href_gen.go
-	w.Reset()
-	w.WritePkgHref(m)
-	hrefDir := filepath.Join(dstDir, "href")
-	hrefGenPath := filepath.Join(hrefDir, "href_gen.go")
-	w.Buf, err = goimports.Process(hrefGenPath, w.Buf, nil)
-	if err != nil {
-		return fmt.Errorf("formatting href/href_gen.go: %w", err)
-	}
-	if err := os.MkdirAll(hrefDir, 0o755); err != nil {
-		return fmt.Errorf("creating directory %s: %w", hrefDir, err)
-	}
-	if err := os.WriteFile(hrefGenPath, w.Buf, perm); err != nil {
-		return fmt.Errorf("writing href/href_gen.go: %w", err)
+	if err := render(filepath.Join("httperr", "httperr_gen.go"), func() {
+		w.Reset()
+		w.WritePkgHTTPErr()
+	}); err != nil {
+		return err
 	}
 
-	// Generate httperr/httperr_gen.go
-	w.Reset()
-	w.WritePkgHTTPErr()
-	httperrDir := filepath.Join(dstDir, "httperr")
-	httperrGenPath := filepath.Join(httperrDir, "httperr_gen.go")
-	w.Buf, err = goimports.Process(httperrGenPath, w.Buf, nil)
-	if err != nil {
-		return fmt.Errorf("formatting httperr/httperr_gen.go: %w", err)
+	for _, f := range rendered {
+		if err := os.MkdirAll(filepath.Dir(f.path), 0o755); err != nil {
+			return fmt.Errorf("creating directory %s: %w", filepath.Dir(f.path), err)
+		}
+		if err := os.WriteFile(f.path, f.content, perm); err != nil {
+			return fmt.Errorf("writing %s: %w", f.path, err)
+		}
 	}
-	if err := os.MkdirAll(httperrDir, 0o755); err != nil {
-		return fmt.Errorf("creating directory %s: %w", httperrDir, err)
-	}
-	if err := os.WriteFile(httperrGenPath, w.Buf, perm); err != nil {
-		return fmt.Errorf("writing httperr/httperr_gen.go: %w", err)
+
+	// An old assets package is removed once the rest is in place.
+	// A failed run leaves it alone.
+	if opts.AssetsURLPrefix == "" {
+		_ = os.RemoveAll(assetsDir)
 	}
 
 	return nil

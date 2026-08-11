@@ -11,6 +11,7 @@
 - Format: `mage fmt`
 - Tidy all Go modules: `mage modTidy`
 - Test (runs lint first): `mage test`
+- Coverage of the generator and of the code it generates: `mage coverage`
 - Build CLI and examples: `mage build`
 - Generate templ files: `mage genTempl`
 - Generate datapages code: `mage genDatapages`
@@ -34,7 +35,12 @@
 - `example/tailwindcss/` - minimal static page with Tailwind CSS (separate module).
 - `example/webcomponents/` - landing page with vanilla and Lit Web Components bundled via esbuild.
 - `example/sqlitesessions/` - custom sessmanager.SessionManager backed by SQLite via sqinn-go.
-- `generator/` - code generation from parsed model.
+- `generator/` - code generation from parsed model. `generator/README.md`
+  explains how its tests work.
+- `generator/testdata/acceptance/` - each subdirectory is an application plus
+  its own tests. The harness generates, builds and runs each one and asserts
+  behaviour over HTTP. Prefix `bug_` for cases that reproduce a known defect
+  and are expected to fail.
 - `modules/` - pluggable modules (csrf, msgbroker, sessmanager, sesstokgen).
 - `internal/cmd/` - CLI command implementations.
 - `magefiles/` - build targets (mage).

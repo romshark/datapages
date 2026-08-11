@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -709,6 +710,70 @@ func (s *Server) stateHasCapacity() bool {
 // errStateAtCapacity fails a stream open that finds no free instance.
 var errStateAtCapacity = errors.New("state instance limit reached")
 
+// stateStoreShards is how many independent maps a stateStore spreads its
+// keys over. Instance ids are random, so they distribute evenly, and each
+// shard carries its own lock.
+const stateStoreShards = 32
+
+// stateStoreSeed randomizes shard selection per process.
+var stateStoreSeed = maphash.MakeSeed()
+
+// stateStoreShard is one lock and the keys that belong to it.
+type stateStoreShard[S any] struct {
+	mu sync.RWMutex
+	m  map[string]*S
+}
+
+// stateStore maps a verified Datapages-Instance id to the live slot it names.
+//
+// Every key is written once and deleted once, and none is read after its
+// deletion. That is the opposite of what sync.Map is tuned for, which is a
+// read-mostly set of stable keys. Sharded plain maps read without a write
+// barrier and delete without leaving a tombstone behind.
+//
+// The zero value is ready to use.
+type stateStore[S any] struct {
+	shards [stateStoreShards]stateStoreShard[S]
+}
+
+func (s *stateStore[S]) shard(id string) *stateStoreShard[S] {
+	return &s.shards[maphash.String(stateStoreSeed, id)%stateStoreShards]
+}
+
+// Load returns the slot registered under id, or (nil, false).
+func (s *stateStore[S]) Load(id string) (*S, bool) {
+	sh := s.shard(id)
+	sh.mu.RLock()
+	slot, ok := sh.m[id]
+	sh.mu.RUnlock()
+	return slot, ok
+}
+
+// Store registers slot under id, replacing whatever was there.
+func (s *stateStore[S]) Store(id string, slot *S) {
+	sh := s.shard(id)
+	sh.mu.Lock()
+	if sh.m == nil {
+		sh.m = make(map[string]*S)
+	}
+	sh.m[id] = slot
+	sh.mu.Unlock()
+}
+
+// CompareAndDelete removes id only while it still names slot. A stream can
+// allocate a fresh slot under an id whose predecessor is on its way out, and
+// the one leaving must not take the new one with it.
+func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
+	sh := s.shard(id)
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	if sh.m[id] != slot {
+		return false
+	}
+	delete(sh.m, id)
+	return true
+}
+
 // stateSlotStateIndex holds one instance of StateIndex.
 // It is checked out of statePoolStateIndex on StreamOpen and returned
 // when StreamClose elapses without a reconnect within GracePeriod.
@@ -727,7 +792,7 @@ var statePoolStateIndex = sync.Pool{
 }
 
 // stateInstancesStateIndex maps a verified Datapages-Instance id to the live slot.
-var stateInstancesStateIndex sync.Map // key: string (instance id), value: *stateSlotStateIndex
+var stateInstancesStateIndex stateStore[stateSlotStateIndex]
 
 // allocateStateIndex checks a state value out of statePoolStateIndex, zeroes it, registers it
 // under id, and attaches it to the given SSE streamID.
@@ -748,11 +813,7 @@ func (s *Server) allocateStateIndex(id string, streamID uint64) *stateSlotStateI
 // when no live instance matches. The id is not HMAC-verified here;
 // call verifyStateInstanceID first.
 func (s *Server) lookupStateIndex(id string) (*stateSlotStateIndex, bool) {
-	v, ok := stateInstancesStateIndex.Load(id)
-	if !ok {
-		return nil, false
-	}
-	return v.(*stateSlotStateIndex), true
+	return stateInstancesStateIndex.Load(id)
 }
 
 // reconnectStateIndex tries to reattach an existing slot (grace-period reconnect)
@@ -838,7 +899,7 @@ var statePoolStateItem = sync.Pool{
 }
 
 // stateInstancesStateItem maps a verified Datapages-Instance id to the live slot.
-var stateInstancesStateItem sync.Map // key: string (instance id), value: *stateSlotStateItem
+var stateInstancesStateItem stateStore[stateSlotStateItem]
 
 // allocateStateItem checks a state value out of statePoolStateItem, zeroes it, registers it
 // under id, and attaches it to the given SSE streamID.
@@ -859,11 +920,7 @@ func (s *Server) allocateStateItem(id string, streamID uint64) *stateSlotStateIt
 // when no live instance matches. The id is not HMAC-verified here;
 // call verifyStateInstanceID first.
 func (s *Server) lookupStateItem(id string) (*stateSlotStateItem, bool) {
-	v, ok := stateInstancesStateItem.Load(id)
-	if !ok {
-		return nil, false
-	}
-	return v.(*stateSlotStateItem), true
+	return stateInstancesStateItem.Load(id)
 }
 
 // reconnectStateItem tries to reattach an existing slot (grace-period reconnect)

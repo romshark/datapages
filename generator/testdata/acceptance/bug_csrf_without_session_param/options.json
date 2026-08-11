@@ -1,0 +1,4 @@
+{
+  "known_bug": "FAIL: TestCSRFCoversEveryAction",
+  "known_bug_reason": "The CSRF check lives inside the generated auth helper, which is only called by handlers that declare session or sessionToken. A state-changing action that declares neither is served without a token even when the visitor holds a session and WithCSRFProtection is set. That is the request a cross-site page can make the browser send."
+}

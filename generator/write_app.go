@@ -2,6 +2,7 @@ package generator
 
 import (
 	_ "embed"
+	"slices"
 	"strings"
 
 	"github.com/romshark/datapages/parser/model"
@@ -22,8 +23,9 @@ var appStaticContent2 string
 // WriteApp generates code for the generated root package and appends it to buffer.
 // pkgName is the Go package name (e.g. "datapagesgen").
 func (w *Writer) WriteApp(pkgName string, m *model.App) {
-	appPkg := appPkgName(m.PkgPath)
+	appPkg := appPkgQualifier(m)
 	w.appPkgPath = m.PkgPath
+	w.appPkgQual = appPkg
 	w.buildEventMap(m.Events)
 	w.usage = computeAppUsage(m)
 
@@ -161,6 +163,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 		w.Line(1, `"crypto/rand"`)
 		w.Line(1, `"crypto/sha256"`)
 		w.Line(1, `"encoding/base64"`)
+		w.Line(1, `"hash/maphash"`)
 	}
 	w.Line(0, "")
 	w.Line(1, `"github.com/a-h/templ"`)
@@ -171,6 +174,13 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"golang.org/x/sync/errgroup"`)
 	w.Line(0, "")
 	w.Byte('\t')
+	// An unaliased import binds to the name the package declares.
+	// Name it anyway when that differs from the last element of the path,
+	// which is what a reader and the import formatter both assume it to be.
+	if w.appPkgQual != appPkgName(appPkgPath) {
+		w.Raw(w.appPkgQual)
+		w.Byte(' ')
+	}
 	w.writeQuoted(appPkgPath)
 	w.Byte('\n')
 	if w.hasAssets() && w.genImport != "" {
@@ -971,13 +981,7 @@ func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
 
 	// EvSubjPref* constants (prefix for matching events whose concrete
 	// subject is only known at runtime).
-	hasPrefixed := false
-	for _, e := range events {
-		if evUsesPrefixMatch(e) {
-			hasPrefixed = true
-			break
-		}
-	}
+	hasPrefixed := slices.ContainsFunc(events, evUsesPrefixMatch)
 	if hasPrefixed {
 		w.Line(0, "")
 		w.Line(0, "const (")
@@ -2222,21 +2226,21 @@ func (w *Writer) writeDispatchClosureAs(
 
 func renderSignalsType(input *model.Input, m *model.App) string {
 	if isNamedType(input.Type) {
-		return renderType(input.Type, m.PkgPath)
+		return renderType(input.Type)
 	}
 	return renderAnonStructType(input.Type, m.Fset)
 }
 
 func renderQueryType(input *model.Input, m *model.App) string {
 	if isNamedType(input.Type) {
-		return renderType(input.Type, m.PkgPath)
+		return renderType(input.Type)
 	}
 	return renderAnonStructType(input.Type, m.Fset)
 }
 
 func renderPathType(input *model.Input, m *model.App) string {
 	if isNamedType(input.Type) {
-		return renderType(input.Type, m.PkgPath)
+		return renderType(input.Type)
 	}
 	return renderAnonStructType(input.Type, m.Fset)
 }

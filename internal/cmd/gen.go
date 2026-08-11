@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -33,10 +36,10 @@ Requires a datapages.yaml config file. Run "datapages init" to create one.
 This command does not run "templ generate". You must run it yourself
 before "datapages gen" if you have created or modified .templ files.
 
-The generated package is always written, even when the app package contains
-errors, so that IDEs can resolve the import while you fix the errors.
-Errors are always reported to stderr and the exit code is non-zero whenever
-parsing fails.`,
+A failed run never replaces generated code that already exists. It keeps
+what the last successful run produced. A package that was never generated is
+written as stubs. IDEs can then resolve the import while you fix the errors.
+Errors go to stderr. The exit code is non-zero whenever parsing fails.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			moduleDir, err := findModuleDir()
 			if err != nil {
@@ -70,14 +73,10 @@ func runGen(moduleDir string, cfg config.Config, stderr io.Writer, version strin
 		return err
 	}
 
-	app, parseErr := parseApp(filepath.Join(moduleDir, cfg.App), stderr)
-
-	// Always generate the package; when app is nil, stub files are written so
-	// that IDEs can resolve the import while errors are fixed.
 	genDir := filepath.Join(moduleDir, cfg.Gen.Package)
 	genPkgName := filepath.Base(genDir)
 	genImport := modulePath + "/" + cfg.Gen.Package
-	prometheus := app != nil && cfg.Gen.Prometheus != nil && *cfg.Gen.Prometheus
+	prometheus := cfg.Gen.Prometheus != nil && *cfg.Gen.Prometheus
 	var assetsURLPrefix, assetsDir string
 	if cfg.Assets != nil {
 		assetsURLPrefix = cfg.Assets.URLPrefix
@@ -85,6 +84,24 @@ func runGen(moduleDir string, cfg config.Config, stderr io.Writer, version strin
 		// the app package prefix: "./app/static" → "static".
 		cleaned := filepath.Clean(cfg.Assets.Dir)
 		assetsDir = strings.TrimPrefix(cleaned, cfg.App+string(filepath.Separator))
+	}
+
+	app, parseErr := parseApp(filepath.Join(moduleDir, cfg.App), stderr)
+	if parseErr != nil {
+		// Existing generated code is left alone. The parser returns a partial
+		// model for a rejected package. Code generated from it describes an
+		// application the user did not write. It would replace working code
+		// with code that does not build and hide the errors reported above.
+		//
+		// A package that was never generated is different. There is nothing
+		// to lose and the app package imports it.
+		// Stubs make the import resolve while the errors are fixed.
+		if err := writeStubsIfAbsent(
+			genDir, genPkgName, assetsURLPrefix != "",
+		); err != nil {
+			return err
+		}
+		return parseErr
 	}
 	if err := generator.Generate(
 		genDir, genPkgName, app, 0o644, generator.Options{
@@ -98,7 +115,7 @@ func runGen(moduleDir string, cfg config.Config, stderr io.Writer, version strin
 		return fmt.Errorf("generating code: %w", err)
 	}
 
-	if app != nil && !cmdExists {
+	if !cmdExists {
 		appImport := modulePath + "/" + cfg.App
 		hasSession := app.Session != nil
 		if err := generator.GenerateCmd(
@@ -116,7 +133,39 @@ func runGen(moduleDir string, cfg config.Config, stderr io.Writer, version strin
 		return fmt.Errorf("go mod tidy: %s", out)
 	}
 
-	return parseErr
+	return nil
+}
+
+// writeStubsIfAbsent writes package declaration stubs when
+// nothing has been generated yet. It does nothing otherwise.
+//
+// It runs after the app package failed to parse. On a project that never generated,
+// the app package imports a package that does not exist.
+// The unresolved import then hides the reported errors.
+// A stub holds no application code and cannot be wrong.
+// On a project that generated before, the existing code is the better stub.
+func writeStubsIfAbsent(genDir, genPkgName string, hasAssets bool) error {
+	if _, err := os.Stat(filepath.Join(genDir, "app_gen.go")); err == nil {
+		return nil // generated before, keep it
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("reading %s: %w", genDir, err)
+	}
+	if err := generator.Generate(
+		genDir, genPkgName, nil, 0o644,
+		generator.Options{AssetsURLPrefix: stubAssetsPrefix(hasAssets)},
+	); err != nil {
+		return fmt.Errorf("generating stubs: %w", err)
+	}
+	return nil
+}
+
+// stubAssetsPrefix reports the prefix that makes the stub writer include the
+// assets package. Its value is not used in a stub, only its presence.
+func stubAssetsPrefix(hasAssets bool) string {
+	if hasAssets {
+		return "/static/"
+	}
+	return ""
 }
 
 func parseApp(appDir string, stderr io.Writer) (*model.App, error) {
@@ -161,8 +210,8 @@ func parseApp(appDir string, stderr io.Writer) (*model.App, error) {
 		}
 	}
 	_, _ = fmt.Fprintln(stderr)
-	// Return the partial model alongside the error: callers may still
-	// generate code from whatever was successfully parsed.
+	// The partial model is returned for callers that only inspect it.
+	// Generating from it is not safe. It describes an application the user did not write.
 	return app, fmt.Errorf("parsing app package: %s",
 		count.Sprintf("%d error(s)", errs.Len()))
 }

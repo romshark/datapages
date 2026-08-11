@@ -214,17 +214,14 @@ func routeWithTrailingSlash(route string) string {
 	return route
 }
 
-// renderType renders a Go type using types.TypeString with a qualifier
-// that maps the app package to its short name.
-func renderType(t model.Type, appPkgPath string) string {
-	pkg := appPkgName(appPkgPath)
-	qualifier := func(p *types.Package) string {
-		if p.Path() == appPkgPath {
-			return pkg
-		}
+// renderType renders a Go type using types.TypeString.
+// Every package is named as the importing file names it,
+// which for the app package is what the package declares rather than
+// what its directory is called.
+func renderType(t model.Type) string {
+	return types.TypeString(t.Resolved, func(p *types.Package) string {
 		return p.Name()
-	}
-	return types.TypeString(t.Resolved, qualifier)
+	})
 }
 
 // renderAnonStructType renders an anonymous struct type from its AST expression,
@@ -449,6 +446,8 @@ type Writer struct {
 	genImport string
 	// appPkgPath is the import path of the app source package
 	appPkgPath string
+	// appPkgQual is the identifier that qualifies app types
+	appPkgQual string
 	// usage is computed once per WriteApp
 	usage appUsage
 }
@@ -541,7 +540,7 @@ func (w *Writer) embedTypeExpr(
 	p *model.Page, ap *model.AbstractPage, appPkg string,
 ) string {
 	if t, ok := p.EmbedTypes[ap.TypeName]; ok && t.Resolved != nil {
-		return renderType(t, w.appPkgPath)
+		return renderType(t)
 	}
 	return appPkg + "." + ap.TypeName
 }
@@ -770,6 +769,16 @@ func intTypeParseInfo(t types.Type) (bits int, unsigned bool) {
 
 // appPkgName returns the short package name from an import path.
 // "github.com/romshark/datapages/example/classifieds/app" -> "app"
+// appPkgQualifier returns the identifier that qualifies app types in generated code.
+// An unaliased import binds to the name the package declares,
+// which is free to differ from its directory.
+func appPkgQualifier(m *model.App) string {
+	if m.PkgName != "" {
+		return m.PkgName
+	}
+	return appPkgName(m.PkgPath)
+}
+
 func appPkgName(pkgPath string) string {
 	if i := strings.LastIndex(pkgPath, "/"); i >= 0 {
 		return pkgPath[i+1:]

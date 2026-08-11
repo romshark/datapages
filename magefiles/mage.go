@@ -56,6 +56,46 @@ func Test() error {
 	return run("go", "test", "./...", "-cover")
 }
 
+// Coverage reports two numbers. The first is how much of the generator itself
+// the test suite runs. The second is how much of the code the generator writes
+// the acceptance suites run.
+//
+// The second number is collected inside the throwaway modules the acceptance
+// cases build, where the generated packages exist.
+func Coverage() error {
+	dir, err := os.MkdirTemp("", "datapages-coverage")
+	if err != nil {
+		return fmt.Errorf("creating a directory for the profiles: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	generatorProfile := filepath.Join(dir, "generator.out")
+	generatedProfile := filepath.Join(dir, "generated.out")
+
+	if err := run(
+		"go", "test", "./generator/...", "-count=1",
+		"-coverprofile="+generatorProfile,
+		"-args", "-cover.out="+generatedProfile,
+	); err != nil {
+		return err
+	}
+
+	generatorPct, err := coverProfilePercent(generatorProfile)
+	if err != nil {
+		return err
+	}
+	generatedPct, err := coverProfilePercent(generatedProfile)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("\ngenerator (./generator/...):  %.1f%% of statements\n",
+		generatorPct)
+	fmt.Printf("code it generates:           %.1f%% of statements "+
+		"(run by the acceptance suites)\n", generatedPct)
+	return nil
+}
+
 // Fmt formats Go source files with gofumpt and gci.
 func Fmt() error {
 	if err := goRun(toolGofumpt, "-w", "."); err != nil {

@@ -1,0 +1,4 @@
+{
+  "known_bug": "declared and not used: head",
+  "known_bug_reason": "An action that returns head templ.Component, which SPECIFICATION.md permits, generates a handler that assigns the returned head to an unused local and renders the app-wide head instead. The generated package does not compile, with or without a global App.Head."
+}

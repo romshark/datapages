@@ -141,7 +141,11 @@ func collectEventTypeNames(ctx *parseCtx) {
 }
 
 func initApp(ctx *parseCtx, errs *Errors) {
-	ctx.app = &model.App{Fset: ctx.pkg.Fset, PkgPath: ctx.pkg.PkgPath}
+	ctx.app = &model.App{
+		Fset:    ctx.pkg.Fset,
+		PkgPath: ctx.pkg.PkgPath,
+		PkgName: ctx.pkg.Name,
+	}
 	if appTS, ok := ctx.typeSpecByName["App"]; ok {
 		ctx.app.Expr = appTS.Name
 		ctx.appTypeFound = true
@@ -2286,16 +2290,14 @@ func parseStateParam(
 	// Type parameter of the enclosing abstract page — accept as a
 	// placeholder; the concrete state binding is resolved at each
 	// embed site during flattening.
-	for _, tp := range typeParams {
-		if tp == elemName {
-			inp := parseInput(f, info)
-			inp.Kind = model.InputKindState
-			return &model.InputState{
-				Input:         inp,
-				StateTypeName: elemName,
-				IsTypeParam:   true,
-			}, nil
-		}
+	if slices.Contains(typeParams, elemName) {
+		inp := parseInput(f, info)
+		inp.Kind = model.InputKindState
+		return &model.InputState{
+			Input:         inp,
+			StateTypeName: elemName,
+			IsTypeParam:   true,
+		}, nil
 	}
 
 	// Concrete state type: must be a declared, exported struct in the

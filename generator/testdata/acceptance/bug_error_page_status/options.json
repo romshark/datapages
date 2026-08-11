@@ -1,0 +1,4 @@
+{
+  "known_bug": "FAIL: TestErrorPageStatus",
+  "known_bug_reason": "An app that supplies PageError404 gets it rendered with 200 OK for URLs no page claims. Crawlers index the miss, caches store it, and 404 monitoring sees nothing. The same request without a custom page does carry 404. Supplying the page is what loses the status."
+}

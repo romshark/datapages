@@ -1659,7 +1659,7 @@ All of the actions above trigger `datastar-fetch` events during the fetch reques
 
 ## Escape User Input 
 
-The golden rule of security is to never trust user input. This is especially true when using Datastar expressions, which can execute arbitrary JavaScript. When using Datastar expressions, you should always escape user input. This helps prevent, among other issues, Cross-Site Scripting (XSS) attacks.
+Never trust user input. This is especially true when using Datastar expressions, which can execute arbitrary JavaScript. When using Datastar expressions, you should always escape user input. This helps prevent, among other issues, Cross-Site Scripting (XSS) attacks.
 
 ## Avoid Sensitive Data 
 

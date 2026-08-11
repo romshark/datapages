@@ -1,0 +1,4 @@
+{
+  "known_bug": "FAIL: TestEmptyOptionIsSkipped",
+  "known_bug_reason": "WithHeaders returns the zero option for an empty map, and the generated writeOptions does not skip it: the expression becomes @post('/save/', {: }), which no browser can parse. A template that computes its headers produces this whenever the map comes out empty."
+}
