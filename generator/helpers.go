@@ -30,7 +30,10 @@ func evSubjConst(e *model.Event) string {
 // go through the subject prefix instead of the wildcard constant.
 // True for private (SubjectUser), signal-scoped and state-id-scoped events.
 func evUsesPrefixMatch(e *model.Event) bool {
-	return e.IsPrivate() || e.IsSignalScoped() || e.IsStateIDScoped()
+	// Any subject field makes the subscription a pattern: the constant carries
+	// one "*" per field. A received subject carries the values instead,
+	// so it is matched by the prefix in front of them rather than by equality.
+	return e.HasSubjectFields()
 }
 
 // evSubjPrefConst returns the subject prefix constant name for events
@@ -306,7 +309,9 @@ type appUsage struct {
 	streamAuth bool
 	// dsRequest: func (s *Server) checkIsDSReq(...)
 	dsRequest bool
-	// recoverError: isDSReq called in httpErrIntern when RecoverError+PageError500 exist
+	// recoverError: isDSReq is called in httpErrIntern by an app that has
+	// PageError500, RecoverError, or both. The two features are independent
+	// and either one makes the helper's answer decide what the response is.
 	recoverError bool
 	// httpErrBad: whether the httpErrBad helper is needed.
 	httpErrBad bool
@@ -338,12 +343,16 @@ func computeAppUsage(m *model.App) appUsage {
 
 	u.hasSession = m.Session != nil
 
-	if m.RecoverError != nil && m.PageError500 != nil {
+	if m.RecoverError != nil || m.PageError500 != nil {
 		u.recoverError = true
 	}
 
 	checkHandler := func(h *model.Handler) {
 		if h.InputSession != nil || h.InputSessionToken != nil {
+			u.auth = true
+		}
+		if needsCSRFOnly(h, m) {
+			// The handler calls the session helper for its CSRF check.
 			u.auth = true
 		}
 		if h.OutputNewSession != nil {
@@ -438,7 +447,8 @@ type Writer struct {
 	prometheus bool
 	// assetsURLPrefix is the URL path prefix for static files (empty = disabled)
 	assetsURLPrefix string
-	// assetsDir is the subdirectory within the app package for static files (e.g. "static")
+	// assetsDir is the subdirectory within
+	// the app package for static files (e.g. "static")
 	assetsDir string
 	// appDir is the app source package path relative to module root (e.g. "app")
 	appDir string

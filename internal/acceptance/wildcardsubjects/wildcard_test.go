@@ -1,0 +1,48 @@
+// Asserts that an event dispatched with a subject value reaches a stream
+// subscribed to every value of that subject.
+
+package acceptance_test
+
+import (
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/internal/acceptance/wildcardsubjects/app"
+	"github.com/romshark/datapages/internal/acceptance/wildcardsubjects/datapagesgen"
+	"github.com/romshark/datapages/modules/msgbroker/inmem"
+)
+
+// TestWildcardSubjectDelivery covers a page subscribed to every value of a subject:
+// the event reaches it whatever value it was dispatched with.
+func TestWildcardSubjectDelivery(t *testing.T) {
+	c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+
+	s := c.OpenStream(t, "/_$/", nil)
+
+	resp := c.Action(t, http.MethodPost, "/note/",
+		`{"topic":"anything","text":"delivered"}`)
+	require.Equal(t, http.StatusOK, resp.Status, "POST /note/")
+
+	require.True(t, s.Saw(`<div id="noted">delivered</div>`),
+		"the stream subscribed to every value of the subject received nothing")
+}
+
+// TestSecondValueReachesTheSameStream covers a second value of the same
+// subject reaching the same stream.
+func TestSecondValueReachesTheSameStream(t *testing.T) {
+	c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+
+	s := c.OpenStream(t, "/_$/", nil)
+
+	for _, topic := range []string{"one", "two"} {
+		resp := c.Action(t, http.MethodPost, "/note/",
+			`{"topic":"`+topic+`","text":"from-`+topic+`"}`)
+		require.Equal(t, http.StatusOK, resp.Status, "POST /note/ %s", topic)
+	}
+
+	require.True(t, s.Saw(`<div id="noted">from-one</div>`))
+	require.True(t, s.Saw(`<div id="noted">from-two</div>`))
+}

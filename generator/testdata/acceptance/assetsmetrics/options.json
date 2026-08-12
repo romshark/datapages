@@ -1,6 +1,0 @@
-{
-  "prometheus": true,
-  "assets_url_prefix": "/static/",
-  "assets_dir": "static",
-  "cmd": true
-}

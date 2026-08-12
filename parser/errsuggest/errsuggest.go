@@ -531,7 +531,7 @@ func methodPathSuffix(method string) string {
 
 // actionFuncFromURL derives a likely action package function name from a URL path.
 // Assumes POST (the most common method for form actions).
-// "/submit" → "POSTAppSubmit", "/profile/save" → "POSTPageProfileSave".
+// "/submit" -> "POSTAppSubmit", "/profile/save" -> "POSTPageProfileSave".
 // Returns "" when the URL contains variables or cannot be mapped.
 func actionFuncFromURL(url string) string {
 	// Strip query string.
@@ -550,10 +550,10 @@ func actionFuncFromURL(url string) string {
 	parts := strings.Split(url, "/")
 	switch len(parts) {
 	case 1:
-		// Single segment: app-level action, e.g. "/submit" → "POSTAppSubmit"
+		// Single segment: app-level action, e.g. "/submit" -> "POSTAppSubmit"
 		return "POSTApp" + capitalize(parts[0])
 	case 2:
-		// Two segments: page action, e.g. "/profile/save" → "POSTPageProfileSave"
+		// Two segments: page action, e.g. "/profile/save" -> "POSTPageProfileSave"
 		return "POSTPage" + capitalize(parts[0]) + capitalize(parts[1])
 	default:
 		return ""
@@ -568,7 +568,7 @@ func capitalize(s string) string {
 }
 
 // hrefFuncFromURL derives a likely href package function name from a URL path.
-// "/" → "PageIndex", "/login" → "PageLogin", "/profile/" → "PageProfile".
+// "/" -> "PageIndex", "/login" -> "PageLogin", "/profile/" -> "PageProfile".
 // Returns "" when the URL contains path variables or cannot be mapped.
 func hrefFuncFromURL(url string) string {
 	// Strip query string.
@@ -587,7 +587,7 @@ func hrefFuncFromURL(url string) string {
 	if strings.ContainsAny(url, "{}") {
 		return ""
 	}
-	// Capitalize: "login" → "PageLogin", "myposts" → "PageMyposts"
+	// Capitalize: "login" -> "PageLogin", "myposts" -> "PageMyposts"
 	return "Page" + capitalize(url)
 }
 

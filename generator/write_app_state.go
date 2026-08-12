@@ -92,8 +92,8 @@ func (w *Writer) writeStateFetchWrapper() {
 }
 
 // writeVerifyInstanceIDHeader emits the header-read + HMAC-verify preamble
-// shared by stateful stream handlers and stateful action handlers. On
-// failure it writes 409 Conflict + Datapages-Retry: reconnect and returns.
+// shared by stateful stream handlers and stateful action handlers.
+// On failure it writes 409 Conflict + Datapages-Retry: reconnect and returns.
 func (w *Writer) writeVerifyInstanceIDHeader() {
 	w.Line(1, "instanceID := r.Header.Get(stateInstanceIDHeader)")
 	w.Line(1, "if !s.verifyStateInstanceID(instanceID) {")
@@ -125,11 +125,13 @@ func (w *Writer) writeStateRouteKeyVar() {
 	w.Line(1, "stateID := s.stateRouteKey(instanceID)")
 }
 
-// writeLookupSlotOrReject emits the code that looks up an allocated slot
-// by instanceID, responding 409+reconnect if missing. Used by stateful
-// action handlers; the stream handler uses allocate/reconnect instead.
-// The grace timer can expire between the lookup and the lock and return
-// the state to the pool, which is why liveness is re-checked under the lock.
+// writeLookupSlotOrReject emits the code that looks up an allocated slot by instanceID,
+// responding 409+reconnect if missing. Used by stateful action handlers;
+// the stream handler uses allocate/reconnect instead.
+//
+// It only finds the slot. writeLockSlotOrReject is what claims it, and the two sit apart:
+// everything a request reads from the network belongs between them,
+// so that no client holds a tab's mutex by sending a body slowly.
 func (w *Writer) writeLookupSlotOrReject(st *model.StateType) {
 	suffix := stateSuffix(st)
 	w.Linef(1, "slot, ok := s.lookup%s(instanceID)", suffix)
@@ -138,6 +140,17 @@ func (w *Writer) writeLookupSlotOrReject(st *model.StateType) {
 	w.Line(2, "http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)")
 	w.Line(2, "return")
 	w.Line(1, "}")
+}
+
+// writeLockSlotOrReject emits the code that takes the slot mutex for the rest
+// of the handler. It is emitted once the request has been read in full, since
+// the mutex serializes every handler of one tab, including the SSE event loop:
+// a client that trickles its body would otherwise stall its own tab,
+// and events published to a stalled stream are dropped once its buffer fills.
+//
+// The grace timer can expire between the lookup and the lock and return the
+// state to the pool, which is why liveness is re-checked here.
+func (w *Writer) writeLockSlotOrReject() {
 	w.Line(1, "slot.mu.Lock()")
 	w.Line(1, "defer slot.mu.Unlock()")
 	w.Line(1, "if slot.dead {")
@@ -164,8 +177,8 @@ func stateMapName(st *model.StateType) string {
 	return "stateInstances" + st.TypeName
 }
 
-// pageStateSlotTypeName returns the slot type name for the page's bound
-// state. The page must have State != nil.
+// pageStateSlotTypeName returns the slot type name for the page's bound state.
+// The page must have State != nil.
 func pageStateSlotTypeName(p *model.Page) string {
 	return stateSlotTypeName(p.State)
 }
@@ -456,8 +469,8 @@ func (w *Writer) writeStateSlot(st *model.StateType, appPkg string) {
 	w.Linef(0, "// when StreamClose elapses without a reconnect within GracePeriod.")
 	w.Linef(0, "type %s struct {", slot)
 	w.Linef(1, "state    *%s.%s", appPkg, stateType)
-	w.Line(1, "mu       sync.Mutex // serializes all stateful handler calls on this instance")
-	w.Line(1, "streamID uint64     // currently-associated SSE stream (0 when detached)")
+	w.Line(1, "mu       sync.Mutex  // serializes all stateful handler calls on this instance")
+	w.Line(1, "streamID uint64      // currently-associated SSE stream (0 when detached)")
 	w.Line(1, "timer    *time.Timer // grace-period timer; nil while a stream is attached")
 	w.Line(1, "dead     bool        // true once the state went back to the pool")
 	w.Line(0, "}")

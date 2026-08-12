@@ -138,6 +138,7 @@ type Handler struct {
 	OrderedInputs     []*Input // Inputs in user-defined order.
 
 	OutputBody           *TemplComponent // templ.Component body (actions only)
+	OutputHead           *TemplComponent // templ.Component head (actions only)
 	OutputRedirect       *Output
 	OutputRedirectStatus *Output
 	OutputNewSession     *Output

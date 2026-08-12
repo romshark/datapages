@@ -26,8 +26,8 @@ import (
 // visible to an assertion made on the output as text.
 //
 // The app package sits in a directory named "pages" while the package itself
-// is named "app". Both are free choices in datapages.yaml. A generator that
-// assumes they match compiles only in the examples.
+// is named "app". Both are free choices in datapages.yaml.
+// A generator that assumes they match compiles only in the examples.
 func TestCompileFixtures(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds one module per fixture")
@@ -73,8 +73,8 @@ func TestCompileFixtures(t *testing.T) {
 			out, err := cmd.CombinedOutput()
 
 			if isBroken {
-				// The bug is recorded rather than skipped. Fixing it turns
-				// this test red and the entry then has to go.
+				// The bug is recorded rather than skipped.
+				// Fixing it turns this test red and the entry then has to go.
 				require.Error(t, err,
 					"%s now builds; remove it from knownBroken", fixture)
 				require.Contains(t, string(out), broken.symptom,
@@ -89,45 +89,19 @@ func TestCompileFixtures(t *testing.T) {
 	}
 }
 
-// knownBroken records the fixtures the generator cannot emit compilable code for.
-// Every entry is a bug in the generator, not in the fixture, and every one of
-// them predates this test. Until now nothing compiled the generated code.
-// Output that cannot build therefore passed unnoticed.
-//
+// knownBroken records fixtures the generator cannot emit compilable code for.
 // An entry asserts that the build still fails and still fails the same way.
 // Fixing the generator fails this test until the entry is removed.
+//
+// It is empty. Every entry it once held has been fixed; the acceptance case
+// that covers each fix is named in the commit that removed it.
 var knownBroken = map[string]struct {
 	symptom string // substring of the compiler error
 	reason  string
-}{
-	"signals": {
-		symptom: "undefined: signals",
-		reason: "a GET handler taking signals generates a call to p.GET(r, " +
-			"query, signals) without declaring signals. What a page load " +
-			"should read signals from is a design question. The fix is not " +
-			"a code change alone.",
-	},
-	"param_order": {
-		symptom: "undefined: signals",
-		reason:  "same as the signals fixture: signals on GET is never declared.",
-	},
-	"signal_subject": {
-		symptom: "not enough arguments in call to evSubjPageIndex",
-		reason: "the anonymous stream handler calls the page's subject " +
-			"function with only the session user id, while the function takes " +
-			"one argument per subject field.",
-	},
-	"session_output": {
-		symptom: "s.auth undefined",
-		reason: "a page whose GET returns newSession, in an app where no " +
-			"handler takes session or sessionToken as input, emits calls to " +
-			"the auth helpers without emitting the helpers.",
-	},
-}
+}{}
 
 // parserFixtures lists the fixtures the parser accepts. The err_ prefix marks
-// the ones that are supposed to fail parsing, and those never reach a
-// generator.
+// the ones that are supposed to fail parsing, and those never reach a generator.
 func parserFixtures(t *testing.T) []string {
 	t.Helper()
 	entries, err := os.ReadDir(filepath.Join("..", "parser", "testdata"))
@@ -178,16 +152,15 @@ func writeCompileModule(t *testing.T, mod, src, repoRoot string) string {
 	modPath = strings.TrimSpace(modPath)
 
 	// The fixture's own go.mod carries only what its app package imports.
-	// Generated code imports more, and which of them depends on the model. The
-	// versions come from the example that requires everything the generator can
-	// emit.
+	// Generated code imports more, and which of them depends on the model.
+	// The versions come from the example that requires everything the generator can emit.
 	writeModuleFiles(t, mod, modPath, repoRoot)
 	return modPath
 }
 
 // writeModuleFiles writes the go.mod and go.sum of a throwaway module under
-// the given module path. The dependency versions come from an example, which
-// is what a user of this generator has.
+// the given module path. The dependency versions come from an example,
+// which is what a user of this generator has.
 func writeModuleFiles(t *testing.T, mod, modPath, repoRoot string) {
 	t.Helper()
 

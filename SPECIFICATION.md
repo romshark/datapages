@@ -442,7 +442,7 @@ state-id matches the dispatched value receives the event. Rules:
 2. The generated client shim attaches `Datapages-Instance` to every
    subsequent Datastar action request and to the SSE stream connect.
 3. On `StreamOpen`, the server checks a `*T` (the page's bound state type)
-   out of a `sync.Pool`, zero-resets it, and registers the `id → slot`
+   out of a `sync.Pool`, zero-resets it, and registers the `id -> slot`
    mapping. When `StreamOpen` declares `state`, the freshly zeroed pointer
    is passed to it.
 4. For stateful action and `OnXXX` calls, the server verifies the header,

@@ -477,7 +477,7 @@ func abstractTypeParams(ctx *parseCtx, recv string) []string {
 
 // resolveTypeArgs zips an abstract's type parameter names with the
 // concrete type argument names supplied at the embed site and returns a
-// substitution map param → arg. Returns nil when the abstract is not
+// substitution map param -> arg. Returns nil when the abstract is not
 // generic, when no args were supplied, or when the counts do not match.
 func resolveTypeArgs(params, args []string) map[string]string {
 	if len(params) == 0 || len(args) != len(params) {
@@ -2453,7 +2453,7 @@ func parseHandler(
 		return h, nil, fmt.Errorf("%w in %s.%s",
 			ErrSignatureMissingReq, recv, fd.Name.Name)
 	}
-	// Expand multi-name fields (e.g. "r, a *http.Request" → two fields)
+	// Expand multi-name fields (e.g. "r, a *http.Request" -> two fields)
 	// so that each field represents exactly one parameter.
 	expandedParams := expandFieldList(params.List)
 
@@ -2796,13 +2796,32 @@ func parseHandler(
 			ErrCloseSessionWithSSE, recv, fd.Name.Name)
 	}
 
-	// For action handlers, detect templ.Component body output.
+	// For action handlers, detect the templ.Component body and head outputs.
+	// The rule is the one a GET follows: the first component is the body, a
+	// second one is the head, and both are named after what they are.
 	if kind.IsAction() {
+		var comps []*model.Output
 		for _, out := range outputs {
 			if typecheck.IsTemplComponent(out.Type.Resolved) {
-				h.OutputBody = &model.TemplComponent{Output: out}
-				break
+				comps = append(comps, out)
 			}
+		}
+		if len(comps) > 0 {
+			h.OutputBody = &model.TemplComponent{Output: comps[0]}
+		}
+		if len(comps) > 1 {
+			second := comps[1]
+			if second.Name != "head" {
+				err := fmt.Errorf("%w in %s.%s",
+					ErrSignatureGETHeadWrongName, recv, fd.Name.Name)
+				if second.Expr != nil {
+					return h, outputs, &positionedError{
+						pos: fset.Position(second.Expr.Pos()), err: err,
+					}
+				}
+				return h, outputs, err
+			}
+			h.OutputHead = &model.TemplComponent{Output: second}
 		}
 	}
 

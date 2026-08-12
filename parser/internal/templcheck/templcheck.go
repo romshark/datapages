@@ -464,7 +464,7 @@ func extractHardcodedActionURLs(value string) []string {
 // ErrActionUnverifiableWithSuffix to guide the user towards WithBefore/WithAfter.
 // For any other compound expression it reports the generic ErrActionUnverifiable.
 func (c *checker) checkActionEmbedding(pos token.Position, expr string, exprAST ast.Expr) {
-	// Top-level is a bare action call → OK.
+	// Top-level is a bare action call -> OK.
 	if call, ok := exprAST.(*ast.CallExpr); ok {
 		if _, ok := c.actionPkg.isCall(call); ok {
 			return

@@ -1,0 +1,222 @@
+// Drives the generated server of ./app over HTTP.
+
+package acceptance_test
+
+import (
+	"context"
+	"crypto/sha256"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/romshark/datapages/internal/acceptance/client"
+	"github.com/romshark/datapages/internal/acceptance/statefulpages/app"
+	"github.com/romshark/datapages/internal/acceptance/statefulpages/datapagesgen"
+	"github.com/romshark/datapages/modules/msgbroker/inmem"
+)
+
+const (
+	pathStream = "/_$/"
+	pathAction = "/update/"
+)
+
+func newClient(t *testing.T) *client.Client {
+	t.Helper()
+	key := sha256.Sum256([]byte("acceptance"))
+	return client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8),
+		datapagesgen.WithStateConfig(datapagesgen.StateConfig{HMACKey: key[:]})))
+}
+
+// update sends the action that writes a tab's state.
+func update(t *testing.T, tab *client.Tab, filter string) client.Response {
+	t.Helper()
+	return tab.Act(t, http.MethodPost, pathAction, `{"filter":"`+filter+`"}`)
+}
+
+// TestPerTabState covers what per-tab state promises: two tabs of one page
+// hold separate values, and a tab-scoped event reaches the tab that caused it.
+func TestPerTabState(t *testing.T) {
+	c := newClient(t)
+
+	a := c.OpenTab(t, "/", pathStream)
+	b := c.OpenTab(t, "/", pathStream)
+
+	require.NotEqual(t, a.InstanceID(), b.InstanceID(),
+		"two page loads share one instance id")
+
+	require.Equal(t, http.StatusOK, update(t, a, "from-a").Status)
+
+	require.True(t, a.Saw("deliveries:1 filter:from-a"),
+		"the tab that acted received no patch for its own state")
+	require.True(t, b.Never("deliveries:"),
+		"the other tab received a patch addressed at the first")
+
+	require.Equal(t, http.StatusOK, update(t, b, "from-b").Status)
+	require.True(t, b.Saw("deliveries:1 filter:from-b"),
+		"the second tab does not hold its own state")
+	require.True(t, a.Never("filter:from-b"), "one tab sees the state of another")
+}
+
+// TestActionWithoutInstance covers an action from a tab the server knows nothing about.
+// The client learns to reconnect rather than to give up.
+func TestActionWithoutInstance(t *testing.T) {
+	c := newClient(t)
+
+	// A page load mints an id. No stream follows,
+	// which leaves the server without state to act on.
+	page := c.Get(t, "/")
+	id := page.Instance()
+	require.NotEmpty(t, id, "GET / mints no instance id")
+
+	resp := postUpdate(t, c, id, "x")
+	require.Equal(t, http.StatusConflict, resp.Status)
+	require.Equal(t, "reconnect", resp.Retry())
+}
+
+// TestStateSurvivesReconnect covers a tab whose stream drops.
+// Within the grace period the same id finds the same state.
+func TestStateSurvivesReconnect(t *testing.T) {
+	c := newClient(t)
+
+	tab := c.OpenTab(t, "/", pathStream)
+	require.Equal(t, http.StatusOK, update(t, tab, "before").Status)
+	require.True(t, tab.Saw("deliveries:1 filter:before"),
+		"no patch before the reconnect")
+
+	tab.Close()
+	tab.Reopen(t)
+
+	require.Equal(t, http.StatusOK, update(t, tab, "after").Status)
+	require.True(t, tab.Saw("deliveries:2 filter:after"),
+		"the reconnected tab starts from a fresh state")
+}
+
+// TestSlowRequestDoesNotStallTab covers an action whose body arrives slowly:
+// a second action on the same tab is served while the first is still being read,
+// and the tab keeps receiving patches.
+func TestSlowRequestDoesNotStallTab(t *testing.T) {
+	c := newClient(t)
+	tab := c.OpenTab(t, "/", pathStream)
+
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { _ = pr.Close() })
+
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodPost, c.URL()+pathAction, pr,
+	)
+	require.NoError(t, err, "building slow request")
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Datapages-Instance", tab.InstanceID())
+	req.Header.Set("Content-Type", "application/json")
+
+	slow := make(chan *http.Response, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			slow <- nil
+			return
+		}
+		_ = resp.Body.Close()
+		slow <- resp
+	}()
+
+	// Enough of the body for the handler to start reading it,
+	// not enough to finish the JSON value it waits for.
+	_, err = pw.Write([]byte(`{"filter":"slo`))
+	require.NoError(t, err, "writing partial body")
+	time.Sleep(100 * time.Millisecond)
+
+	// A second action from the same tab, while the first still trickles.
+	require.Equal(t, http.StatusOK, update(t, tab, "fast").Status,
+		"action during a slow request")
+	require.True(t, tab.Saw("filter:fast"),
+		"the tab received no patch while a slow request was in flight")
+
+	_, err = pw.Write([]byte(`w"}`))
+	require.NoError(t, err, "writing the rest of the body")
+	require.NoError(t, pw.Close())
+
+	select {
+	case resp := <-slow:
+		require.NotNil(t, resp, "the slow action failed")
+		require.Equal(t, http.StatusOK, resp.StatusCode, "slow action")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the slow action never finished")
+	}
+	require.True(t, tab.Saw("filter:slow"), "the slow action left no patch behind")
+}
+
+// TestForgedInstanceID covers an id the server never signed.
+func TestForgedInstanceID(t *testing.T) {
+	c := newClient(t)
+
+	require.Equal(t, http.StatusConflict, postUpdate(t, c, "AAAA~BBBB", "x").Status)
+}
+
+// TestInstanceCap covers MaxConcurrentInstances: a stream opened past the cap
+// is refused with a status and a Retry-After the client can act on.
+//
+// The count is process-wide, so the test opens streams until one is refused
+// rather than predicting which one that is.
+func TestInstanceCap(t *testing.T) {
+	const capacity = 40
+
+	key := sha256.Sum256([]byte("acceptance"))
+	srv := httptest.NewServer(datapagesgen.NewServer(&app.App{}, inmem.New(8),
+		datapagesgen.WithStateConfig(datapagesgen.StateConfig{
+			HMACKey:                key[:],
+			MaxConcurrentInstances: capacity,
+		})))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	var refused *http.Response
+	for i := 0; i < capacity+5 && refused == nil; i++ {
+		resp, err := srv.Client().Get(srv.URL + "/")
+		require.NoError(t, err, "GET /")
+		_ = resp.Body.Close()
+		id := resp.Header.Get("Datapages-Instance")
+		require.NotEmpty(t, id, "GET / mints no instance id")
+
+		req, err := http.NewRequestWithContext(
+			ctx, http.MethodGet, srv.URL+pathStream, nil,
+		)
+		require.NoError(t, err, "building stream request")
+		req.Header.Set("Datastar-Request", "true")
+		req.Header.Set("Datapages-Instance", id)
+
+		streamResp, err := srv.Client().Do(req)
+		require.NoError(t, err, "opening stream %d", i)
+		switch streamResp.StatusCode {
+		case http.StatusOK:
+			t.Cleanup(func() { _ = streamResp.Body.Close() })
+		case http.StatusServiceUnavailable:
+			refused = streamResp
+		default:
+			_ = streamResp.Body.Close()
+			t.Fatalf("opening stream %d: status %d", i, streamResp.StatusCode)
+		}
+	}
+
+	require.NotNil(t, refused, "streams past the cap were served instead of refused")
+	defer func() { _ = refused.Body.Close() }()
+	require.NotEmpty(t, refused.Header.Get("Retry-After"),
+		"a refused stream does not say when to come back")
+}
+
+// postUpdate sends the action as the tab named by instanceID,
+// which is how a test reaches the server without holding a tab.
+func postUpdate(
+	t *testing.T, c *client.Client, instanceID, filter string,
+) client.Response {
+	t.Helper()
+	req := c.Request(t, http.MethodPost, pathAction, `{"filter":"`+filter+`"}`)
+	req.Header.Set("Datapages-Instance", instanceID)
+	return c.Do(t, req)
+}

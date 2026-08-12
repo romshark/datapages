@@ -69,7 +69,7 @@ sequenceDiagram
     activate S
     create participant SS as SSE goroutine
     S->>SS: StreamOpen
-    SS->>SS: Store tab state<br>(streamID → filter/sort)
+    SS->>SS: Store tab state<br>(streamID -> filter/sort)
     SS->>SS: HMAC-sign streamID
     SS->>B: patch signal tab_id
     deactivate S

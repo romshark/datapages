@@ -979,8 +979,8 @@ func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
 
 	w.Line(0, ")")
 
-	// EvSubjPref* constants (prefix for matching events whose concrete
-	// subject is only known at runtime).
+	// EvSubjPref* constants
+	// (prefix for matching events whose concrete subject is only known at runtime).
 	hasPrefixed := slices.ContainsFunc(events, evUsesPrefixMatch)
 	if hasPrefixed {
 		w.Line(0, "")
@@ -1241,8 +1241,8 @@ func (w *Writer) writeEvSubjSignalFunc(
 }
 
 // writeEvSubjStateIDFunc emits the evSubjPageXxx function for a page
-// whose events are state-id-scoped (possibly mixed with plain public
-// events). Takes the validated Datapages-Instance identifier and builds
+// whose events are state-id-scoped (possibly mixed with plain public events).
+// Takes the validated Datapages-Instance identifier and builds
 // subscription subjects of the form "<base>.<stateID>".
 func (w *Writer) writeEvSubjStateIDFunc(p *model.Page, name string, hasPublic bool) {
 	w.Line(0, "")
@@ -1589,6 +1589,34 @@ func (s *Server) auth(
 	}
 }
 
+// needsCSRFOnly reports whether a handler has to run the session check for the
+// CSRF token alone, because it reads nothing of the session itself.
+//
+// The check lives inside the session helper. A state-changing action that
+// declares neither session nor sessionToken would never call it,
+// and a cross-site page can make a browser send exactly that request.
+func needsCSRFOnly(h *model.Handler, m *model.App) bool {
+	if m.Session == nil {
+		return false
+	}
+	switch strings.ToUpper(h.HTTPMethod) {
+	case "GET", "HEAD", "OPTIONS":
+		// Nothing to protect: these change nothing.
+		return false
+	}
+	return true
+}
+
+// writeCSRFOnlyCheck emits the session lookup a handler runs for its CSRF token.
+// The session itself is not passed on; the handler did not ask for it.
+func (w *Writer) writeCSRFOnlyCheck() {
+	w.Line(1, "// CSRF protection covers every state-changing action, including")
+	w.Line(1, "// the ones that read nothing of the session.")
+	w.Line(1, "if _, _, ok := s.auth(w, r); !ok {")
+	w.Line(2, "return")
+	w.Line(1, "}")
+}
+
 func (w *Writer) writeBrokerSubjectKind(events []*model.Event) {
 	w.Raw(`
 // brokerSubjectKind folds subjects that carry a user or a tab back into the event name.
@@ -1731,21 +1759,58 @@ func (w *Writer) writeHTTPErrFallback() {
 `)
 }
 
+// writeAppErrHelpers emits httpErrIntern,
+// which answers a request whose handler failed.
+//
+// PageError500 and RecoverError are separate features and each one applies on its own.
+// A page load is answered by the 500 page when the app supplies one.
+// A Datastar request is answered by RecoverError when the app defines it,
+// because that request expects an event stream rather than a document.
+// An app that has only one of the two gets it for the requests it covers,
+// and the plain HTTP error for the rest.
 func (w *Writer) writeAppErrHelpers(m *model.App, appPkg string) {
-	// httpErrIntern calls RecoverError if available.
-	if m.RecoverError != nil && m.PageError500 != nil {
+	hasPage := m.PageError500 != nil
+	hasRecover := m.RecoverError != nil
+
+	if !hasPage && !hasRecover {
 		w.Raw(`
+func (s *Server) httpErrIntern(
+	w http.ResponseWriter, _ *http.Request,
+	_ *datastar.ServerSentEventGenerator, msg string, err error,
+) {
+	s.logErr(msg, err)
+`)
+		w.writeHTTPErrFallback()
+		w.Raw(`}
+`)
+		return
+	}
+
+	w.Raw(`
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.logErr(msg, err)
-	if !isDSReq(r) {
+`)
+	if hasPage {
+		w.Raw(`	if !isDSReq(r) {
+		// A page load gets the app's own 500 page, with the status that
+		// says what happened. The page's own route serves 200;
+		// this is the other way in.
+		w.WriteHeader(http.StatusInternalServerError)
 		s.handlePageError500GET(w, r)
 		return
 	}
+`)
+	}
+	if hasRecover {
+		w.Raw(`	// The response of a Datastar request is an event stream. Once one is
+	// open the status line is gone, which is what committed reports.
+	committed := sse != nil
 	if sse == nil {
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
+		committed = true
 	}
 	errRecover := s.`)
 		w.Raw(appPkg)
@@ -1768,22 +1833,16 @@ func (s *Server) httpErrIntern(
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
-`)
-		w.writeHTTPErrFallback()
-		w.Raw(`}
-`)
-	} else {
-		w.Raw(`
-func (s *Server) httpErrIntern(
-	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
-) {
-	s.logErr(msg, err)
-`)
-		w.writeHTTPErrFallback()
-		w.Raw(`}
+	if committed {
+		// http.Error would write a status the client already received,
+		// and append its text to the event stream the client is reading.
+		return
+	}
 `)
 	}
+	w.writeHTTPErrFallback()
+	w.Raw(`}
+`)
 }
 
 func (w *Writer) writeRender404(m *model.App, appPkg string) {
@@ -1791,6 +1850,10 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 
 	w.Line(0, "")
 	w.Line(0, "func (s *Server) render404(w http.ResponseWriter, r *http.Request) {")
+	w.Line(1, "// The URL is claimed by no page. Whatever the app renders for it,")
+	w.Line(1, "// the response says so: a cache that stores it and a crawler that")
+	w.Line(1, "// reads it both go by the status.")
+	w.Line(1, "w.WriteHeader(http.StatusNotFound)")
 
 	h404 := p.GET.Handler
 	headNeedsSess := m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession
@@ -1866,10 +1929,10 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 		w.Line(0, "")
 	}
 
-	// Stateful App-level action: verify the Datapages-Instance header,
-	// look up the slot in the map for the referenced StateXXX type, and
-	// take its mutex. The action only succeeds when the calling tab is
-	// bound to a page that uses this same StateXXX.
+	// Stateful App-level action: verify the Datapages-Instance header and
+	// look up the slot in the map for the referenced StateXXX type.
+	// The action only succeeds when the calling tab is bound to a page that uses
+	// this same StateXXX. Its mutex is taken once the request has been read.
 	if h.InputState != nil {
 		w.writeVerifyInstanceIDHeader()
 		w.writeLookupSlotOrReject(stateTypeRef(m, h.InputState.StateTypeName))
@@ -1884,15 +1947,25 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 		m.GlobalHeadGenerator.InputSession
 	headNeedsToken := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
 		m.GlobalHeadGenerator.InputSessionToken
-	if h.InputSession != nil || needsToken || headNeedsSess || headNeedsToken {
+	switch {
+	case h.InputSession != nil || needsToken || headNeedsSess || headNeedsToken:
+		// Each part of the session helper's result is taken only when the handler,
+		// or the app-wide head, has a use for it.
+		// A local nobody reads is a package that does not compile.
+		sessVar := "_"
+		if h.InputSession != nil || headNeedsSess {
+			sessVar = "sess"
+		}
 		if needsToken || headNeedsToken {
-			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
+			w.Linef(1, "%s, sessToken, ok := s.auth(w, r)", sessVar)
 		} else {
-			w.Line(1, "sess, _, ok := s.auth(w, r)")
+			w.Linef(1, "%s, _, ok := s.auth(w, r)", sessVar)
 		}
 		w.Line(1, "if !ok {")
 		w.Line(2, "return")
 		w.Line(1, "}")
+	case needsCSRFOnly(h, m):
+		w.writeCSRFOnlyCheck()
 	}
 
 	// Build the call.
@@ -1928,6 +2001,13 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	// Read path params.
 	if h.InputPath != nil {
 		w.writeReadPath(h.InputPath, m)
+	}
+
+	// The request is read; claim the state for the duration of the handler.
+	// Before the SSE generator, which commits the response headers and would
+	// leave the rejection below nowhere to go.
+	if h.InputState != nil {
+		w.writeLockSlotOrReject()
 	}
 
 	// Dispatch closure.
@@ -2263,7 +2343,9 @@ func actionOwnerName(p *model.Page, isAppLevel bool) string {
 }
 
 // writeGETCall generates the GET method call and HTML rendering for a page.
-func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, context string) {
+func (w *Writer) writeGETCall(
+	p *model.Page, m *model.App, appPkg string, context string,
+) {
 	if p.GET == nil || p.GET.OutputBody == nil {
 		return
 	}
@@ -2341,7 +2423,8 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, contex
 	if m.Session != nil {
 		sessArg := "sess"
 		headNeedsSession := m.GlobalHeadGenerator != nil &&
-			(m.GlobalHeadGenerator.InputSession || m.GlobalHeadGenerator.InputSessionToken)
+			(m.GlobalHeadGenerator.InputSession ||
+				m.GlobalHeadGenerator.InputSessionToken)
 		if p.PageSpecialization == model.PageTypeError500 ||
 			(p.PageSpecialization == model.PageTypeError404 &&
 				context == "render404" && !headNeedsSession) {

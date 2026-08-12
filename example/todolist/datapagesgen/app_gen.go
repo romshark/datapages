@@ -574,20 +574,20 @@ func evSubjPageItem() []string {
 type StateConfig struct {
 	// HMACKey signs the Datapages-Instance identifier that rides on
 	// request/response headers. Required; must be non-empty.
-	// Rotating the key invalidates all live instances; clients recover
-	// by reloading the page.
+	// Rotating the key invalidates all live instances;
+	// clients recover by reloading the page.
 	HMACKey []byte
 
-	// GracePeriod is how long a stateful instance survives after its SSE
-	// stream closes, waiting for the client to reconnect (e.g. after a
-	// transient network blip). Default 30s.
+	// GracePeriod is how long a stateful instance survives after its SSE stream closes,
+	// waiting for the client to reconnect (e.g. after a transient network blip).
+	// Default 30s.
 	GracePeriod time.Duration
 
 	// MaxConcurrentInstances caps how many instances exist at the same time,
 	// across all state types. A page load plus an SSE connect creates one,
 	// which anyone who reaches the server can ask for. An instance keeps its
-	// place for GracePeriod after its stream closes. Stream opens beyond the
-	// cap fail. Default 10_000.
+	// place for GracePeriod after its stream closes. Stream opens beyond the cap fail.
+	// Default 10_000.
 	MaxConcurrentInstances int
 }
 
@@ -595,8 +595,8 @@ type StateConfig struct {
 // Required when at least one page declares a StateXXX type.
 //
 // On multi-server deployments the load balancer MUST route requests for a
-// given client consistently to the same backend (sticky sessions), since
-// state lives in process memory.
+// given client consistently to the same backend (sticky sessions),
+// since state lives in process memory.
 func WithStateConfig(conf StateConfig) ServerOption {
 	return func(s *Server) error {
 		if len(conf.HMACKey) == 0 {
@@ -672,8 +672,8 @@ func (s *Server) verifyStateInstanceID(id string) bool {
 	return hmac.Equal(mac.Sum(nil), sig)
 }
 
-// stateRouteKey derives the value that names a tab in message broker
-// subjects. Subjects travel further than a request does: into broker logs,
+// stateRouteKey derives the value that names a tab in message broker subjects.
+// Subjects travel further than a request does: into broker logs,
 // stream storage, traces and metrics. The Datapages-Instance id itself
 // stays out of them, since presenting it is what claims a tab's state.
 // Knowing the routing key only lets a dispatcher address that tab.
@@ -686,8 +686,9 @@ func (s *Server) stateRouteKey(id string) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)[:16])
 }
 
-// stateLiveInstances counts the instances of every state type. Memory is
-// shared between them, and so is the budget in StateConfig.MaxConcurrentInstances.
+// stateLiveInstances counts the instances of every state type.
+// Memory is shared between them,
+// and so is the budget in StateConfig.MaxConcurrentInstances.
 var stateLiveInstances atomic.Int64
 
 // stateReserveInstance takes one slot out of the budget. It reports false
@@ -700,9 +701,9 @@ func (s *Server) stateReserveInstance() bool {
 	return true
 }
 
-// stateHasCapacity reports whether the budget has room right now. It is a
-// look, not a claim, and callers use it before a stream commits its status
-// line. stateReserveInstance is what actually holds the bound.
+// stateHasCapacity reports whether the budget has room right now.
+// It is a look, not a claim, and callers use it before a stream commits its status line.
+// stateReserveInstance is what actually holds the bound.
 func (s *Server) stateHasCapacity() bool {
 	return stateLiveInstances.Load() < int64(s.stateConf.MaxConcurrentInstances)
 }
@@ -710,9 +711,9 @@ func (s *Server) stateHasCapacity() bool {
 // errStateAtCapacity fails a stream open that finds no free instance.
 var errStateAtCapacity = errors.New("state instance limit reached")
 
-// stateStoreShards is how many independent maps a stateStore spreads its
-// keys over. Instance ids are random, so they distribute evenly, and each
-// shard carries its own lock.
+// stateStoreShards is how many independent maps a stateStore spreads its keys over.
+// Instance ids are random, so they distribute evenly,
+// and each shard carries its own lock.
 const stateStoreShards = 32
 
 // stateStoreSeed randomizes shard selection per process.
@@ -726,9 +727,9 @@ type stateStoreShard[S any] struct {
 
 // stateStore maps a verified Datapages-Instance id to the live slot it names.
 //
-// Every key is written once and deleted once, and none is read after its
-// deletion. That is the opposite of what sync.Map is tuned for, which is a
-// read-mostly set of stable keys. Sharded plain maps read without a write
+// Every key is written once and deleted once, and none is read after its deletion.
+// That is the opposite of what sync.Map is tuned for,
+// which is a read-mostly set of stable keys. Sharded plain maps read without a write
 // barrier and delete without leaving a tombstone behind.
 //
 // The zero value is ready to use.
@@ -760,9 +761,9 @@ func (s *stateStore[S]) Store(id string, slot *S) {
 	sh.mu.Unlock()
 }
 
-// CompareAndDelete removes id only while it still names slot. A stream can
-// allocate a fresh slot under an id whose predecessor is on its way out, and
-// the one leaving must not take the new one with it.
+// CompareAndDelete removes id only while it still names slot.
+// A stream can allocate a fresh slot under an id whose predecessor is on its way out,
+// and the one leaving must not take the new one with it.
 func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 	sh := s.shard(id)
 	sh.mu.Lock()
@@ -1039,6 +1040,10 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	// The URL is claimed by no page. Whatever the app renders for it,
+	// the response says so: a cache that stores it and a crawler that
+	// reads it both go by the status.
+	w.WriteHeader(http.StatusNotFound)
 	p := app.PageError404{
 		App: s.app,
 	}
@@ -1363,13 +1368,6 @@ func (s *Server) handlePageIndexPOSTFilter(
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
-	slot.mu.Lock()
-	defer slot.mu.Unlock()
-	if slot.dead {
-		w.Header().Set(stateRetryHeader, stateRetryReconnect)
-		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
-		return
-	}
 	var signals struct {
 		Search string `json:"search"`
 		Filter string `json:"filter"`
@@ -1377,6 +1375,13 @@ func (s *Server) handlePageIndexPOSTFilter(
 	}
 	if err := datastar.ReadSignals(r, &signals); err != nil {
 		s.httpErrBad(w, "reading signals", err)
+		return
+	}
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
 

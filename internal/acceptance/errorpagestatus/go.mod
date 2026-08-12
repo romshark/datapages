@@ -1,0 +1,33 @@
+module github.com/romshark/datapages/internal/acceptance/errorpagestatus
+
+go 1.26.5
+
+replace github.com/romshark/datapages => ../../../
+
+// Required by Datapages
+require (
+	github.com/a-h/templ v0.3.1020
+	github.com/nats-io/nats.go v1.52.0
+	github.com/starfederation/datastar-go v1.2.2
+	golang.org/x/crypto v0.54.0 // indirect
+	golang.org/x/sync v0.22.0
+)
+
+require (
+	github.com/romshark/datapages v0.9.4
+	github.com/stretchr/testify v1.11.1
+)
+
+require (
+	github.com/CAFxX/httpcompression v0.0.9 // indirect
+	github.com/andybalholm/brotli v1.2.2 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/klauspost/compress v1.19.0 // indirect
+	github.com/nats-io/nkeys v0.4.16 // indirect
+	github.com/nats-io/nuid v1.0.1 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/valyala/bytebufferpool v1.0.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+)

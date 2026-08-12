@@ -81,7 +81,7 @@ func runGen(moduleDir string, cfg config.Config, stderr io.Writer, version strin
 	if cfg.Assets != nil {
 		assetsURLPrefix = cfg.Assets.URLPrefix
 		// Derive embed.FS subdirectory from the on-disk path by stripping
-		// the app package prefix: "./app/static" → "static".
+		// the app package prefix: "./app/static" -> "static".
 		cleaned := filepath.Clean(cfg.Assets.Dir)
 		assetsDir = strings.TrimPrefix(cleaned, cfg.App+string(filepath.Separator))
 	}

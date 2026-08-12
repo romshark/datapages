@@ -37,10 +37,11 @@
 - `example/sqlitesessions/` - custom sessmanager.SessionManager backed by SQLite via sqinn-go.
 - `generator/` - code generation from parsed model. `generator/README.md`
   explains how its tests work.
-- `generator/testdata/acceptance/` - each subdirectory is an application plus
-  its own tests. The harness generates, builds and runs each one and asserts
-  behaviour over HTTP. Prefix `bug_` for cases that reproduce a known defect
-  and are expected to fail.
+- `internal/acceptance/` - each subdirectory with a `go.mod` is an application,
+  its committed generated code, and its own tests, which assert behaviour over
+  HTTP. `internal/acceptance/README.md` explains how they run and how to
+  record a defect the framework has not fixed yet. Regenerate with
+  `mage genDatapages`.
 - `modules/` - pluggable modules (csrf, msgbroker, sessmanager, sesstokgen).
 - `internal/cmd/` - CLI command implementations.
 - `magefiles/` - build targets (mage).

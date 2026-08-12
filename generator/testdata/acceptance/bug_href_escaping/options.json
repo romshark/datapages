@@ -1,4 +1,0 @@
-{
-  "known_bug": "FAIL: TestHrefEscaping",
-  "known_bug_reason": "The generated href package writes path and query values into URLs unescaped. A value containing /, ?, & or # then changes what the URL addresses. Nothing documents that callers must escape, and the builders take typed values rather than strings."
-}

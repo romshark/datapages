@@ -1,4 +1,0 @@
-{
-  "known_bug": "FAIL: TestRecoverErrorIsCalled",
-  "known_bug_reason": "The generated httpErrIntern calls RecoverError only when the model also has PageError500 (writeAppErrHelpers gates on both). An app that defines RecoverError alone never has it called: the method compiles, is never invoked, and nothing reports it. This is the mirror image of bug_error500_without_recover."
-}

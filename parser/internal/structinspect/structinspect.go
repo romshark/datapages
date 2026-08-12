@@ -27,10 +27,10 @@ func ReceiverTypeName(expr ast.Expr) string {
 // embeddedBaseIdent returns the base *ast.Ident of an embedded field
 // type, unwrapping pointer and generic-instantiation syntax. It handles:
 //
-//	T           → T
-//	*T          → T
-//	T[A]        → T
-//	T[A, B]     → T
+//	T           -> T
+//	*T          -> T
+//	T[A]        -> T
+//	T[A, B]     -> T
 //
 // Returns nil when the field is not a plain embedded type (e.g. a
 // qualified identifier from another package, unsupported here).
