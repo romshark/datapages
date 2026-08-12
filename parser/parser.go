@@ -85,6 +85,10 @@ type parseCtx struct {
 	// recv -> event type name -> first handler position
 	seenEvHandlerByRecv map[string]map[string]token.Pos
 
+	// Embed sites whose type argument was already reported as a pointer.
+	// Every handler of the abstract page passes through the same site.
+	reportedPtrTypeArg map[token.Pos]bool
+
 	// Non-error outputs per handler, used by buildHandlerGET.
 	handlerOutputs map[*model.Handler][]*model.Output
 
@@ -343,8 +347,8 @@ func extractEventSubject(typeName string, doc *ast.CommentGroup) (string, error)
 }
 
 // eventSubjectPos returns the position of the subject value (the quoted
-// string after "is ") in the doc comment for an event type. Falls back
-// to fallback when the comment cannot be located.
+// string after "is ") in the doc comment for an event type.
+// Falls back to fallback when the comment cannot be located.
 func eventSubjectPos(
 	doc *ast.CommentGroup, typeName string,
 	fset *token.FileSet, fallback token.Position,
@@ -377,10 +381,10 @@ func eventSubjectPos(
 	return pos
 }
 
-// eventCommInvalidPos returns the position of the first unexpected token
-// in an invalid event subject comment. When the type name matches but "is"
-// is missing, it points at the token after the type name. When the type
-// name doesn't match, it points at the start of the comment content.
+// eventCommInvalidPos returns the position of the first unexpected token in an
+// invalid event subject comment. When the type name matches but "is" is missing,
+// it points at the token after the type name. When the type name doesn't match,
+// it points at the start of the comment content.
 func eventCommInvalidPos(
 	doc *ast.CommentGroup, typeName string,
 	fset *token.FileSet, fallback token.Position,
@@ -477,8 +481,27 @@ func abstractTypeParams(ctx *parseCtx, recv string) []string {
 
 // resolveTypeArgs zips an abstract's type parameter names with the
 // concrete type argument names supplied at the embed site and returns a
-// substitution map param -> arg. Returns nil when the abstract is not
-// generic, when no args were supplied, or when the counts do not match.
+// substitution map param -> arg. Returns nil when the abstract is not generic,
+// when no args were supplied, or when the counts do not match.
+// throughTypeArgs resolves the type arguments written at an embed site inside
+// an abstract page against the arguments that abstract page was itself
+// instantiated with. An argument that names none of them is already concrete
+// and passes through unchanged.
+func throughTypeArgs(args []string, outer map[string]string) []string {
+	if len(args) == 0 || len(outer) == 0 {
+		return args
+	}
+	out := make([]string, len(args))
+	for i, a := range args {
+		if concrete, ok := outer[a]; ok {
+			out[i] = concrete
+			continue
+		}
+		out[i] = a
+	}
+	return out
+}
+
 func resolveTypeArgs(params, args []string) map[string]string {
 	if len(params) == 0 || len(args) != len(params) {
 		return nil
@@ -493,8 +516,8 @@ func resolveTypeArgs(params, args []string) map[string]string {
 // substituteStateTypeParam clones h when its state parameter references
 // an abstract's type parameter and the embed site supplied a concrete
 // substitution for that parameter. The clone's InputState loses
-// IsTypeParam and gains the concrete StateTypeName. Returns h unchanged
-// when no substitution applies.
+// IsTypeParam and gains the concrete StateTypeName.
+// Returns h unchanged when no substitution applies.
 func substituteStateTypeParam(
 	h *model.Handler, typeArgs map[string]string,
 ) *model.Handler {
@@ -996,8 +1019,8 @@ func attachHTTPHandler(
 	)
 	if herr != nil {
 		// Keep going; still attach a best-effort handler model.
-		// herr may contain multiple joined errors (e.g. several
-		// unsupported params); report each one separately.
+		// herr may contain multiple joined errors (e.g. several unsupported params);
+		// report each one separately.
 		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
 	}
 	ctx.handlerOutputs[h] = outputs
@@ -1052,8 +1075,8 @@ func attachHTTPHandler(
 		if kind == methodkind.GETHandler {
 			if herr != nil {
 				// Handler parsing failed; attach a minimal GET so the
-				// page is not flagged as missing a GET handler, but skip
-				// output validation and code generation details.
+				// page is not flagged as missing a GET handler,
+				// but skip output validation and code generation details.
 				pg.GET = &model.HandlerGET{Handler: h}
 			} else {
 				get, getErr := buildHandlerGET(h, outputs, ctx.pkg.Fset)
@@ -1230,7 +1253,10 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 			queue = append(queue, qitem{
 				ap:       child,
 				embedPos: apEmbPos[child.TypeName],
-				typeArgs: resolveTypeArgs(child.TypeParams, apEmbArgs[child.TypeName]),
+				typeArgs: resolveTypeArgs(child.TypeParams,
+					// The parent may pass its own type parameters down:
+					// Mid[StateA] embedding Base[S] instantiates Base[StateA].
+					throughTypeArgs(apEmbArgs[child.TypeName], it.typeArgs)),
 			})
 		}
 
@@ -1420,10 +1446,9 @@ func finalizePages(ctx *parseCtx) {
 	}
 }
 
-// finalizeStates binds each page and each abstract page to its single
-// state type. Handler-driven registration populates ctx.app.States on
-// demand in parseStateParam; this pass only resolves the per-page
-// binding and flags multi-state conflicts.
+// finalizeStates binds each page and each abstract page to its single state type.
+// Handler-driven registration populates ctx.app.States on demand in parseStateParam;
+// this pass only resolves the per-page binding and flags multi-state conflicts.
 func finalizeStates(ctx *parseCtx, errs *Errors) {
 	if len(ctx.app.States) == 0 {
 		return
@@ -1440,6 +1465,11 @@ func finalizeStates(ctx *parseCtx, errs *Errors) {
 			ap.State = ctx.app.States[n]
 		}
 	}
+	// Built once: every page below looks its handlers' events up in it.
+	eventByName := make(map[string]*model.Event, len(ctx.app.Events))
+	for _, e := range ctx.app.Events {
+		eventByName[e.TypeName] = e
+	}
 	for _, pg := range ctx.pages {
 		names := collectPageStateNames(pg)
 		if len(names) > 1 {
@@ -1451,20 +1481,16 @@ func finalizeStates(ctx *parseCtx, errs *Errors) {
 			pg.State = ctx.app.States[n]
 		}
 		// State lifecycle is anchored to the SSE stream: allocation
-		// happens in StreamOpen, release on StreamClose + grace. A page
-		// with state therefore needs at least one stream-level handler.
+		// happens in StreamOpen, release on StreamClose + grace.
+		// A page with state therefore needs at least one stream-level handler.
 		if pg.State != nil && !pageHasStreamLifecycle(pg) {
 			pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
 			errs.ErrAt(pos, fmt.Errorf("%w: %s", ErrStateWithoutStream, pg.TypeName))
 		}
 		// A page handling a state-id-scoped event needs state itself
-		// (the runtime reads the validated instance-id header, which is
-		// only available on stateful pages).
+		// (the runtime reads the validated instance-id header,
+		// which is only available on stateful pages).
 		if pg.State == nil {
-			eventByName := map[string]*model.Event{}
-			for _, e := range ctx.app.Events {
-				eventByName[e.TypeName] = e
-			}
 			for _, eh := range pg.EventHandlers {
 				if e, ok := eventByName[eh.EventTypeName]; ok && e.IsStateIDScoped() {
 					pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
@@ -1636,7 +1662,10 @@ func parseEventHandler(
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
 		case paramvalidation.IsStateParam(f):
 			if h.InputState != nil {
-				continue
+				// Reported the way the other handler parsers report it:
+				// a second state parameter is a mistake, not a value to ignore.
+				return h, fmt.Errorf("%w in %s.%s",
+					ErrStateDuplicate, recv, fd.Name.Name)
 			}
 			is, sterr := parseStateParam(f, info, ctx, typeParams, recv, fd.Name.Name)
 			if sterr != nil {
@@ -1646,7 +1675,8 @@ func parseEventHandler(
 			h.OrderedInputs = append(h.OrderedInputs, is.Input)
 		case paramvalidation.IsStateIDParam(f):
 			if h.InputStateID != nil {
-				continue
+				return h, fmt.Errorf("%w in %s.%s",
+					ErrStateIDDuplicate, recv, fd.Name.Name)
 			}
 			if !typecheck.IsString(info.TypeOf(f.Type)) {
 				return h, fmt.Errorf("%w in %s.%s",
@@ -2120,8 +2150,8 @@ var knownParamNames = []string{
 // unsupportedInputError builds an ErrorSignatureUnsupportedInput for a
 // parameter that doesn't match any recognized handler input.
 // It checks whether the parameter's type matches a known input whose
-// name-based check failed, and if so, sets ExpectedName for a rename
-// suggestion. When h is non-nil, it checks whether the expected name
+// name-based check failed, and if so, sets ExpectedName for a rename suggestion.
+// When h is non-nil, it checks whether the expected name
 // would collide with an already-consumed input.
 // As a fallback, it performs fuzzy matching against known parameter names.
 func unsupportedInputError(
@@ -2244,8 +2274,7 @@ func fuzzyMatchParamName(name string, h *model.Handler) (string, bool) {
 	return bestName, true
 }
 
-// isParamConsumed reports whether the named parameter slot is already
-// consumed in h.
+// isParamConsumed reports whether the named parameter slot is already consumed in h.
 func isParamConsumed(h *model.Handler, name string) bool {
 	switch name {
 	case "streamID":
@@ -2287,9 +2316,8 @@ func parseStateParam(
 			ErrStateParamNotPointer, recv, method)
 	}
 
-	// Type parameter of the enclosing abstract page — accept as a
-	// placeholder; the concrete state binding is resolved at each
-	// embed site during flattening.
+	// Type parameter of the enclosing abstract page — accept as a placeholder;
+	// the concrete state binding is resolved at each embed site during flattening.
 	if slices.Contains(typeParams, elemName) {
 		inp := parseInput(f, info)
 		inp.Kind = model.InputKindState
@@ -2301,8 +2329,8 @@ func parseStateParam(
 	}
 
 	// Concrete state type: must be a declared, exported struct in the
-	// app source package. Register it on first encounter; subsequent
-	// handlers that reference the same type reuse the same entry.
+	// app source package. Register it on first encounter;
+	// subsequent handlers that reference the same type reuse the same entry.
 	if err := registerStateType(ctx, elemName); err != nil {
 		return nil, fmt.Errorf("%w in %s.%s: %s",
 			ErrStateParamInvalidType, recv, method, err)
@@ -2314,8 +2342,8 @@ func parseStateParam(
 
 // registerStateType validates that name refers to a declared exported
 // struct in the app source package and records it in ctx.app.States.
-// Returns a descriptive error when the type is missing, unexported, or
-// not a struct.
+// Returns a descriptive error when the type is missing, unexported,
+// or not a struct.
 func registerStateType(ctx *parseCtx, name string) error {
 	if ctx.app.States != nil {
 		if _, ok := ctx.app.States[name]; ok {
@@ -2350,6 +2378,23 @@ func bindStateTypeArg(
 	ctx *parseCtx, errs *Errors, is *model.InputState, embedPos token.Pos,
 ) {
 	if is == nil || is.IsTypeParam {
+		return
+	}
+	// The abstract page's handlers take state *S. A pointer type argument
+	// would make that **T, which no state runtime can serve.
+	if name, ok := strings.CutPrefix(is.StateTypeName, "*"); ok {
+		if !ctx.reportedPtrTypeArg[embedPos] {
+			if ctx.reportedPtrTypeArg == nil {
+				ctx.reportedPtrTypeArg = map[token.Pos]bool{}
+			}
+			ctx.reportedPtrTypeArg[embedPos] = true
+			errs.ErrAt(ctx.pkg.Fset.Position(embedPos),
+				fmt.Errorf("%w: *%s", ErrStateTypeArgPointer, name))
+		}
+		// Carry the element type from here on. The page then references one
+		// state type rather than two spellings of the same one, which keeps
+		// the pointer error the only thing reported about this embed.
+		is.StateTypeName = name
 		return
 	}
 	if err := registerStateType(ctx, is.StateTypeName); err != nil {
@@ -2797,8 +2842,8 @@ func parseHandler(
 	}
 
 	// For action handlers, detect the templ.Component body and head outputs.
-	// The rule is the one a GET follows: the first component is the body, a
-	// second one is the head, and both are named after what they are.
+	// The rule is the one a GET follows: the first component is the body,
+	// a second one is the head, and both are named after what they are.
 	if kind.IsAction() {
 		var comps []*model.Output
 		for _, out := range outputs {
@@ -2837,8 +2882,7 @@ func typeStruct(ctx *parseCtx, typeName string) *ast.StructType {
 	return st
 }
 
-// actionIsUnderPage reports whether action is under page.
-// Rules:
+// actionIsUnderPage reports whether action is under page. Rules:
 //   - page must be prefix of action
 //   - boundary: either page=="/" OR next char after prefix is '/'
 //   - disallow exact equality (action == page) to avoid colliding with GET route

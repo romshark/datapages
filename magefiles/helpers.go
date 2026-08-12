@@ -60,12 +60,11 @@ func hasTemplFiles(dir string) bool {
 	return found
 }
 
-// coverProfilePercent reports the share of covered statements in a Go coverage
-// profile.
+// coverProfilePercent reports the share of covered statements in a Go coverage profile.
 //
-// The same block is listed once per test binary that reported it. Blocks are
-// merged by location the way "go tool cover" merges them. Counts add up and
-// statements are counted once.
+// The same block is listed once per test binary that reported it.
+// Blocks are merged by location the way "go tool cover" merges them.
+// Counts add up and statements are counted once.
 func coverProfilePercent(profile string) (float64, error) {
 	b, err := os.ReadFile(profile)
 	if err != nil {

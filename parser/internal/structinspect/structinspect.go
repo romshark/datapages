@@ -24,6 +24,23 @@ func ReceiverTypeName(expr ast.Expr) string {
 	return ""
 }
 
+// typeArgName is the name of a type argument written at an embed site.
+//
+// A pointer keeps its star: "Base[*StateA]" is not "Base[StateA]", and the
+// caller has to be able to tell them apart to reject the one it cannot serve.
+func typeArgName(expr ast.Expr) string {
+	if star, ok := expr.(*ast.StarExpr); ok {
+		if id := embeddedBaseIdent(star.X); id != nil {
+			return "*" + id.Name
+		}
+		return ""
+	}
+	if id := embeddedBaseIdent(expr); id != nil {
+		return id.Name
+	}
+	return ""
+}
+
 // embeddedBaseIdent returns the base *ast.Ident of an embedded field
 // type, unwrapping pointer and generic-instantiation syntax. It handles:
 //
@@ -103,10 +120,9 @@ func EmbeddedFieldTypeExprs(st *ast.StructType) map[string]ast.Expr {
 	return out
 }
 
-// EmbeddedTypeArgNames returns a map from embedded abstract-page
-// type name to the list of type argument names written at the embed
-// site. Non-identifier type arguments (e.g. `Base[*StateFoo]` where
-// the argument is starred) are returned as their base identifier name.
+// EmbeddedTypeArgNames returns a map from embedded abstract-page type name to
+// the list of type argument names written at the embed site. A pointer type
+// argument keeps its star: `Base[*StateFoo]` yields ["*StateFoo"].
 //
 // For a non-generic embed `Base`, the entry maps to nil. For a generic
 // embed `Base[StateFoo]`, the entry is ["StateFoo"]. For a list
@@ -125,17 +141,19 @@ func EmbeddedTypeArgNames(st *ast.StructType) map[string][]string {
 		if base == nil {
 			continue
 		}
-		switch t := f.Type.(type) {
+		// A pointer embed names the same type: "*Base[StateA]" instantiates
+		// Base the way "Base[StateA]" does.
+		expr := f.Type
+		if star, ok := expr.(*ast.StarExpr); ok {
+			expr = star.X
+		}
+		switch t := expr.(type) {
 		case *ast.IndexExpr:
-			if id := embeddedBaseIdent(t.Index); id != nil {
-				out[base.Name] = []string{id.Name}
-			}
+			out[base.Name] = []string{typeArgName(t.Index)}
 		case *ast.IndexListExpr:
 			args := make([]string, 0, len(t.Indices))
 			for _, a := range t.Indices {
-				if id := embeddedBaseIdent(a); id != nil {
-					args = append(args, id.Name)
-				}
+				args = append(args, typeArgName(a))
 			}
 			out[base.Name] = args
 		default:

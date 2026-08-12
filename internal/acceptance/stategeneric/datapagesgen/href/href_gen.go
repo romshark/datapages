@@ -47,3 +47,9 @@ func PageIndex() string { return "/" }
 
 // PageLabel references /label/{$}
 func PageLabel() string { return "/label/" }
+
+// PageNested references /nested/{$}
+func PageNested() string { return "/nested/" }
+
+// PagePointer references /pointer/{$}
+func PagePointer() string { return "/pointer/" }

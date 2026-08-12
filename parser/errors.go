@@ -207,6 +207,13 @@ var (
 	ErrStateDuplicate = errors.New(
 		"handler has multiple state parameters",
 	)
+	ErrStateTypeArgPointer = errors.New(
+		"type argument of an embedded abstract page must not be a pointer; " +
+			"an abstract page takes its state as state *S",
+	)
+	ErrStateIDDuplicate = errors.New(
+		"handler has multiple stateID parameters",
+	)
 	ErrStateConflict = errors.New(
 		"page references multiple state types via its handlers and embeds",
 	)
@@ -498,7 +505,9 @@ func (e *ErrorPageIndexPathMustBeRoot) Error() string {
 	return fmt.Sprintf("%v, got %q", ErrPageIndexPathMustBeRoot, e.Route)
 }
 
-func (e *ErrorPageIndexPathMustBeRoot) Unwrap() error { return ErrPageIndexPathMustBeRoot }
+func (e *ErrorPageIndexPathMustBeRoot) Unwrap() error {
+	return ErrPageIndexPathMustBeRoot
+}
 
 // ErrorActionInvalidPathComm is ErrActionInvalidPathComm with suggestion context.
 type ErrorActionInvalidPathComm struct {
@@ -541,7 +550,8 @@ type ErrorEventFieldMissingTag struct {
 }
 
 func (e *ErrorEventFieldMissingTag) Error() string {
-	return fmt.Sprintf("%v: field %s in %s", ErrEventFieldMissingTag, e.FieldName, e.TypeName)
+	return fmt.Sprintf("%v: field %s in %s",
+		ErrEventFieldMissingTag, e.FieldName, e.TypeName)
 }
 
 func (e *ErrorEventFieldMissingTag) Unwrap() error { return ErrEventFieldMissingTag }
@@ -553,7 +563,8 @@ type ErrorEventFieldEmptyTag struct {
 }
 
 func (e *ErrorEventFieldEmptyTag) Error() string {
-	return fmt.Sprintf("%v: field %s in %s", ErrEventFieldEmptyTag, e.FieldName, e.TypeName)
+	return fmt.Sprintf("%v: field %s in %s",
+		ErrEventFieldEmptyTag, e.FieldName, e.TypeName)
 }
 
 func (e *ErrorEventFieldEmptyTag) Unwrap() error { return ErrEventFieldEmptyTag }
@@ -614,7 +625,8 @@ type ErrorEventSubjectDuplicateSignal struct {
 
 func (e *ErrorEventSubjectDuplicateSignal) Error() string {
 	return fmt.Sprintf("%v: %s has duplicate signal %q in %s (already used by %s)",
-		ErrEventSubjectDuplicateSignal, e.FieldName, e.SignalName, e.TypeName, e.FirstFieldName)
+		ErrEventSubjectDuplicateSignal, e.FieldName,
+		e.SignalName, e.TypeName, e.FirstFieldName)
 }
 
 func (e *ErrorEventSubjectDuplicateSignal) Unwrap() error {

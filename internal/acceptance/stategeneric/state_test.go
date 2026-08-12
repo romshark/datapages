@@ -119,3 +119,33 @@ func TestStateIsAllocatedPerTab(t *testing.T) {
 	require.Contains(t, resp.Body, "allocations=3",
 		"three tabs did not open three state values")
 }
+
+// TestStateThroughNestedAbstracts covers a page whose state type arrives through
+// two levels of generic abstract page: Mid[StateNested] embedding Base[S].
+func TestStateThroughNestedAbstracts(t *testing.T) {
+	c := newClient(t)
+
+	a := c.OpenTab(t, "/nested/", "")
+	b := c.OpenTab(t, "/nested/", "")
+
+	for range 2 {
+		require.Equal(t, http.StatusOK,
+			a.Act(t, http.MethodPost, "/nested/bump/", "").Status, "bumping")
+	}
+
+	require.True(t, a.Saw("{N:2}"), "the tab did not reach 2 through the chain")
+	require.True(t, b.Never("{N:2}"), "one tab sees the count of another")
+}
+
+// TestStateThroughPointerEmbed covers a page that embeds its abstract page by pointer.
+func TestStateThroughPointerEmbed(t *testing.T) {
+	c := newClient(t)
+
+	tab := c.OpenTab(t, "/pointer/", "")
+
+	require.Equal(t, http.StatusOK,
+		tab.Act(t, http.MethodPost, "/pointer/bump/", "").Status, "bumping")
+
+	require.True(t, tab.Saw("{N:1}"),
+		"a page embedding its abstract by pointer got no state")
+}

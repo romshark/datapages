@@ -1,6 +1,6 @@
-// Package app exercises per-tab state shared through abstract pages:
-// one generic abstract page instantiated on two different state types,
-// and one plain abstract page whose state type two pages share.
+// Package app exercises per-tab state reached through abstract pages: a
+// generic abstract page instantiated on several state types, a chain of two
+// generic abstract pages, and one embedded by pointer.
 //
 // The interesting property is isolation. Two tabs of one page, and two pages
 // bound to one state type, must each get their own value, and a handler must
@@ -36,6 +36,18 @@ type StateCounter struct {
 // reached through the same generic base with a different type argument.
 type StateLabel struct {
 	Text string
+}
+
+// StateNested is the state of PageNested, reached through two levels of
+// generic abstract page.
+type StateNested struct {
+	N int
+}
+
+// StatePointer is the state of PagePointer, reached through an embed by
+// pointer.
+type StatePointer struct {
+	N int
 }
 
 // Base is a generic abstract page.
@@ -119,6 +131,61 @@ type PageEmbedOnly struct {
 
 func (PageEmbedOnly) GET(_ *http.Request) (body templ.Component, err error) {
 	return templ.Raw(`<pre id="echo">embed only</pre>`), nil
+}
+
+// Mid is a generic abstract page that embeds another one, passing its own
+// type parameter down.
+type Mid[S any] struct {
+	App *App
+	Base[S]
+}
+
+// PageNested is /nested
+//
+// Its stream, its event handler and its state type arrive through two levels
+// of generic abstract page.
+type PageNested struct {
+	App *App
+	Mid[StateNested]
+}
+
+func (PageNested) GET(_ *http.Request) (body templ.Component, err error) {
+	return templ.Raw(`<pre id="echo">nested</pre>`), nil
+}
+
+// POSTBump is /nested/bump
+func (PageNested) POSTBump(
+	_ *http.Request,
+	state *StateNested,
+	stateID string,
+	dispatch func(EventPing) error,
+) error {
+	state.N++
+	return dispatch(EventPing{SubjectStateID: stateID})
+}
+
+// PagePointer is /pointer
+//
+// Embeds the abstract page by pointer, which Go allows and which names the
+// same type.
+type PagePointer struct {
+	App *App
+	*Base[StatePointer]
+}
+
+func (PagePointer) GET(_ *http.Request) (body templ.Component, err error) {
+	return templ.Raw(`<pre id="echo">pointer</pre>`), nil
+}
+
+// POSTBump is /pointer/bump
+func (PagePointer) POSTBump(
+	_ *http.Request,
+	state *StatePointer,
+	stateID string,
+	dispatch func(EventPing) error,
+) error {
+	state.N++
+	return dispatch(EventPing{SubjectStateID: stateID})
 }
 
 // PageIndex is /

@@ -364,3 +364,35 @@ func POSTPageLabelSet(options ...option) string {
 	writeAfter(&b, options)
 	return b.String()
 }
+
+// POSTPageNestedBump references /nested/bump/
+func POSTPageNestedBump(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/nested/bump/')"
+	}
+	var b strings.Builder
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/nested/bump/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
+	b.WriteString("@post('/nested/bump/'")
+	writeOptions(&b, options)
+	b.WriteByte(')')
+	writeAfter(&b, options)
+	return b.String()
+}
+
+// POSTPagePointerBump references /pointer/bump/
+func POSTPagePointerBump(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/pointer/bump/')"
+	}
+	var b strings.Builder
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/pointer/bump/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
+	b.WriteString("@post('/pointer/bump/'")
+	writeOptions(&b, options)
+	b.WriteByte(')')
+	writeAfter(&b, options)
+	return b.String()
+}

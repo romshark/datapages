@@ -1089,15 +1089,12 @@ func (w *Writer) writeEventHandlerCall(
 
 	methodName := "On" + eh.Name
 
-	// Stateful event handlers run under the per-slot mutex to serialize
-	// with concurrent action calls and with StreamOpen / StreamClose.
-	// The loop outlives the grace period, whose timer returns the state to the pool.
-	// Both checks guard the state passed to the user.
+	// Stateful event handlers run under the per-slot mutex to serialize with
+	// concurrent action calls and with StreamOpen / StreamClose. The loop
+	// outlives the grace period, whose timer returns the state to the pool,
+	// which is what the liveness check guards against.
 	stateful := eh.InputState != nil
 	if stateful {
-		w.Line(4, "if slot == nil {")
-		w.Line(5, "continue")
-		w.Line(4, "}")
 		w.Line(4, "slot.mu.Lock()")
 		w.Line(4, "if slot.dead {")
 		w.Line(5, "slot.mu.Unlock()")
@@ -1176,6 +1173,9 @@ func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 	w.Line(2, "} else {")
 	w.Linef(3, "slot = s.allocate%s(instanceID, streamID)", suffix)
 	w.Line(2, "}")
+	w.Line(2, "// A stream that gets no slot never opens: the event loop and the")
+	w.Line(2, "// close hook run only once this hook has returned nil,")
+	w.Line(2, "// which is why neither of them checks again.")
 	w.Line(2, "if slot == nil {")
 	w.Line(3, "return errStateAtCapacity")
 	w.Line(2, "}")
@@ -1254,14 +1254,23 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 	suffix := stateSuffix(p.State)
 	w.Line(1, "func(streamID uint64) {")
-	w.Line(2, "if slot != nil {")
-	w.Line(3, "slot.mu.Lock()")
 
-	ind := 3
-	guard := p.StreamClose != nil && p.StreamClose.InputState != nil
+	// The slot is taken only to call the user's hook under it. Without a hook
+	// there is nothing to serialize, and the detach below takes the slot on
+	// its own.
+	if p.StreamClose == nil {
+		w.Linef(2, "s.closeStream%s(instanceID, streamID)", suffix)
+		w.Line(1, "},")
+		return
+	}
+
+	w.Line(2, "slot.mu.Lock()")
+
+	ind := 2
+	guard := p.StreamClose.InputState != nil
 	if guard {
-		w.Line(3, "if !slot.dead {")
-		ind = 4
+		w.Line(2, "if !slot.dead {")
+		ind = 3
 	}
 	tabs := strings.Repeat("\t", ind)
 
@@ -1293,11 +1302,10 @@ func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 		}
 	}
 	if guard {
-		w.Line(3, "}")
+		w.Line(2, "}")
 	}
 
-	w.Line(3, "slot.mu.Unlock()")
-	w.Line(2, "}")
+	w.Line(2, "slot.mu.Unlock()")
 	w.Linef(2, "s.closeStream%s(instanceID, streamID)", suffix)
 	w.Line(1, "},")
 }

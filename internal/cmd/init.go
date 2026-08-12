@@ -67,8 +67,8 @@ func (o oneByteReader) Read(p []byte) (int, error) {
 	return o.r.Read(p[:1])
 }
 
-// runField runs a huh field. When in is non-nil, it uses accessible mode
-// (line-based I/O). Otherwise it uses the full TUI.
+// runField runs a huh field. When in is non-nil,
+// it uses accessible mode (line-based I/O). Otherwise it uses the full TUI.
 func runField(f huh.Field, in io.Reader, out io.Writer) error {
 	if in != nil {
 		return f.RunAccessible(out, in)

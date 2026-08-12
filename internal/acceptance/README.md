@@ -88,8 +88,6 @@ Two things to know when writing requests:
 
 | field | meaning |
 | ----- | ------- |
-| `expect_build_error` | generating this case produces a package that does not compile, and this is what the compiler says. Such a case keeps no generated code |
-| `reason` | what is wrong, for whoever reads the case |
 | `no_race` | run the case without the race detector |
 
 Everything that shapes generation — the app directory, the generated package
@@ -130,26 +128,17 @@ the assertions that need them.
 
 ## Recording a defect
 
-There are no open ones. A case that reproduces a defect the framework has not
-fixed yet is named `bug_<what>` and asserts what the framework does today
-rather than what it should do, saying so at the assertion:
+There are none open, and the suite has no way to record one: a case either
+passes or the build is broken. A defect the framework has not fixed yet is
+covered by a case that asserts what the framework does today, named after that
+behaviour and saying at the assertion what the correct one would be:
 
 ```go
-if resp.StatusCode == http.StatusNotFound {
-	t.Fatal("fixed: the custom 404 page now carries 404 — " +
-		"assert that and rename this case")
-}
+// Fixing this turns the case red here, which is the signal to assert the
+// correct behaviour instead.
+require.Equal(t, http.StatusOK, resp.Status,
+	"a URL no page claims is still answered with 200")
 ```
 
-Such a case **passes**. Fixing the framework turns it red at the exact
-assertion, with a message saying what to do about it: invert the assertion and
-rename the case after the behaviour it now covers. The doc comment of the
-`app` package carries the reasoning either way.
-
-A case whose generated code does not compile cannot assert anything from
-inside. It keeps no tests and no generated code, and records the compiler's
-words in `acceptance.json` under `expect_build_error` instead. The runner
-generates it into a throwaway module and builds it there.
-
-The `knownBroken` list in [../../generator/compile_test.go](../../generator/compile_test.go)
-does the same for parser fixtures.
+[`TestCompileFixtures`](../../generator/compile_test.go) builds the generated
+code of every parser fixture and accepts no exceptions.

@@ -1265,6 +1265,9 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			} else {
 				slot = s.allocateStateIndex(instanceID, streamID)
 			}
+			// A stream that gets no slot never opens: the event loop and the
+			// close hook run only once this hook has returned nil,
+			// which is why neither of them checks again.
 			if slot == nil {
 				return errStateAtCapacity
 			}
@@ -1273,10 +1276,6 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			return p.StreamOpen(r, streamID, slot.state, signals)
 		},
 		func(streamID uint64) {
-			if slot != nil {
-				slot.mu.Lock()
-				slot.mu.Unlock()
-			}
 			s.closeStreamStateIndex(instanceID, streamID)
 		},
 		func(
@@ -1289,9 +1288,6 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 					var e app.EventTodoUpdated
 					if err := json.Unmarshal(msg.Data, &e); err != nil {
 						s.logErr("unmarshaling EventTodoUpdated JSON", err)
-						continue
-					}
-					if slot == nil {
 						continue
 					}
 					slot.mu.Lock()
@@ -1491,6 +1487,9 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 			} else {
 				slot = s.allocateStateItem(instanceID, streamID)
 			}
+			// A stream that gets no slot never opens: the event loop and the
+			// close hook run only once this hook has returned nil,
+			// which is why neither of them checks again.
 			if slot == nil {
 				return errStateAtCapacity
 			}
@@ -1499,10 +1498,6 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 			return p.StreamOpen(r, streamID, slot.state, signals)
 		},
 		func(streamID uint64) {
-			if slot != nil {
-				slot.mu.Lock()
-				slot.mu.Unlock()
-			}
 			s.closeStreamStateItem(instanceID, streamID)
 		},
 		func(
@@ -1515,9 +1510,6 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 					var e app.EventTodoUpdated
 					if err := json.Unmarshal(msg.Data, &e); err != nil {
 						s.logErr("unmarshaling EventTodoUpdated JSON", err)
-						continue
-					}
-					if slot == nil {
 						continue
 					}
 					slot.mu.Lock()

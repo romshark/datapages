@@ -9,10 +9,6 @@
 // so that the code under test is the code the generator writes today.
 // Then it runs the case's own tests, with coverage over its generated packages,
 // and reports how much of the generated code the suite executes.
-//
-// Cases whose acceptance.json records an expect_build_error carry no generated code.
-// Generating theirs produces a package that does not compile,
-// which is what they record. They are generated into a temporary module and built there.
 
 package acceptance_test
 
@@ -46,12 +42,6 @@ var (
 
 // caseOptions is the optional acceptance.json of a case.
 type caseOptions struct {
-	// ExpectBuildError records that generating this case produces a package
-	// that does not compile, and what the compiler says about it.
-	// Such a case keeps no generated code and runs no tests.
-	ExpectBuildError string `json:"expect_build_error"`
-	// Reason says what is wrong, for whoever reads the case.
-	Reason string `json:"reason"`
 	// NoRace turns the race detector off for cases where it costs more than it can find.
 	NoRace bool `json:"no_race"`
 }
@@ -93,12 +83,6 @@ func runCase(t *testing.T, name string) {
 	t.Helper()
 	opts := readCaseOptions(t, name)
 
-	if opts.ExpectBuildError != "" {
-		requireBuildError(t, name, opts.ExpectBuildError)
-		t.Logf("known generator bug: %s", opts.Reason)
-		return
-	}
-
 	requireGeneratedIsCurrent(t, name)
 
 	profile := filepath.Join(t.TempDir(), "cover.out")
@@ -139,61 +123,6 @@ func requireGeneratedIsCurrent(t *testing.T, name string) {
 		filepath.Join(name, cfg.Gen.Package))
 }
 
-// requireBuildError generates the case into a copy of its module and requires
-// the compiler to reject the result the way acceptance.json records.
-func requireBuildError(t *testing.T, name, want string) {
-	t.Helper()
-
-	mod := t.TempDir()
-	require.NoError(t, os.CopyFS(mod, os.DirFS(name)))
-	writeBuildableModFiles(t, name, mod)
-	generateInto(t, name, mod)
-
-	cmd := exec.Command("go", "build", "./...")
-	cmd.Dir = mod
-	// Everything the build needs is in the module cache the other cases filled.
-	// Nothing here may reach for the network.
-	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "GOPROXY=off")
-	out, err := cmd.CombinedOutput()
-	require.Error(t, err,
-		"%s builds now; remove expect_build_error from its acceptance.json", name)
-	require.Contains(t, string(out), want,
-		"%s fails to build differently than recorded:\n%s",
-		name, strings.TrimSpace(string(out)))
-}
-
-// depsFrom is the case whose dependencies stand in for a case that keeps no
-// generated code. Its own go.mod requires only what its app package imports;
-// what the generator writes needs more.
-const depsFrom = "minimal"
-
-// writeBuildableModFiles gives a copied case module a dependency set that
-// covers generated code, and a replace directive that reaches the working
-// tree from wherever the copy is.
-func writeBuildableModFiles(t *testing.T, name, mod string) {
-	t.Helper()
-
-	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
-	require.NoError(t, err)
-
-	gomod, err := os.ReadFile(filepath.Join(depsFrom, "go.mod"))
-	require.NoError(t, err)
-	out := strings.Replace(string(gomod),
-		"module "+modulePath(depsFrom), "module "+modulePath(name), 1)
-	out = strings.Replace(out, "=> ../../../", "=> "+repoRoot, 1)
-	require.NoError(t,
-		os.WriteFile(filepath.Join(mod, "go.mod"), []byte(out), 0o644))
-
-	gosum, err := os.ReadFile(filepath.Join(depsFrom, "go.sum"))
-	require.NoError(t, err)
-	require.NoError(t,
-		os.WriteFile(filepath.Join(mod, "go.sum"), gosum, 0o644))
-}
-
-func modulePath(name string) string {
-	return "github.com/romshark/datapages/internal/acceptance/" + name
-}
-
 // generateInto parses the case's app package and generates it into dst,
 // the way "datapages gen" does, and returns the config it read.
 func generateInto(t *testing.T, name, dst string) config.Config {
@@ -230,6 +159,11 @@ func generateInto(t *testing.T, name, dst string) config.Config {
 		},
 	))
 	return cfg
+}
+
+// modulePath is the import path of a case module.
+func modulePath(name string) string {
+	return "github.com/romshark/datapages/internal/acceptance/" + name
 }
 
 // compareTrees fails when the two directories differ in file names or content.

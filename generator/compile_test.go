@@ -17,8 +17,8 @@ import (
 // that parses without errors.
 //
 // The acceptance suites cover what generated code does, but only for the model
-// shapes their own apps have. The parser fixtures cover every shape the parser
-// accepts, which is the input domain of the generator.
+// shapes their own apps have. The parser fixtures cover every shape the parser accepts,
+// which is the input domain of the generator.
 //
 // A generator emits names as easily as it emits nonsense: an embed without its
 // type argument, a slot that no line declares, a package qualifier that
@@ -41,7 +41,6 @@ func TestCompileFixtures(t *testing.T) {
 	for _, fixture := range fixtures {
 		t.Run(fixture, func(t *testing.T) {
 			t.Parallel()
-			broken, isBroken := knownBroken[fixture]
 			src := filepath.Join("..", "parser", "testdata", fixture)
 			mod := t.TempDir()
 
@@ -72,33 +71,11 @@ func TestCompileFixtures(t *testing.T) {
 			cmd.Env = append(os.Environ(), "GOPROXY=off", "GOFLAGS=-mod=mod")
 			out, err := cmd.CombinedOutput()
 
-			if isBroken {
-				// The bug is recorded rather than skipped.
-				// Fixing it turns this test red and the entry then has to go.
-				require.Error(t, err,
-					"%s now builds; remove it from knownBroken", fixture)
-				require.Contains(t, string(out), broken.symptom,
-					"%s fails differently than recorded:\n%s",
-					fixture, strings.TrimSpace(string(out)))
-				t.Logf("known generator bug (%s): %s", fixture, broken.reason)
-				return
-			}
 			require.NoError(t, err, "generated code does not build:\n%s",
 				strings.TrimSpace(string(out)))
 		})
 	}
 }
-
-// knownBroken records fixtures the generator cannot emit compilable code for.
-// An entry asserts that the build still fails and still fails the same way.
-// Fixing the generator fails this test until the entry is removed.
-//
-// It is empty. Every entry it once held has been fixed; the acceptance case
-// that covers each fix is named in the commit that removed it.
-var knownBroken = map[string]struct {
-	symptom string // substring of the compiler error
-	reason  string
-}{}
 
 // parserFixtures lists the fixtures the parser accepts. The err_ prefix marks
 // the ones that are supposed to fail parsing, and those never reach a generator.

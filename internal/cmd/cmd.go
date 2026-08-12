@@ -116,8 +116,8 @@ func readModulePath(moduleDir string) (string, error) {
 }
 
 // checkGoModVersion returns an error if go.mod requires a newer version of
-// datapages than the running binary. It is a no-op for dev builds (empty
-// version) or when the dependency is missing or up to date.
+// datapages than the running binary. It is a no-op for dev builds (empty version) or
+// when the dependency is missing or up to date.
 func checkGoModVersion(moduleDir, version string) error {
 	if version == "" {
 		return nil
@@ -154,8 +154,8 @@ func checkGoModVersion(moduleDir, version string) error {
 
 // upgradeGoMod updates the datapages require in go.mod to match the running
 // version when the running version is strictly newer. Returns an error when
-// go.mod requires a newer version than the running binary (the user should
-// upgrade). It is a no-op for dev builds (empty version).
+// go.mod requires a newer version than the running binary (the user should upgrade).
+// It is a no-op for dev builds (empty version).
 func upgradeGoMod(moduleDir, version string) error {
 	if err := checkGoModVersion(moduleDir, version); err != nil {
 		return err
@@ -196,8 +196,8 @@ func upgradeGoMod(moduleDir, version string) error {
 	return nil
 }
 
-// checkCmdPackage checks the package at dir. Returns true if the directory
-// exists. Returns an error if it exists but contains a non-main package.
+// checkCmdPackage checks the package at dir. Returns true if the directory exists.
+// Returns an error if it exists but contains a non-main package.
 func checkCmdPackage(dir string) (exists bool, _ error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {

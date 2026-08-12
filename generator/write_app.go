@@ -2,6 +2,7 @@ package generator
 
 import (
 	_ "embed"
+	"go/types"
 	"slices"
 	"strings"
 
@@ -1891,24 +1892,26 @@ func (w *Writer) writePageConstructorStmt(varName string, p *model.Page, appPkg 
 	w.Raw("{\n")
 	w.Line(2, "App: s.app,")
 	for _, embed := range p.Embeds {
-		w.writeEmbedInitStmt(p, embed, appPkg, 2)
+		w.writeEmbedInitStmt(p, embed, appPkg, 2, nil)
 	}
 	w.Line(1, "}")
 }
 
 func (w *Writer) writeEmbedInitStmt(
 	p *model.Page, ap *model.AbstractPage, appPkg string, indent int,
+	parent types.Type,
 ) {
 	for range indent {
 		w.Byte('\t')
 	}
 	w.Raw(ap.TypeName)
 	w.Raw(": ")
-	w.Raw(w.embedTypeExpr(p, ap, appPkg))
+	expr, embedded := w.embedLiteralExpr(p, ap, appPkg, parent)
+	w.Raw(expr)
 	w.Raw("{\n")
 	w.Line(indent+1, "App: s.app,")
 	for _, sub := range ap.Embeds {
-		w.writeEmbedInitStmt(p, sub, appPkg, indent+1)
+		w.writeEmbedInitStmt(p, sub, appPkg, indent+1, embedded)
 	}
 	w.Line(indent, "},")
 }

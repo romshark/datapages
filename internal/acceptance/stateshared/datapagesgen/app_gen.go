@@ -995,6 +995,9 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			} else {
 				slot = s.allocateTabContext(instanceID, streamID)
 			}
+			// A stream that gets no slot never opens: the event loop and the
+			// close hook run only once this hook has returned nil,
+			// which is why neither of them checks again.
 			if slot == nil {
 				return errStateAtCapacity
 			}
@@ -1003,10 +1006,6 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			return p.StreamOpen(r, streamID, slot.state)
 		},
 		func(streamID uint64) {
-			if slot != nil {
-				slot.mu.Lock()
-				slot.mu.Unlock()
-			}
 			s.closeStreamTabContext(instanceID, streamID)
 		},
 		func(
@@ -1019,9 +1018,6 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 					var e app.EventChanged
 					if err := json.Unmarshal(msg.Data, &e); err != nil {
 						s.logErr("unmarshaling EventChanged JSON", err)
-						continue
-					}
-					if slot == nil {
 						continue
 					}
 					slot.mu.Lock()
@@ -1184,6 +1180,9 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 			} else {
 				slot = s.allocateTabContext(instanceID, streamID)
 			}
+			// A stream that gets no slot never opens: the event loop and the
+			// close hook run only once this hook has returned nil,
+			// which is why neither of them checks again.
 			if slot == nil {
 				return errStateAtCapacity
 			}
@@ -1192,10 +1191,6 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 			return p.StreamOpen(r, streamID, slot.state)
 		},
 		func(streamID uint64) {
-			if slot != nil {
-				slot.mu.Lock()
-				slot.mu.Unlock()
-			}
 			s.closeStreamTabContext(instanceID, streamID)
 		},
 		func(
@@ -1208,9 +1203,6 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 					var e app.EventChanged
 					if err := json.Unmarshal(msg.Data, &e); err != nil {
 						s.logErr("unmarshaling EventChanged JSON", err)
-						continue
-					}
-					if slot == nil {
 						continue
 					}
 					slot.mu.Lock()

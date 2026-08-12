@@ -520,7 +520,7 @@ func (w *Writer) writePageConstructor(p *model.Page, appPkg string) {
 	w.Raw("{\n")
 	w.Raw("\tApp: s.app,\n")
 	for _, embed := range p.Embeds {
-		w.writeEmbedInit(p, embed, appPkg, "\t")
+		w.writeEmbedInit(p, embed, appPkg, "\t", nil)
 	}
 	w.Byte('}')
 }
@@ -528,16 +528,18 @@ func (w *Writer) writePageConstructor(p *model.Page, appPkg string) {
 // writeEmbedInit recursively appends an embed field initialization.
 func (w *Writer) writeEmbedInit(
 	p *model.Page, ap *model.AbstractPage, appPkg, indent string,
+	parent types.Type,
 ) {
 	w.Raw(indent)
 	w.Raw(ap.TypeName)
 	w.Raw(": ")
-	w.Raw(w.embedTypeExpr(p, ap, appPkg))
+	expr, embedded := w.embedLiteralExpr(p, ap, appPkg, parent)
+	w.Raw(expr)
 	w.Raw("{\n")
 	w.Raw(indent)
 	w.Raw("\tApp: s.app,\n")
 	for _, sub := range ap.Embeds {
-		w.writeEmbedInit(p, sub, appPkg, indent+"\t")
+		w.writeEmbedInit(p, sub, appPkg, indent+"\t", embedded)
 	}
 	w.Raw(indent)
 	w.Raw("},\n")
@@ -546,13 +548,56 @@ func (w *Writer) writeEmbedInit(
 // embedTypeExpr returns the type to use in the embed's composite literal.
 // A generic abstract page must be instantiated with the type arguments
 // written at the embed site, e.g. "app.Base[app.StateFoo]".
-func (w *Writer) embedTypeExpr(
-	p *model.Page, ap *model.AbstractPage, appPkg string,
-) string {
-	if t, ok := p.EmbedTypes[ap.TypeName]; ok && t.Resolved != nil {
-		return renderType(t)
+// embedLiteralExpr returns the composite literal prefix for an embed and
+// whether the field is a pointer.
+//
+// Go lets a struct embed a pointer to another struct. The field type is then
+// "*app.Base", which is not a type a composite literal can be written of: the
+// literal is of the element type and its address is taken.
+func (w *Writer) embedLiteralExpr(
+	p *model.Page, ap *model.AbstractPage, appPkg string, parent types.Type,
+) (expr string, embedded types.Type) {
+	name := appPkg + "." + ap.TypeName
+	var resolved types.Type
+	switch {
+	case parent != nil:
+		// An embed of an embed: its type comes from the parent's, already
+		// instantiated. The Base inside Mid[StateA] is Base[StateA].
+		if t, ok := embedFieldType(parent, ap.TypeName); ok {
+			resolved = t
+		}
+	default:
+		if t, ok := p.EmbedTypes[ap.TypeName]; ok && t.Resolved != nil {
+			resolved = t.Resolved
+		}
 	}
-	return appPkg + "." + ap.TypeName
+	if resolved != nil {
+		name = renderType(model.Type{Resolved: resolved})
+	}
+	if rest, ok := strings.CutPrefix(name, "*"); ok {
+		return "&" + rest, resolved
+	}
+	return name, resolved
+}
+
+// embedFieldType returns the type of the embedded field named name inside t.
+// For a generic parent the field carries the instantiation the parent was
+// given, which is what the composite literal has to name.
+func embedFieldType(t types.Type, name string) (types.Type, bool) {
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	st, ok := t.Underlying().(*types.Struct)
+	if !ok {
+		return nil, false
+	}
+	for i := range st.NumFields() {
+		f := st.Field(i)
+		if f.Embedded() && f.Name() == name {
+			return f.Type(), true
+		}
+	}
+	return nil, false
 }
 
 // itoa converts a small non-negative integer to a string without allocation.

@@ -513,6 +513,18 @@ func evSubjPageLabel(stateID string) []string {
 	}
 }
 
+func evSubjPageNested(stateID string) []string {
+	return []string{
+		EvSubjPrefPing + stateID,
+	}
+}
+
+func evSubjPagePointer(stateID string) []string {
+	return []string{
+		EvSubjPrefPing + stateID,
+	}
+}
+
 // StateConfig configures the per-page-instance server-side state runtime.
 // Pass via WithStateConfig when at least one page declares a StateXXX type.
 type StateConfig struct {
@@ -933,6 +945,220 @@ func (s *Server) closeStreamStateLabel(id string, streamID uint64) {
 	slot.mu.Unlock()
 }
 
+// stateSlotStateNested holds one instance of StateNested.
+// It is checked out of statePoolStateNested on StreamOpen and returned
+// when StreamClose elapses without a reconnect within GracePeriod.
+type stateSlotStateNested struct {
+	state    *app.StateNested
+	mu       sync.Mutex  // serializes all stateful handler calls on this instance
+	streamID uint64      // currently-associated SSE stream (0 when detached)
+	timer    *time.Timer // grace-period timer; nil while a stream is attached
+	dead     bool        // true once the state went back to the pool
+}
+
+// statePoolStateNested pools StateNested values across instance checkouts.
+// Generated Reset-on-checkout zeroes the struct before handing it out.
+var statePoolStateNested = sync.Pool{
+	New: func() any { return new(app.StateNested) },
+}
+
+// stateInstancesStateNested maps a verified Datapages-Instance id to the live slot.
+var stateInstancesStateNested stateStore[stateSlotStateNested]
+
+// allocateStateNested checks a state value out of statePoolStateNested, zeroes it, registers it
+// under id, and attaches it to the given SSE streamID.
+// Returns the slot so callers (StreamOpen) can pass the state to the user,
+// or nil when the server holds as many instances as it may.
+func (s *Server) allocateStateNested(id string, streamID uint64) *stateSlotStateNested {
+	if !s.stateReserveInstance() {
+		return nil
+	}
+	st := statePoolStateNested.Get().(*app.StateNested)
+	*st = app.StateNested{} // total reset; safe reuse across tenants
+	slot := &stateSlotStateNested{state: st, streamID: streamID}
+	stateInstancesStateNested.Store(id, slot)
+	return slot
+}
+
+// lookupStateNested returns the registered slot for id, or (nil, false)
+// when no live instance matches. The id is not HMAC-verified here;
+// call verifyStateInstanceID first.
+func (s *Server) lookupStateNested(id string) (*stateSlotStateNested, bool) {
+	return stateInstancesStateNested.Load(id)
+}
+
+// reconnectStateNested tries to reattach an existing slot (grace-period reconnect)
+// to a new SSE streamID. Returns (slot, true) on success; (nil, false)
+// when the id is unknown (e.g. grace period already elapsed).
+// A slot whose state already went back to the pool is refused.
+func (s *Server) reconnectStateNested(id string, streamID uint64) (*stateSlotStateNested, bool) {
+	slot, ok := s.lookupStateNested(id)
+	if !ok {
+		return nil, false
+	}
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		return nil, false
+	}
+	if slot.timer != nil {
+		slot.timer.Stop()
+		slot.timer = nil
+	}
+	slot.streamID = streamID
+	return slot, true
+}
+
+// closeStreamStateNested marks id as detached from streamID and starts
+// the grace timer. If the client reconnects with the same id
+// before the timer fires, the slot is reused as-is.
+//
+// A tab can hold two streams at once while the server still
+// tears the older one down. Only the attached stream may detach.
+func (s *Server) closeStreamStateNested(id string, streamID uint64) {
+	slot, ok := s.lookupStateNested(id)
+	if !ok {
+		return
+	}
+	slot.mu.Lock()
+	if slot.streamID != streamID {
+		slot.mu.Unlock()
+		return
+	}
+	slot.streamID = 0
+	if slot.timer != nil {
+		slot.timer.Stop()
+	}
+	slot.timer = time.AfterFunc(s.stateConf.GracePeriod, func() {
+		slot.mu.Lock()
+		// A stream reattached while this timer was already running,
+		// or another timer got here first.
+		if slot.streamID != 0 || slot.dead {
+			slot.mu.Unlock()
+			return
+		}
+		slot.dead = true
+		st := slot.state
+		slot.state = nil
+		slot.mu.Unlock()
+		// A stream can allocate a fresh slot under this id while this
+		// one is on its way out. Drop only the slot this timer owns.
+		stateInstancesStateNested.CompareAndDelete(id, slot)
+		stateLiveInstances.Add(-1)
+		if st != nil {
+			statePoolStateNested.Put(st)
+		}
+	})
+	slot.mu.Unlock()
+}
+
+// stateSlotStatePointer holds one instance of StatePointer.
+// It is checked out of statePoolStatePointer on StreamOpen and returned
+// when StreamClose elapses without a reconnect within GracePeriod.
+type stateSlotStatePointer struct {
+	state    *app.StatePointer
+	mu       sync.Mutex  // serializes all stateful handler calls on this instance
+	streamID uint64      // currently-associated SSE stream (0 when detached)
+	timer    *time.Timer // grace-period timer; nil while a stream is attached
+	dead     bool        // true once the state went back to the pool
+}
+
+// statePoolStatePointer pools StatePointer values across instance checkouts.
+// Generated Reset-on-checkout zeroes the struct before handing it out.
+var statePoolStatePointer = sync.Pool{
+	New: func() any { return new(app.StatePointer) },
+}
+
+// stateInstancesStatePointer maps a verified Datapages-Instance id to the live slot.
+var stateInstancesStatePointer stateStore[stateSlotStatePointer]
+
+// allocateStatePointer checks a state value out of statePoolStatePointer, zeroes it, registers it
+// under id, and attaches it to the given SSE streamID.
+// Returns the slot so callers (StreamOpen) can pass the state to the user,
+// or nil when the server holds as many instances as it may.
+func (s *Server) allocateStatePointer(id string, streamID uint64) *stateSlotStatePointer {
+	if !s.stateReserveInstance() {
+		return nil
+	}
+	st := statePoolStatePointer.Get().(*app.StatePointer)
+	*st = app.StatePointer{} // total reset; safe reuse across tenants
+	slot := &stateSlotStatePointer{state: st, streamID: streamID}
+	stateInstancesStatePointer.Store(id, slot)
+	return slot
+}
+
+// lookupStatePointer returns the registered slot for id, or (nil, false)
+// when no live instance matches. The id is not HMAC-verified here;
+// call verifyStateInstanceID first.
+func (s *Server) lookupStatePointer(id string) (*stateSlotStatePointer, bool) {
+	return stateInstancesStatePointer.Load(id)
+}
+
+// reconnectStatePointer tries to reattach an existing slot (grace-period reconnect)
+// to a new SSE streamID. Returns (slot, true) on success; (nil, false)
+// when the id is unknown (e.g. grace period already elapsed).
+// A slot whose state already went back to the pool is refused.
+func (s *Server) reconnectStatePointer(id string, streamID uint64) (*stateSlotStatePointer, bool) {
+	slot, ok := s.lookupStatePointer(id)
+	if !ok {
+		return nil, false
+	}
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		return nil, false
+	}
+	if slot.timer != nil {
+		slot.timer.Stop()
+		slot.timer = nil
+	}
+	slot.streamID = streamID
+	return slot, true
+}
+
+// closeStreamStatePointer marks id as detached from streamID and starts
+// the grace timer. If the client reconnects with the same id
+// before the timer fires, the slot is reused as-is.
+//
+// A tab can hold two streams at once while the server still
+// tears the older one down. Only the attached stream may detach.
+func (s *Server) closeStreamStatePointer(id string, streamID uint64) {
+	slot, ok := s.lookupStatePointer(id)
+	if !ok {
+		return
+	}
+	slot.mu.Lock()
+	if slot.streamID != streamID {
+		slot.mu.Unlock()
+		return
+	}
+	slot.streamID = 0
+	if slot.timer != nil {
+		slot.timer.Stop()
+	}
+	slot.timer = time.AfterFunc(s.stateConf.GracePeriod, func() {
+		slot.mu.Lock()
+		// A stream reattached while this timer was already running,
+		// or another timer got here first.
+		if slot.streamID != 0 || slot.dead {
+			slot.mu.Unlock()
+			return
+		}
+		slot.dead = true
+		st := slot.state
+		slot.state = nil
+		slot.mu.Unlock()
+		// A stream can allocate a fresh slot under this id while this
+		// one is on its way out. Drop only the slot this timer owns.
+		stateInstancesStatePointer.CompareAndDelete(id, slot)
+		stateLiveInstances.Add(-1)
+		if st != nil {
+			statePoolStatePointer.Put(st)
+		}
+	})
+	slot.mu.Unlock()
+}
+
 func setupHandlers(s *Server) {
 	// Pages
 	s.mux.HandleFunc(
@@ -957,11 +1183,29 @@ func setupHandlers(s *Server) {
 		"GET /label/_$/{$}",
 		s.handlePageLabelGETStream)
 	s.mux.HandleFunc(
+		"GET /nested/{$}",
+		s.handlePageNestedGET)
+	s.mux.HandleFunc(
+		"GET /nested/_$/{$}",
+		s.handlePageNestedGETStream)
+	s.mux.HandleFunc(
+		"GET /pointer/{$}",
+		s.handlePagePointerGET)
+	s.mux.HandleFunc(
+		"GET /pointer/_$/{$}",
+		s.handlePagePointerGETStream)
+	s.mux.HandleFunc(
 		"POST /count/bump/{$}",
 		s.handlePageCountPOSTBump)
 	s.mux.HandleFunc(
 		"POST /label/set/{$}",
 		s.handlePageLabelPOSTSet)
+	s.mux.HandleFunc(
+		"POST /nested/bump/{$}",
+		s.handlePageNestedPOSTBump)
+	s.mux.HandleFunc(
+		"POST /pointer/bump/{$}",
+		s.handlePagePointerPOSTBump)
 }
 
 func (s *Server) httpErrIntern(
@@ -1064,6 +1308,9 @@ func (s *Server) handlePageCountGETStream(w http.ResponseWriter, r *http.Request
 			} else {
 				slot = s.allocateStateCounter(instanceID, streamID)
 			}
+			// A stream that gets no slot never opens: the event loop and the
+			// close hook run only once this hook has returned nil,
+			// which is why neither of them checks again.
 			if slot == nil {
 				return errStateAtCapacity
 			}
@@ -1072,10 +1319,6 @@ func (s *Server) handlePageCountGETStream(w http.ResponseWriter, r *http.Request
 			return p.StreamOpen(r, streamID, slot.state)
 		},
 		func(streamID uint64) {
-			if slot != nil {
-				slot.mu.Lock()
-				slot.mu.Unlock()
-			}
 			s.closeStreamStateCounter(instanceID, streamID)
 		},
 		func(
@@ -1088,9 +1331,6 @@ func (s *Server) handlePageCountGETStream(w http.ResponseWriter, r *http.Request
 					var e app.EventPing
 					if err := json.Unmarshal(msg.Data, &e); err != nil {
 						s.logErr("unmarshaling EventPing JSON", err)
-						continue
-					}
-					if slot == nil {
 						continue
 					}
 					slot.mu.Lock()
@@ -1242,6 +1482,9 @@ func (s *Server) handlePageEmbedOnlyGETStream(w http.ResponseWriter, r *http.Req
 			} else {
 				slot = s.allocateStateLabel(instanceID, streamID)
 			}
+			// A stream that gets no slot never opens: the event loop and the
+			// close hook run only once this hook has returned nil,
+			// which is why neither of them checks again.
 			if slot == nil {
 				return errStateAtCapacity
 			}
@@ -1250,10 +1493,6 @@ func (s *Server) handlePageEmbedOnlyGETStream(w http.ResponseWriter, r *http.Req
 			return p.StreamOpen(r, streamID, slot.state)
 		},
 		func(streamID uint64) {
-			if slot != nil {
-				slot.mu.Lock()
-				slot.mu.Unlock()
-			}
 			s.closeStreamStateLabel(instanceID, streamID)
 		},
 		func(
@@ -1266,9 +1505,6 @@ func (s *Server) handlePageEmbedOnlyGETStream(w http.ResponseWriter, r *http.Req
 					var e app.EventPing
 					if err := json.Unmarshal(msg.Data, &e); err != nil {
 						s.logErr("unmarshaling EventPing JSON", err)
-						continue
-					}
-					if slot == nil {
 						continue
 					}
 					slot.mu.Lock()
@@ -1393,6 +1629,9 @@ func (s *Server) handlePageLabelGETStream(w http.ResponseWriter, r *http.Request
 			} else {
 				slot = s.allocateStateLabel(instanceID, streamID)
 			}
+			// A stream that gets no slot never opens: the event loop and the
+			// close hook run only once this hook has returned nil,
+			// which is why neither of them checks again.
 			if slot == nil {
 				return errStateAtCapacity
 			}
@@ -1401,10 +1640,6 @@ func (s *Server) handlePageLabelGETStream(w http.ResponseWriter, r *http.Request
 			return p.StreamOpen(r, streamID, slot.state)
 		},
 		func(streamID uint64) {
-			if slot != nil {
-				slot.mu.Lock()
-				slot.mu.Unlock()
-			}
 			s.closeStreamStateLabel(instanceID, streamID)
 		},
 		func(
@@ -1417,9 +1652,6 @@ func (s *Server) handlePageLabelGETStream(w http.ResponseWriter, r *http.Request
 					var e app.EventPing
 					if err := json.Unmarshal(msg.Data, &e); err != nil {
 						s.logErr("unmarshaling EventPing JSON", err)
-						continue
-					}
-					if slot == nil {
 						continue
 					}
 					slot.mu.Lock()
@@ -1497,6 +1729,363 @@ func (s *Server) handlePageLabelPOSTSet(
 	err := p.POSTSet(r, slot.state, stateID, signals, dispatch)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLabel.Set", err)
+		return
+	}
+}
+
+func (s *Server) handlePageNestedGET(w http.ResponseWriter, r *http.Request) {
+
+	// Mint the per-instance identifier for this page load.
+	// The client echoes this value on action requests and on the SSE
+	// stream connect via the Datapages-Instance header.
+	instanceID, err := s.signStateInstanceID()
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "minting state instance", err)
+		return
+	}
+	w.Header().Set(stateInstanceIDHeader, instanceID)
+	// The page carries an identifier that stands for one tab's state.
+	// A cache that hands it to a second visitor hands over the state.
+	w.Header().Set("Cache-Control", "no-store")
+
+	p := app.PageNested{
+		App: s.app,
+		Mid: app.Mid[app.StateNested]{
+			App: s.app,
+			Base: app.Base[app.StateNested]{
+				App: s.app,
+			},
+		},
+	}
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageNested.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('/nested/_$/')"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.logErr("rendering PageNested", err)
+		return
+	}
+}
+
+func (s *Server) handlePageNestedGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !s.verifyStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	if _, live := s.lookupStateNested(instanceID); !live && !s.stateHasCapacity() {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	stateID := s.stateRouteKey(instanceID)
+	var slot *stateSlotStateNested
+
+	p := app.PageNested{
+		App: s.app,
+		Mid: app.Mid[app.StateNested]{
+			App: s.app,
+			Base: app.Base[app.StateNested]{
+				App: s.app,
+			},
+		},
+	}
+	s.handleStreamRequest(w, r, evSubjPageNested(stateID),
+		func(
+			streamID uint64,
+			sse *datastar.ServerSentEventGenerator,
+		) error {
+			if existing, ok := s.reconnectStateNested(instanceID, streamID); ok {
+				slot = existing
+			} else {
+				slot = s.allocateStateNested(instanceID, streamID)
+			}
+			// A stream that gets no slot never opens: the event loop and the
+			// close hook run only once this hook has returned nil,
+			// which is why neither of them checks again.
+			if slot == nil {
+				return errStateAtCapacity
+			}
+			slot.mu.Lock()
+			defer slot.mu.Unlock()
+			return p.StreamOpen(r, streamID, slot.state)
+		},
+		func(streamID uint64) {
+			s.closeStreamStateNested(instanceID, streamID)
+		},
+		func(
+			streamID uint64,
+			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+		) {
+			for msg := range ch {
+				switch {
+				case strings.HasPrefix(msg.Subject, EvSubjPrefPing):
+					var e app.EventPing
+					if err := json.Unmarshal(msg.Data, &e); err != nil {
+						s.logErr("unmarshaling EventPing JSON", err)
+						continue
+					}
+					slot.mu.Lock()
+					if slot.dead {
+						slot.mu.Unlock()
+						continue
+					}
+					if err := p.OnPing(e, sse, slot.state); err != nil {
+						s.logErr("handling PageNested.OnPing", err)
+					}
+					slot.mu.Unlock()
+				}
+			}
+		})
+}
+
+func (s *Server) handlePageNestedPOSTBump(
+	w http.ResponseWriter, r *http.Request,
+) {
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !s.verifyStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot, ok := s.lookupStateNested(instanceID)
+	if !ok {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	stateID := s.stateRouteKey(instanceID)
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+
+	dispatch := func(
+		e1 app.EventPing,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventPing JSON: %w", err)
+			}
+			p0 := e1.SubjectStateID
+			subj := "ping." + p0
+			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
+			if err != nil {
+				return fmt.Errorf("publishing subject %q: %w", subj, err)
+			}
+		}
+		return nil
+	}
+	p := app.PageNested{
+		App: s.app,
+		Mid: app.Mid[app.StateNested]{
+			App: s.app,
+			Base: app.Base[app.StateNested]{
+				App: s.app,
+			},
+		},
+	}
+	err := p.POSTBump(r, slot.state, stateID, dispatch)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageNested.Bump", err)
+		return
+	}
+}
+
+func (s *Server) handlePagePointerGET(w http.ResponseWriter, r *http.Request) {
+
+	// Mint the per-instance identifier for this page load.
+	// The client echoes this value on action requests and on the SSE
+	// stream connect via the Datapages-Instance header.
+	instanceID, err := s.signStateInstanceID()
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "minting state instance", err)
+		return
+	}
+	w.Header().Set(stateInstanceIDHeader, instanceID)
+	// The page carries an identifier that stands for one tab's state.
+	// A cache that hands it to a second visitor hands over the state.
+	w.Header().Set("Cache-Control", "no-store")
+
+	p := app.PagePointer{
+		App: s.app,
+		Base: &app.Base[app.StatePointer]{
+			App: s.app,
+		},
+	}
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PagePointer.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('/pointer/_$/')"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.logErr("rendering PagePointer", err)
+		return
+	}
+}
+
+func (s *Server) handlePagePointerGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !s.verifyStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	if _, live := s.lookupStatePointer(instanceID); !live && !s.stateHasCapacity() {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	stateID := s.stateRouteKey(instanceID)
+	var slot *stateSlotStatePointer
+
+	p := app.PagePointer{
+		App: s.app,
+		Base: &app.Base[app.StatePointer]{
+			App: s.app,
+		},
+	}
+	s.handleStreamRequest(w, r, evSubjPagePointer(stateID),
+		func(
+			streamID uint64,
+			sse *datastar.ServerSentEventGenerator,
+		) error {
+			if existing, ok := s.reconnectStatePointer(instanceID, streamID); ok {
+				slot = existing
+			} else {
+				slot = s.allocateStatePointer(instanceID, streamID)
+			}
+			// A stream that gets no slot never opens: the event loop and the
+			// close hook run only once this hook has returned nil,
+			// which is why neither of them checks again.
+			if slot == nil {
+				return errStateAtCapacity
+			}
+			slot.mu.Lock()
+			defer slot.mu.Unlock()
+			return p.StreamOpen(r, streamID, slot.state)
+		},
+		func(streamID uint64) {
+			s.closeStreamStatePointer(instanceID, streamID)
+		},
+		func(
+			streamID uint64,
+			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+		) {
+			for msg := range ch {
+				switch {
+				case strings.HasPrefix(msg.Subject, EvSubjPrefPing):
+					var e app.EventPing
+					if err := json.Unmarshal(msg.Data, &e); err != nil {
+						s.logErr("unmarshaling EventPing JSON", err)
+						continue
+					}
+					slot.mu.Lock()
+					if slot.dead {
+						slot.mu.Unlock()
+						continue
+					}
+					if err := p.OnPing(e, sse, slot.state); err != nil {
+						s.logErr("handling PagePointer.OnPing", err)
+					}
+					slot.mu.Unlock()
+				}
+			}
+		})
+}
+
+func (s *Server) handlePagePointerPOSTBump(
+	w http.ResponseWriter, r *http.Request,
+) {
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !s.verifyStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot, ok := s.lookupStatePointer(instanceID)
+	if !ok {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	stateID := s.stateRouteKey(instanceID)
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+
+	dispatch := func(
+		e1 app.EventPing,
+	) error {
+		{
+			j, err := json.Marshal(e1)
+			if err != nil {
+				return fmt.Errorf("marshaling EventPing JSON: %w", err)
+			}
+			p0 := e1.SubjectStateID
+			subj := "ping." + p0
+			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
+			if err != nil {
+				return fmt.Errorf("publishing subject %q: %w", subj, err)
+			}
+		}
+		return nil
+	}
+	p := app.PagePointer{
+		App: s.app,
+		Base: &app.Base[app.StatePointer]{
+			App: s.app,
+		},
+	}
+	err := p.POSTBump(r, slot.state, stateID, dispatch)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PagePointer.Bump", err)
 		return
 	}
 }

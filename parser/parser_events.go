@@ -101,7 +101,8 @@ func validateEventType(
 	// We only care about structs.
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
-		// Named types wrapping basics? strictly speaking events are structs in this framework.
+		// Named types wrapping basics? strictly speaking
+		// events are structs in this framework.
 		// But if it's a field deep down, it might be int/string.
 		// The top level event IS a struct per firstPassTypes logic (maybe? let's check).
 		// For now we only deeply validate structs.
