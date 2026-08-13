@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -379,6 +380,13 @@ func (s *Server) handleStreamRequest(
 		}
 		sub.Close()
 		if onClose != nil {
+			// Not the goroutine net/http recovers.
+			defer func() {
+				if rec := recover(); rec != nil {
+					s.logErr("recovering panic in stream close hook",
+						fmt.Errorf("%v\n%s", rec, debug.Stack()))
+				}
+			}()
 			onClose(streamID)
 		}
 	}()

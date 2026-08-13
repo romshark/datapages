@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,10 +21,12 @@ import (
 )
 
 const (
-	pathStream         = "/_$/"
-	pathAction         = "/update/"
-	pathFailOpen       = "/failopen/"
-	pathFailOpenStream = "/failopen/_$/"
+	pathStream           = "/_$/"
+	pathAction           = "/update/"
+	pathFailOpen         = "/failopen/"
+	pathFailOpenStream   = "/failopen/_$/"
+	pathPanicClose       = "/panicclose/"
+	pathPanicCloseStream = "/panicclose/_$/"
 )
 
 func newClient(t *testing.T) *client.Client {
@@ -262,6 +265,57 @@ func TestFailedOpenReleasesInstance(t *testing.T) {
 	require.Equal(t, http.StatusOK, update(t, tab, "after-failure").Status)
 	require.True(t, tab.Saw("deliveries:1 filter:after-failure"),
 		"a tab opened after a failed open holds no state")
+}
+
+// TestPanicInStreamCloseIsContained covers a StreamClose that panics.
+//
+// The hook runs on the watchdog goroutine, which is not one net/http recovers,
+// and it holds the slot mutex while it runs. An unrecovered panic there ends
+// the process for every user of the server. A recovery that skips the unlock
+// and the release wedges the tab instead and keeps its instance forever.
+func TestPanicInStreamCloseIsContained(t *testing.T) {
+	const grace = 50 * time.Millisecond
+
+	key := sha256.Sum256([]byte("acceptance"))
+	c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8),
+		datapagesgen.WithStateConfig(datapagesgen.StateConfig{
+			HMACKey:     key[:],
+			GracePeriod: grace,
+		})))
+
+	tab := c.OpenTab(t, pathPanicClose, pathPanicCloseStream)
+	id := tab.InstanceID()
+	tab.Close()
+
+	require.Equal(t, http.StatusOK, c.Get(t, pathPanicClose).Status,
+		"the server stopped serving after a panicking close hook")
+
+	// PageIndex holds the same state type, which is what lets this ask whether
+	// the instance the panicking hook held was given back. A mutex the hook
+	// never unlocked shows up as an action that never returns. The deadline on
+	// the probe turns that into a failure with a message. It cannot keep the
+	// case quick, since closing the test server waits on the wedged handler.
+	probe := func() int {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+			c.URL()+pathAction, strings.NewReader(`{"filter":"x"}`))
+		require.NoError(t, err, "building the probe")
+		req.Header.Set("Datastar-Request", "true")
+		req.Header.Set("Datapages-Instance", id)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err,
+			"the action never returned, which is the slot mutex still held "+
+				"by the hook that panicked under it")
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	require.True(t, client.WaitFor(func() bool {
+		return probe() == http.StatusConflict
+	}, 20*grace), "the instance of a panicking close hook outlives its grace "+
+		"period: the release runs after the hook, and only a deferred one "+
+		"runs at all")
 }
 
 // postUpdate sends the action as the tab named by instanceID,

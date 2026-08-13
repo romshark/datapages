@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -648,6 +649,13 @@ func (s *Server) handleStreamRequest(
 		mSSEConnectionDuration.Observe(time.Since(start).Seconds())
 		sub.Close()
 		if onClose != nil {
+			// Not the goroutine net/http recovers.
+			defer func() {
+				if rec := recover(); rec != nil {
+					s.logErr("recovering panic in stream close hook",
+						fmt.Errorf("%v\n%s", rec, debug.Stack()))
+				}
+			}()
 			onClose(streamID)
 		}
 	}()

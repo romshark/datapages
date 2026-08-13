@@ -151,6 +151,9 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"net"`)
 	w.Line(1, `"net/http"`)
 	w.Line(1, `"os"`)
+	if w.usage.stream {
+		w.Line(1, `"runtime/debug"`)
+	}
 	w.Line(1, `"slices"`)
 	w.Line(1, `"strconv"`)
 	w.Line(1, `"strings"`)
@@ -737,6 +740,13 @@ func (s *Server) handleStreamRequest(
 	}
 	w.Raw(`		sub.Close()
 		if onClose != nil {
+			// Not the goroutine net/http recovers.
+			defer func() {
+				if rec := recover(); rec != nil {
+					s.logErr("recovering panic in stream close hook",
+						fmt.Errorf("%v\n%s", rec, debug.Stack()))
+				}
+			}()
 			onClose(streamID)
 		}
 	}()

@@ -78,8 +78,8 @@ var ErrStreamOpen = errors.New("this stream never opens")
 // PageFailOpen is /failopen
 //
 // Its stream never opens. The instance is reserved before the open hook runs
-// and the close hook that gives it back is wired up only after the hook
-// succeeded, which leaves the failed open itself to release what it took.
+// and the close hook that gives it back is wired up only after the hook succeeded,
+// which leaves the failed open itself to release what it took.
 type PageFailOpen struct{ App *App }
 
 func (p PageFailOpen) GET(r *http.Request) (body templ.Component, err error) {
@@ -92,6 +92,27 @@ func (p PageFailOpen) StreamOpen(
 	state *StateFilters,
 ) error {
 	return ErrStreamOpen
+}
+
+// ErrStreamClose is what PagePanicOnClose.StreamClose panics with.
+var ErrStreamClose = errors.New("this stream does not close quietly")
+
+// PagePanicOnClose is /panicclose
+//
+// Its StreamClose panics. That hook runs on the watchdog goroutine,
+// outside the recovery of net/http, and it holds the slot mutex while it runs.
+type PagePanicOnClose struct{ App *App }
+
+func (p PagePanicOnClose) GET(r *http.Request) (body templ.Component, err error) {
+	return templ.Raw(`<div id="status">panicclose</div>`), nil
+}
+
+func (p PagePanicOnClose) StreamClose(
+	r *http.Request,
+	streamID uint64,
+	state *StateFilters,
+) error {
+	panic(ErrStreamClose)
 }
 
 func status(state *StateFilters) string {

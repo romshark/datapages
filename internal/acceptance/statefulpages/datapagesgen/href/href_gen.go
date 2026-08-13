@@ -41,3 +41,6 @@ func PageFailOpen() string { return "/failopen/" }
 
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
+
+// PagePanicOnClose references /panicclose/{$}
+func PagePanicOnClose() string { return "/panicclose/" }

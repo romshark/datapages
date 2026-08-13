@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -384,6 +385,13 @@ func (s *Server) handleStreamRequest(
 		}
 		sub.Close()
 		if onClose != nil {
+			// Not the goroutine net/http recovers.
+			defer func() {
+				if rec := recover(); rec != nil {
+					s.logErr("recovering panic in stream close hook",
+						fmt.Errorf("%v\n%s", rec, debug.Stack()))
+				}
+			}()
 			onClose(streamID)
 		}
 	}()
@@ -515,6 +523,10 @@ func evSubjPageIndex(stateID string) []string {
 	return []string{
 		EvSubjPrefFiltersUpdated + stateID,
 	}
+}
+
+func evSubjPagePanicOnClose() []string {
+	return []string{}
 }
 
 // StateConfig configures the per-page-instance server-side state runtime.
@@ -847,6 +859,12 @@ func setupHandlers(s *Server) {
 		"GET /_$/{$}",
 		s.handlePageIndexGETStream)
 	s.mux.HandleFunc(
+		"GET /panicclose/{$}",
+		s.handlePagePanicOnCloseGET)
+	s.mux.HandleFunc(
+		"GET /panicclose/_$/{$}",
+		s.handlePagePanicOnCloseGETStream)
+	s.mux.HandleFunc(
 		"POST /update/{$}",
 		s.handlePageIndexPOSTUpdate)
 }
@@ -1172,4 +1190,111 @@ func (s *Server) handlePageIndexPOSTUpdate(
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Update", err)
 		return
 	}
+}
+
+func (s *Server) handlePagePanicOnCloseGET(w http.ResponseWriter, r *http.Request) {
+
+	// Mint the per-instance identifier for this page load.
+	// The client echoes this value on action requests and on the SSE
+	// stream connect via the Datapages-Instance header.
+	instanceID, err := s.signStateInstanceID()
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "minting state instance", err)
+		return
+	}
+	w.Header().Set(stateInstanceIDHeader, instanceID)
+	// The page carries an identifier that stands for one tab's state.
+	// A cache that hands it to a second visitor hands over the state.
+	w.Header().Set("Cache-Control", "no-store")
+
+	p := app.PagePanicOnClose{
+		App: s.app,
+	}
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PagePanicOnClose.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('/panicclose/_$/')"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.logErr("rendering PagePanicOnClose", err)
+		return
+	}
+}
+
+func (s *Server) handlePagePanicOnCloseGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !s.verifyStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	if _, live := s.lookupStateFilters(instanceID); !live && !s.stateHasCapacity() {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	var slot *stateSlotStateFilters
+
+	p := app.PagePanicOnClose{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPagePanicOnClose(),
+		func(
+			streamID uint64,
+			sse *datastar.ServerSentEventGenerator,
+		) error {
+			if existing, ok := s.reconnectStateFilters(instanceID, streamID); ok {
+				slot = existing
+			} else {
+				slot = s.allocateStateFilters(instanceID, streamID)
+			}
+			// A stream that gets no slot never opens: the event loop and the
+			// close hook run only once this hook has returned nil,
+			// which is why neither of them checks again.
+			if slot == nil {
+				return errStateAtCapacity
+			}
+			slot.mu.Lock()
+			defer slot.mu.Unlock()
+			return nil
+		},
+		func(streamID uint64) {
+			// Both of these run even when the hook below panics.
+			// Deferred calls unwind in reverse, which puts the release after the unlock,
+			// and the release takes this same mutex.
+			defer s.closeStreamStateFilters(instanceID, streamID)
+			slot.mu.Lock()
+			defer slot.mu.Unlock()
+			if !slot.dead {
+				if err := p.StreamClose(r, streamID, slot.state); err != nil {
+					s.logErr("handling PagePanicOnClose.StreamClose", err)
+				}
+			}
+		},
+		func(
+			streamID uint64,
+			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+		) {
+			for range ch {
+			}
+		})
 }

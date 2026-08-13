@@ -1275,8 +1275,10 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 // In all cases the slot is detached and the grace timer is armed.
 //
 // This closure runs on the watchdog goroutine, outside net/http.
-// A panic here takes the process down, which is why a StreamClose that reads state
-// runs only while the slot is alive.
+// handleStreamRequest recovers a panic raised here, which leaves this one
+// responsible for unlocking the slot and releasing the instance on that path as well.
+// Both are deferred. A StreamClose that reads state still runs only
+// while the slot is alive.
 func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 	suffix := stateSuffix(p.State)
 	w.Line(1, "func(streamID uint64) {")
@@ -1290,7 +1292,12 @@ func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 		return
 	}
 
+	w.Line(2, "// Both of these run even when the hook below panics.")
+	w.Line(2, "// Deferred calls unwind in reverse, which puts the release after the unlock,")
+	w.Line(2, "// and the release takes this same mutex.")
+	w.Linef(2, "defer s.closeStream%s(instanceID, streamID)", suffix)
 	w.Line(2, "slot.mu.Lock()")
+	w.Line(2, "defer slot.mu.Unlock()")
 
 	ind := 2
 	guard := p.StreamClose.InputState != nil
@@ -1331,8 +1338,6 @@ func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 		w.Line(2, "}")
 	}
 
-	w.Line(2, "slot.mu.Unlock()")
-	w.Linef(2, "s.closeStream%s(instanceID, streamID)", suffix)
 	w.Line(1, "},")
 }
 
