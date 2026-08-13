@@ -295,6 +295,12 @@ func (s *Server) writeHTML(
 	if err != nil {
 		return err
 	}
+	// The instance id is a bearer credential: presenting it claims a tab's state.
+	// The script below closes over the id and then drops its own node.
+	// The closure is what the fetch wrapper reads, and no copy is
+	// left in the DOM for a later reader to lift, a session replay
+	// recorder or an error reporter included. The response body still
+	// carries the id, which is what the page's Cache-Control: no-store is for.
 	if id := w.Header().Get(stateInstanceIDHeader); s.verifyStateInstanceID(id) {
 		if _, err := io.WriteString(w, `<script>(() => {
 		let __dpInstance="`); err != nil {
@@ -304,6 +310,7 @@ func (s *Server) writeHTML(
 			return err
 		}
 		if _, err := io.WriteString(w, `"
+		document.currentScript?.remove()
 		const k="datapages-reloaded:"+location.pathname
 		const mark=v => { try { v ? sessionStorage.setItem(k,"1"):sessionStorage.removeItem(k) } catch {} }
 		const marked=() => { try { return !!sessionStorage.getItem(k) } catch { return false } }

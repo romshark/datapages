@@ -500,11 +500,17 @@ balancer that hashes on a client-stable value — the session cookie or the
 `Datapages-Instance` header — satisfies this. A round-robin balancer will
 produce frequent `409` rejections followed by reloads.
 
-**Security**. The instance id is embedded in the HTML response and held in
-an in-memory JavaScript module variable — it is not stored in cookies,
-`localStorage`, `sessionStorage`, or `IndexedDB`. This prevents another tab
-on the same origin from observing another tab's id. The HMAC signature
-rejects forged values.
+**Security**. The instance id arrives in the HTML response and is closed over
+by the inline script that reads it. That script removes itself from the
+document as it runs, which leaves the id in no cookie, in no `localStorage`,
+`sessionStorage` or `IndexedDB`, and in no DOM node a later reader can find.
+Another tab on the same origin cannot observe it. The HMAC signature rejects
+forged values.
+
+That script is inline and runs at parse time, which a module script cannot do
+without missing the requests made before it installs. An application that sets
+a `Content-Security-Policy` needs `script-src 'unsafe-inline'` for it.
+There is no nonce hook.
 
 #### Parameter: `signals struct {...}`
 

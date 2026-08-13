@@ -12,8 +12,8 @@ func stateSuffix(st *model.StateType) string {
 	return st.TypeName
 }
 
-// stateTypeRef returns the *model.StateType for a given type name; the
-// parser guarantees the name is registered when used by a handler.
+// stateTypeRef returns the *model.StateType for a given type name;
+// the parser guarantees the name is registered when used by a handler.
 func stateTypeRef(m *model.App, typeName string) *model.StateType {
 	return m.States[typeName]
 }
@@ -40,8 +40,8 @@ func (w *Writer) writeMintInstanceIDOnGET() {
 
 // writeStateFetchWrapper emits the inline script that replaces globalThis.fetch
 // on a stateful page. The wrapper adds the instance id to every same-origin
-// Datastar request, reloads once when the server rejects the id, and reloads on
-// a back/forward-cache restore. Nothing else on the page sees the id.
+// Datastar request, reloads once when the server rejects the id,
+// and reloads on a back/forward-cache restore. Nothing else on the page sees the id.
 //
 // It is written before the Datastar bundle and runs at parse time.
 // A module script would be deferred and would miss requests made before it installs.
@@ -49,16 +49,28 @@ func (w *Writer) writeMintInstanceIDOnGET() {
 // The id is read back from the response header set by the page GET.
 // It is verified again here: the value reaches the page inside a
 // JavaScript string literal, and only a value the server signed may get there.
+//
+// The script drops its own node once __dpInstance holds the id. The closure is
+// the copy the wrapper needs, which makes the node's text a second copy of
+// a bearer credential, sitting where every later reader of the DOM finds it.
+// Removing it does not clear the id from the response body.
 func (w *Writer) writeStateFetchWrapper() {
 	if !w.usage.stateRuntime {
 		return
 	}
+	w.Line(1, "// The instance id is a bearer credential: presenting it claims a tab's state.")
+	w.Line(1, "// The script below closes over the id and then drops its own node.")
+	w.Line(1, "// The closure is what the fetch wrapper reads, and no copy is")
+	w.Line(1, "// left in the DOM for a later reader to lift, a session replay")
+	w.Line(1, "// recorder or an error reporter included. The response body still")
+	w.Line(1, "// carries the id, which is what the page's Cache-Control: no-store is for.")
 	w.Raw("\tif id := w.Header().Get(stateInstanceIDHeader); s.verifyStateInstanceID(id) {\n")
 	w.Raw("\t\tif _, err := io.WriteString(w, `<script>(() => {\n")
 	w.Raw("\t\tlet __dpInstance=\"`); err != nil { return err }\n")
 	w.Raw("\t\tif _, err := io.WriteString(w, id); err != nil { return err }\n")
 	w.Raw("\t\tif _, err := io.WriteString(w, `\"\n")
-	w.Raw(`		const k="datapages-reloaded:"+location.pathname
+	w.Raw(`		document.currentScript?.remove()
+		const k="datapages-reloaded:"+location.pathname
 		const mark=v => { try { v ? sessionStorage.setItem(k,"1"):sessionStorage.removeItem(k) } catch {} }
 		const marked=() => { try { return !!sessionStorage.getItem(k) } catch { return false } }
 		const o2 = globalThis.fetch.bind(globalThis)
@@ -143,8 +155,8 @@ func (w *Writer) writeLookupSlotOrReject(st *model.StateType) {
 }
 
 // writeLockSlotOrReject emits the code that takes the slot mutex for the rest
-// of the handler. It is emitted once the request has been read in full, since
-// the mutex serializes every handler of one tab, including the SSE event loop:
+// of the handler. It is emitted once the request has been read in full,
+// since the mutex serializes every handler of one tab, including the SSE event loop:
 // a client that trickles its body would otherwise stall its own tab,
 // and events published to a stalled stream are dropped once its buffer fills.
 //
