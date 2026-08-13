@@ -119,8 +119,8 @@ func IsStateIDParam(f *ast.Field) bool {
 	return len(f.Names) > 0 && f.Names[0].Name == "stateID"
 }
 
-// StateParamElementName returns the StateXXX type name referenced by
-// a `state *StateXXX` parameter. Returns "" when the field's type is
+// StateParamElementName returns the state type name referenced by
+// a `state *T` parameter. Returns "" when the field's type is
 // not a plain pointer to an identifier.
 func StateParamElementName(f *ast.Field) string {
 	star, ok := f.Type.(*ast.StarExpr)

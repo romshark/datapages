@@ -887,7 +887,7 @@ func validateAndAttachEventHandler(
 				}
 			case paramvalidation.IsStateParam(f):
 				// Delegated to parseEventHandler which resolves the
-				// pointer element type against declared StateXXX types.
+				// pointer element type against the declared state types.
 			case paramvalidation.IsStateIDParam(f):
 				if !typecheck.IsString(ctx.pkg.TypesInfo.TypeOf(f.Type)) {
 					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), fmt.Errorf(
@@ -2295,7 +2295,7 @@ func isParamConsumed(h *model.Handler, name string) bool {
 	return false
 }
 
-// parseStateParam attempts to match f as a `state *StateXXX` parameter.
+// parseStateParam attempts to match f as a `state *T` parameter.
 // Returns (nil, nil) when the field is not a state parameter at all.
 // Returns (inputState, nil) on success.
 // Returns (nil, error) when the field is a state parameter but the

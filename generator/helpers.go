@@ -318,7 +318,7 @@ type appUsage struct {
 	// httperr: whether any action handler returns an error (needs httperr import).
 	httperr bool
 	// stateRuntime: whether any page (including via embedded abstract pages)
-	// references a StateXXX type; enables the per-page-instance state runtime.
+	// takes state *T; enables the per-page-instance state runtime.
 	stateRuntime bool
 }
 

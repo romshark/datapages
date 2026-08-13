@@ -36,7 +36,7 @@ func handlerArgVar(kind string, skipSSE bool) string {
 		return "e"
 	case model.InputKindState:
 		// The generated handler wrapper exposes the checked-out
-		// *StateXXX as `slot.state`.
+		// *T as `slot.state`.
 		return "slot.state"
 	case model.InputKindStateID:
 		// The derived routing key of the tab, not the instance id.

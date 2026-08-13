@@ -49,8 +49,8 @@ special methods:
 - `OnXXX`: subscribes to events in the SSE listener.
 
 Any action method, `OnXXX`, `StreamOpen`, or `StreamClose` may also take
-`state *StateXXX` to opt the page into per-tab server-side state — see
-[Parameter: `state *StateXXX`](#parameter-state-statexxx).
+`state *T` to opt the page into per-tab server-side state — see
+[Parameter: `state *T`](#parameter-state-t).
 
 `XXX` is just a name placeholder.
 
@@ -338,21 +338,22 @@ func (p PageExample) OnSomethingHappened(
 
 </details>
 
-#### Parameter: `state *StateXXX`
+#### Parameter: `state *T`
 
 ```go
-state *StateXXX
+state *T
 ```
 
 Provides per-page-instance server-side state. A **page instance** corresponds to
-an open browser tab: two tabs on the same page receive independent `*StateXXX`
+an open browser tab: two tabs on the same page receive independent `*T`
 values. State is held in server memory. Handlers on the same instance are
 serialized by a per-instance mutex, so fields may be read and written without
 additional synchronization inside a handler.
 
-A page opts into state by declaring a struct whose type name matches `StateXXX`
-and referencing it via `state *StateXXX` on one or more action methods,
-`OnXXX` handlers, `StreamOpen`, or `StreamClose`:
+A page opts into state by declaring an exported struct and referencing it via
+`state *T` on one or more action methods, `OnXXX` handlers, `StreamOpen`, or
+`StreamClose`. The type may carry any exported name — `StateIndex` and
+`TabContext` are both accepted:
 
 ```go
 type StateIndex struct {
@@ -383,8 +384,8 @@ func (PageIndex) OnSomething(
 
 **Declaration rules**:
 
-- The state type is a named exported struct declared at the source
-  package level.
+- The state type is an exported struct declared at the source package level.
+  Its name is free; the generator derives its runtime symbols from it.
 - The parameter name is `state` and the type is a pointer to a named
   struct. A value-type parameter is a generator error.
 - All handlers on a page, including those inherited from embedded abstract
@@ -410,6 +411,13 @@ then embeds the abstract with a concrete type argument
 at the embed site. This lets a single shared abstract layer cooperate with
 different per-page state shapes without forcing every page to use the same
 state fields.
+
+A generic abstract may embed another one and pass its own type parameter down
+(`type Mid[S any] struct{ Base[S] }`); a page embedding `Mid[UserContext]`
+binds `Base[UserContext]`. An abstract page may be embedded by pointer
+(`*Base[UserContext]`). The type argument itself must not be a pointer:
+handlers take `state *S`, so `Base[*UserContext]` would ask for `**UserContext`
+and is a parser error.
 
 **Parameter: `stateID string`**. A stateful handler may take `stateID
 string` alongside `state *T`. The parameter names the calling tab in message

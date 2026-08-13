@@ -570,12 +570,13 @@ func evSubjPageItem() []string {
 }
 
 // StateConfig configures the per-page-instance server-side state runtime.
-// Pass via WithStateConfig when at least one page declares a StateXXX type.
+// Pass via WithStateConfig when at least one handler takes state *T.
 type StateConfig struct {
 	// HMACKey signs the Datapages-Instance identifier that rides on
 	// request/response headers. Required; must be non-empty.
-	// Rotating the key invalidates all live instances;
-	// clients recover by reloading the page.
+	// Rotating the key invalidates all live instances. A client whose
+	// request is rejected reloads the page once and starts a fresh instance;
+	// what it had not sent is lost.
 	HMACKey []byte
 
 	// GracePeriod is how long a stateful instance survives after its SSE stream closes,
@@ -592,7 +593,7 @@ type StateConfig struct {
 }
 
 // WithStateConfig enables the per-page-instance server-side state runtime.
-// Required when at least one page declares a StateXXX type.
+// Required when at least one handler takes state *T.
 //
 // On multi-server deployments the load balancer MUST route requests for a
 // given client consistently to the same backend (sticky sessions),
@@ -787,7 +788,8 @@ type stateSlotStateIndex struct {
 }
 
 // statePoolStateIndex pools StateIndex values across instance checkouts.
-// Generated Reset-on-checkout zeroes the struct before handing it out.
+// Every value is zeroed before it is handed out, so nothing of the
+// previous tab reaches the next one.
 var statePoolStateIndex = sync.Pool{
 	New: func() any { return new(app.StateIndex) },
 }
@@ -804,7 +806,7 @@ func (s *Server) allocateStateIndex(id string, streamID uint64) *stateSlotStateI
 		return nil
 	}
 	st := statePoolStateIndex.Get().(*app.StateIndex)
-	*st = app.StateIndex{} // total reset; safe reuse across tenants
+	*st = app.StateIndex{} // nothing of the previous tab survives
 	slot := &stateSlotStateIndex{state: st, streamID: streamID}
 	stateInstancesStateIndex.Store(id, slot)
 	return slot
@@ -894,7 +896,8 @@ type stateSlotStateItem struct {
 }
 
 // statePoolStateItem pools StateItem values across instance checkouts.
-// Generated Reset-on-checkout zeroes the struct before handing it out.
+// Every value is zeroed before it is handed out, so nothing of the
+// previous tab reaches the next one.
 var statePoolStateItem = sync.Pool{
 	New: func() any { return new(app.StateItem) },
 }
@@ -911,7 +914,7 @@ func (s *Server) allocateStateItem(id string, streamID uint64) *stateSlotStateIt
 		return nil
 	}
 	st := statePoolStateItem.Get().(*app.StateItem)
-	*st = app.StateItem{} // total reset; safe reuse across tenants
+	*st = app.StateItem{} // nothing of the previous tab survives
 	slot := &stateSlotStateItem{state: st, streamID: streamID}
 	stateInstancesStateItem.Store(id, slot)
 	return slot
@@ -993,31 +996,40 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.mux.HandleFunc(
 		"GET /not-found/{$}",
-		s.handlePageError404GET)
+		s.handlePageError404GET,
+	)
 	s.mux.HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		s.handlePageIndexGET,
+	)
 	s.mux.HandleFunc(
 		"GET /_$/{$}",
-		s.handlePageIndexGETStream)
+		s.handlePageIndexGETStream,
+	)
 	s.mux.HandleFunc(
 		"GET /item/{id}/{$}",
-		s.handlePageItemGET)
+		s.handlePageItemGET,
+	)
 	s.mux.HandleFunc(
 		"GET /item/{id}/_$/{$}",
-		s.handlePageItemGETStream)
+		s.handlePageItemGETStream,
+	)
 	s.mux.HandleFunc(
 		"PUT /{id}/{$}",
-		s.handlePUTEdit)
+		s.handlePUTEdit,
+	)
 	s.mux.HandleFunc(
 		"POST /{$}",
-		s.handlePageIndexPOSTCreate)
+		s.handlePageIndexPOSTCreate,
+	)
 	s.mux.HandleFunc(
 		"POST /filter/{$}",
-		s.handlePageIndexPOSTFilter)
+		s.handlePageIndexPOSTFilter,
+	)
 	s.mux.HandleFunc(
 		"DELETE /item/{id}/{$}",
-		s.handlePageItemDELETEItem)
+		s.handlePageItemDELETEItem,
+	)
 }
 
 func (s *Server) httpErrIntern(
@@ -1202,7 +1214,6 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
-
 		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
 
 		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
@@ -1393,7 +1404,6 @@ func (s *Server) handlePageIndexPOSTFilter(
 }
 
 func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
-
 	var path struct {
 		ID string `path:"id"`
 	}
@@ -1430,7 +1440,6 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
-
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/item/`)
 		_, _ = io.WriteString(w, path.ID)
@@ -1529,7 +1538,6 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 func (s *Server) handlePageItemDELETEItem(
 	w http.ResponseWriter, r *http.Request,
 ) {
-
 	var path struct {
 		ID string `path:"id"`
 	}

@@ -1933,9 +1933,9 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 	}
 
 	// Stateful App-level action: verify the Datapages-Instance header and
-	// look up the slot in the map for the referenced StateXXX type.
+	// look up the slot in the map for the referenced state type.
 	// The action only succeeds when the calling tab is bound to a page that uses
-	// this same StateXXX. Its mutex is taken once the request has been read.
+	// the same state type. Its mutex is taken once the request has been read.
 	if h.InputState != nil {
 		w.writeVerifyInstanceIDHeader()
 		w.writeLookupSlotOrReject(stateTypeRef(m, h.InputState.StateTypeName))

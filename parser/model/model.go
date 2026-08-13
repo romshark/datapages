@@ -27,7 +27,7 @@ type App struct {
 	Events  []*Event
 	Actions []*Handler // App-level POST/PUT/PATCH/DELETE actions.
 
-	// States are all declared StateXXX types in the source package, keyed by type name.
+	// States are all state types the source package declares, keyed by type name.
 	// Pages reference them directly or through embedded abstract pages.
 	// Several pages may share one state type.
 	States map[string]*StateType
@@ -44,7 +44,7 @@ type SessionType struct {
 }
 
 // StateType represents a per-page-instance server-side state type
-// declared as `type StateXXX struct`.
+// declared as an exported struct.
 type StateType struct {
 	Expr     ast.Expr
 	TypeName string
@@ -132,7 +132,7 @@ type Handler struct {
 	InputPath         *Input
 	InputQuery        *Input
 	InputSignals      *Input
-	InputState        *InputState // state *StateXXX; nullable.
+	InputState        *InputState // state *T; nullable.
 	InputStateID      *Input      // stateID string; nullable.
 	InputDispatch     *InputDispatch
 	OrderedInputs     []*Input // Inputs in user-defined order.
@@ -154,10 +154,10 @@ type InputDispatch struct {
 	EventTypeNames []string
 }
 
-// InputState wraps the state input with the referenced StateXXX type name.
+// InputState wraps the state input with the referenced state type name.
 //
 // When IsTypeParam is true, StateTypeName holds the type-parameter name
-// (e.g. "S") of the enclosing abstract page, not a concrete StateXXX.
+// (e.g. "S") of the enclosing abstract page, not a concrete state type.
 // The concrete binding is resolved per-page during embed flattening.
 type InputState struct {
 	*Input
@@ -176,7 +176,7 @@ type EventHandler struct {
 	InputStreamID     *Input
 	InputSessionToken *Input
 	InputSession      *Input
-	InputState        *InputState // state *StateXXX; nullable.
+	InputState        *InputState // state *T; nullable.
 	InputStateID      *Input      // stateID string; nullable.
 	OrderedInputs     []*Input    // Inputs in user-defined order.
 

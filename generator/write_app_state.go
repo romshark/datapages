@@ -306,12 +306,13 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 func (w *Writer) writeStateConfigType() {
 	w.Raw(`
 // StateConfig configures the per-page-instance server-side state runtime.
-// Pass via WithStateConfig when at least one page declares a StateXXX type.
+// Pass via WithStateConfig when at least one handler takes state *T.
 type StateConfig struct {
 	// HMACKey signs the Datapages-Instance identifier that rides on
 	// request/response headers. Required; must be non-empty.
-	// Rotating the key invalidates all live instances;
-	// clients recover by reloading the page.
+	// Rotating the key invalidates all live instances. A client whose
+	// request is rejected reloads the page once and starts a fresh instance;
+	// what it had not sent is lost.
 	HMACKey []byte
 
 	// GracePeriod is how long a stateful instance survives after its SSE stream closes,
@@ -332,7 +333,7 @@ type StateConfig struct {
 func (w *Writer) writeStateConfigOption() {
 	w.Raw(`
 // WithStateConfig enables the per-page-instance server-side state runtime.
-// Required when at least one page declares a StateXXX type.
+// Required when at least one handler takes state *T.
 //
 // On multi-server deployments the load balancer MUST route requests for a
 // given client consistently to the same backend (sticky sessions),
@@ -477,7 +478,8 @@ func (w *Writer) writeStateSlot(st *model.StateType, appPkg string) {
 
 	w.Raw("\n")
 	w.Linef(0, "// %s pools %s values across instance checkouts.", pool, stateType)
-	w.Linef(0, "// Generated Reset-on-checkout zeroes the struct before handing it out.")
+	w.Line(0, "// Every value is zeroed before it is handed out, so nothing of the")
+	w.Line(0, "// previous tab reaches the next one.")
 	w.Linef(0, "var %s = sync.Pool{", pool)
 	w.Linef(1, "New: func() any { return new(%s.%s) },", appPkg, stateType)
 	w.Line(0, "}")
@@ -514,7 +516,7 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	w.Line(2, "return nil")
 	w.Line(1, "}")
 	w.Linef(1, "st := %s.Get().(*%s.%s)", pool, appPkg, stateType)
-	w.Linef(1, "*st = %s.%s{} // total reset; safe reuse across tenants", appPkg, stateType)
+	w.Linef(1, "*st = %s.%s{} // nothing of the previous tab survives", appPkg, stateType)
 	w.Linef(1, "slot := &%s{state: st, streamID: streamID}", slot)
 	w.Linef(1, "%s.Store(id, slot)", instances)
 	w.Line(1, "return slot")

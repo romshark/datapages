@@ -526,12 +526,13 @@ func evSubjPagePointer(stateID string) []string {
 }
 
 // StateConfig configures the per-page-instance server-side state runtime.
-// Pass via WithStateConfig when at least one page declares a StateXXX type.
+// Pass via WithStateConfig when at least one handler takes state *T.
 type StateConfig struct {
 	// HMACKey signs the Datapages-Instance identifier that rides on
 	// request/response headers. Required; must be non-empty.
-	// Rotating the key invalidates all live instances;
-	// clients recover by reloading the page.
+	// Rotating the key invalidates all live instances. A client whose
+	// request is rejected reloads the page once and starts a fresh instance;
+	// what it had not sent is lost.
 	HMACKey []byte
 
 	// GracePeriod is how long a stateful instance survives after its SSE stream closes,
@@ -548,7 +549,7 @@ type StateConfig struct {
 }
 
 // WithStateConfig enables the per-page-instance server-side state runtime.
-// Required when at least one page declares a StateXXX type.
+// Required when at least one handler takes state *T.
 //
 // On multi-server deployments the load balancer MUST route requests for a
 // given client consistently to the same backend (sticky sessions),
@@ -743,7 +744,8 @@ type stateSlotStateCounter struct {
 }
 
 // statePoolStateCounter pools StateCounter values across instance checkouts.
-// Generated Reset-on-checkout zeroes the struct before handing it out.
+// Every value is zeroed before it is handed out, so nothing of the
+// previous tab reaches the next one.
 var statePoolStateCounter = sync.Pool{
 	New: func() any { return new(app.StateCounter) },
 }
@@ -760,7 +762,7 @@ func (s *Server) allocateStateCounter(id string, streamID uint64) *stateSlotStat
 		return nil
 	}
 	st := statePoolStateCounter.Get().(*app.StateCounter)
-	*st = app.StateCounter{} // total reset; safe reuse across tenants
+	*st = app.StateCounter{} // nothing of the previous tab survives
 	slot := &stateSlotStateCounter{state: st, streamID: streamID}
 	stateInstancesStateCounter.Store(id, slot)
 	return slot
@@ -850,7 +852,8 @@ type stateSlotStateLabel struct {
 }
 
 // statePoolStateLabel pools StateLabel values across instance checkouts.
-// Generated Reset-on-checkout zeroes the struct before handing it out.
+// Every value is zeroed before it is handed out, so nothing of the
+// previous tab reaches the next one.
 var statePoolStateLabel = sync.Pool{
 	New: func() any { return new(app.StateLabel) },
 }
@@ -867,7 +870,7 @@ func (s *Server) allocateStateLabel(id string, streamID uint64) *stateSlotStateL
 		return nil
 	}
 	st := statePoolStateLabel.Get().(*app.StateLabel)
-	*st = app.StateLabel{} // total reset; safe reuse across tenants
+	*st = app.StateLabel{} // nothing of the previous tab survives
 	slot := &stateSlotStateLabel{state: st, streamID: streamID}
 	stateInstancesStateLabel.Store(id, slot)
 	return slot
@@ -957,7 +960,8 @@ type stateSlotStateNested struct {
 }
 
 // statePoolStateNested pools StateNested values across instance checkouts.
-// Generated Reset-on-checkout zeroes the struct before handing it out.
+// Every value is zeroed before it is handed out, so nothing of the
+// previous tab reaches the next one.
 var statePoolStateNested = sync.Pool{
 	New: func() any { return new(app.StateNested) },
 }
@@ -974,7 +978,7 @@ func (s *Server) allocateStateNested(id string, streamID uint64) *stateSlotState
 		return nil
 	}
 	st := statePoolStateNested.Get().(*app.StateNested)
-	*st = app.StateNested{} // total reset; safe reuse across tenants
+	*st = app.StateNested{} // nothing of the previous tab survives
 	slot := &stateSlotStateNested{state: st, streamID: streamID}
 	stateInstancesStateNested.Store(id, slot)
 	return slot
@@ -1064,7 +1068,8 @@ type stateSlotStatePointer struct {
 }
 
 // statePoolStatePointer pools StatePointer values across instance checkouts.
-// Generated Reset-on-checkout zeroes the struct before handing it out.
+// Every value is zeroed before it is handed out, so nothing of the
+// previous tab reaches the next one.
 var statePoolStatePointer = sync.Pool{
 	New: func() any { return new(app.StatePointer) },
 }
@@ -1081,7 +1086,7 @@ func (s *Server) allocateStatePointer(id string, streamID uint64) *stateSlotStat
 		return nil
 	}
 	st := statePoolStatePointer.Get().(*app.StatePointer)
-	*st = app.StatePointer{} // total reset; safe reuse across tenants
+	*st = app.StatePointer{} // nothing of the previous tab survives
 	slot := &stateSlotStatePointer{state: st, streamID: streamID}
 	stateInstancesStatePointer.Store(id, slot)
 	return slot

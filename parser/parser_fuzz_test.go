@@ -9,7 +9,8 @@ import (
 	"github.com/romshark/datapages/parser"
 )
 
-// FuzzParser tests the parser with randomly generated Go code to catch panics and edge cases.
+// FuzzParser tests the parser with randomly generated Go code to
+// catch panics and edge cases.
 // This fuzzer creates a minimal valid Go module with fuzzed handler signatures.
 func FuzzParser(f *testing.F) {
 	// Seed corpus with known interesting cases

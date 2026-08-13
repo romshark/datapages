@@ -429,8 +429,8 @@ type EventDirectMessage struct {
 
 ### When to use stream hooks
 
-- **Per-tab server-side state.** Declare a `StateXXX` struct and take
-  `state *StateXXX` in `StreamOpen`, actions, and `OnXXX` handlers. The
+- **Per-tab server-side state.** Declare an exported struct and take
+  `state *T` in `StreamOpen`, actions, and `OnXXX` handlers. The
   generator allocates one state per tab from a pool, serializes handler calls
   with a per-instance mutex, and returns state to the pool after
   `StreamClose` + a grace period. No manual tab-id signing or map bookkeeping.
@@ -439,8 +439,8 @@ type EventDirectMessage struct {
   dispatch events and event handlers (queries) render the updated UI. The
   event handler needs context about *which* tab it is rendering for (e.g.
   which item is being viewed, which filters are active). Capture that context
-  into `state *StateXXX` inside `StreamOpen`, then read it from the event
-  handler via the same `state` parameter.
+  into `state *T` inside `StreamOpen`, then read it from the event handler
+  via the same `state` parameter.
 - **Resource lifecycle.** Acquire per-stream resources (subscriptions,
   connections, counters) in `StreamOpen` and release them in `StreamClose`.
 
@@ -557,7 +557,11 @@ func (PageIndex) OnItemsChanged(
 - A generic abstract page may declare `state *S` on its handlers where
   `S` is a type parameter; concrete pages then embed `Base[ConcreteState]`
   and the parser substitutes `S` at the embed site, letting one shared
-  abstract layer compose with different per-page state shapes.
+  abstract layer compose with different per-page state shapes. A generic
+  abstract may embed another one and pass its parameter down
+  (`type Mid[S any] struct{ Base[S] }`), and either may be embedded by
+  pointer (`*Base[ConcreteState]`). The type argument itself must not be a
+  pointer: handlers take `state *S`, so `Base[*ConcreteState]` is an error.
 - A stateful handler may take `stateID string` alongside `state *T`.
   It names the calling tab in message broker subjects. The value is derived
   from the instance id and grants nothing on its own, which keeps the id
@@ -570,15 +574,17 @@ func (PageIndex) OnItemsChanged(
 
 **What the generator does for you**:
 
-- Pools state values, zero-resets on checkout.
+- Pools state values, zeroing each one before it is handed out.
 - Signs an instance identifier on `GET` and threads it through the browser
   via a `Datapages-Instance` header (no cookies, no storage — in-memory only
   so other tabs on the same origin cannot impersonate).
 - Serializes every handler call on the same instance under a per-instance
   mutex, so you never need to lock inside a handler.
 - Returns `409 Conflict` with `Datapages-Retry: reconnect` if an action
-  arrives before the SSE stream opens; the client shim retries after
-  reconnecting.
+  arrives before the SSE stream opens, or after the tab's state was
+  released. The client shim reloads the page once per document on such a
+  response, which reconnects the stream and mints a fresh instance. It does
+  not retry the action, so unsaved form input is lost.
 - Keeps the state alive for a grace period (default 30s) after `StreamClose`
   so transient network blips don't wipe per-tab state.
 

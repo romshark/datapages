@@ -752,12 +752,13 @@ func (s *Server) auth(
 }
 
 // StateConfig configures the per-page-instance server-side state runtime.
-// Pass via WithStateConfig when at least one page declares a StateXXX type.
+// Pass via WithStateConfig when at least one handler takes state *T.
 type StateConfig struct {
 	// HMACKey signs the Datapages-Instance identifier that rides on
 	// request/response headers. Required; must be non-empty.
-	// Rotating the key invalidates all live instances;
-	// clients recover by reloading the page.
+	// Rotating the key invalidates all live instances. A client whose
+	// request is rejected reloads the page once and starts a fresh instance;
+	// what it had not sent is lost.
 	HMACKey []byte
 
 	// GracePeriod is how long a stateful instance survives after its SSE stream closes,
@@ -774,7 +775,7 @@ type StateConfig struct {
 }
 
 // WithStateConfig enables the per-page-instance server-side state runtime.
-// Required when at least one page declares a StateXXX type.
+// Required when at least one handler takes state *T.
 //
 // On multi-server deployments the load balancer MUST route requests for a
 // given client consistently to the same backend (sticky sessions),
@@ -969,7 +970,8 @@ type stateSlotStateTab struct {
 }
 
 // statePoolStateTab pools StateTab values across instance checkouts.
-// Generated Reset-on-checkout zeroes the struct before handing it out.
+// Every value is zeroed before it is handed out, so nothing of the
+// previous tab reaches the next one.
 var statePoolStateTab = sync.Pool{
 	New: func() any { return new(app.StateTab) },
 }
@@ -986,7 +988,7 @@ func (s *Server) allocateStateTab(id string, streamID uint64) *stateSlotStateTab
 		return nil
 	}
 	st := statePoolStateTab.Get().(*app.StateTab)
-	*st = app.StateTab{} // total reset; safe reuse across tenants
+	*st = app.StateTab{} // nothing of the previous tab survives
 	slot := &stateSlotStateTab{state: st, streamID: streamID}
 	stateInstancesStateTab.Store(id, slot)
 	return slot

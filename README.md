@@ -16,8 +16,8 @@ for building dynamic, server-rendered web applications in pure Go.
 
 **Focus on your business logic, generate the boilerplate**
 Datapages parses your app source package and generates all the wiring.
-Routing, sessions and authentication, SSE streams, CSRF protection,
-type-safe URL and action helpers, Prometheus metrics -
+Routing, sessions and authentication, SSE streams, per-tab server-side state,
+CSRF protection, type-safe URL and action helpers, Prometheus metrics -
 so your application code stays clean and takes full advantage of Go's strong
 static typing and high performance.
 
@@ -116,6 +116,44 @@ Prometheus.
 The optional `watch` section configures the development server
 (host, proxy timeout, debounce, TLS, compiler flags, logging, custom watchers,
 etc.).
+
+## Per-tab state
+
+A handler that declares `state *T` is given a value that belongs to the browser
+tab the request came from. Two tabs of the same page hold two values, and
+handlers of one tab are serialized against each other, so a handler reads and
+writes its fields without locking:
+
+```go
+// TabFilters is the per-tab state of PageIndex.
+type TabFilters struct {
+	Search string
+	Sort   string
+}
+
+// POSTFilter is /filter
+func (p PageIndex) POSTFilter(
+	r *http.Request,
+	sse *datastar.ServerSentEventGenerator,
+	state *TabFilters,
+	signals struct {
+		Search string `json:"search"`
+	},
+) error {
+	state.Search = signals.Search
+	return sse.PatchElementTempl(results(p.App.Search(state)))
+}
+```
+
+The state lives in server memory for as long as the tab holds its SSE stream,
+plus a grace period that survives a network blip. The tab is named by a signed
+`Datapages-Instance` header the page load mints; nothing is stored in the
+browser. A page that takes state declares at least one of `StreamOpen`,
+`StreamClose` or an `OnXXX` handler, and the server is given a
+`WithStateConfig`.
+
+See [`state *T`](SPECIFICATION.md#parameter-state-t) for the declaration rules,
+the configuration, and what a client is told when its state is gone.
 
 ## Specification
 

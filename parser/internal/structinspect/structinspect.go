@@ -66,7 +66,7 @@ func embeddedBaseIdent(expr ast.Expr) *ast.Ident {
 }
 
 // EmbeddedTypeNames returns the names of all embedded types
-// in a struct. Generic instantiations (e.g. Base[StateXXX]) are
+// in a struct. Generic instantiations (e.g. Base[TabState]) are
 // collapsed to their base type name (Base).
 func EmbeddedTypeNames(st *ast.StructType) []string {
 	var out []string
