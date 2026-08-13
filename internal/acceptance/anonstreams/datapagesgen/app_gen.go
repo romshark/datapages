@@ -454,6 +454,14 @@ func (s *Server) handleStreamRequest(
 		if err := s.sessionManager.NotifyClosed(ctx, sessKey, func() {
 			close(sessionClosed)
 		}); err != nil {
+			// The open hook already ran. This stream holds whatever it took:
+			// a subscription, and on a stateful page an instance.
+			// The watchdog below is what usually gives those back and it does
+			// not exist yet.
+			sub.Close()
+			if onClose != nil {
+				onClose(streamID)
+			}
 			s.httpErrIntern(w, r, sse, "setting up session closure watcher", err)
 			return
 		}
@@ -1483,9 +1491,22 @@ func (s *Server) handlePageTabsGETStream(w http.ResponseWriter, r *http.Request)
 			if slot == nil {
 				return errStateAtCapacity
 			}
+			// The close hook is wired up only once this one has returned nil.
+			// An open that ends any other way hands the instance to the grace
+			// timer here, since nothing else is left to give it back.
+			opened := false
+			defer func() {
+				if !opened {
+					s.closeStreamStateTab(instanceID, streamID)
+				}
+			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, slot.state)
+			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+				return err
+			}
+			opened = true
+			return nil
 		},
 		func(streamID uint64) {
 			s.closeStreamStateTab(instanceID, streamID)
@@ -1579,9 +1600,22 @@ func (s *Server) handlePageTabsGETStreamAnon(w http.ResponseWriter, r *http.Requ
 			if slot == nil {
 				return errStateAtCapacity
 			}
+			// The close hook is wired up only once this one has returned nil.
+			// An open that ends any other way hands the instance to the grace
+			// timer here, since nothing else is left to give it back.
+			opened := false
+			defer func() {
+				if !opened {
+					s.closeStreamStateTab(instanceID, streamID)
+				}
+			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, slot.state)
+			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+				return err
+			}
+			opened = true
+			return nil
 		},
 		func(streamID uint64) {
 			s.closeStreamStateTab(instanceID, streamID)

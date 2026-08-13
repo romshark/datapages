@@ -500,6 +500,10 @@ func MessageBrokerStreamSubjects() []string {
 	}
 }
 
+func evSubjPageFailOpen() []string {
+	return []string{}
+}
+
 func evSubjPageIndex(stateID string) []string {
 	return []string{
 		EvSubjPrefFiltersUpdated + stateID,
@@ -824,6 +828,12 @@ func (s *Server) closeStreamStateFilters(id string, streamID uint64) {
 func setupHandlers(s *Server) {
 	// Pages
 	s.mux.HandleFunc(
+		"GET /failopen/{$}",
+		s.handlePageFailOpenGET)
+	s.mux.HandleFunc(
+		"GET /failopen/_$/{$}",
+		s.handlePageFailOpenGETStream)
+	s.mux.HandleFunc(
 		"GET /",
 		s.handlePageIndexGET)
 	s.mux.HandleFunc(
@@ -851,6 +861,116 @@ func (s *Server) httpErrIntern(
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
+}
+
+func (s *Server) handlePageFailOpenGET(w http.ResponseWriter, r *http.Request) {
+
+	// Mint the per-instance identifier for this page load.
+	// The client echoes this value on action requests and on the SSE
+	// stream connect via the Datapages-Instance header.
+	instanceID, err := s.signStateInstanceID()
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "minting state instance", err)
+		return
+	}
+	w.Header().Set(stateInstanceIDHeader, instanceID)
+	// The page carries an identifier that stands for one tab's state.
+	// A cache that hands it to a second visitor hands over the state.
+	w.Header().Set("Cache-Control", "no-store")
+
+	p := app.PageFailOpen{
+		App: s.app,
+	}
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageFailOpen.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('/failopen/_$/')"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.logErr("rendering PageFailOpen", err)
+		return
+	}
+}
+
+func (s *Server) handlePageFailOpenGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !s.verifyStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	if _, live := s.lookupStateFilters(instanceID); !live && !s.stateHasCapacity() {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	var slot *stateSlotStateFilters
+
+	p := app.PageFailOpen{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPageFailOpen(),
+		func(
+			streamID uint64,
+			sse *datastar.ServerSentEventGenerator,
+		) error {
+			if existing, ok := s.reconnectStateFilters(instanceID, streamID); ok {
+				slot = existing
+			} else {
+				slot = s.allocateStateFilters(instanceID, streamID)
+			}
+			// A stream that gets no slot never opens: the event loop and the
+			// close hook run only once this hook has returned nil,
+			// which is why neither of them checks again.
+			if slot == nil {
+				return errStateAtCapacity
+			}
+			// The close hook is wired up only once this one has returned nil.
+			// An open that ends any other way hands the instance to the grace
+			// timer here, since nothing else is left to give it back.
+			opened := false
+			defer func() {
+				if !opened {
+					s.closeStreamStateFilters(instanceID, streamID)
+				}
+			}()
+			slot.mu.Lock()
+			defer slot.mu.Unlock()
+			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+				return err
+			}
+			opened = true
+			return nil
+		},
+		func(streamID uint64) {
+			s.closeStreamStateFilters(instanceID, streamID)
+		},
+		func(
+			streamID uint64,
+			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+		) {
+			for range ch {
+			}
+		})
 }
 
 func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
@@ -939,9 +1059,22 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			if slot == nil {
 				return errStateAtCapacity
 			}
+			// The close hook is wired up only once this one has returned nil.
+			// An open that ends any other way hands the instance to the grace
+			// timer here, since nothing else is left to give it back.
+			opened := false
+			defer func() {
+				if !opened {
+					s.closeStreamStateFilters(instanceID, streamID)
+				}
+			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, slot.state)
+			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+				return err
+			}
+			opened = true
+			return nil
 		},
 		func(streamID uint64) {
 			s.closeStreamStateFilters(instanceID, streamID)

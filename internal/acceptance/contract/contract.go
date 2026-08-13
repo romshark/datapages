@@ -217,8 +217,8 @@ func (c Case) testActionOptions(t *testing.T) {
 	}
 
 	// The options are one JavaScript object literal.
-	open := strings.Index(call, ", {")
-	if open < 0 {
+	found := strings.Contains(call, ", {")
+	if !found {
 		t.Fatalf("the call carries no options object: %s", call)
 	}
 	if !strings.HasSuffix(call, "})") {

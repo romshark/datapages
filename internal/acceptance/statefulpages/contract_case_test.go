@@ -39,7 +39,7 @@ func TestContract(t *testing.T) {
 		StreamSubjects: datapagesgen.MessageBrokerStreamSubjects,
 		HrefExternal:   href.External,
 		HrefSetLogger:  href.SetLogger,
-		Links:          []string{href.PageIndex()},
+		Links:          []string{href.PageIndex(), href.PageFailOpen()},
 		Actions:        []string{action.POSTPageIndexUpdate()},
 		SignalActions:  []string{action.POSTPageIndexUpdate()},
 		// optionedAction carries every option at once.

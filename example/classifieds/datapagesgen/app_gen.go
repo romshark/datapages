@@ -754,6 +754,14 @@ func (s *Server) handleStreamRequest(
 		if err := s.sessionManager.NotifyClosed(ctx, sessKey, func() {
 			close(sessionClosed)
 		}); err != nil {
+			// The open hook already ran. This stream holds whatever it took:
+			// a subscription, and on a stateful page an instance.
+			// The watchdog below is what usually gives those back and it does
+			// not exist yet.
+			sub.Close()
+			if onClose != nil {
+				onClose(streamID)
+			}
 			s.httpErrIntern(w, r, sse, "setting up session closure watcher", err)
 			return
 		}

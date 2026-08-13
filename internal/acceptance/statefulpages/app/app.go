@@ -4,6 +4,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -69,6 +70,28 @@ func (p PageIndex) OnFiltersUpdated(
 ) error {
 	state.Deliveries++
 	return sse.PatchElementTempl(templ.Raw(status(state)))
+}
+
+// ErrStreamOpen is what PageFailOpen.StreamOpen answers with, every time.
+var ErrStreamOpen = errors.New("this stream never opens")
+
+// PageFailOpen is /failopen
+//
+// Its stream never opens. The instance is reserved before the open hook runs
+// and the close hook that gives it back is wired up only after the hook
+// succeeded, which leaves the failed open itself to release what it took.
+type PageFailOpen struct{ App *App }
+
+func (p PageFailOpen) GET(r *http.Request) (body templ.Component, err error) {
+	return templ.Raw(`<div id="status">failopen</div>`), nil
+}
+
+func (p PageFailOpen) StreamOpen(
+	r *http.Request,
+	streamID uint64,
+	state *StateFilters,
+) error {
+	return ErrStreamOpen
 }
 
 func status(state *StateFilters) string {

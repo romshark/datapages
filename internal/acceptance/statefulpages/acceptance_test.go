@@ -20,8 +20,10 @@ import (
 )
 
 const (
-	pathStream = "/_$/"
-	pathAction = "/update/"
+	pathStream         = "/_$/"
+	pathAction         = "/update/"
+	pathFailOpen       = "/failopen/"
+	pathFailOpenStream = "/failopen/_$/"
 )
 
 func newClient(t *testing.T) *client.Client {
@@ -208,6 +210,58 @@ func TestInstanceCap(t *testing.T) {
 	defer func() { _ = refused.Body.Close() }()
 	require.NotEmpty(t, refused.Header.Get("Retry-After"),
 		"a refused stream does not say when to come back")
+}
+
+// TestFailedOpenReleasesInstance covers a stream whose open hook fails after
+// its instance was already reserved.
+//
+// The close hook that gives an instance back is wired up only once the open
+// hook has succeeded, which leaves an open that fails to release what it took
+// by itself. An instance it kept instead would be held for the life of the
+// process, and enough of those leave no tab of any stateful page able to open
+// a stream again.
+// The instance count is process-wide, which leaves the capacity of a single
+// server no way to observe one instance. What a released instance does show is this:
+// the id that named it stops being answered. The count drops in the same place the
+// id is dropped. An id the server still answers is an instance it still holds.
+func TestFailedOpenReleasesInstance(t *testing.T) {
+	const grace = 50 * time.Millisecond
+
+	key := sha256.Sum256([]byte("acceptance"))
+	c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8),
+		datapagesgen.WithStateConfig(datapagesgen.StateConfig{
+			HMACKey:     key[:],
+			GracePeriod: grace,
+		})))
+
+	page := c.Get(t, pathFailOpen)
+	require.Equal(t, http.StatusOK, page.Status, "GET %s", pathFailOpen)
+	id := page.Instance()
+	require.NotEmpty(t, id, "GET %s mints no instance id", pathFailOpen)
+
+	// The instance is reserved before the open hook runs.
+	// The stream is answered 200 regardless:
+	// the SSE generator commits the status line first,
+	// which leaves the hook nowhere to report the failure.
+	req := c.Request(t, http.MethodGet, pathFailOpenStream, "")
+	req.Header.Set("Datapages-Instance", id)
+	require.Equal(t, http.StatusOK, c.Do(t, req).Status,
+		"the stream of a page whose open fails")
+
+	// PageIndex holds the same state type. Its action is what asks this
+	// server whether the instance of the failed open is still there.
+	require.True(t, client.WaitFor(func() bool {
+		return postUpdate(t, c, id, "x").Status == http.StatusConflict
+	}, 20*grace), "the instance of a failed open outlives its grace period: "+
+		"the close hook that gives one back is wired up only for an open that "+
+		"succeeded, and nothing else releases it")
+
+	// Nothing else was disturbed:
+	// a page whose open succeeds still opens and still holds state.
+	tab := c.OpenTab(t, "/", pathStream)
+	require.Equal(t, http.StatusOK, update(t, tab, "after-failure").Status)
+	require.True(t, tab.Saw("deliveries:1 filter:after-failure"),
+		"a tab opened after a failed open holds no state")
 }
 
 // postUpdate sends the action as the tab named by instanceID,

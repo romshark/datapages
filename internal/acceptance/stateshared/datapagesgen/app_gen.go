@@ -1003,9 +1003,22 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			if slot == nil {
 				return errStateAtCapacity
 			}
+			// The close hook is wired up only once this one has returned nil.
+			// An open that ends any other way hands the instance to the grace
+			// timer here, since nothing else is left to give it back.
+			opened := false
+			defer func() {
+				if !opened {
+					s.closeStreamTabContext(instanceID, streamID)
+				}
+			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, slot.state)
+			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+				return err
+			}
+			opened = true
+			return nil
 		},
 		func(streamID uint64) {
 			s.closeStreamTabContext(instanceID, streamID)
@@ -1188,9 +1201,22 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 			if slot == nil {
 				return errStateAtCapacity
 			}
+			// The close hook is wired up only once this one has returned nil.
+			// An open that ends any other way hands the instance to the grace
+			// timer here, since nothing else is left to give it back.
+			opened := false
+			defer func() {
+				if !opened {
+					s.closeStreamTabContext(instanceID, streamID)
+				}
+			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, slot.state)
+			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+				return err
+			}
+			opened = true
+			return nil
 		},
 		func(streamID uint64) {
 			s.closeStreamTabContext(instanceID, streamID)

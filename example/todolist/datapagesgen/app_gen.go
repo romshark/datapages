@@ -996,40 +996,31 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.mux.HandleFunc(
 		"GET /not-found/{$}",
-		s.handlePageError404GET,
-	)
+		s.handlePageError404GET)
 	s.mux.HandleFunc(
 		"GET /",
-		s.handlePageIndexGET,
-	)
+		s.handlePageIndexGET)
 	s.mux.HandleFunc(
 		"GET /_$/{$}",
-		s.handlePageIndexGETStream,
-	)
+		s.handlePageIndexGETStream)
 	s.mux.HandleFunc(
 		"GET /item/{id}/{$}",
-		s.handlePageItemGET,
-	)
+		s.handlePageItemGET)
 	s.mux.HandleFunc(
 		"GET /item/{id}/_$/{$}",
-		s.handlePageItemGETStream,
-	)
+		s.handlePageItemGETStream)
 	s.mux.HandleFunc(
 		"PUT /{id}/{$}",
-		s.handlePUTEdit,
-	)
+		s.handlePUTEdit)
 	s.mux.HandleFunc(
 		"POST /{$}",
-		s.handlePageIndexPOSTCreate,
-	)
+		s.handlePageIndexPOSTCreate)
 	s.mux.HandleFunc(
 		"POST /filter/{$}",
-		s.handlePageIndexPOSTFilter,
-	)
+		s.handlePageIndexPOSTFilter)
 	s.mux.HandleFunc(
 		"DELETE /item/{id}/{$}",
-		s.handlePageItemDELETEItem,
-	)
+		s.handlePageItemDELETEItem)
 }
 
 func (s *Server) httpErrIntern(
@@ -1214,6 +1205,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
 
 		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
@@ -1282,9 +1274,22 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			if slot == nil {
 				return errStateAtCapacity
 			}
+			// The close hook is wired up only once this one has returned nil.
+			// An open that ends any other way hands the instance to the grace
+			// timer here, since nothing else is left to give it back.
+			opened := false
+			defer func() {
+				if !opened {
+					s.closeStreamStateIndex(instanceID, streamID)
+				}
+			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, slot.state, signals)
+			if err := p.StreamOpen(r, streamID, slot.state, signals); err != nil {
+				return err
+			}
+			opened = true
+			return nil
 		},
 		func(streamID uint64) {
 			s.closeStreamStateIndex(instanceID, streamID)
@@ -1404,6 +1409,7 @@ func (s *Server) handlePageIndexPOSTFilter(
 }
 
 func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
+
 	var path struct {
 		ID string `path:"id"`
 	}
@@ -1440,6 +1446,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/item/`)
 		_, _ = io.WriteString(w, path.ID)
@@ -1502,9 +1509,22 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 			if slot == nil {
 				return errStateAtCapacity
 			}
+			// The close hook is wired up only once this one has returned nil.
+			// An open that ends any other way hands the instance to the grace
+			// timer here, since nothing else is left to give it back.
+			opened := false
+			defer func() {
+				if !opened {
+					s.closeStreamStateItem(instanceID, streamID)
+				}
+			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, slot.state, signals)
+			if err := p.StreamOpen(r, streamID, slot.state, signals); err != nil {
+				return err
+			}
+			opened = true
+			return nil
 		},
 		func(streamID uint64) {
 			s.closeStreamStateItem(instanceID, streamID)
@@ -1538,6 +1558,7 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 func (s *Server) handlePageItemDELETEItem(
 	w http.ResponseWriter, r *http.Request,
 ) {
+
 	var path struct {
 		ID string `path:"id"`
 	}

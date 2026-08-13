@@ -591,8 +591,7 @@ func embedFieldType(t types.Type, name string) (types.Type, bool) {
 	if !ok {
 		return nil, false
 	}
-	for i := range st.NumFields() {
-		f := st.Field(i)
+	for f := range st.Fields() {
 		if f.Embedded() && f.Name() == name {
 			return f.Type(), true
 		}

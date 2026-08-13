@@ -36,5 +36,8 @@ func External(url string) string {
 	return url
 }
 
+// PageFailOpen references /failopen/{$}
+func PageFailOpen() string { return "/failopen/" }
+
 // PageIndex references /{$}
 func PageIndex() string { return "/" }

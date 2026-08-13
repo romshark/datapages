@@ -1162,6 +1162,10 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 // The closure reconnects to an existing slot (grace-period reuse)
 // or allocates a fresh slot from the pool, stashes it in the outer
 // `slot` variable, and — if the user defined StreamOpen — calls it under the slot mutex.
+//
+// The instance is reserved before the user hook runs, and the close hook that
+// gives it back is wired up only once this one has returned nil. An open that
+// ends any other way therefore releases what it took, here, or nothing ever does.
 func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 	suffix := stateSuffix(p.State)
 	w.Line(1, "func(")
@@ -1179,19 +1183,36 @@ func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 	w.Line(2, "if slot == nil {")
 	w.Line(3, "return errStateAtCapacity")
 	w.Line(2, "}")
-	w.Line(2, "slot.mu.Lock()")
-	w.Line(2, "defer slot.mu.Unlock()")
 	if p.StreamOpen == nil {
+		// Nothing between the allocation and the return can fail,
+		// so there is nothing to give back.
+		w.Line(2, "slot.mu.Lock()")
+		w.Line(2, "defer slot.mu.Unlock()")
 		w.Line(2, "return nil")
 		w.Line(1, "},")
 		return
 	}
+	// The hook the user wrote can return an error or panic. Either way this
+	// stream never opens and never closes, which leaves the grace timer as the
+	// only thing that can return the instance. Only this defer arms it.
+	// It runs after the unlock below, which the mutex the timer takes needs.
+	w.Line(2, "// The close hook is wired up only once this one has returned nil.")
+	w.Line(2, "// An open that ends any other way hands the instance to the grace")
+	w.Line(2, "// timer here, since nothing else is left to give it back.")
+	w.Line(2, "opened := false")
+	w.Line(2, "defer func() {")
+	w.Line(3, "if !opened {")
+	w.Linef(4, "s.closeStream%s(instanceID, streamID)", suffix)
+	w.Line(3, "}")
+	w.Line(2, "}()")
+	w.Line(2, "slot.mu.Lock()")
+	w.Line(2, "defer slot.mu.Unlock()")
 	dispatchVar := ""
 	if p.StreamOpen.InputDispatch != nil {
 		dispatchVar = "dispatchOpen"
 	}
 	if p.StreamOpen.OutputErr != nil {
-		w.Raw("\t\treturn ")
+		w.Raw("\t\tif err := ")
 	} else {
 		w.Raw("\t\t")
 	}
@@ -1199,10 +1220,15 @@ func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 		"p", "StreamOpen",
 		handlerInputArgsWithDispatchVar(p.StreamOpen, false, dispatchVar),
 	)
-	w.Byte('\n')
-	if p.StreamOpen.OutputErr == nil {
-		w.Line(2, "return nil")
+	if p.StreamOpen.OutputErr != nil {
+		w.Raw("; err != nil {\n")
+		w.Line(3, "return err")
+		w.Line(2, "}")
+	} else {
+		w.Byte('\n')
 	}
+	w.Line(2, "opened = true")
+	w.Line(2, "return nil")
 	w.Line(1, "},")
 }
 

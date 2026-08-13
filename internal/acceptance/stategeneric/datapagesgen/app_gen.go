@@ -1319,9 +1319,22 @@ func (s *Server) handlePageCountGETStream(w http.ResponseWriter, r *http.Request
 			if slot == nil {
 				return errStateAtCapacity
 			}
+			// The close hook is wired up only once this one has returned nil.
+			// An open that ends any other way hands the instance to the grace
+			// timer here, since nothing else is left to give it back.
+			opened := false
+			defer func() {
+				if !opened {
+					s.closeStreamStateCounter(instanceID, streamID)
+				}
+			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, slot.state)
+			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+				return err
+			}
+			opened = true
+			return nil
 		},
 		func(streamID uint64) {
 			s.closeStreamStateCounter(instanceID, streamID)
@@ -1493,9 +1506,22 @@ func (s *Server) handlePageEmbedOnlyGETStream(w http.ResponseWriter, r *http.Req
 			if slot == nil {
 				return errStateAtCapacity
 			}
+			// The close hook is wired up only once this one has returned nil.
+			// An open that ends any other way hands the instance to the grace
+			// timer here, since nothing else is left to give it back.
+			opened := false
+			defer func() {
+				if !opened {
+					s.closeStreamStateLabel(instanceID, streamID)
+				}
+			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, slot.state)
+			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+				return err
+			}
+			opened = true
+			return nil
 		},
 		func(streamID uint64) {
 			s.closeStreamStateLabel(instanceID, streamID)
@@ -1640,9 +1666,22 @@ func (s *Server) handlePageLabelGETStream(w http.ResponseWriter, r *http.Request
 			if slot == nil {
 				return errStateAtCapacity
 			}
+			// The close hook is wired up only once this one has returned nil.
+			// An open that ends any other way hands the instance to the grace
+			// timer here, since nothing else is left to give it back.
+			opened := false
+			defer func() {
+				if !opened {
+					s.closeStreamStateLabel(instanceID, streamID)
+				}
+			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, slot.state)
+			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+				return err
+			}
+			opened = true
+			return nil
 		},
 		func(streamID uint64) {
 			s.closeStreamStateLabel(instanceID, streamID)
@@ -1831,9 +1870,22 @@ func (s *Server) handlePageNestedGETStream(w http.ResponseWriter, r *http.Reques
 			if slot == nil {
 				return errStateAtCapacity
 			}
+			// The close hook is wired up only once this one has returned nil.
+			// An open that ends any other way hands the instance to the grace
+			// timer here, since nothing else is left to give it back.
+			opened := false
+			defer func() {
+				if !opened {
+					s.closeStreamStateNested(instanceID, streamID)
+				}
+			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, slot.state)
+			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+				return err
+			}
+			opened = true
+			return nil
 		},
 		func(streamID uint64) {
 			s.closeStreamStateNested(instanceID, streamID)
@@ -2008,9 +2060,22 @@ func (s *Server) handlePagePointerGETStream(w http.ResponseWriter, r *http.Reque
 			if slot == nil {
 				return errStateAtCapacity
 			}
+			// The close hook is wired up only once this one has returned nil.
+			// An open that ends any other way hands the instance to the grace
+			// timer here, since nothing else is left to give it back.
+			opened := false
+			defer func() {
+				if !opened {
+					s.closeStreamStatePointer(instanceID, streamID)
+				}
+			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			return p.StreamOpen(r, streamID, slot.state)
+			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+				return err
+			}
+			opened = true
+			return nil
 		},
 		func(streamID uint64) {
 			s.closeStreamStatePointer(instanceID, streamID)
