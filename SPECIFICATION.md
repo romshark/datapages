@@ -478,7 +478,10 @@ s := datapagesgen.NewServer(a, msgBroker,
 
 `HMACKey` signs the instance identifier. Key rotation or process restart
 invalidates every live instance; connected clients recover by reloading the
-page on the next rejected request.
+page on the next rejected request. Give this purpose a key of its own, 32
+random bytes or more. Datapages tags each value it derives from the key, which
+keeps its own two derivations apart. It cannot do that for a subsystem that
+shares the key.
 
 `MaxConcurrentInstances` caps how many instances exist at the same time,
 across all state types. A page load plus an SSE connect creates one, which

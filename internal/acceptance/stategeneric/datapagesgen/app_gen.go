@@ -540,14 +540,21 @@ func evSubjPagePointer(stateID string) []string {
 	}
 }
 
+// stateHMACKeyMinLen is the shortest key WithStateConfig accepts,
+// the output size of the hash the key is used with.
+const stateHMACKeyMinLen = 32
+
 // StateConfig configures the per-page-instance server-side state runtime.
 // Pass via WithStateConfig when at least one handler takes state *T.
 type StateConfig struct {
 	// HMACKey signs the Datapages-Instance identifier that rides on
-	// request/response headers. Required; must be non-empty.
+	// request/response headers. Required; 32 bytes or more.
 	// Rotating the key invalidates all live instances. A client whose
 	// request is rejected reloads the page once and starts a fresh instance;
 	// what it had not sent is lost.
+	//
+	// Give this purpose a key of its own, 32 random bytes or more. Sharing one key
+	// across subsystems makes the security of each of them the security of all.
 	HMACKey []byte
 
 	// GracePeriod is how long a stateful instance survives after its SSE stream closes,
@@ -571,8 +578,14 @@ type StateConfig struct {
 // since state lives in process memory.
 func WithStateConfig(conf StateConfig) ServerOption {
 	return func(s *Server) error {
-		if len(conf.HMACKey) == 0 {
-			return errors.New("WithStateConfig: HMACKey is required")
+		// The bound is the output size of SHA-256, which is what RFC 2104
+		// asks of a key. It catches a short literal and nothing else:
+		// length is not entropy, and 32 bytes derived from one weak
+		// passphrase pass this check.
+		if len(conf.HMACKey) < stateHMACKeyMinLen {
+			return fmt.Errorf(
+				"WithStateConfig: HMACKey must be at least %d bytes, got %d",
+				stateHMACKeyMinLen, len(conf.HMACKey))
 		}
 		if conf.GracePeriod <= 0 {
 			conf.GracePeriod = 30 * time.Second
@@ -603,9 +616,14 @@ const stateRetryReconnect = "reconnect"
 // breaking single-token wildcard matching.
 const stateInstanceIDSep = '~'
 
+// stateInstanceIDTag and the tag stateRouteKey writes name what each MAC is for.
+// One key, two derivations: without a tag of its own on each,
+// a value computed for one of them is a value the other would accept.
+var stateInstanceIDTag = []byte("datapages-instance\x00")
+
 // signStateInstanceID produces an HMAC-signed Datapages-Instance value.
 // The payload is 16 random bytes; the output is:
-// base64url(payload) + "~" + base64url(hmacSHA256(payload)).
+// base64url(payload) + "~" + base64url(hmacSHA256(tag, payload)).
 func (s *Server) signStateInstanceID() (string, error) {
 	if s.stateConf == nil {
 		return "", errors.New("state runtime not configured")
@@ -615,6 +633,7 @@ func (s *Server) signStateInstanceID() (string, error) {
 		return "", err
 	}
 	mac := hmac.New(sha256.New, s.stateConf.HMACKey)
+	mac.Write(stateInstanceIDTag)
 	mac.Write(payload[:])
 	return base64.RawURLEncoding.EncodeToString(payload[:]) +
 		string(stateInstanceIDSep) +
@@ -640,6 +659,7 @@ func (s *Server) verifyStateInstanceID(id string) bool {
 		return false
 	}
 	mac := hmac.New(sha256.New, s.stateConf.HMACKey)
+	mac.Write(stateInstanceIDTag)
 	mac.Write(payload)
 	return hmac.Equal(mac.Sum(nil), sig)
 }

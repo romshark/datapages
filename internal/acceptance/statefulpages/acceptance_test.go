@@ -5,6 +5,7 @@ package acceptance_test
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -153,6 +154,23 @@ func TestSlowRequestDoesNotStallTab(t *testing.T) {
 		t.Fatal("the slow action never finished")
 	}
 	require.True(t, tab.Saw("filter:slow"), "the slow action left no patch behind")
+}
+
+// TestShortHMACKey covers a key too short for the hash it is used with.
+// A key is refused where it is given,
+// rather than weakening every id the server goes on to sign with it.
+func TestShortHMACKey(t *testing.T) {
+	var recovered any
+	func() {
+		defer func() { recovered = recover() }()
+		_ = datapagesgen.NewServer(&app.App{}, inmem.New(8),
+			datapagesgen.WithStateConfig(datapagesgen.StateConfig{
+				HMACKey: []byte("too short to sign with"),
+			}))
+	}()
+	require.NotNil(t, recovered, "a 22 byte HMACKey was accepted")
+	require.Contains(t, fmt.Sprint(recovered), "HMACKey",
+		"the refusal does not name what is wrong")
 }
 
 // TestForgedInstanceID covers an id the server never signed.
