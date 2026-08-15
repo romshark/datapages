@@ -484,9 +484,7 @@ func Suggest(err error) string {
 //   - ErrSessionParamNotSessionType   — constraint is clear from message
 //   - ErrSessionTypeConflict          — the message names both instantiations
 //   - ErrSessionTokenParamNotString   — constraint is clear from message
-//   - ErrRedirectNotString            — constraint is clear from message
-//   - ErrRedirectStatusNotInt         — constraint is clear from message
-//   - ErrRedirectStatusWithoutRedirect — message states "requires redirect"
+//   - ErrRedirectNotRedirectType      — constraint is clear from message
 //   - ErrNewSessionNotSessionType     — constraint is clear from message
 //   - ErrCloseSessionNotBool          — constraint is clear from message
 //   - ErrNewSessionWithSSE            — message states the mutual exclusion

@@ -71,9 +71,6 @@ func handlerGETOutputVars(
 	if h.OutputRedirect != nil {
 		outs = append(outs, h.OutputRedirect.Name)
 	}
-	if h.OutputRedirectStatus != nil {
-		outs = append(outs, h.OutputRedirectStatus.Name)
-	}
 	if h.OutputEnableBgStream != nil {
 		outs = append(outs, h.OutputEnableBgStream.Name)
 	}
@@ -107,9 +104,6 @@ func handlerOutputVars(h *model.Handler) []string {
 	}
 	if h.OutputRedirect != nil {
 		outs = append(outs, h.OutputRedirect.Name)
-	}
-	if h.OutputRedirectStatus != nil {
-		outs = append(outs, h.OutputRedirectStatus.Name)
 	}
 	if h.OutputNewSession != nil {
 		outs = append(outs, h.OutputNewSession.Name)
@@ -328,14 +322,8 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 
 	// Redirect.
 	if h.OutputRedirect != nil {
-		statusArg := "0"
-		if h.OutputRedirectStatus != nil {
-			statusArg = h.OutputRedirectStatus.Name
-		}
 		w.Raw("\tif httpRedirect(w, r, ")
 		w.Raw(h.OutputRedirect.Name)
-		w.Raw(", ")
-		w.Raw(statusArg)
 		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1305,14 +1293,8 @@ func (w *Writer) writeActionMethodCall(
 
 	// Redirect.
 	if h.OutputRedirect != nil {
-		statusArg := "0"
-		if h.OutputRedirectStatus != nil {
-			statusArg = h.OutputRedirectStatus.Name
-		}
 		w.Raw("\tif httpRedirect(w, r, ")
 		w.Raw(h.OutputRedirect.Name)
-		w.Raw(", ")
-		w.Raw(statusArg)
 		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")

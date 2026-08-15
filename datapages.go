@@ -74,12 +74,14 @@ func MakeSession[Data any](
 // then hands the result back to handlers as a [Session].
 //
 //	func (p PageLogin) POSTSubmit(...) (
-//		newSession datapages.NewSession[SessionData], redirect string, err error,
+//		newSession datapages.NewSession[SessionData],
+//		redirect datapages.Redirect,
+//		err error,
 //	) {
 //		return datapages.NewSession[SessionData]{
 //			UserID: user.ID,
 //			Data:   SessionData{Name: user.Name},
-//		}, href.PageIndex(), nil
+//		}, datapages.Redirect{URL: href.PageIndex()}, nil
 //	}
 //
 // A zero UserID is a no-op, no session is created.
@@ -93,6 +95,31 @@ type NewSession[Data any] struct {
 
 	// Data is the application-defined payload of the session.
 	Data Data
+}
+
+// Redirect is returned by handlers as the redirect return value to navigate the
+// client to another URL:
+//
+//	func (p PageLogin) POSTSubmit(...) (
+//		redirect datapages.Redirect, err error,
+//	) {
+//		return datapages.Redirect{URL: href.PageIndex()}, nil
+//	}
+//
+// The zero value is a no-op, the client stays on the current page.
+type Redirect struct {
+	// URL is the target the client is navigated to.
+	// An empty URL is a no-op, no redirect is performed.
+	URL string
+
+	// Status is the HTTP status code of the redirect response.
+	// Zero, or any code that isn't a redirect status, means [net/http.StatusFound].
+	//
+	// Status is ignored for requests issued by a Datastar action
+	// (those carrying the header "Datastar-Request: true"),
+	// because they can't follow an HTTP redirect.
+	// Those navigate client-side by assigning window.location instead.
+	Status int
 }
 
 // SSE is the server-sent-event handle passed to action (POST/PUT/PATCH/DELETE)

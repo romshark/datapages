@@ -102,7 +102,6 @@ type Handler struct {
 
 	OutputBody           *TemplComponent // templ.Component body (actions only)
 	OutputRedirect       *Output
-	OutputRedirectStatus *Output
 	OutputNewSession     *Output
 	OutputCloseSession   *Output
 	OutputEnableBgStream *Output
@@ -149,7 +148,6 @@ const (
 	OutputKindBody           = "body"
 	OutputKindHead           = "head"
 	OutputKindRedirect       = "redirect"
-	OutputKindRedirectStatus = "redirectStatus"
 	OutputKindNewSession     = "newSession"
 	OutputKindCloseSession   = "closeSession"
 	OutputKindEnableBgStream = "enableBackgroundStreaming"

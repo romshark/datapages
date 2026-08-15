@@ -5,6 +5,7 @@ import (
 
 	"github.com/a-h/templ"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 )
@@ -20,11 +21,11 @@ func (p PageMyPosts) GET(
 	session Session,
 ) (
 	body, head templ.Component,
-	redirect string,
+	redirect datapages.Redirect,
 	err error,
 ) {
 	if session.IsGuest() {
-		return nil, nil, href.PageLogin(), nil
+		return nil, nil, datapages.Redirect{URL: href.PageLogin()}, nil
 	}
 
 	user, err := p.App.repo.UserByName(r.Context(), session.UserID())

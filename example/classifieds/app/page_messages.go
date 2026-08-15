@@ -25,12 +25,12 @@ func (p PageMessages) GET(
 	},
 ) (
 	body templ.Component,
-	redirect string,
+	redirect datapages.Redirect,
 	enableBackgroundStreaming bool,
 	err error,
 ) {
 	if session.IsGuest() {
-		redirect = href.PageLogin()
+		redirect = datapages.Redirect{URL: href.PageLogin()}
 		return
 	}
 

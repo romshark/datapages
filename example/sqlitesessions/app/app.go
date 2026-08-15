@@ -50,7 +50,7 @@ func (*App) POSTSignOut(
 	session Session,
 	dispatch func(EventSessionClosed) error,
 ) (
-	closeSession bool, redirect string, err error,
+	closeSession bool, redirect datapages.Redirect, err error,
 ) {
 	if !session.IsGuest() {
 		_ = dispatch(EventSessionClosed{
@@ -58,7 +58,7 @@ func (*App) POSTSignOut(
 			Token:       session.Token(),
 		})
 	}
-	return true, href.PageIndex(), nil
+	return true, datapages.Redirect{URL: href.PageIndex()}, nil
 }
 
 // PageIndex is /
@@ -119,12 +119,12 @@ func validateRegister(name, email, password string) string {
 type PageLogin struct{ App *App }
 
 func (p PageLogin) GET(r *http.Request, session Session) (
-	body, head templ.Component, redirect string, err error,
+	body, head templ.Component, redirect datapages.Redirect, err error,
 ) {
 	if !session.IsGuest() {
-		return nil, nil, href.PageIndex(), nil
+		return nil, nil, datapages.Redirect{URL: href.PageIndex()}, nil
 	}
-	return pageLogin("", false), pageLoginHead(), "", nil
+	return pageLogin("", false), pageLoginHead(), redirect, nil
 }
 
 // POSTValidate is /login/validate
@@ -152,13 +152,15 @@ func (p PageLogin) POSTSubmit(
 	},
 ) (
 	body templ.Component,
-	redirect string,
-	redirectStatus int,
+	redirect datapages.Redirect,
 	newSession datapages.NewSession[SessionData],
 	err error,
 ) {
 	if !session.IsGuest() {
-		redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
+		redirect = datapages.Redirect{
+			URL:    href.PageIndex(),
+			Status: http.StatusSeeOther,
+		}
 		return
 	}
 	if msg := validateLogin(signals.Email, signals.Password); msg != "" {
@@ -177,7 +179,10 @@ func (p PageLogin) POSTSubmit(
 		UserID: user.ID,
 		Data:   SessionData{Name: user.Name, Email: user.Email},
 	}
-	redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
+	redirect = datapages.Redirect{
+		URL:    href.PageIndex(),
+		Status: http.StatusSeeOther,
+	}
 	return
 }
 
@@ -185,13 +190,13 @@ func (p PageLogin) POSTSubmit(
 type PageRegister struct{ App *App }
 
 func (p PageRegister) GET(r *http.Request, session Session) (
-	body, head templ.Component, redirect string, err error,
+	body, head templ.Component, redirect datapages.Redirect, err error,
 ) {
 	if !session.IsGuest() {
-		redirect = href.PageIndex()
+		redirect = datapages.Redirect{URL: href.PageIndex()}
 		return
 	}
-	return pageRegister("", false), pageRegisterHead(), "", nil
+	return pageRegister("", false), pageRegisterHead(), redirect, nil
 }
 
 // POSTValidate is /register/validate
@@ -221,13 +226,15 @@ func (p PageRegister) POSTSubmit(
 	},
 ) (
 	body templ.Component,
-	redirect string,
-	redirectStatus int,
+	redirect datapages.Redirect,
 	newSession datapages.NewSession[SessionData],
 	err error,
 ) {
 	if !session.IsGuest() {
-		redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
+		redirect = datapages.Redirect{
+			URL:    href.PageIndex(),
+			Status: http.StatusSeeOther,
+		}
 		return
 	}
 	if msg := validateRegister(
@@ -250,6 +257,9 @@ func (p PageRegister) POSTSubmit(
 		UserID: user.ID,
 		Data:   SessionData{Name: user.Name, Email: user.Email},
 	}
-	redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
+	redirect = datapages.Redirect{
+		URL:    href.PageIndex(),
+		Status: http.StatusSeeOther,
+	}
 	return
 }

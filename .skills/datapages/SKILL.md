@@ -162,8 +162,7 @@ You can add more. Pick only what you need.
 ```go
 body templ.Component // always first
 head templ.Component // optional
-redirect string // optional
-redirectStatus int // only with redirect
+redirect datapages.Redirect // optional
 newSession datapages.NewSession[Data] // optional
 closeSession bool // optional
 enableBackgroundStreaming bool // optional
@@ -178,7 +177,7 @@ Examples:
 (body, head templ.Component, err error)
 
 // body + redirect
-(body templ.Component, redirect string, err error)
+(body templ.Component, redirect datapages.Redirect, err error)
 
 // body + new session + disableRefreshAfterHidden
 (body templ.Component, newSession datapages.NewSession[Data], disableRefreshAfterHidden bool, err error)
@@ -247,10 +246,10 @@ Actions can also be defined on `*App` (pointer receiver) for global actions not 
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request, session Session) (
 	closeSession bool,
-	redirect string,
+	redirect datapages.Redirect,
 	err error,
 ) {
-	return true, "/login", nil
+	return true, datapages.Redirect{URL: "/login"}, nil
 }
 ```
 
@@ -281,8 +280,7 @@ Pick only what you need.
 ```go
 body templ.Component // optional
 head templ.Component // optional
-redirect string // optional
-redirectStatus int // only with redirect
+redirect datapages.Redirect // optional
 newSession datapages.NewSession[Data] // optional
 closeSession bool // optional
 err error // always last
@@ -297,22 +295,22 @@ Simple:
 
 Redirect:
 ```go
-) (redirect string, redirectStatus int, err error) {
-	return "/", 303, nil
+) (redirect datapages.Redirect, err error) {
+	return datapages.Redirect{URL: "/", Status: http.StatusSeeOther}, nil
 }
 ```
 
 New session:
 ```go
-) (newSession datapages.NewSession[SessionData], redirect string, err error) {
-	return datapages.NewSession[SessionData]{UserID: "u1"}, "/", nil
+) (newSession datapages.NewSession[SessionData], redirect datapages.Redirect, err error) {
+	return datapages.NewSession[SessionData]{UserID: "u1"}, datapages.Redirect{URL: "/"}, nil
 }
 ```
 
 Close session:
 ```go
-) (closeSession bool, redirect string, err error) {
-	return true, "/login", nil
+) (closeSession bool, redirect datapages.Redirect, err error) {
+	return true, datapages.Redirect{URL: "/login"}, nil
 }
 ```
 

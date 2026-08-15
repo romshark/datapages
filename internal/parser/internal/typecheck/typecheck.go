@@ -13,12 +13,6 @@ func IsString(t types.Type) bool {
 	return ok && b.Kind() == types.String
 }
 
-// IsInt reports whether t's underlying type is int.
-func IsInt(t types.Type) bool {
-	b, ok := t.Underlying().(*types.Basic)
-	return ok && b.Kind() == types.Int
-}
-
 // IsUint64 reports whether t's underlying type is uint64.
 func IsUint64(t types.Type) bool {
 	b, ok := t.Underlying().(*types.Basic)
@@ -188,7 +182,7 @@ func IsPtrToDatastarSSE(
 }
 
 // datapagesPkgPath is the import path of the core datapages package that owns
-// the abstract handler-parameter types (SSE).
+// the abstract handler parameter and return types (SSE, Session, Redirect).
 const datapagesPkgPath = "github.com/romshark/datapages"
 
 // IsDatapagesSSE reports whether expr resolves to datapages.SSE.
@@ -219,6 +213,11 @@ func isNamedFromPkg(
 		return false
 	}
 	return obj.Pkg().Path() == pkgPath && obj.Name() == name
+}
+
+// IsRedirectType reports whether expr resolves to datapages.Redirect.
+func IsRedirectType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "Redirect")
 }
 
 // IsSessionType reports whether expr resolves to datapages.Session[Data].

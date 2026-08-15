@@ -43,10 +43,10 @@ func (PageLogin) POSTSubmit(
 	r *http.Request,
 ) (
 	newSession datapages.NewSession[struct{}],
-	redirect string,
+	redirect datapages.Redirect,
 	err error,
 ) {
-	return newSession, "/", nil
+	return newSession, datapages.Redirect{URL: "/"}, nil
 }
 
 // POSTSignOut is /login/sign-out
@@ -56,8 +56,8 @@ func (PageLogin) POSTSignOut(
 	r *http.Request,
 ) (
 	closeSession bool,
-	redirect string,
+	redirect datapages.Redirect,
 	err error,
 ) {
-	return true, "/", nil
+	return true, datapages.Redirect{URL: "/"}, nil
 }

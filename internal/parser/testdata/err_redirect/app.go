@@ -19,7 +19,7 @@ func (PageIndex) GET(
 	return body, err
 }
 
-/* ErrRedirectNotString: redirect wrong type */
+/* ErrRedirectNotRedirectType: redirect wrong type */
 
 // POSTBadRedirect is /bad-redirect
 //
@@ -30,24 +30,13 @@ func (PageIndex) POSTBadRedirect(
 	return 0, nil
 }
 
-/* ErrRedirectStatusNotInt: redirectStatus wrong type */
+/* ErrRedirectNotRedirectType: redirect as a plain string */
 
-// POSTBadStatus is /bad-status
+// POSTStringRedirect is /string-redirect
 //
-// Action with redirectStatus of wrong type.
-func (PageIndex) POSTBadStatus(
+// Action with the legacy string redirect.
+func (PageIndex) POSTStringRedirect(
 	r *http.Request,
-) (redirect string, redirectStatus string, err error) {
-	return "", "", nil
-}
-
-/* ErrRedirectStatusWithoutRedirect: redirectStatus without redirect */
-
-// POSTOrphanStatus is /orphan-status
-//
-// Action with redirectStatus but no redirect.
-func (PageIndex) POSTOrphanStatus(
-	r *http.Request,
-) (redirectStatus int, err error) {
-	return 303, nil
+) (redirect string, err error) {
+	return "", nil
 }

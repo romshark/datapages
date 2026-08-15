@@ -83,8 +83,7 @@ func (PageIndex) GET(
 ) (
 	body templ.Component,
 	head templ.Component, // Optional
-	redirect string, // Optional
-	redirectStatus int, // Optional
+	redirect datapages.Redirect, // Optional
 	newSession datapages.NewSession[Data], // Optional
 	closeSession bool, // Optional
 	enableBackgroundStreaming bool, // Optional
@@ -102,10 +101,10 @@ not tied to a specific page:
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request, session Session) (
 	closeSession bool,
-	redirect string,
+	redirect datapages.Redirect,
 	err error,
 ) {
-	return true, "/login", nil
+	return true, datapages.Redirect{URL: "/login"}, nil
 }
 ```
 
@@ -155,8 +154,7 @@ func (PageIndex) POSTActionName(
 ) (
 	body templ.Component, // Optional
 	head templ.Component, // Optional
-	redirect string, // Optional
-	redirectStatus int, // Optional
+	redirect datapages.Redirect, // Optional
 	newSession datapages.NewSession[Data], // Optional
 	closeSession bool, // Optional
 	err error,
@@ -727,14 +725,27 @@ Specifies the [Templ](https://templ.guide/) template to use for the contents of 
 
 Specifies the [Templ](https://templ.guide/) template to use for `<head>` tag of the page.
 
-#### Return Value: `redirect string`
+#### Return Value: `redirect datapages.Redirect`
 
-Allows for redirecting to different URLs.
+```go
+redirect datapages.Redirect
+```
 
-#### Return Value: `redirectStatus int`
+Redirects the client to `redirect.URL` with the status code `redirect.Status`.
+The zero value is a no-op, the client stays on the current page.
 
-Specifies the redirect status code.
-Can only be used in combination with `redirect`.
+```go
+return datapages.Redirect{URL: href.PageIndex()}, nil
+```
+
+`Status` defaults to `302 Found`, any code that isn't a redirect status is
+replaced by it. Requests issued by Datastar actions (carrying the header
+`Datastar-Request: true`) can't follow an HTTP redirect:
+they navigate client-side by assigning `window.location` and ignore `Status`.
+
+The type is defined in [datapages.go](datapages.go),
+which documents each field and is the source of truth. It is also rendered on
+[pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#Redirect).
 
 #### Return Value: `newSession datapages.NewSession[Data]`
 

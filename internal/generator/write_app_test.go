@@ -474,12 +474,11 @@ func TestWriteAppActionHandler(t *testing.T) {
 		"redirect outputs": {
 			handler: &model.Handler{
 				HTTPMethod: "POST", Name: "Login", Route: "/login/{$}",
-				InputSession:         &model.Input{Name: "sess"},
-				OutputCloseSession:   &model.Output{Name: "closeSession"},
-				OutputRedirect:       &model.Output{Name: "redirect"},
-				OutputRedirectStatus: &model.Output{Name: "redirectStatus"},
-				OutputNewSession:     &model.Output{Name: "newSession"},
-				OutputErr:            &model.Output{Name: "err"},
+				InputSession:       &model.Input{Name: "sess"},
+				OutputCloseSession: &model.Output{Name: "closeSession"},
+				OutputRedirect:     &model.Output{Name: "redirect"},
+				OutputNewSession:   &model.Output{Name: "newSession"},
+				OutputErr:          &model.Output{Name: "err"},
 			},
 			app:    &model.App{PkgPath: testAppPkgPath, Fset: token.NewFileSet()},
 			golden: "app_action_redirect_outputs.txt",
@@ -756,16 +755,15 @@ func TestWritePageGETHandler(t *testing.T) {
 			},
 			golden: "app_page_get_session_token.txt",
 		},
-		"with redirect and status": {
+		"with redirect": {
 			page: &model.Page{
 				TypeName: "PageOldRoute",
 				Route:    "/old-route/",
 				GET: &model.HandlerGET{
 					Handler: &model.Handler{
-						InputRequest:         &model.Input{Name: "r"},
-						OutputRedirect:       &model.Output{Name: "redirect"},
-						OutputRedirectStatus: &model.Output{Name: "redirectStatus"},
-						OutputErr:            &model.Output{Name: "err"},
+						InputRequest:   &model.Input{Name: "r"},
+						OutputRedirect: &model.Output{Name: "redirect"},
+						OutputErr:      &model.Output{Name: "err"},
 					},
 					OutputBody: &model.TemplComponent{
 						Output: &model.Output{Name: "body"},
@@ -777,7 +775,7 @@ func TestWritePageGETHandler(t *testing.T) {
 				Fset:                token.NewFileSet(),
 				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 			},
-			golden: "app_page_get_redirect_status.txt",
+			golden: "app_page_get_redirect.txt",
 		},
 		"with dispatch": {
 			page: &model.Page{

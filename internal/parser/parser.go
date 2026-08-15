@@ -2126,21 +2126,12 @@ func parseHandler(
 
 			switch n.Name {
 			case "redirect":
-				if !typecheck.IsString(t.Resolved) {
+				if !typecheck.IsRedirectType(r.Type, info) {
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
-						ErrRedirectNotString, recv, fd.Name.Name))
+						ErrRedirectNotRedirectType, recv, fd.Name.Name))
 				}
 				out.Kind = model.OutputKindRedirect
 				h.OutputRedirect = out
-				h.OrderedOutputs = append(h.OrderedOutputs, out)
-				continue
-			case "redirectStatus":
-				if !typecheck.IsInt(t.Resolved) {
-					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
-						ErrRedirectStatusNotInt, recv, fd.Name.Name))
-				}
-				out.Kind = model.OutputKindRedirectStatus
-				h.OutputRedirectStatus = out
 				h.OrderedOutputs = append(h.OrderedOutputs, out)
 				continue
 			case "newSession":
@@ -2212,10 +2203,6 @@ func parseHandler(
 			err: fmt.Errorf("%w in %s.%s",
 				ErrSignatureMultiErrRet, recv, fd.Name.Name),
 		}
-	}
-	if h.OutputRedirectStatus != nil && h.OutputRedirect == nil {
-		return h, outputs, fmt.Errorf("%w in %s.%s",
-			ErrRedirectStatusWithoutRedirect, recv, fd.Name.Name)
 	}
 	if h.OutputNewSession != nil && h.InputSSE != nil {
 		return h, outputs, fmt.Errorf("%w in %s.%s",

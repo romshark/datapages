@@ -264,18 +264,21 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 	return true
 }
 
-func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status int) (exit bool) {
-	if target == "" {
+func httpRedirect(
+	w http.ResponseWriter, r *http.Request, redirect datapages.Redirect,
+) (exit bool) {
+	if redirect.URL == "" {
 		return false
 	}
 
 	if isDSReq(r) {
 		// Force client-side navigation via JS for Datastar requests.
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = fmt.Fprintf(w, "window.location = %q;", target)
+		_, _ = fmt.Fprintf(w, "window.location = %q;", redirect.URL)
 		return true
 	}
 
+	status := redirect.Status
 	switch status {
 	case http.StatusMovedPermanently,
 		http.StatusFound,
@@ -287,7 +290,7 @@ func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status 
 		status = http.StatusFound
 	}
 
-	http.Redirect(w, r, target, status)
+	http.Redirect(w, r, redirect.URL, status)
 	return true
 }
 
@@ -629,7 +632,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, redirect := p.GET(r)
-	if httpRedirect(w, r, redirect, 0) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -710,7 +713,7 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	body, redirect := p.GET(r)
-	if httpRedirect(w, r, redirect, 0) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -924,7 +927,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageItem.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect, 0) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -1039,7 +1042,7 @@ func (s *Server) handlePageItemDELETEItem(
 		s.httpErrIntern(w, r, nil, "handling action PageItem.Item", err)
 		return
 	}
-	if httpRedirect(w, r, redirect, 0) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 }

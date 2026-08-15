@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -24,8 +26,8 @@ func (PageIndex) GET(
 // POSTSubmit is /logout
 func (PageIndex) POSTSubmit(r *http.Request) (
 	closeSession bool,
-	redirect string,
+	redirect datapages.Redirect,
 	err error,
 ) {
-	return true, "/", nil
+	return true, datapages.Redirect{URL: "/"}, nil
 }

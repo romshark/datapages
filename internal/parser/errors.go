@@ -134,9 +134,9 @@ var (
 	)
 	ErrStreamIDParamNotUint64 = errors.New("streamID parameter must be of type uint64")
 
-	ErrRedirectNotString             = errors.New("redirect must be a string")
-	ErrRedirectStatusNotInt          = errors.New("redirectStatus must be an int")
-	ErrRedirectStatusWithoutRedirect = errors.New("redirectStatus requires redirect")
+	ErrRedirectNotRedirectType = errors.New(
+		"redirect must be of type datapages.Redirect",
+	)
 
 	ErrNewSessionNotSessionType = errors.New(
 		"newSession must be of type datapages.NewSession[Data]",

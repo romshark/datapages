@@ -65,10 +65,10 @@ type SearchParams struct {
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request, session Session) (
 	closeSession bool,
-	redirect string,
+	redirect datapages.Redirect,
 	err error,
 ) {
-	return true, href.PageLogin(), nil
+	return true, datapages.Redirect{URL: href.PageLogin()}, nil
 }
 
 // POSTCause500 is /cause-500-internal-error/{$}

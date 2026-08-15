@@ -87,7 +87,7 @@ type PageOutputReversed struct{ App *App }
 // GET with outputs in reversed order.
 func (PageOutputReversed) GET(
 	r *http.Request,
-) (err error, redirect string, body templ.Component) {
+) (err error, redirect datapages.Redirect, body templ.Component) {
 	return err, redirect, body
 }
 

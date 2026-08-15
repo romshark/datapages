@@ -1023,7 +1023,6 @@ func TestParse_Redirect(t *testing.T) {
 		p := app.PageIndex
 		require.NotNil(p)
 		require.Nil(p.GET.OutputRedirect)
-		require.Nil(p.GET.OutputRedirectStatus)
 	}
 
 	// PageLogin - GET with redirect only
@@ -1033,15 +1032,12 @@ func TestParse_Redirect(t *testing.T) {
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.OutputRedirect)
 		require.Equal("redirect", p.GET.OutputRedirect.Name)
-		require.Nil(p.GET.OutputRedirectStatus)
 
-		// POSTSignIn - action with redirect + redirectStatus
+		// POSTSignIn - action with redirect
 		require.Len(p.Actions, 1)
 		a := p.Actions[0]
 		require.NotNil(a.OutputRedirect)
 		require.Equal("redirect", a.OutputRedirect.Name)
-		require.NotNil(a.OutputRedirectStatus)
-		require.Equal("redirectStatus", a.OutputRedirectStatus.Name)
 	}
 }
 
@@ -1052,9 +1048,8 @@ func TestParse_ErrRedirect(t *testing.T) {
 
 	requireParseErrors(
 		t, err,
-		parser.ErrRedirectNotString,
-		parser.ErrRedirectStatusNotInt,
-		parser.ErrRedirectStatusWithoutRedirect,
+		parser.ErrRedirectNotRedirectType,
+		parser.ErrRedirectNotRedirectType,
 	)
 }
 
@@ -1728,7 +1723,6 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 			require.NotNil(a.InputSession)
 			require.NotNil(a.InputSignals)
 			require.NotNil(a.OutputRedirect)
-			require.NotNil(a.OutputRedirectStatus)
 			require.NotNil(a.OutputNewSession)
 		}
 		require.Empty(p.EventHandlers)

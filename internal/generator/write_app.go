@@ -160,7 +160,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"time"`)
 	w.Line(0, "")
 	w.Line(1, `"github.com/a-h/templ"`)
-	if w.usage.datapagesSSE || w.usage.hasSession {
+	if w.usage.datapagesSSE || w.usage.hasSession || w.usage.httpRedirect {
 		w.Line(1, `"github.com/romshark/datapages"`)
 	}
 	w.Line(1, `"github.com/romshark/datapages/modules/csrf"`)
@@ -635,18 +635,21 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 
 func (w *Writer) writeHTTPRedirect() {
 	w.Raw(`
-func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status int) (exit bool) {
-	if target == "" {
+func httpRedirect(
+	w http.ResponseWriter, r *http.Request, redirect datapages.Redirect,
+) (exit bool) {
+	if redirect.URL == "" {
 		return false
 	}
 
 	if isDSReq(r) {
 		// Force client-side navigation via JS for Datastar requests.
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = fmt.Fprintf(w, "window.location = %q;", target)
+		_, _ = fmt.Fprintf(w, "window.location = %q;", redirect.URL)
 		return true
 	}
 
+	status := redirect.Status
 	switch status {
 	case http.StatusMovedPermanently,
 		http.StatusFound,
@@ -658,7 +661,7 @@ func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status 
 		status = http.StatusFound
 	}
 
-	http.Redirect(w, r, target, status)
+	http.Redirect(w, r, redirect.URL, status)
 	return true
 }
 `)
@@ -2015,14 +2018,8 @@ func (w *Writer) writeMethodCall(
 
 	// Redirect.
 	if h.OutputRedirect != nil {
-		statusArg := "0"
-		if h.OutputRedirectStatus != nil {
-			statusArg = h.OutputRedirectStatus.Name
-		}
 		w.Raw("\tif httpRedirect(w, r, ")
 		w.Raw(h.OutputRedirect.Name)
-		w.Raw(", ")
-		w.Raw(statusArg)
 		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -2285,7 +2282,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	if h.OutputRedirect != nil {
 		w.Raw("\tif httpRedirect(w, r, ")
 		w.Raw(h.OutputRedirect.Name)
-		w.Raw(", 0) {\n")
+		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}

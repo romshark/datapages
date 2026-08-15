@@ -25,14 +25,14 @@ func (p PageUser) GET(
 	},
 ) (
 	body, head templ.Component,
-	redirect string,
+	redirect datapages.Redirect,
 	err error,
 ) {
 	user, err := p.App.repo.UserByName(r.Context(), path.Name)
 	if err != nil {
 		if errors.Is(err, domain.ErrUserNotFound) {
 			// Redirect to 404 page.
-			return nil, nil, href.PageError404(), nil
+			return nil, nil, datapages.Redirect{URL: href.PageError404()}, nil
 		}
 	}
 

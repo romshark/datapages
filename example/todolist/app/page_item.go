@@ -18,12 +18,12 @@ func (p PageItem) GET(
 	path struct {
 		ID string `path:"id"`
 	},
-) (body templ.Component, redirect string, err error) {
+) (body templ.Component, redirect datapages.Redirect, err error) {
 	todo, ok := p.App.list.GetItem(path.ID)
 	if !ok {
-		return nil, "/", nil
+		return nil, datapages.Redirect{URL: "/"}, nil
 	}
-	return pageItem(todo), "", nil
+	return pageItem(todo), redirect, nil
 }
 
 func (p PageItem) StreamOpen(
@@ -58,17 +58,17 @@ func (p PageItem) DELETEItem(
 		TabID string `json:"tab_id"`
 	},
 	dispatch func(EventTodoUpdated) error,
-) (redirect string, err error) {
+) (redirect datapages.Redirect, err error) {
 	if _, err := p.App.verifyTabID(signals.TabID); err != nil {
-		return "", fmt.Errorf("%w: %w", httperr.BadRequest, err)
+		return redirect, fmt.Errorf("%w: %w", httperr.BadRequest, err)
 	}
 	if !p.App.list.DeleteItem(path.ID) {
-		return "", fmt.Errorf("%w: todo not found", httperr.NotFound)
+		return redirect, fmt.Errorf("%w: todo not found", httperr.NotFound)
 	}
 	if err := dispatch(EventTodoUpdated{}); err != nil {
-		return "", err
+		return redirect, err
 	}
-	return "/", nil
+	return datapages.Redirect{URL: "/"}, nil
 }
 
 func (p PageItem) OnTodoUpdated(

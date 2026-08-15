@@ -14,7 +14,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect, 0) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
