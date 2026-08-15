@@ -1,6 +1,6 @@
 module github.com/romshark/datapages/example/webcomponents
 
-go 1.26.5
+go 1.26.6
 
 replace github.com/romshark/datapages => ../../
 

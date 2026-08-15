@@ -1,6 +1,6 @@
 module datapagestest/fixture/err_event_subj_signal_invalid
 
-go 1.26.5
+go 1.26.6
 
 require (
 	github.com/a-h/templ v0.3.1020
