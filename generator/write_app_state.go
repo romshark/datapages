@@ -160,7 +160,7 @@ func (w *Writer) writeLookupSlotOrReject(st *model.StateType) {
 // a client that trickles its body would otherwise stall its own tab,
 // and events published to a stalled stream are dropped once its buffer fills.
 //
-// The grace timer can expire between the lookup and the lock and return the
+// The stream can close between the lookup and the lock and return the
 // state to the pool, which is why liveness is re-checked here.
 func (w *Writer) writeLockSlotOrReject() {
 	w.Line(1, "slot.mu.Lock()")
@@ -321,6 +321,10 @@ func (w *Writer) writeStateConfigType() {
 // the output size of the hash the key is used with.
 const stateHMACKeyMinLen = 32
 
+// DefaultMaxConcurrentInstances is the default value of
+// [StateConfig.MaxConcurrentInstances]
+const DefaultMaxConcurrentInstances = 10_000
+
 // StateConfig configures the per-page-instance server-side state runtime.
 // Pass via WithStateConfig when at least one handler takes state *T.
 type StateConfig struct {
@@ -334,16 +338,11 @@ type StateConfig struct {
 	// across subsystems makes the security of each of them the security of all.
 	HMACKey []byte
 
-	// GracePeriod is how long a stateful instance survives after its SSE stream closes,
-	// waiting for the client to reconnect (e.g. after a transient network blip).
-	// Default 30s.
-	GracePeriod time.Duration
-
 	// MaxConcurrentInstances caps how many instances exist at the same time,
-	// across all state types. A page load plus an SSE connect creates one,
-	// which anyone who reaches the server can ask for. An instance keeps its
-	// place for GracePeriod after its stream closes. Stream opens beyond the cap fail.
-	// Default 10_000.
+	// across all state types. An instance lives exactly as long as its stream.
+	// A stream open beyond the cap is answered 503 with Retry-After.
+	//
+	// Zero selects [DefaultMaxConcurrentInstances]. A negative value removes the cap.
 	MaxConcurrentInstances int
 }
 `)
@@ -368,11 +367,8 @@ func WithStateConfig(conf StateConfig) ServerOption {
 				"WithStateConfig: HMACKey must be at least %d bytes, got %d",
 				stateHMACKeyMinLen, len(conf.HMACKey))
 		}
-		if conf.GracePeriod <= 0 {
-			conf.GracePeriod = 30 * time.Second
-		}
-		if conf.MaxConcurrentInstances <= 0 {
-			conf.MaxConcurrentInstances = 10_000
+		if conf.MaxConcurrentInstances == 0 {
+			conf.MaxConcurrentInstances = DefaultMaxConcurrentInstances
 		}
 		s.stateConf = &conf
 		return nil
@@ -468,10 +464,22 @@ func (s *Server) stateRouteKey(id string) string {
 // and so is the budget in StateConfig.MaxConcurrentInstances.
 var stateLiveInstances atomic.Int64
 
+// stateNoInstanceLimit is what a negative MaxConcurrentInstances means:
+// no budget at all. The counter is still kept, since releases decrement it
+// unconditionally and a configuration is free to change between processes.
+func (s *Server) stateNoInstanceLimit() bool {
+	return s.stateConf.MaxConcurrentInstances < 0
+}
+
 // stateReserveInstance takes one slot out of the budget. It reports false
 // when the server is full, which fails the stream open that asked for it.
+// An unlimited server serves every caller.
 func (s *Server) stateReserveInstance() bool {
-	if stateLiveInstances.Add(1) > int64(s.stateConf.MaxConcurrentInstances) {
+	n := stateLiveInstances.Add(1)
+	if s.stateNoInstanceLimit() {
+		return true
+	}
+	if n > int64(s.stateConf.MaxConcurrentInstances) {
 		stateLiveInstances.Add(-1)
 		return false
 	}
@@ -482,6 +490,9 @@ func (s *Server) stateReserveInstance() bool {
 // It is a look, not a claim, and callers use it before a stream commits its status line.
 // stateReserveInstance is what actually holds the bound.
 func (s *Server) stateHasCapacity() bool {
+	if s.stateNoInstanceLimit() {
+		return true
+	}
 	return stateLiveInstances.Load() < int64(s.stateConf.MaxConcurrentInstances)
 }
 
@@ -498,14 +509,13 @@ func (w *Writer) writeStateSlot(st *model.StateType, appPkg string) {
 
 	w.Raw("\n")
 	w.Linef(0, "// %s holds one instance of %s.", slot, stateType)
-	w.Linef(0, "// It is checked out of %s on StreamOpen and returned", pool)
-	w.Linef(0, "// when StreamClose elapses without a reconnect within GracePeriod.")
+	w.Linef(0, "// It is checked out of %s on StreamOpen and returned on StreamClose.", pool)
+	w.Line(0, "// An instance lives exactly as long as the stream that created it:")
+	w.Line(0, "// a client that reconnects gets a zeroed one.")
 	w.Linef(0, "type %s struct {", slot)
-	w.Linef(1, "state    *%s.%s", appPkg, stateType)
-	w.Line(1, "mu       sync.Mutex  // serializes all stateful handler calls on this instance")
-	w.Line(1, "streamID uint64      // currently-associated SSE stream (0 when detached)")
-	w.Line(1, "timer    *time.Timer // grace-period timer; nil while a stream is attached")
-	w.Line(1, "dead     bool        // true once the state went back to the pool")
+	w.Linef(1, "state *%s.%s", appPkg, stateType)
+	w.Line(1, "mu    sync.Mutex // serializes all stateful handler calls on this instance")
+	w.Line(1, "dead  bool       // true once the state went back to the pool")
 	w.Line(0, "}")
 
 	w.Raw("\n")
@@ -523,11 +533,10 @@ func (w *Writer) writeStateSlot(st *model.StateType, appPkg string) {
 	w.writeStateMethods(st, appPkg)
 }
 
-// writeStateMethods emits the allocate/lookup/close methods of a state type.
+// writeStateMethods emits the allocate/lookup/release methods of a state type.
 // - allocate<T>: called by StreamOpen; zeroes pooled state, registers slot.
 // - lookup<T>:   called by actions/OnXXX; returns the slot or (nil, false).
-// - closeStream<T>: called by StreamClose; starts grace timer, detaches streamID.
-// - reconnect<T>: called by StreamOpen on repeat id; cancels timer, attaches streamID.
+// - release<T>:  called by StreamClose; returns the state to the pool at once.
 func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	slot := stateSlotTypeName(st)
 	pool := statePoolName(st)
@@ -537,19 +546,18 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 
 	w.Raw("\n")
 	w.Linef(0,
-		"// allocate%s checks a state value out of %s, zeroes it, registers it",
+		"// allocate%s checks a state value out of %s,",
 		suffix, pool)
-	w.Line(0, "// under id, and attaches it to the given SSE streamID.")
+	w.Line(0, "// zeroes it, registers it under id, and hands it to the SSE stream that asked for it.")
 	w.Line(0, "// Returns the slot so callers (StreamOpen) can pass the state to the user,")
 	w.Line(0, "// or nil when the server holds as many instances as it may.")
-	w.Linef(0, "func (s *Server) allocate%s(id string, streamID uint64) *%s {",
-		suffix, slot)
+	w.Linef(0, "func (s *Server) allocate%s(id string) *%s {", suffix, slot)
 	w.Line(1, "if !s.stateReserveInstance() {")
 	w.Line(2, "return nil")
 	w.Line(1, "}")
 	w.Linef(1, "st := %s.Get().(*%s.%s)", pool, appPkg, stateType)
 	w.Linef(1, "*st = %s.%s{} // nothing of the previous tab survives", appPkg, stateType)
-	w.Linef(1, "slot := &%s{state: st, streamID: streamID}", slot)
+	w.Linef(1, "slot := &%s{state: st}", slot)
 	w.Linef(1, "%s.Store(id, slot)", instances)
 	w.Line(1, "return slot")
 	w.Line(0, "}")
@@ -563,70 +571,32 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	w.Line(0, "}")
 
 	w.Raw("\n")
-	w.Linef(0, "// reconnect%s tries to reattach an existing slot (grace-period reconnect)", suffix)
-	w.Line(0, "// to a new SSE streamID. Returns (slot, true) on success; (nil, false)")
-	w.Line(0, "// when the id is unknown (e.g. grace period already elapsed).")
-	w.Line(0, "// A slot whose state already went back to the pool is refused.")
-	w.Linef(0, "func (s *Server) reconnect%s(id string, streamID uint64) (*%s, bool) {",
-		suffix, slot)
-	w.Linef(1, "slot, ok := s.lookup%s(id)", suffix)
-	w.Line(1, "if !ok {")
-	w.Line(2, "return nil, false")
-	w.Line(1, "}")
-	w.Line(1, "slot.mu.Lock()")
-	w.Line(1, "defer slot.mu.Unlock()")
-	w.Line(1, "if slot.dead {")
-	w.Line(2, "return nil, false")
-	w.Line(1, "}")
-	w.Line(1, "if slot.timer != nil {")
-	w.Line(2, "slot.timer.Stop()")
-	w.Line(2, "slot.timer = nil")
-	w.Line(1, "}")
-	w.Line(1, "slot.streamID = streamID")
-	w.Line(1, "return slot, true")
-	w.Line(0, "}")
-
-	w.Raw("\n")
-	w.Linef(0, "// closeStream%s marks id as detached from streamID and starts", suffix)
-	w.Line(0, "// the grace timer. If the client reconnects with the same id")
-	w.Line(0, "// before the timer fires, the slot is reused as-is.")
+	w.Linef(0, "// release%s returns the slot's state to the pool the moment its stream closes.", suffix)
+	w.Line(0, "// Nothing of the instance outlives the stream: a client that")
+	w.Line(0, "// reconnects opens a new stream and gets a zeroed state.")
 	w.Line(0, "//")
-	w.Line(0, "// A tab can hold two streams at once while the server still")
-	w.Line(0, "// tears the older one down. Only the attached stream may detach.")
-	w.Linef(0, "func (s *Server) closeStream%s(id string, streamID uint64) {", suffix)
-	w.Linef(1, "slot, ok := s.lookup%s(id)", suffix)
-	w.Line(1, "if !ok {")
-	w.Line(1, "\treturn")
-	w.Line(1, "}")
+	w.Line(0, "// The caller passes the slot it allocated rather than the id alone.")
+	w.Line(0, "// A tab can hold two streams at once while the server still tears the")
+	w.Line(0, "// older one down, and the second registers its own slot under the same id.")
+	w.Line(0, "// Releasing by id would give back whichever slot the map holds now.")
+	w.Line(0, "//")
+	w.Line(0, "// Calling this twice on one slot releases it once.")
+	w.Linef(0, "func (s *Server) release%s(id string, slot *%s) {", suffix, slot)
 	w.Line(1, "slot.mu.Lock()")
-	w.Line(1, "if slot.streamID != streamID {")
+	w.Line(1, "if slot.dead {")
 	w.Line(2, "slot.mu.Unlock()")
 	w.Line(2, "return")
 	w.Line(1, "}")
-	w.Line(1, "slot.streamID = 0")
-	w.Line(1, "if slot.timer != nil {")
-	w.Line(2, "slot.timer.Stop()")
-	w.Line(1, "}")
-	w.Line(1, "slot.timer = time.AfterFunc(s.stateConf.GracePeriod, func() {")
-	w.Line(2, "slot.mu.Lock()")
-	w.Line(2, "// A stream reattached while this timer was already running,")
-	w.Line(2, "// or another timer got here first.")
-	w.Line(2, "if slot.streamID != 0 || slot.dead {")
-	w.Line(3, "slot.mu.Unlock()")
-	w.Line(3, "return")
-	w.Line(2, "}")
-	w.Line(2, "slot.dead = true")
-	w.Line(2, "st := slot.state")
-	w.Line(2, "slot.state = nil")
-	w.Line(2, "slot.mu.Unlock()")
-	w.Line(2, "// A stream can allocate a fresh slot under this id while this")
-	w.Line(2, "// one is on its way out. Drop only the slot this timer owns.")
-	w.Linef(2, "%s.CompareAndDelete(id, slot)", instances)
-	w.Line(2, "stateLiveInstances.Add(-1)")
-	w.Line(2, "if st != nil {")
-	w.Linef(3, "%s.Put(st)", pool)
-	w.Line(2, "}")
-	w.Line(1, "})")
+	w.Line(1, "slot.dead = true")
+	w.Line(1, "st := slot.state")
+	w.Line(1, "slot.state = nil")
 	w.Line(1, "slot.mu.Unlock()")
+	w.Line(1, "// A stream can allocate a fresh slot under this id while this")
+	w.Line(1, "// one is on its way out. Drop only the slot this call owns.")
+	w.Linef(1, "%s.CompareAndDelete(id, slot)", instances)
+	w.Line(1, "stateLiveInstances.Add(-1)")
+	w.Line(1, "if st != nil {")
+	w.Linef(2, "%s.Put(st)", pool)
+	w.Line(1, "}")
 	w.Line(0, "}")
 }

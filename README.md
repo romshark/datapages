@@ -145,8 +145,9 @@ func (p PageIndex) POSTFilter(
 }
 ```
 
-The state lives in server memory for as long as the tab holds its SSE stream,
-plus a grace period that survives a network blip. The tab is named by a signed
+The state lives in server memory for exactly as long as the tab holds its SSE
+stream: a stream that drops takes it, and a reconnect starts from a zeroed value.
+The tab is named by a signed
 `Datapages-Instance` header the page load mints; nothing is stored in the
 browser. A page that takes state declares at least one of `StreamOpen`,
 `StreamClose` or an `OnXXX` handler, and the server is given a

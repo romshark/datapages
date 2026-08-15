@@ -430,11 +430,10 @@ type EventDirectMessage struct {
 ### When to use stream hooks
 
 - **Per-tab server-side state.** Declare an exported struct and take
-  `state *T` in `StreamOpen`, actions, and `OnXXX` handlers. The
-  generator allocates one state per tab from a pool, serializes handler calls
-  with a per-instance mutex, and returns state to the pool after
-  `StreamClose` + a grace period. No manual tab-id signing or map bookkeeping.
-  See Step 10.
+  `state *T` in `StreamOpen`, actions, and `OnXXX` handlers.
+	The generator allocates one state per tab from a pool, serializes handler calls
+  with a per-instance mutex, and returns state to the pool on `StreamClose`.
+	No manual tab-id signing or map bookkeeping. See Step 10.
 - **CQRS read-model binding.** In a CQRS architecture, actions (commands)
   dispatch events and event handlers (queries) render the updated UI. The
   event handler needs context about *which* tab it is rendering for (e.g.
@@ -585,8 +584,9 @@ func (PageIndex) OnItemsChanged(
   released. The client shim reloads the page once per document on such a
   response, which reconnects the stream and mints a fresh instance. It does
   not retry the action, so unsaved form input is lost.
-- Keeps the state alive for a grace period (default 30s) after `StreamClose`
-  so transient network blips don't wipe per-tab state.
+- Releases the state on `StreamClose`. An instance lives exactly as long as
+  its stream, so a transient network blip resets per-tab state. Keep in `*T`
+  only what a tab can afford to lose.
 
 **Server configuration**. Stateful apps must opt in via `WithStateConfig`:
 
@@ -595,15 +595,15 @@ hmacKey := sha256.Sum256([]byte(hmacSecret))
 s := datapagesgen.NewServer(a, msgBroker,
     datapagesgen.WithStateConfig(datapagesgen.StateConfig{
         HMACKey:                hmacKey[:],
-        GracePeriod:            30 * time.Second, // optional, default 30s
-        MaxConcurrentInstances: 10_000,           // optional, default 10_000
+        MaxConcurrentInstances: 10_000, // optional, 0 takes the default
     }),
 )
 ```
 
 `NewServer` panics without this option. `MaxConcurrentInstances` caps how
 many instances exist at the same time. A stream connect past the cap gets
-`503` and Datastar retries it.
+`503` and Datastar retries it. Zero selects
+`DefaultMaxConcurrentInstances` and a negative value removes the cap.
 
 **Multi-server deployments**. State lives in process memory, so the load
 balancer must route each client consistently to the same backend (cookie

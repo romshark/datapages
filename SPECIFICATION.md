@@ -350,9 +350,12 @@ values. State is held in server memory. Handlers on the same instance are
 serialized by a per-instance mutex, so fields may be read and written without
 additional synchronization inside a handler.
 
+An instance belongs to a tab, not to a user. It is bound to no session and
+survives a sign-out. Treat `*T` as scratch space for the tab.
+
 A page opts into state by declaring an exported struct and referencing it via
-`state *T` on one or more action methods, `OnXXX` handlers, `StreamOpen`, or
-`StreamClose`. The type may carry any exported name — `StateIndex` and
+`state *T` on one or more action methods, `OnXXX` handlers, `StreamOpen`,
+or `StreamClose`. The type may carry any exported name — `StateIndex` and
 `TabContext` are both accepted:
 
 ```go
@@ -457,9 +460,9 @@ state-id matches the dispatched value receives the event. Rules:
    looks up the slot, acquires its mutex, and invokes the user handler with
    `state`. A missing slot (for example, an action fired before `StreamOpen`
    completes) yields `409 Conflict` with `Datapages-Retry: reconnect`.
-5. On `StreamClose`, the server arms a grace timer (default 30s). A
-   reconnect with the same id inside the window reuses the slot as-is
-   without reset. Otherwise the state is returned to the pool.
+5. On `StreamClose`, the state is returned to the pool at once.
+   A reconnect with the same id opens a new stream and takes a freshly zeroed `*T`.
+   An instance lives exactly as long as the stream that created it.
 
 **Configuration**. `WithStateConfig` is required on `NewServer` when any
 handler takes `state`:
@@ -467,9 +470,8 @@ handler takes `state`:
 ```go
 s := datapagesgen.NewServer(a, msgBroker,
     datapagesgen.WithStateConfig(datapagesgen.StateConfig{
-        HMACKey:                hmacKey,          // required, non-empty
-        GracePeriod:            30 * time.Second, // optional, default 30s
-        MaxConcurrentInstances: 10_000,           // optional, default 10_000
+        HMACKey:                hmacKey, // required, 32+ bytes
+        MaxConcurrentInstances: 10_000,  // optional, 0 takes the default
     }),
 )
 ```
@@ -479,20 +481,22 @@ s := datapagesgen.NewServer(a, msgBroker,
 `HMACKey` signs the instance identifier. Key rotation or process restart
 invalidates every live instance; connected clients recover by reloading the
 page on the next rejected request. Give this purpose a key of its own, 32
-random bytes or more. Datapages tags each value it derives from the key, which
-keeps its own two derivations apart. It cannot do that for a subsystem that
-shares the key.
+random bytes or more. `WithStateConfig` rejects a shorter one, which catches a
+short literal and nothing else: length is not entropy, and 32 bytes derived
+from one weak passphrase pass the same check. Datapages tags each value it
+derives from the key, which keeps its own two derivations apart. It cannot do
+that for a subsystem that shares the key.
 
 `MaxConcurrentInstances` caps how many instances exist at the same time,
 across all state types. A page load plus an SSE connect creates one, which
-anyone who reaches the server can ask for. An instance keeps its place for
-`GracePeriod` after its stream closes, which means a client that opens and
-closes streams in a loop holds several at once. Size the cap by the memory
-one state value costs.
+anyone who reaches the server can ask for. One client holds no more of them
+than it holds open streams. Size the cap by the memory one state value costs.
+Zero selects `DefaultMaxConcurrentInstances`. A negative value removes the cap,
+which leaves what per-tab state may take bounded by nothing this server knows
+about: bound it elsewhere, by capping the connections one client may hold.
 
 A stream connect that would exceed the cap receives `503 Service Unavailable`
 with `Retry-After`. Datastar retries the connect on its own.
-A reconnect within `GracePeriod` reuses its instance and is never refused.
 Actions of a tab that already holds an instance keep working.
 Nothing in the app is notified, which makes the cap a limit to watch rather than
 one to rely on.
@@ -502,6 +506,11 @@ memory, so each client's requests must land on the same backend. A load
 balancer that hashes on a client-stable value — the session cookie or the
 `Datapages-Instance` header — satisfies this. A round-robin balancer will
 produce frequent `409` rejections followed by reloads.
+
+**Rate limiting**. An instance lives no longer than its stream, which leaves a
+per-client connection limit bounding how many one client can hold. Datapages
+meters nothing beyond the global cap. A per-session cap is `WithMiddleware` on
+the stream route.
 
 **Security**. The instance id arrives in the HTML response and is closed over
 by the inline script that reads it. That script removes itself from the

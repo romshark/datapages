@@ -544,6 +544,10 @@ func evSubjPagePointer(stateID string) []string {
 // the output size of the hash the key is used with.
 const stateHMACKeyMinLen = 32
 
+// DefaultMaxConcurrentInstances is the default value of
+// [StateConfig.MaxConcurrentInstances]
+const DefaultMaxConcurrentInstances = 10_000
+
 // StateConfig configures the per-page-instance server-side state runtime.
 // Pass via WithStateConfig when at least one handler takes state *T.
 type StateConfig struct {
@@ -557,16 +561,11 @@ type StateConfig struct {
 	// across subsystems makes the security of each of them the security of all.
 	HMACKey []byte
 
-	// GracePeriod is how long a stateful instance survives after its SSE stream closes,
-	// waiting for the client to reconnect (e.g. after a transient network blip).
-	// Default 30s.
-	GracePeriod time.Duration
-
 	// MaxConcurrentInstances caps how many instances exist at the same time,
-	// across all state types. A page load plus an SSE connect creates one,
-	// which anyone who reaches the server can ask for. An instance keeps its
-	// place for GracePeriod after its stream closes. Stream opens beyond the cap fail.
-	// Default 10_000.
+	// across all state types. An instance lives exactly as long as its stream.
+	// A stream open beyond the cap is answered 503 with Retry-After.
+	//
+	// Zero selects [DefaultMaxConcurrentInstances]. A negative value removes the cap.
 	MaxConcurrentInstances int
 }
 
@@ -587,11 +586,8 @@ func WithStateConfig(conf StateConfig) ServerOption {
 				"WithStateConfig: HMACKey must be at least %d bytes, got %d",
 				stateHMACKeyMinLen, len(conf.HMACKey))
 		}
-		if conf.GracePeriod <= 0 {
-			conf.GracePeriod = 30 * time.Second
-		}
-		if conf.MaxConcurrentInstances <= 0 {
-			conf.MaxConcurrentInstances = 10_000
+		if conf.MaxConcurrentInstances == 0 {
+			conf.MaxConcurrentInstances = DefaultMaxConcurrentInstances
 		}
 		s.stateConf = &conf
 		return nil
@@ -683,10 +679,22 @@ func (s *Server) stateRouteKey(id string) string {
 // and so is the budget in StateConfig.MaxConcurrentInstances.
 var stateLiveInstances atomic.Int64
 
+// stateNoInstanceLimit is what a negative MaxConcurrentInstances means:
+// no budget at all. The counter is still kept, since releases decrement it
+// unconditionally and a configuration is free to change between processes.
+func (s *Server) stateNoInstanceLimit() bool {
+	return s.stateConf.MaxConcurrentInstances < 0
+}
+
 // stateReserveInstance takes one slot out of the budget. It reports false
 // when the server is full, which fails the stream open that asked for it.
+// An unlimited server serves every caller.
 func (s *Server) stateReserveInstance() bool {
-	if stateLiveInstances.Add(1) > int64(s.stateConf.MaxConcurrentInstances) {
+	n := stateLiveInstances.Add(1)
+	if s.stateNoInstanceLimit() {
+		return true
+	}
+	if n > int64(s.stateConf.MaxConcurrentInstances) {
 		stateLiveInstances.Add(-1)
 		return false
 	}
@@ -697,6 +705,9 @@ func (s *Server) stateReserveInstance() bool {
 // It is a look, not a claim, and callers use it before a stream commits its status line.
 // stateReserveInstance is what actually holds the bound.
 func (s *Server) stateHasCapacity() bool {
+	if s.stateNoInstanceLimit() {
+		return true
+	}
 	return stateLiveInstances.Load() < int64(s.stateConf.MaxConcurrentInstances)
 }
 
@@ -768,14 +779,13 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 }
 
 // stateSlotStateCounter holds one instance of StateCounter.
-// It is checked out of statePoolStateCounter on StreamOpen and returned
-// when StreamClose elapses without a reconnect within GracePeriod.
+// It is checked out of statePoolStateCounter on StreamOpen and returned on StreamClose.
+// An instance lives exactly as long as the stream that created it:
+// a client that reconnects gets a zeroed one.
 type stateSlotStateCounter struct {
-	state    *app.StateCounter
-	mu       sync.Mutex  // serializes all stateful handler calls on this instance
-	streamID uint64      // currently-associated SSE stream (0 when detached)
-	timer    *time.Timer // grace-period timer; nil while a stream is attached
-	dead     bool        // true once the state went back to the pool
+	state *app.StateCounter
+	mu    sync.Mutex // serializes all stateful handler calls on this instance
+	dead  bool       // true once the state went back to the pool
 }
 
 // statePoolStateCounter pools StateCounter values across instance checkouts.
@@ -788,17 +798,17 @@ var statePoolStateCounter = sync.Pool{
 // stateInstancesStateCounter maps a verified Datapages-Instance id to the live slot.
 var stateInstancesStateCounter stateStore[stateSlotStateCounter]
 
-// allocateStateCounter checks a state value out of statePoolStateCounter, zeroes it, registers it
-// under id, and attaches it to the given SSE streamID.
+// allocateStateCounter checks a state value out of statePoolStateCounter,
+// zeroes it, registers it under id, and hands it to the SSE stream that asked for it.
 // Returns the slot so callers (StreamOpen) can pass the state to the user,
 // or nil when the server holds as many instances as it may.
-func (s *Server) allocateStateCounter(id string, streamID uint64) *stateSlotStateCounter {
+func (s *Server) allocateStateCounter(id string) *stateSlotStateCounter {
 	if !s.stateReserveInstance() {
 		return nil
 	}
 	st := statePoolStateCounter.Get().(*app.StateCounter)
 	*st = app.StateCounter{} // nothing of the previous tab survives
-	slot := &stateSlotStateCounter{state: st, streamID: streamID}
+	slot := &stateSlotStateCounter{state: st}
 	stateInstancesStateCounter.Store(id, slot)
 	return slot
 }
@@ -810,80 +820,43 @@ func (s *Server) lookupStateCounter(id string) (*stateSlotStateCounter, bool) {
 	return stateInstancesStateCounter.Load(id)
 }
 
-// reconnectStateCounter tries to reattach an existing slot (grace-period reconnect)
-// to a new SSE streamID. Returns (slot, true) on success; (nil, false)
-// when the id is unknown (e.g. grace period already elapsed).
-// A slot whose state already went back to the pool is refused.
-func (s *Server) reconnectStateCounter(id string, streamID uint64) (*stateSlotStateCounter, bool) {
-	slot, ok := s.lookupStateCounter(id)
-	if !ok {
-		return nil, false
-	}
-	slot.mu.Lock()
-	defer slot.mu.Unlock()
-	if slot.dead {
-		return nil, false
-	}
-	if slot.timer != nil {
-		slot.timer.Stop()
-		slot.timer = nil
-	}
-	slot.streamID = streamID
-	return slot, true
-}
-
-// closeStreamStateCounter marks id as detached from streamID and starts
-// the grace timer. If the client reconnects with the same id
-// before the timer fires, the slot is reused as-is.
+// releaseStateCounter returns the slot's state to the pool the moment its stream closes.
+// Nothing of the instance outlives the stream: a client that
+// reconnects opens a new stream and gets a zeroed state.
 //
-// A tab can hold two streams at once while the server still
-// tears the older one down. Only the attached stream may detach.
-func (s *Server) closeStreamStateCounter(id string, streamID uint64) {
-	slot, ok := s.lookupStateCounter(id)
-	if !ok {
-		return
-	}
+// The caller passes the slot it allocated rather than the id alone.
+// A tab can hold two streams at once while the server still tears the
+// older one down, and the second registers its own slot under the same id.
+// Releasing by id would give back whichever slot the map holds now.
+//
+// Calling this twice on one slot releases it once.
+func (s *Server) releaseStateCounter(id string, slot *stateSlotStateCounter) {
 	slot.mu.Lock()
-	if slot.streamID != streamID {
+	if slot.dead {
 		slot.mu.Unlock()
 		return
 	}
-	slot.streamID = 0
-	if slot.timer != nil {
-		slot.timer.Stop()
-	}
-	slot.timer = time.AfterFunc(s.stateConf.GracePeriod, func() {
-		slot.mu.Lock()
-		// A stream reattached while this timer was already running,
-		// or another timer got here first.
-		if slot.streamID != 0 || slot.dead {
-			slot.mu.Unlock()
-			return
-		}
-		slot.dead = true
-		st := slot.state
-		slot.state = nil
-		slot.mu.Unlock()
-		// A stream can allocate a fresh slot under this id while this
-		// one is on its way out. Drop only the slot this timer owns.
-		stateInstancesStateCounter.CompareAndDelete(id, slot)
-		stateLiveInstances.Add(-1)
-		if st != nil {
-			statePoolStateCounter.Put(st)
-		}
-	})
+	slot.dead = true
+	st := slot.state
+	slot.state = nil
 	slot.mu.Unlock()
+	// A stream can allocate a fresh slot under this id while this
+	// one is on its way out. Drop only the slot this call owns.
+	stateInstancesStateCounter.CompareAndDelete(id, slot)
+	stateLiveInstances.Add(-1)
+	if st != nil {
+		statePoolStateCounter.Put(st)
+	}
 }
 
 // stateSlotStateLabel holds one instance of StateLabel.
-// It is checked out of statePoolStateLabel on StreamOpen and returned
-// when StreamClose elapses without a reconnect within GracePeriod.
+// It is checked out of statePoolStateLabel on StreamOpen and returned on StreamClose.
+// An instance lives exactly as long as the stream that created it:
+// a client that reconnects gets a zeroed one.
 type stateSlotStateLabel struct {
-	state    *app.StateLabel
-	mu       sync.Mutex  // serializes all stateful handler calls on this instance
-	streamID uint64      // currently-associated SSE stream (0 when detached)
-	timer    *time.Timer // grace-period timer; nil while a stream is attached
-	dead     bool        // true once the state went back to the pool
+	state *app.StateLabel
+	mu    sync.Mutex // serializes all stateful handler calls on this instance
+	dead  bool       // true once the state went back to the pool
 }
 
 // statePoolStateLabel pools StateLabel values across instance checkouts.
@@ -896,17 +869,17 @@ var statePoolStateLabel = sync.Pool{
 // stateInstancesStateLabel maps a verified Datapages-Instance id to the live slot.
 var stateInstancesStateLabel stateStore[stateSlotStateLabel]
 
-// allocateStateLabel checks a state value out of statePoolStateLabel, zeroes it, registers it
-// under id, and attaches it to the given SSE streamID.
+// allocateStateLabel checks a state value out of statePoolStateLabel,
+// zeroes it, registers it under id, and hands it to the SSE stream that asked for it.
 // Returns the slot so callers (StreamOpen) can pass the state to the user,
 // or nil when the server holds as many instances as it may.
-func (s *Server) allocateStateLabel(id string, streamID uint64) *stateSlotStateLabel {
+func (s *Server) allocateStateLabel(id string) *stateSlotStateLabel {
 	if !s.stateReserveInstance() {
 		return nil
 	}
 	st := statePoolStateLabel.Get().(*app.StateLabel)
 	*st = app.StateLabel{} // nothing of the previous tab survives
-	slot := &stateSlotStateLabel{state: st, streamID: streamID}
+	slot := &stateSlotStateLabel{state: st}
 	stateInstancesStateLabel.Store(id, slot)
 	return slot
 }
@@ -918,80 +891,43 @@ func (s *Server) lookupStateLabel(id string) (*stateSlotStateLabel, bool) {
 	return stateInstancesStateLabel.Load(id)
 }
 
-// reconnectStateLabel tries to reattach an existing slot (grace-period reconnect)
-// to a new SSE streamID. Returns (slot, true) on success; (nil, false)
-// when the id is unknown (e.g. grace period already elapsed).
-// A slot whose state already went back to the pool is refused.
-func (s *Server) reconnectStateLabel(id string, streamID uint64) (*stateSlotStateLabel, bool) {
-	slot, ok := s.lookupStateLabel(id)
-	if !ok {
-		return nil, false
-	}
-	slot.mu.Lock()
-	defer slot.mu.Unlock()
-	if slot.dead {
-		return nil, false
-	}
-	if slot.timer != nil {
-		slot.timer.Stop()
-		slot.timer = nil
-	}
-	slot.streamID = streamID
-	return slot, true
-}
-
-// closeStreamStateLabel marks id as detached from streamID and starts
-// the grace timer. If the client reconnects with the same id
-// before the timer fires, the slot is reused as-is.
+// releaseStateLabel returns the slot's state to the pool the moment its stream closes.
+// Nothing of the instance outlives the stream: a client that
+// reconnects opens a new stream and gets a zeroed state.
 //
-// A tab can hold two streams at once while the server still
-// tears the older one down. Only the attached stream may detach.
-func (s *Server) closeStreamStateLabel(id string, streamID uint64) {
-	slot, ok := s.lookupStateLabel(id)
-	if !ok {
-		return
-	}
+// The caller passes the slot it allocated rather than the id alone.
+// A tab can hold two streams at once while the server still tears the
+// older one down, and the second registers its own slot under the same id.
+// Releasing by id would give back whichever slot the map holds now.
+//
+// Calling this twice on one slot releases it once.
+func (s *Server) releaseStateLabel(id string, slot *stateSlotStateLabel) {
 	slot.mu.Lock()
-	if slot.streamID != streamID {
+	if slot.dead {
 		slot.mu.Unlock()
 		return
 	}
-	slot.streamID = 0
-	if slot.timer != nil {
-		slot.timer.Stop()
-	}
-	slot.timer = time.AfterFunc(s.stateConf.GracePeriod, func() {
-		slot.mu.Lock()
-		// A stream reattached while this timer was already running,
-		// or another timer got here first.
-		if slot.streamID != 0 || slot.dead {
-			slot.mu.Unlock()
-			return
-		}
-		slot.dead = true
-		st := slot.state
-		slot.state = nil
-		slot.mu.Unlock()
-		// A stream can allocate a fresh slot under this id while this
-		// one is on its way out. Drop only the slot this timer owns.
-		stateInstancesStateLabel.CompareAndDelete(id, slot)
-		stateLiveInstances.Add(-1)
-		if st != nil {
-			statePoolStateLabel.Put(st)
-		}
-	})
+	slot.dead = true
+	st := slot.state
+	slot.state = nil
 	slot.mu.Unlock()
+	// A stream can allocate a fresh slot under this id while this
+	// one is on its way out. Drop only the slot this call owns.
+	stateInstancesStateLabel.CompareAndDelete(id, slot)
+	stateLiveInstances.Add(-1)
+	if st != nil {
+		statePoolStateLabel.Put(st)
+	}
 }
 
 // stateSlotStateNested holds one instance of StateNested.
-// It is checked out of statePoolStateNested on StreamOpen and returned
-// when StreamClose elapses without a reconnect within GracePeriod.
+// It is checked out of statePoolStateNested on StreamOpen and returned on StreamClose.
+// An instance lives exactly as long as the stream that created it:
+// a client that reconnects gets a zeroed one.
 type stateSlotStateNested struct {
-	state    *app.StateNested
-	mu       sync.Mutex  // serializes all stateful handler calls on this instance
-	streamID uint64      // currently-associated SSE stream (0 when detached)
-	timer    *time.Timer // grace-period timer; nil while a stream is attached
-	dead     bool        // true once the state went back to the pool
+	state *app.StateNested
+	mu    sync.Mutex // serializes all stateful handler calls on this instance
+	dead  bool       // true once the state went back to the pool
 }
 
 // statePoolStateNested pools StateNested values across instance checkouts.
@@ -1004,17 +940,17 @@ var statePoolStateNested = sync.Pool{
 // stateInstancesStateNested maps a verified Datapages-Instance id to the live slot.
 var stateInstancesStateNested stateStore[stateSlotStateNested]
 
-// allocateStateNested checks a state value out of statePoolStateNested, zeroes it, registers it
-// under id, and attaches it to the given SSE streamID.
+// allocateStateNested checks a state value out of statePoolStateNested,
+// zeroes it, registers it under id, and hands it to the SSE stream that asked for it.
 // Returns the slot so callers (StreamOpen) can pass the state to the user,
 // or nil when the server holds as many instances as it may.
-func (s *Server) allocateStateNested(id string, streamID uint64) *stateSlotStateNested {
+func (s *Server) allocateStateNested(id string) *stateSlotStateNested {
 	if !s.stateReserveInstance() {
 		return nil
 	}
 	st := statePoolStateNested.Get().(*app.StateNested)
 	*st = app.StateNested{} // nothing of the previous tab survives
-	slot := &stateSlotStateNested{state: st, streamID: streamID}
+	slot := &stateSlotStateNested{state: st}
 	stateInstancesStateNested.Store(id, slot)
 	return slot
 }
@@ -1026,80 +962,43 @@ func (s *Server) lookupStateNested(id string) (*stateSlotStateNested, bool) {
 	return stateInstancesStateNested.Load(id)
 }
 
-// reconnectStateNested tries to reattach an existing slot (grace-period reconnect)
-// to a new SSE streamID. Returns (slot, true) on success; (nil, false)
-// when the id is unknown (e.g. grace period already elapsed).
-// A slot whose state already went back to the pool is refused.
-func (s *Server) reconnectStateNested(id string, streamID uint64) (*stateSlotStateNested, bool) {
-	slot, ok := s.lookupStateNested(id)
-	if !ok {
-		return nil, false
-	}
-	slot.mu.Lock()
-	defer slot.mu.Unlock()
-	if slot.dead {
-		return nil, false
-	}
-	if slot.timer != nil {
-		slot.timer.Stop()
-		slot.timer = nil
-	}
-	slot.streamID = streamID
-	return slot, true
-}
-
-// closeStreamStateNested marks id as detached from streamID and starts
-// the grace timer. If the client reconnects with the same id
-// before the timer fires, the slot is reused as-is.
+// releaseStateNested returns the slot's state to the pool the moment its stream closes.
+// Nothing of the instance outlives the stream: a client that
+// reconnects opens a new stream and gets a zeroed state.
 //
-// A tab can hold two streams at once while the server still
-// tears the older one down. Only the attached stream may detach.
-func (s *Server) closeStreamStateNested(id string, streamID uint64) {
-	slot, ok := s.lookupStateNested(id)
-	if !ok {
-		return
-	}
+// The caller passes the slot it allocated rather than the id alone.
+// A tab can hold two streams at once while the server still tears the
+// older one down, and the second registers its own slot under the same id.
+// Releasing by id would give back whichever slot the map holds now.
+//
+// Calling this twice on one slot releases it once.
+func (s *Server) releaseStateNested(id string, slot *stateSlotStateNested) {
 	slot.mu.Lock()
-	if slot.streamID != streamID {
+	if slot.dead {
 		slot.mu.Unlock()
 		return
 	}
-	slot.streamID = 0
-	if slot.timer != nil {
-		slot.timer.Stop()
-	}
-	slot.timer = time.AfterFunc(s.stateConf.GracePeriod, func() {
-		slot.mu.Lock()
-		// A stream reattached while this timer was already running,
-		// or another timer got here first.
-		if slot.streamID != 0 || slot.dead {
-			slot.mu.Unlock()
-			return
-		}
-		slot.dead = true
-		st := slot.state
-		slot.state = nil
-		slot.mu.Unlock()
-		// A stream can allocate a fresh slot under this id while this
-		// one is on its way out. Drop only the slot this timer owns.
-		stateInstancesStateNested.CompareAndDelete(id, slot)
-		stateLiveInstances.Add(-1)
-		if st != nil {
-			statePoolStateNested.Put(st)
-		}
-	})
+	slot.dead = true
+	st := slot.state
+	slot.state = nil
 	slot.mu.Unlock()
+	// A stream can allocate a fresh slot under this id while this
+	// one is on its way out. Drop only the slot this call owns.
+	stateInstancesStateNested.CompareAndDelete(id, slot)
+	stateLiveInstances.Add(-1)
+	if st != nil {
+		statePoolStateNested.Put(st)
+	}
 }
 
 // stateSlotStatePointer holds one instance of StatePointer.
-// It is checked out of statePoolStatePointer on StreamOpen and returned
-// when StreamClose elapses without a reconnect within GracePeriod.
+// It is checked out of statePoolStatePointer on StreamOpen and returned on StreamClose.
+// An instance lives exactly as long as the stream that created it:
+// a client that reconnects gets a zeroed one.
 type stateSlotStatePointer struct {
-	state    *app.StatePointer
-	mu       sync.Mutex  // serializes all stateful handler calls on this instance
-	streamID uint64      // currently-associated SSE stream (0 when detached)
-	timer    *time.Timer // grace-period timer; nil while a stream is attached
-	dead     bool        // true once the state went back to the pool
+	state *app.StatePointer
+	mu    sync.Mutex // serializes all stateful handler calls on this instance
+	dead  bool       // true once the state went back to the pool
 }
 
 // statePoolStatePointer pools StatePointer values across instance checkouts.
@@ -1112,17 +1011,17 @@ var statePoolStatePointer = sync.Pool{
 // stateInstancesStatePointer maps a verified Datapages-Instance id to the live slot.
 var stateInstancesStatePointer stateStore[stateSlotStatePointer]
 
-// allocateStatePointer checks a state value out of statePoolStatePointer, zeroes it, registers it
-// under id, and attaches it to the given SSE streamID.
+// allocateStatePointer checks a state value out of statePoolStatePointer,
+// zeroes it, registers it under id, and hands it to the SSE stream that asked for it.
 // Returns the slot so callers (StreamOpen) can pass the state to the user,
 // or nil when the server holds as many instances as it may.
-func (s *Server) allocateStatePointer(id string, streamID uint64) *stateSlotStatePointer {
+func (s *Server) allocateStatePointer(id string) *stateSlotStatePointer {
 	if !s.stateReserveInstance() {
 		return nil
 	}
 	st := statePoolStatePointer.Get().(*app.StatePointer)
 	*st = app.StatePointer{} // nothing of the previous tab survives
-	slot := &stateSlotStatePointer{state: st, streamID: streamID}
+	slot := &stateSlotStatePointer{state: st}
 	stateInstancesStatePointer.Store(id, slot)
 	return slot
 }
@@ -1134,69 +1033,33 @@ func (s *Server) lookupStatePointer(id string) (*stateSlotStatePointer, bool) {
 	return stateInstancesStatePointer.Load(id)
 }
 
-// reconnectStatePointer tries to reattach an existing slot (grace-period reconnect)
-// to a new SSE streamID. Returns (slot, true) on success; (nil, false)
-// when the id is unknown (e.g. grace period already elapsed).
-// A slot whose state already went back to the pool is refused.
-func (s *Server) reconnectStatePointer(id string, streamID uint64) (*stateSlotStatePointer, bool) {
-	slot, ok := s.lookupStatePointer(id)
-	if !ok {
-		return nil, false
-	}
-	slot.mu.Lock()
-	defer slot.mu.Unlock()
-	if slot.dead {
-		return nil, false
-	}
-	if slot.timer != nil {
-		slot.timer.Stop()
-		slot.timer = nil
-	}
-	slot.streamID = streamID
-	return slot, true
-}
-
-// closeStreamStatePointer marks id as detached from streamID and starts
-// the grace timer. If the client reconnects with the same id
-// before the timer fires, the slot is reused as-is.
+// releaseStatePointer returns the slot's state to the pool the moment its stream closes.
+// Nothing of the instance outlives the stream: a client that
+// reconnects opens a new stream and gets a zeroed state.
 //
-// A tab can hold two streams at once while the server still
-// tears the older one down. Only the attached stream may detach.
-func (s *Server) closeStreamStatePointer(id string, streamID uint64) {
-	slot, ok := s.lookupStatePointer(id)
-	if !ok {
-		return
-	}
+// The caller passes the slot it allocated rather than the id alone.
+// A tab can hold two streams at once while the server still tears the
+// older one down, and the second registers its own slot under the same id.
+// Releasing by id would give back whichever slot the map holds now.
+//
+// Calling this twice on one slot releases it once.
+func (s *Server) releaseStatePointer(id string, slot *stateSlotStatePointer) {
 	slot.mu.Lock()
-	if slot.streamID != streamID {
+	if slot.dead {
 		slot.mu.Unlock()
 		return
 	}
-	slot.streamID = 0
-	if slot.timer != nil {
-		slot.timer.Stop()
-	}
-	slot.timer = time.AfterFunc(s.stateConf.GracePeriod, func() {
-		slot.mu.Lock()
-		// A stream reattached while this timer was already running,
-		// or another timer got here first.
-		if slot.streamID != 0 || slot.dead {
-			slot.mu.Unlock()
-			return
-		}
-		slot.dead = true
-		st := slot.state
-		slot.state = nil
-		slot.mu.Unlock()
-		// A stream can allocate a fresh slot under this id while this
-		// one is on its way out. Drop only the slot this timer owns.
-		stateInstancesStatePointer.CompareAndDelete(id, slot)
-		stateLiveInstances.Add(-1)
-		if st != nil {
-			statePoolStatePointer.Put(st)
-		}
-	})
+	slot.dead = true
+	st := slot.state
+	slot.state = nil
 	slot.mu.Unlock()
+	// A stream can allocate a fresh slot under this id while this
+	// one is on its way out. Drop only the slot this call owns.
+	stateInstancesStatePointer.CompareAndDelete(id, slot)
+	stateLiveInstances.Add(-1)
+	if st != nil {
+		statePoolStatePointer.Put(st)
+	}
 }
 
 func setupHandlers(s *Server) {
@@ -1343,11 +1206,7 @@ func (s *Server) handlePageCountGETStream(w http.ResponseWriter, r *http.Request
 			streamID uint64,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
-			if existing, ok := s.reconnectStateCounter(instanceID, streamID); ok {
-				slot = existing
-			} else {
-				slot = s.allocateStateCounter(instanceID, streamID)
-			}
+			slot = s.allocateStateCounter(instanceID)
 			// A stream that gets no slot never opens: the event loop and the
 			// close hook run only once this hook has returned nil,
 			// which is why neither of them checks again.
@@ -1355,12 +1214,12 @@ func (s *Server) handlePageCountGETStream(w http.ResponseWriter, r *http.Request
 				return errStateAtCapacity
 			}
 			// The close hook is wired up only once this one has returned nil.
-			// An open that ends any other way hands the instance to the grace
-			// timer here, since nothing else is left to give it back.
+			// An open that ends any other way gives the instance back here,
+			// since nothing else is left to do it.
 			opened := false
 			defer func() {
 				if !opened {
-					s.closeStreamStateCounter(instanceID, streamID)
+					s.releaseStateCounter(instanceID, slot)
 				}
 			}()
 			slot.mu.Lock()
@@ -1372,7 +1231,7 @@ func (s *Server) handlePageCountGETStream(w http.ResponseWriter, r *http.Request
 			return nil
 		},
 		func(streamID uint64) {
-			s.closeStreamStateCounter(instanceID, streamID)
+			s.releaseStateCounter(instanceID, slot)
 		},
 		func(
 			streamID uint64,
@@ -1530,11 +1389,7 @@ func (s *Server) handlePageEmbedOnlyGETStream(w http.ResponseWriter, r *http.Req
 			streamID uint64,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
-			if existing, ok := s.reconnectStateLabel(instanceID, streamID); ok {
-				slot = existing
-			} else {
-				slot = s.allocateStateLabel(instanceID, streamID)
-			}
+			slot = s.allocateStateLabel(instanceID)
 			// A stream that gets no slot never opens: the event loop and the
 			// close hook run only once this hook has returned nil,
 			// which is why neither of them checks again.
@@ -1542,12 +1397,12 @@ func (s *Server) handlePageEmbedOnlyGETStream(w http.ResponseWriter, r *http.Req
 				return errStateAtCapacity
 			}
 			// The close hook is wired up only once this one has returned nil.
-			// An open that ends any other way hands the instance to the grace
-			// timer here, since nothing else is left to give it back.
+			// An open that ends any other way gives the instance back here,
+			// since nothing else is left to do it.
 			opened := false
 			defer func() {
 				if !opened {
-					s.closeStreamStateLabel(instanceID, streamID)
+					s.releaseStateLabel(instanceID, slot)
 				}
 			}()
 			slot.mu.Lock()
@@ -1559,7 +1414,7 @@ func (s *Server) handlePageEmbedOnlyGETStream(w http.ResponseWriter, r *http.Req
 			return nil
 		},
 		func(streamID uint64) {
-			s.closeStreamStateLabel(instanceID, streamID)
+			s.releaseStateLabel(instanceID, slot)
 		},
 		func(
 			streamID uint64,
@@ -1690,11 +1545,7 @@ func (s *Server) handlePageLabelGETStream(w http.ResponseWriter, r *http.Request
 			streamID uint64,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
-			if existing, ok := s.reconnectStateLabel(instanceID, streamID); ok {
-				slot = existing
-			} else {
-				slot = s.allocateStateLabel(instanceID, streamID)
-			}
+			slot = s.allocateStateLabel(instanceID)
 			// A stream that gets no slot never opens: the event loop and the
 			// close hook run only once this hook has returned nil,
 			// which is why neither of them checks again.
@@ -1702,12 +1553,12 @@ func (s *Server) handlePageLabelGETStream(w http.ResponseWriter, r *http.Request
 				return errStateAtCapacity
 			}
 			// The close hook is wired up only once this one has returned nil.
-			// An open that ends any other way hands the instance to the grace
-			// timer here, since nothing else is left to give it back.
+			// An open that ends any other way gives the instance back here,
+			// since nothing else is left to do it.
 			opened := false
 			defer func() {
 				if !opened {
-					s.closeStreamStateLabel(instanceID, streamID)
+					s.releaseStateLabel(instanceID, slot)
 				}
 			}()
 			slot.mu.Lock()
@@ -1719,7 +1570,7 @@ func (s *Server) handlePageLabelGETStream(w http.ResponseWriter, r *http.Request
 			return nil
 		},
 		func(streamID uint64) {
-			s.closeStreamStateLabel(instanceID, streamID)
+			s.releaseStateLabel(instanceID, slot)
 		},
 		func(
 			streamID uint64,
@@ -1894,11 +1745,7 @@ func (s *Server) handlePageNestedGETStream(w http.ResponseWriter, r *http.Reques
 			streamID uint64,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
-			if existing, ok := s.reconnectStateNested(instanceID, streamID); ok {
-				slot = existing
-			} else {
-				slot = s.allocateStateNested(instanceID, streamID)
-			}
+			slot = s.allocateStateNested(instanceID)
 			// A stream that gets no slot never opens: the event loop and the
 			// close hook run only once this hook has returned nil,
 			// which is why neither of them checks again.
@@ -1906,12 +1753,12 @@ func (s *Server) handlePageNestedGETStream(w http.ResponseWriter, r *http.Reques
 				return errStateAtCapacity
 			}
 			// The close hook is wired up only once this one has returned nil.
-			// An open that ends any other way hands the instance to the grace
-			// timer here, since nothing else is left to give it back.
+			// An open that ends any other way gives the instance back here,
+			// since nothing else is left to do it.
 			opened := false
 			defer func() {
 				if !opened {
-					s.closeStreamStateNested(instanceID, streamID)
+					s.releaseStateNested(instanceID, slot)
 				}
 			}()
 			slot.mu.Lock()
@@ -1923,7 +1770,7 @@ func (s *Server) handlePageNestedGETStream(w http.ResponseWriter, r *http.Reques
 			return nil
 		},
 		func(streamID uint64) {
-			s.closeStreamStateNested(instanceID, streamID)
+			s.releaseStateNested(instanceID, slot)
 		},
 		func(
 			streamID uint64,
@@ -2084,11 +1931,7 @@ func (s *Server) handlePagePointerGETStream(w http.ResponseWriter, r *http.Reque
 			streamID uint64,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
-			if existing, ok := s.reconnectStatePointer(instanceID, streamID); ok {
-				slot = existing
-			} else {
-				slot = s.allocateStatePointer(instanceID, streamID)
-			}
+			slot = s.allocateStatePointer(instanceID)
 			// A stream that gets no slot never opens: the event loop and the
 			// close hook run only once this hook has returned nil,
 			// which is why neither of them checks again.
@@ -2096,12 +1939,12 @@ func (s *Server) handlePagePointerGETStream(w http.ResponseWriter, r *http.Reque
 				return errStateAtCapacity
 			}
 			// The close hook is wired up only once this one has returned nil.
-			// An open that ends any other way hands the instance to the grace
-			// timer here, since nothing else is left to give it back.
+			// An open that ends any other way gives the instance back here,
+			// since nothing else is left to do it.
 			opened := false
 			defer func() {
 				if !opened {
-					s.closeStreamStatePointer(instanceID, streamID)
+					s.releaseStatePointer(instanceID, slot)
 				}
 			}()
 			slot.mu.Lock()
@@ -2113,7 +1956,7 @@ func (s *Server) handlePagePointerGETStream(w http.ResponseWriter, r *http.Reque
 			return nil
 		},
 		func(streamID uint64) {
-			s.closeStreamStatePointer(instanceID, streamID)
+			s.releaseStatePointer(instanceID, slot)
 		},
 		func(
 			streamID uint64,

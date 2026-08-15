@@ -83,9 +83,13 @@ func TestActionWithoutInstance(t *testing.T) {
 	require.Equal(t, "reconnect", resp.Retry())
 }
 
-// TestStateSurvivesReconnect covers a tab whose stream drops.
-// Within the grace period the same id finds the same state.
-func TestStateSurvivesReconnect(t *testing.T) {
+// TestStateResetsOnReconnect covers a tab whose stream drops.
+// An instance lives exactly as long as its stream, which leaves the same id
+// reconnecting onto a zeroed state rather than onto what it left behind.
+//
+// The counter is what shows it: a state carried over would answer with the
+// second delivery, and a fresh one answers with the first.
+func TestStateResetsOnReconnect(t *testing.T) {
 	c := newClient(t)
 
 	tab := c.OpenTab(t, "/", pathStream)
@@ -97,8 +101,8 @@ func TestStateSurvivesReconnect(t *testing.T) {
 	tab.Reopen(t)
 
 	require.Equal(t, http.StatusOK, update(t, tab, "after").Status)
-	require.True(t, tab.Saw("deliveries:2 filter:after"),
-		"the reconnected tab starts from a fresh state")
+	require.True(t, tab.Saw("deliveries:1 filter:after"),
+		"the reconnected tab kept the state of the stream that dropped")
 }
 
 // TestSlowRequestDoesNotStallTab covers an action whose body arrives slowly:
@@ -233,6 +237,51 @@ func TestInstanceCap(t *testing.T) {
 		"a refused stream does not say when to come back")
 }
 
+// TestInstanceCapDisabled covers a negative MaxConcurrentInstances,
+// which removes the cap.
+//
+// The count of live instances is process-wide and this server ignores it.
+// The check the cap performs compares that count against the configured one,
+// which a negative value inverts: read literally, a server that may hold fewer
+// than zero instances refuses the first stream and every stream after it.
+// Opening more streams than the smallest cap would allow is what tells the two
+// apart, since a cap of any size would have refused one of them by now.
+func TestInstanceCapDisabled(t *testing.T) {
+	const streams = 8
+
+	key := sha256.Sum256([]byte("acceptance"))
+	srv := httptest.NewServer(datapagesgen.NewServer(&app.App{}, inmem.New(8),
+		datapagesgen.WithStateConfig(datapagesgen.StateConfig{
+			HMACKey:                key[:],
+			MaxConcurrentInstances: -1,
+		})))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	for i := range streams {
+		resp, err := srv.Client().Get(srv.URL + "/")
+		require.NoError(t, err, "GET /")
+		_ = resp.Body.Close()
+		id := resp.Header.Get("Datapages-Instance")
+		require.NotEmpty(t, id, "GET / mints no instance id")
+
+		req, err := http.NewRequestWithContext(
+			ctx, http.MethodGet, srv.URL+pathStream, nil,
+		)
+		require.NoError(t, err, "building stream request")
+		req.Header.Set("Datastar-Request", "true")
+		req.Header.Set("Datapages-Instance", id)
+
+		streamResp, err := srv.Client().Do(req)
+		require.NoError(t, err, "opening stream %d", i)
+		t.Cleanup(func() { _ = streamResp.Body.Close() })
+		require.Equal(t, http.StatusOK, streamResp.StatusCode,
+			"stream %d of a server configured to hold as many as it is asked for", i)
+	}
+}
+
 // TestFailedOpenReleasesInstance covers a stream whose open hook fails after
 // its instance was already reserved.
 //
@@ -246,13 +295,10 @@ func TestInstanceCap(t *testing.T) {
 // the id that named it stops being answered. The count drops in the same place the
 // id is dropped. An id the server still answers is an instance it still holds.
 func TestFailedOpenReleasesInstance(t *testing.T) {
-	const grace = 50 * time.Millisecond
-
 	key := sha256.Sum256([]byte("acceptance"))
 	c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8),
 		datapagesgen.WithStateConfig(datapagesgen.StateConfig{
-			HMACKey:     key[:],
-			GracePeriod: grace,
+			HMACKey: key[:],
 		})))
 
 	page := c.Get(t, pathFailOpen)
@@ -273,7 +319,7 @@ func TestFailedOpenReleasesInstance(t *testing.T) {
 	// server whether the instance of the failed open is still there.
 	require.True(t, client.WaitFor(func() bool {
 		return postUpdate(t, c, id, "x").Status == http.StatusConflict
-	}, 20*grace), "the instance of a failed open outlives its grace period: "+
+	}, time.Second), "the instance of a failed open is never given back: "+
 		"the close hook that gives one back is wired up only for an open that "+
 		"succeeded, and nothing else releases it")
 
@@ -292,13 +338,10 @@ func TestFailedOpenReleasesInstance(t *testing.T) {
 // the process for every user of the server. A recovery that skips the unlock
 // and the release wedges the tab instead and keeps its instance forever.
 func TestPanicInStreamCloseIsContained(t *testing.T) {
-	const grace = 50 * time.Millisecond
-
 	key := sha256.Sum256([]byte("acceptance"))
 	c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8),
 		datapagesgen.WithStateConfig(datapagesgen.StateConfig{
-			HMACKey:     key[:],
-			GracePeriod: grace,
+			HMACKey: key[:],
 		})))
 
 	tab := c.OpenTab(t, pathPanicClose, pathPanicCloseStream)
@@ -331,8 +374,8 @@ func TestPanicInStreamCloseIsContained(t *testing.T) {
 	}
 	require.True(t, client.WaitFor(func() bool {
 		return probe() == http.StatusConflict
-	}, 20*grace), "the instance of a panicking close hook outlives its grace "+
-		"period: the release runs after the hook, and only a deferred one "+
+	}, time.Second), "the instance of a panicking close hook is never given "+
+		"back: the release runs after the hook, and only a deferred one "+
 		"runs at all")
 }
 

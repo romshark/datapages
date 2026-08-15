@@ -1090,8 +1090,8 @@ func (w *Writer) writeEventHandlerCall(
 	methodName := "On" + eh.Name
 
 	// Stateful event handlers run under the per-slot mutex to serialize with
-	// concurrent action calls and with StreamOpen / StreamClose. The loop
-	// outlives the grace period, whose timer returns the state to the pool,
+	// concurrent action calls and with StreamOpen / StreamClose.
+	// The loop can outlive the close that returns the state to the pool,
 	// which is what the liveness check guards against.
 	stateful := eh.InputState != nil
 	if stateful {
@@ -1125,7 +1125,7 @@ func (w *Writer) writeEventHandlerCall(
 
 func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 	// Stateful page: always emit an onOpen closure so the slot is
-	// allocated / reconnected even when the user did not define StreamOpen.
+	// allocated even when the user did not define StreamOpen.
 	if p.State != nil {
 		w.writeStatefulStreamOpenHook(p)
 		return
@@ -1159,9 +1159,11 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 }
 
 // writeStatefulStreamOpenHook emits the onOpen closure for a stateful page.
-// The closure reconnects to an existing slot (grace-period reuse)
-// or allocates a fresh slot from the pool, stashes it in the outer
-// `slot` variable, and — if the user defined StreamOpen — calls it under the slot mutex.
+// The closure allocates a fresh slot from the pool, stashes it in the outer
+// `slot` variable, and, if the user defined StreamOpen, calls it under the slot mutex.
+//
+// Every stream gets its own instance. A client that reconnects under an id it
+// already used is a new stream and starts from a zeroed state.
 //
 // The instance is reserved before the user hook runs, and the close hook that
 // gives it back is wired up only once this one has returned nil. An open that
@@ -1172,11 +1174,7 @@ func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 	w.Line(2, "streamID uint64,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator,")
 	w.Line(1, ") error {")
-	w.Linef(2, "if existing, ok := s.reconnect%s(instanceID, streamID); ok {", suffix)
-	w.Line(3, "slot = existing")
-	w.Line(2, "} else {")
-	w.Linef(3, "slot = s.allocate%s(instanceID, streamID)", suffix)
-	w.Line(2, "}")
+	w.Linef(2, "slot = s.allocate%s(instanceID)", suffix)
 	w.Line(2, "// A stream that gets no slot never opens: the event loop and the")
 	w.Line(2, "// close hook run only once this hook has returned nil,")
 	w.Line(2, "// which is why neither of them checks again.")
@@ -1193,16 +1191,16 @@ func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 		return
 	}
 	// The hook the user wrote can return an error or panic. Either way this
-	// stream never opens and never closes, which leaves the grace timer as the
-	// only thing that can return the instance. Only this defer arms it.
-	// It runs after the unlock below, which the mutex the timer takes needs.
+	// stream never opens and never closes, which leaves nothing else to return
+	// the instance. Only this defer does. It runs after the unlock below,
+	// whose mutex the release takes.
 	w.Line(2, "// The close hook is wired up only once this one has returned nil.")
-	w.Line(2, "// An open that ends any other way hands the instance to the grace")
-	w.Line(2, "// timer here, since nothing else is left to give it back.")
+	w.Line(2, "// An open that ends any other way gives the instance back here,")
+	w.Line(2, "// since nothing else is left to do it.")
 	w.Line(2, "opened := false")
 	w.Line(2, "defer func() {")
 	w.Line(3, "if !opened {")
-	w.Linef(4, "s.closeStream%s(instanceID, streamID)", suffix)
+	w.Linef(4, "s.release%s(instanceID, slot)", suffix)
 	w.Line(3, "}")
 	w.Line(2, "}()")
 	w.Line(2, "slot.mu.Lock()")
@@ -1233,8 +1231,8 @@ func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 }
 
 func (w *Writer) writePageStreamCloseHook(p *model.Page) {
-	// Stateful page: always emit an onClose closure so the slot is detached and
-	// the grace timer is armed, even when the user did not define StreamClose.
+	// Stateful page: always emit an onClose closure so the instance is given back,
+	// even when the user did not define StreamClose.
 	if p.State != nil {
 		w.writeStatefulStreamCloseHook(p)
 		return
@@ -1272,7 +1270,7 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 
 // writeStatefulStreamCloseHook emits the onClose closure for a stateful page.
 // If the user defined StreamClose, it runs under the slot mutex.
-// In all cases the slot is detached and the grace timer is armed.
+// In all cases the state goes back to the pool before this returns.
 //
 // This closure runs on the watchdog goroutine, outside net/http.
 // handleStreamRequest recovers a panic raised here, which leaves this one
@@ -1284,10 +1282,9 @@ func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 	w.Line(1, "func(streamID uint64) {")
 
 	// The slot is taken only to call the user's hook under it. Without a hook
-	// there is nothing to serialize, and the detach below takes the slot on
-	// its own.
+	// there is nothing to serialize, and the release below takes the slot on its own.
 	if p.StreamClose == nil {
-		w.Linef(2, "s.closeStream%s(instanceID, streamID)", suffix)
+		w.Linef(2, "s.release%s(instanceID, slot)", suffix)
 		w.Line(1, "},")
 		return
 	}
@@ -1295,7 +1292,7 @@ func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 	w.Line(2, "// Both of these run even when the hook below panics.")
 	w.Line(2, "// Deferred calls unwind in reverse, which puts the release after the unlock,")
 	w.Line(2, "// and the release takes this same mutex.")
-	w.Linef(2, "defer s.closeStream%s(instanceID, streamID)", suffix)
+	w.Linef(2, "defer s.release%s(instanceID, slot)", suffix)
 	w.Line(2, "slot.mu.Lock()")
 	w.Line(2, "defer slot.mu.Unlock()")
 

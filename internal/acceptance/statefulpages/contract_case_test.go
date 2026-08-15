@@ -24,8 +24,6 @@ func TestContract(t *testing.T) {
 			opts = append(opts, datapagesgen.WithStateConfig(
 				datapagesgen.StateConfig{
 					HMACKey: key[:],
-					// Short enough for the suite to watch a tab's state expire.
-					GracePeriod: contract.StateGrace,
 				},
 			))
 			return datapagesgen.NewServer(&app.App{}, inmem.New(8),
@@ -70,6 +68,5 @@ func TestContract(t *testing.T) {
 		DispatchBody:    `{"filter":"x"}`,
 		StateAction:     action.POSTPageIndexUpdate(),
 		StateActionBody: `{"filter":"x"}`,
-		StateGrace:      contract.StateGrace,
 	})
 }

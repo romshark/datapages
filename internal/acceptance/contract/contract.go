@@ -105,14 +105,9 @@ type Case struct {
 
 	// StateAction is an action that needs the calling tab's state,
 	// and StateActionBody the signals it reads.
-	// Set together with StateGrace by cases whose pages hold per-tab state.
+	// Set by cases whose pages hold per-tab state.
 	StateAction     string
 	StateActionBody string
-
-	// StateGrace is the grace period NewServer configures.
-	// The suite waits it out to observe a tab's state being released.
-	// The production default of half a minute is too long for a test.
-	StateGrace time.Duration
 
 	// HasAssets says whether the case was generated with asset serving configured.
 	// It decides what WithAssets is allowed to do.
@@ -124,11 +119,6 @@ type Case struct {
 	// builder must write one well-formed expression out of whatever it is given.
 	OptionedAction string
 }
-
-// StateGrace is the grace period a stateful case configures in the server it
-// builds for this suite. It is short enough to wait out and long enough that
-// a stream closing does not race it.
-const StateGrace = 300 * time.Millisecond
 
 // Opt adapts a generated option constructor to what a Case field takes.
 // The suite cannot name the generated option type; the case keeps it.
@@ -803,9 +793,8 @@ func (c Case) testDispatchReachesTheStream(t *testing.T) {
 
 // testStateIsReleased covers the end of a tab's life.
 //
-// The state a tab holds is kept for a grace period after its stream drops.
-// A network blip then does not wipe it. After the grace period the state has to
-// be released. Otherwise every tab that ever connected stays in memory.
+// The state a tab holds lives exactly as long as its stream. A stream that
+// drops releases it. Otherwise every tab that ever connected stays in memory.
 func (c Case) testStateIsReleased(t *testing.T) {
 	if c.StateAction == "" {
 		t.Skip("the app holds no per-tab state")
@@ -829,12 +818,22 @@ func (c Case) testStateIsReleased(t *testing.T) {
 	}
 
 	cancel()
-	time.Sleep(c.StateGrace + 500*time.Millisecond)
 
-	after := sendAs(t, srv, method, target, c.StateActionBody, instance)
+	// The release is prompt, but the server learns of the drop on its own
+	// schedule, which is what this polls for rather than sleeps out.
+	var after *http.Response
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		after = sendAs(t, srv, method, target, c.StateActionBody, instance)
+		if after.StatusCode == http.StatusConflict || time.Now().After(deadline) {
+			break
+		}
+		_ = after.Body.Close()
+		time.Sleep(20 * time.Millisecond)
+	}
 	defer func() { _ = after.Body.Close() }()
 	if after.StatusCode != http.StatusConflict {
-		t.Errorf("%s %s after the grace period: status = %d, want %d",
+		t.Errorf("%s %s after the stream closed: status = %d, want %d",
 			method, target, after.StatusCode, http.StatusConflict)
 	}
 	if retry := after.Header.Get("Datapages-Retry"); retry != "reconnect" {

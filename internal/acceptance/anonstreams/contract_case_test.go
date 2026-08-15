@@ -39,8 +39,6 @@ func TestContract(t *testing.T) {
 				),
 				datapagesgen.WithStateConfig(datapagesgen.StateConfig{
 					HMACKey: stateKey[:],
-					// Short enough for the suite to watch a tab's state expire.
-					GracePeriod: contract.StateGrace,
 				}))
 			return datapagesgen.NewServer(&app.App{}, inmem.New(8), sessions,
 				contract.Options[datapagesgen.ServerOption](opts)...)
@@ -74,7 +72,6 @@ func TestContract(t *testing.T) {
 		DispatchAction:  action.POSTPageTabsBump(),
 		StateAction:     action.POSTPageTabsBump(),
 		StateActionBody: "",
-		StateGrace:      contract.StateGrace,
 		OptionedAction: action.POSTPageTabsBump(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
