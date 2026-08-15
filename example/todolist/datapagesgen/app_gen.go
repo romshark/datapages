@@ -628,8 +628,7 @@ func WithStateConfig(conf StateConfig) ServerOption {
 		if len(conf.HMACKey) < stateHMACKeyMinLen {
 			return fmt.Errorf(
 				"WithStateConfig: HMACKey must be at least %d bytes, got %d",
-				stateHMACKeyMinLen, len(conf.HMACKey),
-			)
+				stateHMACKeyMinLen, len(conf.HMACKey))
 		}
 		if conf.MaxConcurrentInstances == 0 {
 			conf.MaxConcurrentInstances = DefaultMaxConcurrentInstances
@@ -866,8 +865,8 @@ func (s *Server) lookupStateIndex(id string) (*stateSlotStateIndex, bool) {
 }
 
 // releaseStateIndex returns the slot's state to the pool the moment its stream closes.
-// Nothing of the instance outlives the stream:
-// a client that reconnects opens a new stream and gets a zeroed state.
+// Nothing of the instance outlives the stream: a client that
+// reconnects opens a new stream and gets a zeroed state.
 //
 // The caller passes the slot it allocated rather than the id alone.
 // A tab can hold two streams at once while the server still tears the
@@ -969,40 +968,31 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.mux.HandleFunc(
 		"GET /not-found/{$}",
-		s.handlePageError404GET,
-	)
+		s.handlePageError404GET)
 	s.mux.HandleFunc(
 		"GET /",
-		s.handlePageIndexGET,
-	)
+		s.handlePageIndexGET)
 	s.mux.HandleFunc(
 		"GET /_$/{$}",
-		s.handlePageIndexGETStream,
-	)
+		s.handlePageIndexGETStream)
 	s.mux.HandleFunc(
 		"GET /item/{id}/{$}",
-		s.handlePageItemGET,
-	)
+		s.handlePageItemGET)
 	s.mux.HandleFunc(
 		"GET /item/{id}/_$/{$}",
-		s.handlePageItemGETStream,
-	)
+		s.handlePageItemGETStream)
 	s.mux.HandleFunc(
 		"PUT /{id}/{$}",
-		s.handlePUTEdit,
-	)
+		s.handlePUTEdit)
 	s.mux.HandleFunc(
 		"POST /{$}",
-		s.handlePageIndexPOSTCreate,
-	)
+		s.handlePageIndexPOSTCreate)
 	s.mux.HandleFunc(
 		"POST /filter/{$}",
-		s.handlePageIndexPOSTFilter,
-	)
+		s.handlePageIndexPOSTFilter)
 	s.mux.HandleFunc(
 		"DELETE /item/{id}/{$}",
-		s.handlePageItemDELETEItem,
-	)
+		s.handlePageItemDELETEItem)
 }
 
 func (s *Server) httpErrIntern(
@@ -1187,6 +1177,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
 
 		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
@@ -1386,6 +1377,7 @@ func (s *Server) handlePageIndexPOSTFilter(
 }
 
 func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
+
 	var path struct {
 		ID string `path:"id"`
 	}
@@ -1422,6 +1414,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/item/`)
 		_, _ = io.WriteString(w, path.ID)
@@ -1529,6 +1522,7 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 func (s *Server) handlePageItemDELETEItem(
 	w http.ResponseWriter, r *http.Request,
 ) {
+
 	var path struct {
 		ID string `path:"id"`
 	}
