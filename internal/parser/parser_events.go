@@ -50,29 +50,35 @@ func validateEvents(ctx *parseCtx, errs *Errors) {
 	for name := range ctx.eventTypeNames {
 		ts := ctx.typeSpecByName[name]
 		validateEventType(
-			ctx, errs, ts.Name.Pos(), name,
+			ctx, errs, name,
 			ctx.pkg.TypesInfo.TypeOf(ts.Type), map[types.Type]bool{},
 		)
 	}
+}
 
-	// Events with SubjectUser require a Session type to be defined.
-	if ctx.app.Session == nil {
-		for _, ev := range ctx.app.Events {
-			if ev.HasSubjectUser() {
-				errs.ErrAt(
-					ctx.pkg.Fset.Position(ev.Expr.Pos()),
-					&ErrorEventSubjectUserNoSession{
-						TypeName: ev.TypeName,
-						PkgName:  ctx.pkg.Name,
-					},
-				)
-			}
+// validateEventsNeedSession reports events with SubjectUser in applications that
+// have no session. It runs after the handlers are parsed, since the session type
+// is derived from their signatures.
+func validateEventsNeedSession(ctx *parseCtx, errs *Errors) {
+	if ctx.app.Session != nil {
+		return
+	}
+	for _, ev := range ctx.app.Events {
+		if !ev.HasSubjectUser() {
+			continue
 		}
+		errs.ErrAt(
+			ctx.pkg.Fset.Position(ev.Expr.Pos()),
+			&ErrorEventSubjectUserNoSession{
+				TypeName: ev.TypeName,
+				PkgName:  ctx.pkg.Name,
+			},
+		)
 	}
 }
 
 func validateEventType(
-	ctx *parseCtx, errs *Errors, pos token.Pos, name string,
+	ctx *parseCtx, errs *Errors, name string,
 	t types.Type, visited map[types.Type]bool,
 ) {
 	if t == nil {
@@ -85,7 +91,7 @@ func validateEventType(
 
 	// If pointer, unwrap
 	if ptr, ok := t.(*types.Pointer); ok {
-		validateEventType(ctx, errs, pos, name, ptr.Elem(), visited)
+		validateEventType(ctx, errs, name, ptr.Elem(), visited)
 		return
 	}
 
@@ -154,6 +160,6 @@ func validateEventType(
 		}
 
 		// Recurse
-		validateEventType(ctx, errs, pos, name, f.Type(), visited)
+		validateEventType(ctx, errs, name, f.Type(), visited)
 	}
 }

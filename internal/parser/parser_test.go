@@ -72,7 +72,6 @@ func TestParse_Basic(t *testing.T) {
 		require.NotNil(app.GlobalHeadGenerator)
 		requireExprLineCol(t, app, app.GlobalHeadGenerator.Expr, "app.go", 27, 13)
 		require.False(app.GlobalHeadGenerator.InputSession)
-		require.False(app.GlobalHeadGenerator.InputSessionToken)
 	}
 	{
 		require.NotNil(app.RecoverError)
@@ -320,7 +319,6 @@ func TestParse_StreamHooks(t *testing.T) {
 	require.NotNil(p.StreamOpen.InputRequest)
 	require.NotNil(p.StreamOpen.InputStreamID)
 	require.NotNil(p.StreamOpen.InputSSE)
-	require.NotNil(p.StreamOpen.InputSessionToken)
 	require.NotNil(p.StreamOpen.InputSession)
 	require.NotNil(p.StreamOpen.InputSignals)
 	require.NotNil(p.StreamOpen.InputDispatch)
@@ -330,7 +328,6 @@ func TestParse_StreamHooks(t *testing.T) {
 	require.NotNil(p.StreamClose.InputRequest)
 	require.NotNil(p.StreamClose.InputStreamID)
 	require.Nil(p.StreamClose.InputSSE)
-	require.NotNil(p.StreamClose.InputSessionToken)
 	require.NotNil(p.StreamClose.InputSession)
 	require.Nil(p.StreamClose.InputSignals)
 	require.NotNil(p.StreamClose.InputDispatch)
@@ -345,7 +342,6 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.NotNil(p.StreamOpen.InputRequest)
 		require.NotNil(p.StreamOpen.InputStreamID)
 		require.Nil(p.StreamOpen.InputSSE)
-		require.Nil(p.StreamOpen.InputSessionToken)
 		require.Nil(p.StreamOpen.InputSession)
 		require.Nil(p.StreamOpen.InputSignals)
 		require.Nil(p.StreamOpen.InputDispatch)
@@ -356,7 +352,6 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.NotNil(p.StreamClose.InputRequest)
 		require.NotNil(p.StreamClose.InputStreamID)
 		require.Nil(p.StreamClose.InputSSE)
-		require.Nil(p.StreamClose.InputSessionToken)
 		require.Nil(p.StreamClose.InputSession)
 		require.Nil(p.StreamClose.InputSignals)
 		require.Nil(p.StreamClose.InputDispatch)
@@ -372,7 +367,6 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.NotNil(p.StreamOpen.InputRequest)
 		require.NotNil(p.StreamOpen.InputStreamID)
 		require.NotNil(p.StreamOpen.InputSSE)
-		require.NotNil(p.StreamOpen.InputSessionToken)
 		require.NotNil(p.StreamOpen.InputSession)
 		require.NotNil(p.StreamOpen.InputSignals)
 		require.NotNil(p.StreamOpen.InputDispatch)
@@ -383,7 +377,6 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.NotNil(p.StreamClose.InputRequest)
 		require.NotNil(p.StreamClose.InputStreamID)
 		require.Nil(p.StreamClose.InputSSE)
-		require.NotNil(p.StreamClose.InputSessionToken)
 		require.NotNil(p.StreamClose.InputSession)
 		require.Nil(p.StreamClose.InputSignals)
 		require.NotNil(p.StreamClose.InputDispatch)
@@ -396,7 +389,6 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.NotNil(eh.InputEvent)
 		require.NotNil(eh.InputSSE)
 		require.NotNil(eh.InputStreamID)
-		require.Nil(eh.InputSessionToken)
 		require.Nil(eh.InputSession)
 	}
 }
@@ -929,7 +921,6 @@ func TestParse_Session(t *testing.T) {
 	{
 		require.NotNil(app.GlobalHeadGenerator)
 		require.True(app.GlobalHeadGenerator.InputSession)
-		require.False(app.GlobalHeadGenerator.InputSessionToken)
 	}
 
 	// PageIndex - no session
@@ -944,14 +935,12 @@ func TestParse_Session(t *testing.T) {
 		p := findPage(app, "PageProfile")
 		require.NotNil(p)
 		require.NotNil(p.GET)
-		require.Nil(p.GET.InputSessionToken)
 		require.NotNil(p.GET.InputSession)
 		require.Equal("session", p.GET.InputSession.Name)
 
 		// POSTUpdate - action with session
 		update := findAction(p.Actions, "Update")
 		require.NotNil(update)
-		require.Nil(update.InputSessionToken)
 		require.NotNil(update.InputSession)
 		require.Equal("session", update.InputSession.Name)
 		require.Nil(update.InputSSE)
@@ -960,13 +949,11 @@ func TestParse_Session(t *testing.T) {
 		notify := findAction(p.Actions, "Notify")
 		require.NotNil(notify)
 		require.NotNil(notify.InputSSE)
-		require.Nil(notify.InputSessionToken)
 		require.NotNil(notify.InputSession)
 
 		// Event handler with session
 		require.Len(p.EventHandlers, 1)
 		evh := p.EventHandlers[0]
-		require.Nil(evh.InputSessionToken)
 		require.NotNil(evh.InputSession)
 		require.Equal("session", evh.InputSession.Name)
 	}
@@ -978,22 +965,16 @@ func TestParse_Session(t *testing.T) {
 
 		// GET with sessionToken and session.
 		require.NotNil(p.GET)
-		require.NotNil(p.GET.InputSessionToken)
-		require.Equal("sessionToken", p.GET.InputSessionToken.Name)
 		require.NotNil(p.GET.InputSession)
 
 		// POSTClose - action with sessionToken + session
 		close := findAction(p.Actions, "Close")
 		require.NotNil(close)
-		require.NotNil(close.InputSessionToken)
-		require.Equal("sessionToken", close.InputSessionToken.Name)
 		require.NotNil(close.InputSession)
 
 		// Event handler with sessionToken + session
 		require.Len(p.EventHandlers, 1)
 		evh := p.EventHandlers[0]
-		require.NotNil(evh.InputSessionToken)
-		require.Equal("sessionToken", evh.InputSessionToken.Name)
 		require.NotNil(evh.InputSession)
 	}
 }
@@ -1005,32 +986,29 @@ func TestParse_ErrSession(t *testing.T) {
 
 	requireParseErrors(
 		t, err,
-		parser.ErrSessionMissingUserID,
-		parser.ErrSessionMissingIssuedAt,
 		parser.ErrSessionParamNotSessionType,
-		parser.ErrSessionTokenParamNotString,
 	)
 }
 
-func TestParse_ErrSessionMissingIssuedAt(t *testing.T) {
+func TestParse_SessionCloseOnly(t *testing.T) {
+	app, err := parse(t, "session_close_only")
 	require := require.New(t)
-	_, err := parse(t, "err_session_missing_issued_at")
+	requireParseErrors(t, err /*none*/)
+
+	// closeSession alone puts sessions in play. No handler names the Data type,
+	// so it defaults to the empty struct.
+	require.NotNil(app.Session)
+	require.Equal("struct{}", app.Session.Data.Resolved.String())
+}
+
+func TestParse_ErrSessionTypeConflict(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_session_conflict")
 	require.NotZero(err.Error())
 
 	requireParseErrors(
 		t, err,
-		parser.ErrSessionMissingIssuedAt,
-	)
-}
-
-func TestParse_ErrSessionWrongType(t *testing.T) {
-	require := require.New(t)
-	_, err := parse(t, "err_session_wrong_type")
-	require.NotZero(err.Error())
-
-	requireParseErrors(
-		t, err,
-		parser.ErrSessionNotStruct,
+		parser.ErrSessionTypeConflict,
 	)
 }
 
@@ -1218,18 +1196,16 @@ func TestParse_ParamOrder(t *testing.T) {
 	requireParseErrors(t, err /*none*/)
 	require.NotNil(app)
 
-	// PageSessionFirst - session before sessionToken before request.
+	// PageSessionFirst - session before request.
 	{
 		p := findPage(app, "PageSessionFirst")
 		require.NotNil(p)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.InputRequest)
 		require.NotNil(p.GET.InputSession)
-		require.NotNil(p.GET.InputSessionToken)
 		require.Equal(
 			[]string{
 				model.InputKindSession,
-				model.InputKindSessionToken,
 				model.InputKindRequest,
 			},
 			inputKinds(p.GET.OrderedInputs),
@@ -1242,7 +1218,6 @@ func TestParse_ParamOrder(t *testing.T) {
 		require.NotNil(p)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.InputRequest)
-		require.NotNil(p.GET.InputSessionToken)
 		require.NotNil(p.GET.InputSession)
 		require.NotNil(p.GET.InputPath)
 		require.NotNil(p.GET.InputQuery)
@@ -1251,7 +1226,6 @@ func TestParse_ParamOrder(t *testing.T) {
 				model.InputKindQuery,
 				model.InputKindPath,
 				model.InputKindSession,
-				model.InputKindSessionToken,
 				model.InputKindRequest,
 			},
 			inputKinds(p.GET.OrderedInputs),
@@ -1917,7 +1891,6 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		closeSess := findAction(p.Actions, "CloseSession")
 		require.NotNil(closeSess)
 		require.Equal("/settings/close-session/{token}/{$}", closeSess.Route)
-		require.NotNil(closeSess.InputSessionToken)
 		require.NotNil(closeSess.InputPath)
 		require.NotNil(closeSess.InputDispatch)
 		require.NotNil(closeSess.OutputCloseSession)

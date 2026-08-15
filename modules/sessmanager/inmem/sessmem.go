@@ -25,9 +25,8 @@ var (
 
 var _ sessmanager.SessionManager[struct{}] = (*SessionManager[struct{}])(nil)
 
-type entry[S any] struct {
-	userID  string
-	session S
+type entry[Data any] struct {
+	rec sessmanager.Record[Data]
 }
 
 type watcher struct {
@@ -36,30 +35,30 @@ type watcher struct {
 }
 
 // SessionManager is an in-memory session manager.
-type SessionManager[S any] struct {
+type SessionManager[Data any] struct {
 	lock     sync.Mutex
-	sessions map[string]entry[S]           // token -> entry
+	sessions map[string]entry[Data]        // token -> entry
 	watchers map[string]map[uint64]watcher // token -> watcherID -> watcher
 	nextID   uint64
 	tokenGen sessmanager.TokenGenerator
 }
 
 // New creates a new in-memory session manager.
-func New[S any](tokenGen sessmanager.TokenGenerator) *SessionManager[S] {
-	return &SessionManager[S]{
-		sessions: make(map[string]entry[S]),
+func New[Data any](tokenGen sessmanager.TokenGenerator) *SessionManager[Data] {
+	return &SessionManager[Data]{
+		sessions: make(map[string]entry[Data]),
 		watchers: make(map[string]map[uint64]watcher),
 		tokenGen: tokenGen,
 	}
 }
 
-// ReadSessionFromCookie returns the session associated with the cookie value.
+// ReadSessionFromCookie returns the record associated with the cookie value.
 // The cookie value is the raw session token.
-func (m *SessionManager[S]) ReadSessionFromCookie(c *http.Cookie) (
-	session S, token, userID string, ok bool, err error,
+func (m *SessionManager[Data]) ReadSessionFromCookie(c *http.Cookie) (
+	rec sessmanager.Record[Data], token string, ok bool, err error,
 ) {
 	if c == nil || c.Value == "" {
-		return session, "", "", false, nil
+		return rec, "", false, nil
 	}
 
 	m.lock.Lock()
@@ -67,17 +66,17 @@ func (m *SessionManager[S]) ReadSessionFromCookie(c *http.Cookie) (
 	m.lock.Unlock()
 
 	if !exists {
-		return session, "", "", false, nil
+		return rec, "", false, nil
 	}
 
-	return e.session, c.Value, e.userID, true, nil
+	return e.rec, c.Value, true, nil
 }
 
 // CreateSession stores a new session and returns a token to be used as a cookie value.
-func (m *SessionManager[S]) CreateSession(
-	_ context.Context, userID string, session S,
+func (m *SessionManager[Data]) CreateSession(
+	_ context.Context, rec sessmanager.Record[Data],
 ) (string, error) {
-	if userID == "" {
+	if rec.UserID == "" {
 		return "", ErrEmptyUserID
 	}
 	token, err := m.tokenGen.Generate()
@@ -86,7 +85,7 @@ func (m *SessionManager[S]) CreateSession(
 	}
 
 	m.lock.Lock()
-	m.sessions[token] = entry[S]{userID: userID, session: session}
+	m.sessions[token] = entry[Data]{rec: rec}
 	m.lock.Unlock()
 
 	return token, nil
@@ -96,7 +95,7 @@ func (m *SessionManager[S]) CreateSession(
 // If the session doesn't exist, fn is called immediately.
 // If ctx is already canceled, the watcher is not registered.
 // The watcher is automatically removed when ctx is canceled.
-func (m *SessionManager[S]) NotifyClosed(
+func (m *SessionManager[Data]) NotifyClosed(
 	ctx context.Context, token string, fn func(),
 ) error {
 	m.lock.Lock()
@@ -135,7 +134,7 @@ func (m *SessionManager[S]) NotifyClosed(
 }
 
 // CloseSession removes a session and notifies all registered watchers.
-func (m *SessionManager[S]) CloseSession(_ context.Context, token string) error {
+func (m *SessionManager[Data]) CloseSession(_ context.Context, token string) error {
 	m.lock.Lock()
 	delete(m.sessions, token)
 	ws := m.watchers[token]
@@ -151,10 +150,10 @@ func (m *SessionManager[S]) CloseSession(_ context.Context, token string) error 
 	return nil
 }
 
-// SaveSession overwrites the session data for an existing token.
+// SaveSession overwrites the record for an existing token.
 // No-op if the session doesn't exist.
-func (m *SessionManager[S]) SaveSession(
-	_ context.Context, token string, session S,
+func (m *SessionManager[Data]) SaveSession(
+	_ context.Context, token string, rec sessmanager.Record[Data],
 ) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -163,27 +162,29 @@ func (m *SessionManager[S]) SaveSession(
 	if !exists {
 		return nil
 	}
-	e.session = session
+	e.rec = rec
 	m.sessions[token] = e
 	return nil
 }
 
-// Session retrieves a session by its token.
-func (m *SessionManager[S]) Session(_ context.Context, token string) (S, error) {
+// Session retrieves a session record by its token.
+func (m *SessionManager[Data]) Session(
+	_ context.Context, token string,
+) (sessmanager.Record[Data], error) {
 	m.lock.Lock()
 	e, exists := m.sessions[token]
 	m.lock.Unlock()
 
 	if !exists {
-		var zero S
+		var zero sessmanager.Record[Data]
 		return zero, ErrSessionNotFound
 	}
-	return e.session, nil
+	return e.rec, nil
 }
 
 // CloseAllUserSessions closes all sessions for a user.
 // If buffer is non-nil, appends tokens of closed sessions to it.
-func (m *SessionManager[S]) CloseAllUserSessions(
+func (m *SessionManager[Data]) CloseAllUserSessions(
 	_ context.Context, buffer []string, userID string,
 ) ([]string, error) {
 	if userID == "" {
@@ -192,7 +193,7 @@ func (m *SessionManager[S]) CloseAllUserSessions(
 	m.lock.Lock()
 	var tokens []string
 	for tok, e := range m.sessions {
-		if e.userID == userID {
+		if e.rec.UserID == userID {
 			tokens = append(tokens, tok)
 		}
 	}
@@ -217,26 +218,26 @@ func (m *SessionManager[S]) CloseAllUserSessions(
 	return buffer, nil
 }
 
-// UserSession is a token–session pair.
-type UserSession[S any] struct {
-	Token   string
-	Session S
+// UserSession is a token and record pair.
+type UserSession[Data any] struct {
+	Token  string
+	Record sessmanager.Record[Data]
 }
 
 // UserSessions returns all current sessions for a user.
-func (m *SessionManager[S]) UserSessions(
+func (m *SessionManager[Data]) UserSessions(
 	_ context.Context, userID string,
-) []UserSession[S] {
+) []UserSession[Data] {
 	if userID == "" {
 		return nil
 	}
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	var result []UserSession[S]
+	var result []UserSession[Data]
 	for tok, e := range m.sessions {
-		if e.userID == userID {
-			result = append(result, UserSession[S]{Token: tok, Session: e.session})
+		if e.rec.UserID == userID {
+			result = append(result, UserSession[Data]{Token: tok, Record: e.rec})
 		}
 	}
 	return result

@@ -21,7 +21,7 @@ type PageSettings struct {
 func (p PageSettings) render(
 	ctx context.Context, session Session,
 ) (templ.Component, error) {
-	u, err := p.App.repo.UserByID(ctx, session.UserID)
+	u, err := p.App.repo.UserByID(ctx, session.UserID())
 	if err != nil {
 		return nil, err
 	}
@@ -31,8 +31,8 @@ func (p PageSettings) render(
 		return nil, err
 	}
 
-	sessions := make(map[string]Session)
-	maps.Insert(sessions, p.App.sessions.UserSessions(ctx, session.UserID))
+	sessions := make(map[string]SessionRecord)
+	maps.Insert(sessions, p.App.sessions.UserSessions(ctx, session.UserID()))
 
 	return pageSettings(session, sessions, u, baseData), nil
 }
@@ -41,12 +41,12 @@ func (p PageSettings) GET(
 	r *http.Request,
 	session Session,
 ) (body templ.Component, redirect string, err error) {
-	if session.UserID == "" {
+	if session.IsGuest() {
 		return nil, href.PageLogin(), nil
 	}
 
-	sessions := make(map[string]Session)
-	maps.Insert(sessions, p.App.sessions.UserSessions(r.Context(), session.UserID))
+	sessions := make(map[string]SessionRecord)
+	maps.Insert(sessions, p.App.sessions.UserSessions(r.Context(), session.UserID()))
 	body, err = p.render(r.Context(), session)
 	return body, "", err
 }
@@ -60,7 +60,7 @@ func (p PageSettings) POSTSave(
 		Username string `json:"username"`
 	},
 ) (redirect string, err error) {
-	if session.UserID == "" {
+	if session.IsGuest() {
 		return href.PageLogin(), nil
 	}
 	// TODO
@@ -70,7 +70,6 @@ func (p PageSettings) POSTSave(
 // POSTCloseSession is /settings/close-session/{token}/{$}
 func (p PageSettings) POSTCloseSession(
 	r *http.Request,
-	sessionToken string,
 	session Session,
 	path struct {
 		Token string `path:"token"`
@@ -81,14 +80,14 @@ func (p PageSettings) POSTCloseSession(
 	redirect string,
 	err error,
 ) {
-	if session.UserID == "" {
+	if session.IsGuest() {
 		return false, "", domain.ErrUnauthorized
 	}
 	sess, err := p.App.sessions.Session(r.Context(), path.Token)
 	if err != nil {
 		return false, "", err
 	}
-	if sess.UserID != session.UserID {
+	if sess.UserID != session.UserID() {
 		return false, "", domain.ErrUnauthorized
 	}
 	// Even though closeSession=true would close the sessions, let's close it
@@ -101,7 +100,7 @@ func (p PageSettings) POSTCloseSession(
 		SubjectUser: []string{sess.UserID},
 		Token:       path.Token,
 	})
-	if sessionToken == path.Token {
+	if session.Token() == path.Token {
 		// Closed current session
 		return true, href.PageLogin(), nil
 	}
@@ -115,14 +114,14 @@ func (p PageSettings) POSTCloseAllSessions(
 	session Session,
 	dispatch func(EventSessionClosed) error,
 ) (redirect string, err error) {
-	if session.UserID == "" {
+	if session.IsGuest() {
 		return "", domain.ErrUnauthorized
 	}
-	closed, err := p.App.sessions.CloseAllUserSessions(r.Context(), nil, session.UserID)
+	closed, err := p.App.sessions.CloseAllUserSessions(r.Context(), nil, session.UserID())
 	if err != nil {
 		return "", err
 	}
-	targetUsers := []string{session.UserID}
+	targetUsers := []string{session.UserID()}
 	for _, token := range closed {
 		_ = dispatch(EventSessionClosed{
 			SubjectUser: targetUsers,
@@ -135,10 +134,9 @@ func (p PageSettings) POSTCloseAllSessions(
 func (p PageSettings) OnSessionClosed(
 	event EventSessionClosed,
 	sse datapages.SSE,
-	sessionToken string,
 	session Session,
 ) error {
-	if event.Token == sessionToken {
+	if event.Token == session.Token() {
 		// Current session was closed
 		return sse.Redirect(href.PageLogin())
 	}

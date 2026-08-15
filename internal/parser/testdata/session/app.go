@@ -2,7 +2,6 @@ package app
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/a-h/templ"
 
@@ -11,10 +10,7 @@ import (
 
 type App struct{}
 
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
-}
+type Session = datapages.Session[struct{}]
 
 // EventPing is "ping"
 type EventPing struct {
@@ -87,40 +83,34 @@ func (PageProfile) OnEventPing(
 // PageSettings is /settings
 type PageSettings struct{ App *App }
 
-// GET with sessionToken and session.
+// GET with session.
 func (PageSettings) GET(
 	r *http.Request,
-	sessionToken string,
 	session Session,
 ) (body templ.Component, err error) {
-	_ = sessionToken
 	_ = session
 	return body, err
 }
 
 // POSTClose is /settings/close
 //
-// Action with sessionToken and session.
+// Action with session.
 func (PageSettings) POSTClose(
 	r *http.Request,
-	sessionToken string,
 	session Session,
 ) error {
-	_ = sessionToken
 	_ = session
 	return nil
 }
 
-// Event handler with sessionToken and session.
+// Event handler with session.
 func (PageSettings) OnEventPing(
 	event EventPing,
 	sse datapages.SSE,
-	sessionToken string,
 	session Session,
 ) error {
 	_ = event
 	_ = sse
-	_ = sessionToken
 	_ = session
 	return nil
 }

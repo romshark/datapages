@@ -71,16 +71,6 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add `event EventName` parameter",
 		},
 
-		"ErrSessionMissingUserID": {
-			err:  parser.ErrSessionMissingUserID,
-			want: "fix: Add `UserID string` field to Session",
-		},
-
-		"ErrSessionMissingIssuedAt": {
-			err:  parser.ErrSessionMissingIssuedAt,
-			want: "fix: Add `IssuedAt time.Time` field to Session",
-		},
-
 		"ErrPageMissingFieldApp": {
 			err:  &parser.ErrorPageMissingFieldApp{TypeName: "PageProfile"},
 			want: "fix: Add field `App *App` to PageProfile",

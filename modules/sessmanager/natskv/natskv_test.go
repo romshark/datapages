@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	natsctr "github.com/testcontainers/testcontainers-go/modules/nats"
 
+	"github.com/romshark/datapages/modules/sessmanager"
 	"github.com/romshark/datapages/modules/sessmanager/natskv"
 	"github.com/romshark/datapages/modules/sesstokgen"
 )
@@ -34,8 +35,8 @@ func setupNATS(t *testing.T) *nats.Conn {
 	url, err := ctr.ConnectionString(ctx)
 	require.NoError(t, err)
 
-	// The testcontainers NATS module only waits for the port to be open, not
-	// for the server to be fully initialized. Use nats.RetryOnFailedConnect
+	// The testcontainers NATS module only waits for the port to be open,
+	// not for the server to be fully initialized. Use nats.RetryOnFailedConnect
 	// so the client keeps retrying until NATS is ready.
 	conn, err := nats.Connect(
 		url,
@@ -51,11 +52,50 @@ func setupNATS(t *testing.T) *nats.Conn {
 
 func newManager(
 	t *testing.T, conn *nats.Conn, conf natskv.Config,
-) *natskv.SessionManager[testSession] {
+) payloadManager {
 	t.Helper()
 	sm, err := natskv.New[testSession](conn, tokGen, conf)
 	require.NoError(t, err)
-	return sm
+	return payloadManager{sm}
+}
+
+// payloadManager adapts the record-based manager API to the payload-shaped calls
+// these tests are written against.
+type payloadManager struct {
+	*natskv.SessionManager[testSession]
+}
+
+func (m payloadManager) CreateSession(
+	ctx context.Context, userID string, s testSession,
+) (string, error) {
+	return m.SessionManager.CreateSession(
+		ctx, sessmanager.Record[testSession]{UserID: userID, Data: s},
+	)
+}
+
+func (m payloadManager) ReadSessionFromCookie(c *http.Cookie) (
+	session testSession, token, userID string, ok bool, err error,
+) {
+	rec, token, ok, err := m.SessionManager.ReadSessionFromCookie(c)
+	return rec.Data, token, rec.UserID, ok, err
+}
+
+func (m payloadManager) SaveSession(
+	ctx context.Context, token string, s testSession,
+) error {
+	rec, err := m.SessionManager.Session(ctx, token)
+	if err != nil {
+		return err
+	}
+	rec.Data = s
+	return m.SessionManager.SaveSession(ctx, token, rec)
+}
+
+func (m payloadManager) Session(
+	ctx context.Context, token string,
+) (testSession, error) {
+	rec, err := m.SessionManager.Session(ctx, token)
+	return rec.Data, err
 }
 
 // kvFor returns a direct KV handle for the given bucket.
@@ -189,7 +229,9 @@ func TestCreateSessionErrTokenGenerator(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = sm.CreateSession(context.Background(), "bob", testSession{})
+	_, err = payloadManager{sm}.CreateSession(
+		context.Background(), "bob", testSession{},
+	)
 	require.Error(t, err)
 }
 
@@ -559,8 +601,8 @@ func TestIterateAndCloseSessions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Token from UserSessions must be usable with Session and CloseSession.
-	for tok, sess := range sm.UserSessions(ctx, "alice") {
-		require.Equal(t, want, sess)
+	for tok, rec := range sm.UserSessions(ctx, "alice") {
+		require.Equal(t, want, rec.Data)
 
 		got, err := sm.Session(ctx, tok)
 		require.NoError(t, err)

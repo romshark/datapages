@@ -332,9 +332,9 @@ func (s sseWrapper) Prefetch(urls ...string) error {
 }
 
 func (s *Server) checkCSRF(
-	w http.ResponseWriter, r *http.Request, sess app.Session,
+	w http.ResponseWriter, r *http.Request, sess datapages.Session[app.SessionData],
 ) (ok bool) {
-	if sess.UserID == "" ||
+	if sess.UserID() == "" ||
 		r.Method == http.MethodGet ||
 		r.Method == http.MethodOptions ||
 		r.Method == http.MethodHead ||
@@ -354,7 +354,7 @@ func (s *Server) checkCSRF(
 		t == s.csrfConf.DevBypassToken {
 		return true
 	}
-	if !s.csrfConf.TokenManager.ValidateToken(sess.UserID, sess.IssuedAt.Unix(), t) {
+	if !s.csrfConf.TokenManager.ValidateToken(sess.UserID(), sess.IssuedAt().Unix(), t) {
 		http.Error(
 			w,
 			http.StatusText(http.StatusForbidden),
@@ -368,7 +368,7 @@ func (s *Server) checkCSRF(
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess app.Session,
+	sess datapages.Session[app.SessionData],
 	headGeneric, head, body templ.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
@@ -388,9 +388,9 @@ func (s *Server) writeHTML(
 			return err
 		}
 	}
-	if s.csrfConf != nil && sess.UserID != "" {
+	if s.csrfConf != nil && sess.UserID() != "" {
 		csrfToken := s.csrfConf.TokenManager.GenerateToken(
-			sess.UserID, sess.IssuedAt.Unix(),
+			sess.UserID(), sess.IssuedAt().Unix(),
 		)
 		if csrfToken != "" {
 			// Write the fetch X-CSRF-Token header injector.
@@ -418,8 +418,8 @@ func (s *Server) writeHTML(
 			}
 		} else {
 			s.logger.Warn("generated empty CSRF token",
-				slog.String("user-id", sess.UserID),
-				slog.Time("issued-at", sess.IssuedAt))
+				slog.String("user-id", sess.UserID()),
+				slog.Time("issued-at", sess.IssuedAt()))
 		}
 	}
 	if _, err := io.WriteString(w, "</head><body "); err != nil {
@@ -450,7 +450,7 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, sessKey string, sess app.Session,
+	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[app.SessionData],
 	subjects []string,
 	onOpen func(
 		streamID uint64,
@@ -487,7 +487,7 @@ func (s *Server) handleStreamRequest(
 	}
 	sessionClosed := make(chan struct{})
 
-	if sess.UserID != "" {
+	if sess.UserID() != "" {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		if err := s.sessionManager.NotifyClosed(ctx, sessKey, func() {
@@ -530,7 +530,7 @@ type Server struct {
 
 	authConf              *AuthConfig
 	sessionTokenGenerator sessmanager.TokenGenerator
-	sessionManager        sessmanager.SessionManager[app.Session]
+	sessionManager        sessmanager.SessionManager[app.SessionData]
 	csrfConf              *CSRFConfig
 }
 
@@ -545,7 +545,7 @@ type Server struct {
 func NewServer(
 	app *app.App,
 	messageBroker msgbroker.MessageBroker,
-	sessionManager sessmanager.SessionManager[app.Session],
+	sessionManager sessmanager.SessionManager[app.SessionData],
 	opts ...ServerOption,
 ) *Server {
 	s := &Server{
@@ -735,9 +735,14 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 }
 
 func (s *Server) createSession(
-	w http.ResponseWriter, r *http.Request, session app.Session,
+	w http.ResponseWriter, r *http.Request, session datapages.NewSession[app.SessionData],
 ) error {
-	token, err := s.sessionManager.CreateSession(r.Context(), session.UserID, session)
+	token, err := s.sessionManager.CreateSession(r.Context(), sessmanager.Record[app.SessionData]{
+		UserID:    session.UserID,
+		IssuedAt:  time.Now(),
+		ExpiresAt: session.ExpiresAt,
+		Data:      session.Data,
+	})
 	if err != nil {
 		return err
 	}
@@ -760,7 +765,7 @@ func (s *Server) closeSession(
 // If onClose != nil it will be closed once the session is closed.
 func (s *Server) auth(
 	w http.ResponseWriter, r *http.Request,
-) (sess app.Session, token string, ok bool) {
+) (sess datapages.Session[app.SessionData], token string, ok bool) {
 	c, err := r.Cookie(s.authConf.TokenCookie.Name)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {
@@ -769,18 +774,26 @@ func (s *Server) auth(
 		return sess, "", false
 	}
 
-	sess, token, userID, ok, err := s.sessionManager.ReadSessionFromCookie(c)
+	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(c)
 	if err != nil {
 		// Transient backend failure; keep the cookie, fail the request.
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
-		return app.Session{}, "", false
+		return datapages.Session[app.SessionData]{}, "", false
 	}
 	if !ok {
 		// Cookie is stale or malformed; clear it and continue as unauthenticated.
 		s.setSessionCookie(w, "")
-		return app.Session{}, "", true
+		return datapages.Session[app.SessionData]{}, "", true
 	}
-	sess.UserID = userID
+	sess = datapages.MakeSession(
+		rec.UserID, token, rec.IssuedAt, rec.ExpiresAt, rec.Data,
+	)
+
+	if !sess.ExpiresAt().IsZero() && !time.Now().Before(sess.ExpiresAt()) {
+		// Session has expired; clear the cookie and continue as unauthenticated.
+		s.setSessionCookie(w, "")
+		return datapages.Session[app.SessionData]{}, "", true
+	}
 
 	if !s.checkCSRF(w, r, sess) {
 		return sess, token, false
@@ -861,7 +874,7 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	}
-	closeSession, redirect, err := s.app.POSTSignOut(r, sessToken, sess, dispatch)
+	closeSession, redirect, err := s.app.POSTSignOut(r, sess, dispatch)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.SignOut", err)
 		return
@@ -904,7 +917,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		if sess.UserID != "" {
+		if sess.UserID() != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
 		}
 	}
@@ -926,7 +939,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if sess.UserID == "" {
+	if sess.UserID() == "" {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
@@ -934,7 +947,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	p := app.PageIndex{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex(sess.UserID),
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -949,7 +962,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.logErr("unmarshaling EventSessionClosed JSON", err)
 						continue
 					}
-					if err := p.OnSessionClosed(e, newSSE(sse), sessToken); err != nil {
+					if err := p.OnSessionClosed(e, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageIndex.OnSessionClosed", err)
 					}
 				}

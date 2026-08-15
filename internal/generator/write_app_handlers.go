@@ -21,8 +21,6 @@ func handlerArgVar(kind string, skipSSE bool) string {
 		}
 		// Handlers receive datapages.SSE, never the raw Datastar generator.
 		return "newSSE(sse)"
-	case model.InputKindSessionToken:
-		return "sessToken"
 	case model.InputKindSession:
 		return "sess"
 	case model.InputKindPath:
@@ -152,9 +150,6 @@ func handlerInputArgs(h *model.Handler, skipSSE bool) []string {
 	if h.InputSSE != nil && !skipSSE {
 		args = append(args, "newSSE(sse)")
 	}
-	if h.InputSessionToken != nil {
-		args = append(args, "sessToken")
-	}
 	if h.InputSession != nil {
 		args = append(args, "sess")
 	}
@@ -217,9 +212,6 @@ func eventHandlerInputArgs(eh *model.EventHandler) []string {
 	if eh.InputStreamID != nil {
 		args = append(args, "streamID")
 	}
-	if eh.InputSessionToken != nil {
-		args = append(args, "sessToken")
-	}
 	if eh.InputSession != nil {
 		args = append(args, "sess")
 	}
@@ -240,15 +232,9 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	// Auth.
 	needsSession := h.InputSession != nil ||
 		(m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession)
-	needsToken := h.InputSessionToken != nil ||
-		(m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSessionToken)
-	if needsSession || needsToken {
+	if needsSession {
 		hasBody = true
-		if needsToken {
-			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
-		} else {
-			w.Line(1, "sess, _, ok := s.auth(w, r)")
-		}
+		w.Line(1, "sess, _, ok := s.auth(w, r)")
 		w.Line(1, "if !ok {")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -298,12 +284,12 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	w.Byte('\n')
 
 	// Call GET.
-	w.writeGETMethodCall(p, m, appPkg)
+	w.writeGETMethodCall(p, m)
 
 	w.Line(0, "}")
 }
 
-func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) {
+func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 	h := p.GET.Handler
 
 	// Build output list in user-defined order.
@@ -357,10 +343,8 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 
 	// Generic head.
 	if gh := m.GlobalHeadGenerator; gh != nil {
-		hasSess := h.InputSession != nil || h.InputSessionToken != nil ||
-			gh.InputSession || gh.InputSessionToken
-		hasSessToken := h.InputSessionToken != nil || gh.InputSessionToken
-		w.writeGenericHeadCall(gh, appPkg, hasSess, hasSessToken)
+		hasSess := h.InputSession != nil || gh.InputSession
+		w.writeGenericHeadCall(gh, hasSess)
 	}
 
 	// Body attrs and suffix.
@@ -382,10 +366,10 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	if m.Session != nil {
 		sessArg := "sess"
 		headNeedsSession := m.GlobalHeadGenerator != nil &&
-			(m.GlobalHeadGenerator.InputSession || m.GlobalHeadGenerator.InputSessionToken)
+			m.GlobalHeadGenerator.InputSession
 		if p.PageSpecialization == model.PageTypeError500 ||
 			(!hasSessionInput(h) && !headNeedsSession) {
-			sessArg = appPkg + ".Session{}"
+			sessArg = w.sessionType + "{}"
 		}
 		w.Raw(sessArg)
 		w.Raw(", ")
@@ -414,27 +398,17 @@ func hasSessionInput(h *model.Handler) bool {
 	return h.InputSession != nil
 }
 
-// writeGenericHeadCall emits: genericHead := s.app.Head(r[, sess][, sessToken])
+// writeGenericHeadCall emits: genericHead := s.app.Head(r[, sess])
 // hasSess indicates whether a "sess" variable is in scope.
-// hasSessToken indicates whether a "sessToken" variable is in scope.
-func (w *Writer) writeGenericHeadCall(
-	gh *model.GlobalHead, appPkg string, hasSess, hasSessToken bool,
-) {
+func (w *Writer) writeGenericHeadCall(gh *model.GlobalHead, hasSess bool) {
 	w.Raw("\tgenericHead := s.app.Head(r")
 	if gh.InputSession {
 		if hasSess {
 			w.Raw(", sess")
 		} else {
 			w.Raw(", ")
-			w.Raw(appPkg)
-			w.Raw(".Session{}")
-		}
-	}
-	if gh.InputSessionToken {
-		if hasSessToken {
-			w.Raw(", sessToken")
-		} else {
-			w.Raw(`, ""`)
+			w.Raw(w.sessionType)
+			w.Raw("{}")
 		}
 	}
 	w.Raw(")\n")
@@ -538,7 +512,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Line(0, "")
 					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
 					w.writeStreamPathSegments(p.Route, h.InputPath)
-					w.Line(2, `if sess.UserID != "" {`)
+					w.Line(2, `if sess.UserID() != "" {`)
 					w.Line(3, "_, _ = io.WriteString(w, `/_$/')\"`)")
 					w.Line(2, "} else {")
 					w.Line(3, "_, _ = io.WriteString(w, `/_$/anon/')\"`)")
@@ -546,7 +520,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				} else {
 					w.Line(0, "")
 					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
-					w.Line(2, `if sess.UserID != "" {`)
+					w.Line(2, `if sess.UserID() != "" {`)
 					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
 					w.Raw(streamPath)
 					w.Raw("')\"`)\n")
@@ -563,7 +537,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					if hasEnableBgStream {
-						w.Line(2, `if sess.UserID != "" {`)
+						w.Line(2, `if sess.UserID() != "" {`)
 						w.Line(3, "_, _ = io.WriteString(w, `/_$/'`)")
 						w.Raw("\t\t\tif ")
 						w.Raw(h.OutputEnableBgStream.Name)
@@ -574,13 +548,13 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 						w.Line(3, "}")
 						w.Line(2, "}")
 					} else {
-						w.Line(2, `if sess.UserID != "" {`)
+						w.Line(2, `if sess.UserID() != "" {`)
 						w.Line(3, "_, _ = io.WriteString(w, `/_$/')\"`)")
 						w.Line(2, "}")
 					}
 				} else if hasEnableBgStream {
 					w.Line(0, "")
-					w.Line(2, `if sess.UserID != "" {`)
+					w.Line(2, `if sess.UserID() != "" {`)
 					w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
 					w.Raw(streamPath)
 					w.Raw("'`)\n")
@@ -594,7 +568,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Line(2, "}")
 				} else {
 					w.Line(0, "")
-					w.Line(2, `if sess.UserID != "" {`)
+					w.Line(2, `if sess.UserID() != "" {`)
 					w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
 					w.Raw(streamPath)
 					w.Raw("')\"`)\n")
@@ -802,13 +776,13 @@ func (w *Writer) writePageGETStreamHandler(
 		hasAnon := pageHasAnonStream(p, w.eventMap)
 		if hasAnon {
 			w.Line(0, "")
-			w.Line(1, `if sess.UserID == "" {`)
+			w.Line(1, `if sess.UserID() == "" {`)
 			w.Line(2, `http.Redirect(w, r, r.URL.Path+"/anon", http.StatusSeeOther)`)
 			w.Line(2, "return")
 			w.Line(1, "}")
 		} else {
 			w.Line(0, "")
-			w.Line(1, `if sess.UserID == "" {`)
+			w.Line(1, `if sess.UserID() == "" {`)
 			w.Line(2, "http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)")
 			w.Line(2, "return")
 			w.Line(1, "}")
@@ -882,20 +856,20 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Raw(" sessToken, sess,")
 	} else if w.usage.streamAuth {
 		w.Raw(` "", `)
-		w.Raw(appPkg)
-		w.Raw(`.Session{},`)
+		w.Raw(w.sessionType)
+		w.Raw(`{},`)
 	}
 	w.Raw(" ")
 	w.Raw(evSubjName)
 	if hasPrivate && hasSignalScoped {
-		w.Raw("(sess.UserID")
+		w.Raw("(sess.UserID()")
 		for _, sf := range signalFields {
 			w.Raw(", subjSignals.")
 			w.Raw(sf.Name)
 		}
 		w.Raw("),\n")
 	} else if hasPrivate {
-		w.Raw("(sess.UserID),\n")
+		w.Raw("(sess.UserID()),\n")
 	} else if hasSignalScoped {
 		w.Raw("(")
 		for i, sf := range signalFields {
@@ -1081,7 +1055,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Line(2, "return")
 	w.Line(1, "}")
 	w.Line(0, "")
-	w.Line(1, `if sess.UserID != "" {`)
+	w.Line(1, `if sess.UserID() != "" {`)
 	w.Line(2, `s.httpErrBad(w, "authenticated client on anonymous stream", nil)`)
 	w.Line(2, "return")
 	w.Line(1, "}")
@@ -1117,7 +1091,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	// evSubj call (for anon, pass empty userID to get public-only subjects).
 	w.Raw("\ts.handleStreamRequest(w, r, sessToken, sess, evSubj")
 	w.Raw(p.TypeName)
-	w.Raw("(sess.UserID),\n")
+	w.Raw("(sess.UserID()),\n")
 	w.writePageStreamOpenHook(p)
 	w.writePageStreamCloseHook(p)
 	w.Line(1, "func(")
@@ -1196,13 +1170,11 @@ func (w *Writer) writePageActionHandler(
 	}
 
 	// Auth.
-	needsToken := h.InputSessionToken != nil || h.OutputCloseSession != nil
+	needsToken := h.OutputCloseSession != nil
 	headNeedsSess := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
 		m.GlobalHeadGenerator.InputSession
-	headNeedsToken := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
-		m.GlobalHeadGenerator.InputSessionToken
-	if h.InputSession != nil || needsToken || headNeedsSess || headNeedsToken {
-		if needsToken || headNeedsToken {
+	if h.InputSession != nil || needsToken || headNeedsSess {
+		if needsToken {
 			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
 		} else {
 			w.Line(1, "sess, _, ok := s.auth(w, r)")
@@ -1255,13 +1227,13 @@ func (w *Writer) writePageActionHandler(
 	w.Byte('\n')
 
 	// Build the method call.
-	w.writeActionMethodCall(p, h, m, appPkg)
+	w.writeActionMethodCall(p, h, m)
 
 	w.Line(0, "}")
 }
 
 func (w *Writer) writeActionMethodCall(
-	p *model.Page, h *model.Handler, m *model.App, appPkg string,
+	p *model.Page, h *model.Handler, m *model.App,
 ) {
 	// Build output list in user-defined order.
 	outs := handlerOutputVars(h)
@@ -1349,16 +1321,16 @@ func (w *Writer) writeActionMethodCall(
 	// Render body (if action returns templ.Component).
 	if h.OutputBody != nil {
 		if m.GlobalHeadGenerator != nil {
-			w.writeGenericHeadCall(m.GlobalHeadGenerator, appPkg, hasSessionInput(h), false)
+			w.writeGenericHeadCall(m.GlobalHeadGenerator, hasSessionInput(h))
 		}
 		w.Line(1, "if err := s.writeHTML(")
 		w.Raw("\t\tw, r, ")
 		if m.Session != nil {
 			sessArg := "sess"
 			headNeedsSession := m.GlobalHeadGenerator != nil &&
-				(m.GlobalHeadGenerator.InputSession || m.GlobalHeadGenerator.InputSessionToken)
+				m.GlobalHeadGenerator.InputSession
 			if !hasSessionInput(h) && !headNeedsSession {
-				sessArg = appPkg + ".Session{}"
+				sessArg = w.sessionType + "{}"
 			}
 			w.Raw(sessArg)
 			w.Raw(", ")

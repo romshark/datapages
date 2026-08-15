@@ -54,6 +54,8 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	validateEvents(&ctx, &errs)
 	secondPassEmbeds(&ctx, &errs)
 	thirdPassMethods(&ctx, &errs)
+	collectSessionType(&ctx, &errs)
+	validateEventsNeedSession(&ctx, &errs)
 	flattenPages(&ctx, &errs)
 	validateRequiredHandlers(&ctx, &errs)
 	finalizePages(&ctx)
@@ -152,11 +154,6 @@ func firstPassTypes(ctx *parseCtx, errs *Errors) {
 	for _, name := range slices.Sorted(maps.Keys(ctx.typeSpecByName)) {
 		ts := ctx.typeSpecByName[name]
 
-		if name == "Session" {
-			firstPassSessionType(ctx, errs, ts)
-			continue
-		}
-
 		// Only treat valid EventXXX as event types.
 		if err := validate.EventTypeName(name); err == nil {
 			firstPassEventType(ctx, errs, name, ts)
@@ -168,46 +165,95 @@ func firstPassTypes(ctx *parseCtx, errs *Errors) {
 	}
 }
 
-func firstPassSessionType(
-	ctx *parseCtx, errs *Errors, ts *ast.TypeSpec,
-) {
-	typePos := ctx.pkg.Fset.Position(ts.Name.Pos())
-
-	st, ok := ts.Type.(*ast.StructType)
-	if !ok {
-		errs.ErrAt(typePos, ErrSessionNotStruct)
-		return
-	}
-
-	info := ctx.pkg.TypesInfo
-	t := info.TypeOf(st)
-	if t == nil {
-		errs.ErrAt(typePos, ErrSessionNotStruct)
-		return
-	}
-	underlying, ok := t.Underlying().(*types.Struct)
-	if !ok {
-		errs.ErrAt(typePos, ErrSessionNotStruct)
-		return
-	}
-
-	hasUserID, hasIssuedAt := false, false
-	for f := range underlying.Fields() {
-		switch {
-		case f.Name() == "UserID" && typecheck.IsString(f.Type()):
-			hasUserID = true
-		case f.Name() == "IssuedAt" && typecheck.IsTimeTime(f.Type()):
-			hasIssuedAt = true
+// collectSessionType decides whether the application uses sessions and which
+// datapages.Session instantiation it uses. Sessions are in play as soon as any
+// handler has a session-related input or output. Only session and newSession
+// name the Data type, an application that merely reads sessionToken or returns
+// closeSession gets datapages.Session[struct{}].
+func collectSessionType(ctx *parseCtx, errs *Errors) {
+	usesSession := false
+	noteHandler := func(h *model.Handler) {
+		if h == nil {
+			return
+		}
+		for _, in := range []*model.Input{h.InputSession} {
+			if in == nil {
+				continue
+			}
+			usesSession = true
+			if in.Type.TypeExpr != nil {
+				noteSessionType(ctx, errs, in.Type.TypeExpr, ctx.pkg.TypesInfo)
+			}
+		}
+		for _, o := range []*model.Output{h.OutputNewSession, h.OutputCloseSession} {
+			if o == nil {
+				continue
+			}
+			usesSession = true
+			if o.Type.TypeExpr != nil {
+				noteSessionType(ctx, errs, o.Type.TypeExpr, ctx.pkg.TypesInfo)
+			}
 		}
 	}
-	if !hasUserID {
-		errs.ErrAt(typePos, ErrSessionMissingUserID)
+	for _, p := range ctx.pages {
+		if p.GET != nil {
+			noteHandler(p.GET.Handler)
+		}
+		noteHandler(p.StreamOpen)
+		noteHandler(p.StreamClose)
+		for _, h := range p.Actions {
+			noteHandler(h)
+		}
+		for _, eh := range p.EventHandlers {
+			if eh.InputSession != nil {
+				usesSession = true
+				if eh.InputSession.Type.TypeExpr != nil {
+					noteSessionType(ctx, errs,
+						eh.InputSession.Type.TypeExpr, ctx.pkg.TypesInfo)
+				}
+			}
+		}
 	}
-	if !hasIssuedAt {
-		errs.ErrAt(typePos, ErrSessionMissingIssuedAt)
+	for _, h := range ctx.app.Actions {
+		noteHandler(h)
 	}
+	if gh := ctx.app.GlobalHeadGenerator; gh != nil && gh.InputSession {
+		usesSession = true
+	}
+	if usesSession && ctx.app.Session == nil {
+		// Sessions are used, but no handler names the Data type.
+		ctx.app.Session = &model.SessionType{
+			Data: model.Type{Resolved: types.NewStruct(nil, nil)},
+		}
+	}
+}
 
-	ctx.app.Session = &model.SessionType{Expr: ts.Name}
+// noteSessionType records the datapages.Session[Data] instantiation used by a
+// handler. All handlers of an application must use the same one, since the
+// server holds a single session manager.
+func noteSessionType(
+	ctx *parseCtx, errs *Errors, expr ast.Expr, info *types.Info,
+) {
+	data, ok := typecheck.SessionDataType(expr, info)
+	if !ok {
+		if data, ok = typecheck.NewSessionDataType(expr, info); !ok {
+			return
+		}
+	}
+	pos := ctx.pkg.Fset.Position(expr.Pos())
+	if ctx.app.Session == nil {
+		ctx.app.Session = &model.SessionType{
+			Expr: expr,
+			Data: model.Type{Resolved: data, TypeExpr: expr},
+		}
+		return
+	}
+	if !types.Identical(ctx.app.Session.Data.Resolved, data) {
+		errs.ErrAt(pos, fmt.Errorf("%w: %s and %s",
+			ErrSessionTypeConflict,
+			types.TypeString(ctx.app.Session.Data.Resolved, nil),
+			types.TypeString(data, nil)))
+	}
 }
 
 func firstPassEventType(
@@ -513,9 +559,7 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 						switch {
 						case typecheck.IsSessionType(f.Type, info):
 							gh.InputSession = true
-						case typecheck.IsString(info.TypeOf(f.Type)) &&
-							len(f.Names) > 0 && f.Names[0].Name == "sessionToken":
-							gh.InputSessionToken = true
+							noteSessionType(ctx, errs, f.Type, info)
 						default:
 							errs.ErrAt(pos, ErrAppHeadUnsupportedInput)
 							valid = false
@@ -690,14 +734,6 @@ func validateAndAttachEventHandler(
 				// Already validated above.
 			case typecheck.IsSSEParam(f.Type, ctx.pkg.TypesInfo):
 				// Already validated above.
-			case paramvalidation.IsSessionTokenParam(f):
-				if !typecheck.IsString(ctx.pkg.TypesInfo.TypeOf(f.Type)) {
-					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), fmt.Errorf(
-						"%w: %s.%s",
-						ErrSessionTokenParamNotString,
-						recv, fd.Name.Name,
-					))
-				}
 			case paramvalidation.IsSessionParam(f):
 				if !typecheck.IsSessionType(f.Type, ctx.pkg.TypesInfo) {
 					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), fmt.Errorf(
@@ -1256,10 +1292,6 @@ func parseEventHandler(
 			h.InputStreamID = parseInput(f, info)
 			h.InputStreamID.Kind = model.InputKindStreamID
 			h.OrderedInputs = append(h.OrderedInputs, h.InputStreamID)
-		case paramvalidation.IsSessionTokenParam(f):
-			h.InputSessionToken = parseInput(f, info)
-			h.InputSessionToken.Kind = model.InputKindSessionToken
-			h.OrderedInputs = append(h.OrderedInputs, h.InputSessionToken)
 		case paramvalidation.IsSessionParam(f):
 			h.InputSession = parseInput(f, info)
 			h.InputSession.Kind = model.InputKindSession
@@ -1350,20 +1382,6 @@ func parseStreamHook(
 			h.InputSSE = parseInput(f, info)
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
-
-		case paramvalidation.IsSessionTokenParam(f):
-			if h.InputSessionToken != nil {
-				unsupErrs = append(unsupErrs,
-					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
-				continue
-			}
-			if !typecheck.IsString(info.TypeOf(f.Type)) {
-				return h, fieldErr(fmt.Errorf("%w in %s.%s",
-					ErrSessionTokenParamNotString, recv, fd.Name.Name))
-			}
-			h.InputSessionToken = parseInput(f, info)
-			h.InputSessionToken.Kind = model.InputKindSessionToken
-			h.OrderedInputs = append(h.OrderedInputs, h.InputSessionToken)
 
 		case paramvalidation.IsSessionParam(f):
 			if h.InputSession != nil {
@@ -1746,7 +1764,6 @@ func typeCandidates(
 	}
 
 	isSession := typecheck.IsSessionType(f.Type, info)
-	isString := typecheck.IsString(t)
 	isUint64 := typecheck.IsUint64(t)
 	isStruct := isStructType(t)
 	isFunc := isFuncType(t)
@@ -1759,7 +1776,6 @@ func typeCandidates(
 	all := []candidate{
 		{"streamID", h.InputStreamID != nil, isUint64},
 		{"session", h.InputSession != nil, isSession},
-		{"sessionToken", h.InputSessionToken != nil, isString},
 		// Only suggest path/query/signals for plain structs,
 		// not for named types that have a more specific match (e.g. Session).
 		{"path", h.InputPath != nil, isStruct && !isSession},
@@ -1818,8 +1834,6 @@ func isParamConsumed(h *model.Handler, name string) bool {
 	switch name {
 	case "streamID":
 		return h.InputStreamID != nil
-	case "sessionToken":
-		return h.InputSessionToken != nil
 	case "session":
 		return h.InputSession != nil
 	case "path":
@@ -1964,20 +1978,6 @@ func parseHandler(
 			h.InputSSE = parseInput(f, info)
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
-
-		case paramvalidation.IsSessionTokenParam(f):
-			if h.InputSessionToken != nil {
-				unsupErrs = append(unsupErrs,
-					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
-				continue
-			}
-			if !typecheck.IsString(info.TypeOf(f.Type)) {
-				return h, nil, fieldErr(fmt.Errorf("%w in %s.%s",
-					ErrSessionTokenParamNotString, recv, fd.Name.Name))
-			}
-			h.InputSessionToken = parseInput(f, info)
-			h.InputSessionToken.Kind = model.InputKindSessionToken
-			h.OrderedInputs = append(h.OrderedInputs, h.InputSessionToken)
 
 		case paramvalidation.IsSessionParam(f):
 			if h.InputSession != nil {
@@ -2144,9 +2144,7 @@ func parseHandler(
 				h.OrderedOutputs = append(h.OrderedOutputs, out)
 				continue
 			case "newSession":
-				if !typecheck.IsSessionType(
-					r.Type, info,
-				) {
+				if !typecheck.IsNewSessionType(r.Type, info) {
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrNewSessionNotSessionType, recv, fd.Name.Name))
 				}

@@ -65,7 +65,7 @@ type notifier struct {
 // Compile-time proof that *Store satisfies the framework interface.
 // If you add or remove a method this line will break first, pointing
 // at the contract, instead of at some random call site elsewhere.
-var _ sessmanager.SessionManager[app.Session] = (*Store)(nil)
+var _ sessmanager.SessionManager[app.SessionData] = (*Store)(nil)
 
 // New creates the sessions table if missing and returns a Store ready
 // to plug into [datapagesgen.NewServer] as the session manager
@@ -134,10 +134,10 @@ func New(
 // If the cleanup itself errors, we log it and still report ok=false —
 // the next read will try again.
 func (s *Store) ReadSessionFromCookie(c *http.Cookie) (
-	session app.Session, token, userID string, ok bool, err error,
+	rec sessmanager.Record[app.SessionData], token string, ok bool, err error,
 ) {
 	if c == nil || c.Value == "" {
-		return app.Session{}, "", "", false, nil
+		return rec, "", false, nil
 	}
 	token = c.Value
 
@@ -156,14 +156,14 @@ func (s *Store) ReadSessionFromCookie(c *http.Cookie) (
 		},
 	)
 	if qerr != nil {
-		return app.Session{}, "", "", false, fmt.Errorf("loading session: %w", qerr)
+		return rec, "", false, fmt.Errorf("loading session: %w", qerr)
 	}
 	if len(rows) == 0 {
 		// Absent row — cookie is stale; treat as guest.
-		return app.Session{}, "", "", false, nil
+		return rec, "", false, nil
 	}
 	row := rows[0]
-	userID = row[0].String
+	userID := row[0].String
 	createdAt := row[1].Int64
 	expiresAt := row[2].Int64
 	name := row[3].String
@@ -177,15 +177,19 @@ func (s *Store) ReadSessionFromCookie(c *http.Cookie) (
 			s.log.Warn("sessionstore: lazy expiry cleanup failed",
 				slog.Any("err", cerr))
 		}
-		return app.Session{}, "", "", false, nil
+		return rec, "", false, nil
 	}
 
-	return app.Session{
+	rec = sessmanager.Record[app.SessionData]{
 		UserID:   userID,
-		Name:     name,
-		Email:    email,
 		IssuedAt: time.Unix(createdAt, 0),
-	}, token, userID, true, nil
+		Data:     app.SessionData{Name: name, Email: email},
+	}
+	if expiresAt > 0 {
+		// Surfaced to handlers, and enforced by datapages on every request.
+		rec.ExpiresAt = time.Unix(expiresAt, 0)
+	}
+	return rec, token, true, nil
 }
 
 // CreateSession generates a new token and persists a row of
@@ -193,9 +197,9 @@ func (s *Store) ReadSessionFromCookie(c *http.Cookie) (
 // argument is ignored: Name and Email already live in the users
 // table and are joined in on read.
 func (s *Store) CreateSession(
-	_ context.Context, userID string, _ app.Session,
+	_ context.Context, rec sessmanager.Record[app.SessionData],
 ) (string, error) {
-	if userID == "" {
+	if rec.UserID == "" {
 		return "", errors.New("empty user id")
 	}
 	token, err := s.tokenGen.Generate()
@@ -211,7 +215,7 @@ func (s *Store) CreateSession(
 		`INSERT INTO sessions (token, user_id, created_at, expires_at)
 		 VALUES (?, ?, ?, ?)`,
 		1, 4,
-		sqinn.Bind([]any{token, userID, now, expiresAt}),
+		sqinn.Bind([]any{token, rec.UserID, now, expiresAt}),
 	); err != nil {
 		return "", fmt.Errorf("inserting session: %w", err)
 	}

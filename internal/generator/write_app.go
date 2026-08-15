@@ -25,6 +25,7 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	appPkg := appPkgName(m.PkgPath)
 	w.buildEventMap(m.Events)
 	w.usage = computeAppUsage(m)
+	w.setSessionType(m)
 
 	w.writeAppHeader(pkgName, m.PkgPath, needsJSON(m))
 	w.Raw(appStaticContent)
@@ -59,11 +60,11 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 		w.writeSSEWrapper()
 	}
 	if w.usage.auth && w.usage.hasSession {
-		w.writeAppCheckCSRF(appPkg)
+		w.writeAppCheckCSRF()
 	}
-	w.writeAppWriteHTML(m, appPkg)
+	w.writeAppWriteHTML(m)
 	if w.usage.stream {
-		w.writeAppHandleStreamRequest(appPkg)
+		w.writeAppHandleStreamRequest()
 	}
 	w.writeAppServerStruct(appPkg)
 	w.writeAppNewServer(appPkg)
@@ -72,7 +73,7 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	w.writeEvSubjPageFuncs(m.Pages)
 	if w.usage.hasSession {
 		w.writeAppCSRF()
-		w.writeAppAuth(appPkg)
+		w.writeAppAuth()
 	}
 	if w.prometheus {
 		w.writeBrokerSubjectKind(m.Events)
@@ -159,7 +160,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"time"`)
 	w.Line(0, "")
 	w.Line(1, `"github.com/a-h/templ"`)
-	if w.usage.datapagesSSE {
+	if w.usage.datapagesSSE || w.usage.hasSession {
 		w.Line(1, `"github.com/romshark/datapages"`)
 	}
 	w.Line(1, `"github.com/romshark/datapages/modules/csrf"`)
@@ -458,14 +459,14 @@ func (s *Server) Shutdown(ctx context.Context) error {
 `)
 }
 
-func (w *Writer) writeAppCheckCSRF(appPkg string) {
+func (w *Writer) writeAppCheckCSRF() {
 	w.Raw(`
 func (s *Server) checkCSRF(
 	w http.ResponseWriter, r *http.Request, sess `)
-	w.Raw(appPkg)
-	w.Raw(`.Session,
+	w.Raw(w.sessionType)
+	w.Raw(`,
 ) (ok bool) {
-	if sess.UserID == "" ||
+	if sess.UserID() == "" ||
 		r.Method == http.MethodGet ||
 		r.Method == http.MethodOptions ||
 		r.Method == http.MethodHead ||
@@ -485,7 +486,7 @@ func (s *Server) checkCSRF(
 		t == s.csrfConf.DevBypassToken {
 		return true
 	}
-	if !s.csrfConf.TokenManager.ValidateToken(sess.UserID, sess.IssuedAt.Unix(), t) {
+	if !s.csrfConf.TokenManager.ValidateToken(sess.UserID(), sess.IssuedAt().Unix(), t) {
 		http.Error(
 			w,
 			http.StatusText(http.StatusForbidden),
@@ -498,7 +499,7 @@ func (s *Server) checkCSRF(
 `)
 }
 
-func (w *Writer) writeAppWriteHTML(m *model.App, appPkg string) {
+func (w *Writer) writeAppWriteHTML(m *model.App) {
 	w.Raw(`
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
@@ -506,8 +507,8 @@ func (s *Server) writeHTML(
 `)
 	if m.Session != nil {
 		w.Raw(`	sess `)
-		w.Raw(appPkg)
-		w.Raw(`.Session,
+		w.Raw(w.sessionType)
+		w.Raw(`,
 `)
 	}
 	if m.GlobalHeadGenerator != nil {
@@ -544,9 +545,9 @@ func (s *Server) writeHTML(
 	}
 `)
 	if m.Session != nil {
-		w.Raw(`	if s.csrfConf != nil && sess.UserID != "" {
+		w.Raw(`	if s.csrfConf != nil && sess.UserID() != "" {
 		csrfToken := s.csrfConf.TokenManager.GenerateToken(
-			sess.UserID, sess.IssuedAt.Unix(),
+			sess.UserID(), sess.IssuedAt().Unix(),
 		)
 		if csrfToken != "" {
 			// Write the fetch X-CSRF-Token header injector.
@@ -574,8 +575,8 @@ func (s *Server) writeHTML(
 			}
 		} else {
 			s.logger.Warn("generated empty CSRF token",
-				slog.String("user-id", sess.UserID),
-				slog.Time("issued-at", sess.IssuedAt))
+				slog.String("user-id", sess.UserID()),
+				slog.Time("issued-at", sess.IssuedAt()))
 		}
 	}
 `)
@@ -663,14 +664,14 @@ func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status 
 `)
 }
 
-func (w *Writer) writeAppHandleStreamRequest(appPkg string) {
+func (w *Writer) writeAppHandleStreamRequest() {
 	w.Raw(`
 func (s *Server) handleStreamRequest(
 	w http.ResponseWriter, r *http.Request,`)
 	if w.usage.streamAuth {
 		w.Raw(` sessKey string, sess `)
-		w.Raw(appPkg)
-		w.Raw(`.Session,`)
+		w.Raw(w.sessionType)
+		w.Raw(`,`)
 	}
 	w.Raw(`
 	subjects []string,
@@ -718,7 +719,7 @@ func (s *Server) handleStreamRequest(
 	if w.usage.streamAuth {
 		w.Raw(`	sessionClosed := make(chan struct{})
 
-	if sess.UserID != "" {
+	if sess.UserID() != "" {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		if err := s.sessionManager.NotifyClosed(ctx, sessKey, func() {
@@ -803,8 +804,8 @@ type Server struct {
 	authConf              *AuthConfig
 	sessionTokenGenerator sessmanager.TokenGenerator
 	sessionManager        sessmanager.SessionManager[`)
-		w.Raw(appPkg)
-		w.Raw(`.Session]
+		w.Raw(w.sessionDataType)
+		w.Raw(`]
 	csrfConf              *CSRFConfig`)
 	}
 	w.Raw(`
@@ -838,8 +839,8 @@ func NewServer(
 	if w.usage.hasSession {
 		w.Raw(`
 	sessionManager sessmanager.SessionManager[`)
-		w.Raw(appPkg)
-		w.Raw(`.Session],`)
+		w.Raw(w.sessionDataType)
+		w.Raw(`],`)
 	}
 	w.Raw(`
 	opts ...ServerOption,
@@ -1386,7 +1387,7 @@ func WithCSRFProtection(conf CSRFConfig) ServerOption {
 `)
 }
 
-func (w *Writer) writeAppAuth(appPkg string) {
+func (w *Writer) writeAppAuth() {
 	// Public declarations: always emitted.
 	w.Raw(`
 // --- Auth ---
@@ -1451,10 +1452,17 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 		w.Raw(`
 func (s *Server) createSession(
 	w http.ResponseWriter, r *http.Request, session `)
-		w.Raw(appPkg)
-		w.Raw(`.Session,
+		w.Raw(w.newSessionType)
+		w.Raw(`,
 ) error {
-	token, err := s.sessionManager.CreateSession(r.Context(), session.UserID, session)
+	token, err := s.sessionManager.CreateSession(r.Context(), `)
+		w.Raw(w.recordType)
+		w.Raw(`{
+		UserID:    session.UserID,
+		IssuedAt:  time.Now(),
+		ExpiresAt: session.ExpiresAt,
+		Data:      session.Data,
+	})
 	if err != nil {
 `)
 		if w.prometheus {
@@ -1508,8 +1516,8 @@ func (s *Server) closeSession(
 func (s *Server) auth(
 	w http.ResponseWriter, r *http.Request,
 ) (sess `)
-		w.Raw(appPkg)
-		w.Raw(`.Session, token string, ok bool) {
+		w.Raw(w.sessionType)
+		w.Raw(`, token string, ok bool) {
 	c, err := r.Cookie(s.authConf.TokenCookie.Name)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {`)
@@ -1523,7 +1531,7 @@ func (s *Server) auth(
 		return sess, "", false
 	}
 
-	sess, token, userID, ok, err := s.sessionManager.ReadSessionFromCookie(c)
+	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(c)
 	if err != nil {
 		// Transient backend failure; keep the cookie, fail the request.`)
 		if w.prometheus {
@@ -1533,8 +1541,8 @@ func (s *Server) auth(
 		w.Raw(`
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 		return `)
-		w.Raw(appPkg)
-		w.Raw(`.Session{}, "", false
+		w.Raw(w.sessionType)
+		w.Raw(`{}, "", false
 	}
 	if !ok {
 		// Cookie is stale or malformed; clear it and continue as unauthenticated.`)
@@ -1545,10 +1553,25 @@ func (s *Server) auth(
 		w.Raw(`
 		s.setSessionCookie(w, "")
 		return `)
-		w.Raw(appPkg)
-		w.Raw(`.Session{}, "", true
+		w.Raw(w.sessionType)
+		w.Raw(`{}, "", true
 	}
-	sess.UserID = userID
+	sess = `)
+		w.Raw(w.makeSessionCall)
+		w.Raw(`
+
+	if !sess.ExpiresAt().IsZero() && !time.Now().Before(sess.ExpiresAt()) {
+		// Session has expired; clear the cookie and continue as unauthenticated.`)
+		if w.prometheus {
+			w.Raw(`
+		mSessionReads.WithLabelValues("expired").Inc()`)
+		}
+		w.Raw(`
+		s.setSessionCookie(w, "")
+		return `)
+		w.Raw(w.sessionType)
+		w.Raw(`{}, "", true
+	}
 `)
 		if w.prometheus {
 			w.Raw(`	mSessionReads.WithLabelValues("valid").Inc()
@@ -1767,15 +1790,8 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 
 	h404 := p.GET.Handler
 	headNeedsSess := m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession
-	headNeedsToken := m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSessionToken
-	needsToken := h404.InputSessionToken != nil || headNeedsToken
-	if h404.InputSession != nil || h404.InputSessionToken != nil ||
-		headNeedsSess || headNeedsToken {
-		if needsToken {
-			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
-		} else {
-			w.Line(1, "sess, _, ok := s.auth(w, r)")
-		}
+	if h404.InputSession != nil || headNeedsSess {
+		w.Line(1, "sess, _, ok := s.auth(w, r)")
 		w.Line(1, "if !ok {")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1786,7 +1802,7 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	w.Line(0, "")
 
 	// Call GET.
-	w.writeGETCall(p, m, appPkg, "render404")
+	w.writeGETCall(p, m, "render404")
 
 	w.Line(0, "}")
 }
@@ -1840,13 +1856,11 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 	}
 
 	// Auth.
-	needsToken := h.InputSessionToken != nil || h.OutputCloseSession != nil
+	needsToken := h.OutputCloseSession != nil
 	headNeedsSess := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
 		m.GlobalHeadGenerator.InputSession
-	headNeedsToken := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
-		m.GlobalHeadGenerator.InputSessionToken
-	if h.InputSession != nil || needsToken || headNeedsSess || headNeedsToken {
-		if needsToken || headNeedsToken {
+	if h.InputSession != nil || needsToken || headNeedsSess {
+		if needsToken {
 			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
 		} else {
 			w.Line(1, "sess, _, ok := s.auth(w, r)")
@@ -1908,11 +1922,11 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	}
 
 	// Build the actual method call.
-	w.writeMethodCall(p, h, m, appPkg, isAppLevel)
+	w.writeMethodCall(p, h, m, isAppLevel)
 }
 
 func (w *Writer) writeMethodCall(
-	p *model.Page, h *model.Handler, m *model.App, appPkg string, isAppLevel bool,
+	p *model.Page, h *model.Handler, m *model.App, isAppLevel bool,
 ) {
 	// Build output variable list in user-defined order.
 	outs := handlerOutputVars(h)
@@ -2019,9 +2033,7 @@ func (w *Writer) writeMethodCall(
 		ownerName := actionOwnerName(p, isAppLevel)
 
 		if m.GlobalHeadGenerator != nil {
-			w.writeGenericHeadCall(
-				m.GlobalHeadGenerator, appPkg, hasSessionInput(h), false,
-			)
+			w.writeGenericHeadCall(m.GlobalHeadGenerator, hasSessionInput(h))
 		}
 
 		w.Line(1, "if err := s.writeHTML(")
@@ -2029,10 +2041,9 @@ func (w *Writer) writeMethodCall(
 		if m.Session != nil {
 			sessArg := "sess"
 			headNeedsSession := m.GlobalHeadGenerator != nil &&
-				(m.GlobalHeadGenerator.InputSession ||
-					m.GlobalHeadGenerator.InputSessionToken)
+				m.GlobalHeadGenerator.InputSession
 			if !hasSessionInput(h) && !headNeedsSession {
-				sessArg = appPkg + ".Session{}"
+				sessArg = w.sessionType + "{}"
 			}
 			w.Raw(sessArg)
 			w.Raw(", ")
@@ -2224,7 +2235,7 @@ func actionOwnerName(p *model.Page, isAppLevel bool) string {
 }
 
 // writeGETCall generates the GET method call and HTML rendering for a page.
-func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, context string) {
+func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	if p.GET == nil || p.GET.OutputBody == nil {
 		return
 	}
@@ -2281,9 +2292,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, contex
 
 	// Generic head.
 	if m.GlobalHeadGenerator != nil {
-		hasSess := h.InputSession != nil || h.InputSessionToken != nil
-		hasSessToken := h.InputSessionToken != nil
-		w.writeGenericHeadCall(m.GlobalHeadGenerator, appPkg, hasSess, hasSessToken)
+		w.writeGenericHeadCall(m.GlobalHeadGenerator, h.InputSession != nil)
 	}
 
 	// Body attrs - simple for render404/error pages.
@@ -2302,11 +2311,11 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, contex
 	if m.Session != nil {
 		sessArg := "sess"
 		headNeedsSession := m.GlobalHeadGenerator != nil &&
-			(m.GlobalHeadGenerator.InputSession || m.GlobalHeadGenerator.InputSessionToken)
+			m.GlobalHeadGenerator.InputSession
 		if p.PageSpecialization == model.PageTypeError500 ||
 			(p.PageSpecialization == model.PageTypeError404 &&
 				context == "render404" && !headNeedsSession) {
-			sessArg = appPkg + ".Session{}"
+			sessArg = w.sessionType + "{}"
 		}
 		w.Raw(sessArg)
 		w.Raw(", ")

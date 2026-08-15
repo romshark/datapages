@@ -3,10 +3,10 @@ package app
 import (
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/a-h/templ"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 )
@@ -20,7 +20,7 @@ func (PageLogin) GET(r *http.Request, session Session) (
 	disableRefreshAfterHidden bool,
 	err error,
 ) {
-	if session.UserID != "" {
+	if !session.IsGuest() {
 		// Already logged in
 		return nil, href.PageIndex(), false, nil
 	}
@@ -39,10 +39,10 @@ func (p PageLogin) POSTSubmit(
 	body templ.Component,
 	redirect string,
 	redirectStatus int,
-	newSession Session,
+	newSession datapages.NewSession[struct{}],
 	err error,
 ) {
-	if session.UserID != "" {
+	if !session.IsGuest() {
 		// Already logged in.
 		redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
 		return
@@ -59,11 +59,7 @@ func (p PageLogin) POSTSubmit(
 	}
 
 	p.App.LoginSubmissions.WithLabelValues("success").Inc()
-	now := time.Now()
-	newSession = Session{
-		UserID:   uid,
-		IssuedAt: now,
-	}
+	newSession = datapages.NewSession[struct{}]{UserID: uid}
 	redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
 	return
 }

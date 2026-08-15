@@ -23,11 +23,11 @@ func (p PageMyPosts) GET(
 	redirect string,
 	err error,
 ) {
-	if session.UserID == "" {
+	if session.IsGuest() {
 		return nil, nil, href.PageLogin(), nil
 	}
 
-	user, err := p.App.repo.UserByName(r.Context(), session.UserID)
+	user, err := p.App.repo.UserByName(r.Context(), session.UserID())
 	if err != nil {
 		return nil, nil, redirect, err
 	}

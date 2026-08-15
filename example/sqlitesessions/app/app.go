@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/a-h/templ"
 
@@ -20,14 +19,14 @@ type EventSessionClosed struct {
 	Token       string `json:"token"`
 }
 
-// Session must be declared as a struct here; the datapages parser
-// rejects type aliases for Session.
-type Session struct {
-	UserID   string
-	Name     string
-	Email    string
-	IssuedAt time.Time
+// SessionData is what this application keeps in the session on top of the
+// fields datapages provides (UserID and IssuedAt).
+type SessionData struct {
+	Name  string
+	Email string
 }
+
+type Session = datapages.Session[SessionData]
 
 type User = userstore.User
 
@@ -48,16 +47,15 @@ func (*App) Head(r *http.Request) templ.Component { return head() }
 // this session's SSE connection.
 func (*App) POSTSignOut(
 	r *http.Request,
-	sessionToken string,
 	session Session,
 	dispatch func(EventSessionClosed) error,
 ) (
 	closeSession bool, redirect string, err error,
 ) {
-	if session.UserID != "" {
+	if !session.IsGuest() {
 		_ = dispatch(EventSessionClosed{
-			SubjectUser: []string{session.UserID},
-			Token:       sessionToken,
+			SubjectUser: []string{session.UserID()},
+			Token:       session.Token(),
 		})
 	}
 	return true, href.PageIndex(), nil
@@ -81,9 +79,9 @@ func (p PageIndex) GET(r *http.Request, session Session) (
 func (p PageIndex) OnSessionClosed(
 	event EventSessionClosed,
 	sse datapages.SSE,
-	sessionToken string,
+	session Session,
 ) error {
-	if event.Token != sessionToken {
+	if event.Token != session.Token() {
 		return nil
 	}
 	return sse.Redirect(href.PageIndex())
@@ -123,7 +121,7 @@ type PageLogin struct{ App *App }
 func (p PageLogin) GET(r *http.Request, session Session) (
 	body, head templ.Component, redirect string, err error,
 ) {
-	if session.UserID != "" {
+	if !session.IsGuest() {
 		return nil, nil, href.PageIndex(), nil
 	}
 	return pageLogin("", false), pageLoginHead(), "", nil
@@ -156,10 +154,10 @@ func (p PageLogin) POSTSubmit(
 	body templ.Component,
 	redirect string,
 	redirectStatus int,
-	newSession Session,
+	newSession datapages.NewSession[SessionData],
 	err error,
 ) {
-	if session.UserID != "" {
+	if !session.IsGuest() {
 		redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
 		return
 	}
@@ -175,11 +173,9 @@ func (p PageLogin) POSTSubmit(
 		}
 		return
 	}
-	newSession = Session{
-		UserID:   user.ID,
-		Name:     user.Name,
-		Email:    user.Email,
-		IssuedAt: time.Now(),
+	newSession = datapages.NewSession[SessionData]{
+		UserID: user.ID,
+		Data:   SessionData{Name: user.Name, Email: user.Email},
 	}
 	redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
 	return
@@ -191,7 +187,7 @@ type PageRegister struct{ App *App }
 func (p PageRegister) GET(r *http.Request, session Session) (
 	body, head templ.Component, redirect string, err error,
 ) {
-	if session.UserID != "" {
+	if !session.IsGuest() {
 		redirect = href.PageIndex()
 		return
 	}
@@ -227,10 +223,10 @@ func (p PageRegister) POSTSubmit(
 	body templ.Component,
 	redirect string,
 	redirectStatus int,
-	newSession Session,
+	newSession datapages.NewSession[SessionData],
 	err error,
 ) {
-	if session.UserID != "" {
+	if !session.IsGuest() {
 		redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
 		return
 	}
@@ -250,11 +246,9 @@ func (p PageRegister) POSTSubmit(
 		}
 		return
 	}
-	newSession = Session{
-		UserID:   user.ID,
-		Name:     user.Name,
-		Email:    user.Email,
-		IssuedAt: time.Now(),
+	newSession = datapages.NewSession[SessionData]{
+		UserID: user.ID,
+		Data:   SessionData{Name: user.Name, Email: user.Email},
 	}
 	redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
 	return

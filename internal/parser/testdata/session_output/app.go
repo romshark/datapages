@@ -2,17 +2,15 @@ package app
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/a-h/templ"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
 
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
-}
+type Session = datapages.Session[struct{}]
 
 // PageIndex is /
 type PageIndex struct{ App *App }
@@ -32,7 +30,7 @@ func (PageLogin) GET(
 	r *http.Request,
 ) (
 	body templ.Component,
-	newSession Session,
+	newSession datapages.NewSession[struct{}],
 	err error,
 ) {
 	return body, newSession, err
@@ -44,7 +42,7 @@ func (PageLogin) GET(
 func (PageLogin) POSTSubmit(
 	r *http.Request,
 ) (
-	newSession Session,
+	newSession datapages.NewSession[struct{}],
 	redirect string,
 	err error,
 ) {

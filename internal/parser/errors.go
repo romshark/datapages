@@ -126,16 +126,11 @@ var (
 	ErrDispatchNoParams        = paramvalidation.ErrDispatchNoParams
 	ErrDispatchParamNotEvent   = paramvalidation.ErrDispatchParamNotEvent
 
-	ErrSessionNotStruct     = errors.New("session type must be a struct")
-	ErrSessionMissingUserID = errors.New(
-		"session type must have a UserID string field",
+	ErrSessionParamNotSessionType = errors.New(
+		"session parameter type must be datapages.Session[Data]",
 	)
-	ErrSessionMissingIssuedAt = errors.New(
-		"session type must have an IssuedAt time.Time field",
-	)
-	ErrSessionParamNotSessionType = errors.New("session parameter type must be Session")
-	ErrSessionTokenParamNotString = errors.New(
-		"sessionToken parameter must be of type string",
+	ErrSessionTypeConflict = errors.New(
+		"all handlers must use the same datapages.Session[Data] instantiation",
 	)
 	ErrStreamIDParamNotUint64 = errors.New("streamID parameter must be of type uint64")
 
@@ -143,9 +138,11 @@ var (
 	ErrRedirectStatusNotInt          = errors.New("redirectStatus must be an int")
 	ErrRedirectStatusWithoutRedirect = errors.New("redirectStatus requires redirect")
 
-	ErrNewSessionNotSessionType = errors.New("newSession must be of type Session")
-	ErrCloseSessionNotBool      = errors.New("closeSession must be of type bool")
-	ErrNewSessionWithSSE        = errors.New(
+	ErrNewSessionNotSessionType = errors.New(
+		"newSession must be of type datapages.NewSession[Data]",
+	)
+	ErrCloseSessionNotBool = errors.New("closeSession must be of type bool")
+	ErrNewSessionWithSSE   = errors.New(
 		"newSession cannot be used together with sse parameter",
 	)
 	ErrCloseSessionWithSSE = errors.New(

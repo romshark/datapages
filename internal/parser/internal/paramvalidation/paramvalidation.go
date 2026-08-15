@@ -95,15 +95,7 @@ func (e *fieldPosError) Error() string     { return e.err.Error() }
 func (e *fieldPosError) Unwrap() error     { return e.err }
 func (e *fieldPosError) ASTPos() token.Pos { return e.pos }
 
-// IsSessionTokenParam reports whether the AST field is
-// named "sessionToken".
-func IsSessionTokenParam(f *ast.Field) bool {
-	return len(f.Names) > 0 &&
-		f.Names[0].Name == "sessionToken"
-}
-
-// IsSessionParam reports whether the AST field is named
-// "session".
+// IsSessionParam reports whether the AST field is named "session".
 func IsSessionParam(f *ast.Field) bool {
 	return len(f.Names) > 0 &&
 		f.Names[0].Name == "session"
@@ -114,10 +106,9 @@ func IsPathParam(f *ast.Field) bool {
 	return len(f.Names) > 0 && f.Names[0].Name == "path"
 }
 
-// ValidatePathStruct validates that a path parameter is an
-// anonymous struct with exported fields of supported types
-// (string, bool, integers, floats, or encoding.TextUnmarshaler)
-// each carrying a `path:"..."` tag.
+// ValidatePathStruct validates that a path parameter is an  anonymous struct with
+// exported fields of supported types (string, bool, integers, floats,
+// or encoding.TextUnmarshaler) each carrying a `path:"..."` tag.
 func ValidatePathStruct(
 	f *ast.Field, info *types.Info, recv, method string,
 ) error {
@@ -181,8 +172,7 @@ func ValidatePathStruct(
 	return nil
 }
 
-// IsQueryParam reports whether the AST field is named
-// "query".
+// IsQueryParam reports whether the AST field is named "query".
 func IsQueryParam(f *ast.Field) bool {
 	return len(f.Names) > 0 && f.Names[0].Name == "query"
 }
@@ -245,8 +235,7 @@ func ValidateQueryStruct(
 	return nil
 }
 
-// IsSignalsParam reports whether the AST field is named
-// "signals".
+// IsSignalsParam reports whether the AST field is named "signals".
 func IsSignalsParam(f *ast.Field) bool {
 	return len(f.Names) > 0 &&
 		f.Names[0].Name == "signals"
@@ -527,8 +516,7 @@ func (e *ErrorDispatchNoParams) Is(target error) bool {
 
 func (e *ErrorDispatchNoParams) ASTPos() token.Pos { return e.Pos }
 
-// IsDispatchParam reports whether the AST field is named
-// "dispatch".
+// IsDispatchParam reports whether the AST field is named "dispatch".
 func IsDispatchParam(f *ast.Field) bool {
 	return len(f.Names) > 0 &&
 		f.Names[0].Name == "dispatch"
@@ -555,8 +543,8 @@ func funcParamTypes(ft *ast.FuncType) string {
 }
 
 // ValidateDispatchFunc validates that a dispatch parameter
-// is a function type with EventXXX parameters and a single
-// error return. Returns the list of event type names.
+// is a function type with EventXXX parameters and a single error return.
+// Returns the list of event type names.
 func ValidateDispatchFunc(
 	f *ast.Field,
 	info *types.Info,

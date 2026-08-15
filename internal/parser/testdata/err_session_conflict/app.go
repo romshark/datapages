@@ -6,27 +6,35 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
+
+type SessionData struct {
+	Name string
+}
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
 func (PageIndex) GET(
 	r *http.Request,
+	session datapages.Session[SessionData],
 ) (body templ.Component, err error) {
+	_ = session
 	return body, err
 }
 
-// PageBadType is /bad-type
-type PageBadType struct{ App *App }
+// PageOther is /other
+type PageOther struct{ App *App }
 
-/* ErrSessionParamNotSessionType: wrong type */
+/* ErrSessionTypeConflict: different Data type than PageIndex */
 
-func (PageBadType) GET(
+func (PageOther) GET(
 	r *http.Request,
-	session int,
+	session datapages.Session[struct{}],
 ) (body templ.Component, err error) {
 	_ = session
 	return body, err

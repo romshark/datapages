@@ -3,12 +3,96 @@ package datapages
 import (
 	"context"
 	"io"
+	"time"
 )
 
 // Component is the interface that all templates implement.
 type Component interface {
 	// Render renders the template to w.
 	Render(ctx context.Context, w io.Writer) error
+}
+
+// Session is the authenticated session of the client, passed to handlers as the
+// session parameter. It's read-only: return a [NewSession] to change it.
+//
+// Data carries whatever the application needs to keep for the duration of the
+// session, use struct{} when it needs nothing:
+//
+//	func (p PageIndex) GET(
+//		r *http.Request, session datapages.Session[struct{}],
+//	) (body templ.Component, err error)
+//
+// The zero value is the session of an unauthenticated client:
+//
+//	if session.IsGuest() {
+//		return httperr.Forbidden // Unauthenticated client
+//	}
+type Session[Data any] struct {
+	userID    string
+	token     string
+	issuedAt  time.Time
+	expiresAt time.Time
+	data      Data
+}
+
+// UserID identifies the authenticated user. It's empty for guest clients.
+func (s Session[Data]) UserID() string { return s.userID }
+
+// IsGuest reports whether the client is unauthenticated.
+func (s Session[Data]) IsGuest() bool { return s.userID == "" }
+
+// Token is the session token from the client's cookie. It's empty for guest clients.
+func (s Session[Data]) Token() string { return s.token }
+
+// IssuedAt is the time the session was created at. It's zero for guest clients.
+func (s Session[Data]) IssuedAt() time.Time { return s.issuedAt }
+
+// ExpiresAt is the time the session becomes invalid at. Datapages treats a client
+// whose session has expired as unauthenticated and removes the session cookie.
+// It's zero for guest clients and for sessions that never expire.
+func (s Session[Data]) ExpiresAt() time.Time { return s.expiresAt }
+
+// Data is the application-defined payload of the session.
+func (s Session[Data]) Data() Data { return s.data }
+
+// MakeSession assembles a session from its parts. It's called by generated code,
+// applications return a [NewSession] instead.
+func MakeSession[Data any](
+	userID, token string, issuedAt, expiresAt time.Time, data Data,
+) Session[Data] {
+	return Session[Data]{
+		userID:    userID,
+		token:     token,
+		issuedAt:  issuedAt,
+		expiresAt: expiresAt,
+		data:      data,
+	}
+}
+
+// NewSession is returned by handlers as the newSession return value to sign a client in.
+// Datapages generates the session token and stamps the issuance time,
+// then hands the result back to handlers as a [Session].
+//
+//	func (p PageLogin) POSTSubmit(...) (
+//		newSession datapages.NewSession[SessionData], redirect string, err error,
+//	) {
+//		return datapages.NewSession[SessionData]{
+//			UserID: user.ID,
+//			Data:   SessionData{Name: user.Name},
+//		}, href.PageIndex(), nil
+//	}
+//
+// A zero UserID is a no-op, no session is created.
+type NewSession[Data any] struct {
+	// UserID identifies the authenticated user.
+	UserID string
+
+	// ExpiresAt is the time the session becomes invalid at.
+	// Leave it zero to let the session live until it's closed explicitly.
+	ExpiresAt time.Time
+
+	// Data is the application-defined payload of the session.
+	Data Data
 }
 
 // SSE is the server-sent-event handle passed to action (POST/PUT/PATCH/DELETE)

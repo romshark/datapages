@@ -2,7 +2,6 @@ package app
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/a-h/templ"
 	"github.com/romshark/datapages"
@@ -10,10 +9,9 @@ import (
 
 type App struct{}
 
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
-}
+// Session carries no application data yet. Replace struct{} with your own type
+// to keep data in the session, it's available as session.Data in handlers.
+type Session = datapages.Session[struct{}]
 
 func (*App) Head(r *http.Request) templ.Component {
 	return nil

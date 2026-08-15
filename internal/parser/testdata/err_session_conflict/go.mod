@@ -1,4 +1,4 @@
-module datapagestest/fixture/err_event_subj_user_signal
+module datapagestest/fixture/err_session_conflict
 
 go 1.26.5
 

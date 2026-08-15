@@ -12,8 +12,7 @@ The `App` type may optionally provide a method for custom global HTML `<head>` t
 ```go
 func (*App) Head(
 	r *http.Request,
-	sessionToken string, // Optional
-	session Session, // Optional
+	session datapages.Session[Data], // Optional
 ) templ.Component {
 	return globalHeadTags()
 }
@@ -72,8 +71,7 @@ and may include the following optional parameters:
 ```go
 func (PageIndex) GET(
 	r *http.Request,
-	sessionToken string, // Optional
-	session Session, // Optional
+	session datapages.Session[Data], // Optional
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
 	signals struct {...}, // Optional
@@ -87,7 +85,7 @@ func (PageIndex) GET(
 	head templ.Component, // Optional
 	redirect string, // Optional
 	redirectStatus int, // Optional
-	newSession Session, // Optional
+	newSession datapages.NewSession[Data], // Optional
 	closeSession bool, // Optional
 	enableBackgroundStreaming bool, // Optional
 	disableRefreshAfterHidden bool, // Optional
@@ -119,8 +117,7 @@ include `r *http.Request` and may include the following optional parameters:
 func (PageIndex) POSTActionName(
 	r *http.Request,
 	sse datapages.SSE, // Optional
-	sessionToken string, // Optional
-	session Session, // Optional
+	session datapages.Session[Data], // Optional
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
 	signals struct {...}, // Optional
@@ -146,8 +143,7 @@ and `closeSession` return values cannot be used.
 // POSTActionName is <path>
 func (PageIndex) POSTActionName(
 	r *http.Request,
-	sessionToken string, // Optional
-	session Session, // Optional
+	session datapages.Session[Data], // Optional
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
 	signals struct {...}, // Optional
@@ -161,7 +157,7 @@ func (PageIndex) POSTActionName(
 	head templ.Component, // Optional
 	redirect string, // Optional
 	redirectStatus int, // Optional
-	newSession Session, // Optional
+	newSession datapages.NewSession[Data], // Optional
 	closeSession bool, // Optional
 	err error,
 ) {
@@ -179,8 +175,7 @@ func (PageIndex) OnSomethingHappened(
 	event EventSomethingHappened,
 	sse datapages.SSE,
 	streamID uint64, // Optional
-	sessionToken string, // Optional
-	session Session, // Optional
+	session datapages.Session[Data], // Optional
 ) error {
 	// ...
 }
@@ -202,8 +197,7 @@ func (PageIndex) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 	sse datapages.SSE, // Optional
-	sessionToken string, // Optional
-	session Session, // Optional
+	session datapages.Session[Data], // Optional
 	signals struct{...}, // Optional
 	dispatch(
 		EventSomethingHappened,
@@ -223,8 +217,7 @@ If it returns an error, datapages logs the error server-side.
 func (PageIndex) StreamClose(
 	r *http.Request,
 	streamID uint64,
-	sessionToken string, // Optional
-	session Session, // Optional
+	session datapages.Session[Data], // Optional
 	dispatch(
 		EventSomethingHappened,
 		EventSomethingElseHappened,
@@ -319,7 +312,7 @@ func (p PageExample) POSTButtonClicked(
 	dispatch(EventSomethingHappened) error,
 ) error {
 	// Update everyone that something happened.
-	return dispatch(EventSomethingHappened{WhoCausedIt: session.UserID})
+	return dispatch(EventSomethingHappened{WhoCausedIt: session.UserID()})
 }
 
 func (p PageExample) OnSomethingHappened(
@@ -436,46 +429,41 @@ query struct {
 The above example will automatically synchronize the query parameter `s` with the
 signal `selecteditem`.
 
-#### Parameter: `session Session`
+#### Parameter: `session datapages.Session[Data]`
 
 ```go
-session Session
+session datapages.Session[Data]
 ```
 
 Provides authentication information from cookies.
 
-If used, must be defined at the source package level as:
+The session is read-only: it exposes `UserID()`, `IsGuest()`, `Token()`,
+`IssuedAt()`, `ExpiresAt()` and `Data()`, and returning [`newSession`](#return-value-newsession-datapagesnewsessiondata)
+is the only way to change it. `Data` is the application payload,
+use `struct{}` when the application keeps nothing else in the session.
+
+The type is defined in [datapages.go](datapages.go), which documents each method
+and is the source of truth. It is also rendered on
+[pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#Session).
+
+A client whose `ExpiresAt()` has passed is treated as unauthenticated and its
+session cookie is removed, the zero value never expires.
+
+All handlers of an application must use the same `Data` type, since the server
+holds a single session manager. Declaring an alias keeps the signatures short:
 
 ```go
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
-
-	// Custom metadata.
-	FooBar Bazz `json:"foo-bar"`
+type SessionData struct {
+	Name string
 }
-```
 
-The `Session` type must have `UserID string` and `IssuedAt time.Time` fields.
-`IssuedAt` is required because CSRF protection is bound to the session issuance time.
-Any other field is treated as a custom payload.
+type Session = datapages.Session[SessionData]
 
-#### Parameter: `sessionToken string`
-
-```go
-sessionToken string
-```
-
-Provides the session token from cookies.
-Empty string if the request doesn't contain an authentication cookie.
-
-If used `type Session struct` must be defined at the source package level.
-
-```go
-type Session struct {
-	UserID     string    `json:"sub"` // Required.
-	IssuedAt   time.Time `json:"iat"` // Required.
-	Expiration time.Time `json:"exp"` // Optional.
+func (p PageIndex) GET(r *http.Request, session Session) (
+	body templ.Component, err error,
+) {
+	_ = session.Data().Name
+	return pageIndex(), nil
 }
 ```
 
@@ -706,7 +694,7 @@ func (PageChat) POSTSendMessage(
 	},
 	dispatch(EventMessageSent) error,
 ) error {
-	if !isUserAllowedToSendMessages(session.UserID) {
+	if !isUserAllowedToSendMessages(session.UserID()) {
 		return errors.New("unauthorized")
 	}
 	if signals.InputText == "" {
@@ -716,7 +704,7 @@ func (PageChat) POSTSendMessage(
 		SubjectUser:     chatroom.ParticipantIDs,
 		SubjectChatRoom: []string{signals.ChatRoom},
 		Message:               signals.InputText,
-		Sender:                session.UserID,
+		Sender:                session.UserID(),
 	})
 }
 
@@ -748,14 +736,18 @@ Allows for redirecting to different URLs.
 Specifies the redirect status code.
 Can only be used in combination with `redirect`.
 
-#### Return Value: `newSession Session`
+#### Return Value: `newSession datapages.NewSession[Data]`
 
 ```go
-newSession Session
+newSession datapages.NewSession[Data]
 ```
 
-Adds response headers to set a session cookie if `newSession.UserID` is not empty,
-otherwise no-op.
+Signs a client in. Adds response headers to set a session cookie if
+`newSession.UserID` is not empty, otherwise no-op. Datapages generates the
+session token and stamps the issuance time, the handler supplies `UserID`, an
+optional `ExpiresAt` and `Data`. See
+[datapages.go](datapages.go) and
+[pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#NewSession).
 
 #### Return Value: `closeSession bool`
 

@@ -77,7 +77,7 @@ func pageStreamNeedsAuth(
 		return true
 	}
 	for _, eh := range p.EventHandlers {
-		if eh.InputSession != nil || eh.InputSessionToken != nil {
+		if eh.InputSession != nil {
 			return true
 		}
 	}
@@ -85,7 +85,7 @@ func pageStreamNeedsAuth(
 		if h == nil {
 			continue
 		}
-		if h.InputSession != nil || h.InputSessionToken != nil {
+		if h.InputSession != nil {
 			return true
 		}
 	}
@@ -311,7 +311,7 @@ func computeAppUsage(m *model.App) appUsage {
 	}
 
 	checkHandler := func(h *model.Handler) {
-		if h.InputSession != nil || h.InputSessionToken != nil {
+		if h.InputSession != nil {
 			u.auth = true
 		}
 		if h.OutputNewSession != nil {
@@ -416,6 +416,36 @@ type Writer struct {
 	genImport string
 	// usage is computed once per WriteApp
 	usage appUsage
+	// sessionType is the rendered session type of the application,
+	// e.g. "datapages.Session[app.SessionData]". Empty if it has no session.
+	sessionType string
+	// newSessionType is the rendered type handlers return as newSession,
+	// e.g. "datapages.NewSession[app.SessionData]".
+	newSessionType string
+	// makeSessionCall assembles a session from a session manager record.
+	makeSessionCall string
+	// recordType is the rendered sessmanager.Record instantiation.
+	recordType string
+	// sessionDataType is the rendered session Data type argument.
+	sessionDataType string
+}
+
+// setSessionType renders the application's datapages.Session instantiation and
+// the expressions derived from it.
+func (w *Writer) setSessionType(m *model.App) {
+	if m.Session == nil {
+		w.sessionType, w.newSessionType = "", ""
+		w.makeSessionCall, w.recordType = "", ""
+		w.sessionDataType = ""
+		return
+	}
+	data := renderType(m.Session.Data, m.PkgPath)
+	w.sessionType = "datapages.Session[" + data + "]"
+	w.newSessionType = "datapages.NewSession[" + data + "]"
+	w.recordType = "sessmanager.Record[" + data + "]"
+	w.sessionDataType = data
+	w.makeSessionCall = "datapages.MakeSession(\n" +
+		"\t\trec.UserID, token, rec.IssuedAt, rec.ExpiresAt, rec.Data,\n\t)"
 }
 
 func (w *Writer) Reset() {

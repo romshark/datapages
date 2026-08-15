@@ -113,19 +113,25 @@ Important:
 
 ## Step 3: Add Session (Optional)
 
-Define a `Session` struct if you need authentication, otherwise don't define it.
+Declare an alias if you need authentication, otherwise skip this step.
 
 ```go
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
+type SessionData struct {
+	Name string
 }
+
+type Session = datapages.Session[SessionData]
 ```
 
-Both fields are required. Without either, the parser rejects it.
-Add custom fields if you want. Custom fields must have `json` tags.
+`datapages.Session[Data]` is read-only and provides `UserID()`, `IsGuest()`,
+`Token()`, `IssuedAt()`, `ExpiresAt()` and `Data()`. `Data` is your own payload,
+use `struct{}` when you need none. All handlers must use the same `Data` type,
+so declare the alias once and use it everywhere.
 
-Now handlers can accept `session Session` or `sessionToken string` as parameters, and return `newSession Session` or `closeSession bool` as return values.
+Handlers accept `session Session` as a parameter and return
+`newSession datapages.NewSession[SessionData]` or `closeSession bool` as return values.
+`NewSession` carries `UserID`, an optional `ExpiresAt` and `Data`,
+datapages generates the token and stamps the issuance time.
 
 ## Step 4: Add Pages
 
@@ -158,7 +164,7 @@ body templ.Component // always first
 head templ.Component // optional
 redirect string // optional
 redirectStatus int // only with redirect
-newSession Session // optional
+newSession datapages.NewSession[Data] // optional
 closeSession bool // optional
 enableBackgroundStreaming bool // optional
 disableRefreshAfterHidden bool // optional
@@ -175,7 +181,7 @@ Examples:
 (body templ.Component, redirect string, err error)
 
 // body + new session + disableRefreshAfterHidden
-(body templ.Component, newSession Session, disableRefreshAfterHidden bool, err error)
+(body templ.Component, newSession datapages.NewSession[Data], disableRefreshAfterHidden bool, err error)
 ```
 
 ## Step 5: Path Variables and Query Parameters
@@ -255,7 +261,6 @@ Parameters may be in any order. Skip what you don't need.
 ```go
 r *http.Request
 sse datapages.SSE // optional
-sessionToken string // optional
 session Session // optional
 path struct { ID string `path:"id"` } // optional
 query struct { P int `query:"p"` } // optional
@@ -278,7 +283,7 @@ body templ.Component // optional
 head templ.Component // optional
 redirect string // optional
 redirectStatus int // only with redirect
-newSession Session // optional
+newSession datapages.NewSession[Data] // optional
 closeSession bool // optional
 err error // always last
 ```
@@ -299,8 +304,8 @@ Redirect:
 
 New session:
 ```go
-) (newSession Session, redirect string, err error) {
-	return Session{UserID: "u1", IssuedAt: time.Now()}, "/", nil
+) (newSession datapages.NewSession[SessionData], redirect string, err error) {
+	return datapages.NewSession[SessionData]{UserID: "u1"}, "/", nil
 }
 ```
 
@@ -391,7 +396,7 @@ dispatch func(EventMessageSent, EventUserActive) error
 
 ### Handle Events on Pages
 
-Method name starts with `On`. The `event` and `sse` parameters are required. Optional parameters: `streamID uint64`, `session Session`, `sessionToken string`.
+Method name starts with `On`. The `event` and `sse` parameters are required. Optional parameters: `streamID uint64`, `session Session`.
 Parameters may appear in any order.
 
 `On` handlers do **not** accept `signals`. If the handler needs client-side signal values, add them as fields on the event type and populate them in the action handler that dispatches the event.
@@ -404,7 +409,6 @@ func (PageChat) OnMessageSent(
 	sse datapages.SSE,
 	streamID uint64, // Optional
 	session Session, // Optional
-	sessionToken string, // Optional
 ) error {
 	return sse.PatchElement(messageComponent(event.Message))
 }
@@ -461,11 +465,11 @@ to clients, as it could leak information about server activity and connection vo
 
 `StreamOpen` runs after the SSE stream is established, before any event handler.
 It additionally accepts these optional parameters:
-`sse datapages.SSE`, `sessionToken string`, `session Session`,
+`sse datapages.SSE`, `session Session`,
 `signals struct{...}`, `dispatch func(...) error`.
 
 `StreamClose` runs when the stream closes.
-It additionally accepts these optional parameters: `sessionToken string`,
+It additionally accepts these optional parameters:
 `session Session`, `dispatch func(...) error`.
 Note: `StreamClose` does **not** accept `sse` or `signals`.
 
@@ -474,7 +478,6 @@ func (PageIndex) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 	sse datapages.SSE, // Optional
-	sessionToken string, // Optional
 	session Session, // Optional
 	signals struct{ // Optional
 		Instance string `json:"instance"`
@@ -488,7 +491,6 @@ func (PageIndex) StreamOpen(
 func (PageIndex) StreamClose(
 	r *http.Request,
 	streamID uint64,
-	sessionToken string, // Optional
 	session Session, // Optional
 	dispatch func(EventPing) error, // Optional
 ) error {
@@ -563,7 +565,6 @@ Adds shared `<head>` content (meta tags, stylesheets, scripts) to every page, so
 ```go
 func (*App) Head(
 	r *http.Request,
-	sessionToken string, // optional
 	session Session, // optional
 ) templ.Component {
 	return globalHead()

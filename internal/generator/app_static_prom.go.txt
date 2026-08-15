@@ -178,7 +178,7 @@ var (
 			Name:      "reads_total",
 			Help:      "Session reads from cookie",
 		},
-		[]string{"result"}, // "valid" | "none" | "stale"
+		[]string{"result"}, // "valid" | "none" | "stale" | "expired" | "error"
 	)
 )
 

@@ -72,12 +72,6 @@ func Suggest(err error) string {
 	case errors.Is(err, parser.ErrSignatureEvHandMissingEvent):
 		return "fix: Add `event EventName` parameter"
 
-	case errors.Is(err, parser.ErrSessionMissingUserID):
-		return "fix: Add `UserID string` field to Session"
-
-	case errors.Is(err, parser.ErrSessionMissingIssuedAt):
-		return "fix: Add `IssuedAt time.Time` field to Session"
-
 	case errors.Is(err, parser.ErrPageMissingFieldApp):
 		var d *parser.ErrorPageMissingFieldApp
 		if !errors.As(err, &d) {
@@ -487,8 +481,8 @@ func Suggest(err error) string {
 //   - ErrDispatchParamNotFunc         — type constraint is clear from message
 //   - ErrDispatchNoParams             — constraint is clear from message
 //   - ErrDispatchParamNotEvent        — constraint is clear from message
-//   - ErrSessionNotStruct             — type constraint is clear from message
 //   - ErrSessionParamNotSessionType   — constraint is clear from message
+//   - ErrSessionTypeConflict          — the message names both instantiations
 //   - ErrSessionTokenParamNotString   — constraint is clear from message
 //   - ErrRedirectNotString            — constraint is clear from message
 //   - ErrRedirectStatusNotInt         — constraint is clear from message

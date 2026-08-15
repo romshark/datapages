@@ -2,7 +2,6 @@ package app
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/a-h/templ"
 
@@ -11,10 +10,7 @@ import (
 
 type App struct{}
 
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
-}
+type Session = datapages.Session[struct{}]
 
 // EventPing is "ping"
 type EventPing struct {
@@ -32,14 +28,12 @@ func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
 // PageSessionFirst is /session-first
 type PageSessionFirst struct{ App *App }
 
-// GET with session before sessionToken (reversed from conventional).
+// GET with session before path (reversed from conventional).
 func (PageSessionFirst) GET(
 	session Session,
-	sessionToken string,
 	r *http.Request,
 ) (body templ.Component, err error) {
 	_ = session
-	_ = sessionToken
 	return body, err
 }
 
@@ -55,13 +49,11 @@ func (PageReversed) GET(
 		ID string `path:"id"`
 	},
 	session Session,
-	sessionToken string,
 	r *http.Request,
 ) (body templ.Component, err error) {
 	_ = query
 	_ = path
 	_ = session
-	_ = sessionToken
 	return body, err
 }
 

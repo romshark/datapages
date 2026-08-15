@@ -34,8 +34,8 @@ func IsBool(t types.Type) bool {
 // IsInputFieldType reports whether t is a supported type for
 // path and query struct fields: string, bool, integers
 // (int, int8, int16, int32, int64, uint, uint8, uint16,
-// uint32, uint64), floats (float32, float64), or any type
-// that implements encoding.TextUnmarshaler.
+// uint32, uint64), floats (float32, float64),
+// or any type that implements encoding.TextUnmarshaler.
 func IsInputFieldType(t types.Type) bool {
 	if isBasicInputType(t) {
 		return true
@@ -83,8 +83,7 @@ var textUnmarshaler = func() *types.Interface {
 	).Complete()
 }()
 
-// ImplementsTextUnmarshaler reports whether t or *t implements
-// encoding.TextUnmarshaler.
+// ImplementsTextUnmarshaler reports whether t or *t implements encoding.TextUnmarshaler.
 func ImplementsTextUnmarshaler(t types.Type) bool {
 	if t == nil {
 		return false
@@ -120,8 +119,7 @@ func IsError(t types.Type) bool {
 	return t.String() == "error"
 }
 
-// IsTemplComponent reports whether t is
-// github.com/a-h/templ.Component.
+// IsTemplComponent reports whether t is github.com/a-h/templ.Component.
 func IsTemplComponent(t types.Type) bool {
 	if t == nil {
 		return false
@@ -198,9 +196,9 @@ func IsDatapagesSSE(expr ast.Expr, info *types.Info) bool {
 	return isNamedFromPkg(expr, info, datapagesPkgPath, "SSE")
 }
 
-// IsSSEParam reports whether expr is the SSE handler parameter type. datapages.SSE
-// is the only accepted form; IsPtrToDatastarSSE exists solely to detect the raw
-// Datastar generator and report it as an error.
+// IsSSEParam reports whether expr is the SSE handler parameter type.
+// datapages.SSE is the only accepted form; IsPtrToDatastarSSE exists solely to
+// detect the raw Datastar generator and report it as an error.
 func IsSSEParam(expr ast.Expr, info *types.Info) bool {
 	return IsDatapagesSSE(expr, info)
 }
@@ -212,7 +210,7 @@ func isNamedFromPkg(
 	if t == nil {
 		return false
 	}
-	named, ok := t.(*types.Named)
+	named, ok := types.Unalias(t).(*types.Named)
 	if !ok {
 		return false
 	}
@@ -223,21 +221,52 @@ func isNamedFromPkg(
 	return obj.Pkg().Path() == pkgPath && obj.Name() == name
 }
 
-// IsSessionType reports whether expr resolves to a named
-// type called "Session".
-func IsSessionType(
-	expr ast.Expr, info *types.Info,
-) bool {
+// IsSessionType reports whether expr resolves to datapages.Session[Data].
+func IsSessionType(expr ast.Expr, info *types.Info) bool {
+	_, ok := SessionDataType(expr, info)
+	return ok
+}
+
+// IsNewSessionType reports whether expr resolves to datapages.NewSession[Data].
+func IsNewSessionType(expr ast.Expr, info *types.Info) bool {
+	_, ok := namedTypeArg(expr, info, "NewSession")
+	return ok
+}
+
+// NewSessionDataType returns the Data type argument of datapages.NewSession[Data].
+func NewSessionDataType(expr ast.Expr, info *types.Info) (types.Type, bool) {
+	return namedTypeArg(expr, info, "NewSession")
+}
+
+// SessionDataType returns the Data type argument of datapages.Session[Data].
+// ok is false if expr isn't an instantiation of datapages.Session.
+func SessionDataType(expr ast.Expr, info *types.Info) (data types.Type, ok bool) {
+	return namedTypeArg(expr, info, "Session")
+}
+
+// namedTypeArg returns the single type argument of the datapages generic type
+// name that expr resolves to.
+func namedTypeArg(
+	expr ast.Expr, info *types.Info, name string,
+) (arg types.Type, ok bool) {
 	t := info.TypeOf(expr)
 	if t == nil {
-		return false
+		return nil, false
 	}
-	named, ok := t.(*types.Named)
+	named, ok := types.Unalias(t).(*types.Named)
 	if !ok {
-		return false
+		return nil, false
 	}
 	obj := named.Obj()
-	return obj != nil && obj.Name() == "Session"
+	if obj == nil || obj.Pkg() == nil ||
+		obj.Pkg().Path() != datapagesPkgPath || obj.Name() != name {
+		return nil, false
+	}
+	args := named.TypeArgs()
+	if args == nil || args.Len() != 1 {
+		return nil, false
+	}
+	return args.At(0), true
 }
 
 // IsEventType reports whether the expression resolves to the

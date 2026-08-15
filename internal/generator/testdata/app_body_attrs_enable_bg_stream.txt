@@ -7,7 +7,7 @@
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		if sess.UserID != "" {
+		if sess.UserID() != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/chat/_$/'`)
 			if enableBgStream {
 				_, _ = io.WriteString(w, `,{openWhenHidden:true})"`)

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"iter"
 	"net/http"
-	"time"
 
 	"github.com/a-h/templ"
 	"github.com/prometheus/client_golang/prometheus"
@@ -14,28 +13,28 @@ import (
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/assets"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
+	"github.com/romshark/datapages/modules/sessmanager"
 )
 
-type Session struct {
-	UserID string
-
-	IssuedAt time.Time
-}
+type Session = datapages.Session[struct{}]
 
 type Metrics struct {
 	LoginSubmissions *prometheus.CounterVec
 	ChatMessagesSent *prometheus.CounterVec
 }
 
+// SessionRecord is what the session manager stores for a session.
+type SessionRecord = sessmanager.Record[struct{}]
+
 type SessionManager interface {
-	Session(ctx context.Context, token string) (Session, error)
+	Session(ctx context.Context, token string) (SessionRecord, error)
 	CloseSession(ctx context.Context, token string) error
 	CloseAllUserSessions(
 		ctx context.Context, buffer []string, userID string,
 	) ([]string, error)
 	UserSessions(
 		ctx context.Context, userID string,
-	) iter.Seq2[string, Session]
+	) iter.Seq2[string, SessionRecord]
 }
 
 type App struct {
@@ -128,16 +127,16 @@ type baseData struct {
 func (b Base) baseData(
 	ctx context.Context, session Session,
 ) (baseData, error) {
-	if session.UserID == "" {
+	if session.IsGuest() {
 		return baseData{}, nil // Guest
 	}
-	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(ctx, session.UserID)
+	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(ctx, session.UserID())
 	if err != nil {
 		return baseData{}, fmt.Errorf(
 			"fetching number of unread chats with unread messages: %w", err,
 		)
 	}
-	user, err := b.App.repo.UserByID(ctx, session.UserID)
+	user, err := b.App.repo.UserByID(ctx, session.UserID())
 	if err != nil {
 		return baseData{}, err
 	}
@@ -152,7 +151,7 @@ func (b Base) OnMessagingSent(
 	sse datapages.SSE,
 	session Session,
 ) error {
-	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID)
+	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID())
 	if err != nil {
 		return err
 	}
@@ -166,7 +165,7 @@ func (b Base) OnMessagingSent(
 	}); err != nil {
 		return err
 	}
-	if session.UserID != event.UserID {
+	if session.UserID() != event.UserID {
 		return sse.ExecuteScript(fmt.Sprintf(`
 			(() => {
 				const audio = new Audio("%s");
@@ -182,7 +181,7 @@ func (b Base) OnMessagingRead(
 	sse datapages.SSE,
 	session Session,
 ) error {
-	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID)
+	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID())
 	if err != nil {
 		return err
 	}

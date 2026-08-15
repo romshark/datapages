@@ -1,5 +1,10 @@
 module datapagestest/fixture/err_event_subj_signal_invalid
 
-go 1.26
+go 1.26.5
 
-require github.com/a-h/templ v0.3.1020
+require (
+	github.com/a-h/templ v0.3.1020
+	github.com/romshark/datapages v0.9.4
+)
+
+replace github.com/romshark/datapages => ../../../..

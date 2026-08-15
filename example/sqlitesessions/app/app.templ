@@ -126,7 +126,7 @@ templ head() {
 templ nav(session Session) {
 	<nav>
 		<a href={ href.PageIndex() }>Home</a>
-		if session.UserID != "" {
+		if !session.IsGuest() {
 			<button
 				class="linklike"
 				data-on:click={ action.POSTAppSignOut() }
@@ -144,9 +144,9 @@ templ pageIndexHead() {
 
 templ pageIndex(session Session, users []User) {
 	@nav(session)
-	if session.UserID != "" {
-		<h1>Hello, <b>{ session.Name }</b></h1>
-		<p>Signed in as <strong>{ session.Email }</strong>.</p>
+	if !session.IsGuest() {
+		<h1>Hello, <b>{ session.Data().Name }</b></h1>
+		<p>Signed in as <strong>{ session.Data().Email }</strong>.</p>
 	} else {
 		<h1>Hello, dear guest</h1>
 		<p>You're not signed in.</p>
@@ -162,7 +162,7 @@ templ pageIndex(session Session, users []User) {
 			for _, u := range users {
 				<li>
 					<strong>{ u.Name }</strong> — { u.Email }
-					if u.ID == session.UserID {
+					if u.ID == session.UserID() {
 						(that's you)
 					}
 				</li>

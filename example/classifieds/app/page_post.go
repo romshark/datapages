@@ -53,8 +53,8 @@ func (p PagePost) GET(
 	}
 
 	var chatID string
-	if session.UserID != "" {
-		chat, err := p.App.repo.ChatByPostID(r.Context(), session.UserID, post.ID)
+	if !session.IsGuest() {
+		chat, err := p.App.repo.ChatByPostID(r.Context(), session.UserID(), post.ID)
 		if err != nil {
 			if !errors.Is(err, domain.ErrChatNotFound) {
 				return body, head, redirect, err
@@ -81,7 +81,7 @@ func (p PagePost) POSTSendMessage(
 	},
 	dispatch func(EventMessagingSent) error,
 ) error {
-	if session.UserID == "" {
+	if session.IsGuest() {
 		return domain.ErrUnauthorized
 	}
 
@@ -96,21 +96,21 @@ func (p PagePost) POSTSendMessage(
 		return err
 	}
 
-	if session.UserID == post.MerchantUserName {
+	if session.UserID() == post.MerchantUserName {
 		return domain.ErrUnauthorized
 	}
 
 	chatID, err := p.App.repo.NewChat(
-		sse.Context(), post.ID, session.UserID, signals.MessageText,
+		sse.Context(), post.ID, session.UserID(), signals.MessageText,
 	)
 	if err != nil {
 		return err
 	}
 
 	if err := dispatch(EventMessagingSent{
-		SubjectUser: []string{post.MerchantUserName, session.UserID},
+		SubjectUser: []string{post.MerchantUserName, session.UserID()},
 		ChatID:      chatID,
-		UserID:      session.UserID,
+		UserID:      session.UserID(),
 	}); err != nil {
 		return err
 	}

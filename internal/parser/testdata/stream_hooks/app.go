@@ -2,7 +2,6 @@ package app
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/a-h/templ"
 
@@ -11,10 +10,7 @@ import (
 
 type App struct{}
 
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
-}
+type Session = datapages.Session[struct{}]
 
 // EventPing is "ping"
 type EventPing struct{}
@@ -25,7 +21,6 @@ func (Base) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 	sse datapages.SSE,
-	sessionToken string,
 	session Session,
 	signals struct {
 		Instance string `json:"instance"`
@@ -38,7 +33,6 @@ func (Base) StreamOpen(
 func (Base) StreamClose(
 	r *http.Request,
 	streamID uint64,
-	sessionToken string,
 	session Session,
 	dispatch func(EventPing) error,
 ) error {
@@ -85,7 +79,6 @@ func (PageStreamMax) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 	sse datapages.SSE,
-	sessionToken string,
 	session Session,
 	signals struct {
 		Instance string `json:"instance"`
@@ -98,7 +91,6 @@ func (PageStreamMax) StreamOpen(
 func (PageStreamMax) StreamClose(
 	r *http.Request,
 	streamID uint64,
-	sessionToken string,
 	session Session,
 	dispatch func(EventPing) error,
 ) error {

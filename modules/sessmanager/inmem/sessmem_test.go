@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages/modules/sessmanager"
 	"github.com/romshark/datapages/modules/sessmanager/inmem"
 	"github.com/romshark/datapages/modules/sesstokgen"
 )
@@ -21,9 +22,48 @@ type testSession struct {
 
 var tokGen = sesstokgen.Generator{}
 
-func newManager(t *testing.T) *inmem.SessionManager[testSession] {
+func newManager(t *testing.T) payloadManager {
 	t.Helper()
-	return inmem.New[testSession](tokGen)
+	return payloadManager{inmem.New[testSession](tokGen)}
+}
+
+// payloadManager adapts the record-based manager API to the payload-shaped calls
+// these tests are written against. Record plumbing is covered by TestRecordRoundTrip.
+type payloadManager struct {
+	*inmem.SessionManager[testSession]
+}
+
+func (m payloadManager) CreateSession(
+	ctx context.Context, userID string, s testSession,
+) (string, error) {
+	return m.SessionManager.CreateSession(
+		ctx, sessmanager.Record[testSession]{UserID: userID, Data: s},
+	)
+}
+
+func (m payloadManager) ReadSessionFromCookie(c *http.Cookie) (
+	session testSession, token, userID string, ok bool, err error,
+) {
+	rec, token, ok, err := m.SessionManager.ReadSessionFromCookie(c)
+	return rec.Data, token, rec.UserID, ok, err
+}
+
+func (m payloadManager) SaveSession(
+	ctx context.Context, token string, s testSession,
+) error {
+	rec, err := m.SessionManager.Session(ctx, token)
+	if err != nil {
+		return nil // Same no-op the record API has for unknown tokens.
+	}
+	rec.Data = s
+	return m.SessionManager.SaveSession(ctx, token, rec)
+}
+
+func (m payloadManager) Session(
+	ctx context.Context, token string,
+) (testSession, error) {
+	rec, err := m.SessionManager.Session(ctx, token)
+	return rec.Data, err
 }
 
 type failingTokGen struct{}
@@ -162,7 +202,7 @@ func TestCreateSessionUniqueTokens(t *testing.T) {
 }
 
 func TestCreateSessionErrTokenGenerator(t *testing.T) {
-	sm := inmem.New[testSession](failingTokGen{})
+	sm := payloadManager{inmem.New[testSession](failingTokGen{})}
 
 	_, err := sm.CreateSession(context.Background(), "bob", testSession{})
 	require.ErrorIs(t, err, errFake)
@@ -170,10 +210,10 @@ func TestCreateSessionErrTokenGenerator(t *testing.T) {
 
 // TestCreateSessionTokenCollisionOverwrites documents the current behavior:
 // if the token generator produces a duplicate, the new session silently
-// overwrites the old one. With a properly configured generator (256-bit
-// random tokens) this is practically impossible.
+// overwrites the old one. With a properly configured generator (256-bit random tokens)
+// this is practically impossible.
 func TestCreateSessionTokenCollisionOverwrites(t *testing.T) {
-	sm := inmem.New[testSession](fixedTokGen{token: "same-token"})
+	sm := payloadManager{inmem.New[testSession](fixedTokGen{token: "same-token"})}
 	ctx := context.Background()
 
 	tok1, err := sm.CreateSession(ctx, "alice",
@@ -398,6 +438,29 @@ func TestNotifyClosedMultipleWatchers(t *testing.T) {
 }
 
 // SaveSession tests.
+
+func TestRecordRoundTrip(t *testing.T) {
+	sm := inmem.New[testSession](tokGen)
+	ctx := context.Background()
+
+	issued := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+	expires := issued.Add(24 * time.Hour)
+	want := sessmanager.Record[testSession]{
+		UserID:    "alice",
+		IssuedAt:  issued,
+		ExpiresAt: expires,
+		Data:      testSession{Username: "alice", Role: "admin"},
+	}
+
+	token, err := sm.CreateSession(ctx, want)
+	require.NoError(t, err)
+
+	got, retTok, ok, err := sm.ReadSessionFromCookie(&http.Cookie{Value: token})
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, token, retTok)
+	require.Equal(t, want, got)
+}
 
 func TestSaveSession(t *testing.T) {
 	sm := newManager(t)
@@ -649,7 +712,7 @@ func TestUserSessionsDoesNotIncludeOtherUsers(t *testing.T) {
 
 	sessions := sm.UserSessions(ctx, "alice")
 	require.Len(t, sessions, 1)
-	require.Equal(t, "alice", sessions[0].Session.Username)
+	require.Equal(t, "alice", sessions[0].Record.Data.Username)
 }
 
 func TestUserSessionsTokenUsableWithSessionAndClose(t *testing.T) {
@@ -662,7 +725,7 @@ func TestUserSessionsTokenUsableWithSessionAndClose(t *testing.T) {
 
 	sessions := sm.UserSessions(ctx, "alice")
 	require.Len(t, sessions, 1)
-	require.Equal(t, want, sessions[0].Session)
+	require.Equal(t, want, sessions[0].Record.Data)
 
 	got, err := sm.Session(ctx, sessions[0].Token)
 	require.NoError(t, err)
@@ -909,8 +972,8 @@ func TestConcurrentNotifyAndClose(t *testing.T) {
 	}
 	// The exact count depends on scheduling: watchers registered before close
 	// are notified via CloseSession, watchers registered after close are called
-	// immediately by NotifyClosed. This test validates no panics, no races,
-	// and that at least one callback fires.
+	// immediately by NotifyClosed.
+	// This test validates no panics, no races, and that at least one callback fires.
 	require.GreaterOrEqual(t, totalCalls.Load(), int32(1))
 }
 
@@ -924,14 +987,14 @@ func TestConcurrentSaveSession(t *testing.T) {
 	const goroutines = 50
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := range goroutines {
-		go func(i int) {
+	for range goroutines {
+		go func() {
 			defer wg.Done()
 			_ = sm.SaveSession(ctx, token, testSession{
 				Username: "alice",
 				Role:     "role",
 			})
-		}(i)
+		}()
 	}
 	wg.Wait()
 
@@ -1020,7 +1083,7 @@ func TestConcurrentUserSessions(t *testing.T) {
 	for i := range goroutines {
 		require.Len(t, results[i], 5, "goroutine %d", i)
 		for _, us := range results[i] {
-			require.Equal(t, "alice", us.Session.Username, "goroutine %d", i)
+			require.Equal(t, "alice", us.Record.Data.Username, "goroutine %d", i)
 		}
 	}
 }
