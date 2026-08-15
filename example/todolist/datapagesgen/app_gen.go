@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
 	"golang.org/x/sync/errgroup"
 
@@ -288,6 +289,65 @@ func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status 
 
 	http.Redirect(w, r, target, status)
 	return true
+}
+
+// newSSE wraps a Datastar generator as a datapages.SSE.
+func newSSE(gen *datastar.ServerSentEventGenerator) datapages.SSE {
+	return sseWrapper{gen: gen}
+}
+
+type sseWrapper struct {
+	gen *datastar.ServerSentEventGenerator
+}
+
+func (s sseWrapper) Context() context.Context { return s.gen.Context() }
+
+func (s sseWrapper) PatchElement(
+	c datapages.Component, opts ...datapages.PatchOption,
+) error {
+	var cfg datapages.PatchConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+	var ds []datastar.PatchElementOption
+	if cfg.Selector != "" {
+		ds = append(ds, datastar.WithSelector(cfg.Selector))
+	}
+	if cfg.SelectorID != "" {
+		ds = append(ds, datastar.WithSelectorID(cfg.SelectorID))
+	}
+	switch cfg.Mode {
+	case datapages.PatchModeOuter, datapages.PatchModeInner,
+		datapages.PatchModeReplace, datapages.PatchModePrepend,
+		datapages.PatchModeAppend, datapages.PatchModeBefore,
+		datapages.PatchModeAfter:
+		ds = append(ds, datastar.WithMode(datastar.ElementPatchMode(cfg.Mode)))
+	}
+	return s.gen.PatchElementTempl(c, ds...)
+}
+
+func (s sseWrapper) RemoveElement(selector string) error {
+	return s.gen.RemoveElement(selector)
+}
+
+func (s sseWrapper) ExecuteScript(script string) error {
+	return s.gen.ExecuteScript(script)
+}
+
+func (s sseWrapper) PatchSignals(v any) error {
+	return s.gen.MarshalAndPatchSignals(v)
+}
+
+func (s sseWrapper) PatchSignalsIfMissing(v any) error {
+	return s.gen.MarshalAndPatchSignalsIfMissing(v)
+}
+
+func (s sseWrapper) Redirect(target string) error {
+	return s.gen.Redirect(target)
+}
+
+func (s sseWrapper) Prefetch(urls ...string) error {
+	return s.gen.Prefetch(urls...)
 }
 
 func (s *Server) writeHTML(
@@ -753,7 +813,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			streamID uint64,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
-			return p.StreamOpen(r, streamID, sse, signals)
+			return p.StreamOpen(r, streamID, newSSE(sse), signals)
 		},
 		func(streamID uint64) {
 			p.StreamClose(r, streamID)
@@ -770,7 +830,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.logErr("unmarshaling EventTodoUpdated JSON", err)
 						continue
 					}
-					if err := p.OnTodoUpdated(e, sse, streamID); err != nil {
+					if err := p.OnTodoUpdated(e, newSSE(sse), streamID); err != nil {
 						s.logErr("handling PageIndex.OnTodoUpdated", err)
 					}
 				}
@@ -842,7 +902,7 @@ func (s *Server) handlePageIndexPOSTFilter(
 	p := app.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTFilter(r, sse, signals)
+	err := p.POSTFilter(r, newSSE(sse), signals)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Filter", err)
 		return
@@ -911,7 +971,7 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 			streamID uint64,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
-			return p.StreamOpen(r, streamID, sse, signals)
+			return p.StreamOpen(r, streamID, newSSE(sse), signals)
 		},
 		func(streamID uint64) {
 			p.StreamClose(r, streamID)
@@ -928,7 +988,7 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 						s.logErr("unmarshaling EventTodoUpdated JSON", err)
 						continue
 					}
-					if err := p.OnTodoUpdated(e, sse, streamID); err != nil {
+					if err := p.OnTodoUpdated(e, newSSE(sse), streamID); err != nil {
 						s.logErr("handling PageItem.OnTodoUpdated", err)
 					}
 				}

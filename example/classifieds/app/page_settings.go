@@ -6,8 +6,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 )
@@ -54,7 +54,7 @@ func (p PageSettings) GET(
 // POSTSave is /settings/save/{$}
 func (p PageSettings) POSTSave(
 	r *http.Request,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 	signals struct {
 		Username string `json:"username"`
@@ -134,7 +134,7 @@ func (p PageSettings) POSTCloseAllSessions(
 
 func (p PageSettings) OnSessionClosed(
 	event EventSessionClosed,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	sessionToken string,
 	session Session,
 ) error {
@@ -146,5 +146,5 @@ func (p PageSettings) OnSessionClosed(
 	if err != nil {
 		return err
 	}
-	return sse.PatchElementTempl(body)
+	return sse.PatchElement(body)
 }

@@ -1,0 +1,61 @@
+
+func (s *Server) handlePageDashboardGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.auth(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID == "" {
+		http.Redirect(w, r, r.URL.Path+"/anon", http.StatusSeeOther)
+		return
+	}
+
+	var subjSignals struct {
+		Instance string `json:"instance_id"`
+	}
+	if err := datastar.ReadSignals(r, &subjSignals); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+		return
+	}
+	if subjSignals.Instance == "" {
+		s.httpErrBad(w, "missing required signal", fmt.Errorf("signal %q is required", "instance_id"))
+		return
+	}
+
+	p := testapp.PageDashboard{
+	App: s.app,
+}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageDashboard(sess.UserID, subjSignals.Instance),
+	nil,
+	nil,
+	func(
+		streamID uint64,
+		sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+	) {
+		for msg := range ch {
+			switch {
+			case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
+				var e testapp.EventMessagingSent
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventMessagingSent JSON", err)
+					continue
+				}
+				if err := p.OnMessagingSent(e, newSSE(sse), sess); err != nil {
+					s.logErr("handling PageDashboard.OnMessagingSent", err)
+				}
+			case strings.HasPrefix(msg.Subject, EvSubjPrefCalcUpdated):
+				var e testapp.EventCalcUpdated
+				if err := json.Unmarshal(msg.Data, &e); err != nil {
+					s.logErr("unmarshaling EventCalcUpdated JSON", err)
+					continue
+				}
+				if err := p.OnCalcUpdated(e, newSSE(sse)); err != nil {
+					s.logErr("handling PageDashboard.OnCalcUpdated", err)
+				}
+			}
+		}
+	})
+}

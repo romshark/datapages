@@ -22,8 +22,8 @@ const (
 var submoduleRoots = []string{
 	"example",
 	"internal/templatingbench",
-	"parser/testdata",
-	"parser/internal/templcheck/testdata",
+	"internal/parser/testdata",
+	"internal/parser/internal/templcheck/testdata",
 }
 
 // Build verifies the datapages CLI and all example binaries compile.
@@ -37,7 +37,7 @@ func Build() error {
 // BuildCLI verifies the datapages CLI compiles.
 func BuildCLI() error {
 	fmt.Println("==> go build .")
-	return run("go", "build", "-o", os.DevNull, ".")
+	return run("go", "build", "-o", os.DevNull, "./cmd/datapages")
 }
 
 // BuildExamples verifies all example binaries compile.
@@ -152,7 +152,7 @@ func LintDatapages() error {
 	defer os.RemoveAll(tmp)
 
 	bin := filepath.Join(tmp, "datapages")
-	if err := run("go", "build", "-o", bin, "."); err != nil {
+	if err := run("go", "build", "-o", bin, "./cmd/datapages"); err != nil {
 		return err
 	}
 	return forEachModule("example", func(dir string) error {
@@ -252,7 +252,7 @@ func GenDatapages() error {
 	defer os.RemoveAll(tmp)
 
 	bin := filepath.Join(tmp, "datapages")
-	if err := run("go", "build", "-o", bin, "."); err != nil {
+	if err := run("go", "build", "-o", bin, "./cmd/datapages"); err != nil {
 		return err
 	}
 	return forEachModule("example", func(dir string) error {
@@ -284,14 +284,14 @@ func GenDocs() error {
 		version = "latest"
 	}
 	version = strings.TrimSpace(version)
-	if err := goRun(toolTempl, "generate", "-path", "./docs-src"); err != nil {
+	if err := goRun(toolTempl, "generate", "-path", "./internal/docs-src"); err != nil {
 		return err
 	}
-	if err := run("go", "run", "./scripts/render-pages", "-version", version); err != nil {
+	if err := run("go", "run", "./internal/tools/render-pages", "-version", version); err != nil {
 		return err
 	}
-	fmt.Println("==> minify docs-src/style.css -> docs/style.css")
-	return goRun(toolMinify, "-o", "docs/style.css", "docs-src/style.css")
+	fmt.Println("==> minify internal/docs-src/style.css -> docs/style.css")
+	return goRun(toolMinify, "-o", "docs/style.css", "internal/docs-src/style.css")
 }
 
 // All runs test, vulncheck, fmt, mod-tidy, gen-templ, and gen-docs.

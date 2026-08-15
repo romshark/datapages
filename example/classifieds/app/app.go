@@ -9,8 +9,8 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/starfederation/datastar-go/datastar"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/assets"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
@@ -79,11 +79,11 @@ func (*App) POSTCause500(r *http.Request) error {
 
 func (*App) RecoverError(
 	err error,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(toastError500(),
-		datastar.WithSelectorID("toaster"),
-		datastar.WithModeAppend())
+	return sse.PatchElement(toastError500(),
+		datapages.WithSelectorID("toaster"),
+		datapages.WithMode(datapages.PatchModeAppend))
 	// Or use script execution:
 	//
 	// 	return sse.ExecuteScript(`
@@ -149,17 +149,17 @@ func (b Base) baseData(
 
 func (b Base) OnMessagingSent(
 	event EventMessagingSent,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID)
 	if err != nil {
 		return err
 	}
-	if err := sse.PatchElementTempl(fragmentMessagesLink(unreadChats)); err != nil {
+	if err := sse.PatchElement(fragmentMessagesLink(unreadChats)); err != nil {
 		return err
 	}
-	if err := sse.MarshalAndPatchSignals(struct {
+	if err := sse.PatchSignals(struct {
 		MessageText string `json:"messagetext"`
 	}{
 		MessageText: "",
@@ -179,14 +179,14 @@ func (b Base) OnMessagingSent(
 
 func (b Base) OnMessagingRead(
 	event EventMessagingRead,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID)
 	if err != nil {
 		return err
 	}
-	return sse.PatchElementTempl(fragmentMessagesLink(unreadChats))
+	return sse.PatchElement(fragmentMessagesLink(unreadChats))
 }
 
 // PageError404 is /not-found

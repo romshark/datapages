@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/todolist/datapagesgen/httperr"
 	"github.com/romshark/datapages/example/todolist/list"
 )
@@ -44,7 +44,7 @@ func (p PageIndex) GET(
 func (p PageIndex) StreamOpen(
 	r *http.Request,
 	streamID uint64,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	signals struct {
 		Search string `json:"search"`
 		Filter string `json:"filter"`
@@ -110,7 +110,7 @@ func (p PageIndex) POSTCreate(
 // POSTFilter is /filter
 func (p PageIndex) POSTFilter(
 	r *http.Request,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	signals struct {
 		TabID  string `json:"tab_id"`
 		Search string `json:"search"`
@@ -138,15 +138,15 @@ func (p PageIndex) POSTFilter(
 		Sort:   signals.Sort,
 	}
 	todos := p.App.list.GetItems(vp)
-	return sse.PatchElementTempl(todoList(todos))
+	return sse.PatchElement(todoList(todos))
 }
 
 func (p PageIndex) OnTodoUpdated(
 	event EventTodoUpdated,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	streamID uint64,
 ) error {
 	s := p.App.streamState(streamID)
 	todos := p.App.list.GetItems(s.ViewParameters)
-	return sse.PatchElementTempl(todoList(todos))
+	return sse.PatchElement(todoList(todos))
 }

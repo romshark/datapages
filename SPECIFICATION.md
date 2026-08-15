@@ -28,9 +28,9 @@ an HTTP error response using the appropriate status code.
 ```go
 func (*App) RecoverError(
 	err error,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(errorToast(err))
+	return sse.PatchElement(errorToast(err))
 }
 ```
 
@@ -118,7 +118,7 @@ include `r *http.Request` and may include the following optional parameters:
 // POSTActionName is <path>
 func (PageIndex) POSTActionName(
 	r *http.Request,
-	sse *datastar.ServerSentEventGenerator, // Optional
+	sse datapages.SSE, // Optional
 	sessionToken string, // Optional
 	session Session, // Optional
 	path struct{...}, // Required only when path variables are used in the URL
@@ -171,13 +171,13 @@ func (PageIndex) POSTActionName(
 
 All `OnXXX` method parameter lists must include
 the `event` parameter of an event type and
-`sse *datastar.ServerSentEventGenerator`. Parameters may be in any order.
+`sse datapages.SSE`. Parameters may be in any order.
 The `XXX` placeholder must always match the event name after the type's `Event` prefix.
 
 ```go
 func (PageIndex) OnSomethingHappened(
 	event EventSomethingHappened,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	streamID uint64, // Optional
 	sessionToken string, // Optional
 	session Session, // Optional
@@ -201,7 +201,7 @@ should not be exposed to clients.
 func (PageIndex) StreamOpen(
 	r *http.Request,
 	streamID uint64,
-	sse *datastar.ServerSentEventGenerator, // Optional
+	sse datapages.SSE, // Optional
 	sessionToken string, // Optional
 	session Session, // Optional
 	signals struct{...}, // Optional
@@ -244,7 +244,7 @@ type Base struct{ App *App }
 
 func (Base) OnSomethingHappened(
 	event EventSomethingHappened,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	// ...
@@ -324,11 +324,11 @@ func (p PageExample) POSTButtonClicked(
 
 func (p PageExample) OnSomethingHappened(
 	event EventSomethingHappened,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	// When something happens, patch the page.
-	return sse.PatchElementTempl(updateTemplate())
+	return sse.PatchElement(updateTemplate())
 }
 ```
 
@@ -479,16 +479,29 @@ type Session struct {
 }
 ```
 
-#### Parameter: `sse *datastar.ServerSentEventGenerator`
+#### Parameter: `sse datapages.SSE`
 
 ```go
-sse *datastar.ServerSentEventGenerator
+sse datapages.SSE
 ```
 
 This parameter is allowed on `POSTXXX`, `PUTXXX`, `PATCHXXX`, and `DELETEXXX` page methods
 handling [action requests](https://data-star.dev/reference/actions) and
 `OnXXX` event handler page methods.
 This gives you a handle to patch page elements, execute scripts, etc.
+
+`datapages.SSE` (from `github.com/romshark/datapages`) hides the underlying
+Datastar generator so handler signatures never depend on the datastar package
+directly.
+
+It provides `Context`, `PatchElement`, `RemoveElement`, `ExecuteScript`,
+`PatchSignals`, `PatchSignalsIfMissing`, `Redirect` and `Prefetch`, alongside the
+`PatchOption` values (`WithSelector`, `WithSelectorID`, `WithMode`) and the
+`PatchMode` constants.
+
+The interface is defined in [datapages.go](datapages.go), which documents each
+method and is the source of truth. It is also rendered on
+[pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#SSE).
 
 #### Parameter: `dispatch func(...) error`
 
@@ -519,8 +532,8 @@ Subject fields must be defined before any payload fields.
   values is computed at dispatch time and each combination produces a separate publish.
 - `string` — single value; used directly in the subject without looping.
 
-When an event is dispatched, subject field values are appended (in field definition
-order) to the event's base subject, separated by dots.
+When an event is dispatched, subject field values are appended
+(in field definition order) to the event's base subject, separated by dots.
 
 For example, given `// EventNotify is "notify"`:
 
@@ -709,7 +722,7 @@ func (PageChat) POSTSendMessage(
 
 func (PageChat) OnMessageSent(
 	event EventMessageSent,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	// Use sse to patch the new message into view.

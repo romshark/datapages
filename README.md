@@ -49,7 +49,7 @@ or simple [HTMX](https://htmx.org/)-style websites - Datapages will serve you we
 ### Install
 
 ```sh
-go install github.com/romshark/datapages@latest
+go install github.com/romshark/datapages/cmd/datapages@latest
 ```
 
 ### Initialize New Project

@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 )
@@ -57,7 +57,7 @@ func (p PageUser) GET(
 
 func (p PageUser) OnPostArchived(
 	event EventPostArchived,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	return sse.ExecuteScript("location.replace(location.href);")

@@ -254,7 +254,7 @@ Parameters may be in any order. Skip what you don't need.
 
 ```go
 r *http.Request
-sse *datastar.ServerSentEventGenerator // optional
+sse datapages.SSE // optional
 sessionToken string // optional
 session Session // optional
 path struct { ID string `path:"id"` } // optional
@@ -263,7 +263,11 @@ signals struct { V string `json:"v"` } // optional
 dispatch func(EventFoo) error // optional
 ```
 
-Import `"github.com/starfederation/datastar-go/datastar"` for SSE.
+Import `"github.com/romshark/datapages"` for `datapages.SSE`.
+
+See [Parameter: `sse datapages.SSE`](../../SPECIFICATION.md#parameter-sse-datapagessse)
+for the interface. `datapages.SSE` is the only accepted SSE parameter type, in
+action handlers, event handlers (`OnXXX`), stream hooks and `RecoverError`.
 
 ### Action Return Types
 
@@ -397,12 +401,12 @@ Use `streamID` to look up per-tab state registered in `StreamOpen` (see Step 9).
 ```go
 func (PageChat) OnMessageSent(
 	event EventMessageSent,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	streamID uint64, // Optional
 	session Session, // Optional
 	sessionToken string, // Optional
 ) error {
-	return sse.PatchElementTempl(messageComponent(event.Message))
+	return sse.PatchElement(messageComponent(event.Message))
 }
 ```
 
@@ -440,7 +444,7 @@ type EventDirectMessage struct {
   context — read initial signals, store them alongside the `streamID`, and use them
   later in event handlers to produce the right fat morph.
 - **HMAC-signed tab identifiers.** Generate an HMAC of the `streamID` in
-  `StreamOpen`, patch it to the client as a signal via `sse.MarshalAndPatchSignals`,
+  `StreamOpen`, patch it to the client as a signal via `sse.PatchSignals`,
   and validate it in action handlers. Because only the server knows the HMAC key,
   clients cannot forge a tab ID for a stream they don't own, which prevents
   one tab from impersonating another when calling actions.
@@ -457,7 +461,7 @@ to clients, as it could leak information about server activity and connection vo
 
 `StreamOpen` runs after the SSE stream is established, before any event handler.
 It additionally accepts these optional parameters:
-`sse *datastar.ServerSentEventGenerator`, `sessionToken string`, `session Session`,
+`sse datapages.SSE`, `sessionToken string`, `session Session`,
 `signals struct{...}`, `dispatch func(...) error`.
 
 `StreamClose` runs when the stream closes.
@@ -469,7 +473,7 @@ Note: `StreamClose` does **not** accept `sse` or `signals`.
 func (PageIndex) StreamOpen(
 	r *http.Request,
 	streamID uint64,
-	sse *datastar.ServerSentEventGenerator, // Optional
+	sse datapages.SSE, // Optional
 	sessionToken string, // Optional
 	session Session, // Optional
 	signals struct{ // Optional
@@ -506,9 +510,9 @@ type Base struct{ App *App }
 
 func (Base) OnMessageSent(
 	event EventMessageSent,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(notificationComponent())
+	return sse.PatchElement(notificationComponent())
 }
 ```
 
@@ -528,7 +532,7 @@ To override, redefine the method on the page - the page-level method replaces th
 ```go
 func (p PageChat) OnMessageSent(
 	event EventMessageSent,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
 	// Custom logic before
 	log.Println("chat-specific handling")
@@ -573,9 +577,9 @@ When a handler returns an error during a Datastar SSE request, a plain HTTP erro
 ```go
 func (*App) RecoverError(
 	err error,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(errorToast(err))
+	return sse.PatchElement(errorToast(err))
 }
 ```
 

@@ -1,0 +1,730 @@
+package generator
+
+import (
+	"bytes"
+	"fmt"
+	"go/format"
+	"go/token"
+	"go/types"
+	"reflect"
+	"strings"
+	"sync"
+
+	"github.com/romshark/datapages/internal/parser/model"
+)
+
+// eventConstName strips the "Event" prefix from an event type name.
+// "EventMessagingSent" -> "MessagingSent"
+func eventConstName(typeName string) string {
+	return strings.TrimPrefix(typeName, "Event")
+}
+
+// evSubjConst returns the subscription subject constant name.
+// "EventMessagingSent" -> "EvSubjMessagingSent"
+func evSubjConst(e *model.Event) string {
+	return "EvSubj" + eventConstName(e.TypeName)
+}
+
+// evSubjPrefConst returns the subject prefix constant name for events
+// that use prefix-based subject matching (private or signal-scoped).
+// Returns "" for plain public events.
+// "EventMessagingSent" -> "EvSubjPrefMessagingSent"
+func evSubjPrefConst(e *model.Event) string {
+	if !e.IsPrivate() && !e.IsSignalScoped() {
+		return ""
+	}
+	return "EvSubjPref" + eventConstName(e.TypeName)
+}
+
+// evSubjValue returns the subscription subject constant value.
+// For events with N subject fields: "messaging.sent.*.*" (N wildcards appended).
+// For public events: "posts.archived"
+func evSubjValue(e *model.Event) string {
+	n := len(e.SubjectFields)
+	if n == 0 {
+		return e.Subject
+	}
+	var b strings.Builder
+	b.WriteString(e.Subject)
+	for range n {
+		b.WriteString(".*")
+	}
+	return b.String()
+}
+
+// evSubjPrefValue returns the subject prefix value used to match private events.
+// "messaging.sent."
+func evSubjPrefValue(e *model.Event) string {
+	return e.Subject + "."
+}
+
+// stripPagePrefix strips "Page" prefix from type name: "PageSettings" -> "Settings"
+func stripPagePrefix(typeName string) string {
+	return strings.TrimPrefix(typeName, "Page")
+}
+
+// pageHasStream returns true if the page has event handlers and needs a stream.
+func pageHasStream(p *model.Page) bool {
+	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil
+}
+
+// pageStreamNeedsAuth returns true if handling the page's SSE stream requires
+// loading session context.
+func pageStreamNeedsAuth(
+	p *model.Page, eventByName map[string]*model.Event,
+) bool {
+	if pageHasPrivateEvent(p, eventByName) {
+		return true
+	}
+	for _, eh := range p.EventHandlers {
+		if eh.InputSession != nil || eh.InputSessionToken != nil {
+			return true
+		}
+	}
+	for _, h := range []*model.Handler{p.StreamOpen, p.StreamClose} {
+		if h == nil {
+			continue
+		}
+		if h.InputSession != nil || h.InputSessionToken != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// pageHasPrivateEvent returns true if any event handler on the page
+// handles a private event (has SubjectUser).
+func pageHasPrivateEvent(p *model.Page, eventByName map[string]*model.Event) bool {
+	for _, eh := range p.EventHandlers {
+		if e, ok := eventByName[eh.EventTypeName]; ok && e.IsPrivate() {
+			return true
+		}
+	}
+	return false
+}
+
+// pageHasSignalScopedEvent returns true if any event handler on the page
+// handles a signal-scoped event (has subject fields with signal tags).
+func pageHasSignalScopedEvent(p *model.Page, eventByName map[string]*model.Event) bool {
+	for _, eh := range p.EventHandlers {
+		if e, ok := eventByName[eh.EventTypeName]; ok && e.IsSignalScoped() {
+			return true
+		}
+	}
+	return false
+}
+
+// pageSignalSubjectFields returns the unique signal-scoped subject fields
+// across all events handled by the page, in first-seen order.
+func pageSignalSubjectFields(p *model.Page, eventByName map[string]*model.Event) []model.SubjectField {
+	seen := make(map[string]bool)
+	var fields []model.SubjectField
+	for _, eh := range p.EventHandlers {
+		e, ok := eventByName[eh.EventTypeName]
+		if !ok {
+			continue
+		}
+		for _, sf := range e.SubjectFields {
+			if sf.SignalName != "" && !seen[sf.SignalName] {
+				seen[sf.SignalName] = true
+				fields = append(fields, sf)
+			}
+		}
+	}
+	return fields
+}
+
+// pageHasAnonStream returns true if a page needs an anonymous stream endpoint.
+// This happens when the page has both public AND private events.
+func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool {
+	hasPublic := false
+	hasPrivate := false
+	for _, eh := range p.EventHandlers {
+		e, ok := eventByName[eh.EventTypeName]
+		if !ok {
+			continue
+		}
+		if e.IsPrivate() {
+			hasPrivate = true
+		} else {
+			hasPublic = true
+		}
+	}
+	return hasPublic && hasPrivate
+}
+
+// routeStreamPath returns the SSE stream path for a page route.
+//   - "/settings/" -> "/settings/_$/"
+//   - "/post/{slug}/" -> "/post/{slug}/_$/"
+//   - "/" -> "/_$/"
+func routeStreamPath(route string) string {
+	r := routeWithTrailingSlash(route)
+	return r + "_$/"
+}
+
+// routeWithTrailingSlash strips any {$} suffix and ensures the route
+// has a trailing slash.
+//   - "/settings" -> "/settings/"
+//   - "/user/{name}/{$}" -> "/user/{name}/"
+//   - "/" -> "/"
+func routeWithTrailingSlash(route string) string {
+	route = strings.TrimSuffix(route, "{$}")
+	if !strings.HasSuffix(route, "/") {
+		return route + "/"
+	}
+	return route
+}
+
+// renderType renders a Go type using types.TypeString with a qualifier
+// that maps the app package to its short name.
+func renderType(t model.Type, appPkgPath string) string {
+	pkg := appPkgName(appPkgPath)
+	qualifier := func(p *types.Package) string {
+		if p.Path() == appPkgPath {
+			return pkg
+		}
+		return p.Name()
+	}
+	return types.TypeString(t.Resolved, qualifier)
+}
+
+// renderAnonStructType renders an anonymous struct type from its AST expression,
+// preserving struct tags. Uses go/format.Node.
+func renderAnonStructType(t model.Type, fset *token.FileSet) string {
+	var buf bytes.Buffer
+	if err := format.Node(&buf, fset, t.TypeExpr); err != nil {
+		return ""
+	}
+	return buf.String()
+}
+
+// isNamedType returns true if the type is a named type (not anonymous struct).
+func isNamedType(t model.Type) bool {
+	_, ok := t.Resolved.(*types.Named)
+	return ok
+}
+
+// structFieldInfo holds information about a single struct field.
+type structFieldInfo struct {
+	Name string
+	Type types.Type
+	Tag  string // raw struct tag
+}
+
+// structFields returns the fields of a struct type (works for both named and anonymous).
+// Returns field name, type, and raw struct tag for each field.
+// The returned slice is reused across calls; callers must consume it before
+// calling structFields again.
+func (w *Writer) structFields(t types.Type) []structFieldInfo {
+	w.fields = w.fields[:0]
+	if t == nil {
+		return w.fields
+	}
+	st, ok := t.Underlying().(*types.Struct)
+	if !ok {
+		return w.fields
+	}
+	for i := range st.NumFields() {
+		f := st.Field(i)
+		w.fields = append(w.fields, structFieldInfo{
+			Name: f.Name(),
+			Type: f.Type(),
+			Tag:  st.Tag(i),
+		})
+	}
+	return w.fields
+}
+
+// queryTagValue extracts the value from a `query:"value"` struct tag.
+func queryTagValue(tag string) string {
+	return reflect.StructTag(tag).Get("query")
+}
+
+// reflectSignalTagValue extracts the value from a `reflectsignal:"value"` struct tag.
+func reflectSignalTagValue(tag string) string {
+	return reflect.StructTag(tag).Get("reflectsignal")
+}
+
+// pathTagValue extracts the value from a `path:"value"` struct tag.
+func pathTagValue(tag string) string {
+	return reflect.StructTag(tag).Get("path")
+}
+
+// appUsage tracks which optional helpers are referenced by the generated handler code.
+// It is computed once from the model before any code is emitted, and used to
+// conditionally emit helper functions/methods that would otherwise be dead code.
+type appUsage struct {
+	// hasSession: whether the app defines a Session type.
+	hasSession bool
+	// auth: func (s *Server) auth(...)
+	auth bool
+	// createSession: func (s *Server) createSession(...)
+	createSession bool
+	// closeSession: func (s *Server) closeSession(...)
+	closeSession bool
+	// httpRedirect: func httpRedirect(...)
+	httpRedirect bool
+	// stream: func (s *Server) handleStreamRequest(...)
+	stream bool
+	// streamAuth: whether any stream handler needs auth (page has private events).
+	streamAuth bool
+	// dsRequest: func (s *Server) checkIsDSReq(...)
+	dsRequest bool
+	// recoverError: isDSReq called in httpErrIntern when RecoverError+PageError500 exist
+	recoverError bool
+	// httpErrBad: whether the httpErrBad helper is needed.
+	httpErrBad bool
+	// httperr: whether any action handler returns an error (needs httperr import).
+	httperr bool
+	// datapagesSSE: whether any handler takes a datapages.SSE param (needs the
+	// datapages import and the generated sseWrapper).
+	datapagesSSE bool
+}
+
+// needsIsDSReq returns true if the isDSReq helper must be emitted.
+func (u appUsage) needsIsDSReq() bool {
+	return u.stream || u.dsRequest || u.httpRedirect || u.recoverError
+}
+
+// needsCheckIsDSReq returns true if the checkIsDSReq method must be emitted.
+func (u appUsage) needsCheckIsDSReq() bool {
+	return u.stream || u.dsRequest
+}
+
+// needsSetSessionCookie returns true if setSessionCookie must be emitted.
+func (u appUsage) needsSetSessionCookie() bool {
+	return u.auth || u.createSession || u.closeSession
+}
+
+// computeAppUsage scans the model to determine which optional helpers are needed.
+func computeAppUsage(m *model.App) appUsage {
+	var u appUsage
+
+	u.hasSession = m.Session != nil
+
+	if m.RecoverError != nil && m.PageError500 != nil {
+		u.recoverError = true
+	}
+	if m.RecoverError != nil {
+		// RecoverError always receives a datapages.SSE.
+		u.datapagesSSE = true
+	}
+
+	checkHandler := func(h *model.Handler) {
+		if h.InputSession != nil || h.InputSessionToken != nil {
+			u.auth = true
+		}
+		if h.OutputNewSession != nil {
+			u.createSession = true
+		}
+		if h.OutputCloseSession != nil {
+			u.closeSession = true
+		}
+		if h.OutputRedirect != nil {
+			u.httpRedirect = true
+		}
+		if h.InputSSE != nil || h.InputSignals != nil {
+			u.dsRequest = true
+		}
+		if h.InputSSE != nil {
+			u.datapagesSSE = true
+		}
+		if h.InputSignals != nil {
+			u.httpErrBad = true
+		}
+		if h.InputQuery != nil && structHasNonStringField(h.InputQuery.Type.Resolved) {
+			u.httpErrBad = true
+		}
+		if h.InputPath != nil && structHasNonStringField(h.InputPath.Type.Resolved) {
+			u.httpErrBad = true
+		}
+	}
+
+	// Build event map for subject field lookup.
+	eventByName := make(map[string]*model.Event, len(m.Events))
+	for _, e := range m.Events {
+		eventByName[e.TypeName] = e
+	}
+
+	for _, h := range m.Actions {
+		checkHandler(h)
+		if h.OutputErr != nil {
+			u.httperr = true
+		}
+	}
+	for _, p := range m.Pages {
+		if p.GET != nil {
+			checkHandler(p.GET.Handler)
+		}
+		if pageHasStream(p) {
+			u.stream = true
+			// Event handlers and stream hooks receive a datapages.SSE.
+			u.datapagesSSE = true
+			if pageStreamNeedsAuth(p, eventByName) {
+				u.streamAuth = true
+				u.auth = true
+			}
+			if pageHasAnonStream(p, eventByName) {
+				u.httpErrBad = true
+			}
+			if pageHasSignalScopedEvent(p, eventByName) {
+				u.httpErrBad = true
+			}
+			if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
+				u.httpErrBad = true
+			}
+		}
+		for _, h := range p.Actions {
+			checkHandler(h)
+			if h.OutputErr != nil {
+				u.httperr = true
+			}
+		}
+	}
+	if m.PageError404 != nil && m.PageError404.GET != nil {
+		checkHandler(m.PageError404.GET.Handler)
+	}
+
+	return u
+}
+
+// writerPool is a package-level pool for reusing Writer instances across Generate calls.
+var writerPool = sync.Pool{
+	New: func() any {
+		return &Writer{
+			Buf:      make([]byte, 0, 512*1024), // 512 KiB
+			eventMap: make(map[string]*model.Event),
+		}
+	},
+}
+
+type Writer struct {
+	Buf []byte
+	// eventMap is built once per WriteApp, reused
+	eventMap map[string]*model.Event
+	// fields is a reusable scratch for structFields
+	fields []structFieldInfo
+	// prometheus defines whether to generate Prometheus metrics code
+	prometheus bool
+	// assetsURLPrefix is the URL path prefix for static files (empty = disabled)
+	assetsURLPrefix string
+	// assetsDir is the subdirectory within the app package for static files (e.g. "static")
+	assetsDir string
+	// appDir is the app source package path relative to module root (e.g. "app")
+	appDir string
+	// genImport is the full import path of the generated root package
+	genImport string
+	// usage is computed once per WriteApp
+	usage appUsage
+}
+
+func (w *Writer) Reset() {
+	w.Buf = w.Buf[:0]
+	clear(w.eventMap)
+	w.fields = w.fields[:0]
+	w.usage = appUsage{}
+}
+
+// buildEventMap populates w.eventMap from the given events.
+func (w *Writer) buildEventMap(events []*model.Event) {
+	if w.eventMap == nil {
+		w.eventMap = make(map[string]*model.Event, len(events))
+	}
+	for _, e := range events {
+		w.eventMap[e.TypeName] = e
+	}
+}
+
+// Raw appends a string to the buffer.
+func (w *Writer) Raw(s string) { w.Buf = append(w.Buf, s...) }
+
+// Rawf appends a formatted string to the buffer.
+func (w *Writer) Rawf(format string, args ...any) {
+	w.Buf = append(w.Buf, fmt.Sprintf(format, args...)...)
+}
+
+// Byte appends a single byte to the buffer.
+func (w *Writer) Byte(b byte) { w.Buf = append(w.Buf, b) }
+
+// Line writes an indented line.
+// indent is the number of leading tabs.
+func (w *Writer) Line(indent int, s string) {
+	for range indent {
+		w.Byte('\t')
+	}
+	w.Raw(s)
+	w.Byte('\n')
+}
+
+// Linef writes an indented formatted line.
+// indent is the number of leading tabs.
+func (w *Writer) Linef(indent int, format string, args ...any) {
+	for range indent {
+		w.Byte('\t')
+	}
+	w.Rawf(format, args...)
+	w.Byte('\n')
+}
+
+// writePageConstructor appends the page struct literal construction.
+// e.g.: "app.PageSettings{\n\tApp: s.app,\n\tBase: app.Base{App: s.app},\n}"
+func (w *Writer) writePageConstructor(p *model.Page, appPkg string) {
+	w.Raw(appPkg)
+	w.Byte('.')
+	w.Raw(p.TypeName)
+	w.Raw("{\n")
+	w.Raw("\tApp: s.app,\n")
+	for _, embed := range p.Embeds {
+		w.writeEmbedInit(embed, appPkg, "\t")
+	}
+	w.Byte('}')
+}
+
+// writeEmbedInit recursively appends an embed field initialization.
+func (w *Writer) writeEmbedInit(ap *model.AbstractPage, appPkg, indent string) {
+	w.Raw(indent)
+	w.Raw(ap.TypeName)
+	w.Raw(": ")
+	w.Raw(appPkg)
+	w.Byte('.')
+	w.Raw(ap.TypeName)
+	w.Raw("{\n")
+	w.Raw(indent)
+	w.Raw("\tApp: s.app,\n")
+	for _, sub := range ap.Embeds {
+		w.writeEmbedInit(sub, appPkg, indent+"\t")
+	}
+	w.Raw(indent)
+	w.Raw("},\n")
+}
+
+// itoa converts a small non-negative integer to a string without allocation.
+func itoa(i int) string {
+	if i < 10 {
+		return string(rune('0' + i))
+	}
+	return fmt.Sprintf("%d", i)
+}
+
+// writeCommaSep writes items separated by ", ".
+func (w *Writer) writeCommaSep(items []string) {
+	for i, item := range items {
+		if i > 0 {
+			w.Raw(", ")
+		}
+		w.Raw(item)
+	}
+}
+
+// writeCallExpr writes "receiver.method(args...)" to the buffer.
+func (w *Writer) writeCallExpr(receiver, method string, args []string) {
+	w.Raw(receiver)
+	w.Byte('.')
+	w.Raw(method)
+	w.Byte('(')
+	w.writeCommaSep(args)
+	w.Byte(')')
+}
+
+// writeQuoted writes a Go double-quoted string literal to the buffer.
+// Only safe for values that don't contain special characters (backslash, quote, newline).
+func (w *Writer) writeQuoted(s string) {
+	w.Byte('"')
+	w.Raw(s)
+	w.Byte('"')
+}
+
+// writeAnyCheck writes a boolean variable assignment that OR-combines
+// zero-checks for the given fields. E.g.:
+//
+//	anyQuery := query.Foo != "" ||
+//		query.Bar != 0
+func (w *Writer) writeAnyCheck(varName string, fields []structFieldInfo) {
+	if len(fields) == 0 {
+		w.Raw("\t")
+		w.Raw(varName)
+		w.Raw(" := false\n")
+		return
+	}
+	w.Raw("\t")
+	w.Raw(varName)
+	w.Raw(" := ")
+	w.writeZeroCheck("query."+fields[0].Name, fields[0].Type)
+	if len(fields) == 1 {
+		w.Byte('\n')
+		return
+	}
+	w.Raw(" ||\n")
+	for i := 1; i < len(fields); i++ {
+		w.Raw("\t\t")
+		w.writeZeroCheck("query."+fields[i].Name, fields[i].Type)
+		if i < len(fields)-1 {
+			w.Raw(" ||\n")
+		} else {
+			w.Byte('\n')
+		}
+	}
+}
+
+// isStringType returns true if the type is string.
+func isStringType(t types.Type) bool {
+	basic, ok := t.Underlying().(*types.Basic)
+	return ok && basic.Kind() == types.String
+}
+
+// isBoolType returns true if the type's underlying type is bool.
+func isBoolType(t types.Type) bool {
+	basic, ok := t.Underlying().(*types.Basic)
+	return ok && basic.Kind() == types.Bool
+}
+
+// isFloatType returns true if the type is float32 or float64.
+func isFloatType(t types.Type) bool {
+	basic, ok := t.Underlying().(*types.Basic)
+	if !ok {
+		return false
+	}
+	return basic.Kind() == types.Float32 || basic.Kind() == types.Float64
+}
+
+// floatTypeName returns "float32" or "float64".
+// Precondition: isFloatType(t) must be true.
+func floatTypeName(t types.Type) string {
+	if t.Underlying().(*types.Basic).Kind() == types.Float32 {
+		return "float32"
+	}
+	return "float64"
+}
+
+// floatBits returns the strconv bit-size for ParseFloat.
+// Precondition: isFloatType(t) must be true.
+func floatBits(t types.Type) int {
+	if t.Underlying().(*types.Basic).Kind() == types.Float32 {
+		return 32
+	}
+	return 64
+}
+
+// textUnmarshaler is the method set of encoding.TextUnmarshaler.
+var textUnmarshaler = func() *types.Interface {
+	sig := types.NewSignatureType(
+		nil, nil, nil,
+		types.NewTuple(types.NewVar(
+			0, nil, "text", types.NewSlice(types.Typ[types.Byte]),
+		)),
+		types.NewTuple(types.NewVar(
+			0, nil, "", types.Universe.Lookup("error").Type(),
+		)),
+		false,
+	)
+	return types.NewInterfaceType(
+		[]*types.Func{types.NewFunc(
+			0, nil, "UnmarshalText", sig,
+		)},
+		nil,
+	).Complete()
+}()
+
+// isTextUnmarshaler returns true if t or *t implements encoding.TextUnmarshaler.
+func isTextUnmarshaler(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	if types.Implements(t, textUnmarshaler) {
+		return true
+	}
+	return types.Implements(types.NewPointer(t), textUnmarshaler)
+}
+
+// isIntType returns true if the type is int64, int, etc.
+func isIntType(t types.Type) bool {
+	basic, ok := t.Underlying().(*types.Basic)
+	if !ok {
+		return false
+	}
+	switch basic.Kind() {
+	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
+		types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64:
+		return true
+	}
+	return false
+}
+
+// structHasNonStringField returns true if the resolved struct type
+// has any field whose type is not string.
+func structHasNonStringField(t types.Type) bool {
+	st, ok := t.Underlying().(*types.Struct)
+	if !ok {
+		return false
+	}
+	for field := range st.Fields() {
+		if !isStringType(field.Type()) {
+			return true
+		}
+	}
+	return false
+}
+
+// intTypeName returns the Go identifier for an integer type (e.g. "int", "uint32").
+// Precondition: isIntType(t) must be true.
+func intTypeName(t types.Type) string {
+	switch t.Underlying().(*types.Basic).Kind() {
+	case types.Int:
+		return "int"
+	case types.Int8:
+		return "int8"
+	case types.Int16:
+		return "int16"
+	case types.Int32:
+		return "int32"
+	case types.Int64:
+		return "int64"
+	case types.Uint:
+		return "uint"
+	case types.Uint8:
+		return "uint8"
+	case types.Uint16:
+		return "uint16"
+	case types.Uint32:
+		return "uint32"
+	default: // Uint64
+		return "uint64"
+	}
+}
+
+// intTypeParseInfo returns the strconv bit-size argument and whether the type
+// is unsigned, for use with strconv.ParseInt / strconv.ParseUint.
+// Precondition: isIntType(t) must be true.
+func intTypeParseInfo(t types.Type) (bits int, unsigned bool) {
+	switch t.Underlying().(*types.Basic).Kind() {
+	case types.Int:
+		return 0, false
+	case types.Int8:
+		return 8, false
+	case types.Int16:
+		return 16, false
+	case types.Int32:
+		return 32, false
+	case types.Int64:
+		return 64, false
+	case types.Uint:
+		return 0, true
+	case types.Uint8:
+		return 8, true
+	case types.Uint16:
+		return 16, true
+	case types.Uint32:
+		return 32, true
+	default: // Uint64
+		return 64, true
+	}
+}
+
+// appPkgName returns the short package name from an import path.
+// "github.com/romshark/datapages/example/classifieds/app" -> "app"
+func appPkgName(pkgPath string) string {
+	if i := strings.LastIndex(pkgPath, "/"); i >= 0 {
+		return pkgPath[i+1:]
+	}
+	return pkgPath
+}

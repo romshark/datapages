@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/todolist/datapagesgen/httperr"
 	"github.com/romshark/datapages/example/todolist/list"
 )
@@ -145,8 +145,8 @@ func (a *App) streamState(streamID uint64) *tabState {
 	return &cp
 }
 
-func (a *App) patchTabID(streamID uint64, sse *datastar.ServerSentEventGenerator) error {
-	return sse.MarshalAndPatchSignals(struct {
+func (a *App) patchTabID(streamID uint64, sse datapages.SSE) error {
+	return sse.PatchSignals(struct {
 		TabID string `json:"tab_id"`
 	}{TabID: a.signStreamID(streamID)})
 }
