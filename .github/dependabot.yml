@@ -1,0 +1,46 @@
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # Fixture modules under internal/parser/testdata and templcheck/testdata are
+  # deliberately excluded: they pin datapages behind a local replace directive.
+  - package-ecosystem: gomod
+    directories:
+      - /
+      - /magefiles
+      - /internal/templatingbench
+      - /example/*
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      go:
+        patterns:
+          - "*"
+
+  - package-ecosystem: npm
+    directories:
+      - /example/tailwindcss
+      - /example/webcomponents/js
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      npm:
+        patterns:
+          - "*"
