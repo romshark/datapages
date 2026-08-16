@@ -52,8 +52,8 @@ func FuzzParser(f *testing.F) {
 go 1.26
 
 require (
-	github.com/a-h/templ v0.3.1001
-	github.com/starfederation/datastar-go v1.1.0
+	github.com/a-h/templ v0.3.1020
+	github.com/starfederation/datastar-go v1.2.2
 )
 `
 		if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0o644); err != nil {
@@ -123,8 +123,8 @@ func FuzzParserEventHandlerParams(f *testing.F) {
 go 1.26
 
 require (
-	github.com/a-h/templ v0.3.1001
-	github.com/starfederation/datastar-go v1.1.0
+	github.com/a-h/templ v0.3.1020
+	github.com/starfederation/datastar-go v1.2.2
 )
 `
 		if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0o644); err != nil {
@@ -211,8 +211,8 @@ func FuzzParserActionHandlerParams(f *testing.F) {
 go 1.26
 
 require (
-	github.com/a-h/templ v0.3.1001
-	github.com/starfederation/datastar-go v1.1.0
+	github.com/a-h/templ v0.3.1020
+	github.com/starfederation/datastar-go v1.2.2
 )
 `
 		if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0o644); err != nil {
