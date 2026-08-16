@@ -19,7 +19,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/a-h/templ"
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/msgbroker"
@@ -371,7 +370,7 @@ func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
 	sess datapages.Session[app.SessionData],
-	headGeneric, head, body templ.Component,
+	headGeneric, head, body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {

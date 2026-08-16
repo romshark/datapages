@@ -41,20 +41,20 @@ var (
 	ErrSignatureEvHandFirstArgNotEvent     = ErrSignatureEvHandMissingEvent
 	ErrSignatureEvHandFirstArgTypeNotEvent = ErrSignatureEvHandMissingEvent
 	ErrSignatureGETMissingBody             = errors.New(
-		"GET handler must return body templ.Component",
+		"GET handler must return body datapages.Component",
 	)
 	ErrSignatureGETBodyWrongName = errors.New(
-		"GET handler first templ.Component return must be named \"body\"",
+		"GET handler first datapages.Component return must be named \"body\"",
 	)
 	ErrSignatureGETHeadWrongName = errors.New(
-		"GET handler second templ.Component return must be named \"head\"",
+		"GET handler second datapages.Component return must be named \"head\"",
 	)
 
 	ErrAppHeadMustTakeRequest = errors.New(
 		"head must accept *http.Request as first parameter",
 	)
 	ErrAppHeadMustReturnTemplComponent = errors.New(
-		"head must return exactly templ.Component",
+		"head must return exactly datapages.Component",
 	)
 	ErrAppHeadUnsupportedInput = errors.New("head has unsupported input parameter")
 

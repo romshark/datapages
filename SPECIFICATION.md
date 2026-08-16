@@ -13,7 +13,7 @@ The `App` type may optionally provide a method for custom global HTML `<head>` t
 func (*App) Head(
 	r *http.Request,
 	session datapages.Session[Data], // Optional
-) templ.Component {
+) datapages.Component {
 	return globalHeadTags()
 }
 ```
@@ -81,8 +81,8 @@ func (PageIndex) GET(
 		//...
 	) error // Optional
 ) (
-	body templ.Component,
-	head templ.Component, // Optional
+	body datapages.Component,
+	head datapages.Component, // Optional
 	redirect datapages.Redirect, // Optional
 	newSession datapages.NewSession[Data], // Optional
 	closeSession bool, // Optional
@@ -152,8 +152,8 @@ func (PageIndex) POSTActionName(
 		//...
 	) error // Optional
 ) (
-	body templ.Component, // Optional
-	head templ.Component, // Optional
+	body datapages.Component, // Optional
+	head datapages.Component, // Optional
 	redirect datapages.Redirect, // Optional
 	newSession datapages.NewSession[Data], // Optional
 	closeSession bool, // Optional
@@ -247,7 +247,7 @@ type PageFoo struct {
 	Base
 }
 
-func (PageFoo) GET(r *http.Request) (body templ.Component, err error) {
+func (PageFoo) GET(r *http.Request) (body datapages.Component, err error) {
 	return pageFoo(), nil
 }
 
@@ -257,7 +257,7 @@ type PageBar struct {
 	Base
 }
 
-func (PageBar) GET(r *http.Request) (body templ.Component, err error) {
+func (PageBar) GET(r *http.Request) (body datapages.Component, err error) {
 	return pageBar(), nil
 }
 ```
@@ -279,7 +279,7 @@ type EventSomethingHappened struct {
 // PageExample is /example
 type PageExample struct { App *App }
 
-func (p PageExample) GET(r *http.Request) (body templ.Component, err error) {
+func (p PageExample) GET(r *http.Request) (body datapages.Component, err error) {
 	data, err := p.App.fetchData("")
 	if err != nil {
 		return nil, err
@@ -294,7 +294,7 @@ func (p PageExample) POSTInputChanged(
 	signals struct {
 		InputValue string `json:"inputvalue"`
 	}
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	// Patch the page with a fat morph directly on action.
 	data, err := p.App.fetchData(signals.InputValue)
 	if err != nil {
@@ -458,7 +458,7 @@ type SessionData struct {
 type Session = datapages.Session[SessionData]
 
 func (p PageIndex) GET(r *http.Request, session Session) (
-	body templ.Component, err error,
+	body datapages.Component, err error,
 ) {
 	_ = session.Data().Name
 	return pageIndex(), nil
@@ -717,11 +717,11 @@ func (PageChat) OnMessageSent(
 
 </details>
 
-#### Return Value: `body templ.Component`
+#### Return Value: `body datapages.Component`
 
 Specifies the [Templ](https://templ.guide/) template to use for the contents of the page.
 
-#### Return Value: `head templ.Component`
+#### Return Value: `head datapages.Component`
 
 Specifies the [Templ](https://templ.guide/) template to use for `<head>` tag of the page.
 

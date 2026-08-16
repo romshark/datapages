@@ -113,12 +113,12 @@ func IsError(t types.Type) bool {
 	return t.String() == "error"
 }
 
-// IsTemplComponent reports whether t is github.com/a-h/templ.Component.
-func IsTemplComponent(t types.Type) bool {
+// IsComponent reports whether t is datapages.Component.
+func IsComponent(t types.Type) bool {
 	if t == nil {
 		return false
 	}
-	named, ok := t.(*types.Named)
+	named, ok := types.Unalias(t).(*types.Named)
 	if !ok {
 		return false
 	}
@@ -126,7 +126,7 @@ func IsTemplComponent(t types.Type) bool {
 	if obj == nil || obj.Pkg() == nil {
 		return false
 	}
-	return obj.Pkg().Path() == "github.com/a-h/templ" &&
+	return obj.Pkg().Path() == datapagesPkgPath &&
 		obj.Name() == "Component"
 }
 

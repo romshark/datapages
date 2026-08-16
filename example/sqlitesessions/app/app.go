@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/sqlitesessions/app/userstore"
 	"github.com/romshark/datapages/example/sqlitesessions/datapagesgen/href"
@@ -38,7 +36,7 @@ func NewApp(users *userstore.Store) *App {
 	return &App{users: users}
 }
 
-func (*App) Head(r *http.Request) templ.Component { return head() }
+func (*App) Head(r *http.Request) datapages.Component { return head() }
 
 // POSTSignOut is /signout/{$}
 //
@@ -65,7 +63,7 @@ func (*App) POSTSignOut(
 type PageIndex struct{ App *App }
 
 func (p PageIndex) GET(r *http.Request, session Session) (
-	body, head templ.Component, err error,
+	body, head datapages.Component, err error,
 ) {
 	users, err := p.App.users.ListUsers(r.Context())
 	if err != nil {
@@ -119,7 +117,7 @@ func validateRegister(name, email, password string) string {
 type PageLogin struct{ App *App }
 
 func (p PageLogin) GET(r *http.Request, session Session) (
-	body, head templ.Component, redirect datapages.Redirect, err error,
+	body, head datapages.Component, redirect datapages.Redirect, err error,
 ) {
 	if !session.IsGuest() {
 		return nil, nil, datapages.Redirect{URL: href.PageIndex()}, nil
@@ -137,7 +135,7 @@ func (p PageLogin) POSTValidate(
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	msg := validateLogin(signals.Email, signals.Password)
 	return pageLogin(msg, msg == ""), nil
 }
@@ -151,7 +149,7 @@ func (p PageLogin) POSTSubmit(
 		Password string `json:"password"`
 	},
 ) (
-	body templ.Component,
+	body datapages.Component,
 	redirect datapages.Redirect,
 	newSession datapages.NewSession[SessionData],
 	err error,
@@ -190,7 +188,7 @@ func (p PageLogin) POSTSubmit(
 type PageRegister struct{ App *App }
 
 func (p PageRegister) GET(r *http.Request, session Session) (
-	body, head templ.Component, redirect datapages.Redirect, err error,
+	body, head datapages.Component, redirect datapages.Redirect, err error,
 ) {
 	if !session.IsGuest() {
 		redirect = datapages.Redirect{URL: href.PageIndex()}
@@ -210,7 +208,7 @@ func (p PageRegister) POSTValidate(
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	msg := validateRegister(signals.Name, signals.Email, signals.Password)
 	return pageRegister(msg, msg == ""), nil
 }
@@ -225,7 +223,7 @@ func (p PageRegister) POSTSubmit(
 		Password string `json:"password"`
 	},
 ) (
-	body templ.Component,
+	body datapages.Component,
 	redirect datapages.Redirect,
 	newSession datapages.NewSession[SessionData],
 	err error,

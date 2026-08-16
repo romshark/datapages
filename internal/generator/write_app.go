@@ -160,10 +160,8 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"time"`)
 	w.Line(0, "")
 	w.Line(1, `"github.com/a-h/templ"`)
-	if w.usage.datapagesSSE || w.usage.hasSession ||
-		w.usage.httpRedirect || w.usage.errSentinels {
-		w.Line(1, `"github.com/romshark/datapages"`)
-	}
+	// Always needed: writeHTML renders datapages.Component values.
+	w.Line(1, `"github.com/romshark/datapages"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/csrf"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/msgbroker"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/sessmanager"`)
@@ -512,7 +510,7 @@ func (s *Server) writeHTML(
 	} else {
 		w.Raw(`	`)
 	}
-	w.Raw(`head, body templ.Component,
+	w.Raw(`head, body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {

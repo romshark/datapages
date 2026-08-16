@@ -3,8 +3,6 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 )
 
@@ -21,7 +19,7 @@ type EventPing struct {
 type PageIndex struct{ App *App }
 
 // GET with conventional order.
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -32,7 +30,7 @@ type PageSessionFirst struct{ App *App }
 func (PageSessionFirst) GET(
 	session Session,
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = session
 	return body, err
 }
@@ -50,7 +48,7 @@ func (PageReversed) GET(
 	},
 	session Session,
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = query
 	_ = path
 	_ = session
@@ -66,7 +64,7 @@ func (PageSignalsFirst) GET(
 		Search string `json:"search"`
 	},
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = signals
 	return body, err
 }
@@ -77,7 +75,7 @@ type PageErrBeforeBody struct{ App *App }
 // GET with error before body.
 func (PageErrBeforeBody) GET(
 	r *http.Request,
-) (err error, body templ.Component) {
+) (err error, body datapages.Component) {
 	return err, body
 }
 
@@ -87,14 +85,14 @@ type PageOutputReversed struct{ App *App }
 // GET with outputs in reversed order.
 func (PageOutputReversed) GET(
 	r *http.Request,
-) (err error, redirect datapages.Redirect, body templ.Component) {
+) (err error, redirect datapages.Redirect, body datapages.Component) {
 	return err, redirect, body
 }
 
 // PageActionReversed is /action-reversed
 type PageActionReversed struct{ App *App }
 
-func (PageActionReversed) GET(r *http.Request) (body templ.Component, err error) {
+func (PageActionReversed) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -118,7 +116,7 @@ func (PageActionReversed) POSTSubmit(
 // PageEventReversed is /event-reversed
 type PageEventReversed struct{ App *App }
 
-func (PageEventReversed) GET(r *http.Request) (body templ.Component, err error) {
+func (PageEventReversed) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 

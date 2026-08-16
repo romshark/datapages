@@ -3,7 +3,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -14,7 +14,7 @@ type PageIndex struct{ App *App }
 // GET without any GET options.
 func (PageIndex) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -25,7 +25,7 @@ type PageStream struct{ App *App }
 func (PageStream) GET(
 	r *http.Request,
 ) (
-	body templ.Component,
+	body datapages.Component,
 	enableBackgroundStreaming bool,
 	err error,
 ) {
@@ -39,7 +39,7 @@ type PageNoRefresh struct{ App *App }
 func (PageNoRefresh) GET(
 	r *http.Request,
 ) (
-	body templ.Component,
+	body datapages.Component,
 	disableRefreshAfterHidden bool,
 	err error,
 ) {

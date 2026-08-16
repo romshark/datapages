@@ -4,8 +4,6 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
@@ -24,7 +22,7 @@ func (p PageMessages) GET(
 		Chat string `query:"chat" reflectsignal:"chatselected"`
 	},
 ) (
-	body templ.Component,
+	body datapages.Component,
 	redirect datapages.Redirect,
 	enableBackgroundStreaming bool,
 	err error,

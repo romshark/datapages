@@ -21,7 +21,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/a-h/templ"
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
 	"golang.org/x/sync/errgroup"
@@ -325,7 +324,7 @@ func (s sseWrapper) Prefetch(urls ...string) error {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	headGeneric, head, body templ.Component,
+	headGeneric, head, body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {

@@ -3,8 +3,6 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 )
 
@@ -22,7 +20,7 @@ func (BaseA) OnSomethingHappened(
 	return nil
 }
 
-func (BaseA) GET(r *http.Request) (body templ.Component, err error) {
+func (BaseA) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 

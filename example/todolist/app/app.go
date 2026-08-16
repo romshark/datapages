@@ -13,8 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/todolist/list"
 )
@@ -47,7 +45,7 @@ func NewApp(hmacKey [32]byte, list *list.List) *App {
 	}
 }
 
-func (*App) Head(r *http.Request) templ.Component { return head() }
+func (*App) Head(r *http.Request) datapages.Component { return head() }
 
 // PUTEdit is /{id}
 //

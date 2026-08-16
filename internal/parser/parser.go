@@ -538,7 +538,7 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 					// Head must return exactly templ.Component.
 					results := fd.Type.Results
 					if results == nil || results.NumFields() != 1 ||
-						!typecheck.IsTemplComponent(info.TypeOf(results.List[0].Type)) {
+						!typecheck.IsComponent(info.TypeOf(results.List[0].Type)) {
 						errs.ErrAt(pos, ErrAppHeadMustReturnTemplComponent)
 						continue
 					}
@@ -1880,7 +1880,7 @@ func buildHandlerGET(
 	// Collect all templ.Component outputs
 	var templComponents []*model.Output
 	for _, out := range outputs {
-		if typecheck.IsTemplComponent(out.Type.Resolved) {
+		if typecheck.IsComponent(out.Type.Resolved) {
 			templComponents = append(templComponents, out)
 		}
 	}
@@ -2180,7 +2180,7 @@ func parseHandler(
 				h.OrderedOutputs = append(h.OrderedOutputs, out)
 				continue
 			default:
-				if !typecheck.IsTemplComponent(t.Resolved) {
+				if !typecheck.IsComponent(t.Resolved) {
 					return h, nil, retErr(fmt.Errorf(
 						"%w %s %s in %s.%s",
 						ErrSignatureUnsupportedOutput, n.Name, t.Resolved,
@@ -2216,7 +2216,7 @@ func parseHandler(
 	// For action handlers, detect templ.Component body output.
 	if kind.IsAction() {
 		for _, out := range outputs {
-			if typecheck.IsTemplComponent(out.Type.Resolved) {
+			if typecheck.IsComponent(out.Type.Resolved) {
 				h.OutputBody = &model.TemplComponent{Output: out}
 				break
 			}

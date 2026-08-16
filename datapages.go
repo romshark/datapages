@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Component is the interface that all templates implement.
+// Component is anything that renders itself, such as a templ.Component.
 type Component interface {
 	// Render renders the template to w.
 	Render(ctx context.Context, w io.Writer) error
@@ -22,7 +22,7 @@ type Component interface {
 //
 //	func (p PageIndex) GET(
 //		r *http.Request, session datapages.Session[struct{}],
-//	) (body templ.Component, err error)
+//	) (body datapages.Component, err error)
 //
 // The zero value is the session of an unauthenticated client:
 //

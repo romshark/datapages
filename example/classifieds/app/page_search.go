@@ -3,8 +3,6 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 )
@@ -19,7 +17,7 @@ func (p PageSearch) GET(
 	r *http.Request,
 	session Session,
 	query SearchParams,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	posts, err := p.App.repo.SearchPosts(r.Context(), domain.PostSearchParams{
 		Term:     query.Term,
 		Category: query.Category,

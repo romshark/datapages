@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
@@ -25,7 +23,7 @@ func (p PagePost) GET(
 		Slug string `path:"slug"`
 	},
 ) (
-	body, head templ.Component,
+	body, head datapages.Component,
 	redirect datapages.Redirect,
 	err error,
 ) {

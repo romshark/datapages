@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 )
 
@@ -17,7 +15,7 @@ func (p PageItem) GET(
 	path struct {
 		ID string `path:"id"`
 	},
-) (body templ.Component, redirect datapages.Redirect, err error) {
+) (body datapages.Component, redirect datapages.Redirect, err error) {
 	todo, ok := p.App.list.GetItem(path.ID)
 	if !ok {
 		return nil, datapages.Redirect{URL: "/"}, nil

@@ -3,8 +3,6 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 )
 
@@ -16,7 +14,7 @@ type PageIndex struct{ App *App }
 // GET without redirect.
 func (PageIndex) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -26,7 +24,7 @@ type PageLogin struct{ App *App }
 // GET with redirect.
 func (PageLogin) GET(
 	r *http.Request,
-) (body templ.Component, redirect datapages.Redirect, err error) {
+) (body datapages.Component, redirect datapages.Redirect, err error) {
 	return body, redirect, err
 }
 

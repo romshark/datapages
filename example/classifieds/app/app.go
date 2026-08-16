@@ -6,7 +6,6 @@ import (
 	"iter"
 	"net/http"
 
-	"github.com/a-h/templ"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/romshark/datapages"
@@ -102,7 +101,7 @@ func (*App) RecoverError(
 }
 
 // Page render funcs
-func (*App) Head(r *http.Request) templ.Component {
+func (*App) Head(r *http.Request) datapages.Component {
 	return head()
 }
 
@@ -197,7 +196,7 @@ type PageError404 struct {
 func (p PageError404) GET(
 	r *http.Request,
 	session Session,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	baseData, err := p.baseData(r.Context(), session)
 	if err != nil {
 		return nil, err
@@ -209,7 +208,7 @@ func (p PageError404) GET(
 type PageError500 struct{ App *App }
 
 func (PageError500) GET(r *http.Request) (
-	body templ.Component,
+	body datapages.Component,
 	disableRefreshAfterHidden bool,
 	err error,
 ) {

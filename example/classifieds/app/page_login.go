@@ -4,8 +4,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
@@ -15,7 +13,7 @@ import (
 type PageLogin struct{ App *App }
 
 func (PageLogin) GET(r *http.Request, session Session) (
-	body templ.Component,
+	body datapages.Component,
 	redirect datapages.Redirect,
 	disableRefreshAfterHidden bool,
 	err error,
@@ -36,7 +34,7 @@ func (p PageLogin) POSTSubmit(
 		Password        string `json:"password"`
 	},
 ) (
-	body templ.Component,
+	body datapages.Component,
 	redirect datapages.Redirect,
 	newSession datapages.NewSession[struct{}],
 	err error,

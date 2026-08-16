@@ -40,7 +40,7 @@ func (p PageSettings) render(
 func (p PageSettings) GET(
 	r *http.Request,
 	session Session,
-) (body templ.Component, redirect datapages.Redirect, err error) {
+) (body datapages.Component, redirect datapages.Redirect, err error) {
 	if session.IsGuest() {
 		return nil, datapages.Redirect{URL: href.PageLogin()}, nil
 	}

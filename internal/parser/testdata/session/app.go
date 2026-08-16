@@ -3,8 +3,6 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 )
 
@@ -17,7 +15,7 @@ type EventPing struct {
 	Data string `json:"data"`
 }
 
-func (*App) Head(r *http.Request, session Session) templ.Component {
+func (*App) Head(r *http.Request, session Session) datapages.Component {
 	_ = session
 	return nil
 }
@@ -28,7 +26,7 @@ type PageIndex struct{ App *App }
 // GET without session.
 func (PageIndex) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -39,7 +37,7 @@ type PageProfile struct{ App *App }
 func (PageProfile) GET(
 	r *http.Request,
 	session Session,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = session
 	return body, err
 }
@@ -87,7 +85,7 @@ type PageSettings struct{ App *App }
 func (PageSettings) GET(
 	r *http.Request,
 	session Session,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = session
 	return body, err
 }

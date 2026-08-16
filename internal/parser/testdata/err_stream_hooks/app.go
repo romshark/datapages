@@ -3,8 +3,6 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 )
 
@@ -13,7 +11,7 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -28,7 +26,7 @@ type PageMissingStreamID struct{ App *App }
 
 func (PageMissingStreamID) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -43,7 +41,7 @@ type PageWrongStreamID struct{ App *App }
 
 func (PageWrongStreamID) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -60,7 +58,7 @@ type PageClosedSignals struct{ App *App }
 
 func (PageClosedSignals) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -81,7 +79,7 @@ type PageClosedBadReturn struct{ App *App }
 
 func (PageClosedBadReturn) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -98,7 +96,7 @@ type PageClosedSSE struct{ App *App }
 
 func (PageClosedSSE) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -117,7 +115,7 @@ type PageOpenPath struct{ App *App }
 
 func (PageOpenPath) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -138,7 +136,7 @@ type PageClosedPath struct{ App *App }
 
 func (PageClosedPath) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -159,7 +157,7 @@ type PageOpenQuery struct{ App *App }
 
 func (PageOpenQuery) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -180,7 +178,7 @@ type PageClosedQuery struct{ App *App }
 
 func (PageClosedQuery) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -201,7 +199,7 @@ type PageActionStreamID struct{ App *App }
 
 func (PageActionStreamID) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -220,7 +218,7 @@ type PageWrongStreamIDType struct{ App *App }
 
 func (PageWrongStreamIDType) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return nil, nil
 }
 

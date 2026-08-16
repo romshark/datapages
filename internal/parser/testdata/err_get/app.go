@@ -3,7 +3,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -11,7 +11,7 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -20,7 +20,7 @@ type PageMissingReq struct{ App *App }
 
 /* ErrSignatureMissingReq */
 
-func (PageMissingReq) GET() (body templ.Component, err error) {
+func (PageMissingReq) GET() (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -28,7 +28,7 @@ func (PageMissingReq) GET() (body templ.Component, err error) {
 type PageMultiErrRet struct{ App *App }
 
 func (PageMultiErrRet) GET(r *http.Request) (
-	body templ.Component, err error,
+	body datapages.Component, err error,
 	err2 error, /* ErrSignatureMultiErrRet */
 ) {
 	return body, err, err2
@@ -41,7 +41,7 @@ type PageUnknownInput struct{ App *App }
 
 func (PageUnknownInput) GET(
 	r *http.Request, unknown int, /* this is the error */
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -52,7 +52,7 @@ type PageDuplicateReq struct{ App *App }
 
 func (PageDuplicateReq) GET(
 	r, a *http.Request, /* second *http.Request is unsupported */
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -63,7 +63,7 @@ type PageMultiUnsupported struct{ App *App }
 
 func (PageMultiUnsupported) GET(
 	r *http.Request, asd, asd2 int,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -81,7 +81,7 @@ type PageBodyWrongName struct{ App *App }
 
 /* ErrSignatureGETBodyWrongName */
 
-func (PageBodyWrongName) GET(r *http.Request) (content templ.Component, err error) {
+func (PageBodyWrongName) GET(r *http.Request) (content datapages.Component, err error) {
 	return content, err
 }
 
@@ -91,8 +91,8 @@ type PageHeadWrongName struct{ App *App }
 /* ErrSignatureGETHeadWrongName */
 
 func (PageHeadWrongName) GET(r *http.Request) (
-	body templ.Component,
-	header templ.Component, /* should be "head" not "header" */
+	body datapages.Component,
+	header datapages.Component, /* should be "head" not "header" */
 	err error,
 ) {
 	return body, header, err

@@ -5,7 +5,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -20,7 +20,7 @@ type PageIndex struct{ App *App }
 
 func (PageIndex) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -32,7 +32,7 @@ type PageNotFunc struct{ App *App }
 func (PageNotFunc) GET(
 	r *http.Request,
 	dispatch int,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = dispatch
 	return body, err
 }
@@ -45,7 +45,7 @@ type PageNoReturn struct{ App *App }
 func (PageNoReturn) GET(
 	r *http.Request,
 	dispatch func(EventFoo),
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = dispatch
 	return body, err
 }
@@ -58,7 +58,7 @@ type PageWrongReturn struct{ App *App }
 func (PageWrongReturn) GET(
 	r *http.Request,
 	dispatch func(EventFoo) int,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = dispatch
 	return body, err
 }
@@ -71,7 +71,7 @@ type PageNoReturnNoParams struct{ App *App }
 func (PageNoReturnNoParams) GET(
 	r *http.Request,
 	dispatch func(),
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = dispatch
 	return body, err
 }
@@ -84,7 +84,7 @@ type PageNoParams struct{ App *App }
 func (PageNoParams) GET(
 	r *http.Request,
 	dispatch func() error,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = dispatch
 	return body, err
 }
@@ -97,7 +97,7 @@ type PageBadEvent struct{ App *App }
 func (PageBadEvent) GET(
 	r *http.Request,
 	dispatch func(string) error,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = dispatch
 	return body, err
 }

@@ -16,7 +16,7 @@ import (
 	"github.com/romshark/datapages/internal/parser/model"
 )
 
-const TypeNameTemplComponent = "github.com/a-h/templ.Component"
+const TypeNameComponent = "github.com/romshark/datapages.Component"
 
 func TestParse_Minimal(t *testing.T) {
 	app, err := parse(t, "minimal")
@@ -53,7 +53,7 @@ func TestParse_Basic(t *testing.T) {
 
 	{
 		require.NotNil(app.PageIndex)
-		requireExprLineCol(t, app, app.PageIndex.Expr, "app.go", 15, 6)
+		requireExprLineCol(t, app, app.PageIndex.Expr, "app.go", 13, 6)
 		p := app.PageIndex
 		require.Equal("/", p.Route)
 		require.NotNil(p.GET)
@@ -70,19 +70,19 @@ func TestParse_Basic(t *testing.T) {
 	require.Empty(app.Events)
 	{
 		require.NotNil(app.GlobalHeadGenerator)
-		requireExprLineCol(t, app, app.GlobalHeadGenerator.Expr, "app.go", 27, 13)
+		requireExprLineCol(t, app, app.GlobalHeadGenerator.Expr, "app.go", 25, 13)
 		require.False(app.GlobalHeadGenerator.InputSession)
 	}
 	{
 		require.NotNil(app.RecoverError)
-		requireExprLineCol(t, app, app.RecoverError, "app.go", 31, 13)
+		requireExprLineCol(t, app, app.RecoverError, "app.go", 29, 13)
 	}
 	{
 		p := app.Pages[3]
 		require.NotNil(p)
 		require.Equal("PageIndex", p.TypeName)
 		require.Equal("/", p.Route)
-		requireExprLineCol(t, app, p.Expr, "app.go", 15, 6)
+		requireExprLineCol(t, app, p.Expr, "app.go", 13, 6)
 		require.Empty(p.EventHandlers)
 		require.Empty(p.Embeds)
 		require.Empty(p.Actions)
@@ -90,7 +90,7 @@ func TestParse_Basic(t *testing.T) {
 		{
 			get := p.GET
 			require.NotNil(get.Handler)
-			requireExprLineCol(t, app, get.Expr, "app.go", 17, 18)
+			requireExprLineCol(t, app, get.Expr, "app.go", 15, 18)
 			require.NotNil(get.InputRequest)
 			require.Equal("r", get.InputRequest.Name)
 			require.Equal("err", get.OutputErr.Name)
@@ -101,7 +101,7 @@ func TestParse_Basic(t *testing.T) {
 	}
 	{
 		require.NotNil(app.PageError404)
-		requireExprLineCol(t, app, app.PageError404.Expr, "app.go", 39, 6)
+		requireExprLineCol(t, app, app.PageError404.Expr, "app.go", 37, 6)
 		require.Equal("/the-not-found-page", app.PageError404.Route)
 		require.NotNil(app.PageError404.GET.Handler)
 		require.Equal("r", app.PageError404.GET.InputRequest.Name)
@@ -112,7 +112,7 @@ func TestParse_Basic(t *testing.T) {
 		{
 			get := app.PageError404.GET
 			require.NotNil(get.Handler)
-			requireExprLineCol(t, app, get.Expr, "app.go", 41, 21)
+			requireExprLineCol(t, app, get.Expr, "app.go", 39, 21)
 			require.NotNil(get.InputRequest)
 			require.Equal("r", get.InputRequest.Name)
 			require.Equal("err", get.OutputErr.Name)
@@ -123,7 +123,7 @@ func TestParse_Basic(t *testing.T) {
 	}
 	{
 		require.NotNil(app.PageError500)
-		requireExprLineCol(t, app, app.PageError500.Expr, "app.go", 46, 6)
+		requireExprLineCol(t, app, app.PageError500.Expr, "app.go", 44, 6)
 		require.Equal("/the-internal-error-page", app.PageError500.Route)
 		require.Empty(app.PageError500.EventHandlers)
 		require.Empty(app.PageError500.Embeds)
@@ -132,7 +132,7 @@ func TestParse_Basic(t *testing.T) {
 		{
 			get := app.PageError500.GET
 			require.NotNil(get.Handler)
-			requireExprLineCol(t, app, get.Expr, "app.go", 48, 21)
+			requireExprLineCol(t, app, get.Expr, "app.go", 46, 21)
 			require.NotNil(get.InputRequest)
 			require.Equal("r", get.InputRequest.Name)
 			require.Equal("err", get.OutputErr.Name)
@@ -146,21 +146,21 @@ func TestParse_Basic(t *testing.T) {
 		require.NotNil(p)
 		require.Equal("PageExample", p.TypeName)
 		require.Equal("/example", p.Route)
-		requireExprLineCol(t, app, p.Expr, "app.go", 53, 6)
+		requireExprLineCol(t, app, p.Expr, "app.go", 51, 6)
 		require.Empty(p.EventHandlers)
 		require.Empty(p.Embeds)
 		require.Empty(p.Actions)
 		require.Zero(p.PageSpecialization)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.Handler)
-		requireExprLineCol(t, app, p.GET.Expr, "app.go", 55, 20)
+		requireExprLineCol(t, app, p.GET.Expr, "app.go", 53, 20)
 		require.NotNil(p.GET.OutputBody)
 		require.Equal("body", p.GET.OutputBody.Name)
-		require.Equal(TypeNameTemplComponent,
+		require.Equal(TypeNameComponent,
 			p.GET.OutputBody.Type.Resolved.String())
 		require.NotNil(p.GET.OutputHead)
 		require.Equal("head", p.GET.OutputHead.Name)
-		require.Equal(TypeNameTemplComponent,
+		require.Equal(TypeNameComponent,
 			p.GET.OutputHead.Type.Resolved.String())
 	}
 }
@@ -1353,7 +1353,7 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrAppRecoverErrorInvalidSignature, "app.go", 20, 13},
 		},
 		"err_recover_error_return": {
-			{parser.ErrAppRecoverErrorInvalidSignature, "app.go", 22, 13},
+			{parser.ErrAppRecoverErrorInvalidSignature, "app.go", 20, 13},
 		},
 		"err_dispatch": {
 			{parser.ErrDispatchParamNotFunc, "app.go", 34, 11},
@@ -1365,25 +1365,25 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrDispatchParamNotEvent, "app.go", 99, 16},
 		},
 		"err_events": {
-			{parser.ErrEventCommMissing, "app.go", 29, 6},
-			{parser.ErrEventSubjectInvalid, "app.go", 35, 24},
-			{parser.ErrSignatureEvHandMissingEvent, "app.go", 50, 22},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 50, 22},
-			{parser.ErrSignatureUnsupportedInput, "app.go", 51, 2},
-			{parser.ErrSignatureEvHandMissingEvent, "app.go", 59, 22},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 59, 22},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 67, 22},
-			{parser.ErrEvHandDuplicate, "app.go", 76, 22},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 76, 22},
-			{parser.ErrEventFieldUnexported, "app.go", 86, 2},
-			{parser.ErrEventFieldUnexported, "app.go", 86, 2},
-			{parser.ErrEventFieldMissingTag, "app.go", 93, 2},
-			{parser.ErrEventFieldDuplicateTag, "app.go", 111, 2},
-			{parser.ErrEventCommInvalid, "app.go", 116, 21},
-			{parser.ErrEventCommInvalid, "app.go", 123, 4},
-			{parser.ErrEventSubjectInvalid, "app.go", 130, 23},
-			{parser.ErrEventSubjectInvalid, "app.go", 137, 24},
-			{parser.ErrEventFieldEmptyTag, "app.go", 148, 2},
+			{parser.ErrEventCommMissing, "app.go", 30, 6},
+			{parser.ErrEventSubjectInvalid, "app.go", 36, 24},
+			{parser.ErrSignatureEvHandMissingEvent, "app.go", 51, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 51, 22},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 52, 2},
+			{parser.ErrSignatureEvHandMissingEvent, "app.go", 60, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 60, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 68, 22},
+			{parser.ErrEvHandDuplicate, "app.go", 77, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 77, 22},
+			{parser.ErrEventFieldUnexported, "app.go", 87, 2},
+			{parser.ErrEventFieldUnexported, "app.go", 87, 2},
+			{parser.ErrEventFieldMissingTag, "app.go", 94, 2},
+			{parser.ErrEventFieldDuplicateTag, "app.go", 112, 2},
+			{parser.ErrEventCommInvalid, "app.go", 117, 21},
+			{parser.ErrEventCommInvalid, "app.go", 124, 4},
+			{parser.ErrEventSubjectInvalid, "app.go", 131, 23},
+			{parser.ErrEventSubjectInvalid, "app.go", 138, 24},
+			{parser.ErrEventFieldEmptyTag, "app.go", 149, 2},
 			{parser.ErrEventFieldUnexported, "subpkg.go", 7, 2},
 		},
 		"err_path": {
@@ -1410,19 +1410,19 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrQueryReflectSignalNotInSignals, "app.go", 83, 2},
 		},
 		"err_unsupported_output": {
-			{parser.ErrSignatureUnsupportedOutput, "app.go", 27, 31},
+			{parser.ErrSignatureUnsupportedOutput, "app.go", 27, 35},
 			{parser.ErrSignatureGETBodyWrongName, "app.go", 38, 4},
 			{parser.ErrSignatureUnsupportedOutput, "app.go", 47, 8},
 		},
 		"err_event_handler": {
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 60, 18},
-			{parser.ErrSignatureUnsupportedInput, "app.go", 72, 2},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 82, 18},
-			{parser.ErrSignatureUnsupportedInput, "app.go", 84, 2},
-			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 91, 18},
-			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 102, 3},
-			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 111, 3},
-			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 122, 3},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 58, 18},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 70, 2},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 80, 18},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 82, 2},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 89, 18},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 100, 3},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 109, 3},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 120, 3},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

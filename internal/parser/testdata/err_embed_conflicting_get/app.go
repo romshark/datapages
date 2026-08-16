@@ -3,7 +3,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -20,5 +20,5 @@ type (
 	BaseB struct{ App *App }
 )
 
-func (BaseA) GET(r *http.Request) (body templ.Component, err error) { return nil, nil }
-func (BaseB) GET(r *http.Request) (body templ.Component, err error) { return nil, nil }
+func (BaseA) GET(r *http.Request) (body datapages.Component, err error) { return nil, nil }
+func (BaseB) GET(r *http.Request) (body datapages.Component, err error) { return nil, nil }

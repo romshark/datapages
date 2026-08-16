@@ -5,7 +5,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -15,7 +15,7 @@ type PageIndex struct{ App *App }
 
 func (PageIndex) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -27,7 +27,7 @@ type PageBadType struct{ App *App }
 func (PageBadType) GET(
 	r *http.Request,
 	session int,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = session
 	return body, err
 }

@@ -3,7 +3,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -11,7 +11,7 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -23,7 +23,7 @@ func (PageItem) GET(
 	path struct {
 		ID string `path:"id"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = path
 	return body, err
 }
@@ -48,7 +48,7 @@ func (PageProduct) GET(
 		ID      int32   `path:"id"`
 		Version float64 `path:"version"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = path
 	return body, err
 }
@@ -61,7 +61,7 @@ func (PageToggle) GET(
 	path struct {
 		Active bool `path:"active"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = path
 	return body, err
 }

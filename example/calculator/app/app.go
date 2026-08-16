@@ -11,8 +11,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/calculator/app/calc"
 )
@@ -77,13 +75,13 @@ func (a *App) verifyID(id string) error {
 	return nil
 }
 
-func (*App) Head(_ *http.Request) templ.Component { return head() }
+func (*App) Head(_ *http.Request) datapages.Component { return head() }
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
 func (p PageIndex) GET(r *http.Request) (
-	body templ.Component,
+	body datapages.Component,
 	disableRefreshAfterHidden bool,
 	err error,
 ) {

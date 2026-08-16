@@ -3,8 +3,6 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 )
 
@@ -45,14 +43,14 @@ type PageIndex struct {
 	Base
 }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
 // PageStreamMin is /stream-min
 type PageStreamMin struct{ App *App }
 
-func (PageStreamMin) GET(r *http.Request) (body templ.Component, err error) {
+func (PageStreamMin) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -71,7 +69,7 @@ func (PageStreamMin) StreamClose(
 // PageStreamMax is /stream-max
 type PageStreamMax struct{ App *App }
 
-func (PageStreamMax) GET(r *http.Request) (body templ.Component, err error) {
+func (PageStreamMax) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 

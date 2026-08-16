@@ -18,7 +18,7 @@ Datapages apps use two other technologies. This skill does not teach them.
 Learn them separately.
 
 - **Templ** (`github.com/a-h/templ`) - Go HTML templating.
-  Handlers return `templ.Component`. You write `.templ` files that compile to Go
+  Handlers return `datapages.Component`. You write `.templ` files that compile to Go
   via `templ generate`. Datapages does **not** run this automatically — you must
   run `templ generate` yourself after creating or modifying `.templ` files.
   Docs: https://templ.guide/developer-tools/llm/
@@ -100,7 +100,7 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return indexPage(), nil
 }
 ```
@@ -141,7 +141,7 @@ One struct per page. One doc comment per page. One GET handler per page.
 // PageLogin is /login
 type PageLogin struct{ App *App }
 
-func (PageLogin) GET(r *http.Request) (body templ.Component, err error) {
+func (PageLogin) GET(r *http.Request) (body datapages.Component, err error) {
 	return loginPage(), nil
 }
 ```
@@ -156,12 +156,12 @@ See https://pkg.go.dev/net/http#hdr-Patterns-ServeMux for the full spec.
 
 ### GET Return Values
 
-The minimum is `(body templ.Component, err error)`.
+The minimum is `(body datapages.Component, err error)`.
 You can add more. Pick only what you need.
 
 ```go
-body templ.Component // always first
-head templ.Component // optional
+body datapages.Component // always first
+head datapages.Component // optional
 redirect datapages.Redirect // optional
 newSession datapages.NewSession[Data] // optional
 closeSession bool // optional
@@ -174,13 +174,13 @@ Examples:
 
 ```go
 // body + head
-(body, head templ.Component, err error)
+(body, head datapages.Component, err error)
 
 // body + redirect
-(body templ.Component, redirect datapages.Redirect, err error)
+(body datapages.Component, redirect datapages.Redirect, err error)
 
 // body + new session + disableRefreshAfterHidden
-(body templ.Component, newSession datapages.NewSession[Data], disableRefreshAfterHidden bool, err error)
+(body datapages.Component, newSession datapages.NewSession[Data], disableRefreshAfterHidden bool, err error)
 ```
 
 ## Step 5: Path Variables and Query Parameters
@@ -200,7 +200,7 @@ func (PageItem) GET(
 	path struct {
 		ID string `path:"id"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return itemPage(path.ID), nil
 }
 ```
@@ -216,7 +216,7 @@ func (PageSearch) GET(
 		Term  string `query:"t"`
 		Limit int    `query:"l"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return searchPage(query.Term, query.Limit), nil
 }
 ```
@@ -278,8 +278,8 @@ action handlers, event handlers (`OnXXX`), stream hooks and `RecoverError`.
 Pick only what you need.
 
 ```go
-body templ.Component // optional
-head templ.Component // optional
+body datapages.Component // optional
+head datapages.Component // optional
 redirect datapages.Redirect // optional
 newSession datapages.NewSession[Data] // optional
 closeSession bool // optional
@@ -351,7 +351,7 @@ func (PageSearch) GET(
 	signals struct {
 		Term string `json:"term"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return searchPage(query.Term), nil
 }
 ```
@@ -549,7 +549,7 @@ Without these, Datapages serves default error responses. Define custom error pag
 // PageError404 is /not-found
 type PageError404 struct{ App *App }
 
-func (PageError404) GET(r *http.Request) (body templ.Component, err error) {
+func (PageError404) GET(r *http.Request) (body datapages.Component, err error) {
 	return notFoundPage(), nil
 }
 ```
@@ -564,7 +564,7 @@ Adds shared `<head>` content (meta tags, stylesheets, scripts) to every page, so
 func (*App) Head(
 	r *http.Request,
 	session Session, // optional
-) templ.Component {
+) datapages.Component {
 	return globalHead()
 }
 ```

@@ -3,8 +3,6 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 )
 
@@ -18,7 +16,7 @@ type PageIndex struct{ App *App }
 // GET without newSession or closeSession.
 func (PageIndex) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -29,7 +27,7 @@ type PageLogin struct{ App *App }
 func (PageLogin) GET(
 	r *http.Request,
 ) (
-	body templ.Component,
+	body datapages.Component,
 	newSession datapages.NewSession[struct{}],
 	err error,
 ) {

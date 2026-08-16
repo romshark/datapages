@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/todolist/list"
 )
@@ -22,7 +20,7 @@ func (p PageIndex) GET(
 		Filter string `query:"filter" reflectsignal:"filter"`
 		Sort   string `query:"sort" reflectsignal:"sort"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	filter := query.Filter
 	if filter == "" {
 		filter = "all"

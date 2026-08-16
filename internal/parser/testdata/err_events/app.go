@@ -5,7 +5,8 @@ import (
 	"net/http"
 
 	"datapagestest/fixture/err_events/subpkg"
-	"github.com/a-h/templ"
+
+	"github.com/romshark/datapages"
 )
 
 type (
@@ -15,7 +16,7 @@ type (
 	PageIndex struct{ App *App }
 )
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -40,7 +41,7 @@ type EventBadSubject0 struct {
 // PageEventTest is /event-test
 type PageEventTest struct{ App *App }
 
-func (PageEventTest) GET(r *http.Request) (body templ.Component, err error) {
+func (PageEventTest) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 

@@ -3,7 +3,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -11,7 +11,7 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -28,7 +28,7 @@ func (PageSearch) GET(
 		MaxPrice float64 `query:"pmax"`
 		InStock  bool    `query:"instock"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = query
 	return body, err
 }

@@ -3,8 +3,6 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 )
 
@@ -13,7 +11,7 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -40,7 +38,7 @@ type EventD struct {
 // AbstractLevel1 defines OnEventA and GET
 type AbstractLevel1 struct{ App *App }
 
-func (AbstractLevel1) GET(r *http.Request) (body templ.Component, err error) {
+func (AbstractLevel1) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -91,7 +89,7 @@ type PageOverride struct {
 	AbstractLevel1
 }
 
-func (PageOverride) GET(r *http.Request) (body templ.Component, err error) {
+func (PageOverride) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -112,7 +110,7 @@ type PageOverrideEvent struct {
 	AbstractLevel1
 }
 
-func (PageOverrideEvent) GET(r *http.Request) (body templ.Component, err error) {
+func (PageOverrideEvent) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 

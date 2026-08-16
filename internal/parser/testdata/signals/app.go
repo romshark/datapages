@@ -3,7 +3,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -11,14 +11,14 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
 // PageForm is /form
 type PageForm struct{ App *App }
 
-func (PageForm) GET(r *http.Request) (body templ.Component, err error) {
+func (PageForm) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -47,7 +47,7 @@ func (PageSearch) GET(
 	signals struct {
 		Term string `json:"term"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = query
 	_ = signals
 	return body, err
