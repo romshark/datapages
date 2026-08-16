@@ -1728,6 +1728,14 @@ func (w *Writer) writeAppErrHelpers(m *model.App, appPkg string) {
 	// httpErrIntern calls RecoverError if available.
 	if m.RecoverError != nil && m.PageError500 != nil {
 		w.Raw(`
+// httpErrFinal writes the error response without rendering PageError500.
+// The PageError500 handler uses it so it can't render itself.
+func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
+	s.logErr(msg, err)
+`)
+		w.writeHTTPErrFallback()
+		w.Raw(`}
+
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,

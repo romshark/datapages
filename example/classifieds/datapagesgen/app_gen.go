@@ -1354,6 +1354,22 @@ func setupHandlers(s *Server) {
 		s.handlePageSettingsPOSTCloseAllSessions)
 }
 
+// httpErrFinal writes the error response without rendering PageError500.
+// The PageError500 handler uses it so it can't render itself.
+func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
+	s.logErr(msg, err)
+	switch {
+	case errors.Is(err, datapages.ErrBadRequest):
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+	case errors.Is(err, datapages.ErrForbidden):
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+	case errors.Is(err, datapages.ErrNotFound):
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+	default:
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	}
+}
+
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
@@ -1545,7 +1561,7 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 	}
 	body, disableRefreshAfterHidden, err := p.GET(r)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageError500.GET", err)
+		s.httpErrFinal(w, "handling PageError500.GET", err)
 		return
 	}
 	genericHead := s.app.Head(r)

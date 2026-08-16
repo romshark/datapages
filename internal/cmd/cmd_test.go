@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -149,6 +150,13 @@ func copyTestdata(t *testing.T, dst, src string) {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(dst), 0o755))
 	require.NoError(t, os.WriteFile(dst, data, 0o644))
+}
+
+// writeFileAt writes content to path, creating parent directories.
+func writeFileAt(t *testing.T, path, content string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 }
 
 // hashDir returns a SHA-256 digest of the directory tree rooted at dir.
@@ -597,6 +605,62 @@ func TestGenGoModUpgrade(t *testing.T) {
 			require.Equal(t, tc.wantVersion, got, "go.mod datapages version")
 		})
 	}
+}
+
+// TestGenServeFailingErrorPage serves a request against a generated server
+// whose PageIndex.GET and PageError500.GET both fail.
+// The response must be 500 Internal Server Error.
+//
+// It runs the request in a separate process: a server that cannot answer this
+// case takes the whole process down with it, not just the request.
+func TestGenServeFailingErrorPage(t *testing.T) {
+	dir := setupProject(t, "failing_error_page.go")
+
+	// Without Prometheus the generated server needs no options.
+	writeFileAt(t, filepath.Join(dir, "datapages.yaml"),
+		"app: app\ngen:\n  package: datapagesgen\n  prometheus: false\ncmd: cmd/server\n")
+
+	var stdout, stderr bytes.Buffer
+	code := cmd.Run(
+		context.Background(), []string{"datapages", "gen"},
+		nil, &stdout, &stderr,
+		"0.0.0", "xxxxxxx", "2026-2-23",
+	)
+	require.Zero(t, code, "gen stderr: %s", stderr.String())
+
+	writeFileAt(t, filepath.Join(dir, "probe", "main.go"), `package main
+
+import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+
+	"github.com/romshark/datapages/modules/msgbroker/inmem"
+
+	"testproject/app"
+	"testproject/datapagesgen"
+)
+
+func main() {
+	ts := httptest.NewServer(datapagesgen.NewServer(&app.App{}, inmem.New(16)))
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		panic(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	fmt.Printf("status=%d\n", resp.StatusCode)
+}
+`)
+
+	out, err := exec.Command("go", "mod", "tidy").CombinedOutput()
+	require.NoError(t, err, "go mod tidy: %s", out)
+
+	out, err = exec.Command("go", "run", "./probe").CombinedOutput()
+	require.NoError(t, err, "go run ./probe: %s", out)
+	require.Contains(t, string(out),
+		fmt.Sprintf("status=%d\n", http.StatusInternalServerError),
+		"go run ./probe: %s", out)
 }
 
 func TestGenBuild(t *testing.T) {
