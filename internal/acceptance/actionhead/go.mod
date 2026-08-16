@@ -9,7 +9,7 @@ require github.com/a-h/templ v0.3.1020
 
 require (
 	github.com/nats-io/nats.go v1.53.1
-	github.com/romshark/datapages v0.0.0-00010101000000-000000000000
+	github.com/romshark/datapages v0.9.4
 	github.com/starfederation/datastar-go v1.2.2
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/sync v0.22.0
