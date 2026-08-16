@@ -334,7 +334,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 	if h.OutputErr != nil {
 		w.Line(1, "if err != nil {")
 		if m.PageError500 != nil && p == m.PageError500 {
-			// httpErrIntern renders PageError500, so the error page can't use it.
+			// httpErrIntern renders PageError500. The error page can't use it.
 			w.Raw("\t\ts.httpErrFinal(w, \"handling ")
 		} else {
 			w.Raw("\t\ts.httpErrIntern(w, r, nil, \"handling ")
@@ -515,7 +515,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"'`)\n")
-			w.Raw("\t\t_, _ = io.WriteString(w, query.")
+			w.Raw("\t\twriteSignalString(w, query.")
 			w.Raw(f.FieldName)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
@@ -524,7 +524,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"`)\n")
-			w.Raw("\t\t_, _ = io.WriteString(w, ")
+			w.Raw("\t\twriteSignalValue(w, ")
 			w.writeFieldToString("query", fi)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `\"`)")

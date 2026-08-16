@@ -290,6 +290,9 @@ type appUsage struct {
 	// datapagesSSE: whether any handler takes a datapages.SSE param
 	// (needs the datapages import and the generated sseWrapper).
 	datapagesSSE bool
+	// reflectSignals: func writeSignalValue(...), needed by any page that
+	// reflects a query value into a data-signals attribute.
+	reflectSignals bool
 }
 
 // needsIsDSReq returns true if the isDSReq helper must be emitted.
@@ -352,6 +355,9 @@ func computeAppUsage(m *model.App) appUsage {
 		}
 		if h.InputPath != nil && structHasNonStringField(h.InputPath.Type.Resolved) {
 			u.httpErrBad = true
+		}
+		if h.InputQuery != nil && structHasReflectSignal(h.InputQuery.Type.Resolved) {
+			u.reflectSignals = true
 		}
 	}
 
@@ -707,6 +713,20 @@ func structHasNonStringField(t types.Type) bool {
 	}
 	for field := range st.Fields() {
 		if !isStringType(field.Type()) {
+			return true
+		}
+	}
+	return false
+}
+
+// structHasReflectSignal reports whether any field carries a reflectsignal tag.
+func structHasReflectSignal(t types.Type) bool {
+	st, ok := t.Underlying().(*types.Struct)
+	if !ok {
+		return false
+	}
+	for i := range st.NumFields() {
+		if reflectSignalTagValue(st.Tag(i)) != "" {
 			return true
 		}
 	}

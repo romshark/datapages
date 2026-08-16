@@ -7,6 +7,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net"
@@ -219,6 +220,25 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+var signalStringEscaper = strings.NewReplacer(
+	"\\", `\\`,
+	"'", `\'`,
+	"\n", `\n`,
+	"\r", `\r`,
+)
+
+// writeSignalString writes s as a quoted string inside a data-signals attribute.
+// The browser decodes the attribute before Datastar evaluates it.
+// s is escaped for the JavaScript string first and for the attribute second.
+func writeSignalString(w http.ResponseWriter, s string) {
+	_, _ = io.WriteString(w, html.EscapeString(signalStringEscaper.Replace(s)))
+}
+
+// writeSignalValue writes a number or boolean inside a data-signals attribute.
+func writeSignalValue(w http.ResponseWriter, s string) {
+	_, _ = io.WriteString(w, html.EscapeString(s))
 }
 
 func (s *Server) writeHTML(
@@ -826,11 +846,11 @@ func (s *Server) handlePageReflectGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 
 		_, _ = io.WriteString(w, `data-signals:term="'`)
-		_, _ = io.WriteString(w, query.Term)
+		writeSignalString(w, query.Term)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:page="`)
-		_, _ = io.WriteString(w, strconv.FormatInt(int64(query.Page), 10))
+		writeSignalValue(w, strconv.FormatInt(int64(query.Page), 10))
 		_, _ = io.WriteString(w, `"`)
 	}
 

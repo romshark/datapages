@@ -4,6 +4,7 @@ package acceptance_test
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -171,6 +172,43 @@ func TestReflectedSignals(t *testing.T) {
 		"params.set('p'",
 	} {
 		require.Contains(t, resp.Body, want, "the page does not carry %q")
+	}
+}
+
+// TestReflectedSignalEscapesMarkup covers a reflected query value carrying markup.
+// The server writes it into an attribute of the body tag, where a quote ends the
+// attribute and an angle bracket opens an element of its own.
+func TestReflectedSignalEscapesMarkup(t *testing.T) {
+	c := newClient(t)
+
+	tests := map[string]struct {
+		value string // what the client sends as ?t=
+		want  string // what the attribute carries
+	}{
+		"ends the attribute and opens an element": {
+			value: `"><script>alert(1)</script>`,
+			want:  `&#34;&gt;&lt;script&gt;alert(1)&lt;/script&gt;`,
+		},
+		"ends the signal expression string": {
+			value: `';alert(1);//`,
+			want:  `\&#39;;alert(1);//`,
+		},
+		"angle bracket": {value: `<b>`, want: `&lt;b&gt;`},
+		"double quote":  {value: `a"b`, want: `a&#34;b`},
+		"backslash":     {value: `a\b`, want: `a\\b`},
+		"nothing to escape": {
+			value: "shoes",
+			want:  "shoes", // escaping carries the value rather than dropping it
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			resp := c.Get(t, "/reflect/?t="+url.QueryEscape(tt.value))
+			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+			require.Contains(t, resp.Body, `data-signals:term="'`+tt.want+`'"`,
+				"the attribute does not carry the escaped value:\n%s", resp.Body)
+		})
 	}
 }
 

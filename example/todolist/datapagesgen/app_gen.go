@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -349,6 +350,25 @@ func (s sseWrapper) Redirect(target string) error {
 
 func (s sseWrapper) Prefetch(urls ...string) error {
 	return s.gen.Prefetch(urls...)
+}
+
+var signalStringEscaper = strings.NewReplacer(
+	"\\", `\\`,
+	"'", `\'`,
+	"\n", `\n`,
+	"\r", `\r`,
+)
+
+// writeSignalString writes s as a quoted string inside a data-signals attribute.
+// The browser decodes the attribute before Datastar evaluates it.
+// s is escaped for the JavaScript string first and for the attribute second.
+func writeSignalString(w http.ResponseWriter, s string) {
+	_, _ = io.WriteString(w, html.EscapeString(signalStringEscaper.Replace(s)))
+}
+
+// writeSignalValue writes a number or boolean inside a data-signals attribute.
+func writeSignalValue(w http.ResponseWriter, s string) {
+	_, _ = io.WriteString(w, html.EscapeString(s))
 }
 
 func (s *Server) writeHTML(
@@ -769,15 +789,15 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 
 		_, _ = io.WriteString(w, `data-signals:search="'`)
-		_, _ = io.WriteString(w, query.Search)
+		writeSignalString(w, query.Search)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:filter="'`)
-		_, _ = io.WriteString(w, query.Filter)
+		writeSignalString(w, query.Filter)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:sort="'`)
-		_, _ = io.WriteString(w, query.Sort)
+		writeSignalString(w, query.Sort)
 		_, _ = io.WriteString(w, `'"`)
 	}
 

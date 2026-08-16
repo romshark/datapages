@@ -61,6 +61,9 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	if w.usage.datapagesSSE {
 		w.writeSSEWrapper()
 	}
+	if w.usage.reflectSignals {
+		w.writeSignalValueHelper()
+	}
 	if w.usage.auth && w.usage.hasSession {
 		w.writeAppCheckCSRF()
 	}
@@ -1762,6 +1765,31 @@ func (w *Writer) writeCSRFOnlyCheck() {
 	w.Line(1, "if _, _, ok := s.auth(w, r); !ok {")
 	w.Line(2, "return")
 	w.Line(1, "}")
+}
+
+// writeSignalValueHelper emits the escaper for values reflected into
+// data-signals attributes.
+func (w *Writer) writeSignalValueHelper() {
+	w.Raw(`
+var signalStringEscaper = strings.NewReplacer(
+	"\\", ` + "`" + `\\` + "`" + `,
+	"'", ` + "`" + `\'` + "`" + `,
+	"\n", ` + "`" + `\n` + "`" + `,
+	"\r", ` + "`" + `\r` + "`" + `,
+)
+
+// writeSignalString writes s as a quoted string inside a data-signals attribute.
+// The browser decodes the attribute before Datastar evaluates it.
+// s is escaped for the JavaScript string first and for the attribute second.
+func writeSignalString(w http.ResponseWriter, s string) {
+	_, _ = io.WriteString(w, html.EscapeString(signalStringEscaper.Replace(s)))
+}
+
+// writeSignalValue writes a number or boolean inside a data-signals attribute.
+func writeSignalValue(w http.ResponseWriter, s string) {
+	_, _ = io.WriteString(w, html.EscapeString(s))
+}
+`)
 }
 
 func (w *Writer) writeAppErrHelpers(m *model.App, appPkg string) {

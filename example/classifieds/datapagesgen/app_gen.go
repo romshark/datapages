@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -648,6 +649,25 @@ func (s sseWrapper) Redirect(target string) error {
 
 func (s sseWrapper) Prefetch(urls ...string) error {
 	return s.gen.Prefetch(urls...)
+}
+
+var signalStringEscaper = strings.NewReplacer(
+	"\\", `\\`,
+	"'", `\'`,
+	"\n", `\n`,
+	"\r", `\r`,
+)
+
+// writeSignalString writes s as a quoted string inside a data-signals attribute.
+// The browser decodes the attribute before Datastar evaluates it.
+// s is escaped for the JavaScript string first and for the attribute second.
+func writeSignalString(w http.ResponseWriter, s string) {
+	_, _ = io.WriteString(w, html.EscapeString(signalStringEscaper.Replace(s)))
+}
+
+// writeSignalValue writes a number or boolean inside a data-signals attribute.
+func writeSignalValue(w http.ResponseWriter, s string) {
+	_, _ = io.WriteString(w, html.EscapeString(s))
 }
 
 func (s *Server) checkCSRF(
@@ -1819,7 +1839,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 		}
 
 		_, _ = io.WriteString(w, `data-signals:chatselected="'`)
-		_, _ = io.WriteString(w, query.Chat)
+		writeSignalString(w, query.Chat)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
@@ -2500,23 +2520,23 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 
 		_, _ = io.WriteString(w, `data-signals:term="'`)
-		_, _ = io.WriteString(w, query.Term)
+		writeSignalString(w, query.Term)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:category="'`)
-		_, _ = io.WriteString(w, query.Category)
+		writeSignalString(w, query.Category)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:pmin="`)
-		_, _ = io.WriteString(w, strconv.FormatInt(query.PriceMin, 10))
+		writeSignalValue(w, strconv.FormatInt(query.PriceMin, 10))
 		_, _ = io.WriteString(w, `"`)
 
 		_, _ = io.WriteString(w, `data-signals:pmax="`)
-		_, _ = io.WriteString(w, strconv.FormatInt(query.PriceMax, 10))
+		writeSignalValue(w, strconv.FormatInt(query.PriceMax, 10))
 		_, _ = io.WriteString(w, `"`)
 
 		_, _ = io.WriteString(w, `data-signals:location="'`)
-		_, _ = io.WriteString(w, query.Location)
+		writeSignalString(w, query.Location)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
