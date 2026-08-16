@@ -98,6 +98,12 @@ jobs:
         if: matrix.project.name == 'root'
         run: go install github.com/a-h/templ/cmd/templ@v0.3.1020
 
+      - name: Install Wails system dependencies
+        if: matrix.project.name == 'calculator'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
       # Test and report coverage
       - name: Run tests with coverage
         working-directory: ${{ matrix.project.path }}
