@@ -70,6 +70,9 @@ func (w *Writer) writeHrefHeader(needsStrconv, needsStrings bool) {
 	if needsStrconv {
 		w.Line(1, `"strconv"`)
 	}
+	if needsStrings {
+		w.Line(1, `"net/url"`)
+	}
 	if needsStrings || w.assetsURLPrefix != "" {
 		w.Line(1, `"strings"`)
 	}
@@ -255,10 +258,11 @@ func (w *Writer) writeHrefFuncPathOnly(funcName, route string, params []pathPara
 	w.writePathPreConvert(params)
 
 	literals, _ := routeSegments(route)
+	lo := newHrefLocals(params, nil)
 
 	// Builder.
-	w.Line(1, "var b strings.Builder")
-	w.Line(1, "b.Grow(")
+	w.Linef(1, "var %s strings.Builder", lo.builder)
+	w.Linef(1, "%s.Grow(", lo.builder)
 	for i, lit := range literals {
 		if i == 0 {
 			w.Linef(2, "len(%q) +", lit)
@@ -274,13 +278,13 @@ func (w *Writer) writeHrefFuncPathOnly(funcName, route string, params []pathPara
 
 	// Write segments.
 	for i, lit := range literals {
-		w.Linef(1, "b.WriteString(%q)", lit)
+		w.Linef(1, "%s.WriteString(%q)", lo.builder, lit)
 		if i < len(params) {
-			w.Linef(1, "b.WriteString(%s)", pathVarStrExpr(params[i]))
+			w.Linef(1, "%s.WriteString(%s)", lo.builder, pathVarStrExpr(params[i]))
 		}
 	}
 
-	w.Line(1, "return b.String()")
+	w.Linef(1, "return %s.String()", lo.builder)
 	w.Line(0, "}")
 }
 
@@ -288,12 +292,13 @@ func (w *Writer) writeHrefFuncQueryOnly(
 	funcName, route string, fields []structFieldInfo,
 ) {
 	w.Linef(0, "func %s(query Query%s) string {", funcName, funcName)
+	lo := newHrefLocals(nil, fields)
 
 	// Pre-convert non-string fields to strings.
-	w.writeQueryPreConvert(fields)
+	w.writeQueryPreConvert(lo, fields)
 
 	// anyQuery check.
-	w.writeAnyCheck("anyQuery", fields)
+	w.writeAnyCheck(lo.anyQuery, fields)
 	w.Line(0, "")
 
 	// Length calculation.
@@ -318,11 +323,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 		w.Line(3, `l += len("&")`)
 		w.Line(2, "}")
 		w.Line(2, "n++")
-		if isStringType(f.Type) {
-			w.Linef(2, "l += len(%q) + len(query.%s)", tag+"=", f.Name)
-		} else {
-			w.Linef(2, "l += len(%q) + len(%sStr)", tag+"=", tag)
-		}
+		w.Linef(2, "%s += len(%q) + len(%s)", lo.length, tag+"=", lo.queryStr[tag])
 		w.Line(1, "}")
 	}
 	w.Line(1, "_ = n")
@@ -355,11 +356,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 			w.Line(2, "n++")
 		}
 		w.Linef(2, "b.WriteString(%q)", tag+"=")
-		if isStringType(f.Type) {
-			w.Linef(2, "b.WriteString(query.%s)", f.Name)
-		} else {
-			w.Linef(2, "b.WriteString(%sStr)", tag)
-		}
+		w.Linef(2, "%s.WriteString(%s)", lo.builder, lo.queryStr[tag])
 		w.Line(1, "}")
 	}
 
@@ -382,23 +379,24 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	w.Raw(") string {\n")
 
 	literals, _ := routeSegments(route)
+	lo := newHrefLocals(params, fields)
 
 	// Pre-convert non-string path params.
 	w.writePathPreConvert(params)
 
 	// Pre-convert non-string query fields to strings.
-	w.writeQueryPreConvert(fields)
+	w.writeQueryPreConvert(lo, fields)
 
 	// anyQuery check.
-	w.writeAnyCheck("anyQuery", fields)
+	w.writeAnyCheck(lo.anyQuery, fields)
 	w.Line(0, "")
 
 	// Length calculation.
-	w.Line(1, "var b strings.Builder")
+	w.Linef(1, "var %s strings.Builder", lo.builder)
 
 	// Path literal lengths.
 	if len(literals) > 0 {
-		w.Linef(1, "l := len(%q) +", literals[0])
+		w.Linef(1, "%s := len(%q) +", lo.length, literals[0])
 		for i := 1; i < len(literals); i++ {
 			if i-1 < len(params) {
 				w.Linef(2, "len(%s) +", pathVarStrExpr(params[i-1]))
@@ -413,74 +411,66 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 			w.Linef(2, "len(%s)", pathVarStrExpr(params[len(literals)-1]))
 		}
 	} else {
-		w.Line(1, "l := 0")
+		w.Linef(1, "%s := 0", lo.length)
 	}
 
-	w.Line(1, "if anyQuery {")
-	w.Line(2, `l += len("?")`)
+	w.Linef(1, "if %s {", lo.anyQuery)
+	w.Linef(2, "%s += len(\"?\")", lo.length)
 	w.Line(1, "}")
 	w.Line(0, "")
 
-	w.Line(1, `// n = number of query params already accounted for (for '&')`)
-	w.Line(1, "n := 0")
+	w.Linef(1, "// %s = number of query params already accounted for (for '&')", lo.count)
+	w.Linef(1, "%s := 0", lo.count)
 	w.Line(0, "")
 
 	for _, f := range fields {
 		tag := queryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
-		w.Line(2, "if n > 0 {")
-		w.Line(3, `l += len("&")`)
+		w.Linef(2, "if %s > 0 {", lo.count)
+		w.Linef(3, "%s += len(\"&\")", lo.length)
 		w.Line(2, "}")
-		w.Line(2, "n++")
-		if isStringType(f.Type) {
-			w.Linef(2, "l += len(%q) + len(query.%s)", tag+"=", f.Name)
-		} else {
-			w.Linef(2, "l += len(%q) + len(%sStr)", tag+"=", tag)
-		}
+		w.Linef(2, "%s++", lo.count)
+		w.Linef(2, "%s += len(%q) + len(%s)", lo.length, tag+"=", lo.queryStr[tag])
 		w.Line(1, "}")
 	}
-	w.Line(1, "_ = n")
+	w.Linef(1, "_ = %s", lo.count)
 	w.Line(0, "")
 
-	w.Line(1, "b.Grow(l)")
+	w.Linef(1, "%s.Grow(%s)", lo.builder, lo.length)
 	w.Line(0, "")
 
 	// Write path segments.
 	for i, lit := range literals {
-		w.Linef(1, "b.WriteString(%q)", lit)
+		w.Linef(1, "%s.WriteString(%q)", lo.builder, lit)
 		if i < len(params) {
-			w.Linef(1, "b.WriteString(%s)", pathVarStrExpr(params[i]))
+			w.Linef(1, "%s.WriteString(%s)", lo.builder, pathVarStrExpr(params[i]))
 		}
 	}
 
-	w.Line(1, "if anyQuery {")
-	w.Line(2, `b.WriteString("?")`)
+	w.Linef(1, "if %s {", lo.anyQuery)
+	w.Linef(2, "%s.WriteString(\"?\")", lo.builder)
 	w.Line(1, "}")
 	w.Line(0, "")
 
-	w.Line(1, "n = 0")
+	w.Linef(1, "%s = 0", lo.count)
 	w.Line(0, "")
 
 	for i, f := range fields {
 		tag := queryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
-		w.Line(2, "if n > 0 {")
-		w.Line(3, `b.WriteString("&")`)
+		w.Linef(2, "if %s > 0 {", lo.count)
+		w.Linef(3, "%s.WriteString(\"&\")", lo.builder)
 		w.Line(2, "}")
 		if i < len(fields)-1 {
-			w.Line(2, "n++")
+			w.Linef(2, "%s++", lo.count)
 		}
-		w.Linef(2, "b.WriteString(%q)", tag+"=")
-		if isStringType(f.Type) {
-			w.Linef(2, "b.WriteString(query.%s)", f.Name)
-		} else {
-			w.Linef(2, "b.WriteString(%sStr)", tag)
-		}
+		w.Linef(2, "%s.WriteString(%q)", lo.builder, tag+"=")
+		w.Linef(2, "%s.WriteString(%s)", lo.builder, lo.queryStr[tag])
 		w.Line(1, "}")
 	}
 
 	w.Line(0, "")
-	w.Line(1, "return b.String()")
+	w.Linef(1, "return %s.String()", lo.builder)
 	w.Line(0, "}")
 }
 
@@ -526,7 +516,9 @@ type pathParamInfo struct {
 
 // pathParamInfos builds typed path parameter info from a path input and route variables.
 // It computes conflict-free StrVar names for non-string parameters.
-func (w *Writer) pathParamInfos(pathInput *model.Input, pathVars []string) []pathParamInfo {
+func (w *Writer) pathParamInfos(
+	pathInput *model.Input, pathVars []string,
+) []pathParamInfo {
 	infos := make([]pathParamInfo, len(pathVars))
 	if pathInput == nil {
 		for i, v := range pathVars {
@@ -552,17 +544,16 @@ func (w *Writer) pathParamInfos(pathInput *model.Input, pathVars []string) []pat
 	for _, info := range infos {
 		names[info.Name] = true
 	}
+	// Every parameter gets a local holding what goes into the URL:
+	// the string form of a number, and the escaped form of a string. A value
+	// carrying "/", "?", "&" or "#" would otherwise change what the URL addresses.
 	for i := range infos {
-		if infos[i].Type == nil || isStringType(infos[i].Type) {
-			infos[i].StrVar = infos[i].Name
-		} else {
-			candidate := "s_" + infos[i].Name
-			for names[candidate] {
-				candidate = "s_" + candidate
-			}
-			infos[i].StrVar = candidate
-			names[candidate] = true
+		candidate := "s_" + infos[i].Name
+		for names[candidate] {
+			candidate = "s_" + candidate
 		}
+		infos[i].StrVar = candidate
+		names[candidate] = true
 	}
 	return infos
 }
@@ -570,6 +561,57 @@ func (w *Writer) pathParamInfos(pathInput *model.Input, pathVars []string) []pat
 // pathVarStrExpr returns the expression for a path variable's string representation.
 func pathVarStrExpr(p pathParamInfo) string {
 	return p.StrVar
+}
+
+// hrefLocals are the names the URL writer gives its own variables.
+//
+// A path variable is named by the route and may be called anything a Go identifier may
+// be called, "b" included. A local the writer names without looking is a
+// redeclaration in that function, and the generated package does not compile.
+// Each name is therefore moved out of the way of whatever the route brought.
+type hrefLocals struct {
+	builder  string
+	length   string
+	count    string
+	anyQuery string
+	// beforeLen and afterLen hold the lengths of an action's
+	// before and after expressions. Only the action writers declare them.
+	beforeLen string
+	afterLen  string
+	// queryStr maps a query tag to the local holding its string form.
+	// Only non-string fields need one.
+	queryStr map[string]string
+}
+
+func newHrefLocals(params []pathParamInfo, fields []structFieldInfo) hrefLocals {
+	taken := make(map[string]bool, len(params)*2+len(fields)+4)
+	taken["query"] = true // the query struct parameter
+	for _, p := range params {
+		taken[p.Name] = true
+		taken[p.StrVar] = true
+	}
+	pick := func(base string) string {
+		name := base
+		for taken[name] {
+			name += "_"
+		}
+		taken[name] = true
+		return name
+	}
+	lo := hrefLocals{
+		builder:   pick("b"),
+		length:    pick("l"),
+		count:     pick("n"),
+		anyQuery:  pick("anyQuery"),
+		beforeLen: pick("bl"),
+		afterLen:  pick("al"),
+		queryStr:  make(map[string]string, len(fields)),
+	}
+	for _, f := range fields {
+		tag := queryTagValue(f.Tag)
+		lo.queryStr[tag] = pick(tag + "Str")
+	}
+	return lo
 }
 
 // writeTypedParams writes a comma-separated typed parameter list.
@@ -588,16 +630,23 @@ func (w *Writer) writeTypedParams(params []pathParamInfo) {
 	}
 }
 
-// writePathPreConvert emits string conversion for non-string path parameters.
+// writePathPreConvert emits the local that holds each path parameter's URL form:
+// a number formatted, a string escaped.
+//
+// A path value belongs to one segment. Escaping is what keeps it there:
+// PageItem("a/b") addresses /item/a%2Fb/, which the router hands back whole,
+// rather than /item/a/b/, which it does not route at all.
 func (w *Writer) writePathPreConvert(params []pathParamInfo) {
 	for _, p := range params {
-		if p.Type == nil || isStringType(p.Type) {
-			continue
-		}
 		w.Byte('\t')
 		w.Raw(p.StrVar)
 		w.Raw(" := ")
-		w.writeFormatExpr(p.Name, p.Type)
+		if p.Type == nil || isStringType(p.Type) {
+			w.Rawf("url.PathEscape(%s)", p.Name)
+		} else {
+			// A formatted number or bool carries nothing to escape.
+			w.writeFormatExpr(p.Name, p.Type)
+		}
 		w.Byte('\n')
 	}
 }
@@ -673,31 +722,32 @@ func fieldTypeName(t types.Type) string {
 	return "string"
 }
 
-// writeQueryPreConvert emits variable declarations and conversion code
-// for non-string query fields.
-func (w *Writer) writeQueryPreConvert(fields []structFieldInfo) {
-	if !hasNonStringFields(fields) {
+// writeQueryPreConvert emits the local that holds each query field's URL form:
+// a number formatted, a string escaped.
+//
+// A query value that carries "&" or "#" would otherwise add
+// parameters of its own, or cut the URL short.
+func (w *Writer) writeQueryPreConvert(lo hrefLocals, fields []structFieldInfo) {
+	if len(fields) == 0 {
 		return
 	}
 	w.Line(1, "var (")
 	for _, f := range fields {
-		if !isStringType(f.Type) {
-			tag := queryTagValue(f.Tag)
-			w.Linef(2, "%sStr string", tag)
-		}
+		w.Linef(2, "%s string", lo.queryStr[queryTagValue(f.Tag)])
 	}
 	w.Line(1, ")")
 	w.Line(0, "")
 	for _, f := range fields {
-		if isStringType(f.Type) {
-			continue
-		}
 		tag := queryTagValue(f.Tag)
 		w.Raw("\tif ")
 		w.writeZeroCheck("query."+f.Name, f.Type)
 		w.Raw(" {\n")
-		w.Rawf("\t\t%sStr = ", tag)
-		w.writeFormatExpr("query."+f.Name, f.Type)
+		w.Rawf("\t\t%s = ", lo.queryStr[tag])
+		if isStringType(f.Type) {
+			w.Rawf("url.QueryEscape(query.%s)", f.Name)
+		} else {
+			w.writeFormatExpr("query."+f.Name, f.Type)
+		}
 		w.Byte('\n')
 		w.Line(1, "}")
 	}

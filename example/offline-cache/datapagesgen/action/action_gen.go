@@ -5,6 +5,7 @@
 package action
 
 import (
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -243,10 +244,20 @@ func escapeJS(s string) string {
 	return s
 }
 
+// isEntry reports whether an option belongs in the options object.
+//
+// A helper given nothing to say returns the zero option: WithHeaders of
+// an empty map, say, which is what a template computing its headers
+// produces whenever the map comes out empty. Writing it would put
+// "{: }" in the expression, which no browser can parse.
+func isEntry(o option) bool {
+	return o.kind == 0 && o.key != ""
+}
+
 func writeOptions(b *strings.Builder, options []option) {
 	any := false
 	for _, o := range options {
-		if o.kind == 0 {
+		if isEntry(o) {
 			any = true
 			break
 		}
@@ -257,7 +268,7 @@ func writeOptions(b *strings.Builder, options []option) {
 	b.WriteString(", {")
 	first := true
 	for _, o := range options {
-		if o.kind != 0 {
+		if !isEntry(o) {
 			continue
 		}
 		if !first {
@@ -278,7 +289,7 @@ func optionsLen(options []option) int {
 	n := 0
 	count := 0
 	for _, o := range options {
-		if o.kind != 0 {
+		if !isEntry(o) {
 			continue
 		}
 		if count > 0 {
@@ -373,12 +384,13 @@ func POSTPageLoginSubmit(options ...option) string {
 
 // POSTPagePurchaseConfirm references /shows/{nameslug}/purchase/confirm/
 func POSTPagePurchaseConfirm(nameslug string, options ...option) string {
+	s_nameslug := url.PathEscape(nameslug)
 	var b strings.Builder
 	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@post('/shows/") + len(nameslug) + len("/purchase/confirm/'") + optionsLen(options) + len(")") + al)
+	b.Grow(bl + len("@post('/shows/") + len(s_nameslug) + len("/purchase/confirm/'") + optionsLen(options) + len(")") + al)
 	writeBefore(&b, options)
 	b.WriteString("@post('/shows/")
-	b.WriteString(nameslug)
+	b.WriteString(s_nameslug)
 	b.WriteString("/purchase/confirm/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')

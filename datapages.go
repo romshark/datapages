@@ -247,13 +247,14 @@ func WithMode(mode PatchMode) PatchOption {
 // (for example "Bad Request" for 400), no matter what the error message says.
 //
 // Don't wrap multiple sentinels in one error. If you do, the first of
-// ErrBadRequest, ErrForbidden, ErrNotFound wins.
+// ErrBadRequest, ErrForbidden, ErrNotFound, ErrConflict wins.
 //
 // Any other error results in 500 Internal Server Error.
 var (
 	ErrBadRequest = errors.New(http.StatusText(http.StatusBadRequest)) // 400
 	ErrForbidden  = errors.New(http.StatusText(http.StatusForbidden))  // 403
 	ErrNotFound   = errors.New(http.StatusText(http.StatusNotFound))   // 404
+	ErrConflict   = errors.New(http.StatusText(http.StatusConflict))   // 409
 )
 
 // Service-worker protocol HTTP request headers.

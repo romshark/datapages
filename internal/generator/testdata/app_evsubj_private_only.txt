@@ -1,6 +1,0 @@
-
-func evSubjPageMessaging(userID string) []string {
-	return []string{
-		"messaging.sent." + userID,
-	}
-}

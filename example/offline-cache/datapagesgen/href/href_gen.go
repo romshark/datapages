@@ -6,6 +6,7 @@ package href
 
 import (
 	"log/slog"
+	"net/url"
 	"path"
 	"strings"
 	"sync/atomic"
@@ -49,6 +50,14 @@ func PageError404() string { return "/not-found/" }
 
 // PageIndex references /{$}
 func PageIndex(query QueryPageIndex) string {
+	var (
+		qStr string
+	)
+
+	if query.Term != "" {
+		qStr = url.QueryEscape(query.Term)
+	}
+
 	anyQuery := query.Term != ""
 
 	var b strings.Builder
@@ -65,7 +74,7 @@ func PageIndex(query QueryPageIndex) string {
 			l += len("&")
 		}
 		n++
-		l += len("q=") + len(query.Term)
+		l += len("q=") + len(qStr)
 	}
 	_ = n
 
@@ -83,7 +92,7 @@ func PageIndex(query QueryPageIndex) string {
 			b.WriteString("&")
 		}
 		b.WriteString("q=")
-		b.WriteString(query.Term)
+		b.WriteString(qStr)
 	}
 
 	return b.String()
@@ -96,6 +105,14 @@ type QueryPageIndex struct {
 
 // PageLogin references /login/{$}
 func PageLogin(query QueryPageLogin) string {
+	var (
+		nextStr string
+	)
+
+	if query.Next != "" {
+		nextStr = url.QueryEscape(query.Next)
+	}
+
 	anyQuery := query.Next != ""
 
 	var b strings.Builder
@@ -112,7 +129,7 @@ func PageLogin(query QueryPageLogin) string {
 			l += len("&")
 		}
 		n++
-		l += len("next=") + len(query.Next)
+		l += len("next=") + len(nextStr)
 	}
 	_ = n
 
@@ -130,7 +147,7 @@ func PageLogin(query QueryPageLogin) string {
 			b.WriteString("&")
 		}
 		b.WriteString("next=")
-		b.WriteString(query.Next)
+		b.WriteString(nextStr)
 	}
 
 	return b.String()
@@ -146,42 +163,45 @@ func PageOffline() string { return "/offline/" }
 
 // PagePurchase references /shows/{nameslug}/purchase/{$}
 func PagePurchase(nameslug string) string {
+	s_nameslug := url.PathEscape(nameslug)
 	var b strings.Builder
 	b.Grow(
 		len("/shows/") +
-			len(nameslug) +
+			len(s_nameslug) +
 			len("/purchase/"),
 	)
 	b.WriteString("/shows/")
-	b.WriteString(nameslug)
+	b.WriteString(s_nameslug)
 	b.WriteString("/purchase/")
 	return b.String()
 }
 
 // PageShow references /shows/{nameslug}/{$}
 func PageShow(nameslug string) string {
+	s_nameslug := url.PathEscape(nameslug)
 	var b strings.Builder
 	b.Grow(
 		len("/shows/") +
-			len(nameslug) +
+			len(s_nameslug) +
 			len("/"),
 	)
 	b.WriteString("/shows/")
-	b.WriteString(nameslug)
+	b.WriteString(s_nameslug)
 	b.WriteString("/")
 	return b.String()
 }
 
 // PageTicket references /shows/{nameslug}/ticket/{$}
 func PageTicket(nameslug string) string {
+	s_nameslug := url.PathEscape(nameslug)
 	var b strings.Builder
 	b.Grow(
 		len("/shows/") +
-			len(nameslug) +
+			len(s_nameslug) +
 			len("/ticket/"),
 	)
 	b.WriteString("/shows/")
-	b.WriteString(nameslug)
+	b.WriteString(s_nameslug)
 	b.WriteString("/ticket/")
 	return b.String()
 }

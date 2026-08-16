@@ -10,6 +10,8 @@ package inmem
 import (
 	"bytes"
 	"context"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/romshark/datapages/modules/msgbroker"
@@ -21,7 +23,11 @@ var _ msgbroker.MessageBroker = (*MessageBroker)(nil)
 type MessageBroker struct {
 	chanBuffer int
 	lock       sync.RWMutex
-	subs       map[string]map[*memSub]struct{}
+	// subs holds subscriptions by literal subject, which is what most of them are.
+	subs map[string]map[*memSub]struct{}
+	// wildcards holds the subscriptions whose subject carries "*" or ">".
+	// A publish walks these; there are few, and only patterns are here.
+	wildcards map[string]map[*memSub]struct{}
 }
 
 type memSub struct {
@@ -37,6 +43,7 @@ func New(chanBuffer int) *MessageBroker {
 	return &MessageBroker{
 		chanBuffer: chanBuffer,
 		subs:       make(map[string]map[*memSub]struct{}),
+		wildcards:  make(map[string]map[*memSub]struct{}),
 	}
 }
 
@@ -52,9 +59,25 @@ func (b *MessageBroker) Publish(
 ) error {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
-	subs := b.subs[subject]
 
-	if len(subs) == 0 {
+	var matched []*memSub
+	for sub := range b.subs[subject] {
+		matched = append(matched, sub)
+	}
+	for pattern, subs := range b.wildcards {
+		if !Matches(pattern, subject) {
+			continue
+		}
+		for sub := range subs {
+			// A subscription may hold several patterns that match the same
+			// subject. It receives the message once.
+			if !slices.Contains(matched, sub) {
+				matched = append(matched, sub)
+			}
+		}
+	}
+
+	if len(matched) == 0 {
 		return nil
 	}
 
@@ -64,7 +87,7 @@ func (b *MessageBroker) Publish(
 	}
 	metrics.OnPublish(subject)
 
-	for sub := range subs {
+	for _, sub := range matched {
 		select {
 		case sub.ch <- msg:
 		default: // Drop if subscriber is slow (matches NATS core semantics).
@@ -73,6 +96,41 @@ func (b *MessageBroker) Publish(
 	}
 
 	return nil
+}
+
+// Matches reports whether a NATS subject pattern matches a subject.
+//
+// Tokens are separated by ".". A "*" matches exactly one token and a ">"
+// matches every remaining token, of which there must be at least one.
+// A pattern with neither is matched literally.
+//
+// The generated code subscribes with patterns — an event with a subject field
+// and no signal to fill it in subscribes to "topic.*" — and expects a broker
+// to deliver by them. A broker that matches subjects as map keys drops those
+// messages without an error: the publish returns nil and the handler never runs.
+func Matches(pattern, subject string) bool {
+	if !strings.ContainsAny(pattern, "*>") {
+		return pattern == subject
+	}
+	for {
+		p, pRest, pMore := strings.Cut(pattern, ".")
+		s, sRest, sMore := strings.Cut(subject, ".")
+		switch {
+		case p == ">":
+			// Matches the rest, which must not be empty.
+			return s != ""
+		case p != "*" && p != s:
+			return false
+		case !pMore || !sMore:
+			return pMore == sMore
+		}
+		pattern, subject = pRest, sRest
+	}
+}
+
+// isPattern reports whether a subject carries a wildcard.
+func isPattern(subject string) bool {
+	return strings.ContainsAny(subject, "*>")
 }
 
 func (b *MessageBroker) Subscribe(
@@ -86,10 +144,14 @@ func (b *MessageBroker) Subscribe(
 
 	b.lock.Lock()
 	for _, subject := range subjects {
-		m, ok := b.subs[subject]
+		into := b.subs
+		if isPattern(subject) {
+			into = b.wildcards
+		}
+		m, ok := into[subject]
 		if !ok {
 			m = make(map[*memSub]struct{})
-			b.subs[subject] = m
+			into[subject] = m
 		}
 		m[sub] = struct{}{}
 	}
@@ -114,10 +176,14 @@ func (s *memSub) Close() {
 	b := s.broker
 	b.lock.Lock()
 	for _, subject := range s.topics {
-		if m, ok := b.subs[subject]; ok {
+		from := b.subs
+		if isPattern(subject) {
+			from = b.wildcards
+		}
+		if m, ok := from[subject]; ok {
 			delete(m, s)
 			if len(m) == 0 {
-				delete(b.subs, subject)
+				delete(from, subject)
 			}
 		}
 	}

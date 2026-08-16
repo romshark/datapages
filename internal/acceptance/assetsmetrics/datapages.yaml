@@ -1,0 +1,7 @@
+app: app
+gen:
+  package: datapagesgen
+  prometheus: true
+assets:
+  url-prefix: /static/
+  dir: ./app/static/

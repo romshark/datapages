@@ -6,6 +6,7 @@ package href
 
 import (
 	"log/slog"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -56,6 +57,14 @@ func PageLogin() string { return "/login/" }
 
 // PageMessages references /messages/{$}
 func PageMessages(query QueryPageMessages) string {
+	var (
+		chatStr string
+	)
+
+	if query.Chat != "" {
+		chatStr = url.QueryEscape(query.Chat)
+	}
+
 	anyQuery := query.Chat != ""
 
 	var b strings.Builder
@@ -72,7 +81,7 @@ func PageMessages(query QueryPageMessages) string {
 			l += len("&")
 		}
 		n++
-		l += len("chat=") + len(query.Chat)
+		l += len("chat=") + len(chatStr)
 	}
 	_ = n
 
@@ -90,7 +99,7 @@ func PageMessages(query QueryPageMessages) string {
 			b.WriteString("&")
 		}
 		b.WriteString("chat=")
-		b.WriteString(query.Chat)
+		b.WriteString(chatStr)
 	}
 
 	return b.String()
@@ -106,14 +115,15 @@ func PageMyPosts() string { return "/my-posts/" }
 
 // PagePost references /post/{slug}/{$}
 func PagePost(slug string) string {
+	s_slug := url.PathEscape(slug)
 	var b strings.Builder
 	b.Grow(
 		len("/post/") +
-			len(slug) +
+			len(s_slug) +
 			len("/"),
 	)
 	b.WriteString("/post/")
-	b.WriteString(slug)
+	b.WriteString(s_slug)
 	b.WriteString("/")
 	return b.String()
 }
@@ -121,15 +131,27 @@ func PagePost(slug string) string {
 // PageSearch references /search/{$}
 func PageSearch(query QueryPageSearch) string {
 	var (
+		tStr    string
+		cStr    string
 		pminStr string
 		pmaxStr string
+		lStr    string
 	)
 
+	if query.Term != "" {
+		tStr = url.QueryEscape(query.Term)
+	}
+	if query.Category != "" {
+		cStr = url.QueryEscape(query.Category)
+	}
 	if query.PriceMin != 0 {
 		pminStr = strconv.FormatInt(query.PriceMin, 10)
 	}
 	if query.PriceMax != 0 {
 		pmaxStr = strconv.FormatInt(query.PriceMax, 10)
+	}
+	if query.Location != "" {
+		lStr = url.QueryEscape(query.Location)
 	}
 
 	anyQuery := query.Term != "" ||
@@ -152,14 +174,14 @@ func PageSearch(query QueryPageSearch) string {
 			l += len("&")
 		}
 		n++
-		l += len("t=") + len(query.Term)
+		l += len("t=") + len(tStr)
 	}
 	if query.Category != "" {
 		if n > 0 {
 			l += len("&")
 		}
 		n++
-		l += len("c=") + len(query.Category)
+		l += len("c=") + len(cStr)
 	}
 	if query.PriceMin != 0 {
 		if n > 0 {
@@ -180,7 +202,7 @@ func PageSearch(query QueryPageSearch) string {
 			l += len("&")
 		}
 		n++
-		l += len("l=") + len(query.Location)
+		l += len("l=") + len(lStr)
 	}
 	_ = n
 
@@ -199,7 +221,7 @@ func PageSearch(query QueryPageSearch) string {
 		}
 		n++
 		b.WriteString("t=")
-		b.WriteString(query.Term)
+		b.WriteString(tStr)
 	}
 	if query.Category != "" {
 		if n > 0 {
@@ -207,7 +229,7 @@ func PageSearch(query QueryPageSearch) string {
 		}
 		n++
 		b.WriteString("c=")
-		b.WriteString(query.Category)
+		b.WriteString(cStr)
 	}
 	if query.PriceMin != 0 {
 		if n > 0 {
@@ -230,7 +252,7 @@ func PageSearch(query QueryPageSearch) string {
 			b.WriteString("&")
 		}
 		b.WriteString("l=")
-		b.WriteString(query.Location)
+		b.WriteString(lStr)
 	}
 
 	return b.String()
@@ -250,14 +272,15 @@ func PageSettings() string { return "/settings/" }
 
 // PageUser references /user/{name}/{$}
 func PageUser(name string) string {
+	s_name := url.PathEscape(name)
 	var b strings.Builder
 	b.Grow(
 		len("/user/") +
-			len(name) +
+			len(s_name) +
 			len("/"),
 	)
 	b.WriteString("/user/")
-	b.WriteString(name)
+	b.WriteString(s_name)
 	b.WriteString("/")
 	return b.String()
 }

@@ -11,6 +11,7 @@
 - Format: `mage fmt`
 - Tidy all Go modules: `mage modTidy`
 - Test (runs lint first): `mage test`
+- Coverage of the generator and of the code it generates: `mage coverage`
 - Build CLI and examples: `mage build`
 - Generate templ files: `mage genTempl`
 - Generate datapages code: `mage genDatapages`
@@ -42,6 +43,12 @@
   `PageCacheWriter`) and the HTTP error sentinels; the CLI entrypoint lives in
   `cmd/datapages/`.
 - `internal/generator/` - code generation from parsed model.
+  `internal/generator/README.md` explains how its tests work.
+- `internal/acceptance/` - each subdirectory with a `go.mod` is an application,
+  its committed generated code, and its own tests, which assert behaviour over
+  HTTP. `internal/acceptance/README.md` explains how they run and how to
+  record a defect the framework has not fixed yet. Regenerate with
+  `mage genDatapages`.
 - `internal/cmd/` - CLI command implementations.
 - `internal/tools/render-pages/` - build-time tool rendering `docs/index.html`.
 - `internal/docs-src/` - templ source and CSS for the project's docs page.

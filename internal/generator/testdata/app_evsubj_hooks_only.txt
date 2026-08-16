@@ -1,4 +1,0 @@
-
-func evSubjPageFeed() []string {
-	return []string{}
-}

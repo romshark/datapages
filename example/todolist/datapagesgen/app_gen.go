@@ -619,12 +619,18 @@ func (s *Server) httpErrIntern(
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 	case errors.Is(err, datapages.ErrNotFound):
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+	case errors.Is(err, datapages.ErrConflict):
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	// The URL is claimed by no page. Whatever the app renders for it,
+	// the response says so: a cache that stores it and a crawler that
+	// reads it both go by the status.
+	w.WriteHeader(http.StatusNotFound)
 	p := app.PageError404{
 		App: s.app,
 	}

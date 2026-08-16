@@ -1234,7 +1234,8 @@ func (s *Server) auth(
 	return sess, token, true
 }
 
-// brokerSubjectKind collapses high-cardinality subjects (per-user) into stable kinds.
+// brokerSubjectKind folds subjects that carry a value back into the event name.
+// A metric labelled with the raw subject would carry one value per subject value.
 func brokerSubjectKind(subject string) string {
 	switch {
 	case strings.HasPrefix(subject, EvSubjPrefMessagingRead):
@@ -1354,17 +1355,43 @@ func setupHandlers(s *Server) {
 		s.handlePageSettingsPOSTCloseAllSessions)
 }
 
+// httpErrFinal writes the error response without rendering PageError500.
+// The PageError500 handler uses it so it can't render itself.
+func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
+	s.logErr(msg, err)
+	switch {
+	case errors.Is(err, datapages.ErrBadRequest):
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+	case errors.Is(err, datapages.ErrForbidden):
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+	case errors.Is(err, datapages.ErrNotFound):
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+	case errors.Is(err, datapages.ErrConflict):
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+	default:
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	}
+}
+
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.logErr(msg, err)
 	if !isDSReq(r) {
+		// A page load gets the app's own 500 page, with the status that
+		// says what happened. The page's own route serves 200;
+		// this is the other way in.
+		w.WriteHeader(http.StatusInternalServerError)
 		s.handlePageError500GET(w, r)
 		return
 	}
+	// The response of a Datastar request is an event stream. Once one is
+	// open the status line is gone, which is what committed reports.
+	committed := sse != nil
 	if sse == nil {
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
+		committed = true
 	}
 	errRecover := s.app.RecoverError(err, newSSE(sse))
 	if errRecover == nil {
@@ -1377,6 +1404,11 @@ func (s *Server) httpErrIntern(
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
+	if committed {
+		// http.Error would write a status the client already received,
+		// and append its text to the event stream the client is reading.
+		return
+	}
 	switch {
 	case errors.Is(err, datapages.ErrBadRequest):
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
@@ -1384,12 +1416,18 @@ func (s *Server) httpErrIntern(
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 	case errors.Is(err, datapages.ErrNotFound):
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+	case errors.Is(err, datapages.ErrConflict):
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	// The URL is claimed by no page. Whatever the app renders for it,
+	// the response says so: a cache that stores it and a crawler that
+	// reads it both go by the status.
+	w.WriteHeader(http.StatusNotFound)
 	sess, _, ok := s.auth(w, r)
 	if !ok {
 		return
@@ -1442,6 +1480,11 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePOSTCause500(w http.ResponseWriter, r *http.Request) {
+	// CSRF protection covers every state-changing action, including
+	// the ones that read nothing of the session.
+	if _, _, ok := s.auth(w, r); !ok {
+		return
+	}
 	err := s.app.POSTCause500(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Cause500", err)
@@ -1545,7 +1588,7 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 	}
 	body, disableRefreshAfterHidden, err := p.GET(r)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageError500.GET", err)
+		s.httpErrFinal(w, "handling PageError500.GET", err)
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -1722,6 +1765,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	if j := newSession; j.UserID != "" {
 		if err := s.createSession(w, r, newSession); err != nil {
 			s.httpErrIntern(w, r, nil, "creating session", err)
+			return
 		}
 	}
 	if httpRedirect(w, r, redirect) {
@@ -2246,7 +2290,13 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 	}
 
 	if sess.UserID() == "" {
-		http.Redirect(w, r, r.URL.Path+"/anon", http.StatusSeeOther)
+		// The query carries the signals a stream subscribes by,
+		// which the anonymous route needs as much as this one.
+		target := r.URL.Path + "/anon"
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
 		return
 	}
 
@@ -2325,7 +2375,8 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
-				if msg.Subject == EvSubjPostArchived {
+				switch msg.Subject {
+				case EvSubjPostArchived:
 					var e app.EventPostArchived
 					if err := json.Unmarshal(msg.Data, &e); err != nil {
 						s.logErr("unmarshaling EventPostArchived JSON", err)
@@ -2865,7 +2916,13 @@ func (s *Server) handlePageUserGETStream(w http.ResponseWriter, r *http.Request)
 	}
 
 	if sess.UserID() == "" {
-		http.Redirect(w, r, r.URL.Path+"/anon", http.StatusSeeOther)
+		// The query carries the signals a stream subscribes by,
+		// which the anonymous route needs as much as this one.
+		target := r.URL.Path + "/anon"
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
 		return
 	}
 
@@ -2944,7 +3001,8 @@ func (s *Server) handlePageUserGETStreamAnon(w http.ResponseWriter, r *http.Requ
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
-				if msg.Subject == EvSubjPostArchived {
+				switch msg.Subject {
+				case EvSubjPostArchived:
 					var e app.EventPostArchived
 					if err := json.Unmarshal(msg.Data, &e); err != nil {
 						s.logErr("unmarshaling EventPostArchived JSON", err)

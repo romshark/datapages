@@ -100,9 +100,8 @@ func runGen(moduleDir string, cfg config.Config, stderr io.Writer, version strin
 
 	if app != nil && !cmdExists {
 		appImport := modulePath + "/" + cfg.App
-		hasSession := app.Session != nil
 		if err := generator.GenerateCmd(
-			cmdDir, appImport, genImport, genPkgName, prometheus, hasSession, 0o644,
+			cmdDir, appImport, genImport, genPkgName, prometheus, app, 0o644,
 		); err != nil {
 			return fmt.Errorf("generating cmd: %w", err)
 		}
