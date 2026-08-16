@@ -29,6 +29,10 @@ jobs:
             name: "webcomponents"
           - path: "example/sqlitesessions"
             name: "sqlitesessions"
+          - path: "example/calculator"
+            name: "calculator"
+          - path: "example/todolist"
+            name: "todolist"
     steps:
       - uses: actions/checkout@v7
         with:

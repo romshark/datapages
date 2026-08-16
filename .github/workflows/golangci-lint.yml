@@ -31,6 +31,10 @@ jobs:
             name: "example/webcomponents"
           - path: "example/sqlitesessions"
             name: "example/sqlitesessions"
+          - path: "example/calculator"
+            name: "example/calculator"
+          - path: "example/todolist"
+            name: "example/todolist"
     steps:
       - uses: actions/setup-go@v7
         with:

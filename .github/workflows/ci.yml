@@ -35,6 +35,12 @@ jobs:
           - path: "example/sqlitesessions"
             name: "sqlitesessions"
             has_templ: true
+          - path: "example/calculator"
+            name: "calculator"
+            has_templ: true
+          - path: "example/todolist"
+            name: "todolist"
+            has_templ: true
         deps: [locked, latest]
         exclude:
           # Only run latest-deps for the root module.
@@ -49,6 +55,12 @@ jobs:
             deps: latest
           - project:
               name: "sqlitesessions"
+            deps: latest
+          - project:
+              name: "calculator"
+            deps: latest
+          - project:
+              name: "todolist"
             deps: latest
     steps:
       - name: Install Go 1.26.6
