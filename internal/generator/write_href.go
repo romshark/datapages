@@ -512,7 +512,9 @@ type pathParamInfo struct {
 
 // pathParamInfos builds typed path parameter info from a path input and route variables.
 // It computes conflict-free StrVar names for non-string parameters.
-func (w *Writer) pathParamInfos(pathInput *model.Input, pathVars []string) []pathParamInfo {
+func (w *Writer) pathParamInfos(
+	pathInput *model.Input, pathVars []string,
+) []pathParamInfo {
 	infos := make([]pathParamInfo, len(pathVars))
 	if pathInput == nil {
 		for i, v := range pathVars {
@@ -538,10 +540,9 @@ func (w *Writer) pathParamInfos(pathInput *model.Input, pathVars []string) []pat
 	for _, info := range infos {
 		names[info.Name] = true
 	}
-	// Every parameter gets a local holding what goes into the URL: the
-	// string form of a number, and the escaped form of a string. A value
-	// carrying "/", "?", "&" or "#" would otherwise change what the URL
-	// addresses.
+	// Every parameter gets a local holding what goes into the URL:
+	// the string form of a number, and the escaped form of a string. A value
+	// carrying "/", "?", "&" or "#" would otherwise change what the URL addresses.
 	for i := range infos {
 		candidate := "s_" + infos[i].Name
 		for names[candidate] {

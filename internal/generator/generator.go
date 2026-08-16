@@ -35,8 +35,8 @@ type Options struct {
 // root package (e.g. "datapagesgen"). When m is nil, minimal stub files containing
 // only the package declaration are written so that IDEs can resolve the import.
 //
-// Nothing is written unless every file renders. On error the destination is
-// left as it was.
+// Nothing is written unless every file renders.
+// On error the destination is left as it was.
 // A failed run cannot replace working generated code with code that does not build.
 func Generate(
 	dstDir string, pkgName string, m *model.App, perm os.FileMode, opts Options,

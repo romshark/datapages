@@ -217,10 +217,11 @@ func routeWithTrailingSlash(route string) string {
 	return route
 }
 
-// renderType renders a Go type using types.TypeString.
-// Every package is named as the importing file names it,
-// which for the app package is what the package declares rather than
-// what its directory is called.
+// renderType renders a Go type using types.TypeString,
+// qualifying every package by the name it declares.
+//
+// That is what an unaliased import binds to, for the app package as much as
+// for any other, and a package is free to declare a name its directory does not repeat.
 func renderType(t model.Type) string {
 	return types.TypeString(t.Resolved, func(p *types.Package) string {
 		return p.Name()
@@ -318,8 +319,8 @@ type appUsage struct {
 	// errSentinels: whether any action returns an error, so the generated
 	// fallback maps the datapages error sentinels to status codes.
 	errSentinels bool
-	// datapagesSSE: whether any handler takes a datapages.SSE param (needs the
-	// datapages import and the generated sseWrapper).
+	// datapagesSSE: whether any handler takes a datapages.SSE param
+	// (needs the datapages import and the generated sseWrapper).
 	datapagesSSE bool
 	// stateRuntime: whether any page (including via embedded abstract pages)
 	// takes state *T; enables the per-page-instance state runtime.
@@ -460,16 +461,14 @@ type Writer struct {
 	prometheus bool
 	// assetsURLPrefix is the URL path prefix for static files (empty = disabled)
 	assetsURLPrefix string
-	// assetsDir is the subdirectory within
-	// the app package for static files (e.g. "static")
+	// assetsDir is the subdirectory within the app package for
+	// static files (e.g. "static")
 	assetsDir string
 	// appDir is the app source package path relative to module root (e.g. "app")
 	appDir string
 	// genImport is the full import path of the generated root package
 	genImport string
-	// appPkgPath is the import path of the app source package
-	appPkgPath string
-	// appPkgQual is the identifier that qualifies app types
+	// appPkgQual is the identifier that qualifies app types in generated code.
 	appPkgQual string
 	// usage is computed once per WriteApp
 	usage appUsage
@@ -510,7 +509,6 @@ func (w *Writer) Reset() {
 	clear(w.eventMap)
 	w.fields = w.fields[:0]
 	w.usage = appUsage{}
-	w.appPkgPath = ""
 }
 
 // buildEventMap populates w.eventMap from the given events.
@@ -836,8 +834,8 @@ func intTypeName(t types.Type) string {
 	}
 }
 
-// intTypeParseInfo returns the strconv bit-size argument and whether the type
-// is unsigned, for use with strconv.ParseInt / strconv.ParseUint.
+// intTypeParseInfo returns the strconv bit-size argument and
+// whether the type is unsigned, for use with strconv.ParseInt / strconv.ParseUint.
 // Precondition: isIntType(t) must be true.
 func intTypeParseInfo(t types.Type) (bits int, unsigned bool) {
 	switch t.Underlying().(*types.Basic).Kind() {
@@ -864,8 +862,6 @@ func intTypeParseInfo(t types.Type) (bits int, unsigned bool) {
 	}
 }
 
-// appPkgName returns the short package name from an import path.
-// "github.com/romshark/datapages/example/classifieds/app" -> "app"
 // appPkgQualifier returns the identifier that qualifies app types in generated code.
 // An unaliased import binds to the name the package declares,
 // which is free to differ from its directory.
@@ -876,6 +872,8 @@ func appPkgQualifier(m *model.App) string {
 	return appPkgName(m.PkgPath)
 }
 
+// appPkgName returns the short package name from an import path.
+// "github.com/romshark/datapages/example/classifieds/app" -> "app"
 func appPkgName(pkgPath string) string {
 	if i := strings.LastIndex(pkgPath, "/"); i >= 0 {
 		return pkgPath[i+1:]

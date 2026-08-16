@@ -23,8 +23,7 @@ var _ msgbroker.MessageBroker = (*MessageBroker)(nil)
 type MessageBroker struct {
 	chanBuffer int
 	lock       sync.RWMutex
-	// subs holds subscriptions by literal subject, which is what most of
-	// them are.
+	// subs holds subscriptions by literal subject, which is what most of them are.
 	subs map[string]map[*memSub]struct{}
 	// wildcards holds the subscriptions whose subject carries "*" or ">".
 	// A publish walks these; there are few, and only patterns are here.
@@ -102,14 +101,13 @@ func (b *MessageBroker) Publish(
 // Matches reports whether a NATS subject pattern matches a subject.
 //
 // Tokens are separated by ".". A "*" matches exactly one token and a ">"
-// matches every remaining token, of which there must be at least one. A
-// pattern with neither is matched literally.
+// matches every remaining token, of which there must be at least one.
+// A pattern with neither is matched literally.
 //
 // The generated code subscribes with patterns — an event with a subject field
 // and no signal to fill it in subscribes to "topic.*" — and expects a broker
 // to deliver by them. A broker that matches subjects as map keys drops those
-// messages without an error: the publish returns nil and the handler never
-// runs.
+// messages without an error: the publish returns nil and the handler never runs.
 func Matches(pattern, subject string) bool {
 	if !strings.ContainsAny(pattern, "*>") {
 		return pattern == subject

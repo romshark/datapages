@@ -25,7 +25,6 @@ var appStaticContent2 string
 // pkgName is the Go package name (e.g. "datapagesgen").
 func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	appPkg := appPkgQualifier(m)
-	w.appPkgPath = m.PkgPath
 	w.appPkgQual = appPkg
 	w.buildEventMap(m.Events)
 	w.usage = computeAppUsage(m)
@@ -2067,8 +2066,6 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 		m.GlobalHeadGenerator.InputSession
 	switch {
 	case h.InputSession != nil || needsToken || headNeedsSess:
-		// Each part of the session helper's result is taken only when the handler,
-		// or the app-wide head, has a use for it.
 		// A local nobody reads is a package that does not compile.
 		sessVar := "_"
 		if h.InputSession != nil || headNeedsSess {

@@ -9,10 +9,9 @@ import (
 	"github.com/romshark/datapages/internal/parser/model"
 )
 
-// GenerateCmd generates a default cmd/server main.go at dstDir.
-// appImportPath and genImportPath are the full Go import paths of the app
-// and generated packages. genPkgName is the Go package name of the generated
-// package (e.g. "datapagesgen").
+// GenerateCmd generates a default cmd/server main.go at dstDir.  appImportPath and
+// genImportPath are the full Go import paths of the app and generated packages.
+// genPkgName is the Go package name of the generated package (e.g. "datapagesgen").
 func GenerateCmd(
 	dstDir string,
 	appImportPath, genImportPath, genPkgName string,

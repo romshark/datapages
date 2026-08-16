@@ -240,9 +240,9 @@ func collectSessionType(ctx *parseCtx, errs *Errors) {
 	}
 }
 
-// noteSessionType records the datapages.Session[Data] instantiation used by a
-// handler. All handlers of an application must use the same one, since the
-// server holds a single session manager.
+// noteSessionType records the datapages.Session[Data] instantiation used by a handler.
+// All handlers of an application must use the same one,
+// since the server holds a single session manager.
 func noteSessionType(
 	ctx *parseCtx, errs *Errors, expr ast.Expr, info *types.Info,
 ) {
@@ -392,8 +392,8 @@ func extractEventSubject(typeName string, doc *ast.CommentGroup) (string, error)
 	return "", validate.ErrEventSubjectInvalid
 }
 
-// eventSubjectPos returns the position of the subject value (the quoted
-// string after "is ") in the doc comment for an event type.
+// eventSubjectPos returns the position of the subject value
+// (the quoted string after "is ") in the doc comment for an event type.
 // Falls back to fallback when the comment cannot be located.
 func eventSubjectPos(
 	doc *ast.CommentGroup, typeName string,
@@ -1071,13 +1071,17 @@ func attachHTTPHandler(
 				pagePath = pg.Route
 			}
 			errs.ErrAt(pos,
-				&ErrorActionMissingPathComm{PagePath: pagePath, Recv: recv, MethodName: fd.Name.Name})
+				&ErrorActionMissingPathComm{
+					PagePath: pagePath, Recv: recv, MethodName: fd.Name.Name,
+				})
 		} else if !valid {
 			errs.ErrAt(pos,
 				&ErrorActionInvalidPathComm{Recv: recv, MethodName: fd.Name.Name})
 		} else if pg != nil && pg.Route != "" && !actionIsUnderPage(pg.Route, r) {
 			errs.ErrAt(pos,
-				&ErrorActionPathNotUnderPage{PagePath: pg.Route, Recv: recv, MethodName: fd.Name.Name})
+				&ErrorActionPathNotUnderPage{
+					PagePath: pg.Route, Recv: recv, MethodName: fd.Name.Name,
+				})
 		}
 	} else if kind == methodkind.GETHandler && pg != nil {
 		h.Route = pg.Route
@@ -1403,7 +1407,8 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 					prevPos = ctx.pkg.Fset.Position(streamClosedOwnerPos)
 				}
 				errs.ErrAt(pos, fmt.Errorf(
-					"%w: %s inherits %s and %s which both define StreamClose (previous at %s)",
+					"%w: %s inherits %s and %s which both define StreamClose "+
+						"(previous at %s)",
 					ErrStreamHookDuplicateEmbed,
 					pg.TypeName,
 					streamClosedOwner,
@@ -2098,7 +2103,9 @@ func (e *positionedError) Unwrap() error { return e.err }
 // resolveErrorPos returns the most specific position for an error.
 // It checks positionedError first, then the ASTPos() interface,
 // falling back to the provided fset and default position.
-func resolveErrorPos(e error, fset *token.FileSet, fallback token.Position) token.Position {
+func resolveErrorPos(
+	e error, fset *token.FileSet, fallback token.Position,
+) token.Position {
 	var pe *positionedError
 	if errors.As(e, &pe) {
 		return pe.pos

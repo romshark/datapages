@@ -353,31 +353,6 @@ func (w *Writer) writeSubjectSignalsRead(signalFields []model.SubjectField) {
 	}
 }
 
-func (w *Writer) writeSessionOutputs(h *model.Handler) {
-	if h.OutputCloseSession != nil {
-		w.Raw("\tif ")
-		w.Raw(h.OutputCloseSession.Name)
-		w.Raw(" {\n")
-		w.Line(2, "if err := s.closeSession(w, r, sessToken); err != nil {")
-		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
-		w.Line(3, "return")
-		w.Line(2, "}")
-		w.Line(1, "}")
-	}
-	if h.OutputNewSession != nil {
-		w.Raw("\tif j := ")
-		w.Raw(h.OutputNewSession.Name)
-		w.Raw("; j.UserID != \"\" {\n")
-		w.Raw("\t\tif err := s.createSession(w, r, ")
-		w.Raw(h.OutputNewSession.Name)
-		w.Raw("); err != nil {\n")
-		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
-		w.Line(3, "return")
-		w.Line(2, "}")
-		w.Line(1, "}")
-	}
-}
-
 func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) {
 	h := p.GET.Handler
 
@@ -488,6 +463,36 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 
 func hasSessionInput(h *model.Handler) bool {
 	return h.InputSession != nil
+}
+
+// writeSessionOutputs emits what a handler's newSession and closeSession
+// outputs ask for. Both set a cookie, so both run before the response body.
+//
+// A handler that returns a session and never has it acted on leaves the value unused,
+// which is a generated package that does not compile.
+func (w *Writer) writeSessionOutputs(h *model.Handler) {
+	if h.OutputCloseSession != nil {
+		w.Raw("\tif ")
+		w.Raw(h.OutputCloseSession.Name)
+		w.Raw(" {\n")
+		w.Line(2, "if err := s.closeSession(w, r, sessToken); err != nil {")
+		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
+		w.Line(3, "return")
+		w.Line(2, "}")
+		w.Line(1, "}")
+	}
+	if h.OutputNewSession != nil {
+		w.Raw("\tif j := ")
+		w.Raw(h.OutputNewSession.Name)
+		w.Raw("; j.UserID != \"\" {\n")
+		w.Raw("\t\tif err := s.createSession(w, r, ")
+		w.Raw(h.OutputNewSession.Name)
+		w.Raw("); err != nil {\n")
+		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
+		w.Line(3, "return")
+		w.Line(2, "}")
+		w.Line(1, "}")
+	}
 }
 
 // writeGenericHeadCall emits: genericHead := s.app.Head(r[, sess])
@@ -981,9 +986,8 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Line(2, "}")
 	} else {
 		w.Line(2, "for msg := range ch {")
-		// One event matched by prefix makes the whole switch untagged:
-		// a tagged switch can only compare, and a pattern never equals the
-		// subject a message carries.
+		// An event matched by prefix cannot be compared against: its constant
+		// is the pattern the stream subscribed by, and a message carries the values.
 		needsPrefixMatch := false
 		for _, eh := range p.EventHandlers {
 			if ev := w.eventMap[eh.EventTypeName]; ev != nil &&
@@ -1471,9 +1475,7 @@ func (w *Writer) writePageActionHandler(
 		m.GlobalHeadGenerator.InputSession
 	switch {
 	case h.InputSession != nil || needsToken || headNeedsSess:
-		// Each part of the session helper's result is taken only when the handler,
-		// or the app-wide head, has a use for it. A local nobody
-		// reads is a package that does not compile.
+		// A local nobody reads is a package that does not compile.
 		sessVar := "_"
 		if h.InputSession != nil || headNeedsSess {
 			sessVar = "sess"
@@ -1591,30 +1593,8 @@ func (w *Writer) writeActionMethodCall(
 		w.Line(1, "}")
 	}
 
-	// Close session.
-	if h.OutputCloseSession != nil {
-		w.Raw("\tif ")
-		w.Raw(h.OutputCloseSession.Name)
-		w.Raw(" {\n")
-		w.Line(2, "if err := s.closeSession(w, r, sessToken); err != nil {")
-		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
-		w.Line(3, "return")
-		w.Line(2, "}")
-		w.Line(1, "}")
-	}
-
-	// New session.
-	if h.OutputNewSession != nil {
-		w.Raw("\tif j := ")
-		w.Raw(h.OutputNewSession.Name)
-		w.Raw("; j.UserID != \"\" {\n")
-		w.Raw("\t\tif err := s.createSession(w, r, ")
-		w.Raw(h.OutputNewSession.Name)
-		w.Raw("); err != nil {\n")
-		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
-		w.Line(2, "}")
-		w.Line(1, "}")
-	}
+	// Close and create session.
+	w.writeSessionOutputs(h)
 
 	// Redirect.
 	if h.OutputRedirect != nil {
@@ -1736,9 +1716,9 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
 	}
 }
 
-// writeParseField emits code that parses a raw string value into a typed struct field.
-// For writeReadQuery the raw variable is named "q" (from the if-guard);
-// for writeReadPath it is "v" (set before the call).
+// writeParseField emits code that parses a raw string value into a typed
+// struct field. For writeReadQuery the raw variable is named "q"
+// (from the if-guard); for writeReadPath it is "v" (set before the call).
 //
 // varName is "path" or "query" (the struct being populated).
 // label is "path parameter" or "query parameter" (for error messages).

@@ -45,7 +45,6 @@
   HTTP. `internal/acceptance/README.md` explains how they run and how to
   record a defect the framework has not fixed yet. Regenerate with
   `mage genDatapages`.
-- `modules/` - pluggable modules (csrf, msgbroker, sessmanager, sesstokgen).
 - `internal/cmd/` - CLI command implementations.
 - `internal/tools/render-pages/` - build-time tool rendering `docs/index.html`.
 - `internal/docs-src/` - templ source and CSS for the project's docs page.

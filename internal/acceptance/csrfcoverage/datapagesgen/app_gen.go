@@ -714,6 +714,7 @@ func (s *Server) handlePageIndexPOSTSignIn(
 	if j := newSession; j.UserID != "" {
 		if err := s.createSession(w, r, newSession); err != nil {
 			s.httpErrIntern(w, r, nil, "creating session", err)
+			return
 		}
 	}
 }

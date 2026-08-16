@@ -71,7 +71,7 @@ func caseNames(t *testing.T) []string {
 			continue
 		}
 		if _, err := os.Stat(filepath.Join(e.Name(), "go.mod")); err != nil {
-			continue // not a case: the shared contract package, say
+			continue // No go.mod, no case. This is client or contract.
 		}
 		names = append(names, e.Name())
 	}
@@ -249,8 +249,8 @@ func (c *coverageSet) add(t *testing.T, name, profile string) {
 //
 // "go test ./..." runs one test binary per package and each of them reports
 // every block of every package named by -coverpkg. The same block therefore
-// appears once per binary. Blocks are merged by location the way "go tool
-// cover" merges them. Counts add up and statements are counted once.
+// appears once per binary. Blocks are merged by location the way
+// "go tool cover" merges them. Counts add up and statements are counted once.
 func parseCoverProfile(profile, caseName string) ([]coverageBlock, error) {
 	b, err := os.ReadFile(profile)
 	if err != nil {

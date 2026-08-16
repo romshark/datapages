@@ -74,7 +74,7 @@ func Coverage() error {
 	generatedProfile := filepath.Join(dir, "generated.out")
 
 	if err := run(
-		"go", "test", "./generator/...", "-count=1",
+		"go", "test", "./internal/generator/...", "-count=1",
 		"-coverprofile="+generatorProfile,
 	); err != nil {
 		return err
@@ -95,7 +95,7 @@ func Coverage() error {
 		return err
 	}
 
-	fmt.Printf("\ngenerator (./generator/...):  %.1f%% of statements\n",
+	fmt.Printf("\ngenerator (./internal/generator/...):  %.1f%% of statements\n",
 		generatorPct)
 	fmt.Printf("code it generates:           %.1f%% of statements "+
 		"(run by the acceptance cases)\n", generatedPct)
