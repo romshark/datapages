@@ -6,10 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
-
-	"github.com/romshark/datapages/example/todolist/datapagesgen/httperr"
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/todolist/list"
 )
 
@@ -23,7 +20,7 @@ func (p PageIndex) GET(
 		Filter string `query:"filter" reflectsignal:"filter"`
 		Sort   string `query:"sort" reflectsignal:"sort"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	filter := query.Filter
 	if filter == "" {
 		filter = "all"
@@ -79,14 +76,14 @@ func (p PageIndex) POSTCreate(
 ) error {
 	title := strings.TrimSpace(signals.NewTitle)
 	if title == "" {
-		return fmt.Errorf("%w: title is required", httperr.BadRequest)
+		return fmt.Errorf("%w: title is required", datapages.ErrBadRequest)
 	}
 	var dueAt time.Time
 	if signals.NewDue != "" {
 		var err error
 		dueAt, err = time.Parse("2006-01-02T15:04", signals.NewDue)
 		if err != nil {
-			return fmt.Errorf("%w: invalid due date", httperr.BadRequest)
+			return fmt.Errorf("%w: invalid due date", datapages.ErrBadRequest)
 		}
 	}
 	p.App.list.AddItem(title, strings.TrimSpace(signals.NewDesc), dueAt)
@@ -96,7 +93,7 @@ func (p PageIndex) POSTCreate(
 // POSTFilter is /filter
 func (p PageIndex) POSTFilter(
 	r *http.Request,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	state *StateIndex,
 	signals struct {
 		Search string `json:"search"`
@@ -109,14 +106,14 @@ func (p PageIndex) POSTFilter(
 	state.Sort = signals.Sort
 
 	todos := p.App.list.GetItems(state.ViewParameters)
-	return sse.PatchElementTempl(todoList(todos))
+	return sse.PatchElement(todoList(todos))
 }
 
 func (p PageIndex) OnTodoUpdated(
 	event EventTodoUpdated,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	state *StateIndex,
 ) error {
 	todos := p.App.list.GetItems(state.ViewParameters)
-	return sse.PatchElementTempl(todoList(todos))
+	return sse.PatchElement(todoList(todos))
 }

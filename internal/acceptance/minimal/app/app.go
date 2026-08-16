@@ -7,7 +7,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -20,15 +21,15 @@ type EventPing struct {
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<pre id="echo">index</pre>`), nil
 }
 
 func (PageIndex) OnPing(
 	event EventPing,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(templ.Raw(
+	return sse.PatchElement(templ.Raw(
 		fmt.Sprintf(`<div id="out">ping %d</div>`, event.N),
 	))
 }

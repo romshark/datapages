@@ -9,11 +9,13 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
 
-func echo(s string) templ.Component {
+func echo(s string) datapages.Component {
 	return templ.Raw("<pre id=\"echo\">" + s + "</pre>")
 }
 
@@ -22,7 +24,7 @@ func echo(s string) templ.Component {
 // The plain shape. Its body carries the reload attribute the other pages switch off.
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("index"), nil
 }
 
@@ -32,9 +34,9 @@ func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
 type PageGone struct{ App *App }
 
 func (PageGone) GET(_ *http.Request) (
-	body templ.Component, redirect string, err error,
+	body datapages.Component, redirect datapages.Redirect, err error,
 ) {
-	return echo("never rendered"), "/", nil
+	return echo("never rendered"), datapages.Redirect{URL: "/"}, nil
 }
 
 // PageMaybe is /maybe
@@ -47,11 +49,14 @@ func (PageMaybe) GET(
 	query struct {
 		Go bool `query:"go"`
 	},
-) (body templ.Component, redirect string, redirectStatus int, err error) {
+) (body datapages.Component, redirect datapages.Redirect, err error) {
 	if query.Go {
-		return nil, "/", http.StatusMovedPermanently, nil
+		return nil, datapages.Redirect{
+			URL:    "/",
+			Status: http.StatusMovedPermanently,
+		}, nil
 	}
-	return echo("stayed"), "", 0, nil
+	return echo("stayed"), redirect, nil
 }
 
 // PageBackground is /background
@@ -60,7 +65,7 @@ func (PageMaybe) GET(
 type PageBackground struct{ App *App }
 
 func (PageBackground) GET(_ *http.Request) (
-	body templ.Component, enableBackgroundStreaming bool, err error,
+	body datapages.Component, enableBackgroundStreaming bool, err error,
 ) {
 	return echo("background"), true, nil
 }
@@ -71,7 +76,7 @@ func (PageBackground) GET(_ *http.Request) (
 type PageNoRefresh struct{ App *App }
 
 func (PageNoRefresh) GET(_ *http.Request) (
-	body templ.Component, disableRefreshAfterHidden bool, err error,
+	body datapages.Component, disableRefreshAfterHidden bool, err error,
 ) {
 	return echo("no refresh"), true, nil
 }

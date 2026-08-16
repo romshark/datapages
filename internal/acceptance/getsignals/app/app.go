@@ -5,21 +5,16 @@ package app
 import (
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/a-h/templ"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
 
 // Session is the app's session type.
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
-}
-
-// IssuedAt is fixed so that a test can predict the CSRF token of a session.
-var IssuedAt = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+type Session = datapages.Session[struct{}]
 
 // PageIndex is /
 //
@@ -33,11 +28,11 @@ func (PageIndex) GET(
 		Term string `json:"term"`
 		Page int    `json:"page"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return templ.Raw(fmt.Sprintf(
 		`<pre id="echo">term=%s page=%d user=%s</pre>`,
 		templ.EscapeString(signals.Term), signals.Page,
-		templ.EscapeString(session.UserID),
+		templ.EscapeString(session.UserID()),
 	)), nil
 }
 
@@ -48,20 +43,20 @@ func (PageIndex) GET(
 type PageEnter struct{ App *App }
 
 func (PageEnter) GET(_ *http.Request) (
-	body templ.Component,
-	newSession Session,
+	body datapages.Component,
+	newSession datapages.NewSession[struct{}],
 	err error,
 ) {
 	return templ.Raw(`<pre id="echo">entered</pre>`),
-		Session{UserID: "alice", IssuedAt: IssuedAt}, nil
+		datapages.NewSession[struct{}]{UserID: "alice"}, nil
 }
 
 // POSTLeave is /leave
 //
 // An action that ends the session the caller holds.
-func (PageIndex) POSTLeave(_ *http.Request, sessionToken string) (
+func (PageIndex) POSTLeave(_ *http.Request, session Session) (
 	closeSession bool,
 	err error,
 ) {
-	return sessionToken != "", nil
+	return session.Token() != "", nil
 }

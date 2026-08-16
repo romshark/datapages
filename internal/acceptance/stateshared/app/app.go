@@ -12,7 +12,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -42,11 +43,11 @@ func (Base) StreamOpen(
 
 func (Base) OnChanged(
 	event EventChanged,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	state *TabContext,
 ) error {
 	_ = event
-	return sse.PatchElementTempl(templ.Raw(
+	return sse.PatchElement(templ.Raw(
 		fmt.Sprintf(`<div id="state">%+v</div>`, *state),
 	))
 }
@@ -57,7 +58,7 @@ type PageIndex struct {
 	Base
 }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<pre id="echo">index</pre>`), nil
 }
 
@@ -81,7 +82,7 @@ type PageOther struct {
 	Base
 }
 
-func (PageOther) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageOther) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<pre id="echo">other</pre>`), nil
 }
 
@@ -91,7 +92,7 @@ func (PageOther) GET(_ *http.Request) (body templ.Component, err error) {
 // which is where the runtime has to say no.
 type PagePlain struct{ App *App }
 
-func (PagePlain) GET(_ *http.Request) (body templ.Component, err error) {
+func (PagePlain) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<pre id="echo">plain</pre>`), nil
 }
 

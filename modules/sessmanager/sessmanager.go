@@ -3,6 +3,7 @@ package sessmanager
 import (
 	"context"
 	"net/http"
+	"time"
 )
 
 // TokenGenerator generates cryptographically random unique session identifiers.
@@ -11,20 +12,39 @@ type TokenGenerator interface {
 	Generate() (string, error)
 }
 
-type SessionManager[Session any] interface {
-	// ReadSessionFromCookie returns the resolved session and
-	// the raw authentication token. Returns ok=false, err=nil if the cookie is absent,
-	// malformed, or the session no longer exists; the caller should remove the cookie.
-	// Returns (ok=false,err!=nil) on transient backend failures, in which case the
-	// caller should keep the cookie and fail the request.
+// Record is what a session manager stores and restores.
+// Data is the application-defined payload,
+// the rest is what datapages needs to resolve a session.
+// The token isn't part of it, it identifies the record.
+type Record[Data any] struct {
+	// UserID identifies the authenticated user. It's never empty.
+	UserID string
+
+	// IssuedAt is the time the session was created at.
+	IssuedAt time.Time
+
+	// ExpiresAt is the time the session becomes invalid at.
+	// The zero value never expires.
+	ExpiresAt time.Time
+
+	// Data is the application-defined payload of the session.
+	Data Data
+}
+
+type SessionManager[Data any] interface {
+	// ReadSessionFromCookie returns the stored record and the raw authentication token.
+	// Returns ok=false, err=nil if the cookie is absent, malformed,
+	// or the session no longer exists; the caller should remove the cookie.
+	// Returns (ok=false,err!=nil) on transient backend failures,
+	// in which case the caller should keep the cookie and fail the request.
 	ReadSessionFromCookie(c *http.Cookie) (
-		session Session, token, userID string, ok bool, err error,
+		rec Record[Data], token string, ok bool, err error,
 	)
 
 	// CreateSession creates a new session identified by a unique token.
 	// The returned token will be put into HTTP-only cookies.
 	CreateSession(
-		ctx context.Context, userID string, session Session,
+		ctx context.Context, rec Record[Data],
 	) (token string, err error)
 
 	// NotifyClosed sets up a listener that calls fn when session with token is closed.

@@ -3,7 +3,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 // PageIndex is /
@@ -15,7 +15,7 @@ type PageIndex struct {
 func (p PageIndex) GET(
 	r *http.Request,
 	session Session,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	mainCategories, err := p.App.repo.MainCategories(r.Context())
 	if err != nil {
 		return nil, err

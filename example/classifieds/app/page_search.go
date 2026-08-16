@@ -3,9 +3,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
-
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 )
 
@@ -19,7 +17,7 @@ func (p PageSearch) GET(
 	r *http.Request,
 	session Session,
 	query SearchParams,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	posts, err := p.App.repo.SearchPosts(r.Context(), domain.PostSearchParams{
 		Term:     query.Term,
 		Category: query.Category,
@@ -47,7 +45,7 @@ func (p PageSearch) GET(
 // POSTParamChange is /search/paramchange/{$}
 func (p PageSearch) POSTParamChange(
 	r *http.Request,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 	signals SearchParams,
 ) error {
@@ -74,5 +72,5 @@ func (p PageSearch) POSTParamChange(
 
 	ps := pageSearch(session, signals, categories, posts, baseData)
 	// Re-render the page (fat morph) and close stream.
-	return sse.PatchElementTempl(ps)
+	return sse.PatchElement(ps)
 }

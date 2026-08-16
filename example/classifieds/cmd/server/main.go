@@ -101,7 +101,7 @@ func withCSRFProtection(opts *[]datapagesgen.ServerOption) {
 
 func connectNATS() (
 	messageBroker *natsjs.MessageBroker,
-	sessionManager *natskv.SessionManager[app.Session],
+	sessionManager *natskv.SessionManager[struct{}],
 ) {
 	// If NATS URL is set then enable NATS message broker.
 	u := os.Getenv("NATS_URL")
@@ -123,7 +123,7 @@ func connectNATS() (
 	}
 	slog.Info("using NATS message broker")
 
-	sessionManager, err = natskv.New[app.Session](
+	sessionManager, err = natskv.New[struct{}](
 		conn,
 		sesstokgen.Generator{
 			Length: sesstokgen.DefaultLength,

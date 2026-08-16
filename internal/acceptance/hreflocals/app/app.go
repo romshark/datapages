@@ -7,6 +7,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -14,7 +16,7 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw("index"), nil
 }
 
@@ -28,7 +30,7 @@ func (PageItem) GET(
 	path struct {
 		B bool `path:"b"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return templ.Raw(fmt.Sprintf(`<pre id="echo">b=%t</pre>`, path.B)), nil
 }
 
@@ -49,7 +51,7 @@ func (PageMix) GET(
 		AnyQuery string `query:"anyQuery"`
 		Page     int    `query:"page"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return templ.Raw(fmt.Sprintf(
 		`<pre id="echo">l=%d n=%d pageStr=%s anyQuery=%s page=%d</pre>`,
 		path.L, path.N, templ.EscapeString(path.PageStr),

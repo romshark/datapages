@@ -9,19 +9,19 @@ import (
 
 	"github.com/a-h/templ"
 
-	"github.com/romshark/datapages/internal/acceptance/errors/datapagesgen/httperr"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
 
-func echo(s string) templ.Component {
+func echo(s string) datapages.Component {
 	return templ.Raw("<pre id=\"echo\">" + s + "</pre>")
 }
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("index"), nil
 }
 
@@ -30,7 +30,7 @@ func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
 // The page the app supplies for a URL no page claims.
 type PageError404 struct{ App *App }
 
-func (PageError404) GET(r *http.Request) (body templ.Component, err error) {
+func (PageError404) GET(r *http.Request) (body datapages.Component, err error) {
 	return echo("not found: " + r.URL.Path), nil
 }
 
@@ -39,7 +39,7 @@ func (PageError404) GET(r *http.Request) (body templ.Component, err error) {
 // The page the app supplies for a handler that failed.
 type PageError500 struct{ App *App }
 
-func (PageError500) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageError500) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("server error"), nil
 }
 
@@ -47,7 +47,7 @@ func (PageError500) GET(_ *http.Request) (body templ.Component, err error) {
 type PageBoom struct{ App *App }
 
 // GET fails, the way a page load fails when its data cannot be read.
-func (PageBoom) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageBoom) GET(_ *http.Request) (body datapages.Component, err error) {
 	return nil, errors.New("the page could not be built")
 }
 
@@ -58,22 +58,22 @@ func (PageBoom) POSTPlain(_ *http.Request) error {
 
 // POSTBad is /boom/bad
 func (PageBoom) POSTBad(_ *http.Request) error {
-	return httperr.BadRequest
+	return datapages.ErrBadRequest
 }
 
 // POSTForbidden is /boom/forbidden
 func (PageBoom) POSTForbidden(_ *http.Request) error {
-	return httperr.Forbidden
+	return datapages.ErrForbidden
 }
 
 // POSTNotFound is /boom/not-found
 func (PageBoom) POSTNotFound(_ *http.Request) error {
-	return httperr.NotFound
+	return datapages.ErrNotFound
 }
 
 // POSTConflict is /boom/conflict
 func (PageBoom) POSTConflict(_ *http.Request) error {
-	return httperr.Conflict
+	return datapages.ErrConflict
 }
 
 // POSTWrapped is /boom/wrapped
@@ -81,5 +81,5 @@ func (PageBoom) POSTConflict(_ *http.Request) error {
 // The form SPECIFICATION.md recommends for
 // keeping the original error while choosing the status.
 func (PageBoom) POSTWrapped(_ *http.Request) error {
-	return fmt.Errorf("%w: %w", httperr.NotFound, errors.New("no such item"))
+	return fmt.Errorf("%w: %w", datapages.ErrNotFound, errors.New("no such item"))
 }

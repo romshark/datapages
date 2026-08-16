@@ -28,9 +28,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/generator"
 	"github.com/romshark/datapages/internal/cmd/config"
-	"github.com/romshark/datapages/parser"
+	"github.com/romshark/datapages/internal/generator"
+	"github.com/romshark/datapages/internal/parser"
 )
 
 var (

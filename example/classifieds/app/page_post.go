@@ -5,9 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
-
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 )
@@ -25,8 +23,8 @@ func (p PagePost) GET(
 		Slug string `path:"slug"`
 	},
 ) (
-	body, head templ.Component,
-	redirect string,
+	body, head datapages.Component,
+	redirect datapages.Redirect,
 	err error,
 ) {
 	if strings.TrimSpace(path.Slug) == "" {
@@ -38,7 +36,7 @@ func (p PagePost) GET(
 	if err != nil {
 		if errors.Is(err, domain.ErrPostNotFound) {
 			// Redirect to 404 page.
-			return nil, nil, href.PageError404(), nil
+			return nil, nil, datapages.Redirect{URL: href.PageError404()}, nil
 		}
 	}
 
@@ -53,8 +51,8 @@ func (p PagePost) GET(
 	}
 
 	var chatID string
-	if session.UserID != "" {
-		chat, err := p.App.repo.ChatByPostID(r.Context(), session.UserID, post.ID)
+	if !session.IsGuest() {
+		chat, err := p.App.repo.ChatByPostID(r.Context(), session.UserID(), post.ID)
 		if err != nil {
 			if !errors.Is(err, domain.ErrChatNotFound) {
 				return body, head, redirect, err
@@ -71,7 +69,7 @@ func (p PagePost) GET(
 // POSTSendMessage is /post/{slug}/send-message/{$}
 func (p PagePost) POSTSendMessage(
 	r *http.Request,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 	path struct {
 		Slug string `path:"slug"`
@@ -81,7 +79,7 @@ func (p PagePost) POSTSendMessage(
 	},
 	dispatch func(EventMessagingSent) error,
 ) error {
-	if session.UserID == "" {
+	if session.IsGuest() {
 		return domain.ErrUnauthorized
 	}
 
@@ -89,38 +87,38 @@ func (p PagePost) POSTSendMessage(
 		return domain.ErrUnauthorized
 	}
 
-	_ = sse.PatchElementTempl(fragmentMessageFormSending())
+	_ = sse.PatchElement(fragmentMessageFormSending())
 
 	post, err := p.App.repo.PostBySlug(sse.Context(), path.Slug)
 	if err != nil {
 		return err
 	}
 
-	if session.UserID == post.MerchantUserName {
+	if session.UserID() == post.MerchantUserName {
 		return domain.ErrUnauthorized
 	}
 
 	chatID, err := p.App.repo.NewChat(
-		sse.Context(), post.ID, session.UserID, signals.MessageText,
+		sse.Context(), post.ID, session.UserID(), signals.MessageText,
 	)
 	if err != nil {
 		return err
 	}
 
 	if err := dispatch(EventMessagingSent{
-		SubjectUser: []string{post.MerchantUserName, session.UserID},
+		SubjectUser: []string{post.MerchantUserName, session.UserID()},
 		ChatID:      chatID,
-		UserID:      session.UserID,
+		UserID:      session.UserID(),
 	}); err != nil {
 		return err
 	}
 
-	return sse.PatchElementTempl(fragmentMessageFormLinkToChat(chatID))
+	return sse.PatchElement(fragmentMessageFormLinkToChat(chatID))
 }
 
 func (p PagePost) OnPostArchived(
 	event EventPostArchived,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
 	return sse.ExecuteScript("location.replace(location.href);")

@@ -13,11 +13,11 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/romshark/datapages/generator"
 	"github.com/romshark/datapages/internal/cmd/config"
-	datapagesparser "github.com/romshark/datapages/parser"
-	"github.com/romshark/datapages/parser/errsuggest"
-	"github.com/romshark/datapages/parser/model"
+	"github.com/romshark/datapages/internal/generator"
+	datapagesparser "github.com/romshark/datapages/internal/parser"
+	"github.com/romshark/datapages/internal/parser/errsuggest"
+	"github.com/romshark/datapages/internal/parser/model"
 )
 
 func newGenCmd(stderr io.Writer, version string) *cobra.Command {
@@ -117,9 +117,8 @@ func runGen(moduleDir string, cfg config.Config, stderr io.Writer, version strin
 
 	if !cmdExists {
 		appImport := modulePath + "/" + cfg.App
-		hasSession := app.Session != nil
 		if err := generator.GenerateCmd(
-			cmdDir, appImport, genImport, genPkgName, prometheus, hasSession, 0o644,
+			cmdDir, appImport, genImport, genPkgName, prometheus, app, 0o644,
 		); err != nil {
 			return fmt.Errorf("generating cmd: %w", err)
 		}

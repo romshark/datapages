@@ -1,0 +1,2197 @@
+package parser_test
+
+import (
+	"errors"
+	"fmt"
+	"go/ast"
+	"go/token"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/romshark/datapages/internal/parser"
+	"github.com/romshark/datapages/internal/parser/model"
+)
+
+const TypeNameComponent = "github.com/romshark/datapages.Component"
+
+func TestParse_Minimal(t *testing.T) {
+	app, err := parse(t, "minimal")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	{
+		require.NotNil(app.PageIndex)
+		p := app.PageIndex
+		require.Equal("/", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.Handler)
+		require.Equal("GET", p.GET.HTTPMethod)
+
+		require.Empty(p.Actions)
+		require.Empty(p.EventHandlers)
+	}
+	require.Contains(app.Pages, app.PageIndex)
+	require.Len(app.Pages, 1)
+
+	require.Empty(app.Events)
+	require.Nil(app.PageError404)
+	require.Nil(app.PageError500)
+	require.Nil(app.RecoverError)
+	require.Nil(app.GlobalHeadGenerator)
+}
+
+func TestParse_Basic(t *testing.T) {
+	app, err := parse(t, "basic")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	{
+		require.NotNil(app.PageIndex)
+		requireExprLineCol(t, app, app.PageIndex.Expr, "app.go", 13, 6)
+		p := app.PageIndex
+		require.Equal("/", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.Handler)
+		require.Equal("GET", p.GET.HTTPMethod)
+
+		require.Empty(p.Actions)
+		require.Empty(p.EventHandlers)
+		require.Empty(p.Embeds)
+	}
+	require.Contains(app.Pages, app.PageIndex)
+	require.Len(app.Pages, 4)
+
+	require.Empty(app.Events)
+	{
+		require.NotNil(app.GlobalHeadGenerator)
+		requireExprLineCol(t, app, app.GlobalHeadGenerator.Expr, "app.go", 25, 13)
+		require.False(app.GlobalHeadGenerator.InputSession)
+	}
+	{
+		require.NotNil(app.RecoverError)
+		requireExprLineCol(t, app, app.RecoverError, "app.go", 29, 13)
+	}
+	{
+		p := app.Pages[3]
+		require.NotNil(p)
+		require.Equal("PageIndex", p.TypeName)
+		require.Equal("/", p.Route)
+		requireExprLineCol(t, app, p.Expr, "app.go", 13, 6)
+		require.Empty(p.EventHandlers)
+		require.Empty(p.Embeds)
+		require.Empty(p.Actions)
+		require.Equal(model.PageTypeIndex, p.PageSpecialization)
+		{
+			get := p.GET
+			require.NotNil(get.Handler)
+			requireExprLineCol(t, app, get.Expr, "app.go", 15, 18)
+			require.NotNil(get.InputRequest)
+			require.Equal("r", get.InputRequest.Name)
+			require.Equal("err", get.OutputErr.Name)
+			require.Equal("error", get.OutputErr.Type.Resolved.String())
+			require.NotNil(get.OutputBody)
+			require.Equal("body", get.OutputBody.Name)
+		}
+	}
+	{
+		require.NotNil(app.PageError404)
+		requireExprLineCol(t, app, app.PageError404.Expr, "app.go", 37, 6)
+		require.Equal("/the-not-found-page", app.PageError404.Route)
+		require.NotNil(app.PageError404.GET.Handler)
+		require.Equal("r", app.PageError404.GET.InputRequest.Name)
+		require.Empty(app.PageError404.EventHandlers)
+		require.Empty(app.PageError404.Embeds)
+		require.Empty(app.PageError404.Actions)
+		require.Equal(model.PageTypeError404, app.PageError404.PageSpecialization)
+		{
+			get := app.PageError404.GET
+			require.NotNil(get.Handler)
+			requireExprLineCol(t, app, get.Expr, "app.go", 39, 21)
+			require.NotNil(get.InputRequest)
+			require.Equal("r", get.InputRequest.Name)
+			require.Equal("err", get.OutputErr.Name)
+			require.Equal("error", get.OutputErr.Type.Resolved.String())
+			require.NotNil(get.OutputBody)
+			require.Equal("body", get.OutputBody.Name)
+		}
+	}
+	{
+		require.NotNil(app.PageError500)
+		requireExprLineCol(t, app, app.PageError500.Expr, "app.go", 44, 6)
+		require.Equal("/the-internal-error-page", app.PageError500.Route)
+		require.Empty(app.PageError500.EventHandlers)
+		require.Empty(app.PageError500.Embeds)
+		require.Empty(app.PageError500.Actions)
+		require.Equal(model.PageTypeError500, app.PageError500.PageSpecialization)
+		{
+			get := app.PageError500.GET
+			require.NotNil(get.Handler)
+			requireExprLineCol(t, app, get.Expr, "app.go", 46, 21)
+			require.NotNil(get.InputRequest)
+			require.Equal("r", get.InputRequest.Name)
+			require.Equal("err", get.OutputErr.Name)
+			require.Equal("error", get.OutputErr.Type.Resolved.String())
+			require.NotNil(get.OutputBody)
+			require.Equal("body", get.OutputBody.Name)
+		}
+	}
+	{
+		p := app.Pages[2]
+		require.NotNil(p)
+		require.Equal("PageExample", p.TypeName)
+		require.Equal("/example", p.Route)
+		requireExprLineCol(t, app, p.Expr, "app.go", 51, 6)
+		require.Empty(p.EventHandlers)
+		require.Empty(p.Embeds)
+		require.Empty(p.Actions)
+		require.Zero(p.PageSpecialization)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.Handler)
+		requireExprLineCol(t, app, p.GET.Expr, "app.go", 53, 20)
+		require.NotNil(p.GET.OutputBody)
+		require.Equal("body", p.GET.OutputBody.Name)
+		require.Equal(TypeNameComponent,
+			p.GET.OutputBody.Type.Resolved.String())
+		require.NotNil(p.GET.OutputHead)
+		require.Equal("head", p.GET.OutputHead.Name)
+		require.Equal(TypeNameComponent,
+			p.GET.OutputHead.Type.Resolved.String())
+	}
+}
+
+func TestParse_Embed(t *testing.T) {
+	app, err := parse(t, "embed")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+
+	require.NotNil(app)
+
+	// PageConcrete
+	// - Own: OnC
+	// - Level2: OnB
+	// - Level1: OnA
+	{
+		p := findPage(app, "PageConcrete")
+		require.NotNil(p)
+
+		// Ensure exact set of handlers.
+		handlerNames := getHandlerNames(p.EventHandlers)
+		require.ElementsMatch([]string{"C", "B", "A"}, handlerNames)
+
+		// Should have inherited GET
+		require.NotNil(p.GET)
+		// Should have no other actions
+		require.Empty(p.Actions)
+	}
+
+	// PageOverride
+	// - Own: OnA (override)
+	// - Level1: OnA (shadowed) -> we expect only 1 handler for A
+	{
+		p := findPage(app, "PageOverride")
+		require.NotNil(p)
+
+		// Ensure exact set of handlers.
+		handlerNames := getHandlerNames(p.EventHandlers)
+		require.ElementsMatch([]string{"A"}, handlerNames)
+
+		// Should have its own GET
+		require.NotNil(p.GET)
+		require.Empty(p.Actions)
+	}
+
+	// PageOverrideEvent
+	// - Own: OnNewA (handles A)
+	// - Level1: OnA (handles A) -> shadowed by Event Type
+	{
+		p := findPage(app, "PageOverrideEvent")
+		require.NotNil(p)
+
+		// Expectation: logic says "handledEvents[h.EventTypeName]".
+		// OnNewA handles A. So OnA should NOT be imported.
+		handlerNames := getHandlerNames(p.EventHandlers)
+		require.ElementsMatch([]string{"NewA"}, handlerNames)
+
+		require.NotNil(p.GET)
+		require.Empty(p.Actions)
+	}
+
+	// PageMulti
+	// - Level1: OnA
+	// - Level3: OnD
+	{
+		p := findPage(app, "PageMulti")
+		require.NotNil(p)
+
+		handlerNames := getHandlerNames(p.EventHandlers)
+		require.ElementsMatch([]string{"A", "D"}, handlerNames)
+
+		require.NotNil(p.GET)
+		require.Empty(p.Actions)
+	}
+}
+
+func TestParse_ActionHandlerSSE(t *testing.T) {
+	app, err := parse(t, "action_handler")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	{ // Verify PageIndex - GET without SSE
+		require.NotNil(app.PageIndex)
+		p := app.PageIndex
+		require.Equal("/", p.Route)
+		require.NotNil(p.GET)
+		require.Nil(p.GET.InputSSE)
+	}
+
+	{ // Verify PageActions has action handlers with and without SSE
+		p := findPage(app, "PageActions")
+		require.NotNil(p)
+		require.Equal("/actions", p.Route)
+		require.Len(p.Actions, 9)
+		require.Len(p.EventHandlers, 1)
+
+		// Actions at same path as page
+		for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
+			a := findAction(p.Actions, "SamePath")
+			require.NotNil(a, "missing %sSamePath", method)
+			require.Equal("/actions", a.Route)
+		}
+
+		// POST without SSE
+		actionWithout := findAction(p.Actions, "WithoutSSE")
+		require.NotNil(actionWithout)
+		require.Equal("POST", actionWithout.HTTPMethod)
+		require.Nil(actionWithout.InputSSE)
+
+		// POST with SSE
+		actionWith := findAction(p.Actions, "WithSSE")
+		require.NotNil(actionWith)
+		require.Equal("POST", actionWith.HTTPMethod)
+		require.NotNil(actionWith.InputSSE)
+		require.Equal("sse", actionWith.InputSSE.Name)
+
+		// PUT with SSE
+		putWith := findActionByMethod(p.Actions, "PUT", "WithSSE")
+		require.NotNil(putWith)
+		require.Equal("PUT", putWith.HTTPMethod)
+		require.NotNil(putWith.InputSSE)
+
+		// PATCH with SSE
+		patchWith := findActionByMethod(p.Actions, "PATCH", "WithSSE")
+		require.NotNil(patchWith)
+		require.Equal("PATCH", patchWith.HTTPMethod)
+		require.NotNil(patchWith.InputSSE)
+
+		// DELETE without SSE
+		deleteWithout := findActionByMethod(p.Actions, "DELETE", "WithoutSSE")
+		require.NotNil(deleteWithout)
+		require.Equal("DELETE", deleteWithout.HTTPMethod)
+		require.Nil(deleteWithout.InputSSE)
+
+		// Event handler MUST have SSE
+		evHandler := p.EventHandlers[0]
+		require.Equal("EventFoo", evHandler.Name)
+		require.NotNil(evHandler.InputSSE)
+		require.Equal("sse", evHandler.InputSSE.Name)
+	}
+}
+
+func TestParse_StreamHooks(t *testing.T) {
+	app, err := parse(t, "stream_hooks")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+	require.NotNil(app.PageIndex)
+
+	p := app.PageIndex
+	require.NotNil(p.StreamOpen)
+	require.NotNil(p.StreamClose)
+
+	require.Equal("StreamOpen", p.StreamOpen.Name)
+	require.NotNil(p.StreamOpen.InputRequest)
+	require.NotNil(p.StreamOpen.InputStreamID)
+	require.NotNil(p.StreamOpen.InputSSE)
+	require.NotNil(p.StreamOpen.InputSession)
+	require.NotNil(p.StreamOpen.InputSignals)
+	require.NotNil(p.StreamOpen.InputDispatch)
+	require.NotNil(p.StreamOpen.OutputErr)
+
+	require.Equal("StreamClose", p.StreamClose.Name)
+	require.NotNil(p.StreamClose.InputRequest)
+	require.NotNil(p.StreamClose.InputStreamID)
+	require.Nil(p.StreamClose.InputSSE)
+	require.NotNil(p.StreamClose.InputSession)
+	require.Nil(p.StreamClose.InputSignals)
+	require.NotNil(p.StreamClose.InputDispatch)
+	require.NotNil(p.StreamClose.OutputErr)
+
+	{ // PageStreamMin: only required params (r, streamID), no error return
+		p := findPage(app, "PageStreamMin")
+		require.NotNil(p)
+
+		require.NotNil(p.StreamOpen)
+		require.Equal("StreamOpen", p.StreamOpen.Name)
+		require.NotNil(p.StreamOpen.InputRequest)
+		require.NotNil(p.StreamOpen.InputStreamID)
+		require.Nil(p.StreamOpen.InputSSE)
+		require.Nil(p.StreamOpen.InputSession)
+		require.Nil(p.StreamOpen.InputSignals)
+		require.Nil(p.StreamOpen.InputDispatch)
+		require.Nil(p.StreamOpen.OutputErr)
+
+		require.NotNil(p.StreamClose)
+		require.Equal("StreamClose", p.StreamClose.Name)
+		require.NotNil(p.StreamClose.InputRequest)
+		require.NotNil(p.StreamClose.InputStreamID)
+		require.Nil(p.StreamClose.InputSSE)
+		require.Nil(p.StreamClose.InputSession)
+		require.Nil(p.StreamClose.InputSignals)
+		require.Nil(p.StreamClose.InputDispatch)
+		require.Nil(p.StreamClose.OutputErr)
+	}
+
+	{ // PageStreamMax: all optional params directly
+		p := findPage(app, "PageStreamMax")
+		require.NotNil(p)
+
+		require.NotNil(p.StreamOpen)
+		require.Equal("StreamOpen", p.StreamOpen.Name)
+		require.NotNil(p.StreamOpen.InputRequest)
+		require.NotNil(p.StreamOpen.InputStreamID)
+		require.NotNil(p.StreamOpen.InputSSE)
+		require.NotNil(p.StreamOpen.InputSession)
+		require.NotNil(p.StreamOpen.InputSignals)
+		require.NotNil(p.StreamOpen.InputDispatch)
+		require.NotNil(p.StreamOpen.OutputErr)
+
+		require.NotNil(p.StreamClose)
+		require.Equal("StreamClose", p.StreamClose.Name)
+		require.NotNil(p.StreamClose.InputRequest)
+		require.NotNil(p.StreamClose.InputStreamID)
+		require.Nil(p.StreamClose.InputSSE)
+		require.NotNil(p.StreamClose.InputSession)
+		require.Nil(p.StreamClose.InputSignals)
+		require.NotNil(p.StreamClose.InputDispatch)
+		require.NotNil(p.StreamClose.OutputErr)
+
+		// Event handler with streamID
+		require.Len(p.EventHandlers, 1)
+		eh := p.EventHandlers[0]
+		require.Equal("Ping", eh.Name)
+		require.NotNil(eh.InputEvent)
+		require.NotNil(eh.InputSSE)
+		require.NotNil(eh.InputStreamID)
+		require.Nil(eh.InputSession)
+	}
+}
+
+func TestParse_ErrStreamHooks(t *testing.T) {
+	_, err := parse(t, "err_stream_hooks")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrSignatureMissingReq,
+		parser.ErrSignatureMissingStreamID,
+		parser.ErrStreamIDParamNotUint64,
+		parser.ErrSignatureUnsupportedInput, // StreamClose with signals
+		parser.ErrSignatureStreamHookReturnMustBeError,
+		parser.ErrSignatureUnsupportedInput, // StreamClose with sse
+		parser.ErrSignatureUnsupportedInput, // StreamOpen with path
+		parser.ErrSignatureUnsupportedInput, // StreamClose with path
+		parser.ErrSignatureUnsupportedInput, // StreamOpen with query
+		parser.ErrSignatureUnsupportedInput, // StreamClose with query
+		parser.ErrSignatureUnsupportedInput, // action handler with streamID
+		parser.ErrStreamIDParamNotUint64,    // StreamOpen with streamID int
+	)
+}
+
+func TestParse_ErrUnsupportedMethod(t *testing.T) {
+	_, err := parse(t, "err_unsupported_method")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrUnsupportedMethod, // Foo
+		parser.ErrUnsupportedMethod, // Helper
+	)
+}
+
+func TestParse_ErrActionHandlerNoName(t *testing.T) {
+	_, err := parse(t, "err_action_handler_no_name")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrActionNameMissing, // POST
+		parser.ErrActionNameMissing, // DELETE
+		parser.ErrActionNameMissing, // PATCH
+		parser.ErrActionNameMissing, // PUT
+	)
+}
+
+func TestParse_SyntaxErr(t *testing.T) {
+	require := require.New(t)
+
+	tmp := t.TempDir()
+
+	// Minimal module + package with a syntax error.
+	err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(
+		"module example.com/syntaxerr\n\ngo 1.22\n",
+	), 0o644)
+	require.NoError(err)
+
+	err = os.WriteFile(filepath.Join(tmp, "app.go"), []byte(
+		"package app\n\nfunc Broken( { }\n",
+	), 0o644)
+	require.NoError(err)
+
+	require.NoError(err)
+	app, errs := parser.Parse(tmp)
+	require.Nil(app)
+	require.NotZero(errs.Error())
+	require.GreaterOrEqual(errs.Len(), 1)
+}
+
+func TestParse_ErrMissingPageIndex(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_missing_essentials")
+	require.NotZero(err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrAppMissingTypeApp,
+		parser.ErrAppMissingPageIndex)
+}
+
+func TestParse_ErrPageIndexPath(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_page_index_path")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrPageIndexPathMustBeRoot,
+	)
+}
+
+func TestParse_ErrPages(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_pages")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrPageMissingFieldApp,
+		parser.ErrSignatureMissingReq,
+		parser.ErrPageMissingGET,
+		parser.ErrPageHasExtraFields,
+		parser.ErrSignatureMissingReq,
+		parser.ErrPageNameInvalid,
+		parser.ErrPageNameInvalid,
+		parser.ErrPageNameInvalid,
+		parser.ErrPageNameInvalid,
+		parser.ErrPageInvalidPathComm,
+		parser.ErrPageMissingPathComm,
+		parser.ErrPageMissingGET,
+		parser.ErrActionMissingPathComm,
+		parser.ErrActionNameInvalid,
+		parser.ErrActionInvalidPathComm,
+		parser.ErrActionPathNotUnderPage,
+	)
+}
+
+func TestParse_ErrGET(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_get")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrSignatureMissingReq,
+		parser.ErrSignatureMultiErrRet,
+		parser.ErrSignatureUnsupportedInput,
+		parser.ErrSignatureUnsupportedInput,
+		parser.ErrSignatureUnsupportedInput, // asd
+		parser.ErrSignatureUnsupportedInput, // asd2
+		parser.ErrSignatureGETMissingBody,
+		parser.ErrSignatureGETBodyWrongName,
+		parser.ErrSignatureGETHeadWrongName,
+	)
+}
+
+func TestParse_ErrEvents(t *testing.T) {
+	_, err := parse(t, "err_events")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventCommMissing,
+		parser.ErrEventSubjectInvalid,
+		parser.ErrSignatureEvHandMissingEvent, // OnFirstArgNotNamed: no "event" param
+		parser.ErrSignatureEvHandMissingSSE,   // OnFirstArgNotNamed: no SSE param
+		parser.ErrSignatureUnsupportedInput,   // OnFirstArgNotNamed: notEvent is unsupported
+		parser.ErrSignatureEvHandMissingEvent, // OnFirstArgWrongType: event type is int
+		parser.ErrSignatureEvHandMissingSSE,   // OnFirstArgWrongType: no SSE param
+		parser.ErrSignatureEvHandMissingSSE,   // OnFirstDuplicate: no SSE param
+		parser.ErrEvHandDuplicate,             // OnSecondDuplicate
+		parser.ErrSignatureEvHandMissingSSE,   // OnSecondDuplicate: no SSE param
+		parser.ErrEventFieldUnexported,
+		parser.ErrEventFieldUnexported,
+		parser.ErrEventFieldMissingTag,
+		parser.ErrEventFieldDuplicateTag,
+		parser.ErrEventCommInvalid,
+		parser.ErrEventCommInvalid,
+		parser.ErrEventSubjectInvalid,
+		parser.ErrEventSubjectInvalid,
+		parser.ErrEventFieldEmptyTag,   // EventEmptyJSONTag: json:"" should be rejected
+		parser.ErrEventFieldUnexported, // same-module subpkg.BadFields
+	)
+}
+
+func TestParse_ErrEventHandler(t *testing.T) {
+	_, err := parse(t, "err_event_handler")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrSignatureEvHandMissingSSE, // OnEventQux: no SSE param
+		parser.ErrSignatureUnsupportedInput, // OnEventCorge: unknownParam
+		parser.ErrSignatureEvHandMissingSSE, // OnEventQuux: no SSE param
+		parser.ErrSignatureUnsupportedInput, // OnEventQuux: notSSE is unsupported
+		parser.ErrSignatureEvHandReturnMustBeError,
+		parser.ErrSignatureEvHandReturnMustBeError,
+		parser.ErrSignatureEvHandReturnMustBeError,
+		parser.ErrSignatureEvHandReturnMustBeError,
+	)
+}
+
+func TestParse_ErrEventSubjectUserNoSession(t *testing.T) {
+	_, err := parse(t, "err_event_target_no_session")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectUserNoSession,
+	)
+}
+
+func TestParse_ErrEventSubjectAfterPayload(t *testing.T) {
+	_, err := parse(t, "err_event_subjprefix_after_payload")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectAfterPayload,
+	)
+}
+
+func TestParse_ErrEventSubjectDuplicateSignal(t *testing.T) {
+	_, err := parse(t, "err_event_subj_duplicate_signal")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectDuplicateSignal,
+	)
+}
+
+func TestParse_ErrEventSubjectSignalInvalid(t *testing.T) {
+	_, err := parse(t, "err_event_subj_signal_invalid")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectSignalInvalid,
+	)
+}
+
+func TestParse_ErrEventSubjectUserSignal(t *testing.T) {
+	_, err := parse(t, "err_event_subj_user_signal")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectUserSignal,
+	)
+}
+
+func TestParse_SignalSubjectFields(t *testing.T) {
+	app, errs := parse(t, "signal_subject")
+	require := require.New(t)
+	requireParseErrors(t, errs)
+	require.NotNil(app)
+
+	require.Len(app.Events, 5)
+	events := map[string]*model.Event{}
+	for _, e := range app.Events {
+		events[e.TypeName] = e
+	}
+
+	for name, tc := range map[string]struct {
+		subject        string
+		subjectFields  []model.SubjectField
+		isPrivate      bool
+		isSignalScoped bool
+	}{
+		"EventSingular": {
+			subject: "calc.updated",
+			subjectFields: []model.SubjectField{
+				{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id", Singular: true},
+			},
+			isPrivate:      false,
+			isSignalScoped: true,
+		},
+		"EventPluralUser": {
+			subject: "chat.sent",
+			subjectFields: []model.SubjectField{
+				{FieldName: "SubjectUser", Name: "User"},
+			},
+			isPrivate:      true,
+			isSignalScoped: false,
+		},
+		"EventSingularUser": {
+			subject: "dm.sent",
+			subjectFields: []model.SubjectField{
+				{FieldName: "SubjectUser", Name: "User", Singular: true},
+			},
+			isPrivate:      true,
+			isSignalScoped: false,
+		},
+		"EventMixed": {
+			subject: "mixed",
+			subjectFields: []model.SubjectField{
+				{FieldName: "SubjectUser", Name: "User"},
+				{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id", Singular: true},
+			},
+			isPrivate:      true,
+			isSignalScoped: true,
+		},
+		"EventThreeField": {
+			subject: "three",
+			subjectFields: []model.SubjectField{
+				{FieldName: "SubjectUser", Name: "User"},
+				{FieldName: "SubjectRoom", Name: "Room"},
+				{FieldName: "SubjectCalc", Name: "Calc", SignalName: "calc_id", Singular: true},
+			},
+			isPrivate:      true,
+			isSignalScoped: true,
+		},
+	} {
+		e, ok := events[name]
+		require.True(ok, "missing event: %s", name)
+		require.Equal(tc.subject, e.Subject, "event %s subject", name)
+		require.Equal(tc.isPrivate, e.IsPrivate(), "event %s IsPrivate", name)
+		require.Equal(tc.isSignalScoped, e.IsSignalScoped(), "event %s IsSignalScoped", name)
+		require.Equal(tc.subjectFields, e.SubjectFields, "event %s SubjectFields", name)
+	}
+}
+
+func TestParse_ErrEmbedDuplicateEventHandler(t *testing.T) {
+	_, err := parse(t, "err_embed_duplicate_event_handler")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEvHandDuplicateEmbed,
+	)
+}
+
+func TestParse_ErrEmbedConflictingGET(t *testing.T) {
+	_, err := parse(t, "err_embed_conflicting_get")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrPageConflictingGETEmbed)
+
+	pos, _ := err.Entry(0)
+	requirePosEqual(t, "app.go", 15, 2, pos)
+}
+
+func TestParse_Path(t *testing.T) {
+	app, err := parse(t, "path")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// PageIndex - no path param
+	{
+		require.NotNil(app.PageIndex)
+		require.Nil(app.PageIndex.GET.InputPath)
+	}
+
+	// PageItem - GET with path struct
+	{
+		p := findPage(app, "PageItem")
+		require.NotNil(p)
+		require.Equal("/item/{id}", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputPath)
+		require.Equal("path", p.GET.InputPath.Name)
+
+		// Action with path struct
+		require.Len(p.Actions, 1)
+		action := p.Actions[0]
+		require.Equal("POST", action.HTTPMethod)
+		require.NotNil(action.InputPath)
+		require.Equal("path", action.InputPath.Name)
+	}
+}
+
+func TestParse_ErrPath(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_path")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrPathParamNotStruct,
+		parser.ErrPathFieldUnexported,
+		parser.ErrPathFieldUnsupportedType,
+		parser.ErrPathFieldMissingTag,
+		parser.ErrPathFieldNotInRoute,
+		parser.ErrPathMissingRouteVar,
+		parser.ErrPathFieldDuplicateTag,
+	)
+}
+
+func TestParse_Query(t *testing.T) {
+	app, err := parse(t, "query")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// PageIndex - no query param
+	{
+		require.NotNil(app.PageIndex)
+		require.Nil(app.PageIndex.GET.InputQuery)
+	}
+
+	// PageSearch - GET with query struct (mixed types)
+	{
+		p := findPage(app, "PageSearch")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputQuery)
+		require.Equal("query", p.GET.InputQuery.Name)
+
+		// Action with query struct
+		require.Len(p.Actions, 1)
+		action := p.Actions[0]
+		require.Equal("POST", action.HTTPMethod)
+		require.NotNil(action.InputQuery)
+		require.Equal("query", action.InputQuery.Name)
+	}
+}
+
+func TestParse_ErrQuery(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_query")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrQueryParamNotStruct,
+		parser.ErrQueryFieldUnexported,
+		parser.ErrQueryFieldUnsupportedType,
+		parser.ErrQueryFieldMissingTag,
+		parser.ErrQueryFieldDuplicateTag,
+	)
+}
+
+func TestParse_Signals(t *testing.T) {
+	app, err := parse(t, "signals")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// PageIndex - no signals
+	{
+		require.NotNil(app.PageIndex)
+		require.Nil(app.PageIndex.GET.InputSignals)
+	}
+
+	// PageForm - action with signals
+	{
+		p := findPage(app, "PageForm")
+		require.NotNil(p)
+		require.Nil(p.GET.InputSignals)
+		require.Len(p.Actions, 1)
+		action := p.Actions[0]
+		require.NotNil(action.InputSignals)
+		require.Equal("signals", action.InputSignals.Name)
+	}
+
+	// PageSearch - GET with query + signals + reflectsignal
+	{
+		p := findPage(app, "PageSearch")
+		require.NotNil(p)
+		require.NotNil(p.GET.InputQuery)
+		require.NotNil(p.GET.InputSignals)
+		require.Equal("signals", p.GET.InputSignals.Name)
+
+		// Action with both query and signals
+		require.Len(p.Actions, 1)
+		action := p.Actions[0]
+		require.NotNil(action.InputQuery)
+		require.NotNil(action.InputSignals)
+	}
+}
+
+func TestParse_Dispatch(t *testing.T) {
+	app, err := parse(t, "dispatch")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	p := app.PageIndex
+	require.NotNil(p)
+	require.Len(p.Actions, 3)
+
+	// POSTSingle - single event dispatch
+	{
+		a := findAction(p.Actions, "Single")
+		require.NotNil(a)
+		require.Equal("POST", a.HTTPMethod)
+		require.NotNil(a.InputDispatch)
+		require.Equal("dispatch", a.InputDispatch.Name)
+		require.Equal(
+			[]string{"EventFoo"},
+			a.InputDispatch.EventTypeNames,
+		)
+	}
+
+	// POSTMulti - multi event dispatch
+	{
+		a := findAction(p.Actions, "Multi")
+		require.NotNil(a)
+		require.Equal("POST", a.HTTPMethod)
+		require.NotNil(a.InputDispatch)
+		require.Equal(
+			[]string{"EventFoo", "EventBar"},
+			a.InputDispatch.EventTypeNames,
+		)
+	}
+
+	// POSTWithSignals - signals before dispatch
+	{
+		a := findAction(p.Actions, "WithSignals")
+		require.NotNil(a)
+		require.Equal("POST", a.HTTPMethod)
+		require.NotNil(a.InputSignals)
+		require.NotNil(a.InputDispatch)
+		require.Equal(
+			[]string{"EventFoo"},
+			a.InputDispatch.EventTypeNames,
+		)
+	}
+}
+
+func TestParse_ErrDispatch(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_dispatch")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrDispatchParamNotFunc,
+		parser.ErrDispatchMustReturnError,
+		parser.ErrDispatchMustReturnError,
+		parser.ErrDispatchMustReturnError, // PageNoReturnNoParams: no return
+		parser.ErrDispatchNoParams,        // PageNoReturnNoParams: no params
+		parser.ErrDispatchNoParams,
+		parser.ErrDispatchParamNotEvent,
+	)
+}
+
+func TestParse_Session(t *testing.T) {
+	app, err := parse(t, "session")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+	require.NotNil(app.Session)
+
+	// Head with session
+	{
+		require.NotNil(app.GlobalHeadGenerator)
+		require.True(app.GlobalHeadGenerator.InputSession)
+	}
+
+	// PageIndex - no session
+	{
+		p := app.PageIndex
+		require.NotNil(p)
+		require.Nil(p.GET.InputSession)
+	}
+
+	// PageProfile - GET with session (no sessionToken)
+	{
+		p := findPage(app, "PageProfile")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputSession)
+		require.Equal("session", p.GET.InputSession.Name)
+
+		// POSTUpdate - action with session
+		update := findAction(p.Actions, "Update")
+		require.NotNil(update)
+		require.NotNil(update.InputSession)
+		require.Equal("session", update.InputSession.Name)
+		require.Nil(update.InputSSE)
+
+		// POSTNotify - action with SSE + session
+		notify := findAction(p.Actions, "Notify")
+		require.NotNil(notify)
+		require.NotNil(notify.InputSSE)
+		require.NotNil(notify.InputSession)
+
+		// Event handler with session
+		require.Len(p.EventHandlers, 1)
+		evh := p.EventHandlers[0]
+		require.NotNil(evh.InputSession)
+		require.Equal("session", evh.InputSession.Name)
+	}
+
+	// PageSettings - sessionToken + session
+	{
+		p := findPage(app, "PageSettings")
+		require.NotNil(p)
+
+		// GET with sessionToken and session.
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputSession)
+
+		// POSTClose - action with sessionToken + session
+		close := findAction(p.Actions, "Close")
+		require.NotNil(close)
+		require.NotNil(close.InputSession)
+
+		// Event handler with sessionToken + session
+		require.Len(p.EventHandlers, 1)
+		evh := p.EventHandlers[0]
+		require.NotNil(evh.InputSession)
+	}
+}
+
+func TestParse_ErrSession(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_session")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrSessionParamNotSessionType,
+	)
+}
+
+func TestParse_SessionCloseOnly(t *testing.T) {
+	app, err := parse(t, "session_close_only")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+
+	// closeSession alone puts sessions in play. No handler names the Data type,
+	// so it defaults to the empty struct.
+	require.NotNil(app.Session)
+	require.Equal("struct{}", app.Session.Data.Resolved.String())
+}
+
+func TestParse_ErrSessionTypeConflict(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_session_conflict")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrSessionTypeConflict,
+	)
+}
+
+func TestParse_Redirect(t *testing.T) {
+	app, err := parse(t, "redirect")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// PageIndex - no redirect
+	{
+		p := app.PageIndex
+		require.NotNil(p)
+		require.Nil(p.GET.OutputRedirect)
+	}
+
+	// PageLogin - GET with redirect only
+	{
+		p := findPage(app, "PageLogin")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputRedirect)
+		require.Equal("redirect", p.GET.OutputRedirect.Name)
+
+		// POSTSignIn - action with redirect
+		require.Len(p.Actions, 1)
+		a := p.Actions[0]
+		require.NotNil(a.OutputRedirect)
+		require.Equal("redirect", a.OutputRedirect.Name)
+	}
+}
+
+func TestParse_ErrRedirect(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_redirect")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRedirectNotRedirectType,
+		parser.ErrRedirectNotRedirectType,
+	)
+}
+
+func TestParse_ErrUnsupportedOutput(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_unsupported_output")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrSignatureUnsupportedOutput,
+		parser.ErrSignatureGETBodyWrongName,
+		parser.ErrSignatureUnsupportedOutput,
+	)
+}
+
+func TestParse_SessionOutput(t *testing.T) {
+	app, err := parse(t, "session_output")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// PageIndex - no newSession or closeSession
+	{
+		p := app.PageIndex
+		require.NotNil(p)
+		require.Nil(p.GET.OutputNewSession)
+		require.Nil(p.GET.OutputCloseSession)
+	}
+
+	// PageLogin - GET with newSession
+	{
+		p := findPage(app, "PageLogin")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputNewSession)
+		require.Equal("newSession", p.GET.OutputNewSession.Name)
+		require.Nil(p.GET.OutputCloseSession)
+
+		// POSTSubmit - action with newSession
+		submit := findAction(p.Actions, "Submit")
+		require.NotNil(submit)
+		require.NotNil(submit.OutputNewSession)
+		require.Equal("newSession", submit.OutputNewSession.Name)
+		require.NotNil(submit.OutputRedirect)
+		require.Nil(submit.OutputCloseSession)
+
+		// POSTSignOut - action with closeSession
+		signOut := findAction(p.Actions, "SignOut")
+		require.NotNil(signOut)
+		require.NotNil(signOut.OutputCloseSession)
+		require.Equal("closeSession", signOut.OutputCloseSession.Name)
+		require.NotNil(signOut.OutputRedirect)
+		require.Nil(signOut.OutputNewSession)
+	}
+}
+
+func TestParse_ErrSessionOutput(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_session_output")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrNewSessionNotSessionType,
+		parser.ErrCloseSessionNotBool,
+		parser.ErrNewSessionWithSSE,
+		parser.ErrCloseSessionWithSSE,
+	)
+}
+
+func TestParse_GETOptions(t *testing.T) {
+	app, err := parse(t, "get_options")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	{ // PageIndex - no GET options
+		p := app.PageIndex
+		require.NotNil(p)
+		require.Nil(p.GET.OutputEnableBgStream)
+		require.Nil(p.GET.OutputDisableRefresh)
+	}
+
+	{ // PageStream - enableBackgroundStreaming
+		p := findPage(app, "PageStream")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputEnableBgStream)
+		require.Equal("enableBackgroundStreaming", p.GET.OutputEnableBgStream.Name)
+		require.Nil(p.GET.OutputDisableRefresh)
+	}
+
+	{ // PageNoRefresh - disableRefreshAfterHidden
+		p := findPage(app, "PageNoRefresh")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.Nil(p.GET.OutputEnableBgStream)
+		require.NotNil(p.GET.OutputDisableRefresh)
+		require.Equal(
+			"disableRefreshAfterHidden",
+			p.GET.OutputDisableRefresh.Name,
+		)
+	}
+}
+
+func TestParse_ErrGETOptions(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_get_options")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEnableBgStreamNotGET,
+		parser.ErrDisableRefreshNotGET,
+		parser.ErrEnableBgStreamNotBool,
+		parser.ErrDisableRefreshNotBool,
+	)
+}
+
+func TestParse_ErrSignals(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_signals")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrSignalsParamNotStruct,
+		parser.ErrSignalsFieldUnexported,
+		parser.ErrSignalsFieldMissingTag,
+		parser.ErrSignalsFieldDuplicateTag,
+		parser.ErrQueryReflectSignalNotInSignals,
+	)
+}
+
+func TestParse_ParamOrder(t *testing.T) {
+	app, err := parse(t, "param_order")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// PageSessionFirst - session before request.
+	{
+		p := findPage(app, "PageSessionFirst")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputRequest)
+		require.NotNil(p.GET.InputSession)
+		require.Equal(
+			[]string{
+				model.InputKindSession,
+				model.InputKindRequest,
+			},
+			inputKinds(p.GET.OrderedInputs),
+		)
+	}
+
+	// PageReversed - all params in reverse order.
+	{
+		p := findPage(app, "PageReversed")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputRequest)
+		require.NotNil(p.GET.InputSession)
+		require.NotNil(p.GET.InputPath)
+		require.NotNil(p.GET.InputQuery)
+		require.Equal(
+			[]string{
+				model.InputKindQuery,
+				model.InputKindPath,
+				model.InputKindSession,
+				model.InputKindRequest,
+			},
+			inputKinds(p.GET.OrderedInputs),
+		)
+	}
+
+	// PageSignalsFirst - signals before request.
+	{
+		p := findPage(app, "PageSignalsFirst")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.InputRequest)
+		require.NotNil(p.GET.InputSignals)
+		require.Equal(
+			[]string{
+				model.InputKindSignals,
+				model.InputKindRequest,
+			},
+			inputKinds(p.GET.OrderedInputs),
+		)
+	}
+
+	// PageErrBeforeBody - error before body in output.
+	{
+		p := findPage(app, "PageErrBeforeBody")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputErr)
+		require.Equal(
+			[]string{
+				model.OutputKindErr,
+				model.OutputKindBody,
+			},
+			outputKinds(p.GET.OrderedOutputs),
+		)
+	}
+
+	// PageOutputReversed - all outputs reversed.
+	{
+		p := findPage(app, "PageOutputReversed")
+		require.NotNil(p)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputErr)
+		require.NotNil(p.GET.OutputRedirect)
+		require.Equal(
+			[]string{
+				model.OutputKindErr,
+				model.OutputKindRedirect,
+				model.OutputKindBody,
+			},
+			outputKinds(p.GET.OrderedOutputs),
+		)
+	}
+
+	// PageActionReversed - POSTSubmit with reversed params.
+	{
+		p := findPage(app, "PageActionReversed")
+		require.NotNil(p)
+		require.Len(p.Actions, 1)
+		a := p.Actions[0]
+		require.NotNil(a.InputRequest)
+		require.NotNil(a.InputSSE)
+		require.NotNil(a.InputSession)
+		require.NotNil(a.InputSignals)
+		require.Equal(
+			[]string{
+				model.InputKindSession,
+				model.InputKindSSE,
+				model.InputKindSignals,
+				model.InputKindRequest,
+			},
+			inputKinds(a.OrderedInputs),
+		)
+	}
+
+	// PageEventReversed - OnEventPing with SSE before event.
+	{
+		p := findPage(app, "PageEventReversed")
+		require.NotNil(p)
+		require.Len(p.EventHandlers, 1)
+		evh := p.EventHandlers[0]
+		require.NotNil(evh.InputEvent)
+		require.NotNil(evh.InputSSE)
+		require.NotNil(evh.InputSession)
+		require.Equal(
+			[]string{
+				model.InputKindSSE,
+				model.InputKindSession,
+				model.InputKindEvent,
+			},
+			inputKinds(evh.OrderedInputs),
+		)
+	}
+}
+
+func TestParse_ErrorPositions(t *testing.T) {
+	type wantPos struct {
+		err       error
+		file      string
+		line, col int
+	}
+
+	for name, tc := range map[string][]wantPos{
+		"err_get": {
+			{parser.ErrSignatureMissingReq, "app.go", 23, 23},
+			{parser.ErrSignatureMultiErrRet, "app.go", 32, 2},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 43, 19},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 54, 5},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 65, 19},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 65, 24},
+			{parser.ErrSignatureGETMissingBody, "app.go", 75, 24},
+			{parser.ErrSignatureGETBodyWrongName, "app.go", 84, 48},
+			{parser.ErrSignatureGETHeadWrongName, "app.go", 95, 2},
+		},
+		"err_head": {
+			{parser.ErrAppHeadMustTakeRequest, "app.go", 20, 13},
+		},
+		"err_head_return": {
+			{parser.ErrAppHeadMustReturnTemplComponent, "app.go", 20, 13},
+		},
+		"err_head_unsupported": {
+			{parser.ErrAppHeadUnsupportedInput, "app.go", 20, 13},
+		},
+		"err_recover_error_no_params": {
+			{parser.ErrAppRecoverErrorInvalidSignature, "app.go", 20, 13},
+		},
+		"err_recover_error_params": {
+			{parser.ErrAppRecoverErrorInvalidSignature, "app.go", 20, 13},
+		},
+		"err_recover_error_return": {
+			{parser.ErrAppRecoverErrorInvalidSignature, "app.go", 20, 13},
+		},
+		"err_dispatch": {
+			{parser.ErrDispatchParamNotFunc, "app.go", 34, 11},
+			{parser.ErrDispatchMustReturnError, "app.go", 47, 11},
+			{parser.ErrDispatchMustReturnError, "app.go", 60, 26},
+			{parser.ErrDispatchMustReturnError, "app.go", 73, 11},
+			{parser.ErrDispatchNoParams, "app.go", 73, 11},
+			{parser.ErrDispatchNoParams, "app.go", 86, 11},
+			{parser.ErrDispatchParamNotEvent, "app.go", 99, 16},
+		},
+		"err_events": {
+			{parser.ErrEventCommMissing, "app.go", 30, 6},
+			{parser.ErrEventSubjectInvalid, "app.go", 36, 24},
+			{parser.ErrSignatureEvHandMissingEvent, "app.go", 51, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 51, 22},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 52, 2},
+			{parser.ErrSignatureEvHandMissingEvent, "app.go", 60, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 60, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 68, 22},
+			{parser.ErrEvHandDuplicate, "app.go", 77, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 77, 22},
+			{parser.ErrEventFieldUnexported, "app.go", 87, 2},
+			{parser.ErrEventFieldUnexported, "app.go", 87, 2},
+			{parser.ErrEventFieldMissingTag, "app.go", 94, 2},
+			{parser.ErrEventFieldDuplicateTag, "app.go", 112, 2},
+			{parser.ErrEventCommInvalid, "app.go", 117, 21},
+			{parser.ErrEventCommInvalid, "app.go", 124, 4},
+			{parser.ErrEventSubjectInvalid, "app.go", 131, 23},
+			{parser.ErrEventSubjectInvalid, "app.go", 138, 24},
+			{parser.ErrEventFieldEmptyTag, "app.go", 149, 2},
+			{parser.ErrEventFieldUnexported, "subpkg.go", 7, 2},
+		},
+		"err_path": {
+			{parser.ErrPathParamNotStruct, "app.go", 25, 48},
+			{parser.ErrPathFieldUnexported, "app.go", 38, 3},
+			{parser.ErrPathFieldUnsupportedType, "app.go", 53, 3},
+			{parser.ErrPathFieldMissingTag, "app.go", 68, 3},
+			{parser.ErrPathFieldNotInRoute, "app.go", 83, 3},
+			{parser.ErrPathMissingRouteVar, "app.go", 95, 23},
+			{parser.ErrPathFieldDuplicateTag, "app.go", 108, 3},
+		},
+		"err_query": {
+			{parser.ErrQueryParamNotStruct, "app.go", 25, 49},
+			{parser.ErrQueryFieldUnexported, "app.go", 38, 3},
+			{parser.ErrQueryFieldUnsupportedType, "app.go", 53, 3},
+			{parser.ErrQueryFieldMissingTag, "app.go", 68, 3},
+			{parser.ErrQueryFieldDuplicateTag, "app.go", 84, 3},
+		},
+		"err_signals": {
+			{parser.ErrSignalsParamNotStruct, "app.go", 25, 51},
+			{parser.ErrSignalsFieldUnexported, "app.go", 38, 3},
+			{parser.ErrSignalsFieldMissingTag, "app.go", 53, 3},
+			{parser.ErrSignalsFieldDuplicateTag, "app.go", 69, 3},
+			{parser.ErrQueryReflectSignalNotInSignals, "app.go", 83, 2},
+		},
+		"err_unsupported_output": {
+			{parser.ErrSignatureUnsupportedOutput, "app.go", 27, 35},
+			{parser.ErrSignatureGETBodyWrongName, "app.go", 38, 4},
+			{parser.ErrSignatureUnsupportedOutput, "app.go", 47, 8},
+		},
+		"err_event_handler": {
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 58, 18},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 70, 2},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 80, 18},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 82, 2},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 89, 18},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 100, 3},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 109, 3},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 120, 3},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, errs := parse(t, name)
+			require.Equal(t, len(tc), errs.Len(),
+				"unexpected number of errors for %s", name)
+			for i, want := range tc {
+				pos, err := errs.Entry(i)
+				require.True(t, errors.Is(err, want.err),
+					"%s[%d]: want Is(%v) got %T: %v", name, i, want.err, err, err)
+				gotFile := filepath.Base(pos.Filename)
+				require.True(
+					t,
+					gotFile == want.file &&
+						pos.Line == want.line &&
+						pos.Column == want.col,
+					"%s[%d] (%v): want %s:%d:%d got %s:%d:%d",
+					name, i, want.err,
+					want.file, want.line, want.col,
+					gotFile, pos.Line, pos.Column,
+				)
+			}
+		})
+	}
+}
+
+func requireExprLineCol(
+	t *testing.T, app *model.App, e ast.Expr, wantFile string, wantLine, wantCol int,
+) token.Position {
+	t.Helper()
+	p := app.Fset.Position(e.Pos())
+	requirePosEqual(t, wantFile, wantLine, wantCol, p)
+	return p
+}
+
+func requirePosEqual(
+	t *testing.T, wantFile string, wantLine, wantCol int, p token.Position,
+) {
+	t.Helper()
+	fName := filepath.Base(p.Filename)
+	require.True(t, wantFile == fName && wantLine == p.Line && wantCol == p.Column,
+		"expected %s:%d:%d; received %s:%d:%d",
+		wantFile, wantLine, wantCol, fName, p.Line, p.Column)
+}
+
+func TestParse_State(t *testing.T) {
+	app, err := parse(t, "state")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	require.Len(app.States, 2)
+	require.Contains(app.States, "StateIndex")
+	require.Contains(app.States, "TabContext")
+
+	// PageIndex
+	pi := app.PageIndex
+	require.NotNil(pi)
+	require.NotNil(pi.State)
+	require.Equal("StateIndex", pi.State.TypeName)
+
+	require.NotNil(pi.StreamOpen)
+	require.NotNil(pi.StreamOpen.InputState)
+	require.Equal("StateIndex", pi.StreamOpen.InputState.StateTypeName)
+	require.Equal("state", pi.StreamOpen.InputState.Name)
+
+	require.NotNil(pi.StreamClose)
+	require.NotNil(pi.StreamClose.InputState)
+	require.Equal("StateIndex", pi.StreamClose.InputState.StateTypeName)
+
+	require.Len(pi.Actions, 1)
+	require.Equal("Increment", pi.Actions[0].Name)
+	require.NotNil(pi.Actions[0].InputState)
+	require.Equal("StateIndex", pi.Actions[0].InputState.StateTypeName)
+
+	require.Len(pi.EventHandlers, 1)
+	require.NotNil(pi.EventHandlers[0].InputState)
+	require.Equal("StateIndex", pi.EventHandlers[0].InputState.StateTypeName)
+
+	// PageBase: state comes via embedded Base.
+	pb := findPage(app, "PageBase")
+	require.NotNil(pb)
+	require.NotNil(pb.State)
+	require.Equal("TabContext", pb.State.TypeName)
+
+	// App-level action takes state.
+	require.Len(app.Actions, 1)
+	appAct := app.Actions[0]
+	require.Equal("AppLevel", appAct.Name)
+	require.NotNil(appAct.InputState)
+	require.Equal("StateIndex", appAct.InputState.StateTypeName)
+}
+
+func TestParse_StateGenericAbstract(t *testing.T) {
+	app, err := parse(t, "state_generic_abstract")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// Two distinct state types, both referenced via the same generic
+	// abstract instantiated with different type arguments.
+	require.Len(app.States, 2)
+	require.Contains(app.States, "StateA")
+	require.Contains(app.States, "StateB")
+
+	// PageA: embeds Base[StateA]; inherits StreamOpen + OnPing with
+	// their `state *S` parameter substituted to `*StateA`.
+	pa := findPage(app, "PageA")
+	require.NotNil(pa)
+	require.NotNil(pa.State)
+	require.Equal("StateA", pa.State.TypeName)
+
+	require.NotNil(pa.StreamOpen)
+	require.NotNil(pa.StreamOpen.InputState)
+	require.Equal("StateA", pa.StreamOpen.InputState.StateTypeName)
+	require.False(pa.StreamOpen.InputState.IsTypeParam,
+		"type parameter must be substituted away at the embed site")
+
+	require.Len(pa.EventHandlers, 1)
+	require.Equal("Ping", pa.EventHandlers[0].Name)
+	require.NotNil(pa.EventHandlers[0].InputState)
+	require.Equal("StateA", pa.EventHandlers[0].InputState.StateTypeName)
+	require.False(pa.EventHandlers[0].InputState.IsTypeParam)
+
+	require.Len(pa.Actions, 1)
+	require.Equal("Extend", pa.Actions[0].Name)
+	require.NotNil(pa.Actions[0].InputState)
+	require.Equal("StateA", pa.Actions[0].InputState.StateTypeName)
+
+	// PageB: same generic abstract, different instantiation. Verifies
+	// that the flattening clones the inherited handlers per embed site
+	// rather than sharing a single model.Handler.
+	pb := findPage(app, "PageB")
+	require.NotNil(pb)
+	require.NotNil(pb.State)
+	require.Equal("StateB", pb.State.TypeName)
+
+	require.NotNil(pb.StreamOpen)
+	require.NotNil(pb.StreamOpen.InputState)
+	require.Equal("StateB", pb.StreamOpen.InputState.StateTypeName)
+
+	require.Len(pb.EventHandlers, 1)
+	require.Equal("StateB", pb.EventHandlers[0].InputState.StateTypeName)
+
+	// The same Base.StreamOpen pointer must NOT appear on both pages —
+	// the substitute helper clones per embed site.
+	require.NotSame(pa.StreamOpen, pb.StreamOpen)
+	require.NotSame(pa.EventHandlers[0], pb.EventHandlers[0])
+
+	// Abstract itself records "S" as the unsubstituted type parameter.
+	// (Probe via the model: find Base by walking Pages' Embeds.)
+	var base *model.AbstractPage
+	for _, e := range pa.Embeds {
+		if e.TypeName == "Base" {
+			base = e
+			break
+		}
+	}
+	require.NotNil(base)
+	require.Equal([]string{"S"}, base.TypeParams)
+	require.NotNil(base.StreamOpen.InputState)
+	require.True(base.StreamOpen.InputState.IsTypeParam,
+		"abstract's StreamOpen must retain the type-parameter marker")
+	require.Equal("S", base.StreamOpen.InputState.StateTypeName)
+}
+
+// TestParse_StateGenericEmbedOnly covers a page whose only reference to a
+// state type is the type argument of an embedded generic abstract page.
+// The type argument alone must bind the page to that state type.
+func TestParse_StateGenericEmbedOnly(t *testing.T) {
+	app, err := parse(t, "state_generic_embed_only")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	require.Contains(app.States, "TabState")
+
+	pi := app.PageIndex
+	require.NotNil(pi)
+	require.NotNil(pi.State, "page must be stateful")
+	require.Equal("TabState", pi.State.TypeName)
+
+	require.NotNil(pi.StreamOpen)
+	require.NotNil(pi.StreamOpen.InputState)
+	require.Equal("TabState", pi.StreamOpen.InputState.StateTypeName)
+	require.False(pi.StreamOpen.InputState.IsTypeParam)
+
+	require.Len(pi.EventHandlers, 1)
+	require.NotNil(pi.EventHandlers[0].InputState)
+	require.Equal("TabState", pi.EventHandlers[0].InputState.StateTypeName)
+}
+
+// TestParse_StateGenericNested covers the two embed shapes Go allows next to
+// a plain generic embed: a chain of generic abstract pages passing the type
+// parameter down, and an abstract page embedded by pointer.
+func TestParse_StateGenericNested(t *testing.T) {
+	app, err := parse(t, "state_generic_nested")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	require.Len(app.States, 2)
+	require.Contains(app.States, "StateA")
+	require.Contains(app.States, "StateB")
+
+	byName := map[string]*model.Page{}
+	for _, pg := range app.Pages {
+		byName[pg.TypeName] = pg
+	}
+
+	// PageA reaches StateA through Mid[StateA] embedding Base[S].
+	pa := byName["PageA"]
+	require.NotNil(pa)
+	require.NotNil(pa.State, "the page two levels down from its state is stateless")
+	require.Equal("StateA", pa.State.TypeName)
+	require.NotNil(pa.StreamOpen)
+	require.Equal("StateA", pa.StreamOpen.InputState.StateTypeName)
+	require.False(pa.StreamOpen.InputState.IsTypeParam)
+
+	// PageB reaches StateB through *Base[StateB].
+	pb := byName["PageB"]
+	require.NotNil(pb)
+	require.NotNil(pb.State, "a pointer embed did not bind the state type")
+	require.Equal("StateB", pb.State.TypeName)
+	require.NotNil(pb.StreamOpen)
+	require.Equal("StateB", pb.StreamOpen.InputState.StateTypeName)
+}
+
+// TestParse_ErrStateTypeArgPointer covers Base[*StateA]. An abstract page
+// takes its state as state *S, so a pointer type argument would ask for **T.
+func TestParse_ErrStateTypeArgPointer(t *testing.T) {
+	_, err := parse(t, "err_state_type_arg_pointer")
+	requireParseErrors(t, err, parser.ErrStateTypeArgPointer)
+}
+
+func TestParse_StateSubjectID(t *testing.T) {
+	app, err := parse(t, "state_subject_id")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// Event uses SubjectStateID.
+	var ev *model.Event
+	for _, e := range app.Events {
+		if e.TypeName == "EventFiltersUpdated" {
+			ev = e
+			break
+		}
+	}
+	require.NotNil(ev)
+	require.True(ev.HasSubjectStateID())
+	require.True(ev.IsStateIDScoped())
+	require.False(ev.IsPrivate())
+	require.False(ev.IsSignalScoped())
+
+	pi := app.PageIndex
+	require.NotNil(pi)
+	require.NotNil(pi.State)
+	require.Equal("TabState", pi.State.TypeName)
+
+	// OnFiltersUpdated takes stateID in addition to state.
+	require.Len(pi.EventHandlers, 1)
+	eh := pi.EventHandlers[0]
+	require.Equal("FiltersUpdated", eh.Name)
+	require.NotNil(eh.InputState)
+	require.NotNil(eh.InputStateID)
+	require.Equal("stateID", eh.InputStateID.Name)
+
+	// POSTUpdate takes stateID alongside state and dispatches
+	// EventFiltersUpdated keyed on it.
+	require.Len(pi.Actions, 1)
+	act := pi.Actions[0]
+	require.Equal("Update", act.Name)
+	require.NotNil(act.InputState)
+	require.NotNil(act.InputStateID)
+	require.Equal("stateID", act.InputStateID.Name)
+}
+
+func TestParse_ErrStateOnGET(t *testing.T) {
+	_, err := parse(t, "err_state_on_get")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateOnGET)
+}
+
+func TestParse_ErrStateConflict(t *testing.T) {
+	_, err := parse(t, "err_state_conflict")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateConflict)
+}
+
+func TestParse_ErrStateNotPointer(t *testing.T) {
+	_, err := parse(t, "err_state_not_pointer")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateParamNotPointer)
+}
+
+func TestParse_ErrStateWithoutStream(t *testing.T) {
+	_, err := parse(t, "err_state_without_stream")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateWithoutStream)
+}
+
+// TestParse_ErrStateAppActionUnbound covers an app-level action that takes a
+// state type no page binds. Such an action can never find a slot.
+func TestParse_ErrStateAppActionUnbound(t *testing.T) {
+	_, err := parse(t, "err_state_app_action_unbound")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateAppActionUnbound)
+}
+
+// TestParse_ErrSubjectStateIDPageMixed covers a page that handles a
+// SubjectStateID event next to a private or signal-scoped one.
+// A page holds one subscription list, and these kinds name their subjects differently.
+func TestParse_ErrSubjectStateIDPageMixed(t *testing.T) {
+	_, err := parse(t, "err_state_subject_id_mixed_page")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrSubjectStateIDPageMixed)
+}
+
+func fixtureDir(t *testing.T, name string) string {
+	t.Helper()
+	return filepath.Join("testdata", name)
+}
+
+func parse(t *testing.T, fixtureName string) (*model.App, parser.Errors) {
+	t.Helper()
+	dir := fixtureDir(t, fixtureName)
+	return parser.Parse(dir)
+}
+
+func requireParseErrors(t *testing.T, got parser.Errors, want ...error) {
+	t.Helper()
+
+	// Build pretty lists.
+	wantLines := make([]string, 0, len(want))
+	for i, w := range want {
+		wantLines = append(wantLines, fmt.Sprintf("%2d) %s", i, errLabel(w)))
+	}
+
+	gotLines := make([]string, got.Len())
+	for i := 0; i < got.Len(); i++ {
+		pos, err := got.Entry(i)
+		gotLines[i] = fmt.Sprintf("%2d) %s:%d:%d %s", i,
+			pos.Filename, pos.Line, pos.Column, errLabel(err))
+	}
+
+	// Compare length first with a readable dump.
+	if got.Len() != len(want) {
+		require.Failf(
+			t, "unexpected number of errors",
+			"want=%d got=%d\n\nEXPECTED:\n%s\n\nACTUAL:\n%s\n",
+			len(want), got.Len(),
+			strings.Join(wantLines, "\n"),
+			strings.Join(gotLines, "\n"),
+		)
+		return
+	}
+
+	// Per-index mismatch report.
+	var mismatches []string
+	for i, w := range want {
+		_, a := got.Entry(i)
+		if !errors.Is(a, w) {
+			mismatches = append(mismatches, fmt.Sprintf("%2d) want Is(%s) got %s",
+				i, errLabel(w), errLabel(a)))
+		}
+	}
+	if len(mismatches) > 0 {
+		require.Failf(
+			t, "error mismatch",
+			"\nMISMATCHES:\n%s\n\nEXPECTED:\n%s\n\nACTUAL:\n%s\n",
+			strings.Join(mismatches, "\n"),
+			strings.Join(wantLines, "\n"),
+			strings.Join(gotLines, "\n"),
+		)
+	}
+}
+
+func errLabel(err error) string {
+	if err == nil {
+		return "<nil>"
+	}
+	// Keep the concrete message, but also include the type for quick scanning.
+	return fmt.Sprintf("%T: %q", err, err.Error())
+}
+
+func getHandlerNames(hs []*model.EventHandler) []string {
+	names := make([]string, 0, len(hs))
+	for _, h := range hs {
+		names = append(names, h.Name)
+	}
+	return names
+}
+
+func findPage(app *model.App, name string) *model.Page {
+	for _, p := range app.Pages {
+		if p.TypeName == name {
+			return p
+		}
+	}
+	return nil
+}
+
+func findAction(actions []*model.Handler, nameSuffix string) *model.Handler {
+	for _, a := range actions {
+		if strings.HasSuffix(a.Name, nameSuffix) {
+			return a
+		}
+	}
+	return nil
+}
+
+func findActionByMethod(actions []*model.Handler, method, nameSuffix string) *model.Handler {
+	for _, a := range actions {
+		if a.HTTPMethod == method && strings.HasSuffix(a.Name, nameSuffix) {
+			return a
+		}
+	}
+	return nil
+}
+
+func findEventHandler(
+	hs []*model.EventHandler, name string,
+) *model.EventHandler {
+	for _, h := range hs {
+		if h.Name == name {
+			return h
+		}
+	}
+	return nil
+}
+
+func inputKinds(inputs []*model.Input) []string {
+	kinds := make([]string, len(inputs))
+	for i, inp := range inputs {
+		kinds[i] = inp.Kind
+	}
+	return kinds
+}
+
+func outputKinds(outputs []*model.Output) []string {
+	kinds := make([]string, len(outputs))
+	for i, out := range outputs {
+		kinds[i] = out.Kind
+	}
+	return kinds
+}
+
+func TestParse_ExampleClassifieds(t *testing.T) {
+	app, errs := parser.Parse(
+		filepath.Join("..", "..", "example", "classifieds", "app"),
+	)
+	require := require.New(t)
+	requireParseErrors(t, errs)
+	require.NotNil(app)
+
+	// App-level features
+	require.NotNil(app.GlobalHeadGenerator)
+	require.NotNil(app.RecoverError)
+	require.NotNil(app.Session)
+
+	// App-level actions
+	require.Len(app.Actions, 2)
+	{
+		signOut := findAction(app.Actions, "SignOut")
+		require.NotNil(signOut)
+		require.Equal("POST", signOut.HTTPMethod)
+		require.Equal("/sign-out/{$}", signOut.Route)
+		require.NotNil(signOut.InputSession)
+		require.NotNil(signOut.OutputCloseSession)
+		require.NotNil(signOut.OutputRedirect)
+
+		cause500 := findAction(app.Actions, "Cause500")
+		require.NotNil(cause500)
+		require.Equal("POST", cause500.HTTPMethod)
+		require.Equal("/cause-500-internal-error/{$}", cause500.Route)
+		require.NotNil(cause500.OutputErr)
+	}
+
+	// Events (sorted alphabetically by type name)
+	require.Len(app.Events, 6)
+	events := map[string]*model.Event{}
+	for _, e := range app.Events {
+		events[e.TypeName] = e
+	}
+	for name, tc := range map[string]struct {
+		subject        string
+		hasSubjectUser bool
+	}{
+		"EventMessagingRead":           {"messaging.read", true},
+		"EventMessagingSent":           {"messaging.sent", true},
+		"EventMessagingWriting":        {"messaging.writing", true},
+		"EventMessagingWritingStopped": {"messaging.writing-stopped", true},
+		"EventPostArchived":            {"posts.archived", false},
+		"EventSessionClosed":           {"sessions.closed", true},
+	} {
+		e, ok := events[name]
+		require.True(ok, "missing event: %s", name)
+		require.Equal(tc.subject, e.Subject, "event %s subject", name)
+		require.Equal(tc.hasSubjectUser, e.HasSubjectUser(),
+			"event %s HasSubjectUser", name)
+	}
+
+	// Pages (sorted alphabetically)
+	require.Len(app.Pages, 10)
+
+	// Special pages
+	require.NotNil(app.PageIndex)
+	require.NotNil(app.PageError404)
+	require.NotNil(app.PageError500)
+
+	// PageError404
+	{
+		p := app.PageError404
+		require.Equal("PageError404", p.TypeName)
+		require.Equal("/not-found", p.Route)
+		require.Equal(model.PageTypeError404, p.PageSpecialization)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.Equal("body", p.GET.OutputBody.Name)
+		require.NotNil(p.GET.InputSession)
+		require.Equal("session", p.GET.InputSession.Name)
+		require.Empty(p.Actions)
+		// Inherits OnMessagingSent, OnMessagingRead from Base
+		require.Len(p.EventHandlers, 2)
+	}
+
+	// PageError500
+	{
+		p := app.PageError500
+		require.Equal("PageError500", p.TypeName)
+		require.Equal("/whoops", p.Route)
+		require.Equal(model.PageTypeError500, p.PageSpecialization)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputDisableRefresh)
+		require.Equal("disableRefreshAfterHidden", p.GET.OutputDisableRefresh.Name)
+		require.Empty(p.Actions)
+		require.Empty(p.EventHandlers) // No Base embed
+	}
+
+	// PageIndex
+	{
+		p := app.PageIndex
+		require.Equal("PageIndex", p.TypeName)
+		require.Equal("/", p.Route)
+		require.Equal(model.PageTypeIndex, p.PageSpecialization)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.InputSession)
+		require.Empty(p.Actions)
+		// Inherits OnMessagingSent, OnMessagingRead from Base
+		require.Len(p.EventHandlers, 2)
+	}
+
+	// PageLogin (no Base embed)
+	{
+		p := findPage(app, "PageLogin")
+		require.NotNil(p)
+		require.Equal("/login", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputRedirect)
+		require.NotNil(p.GET.OutputDisableRefresh)
+		require.NotNil(p.GET.InputSession)
+		require.Len(p.Actions, 1)
+		{
+			a := p.Actions[0]
+			require.Equal("POST", a.HTTPMethod)
+			require.Equal("Submit", a.Name)
+			require.Equal("/login/submit", a.Route)
+			require.NotNil(a.InputSession)
+			require.NotNil(a.InputSignals)
+			require.NotNil(a.OutputRedirect)
+			require.NotNil(a.OutputNewSession)
+		}
+		require.Empty(p.EventHandlers)
+	}
+
+	// PageMessages
+	{
+		p := findPage(app, "PageMessages")
+		require.NotNil(p)
+		require.Equal("/messages", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputRedirect)
+		require.NotNil(p.GET.OutputEnableBgStream)
+		require.Equal("enableBackgroundStreaming", p.GET.OutputEnableBgStream.Name)
+		require.NotNil(p.GET.InputQuery)
+		require.Equal("query", p.GET.InputQuery.Name)
+
+		// 4 actions: POSTRead, POSTWriting,
+		// POSTWritingStopped, POSTSendMessage
+		require.Len(p.Actions, 4)
+
+		read := findAction(p.Actions, "Read")
+		require.NotNil(read)
+		require.Equal("POST", read.HTTPMethod)
+		require.Equal("/messages/read/{$}", read.Route)
+		require.NotNil(read.InputSignals)
+		require.NotNil(read.InputQuery)
+		require.NotNil(read.InputDispatch)
+		require.Equal(
+			[]string{"EventMessagingRead"},
+			read.InputDispatch.EventTypeNames,
+		)
+
+		writing := findAction(p.Actions, "Writing")
+		require.NotNil(writing)
+		require.Equal("/messages/writing/{$}", writing.Route)
+		require.NotNil(writing.InputDispatch)
+		require.Equal(
+			[]string{"EventMessagingWriting"},
+			writing.InputDispatch.EventTypeNames,
+		)
+
+		stopped := findAction(
+			p.Actions, "WritingStopped",
+		)
+		require.NotNil(stopped)
+		require.Equal("/messages/writing-stopped/{$}", stopped.Route)
+		require.NotNil(stopped.InputDispatch)
+		require.Equal(
+			[]string{"EventMessagingWritingStopped"},
+			stopped.InputDispatch.EventTypeNames,
+		)
+
+		send := findAction(p.Actions, "SendMessage")
+		require.NotNil(send)
+		require.Equal("/messages/sendmessage/{$}", send.Route)
+		require.NotNil(send.InputDispatch)
+		require.Equal(
+			[]string{
+				"EventMessagingWritingStopped",
+				"EventMessagingSent",
+			},
+			send.InputDispatch.EventTypeNames,
+		)
+
+		// 4 own event handlers
+		// (override Base's OnMessagingSent, OnMessagingRead)
+		require.Len(p.EventHandlers, 4)
+		require.NotNil(findEventHandler(p.EventHandlers, "MessagingSent"))
+		require.NotNil(findEventHandler(p.EventHandlers, "MessagingRead"))
+		require.NotNil(findEventHandler(p.EventHandlers, "MessagingWriting"))
+		require.NotNil(findEventHandler(p.EventHandlers, "MessagingWritingStopped"))
+	}
+
+	// PageMyPosts
+	{
+		p := findPage(app, "PageMyPosts")
+		require.NotNil(p)
+		require.Equal("/my-posts", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputHead)
+		require.NotNil(p.GET.OutputRedirect)
+		require.Empty(p.Actions)
+		// Inherits OnMessagingSent, OnMessagingRead from Base
+		require.Len(p.EventHandlers, 2)
+	}
+
+	// PagePost
+	{
+		p := findPage(app, "PagePost")
+		require.NotNil(p)
+		require.Equal("/post/{slug}", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputHead)
+		require.NotNil(p.GET.OutputRedirect)
+		require.NotNil(p.GET.InputPath)
+		require.Equal("path", p.GET.InputPath.Name)
+
+		require.Len(p.Actions, 1)
+		send := p.Actions[0]
+		require.Equal("POST", send.HTTPMethod)
+		require.Equal("SendMessage", send.Name)
+		require.Equal("/post/{slug}/send-message/{$}", send.Route)
+		require.NotNil(send.InputSSE)
+		require.NotNil(send.InputPath)
+		require.NotNil(send.InputSignals)
+		require.NotNil(send.InputDispatch)
+		require.Equal([]string{"EventMessagingSent"}, send.InputDispatch.EventTypeNames)
+
+		// Own OnPostArchived + inherited
+		// OnMessagingSent, OnMessagingRead from Base
+		require.Len(p.EventHandlers, 3)
+		require.NotNil(findEventHandler(p.EventHandlers, "PostArchived"))
+	}
+
+	// PageSearch
+	{
+		p := findPage(app, "PageSearch")
+		require.NotNil(p)
+		require.Equal("/search", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.Equal("body", p.GET.OutputBody.Name)
+		require.NotNil(p.GET.InputQuery)
+
+		require.Len(p.Actions, 1)
+		a := p.Actions[0]
+		require.Equal("POST", a.HTTPMethod)
+		require.Equal("ParamChange", a.Name)
+		require.Equal("/search/paramchange/{$}", a.Route)
+		require.NotNil(a.InputSSE)
+		require.NotNil(a.InputSignals)
+
+		// Inherits OnMessagingSent, OnMessagingRead from Base
+		require.Len(p.EventHandlers, 2)
+	}
+
+	// PageSettings
+	{
+		p := findPage(app, "PageSettings")
+		require.NotNil(p)
+		require.Equal("/settings", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputRedirect)
+
+		// 3 actions: POSTSave, POSTCloseSession,
+		// POSTCloseAllSessions
+		require.Len(p.Actions, 3)
+
+		save := findAction(p.Actions, "Save")
+		require.NotNil(save)
+		require.Equal("/settings/save/{$}", save.Route)
+		require.NotNil(save.InputSSE)
+		require.NotNil(save.InputSignals)
+
+		closeSess := findAction(p.Actions, "CloseSession")
+		require.NotNil(closeSess)
+		require.Equal("/settings/close-session/{token}/{$}", closeSess.Route)
+		require.NotNil(closeSess.InputPath)
+		require.NotNil(closeSess.InputDispatch)
+		require.NotNil(closeSess.OutputCloseSession)
+
+		closeAll := findAction(
+			p.Actions, "CloseAllSessions",
+		)
+		require.NotNil(closeAll)
+		require.Equal("/settings/close-all-sessions/{$}", closeAll.Route)
+		require.NotNil(closeAll.InputDispatch)
+
+		// Own OnSessionClosed + inherited
+		// OnMessagingSent, OnMessagingRead from Base
+		require.Len(p.EventHandlers, 3)
+		require.NotNil(findEventHandler(p.EventHandlers, "SessionClosed"))
+	}
+
+	// PageUser
+	{
+		p := findPage(app, "PageUser")
+		require.NotNil(p)
+		require.Equal("/user/{name}/{$}", p.Route)
+		require.NotNil(p.GET)
+		require.NotNil(p.GET.OutputBody)
+		require.NotNil(p.GET.OutputHead)
+		require.NotNil(p.GET.OutputRedirect)
+		require.NotNil(p.GET.InputPath)
+		require.Equal("path", p.GET.InputPath.Name)
+		require.Empty(p.Actions)
+
+		// Own OnPostArchived + inherited
+		// OnMessagingSent, OnMessagingRead from Base
+		require.Len(p.EventHandlers, 3)
+		require.NotNil(findEventHandler(p.EventHandlers, "PostArchived"))
+	}
+}

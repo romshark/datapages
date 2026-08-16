@@ -110,8 +110,8 @@ func fragmentNavbar(session Session, searchTerm string, baseData baseData) templ
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if session.UserID != "" {
-			templ_7745c5c3_Err = menuBase("navbar-menu", session.UserID, baseData.UserAvatarURL).Render(ctx, templ_7745c5c3_Buffer)
+		if !session.IsGuest() {
+			templ_7745c5c3_Err = menuBase("navbar-menu", session.UserID(), baseData.UserAvatarURL).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -811,9 +811,9 @@ func pageMessages(
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var35 string
-			templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%q", session.UserID))
+			templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprintf("%q", session.UserID()))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 281, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 281, Col: 66}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var35)
 			if templ_7745c5c3_Err != nil {
@@ -948,7 +948,7 @@ func pageMessages(
 }
 
 func pageSettings(
-	session Session, sessions map[string]Session, user domain.User, baseData baseData,
+	session Session, sessions map[string]SessionRecord, user domain.User, baseData baseData,
 ) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -1715,12 +1715,12 @@ func pagePost(
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-			} else if session.UserID != "" && post.MerchantUserName != session.UserID {
+			} else if !session.IsGuest() && post.MerchantUserName != session.UserID() {
 				templ_7745c5c3_Err = fragmentMessageForm(post.Slug).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-			} else if session.UserID == "" {
+			} else if session.IsGuest() {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 114, "<a href=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -2417,7 +2417,7 @@ func fragmentMessage(session Session, msg domain.Message) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		classes := templ.CSSClasses{"message"}
-		fromCounterpart := msg.SenderUserName != session.UserID
+		fromCounterpart := msg.SenderUserName != session.UserID()
 		if fromCounterpart {
 			classes = append(classes, "from-counterpart")
 		}

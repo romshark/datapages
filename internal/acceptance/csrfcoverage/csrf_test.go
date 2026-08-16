@@ -31,7 +31,7 @@ func TestCSRFCoversEveryAction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("building CSRF token manager: %v", err)
 	}
-	sessions := sessinmem.New[app.Session](
+	sessions := sessinmem.New[struct{}](
 		sesstokgen.Generator{Length: sesstokgen.DefaultLength},
 	)
 

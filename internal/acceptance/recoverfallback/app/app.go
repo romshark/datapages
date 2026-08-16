@@ -7,9 +7,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 
-	"github.com/romshark/datapages/internal/acceptance/recoverfallback/datapagesgen/httperr"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -18,7 +17,7 @@ type App struct{}
 // own error UI is unavailable.
 func (a *App) RecoverError(
 	_ error,
-	_ *datastar.ServerSentEventGenerator,
+	_ datapages.SSE,
 ) error {
 	return errors.New("the error UI is unavailable")
 }
@@ -26,7 +25,7 @@ func (a *App) RecoverError(
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw("index"), nil
 }
 
@@ -36,11 +35,11 @@ func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
 // A failed Datastar request goes to RecoverError instead.
 type PageError500 struct{ App *App }
 
-func (PageError500) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageError500) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw("server error"), nil
 }
 
 // POSTBad is /bad
 func (PageIndex) POSTBad(_ *http.Request) error {
-	return httperr.BadRequest
+	return datapages.ErrBadRequest
 }

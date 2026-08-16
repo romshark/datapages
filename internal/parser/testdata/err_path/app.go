@@ -1,0 +1,113 @@
+//nolint:all
+
+package app
+
+import (
+	"net/http"
+
+	"github.com/romshark/datapages"
+)
+
+type App struct{}
+
+// PageIndex is /
+type PageIndex struct{ App *App }
+
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
+	return body, err
+}
+
+// PageNotStruct is /not-struct/{id}
+type PageNotStruct struct{ App *App }
+
+/* ErrPathParamNotStruct */
+
+func (PageNotStruct) GET(r *http.Request, path int) (body datapages.Component, err error) {
+	_ = path
+	return body, err
+}
+
+// PageUnexported is /unexported/{id}
+type PageUnexported struct{ App *App }
+
+/* ErrPathFieldUnexported */
+
+func (PageUnexported) GET(
+	r *http.Request,
+	path struct {
+		id string `path:"id"`
+	},
+) (body datapages.Component, err error) {
+	_ = path
+	return body, err
+}
+
+// PageUnsupportedType is /unsupported-type/{id}
+type PageUnsupportedType struct{ App *App }
+
+/* ErrPathFieldUnsupportedType */
+
+func (PageUnsupportedType) GET(
+	r *http.Request,
+	path struct {
+		ID []byte `path:"id"`
+	},
+) (body datapages.Component, err error) {
+	_ = path
+	return body, err
+}
+
+// PageMissingTag is /missing-tag/{id}
+type PageMissingTag struct{ App *App }
+
+/* ErrPathFieldMissingTag */
+
+func (PageMissingTag) GET(
+	r *http.Request,
+	path struct {
+		ID string
+	},
+) (body datapages.Component, err error) {
+	_ = path
+	return body, err
+}
+
+// PageNotInRoute is /not-in-route
+type PageNotInRoute struct{ App *App }
+
+/* ErrPathFieldNotInRoute */
+
+func (PageNotInRoute) GET(
+	r *http.Request,
+	path struct {
+		ID string `path:"id"`
+	},
+) (body datapages.Component, err error) {
+	_ = path
+	return body, err
+}
+
+// PageMissingVar is /missing-var/{id}
+type PageMissingVar struct{ App *App }
+
+/* ErrPathMissingRouteVar */
+
+func (PageMissingVar) GET(r *http.Request) (body datapages.Component, err error) {
+	return body, err
+}
+
+// PageDuplicateTag is /duplicate-tag/{id}
+type PageDuplicateTag struct{ App *App }
+
+/* ErrPathFieldDuplicateTag */
+
+func (PageDuplicateTag) GET(
+	r *http.Request,
+	path struct {
+		ID    string `path:"id"`
+		Other string `path:"id"`
+	},
+) (body datapages.Component, err error) {
+	_ = path
+	return body, err
+}

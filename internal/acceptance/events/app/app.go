@@ -13,7 +13,8 @@ import (
 	"sync"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct {
@@ -33,7 +34,7 @@ func (a *App) entries() string {
 	return strings.Join(a.log, " ")
 }
 
-func echo(s string) templ.Component {
+func echo(s string) datapages.Component {
 	return templ.Raw("<pre id=\"echo\">" + s + "</pre>")
 }
 
@@ -67,7 +68,7 @@ type EventRoomBroadcast struct {
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("index"), nil
 }
 
@@ -91,11 +92,11 @@ func (p PageIndex) StreamClose(_ *http.Request, streamID uint64) error {
 
 func (p PageIndex) OnTick(
 	event EventTick,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	streamID uint64,
 ) error {
 	p.App.record("tick(%d,%d)", streamID, event.N)
-	return sse.PatchElementTempl(
+	return sse.PatchElement(
 		templ.Raw(fmt.Sprintf(`<div id="out">tick %d</div>`, event.N)),
 	)
 }
@@ -114,7 +115,7 @@ func (p PageIndex) POSTTick(
 // PageLog is /log
 type PageLog struct{ App *App }
 
-func (p PageLog) GET(_ *http.Request) (body templ.Component, err error) {
+func (p PageLog) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo(p.App.entries()), nil
 }
 
@@ -124,9 +125,9 @@ type Notifier struct{ App *App }
 
 func (n Notifier) OnTick(
 	event EventTick,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(
+	return sse.PatchElement(
 		templ.Raw(fmt.Sprintf(`<div id="shared">shared %d</div>`, event.N)),
 	)
 }
@@ -139,31 +140,31 @@ type PageOther struct {
 	Notifier
 }
 
-func (PageOther) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageOther) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("other"), nil
 }
 
 // PageRoom is /room
 type PageRoom struct{ App *App }
 
-func (PageRoom) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageRoom) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("room"), nil
 }
 
 func (p PageRoom) OnRoomSaid(
 	event EventRoomSaid,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(
+	return sse.PatchElement(
 		templ.Raw(`<div id="said">` + event.Text + `</div>`),
 	)
 }
 
 func (p PageRoom) OnRoomBroadcast(
 	event EventRoomBroadcast,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(
+	return sse.PatchElement(
 		templ.Raw(`<div id="broadcast">` + event.Text + `</div>`),
 	)
 }

@@ -23,7 +23,7 @@ func newClient(t *testing.T) *client.Client {
 	key := sha256.Sum256([]byte("acceptance-csrf"))
 	tm, err := csrfhmac.New(key[:])
 	require.NoError(t, err, "building CSRF token manager")
-	sessions := sessinmem.New[app.Session](
+	sessions := sessinmem.New[struct{}](
 		sesstokgen.Generator{Length: sesstokgen.DefaultLength},
 	)
 	stateKey := sha256.Sum256([]byte("acceptance-state"))

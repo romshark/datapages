@@ -10,25 +10,19 @@ package app
 import (
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
 
-// Session is the app's session type.
-// Its presence is what gives the pages below a second, anonymous stream route.
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
-}
+// Session is the app's session type. A handler that takes one is what
+// gives the pages below a second, anonymous stream route.
+type Session = datapages.Session[struct{}]
 
-// IssuedAt is fixed so that a test can predict the CSRF token of a session.
-var IssuedAt = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-
-func (a *App) Head(_ *http.Request) templ.Component {
+func (a *App) Head(_ *http.Request) datapages.Component {
 	return templ.Raw(`<title>anonstreams</title>`)
 }
 
@@ -62,8 +56,14 @@ type EventTicked struct {
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
-	return templ.Raw(`<div id="out">index</div>`), nil
+func (PageIndex) GET(_ *http.Request, session Session) (
+	body datapages.Component, err error,
+) {
+	if session.IsGuest() {
+		return templ.Raw(`<div id="out">index</div>`), nil
+	}
+	return templ.Raw(`<div id="out">index ` +
+		templ.EscapeString(session.UserID()) + `</div>`), nil
 }
 
 // PageRooms is /rooms
@@ -72,15 +72,15 @@ func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
 // gets a stream of its own that subscribes by the room signal.
 type PageRooms struct{ App *App }
 
-func (PageRooms) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageRooms) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<div id="out">rooms</div>`), nil
 }
 
 func (p PageRooms) OnRoomPosted(
 	event EventRoomPosted,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(templ.Raw(fmt.Sprintf(
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
 		`<div id="out">room %s: %s</div>`,
 		templ.EscapeString(event.SubjectRoom), templ.EscapeString(event.Text),
 	)))
@@ -88,9 +88,9 @@ func (p PageRooms) OnRoomPosted(
 
 func (p PageRooms) OnNoticed(
 	event EventNoticed,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(templ.Raw(fmt.Sprintf(
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
 		`<div id="out">notice: %s</div>`, templ.EscapeString(event.Text),
 	)))
 }
@@ -131,7 +131,7 @@ type StateTab struct{ Count int }
 // so an anonymous visitor holds per-tab state on a stream of its own.
 type PageTabs struct{ App *App }
 
-func (PageTabs) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageTabs) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<div id="count">count 0</div>`), nil
 }
 
@@ -143,20 +143,20 @@ func (PageTabs) StreamOpen(
 
 func (p PageTabs) OnTicked(
 	event EventTicked,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	state *StateTab,
 ) error {
-	return sse.PatchElementTempl(templ.Raw(fmt.Sprintf(
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
 		`<div id="count">count %d</div>`, state.Count,
 	)))
 }
 
 func (p PageTabs) OnNoticed(
 	event EventNoticed,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	state *StateTab,
 ) error {
-	return sse.PatchElementTempl(templ.Raw(fmt.Sprintf(
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
 		`<div id="count">notice %s</div>`, templ.EscapeString(event.Text),
 	)))
 }

@@ -116,7 +116,7 @@ func withCSRFProtection(opts *[]datapagesgen.ServerOption) {
 
 func connectNATS() (
 	*natsjs.MessageBroker,
-	*natskv.SessionManager[app.Session],
+	*natskv.SessionManager[app.SessionData],
 ) {
 	u := os.Getenv("NATS_URL")
 	if u == "" {
@@ -141,7 +141,7 @@ func connectNATS() (
 		os.Exit(1)
 	}
 
-	sessionManager, err := natskv.New[app.Session](
+	sessionManager, err := natskv.New[app.SessionData](
 		conn,
 		sesstokgen.Generator{Length: sesstokgen.DefaultLength},
 		natskv.Config{EncryptionKey: sessionEncryptionKey},

@@ -1,6 +1,6 @@
 module github.com/romshark/datapages/example/tailwindcss
 
-go 1.26.5
+go 1.26.6
 
 replace github.com/romshark/datapages => ../../
 
@@ -14,6 +14,6 @@ require (
 require (
 	github.com/CAFxX/httpcompression v0.0.9 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
-	github.com/klauspost/compress v1.19.0 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 )

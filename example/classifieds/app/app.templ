@@ -45,8 +45,8 @@ templ fragmentNavbar(session Session, searchTerm string, baseData baseData) {
 			Search
 		</a>
 		@fragmentMessagesLink(baseData.UnreadChats)
-		if session.UserID != "" {
-			@menuBase("navbar-menu", session.UserID, baseData.UserAvatarURL)
+		if !session.IsGuest() {
+			@menuBase("navbar-menu", session.UserID(), baseData.UserAvatarURL)
 		} else {
 			<button class="btn-secondary">
 				<a href={ href.PageLogin() }>Sign in</a>
@@ -278,7 +278,7 @@ templ pageMessages(
 		<div
 			class="chat-messages"
 			data-signals:writinguser=""
-			data-signals:_sessionuser={ fmt.Sprintf("%q", session.UserID) }
+			data-signals:_sessionuser={ fmt.Sprintf("%q", session.UserID()) }
 		>
 			if len(chats) == 0 {
 				<p>
@@ -331,7 +331,7 @@ templ pageMessages(
 }
 
 templ pageSettings(
-	session Session, sessions map[string]Session, user domain.User, baseData baseData,
+	session Session, sessions map[string]SessionRecord, user domain.User, baseData baseData,
 ) {
 	@fragmentNavbar(session, "", baseData)
 	@page("page-settings") {
@@ -572,9 +572,9 @@ templ pagePost(
 		</p>
 		if chatID != "" {
 			@fragmentMessageFormLinkToChat(chatID)
-		} else if session.UserID != "" && post.MerchantUserName != session.UserID {
+		} else if !session.IsGuest() && post.MerchantUserName != session.UserID() {
 			@fragmentMessageForm(post.Slug)
-		} else if session.UserID == "" {
+		} else if session.IsGuest() {
 			<a href={ href.PageLogin() }>Login to send a message</a>
 		}
 		<p class="post-description">{ post.Description }</p>
@@ -746,7 +746,7 @@ templ menuBase(id, userName, userAvatarURL string) {
 templ fragmentMessage(session Session, msg domain.Message) {
 	{{
 		classes := templ.CSSClasses{"message"}
-		fromCounterpart := msg.SenderUserName != session.UserID
+		fromCounterpart := msg.SenderUserName != session.UserID()
 		if fromCounterpart {
 			classes = append(classes, "from-counterpart")
 		}

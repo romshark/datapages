@@ -18,13 +18,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/internal/acceptance/actionoptions/app"
 	"github.com/romshark/datapages/internal/acceptance/actionoptions/datapagesgen/href"
-	"github.com/romshark/datapages/internal/acceptance/actionoptions/datapagesgen/httperr"
 
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -219,7 +218,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	head, body templ.Component,
+	head, body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -379,13 +378,13 @@ func (s *Server) httpErrIntern(
 ) {
 	s.logErr(msg, err)
 	switch {
-	case errors.Is(err, httperr.BadRequest):
+	case errors.Is(err, datapages.ErrBadRequest):
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	case errors.Is(err, httperr.Forbidden):
+	case errors.Is(err, datapages.ErrForbidden):
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-	case errors.Is(err, httperr.NotFound):
+	case errors.Is(err, datapages.ErrNotFound):
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-	case errors.Is(err, httperr.Conflict):
+	case errors.Is(err, datapages.ErrConflict):
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

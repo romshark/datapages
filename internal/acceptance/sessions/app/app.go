@@ -7,17 +7,11 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 
-	"github.com/romshark/datapages/internal/acceptance/sessions/datapagesgen/httperr"
+	"github.com/romshark/datapages"
 )
-
-// IssuedAt is fixed so that a test can compute the CSRF token of a session it
-// just created. An application would use time.Now.
-var IssuedAt = time.Unix(1700000000, 0).UTC()
 
 type App struct {
 	mu  sync.Mutex
@@ -36,17 +30,18 @@ func (a *App) entries() string {
 	return strings.Join(a.log, " ")
 }
 
-func echo(s string) templ.Component {
+func echo(s string) datapages.Component {
 	return templ.Raw("<pre id=\"echo\">" + s + "</pre>")
 }
 
-// Session is the session type the generated server manages.
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
-
+// SessionData is what this application keeps in the session
+// on top of what datapages keeps.
+type SessionData struct {
 	Nickname string `json:"nickname"`
 }
+
+// Session is the session type the generated server manages.
+type Session = datapages.Session[SessionData]
 
 // EventNotice is "notice"
 //
@@ -69,41 +64,41 @@ type EventBroadcast struct {
 
 // Head is the shared head. It is given the session and can therefore differ
 // for a signed-in visitor.
-func (a *App) Head(_ *http.Request, session Session) templ.Component {
-	if session.UserID == "" {
+func (a *App) Head(_ *http.Request, session Session) datapages.Component {
+	if session.IsGuest() {
 		return templ.Raw(`<title>anonymous</title>`)
 	}
-	return templ.Raw(`<title>` + session.UserID + `</title>`)
+	return templ.Raw(`<title>` + session.UserID() + `</title>`)
 }
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
 func (PageIndex) GET(_ *http.Request, session Session) (
-	body templ.Component, err error,
+	body datapages.Component, err error,
 ) {
-	if session.UserID == "" {
+	if session.IsGuest() {
 		return echo("anonymous"), nil
 	}
 	return echo(fmt.Sprintf("user=%s nickname=%s issued=%d",
-		session.UserID, session.Nickname, session.IssuedAt.Unix())), nil
+		session.UserID(), session.Data().Nickname, session.IssuedAt().Unix())), nil
 }
 
 func (p PageIndex) OnNotice(
 	event EventNotice,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
-	return sse.PatchElementTempl(templ.Raw(
-		`<div id="notice">` + session.UserID + ": " + event.Text + `</div>`,
+	return sse.PatchElement(templ.Raw(
+		`<div id="notice">` + session.UserID() + ": " + event.Text + `</div>`,
 	))
 }
 
 func (p PageIndex) OnBroadcast(
 	event EventBroadcast,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(templ.Raw(
+	return sse.PatchElement(templ.Raw(
 		`<div id="broadcast">` + event.Text + `</div>`,
 	))
 }
@@ -114,13 +109,13 @@ func (p PageIndex) OnBroadcast(
 // An application needs the token to address a single one of a user's sessions.
 type PageToken struct{ App *App }
 
-func (PageToken) GET(_ *http.Request, sessionToken string) (
-	body templ.Component, err error,
+func (PageToken) GET(_ *http.Request, session Session) (
+	body datapages.Component, err error,
 ) {
-	if sessionToken == "" {
+	if session.Token() == "" {
 		return echo("no token"), nil
 	}
-	return echo("token of length " + fmt.Sprint(len(sessionToken))), nil
+	return echo("token of length " + fmt.Sprint(len(session.Token()))), nil
 }
 
 // PageSecret is /secret
@@ -130,18 +125,18 @@ func (PageToken) GET(_ *http.Request, sessionToken string) (
 type PageSecret struct{ App *App }
 
 func (PageSecret) GET(_ *http.Request, session Session) (
-	body templ.Component, err error,
+	body datapages.Component, err error,
 ) {
-	if session.UserID == "" {
-		return nil, httperr.Forbidden
+	if session.IsGuest() {
+		return nil, datapages.ErrForbidden
 	}
-	return echo("secret for " + session.UserID), nil
+	return echo("secret for " + session.UserID()), nil
 }
 
 // PageLogin is /login
 type PageLogin struct{ App *App }
 
-func (PageLogin) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageLogin) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("login"), nil
 }
 
@@ -152,16 +147,19 @@ func (p PageLogin) POSTSubmit(
 		User     string `json:"user"`
 		Nickname string `json:"nickname"`
 	},
-) (newSession Session, redirect string, err error) {
+) (
+	newSession datapages.NewSession[SessionData],
+	redirect datapages.Redirect,
+	err error,
+) {
 	if signals.User == "" {
-		return newSession, "", httperr.BadRequest
+		return newSession, redirect, datapages.ErrBadRequest
 	}
 	p.App.record("login(%s)", signals.User)
-	return Session{
-		UserID:   signals.User,
-		IssuedAt: IssuedAt,
-		Nickname: signals.Nickname,
-	}, "/", nil
+	return datapages.NewSession[SessionData]{
+		UserID: signals.User,
+		Data:   SessionData{Nickname: signals.Nickname},
+	}, datapages.Redirect{URL: "/"}, nil
 }
 
 // POSTNotify is /login/notify
@@ -204,21 +202,21 @@ func (p PageLogin) POSTRename(
 		Nickname string `json:"nickname"`
 	},
 ) error {
-	p.App.record("rename(%s,%s)", session.UserID, signals.Nickname)
+	p.App.record("rename(%s,%s)", session.UserID(), signals.Nickname)
 	return nil
 }
 
 // POSTSignOut is /sign-out
 func (a *App) POSTSignOut(_ *http.Request, session Session) (
-	closeSession bool, redirect string, err error,
+	closeSession bool, redirect datapages.Redirect, err error,
 ) {
-	a.record("signout(%s)", session.UserID)
-	return true, "/", nil
+	a.record("signout(%s)", session.UserID())
+	return true, datapages.Redirect{URL: "/"}, nil
 }
 
 // PageLog is /log
 type PageLog struct{ App *App }
 
-func (p PageLog) GET(_ *http.Request) (body templ.Component, err error) {
+func (p PageLog) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo(p.App.entries()), nil
 }

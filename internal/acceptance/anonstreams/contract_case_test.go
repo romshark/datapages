@@ -30,7 +30,7 @@ func TestContract(t *testing.T) {
 				t.Fatalf("building CSRF token manager: %v", err)
 			}
 			stateKey := sha256.Sum256([]byte("acceptance-state"))
-			sessions := sessinmem.New[app.Session](
+			sessions := sessinmem.New[struct{}](
 				sesstokgen.Generator{Length: sesstokgen.DefaultLength},
 			)
 			opts = append(opts,

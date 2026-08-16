@@ -22,14 +22,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/example/calculator/app"
 	"github.com/romshark/datapages/example/calculator/datapagesgen/assets"
 	"github.com/romshark/datapages/example/calculator/datapagesgen/href"
-	"github.com/romshark/datapages/example/calculator/datapagesgen/httperr"
 
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -264,10 +263,69 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 	return true
 }
 
+// newSSE wraps a Datastar generator as a datapages.SSE.
+func newSSE(gen *datastar.ServerSentEventGenerator) datapages.SSE {
+	return sseWrapper{gen: gen}
+}
+
+type sseWrapper struct {
+	gen *datastar.ServerSentEventGenerator
+}
+
+func (s sseWrapper) Context() context.Context { return s.gen.Context() }
+
+func (s sseWrapper) PatchElement(
+	c datapages.Component, opts ...datapages.PatchOption,
+) error {
+	var cfg datapages.PatchConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+	var ds []datastar.PatchElementOption
+	if cfg.Selector != "" {
+		ds = append(ds, datastar.WithSelector(cfg.Selector))
+	}
+	if cfg.SelectorID != "" {
+		ds = append(ds, datastar.WithSelectorID(cfg.SelectorID))
+	}
+	switch cfg.Mode {
+	case datapages.PatchModeOuter, datapages.PatchModeInner,
+		datapages.PatchModeReplace, datapages.PatchModePrepend,
+		datapages.PatchModeAppend, datapages.PatchModeBefore,
+		datapages.PatchModeAfter:
+		ds = append(ds, datastar.WithMode(datastar.ElementPatchMode(cfg.Mode)))
+	}
+	return s.gen.PatchElementTempl(c, ds...)
+}
+
+func (s sseWrapper) RemoveElement(selector string) error {
+	return s.gen.RemoveElement(selector)
+}
+
+func (s sseWrapper) ExecuteScript(script string) error {
+	return s.gen.ExecuteScript(script)
+}
+
+func (s sseWrapper) PatchSignals(v any) error {
+	return s.gen.MarshalAndPatchSignals(v)
+}
+
+func (s sseWrapper) PatchSignalsIfMissing(v any) error {
+	return s.gen.MarshalAndPatchSignalsIfMissing(v)
+}
+
+func (s sseWrapper) Redirect(target string) error {
+	return s.gen.Redirect(target)
+}
+
+func (s sseWrapper) Prefetch(urls ...string) error {
+	return s.gen.Prefetch(urls...)
+}
+
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	headGeneric, head, body templ.Component,
+	headGeneric, head, body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -513,13 +571,13 @@ func (s *Server) httpErrIntern(
 ) {
 	s.logErr(msg, err)
 	switch {
-	case errors.Is(err, httperr.BadRequest):
+	case errors.Is(err, datapages.ErrBadRequest):
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	case errors.Is(err, httperr.Forbidden):
+	case errors.Is(err, datapages.ErrForbidden):
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-	case errors.Is(err, httperr.NotFound):
+	case errors.Is(err, datapages.ErrNotFound):
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-	case errors.Is(err, httperr.Conflict):
+	case errors.Is(err, datapages.ErrConflict):
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -596,7 +654,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.logErr("unmarshaling EventCalcUpdated JSON", err)
 						continue
 					}
-					if err := p.OnCalcUpdated(e, sse); err != nil {
+					if err := p.OnCalcUpdated(e, newSSE(sse)); err != nil {
 						s.logErr("handling PageIndex.OnCalcUpdated", err)
 					}
 				}

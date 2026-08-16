@@ -6,7 +6,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -14,16 +15,16 @@ type App struct{}
 // RecoverError renders the failure into the page the visitor is on.
 func (a *App) RecoverError(
 	_ error,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(
+	return sse.PatchElement(
 		templ.Raw(`<div id="toast">something went wrong</div>`))
 }
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw("index"), nil
 }
 

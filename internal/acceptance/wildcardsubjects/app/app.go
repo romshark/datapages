@@ -6,7 +6,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -24,15 +25,15 @@ type EventNoted struct {
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw("index"), nil
 }
 
 func (PageIndex) OnNoted(
 	event EventNoted,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(
+	return sse.PatchElement(
 		templ.Raw(`<div id="noted">` + event.Text + `</div>`),
 	)
 }

@@ -5,37 +5,35 @@ import (
 	"fmt"
 	"iter"
 	"net/http"
-	"time"
 
-	"github.com/a-h/templ"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/starfederation/datastar-go/datastar"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/assets"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
+	"github.com/romshark/datapages/modules/sessmanager"
 )
 
-type Session struct {
-	UserID string
-
-	IssuedAt time.Time
-}
+type Session = datapages.Session[struct{}]
 
 type Metrics struct {
 	LoginSubmissions *prometheus.CounterVec
 	ChatMessagesSent *prometheus.CounterVec
 }
 
+// SessionRecord is what the session manager stores for a session.
+type SessionRecord = sessmanager.Record[struct{}]
+
 type SessionManager interface {
-	Session(ctx context.Context, token string) (Session, error)
+	Session(ctx context.Context, token string) (SessionRecord, error)
 	CloseSession(ctx context.Context, token string) error
 	CloseAllUserSessions(
 		ctx context.Context, buffer []string, userID string,
 	) ([]string, error)
 	UserSessions(
 		ctx context.Context, userID string,
-	) iter.Seq2[string, Session]
+	) iter.Seq2[string, SessionRecord]
 }
 
 type App struct {
@@ -66,10 +64,10 @@ type SearchParams struct {
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request, session Session) (
 	closeSession bool,
-	redirect string,
+	redirect datapages.Redirect,
 	err error,
 ) {
-	return true, href.PageLogin(), nil
+	return true, datapages.Redirect{URL: href.PageLogin()}, nil
 }
 
 // POSTCause500 is /cause-500-internal-error/{$}
@@ -79,11 +77,11 @@ func (*App) POSTCause500(r *http.Request) error {
 
 func (*App) RecoverError(
 	err error,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(toastError500(),
-		datastar.WithSelectorID("toaster"),
-		datastar.WithModeAppend())
+	return sse.PatchElement(toastError500(),
+		datapages.WithSelectorID("toaster"),
+		datapages.WithMode(datapages.PatchModeAppend))
 	// Or use script execution:
 	//
 	// 	return sse.ExecuteScript(`
@@ -103,7 +101,7 @@ func (*App) RecoverError(
 }
 
 // Page render funcs
-func (*App) Head(r *http.Request) templ.Component {
+func (*App) Head(r *http.Request) datapages.Component {
 	return head()
 }
 
@@ -128,16 +126,16 @@ type baseData struct {
 func (b Base) baseData(
 	ctx context.Context, session Session,
 ) (baseData, error) {
-	if session.UserID == "" {
+	if session.IsGuest() {
 		return baseData{}, nil // Guest
 	}
-	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(ctx, session.UserID)
+	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(ctx, session.UserID())
 	if err != nil {
 		return baseData{}, fmt.Errorf(
 			"fetching number of unread chats with unread messages: %w", err,
 		)
 	}
-	user, err := b.App.repo.UserByID(ctx, session.UserID)
+	user, err := b.App.repo.UserByID(ctx, session.UserID())
 	if err != nil {
 		return baseData{}, err
 	}
@@ -149,24 +147,24 @@ func (b Base) baseData(
 
 func (b Base) OnMessagingSent(
 	event EventMessagingSent,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
-	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID)
+	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID())
 	if err != nil {
 		return err
 	}
-	if err := sse.PatchElementTempl(fragmentMessagesLink(unreadChats)); err != nil {
+	if err := sse.PatchElement(fragmentMessagesLink(unreadChats)); err != nil {
 		return err
 	}
-	if err := sse.MarshalAndPatchSignals(struct {
+	if err := sse.PatchSignals(struct {
 		MessageText string `json:"messagetext"`
 	}{
 		MessageText: "",
 	}); err != nil {
 		return err
 	}
-	if session.UserID != event.UserID {
+	if session.UserID() != event.UserID {
 		return sse.ExecuteScript(fmt.Sprintf(`
 			(() => {
 				const audio = new Audio("%s");
@@ -179,14 +177,14 @@ func (b Base) OnMessagingSent(
 
 func (b Base) OnMessagingRead(
 	event EventMessagingRead,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	session Session,
 ) error {
-	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID)
+	unreadChats, err := b.App.repo.ChatsWithUnreadMessages(sse.Context(), session.UserID())
 	if err != nil {
 		return err
 	}
-	return sse.PatchElementTempl(fragmentMessagesLink(unreadChats))
+	return sse.PatchElement(fragmentMessagesLink(unreadChats))
 }
 
 // PageError404 is /not-found
@@ -198,7 +196,7 @@ type PageError404 struct {
 func (p PageError404) GET(
 	r *http.Request,
 	session Session,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	baseData, err := p.baseData(r.Context(), session)
 	if err != nil {
 		return nil, err
@@ -210,7 +208,7 @@ func (p PageError404) GET(
 type PageError500 struct{ App *App }
 
 func (PageError500) GET(r *http.Request) (
-	body templ.Component,
+	body datapages.Component,
 	disableRefreshAfterHidden bool,
 	err error,
 ) {

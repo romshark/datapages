@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -20,19 +21,44 @@ import (
 )
 
 // newClient starts the server and returns a client that keeps its cookies,
-// together with the CSRF token manager, which a test needs to send an action
-// as the visitor the session names.
-func newClient(t *testing.T) (*client.Client, *csrfhmac.TokenManager) {
+// together with the CSRF token manager and the session manager, which a test
+// needs to send an action as the visitor the session names.
+func newClient(t *testing.T) (
+	*client.Client, *csrfhmac.TokenManager, *sessinmem.SessionManager[struct{}],
+) {
 	t.Helper()
 	key := sha256.Sum256([]byte("acceptance-csrf"))
 	tm, err := csrfhmac.New(key[:])
 	require.NoError(t, err, "building CSRF token manager")
-	sessions := sessinmem.New[app.Session](
+	sessions := sessinmem.New[struct{}](
 		sesstokgen.Generator{Length: sesstokgen.DefaultLength},
 	)
 	h := datapagesgen.NewServer(&app.App{}, inmem.New(8), sessions,
 		datapagesgen.WithCSRFProtection(datapagesgen.CSRFConfig{TokenManager: tm}))
-	return client.New(t, h).WithJar(t), tm
+	return client.New(t, h).WithJar(t), tm, sessions
+}
+
+// issuedAt is the time the server stamped on the session the response set.
+// Datapages stamps it, so a test that has to reproduce a CSRF token
+// reads it back rather than predicting it.
+func issuedAt(
+	t *testing.T,
+	sessions *sessinmem.SessionManager[struct{}],
+	resp client.Response,
+) time.Time {
+	t.Helper()
+	for _, raw := range resp.Header.Values("Set-Cookie") {
+		ck, err := http.ParseSetCookie(raw)
+		require.NoError(t, err, "parsing Set-Cookie")
+		if ck.Name != "sessiontoken" {
+			continue
+		}
+		rec, err := sessions.Session(t.Context(), ck.Value)
+		require.NoError(t, err, "reading the session record")
+		return rec.IssuedAt
+	}
+	t.Fatal("the response set no session cookie")
+	return time.Time{}
 }
 
 // signalsQuery is how the Datastar client sends signals on a GET.
@@ -42,7 +68,7 @@ func signalsQuery(json string) string {
 
 // TestGETReadsSignals covers a page load carrying signals.
 func TestGETReadsSignals(t *testing.T) {
-	c, _ := newClient(t)
+	c, _, _ := newClient(t)
 
 	resp := c.Get(t, signalsQuery(`{"term":"shoes","page":3}`))
 
@@ -53,7 +79,7 @@ func TestGETReadsSignals(t *testing.T) {
 // TestGETWithoutSignals covers the ordinary page load:
 // a visitor who typed the URL sends no signals and the handler is given the zero value.
 func TestGETWithoutSignals(t *testing.T) {
-	c, _ := newClient(t)
+	c, _, _ := newClient(t)
 
 	resp := c.Get(t, "/")
 
@@ -64,7 +90,7 @@ func TestGETWithoutSignals(t *testing.T) {
 // TestGETWithMalformedSignals covers a datastar parameter that is not signals.
 // The request is refused rather than served a page built from nothing.
 func TestGETWithMalformedSignals(t *testing.T) {
-	c, _ := newClient(t)
+	c, _, _ := newClient(t)
 
 	resp := c.Get(t, signalsQuery(`{"term":`))
 
@@ -74,7 +100,7 @@ func TestGETWithMalformedSignals(t *testing.T) {
 // TestGETIssuesASession covers a page load that returns newSession:
 // the cookie is set on that same response, and the next page load reads the session.
 func TestGETIssuesASession(t *testing.T) {
-	c, _ := newClient(t)
+	c, _, _ := newClient(t)
 
 	enter := c.Get(t, "/enter/")
 	require.Equal(t, http.StatusOK, enter.Status)
@@ -91,12 +117,12 @@ func TestGETIssuesASession(t *testing.T) {
 // TestActionClosesTheSession covers the other end: an action that reads only
 // the session token ends the session, and the page stops seeing it.
 func TestActionClosesTheSession(t *testing.T) {
-	c, csrf := newClient(t)
+	c, csrf, sessions := newClient(t)
 
-	c.Get(t, "/enter/")
+	enter := c.Get(t, "/enter/")
 	require.Equal(t, "term= page=0 user=alice", c.Get(t, "/").Element(t, "echo"))
 
-	token := csrf.GenerateToken("alice", app.IssuedAt.Unix())
+	token := csrf.GenerateToken("alice", issuedAt(t, sessions, enter).Unix())
 	req := c.Request(t, http.MethodPost, "/leave/", "")
 	req.Header.Set("X-CSRF-Token", token)
 	require.Equal(t, http.StatusOK, c.Do(t, req).Status)

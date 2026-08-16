@@ -19,7 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
 	"golang.org/x/sync/errgroup"
 
@@ -225,18 +225,21 @@ func isDSReq(r *http.Request) bool {
 	return r.Header.Get("Datastar-Request") == "true"
 }
 
-func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status int) (exit bool) {
-	if target == "" {
+func httpRedirect(
+	w http.ResponseWriter, r *http.Request, redirect datapages.Redirect,
+) (exit bool) {
+	if redirect.URL == "" {
 		return false
 	}
 
 	if isDSReq(r) {
 		// Force client-side navigation via JS for Datastar requests.
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = fmt.Fprintf(w, "window.location = %q;", target)
+		_, _ = fmt.Fprintf(w, "window.location = %q;", redirect.URL)
 		return true
 	}
 
+	status := redirect.Status
 	switch status {
 	case http.StatusMovedPermanently,
 		http.StatusFound,
@@ -248,14 +251,14 @@ func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status 
 		status = http.StatusFound
 	}
 
-	http.Redirect(w, r, target, status)
+	http.Redirect(w, r, redirect.URL, status)
 	return true
 }
 
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	head, body templ.Component,
+	head, body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -460,7 +463,7 @@ func (s *Server) handlePageGoneGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageGone.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect, 0) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 
@@ -523,12 +526,12 @@ func (s *Server) handlePageMaybeGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageMaybe{
 		App: s.app,
 	}
-	body, redirect, redirectStatus, err := p.GET(r, query)
+	body, redirect, err := p.GET(r, query)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageMaybe.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect, redirectStatus) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 

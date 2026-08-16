@@ -11,9 +11,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 
-	"github.com/romshark/datapages/internal/acceptance/recovererror/datapagesgen/httperr"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -21,20 +20,20 @@ type App struct{}
 // RecoverError renders the failure into the page the visitor is on.
 func (a *App) RecoverError(
 	err error,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
 	kind := "unknown"
 	switch {
-	case errors.Is(err, httperr.BadRequest):
+	case errors.Is(err, datapages.ErrBadRequest):
 		kind = "bad request"
-	case errors.Is(err, httperr.NotFound):
+	case errors.Is(err, datapages.ErrNotFound):
 		kind = "not found"
 	case errors.Is(err, errUnrecoverable):
 		// Returning an error from RecoverError is how an application says it
 		// could not show anything. The server then falls back to a status.
 		return errors.New("cannot render a toast for this")
 	}
-	return sse.PatchElementTempl(
+	return sse.PatchElement(
 		templ.Raw(`<div id="toast">` + kind + `</div>`),
 	)
 }
@@ -44,25 +43,25 @@ var errUnrecoverable = errors.New("unrecoverable")
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<pre id="echo">index</pre>`), nil
 }
 
 // PageError500 is /server-error
 type PageError500 struct{ App *App }
 
-func (PageError500) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageError500) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<pre id="echo">server error</pre>`), nil
 }
 
 // POSTBad is /bad
 func (PageIndex) POSTBad(_ *http.Request) error {
-	return httperr.BadRequest
+	return datapages.ErrBadRequest
 }
 
 // POSTMissing is /missing
 func (PageIndex) POSTMissing(_ *http.Request) error {
-	return httperr.NotFound
+	return datapages.ErrNotFound
 }
 
 // POSTPlain is /plain
@@ -78,6 +77,6 @@ func (PageIndex) POSTUnrecoverable(_ *http.Request) error {
 // PageBoom is /boom
 type PageBoom struct{ App *App }
 
-func (PageBoom) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageBoom) GET(_ *http.Request) (body datapages.Component, err error) {
 	return nil, errors.New("the page could not be built")
 }

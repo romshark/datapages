@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/a-h/templ"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct {
@@ -16,25 +17,19 @@ type App struct {
 	deleted int
 }
 
-// IssuedAt is fixed so the test can compute the token of the session.
-var IssuedAt = time.Unix(1700000000, 0).UTC()
-
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
-}
+type Session = datapages.Session[struct{}]
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
 func (p PageIndex) GET(_ *http.Request, session Session) (
-	body templ.Component, err error,
+	body datapages.Component, err error,
 ) {
 	p.App.mu.Lock()
 	defer p.App.mu.Unlock()
 	return templ.Raw(fmt.Sprintf(
 		`<pre id="echo">user=%s deleted=%d</pre>`,
-		session.UserID, p.App.deleted,
+		session.UserID(), p.App.deleted,
 	)), nil
 }
 
@@ -44,8 +39,8 @@ func (PageIndex) POSTSignIn(
 	signals struct {
 		User string `json:"user"`
 	},
-) (newSession Session, err error) {
-	return Session{UserID: signals.User, IssuedAt: IssuedAt}, nil
+) (newSession datapages.NewSession[struct{}], err error) {
+	return datapages.NewSession[struct{}]{UserID: signals.User}, nil
 }
 
 // POSTDelete is /delete

@@ -13,7 +13,8 @@ import (
 	"sync/atomic"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct {
@@ -66,11 +67,11 @@ func (b Base[S]) StreamOpen(
 
 func (b Base[S]) OnPing(
 	event EventPing,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	state *S,
 ) error {
 	_ = event
-	return sse.PatchElementTempl(templ.Raw(
+	return sse.PatchElement(templ.Raw(
 		fmt.Sprintf(`<div id="state">%+v</div>`, *state),
 	))
 }
@@ -81,7 +82,7 @@ type PageCount struct {
 	Base[StateCounter]
 }
 
-func (PageCount) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageCount) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<pre id="echo">count</pre>`), nil
 }
 
@@ -102,7 +103,7 @@ type PageLabel struct {
 	Base[StateLabel]
 }
 
-func (PageLabel) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageLabel) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<pre id="echo">label</pre>`), nil
 }
 
@@ -129,7 +130,7 @@ type PageEmbedOnly struct {
 	Base[StateLabel]
 }
 
-func (PageEmbedOnly) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageEmbedOnly) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<pre id="echo">embed only</pre>`), nil
 }
 
@@ -149,7 +150,7 @@ type PageNested struct {
 	Mid[StateNested]
 }
 
-func (PageNested) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageNested) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<pre id="echo">nested</pre>`), nil
 }
 
@@ -173,7 +174,7 @@ type PagePointer struct {
 	*Base[StatePointer]
 }
 
-func (PagePointer) GET(_ *http.Request) (body templ.Component, err error) {
+func (PagePointer) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<pre id="echo">pointer</pre>`), nil
 }
 
@@ -191,7 +192,7 @@ func (PagePointer) POSTBump(
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (p PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (p PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(fmt.Sprintf(`<pre id="echo">allocations=%d</pre>`,
 		p.App.allocations.Load())), nil
 }

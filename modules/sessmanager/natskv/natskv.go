@@ -22,6 +22,8 @@ import (
 	"strings"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/romshark/datapages/modules/sessmanager"
 )
 
 // DefaultBucket is the default bucket name for the NATS KV Store based session manager.
@@ -49,11 +51,11 @@ var (
 )
 
 // New creates a new NATS Key-Value store backed session manager.
-func New[S any](
+func New[Data any](
 	conn *nats.Conn,
 	sessionTokenGenerator SessionTokenGenerator,
 	conf Config,
-) (*SessionManager[S], error) {
+) (*SessionManager[Data], error) {
 	js, err := conn.JetStream()
 	if err != nil {
 		return nil, fmt.Errorf("creating JetStream context: %w", err)
@@ -97,7 +99,7 @@ func New[S any](
 		return nil, fmt.Errorf("opening KV bucket: %w", err)
 	}
 
-	return &SessionManager[S]{
+	return &SessionManager[Data]{
 		conf:                  conf,
 		kv:                    kv,
 		aeads:                 aeads,
@@ -112,15 +114,15 @@ type Config struct {
 	EncryptionKey []byte
 
 	// PreviousEncryptionKeys is a list of previous 16-byte AES-128 keys used only for
-	// decrypting existing cookies during key rotation. New cookies are always encrypted
-	// with EncryptionKey.
+	// decrypting existing cookies during key rotation.
+	// New cookies are always encrypted with EncryptionKey.
 	PreviousEncryptionKeys [][]byte
 
 	KVConfig nats.KeyValueConfig
 }
 
 // SessionManager manages sessions backed by NATS KV.
-type SessionManager[S any] struct {
+type SessionManager[Data any] struct {
 	conf                  Config
 	kv                    nats.KeyValue
 	aeads                 []cipher.AEAD // [0] is primary
@@ -135,52 +137,52 @@ type kvRecord struct {
 
 // ReadSessionFromCookie decrypts the cookie value to
 // recover the composite KV key and retrieves the session.
-// Returns ok=false, err=nil if the cookie is nil, empty,
-// malformed, or the session is not found (caller should
-// remove the cookie). Returns ok=false, err!=nil on
-// transient backend failures (caller should keep the
-// cookie and fail the request).
-func (s *SessionManager[S]) ReadSessionFromCookie(
+// Returns ok=false, err=nil if the cookie is nil, empty, malformed,
+// or the session is not found (caller should remove the cookie).
+// Returns ok=false, err!=nil on transient backend failures
+// (caller should keep the cookie and fail the request).
+func (s *SessionManager[Data]) ReadSessionFromCookie(
 	c *http.Cookie,
-) (session S, token, userID string, ok bool, err error) {
+) (rec sessmanager.Record[Data], token string, ok bool, err error) {
 	if c == nil || c.Value == "" {
-		return session, "", "", false, nil
+		return rec, "", false, nil
 	}
 
 	kvKey, err := decrypt(s.aeads, c.Value)
 	if err != nil {
-		return session, "", "", false, nil
+		return rec, "", false, nil
 	}
 
 	uid, err := parseCompositeKeyUserID(kvKey)
 	if err != nil {
-		return session, "", "", false, nil
+		return rec, "", false, nil
 	}
 
 	entry, err := s.kv.Get(kvKey)
 	if err != nil {
 		if errors.Is(err, nats.ErrKeyNotFound) {
-			return session, "", "", false, nil
+			return rec, "", false, nil
 		}
-		return session, "", "", false, fmt.Errorf("reading session from KV: %w", err)
+		return rec, "", false, fmt.Errorf("reading session from KV: %w", err)
 	}
 
-	var rec kvRecord
-	if err := json.Unmarshal(entry.Value(), &rec); err != nil {
-		return session, "", "", false, nil
+	var kvRec kvRecord
+	if err := json.Unmarshal(entry.Value(), &kvRec); err != nil {
+		return rec, "", false, nil
 	}
-	if err := json.Unmarshal(rec.Data, &session); err != nil {
-		return session, "", "", false, nil
+	if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
+		return rec, "", false, nil
 	}
+	// The user id in the key is authoritative.
+	rec.UserID = uid
 
-	return session, c.Value, uid, true, nil
+	return rec, c.Value, true, nil
 }
 
 // NotifyClosed watches for deletion of the session
 // identified by the encrypted token and calls fn.
-// If the session is already deleted, fn is called
-// immediately.
-func (s *SessionManager[S]) NotifyClosed(
+// If the session is already deleted, fn is called immediately.
+func (s *SessionManager[Data]) NotifyClosed(
 	ctx context.Context, token string, fn func(),
 ) error {
 	kvKey, err := decrypt(s.aeads, token)
@@ -229,37 +231,36 @@ func (s *SessionManager[S]) NotifyClosed(
 }
 
 // SaveSession overwrites the session data for an existing token.
-func (s *SessionManager[S]) SaveSession(
-	_ context.Context, token string, session S,
+func (s *SessionManager[Data]) SaveSession(
+	_ context.Context, token string, rec sessmanager.Record[Data],
 ) error {
 	kvKey, err := decrypt(s.aeads, token)
 	if err != nil {
 		return fmt.Errorf("decrypting token: %w", err)
 	}
 
-	data, err := json.Marshal(session)
+	data, err := json.Marshal(rec)
 	if err != nil {
 		return fmt.Errorf("marshaling session data: %w", err)
 	}
 
-	rec, err := json.Marshal(kvRecord{Token: token, Data: data})
+	kvRec, err := json.Marshal(kvRecord{Token: token, Data: data})
 	if err != nil {
 		return fmt.Errorf("marshaling KV record: %w", err)
 	}
 
-	if _, err := s.kv.Put(kvKey, rec); err != nil {
+	if _, err := s.kv.Put(kvKey, kvRec); err != nil {
 		return fmt.Errorf("storing session in KV: %w", err)
 	}
 	return nil
 }
 
 // CreateSession creates a new session in NATS KV.
-// Returns an encrypted token suitable for use as a
-// cookie value.
-func (s *SessionManager[S]) CreateSession(
-	ctx context.Context, userID string, session S,
+// Returns an encrypted token suitable for use as a cookie value.
+func (s *SessionManager[Data]) CreateSession(
+	ctx context.Context, rec sessmanager.Record[Data],
 ) (token string, err error) {
-	if userID == "" {
+	if rec.UserID == "" {
 		return "", ErrEmptyUserID
 	}
 
@@ -268,13 +269,13 @@ func (s *SessionManager[S]) CreateSession(
 		return "", err
 	}
 
-	kvKey := compositeKey(userID, uniqueSessionID)
+	kvKey := compositeKey(rec.UserID, uniqueSessionID)
 	token, err = encrypt(s.aeads[0], kvKey)
 	if err != nil {
 		return "", fmt.Errorf("encrypting session token: %w", err)
 	}
 
-	if err := s.SaveSession(ctx, token, session); err != nil {
+	if err := s.SaveSession(ctx, token, rec); err != nil {
 		return "", err
 	}
 	return token, nil
@@ -282,7 +283,7 @@ func (s *SessionManager[S]) CreateSession(
 
 // CloseSession deletes a session from NATS KV.
 // No-op and no error if the session doesn't exist.
-func (s *SessionManager[S]) CloseSession(
+func (s *SessionManager[Data]) CloseSession(
 	_ context.Context, token string,
 ) error {
 	kvKey, err := decrypt(s.aeads, token)
@@ -301,7 +302,7 @@ func (s *SessionManager[S]) CloseSession(
 // Only sees sessions that exist at call time;
 // sessions created during iteration are not closed.
 // If buffer is non-nil, appends encrypted tokens of closed sessions to it.
-func (s *SessionManager[S]) CloseAllUserSessions(
+func (s *SessionManager[Data]) CloseAllUserSessions(
 	ctx context.Context, buffer []string, userID string,
 ) ([]string, error) {
 	if userID == "" {
@@ -339,42 +340,42 @@ func (s *SessionManager[S]) CloseAllUserSessions(
 	return buffer, errors.Join(errs...)
 }
 
-// Session retrieves a session by its encrypted token.
-func (s *SessionManager[S]) Session(
+// Session retrieves a session record by its encrypted token.
+func (s *SessionManager[Data]) Session(
 	_ context.Context, token string,
-) (session S, err error) {
+) (rec sessmanager.Record[Data], err error) {
 	kvKey, err := decrypt(s.aeads, token)
 	if err != nil {
-		return session, fmt.Errorf("decrypting session token: %w", err)
+		return rec, fmt.Errorf("decrypting session token: %w", err)
 	}
 
 	entry, err := s.kv.Get(kvKey)
 	if err != nil {
 		if errors.Is(err, nats.ErrKeyNotFound) {
-			return session, ErrSessionNotFound
+			return rec, ErrSessionNotFound
 		}
-		return session, fmt.Errorf("getting session: %w", err)
+		return rec, fmt.Errorf("getting session: %w", err)
 	}
 
-	var rec kvRecord
-	if err := json.Unmarshal(entry.Value(), &rec); err != nil {
-		return session, fmt.Errorf("unmarshaling KV record: %w", err)
+	var kvRec kvRecord
+	if err := json.Unmarshal(entry.Value(), &kvRec); err != nil {
+		return rec, fmt.Errorf("unmarshaling KV record: %w", err)
 	}
-	if err := json.Unmarshal(rec.Data, &session); err != nil {
-		return session, fmt.Errorf("unmarshaling session data: %w", err)
+	if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
+		return rec, fmt.Errorf("unmarshaling session data: %w", err)
 	}
 
-	return session, nil
+	return rec, nil
 }
 
 // UserSessions returns an iterator over all current
 // sessions for a given user (snapshot, not streaming).
 // Yields (token, session) pairs where token is the encrypted
 // session token usable with CloseSession, Session, and NotifyClosed.
-func (s *SessionManager[S]) UserSessions(
+func (s *SessionManager[Data]) UserSessions(
 	ctx context.Context, userID string,
-) iter.Seq2[string, S] {
-	return func(yield func(string, S) bool) {
+) iter.Seq2[string, sessmanager.Record[Data]] {
+	return func(yield func(string, sessmanager.Record[Data]) bool) {
 		if userID == "" {
 			return
 		}
@@ -390,17 +391,17 @@ func (s *SessionManager[S]) UserSessions(
 				break
 			}
 
-			var rec kvRecord
-			if err := json.Unmarshal(entry.Value(), &rec); err != nil {
+			var kvRec kvRecord
+			if err := json.Unmarshal(entry.Value(), &kvRec); err != nil {
 				continue
 			}
 
-			var session S
-			if err := json.Unmarshal(rec.Data, &session); err != nil {
+			var rec sessmanager.Record[Data]
+			if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
 				continue
 			}
 
-			if !yield(rec.Token, session) {
+			if !yield(kvRec.Token, rec) {
 				return
 			}
 		}

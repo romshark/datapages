@@ -6,8 +6,8 @@ on:
       - main
     paths:
       - "docs/**"
-      - "scripts/render-pages/**"
-      - "docs-src/**"
+      - "internal/tools/render-pages/**"
+      - "internal/docs-src/**"
     tags:
       - "v*"
   workflow_dispatch:
@@ -32,10 +32,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Go 1.26.5
-        uses: actions/setup-go@v6
+      - name: Install Go 1.26.6
+        uses: actions/setup-go@v7
         with:
-          go-version: "1.26.5"
+          go-version: "1.26.6"
           check-latest: true
 
       - name: Resolve docs version
@@ -52,7 +52,7 @@ jobs:
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
 
       - name: Render docs/index.html from templ
-        run: go run ./scripts/render-pages -version "${{ steps.version.outputs.version }}"
+        run: go run ./internal/tools/render-pages -version "${{ steps.version.outputs.version }}"
 
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5

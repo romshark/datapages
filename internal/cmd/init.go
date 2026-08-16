@@ -14,8 +14,8 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
-	"github.com/romshark/datapages/generator/skeleton"
 	"github.com/romshark/datapages/internal/cmd/config"
+	"github.com/romshark/datapages/internal/generator/skeleton"
 )
 
 func newInitCmd(stderr io.Writer) *cobra.Command {

@@ -13,7 +13,8 @@ import (
 	"sync"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct {
@@ -33,19 +34,19 @@ func (a *App) entries() string {
 	return strings.Join(a.log, "\n")
 }
 
-func echo(s string) templ.Component {
+func echo(s string) datapages.Component {
 	return templ.Raw("<pre id=\"echo\">" + s + "</pre>")
 }
 
 // Head is the head every page and every rendering action shares.
-func (a *App) Head(_ *http.Request) templ.Component {
+func (a *App) Head(_ *http.Request) datapages.Component {
 	return templ.Raw(`<title>actions</title>`)
 }
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("index"), nil
 }
 
@@ -54,14 +55,14 @@ func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
 // Reads back what the actions recorded.
 type PageLog struct{ App *App }
 
-func (p PageLog) GET(_ *http.Request) (body templ.Component, err error) {
+func (p PageLog) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo(p.App.entries()), nil
 }
 
 // PageForm is /form
 type PageForm struct{ App *App }
 
-func (PageForm) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageForm) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("form"), nil
 }
 
@@ -117,7 +118,7 @@ func (p PageForm) POSTBump(
 //
 // An action that answers with a document rather than with a patch.
 func (p PageForm) POSTRender(_ *http.Request) (
-	body templ.Component, err error,
+	body datapages.Component, err error,
 ) {
 	p.App.record("render")
 	return echo("rendered by an action"), nil
@@ -125,10 +126,10 @@ func (p PageForm) POSTRender(_ *http.Request) (
 
 // POSTGo is /form/go
 func (p PageForm) POSTGo(_ *http.Request) (
-	redirect string, redirectStatus int, err error,
+	redirect datapages.Redirect, err error,
 ) {
 	p.App.record("go")
-	return "/log/", http.StatusSeeOther, nil
+	return datapages.Redirect{URL: "/log/", Status: http.StatusSeeOther}, nil
 }
 
 // POSTPatch is /form/patch
@@ -136,18 +137,18 @@ func (p PageForm) POSTGo(_ *http.Request) (
 // An action that writes on the SSE connection of the request itself.
 func (p PageForm) POSTPatch(
 	_ *http.Request,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	signals struct {
 		Count int `json:"count"`
 	},
 ) error {
 	p.App.record("patch count=%d", signals.Count)
-	if err := sse.PatchElementTempl(
+	if err := sse.PatchElement(
 		templ.Raw(fmt.Sprintf(`<div id="out">count %d</div>`, signals.Count+1)),
 	); err != nil {
 		return err
 	}
-	return sse.MarshalAndPatchSignals(struct {
+	return sse.PatchSignals(struct {
 		Count int `json:"count"`
 	}{Count: signals.Count + 1})
 }

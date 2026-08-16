@@ -6,9 +6,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
 
-	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/datapagesgen/httperr"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -21,15 +20,15 @@ type EventAnnounced struct {
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<pre id="echo">index</pre>`), nil
 }
 
 func (PageIndex) OnAnnounced(
 	event EventAnnounced,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(
+	return sse.PatchElement(
 		templ.Raw(`<div id="out">` + event.Text + `</div>`))
 }
 
@@ -50,5 +49,5 @@ func (PageIndex) POSTAnnounce(
 //
 // Errors are counted. One is needed here to count.
 func (PageIndex) POSTFail(_ *http.Request) error {
-	return httperr.BadRequest
+	return datapages.ErrBadRequest
 }

@@ -1,15 +1,15 @@
 module github.com/romshark/datapages/internal/acceptance/routing
 
-go 1.26.5
+go 1.26.6
 
 replace github.com/romshark/datapages => ../../../
 
 // Required by Datapages
 require (
 	github.com/a-h/templ v0.3.1020
-	github.com/nats-io/nats.go v1.52.0
+	github.com/nats-io/nats.go v1.53.1
 	github.com/starfederation/datastar-go v1.2.2
-	golang.org/x/crypto v0.54.0 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/sync v0.22.0
 )
 
@@ -23,7 +23,7 @@ require (
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/klauspost/compress v1.19.0 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/nats-io/nkeys v0.4.16 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

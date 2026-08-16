@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -13,13 +15,13 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw("index"), nil
 }
 
 // PageError404 is /not-found
 type PageError404 struct{ App *App }
 
-func (PageError404) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageError404) GET(_ *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<p id="msg">no such page</p>`), nil
 }

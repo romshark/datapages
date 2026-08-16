@@ -12,19 +12,21 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
 
 // echo renders the parsed values so a test can read them back.
-func echo(format string, args ...any) templ.Component {
+func echo(format string, args ...any) datapages.Component {
 	return templ.Raw("<pre id=\"echo\">" + fmt.Sprintf(format, args...) + "</pre>")
 }
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("index"), nil
 }
 
@@ -40,7 +42,7 @@ func (PagePath) GET(
 		F float64 `path:"f"`
 		B bool    `path:"flag"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return echo("s=%q i=%d u=%d f=%v b=%v",
 		path.S, path.I, path.U, path.F, path.B), nil
 }
@@ -59,7 +61,7 @@ func (PageInts) GET(
 		U16 uint16 `path:"u16"`
 		U32 uint32 `path:"u32"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return echo("i8=%d i16=%d i32=%d i64=%d u8=%d u16=%d u32=%d",
 		path.I8, path.I16, path.I32, path.I64,
 		path.U8, path.U16, path.U32), nil
@@ -79,7 +81,7 @@ func (PageQuery) GET(
 		Deep  int64   `query:"deep"`
 		Flag  bool    `query:"flag"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return echo("term=%q limit=%d ratio=%v score=%v big=%d deep=%d flag=%v",
 		query.Term, query.Limit, query.Ratio, query.Score,
 		query.Big, query.Deep, query.Flag), nil
@@ -96,7 +98,7 @@ func (PageTitled) GET(
 	path struct {
 		Name string `path:"name"`
 	},
-) (body, head templ.Component, err error) {
+) (body, head datapages.Component, err error) {
 	return echo("titled %s", path.Name),
 		templ.Raw("<title>" + path.Name + "</title>"), nil
 }
@@ -114,7 +116,7 @@ func (PageReflect) GET(
 		Term string `query:"t" reflectsignal:"term"`
 		Page int    `query:"p" reflectsignal:"page"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return echo("term=%q page=%d", query.Term, query.Page), nil
 }
 
@@ -134,7 +136,7 @@ func (PageMixed) GET(
 		Tab  string `query:"tab"`
 		Page int    `query:"page"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return echo("org=%q id=%d tab=%q page=%d",
 		path.Org, path.ID, query.Tab, query.Page), nil
 }
@@ -153,7 +155,7 @@ func (PageConflict) GET(
 		SValue  int32  `path:"s_value"`
 		SSValue string `path:"s_s_value"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return echo("value=%d s_value=%d s_s_value=%q",
 		path.Value, path.SValue, path.SSValue), nil
 }

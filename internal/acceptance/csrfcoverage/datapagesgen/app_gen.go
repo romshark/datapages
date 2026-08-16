@@ -18,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/msgbroker"
 	"github.com/romshark/datapages/modules/sessmanager"
@@ -27,7 +27,6 @@ import (
 
 	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/app"
 	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/datapagesgen/href"
-	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/datapagesgen/httperr"
 
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -244,9 +243,9 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 }
 
 func (s *Server) checkCSRF(
-	w http.ResponseWriter, r *http.Request, sess app.Session,
+	w http.ResponseWriter, r *http.Request, sess datapages.Session[struct{}],
 ) (ok bool) {
-	if sess.UserID == "" ||
+	if sess.UserID() == "" ||
 		r.Method == http.MethodGet ||
 		r.Method == http.MethodOptions ||
 		r.Method == http.MethodHead ||
@@ -266,7 +265,7 @@ func (s *Server) checkCSRF(
 		t == s.csrfConf.DevBypassToken {
 		return true
 	}
-	if !s.csrfConf.TokenManager.ValidateToken(sess.UserID, sess.IssuedAt.Unix(), t) {
+	if !s.csrfConf.TokenManager.ValidateToken(sess.UserID(), sess.IssuedAt().Unix(), t) {
 		http.Error(
 			w,
 			http.StatusText(http.StatusForbidden),
@@ -280,8 +279,8 @@ func (s *Server) checkCSRF(
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess app.Session,
-	head, body templ.Component,
+	sess datapages.Session[struct{}],
+	head, body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -295,9 +294,9 @@ func (s *Server) writeHTML(
 			return err
 		}
 	}
-	if s.csrfConf != nil && sess.UserID != "" {
+	if s.csrfConf != nil && sess.UserID() != "" {
 		csrfToken := s.csrfConf.TokenManager.GenerateToken(
-			sess.UserID, sess.IssuedAt.Unix(),
+			sess.UserID(), sess.IssuedAt().Unix(),
 		)
 		if csrfToken != "" {
 			// Write the fetch X-CSRF-Token header injector.
@@ -325,8 +324,8 @@ func (s *Server) writeHTML(
 			}
 		} else {
 			s.logger.Warn("generated empty CSRF token",
-				slog.String("user-id", sess.UserID),
-				slog.Time("issued-at", sess.IssuedAt))
+				slog.String("user-id", sess.UserID()),
+				slog.Time("issued-at", sess.IssuedAt()))
 		}
 	}
 	if _, err := io.WriteString(w, "</head><body "); err != nil {
@@ -373,7 +372,7 @@ type Server struct {
 
 	authConf              *AuthConfig
 	sessionTokenGenerator sessmanager.TokenGenerator
-	sessionManager        sessmanager.SessionManager[app.Session]
+	sessionManager        sessmanager.SessionManager[struct{}]
 	csrfConf              *CSRFConfig
 }
 
@@ -388,7 +387,7 @@ type Server struct {
 func NewServer(
 	app *app.App,
 	messageBroker msgbroker.MessageBroker,
-	sessionManager sessmanager.SessionManager[app.Session],
+	sessionManager sessmanager.SessionManager[struct{}],
 	opts ...ServerOption,
 ) *Server {
 	s := &Server{
@@ -565,9 +564,14 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 }
 
 func (s *Server) createSession(
-	w http.ResponseWriter, r *http.Request, session app.Session,
+	w http.ResponseWriter, r *http.Request, session datapages.NewSession[struct{}],
 ) error {
-	token, err := s.sessionManager.CreateSession(r.Context(), session.UserID, session)
+	token, err := s.sessionManager.CreateSession(r.Context(), sessmanager.Record[struct{}]{
+		UserID:    session.UserID,
+		IssuedAt:  time.Now(),
+		ExpiresAt: session.ExpiresAt,
+		Data:      session.Data,
+	})
 	if err != nil {
 		return err
 	}
@@ -579,7 +583,7 @@ func (s *Server) createSession(
 // If onClose != nil it will be closed once the session is closed.
 func (s *Server) auth(
 	w http.ResponseWriter, r *http.Request,
-) (sess app.Session, token string, ok bool) {
+) (sess datapages.Session[struct{}], token string, ok bool) {
 	c, err := r.Cookie(s.authConf.TokenCookie.Name)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {
@@ -588,18 +592,26 @@ func (s *Server) auth(
 		return sess, "", false
 	}
 
-	sess, token, userID, ok, err := s.sessionManager.ReadSessionFromCookie(c)
+	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(c)
 	if err != nil {
 		// Transient backend failure; keep the cookie, fail the request.
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
-		return app.Session{}, "", false
+		return datapages.Session[struct{}]{}, "", false
 	}
 	if !ok {
 		// Cookie is stale or malformed; clear it and continue as unauthenticated.
 		s.setSessionCookie(w, "")
-		return app.Session{}, "", true
+		return datapages.Session[struct{}]{}, "", true
 	}
-	sess.UserID = userID
+	sess = datapages.MakeSession(
+		rec.UserID, token, rec.IssuedAt, rec.ExpiresAt, rec.Data,
+	)
+
+	if !sess.ExpiresAt().IsZero() && !time.Now().Before(sess.ExpiresAt()) {
+		// Session has expired; clear the cookie and continue as unauthenticated.
+		s.setSessionCookie(w, "")
+		return datapages.Session[struct{}]{}, "", true
+	}
 
 	if !s.checkCSRF(w, r, sess) {
 		return sess, token, false
@@ -627,13 +639,13 @@ func (s *Server) httpErrIntern(
 ) {
 	s.logErr(msg, err)
 	switch {
-	case errors.Is(err, httperr.BadRequest):
+	case errors.Is(err, datapages.ErrBadRequest):
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	case errors.Is(err, httperr.Forbidden):
+	case errors.Is(err, datapages.ErrForbidden):
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-	case errors.Is(err, httperr.NotFound):
+	case errors.Is(err, datapages.ErrNotFound):
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-	case errors.Is(err, httperr.Conflict):
+	case errors.Is(err, datapages.ErrConflict):
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

@@ -32,7 +32,8 @@ var csrfSecret = []byte("acceptance-csrf-secret-value-0123")
 
 type server struct {
 	*httptest.Server
-	csrf *csrfhmac.TokenManager
+	csrf     *csrfhmac.TokenManager
+	sessions *sessinmem.SessionManager[app.SessionData]
 }
 
 // newServer starts the generated server.
@@ -42,7 +43,7 @@ type server struct {
 func newServer(t *testing.T) server {
 	t.Helper()
 
-	sessions := sessinmem.New[app.Session](
+	sessions := sessinmem.New[app.SessionData](
 		sesstokgen.Generator{Length: sesstokgen.DefaultLength},
 	)
 
@@ -58,7 +59,7 @@ func newServer(t *testing.T) server {
 		),
 	))
 	t.Cleanup(s.Close)
-	return server{Server: s, csrf: tm}
+	return server{Server: s, csrf: tm, sessions: sessions}
 }
 
 // client is one visitor:
@@ -167,8 +168,24 @@ func (c *client) signIn(t *testing.T, user, nickname string) string {
 	if status != http.StatusOK {
 		t.Fatalf("signing in: status = %d\n%s", status, body)
 	}
-	c.token = c.srv.csrf.GenerateToken(user, app.IssuedAt.Unix())
+	c.token = c.srv.csrf.GenerateToken(user, c.issuedAt(t).Unix())
 	return c.token
+}
+
+// issuedAt is the time the server stamped on the visitor's session.
+// Datapages stamps it, so a test that has to reproduce a CSRF token
+// reads it back rather than predicting it.
+func (c *client) issuedAt(t *testing.T) time.Time {
+	t.Helper()
+	ck := c.cookie(t)
+	if ck == nil {
+		t.Fatal("the visitor holds no session cookie")
+	}
+	rec, err := c.srv.sessions.Session(context.Background(), ck.Value)
+	if err != nil {
+		t.Fatalf("reading the session record: %v", err)
+	}
+	return rec.IssuedAt
 }
 
 // cookie returns the session cookie the server set, if any.
@@ -252,7 +269,7 @@ func TestSignInAndOut(t *testing.T) {
 		t.Fatalf("status = %d, want 200", status)
 	}
 	want := "user=alice nickname=Al issued=" +
-		strconv.FormatInt(app.IssuedAt.Unix(), 10)
+		strconv.FormatInt(c.issuedAt(t).Unix(), 10)
 	if got := echoed(t, body); got != want {
 		t.Errorf(" got: %s\nwant: %s", got, want)
 	}
@@ -390,7 +407,7 @@ func TestCSRF(t *testing.T) {
 	t.Run("session request with a wrong token is refused", func(t *testing.T) {
 		c := srv.client(t)
 		c.signIn(t, "frank", "")
-		wrong := srv.csrf.GenerateToken("someone-else", app.IssuedAt.Unix())
+		wrong := srv.csrf.GenerateToken("someone-else", c.issuedAt(t).Unix())
 		if status, _ := c.postWithToken(t, "/login/rename/",
 			`{"nickname":"F"}`, wrong); status != http.StatusForbidden {
 			t.Errorf("status = %d, want %d", status, http.StatusForbidden)

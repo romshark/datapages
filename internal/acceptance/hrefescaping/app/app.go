@@ -8,19 +8,20 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
 
-func echo(format string, args ...any) templ.Component {
+func echo(format string, args ...any) datapages.Component {
 	return templ.Raw("<pre id=\"echo\">" + fmt.Sprintf(format, args...) + "</pre>")
 }
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("index"), nil
 }
 
@@ -32,7 +33,7 @@ func (PageItem) GET(
 	path struct {
 		Name string `path:"name"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return echo("name=%q", path.Name), nil
 }
 
@@ -42,7 +43,7 @@ func (PageItem) GET(
 // and the expression a template holds is built by the action package.
 func (PageItem) POSTRename(
 	_ *http.Request,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	path struct {
 		Name string `path:"name"`
 	},
@@ -50,7 +51,7 @@ func (PageItem) POSTRename(
 		To string `query:"to"`
 	},
 ) error {
-	return sse.PatchElementTempl(echo("renamed %q to %q", path.Name, query.To))
+	return sse.PatchElement(echo("renamed %q to %q", path.Name, query.To))
 }
 
 // PageSearch is /search
@@ -62,6 +63,6 @@ func (PageSearch) GET(
 		Term string `query:"term"`
 		Page int    `query:"page"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return echo("term=%q page=%d", query.Term, query.Page), nil
 }

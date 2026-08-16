@@ -1,0 +1,45 @@
+package app
+
+import (
+	"net/http"
+
+	"github.com/romshark/datapages"
+)
+
+type App struct{}
+
+// Session carries no application data yet. Replace struct{} with your own type
+// to keep data in the session, it's available as session.Data in handlers.
+type Session = datapages.Session[struct{}]
+
+func (*App) Head(r *http.Request) datapages.Component {
+	return nil
+}
+
+func (*App) RecoverError(
+	err error,
+	sse datapages.SSE,
+) error {
+	return sse.ExecuteScript(`alert("Something went wrong. Please try again.")`)
+}
+
+// PageIndex is /
+type PageIndex struct{ App *App }
+
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
+	return pageIndex(), nil
+}
+
+// PageError404 is /not-found
+type PageError404 struct{ App *App }
+
+func (PageError404) GET(r *http.Request, session Session) (body datapages.Component, err error) {
+	return nil, nil
+}
+
+// PageError500 is /error
+type PageError500 struct{ App *App }
+
+func (PageError500) GET(r *http.Request) (body datapages.Component, err error) {
+	return nil, nil
+}

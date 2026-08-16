@@ -9,7 +9,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
-	"github.com/starfederation/datastar-go/datastar"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -27,14 +28,14 @@ type EventFiltersUpdated struct {
 	SubjectStateID string
 }
 
-func (*App) Head(_ *http.Request) templ.Component {
+func (*App) Head(_ *http.Request) datapages.Component {
 	return templ.Raw(`<title>acceptance</title>`)
 }
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (p PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (p PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(status(new(StateFilters))), nil
 }
 
@@ -65,11 +66,11 @@ func (p PageIndex) POSTUpdate(
 
 func (p PageIndex) OnFiltersUpdated(
 	event EventFiltersUpdated,
-	sse *datastar.ServerSentEventGenerator,
+	sse datapages.SSE,
 	state *StateFilters,
 ) error {
 	state.Deliveries++
-	return sse.PatchElementTempl(templ.Raw(status(state)))
+	return sse.PatchElement(templ.Raw(status(state)))
 }
 
 // ErrStreamOpen is what PageFailOpen.StreamOpen answers with, every time.
@@ -82,7 +83,7 @@ var ErrStreamOpen = errors.New("this stream never opens")
 // which leaves the failed open itself to release what it took.
 type PageFailOpen struct{ App *App }
 
-func (p PageFailOpen) GET(r *http.Request) (body templ.Component, err error) {
+func (p PageFailOpen) GET(r *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<div id="status">failopen</div>`), nil
 }
 
@@ -103,7 +104,7 @@ var ErrStreamClose = errors.New("this stream does not close quietly")
 // outside the recovery of net/http, and it holds the slot mutex while it runs.
 type PagePanicOnClose struct{ App *App }
 
-func (p PagePanicOnClose) GET(r *http.Request) (body templ.Component, err error) {
+func (p PagePanicOnClose) GET(r *http.Request) (body datapages.Component, err error) {
 	return templ.Raw(`<div id="status">panicclose</div>`), nil
 }
 
