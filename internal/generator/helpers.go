@@ -25,12 +25,22 @@ func evSubjConst(e *model.Event) string {
 	return "EvSubj" + eventConstName(e.TypeName)
 }
 
+// evUsesPrefixMatch reports whether the event's concrete subject is only
+// known at runtime. Both subscription building and inbound matching must then
+// go through the subject prefix instead of the wildcard constant.
+func evUsesPrefixMatch(e *model.Event) bool {
+	// Any subject field makes the subscription a pattern: the constant carries
+	// one "*" per field. A received subject carries the values instead,
+	// so it is matched by the prefix in front of them rather than by equality.
+	return e.HasSubjectFields()
+}
+
 // evSubjPrefConst returns the subject prefix constant name for events
-// that use prefix-based subject matching (private or signal-scoped).
+// that use prefix-based subject matching.
 // Returns "" for plain public events.
 // "EventMessagingSent" -> "EvSubjPrefMessagingSent"
 func evSubjPrefConst(e *model.Event) string {
-	if !e.IsPrivate() && !e.IsSignalScoped() {
+	if !evUsesPrefixMatch(e) {
 		return ""
 	}
 	return "EvSubjPref" + eventConstName(e.TypeName)
@@ -175,17 +185,15 @@ func routeWithTrailingSlash(route string) string {
 	return route
 }
 
-// renderType renders a Go type using types.TypeString with a qualifier
-// that maps the app package to its short name.
-func renderType(t model.Type, appPkgPath string) string {
-	pkg := appPkgName(appPkgPath)
-	qualifier := func(p *types.Package) string {
-		if p.Path() == appPkgPath {
-			return pkg
-		}
+// renderType renders a Go type using types.TypeString,
+// qualifying every package by the name it declares.
+//
+// That is what an unaliased import binds to, for the app package as much as
+// for any other, and a package is free to declare a name its directory does not repeat.
+func renderType(t model.Type) string {
+	return types.TypeString(t.Resolved, func(p *types.Package) string {
 		return p.Name()
-	}
-	return types.TypeString(t.Resolved, qualifier)
+	})
 }
 
 // renderAnonStructType renders an anonymous struct type from its AST expression,
@@ -270,15 +278,17 @@ type appUsage struct {
 	streamAuth bool
 	// dsRequest: func (s *Server) checkIsDSReq(...)
 	dsRequest bool
-	// recoverError: isDSReq called in httpErrIntern when RecoverError+PageError500 exist
+	// recoverError: isDSReq is called in httpErrIntern by an app that has
+	// PageError500, RecoverError, or both. The two features are independent
+	// and either one makes the helper's answer decide what the response is.
 	recoverError bool
 	// httpErrBad: whether the httpErrBad helper is needed.
 	httpErrBad bool
 	// errSentinels: whether any action returns an error, so the generated
 	// fallback maps the datapages error sentinels to status codes.
 	errSentinels bool
-	// datapagesSSE: whether any handler takes a datapages.SSE param (needs the
-	// datapages import and the generated sseWrapper).
+	// datapagesSSE: whether any handler takes a datapages.SSE param
+	// (needs the datapages import and the generated sseWrapper).
 	datapagesSSE bool
 }
 
@@ -303,7 +313,7 @@ func computeAppUsage(m *model.App) appUsage {
 
 	u.hasSession = m.Session != nil
 
-	if m.RecoverError != nil && m.PageError500 != nil {
+	if m.RecoverError != nil || m.PageError500 != nil {
 		u.recoverError = true
 	}
 	if m.RecoverError != nil {
@@ -313,6 +323,10 @@ func computeAppUsage(m *model.App) appUsage {
 
 	checkHandler := func(h *model.Handler) {
 		if h.InputSession != nil {
+			u.auth = true
+		}
+		if needsCSRFOnly(h, m) {
+			// The handler calls the session helper for its CSRF check.
 			u.auth = true
 		}
 		if h.OutputNewSession != nil {
@@ -409,12 +423,15 @@ type Writer struct {
 	prometheus bool
 	// assetsURLPrefix is the URL path prefix for static files (empty = disabled)
 	assetsURLPrefix string
-	// assetsDir is the subdirectory within the app package for static files (e.g. "static")
+	// assetsDir is the subdirectory within the app package for
+	// static files (e.g. "static")
 	assetsDir string
 	// appDir is the app source package path relative to module root (e.g. "app")
 	appDir string
 	// genImport is the full import path of the generated root package
 	genImport string
+	// appPkgQual is the identifier that qualifies app types in generated code.
+	appPkgQual string
 	// usage is computed once per WriteApp
 	usage appUsage
 	// sessionType is the rendered session type of the application,
@@ -440,7 +457,7 @@ func (w *Writer) setSessionType(m *model.App) {
 		w.sessionDataType = ""
 		return
 	}
-	data := renderType(m.Session.Data, m.PkgPath)
+	data := renderType(m.Session.Data)
 	w.sessionType = "datapages.Session[" + data + "]"
 	w.newSessionType = "datapages.NewSession[" + data + "]"
 	w.recordType = "sessmanager.Record[" + data + "]"
@@ -723,8 +740,8 @@ func intTypeName(t types.Type) string {
 	}
 }
 
-// intTypeParseInfo returns the strconv bit-size argument and whether the type
-// is unsigned, for use with strconv.ParseInt / strconv.ParseUint.
+// intTypeParseInfo returns the strconv bit-size argument and
+// whether the type is unsigned, for use with strconv.ParseInt / strconv.ParseUint.
 // Precondition: isIntType(t) must be true.
 func intTypeParseInfo(t types.Type) (bits int, unsigned bool) {
 	switch t.Underlying().(*types.Basic).Kind() {
@@ -749,6 +766,16 @@ func intTypeParseInfo(t types.Type) (bits int, unsigned bool) {
 	default: // Uint64
 		return 64, true
 	}
+}
+
+// appPkgQualifier returns the identifier that qualifies app types in generated code.
+// An unaliased import binds to the name the package declares,
+// which is free to differ from its directory.
+func appPkgQualifier(m *model.App) string {
+	if m.PkgName != "" {
+		return m.PkgName
+	}
+	return appPkgName(m.PkgPath)
 }
 
 // appPkgName returns the short package name from an import path.

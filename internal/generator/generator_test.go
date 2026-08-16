@@ -2,6 +2,7 @@ package generator_test
 
 import (
 	"go/format"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,144 +14,129 @@ import (
 	"github.com/romshark/datapages/internal/parser"
 )
 
-func TestGenerateClassifieds(t *testing.T) {
-	app, errs := parser.Parse(
-		filepath.Join("..", "..", "example", "classifieds", "app"),
-	)
-	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
-	require.NotNil(t, app, "parser returned nil model")
-
-	tmpDir := t.TempDir()
-	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{
-		Prometheus:      true,
-		AssetsURLPrefix: "/static/",
-		AssetsDir:       "static",
-		AppDir:          "app",
-		GenImport:       "github.com/romshark/datapages/example/classifieds/datapagesgen",
-	})
-	require.NoError(t, err)
-
-	compareFile(t, "app_gen.go",
-		filepath.Join(tmpDir, "app_gen.go"),
-		filepath.Join("..", "..", "example", "classifieds",
-			"datapagesgen", "app_gen.go"))
-	compareFile(t, "action/action_gen.go",
-		filepath.Join(tmpDir, "action", "action_gen.go"),
-		filepath.Join("..", "..", "example", "classifieds",
-			"datapagesgen", "action", "action_gen.go"))
-	compareFile(t, "href/href_gen.go",
-		filepath.Join(tmpDir, "href", "href_gen.go"),
-		filepath.Join("..", "..", "example", "classifieds",
-			"datapagesgen", "href", "href_gen.go"))
-	compareFile(t, "assets/assets_gen.go",
-		filepath.Join(tmpDir, "assets", "assets_gen.go"),
-		filepath.Join("..", "..", "example", "classifieds",
-			"datapagesgen", "assets", "assets_gen.go"))
+// examples lists the example applications whose generated code is committed,
+// with the options their datapages.yaml carries.
+//
+// Their datapagesgen directories are read by people learning what the generator produces,
+// and they are the only generated code in this repository that a reader ever sees.
+// Committed output that no longer matches the generator misleads every one of
+// those readers.
+var examples = map[string]struct {
+	prometheus      bool
+	assetsURLPrefix string
+	assetsDir       string
+}{
+	"calculator": {assetsURLPrefix: "/static/", assetsDir: "static"},
+	"classifieds": {
+		prometheus: true, assetsURLPrefix: "/static/", assetsDir: "static",
+	},
+	"counter":        {},
+	"fancy-counter":  {},
+	"sqlitesessions": {},
+	"tailwindcss":    {assetsURLPrefix: "/static/", assetsDir: "static"},
+	"todolist":       {assetsURLPrefix: "/static/", assetsDir: "static"},
+	"webcomponents":  {assetsURLPrefix: "/static/", assetsDir: "static"},
 }
 
-func TestGenerateCmd(t *testing.T) {
-	tests := map[string]struct {
-		appImport  string
-		genImport  string
-		genPkgName string
-		hasSession bool
-	}{
-		"with session": {
-			appImport:  "example.com/myapp/app",
-			genImport:  "example.com/myapp/datapagesgen",
-			genPkgName: "datapagesgen",
-			hasSession: true,
-		},
-		"without session": {
-			appImport:  "example.com/myapp/app",
-			genImport:  "example.com/myapp/mygen",
-			genPkgName: "mygen",
-			hasSession: false,
-		},
-	}
-	for name, tt := range tests {
+// TestExamplesAreUpToDate regenerates each example and
+// compares the result with what is committed.
+//
+// This is the one test that reads generated code as text, and it reads it for
+// a reason text is the right medium for: the committed files are the artifact.
+// What the generated code does is covered by the acceptance suites.
+func TestExamplesAreUpToDate(t *testing.T) {
+	for name, opts := range examples {
 		t.Run(name, func(t *testing.T) {
-			tmpDir := t.TempDir()
-			err := generator.GenerateCmd(
-				tmpDir, tt.appImport, tt.genImport, tt.genPkgName,
-				true, tt.hasSession, 0o644,
-			)
-			require.NoError(t, err)
+			t.Parallel()
 
-			data, err := os.ReadFile(filepath.Join(tmpDir, "main.go"))
-			require.NoError(t, err)
+			dir := filepath.Join("..", "..", "example", name)
+			app, errs := parser.Parse(filepath.Join(dir, "app"))
+			require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+			require.NotNil(t, app, "parser returned nil model")
 
-			src := string(data)
-			require.True(t, strings.HasPrefix(src, "package main"))
-			require.Contains(t, src, tt.appImport)
-			require.Contains(t, src, tt.genImport)
-			require.Contains(t, src, tt.genPkgName+".NewServer")
+			modPath := modulePathOf(t, dir)
+			got := t.TempDir()
+			require.NoError(t, generator.Generate(
+				got, "datapagesgen", app, 0o644, generator.Options{
+					Prometheus:      opts.prometheus,
+					AssetsURLPrefix: opts.assetsURLPrefix,
+					AssetsDir:       opts.assetsDir,
+					AppDir:          "app",
+					GenImport:       modPath + "/datapagesgen",
+				},
+			))
 
-			if tt.hasSession {
-				require.Contains(t, src, "sessionManager")
-				require.Contains(t, src, "WithAuth")
-				require.Contains(t, src, "WithCSRFProtection")
-			} else {
-				require.NotContains(t, src, "sessionManager")
-				require.NotContains(t, src, "WithAuth")
-				require.NotContains(t, src, "WithCSRFProtection")
-				require.NotContains(t, src, "app.Session")
-			}
+			compareTrees(t, got, filepath.Join(dir, "datapagesgen"))
 		})
 	}
 }
 
-// TestGenerateNoSession confirms issue #14: when the source package defines
-// no Session type, the generated app_gen.go must not reference Session at all.
-func TestGenerateNoSession(t *testing.T) {
-	app, errs := parser.Parse(
-		filepath.Join("..", "parser", "testdata", "minimal"),
-	)
-	require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
-	require.NotNil(t, app, "parser returned nil model")
-	require.Nil(t, app.Session, "minimal fixture must have no Session type")
-
-	tmpDir := t.TempDir()
-	err := generator.Generate(tmpDir, "datapagesgen", app, 0o644, generator.Options{})
+// modulePathOf reads the module path out of a go.mod.
+func modulePathOf(t *testing.T, dir string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "go.mod"))
 	require.NoError(t, err)
-
-	data, err := os.ReadFile(filepath.Join(tmpDir, "app_gen.go"))
-	require.NoError(t, err)
-	src := string(data)
-
-	// None of the session or CSRF symbols should appear when Session is absent.
-	require.NotContains(t, src, "SessionManager",
-		"generated code must not reference SessionManager when Session type is absent")
-	require.NotContains(t, src, ".Session",
-		"generated code must not reference .Session when Session type is absent")
-	require.NotContains(t, src, "CSRFConfig",
-		"generated code must not reference CSRFConfig when Session type is absent")
-	require.NotContains(t, src, "WithCSRFProtection",
-		"generated code must not reference WithCSRFProtection when Session type is absent")
+	line, _, ok := strings.Cut(strings.TrimPrefix(string(b), "module "), "\n")
+	require.True(t, ok, "no module path in %s/go.mod", dir)
+	return strings.TrimSpace(line)
 }
 
-func compareFile(t *testing.T, name, gotPath, wantPath string) {
+// compareTrees compares every generated file with its committed counterpart,
+// in both directions: a file the generator no longer writes is drift too.
+func compareTrees(t *testing.T, gotDir, wantDir string) {
 	t.Helper()
 
-	got, err := os.ReadFile(gotPath)
-	require.NoError(t, err, "reading generated %s", name)
+	generated := goFilesOf(t, gotDir)
+	committed := goFilesOf(t, wantDir)
 
-	want, err := os.ReadFile(wantPath)
-	require.NoError(t, err, "reading reference %s", name)
+	for rel := range generated {
+		if _, ok := committed[rel]; !ok {
+			t.Errorf("%s is generated but not committed; run: mage genDatapages", rel)
+		}
+	}
+	for rel := range committed {
+		if _, ok := generated[rel]; !ok {
+			t.Errorf("%s is committed but no longer generated; run: mage genDatapages", rel)
+			continue
+		}
+		if normalize(generated[rel]) != normalize(committed[rel]) {
+			t.Errorf("%s differs from the committed output; run: mage genDatapages", rel)
+		}
+	}
+}
 
-	// Format both to normalize whitespace differences.
-	gotFmt, err := format.Source(got)
-	if err != nil {
-		// If formatting fails, compare raw.
-		gotFmt = got
-	}
-	wantFmt, err := format.Source(want)
-	if err != nil {
-		wantFmt = want
-	}
+// goFilesOf reads every generated Go file of a tree,
+// keyed by its path relative to the tree.
+func goFilesOf(t *testing.T, dir string) map[string][]byte {
+	t.Helper()
+	files := map[string][]byte{}
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, "_gen.go") {
+			return nil
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		files[rel] = b
+		return nil
+	})
+	require.NoError(t, err)
+	return files
+}
 
-	if string(gotFmt) != string(wantFmt) {
-		t.Errorf("%s differs from reference.\nGenerated: %s\nReference: %s",
-			name, gotPath, wantPath)
+// normalize formats source so that a difference in
+// whitespace alone is not reported as drift.
+func normalize(src []byte) string {
+	if out, err := format.Source(src); err == nil {
+		return string(out)
 	}
+	return string(src)
 }

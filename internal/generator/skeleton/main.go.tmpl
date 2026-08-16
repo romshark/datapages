@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 {{- end}}
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -75,8 +76,10 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// loadEnvFile reads a .env file and sets variables in the process
-// environment. Existing variables are not overwritten.
+// loadEnvFile reads a .env file and sets variables in the process environment.
+// Existing variables are not overwritten. A missing file is not an error;
+// anything else is reported, because a variable the file was
+// supposed to carry is missing from here on.
 func loadEnvFile(path string) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -96,6 +99,11 @@ func loadEnvFile(path string) {
 		if os.Getenv(k) == "" {
 			_ = os.Setenv(k, v)
 		}
+	}
+	// Scan stops on a read error and on a line too long for its buffer,
+	// both of which leave the rest of the file unread.
+	if err := s.Err(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "reading %s: %v\n", path, err)
 	}
 }
 
@@ -136,7 +144,7 @@ func withCSRFProtection(opts *[]{{.Gen}}.ServerOption) {
 
 func connectNATS() (
 	*natsjs.MessageBroker,
-	*natskv.SessionManager[app.Session],
+	*natskv.SessionManager[{{.SessionData}}],
 ) {
 {{- else}}
 
@@ -168,7 +176,7 @@ func connectNATS() *natsjs.MessageBroker {
 	}
 {{- if .HasSession}}
 
-	sessionManager, err := natskv.New[app.Session](
+	sessionManager, err := natskv.New[{{.SessionData}}](
 		conn,
 		sesstokgen.Generator{Length: sesstokgen.DefaultLength},
 		natskv.Config{EncryptionKey: sessionEncryptionKey},

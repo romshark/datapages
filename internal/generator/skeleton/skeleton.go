@@ -38,18 +38,29 @@ type mainGoData struct {
 	Gen        string
 	Prometheus bool
 	HasSession bool
+
+	// SessionData is the rendered session Data type the session manager is
+	// instantiated with, for example "struct{}" or "app.SessionData".
+	SessionData string
 }
 
 // MainGo renders the cmd/server/main.go template with the given import paths
 // and returns formatted Go source.
-func MainGo(appImportPath, genImportPath, genPkgName string, prometheus, hasSession bool) ([]byte, error) {
+//
+// sessionData is the rendered session Data type,
+// empty for an application without sessions.
+func MainGo(
+	appImportPath, genImportPath, genPkgName string,
+	prometheus bool, sessionData string,
+) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, mainGoData{
-		AppImport:  appImportPath,
-		GenImport:  genImportPath,
-		Gen:        genPkgName,
-		Prometheus: prometheus,
-		HasSession: hasSession,
+		AppImport:   appImportPath,
+		GenImport:   genImportPath,
+		Gen:         genPkgName,
+		Prometheus:  prometheus,
+		HasSession:  sessionData != "",
+		SessionData: sessionData,
 	}); err != nil {
 		return nil, fmt.Errorf("executing main.go template: %w", err)
 	}

@@ -262,6 +262,26 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		w.writeReadPath(h.InputPath, m)
 	}
 
+	// Read signals.
+	//
+	// A page load carries them in the datastar query parameter,
+	// which the Datastar client adds and a visitor typing the URL does not.
+	// Their absence is the ordinary case and leaves the handler the zero value;
+	// only a malformed value is an error.
+	if h.InputSignals != nil {
+		hasBody = true
+		w.Line(0, "")
+		w.Raw("\tvar signals ")
+		w.Raw(renderSignalsType(h.InputSignals, m))
+		w.Byte('\n')
+		w.Line(1, `if r.URL.Query().Has("datastar") {`)
+		w.Line(2, "if err := datastar.ReadSignals(r, &signals); err != nil {")
+		w.Line(3, `s.httpErrBad(w, "reading signals", err)`)
+		w.Line(3, "return")
+		w.Line(2, "}")
+		w.Line(1, "}")
+	}
+
 	// Dispatch closure.
 	if h.InputDispatch != nil {
 		hasBody = true
@@ -313,7 +333,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 
 	if h.OutputErr != nil {
 		w.Line(1, "if err != nil {")
-		if w.usage.recoverError && p == m.PageError500 {
+		if m.PageError500 != nil && p == m.PageError500 {
 			// httpErrIntern renders PageError500, so the error page can't use it.
 			w.Raw("\t\ts.httpErrFinal(w, \"handling ")
 		} else {
@@ -324,6 +344,10 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
+
+	// Close and create session, before anything is written: both set a cookie,
+	// and a cookie set after the body has started is dropped.
+	w.writeSessionOutputs(h)
 
 	// Redirect.
 	if h.OutputRedirect != nil {
@@ -389,6 +413,36 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 
 func hasSessionInput(h *model.Handler) bool {
 	return h.InputSession != nil
+}
+
+// writeSessionOutputs emits what a handler's newSession and closeSession
+// outputs ask for. Both set a cookie, so both run before the response body.
+//
+// A handler that returns a session and never has it acted on leaves the value unused,
+// which is a generated package that does not compile.
+func (w *Writer) writeSessionOutputs(h *model.Handler) {
+	if h.OutputCloseSession != nil {
+		w.Raw("\tif ")
+		w.Raw(h.OutputCloseSession.Name)
+		w.Raw(" {\n")
+		w.Line(2, "if err := s.closeSession(w, r, sessToken); err != nil {")
+		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
+		w.Line(3, "return")
+		w.Line(2, "}")
+		w.Line(1, "}")
+	}
+	if h.OutputNewSession != nil {
+		w.Raw("\tif j := ")
+		w.Raw(h.OutputNewSession.Name)
+		w.Raw("; j.UserID != \"\" {\n")
+		w.Raw("\t\tif err := s.createSession(w, r, ")
+		w.Raw(h.OutputNewSession.Name)
+		w.Raw("); err != nil {\n")
+		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
+		w.Line(3, "return")
+		w.Line(2, "}")
+		w.Line(1, "}")
+	}
 }
 
 // writeGenericHeadCall emits: genericHead := s.app.Head(r[, sess])
@@ -770,7 +824,13 @@ func (w *Writer) writePageGETStreamHandler(
 		if hasAnon {
 			w.Line(0, "")
 			w.Line(1, `if sess.UserID() == "" {`)
-			w.Line(2, `http.Redirect(w, r, r.URL.Path+"/anon", http.StatusSeeOther)`)
+			w.Line(2, "// The query carries the signals a stream subscribes by,")
+			w.Line(2, "// which the anonymous route needs as much as this one.")
+			w.Line(2, `target := r.URL.Path + "/anon"`)
+			w.Line(2, `if r.URL.RawQuery != "" {`)
+			w.Line(3, `target += "?" + r.URL.RawQuery`)
+			w.Line(2, "}")
+			w.Line(2, "http.Redirect(w, r, target, http.StatusSeeOther)")
 			w.Line(2, "return")
 			w.Line(1, "}")
 		} else {
@@ -887,7 +947,16 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Line(2, "}")
 	} else {
 		w.Line(2, "for msg := range ch {")
-		needsPrefixMatch := hasPrivate || hasSignalScoped
+		// An event matched by prefix cannot be compared against: its constant
+		// is the pattern the stream subscribed by, and a message carries the values.
+		needsPrefixMatch := false
+		for _, eh := range p.EventHandlers {
+			if ev := w.eventMap[eh.EventTypeName]; ev != nil &&
+				evUsesPrefixMatch(ev) {
+				needsPrefixMatch = true
+				break
+			}
+		}
 		if needsPrefixMatch {
 			w.Line(3, "switch {")
 		} else {
@@ -916,7 +985,7 @@ func (w *Writer) writeStreamEventCase(
 ) {
 	constName := eventConstName(ev.TypeName)
 
-	if ev.IsPrivate() || ev.IsSignalScoped() {
+	if evUsesPrefixMatch(ev) {
 		w.Raw("\t\t\tcase strings.HasPrefix(msg.Subject, EvSubjPref")
 		w.Raw(constName)
 		w.Raw("):\n")
@@ -1053,6 +1122,41 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Line(2, "return")
 	w.Line(1, "}")
 
+	// Read signal-scoped subject values for subscription.
+	//
+	// The anonymous stream carries what is public, and a signal-scoped event is public.
+	// It therefore has to subscribe by the same values as the authenticated one,
+	// which it cannot do without reading them.
+	signalFields := pageSignalSubjectFields(p, w.eventMap)
+	if len(signalFields) > 0 {
+		w.Line(0, "")
+		w.Line(1, "var subjSignals struct {")
+		for _, sf := range signalFields {
+			w.Raw("\t\t")
+			w.Raw(sf.Name)
+			w.Raw(` string `)
+			w.Raw("`json:\"")
+			w.Raw(sf.SignalName)
+			w.Raw("\"`")
+			w.Byte('\n')
+		}
+		w.Line(1, "}")
+		w.Line(1, "if err := datastar.ReadSignals(r, &subjSignals); err != nil {")
+		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
+		w.Line(2, "return")
+		w.Line(1, "}")
+		for _, sf := range signalFields {
+			w.Raw("\tif subjSignals.")
+			w.Raw(sf.Name)
+			w.Raw(" == \"\" {\n")
+			w.Raw("\t\ts.httpErrBad(w, \"missing required signal\", fmt.Errorf(\"signal %q is required\", ")
+			w.writeQuoted(sf.SignalName)
+			w.Raw("))\n")
+			w.Line(2, "return")
+			w.Line(1, "}")
+		}
+	}
+
 	if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
 		w.Line(0, "")
 		w.Raw("\tvar signals ")
@@ -1084,7 +1188,12 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	// evSubj call (for anon, pass empty userID to get public-only subjects).
 	w.Raw("\ts.handleStreamRequest(w, r, sessToken, sess, evSubj")
 	w.Raw(p.TypeName)
-	w.Raw("(sess.UserID()),\n")
+	w.Raw("(sess.UserID()")
+	for _, sf := range signalFields {
+		w.Raw(", subjSignals.")
+		w.Raw(sf.Name)
+	}
+	w.Raw("),\n")
 	w.writePageStreamOpenHook(p)
 	w.writePageStreamCloseHook(p)
 	w.Line(1, "func(")
@@ -1093,50 +1202,32 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Line(1, ") {")
 	w.Line(2, "for msg := range ch {")
 
-	// Only handle public events in anon stream.
-	publicHandlers := 0
+	// Only public events reach an anonymous stream.
+	var publicHandlers []*model.EventHandler
+	needsPrefixMatch := false
 	for _, eh := range p.EventHandlers {
 		ev := w.eventMap[eh.EventTypeName]
-		if ev != nil && !ev.IsPrivate() {
-			publicHandlers++
+		if ev == nil || ev.IsPrivate() {
+			continue
+		}
+		publicHandlers = append(publicHandlers, eh)
+		if evUsesPrefixMatch(ev) {
+			needsPrefixMatch = true
 		}
 	}
 
-	if publicHandlers == 1 {
-		// Single event: use if instead of switch.
-		for _, eh := range p.EventHandlers {
-			ev := w.eventMap[eh.EventTypeName]
-			if ev == nil || ev.IsPrivate() {
-				continue
-			}
-			w.Raw("\t\t\tif msg.Subject == EvSubj")
-			w.Raw(eventConstName(ev.TypeName))
-			w.Raw(" {\n")
-			w.Raw("\t\t\t\tvar e ")
-			w.Raw(appPkg)
-			w.Byte('.')
-			w.Raw(ev.TypeName)
-			w.Byte('\n')
-			w.Line(4, "if err := json.Unmarshal(msg.Data, &e); err != nil {")
-			w.Raw("\t\t\t\t\ts.logErr(\"unmarshaling ")
-			w.Raw(ev.TypeName)
-			w.Raw(" JSON\", err)\n")
-			w.Line(5, "continue")
-			w.Line(4, "}")
-			w.writeEventHandlerCall(p.TypeName, eh, "p")
-			w.Line(3, "}")
-		}
+	// An event matched by prefix cannot be compared against: its constant is
+	// the pattern the stream subscribed by, and a message carries the values.
+	if needsPrefixMatch {
+		w.Line(3, "switch {")
 	} else {
 		w.Line(3, "switch msg.Subject {")
-		for _, eh := range p.EventHandlers {
-			ev := w.eventMap[eh.EventTypeName]
-			if ev == nil || ev.IsPrivate() {
-				continue
-			}
-			w.writeStreamEventCase(p, eh, ev, appPkg, true)
-		}
-		w.Line(3, "}")
 	}
+	for _, eh := range publicHandlers {
+		w.writeStreamEventCase(p, eh, w.eventMap[eh.EventTypeName], appPkg,
+			!needsPrefixMatch)
+	}
+	w.Line(3, "}")
 
 	w.Line(2, "}")
 	w.Line(1, "})")
@@ -1166,15 +1257,23 @@ func (w *Writer) writePageActionHandler(
 	needsToken := h.OutputCloseSession != nil
 	headNeedsSess := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
 		m.GlobalHeadGenerator.InputSession
-	if h.InputSession != nil || needsToken || headNeedsSess {
+	switch {
+	case h.InputSession != nil || needsToken || headNeedsSess:
+		// A local nobody reads is a package that does not compile.
+		sessVar := "_"
+		if h.InputSession != nil || headNeedsSess {
+			sessVar = "sess"
+		}
 		if needsToken {
-			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
+			w.Linef(1, "%s, sessToken, ok := s.auth(w, r)", sessVar)
 		} else {
-			w.Line(1, "sess, _, ok := s.auth(w, r)")
+			w.Linef(1, "%s, _, ok := s.auth(w, r)", sessVar)
 		}
 		w.Line(1, "if !ok {")
 		w.Line(2, "return")
 		w.Line(1, "}")
+	case needsCSRFOnly(h, m):
+		w.writeCSRFOnlyCheck()
 	}
 
 	// Body size limit.
@@ -1271,30 +1370,8 @@ func (w *Writer) writeActionMethodCall(
 		w.Line(1, "}")
 	}
 
-	// Close session.
-	if h.OutputCloseSession != nil {
-		w.Raw("\tif ")
-		w.Raw(h.OutputCloseSession.Name)
-		w.Raw(" {\n")
-		w.Line(2, "if err := s.closeSession(w, r, sessToken); err != nil {")
-		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
-		w.Line(3, "return")
-		w.Line(2, "}")
-		w.Line(1, "}")
-	}
-
-	// New session.
-	if h.OutputNewSession != nil {
-		w.Raw("\tif j := ")
-		w.Raw(h.OutputNewSession.Name)
-		w.Raw("; j.UserID != \"\" {\n")
-		w.Raw("\t\tif err := s.createSession(w, r, ")
-		w.Raw(h.OutputNewSession.Name)
-		w.Raw("); err != nil {\n")
-		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
-		w.Line(2, "}")
-		w.Line(1, "}")
-	}
+	// Close and create session.
+	w.writeSessionOutputs(h)
 
 	// Redirect.
 	if h.OutputRedirect != nil {
@@ -1323,10 +1400,17 @@ func (w *Writer) writeActionMethodCall(
 			w.Raw(", ")
 		}
 		if m.GlobalHeadGenerator != nil {
-			w.Raw("genericHead, nil, ")
-		} else {
-			w.Raw("nil, ")
+			w.Raw("genericHead, ")
 		}
+		// An action may return a head of its own, which the response it
+		// renders has to carry. Anything else leaves the value the handler
+		// returned unused, which is also a package that does not compile.
+		if h.OutputHead != nil {
+			w.Raw(h.OutputHead.Name)
+		} else {
+			w.Raw("nil")
+		}
+		w.Raw(", ")
 		w.Raw(h.OutputBody.Name)
 		w.Raw(", nil, nil,\n")
 		w.Line(1, "); err != nil {")
@@ -1410,8 +1494,8 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
 }
 
 // writeParseField emits code that parses a raw string value into a typed
-// struct field. For writeReadQuery the raw variable is named "q" (from the
-// if-guard); for writeReadPath it is "v" (set before the call).
+// struct field. For writeReadQuery the raw variable is named "q"
+// (from the if-guard); for writeReadPath it is "v" (set before the call).
 //
 // varName is "path" or "query" (the struct being populated).
 // label is "path parameter" or "query parameter" (for error messages).

@@ -141,7 +141,11 @@ func collectEventTypeNames(ctx *parseCtx) {
 }
 
 func initApp(ctx *parseCtx, errs *Errors) {
-	ctx.app = &model.App{Fset: ctx.pkg.Fset, PkgPath: ctx.pkg.PkgPath}
+	ctx.app = &model.App{
+		Fset:    ctx.pkg.Fset,
+		PkgPath: ctx.pkg.PkgPath,
+		PkgName: ctx.pkg.Name,
+	}
 	if appTS, ok := ctx.typeSpecByName["App"]; ok {
 		ctx.app.Expr = appTS.Name
 		ctx.appTypeFound = true
@@ -228,9 +232,9 @@ func collectSessionType(ctx *parseCtx, errs *Errors) {
 	}
 }
 
-// noteSessionType records the datapages.Session[Data] instantiation used by a
-// handler. All handlers of an application must use the same one, since the
-// server holds a single session manager.
+// noteSessionType records the datapages.Session[Data] instantiation used by a handler.
+// All handlers of an application must use the same one,
+// since the server holds a single session manager.
 func noteSessionType(
 	ctx *parseCtx, errs *Errors, expr ast.Expr, info *types.Info,
 ) {
@@ -364,9 +368,9 @@ func extractEventSubject(
 	return "", validate.ErrEventSubjectInvalid
 }
 
-// eventSubjectPos returns the position of the subject value (the quoted
-// string after "is ") in the doc comment for an event type. Falls back
-// to fallback when the comment cannot be located.
+// eventSubjectPos returns the position of the subject value
+// (the quoted string after "is ") in the doc comment for an event type.
+// Falls back to fallback when the comment cannot be located.
 func eventSubjectPos(
 	doc *ast.CommentGroup, typeName string,
 	fset *token.FileSet, fallback token.Position,
@@ -878,13 +882,17 @@ func attachHTTPHandler(
 				pagePath = pg.Route
 			}
 			errs.ErrAt(pos,
-				&ErrorActionMissingPathComm{PagePath: pagePath, Recv: recv, MethodName: fd.Name.Name})
+				&ErrorActionMissingPathComm{
+					PagePath: pagePath, Recv: recv, MethodName: fd.Name.Name,
+				})
 		} else if !valid {
 			errs.ErrAt(pos,
 				&ErrorActionInvalidPathComm{Recv: recv, MethodName: fd.Name.Name})
 		} else if pg != nil && pg.Route != "" && !actionIsUnderPage(pg.Route, r) {
 			errs.ErrAt(pos,
-				&ErrorActionPathNotUnderPage{PagePath: pg.Route, Recv: recv, MethodName: fd.Name.Name})
+				&ErrorActionPathNotUnderPage{
+					PagePath: pg.Route, Recv: recv, MethodName: fd.Name.Name,
+				})
 		}
 	} else if kind == methodkind.GETHandler && pg != nil {
 		h.Route = pg.Route
@@ -1178,7 +1186,8 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 					prevPos = ctx.pkg.Fset.Position(streamClosedOwnerPos)
 				}
 				errs.ErrAt(pos, fmt.Errorf(
-					"%w: %s inherits %s and %s which both define StreamClose (previous at %s)",
+					"%w: %s inherits %s and %s which both define StreamClose "+
+						"(previous at %s)",
 					ErrStreamHookDuplicateEmbed,
 					pg.TypeName,
 					streamClosedOwner,
@@ -1633,7 +1642,9 @@ func (e *positionedError) Unwrap() error { return e.err }
 // resolveErrorPos returns the most specific position for an error.
 // It checks positionedError first, then the ASTPos() interface,
 // falling back to the provided fset and default position.
-func resolveErrorPos(e error, fset *token.FileSet, fallback token.Position) token.Position {
+func resolveErrorPos(
+	e error, fset *token.FileSet, fallback token.Position,
+) token.Position {
 	var pe *positionedError
 	if errors.As(e, &pe) {
 		return pe.pos
@@ -1828,8 +1839,7 @@ func fuzzyMatchParamName(name string, h *model.Handler) (string, bool) {
 	return bestName, true
 }
 
-// isParamConsumed reports whether the named parameter slot is already
-// consumed in h.
+// isParamConsumed reports whether the named parameter slot is already consumed in h.
 func isParamConsumed(h *model.Handler, name string) bool {
 	switch name {
 	case "streamID":
@@ -1941,7 +1951,7 @@ func parseHandler(
 		return h, nil, fmt.Errorf("%w in %s.%s",
 			ErrSignatureMissingReq, recv, fd.Name.Name)
 	}
-	// Expand multi-name fields (e.g. "r, a *http.Request" → two fields)
+	// Expand multi-name fields (e.g. "r, a *http.Request" -> two fields)
 	// so that each field represents exactly one parameter.
 	expandedParams := expandFieldList(params.List)
 
@@ -2213,13 +2223,32 @@ func parseHandler(
 			ErrCloseSessionWithSSE, recv, fd.Name.Name)
 	}
 
-	// For action handlers, detect templ.Component body output.
+	// For action handlers, detect the templ.Component body and head outputs.
+	// The rule is the one a GET follows: the first component is the body,
+	// a second one is the head, and both are named after what they are.
 	if kind.IsAction() {
+		var comps []*model.Output
 		for _, out := range outputs {
 			if typecheck.IsComponent(out.Type.Resolved) {
-				h.OutputBody = &model.TemplComponent{Output: out}
-				break
+				comps = append(comps, out)
 			}
+		}
+		if len(comps) > 0 {
+			h.OutputBody = &model.TemplComponent{Output: comps[0]}
+		}
+		if len(comps) > 1 {
+			second := comps[1]
+			if second.Name != "head" {
+				err := fmt.Errorf("%w in %s.%s",
+					ErrSignatureGETHeadWrongName, recv, fd.Name.Name)
+				if second.Expr != nil {
+					return h, outputs, &positionedError{
+						pos: fset.Position(second.Expr.Pos()), err: err,
+					}
+				}
+				return h, outputs, err
+			}
+			h.OutputHead = &model.TemplComponent{Output: second}
 		}
 	}
 

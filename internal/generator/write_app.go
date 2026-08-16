@@ -2,6 +2,7 @@ package generator
 
 import (
 	_ "embed"
+	"slices"
 	"strings"
 
 	"github.com/romshark/datapages/internal/parser/model"
@@ -22,7 +23,8 @@ var appStaticContent2 string
 // WriteApp generates code for the generated root package and appends it to buffer.
 // pkgName is the Go package name (e.g. "datapagesgen").
 func (w *Writer) WriteApp(pkgName string, m *model.App) {
-	appPkg := appPkgName(m.PkgPath)
+	appPkg := appPkgQualifier(m)
+	w.appPkgQual = appPkg
 	w.buildEventMap(m.Events)
 	w.usage = computeAppUsage(m)
 	w.setSessionType(m)
@@ -169,6 +171,13 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"golang.org/x/sync/errgroup"`)
 	w.Line(0, "")
 	w.Byte('\t')
+	// An unaliased import binds to the name the package declares.
+	// Name it anyway when that differs from the last element of the path,
+	// which is what a reader and the import formatter both assume it to be.
+	if w.appPkgQual != appPkgName(appPkgPath) {
+		w.Raw(w.appPkgQual)
+		w.Byte(' ')
+	}
 	w.writeQuoted(appPkgPath)
 	w.Byte('\n')
 	if w.hasAssets() && w.genImport != "" {
@@ -1000,19 +1009,14 @@ func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
 
 	w.Line(0, ")")
 
-	// EvSubjPref* constants (prefix for matching private and signal-scoped events).
-	hasPrefixed := false
-	for _, e := range events {
-		if e.IsPrivate() || e.IsSignalScoped() {
-			hasPrefixed = true
-			break
-		}
-	}
+	// EvSubjPref* constants
+	// (prefix for matching events whose concrete subject is only known at runtime).
+	hasPrefixed := slices.ContainsFunc(events, evUsesPrefixMatch)
 	if hasPrefixed {
 		w.Line(0, "")
 		w.Line(0, "const (")
 		for _, e := range events {
-			if e.IsPrivate() || e.IsSignalScoped() {
+			if evUsesPrefixMatch(e) {
 				w.Byte('\t')
 				w.Raw(evSubjPrefConst(e))
 				w.Raw(" = ")
@@ -1587,12 +1591,13 @@ func (s *Server) auth(
 
 func (w *Writer) writeBrokerSubjectKind(events []*model.Event) {
 	w.Raw(`
-// brokerSubjectKind collapses high-cardinality subjects (per-user) into stable kinds.
+// brokerSubjectKind folds subjects that carry a value back into the event name.
+// A metric labelled with the raw subject would carry one value per subject value.
 func brokerSubjectKind(subject string) string {
 	switch {
 `)
 	for _, e := range events {
-		if e.IsPrivate() {
+		if evUsesPrefixMatch(e) {
 			w.Raw("\tcase strings.HasPrefix(subject, ")
 			w.Raw(evSubjPrefConst(e))
 			w.Raw("):\n")
@@ -1718,15 +1723,63 @@ func (w *Writer) writeHTTPErrFallback() {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 	case errors.Is(err, datapages.ErrNotFound):
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+	case errors.Is(err, datapages.ErrConflict):
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
 `)
 }
 
+// needsCSRFOnly reports whether a handler has to run the session check for the
+// CSRF token alone, because it reads nothing of the session itself.
+//
+// The check lives inside the session helper. A state-changing action that
+// declares neither session nor sessionToken would never call it,
+// and a cross-site page can make a browser send exactly that request.
+func needsCSRFOnly(h *model.Handler, m *model.App) bool {
+	if m.Session == nil {
+		return false
+	}
+	switch strings.ToUpper(h.HTTPMethod) {
+	case "GET", "HEAD", "OPTIONS":
+		// Nothing to protect: these change nothing.
+		return false
+	}
+	return true
+}
+
+// writeCSRFOnlyCheck emits the session lookup a handler runs for its CSRF token.
+// The session itself is not passed on; the handler did not ask for it.
+func (w *Writer) writeCSRFOnlyCheck() {
+	w.Line(1, "// CSRF protection covers every state-changing action, including")
+	w.Line(1, "// the ones that read nothing of the session.")
+	w.Line(1, "if _, _, ok := s.auth(w, r); !ok {")
+	w.Line(2, "return")
+	w.Line(1, "}")
+}
+
 func (w *Writer) writeAppErrHelpers(m *model.App, appPkg string) {
-	// httpErrIntern calls RecoverError if available.
-	if m.RecoverError != nil && m.PageError500 != nil {
+	hasPage := m.PageError500 != nil
+	hasRecover := m.RecoverError != nil
+
+	if !hasPage && !hasRecover {
+		w.Raw(`
+func (s *Server) httpErrIntern(
+	w http.ResponseWriter, _ *http.Request,
+	_ *datastar.ServerSentEventGenerator, msg string, err error,
+) {
+	s.logErr(msg, err)
+`)
+		w.writeHTTPErrFallback()
+		w.Raw(`}
+`)
+		return
+	}
+
+	if hasPage {
+		// httpErrIntern answers a page load by rendering PageError500.
+		// The handler of that page therefore can't report through it.
 		w.Raw(`
 // httpErrFinal writes the error response without rendering PageError500.
 // The PageError500 handler uses it so it can't render itself.
@@ -1735,18 +1788,34 @@ func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 `)
 		w.writeHTTPErrFallback()
 		w.Raw(`}
+`)
+	}
 
+	w.Raw(`
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.logErr(msg, err)
-	if !isDSReq(r) {
+`)
+	if hasPage {
+		w.Raw(`	if !isDSReq(r) {
+		// A page load gets the app's own 500 page, with the status that
+		// says what happened. The page's own route serves 200;
+		// this is the other way in.
+		w.WriteHeader(http.StatusInternalServerError)
 		s.handlePageError500GET(w, r)
 		return
 	}
+`)
+	}
+	if hasRecover {
+		w.Raw(`	// The response of a Datastar request is an event stream. Once one is
+	// open the status line is gone, which is what committed reports.
+	committed := sse != nil
 	if sse == nil {
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
+		committed = true
 	}
 	errRecover := s.`)
 		w.Raw(appPkg)
@@ -1769,22 +1838,16 @@ func (s *Server) httpErrIntern(
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
-`)
-		w.writeHTTPErrFallback()
-		w.Raw(`}
-`)
-	} else {
-		w.Raw(`
-func (s *Server) httpErrIntern(
-	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
-) {
-	s.logErr(msg, err)
-`)
-		w.writeHTTPErrFallback()
-		w.Raw(`}
+	if committed {
+		// http.Error would write a status the client already received,
+		// and append its text to the event stream the client is reading.
+		return
+	}
 `)
 	}
+	w.writeHTTPErrFallback()
+	w.Raw(`}
+`)
 }
 
 func (w *Writer) writeRender404(m *model.App, appPkg string) {
@@ -1792,6 +1855,10 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 
 	w.Line(0, "")
 	w.Line(0, "func (s *Server) render404(w http.ResponseWriter, r *http.Request) {")
+	w.Line(1, "// The URL is claimed by no page. Whatever the app renders for it,")
+	w.Line(1, "// the response says so: a cache that stores it and a crawler that")
+	w.Line(1, "// reads it both go by the status.")
+	w.Line(1, "w.WriteHeader(http.StatusNotFound)")
 
 	h404 := p.GET.Handler
 	headNeedsSess := m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession
@@ -1864,15 +1931,23 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 	needsToken := h.OutputCloseSession != nil
 	headNeedsSess := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
 		m.GlobalHeadGenerator.InputSession
-	if h.InputSession != nil || needsToken || headNeedsSess {
+	switch {
+	case h.InputSession != nil || needsToken || headNeedsSess:
+		// A local nobody reads is a package that does not compile.
+		sessVar := "_"
+		if h.InputSession != nil || headNeedsSess {
+			sessVar = "sess"
+		}
 		if needsToken {
-			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
+			w.Linef(1, "%s, sessToken, ok := s.auth(w, r)", sessVar)
 		} else {
-			w.Line(1, "sess, _, ok := s.auth(w, r)")
+			w.Linef(1, "%s, _, ok := s.auth(w, r)", sessVar)
 		}
 		w.Line(1, "if !ok {")
 		w.Line(2, "return")
 		w.Line(1, "}")
+	case needsCSRFOnly(h, m):
+		w.writeCSRFOnlyCheck()
 	}
 
 	// Build the call.
@@ -2197,21 +2272,21 @@ func (w *Writer) writeDispatchClosureAs(
 
 func renderSignalsType(input *model.Input, m *model.App) string {
 	if isNamedType(input.Type) {
-		return renderType(input.Type, m.PkgPath)
+		return renderType(input.Type)
 	}
 	return renderAnonStructType(input.Type, m.Fset)
 }
 
 func renderQueryType(input *model.Input, m *model.App) string {
 	if isNamedType(input.Type) {
-		return renderType(input.Type, m.PkgPath)
+		return renderType(input.Type)
 	}
 	return renderAnonStructType(input.Type, m.Fset)
 }
 
 func renderPathType(input *model.Input, m *model.App) string {
 	if isNamedType(input.Type) {
-		return renderType(input.Type, m.PkgPath)
+		return renderType(input.Type)
 	}
 	return renderAnonStructType(input.Type, m.Fset)
 }

@@ -5,6 +5,7 @@
 package action
 
 import (
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -243,10 +244,20 @@ func escapeJS(s string) string {
 	return s
 }
 
+// isEntry reports whether an option belongs in the options object.
+//
+// A helper given nothing to say returns the zero option: WithHeaders of
+// an empty map, say, which is what a template computing its headers
+// produces whenever the map comes out empty. Writing it would put
+// "{: }" in the expression, which no browser can parse.
+func isEntry(o option) bool {
+	return o.kind == 0 && o.key != ""
+}
+
 func writeOptions(b *strings.Builder, options []option) {
 	any := false
 	for _, o := range options {
-		if o.kind == 0 {
+		if isEntry(o) {
 			any = true
 			break
 		}
@@ -257,7 +268,7 @@ func writeOptions(b *strings.Builder, options []option) {
 	b.WriteString(", {")
 	first := true
 	for _, o := range options {
-		if o.kind != 0 {
+		if !isEntry(o) {
 			continue
 		}
 		if !first {
@@ -278,7 +289,7 @@ func optionsLen(options []option) int {
 	n := 0
 	count := 0
 	for _, o := range options {
-		if o.kind != 0 {
+		if !isEntry(o) {
 			continue
 		}
 		if count > 0 {
@@ -325,6 +336,7 @@ func beforeAfterLen(options []option) (before, after int) {
 
 // PUTAppEdit references /{id}/
 func PUTAppEdit(id string, query QueryPUTAppEdit, options ...option) string {
+	s_id := url.PathEscape(id)
 	var (
 		toggleStr string
 	)
@@ -337,7 +349,7 @@ func PUTAppEdit(id string, query QueryPUTAppEdit, options ...option) string {
 
 	var b strings.Builder
 	bl, al := beforeAfterLen(options)
-	l := bl + len("@put('/") + len(id) + len("/") + len("'") + optionsLen(options) + len(")") + al
+	l := bl + len("@put('/") + len(s_id) + len("/") + len("'") + optionsLen(options) + len(")") + al
 	if anyQuery {
 		l += len("?")
 	}
@@ -353,7 +365,7 @@ func PUTAppEdit(id string, query QueryPUTAppEdit, options ...option) string {
 
 	writeBefore(&b, options)
 	b.WriteString("@put('/")
-	b.WriteString(id)
+	b.WriteString(s_id)
 	b.WriteString("/")
 	if anyQuery {
 		b.WriteString("?")
@@ -380,12 +392,13 @@ type QueryPUTAppEdit struct {
 
 // DELETEPageItemItem references /item/{id}/
 func DELETEPageItemItem(id string, options ...option) string {
+	s_id := url.PathEscape(id)
 	var b strings.Builder
 	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@delete('/item/") + len(id) + len("/'") + optionsLen(options) + len(")") + al)
+	b.Grow(bl + len("@delete('/item/") + len(s_id) + len("/'") + optionsLen(options) + len(")") + al)
 	writeBefore(&b, options)
 	b.WriteString("@delete('/item/")
-	b.WriteString(id)
+	b.WriteString(s_id)
 	b.WriteString("/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')

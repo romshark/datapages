@@ -5,6 +5,7 @@
 package action
 
 import (
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -243,10 +244,20 @@ func escapeJS(s string) string {
 	return s
 }
 
+// isEntry reports whether an option belongs in the options object.
+//
+// A helper given nothing to say returns the zero option:
+// WithHeaders of an empty map, say, which is what a template computing its headers
+// produces whenever the map comes out empty. Writing it would put
+// "{: }" in the expression, which no browser can parse.
+func isEntry(o option) bool {
+	return o.kind == 0 && o.key != ""
+}
+
 func writeOptions(b *strings.Builder, options []option) {
 	any := false
 	for _, o := range options {
-		if o.kind == 0 {
+		if isEntry(o) {
 			any = true
 			break
 		}
@@ -257,7 +268,7 @@ func writeOptions(b *strings.Builder, options []option) {
 	b.WriteString(", {")
 	first := true
 	for _, o := range options {
-		if o.kind != 0 {
+		if !isEntry(o) {
 			continue
 		}
 		if !first {
@@ -278,7 +289,7 @@ func optionsLen(options []option) int {
 	n := 0
 	count := 0
 	for _, o := range options {
-		if o.kind != 0 {
+		if !isEntry(o) {
 			continue
 		}
 		if count > 0 {
@@ -327,10 +338,14 @@ func beforeAfterLen(options []option) (before, after int) {
 func POSTPageIndexInput(query QueryPOSTPageIndexInput, options ...option) string {
 	var (
 		btnStr string
+		numStr string
 	)
 
 	if query.Btn != 0 {
 		btnStr = strconv.FormatInt(int64(query.Btn), 10)
+	}
+	if query.Num != "" {
+		numStr = url.QueryEscape(query.Num)
 	}
 
 	anyQuery := query.Btn != 0 ||
@@ -354,7 +369,7 @@ func POSTPageIndexInput(query QueryPOSTPageIndexInput, options ...option) string
 		if n > 0 {
 			l += len("&")
 		}
-		l += len("num=") + len(query.Num)
+		l += len("num=") + len(numStr)
 	}
 
 	b.Grow(l)
@@ -378,7 +393,7 @@ func POSTPageIndexInput(query QueryPOSTPageIndexInput, options ...option) string
 			b.WriteString("&")
 		}
 		b.WriteString("num=")
-		b.WriteString(query.Num)
+		b.WriteString(numStr)
 	}
 	b.WriteString("'")
 	writeOptions(&b, options)

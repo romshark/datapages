@@ -846,6 +846,8 @@ func (s *Server) httpErrIntern(
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 	case errors.Is(err, datapages.ErrNotFound):
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+	case errors.Is(err, datapages.ErrConflict):
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
@@ -1068,6 +1070,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	if j := newSession; j.UserID != "" {
 		if err := s.createSession(w, r, newSession); err != nil {
 			s.httpErrIntern(w, r, nil, "creating session", err)
+			return
 		}
 	}
 	if httpRedirect(w, r, redirect) {
@@ -1181,6 +1184,7 @@ func (s *Server) handlePageRegisterPOSTSubmit(
 	if j := newSession; j.UserID != "" {
 		if err := s.createSession(w, r, newSession); err != nil {
 			s.httpErrIntern(w, r, nil, "creating session", err)
+			return
 		}
 	}
 	if httpRedirect(w, r, redirect) {

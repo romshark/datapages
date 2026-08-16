@@ -84,6 +84,7 @@ func (w *Writer) writeActionHeader(hasActions bool) {
 	}
 	w.Line(0, "")
 	w.Line(0, "import (")
+	w.Line(1, `"net/url"`)
 	w.Line(1, `"strconv"`)
 	w.Line(1, `"strings"`)
 	w.Line(0, ")")
@@ -322,10 +323,20 @@ func (w *Writer) writeActionHeader(hasActions bool) {
 	w.Line(1, "return s")
 	w.Line(0, "}")
 	w.Line(0, "")
+	w.Line(0, "// isEntry reports whether an option belongs in the options object.")
+	w.Line(0, "//")
+	w.Line(0, "// A helper given nothing to say returns the zero option: WithHeaders of")
+	w.Line(0, "// an empty map, say, which is what a template computing its headers")
+	w.Line(0, "// produces whenever the map comes out empty. Writing it would put")
+	w.Line(0, `// "{: }" in the expression, which no browser can parse.`)
+	w.Line(0, "func isEntry(o option) bool {")
+	w.Line(1, `return o.kind == 0 && o.key != ""`)
+	w.Line(0, "}")
+	w.Line(0, "")
 	w.Line(0, "func writeOptions(b *strings.Builder, options []option) {")
 	w.Line(1, "any := false")
 	w.Line(1, "for _, o := range options {")
-	w.Line(2, "if o.kind == 0 {")
+	w.Line(2, "if isEntry(o) {")
 	w.Line(3, "any = true")
 	w.Line(3, "break")
 	w.Line(2, "}")
@@ -336,7 +347,7 @@ func (w *Writer) writeActionHeader(hasActions bool) {
 	w.Line(1, `b.WriteString(", {")`)
 	w.Line(1, "first := true")
 	w.Line(1, "for _, o := range options {")
-	w.Line(2, "if o.kind != 0 {")
+	w.Line(2, "if !isEntry(o) {")
 	w.Line(3, "continue")
 	w.Line(2, "}")
 	w.Line(2, "if !first {")
@@ -357,7 +368,7 @@ func (w *Writer) writeActionHeader(hasActions bool) {
 	w.Line(1, "n := 0")
 	w.Line(1, "count := 0")
 	w.Line(1, "for _, o := range options {")
-	w.Line(2, "if o.kind != 0 {")
+	w.Line(2, "if !isEntry(o) {")
 	w.Line(3, "continue")
 	w.Line(2, "}")
 	w.Line(2, "if count > 0 {")
@@ -490,6 +501,7 @@ func (w *Writer) writeActionFuncPathOnly(
 	route string,
 	params []pathParamInfo,
 ) {
+	lo := newHrefLocals(params, nil)
 	literals, _ := routeSegments(route)
 
 	// func FuncName(params, options ...option) string {
@@ -502,11 +514,12 @@ func (w *Writer) writeActionFuncPathOnly(
 	// Pre-convert non-string params to strings.
 	w.writePathPreConvert(params)
 
-	w.Line(1, "var b strings.Builder")
-	w.Line(1, "bl, al := beforeAfterLen(options)")
+	w.Linef(1, "var %s strings.Builder", lo.builder)
+	w.Linef(1, "%s, %s := beforeAfterLen(options)", lo.beforeLen, lo.afterLen)
 
-	// b.Grow(bl + len("@method('lit0") + len(v0) + ... + len("litN'") + optionsLen + len(")") + al)
-	w.Raw("\tb.Grow(bl + len(\"@")
+	// b.Grow(bl + len("@method('lit0") +
+	//  len(v0) + ... + len("litN'") + optionsLen + len(")") + al)
+	w.Rawf("\t%s.Grow(%s + len(\"@", lo.builder, lo.beforeLen)
 	w.Raw(method)
 	w.Raw("('")
 	w.Raw(literals[0])
@@ -525,8 +538,8 @@ func (w *Writer) writeActionFuncPathOnly(
 	w.Raw(")\n")
 
 	// writeBefore + b.WriteString("@method('lit0")
-	w.Line(1, "writeBefore(&b, options)")
-	w.Raw("\tb.WriteString(\"@")
+	w.Linef(1, "writeBefore(&%s, options)", lo.builder)
+	w.Rawf("\t%s.WriteString(\"@", lo.builder)
 	w.Raw(method)
 	w.Raw("('")
 	w.Raw(literals[0])
@@ -535,7 +548,7 @@ func (w *Writer) writeActionFuncPathOnly(
 		w.Raw("\tb.WriteString(")
 		w.Raw(pathVarStrExpr(p))
 		w.Raw(")\n")
-		w.Raw("\tb.WriteString(\"")
+		w.Rawf("\t%s.WriteString(\"", lo.builder)
 		w.Raw(literals[i+1])
 		if i == len(params)-1 {
 			w.Raw("'")
@@ -543,10 +556,10 @@ func (w *Writer) writeActionFuncPathOnly(
 		w.Raw("\")\n")
 	}
 
-	w.Line(1, "writeOptions(&b, options)")
+	w.Linef(1, "writeOptions(&%s, options)", lo.builder)
 	w.Line(1, "b.WriteByte(')')")
-	w.Line(1, "writeAfter(&b, options)")
-	w.Line(1, "return b.String()")
+	w.Linef(1, "writeAfter(&%s, options)", lo.builder)
+	w.Linef(1, "return %s.String()", lo.builder)
 	w.Line(0, "}")
 }
 
@@ -556,6 +569,7 @@ func (w *Writer) writeActionFuncQueryOnly(
 	route string,
 	fields []structFieldInfo,
 ) {
+	lo := newHrefLocals(nil, fields)
 	// func FuncName(query QueryFuncName, options ...option) string {
 	w.Raw("func ")
 	w.Raw(funcName)
@@ -564,83 +578,75 @@ func (w *Writer) writeActionFuncQueryOnly(
 	w.Raw(", options ...option) string {\n")
 
 	// Pre-convert non-string fields to strings.
-	w.writeQueryPreConvert(fields)
+	w.writeQueryPreConvert(lo, fields)
 
 	// anyQuery check.
-	w.writeAnyCheck("anyQuery", fields)
+	w.writeAnyCheck(lo.anyQuery, fields)
 	w.Line(0, "")
 
 	// Builder and length calculation.
-	w.Line(1, "var b strings.Builder")
-	w.Line(1, "bl, al := beforeAfterLen(options)")
+	w.Linef(1, "var %s strings.Builder", lo.builder)
+	w.Linef(1, "%s, %s := beforeAfterLen(options)", lo.beforeLen, lo.afterLen)
 	w.Raw("\tl := bl + len(\"@")
 	w.Raw(method)
 	w.Raw("('")
 	w.writeRouteURL(route)
 	w.Raw("'\") + optionsLen(options) + len(\")\") + al\n")
-	w.Line(1, "if anyQuery {")
-	w.Line(2, `l += len("?")`)
+	w.Linef(1, "if %s {", lo.anyQuery)
+	w.Linef(2, "%s += len(\"?\")", lo.length)
 	w.Line(1, "}")
 
 	// Query param length accumulation.
-	w.Line(1, "n := 0")
+	w.Linef(1, "%s := 0", lo.count)
 	for i, f := range fields {
 		tag := queryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
-		w.Line(2, "if n > 0 {")
-		w.Line(3, `l += len("&")`)
+		w.Linef(2, "if %s > 0 {", lo.count)
+		w.Linef(3, "%s += len(\"&\")", lo.length)
 		w.Line(2, "}")
 		if i < len(fields)-1 {
-			w.Line(2, "n++")
+			w.Linef(2, "%s++", lo.count)
 		}
-		if isStringType(f.Type) {
-			w.Linef(2, "l += len(%q) + len(query.%s)", tag+"=", f.Name)
-		} else {
-			w.Linef(2, "l += len(%q) + len(%sStr)", tag+"=", tag)
-		}
+		w.Linef(2, "%s += len(%q) + len(%s)", lo.length, tag+"=", lo.queryStr[tag])
 		w.Line(1, "}")
 	}
 	w.Line(0, "")
 
 	// Grow and write.
-	w.Line(1, "b.Grow(l)")
+	w.Linef(1, "%s.Grow(%s)", lo.builder, lo.length)
 	w.Line(0, "")
-	w.Line(1, "writeBefore(&b, options)")
-	w.Raw("\tb.WriteString(\"@")
+	w.Linef(1, "writeBefore(&%s, options)", lo.builder)
+	w.Rawf("\t%s.WriteString(\"@", lo.builder)
 	w.Raw(method)
 	w.Raw("('")
 	w.writeRouteURL(route)
 	w.Raw("\")\n")
-	w.Line(1, "if anyQuery {")
-	w.Line(2, `b.WriteString("?")`)
+	w.Linef(1, "if %s {", lo.anyQuery)
+	w.Linef(2, "%s.WriteString(\"?\")", lo.builder)
 	w.Line(1, "}")
 
 	// Write query params.
-	w.Line(1, "n = 0")
+	w.Linef(1, "%s = 0", lo.count)
 	for i, f := range fields {
 		tag := queryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
-		w.Line(2, "if n > 0 {")
-		w.Line(3, `b.WriteString("&")`)
+		w.Linef(2, "if %s > 0 {", lo.count)
+		w.Linef(3, "%s.WriteString(\"&\")", lo.builder)
 		w.Line(2, "}")
 		if i < len(fields)-1 {
-			w.Line(2, "n++")
+			w.Linef(2, "%s++", lo.count)
 		}
-		w.Linef(2, "b.WriteString(%q)", tag+"=")
-		if isStringType(f.Type) {
-			w.Linef(2, "b.WriteString(query.%s)", f.Name)
-		} else {
-			w.Linef(2, "b.WriteString(%sStr)", tag)
-		}
+		w.Linef(2, "%s.WriteString(%q)", lo.builder, tag+"=")
+		w.Linef(2, "%s.WriteString(%s)", lo.builder, lo.queryStr[tag])
 		w.Line(1, "}")
 	}
 
 	w.Line(1, `b.WriteString("'")`)
-	w.Line(1, "writeOptions(&b, options)")
+	w.Linef(1, "writeOptions(&%s, options)", lo.builder)
 	w.Line(1, "b.WriteByte(')')")
-	w.Line(1, "writeAfter(&b, options)")
+	w.Linef(1, "writeAfter(&%s, options)", lo.builder)
 	w.Line(0, "")
-	w.Line(1, "return b.String()")
+	w.Linef(1, "return %s.String()", lo.builder)
 	w.Line(0, "}")
 }
 
@@ -651,6 +657,7 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	params []pathParamInfo,
 	fields []structFieldInfo,
 ) {
+	lo := newHrefLocals(params, fields)
 	literals, _ := routeSegments(route)
 
 	// func FuncName(params, query QueryFuncName, options ...option) string {
@@ -666,15 +673,15 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	w.writePathPreConvert(params)
 
 	// Pre-convert non-string query fields to strings.
-	w.writeQueryPreConvert(fields)
+	w.writeQueryPreConvert(lo, fields)
 
 	// anyQuery check.
-	w.writeAnyCheck("anyQuery", fields)
+	w.writeAnyCheck(lo.anyQuery, fields)
 	w.Line(0, "")
 
 	// Builder and length calculation.
-	w.Line(1, "var b strings.Builder")
-	w.Line(1, "bl, al := beforeAfterLen(options)")
+	w.Linef(1, "var %s strings.Builder", lo.builder)
+	w.Linef(1, "%s, %s := beforeAfterLen(options)", lo.beforeLen, lo.afterLen)
 
 	// l := bl + len("@method('lit0") + len(v0) + len("lit1") + ... + len("')")
 	w.Raw("\tl := bl + len(\"@")
@@ -691,35 +698,31 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	}
 	w.Raw(" + len(\"'\") + optionsLen(options) + len(\")\") + al\n")
 
-	w.Line(1, "if anyQuery {")
-	w.Line(2, `l += len("?")`)
+	w.Linef(1, "if %s {", lo.anyQuery)
+	w.Linef(2, "%s += len(\"?\")", lo.length)
 	w.Line(1, "}")
 
 	// Query param length accumulation.
-	w.Line(1, "n := 0")
+	w.Linef(1, "%s := 0", lo.count)
 	for i, f := range fields {
 		tag := queryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
-		w.Line(2, "if n > 0 {")
-		w.Line(3, `l += len("&")`)
+		w.Linef(2, "if %s > 0 {", lo.count)
+		w.Linef(3, "%s += len(\"&\")", lo.length)
 		w.Line(2, "}")
 		if i < len(fields)-1 {
-			w.Line(2, "n++")
+			w.Linef(2, "%s++", lo.count)
 		}
-		if isStringType(f.Type) {
-			w.Linef(2, "l += len(%q) + len(query.%s)", tag+"=", f.Name)
-		} else {
-			w.Linef(2, "l += len(%q) + len(%sStr)", tag+"=", tag)
-		}
+		w.Linef(2, "%s += len(%q) + len(%s)", lo.length, tag+"=", lo.queryStr[tag])
 		w.Line(1, "}")
 	}
 	w.Line(0, "")
 
 	// Grow and write path segments.
-	w.Line(1, "b.Grow(l)")
+	w.Linef(1, "%s.Grow(%s)", lo.builder, lo.length)
 	w.Line(0, "")
-	w.Line(1, "writeBefore(&b, options)")
-	w.Raw("\tb.WriteString(\"@")
+	w.Linef(1, "writeBefore(&%s, options)", lo.builder)
+	w.Rawf("\t%s.WriteString(\"@", lo.builder)
 	w.Raw(method)
 	w.Raw("('")
 	w.Raw(literals[0])
@@ -728,41 +731,37 @@ func (w *Writer) writeActionFuncPathAndQuery(
 		w.Raw("\tb.WriteString(")
 		w.Raw(pathVarStrExpr(p))
 		w.Raw(")\n")
-		w.Raw("\tb.WriteString(\"")
+		w.Rawf("\t%s.WriteString(\"", lo.builder)
 		w.Raw(literals[i+1])
 		w.Raw("\")\n")
 	}
 
-	w.Line(1, "if anyQuery {")
-	w.Line(2, `b.WriteString("?")`)
+	w.Linef(1, "if %s {", lo.anyQuery)
+	w.Linef(2, "%s.WriteString(\"?\")", lo.builder)
 	w.Line(1, "}")
 
 	// Write query params.
-	w.Line(1, "n = 0")
+	w.Linef(1, "%s = 0", lo.count)
 	for i, f := range fields {
 		tag := queryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
-		w.Line(2, "if n > 0 {")
-		w.Line(3, `b.WriteString("&")`)
+		w.Linef(2, "if %s > 0 {", lo.count)
+		w.Linef(3, "%s.WriteString(\"&\")", lo.builder)
 		w.Line(2, "}")
 		if i < len(fields)-1 {
-			w.Line(2, "n++")
+			w.Linef(2, "%s++", lo.count)
 		}
-		w.Linef(2, "b.WriteString(%q)", tag+"=")
-		if isStringType(f.Type) {
-			w.Linef(2, "b.WriteString(query.%s)", f.Name)
-		} else {
-			w.Linef(2, "b.WriteString(%sStr)", tag)
-		}
+		w.Linef(2, "%s.WriteString(%q)", lo.builder, tag+"=")
+		w.Linef(2, "%s.WriteString(%s)", lo.builder, lo.queryStr[tag])
 		w.Line(1, "}")
 	}
 
 	w.Line(1, `b.WriteString("'")`)
-	w.Line(1, "writeOptions(&b, options)")
+	w.Linef(1, "writeOptions(&%s, options)", lo.builder)
 	w.Line(1, "b.WriteByte(')')")
-	w.Line(1, "writeAfter(&b, options)")
+	w.Linef(1, "writeAfter(&%s, options)", lo.builder)
 	w.Line(0, "")
-	w.Line(1, "return b.String()")
+	w.Linef(1, "return %s.String()", lo.builder)
 	w.Line(0, "}")
 }
 

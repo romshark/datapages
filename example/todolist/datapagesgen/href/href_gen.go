@@ -6,6 +6,7 @@ package href
 
 import (
 	"log/slog"
+	"net/url"
 	"path"
 	"strings"
 	"sync/atomic"
@@ -49,6 +50,22 @@ func PageError404() string { return "/not-found/" }
 
 // PageIndex references /{$}
 func PageIndex(query QueryPageIndex) string {
+	var (
+		qStr      string
+		filterStr string
+		sortStr   string
+	)
+
+	if query.Search != "" {
+		qStr = url.QueryEscape(query.Search)
+	}
+	if query.Filter != "" {
+		filterStr = url.QueryEscape(query.Filter)
+	}
+	if query.Sort != "" {
+		sortStr = url.QueryEscape(query.Sort)
+	}
+
 	anyQuery := query.Search != "" ||
 		query.Filter != "" ||
 		query.Sort != ""
@@ -67,21 +84,21 @@ func PageIndex(query QueryPageIndex) string {
 			l += len("&")
 		}
 		n++
-		l += len("q=") + len(query.Search)
+		l += len("q=") + len(qStr)
 	}
 	if query.Filter != "" {
 		if n > 0 {
 			l += len("&")
 		}
 		n++
-		l += len("filter=") + len(query.Filter)
+		l += len("filter=") + len(filterStr)
 	}
 	if query.Sort != "" {
 		if n > 0 {
 			l += len("&")
 		}
 		n++
-		l += len("sort=") + len(query.Sort)
+		l += len("sort=") + len(sortStr)
 	}
 	_ = n
 
@@ -100,7 +117,7 @@ func PageIndex(query QueryPageIndex) string {
 		}
 		n++
 		b.WriteString("q=")
-		b.WriteString(query.Search)
+		b.WriteString(qStr)
 	}
 	if query.Filter != "" {
 		if n > 0 {
@@ -108,14 +125,14 @@ func PageIndex(query QueryPageIndex) string {
 		}
 		n++
 		b.WriteString("filter=")
-		b.WriteString(query.Filter)
+		b.WriteString(filterStr)
 	}
 	if query.Sort != "" {
 		if n > 0 {
 			b.WriteString("&")
 		}
 		b.WriteString("sort=")
-		b.WriteString(query.Sort)
+		b.WriteString(sortStr)
 	}
 
 	return b.String()
@@ -130,14 +147,15 @@ type QueryPageIndex struct {
 
 // PageItem references /item/{id}/{$}
 func PageItem(id string) string {
+	s_id := url.PathEscape(id)
 	var b strings.Builder
 	b.Grow(
 		len("/item/") +
-			len(id) +
+			len(s_id) +
 			len("/"),
 	)
 	b.WriteString("/item/")
-	b.WriteString(id)
+	b.WriteString(s_id)
 	b.WriteString("/")
 	return b.String()
 }
