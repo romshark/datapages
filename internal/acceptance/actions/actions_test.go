@@ -83,16 +83,16 @@ func (s server) logOf(t *testing.T) string {
 func echoed(t *testing.T, body string) string {
 	t.Helper()
 	const open = `<pre id="echo">`
-	i := strings.Index(body, open)
-	if i < 0 {
+	_, after, ok := strings.Cut(body, open)
+	if !ok {
 		t.Fatalf("no echo element in response:\n%s", body)
 	}
-	rest := body[i+len(open):]
-	j := strings.Index(rest, "</pre>")
-	if j < 0 {
+	rest := after
+	before, _, ok := strings.Cut(rest, "</pre>")
+	if !ok {
 		t.Fatalf("unterminated echo element in response:\n%s", body)
 	}
-	return rest[:j]
+	return before
 }
 
 // TestMethods covers one action per HTTP method, page-level and app-level.

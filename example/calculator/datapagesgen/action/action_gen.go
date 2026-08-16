@@ -246,8 +246,8 @@ func escapeJS(s string) string {
 
 // isEntry reports whether an option belongs in the options object.
 //
-// A helper given nothing to say returns the zero option:
-// WithHeaders of an empty map, say, which is what a template computing its headers
+// A helper given nothing to say returns the zero option: WithHeaders of
+// an empty map, say, which is what a template computing its headers
 // produces whenever the map comes out empty. Writing it would put
 // "{: }" in the expression, which no browser can parse.
 func isEntry(o option) bool {
