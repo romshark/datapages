@@ -43,6 +43,12 @@ jobs:
           check-latest: true
           cache: false
       - uses: actions/checkout@v7
+      - name: Install Wails system dependencies
+        if: matrix.project.name == 'example/calculator'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
       - name: golangci-lint (${{ matrix.project.name }})
         uses: golangci/golangci-lint-action@v9
         with:
