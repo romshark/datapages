@@ -34,8 +34,9 @@
 - `example/tailwindcss/` - minimal static page with Tailwind CSS (separate module).
 - `example/webcomponents/` - landing page with vanilla and Lit Web Components bundled via esbuild.
 - `example/sqlitesessions/` - custom sessmanager.SessionManager backed by SQLite via sqinn-go.
-- root package `datapages` (`datapages.go`) - core handler-parameter types
-  (`datapages.SSE`); the CLI entrypoint lives in `cmd/datapages/`.
+- root package `datapages` (`datapages.go`) - core handler types
+  (`datapages.SSE`, `Session`, `NewSession`, `Redirect`, `Component`) and the
+  HTTP error sentinels; the CLI entrypoint lives in `cmd/datapages/`.
 - `internal/generator/` - code generation from parsed model.
 - `internal/cmd/` - CLI command implementations.
 - `internal/tools/render-pages/` - build-time tool rendering `docs/index.html`.

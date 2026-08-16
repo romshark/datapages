@@ -7,8 +7,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Alpha](https://img.shields.io/badge/status-alpha-orange)
 
-> **🧪 Alpha Software:** Datapages is still in early development 🚧.<br>
+> [!WARNING]
+> **Alpha Software:** Datapages is still in early development.
 > APIs are subject to change and you may encounter bugs.
+
+> [!NOTE]
+> **v0.10 is coming** with API improvements, stateful pages,
+> service worker support and more!
 
 A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) web framework
 for building dynamic, server-rendered web applications in pure Go.

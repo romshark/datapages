@@ -42,14 +42,14 @@ func Index(version string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</div><h1>Write your web frontend <span class=\"accent\">entirely in <i>Go</i></span></h1><p class=\"subtitle\">Focus on your business logic<br>and let Datapages generate the boilerplate.</p><div class=\"install\">go install github.com/romshark/datapages@")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</div><h1>Write your web frontend <span class=\"accent\">entirely in <i>Go</i></span></h1><p class=\"subtitle\">Focus on your business logic<br>and let Datapages generate the boilerplate.</p><div class=\"install\">go install github.com/romshark/datapages/cmd/datapages@")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(version)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 40, Col: 75}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 40, Col: 89}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
