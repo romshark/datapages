@@ -408,7 +408,12 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 
 	if h.OutputErr != nil {
 		w.Line(1, "if err != nil {")
-		w.Raw("\t\ts.httpErrIntern(w, r, nil, \"handling ")
+		if m.PageError500 != nil && p == m.PageError500 {
+			// httpErrIntern renders PageError500, so the error page can't use it.
+			w.Raw("\t\ts.httpErrFinal(w, \"handling ")
+		} else {
+			w.Raw("\t\ts.httpErrIntern(w, r, nil, \"handling ")
+		}
 		w.Raw(p.TypeName)
 		w.Raw(".GET\", err)\n")
 		w.Line(2, "return")

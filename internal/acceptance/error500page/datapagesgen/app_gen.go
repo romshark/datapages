@@ -379,6 +379,14 @@ func setupHandlers(s *Server) {
 		s.handlePageIndexGET)
 }
 
+// httpErrFinal writes the error response without rendering PageError500.
+// The PageError500 handler uses it so it can't render itself.
+func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
+	s.logErr(msg, err)
+	const code = http.StatusInternalServerError
+	http.Error(w, http.StatusText(code), code)
+}
+
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
@@ -424,7 +432,7 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := p.GET(r)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageError500.GET", err)
+		s.httpErrFinal(w, "handling PageError500.GET", err)
 		return
 	}
 

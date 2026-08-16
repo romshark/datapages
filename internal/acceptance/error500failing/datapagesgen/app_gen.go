@@ -22,8 +22,8 @@ import (
 	"github.com/romshark/datapages/modules/msgbroker"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/romshark/datapages/internal/acceptance/errors/app"
-	"github.com/romshark/datapages/internal/acceptance/errors/datapagesgen/href"
+	"github.com/romshark/datapages/internal/acceptance/error500failing/app"
+	"github.com/romshark/datapages/internal/acceptance/error500failing/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -372,50 +372,19 @@ func setupHandlers(s *Server) {
 		"GET /boom/{$}",
 		s.handlePageBoomGET)
 	s.mux.HandleFunc(
-		"GET /not-found/{$}",
-		s.handlePageError404GET)
-	s.mux.HandleFunc(
 		"GET /server-error/{$}",
 		s.handlePageError500GET)
 	s.mux.HandleFunc(
 		"GET /",
 		s.handlePageIndexGET)
-	s.mux.HandleFunc(
-		"POST /boom/plain/{$}",
-		s.handlePageBoomPOSTPlain)
-	s.mux.HandleFunc(
-		"POST /boom/bad/{$}",
-		s.handlePageBoomPOSTBad)
-	s.mux.HandleFunc(
-		"POST /boom/forbidden/{$}",
-		s.handlePageBoomPOSTForbidden)
-	s.mux.HandleFunc(
-		"POST /boom/not-found/{$}",
-		s.handlePageBoomPOSTNotFound)
-	s.mux.HandleFunc(
-		"POST /boom/conflict/{$}",
-		s.handlePageBoomPOSTConflict)
-	s.mux.HandleFunc(
-		"POST /boom/wrapped/{$}",
-		s.handlePageBoomPOSTWrapped)
 }
 
 // httpErrFinal writes the error response without rendering PageError500.
 // The PageError500 handler uses it so it can't render itself.
 func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 	s.logErr(msg, err)
-	switch {
-	case errors.Is(err, datapages.ErrBadRequest):
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	case errors.Is(err, datapages.ErrForbidden):
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-	case errors.Is(err, datapages.ErrNotFound):
-		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-	case errors.Is(err, datapages.ErrConflict):
-		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
-	default:
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-	}
+	const code = http.StatusInternalServerError
+	http.Error(w, http.StatusText(code), code)
 }
 
 func (s *Server) httpErrIntern(
@@ -431,44 +400,8 @@ func (s *Server) httpErrIntern(
 		s.handlePageError500GET(w, r)
 		return
 	}
-	switch {
-	case errors.Is(err, datapages.ErrBadRequest):
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	case errors.Is(err, datapages.ErrForbidden):
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-	case errors.Is(err, datapages.ErrNotFound):
-		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-	case errors.Is(err, datapages.ErrConflict):
-		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
-	default:
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-	}
-}
-
-func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
-	// The URL is claimed by no page. Whatever the app renders for it,
-	// the response says so: a cache that stores it and a crawler that
-	// reads it both go by the status.
-	w.WriteHeader(http.StatusNotFound)
-	p := app.PageError404{
-		App: s.app,
-	}
-
-	body, err := p.GET(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
-		return
-	}
-
-	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
-	}
-	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
-	); err != nil {
-		s.logErr("rendering PageError404", err)
-		return
-	}
+	const code = http.StatusInternalServerError
+	http.Error(w, http.StatusText(code), code)
 }
 
 func (s *Server) handlePageBoomGET(w http.ResponseWriter, r *http.Request) {
@@ -489,106 +422,6 @@ func (s *Server) handlePageBoomGET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.logErr("rendering PageBoom", err)
-		return
-	}
-}
-
-func (s *Server) handlePageBoomPOSTPlain(
-	w http.ResponseWriter, r *http.Request,
-) {
-	p := app.PageBoom{
-		App: s.app,
-	}
-	err := p.POSTPlain(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageBoom.Plain", err)
-		return
-	}
-}
-
-func (s *Server) handlePageBoomPOSTBad(
-	w http.ResponseWriter, r *http.Request,
-) {
-	p := app.PageBoom{
-		App: s.app,
-	}
-	err := p.POSTBad(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageBoom.Bad", err)
-		return
-	}
-}
-
-func (s *Server) handlePageBoomPOSTForbidden(
-	w http.ResponseWriter, r *http.Request,
-) {
-	p := app.PageBoom{
-		App: s.app,
-	}
-	err := p.POSTForbidden(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageBoom.Forbidden", err)
-		return
-	}
-}
-
-func (s *Server) handlePageBoomPOSTNotFound(
-	w http.ResponseWriter, r *http.Request,
-) {
-	p := app.PageBoom{
-		App: s.app,
-	}
-	err := p.POSTNotFound(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageBoom.NotFound", err)
-		return
-	}
-}
-
-func (s *Server) handlePageBoomPOSTConflict(
-	w http.ResponseWriter, r *http.Request,
-) {
-	p := app.PageBoom{
-		App: s.app,
-	}
-	err := p.POSTConflict(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageBoom.Conflict", err)
-		return
-	}
-}
-
-func (s *Server) handlePageBoomPOSTWrapped(
-	w http.ResponseWriter, r *http.Request,
-) {
-	p := app.PageBoom{
-		App: s.app,
-	}
-	err := p.POSTWrapped(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageBoom.Wrapped", err)
-		return
-	}
-}
-
-func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageError404{
-		App: s.app,
-	}
-	body, err := p.GET(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
-		return
-	}
-
-	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
-	}
-
-	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
-	); err != nil {
-		s.logErr("rendering PageError404", err)
 		return
 	}
 }
@@ -617,7 +450,7 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
-		s.render404(w, r)
+		http.NotFound(w, r)
 		return
 	}
 

@@ -1897,6 +1897,20 @@ func (s *Server) httpErrIntern(
 		return
 	}
 
+	if hasPage {
+		// httpErrIntern answers a page load by rendering PageError500.
+		// The handler of that page therefore can't report through it.
+		w.Raw(`
+// httpErrFinal writes the error response without rendering PageError500.
+// The PageError500 handler uses it so it can't render itself.
+func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
+	s.logErr(msg, err)
+`)
+		w.writeHTTPErrFallback()
+		w.Raw(`}
+`)
+	}
+
 	w.Raw(`
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, r *http.Request,
