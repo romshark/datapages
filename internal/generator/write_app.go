@@ -160,7 +160,8 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"time"`)
 	w.Line(0, "")
 	w.Line(1, `"github.com/a-h/templ"`)
-	if w.usage.datapagesSSE || w.usage.hasSession || w.usage.httpRedirect {
+	if w.usage.datapagesSSE || w.usage.hasSession ||
+		w.usage.httpRedirect || w.usage.errSentinels {
 		w.Line(1, `"github.com/romshark/datapages"`)
 	}
 	w.Line(1, `"github.com/romshark/datapages/modules/csrf"`)
@@ -182,11 +183,6 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 		w.writeQuoted(w.genImport + "/href")
 		w.Byte('\n')
 	}
-	if w.usage.httperr && w.genImport != "" {
-		w.Byte('\t')
-		w.writeQuoted(w.genImport + "/httperr")
-		w.Byte('\n')
-	}
 	w.Line(0, "")
 	if w.prometheus {
 		w.Line(1, `"github.com/prometheus/client_golang/prometheus"`)
@@ -196,9 +192,9 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(0, ")")
 }
 
-// writeSSEWrapper emits the datapages.SSE implementation backed by Datastar. It
-// is generated into the application package rather than imported, so the
-// datastar-free datapages.SSE seam needs no runtime package of its own.
+// writeSSEWrapper emits the datapages.SSE implementation backed by Datastar.
+// It is generated into the application package rather than imported,
+// so the datastar-free datapages.SSE seam needs no runtime package of its own.
 func (w *Writer) writeSSEWrapper() {
 	w.Raw(`
 // newSSE wraps a Datastar generator as a datapages.SSE.
@@ -1711,18 +1707,18 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 }
 
 func (w *Writer) writeHTTPErrFallback() {
-	if !w.usage.httperr {
+	if !w.usage.errSentinels {
 		w.Raw(`	const code = http.StatusInternalServerError
 	http.Error(w, http.StatusText(code), code)
 `)
 		return
 	}
 	w.Raw(`	switch {
-	case errors.Is(err, httperr.BadRequest):
+	case errors.Is(err, datapages.ErrBadRequest):
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	case errors.Is(err, httperr.Forbidden):
+	case errors.Is(err, datapages.ErrForbidden):
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-	case errors.Is(err, httperr.NotFound):
+	case errors.Is(err, datapages.ErrNotFound):
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

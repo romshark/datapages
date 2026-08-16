@@ -7,7 +7,6 @@ import (
 	"github.com/a-h/templ"
 
 	"github.com/romshark/datapages"
-	"github.com/romshark/datapages/example/todolist/datapagesgen/httperr"
 )
 
 // PageItem is /item/{id}
@@ -60,10 +59,10 @@ func (p PageItem) DELETEItem(
 	dispatch func(EventTodoUpdated) error,
 ) (redirect datapages.Redirect, err error) {
 	if _, err := p.App.verifyTabID(signals.TabID); err != nil {
-		return redirect, fmt.Errorf("%w: %w", httperr.BadRequest, err)
+		return redirect, fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
 	}
 	if !p.App.list.DeleteItem(path.ID) {
-		return redirect, fmt.Errorf("%w: todo not found", httperr.NotFound)
+		return redirect, fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 	}
 	if err := dispatch(EventTodoUpdated{}); err != nil {
 		return redirect, err

@@ -19,7 +19,7 @@ func (*App) Head(
 ```
 
 The `RecoverError` method allows you to recover from handler errors to improve UX by
-giving better feedback over SSE. All action handler errors (including httperr sentinels)
+giving better feedback over SSE. All action handler errors (including the datapages sentinels)
 are routed through `RecoverError` when it is defined and the request is
 a Datastar request. If `RecoverError` returns an error, the server falls back to
 an HTTP error response using the appropriate status code.
@@ -773,34 +773,32 @@ Closes the session and removes any session cookie if `true`, otherwise no-op.
 Regular error values that will be logged and followed by the error handling procedure
 (500 Internal Server Error, or `RecoverError` if defined).
 
-To return a specific HTTP status code instead of 500, use the sentinel errors from
-the generated `httperr` package (`datapagesgen/httperr`):
+To return a specific HTTP status code instead of 500, return one of the sentinel
+errors from `github.com/romshark/datapages`:
 
 ```go
-import "myapp/datapagesgen/httperr"
-
 func (p PageIndex) POSTInput(...) error {
 	if !valid {
-		return httperr.BadRequest // 400
+		return datapages.ErrBadRequest // 400
 	}
 	if !allowed {
 		// 403, preserves original
-		return fmt.Errorf("%w: %w", httperr.Forbidden, errOriginal)
+		return fmt.Errorf("%w: %w", datapages.ErrForbidden, errOriginal)
 	}
 	if !found {
-		return httperr.NotFound // 404
+		return datapages.ErrNotFound // 404
 	}
 	return nil
 }
 ```
 
 Available sentinels:
-- `httperr.BadRequest` — 400
-- `httperr.Forbidden` — 403
-- `httperr.NotFound` — 404
+- `datapages.ErrBadRequest` — 400
+- `datapages.ErrForbidden` — 403
+- `datapages.ErrNotFound` — 404
 
 Return a sentinel directly, or wrap into the original error. When `RecoverError` is
-defined, all errors (including httperr sentinels) are routed through it first. If
+defined, all errors (including the datapages sentinels) are routed through it first. If
 `RecoverError` is not defined or fails, the server responds with the appropriate HTTP
 status code using the standard status text.
 

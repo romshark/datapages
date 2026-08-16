@@ -483,7 +483,6 @@ func Suggest(err error) string {
 //   - ErrDispatchParamNotEvent        — constraint is clear from message
 //   - ErrSessionParamNotSessionType   — constraint is clear from message
 //   - ErrSessionTypeConflict          — the message names both instantiations
-//   - ErrSessionTokenParamNotString   — constraint is clear from message
 //   - ErrRedirectNotRedirectType      — constraint is clear from message
 //   - ErrNewSessionNotSessionType     — constraint is clear from message
 //   - ErrCloseSessionNotBool          — constraint is clear from message

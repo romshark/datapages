@@ -2,7 +2,9 @@ package datapages
 
 import (
 	"context"
+	"errors"
 	"io"
+	"net/http"
 	"time"
 )
 
@@ -231,3 +233,25 @@ func WithSelectorID(id string) PatchOption {
 func WithMode(mode PatchMode) PatchOption {
 	return func(c *PatchConfig) { c.Mode = mode }
 }
+
+// Sentinel errors for HTTP status codes. Return one from a handler to control
+// the status code of the response, directly for a zero-alloc response or
+// wrapped around the original error:
+//
+//	if !valid {
+//		return datapages.ErrBadRequest
+//	}
+//	return fmt.Errorf("%w: %w", datapages.ErrBadRequest, errInvalidInput)
+//
+// The response body always uses the standard status text
+// (for example "Bad Request" for 400), no matter what the error message says.
+//
+// Don't wrap multiple sentinels in one error. If you do, the first of
+// ErrBadRequest, ErrForbidden, ErrNotFound wins.
+//
+// Any other error results in 500 Internal Server Error.
+var (
+	ErrBadRequest = errors.New(http.StatusText(http.StatusBadRequest)) // 400
+	ErrForbidden  = errors.New(http.StatusText(http.StatusForbidden))  // 403
+	ErrNotFound   = errors.New(http.StatusText(http.StatusNotFound))   // 404
+)

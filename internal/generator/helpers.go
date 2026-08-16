@@ -274,8 +274,9 @@ type appUsage struct {
 	recoverError bool
 	// httpErrBad: whether the httpErrBad helper is needed.
 	httpErrBad bool
-	// httperr: whether any action handler returns an error (needs httperr import).
-	httperr bool
+	// errSentinels: whether any action returns an error, so the generated
+	// fallback maps the datapages error sentinels to status codes.
+	errSentinels bool
 	// datapagesSSE: whether any handler takes a datapages.SSE param (needs the
 	// datapages import and the generated sseWrapper).
 	datapagesSSE bool
@@ -349,7 +350,7 @@ func computeAppUsage(m *model.App) appUsage {
 	for _, h := range m.Actions {
 		checkHandler(h)
 		if h.OutputErr != nil {
-			u.httperr = true
+			u.errSentinels = true
 		}
 	}
 	for _, p := range m.Pages {
@@ -377,7 +378,7 @@ func computeAppUsage(m *model.App) appUsage {
 		for _, h := range p.Actions {
 			checkHandler(h)
 			if h.OutputErr != nil {
-				u.httperr = true
+				u.errSentinels = true
 			}
 		}
 	}

@@ -33,7 +33,6 @@ import (
 	"github.com/romshark/datapages/example/classifieds/app"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/assets"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
-	"github.com/romshark/datapages/example/classifieds/datapagesgen/httperr"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -1380,11 +1379,11 @@ func (s *Server) httpErrIntern(
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
 	switch {
-	case errors.Is(err, httperr.BadRequest):
+	case errors.Is(err, datapages.ErrBadRequest):
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	case errors.Is(err, httperr.Forbidden):
+	case errors.Is(err, datapages.ErrForbidden):
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-	case errors.Is(err, httperr.NotFound):
+	case errors.Is(err, datapages.ErrNotFound):
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

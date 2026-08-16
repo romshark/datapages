@@ -16,7 +16,6 @@ import (
 	"github.com/a-h/templ"
 
 	"github.com/romshark/datapages"
-	"github.com/romshark/datapages/example/todolist/datapagesgen/httperr"
 	"github.com/romshark/datapages/example/todolist/list"
 )
 
@@ -71,31 +70,31 @@ func (a *App) PUTEdit(
 	dispatch func(EventTodoUpdated) error,
 ) error {
 	if _, err := a.verifyTabID(signals.TabID); err != nil {
-		return fmt.Errorf("%w: %w", httperr.BadRequest, err)
+		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
 	}
 	if query.Toggle {
 		if !a.list.ToggleItem(path.ID) {
-			return fmt.Errorf("%w: todo not found", httperr.NotFound)
+			return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 		}
 		return dispatch(EventTodoUpdated{})
 	}
 	title := strings.TrimSpace(signals.Title)
 	if title == "" {
-		return fmt.Errorf("%w: title is required", httperr.BadRequest)
+		return fmt.Errorf("%w: title is required", datapages.ErrBadRequest)
 	}
 	var dueAt time.Time
 	if signals.Due != "" {
 		var err error
 		dueAt, err = time.Parse("2006-01-02T15:04", signals.Due)
 		if err != nil {
-			return fmt.Errorf("%w: invalid due date", httperr.BadRequest)
+			return fmt.Errorf("%w: invalid due date", datapages.ErrBadRequest)
 		}
 	}
 	if !a.list.UpdateItem(
 		path.ID, title, strings.TrimSpace(signals.Description),
 		signals.Done, dueAt,
 	) {
-		return fmt.Errorf("%w: todo not found", httperr.NotFound)
+		return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 	}
 	return dispatch(EventTodoUpdated{})
 }

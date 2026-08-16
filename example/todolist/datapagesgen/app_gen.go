@@ -29,7 +29,6 @@ import (
 	"github.com/romshark/datapages/example/todolist/app"
 	"github.com/romshark/datapages/example/todolist/datapagesgen/assets"
 	"github.com/romshark/datapages/example/todolist/datapagesgen/href"
-	"github.com/romshark/datapages/example/todolist/datapagesgen/httperr"
 
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -615,11 +614,11 @@ func (s *Server) httpErrIntern(
 ) {
 	s.logErr(msg, err)
 	switch {
-	case errors.Is(err, httperr.BadRequest):
+	case errors.Is(err, datapages.ErrBadRequest):
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	case errors.Is(err, httperr.Forbidden):
+	case errors.Is(err, datapages.ErrForbidden):
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-	case errors.Is(err, httperr.NotFound):
+	case errors.Is(err, datapages.ErrNotFound):
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

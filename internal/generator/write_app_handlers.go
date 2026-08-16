@@ -1338,7 +1338,7 @@ func (w *Writer) writeActionMethodCall(
 
 // writeActionErrCheck emits the error-handling body for action handlers.
 // All errors are routed through httpErrIntern, which calls RecoverError
-// if available and falls back to httperr sentinel checks or 500.
+// if available and falls back to the datapages error sentinels or 500.
 func (w *Writer) writeActionErrCheck(
 	p *model.Page, h *model.Handler, sseRef string,
 ) {

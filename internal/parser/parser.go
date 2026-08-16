@@ -168,8 +168,8 @@ func firstPassTypes(ctx *parseCtx, errs *Errors) {
 // collectSessionType decides whether the application uses sessions and which
 // datapages.Session instantiation it uses. Sessions are in play as soon as any
 // handler has a session-related input or output. Only session and newSession
-// name the Data type, an application that merely reads sessionToken or returns
-// closeSession gets datapages.Session[struct{}].
+// name the Data type, an application that merely returns closeSession gets
+// datapages.Session[struct{}].
 func collectSessionType(ctx *parseCtx, errs *Errors) {
 	usesSession := false
 	noteHandler := func(h *model.Handler) {
@@ -544,7 +544,7 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 					}
 
 					// Head must accept *http.Request as first param,
-					// optionally followed by session and/or sessionToken.
+					// optionally followed by session.
 					params := fd.Type.Params
 					if params == nil || params.NumFields() < 1 ||
 						!typecheck.IsPtrToNetHTTPReq(params.List[0].Type, info) {
