@@ -6,10 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
-	"github.com/romshark/datapages/example/todolist/datapagesgen/httperr"
 	"github.com/romshark/datapages/example/todolist/list"
 )
 
@@ -23,7 +20,7 @@ func (p PageIndex) GET(
 		Filter string `query:"filter" reflectsignal:"filter"`
 		Sort   string `query:"sort" reflectsignal:"sort"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	filter := query.Filter
 	if filter == "" {
 		filter = "all"
@@ -89,18 +86,18 @@ func (p PageIndex) POSTCreate(
 	dispatch func(EventTodoUpdated) error,
 ) error {
 	if _, err := p.App.verifyTabID(signals.TabID); err != nil {
-		return fmt.Errorf("%w: %w", httperr.BadRequest, err)
+		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
 	}
 	title := strings.TrimSpace(signals.NewTitle)
 	if title == "" {
-		return fmt.Errorf("%w: title is required", httperr.BadRequest)
+		return fmt.Errorf("%w: title is required", datapages.ErrBadRequest)
 	}
 	var dueAt time.Time
 	if signals.NewDue != "" {
 		var err error
 		dueAt, err = time.Parse("2006-01-02T15:04", signals.NewDue)
 		if err != nil {
-			return fmt.Errorf("%w: invalid due date", httperr.BadRequest)
+			return fmt.Errorf("%w: invalid due date", datapages.ErrBadRequest)
 		}
 	}
 	p.App.list.AddItem(title, strings.TrimSpace(signals.NewDesc), dueAt)
@@ -120,7 +117,7 @@ func (p PageIndex) POSTFilter(
 ) error {
 	streamID, err := p.App.verifyTabID(signals.TabID)
 	if err != nil {
-		return fmt.Errorf("%w: %w", httperr.BadRequest, err)
+		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
 	}
 
 	// Update server-side tab state so event handlers use current filters.
@@ -138,7 +135,7 @@ func (p PageIndex) POSTFilter(
 		Sort:   signals.Sort,
 	}
 	todos := p.App.list.GetItems(vp)
-	return sse.PatchElementTempl(todoList(todos))
+	return sse.PatchElement(todoList(todos))
 }
 
 func (p PageIndex) OnTodoUpdated(
@@ -148,5 +145,5 @@ func (p PageIndex) OnTodoUpdated(
 ) error {
 	s := p.App.streamState(streamID)
 	todos := p.App.list.GetItems(s.ViewParameters)
-	return sse.PatchElementTempl(todoList(todos))
+	return sse.PatchElement(todoList(todos))
 }

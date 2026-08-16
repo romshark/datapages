@@ -3,8 +3,6 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/offline-cache/datapagesgen/href"
 )
@@ -22,7 +20,7 @@ func (p PageIndex) GET(
 	session Session,
 	pageCache datapages.PageCacheWriter,
 	query SearchParams,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	shows, err := p.App.repo.SearchShows(r.Context(), query.Term)
 	if err != nil {
 		return nil, err
@@ -56,5 +54,5 @@ func (p PageIndex) POSTSearch(
 		return err
 	}
 	// Patch only the results container so the search input keeps focus.
-	return sse.PatchElementTempl(fragmentShowResults(shows))
+	return sse.PatchElement(fragmentShowResults(shows))
 }

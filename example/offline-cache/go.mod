@@ -1,6 +1,6 @@
 module github.com/romshark/datapages/example/offline-cache
 
-go 1.26.5
+go 1.26.6
 
 replace github.com/romshark/datapages => ../../
 
@@ -8,7 +8,7 @@ replace github.com/romshark/datapages => ../../
 require (
 	github.com/a-h/templ v0.3.1020
 	github.com/starfederation/datastar-go v1.2.2
-	golang.org/x/crypto v0.54.0
+	golang.org/x/crypto v0.55.0
 )
 
 require (
@@ -20,6 +20,6 @@ require (
 require (
 	github.com/CAFxX/httpcompression v0.0.9 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
-	github.com/klauspost/compress v1.19.1 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 )

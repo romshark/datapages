@@ -3,22 +3,15 @@ package app
 import (
 	"context"
 	"net/http"
-	"time"
-
-	"github.com/a-h/templ"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/offline-cache/app/domain"
 	"github.com/romshark/datapages/example/offline-cache/datapagesgen/href"
 )
 
-// Session is the per-user authentication session. Both UserID and IssuedAt are
-// required by Datapages. UserID holds the user name.
-type Session struct {
-	UserID string
-
-	IssuedAt time.Time
-}
+// Session is the per-user authentication session. It carries no application
+// data of its own; session.UserID() holds the user name.
+type Session = datapages.Session[struct{}]
 
 // App holds the application's dependencies.
 type App struct {
@@ -38,7 +31,7 @@ type SearchParams struct {
 }
 
 // Head adds shared <head> content to every page.
-func (*App) Head(r *http.Request) templ.Component {
+func (*App) Head(r *http.Request) datapages.Component {
 	return head()
 }
 
@@ -49,14 +42,14 @@ func (*App) POSTSignOut(
 	pageCache datapages.PageCacheWriter,
 ) (
 	closeSession bool,
-	redirect string,
+	redirect datapages.Redirect,
 	err error,
 ) {
 	// Signing out drops the offline cache so this browser's signed-in pages are
 	// not served offline to the next (guest) visitor. "/" re-bakes on the
 	// redirect below; other pages re-cache as they are visited.
 	pageCache.ClearAll()
-	return true, href.PageIndex(href.QueryPageIndex{}), nil
+	return true, datapages.Redirect{URL: href.PageIndex(href.QueryPageIndex{})}, nil
 }
 
 // Base is embedded into pages that render the shared navbar. It carries the
@@ -70,14 +63,14 @@ type baseData struct {
 }
 
 func (b Base) baseData(ctx context.Context, session Session) (baseData, error) {
-	if session.UserID == "" {
+	if session.IsGuest() {
 		return baseData{}, nil // Guest
 	}
-	user, err := b.App.repo.UserByName(ctx, session.UserID)
+	user, err := b.App.repo.UserByName(ctx, session.UserID())
 	if err != nil {
 		return baseData{}, err
 	}
-	tickets, err := b.App.repo.TicketsByUser(ctx, session.UserID)
+	tickets, err := b.App.repo.TicketsByUser(ctx, session.UserID())
 	if err != nil {
 		return baseData{}, err
 	}
@@ -95,7 +88,7 @@ type PageError404 struct {
 }
 
 func (p PageError404) GET(r *http.Request, session Session) (
-	body templ.Component, err error,
+	body datapages.Component, err error,
 ) {
 	baseData, err := p.baseData(r.Context(), session)
 	if err != nil {
@@ -108,7 +101,7 @@ func (p PageError404) GET(r *http.Request, session Session) (
 type PageError500 struct{ App *App }
 
 func (PageError500) GET(r *http.Request) (
-	body templ.Component,
+	body datapages.Component,
 	disableRefreshAfterHidden bool,
 	err error,
 ) {

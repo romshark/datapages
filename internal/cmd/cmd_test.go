@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -195,6 +196,14 @@ func setupProject(t *testing.T, appGoFile string) string {
 	// findModuleDir uses os.Getwd, so we must chdir.
 	origDir, err := os.Getwd()
 	require.NoError(t, err)
+
+	// The app and the generated code import datapages. Resolve it from this
+	// repository instead of the module proxy, which only has released versions.
+	repoRoot, err := filepath.Abs(filepath.Join(origDir, "..", ".."))
+	require.NoError(t, err)
+	appendGoMod(t, dir, fmt.Sprintf(
+		"\nreplace github.com/romshark/datapages => %s\n", repoRoot,
+	))
 	require.NoError(t, os.Chdir(dir))
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
 
@@ -449,14 +458,36 @@ func readDatapagesVersion(t *testing.T, dir string) string {
 	return ""
 }
 
+func appendGoMod(t *testing.T, dir, text string) {
+	t.Helper()
+	f, err := os.OpenFile(
+		filepath.Join(dir, "go.mod"), os.O_APPEND|os.O_WRONLY, 0o644,
+	)
+	require.NoError(t, err)
+	_, err = f.WriteString(text)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+}
+
+// setDatapagesVersion pins the datapages requirement,
+// replacing the one go mod tidy resolved through the replace directive.
 func setDatapagesVersion(t *testing.T, dir, version string) {
 	t.Helper()
 	goModPath := filepath.Join(dir, "go.mod")
-	f, err := os.OpenFile(goModPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	data, err := os.ReadFile(goModPath)
 	require.NoError(t, err)
-	_, err = fmt.Fprintf(f, "\nrequire github.com/romshark/datapages %s\n", version)
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
+
+	// Matches both the single-line and the require-block form.
+	re := regexp.MustCompile(
+		`(?m)^(\s*(?:require\s+)?)github\.com/romshark/datapages v\S+$`,
+	)
+	replaced := re.ReplaceAll(data, []byte("${1}github.com/romshark/datapages "+version))
+	if string(replaced) == string(data) {
+		appendGoMod(t, dir,
+			fmt.Sprintf("\nrequire github.com/romshark/datapages %s\n", version))
+		return
+	}
+	require.NoError(t, os.WriteFile(goModPath, replaced, 0o644))
 }
 
 func TestLintGoModVersion(t *testing.T) {

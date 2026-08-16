@@ -25,6 +25,7 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	appPkg := appPkgName(m.PkgPath)
 	w.buildEventMap(m.Events)
 	w.usage = computeAppUsage(m)
+	w.setSessionType(m)
 
 	w.writeAppHeader(pkgName, m.PkgPath, needsJSON(m))
 	w.Raw(appStaticContent)
@@ -63,14 +64,14 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 		w.writeSSEWrapper()
 	}
 	if w.usage.pageCache {
-		w.writePageCache(m, appPkg)
+		w.writePageCache(m)
 	}
 	if w.usage.auth && w.usage.hasSession {
-		w.writeAppCheckCSRF(appPkg)
+		w.writeAppCheckCSRF()
 	}
-	w.writeAppWriteHTML(m, appPkg)
+	w.writeAppWriteHTML(m)
 	if w.usage.stream {
-		w.writeAppHandleStreamRequest(appPkg)
+		w.writeAppHandleStreamRequest()
 	}
 	w.writeAppServerStruct(appPkg)
 	w.writeAppNewServer(appPkg)
@@ -79,7 +80,7 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	w.writeEvSubjPageFuncs(m.Pages)
 	if w.usage.hasSession {
 		w.writeAppCSRF()
-		w.writeAppAuth(appPkg)
+		w.writeAppAuth()
 	}
 	if w.prometheus {
 		w.writeBrokerSubjectKind(m.Events)
@@ -166,9 +167,8 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"time"`)
 	w.Line(0, "")
 	w.Line(1, `"github.com/a-h/templ"`)
-	if w.usage.datapagesSSE || w.usage.pageCache {
-		w.Line(1, `"github.com/romshark/datapages"`)
-	}
+	// Always needed: writeHTML renders datapages.Component values.
+	w.Line(1, `"github.com/romshark/datapages"`)
 	if w.usage.offlinePage {
 		w.Line(1, `"github.com/romshark/datapages/modules/offline"`)
 	}
@@ -191,11 +191,6 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 		w.writeQuoted(w.genImport + "/href")
 		w.Byte('\n')
 	}
-	if w.usage.httperr && w.genImport != "" {
-		w.Byte('\t')
-		w.writeQuoted(w.genImport + "/httperr")
-		w.Byte('\n')
-	}
 	w.Line(0, "")
 	if w.prometheus {
 		w.Line(1, `"github.com/prometheus/client_golang/prometheus"`)
@@ -208,7 +203,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 // writeOfflineCache emits the datapages.PageCacheWriter implementation and its
 // delivery lifecycle (SSE flush, GET bake, redirect script). It is generated into
 // the application package rather than imported. It stays out of the public API.
-func (w *Writer) writePageCache(m *model.App, appPkg string) {
+func (w *Writer) writePageCache(m *model.App) {
 	w.Raw(`
 // newPageCache builds the page cache handle for the request. sse is the
 // action's SSE generator, or nil for GET and redirect handlers.
@@ -236,16 +231,13 @@ func (p *pageCacheBuf) WriteHeader(int)             {}
 `)
 	// pageCacheHead renders the global <head> for a cached document. One copy
 	// serves every visitor. Render it without a session.
-	w.Raw("\nfunc (s *Server) pageCacheHead(r *http.Request) templ.Component {\n\treturn ")
+	w.Raw("\nfunc (s *Server) pageCacheHead(r *http.Request) datapages.Component {\n\treturn ")
 	if m.GlobalHeadGenerator == nil {
 		w.Raw("nil\n}\n")
 	} else {
 		w.Raw("s.app.Head(r")
 		if m.GlobalHeadGenerator.InputSession {
-			w.Raw(", " + appPkg + ".Session{}")
-		}
-		if m.GlobalHeadGenerator.InputSessionToken {
-			w.Raw(`, ""`)
+			w.Raw(", " + w.sessionType + "{}")
 		}
 		w.Raw(")\n}\n")
 	}
@@ -261,7 +253,7 @@ type pageCacheWriter struct {
 
 type pageCachePendingSet struct {
 	url     string
-	body    templ.Component
+	body    datapages.Component
 	version uint64
 	shim    bool
 }
@@ -276,12 +268,12 @@ func (c *pageCacheWriter) Version() uint64 {
 	return v
 }
 
-func (c *pageCacheWriter) Set(url string, body templ.Component, version uint64) {
+func (c *pageCacheWriter) Set(url string, body datapages.Component, version uint64) {
 	c.sets = append(c.sets, pageCachePendingSet{url: url, body: body, version: version})
 }
 
 func (c *pageCacheWriter) SetShim(
-	url string, body templ.Component, version uint64,
+	url string, body datapages.Component, version uint64,
 ) {
 	c.sets = append(c.sets, pageCachePendingSet{
 		url: url, body: body, version: version, shim: true,
@@ -304,7 +296,7 @@ type pageCacheEntry struct {
 // requests this URL, and morphs in the live page the worker prefetched. The
 // element stays in the DOM (removing it on a timer can beat Datastar's deferred
 // module load); the morph drops it, as the live page has no such element.
-func withShimHydrate(body templ.Component) templ.Component {
+func withShimHydrate(body datapages.Component) datapages.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if err := body.Render(ctx, w); err != nil {
 			return err
@@ -337,9 +329,12 @@ func (c *pageCacheWriter) payload() (string, error) {
 			&buf, c.r, `)
 	if m.Session != nil {
 		// One cached copy serves every visitor. Render it sessionless.
-		w.Raw(appPkg + ".Session{}, ")
+		w.Raw(w.sessionType + "{}, ")
 	}
-	w.Raw(`c.s.pageCacheHead(c.r), nil, body, nil, nil,
+	if m.GlobalHeadGenerator != nil {
+		w.Raw("c.s.pageCacheHead(c.r), ")
+	}
+	w.Raw(`nil, body, nil, nil,
 		); err != nil {
 			return "", fmt.Errorf("rendering page cache body for %s: %w", s.url, err)
 		}
@@ -429,9 +424,9 @@ func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 `)
 }
 
-// writeSSEWrapper emits the datapages.SSE implementation backed by Datastar. It
-// is generated into the application package rather than imported. The
-// datastar-free datapages.SSE seam needs no runtime package of its own.
+// writeSSEWrapper emits the datapages.SSE implementation backed by Datastar.
+// It is generated into the application package rather than imported,
+// so the datastar-free datapages.SSE seam needs no runtime package of its own.
 func (w *Writer) writeSSEWrapper() {
 	w.Raw(`
 // newSSE wraps a Datastar generator as a datapages.SSE.
@@ -445,8 +440,8 @@ type sseWrapper struct {
 
 func (s sseWrapper) Context() context.Context { return s.gen.Context() }
 
-func (s sseWrapper) PatchElementTempl(
-	c templ.Component, opts ...datapages.PatchOption,
+func (s sseWrapper) PatchElement(
+	c datapages.Component, opts ...datapages.PatchOption,
 ) error {
 	var cfg datapages.PatchConfig
 	for _, o := range opts {
@@ -459,22 +454,38 @@ func (s sseWrapper) PatchElementTempl(
 	if cfg.SelectorID != "" {
 		ds = append(ds, datastar.WithSelectorID(cfg.SelectorID))
 	}
-	if cfg.ModeAppend {
-		ds = append(ds, datastar.WithModeAppend())
+	switch cfg.Mode {
+	case datapages.PatchModeOuter, datapages.PatchModeInner,
+		datapages.PatchModeReplace, datapages.PatchModePrepend,
+		datapages.PatchModeAppend, datapages.PatchModeBefore,
+		datapages.PatchModeAfter:
+		ds = append(ds, datastar.WithMode(datastar.ElementPatchMode(cfg.Mode)))
 	}
 	return s.gen.PatchElementTempl(c, ds...)
+}
+
+func (s sseWrapper) RemoveElement(selector string) error {
+	return s.gen.RemoveElement(selector)
 }
 
 func (s sseWrapper) ExecuteScript(script string) error {
 	return s.gen.ExecuteScript(script)
 }
 
-func (s sseWrapper) MarshalAndPatchSignals(v any) error {
+func (s sseWrapper) PatchSignals(v any) error {
 	return s.gen.MarshalAndPatchSignals(v)
 }
 
-func (s sseWrapper) Redirect(url string) error {
-	return s.gen.Redirect(url)
+func (s sseWrapper) PatchSignalsIfMissing(v any) error {
+	return s.gen.MarshalAndPatchSignalsIfMissing(v)
+}
+
+func (s sseWrapper) Redirect(target string) error {
+	return s.gen.Redirect(target)
+}
+
+func (s sseWrapper) Prefetch(urls ...string) error {
+	return s.gen.Prefetch(urls...)
 }
 `)
 }
@@ -695,14 +706,14 @@ func (s *Server) Shutdown(ctx context.Context) error {
 `)
 }
 
-func (w *Writer) writeAppCheckCSRF(appPkg string) {
+func (w *Writer) writeAppCheckCSRF() {
 	w.Raw(`
 func (s *Server) checkCSRF(
 	w http.ResponseWriter, r *http.Request, sess `)
-	w.Raw(appPkg)
-	w.Raw(`.Session,
+	w.Raw(w.sessionType)
+	w.Raw(`,
 ) (ok bool) {
-	if sess.UserID == "" ||
+	if sess.UserID() == "" ||
 		r.Method == http.MethodGet ||
 		r.Method == http.MethodOptions ||
 		r.Method == http.MethodHead ||
@@ -722,7 +733,7 @@ func (s *Server) checkCSRF(
 		t == s.csrfConf.DevBypassToken {
 		return true
 	}
-	if !s.csrfConf.TokenManager.ValidateToken(sess.UserID, sess.IssuedAt.Unix(), t) {
+	if !s.csrfConf.TokenManager.ValidateToken(sess.UserID(), sess.IssuedAt().Unix(), t) {
 		http.Error(
 			w,
 			http.StatusText(http.StatusForbidden),
@@ -735,7 +746,7 @@ func (s *Server) checkCSRF(
 `)
 }
 
-func (w *Writer) writeAppWriteHTML(m *model.App, appPkg string) {
+func (w *Writer) writeAppWriteHTML(m *model.App) {
 	w.Raw(`
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
@@ -743,8 +754,8 @@ func (s *Server) writeHTML(
 `)
 	if m.Session != nil {
 		w.Raw(`	sess `)
-		w.Raw(appPkg)
-		w.Raw(`.Session,
+		w.Raw(w.sessionType)
+		w.Raw(`,
 `)
 	}
 	if m.GlobalHeadGenerator != nil {
@@ -752,7 +763,7 @@ func (s *Server) writeHTML(
 	} else {
 		w.Raw(`	`)
 	}
-	w.Raw(`head, body templ.Component,
+	w.Raw(`head, body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -781,9 +792,9 @@ func (s *Server) writeHTML(
 	}
 `)
 	if m.Session != nil {
-		w.Raw(`	if s.csrfConf != nil && sess.UserID != "" {
+		w.Raw(`	if s.csrfConf != nil && sess.UserID() != "" {
 		csrfToken := s.csrfConf.TokenManager.GenerateToken(
-			sess.UserID, sess.IssuedAt.Unix(),
+			sess.UserID(), sess.IssuedAt().Unix(),
 		)
 		if csrfToken != "" {
 			// Write the fetch X-CSRF-Token header injector.
@@ -811,8 +822,8 @@ func (s *Server) writeHTML(
 			}
 		} else {
 			s.logger.Warn("generated empty CSRF token",
-				slog.String("user-id", sess.UserID),
-				slog.Time("issued-at", sess.IssuedAt))
+				slog.String("user-id", sess.UserID()),
+				slog.Time("issued-at", sess.IssuedAt()))
 		}
 	}
 `)
@@ -871,18 +882,21 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 
 func (w *Writer) writeHTTPRedirect() {
 	w.Raw(`
-func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status int) (exit bool) {
-	if target == "" {
+func httpRedirect(
+	w http.ResponseWriter, r *http.Request, redirect datapages.Redirect,
+) (exit bool) {
+	if redirect.URL == "" {
 		return false
 	}
 
 	if isDSReq(r) {
 		// Force client-side navigation via JS for Datastar requests.
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = fmt.Fprintf(w, "window.location = %q;", target)
+		_, _ = fmt.Fprintf(w, "window.location = %q;", redirect.URL)
 		return true
 	}
 
+	status := redirect.Status
 	switch status {
 	case http.StatusMovedPermanently,
 		http.StatusFound,
@@ -894,7 +908,7 @@ func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status 
 		status = http.StatusFound
 	}
 
-	http.Redirect(w, r, target, status)
+	http.Redirect(w, r, redirect.URL, status)
 	return true
 }
 `)
@@ -907,22 +921,24 @@ func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status 
 func (w *Writer) writeHTTPRedirectOffline() {
 	w.Raw(`
 func httpRedirectOffline(
-	w http.ResponseWriter, r *http.Request, target string, status int, oc *pageCacheWriter,
+	w http.ResponseWriter, r *http.Request,
+	redirect datapages.Redirect, oc *pageCacheWriter,
 ) (exit bool) {
-	if target == "" {
+	if redirect.URL == "" {
 		return false
 	}
 
 	if isDSReq(r) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		js, err := oc.redirectScript(target)
+		js, err := oc.redirectScript(redirect.URL)
 		if err != nil {
-			js = fmt.Sprintf("window.location = %q;", target)
+			js = fmt.Sprintf("window.location = %q;", redirect.URL)
 		}
 		_, _ = w.Write([]byte(js))
 		return true
 	}
 
+	status := redirect.Status
 	switch status {
 	case http.StatusMovedPermanently,
 		http.StatusFound,
@@ -934,20 +950,20 @@ func httpRedirectOffline(
 		status = http.StatusFound
 	}
 
-	http.Redirect(w, r, target, status)
+	http.Redirect(w, r, redirect.URL, status)
 	return true
 }
 `)
 }
 
-func (w *Writer) writeAppHandleStreamRequest(appPkg string) {
+func (w *Writer) writeAppHandleStreamRequest() {
 	w.Raw(`
 func (s *Server) handleStreamRequest(
 	w http.ResponseWriter, r *http.Request,`)
 	if w.usage.streamAuth {
 		w.Raw(` sessKey string, sess `)
-		w.Raw(appPkg)
-		w.Raw(`.Session,`)
+		w.Raw(w.sessionType)
+		w.Raw(`,`)
 	}
 	w.Raw(`
 	subjects []string,
@@ -995,7 +1011,7 @@ func (s *Server) handleStreamRequest(
 	if w.usage.streamAuth {
 		w.Raw(`	sessionClosed := make(chan struct{})
 
-	if sess.UserID != "" {
+	if sess.UserID() != "" {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		if err := s.sessionManager.NotifyClosed(ctx, sessKey, func() {
@@ -1080,8 +1096,8 @@ type Server struct {
 	authConf              *AuthConfig
 	sessionTokenGenerator sessmanager.TokenGenerator
 	sessionManager        sessmanager.SessionManager[`)
-		w.Raw(appPkg)
-		w.Raw(`.Session]
+		w.Raw(w.sessionDataType)
+		w.Raw(`]
 	csrfConf              *CSRFConfig`)
 	}
 	w.Raw(`
@@ -1115,8 +1131,8 @@ func NewServer(
 	if w.usage.hasSession {
 		w.Raw(`
 	sessionManager sessmanager.SessionManager[`)
-		w.Raw(appPkg)
-		w.Raw(`.Session],`)
+		w.Raw(w.sessionDataType)
+		w.Raw(`],`)
 	}
 	w.Raw(`
 	opts ...ServerOption,
@@ -1663,7 +1679,7 @@ func WithCSRFProtection(conf CSRFConfig) ServerOption {
 `)
 }
 
-func (w *Writer) writeAppAuth(appPkg string) {
+func (w *Writer) writeAppAuth() {
 	// Public declarations: always emitted.
 	w.Raw(`
 // --- Auth ---
@@ -1728,10 +1744,17 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 		w.Raw(`
 func (s *Server) createSession(
 	w http.ResponseWriter, r *http.Request, session `)
-		w.Raw(appPkg)
-		w.Raw(`.Session,
+		w.Raw(w.newSessionType)
+		w.Raw(`,
 ) error {
-	token, err := s.sessionManager.CreateSession(r.Context(), session.UserID, session)
+	token, err := s.sessionManager.CreateSession(r.Context(), `)
+		w.Raw(w.recordType)
+		w.Raw(`{
+		UserID:    session.UserID,
+		IssuedAt:  time.Now(),
+		ExpiresAt: session.ExpiresAt,
+		Data:      session.Data,
+	})
 	if err != nil {
 `)
 		if w.prometheus {
@@ -1785,8 +1808,8 @@ func (s *Server) closeSession(
 func (s *Server) auth(
 	w http.ResponseWriter, r *http.Request,
 ) (sess `)
-		w.Raw(appPkg)
-		w.Raw(`.Session, token string, ok bool) {
+		w.Raw(w.sessionType)
+		w.Raw(`, token string, ok bool) {
 	c, err := r.Cookie(s.authConf.TokenCookie.Name)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {`)
@@ -1800,7 +1823,7 @@ func (s *Server) auth(
 		return sess, "", false
 	}
 
-	sess, token, userID, ok, err := s.sessionManager.ReadSessionFromCookie(c)
+	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(c)
 	if err != nil {
 		// Transient backend failure; keep the cookie, fail the request.`)
 		if w.prometheus {
@@ -1810,8 +1833,8 @@ func (s *Server) auth(
 		w.Raw(`
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 		return `)
-		w.Raw(appPkg)
-		w.Raw(`.Session{}, "", false
+		w.Raw(w.sessionType)
+		w.Raw(`{}, "", false
 	}
 	if !ok {
 		// Cookie is stale or malformed; clear it and continue as unauthenticated.`)
@@ -1822,10 +1845,25 @@ func (s *Server) auth(
 		w.Raw(`
 		s.setSessionCookie(w, "")
 		return `)
-		w.Raw(appPkg)
-		w.Raw(`.Session{}, "", true
+		w.Raw(w.sessionType)
+		w.Raw(`{}, "", true
 	}
-	sess.UserID = userID
+	sess = `)
+		w.Raw(w.makeSessionCall)
+		w.Raw(`
+
+	if !sess.ExpiresAt().IsZero() && !time.Now().Before(sess.ExpiresAt()) {
+		// Session has expired; clear the cookie and continue as unauthenticated.`)
+		if w.prometheus {
+			w.Raw(`
+		mSessionReads.WithLabelValues("expired").Inc()`)
+		}
+		w.Raw(`
+		s.setSessionCookie(w, "")
+		return `)
+		w.Raw(w.sessionType)
+		w.Raw(`{}, "", true
+	}
 `)
 		if w.prometheus {
 			w.Raw(`	mSessionReads.WithLabelValues("valid").Inc()
@@ -1962,18 +2000,18 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 }
 
 func (w *Writer) writeHTTPErrFallback() {
-	if !w.usage.httperr {
+	if !w.usage.errSentinels {
 		w.Raw(`	const code = http.StatusInternalServerError
 	http.Error(w, http.StatusText(code), code)
 `)
 		return
 	}
 	w.Raw(`	switch {
-	case errors.Is(err, httperr.BadRequest):
+	case errors.Is(err, datapages.ErrBadRequest):
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	case errors.Is(err, httperr.Forbidden):
+	case errors.Is(err, datapages.ErrForbidden):
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-	case errors.Is(err, httperr.NotFound):
+	case errors.Is(err, datapages.ErrNotFound):
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -2044,15 +2082,8 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 
 	h404 := p.GET.Handler
 	headNeedsSess := m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession
-	headNeedsToken := m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSessionToken
-	needsToken := h404.InputSessionToken != nil || headNeedsToken
-	if h404.InputSession != nil || h404.InputSessionToken != nil ||
-		headNeedsSess || headNeedsToken {
-		if needsToken {
-			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
-		} else {
-			w.Line(1, "sess, _, ok := s.auth(w, r)")
-		}
+	if h404.InputSession != nil || headNeedsSess {
+		w.Line(1, "sess, _, ok := s.auth(w, r)")
 		w.Line(1, "if !ok {")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -2063,7 +2094,7 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	w.Line(0, "")
 
 	// Call GET.
-	w.writeGETCall(p, m, appPkg, "render404")
+	w.writeGETCall(p, m, "render404")
 
 	w.Line(0, "}")
 }
@@ -2117,13 +2148,11 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 	}
 
 	// Auth.
-	needsToken := h.InputSessionToken != nil || h.OutputCloseSession != nil
+	needsToken := h.OutputCloseSession != nil
 	headNeedsSess := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
 		m.GlobalHeadGenerator.InputSession
-	headNeedsToken := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
-		m.GlobalHeadGenerator.InputSessionToken
-	if h.InputSession != nil || needsToken || headNeedsSess || headNeedsToken {
-		if needsToken || headNeedsToken {
+	if h.InputSession != nil || needsToken || headNeedsSess {
+		if needsToken {
 			w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
 		} else {
 			w.Line(1, "sess, _, ok := s.auth(w, r)")
@@ -2191,11 +2220,11 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	}
 
 	// Build the actual method call.
-	w.writeMethodCall(p, h, m, appPkg, isAppLevel)
+	w.writeMethodCall(p, h, m, isAppLevel)
 }
 
 func (w *Writer) writeMethodCall(
-	p *model.Page, h *model.Handler, m *model.App, appPkg string, isAppLevel bool,
+	p *model.Page, h *model.Handler, m *model.App, isAppLevel bool,
 ) {
 	// Build output variable list in user-defined order.
 	outs := handlerOutputVars(h)
@@ -2285,21 +2314,13 @@ func (w *Writer) writeMethodCall(
 	// Redirect. A redirect-returning action that also writes the page cache
 	// delivers its queued writes as JS in the redirect response, then navigates.
 	if h.OutputRedirect != nil {
-		statusArg := "0"
-		if h.OutputRedirectStatus != nil {
-			statusArg = h.OutputRedirectStatus.Name
-		}
 		if pageCacheViaRedirect(h) {
 			w.Raw("\tif httpRedirectOffline(w, r, ")
 			w.Raw(h.OutputRedirect.Name)
-			w.Raw(", ")
-			w.Raw(statusArg)
 			w.Raw(", pageCache) {\n")
 		} else {
 			w.Raw("\tif httpRedirect(w, r, ")
 			w.Raw(h.OutputRedirect.Name)
-			w.Raw(", ")
-			w.Raw(statusArg)
 			w.Raw(") {\n")
 		}
 		w.Line(2, "return")
@@ -2311,9 +2332,7 @@ func (w *Writer) writeMethodCall(
 		ownerName := actionOwnerName(p, isAppLevel)
 
 		if m.GlobalHeadGenerator != nil {
-			w.writeGenericHeadCall(
-				m.GlobalHeadGenerator, appPkg, hasSessionInput(h), false,
-			)
+			w.writeGenericHeadCall(m.GlobalHeadGenerator, hasSessionInput(h))
 		}
 
 		w.Line(1, "if err := s.writeHTML(")
@@ -2321,10 +2340,9 @@ func (w *Writer) writeMethodCall(
 		if m.Session != nil {
 			sessArg := "sess"
 			headNeedsSession := m.GlobalHeadGenerator != nil &&
-				(m.GlobalHeadGenerator.InputSession ||
-					m.GlobalHeadGenerator.InputSessionToken)
+				m.GlobalHeadGenerator.InputSession
 			if !hasSessionInput(h) && !headNeedsSession {
-				sessArg = appPkg + ".Session{}"
+				sessArg = w.sessionType + "{}"
 			}
 			w.Raw(sessArg)
 			w.Raw(", ")
@@ -2516,7 +2534,7 @@ func actionOwnerName(p *model.Page, isAppLevel bool) string {
 }
 
 // writeGETCall generates the GET method call and HTML rendering for a page.
-func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, context string) {
+func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	if p.GET == nil || p.GET.OutputBody == nil {
 		return
 	}
@@ -2566,16 +2584,14 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, contex
 	if h.OutputRedirect != nil {
 		w.Raw("\tif httpRedirect(w, r, ")
 		w.Raw(h.OutputRedirect.Name)
-		w.Raw(", 0) {\n")
+		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
 
 	// Generic head.
 	if m.GlobalHeadGenerator != nil {
-		hasSess := h.InputSession != nil || h.InputSessionToken != nil
-		hasSessToken := h.InputSessionToken != nil
-		w.writeGenericHeadCall(m.GlobalHeadGenerator, appPkg, hasSess, hasSessToken)
+		w.writeGenericHeadCall(m.GlobalHeadGenerator, h.InputSession != nil)
 	}
 
 	// Body attrs - simple for render404/error pages.
@@ -2594,12 +2610,12 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, appPkg string, contex
 	if m.Session != nil {
 		sessArg := "sess"
 		headNeedsSession := m.GlobalHeadGenerator != nil &&
-			(m.GlobalHeadGenerator.InputSession || m.GlobalHeadGenerator.InputSessionToken)
+			m.GlobalHeadGenerator.InputSession
 		if p.PageSpecialization == model.PageTypeError500 ||
 			p.PageSpecialization == model.PageTypeOffline ||
 			(p.PageSpecialization == model.PageTypeError404 &&
 				context == "render404" && !headNeedsSession) {
-			sessArg = appPkg + ".Session{}"
+			sessArg = w.sessionType + "{}"
 		}
 		w.Raw(sessArg)
 		w.Raw(", ")

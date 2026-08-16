@@ -5,24 +5,17 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
-
-/* ErrSessionMissingUserID: no UserID field */
-/* ErrSessionMissingIssuedAt: no IssuedAt field */
-
-type Session struct {
-	Name string
-}
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
 func (PageIndex) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -34,20 +27,7 @@ type PageBadType struct{ App *App }
 func (PageBadType) GET(
 	r *http.Request,
 	session int,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = session
-	return body, err
-}
-
-// PageBadToken is /bad-token
-type PageBadToken struct{ App *App }
-
-/* ErrSessionTokenParamNotString: wrong type */
-
-func (PageBadToken) GET(
-	r *http.Request,
-	sessionToken int,
-) (body templ.Component, err error) {
-	_ = sessionToken
 	return body, err
 }

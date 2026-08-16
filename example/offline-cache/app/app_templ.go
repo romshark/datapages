@@ -168,7 +168,7 @@ func fragmentNavbar(session Session, baseData baseData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if session.UserID != "" {
+		if !session.IsGuest() {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<a id=\"nav-tickets\" href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1099,7 +1099,7 @@ func pageShow(session Session, show domain.Show, hasTicket bool, baseData baseDa
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-			} else if session.UserID != "" {
+			} else if !session.IsGuest() {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "<a class=\"btn\" href=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err

@@ -92,13 +92,6 @@ func field(name string) *ast.Field {
 	}
 }
 
-func TestIsSessionTokenParam(t *testing.T) {
-	t.Parallel()
-	require.True(t, IsSessionTokenParam(field("sessionToken")))
-	require.False(t, IsSessionTokenParam(field("path")))
-	require.False(t, IsSessionTokenParam(&ast.Field{}))
-}
-
 func TestIsSessionParam(t *testing.T) {
 	t.Parallel()
 	require.True(t, IsSessionParam(field("session")))

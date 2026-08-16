@@ -8,7 +8,7 @@ func (s *Server) handlePageFeedGETStreamAnon(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if sess.UserID != "" {
+	if sess.UserID() != "" {
 		s.httpErrBad(w, "authenticated client on anonymous stream", nil)
 		return
 	}
@@ -16,7 +16,7 @@ func (s *Server) handlePageFeedGETStreamAnon(w http.ResponseWriter, r *http.Requ
 	p := testapp.PageFeed{
 	App: s.app,
 }
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageFeed(sess.UserID),
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageFeed(sess.UserID()),
 	nil,
 	nil,
 	func(

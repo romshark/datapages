@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 )
 
@@ -14,12 +12,12 @@ type EventCounterUpdated struct{}
 
 type App struct{ counter atomic.Int32 }
 
-func (*App) Head(_ *http.Request) templ.Component { return head() }
+func (*App) Head(_ *http.Request) datapages.Component { return head() }
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (p PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (p PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return pageCounter(p.App.counter.Load()), nil
 }
 
@@ -37,5 +35,5 @@ func (p PageIndex) POSTAdd(
 func (p PageIndex) OnCounterUpdated(
 	event EventCounterUpdated, sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(pageCounter(p.App.counter.Load()))
+	return sse.PatchElement(pageCounter(p.App.counter.Load()))
 }

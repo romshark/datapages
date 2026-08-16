@@ -8,6 +8,7 @@ import (
 
 	"github.com/a-h/templ"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/offline-cache/app/domain"
 )
 
@@ -17,7 +18,7 @@ import (
 // compare it with != rather than <, since session identity has no ordering.
 func offlineCacheVersion(session Session, contentKey string) uint64 {
 	h := fnv.New64a()
-	_, _ = io.WriteString(h, session.UserID)
+	_, _ = io.WriteString(h, session.UserID())
 	_, _ = io.WriteString(h, "\x00")
 	_, _ = io.WriteString(h, contentKey)
 	if v := h.Sum64(); v != 0 {
@@ -47,7 +48,7 @@ const reconnectScript = `<script>` +
 
 // indexOffline is the offline snapshot of the shows page ("/"): the same shell
 // without the live search, which needs the server.
-func indexOffline(session Session, base baseData) templ.Component {
+func indexOffline(session Session, base baseData) datapages.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if err := fragmentNavbar(session, base).Render(ctx, w); err != nil {
 			return err
@@ -71,7 +72,7 @@ func indexOffline(session Session, base baseData) templ.Component {
 
 // loginOffline is the offline snapshot of the login page: the sign-in card says
 // that signing in needs a connection.
-func loginOffline() templ.Component {
+func loginOffline() datapages.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		_, err := io.WriteString(w, `<div id="content"><div id="page-login">`+
 			`<div class="card"><header><h1>Sign in</h1></header>`+

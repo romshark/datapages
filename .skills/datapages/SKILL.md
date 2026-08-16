@@ -18,7 +18,7 @@ Datapages apps use two other technologies. This skill does not teach them.
 Learn them separately.
 
 - **Templ** (`github.com/a-h/templ`) - Go HTML templating.
-  Handlers return `templ.Component`. You write `.templ` files that compile to Go
+  Handlers return `datapages.Component`. You write `.templ` files that compile to Go
   via `templ generate`. Datapages does **not** run this automatically — you must
   run `templ generate` yourself after creating or modifying `.templ` files.
   Docs: https://templ.guide/developer-tools/llm/
@@ -100,7 +100,7 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return indexPage(), nil
 }
 ```
@@ -113,19 +113,25 @@ Important:
 
 ## Step 3: Add Session (Optional)
 
-Define a `Session` struct if you need authentication, otherwise don't define it.
+Declare an alias if you need authentication, otherwise skip this step.
 
 ```go
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
+type SessionData struct {
+	Name string
 }
+
+type Session = datapages.Session[SessionData]
 ```
 
-Both fields are required. Without either, the parser rejects it.
-Add custom fields if you want. Custom fields must have `json` tags.
+`datapages.Session[Data]` is read-only and provides `UserID()`, `IsGuest()`,
+`Token()`, `IssuedAt()`, `ExpiresAt()` and `Data()`. `Data` is your own payload,
+use `struct{}` when you need none. All handlers must use the same `Data` type,
+so declare the alias once and use it everywhere.
 
-Now handlers can accept `session Session` or `sessionToken string` as parameters, and return `newSession Session` or `closeSession bool` as return values.
+Handlers accept `session Session` as a parameter and return
+`newSession datapages.NewSession[SessionData]` or `closeSession bool` as return values.
+`NewSession` carries `UserID`, an optional `ExpiresAt` and `Data`,
+datapages generates the token and stamps the issuance time.
 
 ## Step 4: Add Pages
 
@@ -135,7 +141,7 @@ One struct per page. One doc comment per page. One GET handler per page.
 // PageLogin is /login
 type PageLogin struct{ App *App }
 
-func (PageLogin) GET(r *http.Request) (body templ.Component, err error) {
+func (PageLogin) GET(r *http.Request) (body datapages.Component, err error) {
 	return loginPage(), nil
 }
 ```
@@ -154,7 +160,6 @@ Parameters may be in any order. Skip what you don't need.
 
 ```go
 r *http.Request
-sessionToken string // optional
 session Session // optional
 pageCache datapages.PageCacheWriter // optional, see Step 18
 path struct { ID string `path:"id"` } // optional
@@ -165,15 +170,14 @@ query struct { P int `query:"p"` } // optional
 
 ### GET Return Values
 
-The minimum is `(body templ.Component, err error)`.
+The minimum is `(body datapages.Component, err error)`.
 You can add more. Pick only what you need.
 
 ```go
-body templ.Component // always first
-head templ.Component // optional
-redirect string // optional
-redirectStatus int // only with redirect
-newSession Session // optional
+body datapages.Component // always first
+head datapages.Component // optional
+redirect datapages.Redirect // optional
+newSession datapages.NewSession[Data] // optional
 closeSession bool // optional
 enableBackgroundStreaming bool // optional
 disableRefreshAfterHidden bool // optional
@@ -184,13 +188,13 @@ Examples:
 
 ```go
 // body + head
-(body, head templ.Component, err error)
+(body, head datapages.Component, err error)
 
 // body + redirect
-(body templ.Component, redirect string, err error)
+(body datapages.Component, redirect datapages.Redirect, err error)
 
 // body + new session + disableRefreshAfterHidden
-(body templ.Component, newSession Session, disableRefreshAfterHidden bool, err error)
+(body datapages.Component, newSession datapages.NewSession[Data], disableRefreshAfterHidden bool, err error)
 ```
 
 ## Step 5: Path Variables and Query Parameters
@@ -210,7 +214,7 @@ func (PageItem) GET(
 	path struct {
 		ID string `path:"id"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return itemPage(path.ID), nil
 }
 ```
@@ -226,7 +230,7 @@ func (PageSearch) GET(
 		Term  string `query:"t"`
 		Limit int    `query:"l"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return searchPage(query.Term, query.Limit), nil
 }
 ```
@@ -256,10 +260,10 @@ Actions can also be defined on `*App` (pointer receiver) for global actions not 
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request, session Session) (
 	closeSession bool,
-	redirect string,
+	redirect datapages.Redirect,
 	err error,
 ) {
-	return true, "/login", nil
+	return true, datapages.Redirect{URL: "/login"}, nil
 }
 ```
 
@@ -270,7 +274,6 @@ Parameters may be in any order. Skip what you don't need.
 ```go
 r *http.Request
 sse datapages.SSE // optional
-sessionToken string // optional
 session Session // optional
 pageCache datapages.PageCacheWriter // optional, see Step 18
 path struct { ID string `path:"id"` } // optional
@@ -291,11 +294,10 @@ action handlers, event handlers (`OnXXX`), stream hooks and `RecoverError`.
 Pick only what you need.
 
 ```go
-body templ.Component // optional
-head templ.Component // optional
-redirect string // optional
-redirectStatus int // only with redirect
-newSession Session // optional
+body datapages.Component // optional
+head datapages.Component // optional
+redirect datapages.Redirect // optional
+newSession datapages.NewSession[Data] // optional
 closeSession bool // optional
 err error // always last
 ```
@@ -309,30 +311,30 @@ Simple:
 
 Redirect:
 ```go
-) (redirect string, redirectStatus int, err error) {
-	return "/", 303, nil
+) (redirect datapages.Redirect, err error) {
+	return datapages.Redirect{URL: "/", Status: http.StatusSeeOther}, nil
 }
 ```
 
 New session:
 ```go
-) (newSession Session, redirect string, err error) {
-	return Session{UserID: "u1", IssuedAt: time.Now()}, "/", nil
+) (newSession datapages.NewSession[SessionData], redirect datapages.Redirect, err error) {
+	return datapages.NewSession[SessionData]{UserID: "u1"}, datapages.Redirect{URL: "/"}, nil
 }
 ```
 
 Close session:
 ```go
-) (closeSession bool, redirect string, err error) {
-	return true, "/login", nil
+) (closeSession bool, redirect datapages.Redirect, err error) {
+	return true, datapages.Redirect{URL: "/login"}, nil
 }
 ```
 
-HTTP error status (use the generated `datapagesgen/httperr` sentinels):
+HTTP error status (use the `datapages` sentinels):
 ```go
-return httperr.BadRequest                                    // 400, zero alloc
-return httperr.Forbidden                                     // 403
-return fmt.Errorf("%w: %w", httperr.NotFound, errOriginal)   // 404, preserves original
+return datapages.ErrBadRequest                                    // 400, zero alloc
+return datapages.ErrForbidden                                     // 403
+return fmt.Errorf("%w: %w", datapages.ErrNotFound, errOriginal)   // 404, preserves original
 ```
 
 Errors without a sentinel default to 500 (or `RecoverError` if defined).
@@ -365,7 +367,7 @@ func (PageSearch) GET(
 	signals struct {
 		Term string `json:"term"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return searchPage(query.Term), nil
 }
 ```
@@ -408,7 +410,7 @@ dispatch func(EventMessageSent, EventUserActive) error
 
 ### Handle Events on Pages
 
-Method name starts with `On`. The `event` and `sse` parameters are required. Optional parameters: `streamID uint64`, `session Session`, `sessionToken string`.
+Method name starts with `On`. The `event` and `sse` parameters are required. Optional parameters: `streamID uint64`, `session Session`.
 Parameters may appear in any order.
 
 `On` handlers do **not** accept `signals`. If the handler needs client-side signal values, add them as fields on the event type and populate them in the action handler that dispatches the event.
@@ -421,9 +423,8 @@ func (PageChat) OnMessageSent(
 	sse datapages.SSE,
 	streamID uint64, // Optional
 	session Session, // Optional
-	sessionToken string, // Optional
 ) error {
-	return sse.PatchElementTempl(messageComponent(event.Message))
+	return sse.PatchElement(messageComponent(event.Message))
 }
 ```
 
@@ -461,7 +462,7 @@ type EventDirectMessage struct {
   context — read initial signals, store them alongside the `streamID`, and use them
   later in event handlers to produce the right fat morph.
 - **HMAC-signed tab identifiers.** Generate an HMAC of the `streamID` in
-  `StreamOpen`, patch it to the client as a signal via `sse.MarshalAndPatchSignals`,
+  `StreamOpen`, patch it to the client as a signal via `sse.PatchSignals`,
   and validate it in action handlers. Because only the server knows the HMAC key,
   clients cannot forge a tab ID for a stream they don't own, which prevents
   one tab from impersonating another when calling actions.
@@ -478,11 +479,11 @@ to clients, as it could leak information about server activity and connection vo
 
 `StreamOpen` runs after the SSE stream is established, before any event handler.
 It additionally accepts these optional parameters:
-`sse datapages.SSE`, `sessionToken string`, `session Session`,
+`sse datapages.SSE`, `session Session`,
 `signals struct{...}`, `dispatch func(...) error`.
 
 `StreamClose` runs when the stream closes.
-It additionally accepts these optional parameters: `sessionToken string`,
+It additionally accepts these optional parameters:
 `session Session`, `dispatch func(...) error`.
 Note: `StreamClose` does **not** accept `sse` or `signals`.
 
@@ -491,7 +492,6 @@ func (PageIndex) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 	sse datapages.SSE, // Optional
-	sessionToken string, // Optional
 	session Session, // Optional
 	signals struct{ // Optional
 		Instance string `json:"instance"`
@@ -505,7 +505,6 @@ func (PageIndex) StreamOpen(
 func (PageIndex) StreamClose(
 	r *http.Request,
 	streamID uint64,
-	sessionToken string, // Optional
 	session Session, // Optional
 	dispatch func(EventPing) error, // Optional
 ) error {
@@ -529,7 +528,7 @@ func (Base) OnMessageSent(
 	event EventMessageSent,
 	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(notificationComponent())
+	return sse.PatchElement(notificationComponent())
 }
 ```
 
@@ -566,7 +565,7 @@ Without these, Datapages serves default error responses. Define custom error pag
 // PageError404 is /not-found
 type PageError404 struct{ App *App }
 
-func (PageError404) GET(r *http.Request) (body templ.Component, err error) {
+func (PageError404) GET(r *http.Request) (body datapages.Component, err error) {
 	return notFoundPage(), nil
 }
 ```
@@ -580,23 +579,22 @@ Adds shared `<head>` content (meta tags, stylesheets, scripts) to every page, so
 ```go
 func (*App) Head(
 	r *http.Request,
-	sessionToken string, // optional
 	session Session, // optional
-) templ.Component {
+) datapages.Component {
 	return globalHead()
 }
 ```
 
 ## Step 13: Add Error Recovery (Optional)
 
-When a handler returns an error during a Datastar SSE request, a plain HTTP error is invisible to the user - there is no visible feedback, only a console log that normal users never see. `RecoverError` lets you handle this gracefully by patching in an error UI (e.g. a toast notification) over SSE instead. All action handler errors (including httperr sentinels) are routed through `RecoverError` when defined. Use `errors.Is(err, httperr.BadRequest)` etc. inside `RecoverError` to distinguish error types.
+When a handler returns an error during a Datastar SSE request, a plain HTTP error is invisible to the user - there is no visible feedback, only a console log that normal users never see. `RecoverError` lets you handle this gracefully by patching in an error UI (e.g. a toast notification) over SSE instead. All action handler errors (including the datapages sentinels) are routed through `RecoverError` when defined. Use `errors.Is(err, datapages.ErrBadRequest)` etc. inside `RecoverError` to distinguish error types.
 
 ```go
 func (*App) RecoverError(
 	err error,
 	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(errorToast(err))
+	return sse.PatchElement(errorToast(err))
 }
 ```
 

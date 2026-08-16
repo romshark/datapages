@@ -3,8 +3,6 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/offline-cache/datapagesgen/href"
 )
@@ -20,23 +18,23 @@ func (p PageTickets) GET(
 	session Session,
 	pageCache datapages.PageCacheWriter,
 ) (
-	body templ.Component,
-	redirect string,
+	body datapages.Component,
+	redirect datapages.Redirect,
 	err error,
 ) {
-	if session.UserID == "" {
-		return nil, href.PageLogin(href.QueryPageLogin{
+	if session.IsGuest() {
+		return nil, datapages.Redirect{URL: href.PageLogin(href.QueryPageLogin{
 			Next: href.PageTickets(),
-		}), nil
+		})}, nil
 	}
 
-	tickets, err := p.App.repo.TicketsByUser(r.Context(), session.UserID)
+	tickets, err := p.App.repo.TicketsByUser(r.Context(), session.UserID())
 	if err != nil {
-		return nil, "", err
+		return nil, datapages.Redirect{}, err
 	}
 	baseData, err := p.baseData(r.Context(), session)
 	if err != nil {
-		return nil, "", err
+		return nil, datapages.Redirect{}, err
 	}
 
 	view := pageTickets(session, tickets, baseData)
@@ -45,5 +43,5 @@ func (p PageTickets) GET(
 	if ver := ticketsOfflineVersion(session, tickets); pageCache.Version() != ver {
 		pageCache.Set(href.PageTickets(), view, ver)
 	}
-	return view, "", nil
+	return view, datapages.Redirect{}, nil
 }

@@ -11,11 +11,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/calculator/app/calc"
-	"github.com/romshark/datapages/example/calculator/datapagesgen/httperr"
 )
 
 // EventCalcUpdated is "calc.updated"
@@ -78,13 +75,13 @@ func (a *App) verifyID(id string) error {
 	return nil
 }
 
-func (*App) Head(_ *http.Request) templ.Component { return head() }
+func (*App) Head(_ *http.Request) datapages.Component { return head() }
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
 func (p PageIndex) GET(r *http.Request) (
-	body templ.Component,
+	body datapages.Component,
 	disableRefreshAfterHidden bool,
 	err error,
 ) {
@@ -110,12 +107,12 @@ func (p PageIndex) POSTInput(
 	},
 ) error {
 	if err := p.App.verifyID(signals.InstanceID); err != nil {
-		return fmt.Errorf("%w: %w", httperr.BadRequest, err)
+		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
 	}
 
 	if query.Num != "" {
 		if !numRe.MatchString(query.Num) {
-			return fmt.Errorf("%w: %w", httperr.BadRequest, errInvalidNum)
+			return fmt.Errorf("%w: %w", datapages.ErrBadRequest, errInvalidNum)
 		}
 		input := signals.Input
 		if signals.Fresh {
@@ -129,7 +126,7 @@ func (p PageIndex) POSTInput(
 	}
 	btn := calc.CalcButton(query.Btn)
 	if !calc.ValidButton(btn) {
-		return fmt.Errorf("%w: %w", httperr.BadRequest, errInvalidBtn)
+		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, errInvalidBtn)
 	}
 	input, fresh := calc.Press(signals.Input, signals.Fresh, btn)
 	return dispatch(EventCalcUpdated{
@@ -143,7 +140,7 @@ func (PageIndex) OnCalcUpdated(
 	event EventCalcUpdated,
 	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(
+	return sse.PatchElement(
 		pageCalculator(event.Input, event.Fresh, event.SubjectInstanceID),
 	)
 }

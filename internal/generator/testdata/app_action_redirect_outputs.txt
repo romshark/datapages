@@ -4,7 +4,7 @@ func (s *Server) handlePOSTLogin(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	closeSession, redirect, redirectStatus, newSession, err := s.app.POSTLogin(sessToken, sess)
+	closeSession, redirect, newSession, err := s.app.POSTLogin(sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Login", err)
 		return
@@ -20,7 +20,7 @@ func (s *Server) handlePOSTLogin(w http.ResponseWriter, r *http.Request) {
 			s.httpErrIntern(w, r, nil, "creating session", err)
 		}
 	}
-	if httpRedirect(w, r, redirect, redirectStatus) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 }

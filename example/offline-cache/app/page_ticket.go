@@ -12,7 +12,6 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/offline-cache/app/domain"
 	"github.com/romshark/datapages/example/offline-cache/datapagesgen/href"
-	"github.com/romshark/datapages/example/offline-cache/datapagesgen/httperr"
 )
 
 // PageTicket is /shows/{nameslug}/ticket
@@ -28,33 +27,33 @@ func (p PageTicket) GET(
 	path struct {
 		Slug string `path:"nameslug"`
 	},
-) (body templ.Component, redirect string, err error) {
-	if session.UserID == "" {
-		return nil, href.PageLogin(href.QueryPageLogin{
+) (body datapages.Component, redirect datapages.Redirect, err error) {
+	if session.IsGuest() {
+		return nil, datapages.Redirect{URL: href.PageLogin(href.QueryPageLogin{
 			Next: href.PageTicket(path.Slug),
-		}), nil
+		})}, nil
 	}
 
-	ticket, ok, err := p.App.repo.TicketForShow(r.Context(), session.UserID, path.Slug)
+	ticket, ok, err := p.App.repo.TicketForShow(r.Context(), session.UserID(), path.Slug)
 	if err != nil {
 		if errors.Is(err, domain.ErrShowNotFound) {
-			return nil, "", httperr.NotFound
+			return nil, datapages.Redirect{}, datapages.ErrNotFound
 		}
-		return nil, "", err
+		return nil, datapages.Redirect{}, err
 	}
 	if !ok {
 		// No ticket yet — send the user to the purchase page.
-		return nil, href.PagePurchase(path.Slug), nil
+		return nil, datapages.Redirect{URL: href.PagePurchase(path.Slug)}, nil
 	}
 
 	qr, err := qrDataURI(ticket.Code)
 	if err != nil {
-		return nil, "", err
+		return nil, datapages.Redirect{}, err
 	}
 
 	baseData, err := p.baseData(r.Context(), session)
 	if err != nil {
-		return nil, "", err
+		return nil, datapages.Redirect{}, err
 	}
 
 	view := pageTicket(session, ticket, qr, baseData)
@@ -64,7 +63,7 @@ func (p PageTicket) GET(
 	if pageCache.Version() != ver {
 		pageCache.Set(href.PageTicket(path.Slug), view, ver)
 	}
-	return view, "", nil
+	return view, datapages.Redirect{}, nil
 }
 
 // qrDataURI renders content as a PNG QR code and returns it as a data: URI

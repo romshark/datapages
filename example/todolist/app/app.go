@@ -13,10 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
-	"github.com/romshark/datapages/example/todolist/datapagesgen/httperr"
 	"github.com/romshark/datapages/example/todolist/list"
 )
 
@@ -48,7 +45,7 @@ func NewApp(hmacKey [32]byte, list *list.List) *App {
 	}
 }
 
-func (*App) Head(r *http.Request) templ.Component { return head() }
+func (*App) Head(r *http.Request) datapages.Component { return head() }
 
 // PUTEdit is /{id}
 //
@@ -71,31 +68,31 @@ func (a *App) PUTEdit(
 	dispatch func(EventTodoUpdated) error,
 ) error {
 	if _, err := a.verifyTabID(signals.TabID); err != nil {
-		return fmt.Errorf("%w: %w", httperr.BadRequest, err)
+		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
 	}
 	if query.Toggle {
 		if !a.list.ToggleItem(path.ID) {
-			return fmt.Errorf("%w: todo not found", httperr.NotFound)
+			return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 		}
 		return dispatch(EventTodoUpdated{})
 	}
 	title := strings.TrimSpace(signals.Title)
 	if title == "" {
-		return fmt.Errorf("%w: title is required", httperr.BadRequest)
+		return fmt.Errorf("%w: title is required", datapages.ErrBadRequest)
 	}
 	var dueAt time.Time
 	if signals.Due != "" {
 		var err error
 		dueAt, err = time.Parse("2006-01-02T15:04", signals.Due)
 		if err != nil {
-			return fmt.Errorf("%w: invalid due date", httperr.BadRequest)
+			return fmt.Errorf("%w: invalid due date", datapages.ErrBadRequest)
 		}
 	}
 	if !a.list.UpdateItem(
 		path.ID, title, strings.TrimSpace(signals.Description),
 		signals.Done, dueAt,
 	) {
-		return fmt.Errorf("%w: todo not found", httperr.NotFound)
+		return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 	}
 	return dispatch(EventTodoUpdated{})
 }
@@ -146,7 +143,7 @@ func (a *App) streamState(streamID uint64) *tabState {
 }
 
 func (a *App) patchTabID(streamID uint64, sse datapages.SSE) error {
-	return sse.MarshalAndPatchSignals(struct {
+	return sse.PatchSignals(struct {
 		TabID string `json:"tab_id"`
 	}{TabID: a.signStreamID(streamID)})
 }

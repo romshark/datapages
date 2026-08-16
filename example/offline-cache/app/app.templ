@@ -47,7 +47,7 @@ templ fragmentNavbar(session Session, baseData baseData) {
 			@iconSearch()
 			Browse
 		</a>
-		if session.UserID != "" {
+		if !session.IsGuest() {
 			<a id="nav-tickets" href={ href.PageTickets() }>
 				@iconTicket()
 				My Tickets
@@ -228,7 +228,7 @@ templ pageShow(session Session, show domain.Show, hasTicket bool, baseData baseD
 						</p>
 					} else if show.Available < 1 {
 						<button class="btn" disabled>Sold out</button>
-					} else if session.UserID != "" {
+					} else if !session.IsGuest() {
 						<a class="btn" href={ href.PagePurchase(show.Slug) }>
 							@iconTicket()
 							Buy ticket

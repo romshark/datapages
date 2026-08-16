@@ -29,7 +29,7 @@ const shimVersion = 1
 
 type App struct{}
 
-func (*App) Head(r *http.Request) templ.Component {
+func (*App) Head(r *http.Request) datapages.Component {
 	return raw(`<title>Fast Shim</title>` +
 		`<meta name="viewport" content="width=device-width,initial-scale=1"/>` +
 		// Inline icon: without one the browser requests /favicon.ico and 404s.
@@ -55,7 +55,7 @@ type PageIndex struct{ App *App }
 
 func (p PageIndex) GET(
 	r *http.Request, pageCache datapages.PageCacheWriter,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	rows, err := slowRows(r.Context(), "Index")
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ type PageSubpage struct{ App *App }
 
 func (p PageSubpage) GET(
 	r *http.Request, pageCache datapages.PageCacheWriter,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	rows, err := slowRows(r.Context(), "Subpage")
 	if err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ func (p PageSubpage) GET(
 // are compared against.
 type PageNoShim struct{ App *App }
 
-func (p PageNoShim) GET(r *http.Request) (body templ.Component, err error) {
+func (p PageNoShim) GET(r *http.Request) (body datapages.Component, err error) {
 	rows, err := slowRows(r.Context(), "No Shim")
 	if err != nil {
 		return nil, err
@@ -102,7 +102,7 @@ func (p PageNoShim) GET(r *http.Request) (body templ.Component, err error) {
 // hop, not only on reload.
 type PageNoShim2 struct{ App *App }
 
-func (p PageNoShim2) GET(r *http.Request) (body templ.Component, err error) {
+func (p PageNoShim2) GET(r *http.Request) (body datapages.Component, err error) {
 	rows, err := slowRows(r.Context(), "No Shim 2")
 	if err != nil {
 		return nil, err
@@ -131,23 +131,23 @@ func slowRows(ctx context.Context, prefix string) ([]string, error) {
 	return rows, nil
 }
 
-func page(title string, rows []string, shimmed bool) templ.Component {
+func page(title string, rows []string, shimmed bool) datapages.Component {
 	return doc(title, func(w io.Writer) {
 		for _, r := range rows {
-			fmt.Fprintf(w, `<div class="row">%s</div>`, templ.EscapeString(r))
+			_, _ = fmt.Fprintf(w, `<div class="row">%s</div>`, templ.EscapeString(r))
 		}
 		if shimmed {
-			fmt.Fprintf(w, `<p class="muted">Live contents, morphed in after %s. `+
+			_, _ = fmt.Fprintf(w, `<p class="muted">Live contents, morphed in after %s. `+
 				`Reload to see the shim first.</p>`, SlowQuery)
 			return
 		}
-		fmt.Fprintf(w, `<p class="muted">No shim cached, so this page blocks for %s `+
+		_, _ = fmt.Fprintf(w, `<p class="muted">No shim cached, so this page blocks for %s `+
 			`on every visit.</p>`, SlowQuery)
 	})
 }
 
 // shim is the same page with placeholder rows instead of data.
-func shim(title string, rows int) templ.Component {
+func shim(title string, rows int) datapages.Component {
 	return doc(title, func(w io.Writer) {
 		for range rows {
 			_, _ = io.WriteString(w, `<div class="row skeleton">&nbsp;</div>`)
@@ -156,7 +156,7 @@ func shim(title string, rows int) templ.Component {
 	})
 }
 
-func doc(title string, content func(io.Writer)) templ.Component {
+func doc(title string, content func(io.Writer)) datapages.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		_, _ = fmt.Fprintf(w,
 			`<nav><a href="%s">%s</a><a href="%s">%s</a>`+
@@ -172,7 +172,7 @@ func doc(title string, content func(io.Writer)) templ.Component {
 	})
 }
 
-func raw(s string) templ.Component {
+func raw(s string) datapages.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		_, err := io.WriteString(w, s)
 		return err

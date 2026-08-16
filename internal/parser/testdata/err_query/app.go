@@ -5,7 +5,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -13,7 +13,7 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -22,7 +22,7 @@ type PageNotStruct struct{ App *App }
 
 /* ErrQueryParamNotStruct */
 
-func (PageNotStruct) GET(r *http.Request, query int) (body templ.Component, err error) {
+func (PageNotStruct) GET(r *http.Request, query int) (body datapages.Component, err error) {
 	_ = query
 	return body, err
 }
@@ -37,7 +37,7 @@ func (PageUnexported) GET(
 	query struct {
 		term string `query:"t"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = query
 	return body, err
 }
@@ -52,7 +52,7 @@ func (PageUnsupportedType) GET(
 	query struct {
 		Data []byte `query:"d"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = query
 	return body, err
 }
@@ -67,7 +67,7 @@ func (PageMissingTag) GET(
 	query struct {
 		Term string
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = query
 	return body, err
 }
@@ -83,7 +83,7 @@ func (PageDuplicateTag) GET(
 		Term  string `query:"q"`
 		Other string `query:"q"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = query
 	return body, err
 }

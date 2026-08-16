@@ -4,12 +4,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/offline-cache/app/domain"
 	"github.com/romshark/datapages/example/offline-cache/datapagesgen/href"
-	"github.com/romshark/datapages/example/offline-cache/datapagesgen/httperr"
 )
 
 // PageShow is /shows/{nameslug}
@@ -25,11 +22,11 @@ func (p PageShow) GET(
 	path struct {
 		Slug string `path:"nameslug"`
 	},
-) (body templ.Component, head templ.Component, err error) {
+) (body datapages.Component, head datapages.Component, err error) {
 	show, err := p.App.repo.ShowBySlug(r.Context(), path.Slug)
 	if err != nil {
 		if errors.Is(err, domain.ErrShowNotFound) {
-			return nil, nil, httperr.NotFound
+			return nil, nil, datapages.ErrNotFound
 		}
 		return nil, nil, err
 	}
@@ -41,8 +38,8 @@ func (p PageShow) GET(
 
 	// Determine whether the current user already owns a ticket for this show.
 	hasTicket := false
-	if session.UserID != "" {
-		_, ok, err := p.App.repo.TicketForShow(r.Context(), session.UserID, show.Slug)
+	if !session.IsGuest() {
+		_, ok, err := p.App.repo.TicketForShow(r.Context(), session.UserID(), show.Slug)
 		if err != nil {
 			return nil, nil, err
 		}

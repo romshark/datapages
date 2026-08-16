@@ -4,26 +4,20 @@ package app
 
 import (
 	"net/http"
-	"time"
-
-	"github.com/a-h/templ"
 
 	"github.com/romshark/datapages"
 )
 
 type App struct{}
 
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
-}
+type Session = datapages.Session[struct{}]
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
 func (PageIndex) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -51,7 +45,7 @@ func (PageIndex) POSTBadClose(
 func (PageIndex) POSTNewWithSSE(
 	r *http.Request,
 	sse datapages.SSE,
-) (newSession Session, err error) {
+) (newSession datapages.NewSession[struct{}], err error) {
 	_ = sse
 	return newSession, nil
 }

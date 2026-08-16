@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
-
-	"github.com/a-h/templ"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/sqlitesessions/app/userstore"
@@ -20,14 +17,14 @@ type EventSessionClosed struct {
 	Token       string `json:"token"`
 }
 
-// Session must be declared as a struct here; the datapages parser
-// rejects type aliases for Session.
-type Session struct {
-	UserID   string
-	Name     string
-	Email    string
-	IssuedAt time.Time
+// SessionData is what this application keeps in the session on top of the
+// fields datapages provides (UserID and IssuedAt).
+type SessionData struct {
+	Name  string
+	Email string
 }
+
+type Session = datapages.Session[SessionData]
 
 type User = userstore.User
 
@@ -39,7 +36,7 @@ func NewApp(users *userstore.Store) *App {
 	return &App{users: users}
 }
 
-func (*App) Head(r *http.Request) templ.Component { return head() }
+func (*App) Head(r *http.Request) datapages.Component { return head() }
 
 // POSTSignOut is /signout/{$}
 //
@@ -48,26 +45,25 @@ func (*App) Head(r *http.Request) templ.Component { return head() }
 // this session's SSE connection.
 func (*App) POSTSignOut(
 	r *http.Request,
-	sessionToken string,
 	session Session,
 	dispatch func(EventSessionClosed) error,
 ) (
-	closeSession bool, redirect string, err error,
+	closeSession bool, redirect datapages.Redirect, err error,
 ) {
-	if session.UserID != "" {
+	if !session.IsGuest() {
 		_ = dispatch(EventSessionClosed{
-			SubjectUser: []string{session.UserID},
-			Token:       sessionToken,
+			SubjectUser: []string{session.UserID()},
+			Token:       session.Token(),
 		})
 	}
-	return true, href.PageIndex(), nil
+	return true, datapages.Redirect{URL: href.PageIndex()}, nil
 }
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
 func (p PageIndex) GET(r *http.Request, session Session) (
-	body, head templ.Component, err error,
+	body, head datapages.Component, err error,
 ) {
 	users, err := p.App.users.ListUsers(r.Context())
 	if err != nil {
@@ -81,9 +77,9 @@ func (p PageIndex) GET(r *http.Request, session Session) (
 func (p PageIndex) OnSessionClosed(
 	event EventSessionClosed,
 	sse datapages.SSE,
-	sessionToken string,
+	session Session,
 ) error {
-	if event.Token != sessionToken {
+	if event.Token != session.Token() {
 		return nil
 	}
 	return sse.Redirect(href.PageIndex())
@@ -121,12 +117,12 @@ func validateRegister(name, email, password string) string {
 type PageLogin struct{ App *App }
 
 func (p PageLogin) GET(r *http.Request, session Session) (
-	body, head templ.Component, redirect string, err error,
+	body, head datapages.Component, redirect datapages.Redirect, err error,
 ) {
-	if session.UserID != "" {
-		return nil, nil, href.PageIndex(), nil
+	if !session.IsGuest() {
+		return nil, nil, datapages.Redirect{URL: href.PageIndex()}, nil
 	}
-	return pageLogin("", false), pageLoginHead(), "", nil
+	return pageLogin("", false), pageLoginHead(), redirect, nil
 }
 
 // POSTValidate is /login/validate
@@ -139,7 +135,7 @@ func (p PageLogin) POSTValidate(
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	msg := validateLogin(signals.Email, signals.Password)
 	return pageLogin(msg, msg == ""), nil
 }
@@ -153,14 +149,16 @@ func (p PageLogin) POSTSubmit(
 		Password string `json:"password"`
 	},
 ) (
-	body templ.Component,
-	redirect string,
-	redirectStatus int,
-	newSession Session,
+	body datapages.Component,
+	redirect datapages.Redirect,
+	newSession datapages.NewSession[SessionData],
 	err error,
 ) {
-	if session.UserID != "" {
-		redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
+	if !session.IsGuest() {
+		redirect = datapages.Redirect{
+			URL:    href.PageIndex(),
+			Status: http.StatusSeeOther,
+		}
 		return
 	}
 	if msg := validateLogin(signals.Email, signals.Password); msg != "" {
@@ -175,13 +173,14 @@ func (p PageLogin) POSTSubmit(
 		}
 		return
 	}
-	newSession = Session{
-		UserID:   user.ID,
-		Name:     user.Name,
-		Email:    user.Email,
-		IssuedAt: time.Now(),
+	newSession = datapages.NewSession[SessionData]{
+		UserID: user.ID,
+		Data:   SessionData{Name: user.Name, Email: user.Email},
 	}
-	redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
+	redirect = datapages.Redirect{
+		URL:    href.PageIndex(),
+		Status: http.StatusSeeOther,
+	}
 	return
 }
 
@@ -189,13 +188,13 @@ func (p PageLogin) POSTSubmit(
 type PageRegister struct{ App *App }
 
 func (p PageRegister) GET(r *http.Request, session Session) (
-	body, head templ.Component, redirect string, err error,
+	body, head datapages.Component, redirect datapages.Redirect, err error,
 ) {
-	if session.UserID != "" {
-		redirect = href.PageIndex()
+	if !session.IsGuest() {
+		redirect = datapages.Redirect{URL: href.PageIndex()}
 		return
 	}
-	return pageRegister("", false), pageRegisterHead(), "", nil
+	return pageRegister("", false), pageRegisterHead(), redirect, nil
 }
 
 // POSTValidate is /register/validate
@@ -209,7 +208,7 @@ func (p PageRegister) POSTValidate(
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	msg := validateRegister(signals.Name, signals.Email, signals.Password)
 	return pageRegister(msg, msg == ""), nil
 }
@@ -224,14 +223,16 @@ func (p PageRegister) POSTSubmit(
 		Password string `json:"password"`
 	},
 ) (
-	body templ.Component,
-	redirect string,
-	redirectStatus int,
-	newSession Session,
+	body datapages.Component,
+	redirect datapages.Redirect,
+	newSession datapages.NewSession[SessionData],
 	err error,
 ) {
-	if session.UserID != "" {
-		redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
+	if !session.IsGuest() {
+		redirect = datapages.Redirect{
+			URL:    href.PageIndex(),
+			Status: http.StatusSeeOther,
+		}
 		return
 	}
 	if msg := validateRegister(
@@ -250,12 +251,13 @@ func (p PageRegister) POSTSubmit(
 		}
 		return
 	}
-	newSession = Session{
-		UserID:   user.ID,
-		Name:     user.Name,
-		Email:    user.Email,
-		IssuedAt: time.Now(),
+	newSession = datapages.NewSession[SessionData]{
+		UserID: user.ID,
+		Data:   SessionData{Name: user.Name, Email: user.Email},
 	}
-	redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
+	redirect = datapages.Redirect{
+		URL:    href.PageIndex(),
+		Status: http.StatusSeeOther,
+	}
 	return
 }

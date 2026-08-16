@@ -8,7 +8,7 @@ func (s *Server) handlePageDashboardGETStream(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if sess.UserID == "" {
+	if sess.UserID() == "" {
 		http.Redirect(w, r, r.URL.Path+"/anon", http.StatusSeeOther)
 		return
 	}
@@ -28,7 +28,7 @@ func (s *Server) handlePageDashboardGETStream(w http.ResponseWriter, r *http.Req
 	p := testapp.PageDashboard{
 	App: s.app,
 }
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageDashboard(sess.UserID, subjSignals.Instance),
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageDashboard(sess.UserID(), subjSignals.Instance),
 	nil,
 	nil,
 	func(

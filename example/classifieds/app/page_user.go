@@ -4,8 +4,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
@@ -24,15 +22,15 @@ func (p PageUser) GET(
 		Name string `path:"name"`
 	},
 ) (
-	body, head templ.Component,
-	redirect string,
+	body, head datapages.Component,
+	redirect datapages.Redirect,
 	err error,
 ) {
 	user, err := p.App.repo.UserByName(r.Context(), path.Name)
 	if err != nil {
 		if errors.Is(err, domain.ErrUserNotFound) {
 			// Redirect to 404 page.
-			return nil, nil, href.PageError404(), nil
+			return nil, nil, datapages.Redirect{URL: href.PageError404()}, nil
 		}
 	}
 

@@ -2,8 +2,8 @@
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess testapp.Session,
-	headGeneric, head, body templ.Component,
+	sess datapages.Session[struct{}],
+	headGeneric, head, body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -22,9 +22,9 @@ func (s *Server) writeHTML(
 			return err
 		}
 	}
-	if s.csrfConf != nil && sess.UserID != "" {
+	if s.csrfConf != nil && sess.UserID() != "" {
 		csrfToken := s.csrfConf.TokenManager.GenerateToken(
-			sess.UserID, sess.IssuedAt.Unix(),
+			sess.UserID(), sess.IssuedAt().Unix(),
 		)
 		if csrfToken != "" {
 			// Write the fetch X-CSRF-Token header injector.
@@ -52,8 +52,8 @@ func (s *Server) writeHTML(
 			}
 		} else {
 			s.logger.Warn("generated empty CSRF token",
-				slog.String("user-id", sess.UserID),
-				slog.Time("issued-at", sess.IssuedAt))
+				slog.String("user-id", sess.UserID()),
+				slog.Time("issued-at", sess.IssuedAt()))
 		}
 	}
 	if _, err := io.WriteString(w, "</head><body "); err != nil {

@@ -16,7 +16,7 @@ import (
 	"github.com/romshark/datapages/internal/parser/model"
 )
 
-const TypeNameTemplComponent = "github.com/a-h/templ.Component"
+const TypeNameComponent = "github.com/romshark/datapages.Component"
 
 func TestParse_Minimal(t *testing.T) {
 	app, err := parse(t, "minimal")
@@ -53,7 +53,7 @@ func TestParse_Basic(t *testing.T) {
 
 	{
 		require.NotNil(app.PageIndex)
-		requireExprLineCol(t, app, app.PageIndex.Expr, "app.go", 15, 6)
+		requireExprLineCol(t, app, app.PageIndex.Expr, "app.go", 13, 6)
 		p := app.PageIndex
 		require.Equal("/", p.Route)
 		require.NotNil(p.GET)
@@ -70,20 +70,19 @@ func TestParse_Basic(t *testing.T) {
 	require.Empty(app.Events)
 	{
 		require.NotNil(app.GlobalHeadGenerator)
-		requireExprLineCol(t, app, app.GlobalHeadGenerator.Expr, "app.go", 27, 13)
+		requireExprLineCol(t, app, app.GlobalHeadGenerator.Expr, "app.go", 25, 13)
 		require.False(app.GlobalHeadGenerator.InputSession)
-		require.False(app.GlobalHeadGenerator.InputSessionToken)
 	}
 	{
 		require.NotNil(app.RecoverError)
-		requireExprLineCol(t, app, app.RecoverError, "app.go", 31, 13)
+		requireExprLineCol(t, app, app.RecoverError, "app.go", 29, 13)
 	}
 	{
 		p := app.Pages[3]
 		require.NotNil(p)
 		require.Equal("PageIndex", p.TypeName)
 		require.Equal("/", p.Route)
-		requireExprLineCol(t, app, p.Expr, "app.go", 15, 6)
+		requireExprLineCol(t, app, p.Expr, "app.go", 13, 6)
 		require.Empty(p.EventHandlers)
 		require.Empty(p.Embeds)
 		require.Empty(p.Actions)
@@ -91,7 +90,7 @@ func TestParse_Basic(t *testing.T) {
 		{
 			get := p.GET
 			require.NotNil(get.Handler)
-			requireExprLineCol(t, app, get.Expr, "app.go", 17, 18)
+			requireExprLineCol(t, app, get.Expr, "app.go", 15, 18)
 			require.NotNil(get.InputRequest)
 			require.Equal("r", get.InputRequest.Name)
 			require.Equal("err", get.OutputErr.Name)
@@ -102,7 +101,7 @@ func TestParse_Basic(t *testing.T) {
 	}
 	{
 		require.NotNil(app.PageError404)
-		requireExprLineCol(t, app, app.PageError404.Expr, "app.go", 39, 6)
+		requireExprLineCol(t, app, app.PageError404.Expr, "app.go", 37, 6)
 		require.Equal("/the-not-found-page", app.PageError404.Route)
 		require.NotNil(app.PageError404.GET.Handler)
 		require.Equal("r", app.PageError404.GET.InputRequest.Name)
@@ -113,7 +112,7 @@ func TestParse_Basic(t *testing.T) {
 		{
 			get := app.PageError404.GET
 			require.NotNil(get.Handler)
-			requireExprLineCol(t, app, get.Expr, "app.go", 41, 21)
+			requireExprLineCol(t, app, get.Expr, "app.go", 39, 21)
 			require.NotNil(get.InputRequest)
 			require.Equal("r", get.InputRequest.Name)
 			require.Equal("err", get.OutputErr.Name)
@@ -124,7 +123,7 @@ func TestParse_Basic(t *testing.T) {
 	}
 	{
 		require.NotNil(app.PageError500)
-		requireExprLineCol(t, app, app.PageError500.Expr, "app.go", 46, 6)
+		requireExprLineCol(t, app, app.PageError500.Expr, "app.go", 44, 6)
 		require.Equal("/the-internal-error-page", app.PageError500.Route)
 		require.Empty(app.PageError500.EventHandlers)
 		require.Empty(app.PageError500.Embeds)
@@ -133,7 +132,7 @@ func TestParse_Basic(t *testing.T) {
 		{
 			get := app.PageError500.GET
 			require.NotNil(get.Handler)
-			requireExprLineCol(t, app, get.Expr, "app.go", 48, 21)
+			requireExprLineCol(t, app, get.Expr, "app.go", 46, 21)
 			require.NotNil(get.InputRequest)
 			require.Equal("r", get.InputRequest.Name)
 			require.Equal("err", get.OutputErr.Name)
@@ -147,21 +146,21 @@ func TestParse_Basic(t *testing.T) {
 		require.NotNil(p)
 		require.Equal("PageExample", p.TypeName)
 		require.Equal("/example", p.Route)
-		requireExprLineCol(t, app, p.Expr, "app.go", 53, 6)
+		requireExprLineCol(t, app, p.Expr, "app.go", 51, 6)
 		require.Empty(p.EventHandlers)
 		require.Empty(p.Embeds)
 		require.Empty(p.Actions)
 		require.Zero(p.PageSpecialization)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.Handler)
-		requireExprLineCol(t, app, p.GET.Expr, "app.go", 55, 20)
+		requireExprLineCol(t, app, p.GET.Expr, "app.go", 53, 20)
 		require.NotNil(p.GET.OutputBody)
 		require.Equal("body", p.GET.OutputBody.Name)
-		require.Equal(TypeNameTemplComponent,
+		require.Equal(TypeNameComponent,
 			p.GET.OutputBody.Type.Resolved.String())
 		require.NotNil(p.GET.OutputHead)
 		require.Equal("head", p.GET.OutputHead.Name)
-		require.Equal(TypeNameTemplComponent,
+		require.Equal(TypeNameComponent,
 			p.GET.OutputHead.Type.Resolved.String())
 	}
 }
@@ -320,7 +319,6 @@ func TestParse_StreamHooks(t *testing.T) {
 	require.NotNil(p.StreamOpen.InputRequest)
 	require.NotNil(p.StreamOpen.InputStreamID)
 	require.NotNil(p.StreamOpen.InputSSE)
-	require.NotNil(p.StreamOpen.InputSessionToken)
 	require.NotNil(p.StreamOpen.InputSession)
 	require.NotNil(p.StreamOpen.InputSignals)
 	require.NotNil(p.StreamOpen.InputDispatch)
@@ -330,7 +328,6 @@ func TestParse_StreamHooks(t *testing.T) {
 	require.NotNil(p.StreamClose.InputRequest)
 	require.NotNil(p.StreamClose.InputStreamID)
 	require.Nil(p.StreamClose.InputSSE)
-	require.NotNil(p.StreamClose.InputSessionToken)
 	require.NotNil(p.StreamClose.InputSession)
 	require.Nil(p.StreamClose.InputSignals)
 	require.NotNil(p.StreamClose.InputDispatch)
@@ -345,7 +342,6 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.NotNil(p.StreamOpen.InputRequest)
 		require.NotNil(p.StreamOpen.InputStreamID)
 		require.Nil(p.StreamOpen.InputSSE)
-		require.Nil(p.StreamOpen.InputSessionToken)
 		require.Nil(p.StreamOpen.InputSession)
 		require.Nil(p.StreamOpen.InputSignals)
 		require.Nil(p.StreamOpen.InputDispatch)
@@ -356,7 +352,6 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.NotNil(p.StreamClose.InputRequest)
 		require.NotNil(p.StreamClose.InputStreamID)
 		require.Nil(p.StreamClose.InputSSE)
-		require.Nil(p.StreamClose.InputSessionToken)
 		require.Nil(p.StreamClose.InputSession)
 		require.Nil(p.StreamClose.InputSignals)
 		require.Nil(p.StreamClose.InputDispatch)
@@ -372,7 +367,6 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.NotNil(p.StreamOpen.InputRequest)
 		require.NotNil(p.StreamOpen.InputStreamID)
 		require.NotNil(p.StreamOpen.InputSSE)
-		require.NotNil(p.StreamOpen.InputSessionToken)
 		require.NotNil(p.StreamOpen.InputSession)
 		require.NotNil(p.StreamOpen.InputSignals)
 		require.NotNil(p.StreamOpen.InputDispatch)
@@ -383,7 +377,6 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.NotNil(p.StreamClose.InputRequest)
 		require.NotNil(p.StreamClose.InputStreamID)
 		require.Nil(p.StreamClose.InputSSE)
-		require.NotNil(p.StreamClose.InputSessionToken)
 		require.NotNil(p.StreamClose.InputSession)
 		require.Nil(p.StreamClose.InputSignals)
 		require.NotNil(p.StreamClose.InputDispatch)
@@ -396,7 +389,6 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.NotNil(eh.InputEvent)
 		require.NotNil(eh.InputSSE)
 		require.NotNil(eh.InputStreamID)
-		require.Nil(eh.InputSessionToken)
 		require.Nil(eh.InputSession)
 	}
 }
@@ -929,7 +921,6 @@ func TestParse_Session(t *testing.T) {
 	{
 		require.NotNil(app.GlobalHeadGenerator)
 		require.True(app.GlobalHeadGenerator.InputSession)
-		require.False(app.GlobalHeadGenerator.InputSessionToken)
 	}
 
 	// PageIndex - no session
@@ -944,14 +935,12 @@ func TestParse_Session(t *testing.T) {
 		p := findPage(app, "PageProfile")
 		require.NotNil(p)
 		require.NotNil(p.GET)
-		require.Nil(p.GET.InputSessionToken)
 		require.NotNil(p.GET.InputSession)
 		require.Equal("session", p.GET.InputSession.Name)
 
 		// POSTUpdate - action with session
 		update := findAction(p.Actions, "Update")
 		require.NotNil(update)
-		require.Nil(update.InputSessionToken)
 		require.NotNil(update.InputSession)
 		require.Equal("session", update.InputSession.Name)
 		require.Nil(update.InputSSE)
@@ -960,13 +949,11 @@ func TestParse_Session(t *testing.T) {
 		notify := findAction(p.Actions, "Notify")
 		require.NotNil(notify)
 		require.NotNil(notify.InputSSE)
-		require.Nil(notify.InputSessionToken)
 		require.NotNil(notify.InputSession)
 
 		// Event handler with session
 		require.Len(p.EventHandlers, 1)
 		evh := p.EventHandlers[0]
-		require.Nil(evh.InputSessionToken)
 		require.NotNil(evh.InputSession)
 		require.Equal("session", evh.InputSession.Name)
 	}
@@ -978,22 +965,16 @@ func TestParse_Session(t *testing.T) {
 
 		// GET with sessionToken and session.
 		require.NotNil(p.GET)
-		require.NotNil(p.GET.InputSessionToken)
-		require.Equal("sessionToken", p.GET.InputSessionToken.Name)
 		require.NotNil(p.GET.InputSession)
 
 		// POSTClose - action with sessionToken + session
 		close := findAction(p.Actions, "Close")
 		require.NotNil(close)
-		require.NotNil(close.InputSessionToken)
-		require.Equal("sessionToken", close.InputSessionToken.Name)
 		require.NotNil(close.InputSession)
 
 		// Event handler with sessionToken + session
 		require.Len(p.EventHandlers, 1)
 		evh := p.EventHandlers[0]
-		require.NotNil(evh.InputSessionToken)
-		require.Equal("sessionToken", evh.InputSessionToken.Name)
 		require.NotNil(evh.InputSession)
 	}
 }
@@ -1005,32 +986,29 @@ func TestParse_ErrSession(t *testing.T) {
 
 	requireParseErrors(
 		t, err,
-		parser.ErrSessionMissingUserID,
-		parser.ErrSessionMissingIssuedAt,
 		parser.ErrSessionParamNotSessionType,
-		parser.ErrSessionTokenParamNotString,
 	)
 }
 
-func TestParse_ErrSessionMissingIssuedAt(t *testing.T) {
+func TestParse_SessionCloseOnly(t *testing.T) {
+	app, err := parse(t, "session_close_only")
 	require := require.New(t)
-	_, err := parse(t, "err_session_missing_issued_at")
+	requireParseErrors(t, err /*none*/)
+
+	// closeSession alone puts sessions in play. No handler names the Data type,
+	// so it defaults to the empty struct.
+	require.NotNil(app.Session)
+	require.Equal("struct{}", app.Session.Data.Resolved.String())
+}
+
+func TestParse_ErrSessionTypeConflict(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_session_conflict")
 	require.NotZero(err.Error())
 
 	requireParseErrors(
 		t, err,
-		parser.ErrSessionMissingIssuedAt,
-	)
-}
-
-func TestParse_ErrSessionWrongType(t *testing.T) {
-	require := require.New(t)
-	_, err := parse(t, "err_session_wrong_type")
-	require.NotZero(err.Error())
-
-	requireParseErrors(
-		t, err,
-		parser.ErrSessionNotStruct,
+		parser.ErrSessionTypeConflict,
 	)
 }
 
@@ -1045,7 +1023,6 @@ func TestParse_Redirect(t *testing.T) {
 		p := app.PageIndex
 		require.NotNil(p)
 		require.Nil(p.GET.OutputRedirect)
-		require.Nil(p.GET.OutputRedirectStatus)
 	}
 
 	// PageLogin - GET with redirect only
@@ -1055,15 +1032,12 @@ func TestParse_Redirect(t *testing.T) {
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.OutputRedirect)
 		require.Equal("redirect", p.GET.OutputRedirect.Name)
-		require.Nil(p.GET.OutputRedirectStatus)
 
-		// POSTSignIn - action with redirect + redirectStatus
+		// POSTSignIn - action with redirect
 		require.Len(p.Actions, 1)
 		a := p.Actions[0]
 		require.NotNil(a.OutputRedirect)
 		require.Equal("redirect", a.OutputRedirect.Name)
-		require.NotNil(a.OutputRedirectStatus)
-		require.Equal("redirectStatus", a.OutputRedirectStatus.Name)
 	}
 }
 
@@ -1074,9 +1048,8 @@ func TestParse_ErrRedirect(t *testing.T) {
 
 	requireParseErrors(
 		t, err,
-		parser.ErrRedirectNotString,
-		parser.ErrRedirectStatusNotInt,
-		parser.ErrRedirectStatusWithoutRedirect,
+		parser.ErrRedirectNotRedirectType,
+		parser.ErrRedirectNotRedirectType,
 	)
 }
 
@@ -1218,18 +1191,16 @@ func TestParse_ParamOrder(t *testing.T) {
 	requireParseErrors(t, err /*none*/)
 	require.NotNil(app)
 
-	// PageSessionFirst - session before sessionToken before request.
+	// PageSessionFirst - session before request.
 	{
 		p := findPage(app, "PageSessionFirst")
 		require.NotNil(p)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.InputRequest)
 		require.NotNil(p.GET.InputSession)
-		require.NotNil(p.GET.InputSessionToken)
 		require.Equal(
 			[]string{
 				model.InputKindSession,
-				model.InputKindSessionToken,
 				model.InputKindRequest,
 			},
 			inputKinds(p.GET.OrderedInputs),
@@ -1242,7 +1213,6 @@ func TestParse_ParamOrder(t *testing.T) {
 		require.NotNil(p)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.InputRequest)
-		require.NotNil(p.GET.InputSessionToken)
 		require.NotNil(p.GET.InputSession)
 		require.NotNil(p.GET.InputPath)
 		require.NotNil(p.GET.InputQuery)
@@ -1251,7 +1221,6 @@ func TestParse_ParamOrder(t *testing.T) {
 				model.InputKindQuery,
 				model.InputKindPath,
 				model.InputKindSession,
-				model.InputKindSessionToken,
 				model.InputKindRequest,
 			},
 			inputKinds(p.GET.OrderedInputs),
@@ -1384,7 +1353,7 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrAppRecoverErrorInvalidSignature, "app.go", 20, 13},
 		},
 		"err_recover_error_return": {
-			{parser.ErrAppRecoverErrorInvalidSignature, "app.go", 22, 13},
+			{parser.ErrAppRecoverErrorInvalidSignature, "app.go", 20, 13},
 		},
 		"err_dispatch": {
 			{parser.ErrDispatchParamNotFunc, "app.go", 34, 11},
@@ -1396,25 +1365,25 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrDispatchParamNotEvent, "app.go", 99, 16},
 		},
 		"err_events": {
-			{parser.ErrEventCommMissing, "app.go", 29, 6},
-			{parser.ErrEventSubjectInvalid, "app.go", 35, 24},
-			{parser.ErrSignatureEvHandMissingEvent, "app.go", 50, 22},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 50, 22},
-			{parser.ErrSignatureUnsupportedInput, "app.go", 51, 2},
-			{parser.ErrSignatureEvHandMissingEvent, "app.go", 59, 22},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 59, 22},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 67, 22},
-			{parser.ErrEvHandDuplicate, "app.go", 76, 22},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 76, 22},
-			{parser.ErrEventFieldUnexported, "app.go", 86, 2},
-			{parser.ErrEventFieldUnexported, "app.go", 86, 2},
-			{parser.ErrEventFieldMissingTag, "app.go", 93, 2},
-			{parser.ErrEventFieldDuplicateTag, "app.go", 111, 2},
-			{parser.ErrEventCommInvalid, "app.go", 116, 21},
-			{parser.ErrEventCommInvalid, "app.go", 123, 4},
-			{parser.ErrEventSubjectInvalid, "app.go", 130, 23},
-			{parser.ErrEventSubjectInvalid, "app.go", 137, 24},
-			{parser.ErrEventFieldEmptyTag, "app.go", 148, 2},
+			{parser.ErrEventCommMissing, "app.go", 30, 6},
+			{parser.ErrEventSubjectInvalid, "app.go", 36, 24},
+			{parser.ErrSignatureEvHandMissingEvent, "app.go", 51, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 51, 22},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 52, 2},
+			{parser.ErrSignatureEvHandMissingEvent, "app.go", 60, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 60, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 68, 22},
+			{parser.ErrEvHandDuplicate, "app.go", 77, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 77, 22},
+			{parser.ErrEventFieldUnexported, "app.go", 87, 2},
+			{parser.ErrEventFieldUnexported, "app.go", 87, 2},
+			{parser.ErrEventFieldMissingTag, "app.go", 94, 2},
+			{parser.ErrEventFieldDuplicateTag, "app.go", 112, 2},
+			{parser.ErrEventCommInvalid, "app.go", 117, 21},
+			{parser.ErrEventCommInvalid, "app.go", 124, 4},
+			{parser.ErrEventSubjectInvalid, "app.go", 131, 23},
+			{parser.ErrEventSubjectInvalid, "app.go", 138, 24},
+			{parser.ErrEventFieldEmptyTag, "app.go", 149, 2},
 			{parser.ErrEventFieldUnexported, "subpkg.go", 7, 2},
 		},
 		"err_path": {
@@ -1441,19 +1410,19 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrQueryReflectSignalNotInSignals, "app.go", 83, 2},
 		},
 		"err_unsupported_output": {
-			{parser.ErrSignatureUnsupportedOutput, "app.go", 27, 31},
+			{parser.ErrSignatureUnsupportedOutput, "app.go", 27, 35},
 			{parser.ErrSignatureGETBodyWrongName, "app.go", 38, 4},
 			{parser.ErrSignatureUnsupportedOutput, "app.go", 47, 8},
 		},
 		"err_event_handler": {
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 60, 18},
-			{parser.ErrSignatureUnsupportedInput, "app.go", 72, 2},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 82, 18},
-			{parser.ErrSignatureUnsupportedInput, "app.go", 84, 2},
-			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 91, 18},
-			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 102, 3},
-			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 111, 3},
-			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 122, 3},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 58, 18},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 70, 2},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 80, 18},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 82, 2},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 89, 18},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 100, 3},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 109, 3},
+			{parser.ErrSignatureEvHandReturnMustBeError, "app.go", 120, 3},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -1754,7 +1723,6 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 			require.NotNil(a.InputSession)
 			require.NotNil(a.InputSignals)
 			require.NotNil(a.OutputRedirect)
-			require.NotNil(a.OutputRedirectStatus)
 			require.NotNil(a.OutputNewSession)
 		}
 		require.Empty(p.EventHandlers)
@@ -1917,7 +1885,6 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		closeSess := findAction(p.Actions, "CloseSession")
 		require.NotNil(closeSess)
 		require.Equal("/settings/close-session/{token}/{$}", closeSess.Route)
-		require.NotNil(closeSess.InputSessionToken)
 		require.NotNil(closeSess.InputPath)
 		require.NotNil(closeSess.InputDispatch)
 		require.NotNil(closeSess.OutputCloseSession)

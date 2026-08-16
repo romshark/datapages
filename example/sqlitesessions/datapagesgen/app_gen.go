@@ -19,7 +19,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/a-h/templ"
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/msgbroker"
@@ -29,7 +28,6 @@ import (
 
 	"github.com/romshark/datapages/example/sqlitesessions/app"
 	"github.com/romshark/datapages/example/sqlitesessions/datapagesgen/href"
-	"github.com/romshark/datapages/example/sqlitesessions/datapagesgen/httperr"
 
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -245,18 +243,21 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 	return true
 }
 
-func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status int) (exit bool) {
-	if target == "" {
+func httpRedirect(
+	w http.ResponseWriter, r *http.Request, redirect datapages.Redirect,
+) (exit bool) {
+	if redirect.URL == "" {
 		return false
 	}
 
 	if isDSReq(r) {
 		// Force client-side navigation via JS for Datastar requests.
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = fmt.Fprintf(w, "window.location = %q;", target)
+		_, _ = fmt.Fprintf(w, "window.location = %q;", redirect.URL)
 		return true
 	}
 
+	status := redirect.Status
 	switch status {
 	case http.StatusMovedPermanently,
 		http.StatusFound,
@@ -268,7 +269,7 @@ func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status 
 		status = http.StatusFound
 	}
 
-	http.Redirect(w, r, target, status)
+	http.Redirect(w, r, redirect.URL, status)
 	return true
 }
 
@@ -283,8 +284,8 @@ type sseWrapper struct {
 
 func (s sseWrapper) Context() context.Context { return s.gen.Context() }
 
-func (s sseWrapper) PatchElementTempl(
-	c templ.Component, opts ...datapages.PatchOption,
+func (s sseWrapper) PatchElement(
+	c datapages.Component, opts ...datapages.PatchOption,
 ) error {
 	var cfg datapages.PatchConfig
 	for _, o := range opts {
@@ -297,28 +298,44 @@ func (s sseWrapper) PatchElementTempl(
 	if cfg.SelectorID != "" {
 		ds = append(ds, datastar.WithSelectorID(cfg.SelectorID))
 	}
-	if cfg.ModeAppend {
-		ds = append(ds, datastar.WithModeAppend())
+	switch cfg.Mode {
+	case datapages.PatchModeOuter, datapages.PatchModeInner,
+		datapages.PatchModeReplace, datapages.PatchModePrepend,
+		datapages.PatchModeAppend, datapages.PatchModeBefore,
+		datapages.PatchModeAfter:
+		ds = append(ds, datastar.WithMode(datastar.ElementPatchMode(cfg.Mode)))
 	}
 	return s.gen.PatchElementTempl(c, ds...)
+}
+
+func (s sseWrapper) RemoveElement(selector string) error {
+	return s.gen.RemoveElement(selector)
 }
 
 func (s sseWrapper) ExecuteScript(script string) error {
 	return s.gen.ExecuteScript(script)
 }
 
-func (s sseWrapper) MarshalAndPatchSignals(v any) error {
+func (s sseWrapper) PatchSignals(v any) error {
 	return s.gen.MarshalAndPatchSignals(v)
 }
 
-func (s sseWrapper) Redirect(url string) error {
-	return s.gen.Redirect(url)
+func (s sseWrapper) PatchSignalsIfMissing(v any) error {
+	return s.gen.MarshalAndPatchSignalsIfMissing(v)
+}
+
+func (s sseWrapper) Redirect(target string) error {
+	return s.gen.Redirect(target)
+}
+
+func (s sseWrapper) Prefetch(urls ...string) error {
+	return s.gen.Prefetch(urls...)
 }
 
 func (s *Server) checkCSRF(
-	w http.ResponseWriter, r *http.Request, sess app.Session,
+	w http.ResponseWriter, r *http.Request, sess datapages.Session[app.SessionData],
 ) (ok bool) {
-	if sess.UserID == "" ||
+	if sess.UserID() == "" ||
 		r.Method == http.MethodGet ||
 		r.Method == http.MethodOptions ||
 		r.Method == http.MethodHead ||
@@ -338,7 +355,7 @@ func (s *Server) checkCSRF(
 		t == s.csrfConf.DevBypassToken {
 		return true
 	}
-	if !s.csrfConf.TokenManager.ValidateToken(sess.UserID, sess.IssuedAt.Unix(), t) {
+	if !s.csrfConf.TokenManager.ValidateToken(sess.UserID(), sess.IssuedAt().Unix(), t) {
 		http.Error(
 			w,
 			http.StatusText(http.StatusForbidden),
@@ -352,8 +369,8 @@ func (s *Server) checkCSRF(
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess app.Session,
-	headGeneric, head, body templ.Component,
+	sess datapages.Session[app.SessionData],
+	headGeneric, head, body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -372,9 +389,9 @@ func (s *Server) writeHTML(
 			return err
 		}
 	}
-	if s.csrfConf != nil && sess.UserID != "" {
+	if s.csrfConf != nil && sess.UserID() != "" {
 		csrfToken := s.csrfConf.TokenManager.GenerateToken(
-			sess.UserID, sess.IssuedAt.Unix(),
+			sess.UserID(), sess.IssuedAt().Unix(),
 		)
 		if csrfToken != "" {
 			// Write the fetch X-CSRF-Token header injector.
@@ -402,8 +419,8 @@ func (s *Server) writeHTML(
 			}
 		} else {
 			s.logger.Warn("generated empty CSRF token",
-				slog.String("user-id", sess.UserID),
-				slog.Time("issued-at", sess.IssuedAt))
+				slog.String("user-id", sess.UserID()),
+				slog.Time("issued-at", sess.IssuedAt()))
 		}
 	}
 	if _, err := io.WriteString(w, "</head><body "); err != nil {
@@ -434,7 +451,7 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, sessKey string, sess app.Session,
+	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[app.SessionData],
 	subjects []string,
 	onOpen func(
 		streamID uint64,
@@ -471,7 +488,7 @@ func (s *Server) handleStreamRequest(
 	}
 	sessionClosed := make(chan struct{})
 
-	if sess.UserID != "" {
+	if sess.UserID() != "" {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		if err := s.sessionManager.NotifyClosed(ctx, sessKey, func() {
@@ -514,7 +531,7 @@ type Server struct {
 
 	authConf              *AuthConfig
 	sessionTokenGenerator sessmanager.TokenGenerator
-	sessionManager        sessmanager.SessionManager[app.Session]
+	sessionManager        sessmanager.SessionManager[app.SessionData]
 	csrfConf              *CSRFConfig
 }
 
@@ -529,7 +546,7 @@ type Server struct {
 func NewServer(
 	app *app.App,
 	messageBroker msgbroker.MessageBroker,
-	sessionManager sessmanager.SessionManager[app.Session],
+	sessionManager sessmanager.SessionManager[app.SessionData],
 	opts ...ServerOption,
 ) *Server {
 	s := &Server{
@@ -719,9 +736,14 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 }
 
 func (s *Server) createSession(
-	w http.ResponseWriter, r *http.Request, session app.Session,
+	w http.ResponseWriter, r *http.Request, session datapages.NewSession[app.SessionData],
 ) error {
-	token, err := s.sessionManager.CreateSession(r.Context(), session.UserID, session)
+	token, err := s.sessionManager.CreateSession(r.Context(), sessmanager.Record[app.SessionData]{
+		UserID:    session.UserID,
+		IssuedAt:  time.Now(),
+		ExpiresAt: session.ExpiresAt,
+		Data:      session.Data,
+	})
 	if err != nil {
 		return err
 	}
@@ -744,7 +766,7 @@ func (s *Server) closeSession(
 // If onClose != nil it will be closed once the session is closed.
 func (s *Server) auth(
 	w http.ResponseWriter, r *http.Request,
-) (sess app.Session, token string, ok bool) {
+) (sess datapages.Session[app.SessionData], token string, ok bool) {
 	c, err := r.Cookie(s.authConf.TokenCookie.Name)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {
@@ -753,18 +775,26 @@ func (s *Server) auth(
 		return sess, "", false
 	}
 
-	sess, token, userID, ok, err := s.sessionManager.ReadSessionFromCookie(c)
+	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(c)
 	if err != nil {
 		// Transient backend failure; keep the cookie, fail the request.
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
-		return app.Session{}, "", false
+		return datapages.Session[app.SessionData]{}, "", false
 	}
 	if !ok {
 		// Cookie is stale or malformed; clear it and continue as unauthenticated.
 		s.setSessionCookie(w, "")
-		return app.Session{}, "", true
+		return datapages.Session[app.SessionData]{}, "", true
 	}
-	sess.UserID = userID
+	sess = datapages.MakeSession(
+		rec.UserID, token, rec.IssuedAt, rec.ExpiresAt, rec.Data,
+	)
+
+	if !sess.ExpiresAt().IsZero() && !time.Now().Before(sess.ExpiresAt()) {
+		// Session has expired; clear the cookie and continue as unauthenticated.
+		s.setSessionCookie(w, "")
+		return datapages.Session[app.SessionData]{}, "", true
+	}
 
 	if !s.checkCSRF(w, r, sess) {
 		return sess, token, false
@@ -810,11 +840,11 @@ func (s *Server) httpErrIntern(
 ) {
 	s.logErr(msg, err)
 	switch {
-	case errors.Is(err, httperr.BadRequest):
+	case errors.Is(err, datapages.ErrBadRequest):
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	case errors.Is(err, httperr.Forbidden):
+	case errors.Is(err, datapages.ErrForbidden):
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-	case errors.Is(err, httperr.NotFound):
+	case errors.Is(err, datapages.ErrNotFound):
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -845,7 +875,7 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	}
-	closeSession, redirect, err := s.app.POSTSignOut(r, sessToken, sess, dispatch)
+	closeSession, redirect, err := s.app.POSTSignOut(r, sess, dispatch)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.SignOut", err)
 		return
@@ -856,7 +886,7 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if httpRedirect(w, r, redirect, 0) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 }
@@ -888,7 +918,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		if sess.UserID != "" {
+		if sess.UserID() != "" {
 			_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
 		}
 	}
@@ -910,7 +940,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if sess.UserID == "" {
+	if sess.UserID() == "" {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
@@ -918,7 +948,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	p := app.PageIndex{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex(sess.UserID),
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex(sess.UserID()),
 		nil,
 		nil,
 		func(
@@ -933,7 +963,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.logErr("unmarshaling EventSessionClosed JSON", err)
 						continue
 					}
-					if err := p.OnSessionClosed(e, newSSE(sse), sessToken); err != nil {
+					if err := p.OnSessionClosed(e, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageIndex.OnSessionClosed", err)
 					}
 				}
@@ -955,7 +985,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect, 0) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -1030,7 +1060,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	p := app.PageLogin{
 		App: s.app,
 	}
-	body, redirect, redirectStatus, newSession, err := p.POSTSubmit(r, sess, signals)
+	body, redirect, newSession, err := p.POSTSubmit(r, sess, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.Submit", err)
 		return
@@ -1040,7 +1070,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 			s.httpErrIntern(w, r, nil, "creating session", err)
 		}
 	}
-	if httpRedirect(w, r, redirect, redirectStatus) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -1066,7 +1096,7 @@ func (s *Server) handlePageRegisterGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageRegister.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect, 0) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -1143,7 +1173,7 @@ func (s *Server) handlePageRegisterPOSTSubmit(
 	p := app.PageRegister{
 		App: s.app,
 	}
-	body, redirect, redirectStatus, newSession, err := p.POSTSubmit(r, sess, signals)
+	body, redirect, newSession, err := p.POSTSubmit(r, sess, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRegister.Submit", err)
 		return
@@ -1153,7 +1183,7 @@ func (s *Server) handlePageRegisterPOSTSubmit(
 			s.httpErrIntern(w, r, nil, "creating session", err)
 		}
 	}
-	if httpRedirect(w, r, redirect, redirectStatus) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)

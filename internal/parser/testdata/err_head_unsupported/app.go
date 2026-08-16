@@ -3,7 +3,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -11,10 +11,10 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
 /* ErrAppHeadUnsupportedInput */
 
-func (*App) Head(r *http.Request, foo int) templ.Component { return nil }
+func (*App) Head(r *http.Request, foo int) datapages.Component { return nil }

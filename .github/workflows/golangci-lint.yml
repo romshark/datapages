@@ -15,6 +15,7 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         project:
           - path: "."
@@ -31,13 +32,23 @@ jobs:
             name: "example/webcomponents"
           - path: "example/sqlitesessions"
             name: "example/sqlitesessions"
+          - path: "example/calculator"
+            name: "example/calculator"
+          - path: "example/todolist"
+            name: "example/todolist"
     steps:
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.26.5"
+          go-version: "1.26.6"
           check-latest: true
           cache: false
       - uses: actions/checkout@v7
+      - name: Install Wails system dependencies
+        if: matrix.project.name == 'example/calculator'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
       - name: golangci-lint (${{ matrix.project.name }})
         uses: golangci/golangci-lint-action@v9
         with:

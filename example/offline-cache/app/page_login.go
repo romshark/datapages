@@ -3,9 +3,6 @@ package app
 import (
 	"errors"
 	"net/http"
-	"time"
-
-	"github.com/a-h/templ"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/offline-cache/app/domain"
@@ -23,14 +20,16 @@ func (PageLogin) GET(
 		Next string `query:"next"`
 	},
 ) (
-	body templ.Component,
-	redirect string,
+	body datapages.Component,
+	redirect datapages.Redirect,
 	disableRefreshAfterHidden bool,
 	err error,
 ) {
-	if session.UserID != "" {
+	if !session.IsGuest() {
 		// Already logged in.
-		return nil, href.PageIndex(href.QueryPageIndex{}), false, nil
+		return nil, datapages.Redirect{
+			URL: href.PageIndex(href.QueryPageIndex{}),
+		}, false, nil
 	}
 
 	// Sign-in needs the server, so the offline snapshot just says so. Only guests
@@ -42,7 +41,7 @@ func (PageLogin) GET(
 			ver,
 		)
 	}
-	return pageLogin(false, query.Next), "", true, nil
+	return pageLogin(false, query.Next), datapages.Redirect{}, true, nil
 }
 
 // POSTSubmit is /login/submit
@@ -56,15 +55,17 @@ func (p PageLogin) POSTSubmit(
 		Next            string `json:"next"`
 	},
 ) (
-	body templ.Component,
-	redirect string,
-	redirectStatus int,
-	newSession Session,
+	body datapages.Component,
+	redirect datapages.Redirect,
+	newSession datapages.NewSession[struct{}],
 	err error,
 ) {
-	if session.UserID != "" {
+	if !session.IsGuest() {
 		// Already logged in.
-		redirect, redirectStatus = href.PageIndex(href.QueryPageIndex{}), http.StatusSeeOther
+		redirect = datapages.Redirect{
+			URL:    href.PageIndex(href.QueryPageIndex{}),
+			Status: http.StatusSeeOther,
+		}
 		return
 	}
 
@@ -78,7 +79,7 @@ func (p PageLogin) POSTSubmit(
 		return
 	}
 
-	newSession = Session{UserID: uid, IssuedAt: time.Now()}
+	newSession = datapages.NewSession[struct{}]{UserID: uid}
 	// A new identity signed in: drop the previous (guest) offline cache so no
 	// stale, wrong-session page is served offline. Pages re-cache with the correct
 	// navbar as they are visited; the redirect below re-bakes the landing page.
@@ -87,7 +88,7 @@ func (p PageLogin) POSTSubmit(
 	if !isSafeRelativePath(dest) {
 		dest = href.PageIndex(href.QueryPageIndex{})
 	}
-	redirect, redirectStatus = dest, http.StatusSeeOther
+	redirect = datapages.Redirect{URL: dest, Status: http.StatusSeeOther}
 	return
 }
 

@@ -4,8 +4,6 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 )
 
@@ -16,14 +14,14 @@ type (
 	PageIndex struct{ App *App }
 )
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
 // PageForm is /form
 type PageForm struct{ App *App }
 
-func (PageForm) GET(r *http.Request) (body templ.Component, err error) {
+func (PageForm) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 

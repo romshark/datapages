@@ -9,7 +9,7 @@
 		_, _ = io.WriteString(w, `/tik/`)
 		_, _ = io.WriteString(w, path.ID)
 		_, _ = io.WriteString(w, `/`)
-		if sess.UserID != "" {
+		if sess.UserID() != "" {
 			_, _ = io.WriteString(w, `/_$/')"`)
 		}
 	}

@@ -2,19 +2,13 @@ package app
 
 import (
 	"net/http"
-	"time"
-
-	"github.com/a-h/templ"
 
 	"github.com/romshark/datapages"
 )
 
 type App struct{}
 
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
-}
+type Session = datapages.Session[struct{}]
 
 // EventPing is "ping"
 type EventPing struct{}
@@ -25,7 +19,6 @@ func (Base) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 	sse datapages.SSE,
-	sessionToken string,
 	session Session,
 	signals struct {
 		Instance string `json:"instance"`
@@ -38,7 +31,6 @@ func (Base) StreamOpen(
 func (Base) StreamClose(
 	r *http.Request,
 	streamID uint64,
-	sessionToken string,
 	session Session,
 	dispatch func(EventPing) error,
 ) error {
@@ -51,14 +43,14 @@ type PageIndex struct {
 	Base
 }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
 // PageStreamMin is /stream-min
 type PageStreamMin struct{ App *App }
 
-func (PageStreamMin) GET(r *http.Request) (body templ.Component, err error) {
+func (PageStreamMin) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -77,7 +69,7 @@ func (PageStreamMin) StreamClose(
 // PageStreamMax is /stream-max
 type PageStreamMax struct{ App *App }
 
-func (PageStreamMax) GET(r *http.Request) (body templ.Component, err error) {
+func (PageStreamMax) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
@@ -85,7 +77,6 @@ func (PageStreamMax) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 	sse datapages.SSE,
-	sessionToken string,
 	session Session,
 	signals struct {
 		Instance string `json:"instance"`
@@ -98,7 +89,6 @@ func (PageStreamMax) StreamOpen(
 func (PageStreamMax) StreamClose(
 	r *http.Request,
 	streamID uint64,
-	sessionToken string,
 	session Session,
 	dispatch func(EventPing) error,
 ) error {

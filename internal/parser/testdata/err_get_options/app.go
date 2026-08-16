@@ -5,7 +5,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -15,7 +15,7 @@ type PageIndex struct{ App *App }
 
 func (PageIndex) GET(
 	r *http.Request,
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -45,7 +45,7 @@ type PageBadType struct{ App *App }
 func (PageBadType) GET(
 	r *http.Request,
 ) (
-	body templ.Component,
+	body datapages.Component,
 	enableBackgroundStreaming int,
 	err error,
 ) {
@@ -60,7 +60,7 @@ type PageBadType2 struct{ App *App }
 func (PageBadType2) GET(
 	r *http.Request,
 ) (
-	body templ.Component,
+	body datapages.Component,
 	disableRefreshAfterHidden int,
 	err error,
 ) {

@@ -31,7 +31,7 @@ func main() {
 	a := app.NewApp(repo)
 
 	messageBroker := msgbrokerinmem.New(8)
-	sessionManager := sessinmem.New[app.Session](sesstokgen.Generator{
+	sessionManager := sessinmem.New[struct{}](sesstokgen.Generator{
 		Length: sesstokgen.DefaultLength,
 	})
 

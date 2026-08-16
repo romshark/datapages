@@ -33,7 +33,6 @@ import (
 	"github.com/romshark/datapages/example/offline-cache/app"
 	"github.com/romshark/datapages/example/offline-cache/datapagesgen/assets"
 	"github.com/romshark/datapages/example/offline-cache/datapagesgen/href"
-	"github.com/romshark/datapages/example/offline-cache/datapagesgen/httperr"
 
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -279,18 +278,21 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 	return true
 }
 
-func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status int) (exit bool) {
-	if target == "" {
+func httpRedirect(
+	w http.ResponseWriter, r *http.Request, redirect datapages.Redirect,
+) (exit bool) {
+	if redirect.URL == "" {
 		return false
 	}
 
 	if isDSReq(r) {
 		// Force client-side navigation via JS for Datastar requests.
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = fmt.Fprintf(w, "window.location = %q;", target)
+		_, _ = fmt.Fprintf(w, "window.location = %q;", redirect.URL)
 		return true
 	}
 
+	status := redirect.Status
 	switch status {
 	case http.StatusMovedPermanently,
 		http.StatusFound,
@@ -302,27 +304,29 @@ func httpRedirect(w http.ResponseWriter, r *http.Request, target string, status 
 		status = http.StatusFound
 	}
 
-	http.Redirect(w, r, target, status)
+	http.Redirect(w, r, redirect.URL, status)
 	return true
 }
 
 func httpRedirectOffline(
-	w http.ResponseWriter, r *http.Request, target string, status int, oc *pageCacheWriter,
+	w http.ResponseWriter, r *http.Request,
+	redirect datapages.Redirect, oc *pageCacheWriter,
 ) (exit bool) {
-	if target == "" {
+	if redirect.URL == "" {
 		return false
 	}
 
 	if isDSReq(r) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		js, err := oc.redirectScript(target)
+		js, err := oc.redirectScript(redirect.URL)
 		if err != nil {
-			js = fmt.Sprintf("window.location = %q;", target)
+			js = fmt.Sprintf("window.location = %q;", redirect.URL)
 		}
 		_, _ = w.Write([]byte(js))
 		return true
 	}
 
+	status := redirect.Status
 	switch status {
 	case http.StatusMovedPermanently,
 		http.StatusFound,
@@ -334,7 +338,7 @@ func httpRedirectOffline(
 		status = http.StatusFound
 	}
 
-	http.Redirect(w, r, target, status)
+	http.Redirect(w, r, redirect.URL, status)
 	return true
 }
 
@@ -349,8 +353,8 @@ type sseWrapper struct {
 
 func (s sseWrapper) Context() context.Context { return s.gen.Context() }
 
-func (s sseWrapper) PatchElementTempl(
-	c templ.Component, opts ...datapages.PatchOption,
+func (s sseWrapper) PatchElement(
+	c datapages.Component, opts ...datapages.PatchOption,
 ) error {
 	var cfg datapages.PatchConfig
 	for _, o := range opts {
@@ -363,22 +367,38 @@ func (s sseWrapper) PatchElementTempl(
 	if cfg.SelectorID != "" {
 		ds = append(ds, datastar.WithSelectorID(cfg.SelectorID))
 	}
-	if cfg.ModeAppend {
-		ds = append(ds, datastar.WithModeAppend())
+	switch cfg.Mode {
+	case datapages.PatchModeOuter, datapages.PatchModeInner,
+		datapages.PatchModeReplace, datapages.PatchModePrepend,
+		datapages.PatchModeAppend, datapages.PatchModeBefore,
+		datapages.PatchModeAfter:
+		ds = append(ds, datastar.WithMode(datastar.ElementPatchMode(cfg.Mode)))
 	}
 	return s.gen.PatchElementTempl(c, ds...)
+}
+
+func (s sseWrapper) RemoveElement(selector string) error {
+	return s.gen.RemoveElement(selector)
 }
 
 func (s sseWrapper) ExecuteScript(script string) error {
 	return s.gen.ExecuteScript(script)
 }
 
-func (s sseWrapper) MarshalAndPatchSignals(v any) error {
+func (s sseWrapper) PatchSignals(v any) error {
 	return s.gen.MarshalAndPatchSignals(v)
 }
 
-func (s sseWrapper) Redirect(url string) error {
-	return s.gen.Redirect(url)
+func (s sseWrapper) PatchSignalsIfMissing(v any) error {
+	return s.gen.MarshalAndPatchSignalsIfMissing(v)
+}
+
+func (s sseWrapper) Redirect(target string) error {
+	return s.gen.Redirect(target)
+}
+
+func (s sseWrapper) Prefetch(urls ...string) error {
+	return s.gen.Prefetch(urls...)
 }
 
 // newPageCache builds the page cache handle for the request. sse is the
@@ -405,7 +425,7 @@ func (p *pageCacheBuf) Header() http.Header {
 func (p *pageCacheBuf) Write(b []byte) (int, error) { return p.b.Write(b) }
 func (p *pageCacheBuf) WriteHeader(int)             {}
 
-func (s *Server) pageCacheHead(r *http.Request) templ.Component {
+func (s *Server) pageCacheHead(r *http.Request) datapages.Component {
 	return s.app.Head(r)
 }
 
@@ -420,7 +440,7 @@ type pageCacheWriter struct {
 
 type pageCachePendingSet struct {
 	url     string
-	body    templ.Component
+	body    datapages.Component
 	version uint64
 	shim    bool
 }
@@ -435,12 +455,12 @@ func (c *pageCacheWriter) Version() uint64 {
 	return v
 }
 
-func (c *pageCacheWriter) Set(url string, body templ.Component, version uint64) {
+func (c *pageCacheWriter) Set(url string, body datapages.Component, version uint64) {
 	c.sets = append(c.sets, pageCachePendingSet{url: url, body: body, version: version})
 }
 
 func (c *pageCacheWriter) SetShim(
-	url string, body templ.Component, version uint64,
+	url string, body datapages.Component, version uint64,
 ) {
 	c.sets = append(c.sets, pageCachePendingSet{
 		url: url, body: body, version: version, shim: true,
@@ -463,7 +483,7 @@ type pageCacheEntry struct {
 // requests this URL, and morphs in the live page the worker prefetched. The
 // element stays in the DOM (removing it on a timer can beat Datastar's deferred
 // module load); the morph drops it, as the live page has no such element.
-func withShimHydrate(body templ.Component) templ.Component {
+func withShimHydrate(body datapages.Component) datapages.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if err := body.Render(ctx, w); err != nil {
 			return err
@@ -493,7 +513,7 @@ func (c *pageCacheWriter) payload() (string, error) {
 			body = withShimHydrate(body)
 		}
 		if err := c.s.writeHTML(
-			&buf, c.r, app.Session{}, c.s.pageCacheHead(c.r), nil, body, nil, nil,
+			&buf, c.r, datapages.Session[struct{}]{}, c.s.pageCacheHead(c.r), nil, body, nil, nil,
 		); err != nil {
 			return "", fmt.Errorf("rendering page cache body for %s: %w", s.url, err)
 		}
@@ -582,9 +602,9 @@ func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 }
 
 func (s *Server) checkCSRF(
-	w http.ResponseWriter, r *http.Request, sess app.Session,
+	w http.ResponseWriter, r *http.Request, sess datapages.Session[struct{}],
 ) (ok bool) {
-	if sess.UserID == "" ||
+	if sess.UserID() == "" ||
 		r.Method == http.MethodGet ||
 		r.Method == http.MethodOptions ||
 		r.Method == http.MethodHead ||
@@ -604,7 +624,7 @@ func (s *Server) checkCSRF(
 		t == s.csrfConf.DevBypassToken {
 		return true
 	}
-	if !s.csrfConf.TokenManager.ValidateToken(sess.UserID, sess.IssuedAt.Unix(), t) {
+	if !s.csrfConf.TokenManager.ValidateToken(sess.UserID(), sess.IssuedAt().Unix(), t) {
 		http.Error(
 			w,
 			http.StatusText(http.StatusForbidden),
@@ -618,8 +638,8 @@ func (s *Server) checkCSRF(
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess app.Session,
-	headGeneric, head, body templ.Component,
+	sess datapages.Session[struct{}],
+	headGeneric, head, body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -638,9 +658,9 @@ func (s *Server) writeHTML(
 			return err
 		}
 	}
-	if s.csrfConf != nil && sess.UserID != "" {
+	if s.csrfConf != nil && sess.UserID() != "" {
 		csrfToken := s.csrfConf.TokenManager.GenerateToken(
-			sess.UserID, sess.IssuedAt.Unix(),
+			sess.UserID(), sess.IssuedAt().Unix(),
 		)
 		if csrfToken != "" {
 			// Write the fetch X-CSRF-Token header injector.
@@ -668,8 +688,8 @@ func (s *Server) writeHTML(
 			}
 		} else {
 			s.logger.Warn("generated empty CSRF token",
-				slog.String("user-id", sess.UserID),
-				slog.Time("issued-at", sess.IssuedAt))
+				slog.String("user-id", sess.UserID()),
+				slog.Time("issued-at", sess.IssuedAt()))
 		}
 	}
 	if _, err := io.WriteString(w, "</head><body "); err != nil {
@@ -717,7 +737,7 @@ type Server struct {
 
 	authConf              *AuthConfig
 	sessionTokenGenerator sessmanager.TokenGenerator
-	sessionManager        sessmanager.SessionManager[app.Session]
+	sessionManager        sessmanager.SessionManager[struct{}]
 	csrfConf              *CSRFConfig
 }
 
@@ -732,7 +752,7 @@ type Server struct {
 func NewServer(
 	app *app.App,
 	messageBroker msgbroker.MessageBroker,
-	sessionManager sessmanager.SessionManager[app.Session],
+	sessionManager sessmanager.SessionManager[struct{}],
 	opts ...ServerOption,
 ) *Server {
 	s := &Server{
@@ -916,9 +936,14 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 }
 
 func (s *Server) createSession(
-	w http.ResponseWriter, r *http.Request, session app.Session,
+	w http.ResponseWriter, r *http.Request, session datapages.NewSession[struct{}],
 ) error {
-	token, err := s.sessionManager.CreateSession(r.Context(), session.UserID, session)
+	token, err := s.sessionManager.CreateSession(r.Context(), sessmanager.Record[struct{}]{
+		UserID:    session.UserID,
+		IssuedAt:  time.Now(),
+		ExpiresAt: session.ExpiresAt,
+		Data:      session.Data,
+	})
 	if err != nil {
 		return err
 	}
@@ -941,7 +966,7 @@ func (s *Server) closeSession(
 // If onClose != nil it will be closed once the session is closed.
 func (s *Server) auth(
 	w http.ResponseWriter, r *http.Request,
-) (sess app.Session, token string, ok bool) {
+) (sess datapages.Session[struct{}], token string, ok bool) {
 	c, err := r.Cookie(s.authConf.TokenCookie.Name)
 	if err != nil {
 		if errors.Is(err, http.ErrNoCookie) {
@@ -950,18 +975,26 @@ func (s *Server) auth(
 		return sess, "", false
 	}
 
-	sess, token, userID, ok, err := s.sessionManager.ReadSessionFromCookie(c)
+	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(c)
 	if err != nil {
 		// Transient backend failure; keep the cookie, fail the request.
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
-		return app.Session{}, "", false
+		return datapages.Session[struct{}]{}, "", false
 	}
 	if !ok {
 		// Cookie is stale or malformed; clear it and continue as unauthenticated.
 		s.setSessionCookie(w, "")
-		return app.Session{}, "", true
+		return datapages.Session[struct{}]{}, "", true
 	}
-	sess.UserID = userID
+	sess = datapages.MakeSession(
+		rec.UserID, token, rec.IssuedAt, rec.ExpiresAt, rec.Data,
+	)
+
+	if !sess.ExpiresAt().IsZero() && !time.Now().Before(sess.ExpiresAt()) {
+		// Session has expired; clear the cookie and continue as unauthenticated.
+		s.setSessionCookie(w, "")
+		return datapages.Session[struct{}]{}, "", true
+	}
 
 	if !s.checkCSRF(w, r, sess) {
 		return sess, token, false
@@ -1019,11 +1052,11 @@ func (s *Server) httpErrIntern(
 ) {
 	s.logErr(msg, err)
 	switch {
-	case errors.Is(err, httperr.BadRequest):
+	case errors.Is(err, datapages.ErrBadRequest):
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	case errors.Is(err, httperr.Forbidden):
+	case errors.Is(err, datapages.ErrForbidden):
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-	case errors.Is(err, httperr.NotFound):
+	case errors.Is(err, datapages.ErrNotFound):
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 	default:
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -1054,7 +1087,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 	}
 	if err := s.writeHTML(
-		w, r, app.Session{}, genericHead, nil, body, bodyAttrs, nil,
+		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.logErr("rendering PageError404", err)
 		return
@@ -1078,7 +1111,7 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if httpRedirectOffline(w, r, redirect, 0, pageCache) {
+	if httpRedirectOffline(w, r, redirect, pageCache) {
 		return
 	}
 }
@@ -1132,7 +1165,7 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, app.Session{}, genericHead, nil, body, bodyAttrs, nil,
+		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.logErr("rendering PageError500", err)
 		return
@@ -1241,7 +1274,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect, 0) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -1285,7 +1318,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	p := app.PageLogin{
 		App: s.app,
 	}
-	body, redirect, redirectStatus, newSession, err := p.POSTSubmit(r, sess, pageCache, signals)
+	body, redirect, newSession, err := p.POSTSubmit(r, sess, pageCache, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.Submit", err)
 		return
@@ -1295,7 +1328,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 			s.httpErrIntern(w, r, nil, "creating session", err)
 		}
 	}
-	if httpRedirectOffline(w, r, redirect, redirectStatus, pageCache) {
+	if httpRedirectOffline(w, r, redirect, pageCache) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -1325,7 +1358,7 @@ func (s *Server) handlePageOfflineGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, app.Session{}, genericHead, nil, body, bodyAttrs, nil,
+		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.logErr("rendering PageOffline", err)
 		return
@@ -1354,7 +1387,7 @@ func (s *Server) handlePagePurchaseGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PagePurchase.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect, 0) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -1464,7 +1497,7 @@ func (s *Server) handlePageTicketGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageTicket.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect, 0) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -1500,7 +1533,7 @@ func (s *Server) handlePageTicketsGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageTickets.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect, 0) {
+	if httpRedirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)

@@ -5,7 +5,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -13,7 +13,7 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -22,7 +22,7 @@ type PageNotStruct struct{ App *App }
 
 /* ErrSignalsParamNotStruct */
 
-func (PageNotStruct) GET(r *http.Request, signals int) (body templ.Component, err error) {
+func (PageNotStruct) GET(r *http.Request, signals int) (body datapages.Component, err error) {
 	_ = signals
 	return body, err
 }
@@ -37,7 +37,7 @@ func (PageUnexported) GET(
 	signals struct {
 		name string `json:"name"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = signals
 	return body, err
 }
@@ -52,7 +52,7 @@ func (PageMissingTag) GET(
 	signals struct {
 		Name string
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = signals
 	return body, err
 }
@@ -68,7 +68,7 @@ func (PageDuplicateTag) GET(
 		Name  string `json:"name"`
 		Other string `json:"name"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = signals
 	return body, err
 }
@@ -86,7 +86,7 @@ func (PageBadReflect) GET(
 	signals struct {
 		Filter string `json:"filter"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = query
 	_ = signals
 	return body, err

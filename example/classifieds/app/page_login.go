@@ -3,10 +3,8 @@ package app
 import (
 	"errors"
 	"net/http"
-	"time"
 
-	"github.com/a-h/templ"
-
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 )
@@ -15,14 +13,14 @@ import (
 type PageLogin struct{ App *App }
 
 func (PageLogin) GET(r *http.Request, session Session) (
-	body templ.Component,
-	redirect string,
+	body datapages.Component,
+	redirect datapages.Redirect,
 	disableRefreshAfterHidden bool,
 	err error,
 ) {
-	if session.UserID != "" {
+	if !session.IsGuest() {
 		// Already logged in
-		return nil, href.PageIndex(), false, nil
+		return nil, datapages.Redirect{URL: href.PageIndex()}, false, nil
 	}
 	return pageLogin(false), redirect, true, nil
 }
@@ -36,15 +34,17 @@ func (p PageLogin) POSTSubmit(
 		Password        string `json:"password"`
 	},
 ) (
-	body templ.Component,
-	redirect string,
-	redirectStatus int,
-	newSession Session,
+	body datapages.Component,
+	redirect datapages.Redirect,
+	newSession datapages.NewSession[struct{}],
 	err error,
 ) {
-	if session.UserID != "" {
+	if !session.IsGuest() {
 		// Already logged in.
-		redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
+		redirect = datapages.Redirect{
+			URL:    href.PageIndex(),
+			Status: http.StatusSeeOther,
+		}
 		return
 	}
 	uid, err := p.App.repo.Login(signals.EmailOrUsername, signals.Password)
@@ -59,11 +59,10 @@ func (p PageLogin) POSTSubmit(
 	}
 
 	p.App.LoginSubmissions.WithLabelValues("success").Inc()
-	now := time.Now()
-	newSession = Session{
-		UserID:   uid,
-		IssuedAt: now,
+	newSession = datapages.NewSession[struct{}]{UserID: uid}
+	redirect = datapages.Redirect{
+		URL:    href.PageIndex(),
+		Status: http.StatusSeeOther,
 	}
-	redirect, redirectStatus = href.PageIndex(), http.StatusSeeOther
 	return
 }

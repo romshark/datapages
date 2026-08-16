@@ -49,6 +49,14 @@ func compareGolden(t *testing.T, golden string, got []byte) {
 	require.Equal(t, string(want), string(got))
 }
 
+// testSessionType is the session type used by the test models,
+// datapages.Session[struct{}].
+func testSessionType() *model.SessionType {
+	return &model.SessionType{
+		Data: model.Type{Resolved: types.NewStruct(nil, nil)},
+	}
+}
+
 // testFieldDef defines a struct field for test type construction.
 type testFieldDef struct {
 	Name string
@@ -302,6 +310,7 @@ func TestWriteAppErrHelpers(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
+			w.setSessionType(tt.app)
 			w.writeAppErrHelpers(tt.app, testAppPkg)
 			compareGolden(t, tt.golden, w.Buf)
 		})
@@ -465,13 +474,11 @@ func TestWriteAppActionHandler(t *testing.T) {
 		"redirect outputs": {
 			handler: &model.Handler{
 				HTTPMethod: "POST", Name: "Login", Route: "/login/{$}",
-				InputSession:         &model.Input{Name: "sess"},
-				InputSessionToken:    &model.Input{Name: "sessToken"},
-				OutputCloseSession:   &model.Output{Name: "closeSession"},
-				OutputRedirect:       &model.Output{Name: "redirect"},
-				OutputRedirectStatus: &model.Output{Name: "redirectStatus"},
-				OutputNewSession:     &model.Output{Name: "newSession"},
-				OutputErr:            &model.Output{Name: "err"},
+				InputSession:       &model.Input{Name: "sess"},
+				OutputCloseSession: &model.Output{Name: "closeSession"},
+				OutputRedirect:     &model.Output{Name: "redirect"},
+				OutputNewSession:   &model.Output{Name: "newSession"},
+				OutputErr:          &model.Output{Name: "err"},
 			},
 			app:    &model.App{PkgPath: testAppPkgPath, Fset: token.NewFileSet()},
 			golden: "app_action_redirect_outputs.txt",
@@ -498,7 +505,7 @@ func TestWriteAppActionHandler(t *testing.T) {
 			},
 			app: &model.App{
 				PkgPath: testAppPkgPath, Fset: token.NewFileSet(),
-				Session:             &model.SessionType{},
+				Session:             testSessionType(),
 				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 			},
 			golden: "app_action_body_global_head.txt",
@@ -509,6 +516,7 @@ func TestWriteAppActionHandler(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
+			w.setSessionType(tt.app)
 			w.buildEventMap(tt.app.Events)
 			w.writeAppActionHandler(tt.handler, tt.app, testAppPkg)
 			compareGolden(t, tt.golden, w.Buf)
@@ -584,6 +592,7 @@ func TestWriteSetupHandlers(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
+			w.setSessionType(tt.app)
 			w.buildEventMap(tt.app.Events)
 			w.writeSetupHandlers(tt.app)
 			compareGolden(t, tt.golden, w.Buf)
@@ -599,7 +608,7 @@ func TestWriteRender404(t *testing.T) {
 		"basic": {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
-				Session:             &model.SessionType{},
+				Session:             testSessionType(),
 				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 				PageError404: &model.Page{
 					TypeName:           "PageError404",
@@ -621,7 +630,7 @@ func TestWriteRender404(t *testing.T) {
 		"with head and redirect": {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
-				Session:             &model.SessionType{},
+				Session:             testSessionType(),
 				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 				PageError404: &model.Page{
 					TypeName:           "PageError404",
@@ -651,6 +660,7 @@ func TestWriteRender404(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
+			w.setSessionType(tt.app)
 			w.writeRender404(tt.app, testAppPkg)
 			compareGolden(t, tt.golden, w.Buf)
 		})
@@ -665,7 +675,7 @@ func TestWriteAppWriteHTML(t *testing.T) {
 		"with global head": {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
-				Session:             &model.SessionType{},
+				Session:             testSessionType(),
 				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 			},
 			golden: "app_writehtml_global_head.txt",
@@ -680,7 +690,8 @@ func TestWriteAppWriteHTML(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
-			w.writeAppWriteHTML(tt.app, testAppPkg)
+			w.setSessionType(tt.app)
+			w.writeAppWriteHTML(tt.app)
 			compareGolden(t, tt.golden, w.Buf)
 		})
 	}
@@ -728,9 +739,8 @@ func TestWritePageGETHandler(t *testing.T) {
 				Route:    "/settings/",
 				GET: &model.HandlerGET{
 					Handler: &model.Handler{
-						InputSession:      &model.Input{Name: "sess"},
-						InputSessionToken: &model.Input{Name: "sessToken"},
-						OutputErr:         &model.Output{Name: "err"},
+						InputSession: &model.Input{Name: "sess"},
+						OutputErr:    &model.Output{Name: "err"},
 					},
 					OutputBody: &model.TemplComponent{
 						Output: &model.Output{Name: "body"},
@@ -740,21 +750,20 @@ func TestWritePageGETHandler(t *testing.T) {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
 				Fset:                token.NewFileSet(),
-				Session:             &model.SessionType{},
+				Session:             testSessionType(),
 				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 			},
 			golden: "app_page_get_session_token.txt",
 		},
-		"with redirect and status": {
+		"with redirect": {
 			page: &model.Page{
 				TypeName: "PageOldRoute",
 				Route:    "/old-route/",
 				GET: &model.HandlerGET{
 					Handler: &model.Handler{
-						InputRequest:         &model.Input{Name: "r"},
-						OutputRedirect:       &model.Output{Name: "redirect"},
-						OutputRedirectStatus: &model.Output{Name: "redirectStatus"},
-						OutputErr:            &model.Output{Name: "err"},
+						InputRequest:   &model.Input{Name: "r"},
+						OutputRedirect: &model.Output{Name: "redirect"},
+						OutputErr:      &model.Output{Name: "err"},
 					},
 					OutputBody: &model.TemplComponent{
 						Output: &model.Output{Name: "body"},
@@ -766,7 +775,7 @@ func TestWritePageGETHandler(t *testing.T) {
 				Fset:                token.NewFileSet(),
 				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 			},
-			golden: "app_page_get_redirect_status.txt",
+			golden: "app_page_get_redirect.txt",
 		},
 		"with dispatch": {
 			page: &model.Page{
@@ -794,7 +803,7 @@ func TestWritePageGETHandler(t *testing.T) {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
 				Fset:                token.NewFileSet(),
-				Session:             &model.SessionType{},
+				Session:             testSessionType(),
 				Events:              []*model.Event{testEvent("EventFoo", "foo", false)},
 				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 				PageError404:        &model.Page{TypeName: "PageError404"},
@@ -818,7 +827,7 @@ func TestWritePageGETHandler(t *testing.T) {
 			app: &model.App{
 				PkgPath: testAppPkgPath,
 				Fset:    token.NewFileSet(),
-				Session: &model.SessionType{},
+				Session: testSessionType(),
 				GlobalHeadGenerator: &model.GlobalHead{
 					Expr: &ast.Ident{Name: "Head"}, InputSession: true,
 				},
@@ -831,9 +840,8 @@ func TestWritePageGETHandler(t *testing.T) {
 				Route:    "/settings/",
 				GET: &model.HandlerGET{
 					Handler: &model.Handler{
-						InputSession:      &model.Input{Name: "sess"},
-						InputSessionToken: &model.Input{Name: "sessToken"},
-						OutputErr:         &model.Output{Name: "err"},
+						InputSession: &model.Input{Name: "sess"},
+						OutputErr:    &model.Output{Name: "err"},
 					},
 					OutputBody: &model.TemplComponent{
 						Output: &model.Output{Name: "body"},
@@ -843,8 +851,8 @@ func TestWritePageGETHandler(t *testing.T) {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
 				Fset:                token.NewFileSet(),
-				Session:             &model.SessionType{},
-				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}, InputSession: true, InputSessionToken: true},
+				Session:             testSessionType(),
+				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}, InputSession: true},
 			},
 			golden: "app_page_get_head_session_token.txt",
 		},
@@ -865,7 +873,7 @@ func TestWritePageGETHandler(t *testing.T) {
 			app: &model.App{
 				PkgPath: testAppPkgPath,
 				Fset:    token.NewFileSet(),
-				Session: &model.SessionType{},
+				Session: testSessionType(),
 				GlobalHeadGenerator: &model.GlobalHead{
 					Expr: &ast.Ident{Name: "Head"}, InputSession: true,
 				},
@@ -923,6 +931,7 @@ func TestWritePageGETHandler(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
+			w.setSessionType(tt.app)
 			w.buildEventMap(tt.app.Events)
 			w.writePageGETHandler(tt.page, tt.app, testAppPkg)
 			compareGolden(t, tt.golden, w.Buf)
@@ -1139,7 +1148,7 @@ func TestWritePageActionHandler(t *testing.T) {
 			app: &model.App{
 				PkgPath:             testAppPkgPath,
 				Fset:                token.NewFileSet(),
-				Session:             &model.SessionType{},
+				Session:             testSessionType(),
 				GlobalHeadGenerator: &model.GlobalHead{Expr: &ast.Ident{Name: "Head"}},
 			},
 			golden: "app_page_action_body_global_head.txt",
@@ -1376,6 +1385,7 @@ func TestWriteGETBodyAttrs(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			w.Reset()
+			w.setSessionType(tt.app)
 			w.buildEventMap(tt.app.Events)
 			w.writeGETBodyAttrs(tt.page)
 			compareGolden(t, tt.golden, w.Buf)

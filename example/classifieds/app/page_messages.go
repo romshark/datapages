@@ -4,8 +4,6 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/a-h/templ"
-
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
@@ -24,13 +22,13 @@ func (p PageMessages) GET(
 		Chat string `query:"chat" reflectsignal:"chatselected"`
 	},
 ) (
-	body templ.Component,
-	redirect string,
+	body datapages.Component,
+	redirect datapages.Redirect,
 	enableBackgroundStreaming bool,
 	err error,
 ) {
-	if session.UserID == "" {
-		redirect = href.PageLogin()
+	if session.IsGuest() {
+		redirect = datapages.Redirect{URL: href.PageLogin()}
 		return
 	}
 
@@ -51,7 +49,7 @@ func (p PageMessages) GET(
 func (p PageMessages) getPageData(
 	ctx context.Context, session Session, selectedChat string,
 ) (base baseData, chats []Chat, openChat Chat, messages []domain.Message, err error) {
-	c, err := p.App.repo.Chats(ctx, session.UserID)
+	c, err := p.App.repo.Chats(ctx, session.UserID())
 	if err != nil {
 		return base, chats, openChat, messages, err
 	}
@@ -92,7 +90,7 @@ func (p PageMessages) getPageData(
 func (p PageMessages) getChat(
 	ctx context.Context, session Session, selectedChat string,
 ) (domain.Post, domain.Chat, error) {
-	chat, err := p.App.repo.ChatByID(ctx, selectedChat, session.UserID)
+	chat, err := p.App.repo.ChatByID(ctx, selectedChat, session.UserID())
 	if err != nil {
 		return domain.Post{}, domain.Chat{}, err
 	}
@@ -132,15 +130,15 @@ func (p PageMessages) POSTRead(
 		return domain.ErrMessageNotFound
 	}
 
-	if session.UserID != chat.SenderUserName && session.UserID != post.MerchantUserName {
+	if session.UserID() != chat.SenderUserName && session.UserID() != post.MerchantUserName {
 		return domain.ErrUnauthorized
 	}
 
-	if message.SenderUserName == session.UserID {
+	if message.SenderUserName == session.UserID() {
 		return domain.ErrUnauthorized
 	}
 
-	err = p.App.repo.MarkMessageRead(r.Context(), session.UserID, chat.ID, message.ID)
+	err = p.App.repo.MarkMessageRead(r.Context(), session.UserID(), chat.ID, message.ID)
 	if err != nil {
 		return err
 	}
@@ -149,7 +147,7 @@ func (p PageMessages) POSTRead(
 		EventMessagingRead{
 			SubjectUser: []string{chat.SenderUserName, post.MerchantUserName},
 			ChatID:      signals.ChatSelected,
-			UserID:      session.UserID,
+			UserID:      session.UserID(),
 		},
 	)
 }
@@ -170,7 +168,7 @@ func (p PageMessages) POSTWriting(
 		return err
 	}
 
-	if session.UserID != chat.SenderUserName && session.UserID != post.MerchantUserName {
+	if session.UserID() != chat.SenderUserName && session.UserID() != post.MerchantUserName {
 		return domain.ErrUnauthorized
 	}
 
@@ -180,7 +178,7 @@ func (p PageMessages) POSTWriting(
 		EventMessagingWriting{
 			SubjectUser: targetUsers,
 			ChatID:      signals.ChatSelected,
-			UserID:      session.UserID,
+			UserID:      session.UserID(),
 		},
 	)
 }
@@ -201,7 +199,7 @@ func (p PageMessages) POSTWritingStopped(
 		return err
 	}
 
-	if session.UserID != chat.SenderUserName && session.UserID != post.MerchantUserName {
+	if session.UserID() != chat.SenderUserName && session.UserID() != post.MerchantUserName {
 		return domain.ErrUnauthorized
 	}
 
@@ -211,7 +209,7 @@ func (p PageMessages) POSTWritingStopped(
 		EventMessagingWritingStopped{
 			SubjectUser: targetUsers,
 			ChatID:      signals.ChatSelected,
-			UserID:      session.UserID,
+			UserID:      session.UserID(),
 		},
 	)
 }
@@ -244,14 +242,14 @@ func (p PageMessages) POSTSendMessage(
 			return err
 		}
 
-		if session.UserID != chat.SenderUserName && session.UserID != post.MerchantUserName {
+		if session.UserID() != chat.SenderUserName && session.UserID() != post.MerchantUserName {
 			return domain.ErrUnauthorized
 		}
 
 		targetUsers = []string{chat.SenderUserName, post.MerchantUserName}
 
 		_, err = p.App.repo.NewMessage(
-			r.Context(), signals.ChatSelected, session.UserID, signals.MessageText,
+			r.Context(), signals.ChatSelected, session.UserID(), signals.MessageText,
 		)
 		if err != nil {
 			return err
@@ -267,12 +265,12 @@ func (p PageMessages) POSTSendMessage(
 		EventMessagingWritingStopped{
 			SubjectUser: targetUsers,
 			ChatID:      signals.ChatSelected,
-			UserID:      session.UserID,
+			UserID:      session.UserID(),
 		},
 		EventMessagingSent{
 			SubjectUser: targetUsers,
 			ChatID:      signals.ChatSelected,
-			UserID:      session.UserID,
+			UserID:      session.UserID(),
 		},
 	)
 }
@@ -291,7 +289,7 @@ func (p PageMessages) OnMessagingRead(
 	if err != nil {
 		return err
 	}
-	return sse.PatchElementTempl(pageMessages(session, chats, openChat, messages, base))
+	return sse.PatchElement(pageMessages(session, chats, openChat, messages, base))
 }
 
 func (PageMessages) OnMessagingWriting(
@@ -299,7 +297,7 @@ func (PageMessages) OnMessagingWriting(
 	sse datapages.SSE,
 	session Session,
 ) error {
-	return sse.MarshalAndPatchSignals(struct {
+	return sse.PatchSignals(struct {
 		WritingUser string `json:"writinguser"`
 	}{
 		WritingUser: event.UserID,
@@ -311,7 +309,7 @@ func (PageMessages) OnMessagingWritingStopped(
 	sse datapages.SSE,
 	session Session,
 ) error {
-	return sse.MarshalAndPatchSignals(struct {
+	return sse.PatchSignals(struct {
 		WritingUser string `json:"writinguser"`
 	}{
 		WritingUser: "",
@@ -332,5 +330,5 @@ func (p PageMessages) OnMessagingSent(
 	if err != nil {
 		return err
 	}
-	return sse.PatchElementTempl(pageMessages(session, chats, openChat, messages, base))
+	return sse.PatchElement(pageMessages(session, chats, openChat, messages, base))
 }

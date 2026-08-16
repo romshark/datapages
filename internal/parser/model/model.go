@@ -27,13 +27,15 @@ type App struct {
 }
 
 type GlobalHead struct {
-	Expr              ast.Expr
-	InputSession      bool
-	InputSessionToken bool
+	Expr         ast.Expr
+	InputSession bool
 }
 
+// SessionType is the datapages.Session[Data] instantiation the application uses.
+// All handlers must agree on the same one.
 type SessionType struct {
 	Expr ast.Expr
+	Data Type // The Data type argument.
 }
 
 type PageSpecialization int8
@@ -90,21 +92,19 @@ type Handler struct {
 	HTTPMethod string
 	Route      string
 
-	InputRequest      *Input
-	InputStreamID     *Input
-	InputSSE          *Input
-	InputSessionToken *Input
-	InputSession      *Input
-	InputPath         *Input
-	InputQuery        *Input
-	InputSignals      *Input
-	InputDispatch     *InputDispatch
-	InputPageCache    *Input   // datapages.PageCacheWriter handle.
-	OrderedInputs     []*Input // Inputs in user-defined order.
+	InputRequest   *Input
+	InputStreamID  *Input
+	InputSSE       *Input
+	InputSession   *Input
+	InputPath      *Input
+	InputQuery     *Input
+	InputSignals   *Input
+	InputDispatch  *InputDispatch
+	InputPageCache *Input   // datapages.PageCacheWriter handle.
+	OrderedInputs  []*Input // Inputs in user-defined order.
 
 	OutputBody           *TemplComponent // templ.Component body (actions only)
 	OutputRedirect       *Output
-	OutputRedirectStatus *Output
 	OutputNewSession     *Output
 	OutputCloseSession   *Output
 	OutputEnableBgStream *Output
@@ -124,29 +124,27 @@ type EventHandler struct {
 	Name          string
 	EventTypeName string
 
-	InputEvent        *Input
-	InputSSE          *Input
-	InputStreamID     *Input
-	InputSessionToken *Input
-	InputSession      *Input
-	OrderedInputs     []*Input // Inputs in user-defined order.
+	InputEvent    *Input
+	InputSSE      *Input
+	InputStreamID *Input
+	InputSession  *Input
+	OrderedInputs []*Input // Inputs in user-defined order.
 
 	OutputErr *Output
 }
 
 // InputKind constants identify handler input parameter kinds.
 const (
-	InputKindRequest      = "request"
-	InputKindStreamID     = "streamID"
-	InputKindSSE          = "sse"
-	InputKindSessionToken = "sessionToken"
-	InputKindSession      = "session"
-	InputKindPath         = "path"
-	InputKindQuery        = "query"
-	InputKindSignals      = "signals"
-	InputKindDispatch     = "dispatch"
-	InputKindPageCache    = "pageCache"
-	InputKindEvent        = "event"
+	InputKindRequest   = "request"
+	InputKindStreamID  = "streamID"
+	InputKindSSE       = "sse"
+	InputKindSession   = "session"
+	InputKindPath      = "path"
+	InputKindQuery     = "query"
+	InputKindSignals   = "signals"
+	InputKindDispatch  = "dispatch"
+	InputKindPageCache = "pageCache"
+	InputKindEvent     = "event"
 )
 
 // OutputKind constants identify handler output return value kinds.
@@ -154,7 +152,6 @@ const (
 	OutputKindBody           = "body"
 	OutputKindHead           = "head"
 	OutputKindRedirect       = "redirect"
-	OutputKindRedirectStatus = "redirectStatus"
 	OutputKindNewSession     = "newSession"
 	OutputKindCloseSession   = "closeSession"
 	OutputKindEnableBgStream = "enableBackgroundStreaming"
@@ -185,8 +182,8 @@ type Type struct {
 }
 
 // SubjectField represents a Subject-prefixed field on an event type.
-// The field name suffix (e.g. "User" from "SubjectUser") identifies the
-// subject segment; values are appended to the NATS subject at dispatch time.
+// The field name suffix (e.g. "User" from "SubjectUser") identifies the subject segment;
+// values are appended to the NATS subject at dispatch time.
 //
 // SignalName, when non-empty, marks the field as signal-scoped:
 // the SSE stream handler reads this signal from the client
@@ -218,8 +215,7 @@ func (e *Event) HasSubjectUser() bool {
 	return false
 }
 
-// IsPrivate reports whether the event targets specific users
-// (has a SubjectUser field).
+// IsPrivate reports whether the event targets specific users (has a SubjectUser field).
 func (e *Event) IsPrivate() bool { return e.HasSubjectUser() }
 
 // HasSubjectFields reports whether the event has any subject fields.

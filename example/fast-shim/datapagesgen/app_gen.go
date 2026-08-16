@@ -242,7 +242,7 @@ func (p *pageCacheBuf) Header() http.Header {
 func (p *pageCacheBuf) Write(b []byte) (int, error) { return p.b.Write(b) }
 func (p *pageCacheBuf) WriteHeader(int)             {}
 
-func (s *Server) pageCacheHead(r *http.Request) templ.Component {
+func (s *Server) pageCacheHead(r *http.Request) datapages.Component {
 	return s.app.Head(r)
 }
 
@@ -257,7 +257,7 @@ type pageCacheWriter struct {
 
 type pageCachePendingSet struct {
 	url     string
-	body    templ.Component
+	body    datapages.Component
 	version uint64
 	shim    bool
 }
@@ -272,12 +272,12 @@ func (c *pageCacheWriter) Version() uint64 {
 	return v
 }
 
-func (c *pageCacheWriter) Set(url string, body templ.Component, version uint64) {
+func (c *pageCacheWriter) Set(url string, body datapages.Component, version uint64) {
 	c.sets = append(c.sets, pageCachePendingSet{url: url, body: body, version: version})
 }
 
 func (c *pageCacheWriter) SetShim(
-	url string, body templ.Component, version uint64,
+	url string, body datapages.Component, version uint64,
 ) {
 	c.sets = append(c.sets, pageCachePendingSet{
 		url: url, body: body, version: version, shim: true,
@@ -300,7 +300,7 @@ type pageCacheEntry struct {
 // requests this URL, and morphs in the live page the worker prefetched. The
 // element stays in the DOM (removing it on a timer can beat Datastar's deferred
 // module load); the morph drops it, as the live page has no such element.
-func withShimHydrate(body templ.Component) templ.Component {
+func withShimHydrate(body datapages.Component) datapages.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if err := body.Render(ctx, w); err != nil {
 			return err
@@ -421,7 +421,7 @@ func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	headGeneric, head, body templ.Component,
+	headGeneric, head, body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {

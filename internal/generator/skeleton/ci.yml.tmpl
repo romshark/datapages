@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: stable
 
@@ -20,7 +20,7 @@ jobs:
         run: go install github.com/a-h/templ/cmd/templ@latest
 
       - name: Install datapages
-        run: go install github.com/romshark/datapages@latest
+        run: go install github.com/romshark/datapages/cmd/datapages@latest
 
       # Ensure templ generate was run before commit
       - name: Run templ generate

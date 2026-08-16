@@ -37,8 +37,9 @@
 - `example/fast-shim/` - instant loads via cached shims morphed by Datastar.
 - `example/offline-cache/` - service-worker offline support (handler-written cache,
   `PageOffline` fallback) on a ticketing app with live search and sessions.
-- root package `datapages` (`datapages.go`) - core handler-parameter types
-  (`datapages.SSE`, `datapages.PageCacheWriter`); the CLI entrypoint lives in
+- root package `datapages` (`datapages.go`) - core handler types
+  (`datapages.SSE`, `Session`, `NewSession`, `Redirect`, `Component`,
+  `PageCacheWriter`) and the HTTP error sentinels; the CLI entrypoint lives in
   `cmd/datapages/`.
 - `internal/generator/` - code generation from parsed model.
 - `internal/cmd/` - CLI command implementations.
@@ -49,11 +50,11 @@
 
 Only packages that generated code or application code imports may live outside
 `internal/`. Everything the CLI and build tooling use (parser, generator,
-render-pages, docs-src) is internal. `cmd/` is reserved for the shipped binary, so
-build-time tools go under `internal/tools/`, NOT `cmd/` (which would make them
+render-pages, docs-src) is internal. `cmd/` is reserved for the shipped binary,
+so build-time tools go under `internal/tools/`, NOT `cmd/` (which would make them
 `go install`-able by users) and NOT `internal/cmd/` (which is the datapages CLI
-implementation, `package cmd`, plus its own subpackages such as `config`). The
-non-internal packages besides the root are:
+implementation, `package cmd`, plus its own subpackages such as `config`).
+The non-internal packages besides the root are:
 
 - `modules/` - pluggable modules (csrf, msgbroker, offline, sessmanager, sesstokgen),
   imported by application code.

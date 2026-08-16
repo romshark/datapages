@@ -5,7 +5,7 @@ package app
 import (
 	"net/http"
 
-	"github.com/a-h/templ"
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -13,7 +13,7 @@ type App struct{}
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(r *http.Request) (body templ.Component, err error) {
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -22,7 +22,7 @@ type PageNotStruct struct{ App *App }
 
 /* ErrPathParamNotStruct */
 
-func (PageNotStruct) GET(r *http.Request, path int) (body templ.Component, err error) {
+func (PageNotStruct) GET(r *http.Request, path int) (body datapages.Component, err error) {
 	_ = path
 	return body, err
 }
@@ -37,7 +37,7 @@ func (PageUnexported) GET(
 	path struct {
 		id string `path:"id"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = path
 	return body, err
 }
@@ -52,7 +52,7 @@ func (PageUnsupportedType) GET(
 	path struct {
 		ID []byte `path:"id"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = path
 	return body, err
 }
@@ -67,7 +67,7 @@ func (PageMissingTag) GET(
 	path struct {
 		ID string
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = path
 	return body, err
 }
@@ -82,7 +82,7 @@ func (PageNotInRoute) GET(
 	path struct {
 		ID string `path:"id"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = path
 	return body, err
 }
@@ -92,7 +92,7 @@ type PageMissingVar struct{ App *App }
 
 /* ErrPathMissingRouteVar */
 
-func (PageMissingVar) GET(r *http.Request) (body templ.Component, err error) {
+func (PageMissingVar) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
@@ -107,7 +107,7 @@ func (PageDuplicateTag) GET(
 		ID    string `path:"id"`
 		Other string `path:"id"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	_ = path
 	return body, err
 }

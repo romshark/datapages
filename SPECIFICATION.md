@@ -12,15 +12,14 @@ The `App` type may optionally provide a method for custom global HTML `<head>` t
 ```go
 func (*App) Head(
 	r *http.Request,
-	sessionToken string, // Optional
-	session Session, // Optional
-) templ.Component {
+	session datapages.Session[Data], // Optional
+) datapages.Component {
 	return globalHeadTags()
 }
 ```
 
 The `RecoverError` method allows you to recover from handler errors to improve UX by
-giving better feedback over SSE. All action handler errors (including httperr sentinels)
+giving better feedback over SSE. All action handler errors (including the datapages sentinels)
 are routed through `RecoverError` when it is defined and the request is
 a Datastar request. If `RecoverError` returns an error, the server falls back to
 an HTTP error response using the appropriate status code.
@@ -30,7 +29,7 @@ func (*App) RecoverError(
 	err error,
 	sse datapages.SSE,
 ) error {
-	return sse.PatchElementTempl(errorToast(err))
+	return sse.PatchElement(errorToast(err))
 }
 ```
 
@@ -79,8 +78,7 @@ and may include the following optional parameters:
 ```go
 func (PageIndex) GET(
 	r *http.Request,
-	sessionToken string, // Optional
-	session Session, // Optional
+	session datapages.Session[Data], // Optional
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
 	signals struct {...}, // Optional
@@ -90,11 +88,10 @@ func (PageIndex) GET(
 		//...
 	) error // Optional
 ) (
-	body templ.Component,
-	head templ.Component, // Optional
-	redirect string, // Optional
-	redirectStatus int, // Optional
-	newSession Session, // Optional
+	body datapages.Component,
+	head datapages.Component, // Optional
+	redirect datapages.Redirect, // Optional
+	newSession datapages.NewSession[Data], // Optional
 	closeSession bool, // Optional
 	enableBackgroundStreaming bool, // Optional
 	disableRefreshAfterHidden bool, // Optional
@@ -111,10 +108,10 @@ not tied to a specific page:
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request, session Session) (
 	closeSession bool,
-	redirect string,
+	redirect datapages.Redirect,
 	err error,
 ) {
-	return true, "/login", nil
+	return true, datapages.Redirect{URL: "/login"}, nil
 }
 ```
 
@@ -126,8 +123,7 @@ include `r *http.Request` and may include the following optional parameters:
 func (PageIndex) POSTActionName(
 	r *http.Request,
 	sse datapages.SSE, // Optional
-	sessionToken string, // Optional
-	session Session, // Optional
+	session datapages.Session[Data], // Optional
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
 	signals struct {...}, // Optional
@@ -153,8 +149,7 @@ and `closeSession` return values cannot be used.
 // POSTActionName is <path>
 func (PageIndex) POSTActionName(
 	r *http.Request,
-	sessionToken string, // Optional
-	session Session, // Optional
+	session datapages.Session[Data], // Optional
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
 	signals struct {...}, // Optional
@@ -164,11 +159,10 @@ func (PageIndex) POSTActionName(
 		//...
 	) error // Optional
 ) (
-	body templ.Component, // Optional
-	head templ.Component, // Optional
-	redirect string, // Optional
-	redirectStatus int, // Optional
-	newSession Session, // Optional
+	body datapages.Component, // Optional
+	head datapages.Component, // Optional
+	redirect datapages.Redirect, // Optional
+	newSession datapages.NewSession[Data], // Optional
 	closeSession bool, // Optional
 	err error,
 ) {
@@ -186,8 +180,7 @@ func (PageIndex) OnSomethingHappened(
 	event EventSomethingHappened,
 	sse datapages.SSE,
 	streamID uint64, // Optional
-	sessionToken string, // Optional
-	session Session, // Optional
+	session datapages.Session[Data], // Optional
 ) error {
 	// ...
 }
@@ -209,8 +202,7 @@ func (PageIndex) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 	sse datapages.SSE, // Optional
-	sessionToken string, // Optional
-	session Session, // Optional
+	session datapages.Session[Data], // Optional
 	signals struct{...}, // Optional
 	dispatch(
 		EventSomethingHappened,
@@ -230,8 +222,7 @@ If it returns an error, datapages logs the error server-side.
 func (PageIndex) StreamClose(
 	r *http.Request,
 	streamID uint64,
-	sessionToken string, // Optional
-	session Session, // Optional
+	session datapages.Session[Data], // Optional
 	dispatch(
 		EventSomethingHappened,
 		EventSomethingElseHappened,
@@ -263,7 +254,7 @@ type PageFoo struct {
 	Base
 }
 
-func (PageFoo) GET(r *http.Request) (body templ.Component, err error) {
+func (PageFoo) GET(r *http.Request) (body datapages.Component, err error) {
 	return pageFoo(), nil
 }
 
@@ -273,7 +264,7 @@ type PageBar struct {
 	Base
 }
 
-func (PageBar) GET(r *http.Request) (body templ.Component, err error) {
+func (PageBar) GET(r *http.Request) (body datapages.Component, err error) {
 	return pageBar(), nil
 }
 ```
@@ -295,7 +286,7 @@ type EventSomethingHappened struct {
 // PageExample is /example
 type PageExample struct { App *App }
 
-func (p PageExample) GET(r *http.Request) (body templ.Component, err error) {
+func (p PageExample) GET(r *http.Request) (body datapages.Component, err error) {
 	data, err := p.App.fetchData("")
 	if err != nil {
 		return nil, err
@@ -310,7 +301,7 @@ func (p PageExample) POSTInputChanged(
 	signals struct {
 		InputValue string `json:"inputvalue"`
 	}
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	// Patch the page with a fat morph directly on action.
 	data, err := p.App.fetchData(signals.InputValue)
 	if err != nil {
@@ -326,7 +317,7 @@ func (p PageExample) POSTButtonClicked(
 	dispatch(EventSomethingHappened) error,
 ) error {
 	// Update everyone that something happened.
-	return dispatch(EventSomethingHappened{WhoCausedIt: session.UserID})
+	return dispatch(EventSomethingHappened{WhoCausedIt: session.UserID()})
 }
 
 func (p PageExample) OnSomethingHappened(
@@ -335,7 +326,7 @@ func (p PageExample) OnSomethingHappened(
 	session Session,
 ) error {
 	// When something happens, patch the page.
-	return sse.PatchElementTempl(updateTemplate())
+	return sse.PatchElement(updateTemplate())
 }
 ```
 
@@ -443,46 +434,41 @@ query struct {
 The above example will automatically synchronize the query parameter `s` with the
 signal `selecteditem`.
 
-#### Parameter: `session Session`
+#### Parameter: `session datapages.Session[Data]`
 
 ```go
-session Session
+session datapages.Session[Data]
 ```
 
 Provides authentication information from cookies.
 
-If used, must be defined at the source package level as:
+The session is read-only: it exposes `UserID()`, `IsGuest()`, `Token()`,
+`IssuedAt()`, `ExpiresAt()` and `Data()`, and returning [`newSession`](#return-value-newsession-datapagesnewsessiondata)
+is the only way to change it. `Data` is the application payload,
+use `struct{}` when the application keeps nothing else in the session.
+
+The type is defined in [datapages.go](datapages.go), which documents each method
+and is the source of truth. It is also rendered on
+[pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#Session).
+
+A client whose `ExpiresAt()` has passed is treated as unauthenticated and its
+session cookie is removed, the zero value never expires.
+
+All handlers of an application must use the same `Data` type, since the server
+holds a single session manager. Declaring an alias keeps the signatures short:
 
 ```go
-type Session struct {
-	UserID   string
-	IssuedAt time.Time
-
-	// Custom metadata.
-	FooBar Bazz `json:"foo-bar"`
+type SessionData struct {
+	Name string
 }
-```
 
-The `Session` type must have `UserID string` and `IssuedAt time.Time` fields.
-`IssuedAt` is required because CSRF protection is bound to the session issuance time.
-Any other field is treated as a custom payload.
+type Session = datapages.Session[SessionData]
 
-#### Parameter: `sessionToken string`
-
-```go
-sessionToken string
-```
-
-Provides the session token from cookies.
-Empty string if the request doesn't contain an authentication cookie.
-
-If used `type Session struct` must be defined at the source package level.
-
-```go
-type Session struct {
-	UserID     string    `json:"sub"` // Required.
-	IssuedAt   time.Time `json:"iat"` // Required.
-	Expiration time.Time `json:"exp"` // Optional.
+func (p PageIndex) GET(r *http.Request, session Session) (
+	body datapages.Component, err error,
+) {
+	_ = session.Data().Name
+	return pageIndex(), nil
 }
 ```
 
@@ -501,25 +487,14 @@ This gives you a handle to patch page elements, execute scripts, etc.
 Datastar generator so handler signatures never depend on the datastar package
 directly.
 
-The interface (from `github.com/romshark/datapages`):
+It provides `Context`, `PatchElement`, `RemoveElement`, `ExecuteScript`,
+`PatchSignals`, `PatchSignalsIfMissing`, `Redirect` and `Prefetch`, alongside the
+`PatchOption` values (`WithSelector`, `WithSelectorID`, `WithMode`) and the
+`PatchMode` constants.
 
-```go
-type SSE interface {
-	// Context returns the context of the SSE stream.
-	Context() context.Context
-	// PatchElementTempl patches (morphs) the elements rendered by c into the DOM.
-	PatchElementTempl(c templ.Component, opts ...PatchOption) error
-	// ExecuteScript runs a script on the client.
-	ExecuteScript(script string) error
-	// MarshalAndPatchSignals updates client-side signals from v.
-	MarshalAndPatchSignals(v any) error
-	// Redirect navigates the client to url.
-	Redirect(url string) error
-}
-```
-
-The `PatchOption` values (`WithSelector`, `WithSelectorID`, `WithModeAppend`, …)
-are provided by the same package, wrapping the corresponding Datastar options.
+The interface is defined in [datapages.go](datapages.go), which documents each
+method and is the source of truth. It is also rendered on
+[pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#SSE).
 
 #### Parameter: `pageCache datapages.PageCacheWriter`
 
@@ -551,7 +526,7 @@ type PageCacheWriter interface {
 	// reports back on the next request. url must come from the generated href
 	// package. The entry is served only while the browser is offline, so it may
 	// differ from the live page.
-	Set(url string, body templ.Component, version uint64)
+	Set(url string, body Component, version uint64)
 
 	// SetShim caches body for url like [Set], but marks it servable while online.
 	// The service worker answers navigations to url from the cache without waiting
@@ -560,7 +535,7 @@ type PageCacheWriter interface {
 	// placeholder rendering of the page, typically its chrome with the slow parts
 	// replaced by skeletons. Since it is shown online too, it must not state
 	// anything that is only true offline.
-	SetShim(url string, body templ.Component, version uint64)
+	SetShim(url string, body Component, version uint64)
 
 	// Clear removes a single url from the cache.
 	Clear(url string)
@@ -598,7 +573,7 @@ func (p PageItem) GET(
 	path struct {
 		ID string `path:"id"`
 	},
-) (body templ.Component, err error) {
+) (body datapages.Component, err error) {
 	item := p.App.item(path.ID)
 	if pageCache.Version() < item.Revision {
 		// Missing, or cached before the item last changed.
@@ -621,10 +596,10 @@ re-caching it.
 // Precaches every ticket page the signed-in user owns.
 func (a *App) POSTPrecache(
 	r *http.Request,
-	session Session,
+	session datapages.Session[Data],
 	pageCache datapages.PageCacheWriter,
 ) error {
-	for _, t := range a.userTickets(r.Context(), session.UserID) {
+	for _, t := range a.userTickets(r.Context(), session.UserID()) {
 		pageCache.Set(href.PageTicket(t.Slug), ticketOffline(t), t.Revision)
 	}
 	return nil
@@ -662,8 +637,8 @@ Subject fields must be defined before any payload fields.
   values is computed at dispatch time and each combination produces a separate publish.
 - `string` — single value; used directly in the subject without looping.
 
-When an event is dispatched, subject field values are appended (in field definition
-order) to the event's base subject, separated by dots.
+When an event is dispatched, subject field values are appended
+(in field definition order) to the event's base subject, separated by dots.
 
 For example, given `// EventNotify is "notify"`:
 
@@ -836,7 +811,7 @@ func (PageChat) POSTSendMessage(
 	},
 	dispatch(EventMessageSent) error,
 ) error {
-	if !isUserAllowedToSendMessages(session.UserID) {
+	if !isUserAllowedToSendMessages(session.UserID()) {
 		return errors.New("unauthorized")
 	}
 	if signals.InputText == "" {
@@ -846,7 +821,7 @@ func (PageChat) POSTSendMessage(
 		SubjectUser:     chatroom.ParticipantIDs,
 		SubjectChatRoom: []string{signals.ChatRoom},
 		Message:               signals.InputText,
-		Sender:                session.UserID,
+		Sender:                session.UserID(),
 	})
 }
 
@@ -861,31 +836,48 @@ func (PageChat) OnMessageSent(
 
 </details>
 
-#### Return Value: `body templ.Component`
+#### Return Value: `body datapages.Component`
 
 Specifies the [Templ](https://templ.guide/) template to use for the contents of the page.
 
-#### Return Value: `head templ.Component`
+#### Return Value: `head datapages.Component`
 
 Specifies the [Templ](https://templ.guide/) template to use for `<head>` tag of the page.
 
-#### Return Value: `redirect string`
-
-Allows for redirecting to different URLs.
-
-#### Return Value: `redirectStatus int`
-
-Specifies the redirect status code.
-Can only be used in combination with `redirect`.
-
-#### Return Value: `newSession Session`
+#### Return Value: `redirect datapages.Redirect`
 
 ```go
-newSession Session
+redirect datapages.Redirect
 ```
 
-Adds response headers to set a session cookie if `newSession.UserID` is not empty,
-otherwise no-op.
+Redirects the client to `redirect.URL` with the status code `redirect.Status`.
+The zero value is a no-op, the client stays on the current page.
+
+```go
+return datapages.Redirect{URL: href.PageIndex()}, nil
+```
+
+`Status` defaults to `302 Found`, any code that isn't a redirect status is
+replaced by it. Requests issued by Datastar actions (carrying the header
+`Datastar-Request: true`) can't follow an HTTP redirect:
+they navigate client-side by assigning `window.location` and ignore `Status`.
+
+The type is defined in [datapages.go](datapages.go),
+which documents each field and is the source of truth. It is also rendered on
+[pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#Redirect).
+
+#### Return Value: `newSession datapages.NewSession[Data]`
+
+```go
+newSession datapages.NewSession[Data]
+```
+
+Signs a client in. Adds response headers to set a session cookie if
+`newSession.UserID` is not empty, otherwise no-op. Datapages generates the
+session token and stamps the issuance time, the handler supplies `UserID`, an
+optional `ExpiresAt` and `Data`. See
+[datapages.go](datapages.go) and
+[pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#NewSession).
 
 #### Return Value: `closeSession bool`
 
@@ -900,34 +892,32 @@ Closes the session and removes any session cookie if `true`, otherwise no-op.
 Regular error values that will be logged and followed by the error handling procedure
 (500 Internal Server Error, or `RecoverError` if defined).
 
-To return a specific HTTP status code instead of 500, use the sentinel errors from
-the generated `httperr` package (`datapagesgen/httperr`):
+To return a specific HTTP status code instead of 500, return one of the sentinel
+errors from `github.com/romshark/datapages`:
 
 ```go
-import "myapp/datapagesgen/httperr"
-
 func (p PageIndex) POSTInput(...) error {
 	if !valid {
-		return httperr.BadRequest // 400
+		return datapages.ErrBadRequest // 400
 	}
 	if !allowed {
 		// 403, preserves original
-		return fmt.Errorf("%w: %w", httperr.Forbidden, errOriginal)
+		return fmt.Errorf("%w: %w", datapages.ErrForbidden, errOriginal)
 	}
 	if !found {
-		return httperr.NotFound // 404
+		return datapages.ErrNotFound // 404
 	}
 	return nil
 }
 ```
 
 Available sentinels:
-- `httperr.BadRequest` — 400
-- `httperr.Forbidden` — 403
-- `httperr.NotFound` — 404
+- `datapages.ErrBadRequest` — 400
+- `datapages.ErrForbidden` — 403
+- `datapages.ErrNotFound` — 404
 
 Return a sentinel directly, or wrap into the original error. When `RecoverError` is
-defined, all errors (including httperr sentinels) are routed through it first. If
+defined, all errors (including the datapages sentinels) are routed through it first. If
 `RecoverError` is not defined or fails, the server responds with the appropriate HTTP
 status code using the standard status text.
 
