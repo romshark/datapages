@@ -1,16 +1,16 @@
 NATS_CONTAINER_NAME := nats-datapages-demo
 NATS_PORT := 4222
 NATS_HTTP_PORT := 8222
-NATS_IMAGE := nats:2.12.7
+NATS_IMAGE := nats:2.14.5
 
 PROM_CONTAINER_NAME := prometheus-datapages-demo
 PROM_PORT := 9091
-PROM_IMAGE := prom/prometheus:v3.11.2
+PROM_IMAGE := prom/prometheus:v3.13.2
 PROM_CONFIG := ./prometheus.yml
 
 GRAFANA_CONTAINER_NAME := grafana-datapages-demo
 GRAFANA_PORT := 3000
-GRAFANA_IMAGE := grafana/grafana:13.0.0
+GRAFANA_IMAGE := grafana/grafana:13.1.3
 
 GRAFANA_DATA := ./grafana/data
 GRAFANA_PROVISIONING := ./grafana/provisioning
