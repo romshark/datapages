@@ -738,8 +738,8 @@ func TestNotifyClosed(t *testing.T) {
 		// Session still exists — fn must not have been called.
 		m := maps.Collect(sm.UserSessions(ctx, userID))
 		require.Len(t, m, 1)
-		for _, s := range m {
-			require.Equal(t, sess, s)
+		for _, rec := range m {
+			require.Equal(t, sess, rec.Data)
 		}
 
 		require.Zero(t, called.Load())
