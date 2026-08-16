@@ -389,14 +389,19 @@ func (s *Server) handleStreamRequest(
 	}
 
 	streamID := s.streamSeq.Add(1)
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
+	// The subscription is established before the response head goes out.
+	// A client learns the stream is open by reading that head and may dispatch
+	// immediately after, which must not reach the broker before this.
 	ctx := r.Context()
 	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
 	if err != nil {
-		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
+		// Nothing has been written yet, so the error can still carry a status.
+		s.httpErrIntern(w, r, nil, "subscribing to message broker", err)
 		return
 	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
 	subC := sub.C()
 	if onOpen != nil {
