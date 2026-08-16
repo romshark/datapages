@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/semver"
 
 	"github.com/romshark/datapages/internal/cmd"
 )
@@ -638,19 +639,83 @@ func chdirTemp(t *testing.T, dir string) {
 	t.Cleanup(func() { _ = os.Chdir(origDir) })
 }
 
+// repoRootDir returns the absolute path of this repository's root.
+// Tests run in internal/cmd, so the root is two levels up.
+func repoRootDir(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
+	require.FileExists(t, filepath.Join(root, "go.mod"))
+	return root
+}
+
+// writeLocalWorkspace puts a go.work in dir that resolves the datapages module
+// to repoRoot. The skeleton init scaffolds is written against the API in this checkout,
+// which is ahead of the latest published release, so a scaffolded project would otherwise
+// fail to type-check against whatever "go mod tidy" pulls from the module proxy.
+//
+// The workspace only affects the build list, so "go mod tidy" still records the
+// published version in go.mod, which is what the assertions look at.
+//
+// dir may not exist yet, and go.work may reference a module that init has yet to create:
+// "go mod init" tolerates a workspace whose use directory has no go.mod,
+// and every later go invocation runs after init created it.
+func writeLocalWorkspace(t *testing.T, dir, repoRoot string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "go.work"),
+		fmt.Appendf(nil, "go %s\n\nuse .\n\nreplace %s => %s\n",
+			workspaceGoVersion(t, repoRoot),
+			"github.com/romshark/datapages", repoRoot),
+		0o644,
+	))
+}
+
+// workspaceGoVersion returns the go directive to put in the generated workspace:
+// the higher of the datapages module's own directive and the toolchain's version.
+// A workspace may not declare an older version than any module it uses,
+// and the two it uses here are this repository and the scaffolded project,
+// which "go mod init" stamps with the toolchain's version.
+func workspaceGoVersion(t *testing.T, repoRoot string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(repoRoot, "go.mod"))
+	require.NoError(t, err)
+	f, err := modfile.Parse("go.mod", data, nil)
+	require.NoError(t, err)
+	require.NotNil(t, f.Go)
+
+	version := f.Go.Version
+	// Unparsable for a devel toolchain, in which case the repository's
+	// directive is the best guess available.
+	toolchain := strings.TrimPrefix(runtime.Version(), "go")
+	if semver.IsValid("v"+toolchain) &&
+		semver.Compare("v"+toolchain, "v"+version) > 0 {
+		version = toolchain
+	}
+	return version
+}
+
 func TestInit(t *testing.T) {
+	repoRoot := repoRootDir(t)
 	for name, tc := range map[string]struct {
-		setup    func(t *testing.T) string // returns dir to chdir into
-		args     []string
-		stdin    string
-		wantCode int
-		wantErr  string
-		check    func(t *testing.T, startDir string, stdout string)
+		setup func(t *testing.T) string // returns dir to chdir into
+		// projectDir is the directory init scaffolds into, relative to the dir
+		// returned by setup. Empty means setup's dir itself.
+		// It's where the workspace redirecting datapages to this checkout is written,
+		// see writeLocalWorkspace.
+		projectDir string
+		args       []string
+		stdin      string
+		wantCode   int
+		wantErr    string
+		check      func(t *testing.T, startDir string, stdout string)
 	}{
 		"non-interactive no git no module": {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
+			projectDir: "myapp",
 			args: []string{
 				"datapages", "init",
 				"-n",
@@ -781,9 +846,10 @@ func TestInit(t *testing.T) {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
-			args:     []string{"datapages", "init"},
-			stdin:    "y\nmyapp\ny\nmymod\nn\n",
-			wantCode: 0,
+			args:       []string{"datapages", "init"},
+			stdin:      "y\nmyapp\ny\nmymod\nn\n",
+			projectDir: "myapp",
+			wantCode:   0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myapp")
 				require.DirExists(t, filepath.Join(projectDir, ".git"))
@@ -832,6 +898,7 @@ func TestInit(t *testing.T) {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
+			projectDir: "custom-app",
 			args: []string{
 				"datapages", "init",
 				"--name", "custom-app",
@@ -855,9 +922,10 @@ func TestInit(t *testing.T) {
 			setup: func(t *testing.T) string {
 				return t.TempDir()
 			},
-			args:     []string{"datapages", "init", "--name", "myproject"},
-			stdin:    "y\nmymod\nn\n",
-			wantCode: 0,
+			projectDir: "myproject",
+			args:       []string{"datapages", "init", "--name", "myproject"},
+			stdin:      "y\nmymod\nn\n",
+			wantCode:   0,
 			check: func(t *testing.T, startDir string, stdout string) {
 				projectDir := filepath.Join(startDir, "myproject")
 				require.DirExists(t, filepath.Join(projectDir, ".git"))
@@ -891,6 +959,7 @@ func TestInit(t *testing.T) {
 			t.Setenv("GOFLAGS", "-e")
 
 			dir := tc.setup(t)
+			writeLocalWorkspace(t, filepath.Join(dir, tc.projectDir), repoRoot)
 			chdirTemp(t, dir)
 
 			var stdin io.Reader
