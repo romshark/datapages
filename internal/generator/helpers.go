@@ -196,14 +196,48 @@ func renderType(t model.Type) string {
 	})
 }
 
-// renderAnonStructType renders an anonymous struct type from its AST expression,
-// preserving struct tags. Uses go/format.Node.
+// renderAnonStructType renders an anonymous struct type, preserving struct tags.
+// It renders from the resolved type rather than the source it was written as.
+// The generated package is not the app package, which leaves a type the app
+// names with nothing to resolve to unless it is written with its package.
 func renderAnonStructType(t model.Type, fset *token.FileSet) string {
-	var buf bytes.Buffer
-	if err := format.Node(&buf, fset, t.TypeExpr); err != nil {
-		return ""
+	st, ok := t.Resolved.Underlying().(*types.Struct)
+	if !ok {
+		// Not a struct. Fall back to the source expression.
+		var buf bytes.Buffer
+		if err := format.Node(&buf, fset, t.TypeExpr); err != nil {
+			return ""
+		}
+		return buf.String()
 	}
-	return buf.String()
+	return renderStruct(st)
+}
+
+// renderStruct writes a struct type with every named type qualified by its package.
+// Anonymous struct fields, which signals nest, recurse.
+func renderStruct(st *types.Struct) string {
+	var b strings.Builder
+	b.WriteString("struct {\n")
+	for i := range st.NumFields() {
+		f := st.Field(i)
+		b.WriteString(f.Name())
+		b.WriteByte(' ')
+		if nested, ok := f.Type().(*types.Struct); ok {
+			b.WriteString(renderStruct(nested))
+		} else {
+			b.WriteString(types.TypeString(f.Type(), func(p *types.Package) string {
+				return p.Name()
+			}))
+		}
+		if tag := st.Tag(i); tag != "" {
+			b.WriteString(" `")
+			b.WriteString(tag)
+			b.WriteByte('`')
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteByte('}')
+	return b.String()
 }
 
 // isNamedType returns true if the type is a named type (not anonymous struct).
@@ -315,6 +349,12 @@ func computeAppUsage(m *model.App) appUsage {
 	var u appUsage
 
 	u.hasSession = m.Session != nil
+
+	// A global Head that takes a session has every page handler read one,
+	// whatever the handler itself asks for.
+	if m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession {
+		u.auth = true
+	}
 
 	if m.RecoverError != nil || m.PageError500 != nil {
 		u.recoverError = true
@@ -624,6 +664,21 @@ func (w *Writer) writeAnyCheck(varName string, fields []structFieldInfo) {
 func isStringType(t types.Type) bool {
 	basic, ok := t.Underlying().(*types.Basic)
 	return ok && basic.Kind() == types.String
+}
+
+// isNamedStringType reports whether t is a string type carrying a name of its own.
+// A string assigned to one, or one assigned to a string, needs a conversion.
+func isNamedStringType(t types.Type) bool {
+	if !isStringType(t) {
+		return false
+	}
+	_, unnamed := t.(*types.Basic)
+	return !unnamed
+}
+
+// qualifiedTypeName writes a type with every package named.
+func qualifiedTypeName(t types.Type) string {
+	return types.TypeString(t, func(p *types.Package) string { return p.Name() })
 }
 
 // isBoolType returns true if the type's underlying type is bool.

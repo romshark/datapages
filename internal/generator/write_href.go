@@ -637,7 +637,7 @@ func (w *Writer) writePathPreConvert(params []pathParamInfo) {
 		w.Byte('\t')
 		w.Raw(p.StrVar)
 		w.Raw(" := ")
-		if p.Type == nil || isStringType(p.Type) {
+		if p.Type == nil || !isFormattedType(p.Type) {
 			w.Rawf("url.PathEscape(%s)", p.Name)
 		} else {
 			// A formatted number or bool carries nothing to escape.
@@ -645,6 +645,13 @@ func (w *Writer) writePathPreConvert(params []pathParamInfo) {
 		}
 		w.Byte('\n')
 	}
+}
+
+// isFormattedType reports whether writeFormatExpr writes an expression for t.
+// A type it does not format reaches a URL as the text the caller passes,
+// which fieldTypeName declares as a string.
+func isFormattedType(t types.Type) bool {
+	return isIntType(t) || isFloatType(t) || isBoolType(t)
 }
 
 // writeFormatExpr emits a strconv.Format* expression for a non-string type.
@@ -685,7 +692,7 @@ func (w *Writer) writeZeroCheck(expr string, t types.Type) {
 		// bool: the expression itself is the condition
 		return
 	}
-	if isStringType(t) {
+	if !isFormattedType(t) {
 		w.Raw(` != ""`)
 	} else {
 		// int, float: != 0
@@ -739,7 +746,7 @@ func (w *Writer) writeQueryPreConvert(lo hrefLocals, fields []structFieldInfo) {
 		w.writeZeroCheck("query."+f.Name, f.Type)
 		w.Raw(" {\n")
 		w.Rawf("\t\t%s = ", lo.queryStr[tag])
-		if isStringType(f.Type) {
+		if !isFormattedType(f.Type) {
 			w.Rawf("url.QueryEscape(query.%s)", f.Name)
 		} else {
 			w.writeFormatExpr("query."+f.Name, f.Type)

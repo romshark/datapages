@@ -1073,11 +1073,12 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 			if ev == nil {
 				continue
 			}
+			// An event can be both, which is what the call site tests for.
+			// Classifying it as one leaves the builder a parameter short.
 			switch {
-			case ev.IsPrivate():
-				hasPrivate = true
-			case ev.IsSignalScoped():
-				hasSignalScoped = true
+			case ev.IsPrivate() || ev.IsSignalScoped():
+				hasPrivate = hasPrivate || ev.IsPrivate()
+				hasSignalScoped = hasSignalScoped || ev.IsSignalScoped()
 			default:
 				hasPublic = true
 			}

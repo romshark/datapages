@@ -762,6 +762,10 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
 	ref := varName + "." + f.Name
 	if isStringType(f.Type) {
+		if isNamedStringType(f.Type) {
+			w.Rawf("string(%s)", ref)
+			return
+		}
 		w.Raw(ref)
 	} else if isIntType(f.Type) {
 		_, unsigned := intTypeParseInfo(f.Type)
@@ -1453,9 +1457,13 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 		if isStringType(f.Type) {
 			w.Raw("\tquery.")
 			w.Raw(f.Name)
-			w.Raw(" = q.Get(")
-			w.writeQuoted(tag)
-			w.Raw(")\n")
+			w.Raw(" = ")
+			w.writeStringConv(f.Type, func() {
+				w.Raw("q.Get(")
+				w.writeQuoted(tag)
+				w.Raw(")")
+			})
+			w.Byte('\n')
 		} else {
 			w.Line(1, "{")
 			w.Raw("\t\tif q := q.Get(")
@@ -1479,9 +1487,13 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
 		if isStringType(f.Type) {
 			w.Raw("\tpath.")
 			w.Raw(f.Name)
-			w.Raw(" = r.PathValue(")
-			w.writeQuoted(tag)
-			w.Raw(")\n")
+			w.Raw(" = ")
+			w.writeStringConv(f.Type, func() {
+				w.Raw("r.PathValue(")
+				w.writeQuoted(tag)
+				w.Raw(")")
+			})
+			w.Byte('\n')
 		} else {
 			w.Line(1, "{")
 			w.Raw("\t\tv := r.PathValue(")
@@ -1610,4 +1622,17 @@ type reflectSignalField struct {
 	FieldName  string
 	Type       types.Type
 	QueryTag   string
+}
+
+// writeStringConv writes inner, converted to t when t is
+// a string type with a name of its own.
+func (w *Writer) writeStringConv(t types.Type, inner func()) {
+	if !isNamedStringType(t) {
+		inner()
+		return
+	}
+	w.Raw(qualifiedTypeName(t))
+	w.Byte('(')
+	inner()
+	w.Byte(')')
 }

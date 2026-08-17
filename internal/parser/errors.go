@@ -180,6 +180,10 @@ var (
 		"subject field must be defined before payload fields",
 	)
 
+	ErrEventSubjectDuplicate = errors.New(
+		"duplicate event subject",
+	)
+
 	ErrEventSubjectDuplicateSignal = errors.New(
 		"multiple event subject fields with the same signal tag",
 	)
@@ -554,6 +558,22 @@ func (e *ErrorEventSubjectAfterPayload) Error() string {
 func (e *ErrorEventSubjectAfterPayload) Unwrap() error {
 	return ErrEventSubjectAfterPayload
 }
+
+// ErrorEventSubjectDuplicate is ErrEventSubjectDuplicate with the two types
+// that share the subject. A subject is the case an inbound event is matched by,
+// which two events cannot share.
+type ErrorEventSubjectDuplicate struct {
+	Subject       string
+	TypeName      string
+	FirstTypeName string
+}
+
+func (e *ErrorEventSubjectDuplicate) Error() string {
+	return fmt.Sprintf("%v: %s declares %q, already declared by %s",
+		ErrEventSubjectDuplicate, e.TypeName, e.Subject, e.FirstTypeName)
+}
+
+func (e *ErrorEventSubjectDuplicate) Unwrap() error { return ErrEventSubjectDuplicate }
 
 // ErrorEventSubjectDuplicateSignal is ErrEventSubjectDuplicateSignal
 // with suggestion context.

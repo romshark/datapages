@@ -79,6 +79,9 @@ type parseCtx struct {
 	// used for validating OnXXX param types.
 	eventTypeNames map[string]struct{}
 
+	// subject -> the event type that claimed it first.
+	eventSubjects map[string]string
+
 	pages     map[string]*model.Page
 	abstracts map[string]*model.AbstractPage
 
@@ -100,6 +103,7 @@ func newParseCtx(pkg *packages.Package) parseCtx {
 		docByType:           map[string]*ast.CommentGroup{},
 		genDocByType:        map[string]*ast.CommentGroup{},
 		eventTypeNames:      map[string]struct{}{},
+		eventSubjects:       map[string]string{},
 		pages:               map[string]*model.Page{},
 		abstracts:           map[string]*model.AbstractPage{},
 		seenEvHandlerByRecv: map[string]map[string]token.Pos{},
@@ -331,6 +335,16 @@ func firstPassEventType(
 			Singular:   sf.Singular,
 		})
 	}
+
+	if first, ok := ctx.eventSubjects[subj]; ok {
+		errs.ErrAt(typePos, &ErrorEventSubjectDuplicate{
+			Subject:       subj,
+			TypeName:      name,
+			FirstTypeName: first,
+		})
+		return
+	}
+	ctx.eventSubjects[subj] = name
 
 	ctx.app.Events = append(ctx.app.Events, &model.Event{
 		Expr:          ts.Name,
