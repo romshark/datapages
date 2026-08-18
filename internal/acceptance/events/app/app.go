@@ -6,6 +6,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -45,22 +46,38 @@ type EventTick struct {
 	N int `json:"n"`
 }
 
+// EventPong is "pong"
+//
+// The second event type of an action that dispatches two.
+type EventPong struct {
+	N int `json:"n"`
+}
+
+// EventStreamGone is "stream.gone"
+//
+// Dispatched from StreamClose, which runs while the stream is being torn down.
+// The publish uses the request context without its cancelation,
+// otherwise the event would never leave the server.
+type EventStreamGone struct {
+	StreamID uint64 `json:"stream_id"`
+}
+
 // EventRoomSaid is "room.said"
 //
 // One subject field bound to a signal. A stream supplies the signal when it
 // connects and receives only what is published for that value.
 type EventRoomSaid struct {
-	SubjectRoom string `signal:"room"`
+	Room datapages.Subject `signal:"room"`
 
 	Text string `json:"text"`
 }
 
 // EventRoomBroadcast is "room.broadcast"
 //
-// The plural form. The dispatched values are expanded into one subject each,
-// so one dispatch reaches several rooms.
+// One dispatch publishes to one subject, so reaching several rooms is a loop
+// over the dispatcher, which leaves the handler in control of the failures.
 type EventRoomBroadcast struct {
-	SubjectRoom []string `signal:"room"`
+	Room datapages.Subject `signal:"room"`
 
 	Text string `json:"text"`
 }
@@ -85,9 +102,25 @@ func (p PageIndex) StreamOpen(r *http.Request, streamID uint64) error {
 	return nil
 }
 
-func (p PageIndex) StreamClose(_ *http.Request, streamID uint64) error {
+func (p PageIndex) StreamClose(
+	_ *http.Request,
+	streamID uint64,
+	dispatchGone datapages.Dispatch[EventStreamGone],
+) error {
 	p.App.record("close(%d)", streamID)
-	return nil
+	return dispatchGone(EventStreamGone{StreamID: streamID})
+}
+
+func (p PageIndex) OnStreamGone(event EventStreamGone, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
+		`<div id="gone">gone %d</div>`, event.StreamID,
+	)))
+}
+
+func (p PageIndex) OnPong(event EventPong, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
+		`<div id="pong">pong %d</div>`, event.N,
+	)))
 }
 
 func (p PageIndex) OnTick(
@@ -107,9 +140,43 @@ func (p PageIndex) POSTTick(
 	signals struct {
 		N int `json:"n"`
 	},
-	dispatch func(EventTick) error,
+	dispatch datapages.Dispatch[EventTick],
 ) error {
 	return dispatch(EventTick{N: signals.N})
+}
+
+// POSTBoth is /both
+//
+// Two dispatchers in one handler, one per event type.
+func (p PageIndex) POSTBoth(
+	_ *http.Request,
+	signals struct {
+		N int `json:"n"`
+	},
+	dispatchTick datapages.Dispatch[EventTick],
+	dispatchPong datapages.Dispatch[EventPong],
+) error {
+	return errors.Join(
+		dispatchTick(EventTick{N: signals.N}),
+		dispatchPong(EventPong{N: signals.N}),
+	)
+}
+
+// POSTCanceled is /canceled
+//
+// Dispatches with a context that is already done.
+// A broker that honors the context refuses the publish,
+// which is how the test tells the option apart from the handler's own context.
+func (p PageIndex) POSTCanceled(
+	r *http.Request,
+	signals struct {
+		N int `json:"n"`
+	},
+	dispatch datapages.Dispatch[EventTick],
+) error {
+	ctx, cancel := context.WithCancel(r.Context())
+	cancel()
+	return dispatch(EventTick{N: signals.N}, datapages.WithDispatchContext(ctx))
 }
 
 // PageLog is /log
@@ -155,9 +222,7 @@ func (p PageRoom) OnRoomSaid(
 	event EventRoomSaid,
 	sse datapages.SSE,
 ) error {
-	return sse.PatchElement(
-		templ.Raw(`<div id="said">` + event.Text + `</div>`),
-	)
+	return sse.PatchElement(templ.Raw(`<div id="said">` + event.Text + `</div>`))
 }
 
 func (p PageRoom) OnRoomBroadcast(
@@ -176,9 +241,11 @@ func (p PageRoom) POSTSay(
 		Room string `json:"room"`
 		Text string `json:"text"`
 	},
-	dispatch func(EventRoomSaid) error,
+	dispatch datapages.Dispatch[EventRoomSaid],
 ) error {
-	return dispatch(EventRoomSaid{SubjectRoom: signals.Room, Text: signals.Text})
+	return dispatch(EventRoomSaid{
+		Room: datapages.Subject(signals.Room), Text: signals.Text,
+	})
 }
 
 // POSTBroadcast is /room/broadcast
@@ -188,10 +255,16 @@ func (p PageRoom) POSTBroadcast(
 		Rooms []string `json:"rooms"`
 		Text  string   `json:"text"`
 	},
-	dispatch func(EventRoomBroadcast) error,
+	dispatch datapages.Dispatch[EventRoomBroadcast],
 ) error {
-	return dispatch(EventRoomBroadcast{
-		SubjectRoom: signals.Rooms,
-		Text:        signals.Text,
-	})
+	for _, room := range signals.Rooms {
+		err := dispatch(EventRoomBroadcast{
+			Room: datapages.Subject(room),
+			Text: signals.Text,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

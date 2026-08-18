@@ -279,7 +279,7 @@ pageCache datapages.PageCacheWriter // optional, see Step 18
 path struct { ID string `path:"id"` } // optional
 query struct { P int `query:"p"` } // optional
 signals struct { V string `json:"v"` } // optional
-dispatch func(EventFoo) error // optional
+dispatchFoo datapages.Dispatch[EventFoo] // optional
 ```
 
 Import `"github.com/romshark/datapages"` for `datapages.SSE` and
@@ -390,23 +390,38 @@ The subject is quoted. `"messaging.sent"` works. `messaging.sent` does not.
 
 ### Dispatch from Actions
 
-Add `dispatch` as the last parameter.
+Add a `datapages.Dispatch[EventXXX]` parameter. Its name is free, the type is
+what makes it a dispatcher.
 
 ```go
 // POSTSend is /chat/send
 func (PageChat) POSTSend(
 	r *http.Request,
-	dispatch func(EventMessageSent) error,
+	dispatch datapages.Dispatch[EventMessageSent],
 ) error {
 	return dispatch(EventMessageSent{Message: "hello"})
 }
 ```
 
-Multiple events:
+One dispatcher publishes one event type, so declare one parameter per type.
+Nothing is atomic across them, hence joining the errors:
 
 ```go
-dispatch func(EventMessageSent, EventUserActive) error
+func (PageChat) POSTSend(
+	r *http.Request,
+	dispatchSent datapages.Dispatch[EventMessageSent],
+	dispatchActive datapages.Dispatch[EventUserActive],
+) error {
+	return errors.Join(
+		dispatchSent(EventMessageSent{Message: "hello"}),
+		dispatchActive(EventUserActive{}),
+	)
+}
 ```
+
+The publish uses the context of the handler that dispatches, so nothing has to be passed.
+Override it with `datapages.WithDispatchContext(ctx)` when the event
+goes out after the handler returned or the publish needs its own deadline.
 
 ### Handle Events on Pages
 
@@ -430,18 +445,65 @@ func (PageChat) OnMessageSent(
 
 ### Subject Fields
 
-Any field named `Subject<Name>` with type `string` or `[]string` is a subject field. Subject fields must appear before any payload fields.
+A field typed as one of the two datapages subject types is a subject field.
+Its name is free. Subject fields must appear before any payload field.
 
-The values of all subject fields are combined as a Cartesian product and appended to the event's base NATS subject. For example, if an event has `SubjectUser` with values `["u1", "u2"]`, the base subject `messaging.sent` becomes `messaging.sent.u1` and `messaging.sent.u2`.
+| type | segment |
+| ---- | ------- |
+| `datapages.Subject` | a segment value |
+| `datapages.SubjectUser` | the ID of the user the event is addressed to |
 
-`SubjectUser` is special: its presence makes the event private (requires a Session type with `Session.UserID` to match connected users).
+Subject field values are appended to the event's base NATS subject in field
+order, separated by dots. Each field carries one value, so one dispatch
+publishes to one subject.
+
+Every value must be a single subject token: non-empty and free of `.`, `*`, `>`
+and whitespace. A dispatch carrying anything else returns an error and publishes
+nothing. Map an email address or any other dotted identifier to an opaque ID
+before it reaches a subject field.
+
+A `datapages.SubjectUser` field makes the event stream require authentication:
+only the client authenticated as that user receives it, which requires a
+Session type. The user ID is a subject value like any other and follows the same
+rule: `newSession` is refused when the ID is not a subject token.
 
 ```go
 // EventDirectMessage is "messaging.direct"
 type EventDirectMessage struct {
-	SubjectUser []string `json:"subject_user"`
+	Recipient datapages.SubjectUser `json:"recipient"`
 
 	Content string `json:"content"`
+}
+```
+
+To reach several users or several rooms, dispatch once per value. The framework
+never fans one dispatch out, so every publish fails on its own and the handler
+decides what to do about it:
+
+```go
+for _, participant := range room.ParticipantIDs {
+	err := dispatch(EventDirectMessage{
+		Recipient: datapages.SubjectUser(participant),
+		Content:   signals.Text,
+	})
+	if err != nil {
+		return err
+	}
+}
+```
+
+Any subject field other than `datapages.SubjectUser` can carry a
+`signal:"<name>"` tag to bind it to a client-side Datastar signal: the stream
+subscribes to the value that signal holds. The client supplies that value, and
+a stream whose signal is not a subject token is refused with 400. A wildcard
+would otherwise let the client subscribe to every instance.
+
+```go
+// EventCalcUpdated is "calc.updated"
+type EventCalcUpdated struct {
+	Instance datapages.Subject `json:"instance" signal:"instance_id"`
+
+	Result float64 `json:"result"`
 }
 ```
 
@@ -480,11 +542,11 @@ to clients, as it could leak information about server activity and connection vo
 `StreamOpen` runs after the SSE stream is established, before any event handler.
 It additionally accepts these optional parameters:
 `sse datapages.SSE`, `session Session`,
-`signals struct{...}`, `dispatch func(...) error`.
+`signals struct{...}`, `datapages.Dispatch[EventXXX]`.
 
 `StreamClose` runs when the stream closes.
 It additionally accepts these optional parameters:
-`session Session`, `dispatch func(...) error`.
+`session Session`, `datapages.Dispatch[EventXXX]`.
 Note: `StreamClose` does **not** accept `sse` or `signals`.
 
 ```go
@@ -496,7 +558,7 @@ func (PageIndex) StreamOpen(
 	signals struct{ // Optional
 		Instance string `json:"instance"`
 	},
-	dispatch func(EventPing) error, // Optional
+	dispatch datapages.Dispatch[EventPing], // Optional
 ) error {
 	// Set up per-tab state, patch signals to the client, etc.
 	return nil
@@ -506,7 +568,7 @@ func (PageIndex) StreamClose(
 	r *http.Request,
 	streamID uint64,
 	session Session, // Optional
-	dispatch func(EventPing) error, // Optional
+	dispatch datapages.Dispatch[EventPing], // Optional
 ) error {
 	// Clean up per-tab state.
 	return nil
@@ -627,13 +689,13 @@ s := datapagesgen.NewServer(a, messageBroker, sessionManager, opts...)
 
 A message broker is always required. It delivers events between pages and handles SSE fan-out.
 
-Use NATS JetStream for the message broker:
+Use core NATS for the message broker:
 
 ```go
-import "github.com/romshark/datapages/modules/msgbroker/natsjs"
+import "github.com/romshark/datapages/modules/msgbroker/natscore"
 ```
 
-An in-memory broker (`github.com/romshark/datapages/modules/msgbroker/inmem`) exists but should only be used in single-instance setups that don't require persistence. Prefer NATS JetStream in most cases.
+An in-memory broker (`github.com/romshark/datapages/modules/msgbroker/inmem`) exists but should only be used in single-instance setups. Prefer core NATS in most cases.
 
 ### Session Manager
 

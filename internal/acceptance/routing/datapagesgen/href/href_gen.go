@@ -64,6 +64,21 @@ func PageConflict(value int32, s_value int32, s_s_value string) string {
 	return b.String()
 }
 
+// PageFiles references /files/{rest...}/{$}
+func PageFiles(rest string) string {
+	s_rest := url.PathEscape(rest)
+	var b strings.Builder
+	b.Grow(
+		len("/files/") +
+			len(s_rest) +
+			len("/"),
+	)
+	b.WriteString("/files/")
+	b.WriteString(s_rest)
+	b.WriteString("/")
+	return b.String()
+}
+
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
 

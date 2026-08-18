@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -60,6 +61,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	validateRequiredHandlers(&ctx, &errs)
 	finalizePages(&ctx)
 	assignSpecialPages(&ctx, &errs)
+	validateRouteConflicts(&ctx, &errs)
 	checkTemplFiles(&ctx, &errs)
 
 	if !ctx.appTypeFound {
@@ -78,6 +80,9 @@ type parseCtx struct {
 	// Set of declared valid EventXXX names (same package),
 	// used for validating OnXXX param types.
 	eventTypeNames map[string]struct{}
+
+	// subject -> the event type that claimed it first.
+	eventSubjects map[string]string
 
 	pages     map[string]*model.Page
 	abstracts map[string]*model.AbstractPage
@@ -100,6 +105,7 @@ func newParseCtx(pkg *packages.Package) parseCtx {
 		docByType:           map[string]*ast.CommentGroup{},
 		genDocByType:        map[string]*ast.CommentGroup{},
 		eventTypeNames:      map[string]struct{}{},
+		eventSubjects:       map[string]string{},
 		pages:               map[string]*model.Page{},
 		abstracts:           map[string]*model.AbstractPage{},
 		seenEvHandlerByRecv: map[string]map[string]token.Pos{},
@@ -322,15 +328,41 @@ func firstPassEventType(
 		)
 	}
 
+	for _, sf := range sfResult.Unexported {
+		errs.ErrAt(
+			ctx.pkg.Fset.Position(sf.Pos),
+			fmt.Errorf("%w: field %s in %s",
+				ErrEventFieldUnexported, sf.FieldName, name),
+		)
+	}
+	for _, sf := range sfResult.Prefixed {
+		errs.ErrAt(
+			ctx.pkg.Fset.Position(sf.Pos),
+			&ErrorEventSubjectPrefixedField{
+				FieldName: sf.FieldName,
+				TypeName:  name,
+			},
+		)
+	}
+
 	var subjectFields []model.SubjectField
 	for _, sf := range sfResult.Fields {
 		subjectFields = append(subjectFields, model.SubjectField{
 			FieldName:  sf.FieldName,
-			Name:       sf.Name,
+			Kind:       sf.Kind,
 			SignalName: sf.SignalName,
-			Singular:   sf.Singular,
 		})
 	}
+
+	if first, ok := ctx.eventSubjects[subj]; ok {
+		errs.ErrAt(typePos, &ErrorEventSubjectDuplicate{
+			Subject:       subj,
+			TypeName:      name,
+			FirstTypeName: first,
+		})
+		return
+	}
+	ctx.eventSubjects[subj] = name
 
 	ctx.app.Events = append(ctx.app.Events, &model.Event{
 		Expr:          ts.Name,
@@ -1264,6 +1296,78 @@ func finalizePages(ctx *parseCtx) {
 	}
 }
 
+// validateRouteConflicts reports routes that cannot live in one router.
+// The generated server registers them on a net/http ServeMux,
+// which rejects a pattern matching the same requests as one already registered.
+// Asking the same mux keeps the answer identical to the one the server gets on startup.
+func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
+	mux := http.NewServeMux()
+	claim := func(method, route string, expr ast.Expr, owner string) {
+		// A route that is not a path is already reported where it is read.
+		if !strings.HasPrefix(route, "/") {
+			return
+		}
+		pattern := method + " " + route
+		if err := registerRoute(mux, pattern); err != nil {
+			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()), &ErrorRouteConflict{
+				Pattern: pattern,
+				Owner:   owner,
+				Reason:  err.Error(),
+			})
+		}
+	}
+
+	for _, p := range ctx.app.Pages {
+		if p.GET != nil && p.GET.Handler != nil {
+			claim(http.MethodGet, p.Route, p.Expr, p.TypeName)
+		}
+		if routeEndsInWildcard(p.Route) && pageHasStream(p) {
+			errs.ErrAt(ctx.pkg.Fset.Position(p.Expr.Pos()),
+				&ErrorRouteWildcardStream{TypeName: p.TypeName, Route: p.Route})
+		}
+		for _, h := range p.Actions {
+			claim(h.HTTPMethod, h.Route, h.Expr, p.TypeName+"."+h.Name)
+		}
+	}
+	for _, h := range ctx.app.Actions {
+		claim(h.HTTPMethod, h.Route, h.Expr, "App."+h.Name)
+	}
+}
+
+// routeEndsInWildcard reports whether the route's last segment is a {name...} wildcard,
+// which matches the rest of the path.
+func routeEndsInWildcard(route string) bool {
+	last := route[strings.LastIndex(route, "/")+1:]
+	return strings.HasPrefix(last, "{") && strings.HasSuffix(last, "...}")
+}
+
+// pageHasStream reports whether the page is served an SSE stream of its own.
+func pageHasStream(p *model.Page) bool {
+	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil
+}
+
+// registerRoute reports what ServeMux says about a pattern.
+// ServeMux says it by panicking, which this turns into a value.
+func registerRoute(mux *http.ServeMux, pattern string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.New(routerReason(fmt.Sprint(r)))
+		}
+	}()
+	mux.HandleFunc(pattern, func(http.ResponseWriter, *http.Request) {})
+	return nil
+}
+
+// routerReason takes the sentence out of a ServeMux panic.
+// A conflict is reported over two lines, the second of which says what the conflict is.
+// The first names the file registering each pattern, which is this file.
+func routerReason(msg string) string {
+	if _, rest, ok := strings.Cut(msg, ":\n"); ok {
+		return strings.TrimSpace(rest)
+	}
+	return strings.TrimSpace(msg)
+}
+
 func assignSpecialPages(ctx *parseCtx, errs *Errors) {
 	ctx.app.PageIndex = ctx.pages["PageIndex"]
 	ctx.app.PageError404 = ctx.pages["PageError404"]
@@ -1429,26 +1533,37 @@ func parseStreamHook(
 			h.InputSignals.Kind = model.InputKindSignals
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
 
-		case paramvalidation.IsDispatchParam(f):
-			if h.InputDispatch != nil {
-				unsupErrs = append(unsupErrs,
-					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
-				continue
-			}
-			eventNames, dispErr := paramvalidation.ValidateDispatchFunc(
+		case paramvalidation.IsDispatchParam(f, info):
+			eventName, dispErr := paramvalidation.ValidateDispatch(
 				f, info, eventTypeNames, recv, fd.Name.Name,
 			)
 			if dispErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), dispErr)
 				continue
 			}
+			if slices.ContainsFunc(h.InputDispatches,
+				func(d *model.InputDispatch) bool {
+					return d.EventTypeName == eventName
+				}) {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
+					&ErrorDispatchDuplicate{
+						Recv:          recv,
+						MethodName:    fd.Name.Name,
+						EventTypeName: eventName,
+					})
+				continue
+			}
 			inp := parseInput(f, info)
 			inp.Kind = model.InputKindDispatch
-			h.InputDispatch = &model.InputDispatch{
-				Input:          inp,
-				EventTypeNames: eventNames,
-			}
+			h.InputDispatches = append(h.InputDispatches, &model.InputDispatch{
+				Input:         inp,
+				EventTypeName: eventName,
+			})
 			h.OrderedInputs = append(h.OrderedInputs, inp)
+
+		case paramvalidation.IsLegacyDispatchParam(f, info):
+			appendPositioned(&unsupErrs, fset, f.Type.Pos(),
+				paramvalidation.LegacyDispatchError(f, recv, fd.Name.Name))
 
 		default:
 			unsupErrs = append(unsupErrs,
@@ -1711,7 +1826,7 @@ func appendPositioned(dst *[]error, fset *token.FileSet, fallback token.Pos, err
 // knownParamNames lists the recognized handler parameter names
 // used for fuzzy matching in unsupportedInputError.
 var knownParamNames = []string{
-	"streamID", "sessionToken", "session", "path", "query", "signals", "dispatch",
+	"streamID", "sessionToken", "session", "path", "query", "signals",
 }
 
 // unsupportedInputError builds an ErrorSignatureUnsupportedInput for a
@@ -1780,7 +1895,6 @@ func typeCandidates(
 	isSession := typecheck.IsSessionType(f.Type, info)
 	isUint64 := typecheck.IsUint64(t)
 	isStruct := isStructType(t)
-	isFunc := isFuncType(t)
 
 	type candidate struct {
 		name     string
@@ -1795,7 +1909,6 @@ func typeCandidates(
 		{"path", h.InputPath != nil, isStruct && !isSession},
 		{"query", h.InputQuery != nil, isStruct && !isSession},
 		{"signals", h.InputSignals != nil, isStruct && !isSession},
-		{"dispatch", h.InputDispatch != nil, isFunc},
 	}
 
 	var names []string
@@ -1809,11 +1922,6 @@ func typeCandidates(
 
 func isStructType(t types.Type) bool {
 	_, ok := t.Underlying().(*types.Struct)
-	return ok
-}
-
-func isFuncType(t types.Type) bool {
-	_, ok := t.Underlying().(*types.Signature)
 	return ok
 }
 
@@ -1855,8 +1963,6 @@ func isParamConsumed(h *model.Handler, name string) bool {
 		return h.InputQuery != nil
 	case "signals":
 		return h.InputSignals != nil
-	case "dispatch":
-		return h.InputDispatch != nil
 	}
 	return false
 }
@@ -2067,26 +2173,37 @@ func parseHandler(
 			h.InputSignals.Kind = model.InputKindSignals
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
 
-		case paramvalidation.IsDispatchParam(f):
-			if h.InputDispatch != nil {
-				unsupErrs = append(unsupErrs,
-					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
-				continue
-			}
-			eventNames, dispErr := paramvalidation.ValidateDispatchFunc(
+		case paramvalidation.IsDispatchParam(f, info):
+			eventName, dispErr := paramvalidation.ValidateDispatch(
 				f, info, eventTypeNames, recv, fd.Name.Name,
 			)
 			if dispErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), dispErr)
 				continue
 			}
+			if slices.ContainsFunc(h.InputDispatches,
+				func(d *model.InputDispatch) bool {
+					return d.EventTypeName == eventName
+				}) {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
+					&ErrorDispatchDuplicate{
+						Recv:          recv,
+						MethodName:    fd.Name.Name,
+						EventTypeName: eventName,
+					})
+				continue
+			}
 			inp := parseInput(f, info)
 			inp.Kind = model.InputKindDispatch
-			h.InputDispatch = &model.InputDispatch{
-				Input:          inp,
-				EventTypeNames: eventNames,
-			}
+			h.InputDispatches = append(h.InputDispatches, &model.InputDispatch{
+				Input:         inp,
+				EventTypeName: eventName,
+			})
 			h.OrderedInputs = append(h.OrderedInputs, inp)
+
+		case paramvalidation.IsLegacyDispatchParam(f, info):
+			appendPositioned(&unsupErrs, fset, f.Type.Pos(),
+				paramvalidation.LegacyDispatchError(f, recv, fd.Name.Name))
 
 		default:
 			unsupErrs = append(unsupErrs,

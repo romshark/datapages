@@ -333,6 +333,38 @@ func beforeAfterLen(options []option) (before, after int) {
 	return
 }
 
+// POSTPageIndexBoth references /both/
+func POSTPageIndexBoth(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/both/')"
+	}
+	var b strings.Builder
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/both/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
+	b.WriteString("@post('/both/'")
+	writeOptions(&b, options)
+	b.WriteByte(')')
+	writeAfter(&b, options)
+	return b.String()
+}
+
+// POSTPageIndexCanceled references /canceled/
+func POSTPageIndexCanceled(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/canceled/')"
+	}
+	var b strings.Builder
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/canceled/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
+	b.WriteString("@post('/canceled/'")
+	writeOptions(&b, options)
+	b.WriteByte(')')
+	writeAfter(&b, options)
+	return b.String()
+}
+
 // POSTPageIndexTick references /tick/
 func POSTPageIndexTick(options ...option) string {
 	if len(options) == 0 {

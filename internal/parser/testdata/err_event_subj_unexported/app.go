@@ -14,18 +14,15 @@ type Session = datapages.Session[struct{}]
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(
-	r *http.Request,
-	session Session,
-) (body datapages.Component, err error) {
-	_ = session
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
-/* ErrEventSubjectAfterPayload: Subject after payload field */
+/* ErrEventFieldUnexported: unexported subject field */
 
 // EventBad is "bad"
 type EventBad struct {
-	Message     string `json:"message"`
-	SubjectUser []string
+	room datapages.Subject
+
+	Data string `json:"data"`
 }

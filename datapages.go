@@ -257,6 +257,145 @@ var (
 	ErrConflict   = errors.New(http.StatusText(http.StatusConflict))   // 409
 )
 
+// Subject is a subject segment of an event. Segment values are appended to the
+// event's base subject in field order at dispatch time, one publish per dispatch:
+//
+//	// EventNotify is "notify"
+//	type EventNotify struct {
+//		Device datapages.Subject `json:"device"`
+//
+//		Text string `json:"text"`
+//	}
+//
+// Dispatching it with Device "mobile" publishes to subject "notify.mobile".
+//
+// A subject field can be bound to a client-side Datastar signal with a signal:"<name>"
+// struct tag, which subscribes the client's stream to the segment value the signal holds.
+//
+// All subject fields must be declared before any payload field.
+type Subject string
+
+// SubjectUser is a subject segment carrying the ID of the user the event is addressed to.
+// Its stream requires authentication and delivers the event only
+// to the client authenticated as that user.
+//
+//	// EventDirectMessage is "dm"
+//	type EventDirectMessage struct {
+//		Recipient datapages.SubjectUser `json:"recipient"`
+//
+//		Text string `json:"text"`
+//	}
+//
+// An application with such an event must define a session type,
+// since the stream subscribes with the ID of the authenticated user.
+// That same binding is why the field must not carry a signal:"<name>" tag.
+//
+// One dispatch publishes to one subject. To address several users,
+// dispatch once per user, which leaves the handler in control of
+// what happens when one of the publishes fails.
+type SubjectUser string
+
+// DispatchConfig is the accumulated configuration of a [Dispatch] call.
+// Generated code assembles it from the [DispatchOption] values the call passes.
+type DispatchConfig struct {
+	// Context controls the publish: how long it may take and when it's given up on.
+	// It defaults to the context of the handler that dispatches,
+	// see [WithDispatchContext].
+	Context context.Context
+}
+
+// DispatchOption configures a single [Dispatch] call.
+type DispatchOption func(*DispatchConfig)
+
+// WithDispatchContext publishes with ctx instead of the handler's context.
+// A nil ctx is a no-op, the default is kept.
+//
+// Handlers rarely need this. The default is the request context in actions and
+// the request context without its cancelation in stream hooks, which run while
+// the stream is being torn down. Reach for it when the event is dispatched
+// after the handler returned, from a goroutine that outlives it,
+// or when the publish needs a deadline of its own:
+//
+//	// POSTInvite is /team/invite
+//	func (p PageTeam) POSTInvite(
+//		r *http.Request,
+//		signals struct {
+//			Email string `json:"email"`
+//		},
+//		dispatchSent datapages.Dispatch[EventInviteSent],
+//	) error {
+//		// The request context ends with the response, before the mail is out.
+//		// This one keeps its values, drops its cancelation and sets a deadline.
+//		ctx, cancel := context.WithTimeout(
+//			context.WithoutCancel(r.Context()), time.Minute,
+//		)
+//		go func() {
+//			defer cancel()
+//			if err := p.App.SendInvite(ctx, signals.Email); err != nil {
+//				slog.Error("sending invite", slog.Any("err", err))
+//				return
+//			}
+//			_ = dispatchSent(
+//				EventInviteSent{Email: signals.Email},
+//				datapages.WithDispatchContext(ctx),
+//			)
+//		}()
+//		return nil // Return OK immediately, dispatch event asynchronously.
+//	}
+func WithDispatchContext(ctx context.Context) DispatchOption {
+	return func(c *DispatchConfig) {
+		if ctx != nil {
+			c.Context = ctx
+		}
+	}
+}
+
+// Dispatch publishes an event. Handlers receive it as a parameter,
+// which may carry any name; the type is what makes it a dispatcher.
+// One dispatcher publishes one event type, so a handler that
+// publishes three declares three, and calls each as often as it needs:
+//
+//	func (p PageChat) POSTSend(
+//		r *http.Request,
+//		signals struct {
+//			RoomID      string   `json:"room_id"`
+//			Text        string   `json:"text"`
+//			Attachments []string `json:"attachments"`
+//		},
+//		dispatchAttached datapages.Dispatch[EventAttachmentAdded],
+//		dispatchWritingStopped datapages.Dispatch[EventWritingStopped],
+//		dispatchSent datapages.Dispatch[EventMessageSent],
+//	) error {
+//		room, err := p.App.Room(r.Context(), signals.RoomID)
+//		if err != nil {
+//			return err
+//		}
+//		var errs []error
+//		for _, name := range signals.Attachments {
+//			errs = append(errs, dispatchAttached(EventAttachmentAdded{
+//				Recipients: room.ParticipantIDs,
+//				Name:       name,
+//			}))
+//		}
+//		return errors.Join(append(errs,
+//			dispatchWritingStopped(EventWritingStopped{
+//				Recipients: room.ParticipantIDs,
+//			}),
+//			dispatchSent(EventMessageSent{
+//				Recipients: room.ParticipantIDs,
+//				Message:    signals.Text,
+//			}),
+//		)...)
+//	}
+//
+// The events go out in the order the handler dispatches them,
+// arguments of one call included. Nothing is atomic across them:
+// a failed publish neither undoes the ones before it nor stops the ones after.
+//
+// The publish uses the context of the handler it's dispatched from,
+// which [WithDispatchContext] overrides.
+type Dispatch[Event any] func(event Event, options ...DispatchOption) error
+
 // Service-worker protocol HTTP request headers.
 const (
 	// HeaderOfflineVersion carries the version the service worker holds for the

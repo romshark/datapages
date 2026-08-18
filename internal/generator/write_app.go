@@ -68,6 +68,15 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	if w.usage.pageCache {
 		w.writePageCache(m)
 	}
+	if w.usage.reflectSignals {
+		w.writeSignalValueHelper()
+	}
+	if w.usage.needsIsSubjectToken() {
+		w.writeIsSubjectToken()
+	}
+	if w.usage.privateStreams {
+		w.writeCheckUserSubject()
+	}
 	if w.usage.auth && w.usage.hasSession {
 		w.writeAppCheckCSRF()
 	}
@@ -119,7 +128,7 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 
 func needsJSON(m *model.App) bool {
 	for _, h := range m.Actions {
-		if h.InputDispatch != nil {
+		if len(h.InputDispatches) > 0 {
 			return true
 		}
 	}
@@ -128,12 +137,12 @@ func needsJSON(m *model.App) bool {
 			return true
 		}
 		for _, h := range []*model.Handler{p.StreamOpen, p.StreamClose} {
-			if h != nil && h.InputDispatch != nil {
+			if h != nil && len(h.InputDispatches) > 0 {
 				return true
 			}
 		}
 		for _, h := range p.Actions {
-			if h.InputDispatch != nil {
+			if len(h.InputDispatches) > 0 {
 				return true
 			}
 		}
@@ -889,6 +898,37 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 `)
 }
 
+// writeIsSubjectToken emits the guard for subject values that reach a subject.
+// On the subscribe side a wildcard or a separator would widen the subscription
+// past the value the client asked for. On the publish side either one produces
+// a subject that no subscription matches.
+func (w *Writer) writeIsSubjectToken() {
+	w.Raw(`
+func isSubjectToken(v string) bool {
+	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
+}
+`)
+}
+
+// writeCheckUserSubject emits the guard for the ID of the session owner,
+// which names the subject a private subscription reads.
+// A wildcard in it would widen that subscription to every user.
+func (w *Writer) writeCheckUserSubject() {
+	w.Raw(`
+func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool) {
+	if isSubjectToken(userID) {
+		return true
+	}
+	s.logErr("subscribing private events", fmt.Errorf(
+		"session user ID %q is not a subject token", userID))
+	http.Error(w,
+		http.StatusText(http.StatusInternalServerError),
+		http.StatusInternalServerError)
+	return false
+}
+`)
+}
+
 func (w *Writer) writeHTTPRedirect() {
 	w.Raw(`
 func httpRedirect(
@@ -992,6 +1032,18 @@ func (s *Server) handleStreamRequest(
 	}
 
 	streamID := s.streamSeq.Add(1)
+
+	// The subscription is established before the response head goes out.
+	// A client learns the stream is open by reading that head and may dispatch
+	// immediately after, which must not reach the broker before this.
+	ctx := r.Context()
+	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
+	if err != nil {
+		// Nothing has been written yet, so the error can still carry a status.
+		s.httpErrIntern(w, r, nil, "subscribing to message broker", err)
+		return
+	}
+
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 `)
 	if w.prometheus {
@@ -1001,13 +1053,6 @@ func (s *Server) handleStreamRequest(
 `)
 	}
 	w.Raw(`
-	ctx := r.Context()
-	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
-	if err != nil {
-		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
-		return
-	}
-
 	subC := sub.C()
 	if onOpen != nil {
 		if err := onOpen(streamID, sse); err != nil {
@@ -1360,11 +1405,12 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 			if ev == nil {
 				continue
 			}
+			// An event can be both, which is what the call site tests for.
+			// Classifying it as one leaves the builder a parameter short.
 			switch {
-			case ev.IsPrivate():
-				hasPrivate = true
-			case ev.IsSignalScoped():
-				hasSignalScoped = true
+			case ev.IsPrivate() || ev.IsSignalScoped():
+				hasPrivate = hasPrivate || ev.IsPrivate()
+				hasSignalScoped = hasSignalScoped || ev.IsSignalScoped()
 			default:
 				hasPublic = true
 			}
@@ -1486,7 +1532,7 @@ func (w *Writer) writeEvUserSubExpr(e *model.Event) {
 	var afterUser strings.Builder
 	foundUser := false
 	for _, sf := range e.SubjectFields {
-		if sf.Name == "User" && !foundUser {
+		if sf.Kind.IsUser() && !foundUser {
 			foundUser = true
 			continue
 		}
@@ -1516,12 +1562,14 @@ func (w *Writer) writeEvSubjSignalFunc(
 	w.Raw("func ")
 	w.Raw(name)
 	w.Raw("(")
-	for i, sf := range signalFields {
+	idents := signalIdents(signalFields)
+	identBySignal := signalIdentMap(signalFields, idents)
+	for i, ident := range idents {
 		if i > 0 {
 			w.Raw(", ")
 		}
 		w.Raw("subj")
-		w.Raw(sf.Name)
+		w.Raw(ident)
 		w.Raw(" string")
 	}
 	w.Raw(") []string {\n")
@@ -1547,7 +1595,7 @@ func (w *Writer) writeEvSubjSignalFunc(
 			continue
 		}
 		w.Raw("\t\t")
-		w.writeEvSignalSubExpr(ev)
+		w.writeEvSignalSubExpr(ev, identBySignal)
 		w.Raw(",\n")
 	}
 
@@ -1556,7 +1604,7 @@ func (w *Writer) writeEvSubjSignalFunc(
 }
 
 // writeEvSubjPrivateSignalFunc emits an evSubjPageXxx function for pages
-// whose events mix private (SubjectUser) and signal-scoped events,
+// whose events mix private (user-addressed) and signal-scoped events,
 // possibly with plain public events. Takes userID plus signal parameters.
 func (w *Writer) writeEvSubjPrivateSignalFunc(
 	p *model.Page, name string,
@@ -1566,9 +1614,11 @@ func (w *Writer) writeEvSubjPrivateSignalFunc(
 	w.Raw("func ")
 	w.Raw(name)
 	w.Raw("(userID string")
-	for _, sf := range signalFields {
+	idents := signalIdents(signalFields)
+	identBySignal := signalIdentMap(signalFields, idents)
+	for _, ident := range idents {
 		w.Raw(", subj")
-		w.Raw(sf.Name)
+		w.Raw(ident)
 		w.Raw(" string")
 	}
 	w.Raw(") []string {\n")
@@ -1622,7 +1672,7 @@ func (w *Writer) writeEvSubjPrivateSignalFunc(
 			continue
 		}
 		w.Raw("\t\t")
-		w.writeEvSignalSubExpr(ev)
+		w.writeEvSignalSubExpr(ev, identBySignal)
 		w.Raw(",\n")
 	}
 
@@ -1631,13 +1681,15 @@ func (w *Writer) writeEvSubjPrivateSignalFunc(
 }
 
 // writeEvSignalSubExpr emits a Go expression that builds a signal-scoped
-// subscription subject. Each signal-tagged subject field uses its
-// corresponding parameter variable; non-signal positions become "*" wildcards.
+// subscription subject. Each signal-tagged subject field uses the parameter
+// its signal is bound to; non-signal positions become "*" wildcards.
 //
-// E.g. for SubjectInstance with signal:"instance_id" and subject "calc.updated":
+// E.g. for a field with signal:"instance_id" and subject "calc.updated":
 //
-//	"calc.updated." + subjInstance
-func (w *Writer) writeEvSignalSubExpr(ev *model.Event) {
+//	"calc.updated." + subjInstanceID
+func (w *Writer) writeEvSignalSubExpr(
+	ev *model.Event, identBySignal map[string]string,
+) {
 	w.writeQuoted(ev.Subject + ".")
 	for i, sf := range ev.SubjectFields {
 		if i > 0 {
@@ -1647,7 +1699,7 @@ func (w *Writer) writeEvSignalSubExpr(ev *model.Event) {
 		}
 		if sf.SignalName != "" {
 			w.Raw("subj")
-			w.Raw(sf.Name)
+			w.Raw(identBySignal[sf.SignalName])
 		} else {
 			w.writeQuoted("*")
 		}
@@ -1751,7 +1803,18 @@ func (s *Server) createSession(
 		w.Raw(w.newSessionType)
 		w.Raw(`,
 ) error {
-	token, err := s.sessionManager.CreateSession(r.Context(), `)
+`)
+		if w.usage.userSubjects {
+			// The ID names the subject every event addressed to
+			// this user is published to and subscribed by.
+			w.Raw(`	if !isSubjectToken(session.UserID) {
+		return fmt.Errorf(
+			"user ID must be a non-empty subject token, received %q",
+			session.UserID)
+	}
+`)
+		}
+		w.Raw(`	token, err := s.sessionManager.CreateSession(r.Context(), `)
 		w.Raw(w.recordType)
 		w.Raw(`{
 		UserID:    session.UserID,
@@ -1930,6 +1993,17 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 			w.Raw("\t\ts.handle")
 			w.Raw(p.TypeName)
 			w.Raw("GET)\n")
+		} else if routeEndsInWildcard(p.Route) {
+			// A {name...} wildcard runs to the end of the path already.
+			// Marking the end after it puts the wildcard in the middle,
+			// which is a pattern net/http will not parse.
+			w.Line(1, "s.mux.HandleFunc(")
+			w.Raw("\t\t\"GET ")
+			w.Raw(p.Route)
+			w.Raw("\",\n")
+			w.Raw("\t\ts.handle")
+			w.Raw(p.TypeName)
+			w.Raw("GET)\n")
 		} else {
 			w.Line(1, "s.mux.HandleFunc(")
 			w.Raw("\t\t\"GET ")
@@ -2052,6 +2126,31 @@ func (w *Writer) writeCSRFOnlyCheck() {
 	w.Line(1, "if _, _, ok := s.auth(w, r); !ok {")
 	w.Line(2, "return")
 	w.Line(1, "}")
+}
+
+// writeSignalValueHelper emits the escaper for values reflected into
+// data-signals attributes.
+func (w *Writer) writeSignalValueHelper() {
+	w.Raw(`
+var signalStringEscaper = strings.NewReplacer(
+	"\\", ` + "`" + `\\` + "`" + `,
+	"'", ` + "`" + `\'` + "`" + `,
+	"\n", ` + "`" + `\n` + "`" + `,
+	"\r", ` + "`" + `\r` + "`" + `,
+)
+
+// writeSignalString writes s as a quoted string inside a data-signals attribute.
+// The browser decodes the attribute before Datastar evaluates it.
+// s is escaped for the JavaScript string first and for the attribute second.
+func writeSignalString(w http.ResponseWriter, s string) {
+	_, _ = io.WriteString(w, html.EscapeString(signalStringEscaper.Replace(s)))
+}
+
+// writeSignalValue writes a number or boolean inside a data-signals attribute.
+func writeSignalValue(w http.ResponseWriter, s string) {
+	_, _ = io.WriteString(w, html.EscapeString(s))
+}
+`)
 }
 
 func (w *Writer) writeAppErrHelpers(m *model.App, appPkg string) {
@@ -2280,10 +2379,8 @@ func (w *Writer) writeHandlerCallAndOutputs(
 		w.writeReadPath(h.InputPath, m)
 	}
 
-	// Dispatch closure.
-	if h.InputDispatch != nil {
-		w.writeDispatchClosure(h.InputDispatch, appPkg)
-	}
+	// Dispatch closures.
+	w.writeDispatchClosures(h, "dispatch", appPkg, "r.Context()")
 
 	// SSE for actions that take it.
 	if h.InputSSE != nil && !isAppLevel {
@@ -2313,7 +2410,7 @@ func (w *Writer) writeMethodCall(
 	outs := handlerOutputVars(h)
 
 	// Build input args in user-defined order.
-	args := handlerInputArgs(h, isAppLevel)
+	args := handlerInputArgs(h, isAppLevel, "dispatch")
 
 	// Build the call expression.
 	receiver := "p"
@@ -2449,128 +2546,103 @@ func (w *Writer) writeMethodCall(
 	}
 }
 
-func (w *Writer) writeDispatchClosure(d *model.InputDispatch, appPkg string) {
-	w.writeDispatchClosureAs("dispatch", d, appPkg, "r.Context()")
+// writeDispatchClosures emits one closure per datapages.Dispatch parameter of
+// the handler. prefix names them apart when a generated function holds the
+// closures of more than one handler, as the stream handler does.
+func (w *Writer) writeDispatchClosures(
+	h *model.Handler, prefix, appPkg, ctxExpr string,
+) {
+	for _, d := range h.InputDispatches {
+		w.writeDispatchClosure(d, prefix, appPkg, ctxExpr)
+	}
 }
 
-func (w *Writer) writeDispatchClosureAs(
-	name string, d *model.InputDispatch, appPkg string, ctxExpr string,
+// writeDispatchClosure emits the closure passed to a handler as its
+// datapages.Dispatch[EventXXX] argument. It marshals the event and publishes it
+// to every subject its subject fields expand into. ctxExpr is the context the
+// publish uses unless the call overrides it with datapages.WithDispatchContext.
+func (w *Writer) writeDispatchClosure(
+	d *model.InputDispatch, prefix, appPkg, ctxExpr string,
 ) {
+	evName := d.EventTypeName
+	ev := w.eventMap[evName]
+
 	w.Line(0, "")
 	w.Raw("\t")
-	w.Raw(name)
+	w.Raw(dispatchVarName(prefix, evName))
 	w.Raw(" := func(\n")
-	for i, evName := range d.EventTypeNames {
-		w.Raw("\t\te")
-		w.Raw(itoa(i + 1))
-		w.Byte(' ')
-		w.Raw(appPkg)
-		w.Byte('.')
-		w.Raw(evName)
-		w.Raw(",\n")
-	}
+	w.Raw("\t\te ")
+	w.Raw(appPkg)
+	w.Byte('.')
+	w.Raw(evName)
+	w.Raw(",\n")
+	w.Line(2, "options ...datapages.DispatchOption,")
 	w.Line(1, ") error {")
 
-	for i, evName := range d.EventTypeNames {
-		idx := itoa(i + 1)
-		ev := w.eventMap[evName]
-		w.Line(2, "{")
-		w.Raw("\t\t\tj, err := json.Marshal(e")
-		w.Raw(idx)
-		w.Raw(")\n")
-		w.Line(3, "if err != nil {")
-		w.Raw("\t\t\t\treturn fmt.Errorf(\"marshaling ")
-		w.Raw(evName)
-		w.Raw(" JSON: %w\", err)\n")
-		w.Line(3, "}")
+	w.Raw("\t\tconf := datapages.DispatchConfig{Context: ")
+	w.Raw(ctxExpr)
+	w.Raw("}\n")
+	w.Line(2, "for _, o := range options {")
+	w.Line(3, "o(&conf)")
+	w.Line(2, "}")
 
-		if ev != nil && ev.HasSubjectFields() {
-			// Nested loops for Cartesian product of []string subject fields.
-			// Singular (string) fields are assigned directly without a loop.
-			baseIndent := 3
-			loopDepth := 0
-			for pi, sf := range ev.SubjectFields {
-				indent := baseIndent + loopDepth
-				for range indent {
-					w.Byte('\t')
-				}
-				if sf.Singular {
-					w.Raw("p")
-					w.Raw(itoa(pi))
-					w.Raw(" := e")
-					w.Raw(idx)
-					w.Byte('.')
-					w.Raw(sf.FieldName)
-					w.Byte('\n')
-				} else {
-					w.Raw("for _, p")
-					w.Raw(itoa(pi))
-					w.Raw(" := range e")
-					w.Raw(idx)
-					w.Byte('.')
-					w.Raw(sf.FieldName)
-					w.Raw(" {\n")
-					loopDepth++
-				}
-			}
-
-			// Build the subject: baseSubject + "." + p0 + "." + p1
-			innerIndent := baseIndent + loopDepth
-			for range innerIndent {
-				w.Byte('\t')
-			}
-			w.Raw("subj := ")
-			w.writeQuoted(ev.Subject + ".")
-			w.Raw(" + p0")
-			for pi := 1; pi < len(ev.SubjectFields); pi++ {
-				w.Raw(" + \".\" + p")
-				w.Raw(itoa(pi))
-			}
-			w.Byte('\n')
-
-			for range innerIndent {
-				w.Byte('\t')
-			}
-			w.Raw("err = s.messageBroker.Publish(")
-			w.Raw(ctxExpr)
-			w.Raw(", s.messageBrokerMetrics, subj, j)\n")
-			for range innerIndent {
-				w.Byte('\t')
-			}
-			w.Raw("if err != nil {\n")
-			for range innerIndent + 1 {
-				w.Byte('\t')
-			}
-			w.Raw("return fmt.Errorf(\"publishing subject %q: %w\", subj, err)\n")
-			for range innerIndent {
-				w.Byte('\t')
-			}
-			w.Raw("}\n")
-
-			// Close loops in reverse order (only for non-singular fields).
-			for pi := len(ev.SubjectFields) - 1; pi >= 0; pi-- {
-				if ev.SubjectFields[pi].Singular {
-					continue
-				}
-				loopDepth--
-				indent := baseIndent + loopDepth
-				for range indent {
-					w.Byte('\t')
-				}
-				w.Raw("}\n")
-			}
-		} else if ev != nil {
-			w.Raw("\t\t\terr = s.messageBroker.Publish(")
-			w.Raw(ctxExpr)
-			w.Raw(", s.messageBrokerMetrics, ")
-			w.Raw(evSubjConst(ev))
-			w.Raw(", j)\n")
-			w.Line(3, "if err != nil {")
-			w.Raw("\t\t\t\treturn fmt.Errorf(\"publishing subject %q: %w\", ")
-			w.Raw(evSubjConst(ev))
-			w.Raw(", err)\n")
-			w.Line(3, "}")
+	if ev != nil && ev.HasSubjectFields() {
+		// Guard before any work: a value carrying a separator or a wildcard
+		// makes a subject of a different shape,
+		// which every subscription then misses in silence.
+		for _, sf := range ev.SubjectFields {
+			w.Raw("\t\tif !isSubjectToken(string(e.")
+			w.Raw(sf.FieldName)
+			w.Raw(")) {\n")
+			w.Line(3, "return fmt.Errorf(")
+			w.Raw("\t\t\t\t\"")
+			w.Raw(evName)
+			w.Byte('.')
+			w.Raw(sf.FieldName)
+			w.Raw(" must be a non-empty subject token, received %q\",\n")
+			w.Raw("\t\t\t\te.")
+			w.Raw(sf.FieldName)
+			w.Raw(")\n")
+			w.Line(2, "}")
 		}
+	}
+
+	w.Line(2, "j, err := json.Marshal(e)")
+	w.Line(2, "if err != nil {")
+	w.Raw("\t\t\treturn fmt.Errorf(\"marshaling ")
+	w.Raw(evName)
+	w.Raw(" JSON: %w\", err)\n")
+	w.Line(2, "}")
+
+	if ev != nil && ev.HasSubjectFields() {
+		// Every segment carries one value, so the subject is a plain
+		// concatenation of the base subject and the fields, in field order.
+		w.Raw("\t\tsubj := ")
+		w.writeQuoted(ev.Subject + ".")
+		for i, sf := range ev.SubjectFields {
+			if i > 0 {
+				w.Raw(` + "." + `)
+			} else {
+				w.Raw(" + ")
+			}
+			w.Raw("string(e.")
+			w.Raw(sf.FieldName)
+			w.Byte(')')
+		}
+		w.Byte('\n')
+		w.Raw("\t\terr = s.messageBroker.Publish(")
+		w.Raw("conf.Context, s.messageBrokerMetrics, subj, j)\n")
+		w.Line(2, "if err != nil {")
+		w.Raw("\t\t\treturn fmt.Errorf(\"publishing subject %q: %w\", subj, err)\n")
+		w.Line(2, "}")
+	} else if ev != nil {
+		w.Raw("\t\terr = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, ")
+		w.Raw(evSubjConst(ev))
+		w.Raw(", j)\n")
+		w.Line(2, "if err != nil {")
+		w.Raw("\t\t\treturn fmt.Errorf(\"publishing subject %q: %w\", ")
+		w.Raw(evSubjConst(ev))
+		w.Raw(", err)\n")
 		w.Line(2, "}")
 	}
 
@@ -2646,7 +2718,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	}
 
 	// Build input args in user-defined order.
-	args := handlerInputArgs(h, false)
+	args := handlerInputArgs(h, false, "dispatch")
 
 	w.Byte('\t')
 	w.writeCommaSep(outs)

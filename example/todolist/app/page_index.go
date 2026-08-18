@@ -83,7 +83,7 @@ func (p PageIndex) POSTCreate(
 		NewDesc  string `json:"newDesc"`
 		NewDue   string `json:"newDue"`
 	},
-	dispatch func(EventTodoUpdated) error,
+	dispatch datapages.Dispatch[EventTodoUpdated],
 ) error {
 	if _, err := p.App.verifyTabID(signals.TabID); err != nil {
 		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)

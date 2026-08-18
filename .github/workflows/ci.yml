@@ -106,6 +106,14 @@ jobs:
         working-directory: ${{ matrix.project.path }}
         run: go get -u -t ./...
 
+      # Every sub-module replaces the root module.
+      # Upgrading root's requirements changes what those sub-modules select.
+      # Without a tidy their go.sum files lack the newly selected versions and
+      # the root tests that parse them fail to load their packages.
+      - name: Tidy sub-modules against the upgraded root
+        if: matrix.project.name == 'root' && matrix.deps == 'latest'
+        run: mage modTidy
+
       - name: Install templ
         if: matrix.project.name == 'root'
         run: go install github.com/a-h/templ/cmd/templ@v0.3.1020

@@ -218,7 +218,7 @@ func Vulncheck() error {
 	})
 }
 
-// ModUpdate updates dependencies for all modules.
+// ModUpdate updates dependencies for all modules, then tidies them.
 func ModUpdate() error {
 	if err := run("go", "get", "-u", "-t", "./..."); err != nil {
 		return err
@@ -231,7 +231,7 @@ func ModUpdate() error {
 			return err
 		}
 	}
-	return nil
+	return ModTidy()
 }
 
 // ModTidy tidies all modules in the repo.

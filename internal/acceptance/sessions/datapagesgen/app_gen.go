@@ -332,6 +332,22 @@ func (s sseWrapper) Prefetch(urls ...string) error {
 	return s.gen.Prefetch(urls...)
 }
 
+func isSubjectToken(v string) bool {
+	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
+}
+
+func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool) {
+	if isSubjectToken(userID) {
+		return true
+	}
+	s.logErr("subscribing private events", fmt.Errorf(
+		"session user ID %q is not a subject token", userID))
+	http.Error(w,
+		http.StatusText(http.StatusInternalServerError),
+		http.StatusInternalServerError)
+	return false
+}
+
 func (s *Server) checkCSRF(
 	w http.ResponseWriter, r *http.Request, sess datapages.Session[app.SessionData],
 ) (ok bool) {
@@ -469,14 +485,19 @@ func (s *Server) handleStreamRequest(
 	}
 
 	streamID := s.streamSeq.Add(1)
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
+	// The subscription is established before the response head goes out.
+	// A client learns the stream is open by reading that head and may dispatch
+	// immediately after, which must not reach the broker before this.
 	ctx := r.Context()
 	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
 	if err != nil {
-		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
+		// Nothing has been written yet, so the error can still carry a status.
+		s.httpErrIntern(w, r, nil, "subscribing to message broker", err)
 		return
 	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
 	subC := sub.C()
 	if onOpen != nil {
@@ -746,6 +767,11 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 func (s *Server) createSession(
 	w http.ResponseWriter, r *http.Request, session datapages.NewSession[app.SessionData],
 ) error {
+	if !isSubjectToken(session.UserID) {
+		return fmt.Errorf(
+			"user ID must be a non-empty subject token, received %q",
+			session.UserID)
+	}
 	token, err := s.sessionManager.CreateSession(r.Context(), sessmanager.Record[app.SessionData]{
 		UserID:    session.UserID,
 		IssuedAt:  time.Now(),
@@ -953,6 +979,9 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, target, http.StatusSeeOther)
 		return
 	}
+	if !s.checkUserSubject(w, sess.UserID()) {
+		return
+	}
 
 	p := app.PageIndex{
 		App: s.app,
@@ -1145,28 +1174,34 @@ func (s *Server) handlePageLoginPOSTNotify(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventNotice,
+	dispatchNotice := func(
+		e app.EventNotice,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventNotice JSON: %w", err)
-			}
-			for _, p0 := range e1.SubjectUser {
-				subj := "notice." + p0
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		if !isSubjectToken(string(e.Recipient)) {
+			return fmt.Errorf(
+				"EventNotice.Recipient must be a non-empty subject token, received %q",
+				e.Recipient)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventNotice JSON: %w", err)
+		}
+		subj := "notice." + string(e.Recipient)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
 	p := app.PageLogin{
 		App: s.app,
 	}
-	err := p.POSTNotify(r, signals, dispatch)
+	err := p.POSTNotify(r, signals, dispatchNotice)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.Notify", err)
 		return
@@ -1193,25 +1228,28 @@ func (s *Server) handlePageLoginPOSTBroadcast(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventBroadcast,
+	dispatchBroadcast := func(
+		e app.EventBroadcast,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventBroadcast JSON: %w", err)
-			}
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, EvSubjBroadcast, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", EvSubjBroadcast, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventBroadcast JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjBroadcast, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjBroadcast, err)
 		}
 		return nil
 	}
 	p := app.PageLogin{
 		App: s.app,
 	}
-	err := p.POSTBroadcast(r, signals, dispatch)
+	err := p.POSTBroadcast(r, signals, dispatchBroadcast)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.Broadcast", err)
 		return

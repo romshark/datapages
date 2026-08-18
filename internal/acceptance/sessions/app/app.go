@@ -45,10 +45,10 @@ type Session = datapages.Session[SessionData]
 
 // EventNotice is "notice"
 //
-// SubjectUser makes the event private.
+// datapages.SubjectUser makes the event private.
 // It is delivered to the streams of the named users only.
 type EventNotice struct {
-	SubjectUser []string
+	Recipient datapages.SubjectUser
 
 	Text string `json:"text"`
 }
@@ -171,11 +171,11 @@ func (p PageLogin) POSTNotify(
 		User string `json:"user"`
 		Text string `json:"text"`
 	},
-	dispatch func(EventNotice) error,
+	dispatch datapages.Dispatch[EventNotice],
 ) error {
 	return dispatch(EventNotice{
-		SubjectUser: []string{signals.User},
-		Text:        signals.Text,
+		Recipient: datapages.SubjectUser(signals.User),
+		Text:      signals.Text,
 	})
 }
 
@@ -187,7 +187,7 @@ func (p PageLogin) POSTBroadcast(
 	signals struct {
 		Text string `json:"text"`
 	},
-	dispatch func(EventBroadcast) error,
+	dispatch datapages.Dispatch[EventBroadcast],
 ) error {
 	return dispatch(EventBroadcast{Text: signals.Text})
 }

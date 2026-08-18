@@ -676,17 +676,22 @@ func (s *Server) handleStreamRequest(
 	}
 
 	streamID := s.streamSeq.Add(1)
+
+	// The subscription is established before the response head goes out.
+	// A client learns the stream is open by reading that head and may dispatch
+	// immediately after, which must not reach the broker before this.
+	ctx := r.Context()
+	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
+	if err != nil {
+		// Nothing has been written yet, so the error can still carry a status.
+		s.httpErrIntern(w, r, nil, "subscribing to message broker", err)
+		return
+	}
+
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	mSSEConnections.Inc()
 	defer mSSEConnections.Dec()
 	start := time.Now()
-
-	ctx := r.Context()
-	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
-	if err != nil {
-		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
-		return
-	}
 
 	subC := sub.C()
 	if onOpen != nil {
@@ -968,25 +973,28 @@ func (s *Server) handlePageIndexPOSTAnnounce(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventAnnounced,
+	dispatchAnnounced := func(
+		e app.EventAnnounced,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventAnnounced JSON: %w", err)
-			}
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, EvSubjAnnounced, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", EvSubjAnnounced, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventAnnounced JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjAnnounced, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjAnnounced, err)
 		}
 		return nil
 	}
 	p := app.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTAnnounce(r, signals, dispatch)
+	err := p.POSTAnnounce(r, signals, dispatchAnnounced)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Announce", err)
 		return

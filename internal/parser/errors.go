@@ -121,10 +121,8 @@ var (
 	ErrSignalsFieldDuplicateTag = paramvalidation.ErrSignalsFieldDuplicateTag
 	ErrSignalsFieldEmptyTag     = paramvalidation.ErrSignalsFieldEmptyTag
 
-	ErrDispatchParamNotFunc    = paramvalidation.ErrDispatchParamNotFunc
-	ErrDispatchMustReturnError = paramvalidation.ErrDispatchMustReturnError
-	ErrDispatchNoParams        = paramvalidation.ErrDispatchNoParams
-	ErrDispatchParamNotEvent   = paramvalidation.ErrDispatchParamNotEvent
+	ErrDispatchParamNotEvent = paramvalidation.ErrDispatchParamNotEvent
+	ErrDispatchParamLegacy   = paramvalidation.ErrDispatchParamLegacy
 
 	ErrSessionParamNotSessionType = errors.New(
 		"session parameter type must be datapages.Session[Data]",
@@ -173,11 +171,21 @@ var (
 	)
 
 	ErrEventSubjectUserNoSession = errors.New(
-		"event with SubjectUser requires a Session type",
+		"event addressing users requires a Session type",
 	)
 
 	ErrEventSubjectAfterPayload = errors.New(
 		"subject field must be defined before payload fields",
+	)
+
+	ErrRouteConflict = errors.New("conflicting route")
+
+	ErrRouteWildcardStream = errors.New(
+		"page route ending in a wildcard cannot have a stream",
+	)
+
+	ErrEventSubjectDuplicate = errors.New(
+		"duplicate event subject",
 	)
 
 	ErrEventSubjectDuplicateSignal = errors.New(
@@ -185,7 +193,15 @@ var (
 	)
 
 	ErrEventSubjectUserSignal = errors.New(
-		"SubjectUser must not have a signal tag",
+		"user-addressed subject field must not have a signal tag",
+	)
+
+	ErrDispatchDuplicate = errors.New(
+		"multiple dispatchers for the same event type",
+	)
+
+	ErrEventSubjectPrefixedField = errors.New(
+		"event field named like a subject field isn't typed as one",
 	)
 
 	ErrEventSubjectSignalInvalid = errors.New(
@@ -555,6 +571,51 @@ func (e *ErrorEventSubjectAfterPayload) Unwrap() error {
 	return ErrEventSubjectAfterPayload
 }
 
+// ErrorRouteConflict is ErrRouteConflict with the pattern that could not be
+// registered and what the router said about it.
+type ErrorRouteConflict struct {
+	Pattern string
+	Owner   string
+	Reason  string
+}
+
+func (e *ErrorRouteConflict) Error() string {
+	return fmt.Sprintf("%v: %s cannot serve %q: %s",
+		ErrRouteConflict, e.Owner, e.Pattern, e.Reason)
+}
+
+func (e *ErrorRouteConflict) Unwrap() error { return ErrRouteConflict }
+
+// ErrorRouteWildcardStream is ErrRouteWildcardStream with the page.
+// The stream endpoint sits under the page route. A {name...} wildcard matches
+// the rest of the path, which leaves nothing for the endpoint to sit in.
+type ErrorRouteWildcardStream struct {
+	TypeName string
+	Route    string
+}
+
+func (e *ErrorRouteWildcardStream) Error() string {
+	return fmt.Sprintf("%v: %s is %q", ErrRouteWildcardStream, e.TypeName, e.Route)
+}
+
+func (e *ErrorRouteWildcardStream) Unwrap() error { return ErrRouteWildcardStream }
+
+// ErrorEventSubjectDuplicate is ErrEventSubjectDuplicate with the two types
+// that share the subject. A subject is the case an inbound event is matched by,
+// which two events cannot share.
+type ErrorEventSubjectDuplicate struct {
+	Subject       string
+	TypeName      string
+	FirstTypeName string
+}
+
+func (e *ErrorEventSubjectDuplicate) Error() string {
+	return fmt.Sprintf("%v: %s declares %q, already declared by %s",
+		ErrEventSubjectDuplicate, e.TypeName, e.Subject, e.FirstTypeName)
+}
+
+func (e *ErrorEventSubjectDuplicate) Unwrap() error { return ErrEventSubjectDuplicate }
+
 // ErrorEventSubjectDuplicateSignal is ErrEventSubjectDuplicateSignal
 // with suggestion context.
 type ErrorEventSubjectDuplicateSignal struct {
@@ -585,6 +646,36 @@ func (e *ErrorEventSubjectUserSignal) Error() string {
 
 func (e *ErrorEventSubjectUserSignal) Unwrap() error {
 	return ErrEventSubjectUserSignal
+}
+
+// ErrorDispatchDuplicate is ErrDispatchDuplicate with the handler context.
+type ErrorDispatchDuplicate struct {
+	Recv          string
+	MethodName    string
+	EventTypeName string
+}
+
+func (e *ErrorDispatchDuplicate) Error() string {
+	return fmt.Sprintf("%v: %s in %s.%s",
+		ErrDispatchDuplicate, e.EventTypeName, e.Recv, e.MethodName)
+}
+
+func (e *ErrorDispatchDuplicate) Unwrap() error { return ErrDispatchDuplicate }
+
+// ErrorEventSubjectPrefixedField is ErrEventSubjectPrefixedField
+// with the field and type context.
+type ErrorEventSubjectPrefixedField struct {
+	FieldName string
+	TypeName  string
+}
+
+func (e *ErrorEventSubjectPrefixedField) Error() string {
+	return fmt.Sprintf("%v: field %s in %s",
+		ErrEventSubjectPrefixedField, e.FieldName, e.TypeName)
+}
+
+func (e *ErrorEventSubjectPrefixedField) Unwrap() error {
+	return ErrEventSubjectPrefixedField
 }
 
 // ErrorEventSubjectSignalInvalid is ErrEventSubjectSignalInvalid

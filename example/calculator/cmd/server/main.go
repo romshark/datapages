@@ -13,7 +13,7 @@ import (
 
 	"github.com/romshark/datapages/example/calculator/app"
 	"github.com/romshark/datapages/example/calculator/datapagesgen"
-	"github.com/romshark/datapages/modules/msgbroker/natsjs"
+	"github.com/romshark/datapages/modules/msgbroker/natscore"
 )
 
 func main() {
@@ -37,13 +37,7 @@ func main() {
 	}
 	defer nc.Close()
 
-	msgBroker, err := natsjs.New(nc, natsjs.Config{
-		StreamConfig: &nats.StreamConfig{Name: "calculator"},
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: initializing NATS broker: %v\n", err)
-		os.Exit(1)
-	}
+	msgBroker := natscore.New(nc, natscore.Config{})
 
 	a := app.NewApp(sha256.Sum256([]byte(hmacSecret)))
 	s := datapagesgen.NewServer(

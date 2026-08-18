@@ -18,7 +18,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/getsignals/app"
 	"github.com/romshark/datapages/internal/acceptance/getsignals/datapagesgen"
 	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
-	"github.com/romshark/datapages/modules/msgbroker/natsjs"
+	"github.com/romshark/datapages/modules/msgbroker/natscore"
 	"github.com/romshark/datapages/modules/sessmanager/natskv"
 	"github.com/romshark/datapages/modules/sesstokgen"
 )
@@ -115,7 +115,7 @@ func withCSRFProtection(opts *[]datapagesgen.ServerOption) {
 }
 
 func connectNATS() (
-	*natsjs.MessageBroker,
+	*natscore.MessageBroker,
 	*natskv.SessionManager[struct{}],
 ) {
 	u := os.Getenv("NATS_URL")
@@ -151,16 +151,7 @@ func connectNATS() (
 		os.Exit(1)
 	}
 
-	messageBroker, err := natsjs.New(conn, natsjs.Config{
-		StreamConfig: &nats.StreamConfig{
-			Name:    "DATAPAGES",
-			Storage: nats.MemoryStorage,
-		},
-	})
-	if err != nil {
-		slog.Error("initializing message broker", slog.Any("err", err))
-		os.Exit(1)
-	}
+	messageBroker := natscore.New(conn, natscore.Config{})
 
 	return messageBroker, sessionManager
 }

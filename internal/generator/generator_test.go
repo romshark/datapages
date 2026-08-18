@@ -51,7 +51,7 @@ func TestExamplesAreUpToDate(t *testing.T) {
 
 			dir := filepath.Join("..", "..", "example", name)
 			app, errs := parser.Parse(filepath.Join(dir, "app"))
-			require.Zero(t, errs.Len(), "unexpected parser errors: %s", errs.Error())
+			require.Zero(t, errs.Len(), "unexpected parser errors:\n%s", listErrors(errs))
 			require.NotNil(t, app, "parser returned nil model")
 
 			modPath := modulePathOf(t, dir)
@@ -69,6 +69,16 @@ func TestExamplesAreUpToDate(t *testing.T) {
 			compareTrees(t, got, filepath.Join(dir, "datapagesgen"))
 		})
 	}
+}
+
+func listErrors(errs parser.Errors) string {
+	var b strings.Builder
+	for _, err := range errs.All() {
+		b.WriteString("  ")
+		b.WriteString(err.Error())
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // modulePathOf reads the module path out of a go.mod.

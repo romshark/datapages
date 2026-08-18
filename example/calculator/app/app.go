@@ -17,7 +17,7 @@ import (
 
 // EventCalcUpdated is "calc.updated"
 type EventCalcUpdated struct {
-	SubjectInstanceID string `json:"subject_id" signal:"instance_id"`
+	InstanceID datapages.Subject `json:"instance_id" signal:"instance_id"`
 
 	Input string `json:"input"`
 	Fresh bool   `json:"fresh"`
@@ -95,7 +95,7 @@ func (p PageIndex) GET(r *http.Request) (
 // POSTInput is /input/{$}
 func (p PageIndex) POSTInput(
 	r *http.Request,
-	dispatch func(EventCalcUpdated) error,
+	dispatch datapages.Dispatch[EventCalcUpdated],
 	query struct {
 		Btn int    `query:"btn"`
 		Num string `query:"num"`
@@ -119,9 +119,9 @@ func (p PageIndex) POSTInput(
 			input = ""
 		}
 		return dispatch(EventCalcUpdated{
-			SubjectInstanceID: signals.InstanceID,
-			Input:             input + query.Num,
-			Fresh:             false,
+			InstanceID: datapages.Subject(signals.InstanceID),
+			Input:      input + query.Num,
+			Fresh:      false,
 		})
 	}
 	btn := calc.CalcButton(query.Btn)
@@ -130,9 +130,9 @@ func (p PageIndex) POSTInput(
 	}
 	input, fresh := calc.Press(signals.Input, signals.Fresh, btn)
 	return dispatch(EventCalcUpdated{
-		SubjectInstanceID: signals.InstanceID,
-		Input:             input,
-		Fresh:             fresh,
+		InstanceID: datapages.Subject(signals.InstanceID),
+		Input:      input,
+		Fresh:      fresh,
 	})
 }
 
@@ -141,6 +141,6 @@ func (PageIndex) OnCalcUpdated(
 	sse datapages.SSE,
 ) error {
 	return sse.PatchElement(
-		pageCalculator(event.Input, event.Fresh, event.SubjectInstanceID),
+		pageCalculator(event.Input, event.Fresh, string(event.InstanceID)),
 	)
 }

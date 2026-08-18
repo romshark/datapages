@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -351,6 +352,25 @@ func (s sseWrapper) Prefetch(urls ...string) error {
 	return s.gen.Prefetch(urls...)
 }
 
+var signalStringEscaper = strings.NewReplacer(
+	"\\", `\\`,
+	"'", `\'`,
+	"\n", `\n`,
+	"\r", `\r`,
+)
+
+// writeSignalString writes s as a quoted string inside a data-signals attribute.
+// The browser decodes the attribute before Datastar evaluates it.
+// s is escaped for the JavaScript string first and for the attribute second.
+func writeSignalString(w http.ResponseWriter, s string) {
+	_, _ = io.WriteString(w, html.EscapeString(signalStringEscaper.Replace(s)))
+}
+
+// writeSignalValue writes a number or boolean inside a data-signals attribute.
+func writeSignalValue(w http.ResponseWriter, s string) {
+	_, _ = io.WriteString(w, html.EscapeString(s))
+}
+
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -419,14 +439,19 @@ func (s *Server) handleStreamRequest(
 	}
 
 	streamID := s.streamSeq.Add(1)
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
+	// The subscription is established before the response head goes out.
+	// A client learns the stream is open by reading that head and may dispatch
+	// immediately after, which must not reach the broker before this.
 	ctx := r.Context()
 	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
 	if err != nil {
-		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
+		// Nothing has been written yet, so the error can still carry a status.
+		s.httpErrIntern(w, r, nil, "subscribing to message broker", err)
 		return
 	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
 	subC := sub.C()
 	if onOpen != nil {
@@ -690,22 +715,25 @@ func (s *Server) handlePUTEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	path.ID = r.PathValue("id")
 
-	dispatch := func(
-		e1 app.EventTodoUpdated,
+	dispatchTodoUpdated := func(
+		e app.EventTodoUpdated,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
-			}
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, EvSubjTodoUpdated, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTodoUpdated, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
 		}
 		return nil
 	}
-	err := s.app.PUTEdit(r, path, query, signals, dispatch)
+	err := s.app.PUTEdit(r, path, query, signals, dispatchTodoUpdated)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Edit", err)
 		return
@@ -764,15 +792,15 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 
 		_, _ = io.WriteString(w, `data-signals:search="'`)
-		_, _ = io.WriteString(w, query.Search)
+		writeSignalString(w, query.Search)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:filter="'`)
-		_, _ = io.WriteString(w, query.Filter)
+		writeSignalString(w, query.Filter)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:sort="'`)
-		_, _ = io.WriteString(w, query.Sort)
+		writeSignalString(w, query.Sort)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
@@ -863,25 +891,28 @@ func (s *Server) handlePageIndexPOSTCreate(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventTodoUpdated,
+	dispatchTodoUpdated := func(
+		e app.EventTodoUpdated,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
-			}
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, EvSubjTodoUpdated, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTodoUpdated, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
 		}
 		return nil
 	}
 	p := app.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTCreate(r, signals, dispatch)
+	err := p.POSTCreate(r, signals, dispatchTodoUpdated)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Create", err)
 		return
@@ -1023,25 +1054,28 @@ func (s *Server) handlePageItemDELETEItem(
 	}
 	path.ID = r.PathValue("id")
 
-	dispatch := func(
-		e1 app.EventTodoUpdated,
+	dispatchTodoUpdated := func(
+		e app.EventTodoUpdated,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
-			}
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, EvSubjTodoUpdated, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTodoUpdated, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
 		}
 		return nil
 	}
 	p := app.PageItem{
 		App: s.app,
 	}
-	redirect, err := p.DELETEItem(r, path, signals, dispatch)
+	redirect, err := p.DELETEItem(r, path, signals, dispatchTodoUpdated)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageItem.Item", err)
 		return

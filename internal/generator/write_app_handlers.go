@@ -123,13 +123,19 @@ func handlerOutputVars(h *model.Handler) []string {
 }
 
 // handlerInputArgs builds the argument list for a handler call
-// in the order defined by h.OrderedInputs.
-func handlerInputArgs(h *model.Handler, skipSSE bool) []string {
+// in the order defined by h.OrderedInputs. dispatchPrefix names the dispatch
+// closures the call passes, see dispatchVarName.
+func handlerInputArgs(
+	h *model.Handler, skipSSE bool, dispatchPrefix string,
+) []string {
 	if len(h.OrderedInputs) > 0 {
 		args := make([]string, 0, len(h.OrderedInputs))
 		for _, inp := range h.OrderedInputs {
-			v := handlerArgVar(inp.Kind, skipSSE)
-			if v != "" {
+			if inp.Kind == model.InputKindDispatch {
+				args = append(args, dispatchArgVar(h, inp, dispatchPrefix))
+				continue
+			}
+			if v := handlerArgVar(inp.Kind, skipSSE); v != "" {
 				args = append(args, v)
 			}
 		}
@@ -158,31 +164,20 @@ func handlerInputArgs(h *model.Handler, skipSSE bool) []string {
 	if h.InputSignals != nil {
 		args = append(args, "signals")
 	}
-	if h.InputDispatch != nil {
-		args = append(args, "dispatch")
+	for _, d := range h.InputDispatches {
+		args = append(args, dispatchVarName(dispatchPrefix, d.EventTypeName))
 	}
 	return args
 }
 
-func handlerInputArgsWithDispatchVar(
-	h *model.Handler, skipSSE bool, dispatchVar string,
-) []string {
-	if len(h.OrderedInputs) > 0 {
-		args := make([]string, 0, len(h.OrderedInputs))
-		for _, inp := range h.OrderedInputs {
-			if inp.Kind == model.InputKindDispatch {
-				if dispatchVar != "" {
-					args = append(args, dispatchVar)
-				}
-				continue
-			}
-			if v := handlerArgVar(inp.Kind, skipSSE); v != "" {
-				args = append(args, v)
-			}
+// dispatchArgVar returns the closure variable a dispatch input is passed as.
+func dispatchArgVar(h *model.Handler, inp *model.Input, prefix string) string {
+	for _, d := range h.InputDispatches {
+		if d.Input == inp {
+			return dispatchVarName(prefix, d.EventTypeName)
 		}
-		return args
 	}
-	return handlerInputArgs(h, skipSSE)
+	return "nil"
 }
 
 // eventHandlerInputArgs builds the argument list for an event handler call
@@ -284,10 +279,10 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		w.Line(1, "}")
 	}
 
-	// Dispatch closure.
-	if h.InputDispatch != nil {
+	// Dispatch closures.
+	if len(h.InputDispatches) > 0 {
 		hasBody = true
-		w.writeDispatchClosure(h.InputDispatch, appPkg)
+		w.writeDispatchClosures(h, "dispatch", appPkg, "r.Context()")
 	}
 
 	// Offline cache handle for GET (queued writes are baked after writeHTML).
@@ -330,7 +325,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 	}
 
 	// Build input args in user-defined order.
-	args := handlerInputArgs(h, false)
+	args := handlerInputArgs(h, false, "dispatch")
 
 	w.Byte('\t')
 	w.writeCommaSep(outs)
@@ -341,7 +336,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 	if h.OutputErr != nil {
 		w.Line(1, "if err != nil {")
 		if m.PageError500 != nil && p == m.PageError500 {
-			// httpErrIntern renders PageError500, so the error page can't use it.
+			// httpErrIntern renders PageError500. The error page can't use it.
 			w.Raw("\t\ts.httpErrFinal(w, \"handling ")
 		} else {
 			w.Raw("\t\ts.httpErrIntern(w, r, nil, \"handling ")
@@ -531,7 +526,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"'`)\n")
-			w.Raw("\t\t_, _ = io.WriteString(w, query.")
+			w.Raw("\t\twriteSignalString(w, query.")
 			w.Raw(f.FieldName)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
@@ -540,7 +535,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"`)\n")
-			w.Raw("\t\t_, _ = io.WriteString(w, ")
+			w.Raw("\t\twriteSignalValue(w, ")
 			w.writeFieldToString("query", fi)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `\"`)")
@@ -778,6 +773,10 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
 	ref := varName + "." + f.Name
 	if isStringType(f.Type) {
+		if isNamedStringType(f.Type) {
+			w.Rawf("string(%s)", ref)
+			return
+		}
 		w.Raw(ref)
 	} else if isIntType(f.Type) {
 		_, unsigned := intTypeParseInfo(f.Type)
@@ -856,16 +855,22 @@ func (w *Writer) writePageGETStreamHandler(
 			w.Line(2, "return")
 			w.Line(1, "}")
 		}
+
+		// The ID reaches the subscription subject from here on.
+		w.Line(1, "if !s.checkUserSubject(w, sess.UserID()) {")
+		w.Line(2, "return")
+		w.Line(1, "}")
 	}
 
 	// Read signal-scoped subject values for subscription.
 	signalFields := pageSignalSubjectFields(p, w.eventMap)
+	signalIdents := signalIdents(signalFields)
 	if hasSignalScoped {
 		w.Line(0, "")
 		w.Line(1, "var subjSignals struct {")
-		for _, sf := range signalFields {
+		for i, sf := range signalFields {
 			w.Raw("\t\t")
-			w.Raw(sf.Name)
+			w.Raw(signalIdents[i])
 			w.Raw(` string `)
 			w.Raw("`json:\"")
 			w.Raw(sf.SignalName)
@@ -877,11 +882,12 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
-		for _, sf := range signalFields {
-			w.Raw("\tif subjSignals.")
-			w.Raw(sf.Name)
-			w.Raw(" == \"\" {\n")
-			w.Raw("\t\ts.httpErrBad(w, \"missing required signal\", fmt.Errorf(\"signal %q is required\", ")
+		for i, sf := range signalFields {
+			w.Raw("\tif !isSubjectToken(subjSignals.")
+			w.Raw(signalIdents[i])
+			w.Raw(") {\n")
+			w.Raw("\t\ts.httpErrBad(w, \"invalid signal\",\n")
+			w.Raw("\t\t\tfmt.Errorf(\"signal %q must be a non-empty subject token\", ")
 			w.writeQuoted(sf.SignalName)
 			w.Raw("))\n")
 			w.Line(2, "return")
@@ -900,17 +906,13 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Line(1, "}")
 	}
 
-	if p.StreamOpen != nil && p.StreamOpen.InputDispatch != nil {
-		w.writeDispatchClosureAs(
-			"dispatchOpen", p.StreamOpen.InputDispatch, appPkg,
-			"context.WithoutCancel(r.Context())",
-		)
+	if p.StreamOpen != nil {
+		w.writeDispatchClosures(p.StreamOpen, "dispatchOpen", appPkg,
+			"context.WithoutCancel(r.Context())")
 	}
-	if p.StreamClose != nil && p.StreamClose.InputDispatch != nil {
-		w.writeDispatchClosureAs(
-			"dispatchClosed", p.StreamClose.InputDispatch, appPkg,
-			"context.WithoutCancel(r.Context())",
-		)
+	if p.StreamClose != nil {
+		w.writeDispatchClosures(p.StreamClose, "dispatchClosed", appPkg,
+			"context.WithoutCancel(r.Context())")
 	}
 
 	// Page constructor.
@@ -932,21 +934,21 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Raw(evSubjName)
 	if hasPrivate && hasSignalScoped {
 		w.Raw("(sess.UserID()")
-		for _, sf := range signalFields {
+		for _, ident := range signalIdents {
 			w.Raw(", subjSignals.")
-			w.Raw(sf.Name)
+			w.Raw(ident)
 		}
 		w.Raw("),\n")
 	} else if hasPrivate {
 		w.Raw("(sess.UserID()),\n")
 	} else if hasSignalScoped {
 		w.Raw("(")
-		for i, sf := range signalFields {
+		for i, ident := range signalIdents {
 			if i > 0 {
 				w.Raw(", ")
 			}
 			w.Raw("subjSignals.")
-			w.Raw(sf.Name)
+			w.Raw(ident)
 		}
 		w.Raw("),\n")
 	} else {
@@ -1060,10 +1062,6 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 		w.Line(1, "nil,")
 		return
 	}
-	dispatchVar := ""
-	if p.StreamOpen.InputDispatch != nil {
-		dispatchVar = "dispatchOpen"
-	}
 	w.Line(1, "func(")
 	w.Line(2, "streamID uint64,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator,")
@@ -1075,7 +1073,7 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 	}
 	w.writeCallExpr(
 		"p", "StreamOpen",
-		handlerInputArgsWithDispatchVar(p.StreamOpen, false, dispatchVar),
+		handlerInputArgs(p.StreamOpen, false, "dispatchOpen"),
 	)
 	w.Byte('\n')
 	if p.StreamOpen.OutputErr == nil {
@@ -1089,16 +1087,12 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 		w.Line(1, "nil,")
 		return
 	}
-	dispatchVar := ""
-	if p.StreamClose.InputDispatch != nil {
-		dispatchVar = "dispatchClosed"
-	}
 	w.Line(1, "func(streamID uint64) {")
 	if p.StreamClose.OutputErr != nil {
 		w.Raw("\t\tif err := ")
 		w.writeCallExpr(
 			"p", "StreamClose",
-			handlerInputArgsWithDispatchVar(p.StreamClose, false, dispatchVar),
+			handlerInputArgs(p.StreamClose, false, "dispatchClosed"),
 		)
 		w.Raw("; err != nil {\n")
 		w.Raw("\t\t\ts.logErr(\"handling ")
@@ -1109,7 +1103,7 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 		w.Raw("\t\t")
 		w.writeCallExpr(
 			"p", "StreamClose",
-			handlerInputArgsWithDispatchVar(p.StreamClose, false, dispatchVar),
+			handlerInputArgs(p.StreamClose, false, "dispatchClosed"),
 		)
 		w.Byte('\n')
 	}
@@ -1144,12 +1138,13 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	// It therefore has to subscribe by the same values as the authenticated one,
 	// which it cannot do without reading them.
 	signalFields := pageSignalSubjectFields(p, w.eventMap)
+	signalIdents := signalIdents(signalFields)
 	if len(signalFields) > 0 {
 		w.Line(0, "")
 		w.Line(1, "var subjSignals struct {")
-		for _, sf := range signalFields {
+		for i, sf := range signalFields {
 			w.Raw("\t\t")
-			w.Raw(sf.Name)
+			w.Raw(signalIdents[i])
 			w.Raw(` string `)
 			w.Raw("`json:\"")
 			w.Raw(sf.SignalName)
@@ -1161,11 +1156,12 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
-		for _, sf := range signalFields {
-			w.Raw("\tif subjSignals.")
-			w.Raw(sf.Name)
-			w.Raw(" == \"\" {\n")
-			w.Raw("\t\ts.httpErrBad(w, \"missing required signal\", fmt.Errorf(\"signal %q is required\", ")
+		for i, sf := range signalFields {
+			w.Raw("\tif !isSubjectToken(subjSignals.")
+			w.Raw(signalIdents[i])
+			w.Raw(") {\n")
+			w.Raw("\t\ts.httpErrBad(w, \"invalid signal\",\n")
+			w.Raw("\t\t\tfmt.Errorf(\"signal %q must be a non-empty subject token\", ")
 			w.writeQuoted(sf.SignalName)
 			w.Raw("))\n")
 			w.Line(2, "return")
@@ -1183,17 +1179,13 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
-	if p.StreamOpen != nil && p.StreamOpen.InputDispatch != nil {
-		w.writeDispatchClosureAs(
-			"dispatchOpen", p.StreamOpen.InputDispatch, appPkg,
-			"context.WithoutCancel(r.Context())",
-		)
+	if p.StreamOpen != nil {
+		w.writeDispatchClosures(p.StreamOpen, "dispatchOpen", appPkg,
+			"context.WithoutCancel(r.Context())")
 	}
-	if p.StreamClose != nil && p.StreamClose.InputDispatch != nil {
-		w.writeDispatchClosureAs(
-			"dispatchClosed", p.StreamClose.InputDispatch, appPkg,
-			"context.WithoutCancel(r.Context())",
-		)
+	if p.StreamClose != nil {
+		w.writeDispatchClosures(p.StreamClose, "dispatchClosed", appPkg,
+			"context.WithoutCancel(r.Context())")
 	}
 
 	// Page constructor.
@@ -1205,9 +1197,9 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Raw("\ts.handleStreamRequest(w, r, sessToken, sess, evSubj")
 	w.Raw(p.TypeName)
 	w.Raw("(sess.UserID()")
-	for _, sf := range signalFields {
+	for _, ident := range signalIdents {
 		w.Raw(", subjSignals.")
-		w.Raw(sf.Name)
+		w.Raw(ident)
 	}
 	w.Raw("),\n")
 	w.writePageStreamOpenHook(p)
@@ -1318,10 +1310,8 @@ func (w *Writer) writePageActionHandler(
 		w.writeReadPath(h.InputPath, m)
 	}
 
-	// Dispatch closure.
-	if h.InputDispatch != nil {
-		w.writeDispatchClosure(h.InputDispatch, appPkg)
-	}
+	// Dispatch closures.
+	w.writeDispatchClosures(h, "dispatch", appPkg, "r.Context()")
 
 	// SSE for actions that take it, or need it to flush the page cache. A
 	// redirect-returning action delivers its offline writes through the redirect
@@ -1378,7 +1368,7 @@ func (w *Writer) writeActionMethodCall(
 	outs := handlerOutputVars(h)
 
 	// Build input args in user-defined order.
-	args := handlerInputArgs(h, false)
+	args := handlerInputArgs(h, false, "dispatch")
 
 	methodName := h.HTTPMethod + h.Name
 
@@ -1507,9 +1497,13 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 		if isStringType(f.Type) {
 			w.Raw("\tquery.")
 			w.Raw(f.Name)
-			w.Raw(" = q.Get(")
-			w.writeQuoted(tag)
-			w.Raw(")\n")
+			w.Raw(" = ")
+			w.writeStringConv(f.Type, func() {
+				w.Raw("q.Get(")
+				w.writeQuoted(tag)
+				w.Raw(")")
+			})
+			w.Byte('\n')
 		} else {
 			w.Line(1, "{")
 			w.Raw("\t\tif q := q.Get(")
@@ -1533,9 +1527,13 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
 		if isStringType(f.Type) {
 			w.Raw("\tpath.")
 			w.Raw(f.Name)
-			w.Raw(" = r.PathValue(")
-			w.writeQuoted(tag)
-			w.Raw(")\n")
+			w.Raw(" = ")
+			w.writeStringConv(f.Type, func() {
+				w.Raw("r.PathValue(")
+				w.writeQuoted(tag)
+				w.Raw(")")
+			})
+			w.Byte('\n')
 		} else {
 			w.Line(1, "{")
 			w.Raw("\t\tv := r.PathValue(")
@@ -1664,4 +1662,17 @@ type reflectSignalField struct {
 	FieldName  string
 	Type       types.Type
 	QueryTag   string
+}
+
+// writeStringConv writes inner, converted to t when t is
+// a string type with a name of its own.
+func (w *Writer) writeStringConv(t types.Type, inner func()) {
+	if !isNamedStringType(t) {
+		inner()
+		return
+	}
+	w.Raw(qualifiedTypeName(t))
+	w.Byte('(')
+	inner()
+	w.Byte(')')
 }

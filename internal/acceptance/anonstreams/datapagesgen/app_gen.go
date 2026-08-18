@@ -302,6 +302,22 @@ func (s sseWrapper) Prefetch(urls ...string) error {
 	return s.gen.Prefetch(urls...)
 }
 
+func isSubjectToken(v string) bool {
+	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
+}
+
+func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool) {
+	if isSubjectToken(userID) {
+		return true
+	}
+	s.logErr("subscribing private events", fmt.Errorf(
+		"session user ID %q is not a subject token", userID))
+	http.Error(w,
+		http.StatusText(http.StatusInternalServerError),
+		http.StatusInternalServerError)
+	return false
+}
+
 func (s *Server) checkCSRF(
 	w http.ResponseWriter, r *http.Request, sess datapages.Session[struct{}],
 ) (ok bool) {
@@ -439,14 +455,19 @@ func (s *Server) handleStreamRequest(
 	}
 
 	streamID := s.streamSeq.Add(1)
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
+	// The subscription is established before the response head goes out.
+	// A client learns the stream is open by reading that head and may dispatch
+	// immediately after, which must not reach the broker before this.
 	ctx := r.Context()
 	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
 	if err != nil {
-		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
+		// Nothing has been written yet, so the error can still carry a status.
+		s.httpErrIntern(w, r, nil, "subscribing to message broker", err)
 		return
 	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
 	subC := sub.C()
 	if onOpen != nil {
@@ -862,6 +883,9 @@ func (s *Server) handlePageFeedGETStream(w http.ResponseWriter, r *http.Request)
 		http.Redirect(w, r, target, http.StatusSeeOther)
 		return
 	}
+	if !s.checkUserSubject(w, sess.UserID()) {
+		return
+	}
 
 	p := app.PageFeed{
 		App: s.app,
@@ -958,25 +982,28 @@ func (s *Server) handlePageFeedPOSTTick(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventTicked,
+	dispatchTicked := func(
+		e app.EventTicked,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventTicked JSON: %w", err)
-			}
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, EvSubjTicked, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", EvSubjTicked, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventTicked JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTicked, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjTicked, err)
 		}
 		return nil
 	}
 	p := app.PageFeed{
 		App: s.app,
 	}
-	err := p.POSTTick(r, signals, dispatch)
+	err := p.POSTTick(r, signals, dispatchTicked)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageFeed.Tick", err)
 		return
@@ -1061,6 +1088,9 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, target, http.StatusSeeOther)
 		return
 	}
+	if !s.checkUserSubject(w, sess.UserID()) {
+		return
+	}
 
 	var subjSignals struct {
 		Room string `json:"room"`
@@ -1069,8 +1099,9 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
-	if subjSignals.Room == "" {
-		s.httpErrBad(w, "missing required signal", fmt.Errorf("signal %q is required", "room"))
+	if !isSubjectToken(subjSignals.Room) {
+		s.httpErrBad(w, "invalid signal",
+			fmt.Errorf("signal %q must be a non-empty subject token", "room"))
 		return
 	}
 
@@ -1130,8 +1161,9 @@ func (s *Server) handlePageRoomsGETStreamAnon(w http.ResponseWriter, r *http.Req
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
-	if subjSignals.Room == "" {
-		s.httpErrBad(w, "missing required signal", fmt.Errorf("signal %q is required", "room"))
+	if !isSubjectToken(subjSignals.Room) {
+		s.httpErrBad(w, "invalid signal",
+			fmt.Errorf("signal %q must be a non-empty subject token", "room"))
 		return
 	}
 
@@ -1182,27 +1214,34 @@ func (s *Server) handlePageRoomsPOSTPost(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventRoomPosted,
+	dispatchRoomPosted := func(
+		e app.EventRoomPosted,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventRoomPosted JSON: %w", err)
-			}
-			p0 := e1.SubjectRoom
-			subj := "room.posted." + p0
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", subj, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		if !isSubjectToken(string(e.Room)) {
+			return fmt.Errorf(
+				"EventRoomPosted.Room must be a non-empty subject token, received %q",
+				e.Room)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventRoomPosted JSON: %w", err)
+		}
+		subj := "room.posted." + string(e.Room)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
 	p := app.PageRooms{
 		App: s.app,
 	}
-	err := p.POSTPost(r, signals, dispatch)
+	err := p.POSTPost(r, signals, dispatchRoomPosted)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRooms.Post", err)
 		return
@@ -1230,28 +1269,34 @@ func (s *Server) handlePageRoomsPOSTNotice(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventNoticed,
+	dispatchNoticed := func(
+		e app.EventNoticed,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventNoticed JSON: %w", err)
-			}
-			for _, p0 := range e1.SubjectUser {
-				subj := "noticed." + p0
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		if !isSubjectToken(string(e.Recipient)) {
+			return fmt.Errorf(
+				"EventNoticed.Recipient must be a non-empty subject token, received %q",
+				e.Recipient)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventNoticed JSON: %w", err)
+		}
+		subj := "noticed." + string(e.Recipient)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
 	p := app.PageRooms{
 		App: s.app,
 	}
-	err := p.POSTNotice(r, signals, dispatch)
+	err := p.POSTNotice(r, signals, dispatchNoticed)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRooms.Notice", err)
 		return

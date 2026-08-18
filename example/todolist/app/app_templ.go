@@ -5,13 +5,14 @@ package app
 
 //lint:file-ignore SA4006 This context is only used if a nested component is present.
 
+import "github.com/a-h/templ"
+import templruntime "github.com/a-h/templ/runtime"
+
 import (
 	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/a-h/templ"
-	templruntime "github.com/a-h/templ/runtime"
 	"github.com/romshark/datapages/example/todolist/datapagesgen/action"
 	"github.com/romshark/datapages/example/todolist/datapagesgen/assets"
 	"github.com/romshark/datapages/example/todolist/datapagesgen/href"

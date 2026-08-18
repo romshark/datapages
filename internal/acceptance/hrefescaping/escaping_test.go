@@ -51,6 +51,26 @@ func TestHrefEscaping(t *testing.T) {
 			url:  href.PageSearch(href.QueryPageSearch{Term: "a b+c", Page: 2}),
 			want: `term="a b+c" page=2`,
 		},
+		"percent in a path value": {
+			url:  href.PageItem("100%"),
+			want: `name="100%"`,
+		},
+		"percent escape in a path value": {
+			url:  href.PageItem("a%2Fb"),
+			want: `name="a%2Fb"`,
+		},
+		"dot segments in a path value": {
+			url:  href.PageItem("../../etc"),
+			want: `name="../../etc"`,
+		},
+		"quote in a path value": {
+			url:  href.PageItem("a'b"),
+			want: `name="a'b"`,
+		},
+		"quote in a query value": {
+			url:  href.PageSearch(href.QueryPageSearch{Term: "a'b", Page: 1}),
+			want: `term="a'b" page=1`,
+		},
 	}
 
 	for name, tt := range tests {
@@ -80,4 +100,24 @@ func TestActionURLEscaping(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Status, url)
 	require.Contains(t, resp.Body, `renamed "a/b" to "c&d=e"`,
 		"the values did not survive the action URL")
+}
+
+// TestActionURLCarriesNoQuote covers the character that ends the expression.
+//
+// A template holds the expression as an HTML attribute. The browser decodes the
+// attribute before Datastar evaluates it, which turns an escaped quote back into one.
+// A quote reaching the expression closes the string around the URL and
+// leaves what follows to run as JavaScript.
+func TestActionURLCarriesNoQuote(t *testing.T) {
+	for name, expr := range map[string]string{
+		"path value": action.POSTPageItemRename(`a'b`,
+			action.QueryPOSTPageItemRename{To: "x"}),
+		"query value": action.POSTPageItemRename("a",
+			action.QueryPOSTPageItemRename{To: `b';alert(1);//`}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, 2, strings.Count(expr, "'"),
+				"the expression carries a quote of its own: %s", expr)
+		})
+	}
 }

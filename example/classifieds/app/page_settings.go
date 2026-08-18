@@ -74,7 +74,7 @@ func (p PageSettings) POSTCloseSession(
 	path struct {
 		Token string `path:"token"`
 	},
-	dispatch func(EventSessionClosed) error,
+	dispatch datapages.Dispatch[EventSessionClosed],
 ) (
 	closeSession bool,
 	redirect datapages.Redirect,
@@ -97,8 +97,8 @@ func (p PageSettings) POSTCloseSession(
 		return false, redirect, err
 	}
 	_ = dispatch(EventSessionClosed{
-		SubjectUser: []string{sess.UserID},
-		Token:       path.Token,
+		Recipient: datapages.SubjectUser(sess.UserID),
+		Token:     path.Token,
 	})
 	if session.Token() == path.Token {
 		// Closed current session
@@ -112,7 +112,7 @@ func (p PageSettings) POSTCloseSession(
 func (p PageSettings) POSTCloseAllSessions(
 	r *http.Request,
 	session Session,
-	dispatch func(EventSessionClosed) error,
+	dispatch datapages.Dispatch[EventSessionClosed],
 ) (redirect datapages.Redirect, err error) {
 	if session.IsGuest() {
 		return redirect, domain.ErrUnauthorized
@@ -121,11 +121,11 @@ func (p PageSettings) POSTCloseAllSessions(
 	if err != nil {
 		return redirect, err
 	}
-	targetUsers := []string{session.UserID()}
+	recipient := datapages.SubjectUser(session.UserID())
 	for _, token := range closed {
 		_ = dispatch(EventSessionClosed{
-			SubjectUser: targetUsers,
-			Token:       token,
+			Recipient: recipient,
+			Token:     token,
 		})
 	}
 	return datapages.Redirect{URL: href.PageLogin()}, nil

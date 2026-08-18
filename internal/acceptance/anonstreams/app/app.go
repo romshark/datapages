@@ -26,10 +26,10 @@ func (a *App) Head(_ *http.Request) datapages.Component {
 
 // EventNoticed is "noticed"
 //
-// SubjectUser makes it private: only the streams of the named users receive it,
-// and an anonymous stream never does.
+// datapages.SubjectUser makes it private:
+// only the streams of the named users receive it, and an anonymous stream never does.
 type EventNoticed struct {
-	SubjectUser []string
+	Recipient datapages.SubjectUser
 
 	Text string `json:"text"`
 }
@@ -39,7 +39,7 @@ type EventNoticed struct {
 // One subject field bound to a signal. A stream supplies the value when it
 // connects and receives only what is published for it.
 type EventRoomPosted struct {
-	SubjectRoom string `signal:"room"`
+	Room datapages.Subject `signal:"room"`
 
 	Text string `json:"text"`
 }
@@ -80,7 +80,7 @@ func (p PageRooms) OnRoomPosted(
 ) error {
 	return sse.PatchElement(templ.Raw(fmt.Sprintf(
 		`<div id="out">room %s: %s</div>`,
-		templ.EscapeString(event.SubjectRoom), templ.EscapeString(event.Text),
+		templ.EscapeString(string(event.Room)), templ.EscapeString(event.Text),
 	)))
 }
 
@@ -100,9 +100,9 @@ func (p PageRooms) POSTPost(
 		Room string `json:"room"`
 		Text string `json:"text"`
 	},
-	dispatch func(EventRoomPosted) error,
+	dispatch datapages.Dispatch[EventRoomPosted],
 ) error {
-	return dispatch(EventRoomPosted{SubjectRoom: signals.Room, Text: signals.Text})
+	return dispatch(EventRoomPosted{Room: datapages.Subject(signals.Room), Text: signals.Text})
 }
 
 // POSTNotice is /rooms/notice
@@ -112,11 +112,11 @@ func (p PageRooms) POSTNotice(
 		User string `json:"user"`
 		Text string `json:"text"`
 	},
-	dispatch func(EventNoticed) error,
+	dispatch datapages.Dispatch[EventNoticed],
 ) error {
 	return dispatch(EventNoticed{
-		SubjectUser: []string{signals.User},
-		Text:        signals.Text,
+		Recipient: datapages.SubjectUser(signals.User),
+		Text:      signals.Text,
 	})
 }
 
@@ -154,7 +154,7 @@ func (p PageFeed) POSTTick(
 	signals struct {
 		N int `json:"n"`
 	},
-	dispatch func(EventTicked) error,
+	dispatch datapages.Dispatch[EventTicked],
 ) error {
 	return dispatch(EventTicked{N: signals.N})
 }

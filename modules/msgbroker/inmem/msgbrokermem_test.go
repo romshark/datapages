@@ -44,6 +44,41 @@ func TestMatches(t *testing.T) {
 	}
 }
 
+// countingMetrics records how often delivery dropped a message.
+type countingMetrics struct{ dropped int }
+
+func (*countingMetrics) OnPublish(string)     {}
+func (m *countingMetrics) OnDeliveryDropped() { m.dropped++ }
+
+// TestDefaultChanBuffer covers a broker created without a buffer size.
+// Its subscriptions must buffer all the same.
+func TestDefaultChanBuffer(t *testing.T) {
+	b := inmem.New(0)
+	t.Cleanup(func() { require.NoError(t, b.Close()) })
+
+	ctx := context.Background()
+	metrics := new(countingMetrics)
+	sub, err := b.Subscribe(ctx, metrics, "note.one")
+	require.NoError(t, err)
+	t.Cleanup(sub.Close)
+
+	// Nothing reads the subscription while these are published.
+	const messages = 4
+	for i := range messages {
+		require.NoError(t, b.Publish(ctx, metrics, "note.one", []byte{byte(i)}))
+	}
+	require.Zero(t, metrics.dropped, "a buffered subscription dropped messages")
+
+	for i := range messages {
+		select {
+		case msg := <-sub.C():
+			require.Equal(t, []byte{byte(i)}, msg.Data)
+		case <-time.After(time.Second):
+			t.Fatalf("message %d never arrived", i)
+		}
+	}
+}
+
 // TestWildcardDelivery covers what the generated code expects of a broker: an
 // event with a subject field and no signal to fill it in subscribes to
 // "topic.*" and has to receive every value of it.

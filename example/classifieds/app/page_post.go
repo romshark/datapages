@@ -77,7 +77,7 @@ func (p PagePost) POSTSendMessage(
 	signals struct {
 		MessageText string `json:"messagetext"`
 	},
-	dispatch func(EventMessagingSent) error,
+	dispatch datapages.Dispatch[EventMessagingSent],
 ) error {
 	if session.IsGuest() {
 		return domain.ErrUnauthorized
@@ -105,12 +105,14 @@ func (p PagePost) POSTSendMessage(
 		return err
 	}
 
-	if err := dispatch(EventMessagingSent{
-		SubjectUser: []string{post.MerchantUserName, session.UserID()},
-		ChatID:      chatID,
-		UserID:      session.UserID(),
-	}); err != nil {
-		return err
+	for _, recipient := range []string{post.MerchantUserName, session.UserID()} {
+		if err := dispatch(EventMessagingSent{
+			Recipient: datapages.SubjectUser(recipient),
+			ChatID:    chatID,
+			UserID:    session.UserID(),
+		}); err != nil {
+			return err
+		}
 	}
 
 	return sse.PatchElement(fragmentMessageFormLinkToChat(chatID))
