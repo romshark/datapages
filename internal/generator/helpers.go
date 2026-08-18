@@ -12,6 +12,7 @@ import (
 	"sync"
 	"unicode"
 
+	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
 )
 
@@ -749,105 +750,6 @@ func (w *Writer) writeAnyCheck(varName string, fields []structFieldInfo) {
 	}
 }
 
-// isStringType returns true if the type is string.
-func isStringType(t types.Type) bool {
-	basic, ok := t.Underlying().(*types.Basic)
-	return ok && basic.Kind() == types.String
-}
-
-// isNamedStringType reports whether t is a string type carrying a name of its own.
-// A string assigned to one, or one assigned to a string, needs a conversion.
-func isNamedStringType(t types.Type) bool {
-	if !isStringType(t) {
-		return false
-	}
-	_, unnamed := t.(*types.Basic)
-	return !unnamed
-}
-
-// qualifiedTypeName writes a type with every package named.
-func qualifiedTypeName(t types.Type) string {
-	return types.TypeString(t, func(p *types.Package) string { return p.Name() })
-}
-
-// isBoolType returns true if the type's underlying type is bool.
-func isBoolType(t types.Type) bool {
-	basic, ok := t.Underlying().(*types.Basic)
-	return ok && basic.Kind() == types.Bool
-}
-
-// isFloatType returns true if the type is float32 or float64.
-func isFloatType(t types.Type) bool {
-	basic, ok := t.Underlying().(*types.Basic)
-	if !ok {
-		return false
-	}
-	return basic.Kind() == types.Float32 || basic.Kind() == types.Float64
-}
-
-// floatTypeName returns "float32" or "float64".
-// Precondition: isFloatType(t) must be true.
-func floatTypeName(t types.Type) string {
-	if t.Underlying().(*types.Basic).Kind() == types.Float32 {
-		return "float32"
-	}
-	return "float64"
-}
-
-// floatBits returns the strconv bit-size for ParseFloat.
-// Precondition: isFloatType(t) must be true.
-func floatBits(t types.Type) int {
-	if t.Underlying().(*types.Basic).Kind() == types.Float32 {
-		return 32
-	}
-	return 64
-}
-
-// textUnmarshaler is the method set of encoding.TextUnmarshaler.
-var textUnmarshaler = func() *types.Interface {
-	sig := types.NewSignatureType(
-		nil, nil, nil,
-		types.NewTuple(types.NewVar(
-			0, nil, "text", types.NewSlice(types.Typ[types.Byte]),
-		)),
-		types.NewTuple(types.NewVar(
-			0, nil, "", types.Universe.Lookup("error").Type(),
-		)),
-		false,
-	)
-	return types.NewInterfaceType(
-		[]*types.Func{types.NewFunc(
-			0, nil, "UnmarshalText", sig,
-		)},
-		nil,
-	).Complete()
-}()
-
-// isTextUnmarshaler returns true if t or *t implements encoding.TextUnmarshaler.
-func isTextUnmarshaler(t types.Type) bool {
-	if t == nil {
-		return false
-	}
-	if types.Implements(t, textUnmarshaler) {
-		return true
-	}
-	return types.Implements(types.NewPointer(t), textUnmarshaler)
-}
-
-// isIntType returns true if the type is int64, int, etc.
-func isIntType(t types.Type) bool {
-	basic, ok := t.Underlying().(*types.Basic)
-	if !ok {
-		return false
-	}
-	switch basic.Kind() {
-	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
-		types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64:
-		return true
-	}
-	return false
-}
-
 // structHasNonStringField returns true if the resolved struct type
 // has any field whose type is not string.
 func structHasNonStringField(t types.Type) bool {
@@ -856,7 +758,7 @@ func structHasNonStringField(t types.Type) bool {
 		return false
 	}
 	for field := range st.Fields() {
-		if !isStringType(field.Type()) {
+		if !gotypes.IsString(field.Type()) {
 			return true
 		}
 	}
@@ -875,61 +777,6 @@ func structHasReflectSignal(t types.Type) bool {
 		}
 	}
 	return false
-}
-
-// intTypeName returns the Go identifier for an integer type (e.g. "int", "uint32").
-// Precondition: isIntType(t) must be true.
-func intTypeName(t types.Type) string {
-	switch t.Underlying().(*types.Basic).Kind() {
-	case types.Int:
-		return "int"
-	case types.Int8:
-		return "int8"
-	case types.Int16:
-		return "int16"
-	case types.Int32:
-		return "int32"
-	case types.Int64:
-		return "int64"
-	case types.Uint:
-		return "uint"
-	case types.Uint8:
-		return "uint8"
-	case types.Uint16:
-		return "uint16"
-	case types.Uint32:
-		return "uint32"
-	default: // Uint64
-		return "uint64"
-	}
-}
-
-// intTypeParseInfo returns the strconv bit-size argument and
-// whether the type is unsigned, for use with strconv.ParseInt / strconv.ParseUint.
-// Precondition: isIntType(t) must be true.
-func intTypeParseInfo(t types.Type) (bits int, unsigned bool) {
-	switch t.Underlying().(*types.Basic).Kind() {
-	case types.Int:
-		return 0, false
-	case types.Int8:
-		return 8, false
-	case types.Int16:
-		return 16, false
-	case types.Int32:
-		return 32, false
-	case types.Int64:
-		return 64, false
-	case types.Uint:
-		return 0, true
-	case types.Uint8:
-		return 8, true
-	case types.Uint16:
-		return 16, true
-	case types.Uint32:
-		return 32, true
-	default: // Uint64
-		return 64, true
-	}
 }
 
 // appPkgQualifier returns the identifier that qualifies app types in generated code.

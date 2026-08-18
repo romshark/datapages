@@ -4,6 +4,7 @@ import (
 	"go/types"
 	"strings"
 
+	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
 )
 
@@ -505,7 +506,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 	// Reflect signal attrs.
 	for _, f := range reflectFields {
 		fi := structFieldInfo{Name: f.FieldName, Type: f.Type}
-		if isStringType(f.Type) {
+		if gotypes.IsString(f.Type) {
 			w.Line(0, "")
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
 			w.Raw(f.SignalName)
@@ -756,15 +757,15 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 // strconv.Format* or fmt.Sprint.
 func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
 	ref := varName + "." + f.Name
-	if isStringType(f.Type) {
-		if isNamedStringType(f.Type) {
+	if gotypes.IsString(f.Type) {
+		if gotypes.IsNamedString(f.Type) {
 			w.Rawf("string(%s)", ref)
 			return
 		}
 		w.Raw(ref)
-	} else if isIntType(f.Type) {
-		_, unsigned := intTypeParseInfo(f.Type)
-		typeName := intTypeName(f.Type)
+	} else if gotypes.IsInt(f.Type) {
+		_, unsigned := gotypes.IntParseInfo(f.Type)
+		typeName := gotypes.IntTypeName(f.Type)
 		if unsigned {
 			if typeName != "uint64" {
 				w.Rawf("strconv.FormatUint(uint64(%s), 10)", ref)
@@ -778,15 +779,15 @@ func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
 				w.Rawf("strconv.FormatInt(%s, 10)", ref)
 			}
 		}
-	} else if isFloatType(f.Type) {
-		bits := floatBits(f.Type)
-		typeName := floatTypeName(f.Type)
+	} else if gotypes.IsFloat(f.Type) {
+		bits := gotypes.FloatBits(f.Type)
+		typeName := gotypes.FloatTypeName(f.Type)
 		if typeName != "float64" {
 			w.Rawf("strconv.FormatFloat(float64(%s), 'f', -1, %d)", ref, bits)
 		} else {
 			w.Rawf("strconv.FormatFloat(%s, 'f', -1, %d)", ref, bits)
 		}
-	} else if isBoolType(f.Type) {
+	} else if gotypes.IsBool(f.Type) {
 		w.Rawf("strconv.FormatBool(%s)", ref)
 	} else {
 		// TextUnmarshaler or other — use fmt.Sprint as fallback.
@@ -1440,7 +1441,7 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
 		tag := queryTagValue(f.Tag)
-		if isStringType(f.Type) {
+		if gotypes.IsString(f.Type) {
 			w.Raw("\tquery.")
 			w.Raw(f.Name)
 			w.Raw(" = ")
@@ -1470,7 +1471,7 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
 		tag := pathTagValue(f.Tag)
-		if isStringType(f.Type) {
+		if gotypes.IsString(f.Type) {
 			w.Raw("\tpath.")
 			w.Raw(f.Name)
 			w.Raw(" = ")
@@ -1513,9 +1514,9 @@ func (w *Writer) writeParseField(
 		}
 	}
 
-	if isIntType(f.Type) {
-		bits, unsigned := intTypeParseInfo(f.Type)
-		typeName := intTypeName(f.Type)
+	if gotypes.IsInt(f.Type) {
+		bits, unsigned := gotypes.IntParseInfo(f.Type)
+		typeName := gotypes.IntTypeName(f.Type)
 		if unsigned {
 			tabs(indent)
 			w.Rawf("u, err := strconv.ParseUint(%s, 10, %d)\n", raw, bits)
@@ -1550,9 +1551,9 @@ func (w *Writer) writeParseField(
 			}
 		}
 		w.Byte('\n')
-	} else if isFloatType(f.Type) {
-		bits := floatBits(f.Type)
-		typeName := floatTypeName(f.Type)
+	} else if gotypes.IsFloat(f.Type) {
+		bits := gotypes.FloatBits(f.Type)
+		typeName := gotypes.FloatTypeName(f.Type)
 		tabs(indent)
 		w.Rawf("f, err := strconv.ParseFloat(%s, %d)\n", raw, bits)
 		tabs(indent)
@@ -1574,7 +1575,7 @@ func (w *Writer) writeParseField(
 			w.Raw("f")
 		}
 		w.Byte('\n')
-	} else if isBoolType(f.Type) {
+	} else if gotypes.IsBool(f.Type) {
 		tabs(indent)
 		w.Rawf("b, err := strconv.ParseBool(%s)\n", raw)
 		tabs(indent)
@@ -1590,7 +1591,7 @@ func (w *Writer) writeParseField(
 		w.Byte('.')
 		w.Raw(f.Name)
 		w.Raw(" = b\n")
-	} else if isTextUnmarshaler(f.Type) {
+	} else if gotypes.ImplementsTextUnmarshaler(f.Type) {
 		tabs(indent)
 		w.Rawf("if err := %s.%s.UnmarshalText([]byte(%s)); err != nil {\n",
 			varName, f.Name, raw)
@@ -1613,11 +1614,11 @@ type reflectSignalField struct {
 // writeStringConv writes inner, converted to t when t is
 // a string type with a name of its own.
 func (w *Writer) writeStringConv(t types.Type, inner func()) {
-	if !isNamedStringType(t) {
+	if !gotypes.IsNamedString(t) {
 		inner()
 		return
 	}
-	w.Raw(qualifiedTypeName(t))
+	w.Raw(gotypes.QualifiedTypeName(t))
 	w.Byte('(')
 	inner()
 	w.Byte(')')

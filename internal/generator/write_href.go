@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/routepattern"
 )
@@ -618,7 +619,7 @@ func (w *Writer) writeTypedParams(params []pathParamInfo) {
 		}
 		w.Raw(p.Name)
 		w.Byte(' ')
-		if p.Type == nil || isStringType(p.Type) {
+		if p.Type == nil || gotypes.IsString(p.Type) {
 			w.Raw("string")
 		} else {
 			w.Raw(fieldTypeName(p.Type))
@@ -651,14 +652,14 @@ func (w *Writer) writePathPreConvert(params []pathParamInfo) {
 // A type it does not format reaches a URL as the text the caller passes,
 // which fieldTypeName declares as a string.
 func isFormattedType(t types.Type) bool {
-	return isIntType(t) || isFloatType(t) || isBoolType(t)
+	return gotypes.IsInt(t) || gotypes.IsFloat(t) || gotypes.IsBool(t)
 }
 
 // writeFormatExpr emits a strconv.Format* expression for a non-string type.
 func (w *Writer) writeFormatExpr(varName string, t types.Type) {
-	if isIntType(t) {
-		_, unsigned := intTypeParseInfo(t)
-		typeName := intTypeName(t)
+	if gotypes.IsInt(t) {
+		_, unsigned := gotypes.IntParseInfo(t)
+		typeName := gotypes.IntTypeName(t)
 		if unsigned {
 			if typeName != "uint64" {
 				w.Rawf("strconv.FormatUint(uint64(%s), 10)", varName)
@@ -672,15 +673,15 @@ func (w *Writer) writeFormatExpr(varName string, t types.Type) {
 				w.Rawf("strconv.FormatInt(%s, 10)", varName)
 			}
 		}
-	} else if isFloatType(t) {
-		bits := floatBits(t)
-		typeName := floatTypeName(t)
+	} else if gotypes.IsFloat(t) {
+		bits := gotypes.FloatBits(t)
+		typeName := gotypes.FloatTypeName(t)
 		if typeName != "float64" {
 			w.Rawf("strconv.FormatFloat(float64(%s), 'f', -1, %d)", varName, bits)
 		} else {
 			w.Rawf("strconv.FormatFloat(%s, 'f', -1, %d)", varName, bits)
 		}
-	} else if isBoolType(t) {
+	} else if gotypes.IsBool(t) {
 		w.Rawf("strconv.FormatBool(%s)", varName)
 	}
 }
@@ -688,7 +689,7 @@ func (w *Writer) writeFormatExpr(varName string, t types.Type) {
 // writeZeroCheck writes the zero-value check expression for a field to the buffer.
 func (w *Writer) writeZeroCheck(expr string, t types.Type) {
 	w.Raw(expr)
-	if isBoolType(t) {
+	if gotypes.IsBool(t) {
 		// bool: the expression itself is the condition
 		return
 	}
@@ -713,13 +714,13 @@ func (w *Writer) writeIfZeroCheck(indent int, expr string, t types.Type) {
 // fieldTypeName returns the Go type name for a field type.
 // For types not directly representable (e.g. TextUnmarshaler), returns "string".
 func fieldTypeName(t types.Type) string {
-	if isIntType(t) {
-		return intTypeName(t)
+	if gotypes.IsInt(t) {
+		return gotypes.IntTypeName(t)
 	}
-	if isFloatType(t) {
-		return floatTypeName(t)
+	if gotypes.IsFloat(t) {
+		return gotypes.FloatTypeName(t)
 	}
-	if isBoolType(t) {
+	if gotypes.IsBool(t) {
 		return "bool"
 	}
 	return "string"
@@ -760,7 +761,7 @@ func (w *Writer) writeQueryPreConvert(lo hrefLocals, fields []structFieldInfo) {
 // hasNonStringFields reports whether any field has a non-string type.
 func hasNonStringFields(fields []structFieldInfo) bool {
 	for _, f := range fields {
-		if !isStringType(f.Type) {
+		if !gotypes.IsString(f.Type) {
 			return true
 		}
 	}

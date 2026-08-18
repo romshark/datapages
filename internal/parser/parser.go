@@ -17,6 +17,7 @@ import (
 	"github.com/lithammer/fuzzysearch/fuzzy"
 	"golang.org/x/tools/go/packages"
 
+	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/internal/methodkind"
 	"github.com/romshark/datapages/internal/parser/internal/paramvalidation"
 	"github.com/romshark/datapages/internal/parser/internal/structinspect"
@@ -832,7 +833,7 @@ func validateAndAttachEventHandler(
 					))
 				}
 			case len(f.Names) == 1 && f.Names[0].Name == "streamID":
-				if !typecheck.IsUint64(ctx.pkg.TypesInfo.TypeOf(f.Type)) {
+				if !gotypes.IsUint64(ctx.pkg.TypesInfo.TypeOf(f.Type)) {
 					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), fmt.Errorf(
 						"%w in %s.%s",
 						ErrStreamIDParamNotUint64,
@@ -1454,7 +1455,7 @@ func parseEventHandler(
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
 		case len(f.Names) == 1 && f.Names[0].Name == "streamID" &&
-			typecheck.IsUint64(info.TypeOf(f.Type)):
+			gotypes.IsUint64(info.TypeOf(f.Type)):
 			h.InputStreamID = parseInput(f, info)
 			h.InputStreamID.Kind = model.InputKindStreamID
 			h.OrderedInputs = append(h.OrderedInputs, h.InputStreamID)
@@ -1525,7 +1526,7 @@ func parseStreamHook(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			if !typecheck.IsUint64(info.TypeOf(f.Type)) {
+			if !gotypes.IsUint64(info.TypeOf(f.Type)) {
 				return h, fieldErr(fmt.Errorf("%w in %s.%s",
 					ErrStreamIDParamNotUint64, recv, fd.Name.Name))
 			}
@@ -1943,7 +1944,7 @@ func typeCandidates(
 	}
 
 	isSession := typecheck.IsSessionType(f.Type, info)
-	isUint64 := typecheck.IsUint64(t)
+	isUint64 := gotypes.IsUint64(t)
 	isStruct := isStructType(t)
 
 	type candidate struct {
@@ -2324,7 +2325,7 @@ func parseHandler(
 				h.OrderedOutputs = append(h.OrderedOutputs, out)
 				continue
 			case "closeSession":
-				if !typecheck.IsBool(t.Resolved) {
+				if !gotypes.IsBool(t.Resolved) {
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrCloseSessionNotBool, recv, fd.Name.Name))
 				}
@@ -2337,7 +2338,7 @@ func parseHandler(
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrEnableBgStreamNotGET, recv, fd.Name.Name))
 				}
-				if !typecheck.IsBool(t.Resolved) {
+				if !gotypes.IsBool(t.Resolved) {
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrEnableBgStreamNotBool, recv, fd.Name.Name))
 				}
@@ -2351,7 +2352,7 @@ func parseHandler(
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrDisableRefreshNotGET, recv, fd.Name.Name))
 				}
-				if !typecheck.IsBool(t.Resolved) {
+				if !gotypes.IsBool(t.Resolved) {
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrDisableRefreshNotBool, recv, fd.Name.Name))
 				}

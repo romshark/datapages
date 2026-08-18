@@ -6,26 +6,9 @@ import (
 	"go/ast"
 	"go/types"
 
+	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
 )
-
-// IsString reports whether t's underlying type is string.
-func IsString(t types.Type) bool {
-	b, ok := t.Underlying().(*types.Basic)
-	return ok && b.Kind() == types.String
-}
-
-// IsUint64 reports whether t's underlying type is uint64.
-func IsUint64(t types.Type) bool {
-	b, ok := t.Underlying().(*types.Basic)
-	return ok && b.Kind() == types.Uint64
-}
-
-// IsBool reports whether t's underlying type is bool.
-func IsBool(t types.Type) bool {
-	b, ok := t.Underlying().(*types.Basic)
-	return ok && b.Kind() == types.Bool
-}
 
 // IsInputFieldType reports whether t is a supported type for
 // path and query struct fields: string, bool, integers
@@ -36,58 +19,14 @@ func IsInputFieldType(t types.Type) bool {
 	if isBasicInputType(t) {
 		return true
 	}
-	return ImplementsTextUnmarshaler(t)
+	return gotypes.ImplementsTextUnmarshaler(t)
 }
 
 // isBasicInputType reports whether t is a basic scalar type
 // supported for path/query fields.
 func isBasicInputType(t types.Type) bool {
-	b, ok := t.Underlying().(*types.Basic)
-	if !ok {
-		return false
-	}
-	switch b.Kind() {
-	case types.String, types.Bool,
-		types.Int, types.Int8, types.Int16,
-		types.Int32, types.Int64,
-		types.Uint, types.Uint8, types.Uint16,
-		types.Uint32, types.Uint64,
-		types.Float32, types.Float64:
-		return true
-	default:
-		return false
-	}
-}
-
-// textUnmarshaler is the method set of encoding.TextUnmarshaler.
-var textUnmarshaler = func() *types.Interface {
-	sig := types.NewSignatureType(
-		nil, nil, nil,
-		types.NewTuple(types.NewVar(
-			0, nil, "text", types.NewSlice(types.Typ[types.Byte]),
-		)),
-		types.NewTuple(types.NewVar(
-			0, nil, "", types.Universe.Lookup("error").Type(),
-		)),
-		false,
-	)
-	return types.NewInterfaceType(
-		[]*types.Func{types.NewFunc(
-			0, nil, "UnmarshalText", sig,
-		)},
-		nil,
-	).Complete()
-}()
-
-// ImplementsTextUnmarshaler reports whether t or *t implements encoding.TextUnmarshaler.
-func ImplementsTextUnmarshaler(t types.Type) bool {
-	if t == nil {
-		return false
-	}
-	if types.Implements(t, textUnmarshaler) {
-		return true
-	}
-	return types.Implements(types.NewPointer(t), textUnmarshaler)
+	return gotypes.IsString(t) || gotypes.IsBool(t) ||
+		gotypes.IsInt(t) || gotypes.IsFloat(t)
 }
 
 // IsTimeTime reports whether t is time.Time from the standard library.
