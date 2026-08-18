@@ -46,3 +46,33 @@ func TestSecondValueReachesTheSameStream(t *testing.T) {
 	require.True(t, s.Saw(`<div id="noted">from-one</div>`))
 	require.True(t, s.Saw(`<div id="noted">from-two</div>`))
 }
+
+// TestSubjectValueMustBeOneToken covers the publish side of the guard the
+// subscribe side already carries. A dispatched value that is not one subject
+// token produces a subject of a different shape, which no subscription matches
+// and which therefore loses the event in silence.
+func TestSubjectValueMustBeOneToken(t *testing.T) {
+	values := map[string]string{
+		"separator": "a.b",
+		"star":      "*",
+		"gt":        ">",
+		"empty":     "",
+		"space":     "a b",
+	}
+
+	for name, topic := range values {
+		t.Run(name, func(t *testing.T) {
+			c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+
+			s := c.OpenStream(t, "/_$/", nil)
+
+			resp := c.Action(t, http.MethodPost, "/note/",
+				`{"topic":"`+topic+`","text":"lost"}`)
+			require.Equal(t, http.StatusInternalServerError, resp.Status,
+				"a dispatch with topic %q was accepted", topic)
+
+			require.True(t, s.Never(`<div id="noted">lost</div>`),
+				"the event reached a stream")
+		})
+	}
+}

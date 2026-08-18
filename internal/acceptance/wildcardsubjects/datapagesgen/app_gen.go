@@ -295,6 +295,10 @@ func (s sseWrapper) Prefetch(urls ...string) error {
 	return s.gen.Prefetch(urls...)
 }
 
+func isSubjectToken(v string) bool {
+	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
+}
+
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -628,6 +632,11 @@ func (s *Server) handlePageIndexPOSTNote(
 		conf := datapages.DispatchConfig{Context: r.Context()}
 		for _, o := range options {
 			o(&conf)
+		}
+		if !isSubjectToken(string(e.Topic)) {
+			return fmt.Errorf(
+				"EventNoted.Topic must be a non-empty subject token, received %q",
+				e.Topic)
 		}
 		j, err := json.Marshal(e)
 		if err != nil {

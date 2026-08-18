@@ -551,6 +551,13 @@ dispatch(EventNotify{
 
 publishes to the subject `notify.u1.r1.mobile`.
 
+Every subject field value must be one subject token: non-empty and free of `.`,
+`*`, `>` and whitespace. A dispatch carrying anything else returns an error and
+publishes nothing. A value with a separator in it would otherwise build a
+subject of a different shape, which no subscription matches, and the event would
+be lost without a trace.
+Applications whose user IDs are email addresses are the likeliest to hit this.
+
 To reach several rooms, or several users, dispatch once per value:
 
 ```go
@@ -610,7 +617,10 @@ type EventCalcUpdated struct {
 ```
 
 When the SSE stream handler runs, it reads `instance_id` from the client's signals,
-validates it is non-empty, and subscribes to `calc.updated.<instance_id>`.
+validates it is one subject token, and subscribes to `calc.updated.<instance_id>`.
+A signal that is empty or that carries `.`, `*`, `>` or whitespace is refused
+with 400: a wildcard would otherwise let the client widen its subscription to
+every instance.
 
 Signal-scoped events can be mixed with user-addressed events and plain public
 events on the same page. They can also coexist with non-signal subject fields:

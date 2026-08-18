@@ -347,6 +347,9 @@ type appUsage struct {
 	// signalSubjects: func isSubjectToken(...), needed by any page that builds
 	// a subscription subject from a client-provided signal.
 	signalSubjects bool
+	// dispatchSubjects: func isSubjectToken(...), needed by any dispatch that
+	// builds a publish subject from the subject fields of its event.
+	dispatchSubjects bool
 }
 
 // needsIsDSReq returns true if the isDSReq helper must be emitted.
@@ -362,6 +365,51 @@ func (u appUsage) needsCheckIsDSReq() bool {
 // needsSetSessionCookie returns true if setSessionCookie must be emitted.
 func (u appUsage) needsSetSessionCookie() bool {
 	return u.auth || u.createSession || u.closeSession
+}
+
+// dispatchesSubjectFields reports whether any handler dispatches an event whose
+// subject carries field values. Such a dispatch builds its subject at runtime
+// and needs every value guarded: one that is not a single token produces a
+// subject no subscription matches and the event reaches nobody.
+func dispatchesSubjectFields(
+	m *model.App, eventByName map[string]*model.Event,
+) bool {
+	dispatches := func(h *model.Handler) bool {
+		if h == nil {
+			return false
+		}
+		for _, d := range h.InputDispatches {
+			ev := eventByName[d.EventTypeName]
+			if ev != nil && ev.HasSubjectFields() {
+				return true
+			}
+		}
+		return false
+	}
+	for _, h := range m.Actions {
+		if dispatches(h) {
+			return true
+		}
+	}
+	for _, p := range m.Pages {
+		if p.GET != nil && dispatches(p.GET.Handler) {
+			return true
+		}
+		if dispatches(p.StreamOpen) || dispatches(p.StreamClose) {
+			return true
+		}
+		for _, h := range p.Actions {
+			if dispatches(h) {
+				return true
+			}
+		}
+	}
+	for _, p := range []*model.Page{m.PageError404, m.PageError500} {
+		if p != nil && p.GET != nil && dispatches(p.GET.Handler) {
+			return true
+		}
+	}
+	return false
 }
 
 // computeAppUsage scans the model to determine which optional helpers are needed.
@@ -426,6 +474,8 @@ func computeAppUsage(m *model.App) appUsage {
 	for _, e := range m.Events {
 		eventByName[e.TypeName] = e
 	}
+
+	u.dispatchSubjects = dispatchesSubjectFields(m, eventByName)
 
 	for _, h := range m.Actions {
 		checkHandler(h)

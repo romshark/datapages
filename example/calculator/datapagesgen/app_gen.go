@@ -706,6 +706,11 @@ func (s *Server) handlePageIndexPOSTInput(
 		for _, o := range options {
 			o(&conf)
 		}
+		if !isSubjectToken(string(e.InstanceID)) {
+			return fmt.Errorf(
+				"EventCalcUpdated.InstanceID must be a non-empty subject token, received %q",
+				e.InstanceID)
+		}
 		j, err := json.Marshal(e)
 		if err != nil {
 			return fmt.Errorf("marshaling EventCalcUpdated JSON: %w", err)

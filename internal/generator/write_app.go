@@ -64,7 +64,7 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	if w.usage.reflectSignals {
 		w.writeSignalValueHelper()
 	}
-	if w.usage.signalSubjects {
+	if w.usage.signalSubjects || w.usage.dispatchSubjects {
 		w.writeIsSubjectToken()
 	}
 	if w.usage.auth && w.usage.hasSession {
@@ -642,9 +642,10 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 `)
 }
 
-// writeIsSubjectToken emits the guard for subject values a client provides.
-// A wildcard or a separator would widen the subscription past the value
-// the client asked for.
+// writeIsSubjectToken emits the guard for subject values that reach a subject.
+// On the subscribe side a wildcard or a separator would widen the subscription
+// past the value the client asked for. On the publish side either one produces
+// a subject that no subscription matches.
 func (w *Writer) writeIsSubjectToken() {
 	w.Raw(`
 func isSubjectToken(v string) bool {
@@ -2243,6 +2244,27 @@ func (w *Writer) writeDispatchClosure(
 	w.Line(2, "for _, o := range options {")
 	w.Line(3, "o(&conf)")
 	w.Line(2, "}")
+
+	if ev != nil && ev.HasSubjectFields() {
+		// Guard before any work: a value carrying a separator or a wildcard
+		// makes a subject of a different shape,
+		// which every subscription then misses in silence.
+		for _, sf := range ev.SubjectFields {
+			w.Raw("\t\tif !isSubjectToken(string(e.")
+			w.Raw(sf.FieldName)
+			w.Raw(")) {\n")
+			w.Line(3, "return fmt.Errorf(")
+			w.Raw("\t\t\t\t\"")
+			w.Raw(evName)
+			w.Byte('.')
+			w.Raw(sf.FieldName)
+			w.Raw(" must be a non-empty subject token, received %q\",\n")
+			w.Raw("\t\t\t\te.")
+			w.Raw(sf.FieldName)
+			w.Raw(")\n")
+			w.Line(2, "}")
+		}
+	}
 
 	w.Line(2, "j, err := json.Marshal(e)")
 	w.Line(2, "if err != nil {")

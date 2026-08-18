@@ -1044,6 +1044,11 @@ func (s *Server) handlePageRoomPOSTSay(
 		for _, o := range options {
 			o(&conf)
 		}
+		if !isSubjectToken(string(e.Room)) {
+			return fmt.Errorf(
+				"EventRoomSaid.Room must be a non-empty subject token, received %q",
+				e.Room)
+		}
 		j, err := json.Marshal(e)
 		if err != nil {
 			return fmt.Errorf("marshaling EventRoomSaid JSON: %w", err)
@@ -1088,6 +1093,11 @@ func (s *Server) handlePageRoomPOSTBroadcast(
 		conf := datapages.DispatchConfig{Context: r.Context()}
 		for _, o := range options {
 			o(&conf)
+		}
+		if !isSubjectToken(string(e.Room)) {
+			return fmt.Errorf(
+				"EventRoomBroadcast.Room must be a non-empty subject token, received %q",
+				e.Room)
 		}
 		j, err := json.Marshal(e)
 		if err != nil {

@@ -670,6 +670,10 @@ func writeSignalValue(w http.ResponseWriter, s string) {
 	_, _ = io.WriteString(w, html.EscapeString(s))
 }
 
+func isSubjectToken(v string) bool {
+	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
+}
+
 func (s *Server) checkCSRF(
 	w http.ResponseWriter, r *http.Request, sess datapages.Session[struct{}],
 ) (ok bool) {
@@ -1972,6 +1976,11 @@ func (s *Server) handlePageMessagesPOSTRead(
 		for _, o := range options {
 			o(&conf)
 		}
+		if !isSubjectToken(string(e.Recipient)) {
+			return fmt.Errorf(
+				"EventMessagingRead.Recipient must be a non-empty subject token, received %q",
+				e.Recipient)
+		}
 		j, err := json.Marshal(e)
 		if err != nil {
 			return fmt.Errorf("marshaling EventMessagingRead JSON: %w", err)
@@ -2023,6 +2032,11 @@ func (s *Server) handlePageMessagesPOSTWriting(
 		for _, o := range options {
 			o(&conf)
 		}
+		if !isSubjectToken(string(e.Recipient)) {
+			return fmt.Errorf(
+				"EventMessagingWriting.Recipient must be a non-empty subject token, received %q",
+				e.Recipient)
+		}
 		j, err := json.Marshal(e)
 		if err != nil {
 			return fmt.Errorf("marshaling EventMessagingWriting JSON: %w", err)
@@ -2073,6 +2087,11 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 		conf := datapages.DispatchConfig{Context: r.Context()}
 		for _, o := range options {
 			o(&conf)
+		}
+		if !isSubjectToken(string(e.Recipient)) {
+			return fmt.Errorf(
+				"EventMessagingWritingStopped.Recipient must be a non-empty subject token, received %q",
+				e.Recipient)
 		}
 		j, err := json.Marshal(e)
 		if err != nil {
@@ -2126,6 +2145,11 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 		for _, o := range options {
 			o(&conf)
 		}
+		if !isSubjectToken(string(e.Recipient)) {
+			return fmt.Errorf(
+				"EventMessagingWritingStopped.Recipient must be a non-empty subject token, received %q",
+				e.Recipient)
+		}
 		j, err := json.Marshal(e)
 		if err != nil {
 			return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
@@ -2145,6 +2169,11 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 		conf := datapages.DispatchConfig{Context: r.Context()}
 		for _, o := range options {
 			o(&conf)
+		}
+		if !isSubjectToken(string(e.Recipient)) {
+			return fmt.Errorf(
+				"EventMessagingSent.Recipient must be a non-empty subject token, received %q",
+				e.Recipient)
 		}
 		j, err := json.Marshal(e)
 		if err != nil {
@@ -2455,6 +2484,11 @@ func (s *Server) handlePagePostPOSTSendMessage(
 		conf := datapages.DispatchConfig{Context: r.Context()}
 		for _, o := range options {
 			o(&conf)
+		}
+		if !isSubjectToken(string(e.Recipient)) {
+			return fmt.Errorf(
+				"EventMessagingSent.Recipient must be a non-empty subject token, received %q",
+				e.Recipient)
 		}
 		j, err := json.Marshal(e)
 		if err != nil {
@@ -2816,6 +2850,11 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 		for _, o := range options {
 			o(&conf)
 		}
+		if !isSubjectToken(string(e.Recipient)) {
+			return fmt.Errorf(
+				"EventSessionClosed.Recipient must be a non-empty subject token, received %q",
+				e.Recipient)
+		}
 		j, err := json.Marshal(e)
 		if err != nil {
 			return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
@@ -2864,6 +2903,11 @@ func (s *Server) handlePageSettingsPOSTCloseAllSessions(
 		conf := datapages.DispatchConfig{Context: r.Context()}
 		for _, o := range options {
 			o(&conf)
+		}
+		if !isSubjectToken(string(e.Recipient)) {
+			return fmt.Errorf(
+				"EventSessionClosed.Recipient must be a non-empty subject token, received %q",
+				e.Recipient)
 		}
 		j, err := json.Marshal(e)
 		if err != nil {

@@ -332,6 +332,10 @@ func (s sseWrapper) Prefetch(urls ...string) error {
 	return s.gen.Prefetch(urls...)
 }
 
+func isSubjectToken(v string) bool {
+	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
+}
+
 func (s *Server) checkCSRF(
 	w http.ResponseWriter, r *http.Request, sess datapages.Session[app.SessionData],
 ) (ok bool) {
@@ -1157,6 +1161,11 @@ func (s *Server) handlePageLoginPOSTNotify(
 		conf := datapages.DispatchConfig{Context: r.Context()}
 		for _, o := range options {
 			o(&conf)
+		}
+		if !isSubjectToken(string(e.Recipient)) {
+			return fmt.Errorf(
+				"EventNotice.Recipient must be a non-empty subject token, received %q",
+				e.Recipient)
 		}
 		j, err := json.Marshal(e)
 		if err != nil {
