@@ -411,6 +411,8 @@ func TestParse_ErrStreamHooks(t *testing.T) {
 		parser.ErrSignatureUnsupportedInput, // StreamClose with query
 		parser.ErrSignatureUnsupportedInput, // action handler with streamID
 		parser.ErrStreamIDParamNotUint64,    // StreamOpen with streamID int
+		parser.ErrDispatchParamLegacy,       // StreamOpen with an untyped dispatcher
+		parser.ErrDispatchDuplicate,         // StreamClose with two of one type
 	)
 }
 
@@ -1404,6 +1406,12 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrDispatchParamLegacy, "app.go", 47, 11},
 			{parser.ErrDispatchParamNotEvent, "app.go", 60, 17},
 			{parser.ErrDispatchDuplicate, "app.go", 74, 19},
+		},
+		"err_event_subj_prefixed": {
+			{parser.ErrEventSubjectPrefixedField, "app.go", 26, 2},
+		},
+		"err_event_subj_unexported": {
+			{parser.ErrEventFieldUnexported, "app.go", 25, 2},
 		},
 		"err_events": {
 			{parser.ErrEventCommMissing, "app.go", 30, 6},

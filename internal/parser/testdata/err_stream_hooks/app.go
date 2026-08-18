@@ -229,3 +229,47 @@ func (PageWrongStreamIDType) StreamOpen(
 ) error {
 	return nil
 }
+
+// PageHookLegacyDispatch is /hook-legacy-dispatch
+type PageHookLegacyDispatch struct{ App *App }
+
+func (PageHookLegacyDispatch) GET(
+	r *http.Request,
+) (body datapages.Component, err error) {
+	return nil, nil
+}
+
+// EventPing is "ping"
+type EventPing struct {
+	Data string `json:"data"`
+}
+
+/* ErrDispatchParamLegacy: stream hook with an untyped dispatcher */
+
+func (PageHookLegacyDispatch) StreamOpen(
+	r *http.Request,
+	streamID uint64,
+	dispatch func(EventPing) error,
+) error {
+	return nil
+}
+
+// PageHookDuplicateDispatch is /hook-duplicate-dispatch
+type PageHookDuplicateDispatch struct{ App *App }
+
+func (PageHookDuplicateDispatch) GET(
+	r *http.Request,
+) (body datapages.Component, err error) {
+	return nil, nil
+}
+
+/* ErrDispatchDuplicate: stream hook with two dispatchers of one event type */
+
+func (PageHookDuplicateDispatch) StreamClose(
+	r *http.Request,
+	streamID uint64,
+	dispatchPing datapages.Dispatch[EventPing],
+	dispatchPingAgain datapages.Dispatch[EventPing],
+) error {
+	return nil
+}

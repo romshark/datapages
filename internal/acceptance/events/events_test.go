@@ -17,6 +17,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/events/app"
 	"github.com/romshark/datapages/internal/acceptance/events/datapagesgen"
+	"github.com/romshark/datapages/modules/msgbroker"
 	"github.com/romshark/datapages/modules/msgbroker/inmem"
 )
 
@@ -100,6 +101,77 @@ func TestEmbeddedHandler(t *testing.T) {
 
 	require.True(t, other.Saw(`<div id="shared">shared 1</div>`),
 		"the embedding page received nothing from the embedded handler")
+}
+
+// TestTwoDispatchers covers an action that declares one dispatcher per event type.
+// Both events must reach the stream, since each dispatcher publishes on
+// its own and neither depends on the other.
+func TestTwoDispatchers(t *testing.T) {
+	c := newClient(t)
+
+	s := c.OpenStream(t, "/_$/", nil)
+
+	postOK(t, c, "/both/", `{"n":3}`)
+
+	require.True(t, s.Saw(`<div id="out">tick 3</div>`),
+		"the first dispatcher delivered nothing")
+	require.True(t, s.Saw(`<div id="pong">pong 3</div>`),
+		"the second dispatcher delivered nothing")
+}
+
+// TestStreamCloseDispatches covers dispatching from StreamClose. The hook runs
+// while the closing stream is torn down, so its request context is already
+// done and the dispatcher must publish with that cancelation stripped.
+// The broker here refuses a dead context, which is what makes the difference visible:
+// a stream that stays open must receive what the closing one sent.
+func TestStreamCloseDispatches(t *testing.T) {
+	broker := &ctxBroker{MessageBroker: inmem.New(8)}
+	c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+
+	watcher := c.OpenStream(t, "/_$/", nil)
+	leaving := c.OpenStream(t, "/_$/", nil)
+
+	leaving.Close()
+
+	require.True(t, watcher.Saw(`<div id="gone">gone `),
+		"the event dispatched from StreamClose never arrived")
+}
+
+// TestDispatchContextOption covers datapages.WithDispatchContext.
+// The action dispatches with a context that is already done,
+// so a broker that honors the context refuses to publish and the action fails.
+// Without the option the same dispatch would use the live request context and succeed.
+func TestDispatchContextOption(t *testing.T) {
+	broker := &ctxBroker{MessageBroker: inmem.New(8)}
+	c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+
+	s := c.OpenStream(t, "/_$/", nil)
+
+	postOK(t, c, "/tick/", `{"n":1}`)
+	require.True(t, s.Saw(`<div id="out">tick 1</div>`),
+		"the handler context was refused by the broker")
+
+	resp := c.Action(t, http.MethodPost, "/canceled/", `{"n":2}`)
+	require.Equal(t, http.StatusInternalServerError, resp.Status,
+		"the canceled context did not reach the broker")
+	require.True(t, s.Never("tick 2"),
+		"the event was published with a canceled context")
+}
+
+// ctxBroker publishes only while the context it is given is alive.
+// The in-memory broker ignores the context, which would hide what
+// TestDispatchContextOption is after.
+type ctxBroker struct {
+	msgbroker.MessageBroker
+}
+
+func (b *ctxBroker) Publish(
+	ctx context.Context, metrics msgbroker.Metrics, subject string, data []byte,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return b.MessageBroker.Publish(ctx, metrics, subject, data)
 }
 
 // TestSubjectScoping covers an event whose subject carries a value the stream

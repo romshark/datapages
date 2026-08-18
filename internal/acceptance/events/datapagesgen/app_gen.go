@@ -491,8 +491,10 @@ const (
 
 	// Public events:
 
+	EvSubjPong          = "pong"
 	EvSubjRoomBroadcast = "room.broadcast.*"
 	EvSubjRoomSaid      = "room.said.*"
+	EvSubjStreamGone    = "stream.gone"
 	EvSubjTick          = "tick"
 )
 
@@ -503,14 +505,18 @@ const (
 
 func MessageBrokerStreamSubjects() []string {
 	return []string{
+		EvSubjPong,
 		EvSubjRoomBroadcast,
 		EvSubjRoomSaid,
+		EvSubjStreamGone,
 		EvSubjTick,
 	}
 }
 
 func evSubjPageIndex() []string {
 	return []string{
+		EvSubjStreamGone,
+		EvSubjPong,
 		EvSubjTick,
 	}
 }
@@ -554,6 +560,12 @@ func setupHandlers(s *Server) {
 	s.mux.HandleFunc(
 		"POST /tick/{$}",
 		s.handlePageIndexPOSTTick)
+	s.mux.HandleFunc(
+		"POST /both/{$}",
+		s.handlePageIndexPOSTBoth)
+	s.mux.HandleFunc(
+		"POST /canceled/{$}",
+		s.handlePageIndexPOSTCanceled)
 	s.mux.HandleFunc(
 		"POST /room/say/{$}",
 		s.handlePageRoomPOSTSay)
@@ -618,6 +630,25 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	dispatchClosedStreamGone := func(
+		e app.EventStreamGone,
+		options ...datapages.DispatchOption,
+	) error {
+		conf := datapages.DispatchConfig{Context: context.WithoutCancel(r.Context())}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventStreamGone JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjStreamGone, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjStreamGone, err)
+		}
+		return nil
+	}
+
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -629,7 +660,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			return p.StreamOpen(r, streamID)
 		},
 		func(streamID uint64) {
-			if err := p.StreamClose(r, streamID); err != nil {
+			if err := p.StreamClose(r, streamID, dispatchClosedStreamGone); err != nil {
 				s.logErr("handling PageIndex.StreamClose", err)
 			}
 		},
@@ -639,6 +670,24 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		) {
 			for msg := range ch {
 				switch msg.Subject {
+				case EvSubjStreamGone:
+					var e app.EventStreamGone
+					if err := json.Unmarshal(msg.Data, &e); err != nil {
+						s.logErr("unmarshaling EventStreamGone JSON", err)
+						continue
+					}
+					if err := p.OnStreamGone(e, newSSE(sse)); err != nil {
+						s.logErr("handling PageIndex.OnStreamGone", err)
+					}
+				case EvSubjPong:
+					var e app.EventPong
+					if err := json.Unmarshal(msg.Data, &e); err != nil {
+						s.logErr("unmarshaling EventPong JSON", err)
+						continue
+					}
+					if err := p.OnPong(e, newSSE(sse)); err != nil {
+						s.logErr("handling PageIndex.OnPong", err)
+					}
 				case EvSubjTick:
 					var e app.EventTick
 					if err := json.Unmarshal(msg.Data, &e); err != nil {
@@ -692,6 +741,111 @@ func (s *Server) handlePageIndexPOSTTick(
 	err := p.POSTTick(r, signals, dispatchTick)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Tick", err)
+		return
+	}
+}
+
+func (s *Server) handlePageIndexPOSTBoth(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	var signals struct {
+		N int `json:"n"`
+	}
+	if err := datastar.ReadSignals(r, &signals); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+		return
+	}
+
+	dispatchTick := func(
+		e app.EventTick,
+		options ...datapages.DispatchOption,
+	) error {
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventTick JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTick, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjTick, err)
+		}
+		return nil
+	}
+
+	dispatchPong := func(
+		e app.EventPong,
+		options ...datapages.DispatchOption,
+	) error {
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventPong JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjPong, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjPong, err)
+		}
+		return nil
+	}
+	p := app.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTBoth(r, signals, dispatchTick, dispatchPong)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Both", err)
+		return
+	}
+}
+
+func (s *Server) handlePageIndexPOSTCanceled(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	var signals struct {
+		N int `json:"n"`
+	}
+	if err := datastar.ReadSignals(r, &signals); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+		return
+	}
+
+	dispatchTick := func(
+		e app.EventTick,
+		options ...datapages.DispatchOption,
+	) error {
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventTick JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTick, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjTick, err)
+		}
+		return nil
+	}
+	p := app.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTCanceled(r, signals, dispatchTick)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Canceled", err)
 		return
 	}
 }
