@@ -21,7 +21,6 @@ import (
 	"github.com/romshark/datapages/internal/parser/internal/methodkind"
 	"github.com/romshark/datapages/internal/parser/internal/paramvalidation"
 	"github.com/romshark/datapages/internal/parser/internal/structinspect"
-	"github.com/romshark/datapages/internal/parser/internal/structtag"
 	"github.com/romshark/datapages/internal/parser/internal/templcheck"
 	"github.com/romshark/datapages/internal/parser/internal/typecheck"
 	"github.com/romshark/datapages/internal/parser/internal/urlpath"
@@ -999,7 +998,7 @@ func attachHTTPHandler(
 
 	// Validate reflectsignal tags on query fields reference actual signals.
 	if herr == nil {
-		if rsErr := structtag.ValidateReflectSignal(h, recv, fd.Name.Name); rsErr != nil {
+		if rsErr := paramvalidation.ValidateReflectSignal(h, recv, fd.Name.Name); rsErr != nil {
 			p := pos
 			if h.InputQuery != nil {
 				p = ctx.pkg.Fset.Position(h.InputQuery.Expr.Pos())

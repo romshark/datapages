@@ -8,6 +8,7 @@ import (
 	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/routepattern"
+	"github.com/romshark/datapages/internal/structtag"
 )
 
 // WritePkgHref generates code for the datapagesgen/href package
@@ -314,7 +315,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 	w.Line(0, "")
 
 	for _, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `l += len("&")`)
@@ -343,7 +344,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 	w.Line(0, "")
 
 	for i, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `b.WriteString("&")`)
@@ -421,7 +422,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	w.Line(0, "")
 
 	for _, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s += len(\"&\")", lo.length)
@@ -453,7 +454,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	w.Line(0, "")
 
 	for i, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s.WriteString(\"&\")", lo.builder)
@@ -495,7 +496,7 @@ func (w *Writer) writeHrefQueryType(funcName string, st *types.Struct) {
 	}
 
 	for _, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		typeName := fieldTypeName(f.Type)
 		w.Linef(1, "\t%-*s %-*s `query:\"%s\"`",
 			maxNameLen, f.Name, maxTypeLen, typeName, tag)
@@ -526,7 +527,7 @@ func (w *Writer) pathParamInfos(
 	fields := w.structFields(pathInput.Type.Resolved)
 	tagToType := make(map[string]types.Type, len(fields))
 	for _, f := range fields {
-		if tag := pathTagValue(f.Tag); tag != "" {
+		if tag := structtag.PathTagValue(f.Tag); tag != "" {
 			tagToType[tag] = f.Type
 		}
 	}
@@ -605,7 +606,7 @@ func newHrefLocals(params []pathParamInfo, fields []structFieldInfo) hrefLocals 
 		queryStr:  make(map[string]string, len(fields)),
 	}
 	for _, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		lo.queryStr[tag] = pick(tag + "Str")
 	}
 	return lo
@@ -737,12 +738,12 @@ func (w *Writer) writeQueryPreConvert(lo hrefLocals, fields []structFieldInfo) {
 	}
 	w.Line(1, "var (")
 	for _, f := range fields {
-		w.Linef(2, "%s string", lo.queryStr[queryTagValue(f.Tag)])
+		w.Linef(2, "%s string", lo.queryStr[structtag.QueryTagValue(f.Tag)])
 	}
 	w.Line(1, ")")
 	w.Line(0, "")
 	for _, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		w.Raw("\tif ")
 		w.writeZeroCheck("query."+f.Name, f.Type)
 		w.Raw(" {\n")

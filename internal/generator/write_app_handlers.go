@@ -6,6 +6,7 @@ import (
 
 	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/internal/structtag"
 )
 
 // handlerArgVar maps an InputKind constant to the local variable name
@@ -469,13 +470,13 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 	if h.InputQuery != nil {
 		fields := w.structFields(h.InputQuery.Type.Resolved)
 		for _, f := range fields {
-			rs := reflectSignalTagValue(f.Tag)
+			rs := structtag.ReflectSignalTagValue(f.Tag)
 			if rs != "" {
 				reflectFields = append(reflectFields, reflectSignalField{
 					SignalName: rs,
 					FieldName:  f.Name,
 					Type:       f.Type,
-					QueryTag:   queryTagValue(f.Tag),
+					QueryTag:   structtag.QueryTagValue(f.Tag),
 				})
 			}
 		}
@@ -683,7 +684,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			fields := w.structFields(h.InputPath.Type.Resolved)
 			tagToField := make(map[string]structFieldInfo, len(fields))
 			for _, f := range fields {
-				if tag := pathTagValue(f.Tag); tag != "" {
+				if tag := structtag.PathTagValue(f.Tag); tag != "" {
 					tagToField[tag] = f
 				}
 			}
@@ -733,7 +734,7 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 	fields := w.structFields(pathInput.Type.Resolved)
 	tagToField := make(map[string]structFieldInfo, len(fields))
 	for _, f := range fields {
-		if tag := pathTagValue(f.Tag); tag != "" {
+		if tag := structtag.PathTagValue(f.Tag); tag != "" {
 			tagToField[tag] = f
 		}
 	}
@@ -1440,7 +1441,7 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 	w.Byte('\n')
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		if gotypes.IsString(f.Type) {
 			w.Raw("\tquery.")
 			w.Raw(f.Name)
@@ -1470,7 +1471,7 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
 	w.Byte('\n')
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
-		tag := pathTagValue(f.Tag)
+		tag := structtag.PathTagValue(f.Tag)
 		if gotypes.IsString(f.Type) {
 			w.Raw("\tpath.")
 			w.Raw(f.Name)

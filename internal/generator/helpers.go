@@ -6,7 +6,6 @@ import (
 	"go/format"
 	"go/token"
 	"go/types"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/internal/structtag"
 )
 
 // dispatchVarName is the generated variable name of a dispatch closure.
@@ -294,21 +294,6 @@ func (w *Writer) structFields(t types.Type) []structFieldInfo {
 		})
 	}
 	return w.fields
-}
-
-// queryTagValue extracts the value from a `query:"value"` struct tag.
-func queryTagValue(tag string) string {
-	return reflect.StructTag(tag).Get("query")
-}
-
-// reflectSignalTagValue extracts the value from a `reflectsignal:"value"` struct tag.
-func reflectSignalTagValue(tag string) string {
-	return reflect.StructTag(tag).Get("reflectsignal")
-}
-
-// pathTagValue extracts the value from a `path:"value"` struct tag.
-func pathTagValue(tag string) string {
-	return reflect.StructTag(tag).Get("path")
 }
 
 // appUsage tracks which optional helpers are referenced by the generated handler code.
@@ -772,7 +757,7 @@ func structHasReflectSignal(t types.Type) bool {
 		return false
 	}
 	for i := range st.NumFields() {
-		if reflectSignalTagValue(st.Tag(i)) != "" {
+		if structtag.ReflectSignalTagValue(st.Tag(i)) != "" {
 			return true
 		}
 	}

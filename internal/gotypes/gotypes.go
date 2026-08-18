@@ -1,7 +1,6 @@
 // Package gotypes provides predicates and renderings for plain Go types.
-// Nothing here knows about Datapages: the parser inspects handler signatures
-// with it and the generator decides how to parse and format a value with it,
-// which is why it sits outside both.
+// Nothing here knows about Datapages.
+// Both the parser and the generator inspect types with it.
 package gotypes
 
 import "go/types"

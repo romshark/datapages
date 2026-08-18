@@ -6,6 +6,7 @@ import (
 
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/routepattern"
+	"github.com/romshark/datapages/internal/structtag"
 )
 
 // WritePkgAction generates code for the datapagesgen/action package
@@ -599,7 +600,7 @@ func (w *Writer) writeActionFuncQueryOnly(
 	// Query param length accumulation.
 	w.Linef(1, "%s := 0", lo.count)
 	for i, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s += len(\"&\")", lo.length)
@@ -628,7 +629,7 @@ func (w *Writer) writeActionFuncQueryOnly(
 	// Write query params.
 	w.Linef(1, "%s = 0", lo.count)
 	for i, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s.WriteString(\"&\")", lo.builder)
@@ -705,7 +706,7 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	// Query param length accumulation.
 	w.Linef(1, "%s := 0", lo.count)
 	for i, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s += len(\"&\")", lo.length)
@@ -743,7 +744,7 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	// Write query params.
 	w.Linef(1, "%s = 0", lo.count)
 	for i, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s.WriteString(\"&\")", lo.builder)
@@ -788,7 +789,7 @@ func (w *Writer) writeActionQueryType(funcName string, fields []structFieldInfo)
 	}
 
 	for _, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		typeName := fieldTypeName(f.Type)
 		w.Linef(1, "\t%-*s %-*s `query:\"%s\"`",
 			maxNameLen, f.Name, maxTypeLen, typeName, tag)

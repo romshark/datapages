@@ -738,3 +738,57 @@ func f(d string) {}`,
 		})
 	}
 }
+
+func TestValidateReflectSignal(t *testing.T) {
+	sigType := namedType(t, "package test\n"+
+		"type P struct {\n"+
+		"\tCount int `json:\"count\"`\n"+
+		"\tName  string `json:\"name\"`\n"+
+		"}")
+	queryType := func(tag string) types.Type {
+		return namedType(t, "package test\n"+
+			"type P struct {\n"+
+			"\tSearch string `"+tag+"`\n"+
+			"}")
+	}
+	input := func(t types.Type) *model.Input {
+		return &model.Input{Type: model.Type{Resolved: t}}
+	}
+	notAStruct := input(types.Typ[types.Int])
+
+	for name, td := range map[string]struct {
+		handler *model.Handler
+		wantErr error
+	}{
+		"no query":         {handler: &model.Handler{}},
+		"no signals":       {handler: &model.Handler{InputQuery: notAStruct}},
+		"query not struct": {handler: &model.Handler{InputQuery: notAStruct, InputSignals: notAStruct}},
+		"signals not struct": {handler: &model.Handler{
+			InputQuery: input(sigType), InputSignals: notAStruct,
+		}},
+		"no reflectsignal tag": {handler: &model.Handler{
+			InputQuery:   input(queryType(`query:"search"`)),
+			InputSignals: input(sigType),
+		}},
+		"reflectsignal matches signal": {handler: &model.Handler{
+			InputQuery:   input(queryType(`query:"search" reflectsignal:"count"`)),
+			InputSignals: input(sigType),
+		}},
+		"reflectsignal not in signals": {
+			handler: &model.Handler{
+				InputQuery:   input(queryType(`query:"search" reflectsignal:"missing"`)),
+				InputSignals: input(sigType),
+			},
+			wantErr: ErrQueryReflectSignalNotInSignals,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := ValidateReflectSignal(td.handler, "Recv", "Method")
+			if td.wantErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, td.wantErr)
+		})
+	}
+}

@@ -10,10 +10,10 @@ import (
 	"go/types"
 	"strings"
 
-	"github.com/romshark/datapages/internal/parser/internal/structtag"
 	"github.com/romshark/datapages/internal/parser/internal/typecheck"
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/routepattern"
+	"github.com/romshark/datapages/internal/structtag"
 )
 
 // Path parameter errors.
@@ -63,6 +63,9 @@ var (
 	)
 	ErrQueryFieldUnsupportedType = errors.New(
 		"query struct field has unsupported type",
+	)
+	ErrQueryReflectSignalNotInSignals = errors.New(
+		"query reflectsignal tag references signal not in signals parameter",
 	)
 )
 
@@ -610,4 +613,45 @@ func ValidatePathAgainstRoute(
 		))
 	}
 	return errors.Join(errs...)
+}
+
+// ValidateReflectSignal checks that every reflectsignal tag
+// on a query field references a json tag value in the signals struct.
+func ValidateReflectSignal(
+	h *model.Handler, recv, method string,
+) error {
+	if h.InputQuery == nil || h.InputSignals == nil {
+		return nil
+	}
+
+	querySt, ok := h.InputQuery.Type.Resolved.Underlying().(*types.Struct)
+	if !ok {
+		return nil
+	}
+	sigSt, ok := h.InputSignals.Type.Resolved.Underlying().(*types.Struct)
+	if !ok {
+		return nil
+	}
+
+	sigNames := make(map[string]bool, sigSt.NumFields())
+	for i := range sigSt.NumFields() {
+		if v := structtag.JSONTagValue(sigSt.Tag(i)); v != "" {
+			sigNames[v] = true
+		}
+	}
+
+	for i := range querySt.NumFields() {
+		rs := structtag.ReflectSignalTagValue(querySt.Tag(i))
+		if rs == "" {
+			continue
+		}
+		if !sigNames[rs] {
+			return fmt.Errorf(
+				"%w: %q in %s.%s",
+				ErrQueryReflectSignalNotInSignals,
+				rs, recv, method,
+			)
+		}
+	}
+	return nil
 }

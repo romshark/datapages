@@ -13,7 +13,6 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	"github.com/romshark/datapages/internal/parser/internal/paramvalidation"
-	"github.com/romshark/datapages/internal/parser/internal/structtag"
 	"github.com/romshark/datapages/internal/parser/internal/templcheck"
 )
 
@@ -113,7 +112,7 @@ var (
 	ErrQueryFieldEmptyTag        = paramvalidation.ErrQueryFieldEmptyTag
 	ErrQueryFieldUnsupportedType = paramvalidation.ErrQueryFieldUnsupportedType
 
-	ErrQueryReflectSignalNotInSignals = structtag.ErrQueryReflectSignalNotInSignals
+	ErrQueryReflectSignalNotInSignals = paramvalidation.ErrQueryReflectSignalNotInSignals
 
 	ErrSignalsParamNotStruct    = paramvalidation.ErrSignalsParamNotStruct
 	ErrSignalsFieldUnexported   = paramvalidation.ErrSignalsFieldUnexported
