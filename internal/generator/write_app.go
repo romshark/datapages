@@ -64,6 +64,9 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	if w.usage.reflectSignals {
 		w.writeSignalValueHelper()
 	}
+	if w.usage.signalSubjects {
+		w.writeIsSubjectToken()
+	}
 	if w.usage.auth && w.usage.hasSession {
 		w.writeAppCheckCSRF()
 	}
@@ -635,6 +638,17 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 		return false
 	}
 	return true
+}
+`)
+}
+
+// writeIsSubjectToken emits the guard for subject values a client provides.
+// A wildcard or a separator would widen the subscription past the value
+// the client asked for.
+func (w *Writer) writeIsSubjectToken() {
+	w.Raw(`
+func isSubjectToken(v string) bool {
+	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
 }
 `)
 }

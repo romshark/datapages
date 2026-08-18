@@ -321,6 +321,10 @@ func (s sseWrapper) Prefetch(urls ...string) error {
 	return s.gen.Prefetch(urls...)
 }
 
+func isSubjectToken(v string) bool {
+	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
+}
+
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -628,8 +632,9 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
-	if subjSignals.InstanceID == "" {
-		s.httpErrBad(w, "missing required signal", fmt.Errorf("signal %q is required", "instance_id"))
+	if !isSubjectToken(subjSignals.InstanceID) {
+		s.httpErrBad(w, "invalid signal",
+			fmt.Errorf("signal %q must be a non-empty subject token", "instance_id"))
 		return
 	}
 

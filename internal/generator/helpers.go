@@ -344,6 +344,9 @@ type appUsage struct {
 	// reflectSignals: func writeSignalValue(...), needed by any page that
 	// reflects a query value into a data-signals attribute.
 	reflectSignals bool
+	// signalSubjects: func isSubjectToken(...), needed by any page that builds
+	// a subscription subject from a client-provided signal.
+	signalSubjects bool
 }
 
 // needsIsDSReq returns true if the isDSReq helper must be emitted.
@@ -447,6 +450,7 @@ func computeAppUsage(m *model.App) appUsage {
 			}
 			if pageHasSignalScopedEvent(p, eventByName) {
 				u.httpErrBad = true
+				u.signalSubjects = true
 			}
 			if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
 				u.httpErrBad = true

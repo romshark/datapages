@@ -4,9 +4,11 @@ package acceptance_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -289,6 +291,31 @@ func TestMissingSubjectSignal(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+// TestWildcardSubjectSignalRefused covers a client that puts a NATS wildcard in
+// the signal its subscription is scoped by. Taken as given, "*" would subscribe
+// the stream to every value of that subject and hand the client events meant
+// for other instances, so the stream must be refused instead.
+func TestWildcardSubjectSignalRefused(t *testing.T) {
+	c := newClient(t)
+
+	for _, signal := range []string{"*", ">", "red.blue", "", " "} {
+		encoded, err := json.Marshal(map[string]string{"room": signal})
+		require.NoError(t, err, "encoding signals")
+
+		req, err := http.NewRequestWithContext(context.Background(),
+			http.MethodGet,
+			c.URL()+"/room/_$/?datastar="+url.QueryEscape(string(encoded)), nil)
+		require.NoError(t, err, "building request")
+		req.Header.Set("Datastar-Request", "true")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err, "GET /room/_$/")
+		_ = resp.Body.Close()
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode,
+			"signal %q was accepted as a subject token", signal)
 	}
 }
 
