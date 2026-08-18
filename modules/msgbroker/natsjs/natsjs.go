@@ -27,7 +27,10 @@ type MessageBroker struct {
 
 type Config struct {
 	StreamConfig *nats.StreamConfig
-	ChanBuffer   int
+
+	// ChanBuffer is how many messages a subscription buffers.
+	// Non-positive selects msgbroker.DefaultBrokerChanBuffer.
+	ChanBuffer int
 }
 
 type natsSub struct {
@@ -37,7 +40,9 @@ type natsSub struct {
 }
 
 func New(nc *nats.Conn, conf Config) (*MessageBroker, error) {
-	conf.ChanBuffer = min(conf.ChanBuffer, msgbroker.DefaultBrokerChanBuffer)
+	if conf.ChanBuffer <= 0 {
+		conf.ChanBuffer = msgbroker.DefaultBrokerChanBuffer
+	}
 
 	js, err := nc.JetStream()
 	if err != nil {

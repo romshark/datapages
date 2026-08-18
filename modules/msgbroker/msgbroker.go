@@ -6,6 +6,8 @@ import "context"
 // Buffer size should be enough to absorb short bursts without blocking delivery,
 // while bounding memory and ensuring slow consumers drop messages instead of
 // backpressuring producers.
+//
+// A broker configured with a non-positive buffer size uses it.
 var DefaultBrokerChanBuffer = 16
 
 // MessageBroker is a common interface for message brokers.
