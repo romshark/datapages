@@ -230,37 +230,31 @@ func mapCustomWatchers(watchers []config.WatchCustomWatcher) []engine.CustomWatc
 	return out
 }
 
-func mapLogLevel(l config.LogLevel) engine.LogLevel {
-	switch l {
-	case config.LogLevelVerbose:
-		return engine.LogLevelVerbose
-	case config.LogLevelDebug:
-		return engine.LogLevelDebug
-	default:
-		return engine.LogLevelError
+// An unmapped value yields the engine zero value, which is the default of each
+// enum: LogLevelError, LogClearNever and ActionNone.
+var (
+	engineLogLevel = map[config.LogLevel]engine.LogLevel{
+		config.LogLevelErrOnly: engine.LogLevelError,
+		config.LogLevelVerbose: engine.LogLevelVerbose,
+		config.LogLevelDebug:   engine.LogLevelDebug,
 	}
-}
+	engineLogClear = map[config.LogClear]engine.LogClearOn{
+		config.LogClearDisabled:     engine.LogClearNever,
+		config.LogClearOnRestart:    engine.LogClearOnRestart,
+		config.LogClearOnFileChange: engine.LogClearOnFileChange,
+	}
+	engineAction = map[config.WatcherRequires]engine.ActionType{
+		config.WatcherRequiresNone:    engine.ActionNone,
+		config.WatcherRequiresReload:  engine.ActionReload,
+		config.WatcherRequiresRestart: engine.ActionRestart,
+		config.WatcherRequiresRebuild: engine.ActionRebuild,
+	}
+)
 
-func mapLogClear(l config.LogClear) engine.LogClearOn {
-	switch l {
-	case config.LogClearOnRestart:
-		return engine.LogClearOnRestart
-	case config.LogClearOnFileChange:
-		return engine.LogClearOnFileChange
-	default:
-		return engine.LogClearNever
-	}
-}
+func mapLogLevel(l config.LogLevel) engine.LogLevel { return engineLogLevel[l] }
+
+func mapLogClear(l config.LogClear) engine.LogClearOn { return engineLogClear[l] }
 
 func mapWatcherRequires(r config.WatcherRequires) engine.ActionType {
-	switch r {
-	case config.WatcherRequiresReload:
-		return engine.ActionReload
-	case config.WatcherRequiresRestart:
-		return engine.ActionRestart
-	case config.WatcherRequiresRebuild:
-		return engine.ActionRebuild
-	default:
-		return engine.ActionNone
-	}
+	return engineAction[r]
 }
