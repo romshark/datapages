@@ -27,6 +27,7 @@ import (
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/parser/validate"
 	"github.com/romshark/datapages/internal/routepattern"
+	"github.com/romshark/datapages/internal/subject"
 )
 
 func Parse(appPackagePath string) (app *model.App, errs Errors) {
@@ -369,18 +370,17 @@ func firstPassEventType(
 	}
 
 	claim := eventClaim{
-		subject:   subj,
-		hasFields: len(subjectFields) > 0,
-		typeName:  name,
+		Claim:    subject.Claim{Subject: subj, HasFields: len(subjectFields) > 0},
+		typeName: name,
 	}
 	for _, first := range ctx.eventClaims {
-		if !claim.overlaps(first) {
+		if !claim.Overlaps(first.Claim) {
 			continue
 		}
 		errs.ErrAt(typePos, &ErrorEventSubjectOverlap{
 			Subject:       subj,
 			TypeName:      name,
-			FirstSubject:  first.subject,
+			FirstSubject:  first.Subject,
 			FirstTypeName: first.typeName,
 		})
 		return
@@ -397,33 +397,10 @@ func firstPassEventType(
 	})
 }
 
-// eventClaim is the set of subjects one event occupies. An event with subject fields
-// publishes under its subject and a page routes what arrives to it by that prefix,
-// so it claims everything below.
-// An event without them claims one subject and nothing else.
+// eventClaim names the event behind a subject claim.
 type eventClaim struct {
-	subject   string
-	hasFields bool
-	typeName  string
-}
-
-// overlaps reports whether a subject exists that both claims cover.
-// Such a subject reaches whichever handler the generated router tests first,
-// and the two brokers disagree on how many times it arrives.
-func (c eventClaim) overlaps(other eventClaim) bool {
-	switch {
-	case c.hasFields && other.hasFields:
-		return strings.HasPrefix(c.subject+".", other.subject+".") ||
-			strings.HasPrefix(other.subject+".", c.subject+".")
-	case c.hasFields:
-		return strings.HasPrefix(other.subject, c.subject+".")
-	case other.hasFields:
-		return strings.HasPrefix(c.subject, other.subject+".")
-	default:
-		// Two plain subjects collide only by being equal,
-		// which the duplicate check already refused.
-		return false
-	}
+	subject.Claim
+	typeName string
 }
 
 func extractEventSubject(

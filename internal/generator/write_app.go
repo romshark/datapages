@@ -7,6 +7,7 @@ import (
 
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/routepattern"
+	"github.com/romshark/datapages/internal/subject"
 )
 
 //go:embed app_static.go.txt
@@ -646,16 +647,9 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 `)
 }
 
-// writeIsSubjectToken emits the guard for subject values that reach a subject.
-// On the subscribe side a wildcard or a separator would widen the subscription
-// past the value the client asked for. On the publish side either one produces
-// a subject that no subscription matches.
 func (w *Writer) writeIsSubjectToken() {
-	w.Raw(`
-func isSubjectToken(v string) bool {
-	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
-}
-`)
+	w.Byte('\n')
+	w.Raw(subject.GenIsToken())
 }
 
 // writeCheckUserSubject emits the guard for the ID of the session owner,

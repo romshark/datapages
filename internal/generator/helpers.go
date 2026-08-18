@@ -15,6 +15,7 @@ import (
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/routepattern"
 	"github.com/romshark/datapages/internal/structtag"
+	"github.com/romshark/datapages/internal/subject"
 )
 
 // dispatchVarName is the generated variable name of a dispatch closure.
@@ -78,7 +79,7 @@ func evSubjValue(e *model.Event) string {
 // evSubjPrefValue returns the subject prefix value used to match private events.
 // "messaging.sent."
 func evSubjPrefValue(e *model.Event) string {
-	return e.Subject + "."
+	return subject.Prefix(e.Subject)
 }
 
 // stripPagePrefix strips "Page" prefix from type name: "PageSettings" -> "Settings"
