@@ -323,9 +323,10 @@ func TestWildcardSubjectSignalRefused(t *testing.T) {
 // needs its streams created before anything is published to them.
 //
 // A broker that implements msgbroker.StreamInitializer is given every subject
-// the app can publish, once, at startup. A NATS JetStream deployment cannot
-// work without it, and nothing on the datapages side reports a subject that
-// was left out: the publish simply goes nowhere.
+// the app can publish, once, at startup. No broker shipped with datapages needs
+// it, the hand-off exists for brokers that must declare a topic or a stream
+// before a publish to it can succeed. Nothing on the datapages side reports a
+// subject that was left out: the publish simply goes nowhere.
 func TestBrokerStreamInitialization(t *testing.T) {
 	broker := &initializingBroker{MessageBroker: inmem.New(8)}
 	_ = client.New(t, datapagesgen.NewServer(&app.App{}, broker))

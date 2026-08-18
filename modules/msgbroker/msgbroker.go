@@ -35,8 +35,9 @@ type Metrics interface {
 
 // StreamInitializer is an optional interface that message brokers can implement
 // to receive the set of stream subjects during server initialization.
-// Brokers that require stream/subject setup (e.g. NATS JetStream) should
-// implement this; brokers that don't need it (e.g. in-memory) can skip it.
+// Brokers that require the destination of a message to be declared up front,
+// such as a topic or a stream, should implement this. Brokers that route on the
+// subject alone, which is what core NATS and the in-memory broker do, can skip it.
 type StreamInitializer interface {
 	InitStreams(subjects []string) error
 }

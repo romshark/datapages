@@ -665,13 +665,13 @@ s := datapagesgen.NewServer(a, messageBroker, sessionManager, opts...)
 
 A message broker is always required. It delivers events between pages and handles SSE fan-out.
 
-Use NATS JetStream for the message broker:
+Use core NATS for the message broker:
 
 ```go
-import "github.com/romshark/datapages/modules/msgbroker/natsjs"
+import "github.com/romshark/datapages/modules/msgbroker/natscore"
 ```
 
-An in-memory broker (`github.com/romshark/datapages/modules/msgbroker/inmem`) exists but should only be used in single-instance setups that don't require persistence. Prefer NATS JetStream in most cases.
+An in-memory broker (`github.com/romshark/datapages/modules/msgbroker/inmem`) exists but should only be used in single-instance setups. Prefer core NATS in most cases.
 
 ### Session Manager
 

@@ -1,12 +1,15 @@
-// Package natsjs provides a NATS JetStream  backed message broker
+// Package natscore provides a core NATS backed message broker
 // with fan-out delivery semantics.
-package natsjs
+//
+// Delivery is at-most-once: a message reaches only the subscribers that are
+// connected when it's published and there's no replay. Datapages events drive
+// live UI updates, a lost one means a stale UI until the next render, which is
+// why the durability and the ack round trip of JetStream buy nothing here.
+package natscore
 
 import (
 	"bytes"
 	"context"
-	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/nats-io/nats.go"
@@ -14,20 +17,14 @@ import (
 	"github.com/romshark/datapages/modules/msgbroker"
 )
 
-var (
-	_ msgbroker.MessageBroker     = (*MessageBroker)(nil)
-	_ msgbroker.StreamInitializer = (*MessageBroker)(nil)
-)
+var _ msgbroker.MessageBroker = (*MessageBroker)(nil)
 
 type MessageBroker struct {
 	nc   *nats.Conn
-	js   nats.JetStreamContext
 	conf Config
 }
 
 type Config struct {
-	StreamConfig *nats.StreamConfig
-
 	// ChanBuffer is how many messages a subscription buffers.
 	// Non-positive selects msgbroker.DefaultBrokerChanBuffer.
 	ChanBuffer int
@@ -39,48 +36,28 @@ type natsSub struct {
 	close func()
 }
 
-func New(nc *nats.Conn, conf Config) (*MessageBroker, error) {
+func New(nc *nats.Conn, conf Config) *MessageBroker {
 	if conf.ChanBuffer <= 0 {
 		conf.ChanBuffer = msgbroker.DefaultBrokerChanBuffer
 	}
-
-	js, err := nc.JetStream()
-	if err != nil {
-		return nil, fmt.Errorf("initializing jetstream: %w", err)
-	}
-
-	return &MessageBroker{nc: nc, js: js, conf: conf}, nil
+	return &MessageBroker{nc: nc, conf: conf}
 }
 
-// InitStreams implements msgbroker.StreamInitializer.
-func (b *MessageBroker) InitStreams(subjects []string) error {
-	conf := b.conf.StreamConfig
-	if conf == nil {
-		conf = new(nats.StreamConfig)
-	}
-	if conf.Description == "" {
-		conf.Description = "stream was automatically created by datapages"
-	}
-	conf.Subjects = subjects
-
-	_, err := b.js.AddStream(conf)
-	if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
-		return fmt.Errorf("adding stream: %w", err)
-	}
-	return nil
-}
-
+// Publish implements msgbroker.MessageBroker.
+//
+// ctx is ignored: a core NATS publish appends to the connection's local write
+// buffer and returns, there's no round trip to cancel.
 func (b *MessageBroker) Publish(
-	ctx context.Context,
+	_ context.Context,
 	metrics msgbroker.Metrics,
 	subject string,
 	data []byte,
 ) error {
-	_, err := b.js.Publish(subject, data, nats.Context(ctx))
-	if err == nil {
-		metrics.OnPublish(subject)
+	if err := b.nc.Publish(subject, data); err != nil {
+		return err
 	}
-	return err
+	metrics.OnPublish(subject)
+	return nil
 }
 
 func (b *MessageBroker) Subscribe(
