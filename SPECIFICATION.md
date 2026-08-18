@@ -741,6 +741,28 @@ func (PageChat) OnMessageSent(
 
 </details>
 
+##### Event delivery
+
+Delivery is at most once, without replay. An event reaches the streams
+subscribed to its subject at the time of the publish.
+
+A stream misses an event when:
+
+- its tab is in the background, where the stream is closed by default, see
+  [`enableBackgroundStreaming`](#get-return-value-enablebackgroundstreaming-bool);
+- its subscription buffer is full. The buffer holds `ChanBuffer` messages, 16 by
+  default, and the broker drops what does not fit instead of blocking the
+  publisher. A stream consumes events one at a time: a slow `OnXXX` handler
+  fills the buffer.
+
+A missed event is not reported to the page. The UI stays stale until the next render,
+which by default follows the tab becoming visible again,
+see [`disableRefreshAfterHidden`](#get-return-value-disablerefreshafterhidden-bool).
+A render must therefore carry the full state, not a delta.
+
+Applications built with Prometheus metrics export drops as
+`datapages_event_broker_deliveries_dropped_total`.
+
 #### Return Value: `body datapages.Component`
 
 Specifies the [Templ](https://templ.guide/) template to use for the contents of the page.
@@ -840,6 +862,9 @@ is inactive, but increases battery and resource usage, especially on mobile devi
 
 This is equivalent to datastar's [`openWhenHidden`](https://data-star.dev/reference/actions)).
 
+Events published while the stream is closed are lost, they are not replayed when
+it opens again. See [Event delivery](#event-delivery).
+
 `enableBackgroundStreaming=true` will automatically disable the auto-refresh after
 hidden. If you want to prevent this, you have to explicitly add
 `disableRefreshAfterHidden` to the return values and set it to `false`.
@@ -857,6 +882,8 @@ background (for example, when switching back from another tab).
 This is useful when `enableBackgroundStreaming` is `false`, since SSE events may be missed
 while the tab is inactive and the page state can become stale.
 You can disable this behavior by returning `disableRefreshAfterHidden=true`.
+Doing so leaves the page showing whatever it last rendered, since nothing else
+tells it that it missed an event. See [Event delivery](#event-delivery).
 
 Datapages relies on the
 [`visibilitychange`](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event)
