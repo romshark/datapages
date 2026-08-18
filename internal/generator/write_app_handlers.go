@@ -6,6 +6,7 @@ import (
 
 	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/internal/routepattern"
 	"github.com/romshark/datapages/internal/structtag"
 )
 
@@ -739,7 +740,7 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 		}
 	}
 	// Build the path prefix up to the variable, then write the variable.
-	literals, vars := routeSegments(route)
+	literals, vars := routepattern.Segments(route)
 	for i, lit := range literals {
 		w.Raw("\t\t_, _ = io.WriteString(w, `")
 		w.Raw(lit)

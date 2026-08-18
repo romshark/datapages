@@ -145,54 +145,6 @@ func (w *Writer) writeRouteComment(funcName, route string) {
 	w.Byte('\n')
 }
 
-// writeRouteURL writes the URL for a route with no path variables to the buffer.
-// It strips {$} and ensures a trailing slash.
-func (w *Writer) writeRouteURL(route string) {
-	r := strings.TrimSuffix(route, "{$}")
-	r = strings.TrimSuffix(r, "/")
-	if r == "" {
-		w.Byte('/')
-		return
-	}
-	w.Raw(r)
-	w.Byte('/')
-}
-
-// routeSegments splits a route with path variables into alternating
-// literal and variable segments. The returned slices satisfy:
-// URL = literals[0] + vars[0] + literals[1] + vars[1] + ... + literals[len(literals)-1]
-// where len(literals) == len(vars) + 1.
-func routeSegments(route string) (literals []string, vars []string) {
-	// Remove trailing {$} marker.
-	r := strings.TrimSuffix(route, "{$}")
-	r = strings.TrimSuffix(r, "/")
-
-	for {
-		i := strings.IndexByte(r, '{')
-		if i < 0 {
-			// Remaining literal; ensure trailing slash.
-			if r == "" {
-				literals = append(literals, "/")
-			} else {
-				literals = append(literals, r+"/")
-			}
-			break
-		}
-		// Literal before the variable.
-		literals = append(literals, r[:i])
-		r = r[i+1:]
-
-		j := strings.IndexByte(r, '}')
-		varName := strings.TrimSuffix(r[:j], "...")
-		if varName != "$" && varName != "" {
-			vars = append(vars, varName)
-		}
-		r = r[j+1:]
-	}
-
-	return literals, vars
-}
-
 func (w *Writer) writeHrefFunc(p *model.Page) {
 	funcName := p.TypeName
 	pathVars := slices.Collect(routepattern.Vars(p.Route))
@@ -224,7 +176,7 @@ func (w *Writer) writeHrefFunc(p *model.Page) {
 		w.Raw("func ")
 		w.Raw(funcName)
 		w.Raw("() string { return \"")
-		w.writeRouteURL(p.Route)
+		w.Raw(routepattern.WithTrailingSlash(p.Route))
 		w.Raw("\" }\n")
 		return
 	}
@@ -255,7 +207,7 @@ func (w *Writer) writeHrefFuncPathOnly(funcName, route string, params []pathPara
 	// Pre-convert non-string params to strings.
 	w.writePathPreConvert(params)
 
-	literals, _ := routeSegments(route)
+	literals, _ := routepattern.Segments(route)
 	lo := newHrefLocals(params, nil)
 
 	// Builder.
@@ -302,7 +254,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 	// Length calculation.
 	w.Line(1, "var b strings.Builder")
 	w.Raw("\tl := len(\"")
-	w.writeRouteURL(route)
+	w.Raw(routepattern.WithTrailingSlash(route))
 	w.Raw("\")\n")
 	w.Line(1, "if anyQuery {")
 	w.Line(2, `l += len("?")`)
@@ -332,7 +284,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 
 	// Write URL base.
 	w.Raw("\tb.WriteString(\"")
-	w.writeRouteURL(route)
+	w.Raw(routepattern.WithTrailingSlash(route))
 	w.Raw("\")\n")
 	w.Line(1, "if anyQuery {")
 	w.Line(2, `b.WriteString("?")`)
@@ -376,7 +328,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	w.Raw(funcName)
 	w.Raw(") string {\n")
 
-	literals, _ := routeSegments(route)
+	literals, _ := routepattern.Segments(route)
 	lo := newHrefLocals(params, fields)
 
 	// Pre-convert non-string path params.

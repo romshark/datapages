@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/internal/routepattern"
 )
 
 //go:embed app_static.go.txt
@@ -1695,7 +1696,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 			continue
 		}
 
-		routeForHandler := routeWithTrailingSlash(p.Route)
+		routeForHandler := routepattern.WithTrailingSlash(p.Route)
 
 		if p.PageSpecialization == model.PageTypeIndex {
 			// Index page: GET /
@@ -1704,7 +1705,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 			w.Raw("\t\ts.handle")
 			w.Raw(p.TypeName)
 			w.Raw("GET)\n")
-		} else if routeEndsInWildcard(p.Route) {
+		} else if routepattern.EndsInWildcard(p.Route) {
 			// A {name...} wildcard runs to the end of the path already.
 			// Marking the end after it puts the wildcard in the middle,
 			// which is a pattern net/http will not parse.
@@ -1751,7 +1752,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 
 	// App-level actions.
 	for _, h := range m.Actions {
-		route := routeWithTrailingSlash(h.Route)
+		route := routepattern.WithTrailingSlash(h.Route)
 		method := strings.ToUpper(h.HTTPMethod)
 
 		w.Line(1, "s.mux.HandleFunc(")
@@ -1769,7 +1770,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 	// Page actions.
 	for _, p := range m.Pages {
 		for _, h := range p.Actions {
-			route := routeWithTrailingSlash(h.Route)
+			route := routepattern.WithTrailingSlash(h.Route)
 			method := strings.ToUpper(h.HTTPMethod)
 
 			w.Line(1, "s.mux.HandleFunc(")

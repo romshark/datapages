@@ -26,6 +26,7 @@ import (
 	"github.com/romshark/datapages/internal/parser/internal/urlpath"
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/parser/validate"
+	"github.com/romshark/datapages/internal/routepattern"
 )
 
 func Parse(appPackagePath string) (app *model.App, errs Errors) {
@@ -1374,7 +1375,7 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 		if p.GET != nil && p.GET.Handler != nil {
 			claim(http.MethodGet, p.Route, p.Expr, p.TypeName)
 		}
-		if routeEndsInWildcard(p.Route) && pageHasStream(p) {
+		if routepattern.EndsInWildcard(p.Route) && pageHasStream(p) {
 			errs.ErrAt(ctx.pkg.Fset.Position(p.Expr.Pos()),
 				&ErrorRouteWildcardStream{TypeName: p.TypeName, Route: p.Route})
 		}
@@ -1385,13 +1386,6 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 	for _, h := range ctx.app.Actions {
 		claim(h.HTTPMethod, h.Route, h.Expr, "App."+h.Name)
 	}
-}
-
-// routeEndsInWildcard reports whether the route's last segment is a {name...} wildcard,
-// which matches the rest of the path.
-func routeEndsInWildcard(route string) bool {
-	last := route[strings.LastIndex(route, "/")+1:]
-	return strings.HasPrefix(last, "{") && strings.HasSuffix(last, "...}")
 }
 
 // pageHasStream reports whether the page is served an SSE stream of its own.

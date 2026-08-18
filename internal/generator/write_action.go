@@ -422,7 +422,7 @@ func (w *Writer) writeActionRouteComment(funcName, route string) {
 	w.Raw("// ")
 	w.Raw(funcName)
 	w.Raw(" references ")
-	w.writeRouteURL(route)
+	w.Raw(routepattern.WithTrailingSlash(route))
 	w.Byte('\n')
 }
 
@@ -455,7 +455,7 @@ func (w *Writer) writeActionFunc(
 		w.Raw("\t\treturn \"@")
 		w.Raw(method)
 		w.Raw("('")
-		w.writeRouteURL(route)
+		w.Raw(routepattern.WithTrailingSlash(route))
 		w.Raw("')\"\n")
 		w.Line(1, "}")
 		w.Line(1, "var b strings.Builder")
@@ -463,14 +463,14 @@ func (w *Writer) writeActionFunc(
 		w.Raw("\tb.Grow(bl + len(\"@")
 		w.Raw(method)
 		w.Raw("('")
-		w.writeRouteURL(route)
+		w.Raw(routepattern.WithTrailingSlash(route))
 		w.Raw("'\") + optionsLen(options) + len(\")\") + al")
 		w.Raw(")\n")
 		w.Line(1, "writeBefore(&b, options)")
 		w.Raw("\tb.WriteString(\"@")
 		w.Raw(method)
 		w.Raw("('")
-		w.writeRouteURL(route)
+		w.Raw(routepattern.WithTrailingSlash(route))
 		w.Raw("'\")\n")
 		w.Line(1, "writeOptions(&b, options)")
 		w.Line(1, "b.WriteByte(')')")
@@ -503,7 +503,7 @@ func (w *Writer) writeActionFuncPathOnly(
 	params []pathParamInfo,
 ) {
 	lo := newHrefLocals(params, nil)
-	literals, _ := routeSegments(route)
+	literals, _ := routepattern.Segments(route)
 
 	// func FuncName(params, options ...option) string {
 	w.Raw("func ")
@@ -591,7 +591,7 @@ func (w *Writer) writeActionFuncQueryOnly(
 	w.Raw("\tl := bl + len(\"@")
 	w.Raw(method)
 	w.Raw("('")
-	w.writeRouteURL(route)
+	w.Raw(routepattern.WithTrailingSlash(route))
 	w.Raw("'\") + optionsLen(options) + len(\")\") + al\n")
 	w.Linef(1, "if %s {", lo.anyQuery)
 	w.Linef(2, "%s += len(\"?\")", lo.length)
@@ -620,7 +620,7 @@ func (w *Writer) writeActionFuncQueryOnly(
 	w.Rawf("\t%s.WriteString(\"@", lo.builder)
 	w.Raw(method)
 	w.Raw("('")
-	w.writeRouteURL(route)
+	w.Raw(routepattern.WithTrailingSlash(route))
 	w.Raw("\")\n")
 	w.Linef(1, "if %s {", lo.anyQuery)
 	w.Linef(2, "%s.WriteString(\"?\")", lo.builder)
@@ -659,7 +659,7 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	fields []structFieldInfo,
 ) {
 	lo := newHrefLocals(params, fields)
-	literals, _ := routeSegments(route)
+	literals, _ := routepattern.Segments(route)
 
 	// func FuncName(params, query QueryFuncName, options ...option) string {
 	w.Raw("func ")

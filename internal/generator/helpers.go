@@ -13,6 +13,7 @@ import (
 
 	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/internal/routepattern"
 	"github.com/romshark/datapages/internal/structtag"
 )
 
@@ -180,28 +181,7 @@ func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool 
 //   - "/post/{slug}/" -> "/post/{slug}/_$/"
 //   - "/" -> "/_$/"
 func routeStreamPath(route string) string {
-	r := routeWithTrailingSlash(route)
-	return r + "_$/"
-}
-
-// routeEndsInWildcard reports whether the route's last segment is a {name...} wildcard,
-// which matches the rest of the path.
-func routeEndsInWildcard(route string) bool {
-	last := route[strings.LastIndex(route, "/")+1:]
-	return strings.HasPrefix(last, "{") && strings.HasSuffix(last, "...}")
-}
-
-// routeWithTrailingSlash strips any {$} suffix and ensures the route
-// has a trailing slash.
-//   - "/settings" -> "/settings/"
-//   - "/user/{name}/{$}" -> "/user/{name}/"
-//   - "/" -> "/"
-func routeWithTrailingSlash(route string) string {
-	route = strings.TrimSuffix(route, "{$}")
-	if !strings.HasSuffix(route, "/") {
-		return route + "/"
-	}
-	return route
+	return routepattern.WithTrailingSlash(route) + "_$/"
 }
 
 // renderType renders a Go type using types.TypeString,
