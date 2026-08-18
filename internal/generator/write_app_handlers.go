@@ -839,6 +839,11 @@ func (w *Writer) writePageGETStreamHandler(
 			w.Line(2, "return")
 			w.Line(1, "}")
 		}
+
+		// The ID reaches the subscription subject from here on.
+		w.Line(1, "if !s.checkUserSubject(w, sess.UserID()) {")
+		w.Line(2, "return")
+		w.Line(1, "}")
 	}
 
 	// Read signal-scoped subject values for subscription.

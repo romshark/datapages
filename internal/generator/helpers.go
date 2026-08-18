@@ -350,6 +350,18 @@ type appUsage struct {
 	// dispatchSubjects: func isSubjectToken(...), needed by any dispatch that
 	// builds a publish subject from the subject fields of its event.
 	dispatchSubjects bool
+	// userSubjects: whether any event addresses a user, which makes the ID of
+	// the session owner name a subject.
+	userSubjects bool
+	// privateStreams: func (s *Server) checkUserSubject(...), needed by any
+	// page that subscribes to an event addressed to the session owner.
+	privateStreams bool
+}
+
+// needsIsSubjectToken reports whether the isSubjectToken guard is emitted.
+func (u appUsage) needsIsSubjectToken() bool {
+	return u.signalSubjects || u.dispatchSubjects || u.privateStreams ||
+		(u.userSubjects && u.createSession)
 }
 
 // needsIsDSReq returns true if the isDSReq helper must be emitted.
@@ -476,6 +488,12 @@ func computeAppUsage(m *model.App) appUsage {
 	}
 
 	u.dispatchSubjects = dispatchesSubjectFields(m, eventByName)
+	for _, e := range m.Events {
+		if e.HasSubjectUser() {
+			u.userSubjects = true
+			break
+		}
+	}
 
 	for _, h := range m.Actions {
 		checkHandler(h)
@@ -501,6 +519,9 @@ func computeAppUsage(m *model.App) appUsage {
 			if pageHasSignalScopedEvent(p, eventByName) {
 				u.httpErrBad = true
 				u.signalSubjects = true
+			}
+			if pageHasPrivateEvent(p, eventByName) {
+				u.privateStreams = true
 			}
 			if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
 				u.httpErrBad = true

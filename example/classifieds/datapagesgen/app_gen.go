@@ -674,6 +674,18 @@ func isSubjectToken(v string) bool {
 	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
 }
 
+func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool) {
+	if isSubjectToken(userID) {
+		return true
+	}
+	s.logErr("subscribing private events", fmt.Errorf(
+		"session user ID %q is not a subject token", userID))
+	http.Error(w,
+		http.StatusText(http.StatusInternalServerError),
+		http.StatusInternalServerError)
+	return false
+}
+
 func (s *Server) checkCSRF(
 	w http.ResponseWriter, r *http.Request, sess datapages.Session[struct{}],
 ) (ok bool) {
@@ -1189,6 +1201,11 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 func (s *Server) createSession(
 	w http.ResponseWriter, r *http.Request, session datapages.NewSession[struct{}],
 ) error {
+	if !isSubjectToken(session.UserID) {
+		return fmt.Errorf(
+			"user ID must be a non-empty subject token, received %q",
+			session.UserID)
+	}
 	token, err := s.sessionManager.CreateSession(r.Context(), sessmanager.Record[struct{}]{
 		UserID:    session.UserID,
 		IssuedAt:  time.Now(),
@@ -1572,6 +1589,9 @@ func (s *Server) handlePageError404GETStream(w http.ResponseWriter, r *http.Requ
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
+	if !s.checkUserSubject(w, sess.UserID()) {
+		return
+	}
 
 	p := app.PageError404{
 		App: s.app,
@@ -1690,6 +1710,9 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 
 	if sess.UserID() == "" {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return
+	}
+	if !s.checkUserSubject(w, sess.UserID()) {
 		return
 	}
 
@@ -1884,6 +1907,9 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 
 	if sess.UserID() == "" {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return
+	}
+	if !s.checkUserSubject(w, sess.UserID()) {
 		return
 	}
 
@@ -2253,6 +2279,9 @@ func (s *Server) handlePageMyPostsGETStream(w http.ResponseWriter, r *http.Reque
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
+	if !s.checkUserSubject(w, sess.UserID()) {
+		return
+	}
 
 	p := app.PageMyPosts{
 		App: s.app,
@@ -2361,6 +2390,9 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 			target += "?" + r.URL.RawQuery
 		}
 		http.Redirect(w, r, target, http.StatusSeeOther)
+		return
+	}
+	if !s.checkUserSubject(w, sess.UserID()) {
 		return
 	}
 
@@ -2623,6 +2655,9 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
+	if !s.checkUserSubject(w, sess.UserID()) {
+		return
+	}
 
 	p := app.PageSearch{
 		App: s.app,
@@ -2744,6 +2779,9 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 
 	if sess.UserID() == "" {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return
+	}
+	if !s.checkUserSubject(w, sess.UserID()) {
 		return
 	}
 
@@ -3005,6 +3043,9 @@ func (s *Server) handlePageUserGETStream(w http.ResponseWriter, r *http.Request)
 			target += "?" + r.URL.RawQuery
 		}
 		http.Redirect(w, r, target, http.StatusSeeOther)
+		return
+	}
+	if !s.checkUserSubject(w, sess.UserID()) {
 		return
 	}
 

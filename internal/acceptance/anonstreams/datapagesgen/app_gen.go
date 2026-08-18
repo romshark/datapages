@@ -306,6 +306,18 @@ func isSubjectToken(v string) bool {
 	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
 }
 
+func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool) {
+	if isSubjectToken(userID) {
+		return true
+	}
+	s.logErr("subscribing private events", fmt.Errorf(
+		"session user ID %q is not a subject token", userID))
+	http.Error(w,
+		http.StatusText(http.StatusInternalServerError),
+		http.StatusInternalServerError)
+	return false
+}
+
 func (s *Server) checkCSRF(
 	w http.ResponseWriter, r *http.Request, sess datapages.Session[struct{}],
 ) (ok bool) {
@@ -871,6 +883,9 @@ func (s *Server) handlePageFeedGETStream(w http.ResponseWriter, r *http.Request)
 		http.Redirect(w, r, target, http.StatusSeeOther)
 		return
 	}
+	if !s.checkUserSubject(w, sess.UserID()) {
+		return
+	}
 
 	p := app.PageFeed{
 		App: s.app,
@@ -1071,6 +1086,9 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 			target += "?" + r.URL.RawQuery
 		}
 		http.Redirect(w, r, target, http.StatusSeeOther)
+		return
+	}
+	if !s.checkUserSubject(w, sess.UserID()) {
 		return
 	}
 

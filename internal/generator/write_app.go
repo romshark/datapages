@@ -64,8 +64,11 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	if w.usage.reflectSignals {
 		w.writeSignalValueHelper()
 	}
-	if w.usage.signalSubjects || w.usage.dispatchSubjects {
+	if w.usage.needsIsSubjectToken() {
 		w.writeIsSubjectToken()
+	}
+	if w.usage.privateStreams {
+		w.writeCheckUserSubject()
 	}
 	if w.usage.auth && w.usage.hasSession {
 		w.writeAppCheckCSRF()
@@ -650,6 +653,25 @@ func (w *Writer) writeIsSubjectToken() {
 	w.Raw(`
 func isSubjectToken(v string) bool {
 	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
+}
+`)
+}
+
+// writeCheckUserSubject emits the guard for the ID of the session owner,
+// which names the subject a private subscription reads.
+// A wildcard in it would widen that subscription to every user.
+func (w *Writer) writeCheckUserSubject() {
+	w.Raw(`
+func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool) {
+	if isSubjectToken(userID) {
+		return true
+	}
+	s.logErr("subscribing private events", fmt.Errorf(
+		"session user ID %q is not a subject token", userID))
+	http.Error(w,
+		http.StatusText(http.StatusInternalServerError),
+		http.StatusInternalServerError)
+	return false
 }
 `)
 }
@@ -1486,7 +1508,18 @@ func (s *Server) createSession(
 		w.Raw(w.newSessionType)
 		w.Raw(`,
 ) error {
-	token, err := s.sessionManager.CreateSession(r.Context(), `)
+`)
+		if w.usage.userSubjects {
+			// The ID names the subject every event addressed to
+			// this user is published to and subscribed by.
+			w.Raw(`	if !isSubjectToken(session.UserID) {
+		return fmt.Errorf(
+			"user ID must be a non-empty subject token, received %q",
+			session.UserID)
+	}
+`)
+		}
+		w.Raw(`	token, err := s.sessionManager.CreateSession(r.Context(), `)
 		w.Raw(w.recordType)
 		w.Raw(`{
 		UserID:    session.UserID,

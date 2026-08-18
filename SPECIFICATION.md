@@ -583,6 +583,11 @@ A `datapages.SubjectUser` field makes the event stream require authentication:
 only the client authenticated as that user receives the event. An application
 dispatching such an event must define a Session type.
 
+The user ID names the subject on both sides and must therefore be a subject
+token like any other subject field value. In an application that declares
+a user-addressed event, `newSession` is checked against that rule and a stream
+refuses to open for a session whose ID breaks it.
+
 ```go
 // EventDirectMessage is "message.direct"
 type EventDirectMessage struct {

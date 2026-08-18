@@ -336,6 +336,18 @@ func isSubjectToken(v string) bool {
 	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
 }
 
+func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool) {
+	if isSubjectToken(userID) {
+		return true
+	}
+	s.logErr("subscribing private events", fmt.Errorf(
+		"session user ID %q is not a subject token", userID))
+	http.Error(w,
+		http.StatusText(http.StatusInternalServerError),
+		http.StatusInternalServerError)
+	return false
+}
+
 func (s *Server) checkCSRF(
 	w http.ResponseWriter, r *http.Request, sess datapages.Session[app.SessionData],
 ) (ok bool) {
@@ -747,6 +759,11 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 func (s *Server) createSession(
 	w http.ResponseWriter, r *http.Request, session datapages.NewSession[app.SessionData],
 ) error {
+	if !isSubjectToken(session.UserID) {
+		return fmt.Errorf(
+			"user ID must be a non-empty subject token, received %q",
+			session.UserID)
+	}
 	token, err := s.sessionManager.CreateSession(r.Context(), sessmanager.Record[app.SessionData]{
 		UserID:    session.UserID,
 		IssuedAt:  time.Now(),
@@ -959,6 +976,9 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 
 	if sess.UserID() == "" {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+		return
+	}
+	if !s.checkUserSubject(w, sess.UserID()) {
 		return
 	}
 
