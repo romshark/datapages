@@ -84,6 +84,10 @@ type parseCtx struct {
 	// subject -> the event type that claimed it first.
 	eventSubjects map[string]string
 
+	// Every subject claimed so far, in declaration order,
+	// for the overlap check an exact map cannot make.
+	eventClaims []eventClaim
+
 	pages     map[string]*model.Page
 	abstracts map[string]*model.AbstractPage
 
@@ -362,7 +366,27 @@ func firstPassEventType(
 		})
 		return
 	}
+
+	claim := eventClaim{
+		subject:   subj,
+		hasFields: len(subjectFields) > 0,
+		typeName:  name,
+	}
+	for _, first := range ctx.eventClaims {
+		if !claim.overlaps(first) {
+			continue
+		}
+		errs.ErrAt(typePos, &ErrorEventSubjectOverlap{
+			Subject:       subj,
+			TypeName:      name,
+			FirstSubject:  first.subject,
+			FirstTypeName: first.typeName,
+		})
+		return
+	}
+
 	ctx.eventSubjects[subj] = name
+	ctx.eventClaims = append(ctx.eventClaims, claim)
 
 	ctx.app.Events = append(ctx.app.Events, &model.Event{
 		Expr:          ts.Name,
@@ -370,6 +394,35 @@ func firstPassEventType(
 		Subject:       subj,
 		SubjectFields: subjectFields,
 	})
+}
+
+// eventClaim is the set of subjects one event occupies. An event with subject fields
+// publishes under its subject and a page routes what arrives to it by that prefix,
+// so it claims everything below.
+// An event without them claims one subject and nothing else.
+type eventClaim struct {
+	subject   string
+	hasFields bool
+	typeName  string
+}
+
+// overlaps reports whether a subject exists that both claims cover.
+// Such a subject reaches whichever handler the generated router tests first,
+// and the two brokers disagree on how many times it arrives.
+func (c eventClaim) overlaps(other eventClaim) bool {
+	switch {
+	case c.hasFields && other.hasFields:
+		return strings.HasPrefix(c.subject+".", other.subject+".") ||
+			strings.HasPrefix(other.subject+".", c.subject+".")
+	case c.hasFields:
+		return strings.HasPrefix(other.subject, c.subject+".")
+	case other.hasFields:
+		return strings.HasPrefix(c.subject, other.subject+".")
+	default:
+		// Two plain subjects collide only by being equal,
+		// which the duplicate check already refused.
+		return false
+	}
 }
 
 func extractEventSubject(

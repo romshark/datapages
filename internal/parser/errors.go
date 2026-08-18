@@ -188,6 +188,10 @@ var (
 		"duplicate event subject",
 	)
 
+	ErrEventSubjectOverlap = errors.New(
+		"overlapping event subjects",
+	)
+
 	ErrEventSubjectDuplicateSignal = errors.New(
 		"multiple event subject fields with the same signal tag",
 	)
@@ -615,6 +619,24 @@ func (e *ErrorEventSubjectDuplicate) Error() string {
 }
 
 func (e *ErrorEventSubjectDuplicate) Unwrap() error { return ErrEventSubjectDuplicate }
+
+// ErrorEventSubjectOverlap is ErrEventSubjectOverlap with the two types whose
+// subjects cover a common subject. An event with subject fields occupies
+// everything below its own, which leaves no subject there for another event.
+type ErrorEventSubjectOverlap struct {
+	Subject       string
+	TypeName      string
+	FirstSubject  string
+	FirstTypeName string
+}
+
+func (e *ErrorEventSubjectOverlap) Error() string {
+	return fmt.Sprintf("%v: %s declares %q, which overlaps %q of %s",
+		ErrEventSubjectOverlap, e.TypeName, e.Subject,
+		e.FirstSubject, e.FirstTypeName)
+}
+
+func (e *ErrorEventSubjectOverlap) Unwrap() error { return ErrEventSubjectOverlap }
 
 // ErrorEventSubjectDuplicateSignal is ErrEventSubjectDuplicateSignal
 // with suggestion context.

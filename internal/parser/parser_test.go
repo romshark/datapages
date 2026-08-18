@@ -628,6 +628,16 @@ func TestParse_ErrEventSubjectAfterPayload(t *testing.T) {
 	)
 }
 
+func TestParse_ErrEventSubjectOverlap(t *testing.T) {
+	_, err := parse(t, "err_event_subject_overlap")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectOverlap,
+	)
+}
+
 func TestParse_ErrEventSubjectDuplicateSignal(t *testing.T) {
 	_, err := parse(t, "err_event_subj_duplicate_signal")
 	require.NotZero(t, err.Error())

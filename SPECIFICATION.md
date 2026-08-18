@@ -646,6 +646,10 @@ type EventRoomUpdate struct {
 - A user-addressed subject field must not have a `signal:"..."` tag.
 - No two subject fields may share the same `signal:"..."` tag value.
 - Signal tag names must match `[a-z][a-z0-9_.]*`.
+- Two events must not share a subject.
+- An event with subject fields occupies every subject below its own. No other
+  event may declare one there. `"notify"` with one subject field rules out
+  `"notify.user"`, since a page cannot tell the two apart on arrival.
 
 The following is invalid because a subject field appears after a payload field:
 

@@ -270,6 +270,16 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Move SubjectUser before payload fields in EventChat",
 		},
 
+		"ErrEventSubjectOverlap": {
+			err: &parser.ErrorEventSubjectOverlap{
+				Subject:       "notify.user",
+				TypeName:      "EventNotifyUser",
+				FirstSubject:  "notify",
+				FirstTypeName: "EventNotify",
+			},
+			want: "fix: Give EventNotifyUser a subject outside \"notify.\", which EventNotify occupies with its subject fields",
+		},
+
 		"ErrEventSubjectDuplicateSignal": {
 			err: &parser.ErrorEventSubjectDuplicateSignal{
 				FieldName:      "SubjectBar",

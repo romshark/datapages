@@ -252,6 +252,16 @@ func Suggest(err error) string {
 			d.FieldName, d.TypeName,
 		)
 
+	case errors.Is(err, parser.ErrEventSubjectOverlap):
+		var d *parser.ErrorEventSubjectOverlap
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Give %s a subject outside %q, which %s occupies with its subject fields",
+			d.TypeName, d.FirstSubject+".", d.FirstTypeName,
+		)
+
 	case errors.Is(err, parser.ErrEventSubjectDuplicateSignal):
 		var d *parser.ErrorEventSubjectDuplicateSignal
 		if !errors.As(err, &d) {
