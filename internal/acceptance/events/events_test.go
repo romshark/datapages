@@ -23,9 +23,24 @@ import (
 	"github.com/romshark/datapages/modules/msgbroker/inmem"
 )
 
-func newClient(t *testing.T) *client.Client {
+// brokers is what every test that drives the generated code runs against:
+// the in-memory implementation and the one an application deploys.
+// The two match subjects with different code, and only one of them is a server.
+var brokers = map[string]func(t *testing.T) msgbroker.MessageBroker{
+	"inmem": func(*testing.T) msgbroker.MessageBroker { return inmem.New(8) },
+	"nats":  newNATSBroker,
+}
+
+// eachBroker runs body once per broker, each against a server of its own.
+func eachBroker(t *testing.T, body func(t *testing.T, c *client.Client)) {
 	t.Helper()
-	return client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+	for name, newBroker := range brokers {
+		t.Run(name, func(t *testing.T) {
+			body(t, client.New(t, datapagesgen.NewServer(
+				&app.App{}, newBroker(t),
+			)))
+		})
+	}
 }
 
 // postOK sends an action and requires the server to accept it.
@@ -43,82 +58,82 @@ func logOf(t *testing.T, c *client.Client) string {
 }
 
 func TestPublicEventReachesEveryStream(t *testing.T) {
-	c := newClient(t)
+	eachBroker(t, func(t *testing.T, c *client.Client) {
+		a := c.OpenStream(t, "/_$/", nil)
+		b := c.OpenStream(t, "/_$/", nil)
 
-	a := c.OpenStream(t, "/_$/", nil)
-	b := c.OpenStream(t, "/_$/", nil)
+		postOK(t, c, "/tick/", `{"n":7}`)
 
-	postOK(t, c, "/tick/", `{"n":7}`)
-
-	require.True(t, a.Saw(`<div id="out">tick 7</div>`),
-		"the first stream received no patch")
-	require.True(t, b.Saw(`<div id="out">tick 7</div>`),
-		"the second stream received no patch")
+		require.True(t, a.Saw(`<div id="out">tick 7</div>`),
+			"the first stream received no patch")
+		require.True(t, b.Saw(`<div id="out">tick 7</div>`),
+			"the second stream received no patch")
+	})
 }
 
 // TestStreamHooks covers the two hooks that bracket a stream's life.
 // Both must run and both must see the same stream id.
 // An application uses that id to pair up what it allocated with what it releases.
 func TestStreamHooks(t *testing.T) {
-	c := newClient(t)
+	eachBroker(t, func(t *testing.T, c *client.Client) {
+		s := c.OpenStream(t, "/_$/", nil)
+		opened := logOf(t, c)
+		if !strings.HasPrefix(opened, "open(") {
+			t.Fatalf("StreamOpen did not run: %q", opened)
+		}
+		id := strings.TrimSuffix(strings.TrimPrefix(opened, "open("), ")")
 
-	s := c.OpenStream(t, "/_$/", nil)
-	opened := logOf(t, c)
-	if !strings.HasPrefix(opened, "open(") {
-		t.Fatalf("StreamOpen did not run: %q", opened)
-	}
-	id := strings.TrimSuffix(strings.TrimPrefix(opened, "open("), ")")
+		s.Close()
 
-	s.Close()
-
-	if got, want := logOf(t, c), "open("+id+") close("+id+")"; got != want {
-		t.Errorf(" got: %s\nwant: %s", got, want)
-	}
+		if got, want := logOf(t, c), "open("+id+") close("+id+")"; got != want {
+			t.Errorf(" got: %s\nwant: %s", got, want)
+		}
+	})
 }
 
 // TestStreamIDReachesEventHandler covers the stream id an event handler may ask for.
 // It must name the stream the handler is writing on, not some other.
 func TestStreamIDReachesEventHandler(t *testing.T) {
-	c := newClient(t)
+	eachBroker(t, func(t *testing.T, c *client.Client) {
+		_ = c.OpenStream(t, "/_$/", nil)
+		opened := logOf(t, c)
+		id := strings.TrimSuffix(strings.TrimPrefix(opened, "open("), ")")
 
-	_ = c.OpenStream(t, "/_$/", nil)
-	opened := logOf(t, c)
-	id := strings.TrimSuffix(strings.TrimPrefix(opened, "open("), ")")
+		postOK(t, c, "/tick/", `{"n":3}`)
+		time.Sleep(client.Settle)
 
-	postOK(t, c, "/tick/", `{"n":3}`)
-	time.Sleep(client.Settle)
-
-	if got, want := logOf(t, c), "open("+id+") tick("+id+",3)"; got != want {
-		t.Errorf(" got: %s\nwant: %s", got, want)
-	}
+		if got, want := logOf(t, c), "open("+id+") tick("+id+",3)"; got != want {
+			t.Errorf(" got: %s\nwant: %s", got, want)
+		}
+	})
 }
 
 // TestEmbeddedHandler covers a page that declares no event handler of its own
 // and embeds one. The page receives the event through the embedded type.
 func TestEmbeddedHandler(t *testing.T) {
-	c := newClient(t)
+	eachBroker(t, func(t *testing.T, c *client.Client) {
+		other := c.OpenStream(t, "/other/_$/", nil)
+		postOK(t, c, "/tick/", `{"n":1}`)
 
-	other := c.OpenStream(t, "/other/_$/", nil)
-	postOK(t, c, "/tick/", `{"n":1}`)
-
-	require.True(t, other.Saw(`<div id="shared">shared 1</div>`),
-		"the embedding page received nothing from the embedded handler")
+		require.True(t, other.Saw(`<div id="shared">shared 1</div>`),
+			"the embedding page received nothing from the embedded handler")
+	})
 }
 
 // TestTwoDispatchers covers an action that declares one dispatcher per event type.
 // Both events must reach the stream, since each dispatcher publishes on
 // its own and neither depends on the other.
 func TestTwoDispatchers(t *testing.T) {
-	c := newClient(t)
+	eachBroker(t, func(t *testing.T, c *client.Client) {
+		s := c.OpenStream(t, "/_$/", nil)
 
-	s := c.OpenStream(t, "/_$/", nil)
+		postOK(t, c, "/both/", `{"n":3}`)
 
-	postOK(t, c, "/both/", `{"n":3}`)
-
-	require.True(t, s.Saw(`<div id="out">tick 3</div>`),
-		"the first dispatcher delivered nothing")
-	require.True(t, s.Saw(`<div id="pong">pong 3</div>`),
-		"the second dispatcher delivered nothing")
+		require.True(t, s.Saw(`<div id="out">tick 3</div>`),
+			"the first dispatcher delivered nothing")
+		require.True(t, s.Saw(`<div id="pong">pong 3</div>`),
+			"the second dispatcher delivered nothing")
+	})
 }
 
 // TestStreamCloseDispatches covers dispatching from StreamClose. The hook runs
@@ -180,38 +195,69 @@ func (b *ctxBroker) Publish(
 // chose when it connected. Two streams of one page, two values, one dispatch:
 // only the addressed stream may see it.
 func TestSubjectScoping(t *testing.T) {
-	c := newClient(t)
+	eachBroker(t, func(t *testing.T, c *client.Client) {
+		red := c.OpenStream(t, "/room/_$/", map[string]string{"room": "red"})
+		blue := c.OpenStream(t, "/room/_$/", map[string]string{"room": "blue"})
 
-	red := c.OpenStream(t, "/room/_$/", map[string]string{"room": "red"})
-	blue := c.OpenStream(t, "/room/_$/", map[string]string{"room": "blue"})
+		postOK(t, c, "/room/say/", `{"room":"red","text":"hello red"}`)
 
-	postOK(t, c, "/room/say/", `{"room":"red","text":"hello red"}`)
+		require.True(t, red.Saw(`<div id="said">hello red</div>`),
+			"the addressed stream received nothing")
+		require.True(t, blue.Never("hello red"),
+			"a stream received an event addressed at another")
+	})
+}
 
-	require.True(t, red.Saw(`<div id="said">hello red</div>`),
-		"the addressed stream received nothing")
-	require.True(t, blue.Never("hello red"),
-		"a stream received an event addressed at another")
+// TestOneCopyPerStream covers how many messages a subscription receives.
+// A page subscribes to one subject per event it handles, and the room page handles two,
+// which a broker that delivers per matching subscription can turn into more copies
+// than the page asked for.
+func TestOneCopyPerStream(t *testing.T) {
+	eachBroker(t, func(t *testing.T, c *client.Client) {
+		red := c.OpenStream(t, "/room/_$/", map[string]string{"room": "red"})
+
+		postOK(t, c, "/room/say/", `{"room":"red","text":"once"}`)
+		require.True(t, red.Saw(`<div id="said">once</div>`),
+			"the addressed stream received nothing")
+
+		// Wait the window out, so a second copy has landed by the time it counts.
+		require.True(t, red.Never(`<div id="said">twice</div>`))
+
+		require.Equal(t, 1, countSeen(red, `<div id="said">once</div>`),
+			"the stream received the event more than once")
+	})
+}
+
+// countSeen is how many of the stream's lines carry sub.
+func countSeen(s *client.Stream, sub string) int {
+	n := 0
+	for _, l := range s.Lines() {
+		if strings.Contains(l, sub) {
+			n++
+		}
+	}
+	return n
 }
 
 // TestSubjectFanout covers the plural form of a subject field.
 // One dispatch carrying two values is published to both subjects.
 // Both streams see it and a third one does not.
 func TestSubjectFanout(t *testing.T) {
-	c := newClient(t)
+	eachBroker(t, func(t *testing.T, c *client.Client) {
+		red := c.OpenStream(t, "/room/_$/", map[string]string{"room": "red"})
+		blue := c.OpenStream(t, "/room/_$/", map[string]string{"room": "blue"})
+		green := c.OpenStream(t, "/room/_$/", map[string]string{"room": "green"})
 
-	red := c.OpenStream(t, "/room/_$/", map[string]string{"room": "red"})
-	blue := c.OpenStream(t, "/room/_$/", map[string]string{"room": "blue"})
-	green := c.OpenStream(t, "/room/_$/", map[string]string{"room": "green"})
+		postOK(t, c, "/room/broadcast/",
+			`{"rooms":["red","blue"],"text":"to both"}`)
 
-	postOK(t, c, "/room/broadcast/",
-		`{"rooms":["red","blue"],"text":"to both"}`)
-
-	require.True(t, red.Saw(`<div id="broadcast">to both</div>`),
-		"the first addressed stream received nothing")
-	require.True(t, blue.Saw(`<div id="broadcast">to both</div>`),
-		"the second addressed stream received nothing")
-	require.True(t, green.Never("to both"),
-		"a stream outside the dispatch received the event")
+		require.True(t, red.Saw(`<div id="broadcast">to both</div>`),
+			"the first addressed stream received nothing")
+		require.True(t, blue.Saw(`<div id="broadcast">to both</div>`),
+			"the second addressed stream received nothing")
+		require.True(t, green.Never("to both"),
+			"a stream outside the dispatch received the event")
+	})
 }
 
 // TestStreamOpenRefuses covers a StreamOpen that fails.
@@ -221,77 +267,77 @@ func TestSubjectFanout(t *testing.T) {
 // rather than leave a connection open that no handler is behind,
 // and it must not run StreamClose for a stream that never opened.
 func TestStreamOpenRefuses(t *testing.T) {
-	c := newClient(t)
+	eachBroker(t, func(t *testing.T, c *client.Client) {
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		req, err := http.NewRequestWithContext(
+			ctx, http.MethodGet, c.URL()+"/_$/?refuse=1", nil,
+		)
+		require.NoError(t, err, "building stream request")
+		req.Header.Set("Datastar-Request", "true")
+		req.Header.Set("Accept-Encoding", "identity")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodGet, c.URL()+"/_$/?refuse=1", nil,
-	)
-	require.NoError(t, err, "building stream request")
-	req.Header.Set("Datastar-Request", "true")
-	req.Header.Set("Accept-Encoding", "identity")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err, "GET /_$/?refuse=1")
+		defer func() { _ = resp.Body.Close() }()
 
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err, "GET /_$/?refuse=1")
-	defer func() { _ = resp.Body.Close() }()
+		// Whatever the status, the response has to end rather than hang:
+		// the client is waiting on a stream that will never carry anything.
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_, _ = io.Copy(io.Discard, resp.Body)
+		}()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("a refused stream was left open")
+		}
 
-	// Whatever the status, the response has to end rather than hang:
-	// the client is waiting on a stream that will never carry anything.
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, _ = io.Copy(io.Discard, resp.Body)
-	}()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("a refused stream was left open")
-	}
+		if got := logOf(t, c); strings.Contains(got, "open(") {
+			t.Errorf("the refused stream was recorded as opened: %s", got)
+		}
+		if got := logOf(t, c); strings.Contains(got, "close(") {
+			t.Errorf("StreamClose ran for a stream that never opened: %s", got)
+		}
 
-	if got := logOf(t, c); strings.Contains(got, "open(") {
-		t.Errorf("the refused stream was recorded as opened: %s", got)
-	}
-	if got := logOf(t, c); strings.Contains(got, "close(") {
-		t.Errorf("StreamClose ran for a stream that never opened: %s", got)
-	}
-
-	// The server keeps serving streams that are not refused.
-	s := c.OpenStream(t, "/_$/", nil)
-	postOK(t, c, "/tick/", `{"n":9}`)
-	require.True(t, s.Saw(`<div id="out">tick 9</div>`),
-		"a later stream was not served")
+		// The server keeps serving streams that are not refused.
+		s := c.OpenStream(t, "/_$/", nil)
+		postOK(t, c, "/tick/", `{"n":9}`)
+		require.True(t, s.Saw(`<div id="out">tick 9</div>`),
+			"a later stream was not served")
+	})
 }
 
 // TestStreamRequiresDatastar covers a stream route reached by a plain client.
 func TestStreamRequiresDatastar(t *testing.T) {
-	c := newClient(t)
-
-	resp, err := http.Get(c.URL() + "/_$/")
-	require.NoError(t, err, "GET /_$/")
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusNotAcceptable {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotAcceptable)
-	}
+	eachBroker(t, func(t *testing.T, c *client.Client) {
+		resp, err := http.Get(c.URL() + "/_$/")
+		require.NoError(t, err, "GET /_$/")
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusNotAcceptable {
+			t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotAcceptable)
+		}
+	})
 }
 
 // TestMissingSubjectSignal covers a stream that connects without the signal
 // its subscription is scoped by. There is nothing to subscribe to,
 // and the client is told so rather than served a stream that stays silent.
 func TestMissingSubjectSignal(t *testing.T) {
-	c := newClient(t)
+	eachBroker(t, func(t *testing.T, c *client.Client) {
+		req, err := http.NewRequestWithContext(context.Background(),
+			http.MethodGet, c.URL()+"/room/_$/", nil)
+		require.NoError(t, err, "building request")
+		req.Header.Set("Datastar-Request", "true")
 
-	req, err := http.NewRequestWithContext(context.Background(),
-		http.MethodGet, c.URL()+"/room/_$/", nil)
-	require.NoError(t, err, "building request")
-	req.Header.Set("Datastar-Request", "true")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err, "GET /room/_$/")
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
-	}
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err, "GET /room/_$/")
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+		}
+	})
 }
 
 // TestWildcardSubjectSignalRefused covers a client that puts a NATS wildcard in
@@ -299,24 +345,24 @@ func TestMissingSubjectSignal(t *testing.T) {
 // the stream to every value of that subject and hand the client events meant
 // for other instances, so the stream must be refused instead.
 func TestWildcardSubjectSignalRefused(t *testing.T) {
-	c := newClient(t)
+	eachBroker(t, func(t *testing.T, c *client.Client) {
+		for _, signal := range []string{"*", ">", "red.blue", "", " "} {
+			encoded, err := json.Marshal(map[string]string{"room": signal})
+			require.NoError(t, err, "encoding signals")
 
-	for _, signal := range []string{"*", ">", "red.blue", "", " "} {
-		encoded, err := json.Marshal(map[string]string{"room": signal})
-		require.NoError(t, err, "encoding signals")
+			req, err := http.NewRequestWithContext(context.Background(),
+				http.MethodGet,
+				c.URL()+"/room/_$/?datastar="+url.QueryEscape(string(encoded)), nil)
+			require.NoError(t, err, "building request")
+			req.Header.Set("Datastar-Request", "true")
 
-		req, err := http.NewRequestWithContext(context.Background(),
-			http.MethodGet,
-			c.URL()+"/room/_$/?datastar="+url.QueryEscape(string(encoded)), nil)
-		require.NoError(t, err, "building request")
-		req.Header.Set("Datastar-Request", "true")
-
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err, "GET /room/_$/")
-		_ = resp.Body.Close()
-		require.Equal(t, http.StatusBadRequest, resp.StatusCode,
-			"signal %q was accepted as a subject token", signal)
-	}
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err, "GET /room/_$/")
+			_ = resp.Body.Close()
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode,
+				"signal %q was accepted as a subject token", signal)
+		}
+	})
 }
 
 // TestBrokerStreamInitialization covers the hand-off to a message broker that
@@ -393,17 +439,17 @@ func (b *initializingBroker) InitStreams(subjects []string) error {
 // It has no stream route at all, and asking for one is a 404 rather than
 // a stream that never carries anything.
 func TestPageWithoutStream(t *testing.T) {
-	c := newClient(t)
+	eachBroker(t, func(t *testing.T, c *client.Client) {
+		req, err := http.NewRequestWithContext(context.Background(),
+			http.MethodGet, c.URL()+"/log/_$/", nil)
+		require.NoError(t, err, "building request")
+		req.Header.Set("Datastar-Request", "true")
 
-	req, err := http.NewRequestWithContext(context.Background(),
-		http.MethodGet, c.URL()+"/log/_$/", nil)
-	require.NoError(t, err, "building request")
-	req.Header.Set("Datastar-Request", "true")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err, "GET /log/_$/")
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
-	}
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err, "GET /log/_$/")
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+		}
+	})
 }

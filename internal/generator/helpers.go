@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"unicode"
@@ -398,10 +399,8 @@ func dispatchesSubjectFields(
 		}
 		return false
 	}
-	for _, h := range m.Actions {
-		if dispatches(h) {
-			return true
-		}
+	if slices.ContainsFunc(m.Actions, dispatches) {
+		return true
 	}
 	for _, p := range m.Pages {
 		if p.GET != nil && dispatches(p.GET.Handler) {
@@ -410,10 +409,8 @@ func dispatchesSubjectFields(
 		if dispatches(p.StreamOpen) || dispatches(p.StreamClose) {
 			return true
 		}
-		for _, h := range p.Actions {
-			if dispatches(h) {
-				return true
-			}
+		if slices.ContainsFunc(p.Actions, dispatches) {
+			return true
 		}
 	}
 	for _, p := range []*model.Page{m.PageError404, m.PageError500} {
