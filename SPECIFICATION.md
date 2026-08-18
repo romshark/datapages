@@ -457,8 +457,9 @@ sse datapages.SSE
 ```
 
 This parameter is allowed on `POSTXXX`, `PUTXXX`, `PATCHXXX`, and `DELETEXXX` page methods
-handling [action requests](https://data-star.dev/reference/actions) and
-`OnXXX` event handler page methods.
+handling [action requests](https://data-star.dev/reference/actions),
+on `OnXXX` event handler page methods, on `StreamOpen` and on `RecoverError`.
+`StreamClose` does not accept it.
 This gives you a handle to patch page elements, execute scripts, etc.
 
 `datapages.SSE` (from `github.com/romshark/datapages`) hides the underlying
@@ -711,7 +712,6 @@ type PageChat struct { App *App }
 
 func (PageChat) POSTSendMessage(
 	r *http.Request,
-	e EventMessageSent,
 	session Session,
 	signals struct {
 		InputText string `json:"inputtext"`

@@ -23,8 +23,10 @@ Learn them separately.
   run `templ generate` yourself after creating or modifying `.templ` files.
   Docs: https://templ.guide/developer-tools/llm/
 - **Datastar** (`github.com/starfederation/datastar-go/datastar`) - Frontend
-  reactivity via HTML attributes and SSE. Actions use `data-on-click` and
-  `data-action` attributes in templates. Docs: https://data-star.dev
+  reactivity via HTML attributes and SSE. Actions go into `data-on:<event>`
+  attributes (`data-on:click`, `data-on:submit`). The hyphen form is reserved for
+  plugins (`data-on-intersect`, `data-on-interval`, `data-on-signal-patch`).
+  Docs: https://data-star.dev
   See also: [datastar/SKILL.md](../datastar/SKILL.md)
 
 ## Architecture
@@ -47,7 +49,8 @@ Prometheus metrics generation is enabled by default.
 Use `--prometheus=false` to disable it.
 
 It creates `app/app.go`, `app/app.templ`, `datapages.yaml`, `.env`, `compose.yaml`,
-`Makefile`, and `cmd/server/main.go`.
+`Makefile`, `.vscode/extensions.json` and `.github/workflows/ci.yml`, appends `.env`
+to `.gitignore`, and runs `datapages gen`, which writes `cmd/server/main.go`.
 
 If the project already has `datapages.yaml`, skip this step.
 
@@ -802,17 +805,19 @@ Generated functions return URL strings for `<a href>` attributes. One function p
 
 ```templ
 // Simple page
-<a href={ href.Index() }>Home</a>
-<a href={ href.Login() }>Log in</a>
+<a href={ href.PageIndex() }>Home</a>
+<a href={ href.PageLogin() }>Log in</a>
 
 // Page with path variable (e.g. PagePost is /post/{slug})
-<a href={ href.Post(post.Slug) }>{ post.Title }</a>
+<a href={ href.PagePost(post.Slug) }>{ post.Title }</a>
 
 // Page with query parameters
-<a href={ href.Messages(href.QueryMessages{Chat: chatID}) }>Messages</a>
+<a href={ href.PageMessages(href.QueryPageMessages{Chat: chatID}) }>Messages</a>
 ```
 
-Query parameter structs are generated as `href.Query<PageName>`. Zero-value fields are omitted from the URL.
+Each function is named after the page type, so `PageIndex` becomes `href.PageIndex`.
+Query parameter structs are generated as `href.Query<PageTypeName>`.
+Zero-value fields are omitted from the URL.
 
 ### `datapagesgen/action` — Datastar Actions
 
@@ -835,7 +840,8 @@ Generated functions return Datastar action strings (`@post('/...')`, `@put('/...
 
 // Action with Datastar options (e.g. payload, contentType, filterSignals)
 <button data-on:click={ action.POSTPageLoginSubmit(
-    action.WithOption(action.OptPayload, "'auto'"),
+    action.WithContentType(action.ContentTypeForm),
+    action.WithPayload("{extra: 1}"),
 ) }>Submit</button>
 
 // Action with before/after expressions (joined with "; " separators)
@@ -845,10 +851,31 @@ Generated functions return Datastar action strings (`@post('/...')`, `@put('/...
 ) }>Submit</button>
 ```
 
-All generated action functions accept variadic modifier arguments:
+All generated action functions accept variadic modifiers.
+One typed helper per [Datastar action option](https://data-star.dev/reference/actions#options):
 
-- `action.WithOption(key, value)` — passes a [Datastar action option](https://data-star.dev/reference/actions#options). The key is an `action.Opt` constant (e.g. `OptContentType`, `OptFilterSignals`, `OptSelector`, `OptHeaders`, `OptOpenWhenHidden`, `OptPayload`, `OptRetry`, `OptRetryInterval`, `OptRetryScaler`, `OptRetryMaxWaitMs`, `OptRetryMaxCount`, `OptRequestCancellation`). The value is a raw JavaScript expression string (use `"'auto'"` for a JS string, `"true"` for a boolean).
-- `action.WithBefore(expr)` — prepends a JavaScript expression before the action call, separated by `"; "`.
-- `action.WithAfter(expr)` — appends a JavaScript expression after the action call, separated by `"; "`.
+| helper | argument |
+| ------ | -------- |
+| `action.WithContentType(ct)` | `action.ContentTypeJSON`, `action.ContentTypeForm` |
+| `action.WithSelector(sel)` | CSS selector of the form to send |
+| `action.WithFilterSignals(include, exclude)` | regex patterns, `exclude` may be empty |
+| `action.WithHeaders(m)` | `map[string]string` |
+| `action.WithOpenWhenHidden(b)` | `bool` |
+| `action.WithPayload(expr)` | raw JavaScript expression |
+| `action.WithRetry(r)` | `action.RetryAuto`, `RetryError`, `RetryAlways`, `RetryNever` |
+| `action.WithRetryInterval(ms)` | `int` |
+| `action.WithRetryScaler(x)` | `float64` |
+| `action.WithRetryMaxWaitMs(ms)` | `int` |
+| `action.WithRetryMaxCount(n)` | `int` |
+| `action.WithRequestCancellation(rc)` | `action.RequestCancellationAuto`, `RequestCancellationCleanup`, `RequestCancellationDisabled` |
+| `action.WithRequestCancellationController(expr)` | expression holding an `AbortController` |
+
+Two more modifiers wrap the call itself:
+
+- `action.WithBefore(expr)` prepends a JavaScript expression, joined with `"; "`.
+- `action.WithAfter(expr)` appends a JavaScript expression, joined with `"; "`.
+
+`action.WithOption(key, value string)` passes an option the helpers don't cover.
+Both arguments are raw strings, the value a JavaScript expression.
 
 Naming convention: `{METHOD}Page{PageName}{HandlerName}` for page actions, `{METHOD}App{HandlerName}` for app-level actions. Query parameter structs are generated as `action.Query<FunctionName>`.
