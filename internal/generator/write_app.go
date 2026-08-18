@@ -1328,21 +1328,27 @@ func (w *Writer) writeEvSubjPrivateSignalFunc(
 	}
 	w.Raw(") []string {\n")
 
-	if hasPublic {
-		w.Line(1, "if userID == \"\" {")
-		w.Line(2, "return []string{")
-		for _, eh := range p.EventHandlers {
-			ev := w.eventMap[eh.EventTypeName]
-			if ev == nil || ev.IsPrivate() || ev.IsSignalScoped() {
-				continue
-			}
-			w.Raw("\t\t\t")
-			w.Raw(evSubjConst(ev))
-			w.Raw(",\n")
+	// A stream with no user subscribes by everything that is not addressed to one.
+	// A subject built from an empty user ID names nobody: the in-memory
+	// broker reads it as a literal that never matches, NATS refuses it and the
+	// stream fails to open. Signal-scoped events are public and stay.
+	w.Line(1, "if userID == \"\" {")
+	w.Line(2, "return []string{")
+	for _, eh := range p.EventHandlers {
+		ev := w.eventMap[eh.EventTypeName]
+		if ev == nil || ev.IsPrivate() {
+			continue
 		}
-		w.Line(2, "}")
-		w.Line(1, "}")
+		w.Raw("\t\t\t")
+		if ev.IsSignalScoped() {
+			w.writeEvSignalSubExpr(ev, identBySignal)
+		} else {
+			w.Raw(evSubjConst(ev))
+		}
+		w.Raw(",\n")
 	}
+	w.Line(2, "}")
+	w.Line(1, "}")
 
 	w.Line(1, "return []string{")
 

@@ -11,6 +11,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,10 +20,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages/internal/acceptance/brokers"
 	"github.com/romshark/datapages/internal/acceptance/sessions/app"
 	"github.com/romshark/datapages/internal/acceptance/sessions/datapagesgen"
 	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/modules/msgbroker"
 	"github.com/romshark/datapages/modules/sessmanager"
 	sessinmem "github.com/romshark/datapages/modules/sessmanager/inmem"
 	"github.com/romshark/datapages/modules/sesstokgen"
@@ -42,7 +44,9 @@ type server struct {
 //
 // An app that declares a Session type must be given a CSRF token manager:
 // NewServer panics without one, which is asserted separately below.
-func newServer(t *testing.T) server {
+func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
+
+func newServer(t *testing.T, broker msgbroker.MessageBroker) server {
 	t.Helper()
 
 	sessions := sessinmem.New[app.SessionData](
@@ -55,7 +59,7 @@ func newServer(t *testing.T) server {
 	}
 
 	s := httptest.NewServer(datapagesgen.NewServer(
-		&app.App{}, inmem.New(8), sessions,
+		&app.App{}, broker, sessions,
 		datapagesgen.WithCSRFProtection(
 			datapagesgen.CSRFConfig{TokenManager: tm},
 		),
@@ -237,238 +241,256 @@ func echoed(t *testing.T, body string) string {
 // TestAnonymous covers a visitor with no session.
 // Every handler that asks for one gets the zero value rather than an error.
 func TestAnonymous(t *testing.T) {
-	srv := newServer(t)
-	c := srv.client(t)
+	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+		srv := newServer(t, broker)
 
-	status, body := c.get(t, "/")
-	if status != http.StatusOK {
-		t.Fatalf("status = %d, want 200", status)
-	}
-	if got, want := echoed(t, body), "anonymous"; got != want {
-		t.Errorf(" got: %s\nwant: %s", got, want)
-	}
-	if !strings.Contains(body, "<title>anonymous</title>") {
-		t.Errorf("the head did not see the empty session:\n%s", body)
-	}
-	if c.cookie(t) != nil {
-		t.Error("a visitor with no session was given a session cookie")
-	}
+		c := srv.client(t)
+
+		status, body := c.get(t, "/")
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, want 200", status)
+		}
+		if got, want := echoed(t, body), "anonymous"; got != want {
+			t.Errorf(" got: %s\nwant: %s", got, want)
+		}
+		if !strings.Contains(body, "<title>anonymous</title>") {
+			t.Errorf("the head did not see the empty session:\n%s", body)
+		}
+		if c.cookie(t) != nil {
+			t.Error("a visitor with no session was given a session cookie")
+		}
+	})
 }
 
 // TestSignInAndOut covers the whole life of a session: an action creates it,
 // later requests carry it, and an action ends it.
 func TestSignInAndOut(t *testing.T) {
-	srv := newServer(t)
-	c := srv.client(t)
+	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+		srv := newServer(t, broker)
 
-	c.signIn(t, "alice", "Al")
+		c := srv.client(t)
 
-	ck := c.setCookie()
-	if ck == nil {
-		t.Fatal("signing in set no session cookie")
-	}
-	if !ck.HttpOnly {
-		t.Error("the session cookie is readable by scripts")
-	}
-	if ck.SameSite == http.SameSiteNoneMode {
-		t.Error("the session cookie is sent on cross-site requests")
-	}
-	if c.cookie(t) == nil {
-		t.Error("the session cookie was not kept by the client")
-	}
+		c.signIn(t, "alice", "Al")
 
-	status, body := c.get(t, "/")
-	if status != http.StatusOK {
-		t.Fatalf("status = %d, want 200", status)
-	}
-	want := "user=alice nickname=Al issued=" +
-		strconv.FormatInt(c.issuedAt(t).Unix(), 10)
-	if got := echoed(t, body); got != want {
-		t.Errorf(" got: %s\nwant: %s", got, want)
-	}
-	if !strings.Contains(body, "<title>alice</title>") {
-		t.Errorf("the head did not see the session:\n%s", body)
-	}
+		ck := c.setCookie()
+		if ck == nil {
+			t.Fatal("signing in set no session cookie")
+		}
+		if !ck.HttpOnly {
+			t.Error("the session cookie is readable by scripts")
+		}
+		if ck.SameSite == http.SameSiteNoneMode {
+			t.Error("the session cookie is sent on cross-site requests")
+		}
+		if c.cookie(t) == nil {
+			t.Error("the session cookie was not kept by the client")
+		}
 
-	if status, body := c.post(t, "/sign-out/", ""); status != http.StatusOK {
-		t.Fatalf("signing out: status = %d\n%s", status, body)
-	}
+		status, body := c.get(t, "/")
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, want 200", status)
+		}
+		want := "user=alice nickname=Al issued=" +
+			strconv.FormatInt(c.issuedAt(t).Unix(), 10)
+		if got := echoed(t, body); got != want {
+			t.Errorf(" got: %s\nwant: %s", got, want)
+		}
+		if !strings.Contains(body, "<title>alice</title>") {
+			t.Errorf("the head did not see the session:\n%s", body)
+		}
 
-	status, body = c.get(t, "/")
-	if status != http.StatusOK {
-		t.Fatalf("status = %d, want 200", status)
-	}
-	if got, want := echoed(t, body), "anonymous"; got != want {
-		t.Errorf("after signing out\n got: %s\nwant: %s", got, want)
-	}
+		if status, body := c.post(t, "/sign-out/", ""); status != http.StatusOK {
+			t.Fatalf("signing out: status = %d\n%s", status, body)
+		}
 
-	if got, want := logOf(t, c), "login(alice) signout(alice)"; got != want {
-		t.Errorf(" got: %s\nwant: %s", got, want)
-	}
+		status, body = c.get(t, "/")
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, want 200", status)
+		}
+		if got, want := echoed(t, body), "anonymous"; got != want {
+			t.Errorf("after signing out\n got: %s\nwant: %s", got, want)
+		}
+
+		if got, want := logOf(t, c), "login(alice) signout(alice)"; got != want {
+			t.Errorf(" got: %s\nwant: %s", got, want)
+		}
+	})
 }
 
 // TestSessionToken covers the handler parameter that asks for the token
 // instead of the session.
 func TestSessionToken(t *testing.T) {
-	srv := newServer(t)
-	c := srv.client(t)
+	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+		srv := newServer(t, broker)
 
-	if status, body := c.get(t, "/token/"); status != http.StatusOK {
-		t.Fatalf("status = %d, want 200\n%s", status, body)
-	} else if got, want := echoed(t, body), "no token"; got != want {
-		t.Errorf(" got: %s\nwant: %s", got, want)
-	}
+		c := srv.client(t)
 
-	c.signIn(t, "bob", "Bo")
+		if status, body := c.get(t, "/token/"); status != http.StatusOK {
+			t.Fatalf("status = %d, want 200\n%s", status, body)
+		} else if got, want := echoed(t, body), "no token"; got != want {
+			t.Errorf(" got: %s\nwant: %s", got, want)
+		}
 
-	status, body := c.get(t, "/token/")
-	if status != http.StatusOK {
-		t.Fatalf("status = %d, want 200\n%s", status, body)
-	}
-	if got := echoed(t, body); !strings.HasPrefix(got, "token of length ") {
-		t.Errorf("the handler received no token: %s", got)
-	}
+		c.signIn(t, "bob", "Bo")
+
+		status, body := c.get(t, "/token/")
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, want 200\n%s", status, body)
+		}
+		if got := echoed(t, body); !strings.HasPrefix(got, "token of length ") {
+			t.Errorf("the handler received no token: %s", got)
+		}
+	})
 }
 
 // TestStaleCookie covers a cookie the session manager does not know.
 // The visitor continues as anonymous and the cookie is cleared,
 // rather than being refused on every later request.
 func TestStaleCookie(t *testing.T) {
-	srv := newServer(t)
+	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+		srv := newServer(t, broker)
 
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, srv.URL+"/", nil,
-	)
-	if err != nil {
-		t.Fatalf("building request: %v", err)
-	}
-	req.AddCookie(&http.Cookie{Name: cookieName, Value: "not-a-real-token"})
-
-	resp, err := srv.Client().Do(req)
-	if err != nil {
-		t.Fatalf("GET /: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("reading body: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	if got, want := echoed(t, string(b)), "anonymous"; got != want {
-		t.Errorf(" got: %s\nwant: %s", got, want)
-	}
-	var cleared bool
-	for _, ck := range resp.Cookies() {
-		if ck.Name == cookieName && ck.Value == "" {
-			cleared = true
+		req, err := http.NewRequestWithContext(
+			context.Background(), http.MethodGet, srv.URL+"/", nil,
+		)
+		if err != nil {
+			t.Fatalf("building request: %v", err)
 		}
-	}
-	if !cleared {
-		t.Error("the stale cookie was left in place")
-	}
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: "not-a-real-token"})
+
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatalf("GET /: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("reading body: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		}
+		if got, want := echoed(t, string(b)), "anonymous"; got != want {
+			t.Errorf(" got: %s\nwant: %s", got, want)
+		}
+		var cleared bool
+		for _, ck := range resp.Cookies() {
+			if ck.Name == cookieName && ck.Value == "" {
+				cleared = true
+			}
+		}
+		if !cleared {
+			t.Error("the stale cookie was left in place")
+		}
+	})
 }
 
 // TestErrorSentinel covers the status an action or
 // page takes from the sentinel it returns.
 func TestErrorSentinel(t *testing.T) {
-	srv := newServer(t)
-	c := srv.client(t)
+	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+		srv := newServer(t, broker)
 
-	if status, _ := c.get(t, "/secret/"); status != http.StatusForbidden {
-		t.Errorf("anonymous: status = %d, want %d", status, http.StatusForbidden)
-	}
+		c := srv.client(t)
 
-	status, body := c.postWithToken(t, "/login/submit/", `{"user":""}`, "")
-	if status != http.StatusBadRequest {
-		t.Errorf("empty user: status = %d, want %d\n%s",
-			status, http.StatusBadRequest, body)
-	}
+		if status, _ := c.get(t, "/secret/"); status != http.StatusForbidden {
+			t.Errorf("anonymous: status = %d, want %d", status, http.StatusForbidden)
+		}
 
-	c.signIn(t, "carol", "")
-	if status, body := c.get(t, "/secret/"); status != http.StatusOK {
-		t.Errorf("signed in: status = %d, want 200\n%s", status, body)
-	} else if got, want := echoed(t, body), "secret for carol"; got != want {
-		t.Errorf(" got: %s\nwant: %s", got, want)
-	}
+		status, body := c.postWithToken(t, "/login/submit/", `{"user":""}`, "")
+		if status != http.StatusBadRequest {
+			t.Errorf("empty user: status = %d, want %d\n%s",
+				status, http.StatusBadRequest, body)
+		}
+
+		c.signIn(t, "carol", "")
+		if status, body := c.get(t, "/secret/"); status != http.StatusOK {
+			t.Errorf("signed in: status = %d, want 200\n%s", status, body)
+		} else if got, want := echoed(t, body), "secret for carol"; got != want {
+			t.Errorf(" got: %s\nwant: %s", got, want)
+		}
+	})
 }
 
 // TestCSRF covers the token a state-changing request must carry once the
 // visitor has a session.
 // Without a session there is nothing to forge and an anonymous request is let through.
 func TestCSRF(t *testing.T) {
-	srv := newServer(t)
+	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+		srv := newServer(t, broker)
 
-	t.Run("anonymous request needs no token", func(t *testing.T) {
-		c := srv.client(t)
-		if status, body := c.postWithToken(t, "/login/submit/",
-			`{"user":"dan"}`, ""); status != http.StatusOK {
-			t.Errorf("status = %d, want 200\n%s", status, body)
-		}
-	})
+		t.Run("anonymous request needs no token", func(t *testing.T) {
+			c := srv.client(t)
+			if status, body := c.postWithToken(t, "/login/submit/",
+				`{"user":"dan"}`, ""); status != http.StatusOK {
+				t.Errorf("status = %d, want 200\n%s", status, body)
+			}
+		})
 
-	t.Run("session request without a token is refused", func(t *testing.T) {
-		c := srv.client(t)
-		c.signIn(t, "erin", "")
-		if status, _ := c.postWithToken(t, "/login/rename/",
-			`{"nickname":"E"}`, ""); status != http.StatusForbidden {
-			t.Errorf("status = %d, want %d", status, http.StatusForbidden)
-		}
-	})
+		t.Run("session request without a token is refused", func(t *testing.T) {
+			c := srv.client(t)
+			c.signIn(t, "erin", "")
+			if status, _ := c.postWithToken(t, "/login/rename/",
+				`{"nickname":"E"}`, ""); status != http.StatusForbidden {
+				t.Errorf("status = %d, want %d", status, http.StatusForbidden)
+			}
+		})
 
-	t.Run("session request with a wrong token is refused", func(t *testing.T) {
-		c := srv.client(t)
-		c.signIn(t, "frank", "")
-		wrong := srv.csrf.GenerateToken("someone-else", c.issuedAt(t).Unix())
-		if status, _ := c.postWithToken(t, "/login/rename/",
-			`{"nickname":"F"}`, wrong); status != http.StatusForbidden {
-			t.Errorf("status = %d, want %d", status, http.StatusForbidden)
-		}
-	})
+		t.Run("session request with a wrong token is refused", func(t *testing.T) {
+			c := srv.client(t)
+			c.signIn(t, "frank", "")
+			wrong := srv.csrf.GenerateToken("someone-else", c.issuedAt(t).Unix())
+			if status, _ := c.postWithToken(t, "/login/rename/",
+				`{"nickname":"F"}`, wrong); status != http.StatusForbidden {
+				t.Errorf("status = %d, want %d", status, http.StatusForbidden)
+			}
+		})
 
-	t.Run("session request with its token is served", func(t *testing.T) {
-		c := srv.client(t)
-		token := c.signIn(t, "gina", "")
-		if status, body := c.postWithToken(t, "/login/rename/",
-			`{"nickname":"G"}`, token); status != http.StatusOK {
-			t.Errorf("status = %d, want 200\n%s", status, body)
-		}
-	})
+		t.Run("session request with its token is served", func(t *testing.T) {
+			c := srv.client(t)
+			token := c.signIn(t, "gina", "")
+			if status, body := c.postWithToken(t, "/login/rename/",
+				`{"nickname":"G"}`, token); status != http.StatusOK {
+				t.Errorf("status = %d, want 200\n%s", status, body)
+			}
+		})
 
-	t.Run("a page load needs no token", func(t *testing.T) {
-		c := srv.client(t)
-		c.signIn(t, "hank", "")
-		if status, _ := c.get(t, "/"); status != http.StatusOK {
-			t.Errorf("status = %d, want 200", status)
-		}
+		t.Run("a page load needs no token", func(t *testing.T) {
+			c := srv.client(t)
+			c.signIn(t, "hank", "")
+			if status, _ := c.get(t, "/"); status != http.StatusOK {
+				t.Errorf("status = %d, want 200", status)
+			}
+		})
 	})
 }
 
 // TestPrivateEvent covers an event addressed to a user. Two visitors,
 // two streams, one dispatch: the user it names sees it and the other does not.
 func TestPrivateEvent(t *testing.T) {
-	srv := newServer(t)
+	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+		srv := newServer(t, broker)
 
-	alice := srv.client(t)
-	alice.signIn(t, "alice", "")
-	bob := srv.client(t)
-	bob.signIn(t, "bob", "")
+		alice := srv.client(t)
+		alice.signIn(t, "alice", "")
+		bob := srv.client(t)
+		bob.signIn(t, "bob", "")
 
-	as := alice.openStream(t)
-	bs := bob.openStream(t)
+		as := alice.openStream(t)
+		bs := bob.openStream(t)
 
-	if status, body := alice.post(t, "/login/notify/",
-		`{"user":"alice","text":"for alice"}`); status != http.StatusOK {
-		t.Fatalf("dispatching: status = %d\n%s", status, body)
-	}
+		if status, body := alice.post(t, "/login/notify/",
+			`{"user":"alice","text":"for alice"}`); status != http.StatusOK {
+			t.Fatalf("dispatching: status = %d\n%s", status, body)
+		}
 
-	if !as.saw(`<div id="notice">alice: for alice</div>`) {
-		t.Error("the addressed user's stream received nothing")
-	}
-	if !bs.never("for alice") {
-		t.Error("a private event reached another user")
-	}
+		if !as.saw(`<div id="notice">alice: for alice</div>`) {
+			t.Error("the addressed user's stream received nothing")
+		}
+		if !bs.never("for alice") {
+			t.Error("a private event reached another user")
+		}
+	})
 }
 
 // TestSignInRefusesUnsafeUserID covers the ID a session is created with.
@@ -482,22 +504,24 @@ func TestSignInRefusesUnsafeUserID(t *testing.T) {
 		"space":     "a b",
 	}
 
-	for name, user := range users {
-		t.Run(name, func(t *testing.T) {
-			srv := newServer(t)
-			c := srv.client(t)
+	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+		for name, user := range users {
+			t.Run(name, func(t *testing.T) {
+				srv := newServer(t, broker)
+				c := srv.client(t)
 
-			status, body := c.postWithToken(t, "/login/submit/",
-				`{"user":"`+user+`","nickname":""}`, "")
-			if status != http.StatusInternalServerError {
-				t.Fatalf("signing in as %q: status = %d, want 500\n%s",
-					user, status, body)
-			}
-			if c.cookie(t) != nil {
-				t.Error("a refused sign-in left a session cookie")
-			}
-		})
-	}
+				status, body := c.postWithToken(t, "/login/submit/",
+					`{"user":"`+user+`","nickname":""}`, "")
+				if status != http.StatusInternalServerError {
+					t.Fatalf("signing in as %q: status = %d, want 500\n%s",
+						user, status, body)
+				}
+				if c.cookie(t) != nil {
+					t.Error("a refused sign-in left a session cookie")
+				}
+			})
+		}
+	})
 }
 
 // TestStreamRefusesUnsafeUserID covers a session that carries such an ID
@@ -505,38 +529,40 @@ func TestSignInRefusesUnsafeUserID(t *testing.T) {
 // The stream reads the ID into its subscription subject, so it refuses to open
 // rather than subscribe to every user.
 func TestStreamRefusesUnsafeUserID(t *testing.T) {
-	srv := newServer(t)
+	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+		srv := newServer(t, broker)
 
-	token, err := srv.sessions.CreateSession(context.Background(),
-		sessmanager.Record[app.SessionData]{
-			UserID:    "*",
-			IssuedAt:  time.Now(),
-			ExpiresAt: time.Now().Add(time.Hour),
-		})
-	if err != nil {
-		t.Fatalf("creating the session: %v", err)
-	}
+		token, err := srv.sessions.CreateSession(context.Background(),
+			sessmanager.Record[app.SessionData]{
+				UserID:    "*",
+				IssuedAt:  time.Now(),
+				ExpiresAt: time.Now().Add(time.Hour),
+			})
+		if err != nil {
+			t.Fatalf("creating the session: %v", err)
+		}
 
-	c := srv.client(t)
-	c.setSessionCookie(t, token)
+		c := srv.client(t)
+		c.setSessionCookie(t, token)
 
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, srv.URL+"/_$/", nil,
-	)
-	if err != nil {
-		t.Fatalf("building stream request: %v", err)
-	}
-	req.Header.Set("Datastar-Request", "true")
+		req, err := http.NewRequestWithContext(
+			context.Background(), http.MethodGet, srv.URL+"/_$/", nil,
+		)
+		if err != nil {
+			t.Fatalf("building stream request: %v", err)
+		}
+		req.Header.Set("Datastar-Request", "true")
 
-	resp, err := c.http.Do(req)
-	if err != nil {
-		t.Fatalf("opening stream: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
+		resp, err := c.http.Do(req)
+		if err != nil {
+			t.Fatalf("opening stream: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusInternalServerError {
-		t.Errorf("opening the stream: status = %d, want 500", resp.StatusCode)
-	}
+		if resp.StatusCode != http.StatusInternalServerError {
+			t.Errorf("opening the stream: status = %d, want 500", resp.StatusCode)
+		}
+	})
 }
 
 // TestAnonymousStream covers the stream a page serves to a visitor with no session,
@@ -547,43 +573,45 @@ func TestStreamRefusesUnsafeUserID(t *testing.T) {
 // The private event is addressed to a user, and a connection with no user must
 // never be given it: that is one visitor reading another's messages.
 func TestAnonymousStream(t *testing.T) {
-	srv := newServer(t)
+	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+		srv := newServer(t, broker)
 
-	anon := srv.client(t)
-	anonStream := anon.openStream(t)
+		anon := srv.client(t)
+		anonStream := anon.openStream(t)
 
-	alice := srv.client(t)
-	alice.signIn(t, "alice", "")
-	aliceStream := alice.openStream(t)
+		alice := srv.client(t)
+		alice.signIn(t, "alice", "")
+		aliceStream := alice.openStream(t)
 
-	// The two connections are served by two different handlers.
-	if anonStream.path == aliceStream.path {
-		t.Errorf("both connections landed on %s", anonStream.path)
-	}
+		// The two connections are served by two different handlers.
+		if anonStream.path == aliceStream.path {
+			t.Errorf("both connections landed on %s", anonStream.path)
+		}
 
-	// The public event reaches both.
-	if status, body := alice.post(t, "/login/broadcast/",
-		`{"text":"for everyone"}`); status != http.StatusOK {
-		t.Fatalf("broadcasting: status = %d\n%s", status, body)
-	}
-	if !anonStream.saw(`<div id="broadcast">for everyone</div>`) {
-		t.Error("the anonymous stream received no public event")
-	}
-	if !aliceStream.saw(`<div id="broadcast">for everyone</div>`) {
-		t.Error("the signed-in stream received no public event")
-	}
+		// The public event reaches both.
+		if status, body := alice.post(t, "/login/broadcast/",
+			`{"text":"for everyone"}`); status != http.StatusOK {
+			t.Fatalf("broadcasting: status = %d\n%s", status, body)
+		}
+		if !anonStream.saw(`<div id="broadcast">for everyone</div>`) {
+			t.Error("the anonymous stream received no public event")
+		}
+		if !aliceStream.saw(`<div id="broadcast">for everyone</div>`) {
+			t.Error("the signed-in stream received no public event")
+		}
 
-	// The private one reaches only the user it names.
-	if status, body := alice.post(t, "/login/notify/",
-		`{"user":"alice","text":"for alice"}`); status != http.StatusOK {
-		t.Fatalf("notifying: status = %d\n%s", status, body)
-	}
-	if !aliceStream.saw(`<div id="notice">alice: for alice</div>`) {
-		t.Error("the addressed user received nothing")
-	}
-	if !anonStream.never("for alice") {
-		t.Error("a private event reached a stream with no session")
-	}
+		// The private one reaches only the user it names.
+		if status, body := alice.post(t, "/login/notify/",
+			`{"user":"alice","text":"for alice"}`); status != http.StatusOK {
+			t.Fatalf("notifying: status = %d\n%s", status, body)
+		}
+		if !aliceStream.saw(`<div id="notice">alice: for alice</div>`) {
+			t.Error("the addressed user received nothing")
+		}
+		if !anonStream.never("for alice") {
+			t.Error("a private event reached a stream with no session")
+		}
+	})
 }
 
 // --- helpers ---------------------------------------------------------------

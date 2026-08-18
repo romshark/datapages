@@ -662,6 +662,11 @@ func evSubjPageFeed(userID string) []string {
 }
 
 func evSubjPageRooms(userID string, subjRoom string) []string {
+	if userID == "" {
+		return []string{
+			"room.posted." + subjRoom,
+		}
+	}
 	return []string{
 		"noticed." + userID,
 		"room.posted." + subjRoom,
