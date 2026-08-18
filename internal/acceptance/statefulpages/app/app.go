@@ -25,7 +25,7 @@ type StateFilters struct {
 //
 // Tab-scoped: only the tab named by SubjectStateID receives it.
 type EventFiltersUpdated struct {
-	SubjectStateID string
+	SubjectStateID datapages.SubjectStateID
 }
 
 func (*App) Head(_ *http.Request) datapages.Component {
@@ -58,10 +58,12 @@ func (p PageIndex) POSTUpdate(
 	signals struct {
 		Filter string `json:"filter"`
 	},
-	dispatch func(EventFiltersUpdated) error,
+	dispatch datapages.Dispatch[EventFiltersUpdated],
 ) error {
 	state.Filter = signals.Filter
-	return dispatch(EventFiltersUpdated{SubjectStateID: stateID})
+	return dispatch(EventFiltersUpdated{
+		SubjectStateID: datapages.SubjectStateID(stateID),
+	})
 }
 
 func (p PageIndex) OnFiltersUpdated(

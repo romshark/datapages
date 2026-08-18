@@ -22,8 +22,8 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 
 // EventBad is "bad"
 type EventBad struct {
-	SubjectFoo []string `signal:"instance_id"`
-	SubjectBar []string `signal:"instance_id"`
+	Foo datapages.Subject `signal:"instance_id"`
+	Bar datapages.Subject `signal:"instance_id"`
 
 	Message string `json:"message"`
 }

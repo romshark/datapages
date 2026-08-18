@@ -20,7 +20,7 @@ type App struct{}
 
 // EventChanged is "changed"
 type EventChanged struct {
-	SubjectStateID string
+	SubjectStateID datapages.SubjectStateID
 }
 
 // TabContext is the state of every page that embeds Base.
@@ -70,10 +70,12 @@ func (PageIndex) POSTNote(
 	signals struct {
 		Note string `json:"note"`
 	},
-	dispatch func(EventChanged) error,
+	dispatch datapages.Dispatch[EventChanged],
 ) error {
 	state.Note = signals.Note
-	return dispatch(EventChanged{SubjectStateID: stateID})
+	return dispatch(EventChanged{
+		SubjectStateID: datapages.SubjectStateID(stateID),
+	})
 }
 
 // PageOther is /other
@@ -104,8 +106,10 @@ func (a *App) POSTBump(
 	_ *http.Request,
 	state *TabContext,
 	stateID string,
-	dispatch func(EventChanged) error,
+	dispatch datapages.Dispatch[EventChanged],
 ) error {
 	state.Counter++
-	return dispatch(EventChanged{SubjectStateID: stateID})
+	return dispatch(EventChanged{
+		SubjectStateID: datapages.SubjectStateID(stateID),
+	})
 }

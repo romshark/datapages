@@ -6,6 +6,8 @@ import "context"
 // Buffer size should be enough to absorb short bursts without blocking delivery,
 // while bounding memory and ensuring slow consumers drop messages instead of
 // backpressuring producers.
+//
+// A broker configured with a non-positive buffer size uses it.
 var DefaultBrokerChanBuffer = 16
 
 // MessageBroker is a common interface for message brokers.
@@ -15,7 +17,13 @@ type MessageBroker interface {
 		ctx context.Context, metrics Metrics, subjects ...string,
 	) (MessageBrokerSubscription, error)
 
-	// Publish sends a message to a subject (non-blocking)
+	// Publish sends a message to a subject (non-blocking).
+	//
+	// ctx carries cancelation and a deadline, nothing else.
+	// An implementation must not take publish parameters from it.
+	// Another implementation ignores what it doesn't know without error,
+	// so behavior the application relies on disappears silently.
+	// Take such parameters in the implementation's own configuration instead.
 	Publish(ctx context.Context, metrics Metrics, subject string, data []byte) error
 }
 
@@ -27,8 +35,9 @@ type Metrics interface {
 
 // StreamInitializer is an optional interface that message brokers can implement
 // to receive the set of stream subjects during server initialization.
-// Brokers that require stream/subject setup (e.g. NATS JetStream) should
-// implement this; brokers that don't need it (e.g. in-memory) can skip it.
+// Brokers that require the destination of a message to be declared up front,
+// such as a topic or a stream, should implement this. Brokers that route on the
+// subject alone, which is what core NATS and the in-memory broker do, can skip it.
 type StreamInitializer interface {
 	InitStreams(subjects []string) error
 }

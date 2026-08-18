@@ -24,66 +24,27 @@ func (PageIndex) GET(
 	return body, err
 }
 
-// PageNotFunc is /not-func
-type PageNotFunc struct{ App *App }
+// PageLegacyFunc is /legacy-func
+type PageLegacyFunc struct{ App *App }
 
-/* ErrDispatchParamNotFunc */
+/* ErrDispatchParamLegacy */
 
-func (PageNotFunc) GET(
+func (PageLegacyFunc) GET(
+	r *http.Request,
+	dispatch func(EventFoo) error,
+) (body datapages.Component, err error) {
+	_ = dispatch
+	return body, err
+}
+
+// PageLegacyName is /legacy-name
+type PageLegacyName struct{ App *App }
+
+/* ErrDispatchParamLegacy */
+
+func (PageLegacyName) GET(
 	r *http.Request,
 	dispatch int,
-) (body datapages.Component, err error) {
-	_ = dispatch
-	return body, err
-}
-
-// PageNoReturn is /no-return
-type PageNoReturn struct{ App *App }
-
-/* ErrDispatchMustReturnError */
-
-func (PageNoReturn) GET(
-	r *http.Request,
-	dispatch func(EventFoo),
-) (body datapages.Component, err error) {
-	_ = dispatch
-	return body, err
-}
-
-// PageWrongReturn is /wrong-return
-type PageWrongReturn struct{ App *App }
-
-/* ErrDispatchMustReturnError */
-
-func (PageWrongReturn) GET(
-	r *http.Request,
-	dispatch func(EventFoo) int,
-) (body datapages.Component, err error) {
-	_ = dispatch
-	return body, err
-}
-
-// PageNoReturnNoParams is /no-return-no-params
-type PageNoReturnNoParams struct{ App *App }
-
-/* ErrDispatchMustReturnError, ErrDispatchNoParams */
-
-func (PageNoReturnNoParams) GET(
-	r *http.Request,
-	dispatch func(),
-) (body datapages.Component, err error) {
-	_ = dispatch
-	return body, err
-}
-
-// PageNoParams is /no-params
-type PageNoParams struct{ App *App }
-
-/* ErrDispatchNoParams */
-
-func (PageNoParams) GET(
-	r *http.Request,
-	dispatch func() error,
 ) (body datapages.Component, err error) {
 	_ = dispatch
 	return body, err
@@ -96,8 +57,22 @@ type PageBadEvent struct{ App *App }
 
 func (PageBadEvent) GET(
 	r *http.Request,
-	dispatch func(string) error,
+	dispatchString datapages.Dispatch[string],
 ) (body datapages.Component, err error) {
-	_ = dispatch
+	_ = dispatchString
+	return body, err
+}
+
+// PageDuplicate is /duplicate
+type PageDuplicate struct{ App *App }
+
+/* ErrDispatchDuplicate */
+
+func (PageDuplicate) GET(
+	r *http.Request,
+	dispatchFoo datapages.Dispatch[EventFoo],
+	dispatchFooAgain datapages.Dispatch[EventFoo],
+) (body datapages.Component, err error) {
+	_, _ = dispatchFoo, dispatchFooAgain
 	return body, err
 }

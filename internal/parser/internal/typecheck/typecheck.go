@@ -5,6 +5,8 @@ package typecheck
 import (
 	"go/ast"
 	"go/types"
+
+	"github.com/romshark/datapages/internal/parser/model"
 )
 
 // IsString reports whether t's underlying type is string.
@@ -268,6 +270,27 @@ func namedTypeArg(
 	return args.At(0), true
 }
 
+// IsDispatchType reports whether expr resolves to datapages.Dispatch[Event].
+func IsDispatchType(expr ast.Expr, info *types.Info) bool {
+	_, ok := namedTypeArg(expr, info, "Dispatch")
+	return ok
+}
+
+// DispatchEventTypeName returns the name of the Event type argument of
+// datapages.Dispatch[Event]. ok is false if expr isn't an instantiation of
+// datapages.Dispatch, name is empty if the argument isn't a named type.
+func DispatchEventTypeName(expr ast.Expr, info *types.Info) (name string, ok bool) {
+	arg, ok := namedTypeArg(expr, info, "Dispatch")
+	if !ok {
+		return "", false
+	}
+	named, isNamed := types.Unalias(arg).(*types.Named)
+	if !isNamed || named.Obj() == nil {
+		return "", true
+	}
+	return named.Obj().Name(), true
+}
+
 // IsEventType reports whether the expression resolves to the
 // named event type eventTypeName.
 func IsEventType(
@@ -320,4 +343,29 @@ func EventTypeNameOf(
 		return "", false
 	}
 	return name, true
+}
+
+// SubjectKindOf reports which datapages subject segment type t is,
+// model.SubjectKindNone if it's none of them.
+func SubjectKindOf(t types.Type) model.SubjectKind {
+	if t == nil {
+		return model.SubjectKindNone
+	}
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return model.SubjectKindNone
+	}
+	obj := named.Obj()
+	if obj == nil || obj.Pkg() == nil || obj.Pkg().Path() != datapagesPkgPath {
+		return model.SubjectKindNone
+	}
+	switch obj.Name() {
+	case "Subject":
+		return model.SubjectKindValue
+	case "SubjectUser":
+		return model.SubjectKindUser
+	case "SubjectStateID":
+		return model.SubjectKindStateID
+	}
+	return model.SubjectKindNone
 }

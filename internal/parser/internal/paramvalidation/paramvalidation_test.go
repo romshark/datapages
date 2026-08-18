@@ -1,10 +1,12 @@
 package paramvalidation
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"go/types"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -99,11 +101,12 @@ func TestIsSessionParam(t *testing.T) {
 	require.False(t, IsSessionParam(&ast.Field{}))
 }
 
-func TestIsDispatchParam(t *testing.T) {
+func TestIsLegacyDispatchParam(t *testing.T) {
 	t.Parallel()
-	require.True(t, IsDispatchParam(field("dispatch")))
-	require.False(t, IsDispatchParam(field("path")))
-	require.False(t, IsDispatchParam(&ast.Field{}))
+	info := &types.Info{Types: map[ast.Expr]types.TypeAndValue{}}
+	require.True(t, IsLegacyDispatchParam(field("dispatch"), info))
+	require.False(t, IsLegacyDispatchParam(field("path"), info))
+	require.False(t, IsLegacyDispatchParam(&ast.Field{}, info))
 }
 
 func TestIsPathParam(t *testing.T) {
@@ -616,7 +619,56 @@ type P struct {
 	})
 }
 
-func TestValidateDispatchFunc(t *testing.T) {
+// typeCheckWithDatapages type-checks src against a stand-in for the datapages
+// package, which is what the Dispatch parameter type resolves through.
+func typeCheckWithDatapages(t *testing.T, src string) (*ast.File, *types.Info) {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	dpFile, err := parser.ParseFile(fset, "datapages.go", `package datapages
+
+type DispatchConfig struct{}
+type DispatchOption func(*DispatchConfig)
+type Dispatch[Event any] func(
+	ctx any, event Event, options ...DispatchOption,
+) error
+`, 0)
+	require.NoError(t, err)
+	dpPkg, err := (&types.Config{}).Check(
+		"github.com/romshark/datapages", fset, []*ast.File{dpFile}, nil,
+	)
+	require.NoError(t, err)
+
+	f, err := parser.ParseFile(fset, "test.go", src, 0)
+	require.NoError(t, err)
+	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue)}
+	conf := &types.Config{Importer: importerFunc(func(path string) (*types.Package, error) {
+		if path == "github.com/romshark/datapages" {
+			return dpPkg, nil
+		}
+		return nil, fmt.Errorf("unexpected import %q", path)
+	})}
+	_, err = conf.Check("test", fset, []*ast.File{f}, info)
+	require.NoError(t, err)
+	return f, info
+}
+
+type importerFunc func(path string) (*types.Package, error)
+
+func (f importerFunc) Import(path string) (*types.Package, error) { return f(path) }
+
+func TestIsDispatchParam(t *testing.T) {
+	t.Parallel()
+	src := `package test
+import "github.com/romshark/datapages"
+type EventFoo struct{}
+func f(d datapages.Dispatch[EventFoo], notDispatch string) {}`
+	f, info := typeCheckWithDatapages(t, src)
+	require.True(t, IsDispatchParam(firstFuncParam(t, f, 0), info))
+	require.False(t, IsDispatchParam(firstFuncParam(t, f, 1), info))
+}
+
+func TestValidateDispatch(t *testing.T) {
 	t.Parallel()
 	eventTypes := map[string]struct{}{
 		"EventFoo": {},
@@ -624,93 +676,62 @@ func TestValidateDispatchFunc(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		src        string
-		wantErr    error
-		wantEvents []string
+		src       string
+		wantErr   error
+		wantEvent string
 	}{
-		"valid single event": {
+		"valid": {
 			src: `package test
+import "github.com/romshark/datapages"
 type EventFoo struct{}
-func f(dispatch func(EventFoo) error) {}`,
-			wantEvents: []string{"EventFoo"},
+func f(d datapages.Dispatch[EventFoo]) {}`,
+			wantEvent: "EventFoo",
 		},
-		"valid multiple events": {
+		"valid through alias": {
 			src: `package test
-type EventFoo struct{}
+import "github.com/romshark/datapages"
 type EventBar struct{}
-func f(dispatch func(EventFoo, EventBar) error) {}`,
-			wantEvents: []string{
-				"EventFoo", "EventBar",
-			},
+type DispatchBar = datapages.Dispatch[EventBar]
+func f(d DispatchBar) {}`,
+			wantEvent: "EventBar",
 		},
-		"valid pointer event": {
+		"type argument not an event type": {
 			src: `package test
-type EventFoo struct{}
-func f(dispatch func(*EventFoo) error) {}`,
-			wantEvents: []string{"EventFoo"},
+import "github.com/romshark/datapages"
+func f(d datapages.Dispatch[string]) {}`,
+			wantErr: ErrDispatchParamNotEvent,
 		},
-		"grouped event names": {
+		"type argument is an undeclared type": {
 			src: `package test
-type EventFoo struct{}
-func f(dispatch func(a, b EventFoo) error) {}`,
-			wantEvents: []string{
-				"EventFoo", "EventFoo",
-			},
+import "github.com/romshark/datapages"
+type NotAnEvent struct{}
+func f(d datapages.Dispatch[NotAnEvent]) {}`,
+			wantErr: ErrDispatchParamNotEvent,
 		},
-		"not a func": {
+		"not a dispatcher": {
 			src: `package test
-func f(dispatch string) {}`,
-			wantErr: ErrDispatchParamNotFunc,
-		},
-		"no return": {
-			src: `package test
-type EventFoo struct{}
-func f(dispatch func(EventFoo)) {}`,
-			wantErr: ErrDispatchMustReturnError,
-		},
-		"two returns": {
-			src: `package test
-type EventFoo struct{}
-func f(dispatch func(EventFoo) (int, error)) {}`,
-			wantErr: ErrDispatchMustReturnError,
-		},
-		"named multiple returns": {
-			src: `package test
-type EventFoo struct{}
-func f(dispatch func(EventFoo) (x, y error)) {}`,
-			wantErr: ErrDispatchMustReturnError,
-		},
-		"return not error": {
-			src: `package test
-type EventFoo struct{}
-func f(dispatch func(EventFoo) int) {}`,
-			wantErr: ErrDispatchMustReturnError,
-		},
-		"no params": {
-			src: `package test
-func f(dispatch func() error) {}`,
-			wantErr: ErrDispatchNoParams,
-		},
-		"param not event type": {
-			src: `package test
-func f(dispatch func(int) error) {}`,
+func f(d string) {}`,
 			wantErr: ErrDispatchParamNotEvent,
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			f, info := typeCheckSrc(t, tt.src)
+			var f *ast.File
+			var info *types.Info
+			if strings.Contains(tt.src, "romshark/datapages") {
+				f, info = typeCheckWithDatapages(t, tt.src)
+			} else {
+				f, info = typeCheckSrc(t, tt.src)
+			}
 			p := firstFuncParam(t, f, 0)
-			events, err := ValidateDispatchFunc(
+			event, err := ValidateDispatch(
 				p, info, eventTypes,
 				"Recv", "Method",
 			)
 			if tt.wantErr == nil {
 				require.NoError(t, err)
-				require.Equal(
-					t, tt.wantEvents, events,
-				)
+				require.Equal(t, tt.wantEvent, event)
 			} else {
 				require.ErrorIs(t, err, tt.wantErr)
 			}

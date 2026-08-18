@@ -25,7 +25,7 @@ type App struct {
 
 // EventPing is "ping"
 type EventPing struct {
-	SubjectStateID string
+	SubjectStateID datapages.SubjectStateID
 }
 
 // StateCounter is the state of PageCount, reached through the generic base.
@@ -91,10 +91,12 @@ func (PageCount) POSTBump(
 	_ *http.Request,
 	state *StateCounter,
 	stateID string,
-	dispatch func(EventPing) error,
+	dispatch datapages.Dispatch[EventPing],
 ) error {
 	state.N++
-	return dispatch(EventPing{SubjectStateID: stateID})
+	return dispatch(EventPing{
+		SubjectStateID: datapages.SubjectStateID(stateID),
+	})
 }
 
 // PageLabel is /label
@@ -115,10 +117,12 @@ func (PageLabel) POSTSet(
 	signals struct {
 		Text string `json:"text"`
 	},
-	dispatch func(EventPing) error,
+	dispatch datapages.Dispatch[EventPing],
 ) error {
 	state.Text = signals.Text
-	return dispatch(EventPing{SubjectStateID: stateID})
+	return dispatch(EventPing{
+		SubjectStateID: datapages.SubjectStateID(stateID),
+	})
 }
 
 // PageEmbedOnly is /embed-only
@@ -159,10 +163,12 @@ func (PageNested) POSTBump(
 	_ *http.Request,
 	state *StateNested,
 	stateID string,
-	dispatch func(EventPing) error,
+	dispatch datapages.Dispatch[EventPing],
 ) error {
 	state.N++
-	return dispatch(EventPing{SubjectStateID: stateID})
+	return dispatch(EventPing{
+		SubjectStateID: datapages.SubjectStateID(stateID),
+	})
 }
 
 // PagePointer is /pointer
@@ -183,10 +189,12 @@ func (PagePointer) POSTBump(
 	_ *http.Request,
 	state *StatePointer,
 	stateID string,
-	dispatch func(EventPing) error,
+	dispatch datapages.Dispatch[EventPing],
 ) error {
 	state.N++
-	return dispatch(EventPing{SubjectStateID: stateID})
+	return dispatch(EventPing{
+		SubjectStateID: datapages.SubjectStateID(stateID),
+	})
 }
 
 // PageIndex is /

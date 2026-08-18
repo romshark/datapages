@@ -7,6 +7,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net"
@@ -221,6 +222,25 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+var signalStringEscaper = strings.NewReplacer(
+	"\\", `\\`,
+	"'", `\'`,
+	"\n", `\n`,
+	"\r", `\r`,
+)
+
+// writeSignalString writes s as a quoted string inside a data-signals attribute.
+// The browser decodes the attribute before Datastar evaluates it.
+// s is escaped for the JavaScript string first and for the attribute second.
+func writeSignalString(w http.ResponseWriter, s string) {
+	_, _ = io.WriteString(w, html.EscapeString(signalStringEscaper.Replace(s)))
+}
+
+// writeSignalValue writes a number or boolean inside a data-signals attribute.
+func writeSignalValue(w http.ResponseWriter, s string) {
+	_, _ = io.WriteString(w, html.EscapeString(s))
+}
+
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -374,6 +394,9 @@ func setupHandlers(s *Server) {
 		"GET /c/{value}/{s_value}/{s_s_value}/{$}",
 		s.handlePageConflictGET)
 	s.mux.HandleFunc(
+		"GET /files/{rest...}",
+		s.handlePageFilesGET)
+	s.mux.HandleFunc(
 		"GET /",
 		s.handlePageIndexGET)
 	s.mux.HandleFunc(
@@ -449,6 +472,34 @@ func (s *Server) handlePageConflictGET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.logErr("rendering PageConflict", err)
+		return
+	}
+}
+
+func (s *Server) handlePageFilesGET(w http.ResponseWriter, r *http.Request) {
+
+	var path struct {
+		Rest string `path:"rest"`
+	}
+	path.Rest = r.PathValue("rest")
+
+	p := app.PageFiles{
+		App: s.app,
+	}
+	body, err := p.GET(r, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageFiles.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.logErr("rendering PageFiles", err)
 		return
 	}
 }
@@ -826,11 +877,11 @@ func (s *Server) handlePageReflectGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 
 		_, _ = io.WriteString(w, `data-signals:term="'`)
-		_, _ = io.WriteString(w, query.Term)
+		writeSignalString(w, query.Term)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:page="`)
-		_, _ = io.WriteString(w, strconv.FormatInt(int64(query.Page), 10))
+		writeSignalValue(w, strconv.FormatInt(int64(query.Page), 10))
 		_, _ = io.WriteString(w, `"`)
 	}
 

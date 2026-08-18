@@ -301,6 +301,10 @@ func (s sseWrapper) Prefetch(urls ...string) error {
 	return s.gen.Prefetch(urls...)
 }
 
+func isSubjectToken(v string) bool {
+	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
+}
+
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -414,14 +418,19 @@ func (s *Server) handleStreamRequest(
 	}
 
 	streamID := s.streamSeq.Add(1)
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
+	// The subscription is established before the response head goes out.
+	// A client learns the stream is open by reading that head and may dispatch
+	// immediately after, which must not reach the broker before this.
 	ctx := r.Context()
 	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
 	if err != nil {
-		s.httpErrIntern(w, r, sse, "subscribing to message broker", err)
+		// Nothing has been written yet, so the error can still carry a status.
+		s.httpErrIntern(w, r, nil, "subscribing to message broker", err)
 		return
 	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
 	subC := sub.C()
 	if onOpen != nil {
@@ -1341,20 +1350,27 @@ func (s *Server) handlePageCountPOSTBump(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventPing,
+	dispatchPing := func(
+		e app.EventPing,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventPing JSON: %w", err)
-			}
-			p0 := e1.SubjectStateID
-			subj := "ping." + p0
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", subj, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		if !isSubjectToken(string(e.SubjectStateID)) {
+			return fmt.Errorf(
+				"EventPing.SubjectStateID must be a non-empty subject token, received %q",
+				e.SubjectStateID)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventPing JSON: %w", err)
+		}
+		subj := "ping." + string(e.SubjectStateID)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
@@ -1364,7 +1380,7 @@ func (s *Server) handlePageCountPOSTBump(
 			App: s.app,
 		},
 	}
-	err := p.POSTBump(r, slot.state, stateID, dispatch)
+	err := p.POSTBump(r, slot.state, stateID, dispatchPing)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageCount.Bump", err)
 		return
@@ -1691,20 +1707,27 @@ func (s *Server) handlePageLabelPOSTSet(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventPing,
+	dispatchPing := func(
+		e app.EventPing,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventPing JSON: %w", err)
-			}
-			p0 := e1.SubjectStateID
-			subj := "ping." + p0
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", subj, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		if !isSubjectToken(string(e.SubjectStateID)) {
+			return fmt.Errorf(
+				"EventPing.SubjectStateID must be a non-empty subject token, received %q",
+				e.SubjectStateID)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventPing JSON: %w", err)
+		}
+		subj := "ping." + string(e.SubjectStateID)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
@@ -1714,7 +1737,7 @@ func (s *Server) handlePageLabelPOSTSet(
 			App: s.app,
 		},
 	}
-	err := p.POSTSet(r, slot.state, stateID, signals, dispatch)
+	err := p.POSTSet(r, slot.state, stateID, signals, dispatchPing)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLabel.Set", err)
 		return
@@ -1880,20 +1903,27 @@ func (s *Server) handlePageNestedPOSTBump(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventPing,
+	dispatchPing := func(
+		e app.EventPing,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventPing JSON: %w", err)
-			}
-			p0 := e1.SubjectStateID
-			subj := "ping." + p0
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", subj, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		if !isSubjectToken(string(e.SubjectStateID)) {
+			return fmt.Errorf(
+				"EventPing.SubjectStateID must be a non-empty subject token, received %q",
+				e.SubjectStateID)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventPing JSON: %w", err)
+		}
+		subj := "ping." + string(e.SubjectStateID)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
@@ -1906,7 +1936,7 @@ func (s *Server) handlePageNestedPOSTBump(
 			},
 		},
 	}
-	err := p.POSTBump(r, slot.state, stateID, dispatch)
+	err := p.POSTBump(r, slot.state, stateID, dispatchPing)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageNested.Bump", err)
 		return
@@ -2066,20 +2096,27 @@ func (s *Server) handlePagePointerPOSTBump(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventPing,
+	dispatchPing := func(
+		e app.EventPing,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventPing JSON: %w", err)
-			}
-			p0 := e1.SubjectStateID
-			subj := "ping." + p0
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", subj, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		if !isSubjectToken(string(e.SubjectStateID)) {
+			return fmt.Errorf(
+				"EventPing.SubjectStateID must be a non-empty subject token, received %q",
+				e.SubjectStateID)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventPing JSON: %w", err)
+		}
+		subj := "ping." + string(e.SubjectStateID)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
@@ -2089,7 +2126,7 @@ func (s *Server) handlePagePointerPOSTBump(
 			App: s.app,
 		},
 	}
-	err := p.POSTBump(r, slot.state, stateID, dispatch)
+	err := p.POSTBump(r, slot.state, stateID, dispatchPing)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PagePointer.Bump", err)
 		return

@@ -175,7 +175,7 @@ Datapages ships pluggable modules with swappable implementations:
   - [`natskv`](https://pkg.go.dev/github.com/romshark/datapages/modules/sessmanager/natskv) - NATS KV store with AES-128-GCM encrypted cookies
   - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/sessmanager/inmem) - In-memory sessions (lost on restart; single-instance only)
 - [`MessageBroker`](modules/msgbroker/msgbroker.go)
-  - [`natsjs`](https://pkg.go.dev/github.com/romshark/datapages/modules/msgbroker/natsjs) - NATS JetStream backed message broker
+  - [`natscore`](https://pkg.go.dev/github.com/romshark/datapages/modules/msgbroker/natscore) - Core NATS backed message broker
   - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/msgbroker/inmem) - In-memory fan-out message broker (single-instance only)
 - [`TokenManager`](modules/csrf/csrf.go)
   - [`hmac`](https://pkg.go.dev/github.com/romshark/datapages/modules/csrf/hmac) - HMAC-SHA256 with BREACH-resistant masking

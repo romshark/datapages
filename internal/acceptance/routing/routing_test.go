@@ -4,6 +4,7 @@ package acceptance_test
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -171,6 +172,69 @@ func TestReflectedSignals(t *testing.T) {
 		"params.set('p'",
 	} {
 		require.Contains(t, resp.Body, want, "the page does not carry %q")
+	}
+}
+
+// TestReflectedSignalEscapesMarkup covers a reflected query value carrying markup.
+// The server writes it into an attribute of the body tag, where a quote ends the
+// attribute and an angle bracket opens an element of its own.
+func TestReflectedSignalEscapesMarkup(t *testing.T) {
+	c := newClient(t)
+
+	tests := map[string]struct {
+		value string // what the client sends as ?t=
+		want  string // what the attribute carries
+	}{
+		"ends the attribute and opens an element": {
+			value: `"><script>alert(1)</script>`,
+			want:  `&#34;&gt;&lt;script&gt;alert(1)&lt;/script&gt;`,
+		},
+		"ends the signal expression string": {
+			value: `';alert(1);//`,
+			want:  `\&#39;;alert(1);//`,
+		},
+		"angle bracket": {value: `<b>`, want: `&lt;b&gt;`},
+		"double quote":  {value: `a"b`, want: `a&#34;b`},
+		"backslash":     {value: `a\b`, want: `a\\b`},
+		"nothing to escape": {
+			value: "shoes",
+			want:  "shoes", // escaping carries the value rather than dropping it
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			resp := c.Get(t, "/reflect/?t="+url.QueryEscape(tt.value))
+			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+			require.Contains(t, resp.Body, `data-signals:term="'`+tt.want+`'"`,
+				"the attribute does not carry the escaped value:\n%s", resp.Body)
+		})
+	}
+}
+
+// TestTrailingWildcard covers a route whose last segment matches the rest of the path,
+// however many segments that is.
+//
+// The router takes no end-of-path marker after such a wildcard.
+// One appended there leaves a pattern it refuses to parse,
+// which it reports by panicking while the server is being built.
+func TestTrailingWildcard(t *testing.T) {
+	c := newClient(t)
+
+	for name, tt := range map[string]struct{ url, want string }{
+		"one segment":      {"/files/a/", `rest="a/"`},
+		"several segments": {"/files/a/b/c/", `rest="a/b/c/"`},
+		// A wildcard over several segments hands back a decoded path,
+		// which is one string for a separator the caller encoded and one it did not.
+		// Values that have to survive belong in a segment of their own,
+		// where {name} keeps them apart.
+		"encoded separator": {"/files/a%2Fb/", `rest="a/b/"`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := c.Get(t, tt.url)
+			require.Equal(t, http.StatusOK, resp.Status, "GET %s\n%s", tt.url, resp.Body)
+			require.Equal(t, tt.want, resp.Element(t, "echo"), "GET %s", tt.url)
+		})
 	}
 }
 

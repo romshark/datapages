@@ -72,7 +72,7 @@ func (p PageIndex) POSTCreate(
 		NewDesc  string `json:"newDesc"`
 		NewDue   string `json:"newDue"`
 	},
-	dispatch func(EventTodoUpdated) error,
+	dispatch datapages.Dispatch[EventTodoUpdated],
 ) error {
 	title := strings.TrimSpace(signals.NewTitle)
 	if title == "" {

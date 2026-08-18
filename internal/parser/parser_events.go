@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/romshark/datapages/internal/parser/internal/structtag"
+	"github.com/romshark/datapages/internal/parser/internal/typecheck"
 )
 
 // _jsonUnmarshalerIface and _textUnmarshalerIface are synthetic interface types
@@ -56,7 +57,7 @@ func validateEvents(ctx *parseCtx, errs *Errors) {
 	}
 }
 
-// validateEventsNeedSession reports events with SubjectUser in applications that
+// validateEventsNeedSession reports user-addressed events in applications that
 // have no session. It runs after the handlers are parsed, since the session type
 // is derived from their signatures.
 func validateEventsNeedSession(ctx *parseCtx, errs *Errors) {
@@ -121,7 +122,7 @@ func validateEventType(
 		tag := st.Tag(i)
 
 		// Subject fields are validated separately; skip all checks.
-		if strings.HasPrefix(f.Name(), "Subject") {
+		if typecheck.SubjectKindOf(f.Type()).IsSubject() {
 			continue
 		}
 

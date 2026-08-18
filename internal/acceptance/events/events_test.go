@@ -4,9 +4,11 @@ package acceptance_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -17,6 +19,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/events/app"
 	"github.com/romshark/datapages/internal/acceptance/events/datapagesgen"
+	"github.com/romshark/datapages/modules/msgbroker"
 	"github.com/romshark/datapages/modules/msgbroker/inmem"
 )
 
@@ -100,6 +103,77 @@ func TestEmbeddedHandler(t *testing.T) {
 
 	require.True(t, other.Saw(`<div id="shared">shared 1</div>`),
 		"the embedding page received nothing from the embedded handler")
+}
+
+// TestTwoDispatchers covers an action that declares one dispatcher per event type.
+// Both events must reach the stream, since each dispatcher publishes on
+// its own and neither depends on the other.
+func TestTwoDispatchers(t *testing.T) {
+	c := newClient(t)
+
+	s := c.OpenStream(t, "/_$/", nil)
+
+	postOK(t, c, "/both/", `{"n":3}`)
+
+	require.True(t, s.Saw(`<div id="out">tick 3</div>`),
+		"the first dispatcher delivered nothing")
+	require.True(t, s.Saw(`<div id="pong">pong 3</div>`),
+		"the second dispatcher delivered nothing")
+}
+
+// TestStreamCloseDispatches covers dispatching from StreamClose. The hook runs
+// while the closing stream is torn down, so its request context is already
+// done and the dispatcher must publish with that cancelation stripped.
+// The broker here refuses a dead context, which is what makes the difference visible:
+// a stream that stays open must receive what the closing one sent.
+func TestStreamCloseDispatches(t *testing.T) {
+	broker := &ctxBroker{MessageBroker: inmem.New(8)}
+	c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+
+	watcher := c.OpenStream(t, "/_$/", nil)
+	leaving := c.OpenStream(t, "/_$/", nil)
+
+	leaving.Close()
+
+	require.True(t, watcher.Saw(`<div id="gone">gone `),
+		"the event dispatched from StreamClose never arrived")
+}
+
+// TestDispatchContextOption covers datapages.WithDispatchContext.
+// The action dispatches with a context that is already done,
+// so a broker that honors the context refuses to publish and the action fails.
+// Without the option the same dispatch would use the live request context and succeed.
+func TestDispatchContextOption(t *testing.T) {
+	broker := &ctxBroker{MessageBroker: inmem.New(8)}
+	c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+
+	s := c.OpenStream(t, "/_$/", nil)
+
+	postOK(t, c, "/tick/", `{"n":1}`)
+	require.True(t, s.Saw(`<div id="out">tick 1</div>`),
+		"the handler context was refused by the broker")
+
+	resp := c.Action(t, http.MethodPost, "/canceled/", `{"n":2}`)
+	require.Equal(t, http.StatusInternalServerError, resp.Status,
+		"the canceled context did not reach the broker")
+	require.True(t, s.Never("tick 2"),
+		"the event was published with a canceled context")
+}
+
+// ctxBroker publishes only while the context it is given is alive.
+// The in-memory broker ignores the context, which would hide what
+// TestDispatchContextOption is after.
+type ctxBroker struct {
+	msgbroker.MessageBroker
+}
+
+func (b *ctxBroker) Publish(
+	ctx context.Context, metrics msgbroker.Metrics, subject string, data []byte,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return b.MessageBroker.Publish(ctx, metrics, subject, data)
 }
 
 // TestSubjectScoping covers an event whose subject carries a value the stream
@@ -220,13 +294,39 @@ func TestMissingSubjectSignal(t *testing.T) {
 	}
 }
 
+// TestWildcardSubjectSignalRefused covers a client that puts a NATS wildcard in
+// the signal its subscription is scoped by. Taken as given, "*" would subscribe
+// the stream to every value of that subject and hand the client events meant
+// for other instances, so the stream must be refused instead.
+func TestWildcardSubjectSignalRefused(t *testing.T) {
+	c := newClient(t)
+
+	for _, signal := range []string{"*", ">", "red.blue", "", " "} {
+		encoded, err := json.Marshal(map[string]string{"room": signal})
+		require.NoError(t, err, "encoding signals")
+
+		req, err := http.NewRequestWithContext(context.Background(),
+			http.MethodGet,
+			c.URL()+"/room/_$/?datastar="+url.QueryEscape(string(encoded)), nil)
+		require.NoError(t, err, "building request")
+		req.Header.Set("Datastar-Request", "true")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err, "GET /room/_$/")
+		_ = resp.Body.Close()
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode,
+			"signal %q was accepted as a subject token", signal)
+	}
+}
+
 // TestBrokerStreamInitialization covers the hand-off to a message broker that
 // needs its streams created before anything is published to them.
 //
 // A broker that implements msgbroker.StreamInitializer is given every subject
-// the app can publish, once, at startup. A NATS JetStream deployment cannot
-// work without it, and nothing on the datapages side reports a subject that
-// was left out: the publish simply goes nowhere.
+// the app can publish, once, at startup. No broker shipped with datapages needs
+// it, the hand-off exists for brokers that must declare a topic or a stream
+// before a publish to it can succeed. Nothing on the datapages side reports a
+// subject that was left out: the publish simply goes nowhere.
 func TestBrokerStreamInitialization(t *testing.T) {
 	broker := &initializingBroker{MessageBroker: inmem.New(8)}
 	_ = client.New(t, datapagesgen.NewServer(&app.App{}, broker))

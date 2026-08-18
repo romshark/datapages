@@ -76,7 +76,7 @@ func (PageIndex) StreamClose(
 func (PageIndex) POSTIncrement(
 	r *http.Request,
 	state *StateIndex,
-	dispatch func(EventPing) error,
+	dispatch datapages.Dispatch[EventPing],
 ) error {
 	return nil
 }

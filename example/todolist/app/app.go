@@ -63,7 +63,7 @@ func (a *App) PUTEdit(
 		Done        bool   `json:"done"`
 		Due         string `json:"due"`
 	},
-	dispatch func(EventTodoUpdated) error,
+	dispatch datapages.Dispatch[EventTodoUpdated],
 ) error {
 	if query.Toggle {
 		if !a.list.ToggleItem(path.ID) {

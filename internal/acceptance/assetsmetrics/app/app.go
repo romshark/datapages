@@ -40,7 +40,7 @@ func (PageIndex) POSTAnnounce(
 	signals struct {
 		Text string `json:"text"`
 	},
-	dispatch func(EventAnnounced) error,
+	dispatch datapages.Dispatch[EventAnnounced],
 ) error {
 	return dispatch(EventAnnounced{Text: signals.Text})
 }

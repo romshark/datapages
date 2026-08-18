@@ -263,7 +263,19 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrEventSubjectUserSignal):
-		return "fix: Remove the signal tag from SubjectUser — it is always bound to the authenticated user's ID"
+		return "fix: Remove the signal tag: a datapages.SubjectUser(s) field" +
+			" is always bound to the authenticated user's ID"
+
+	case errors.Is(err, parser.ErrEventSubjectPrefixedField):
+		var d *parser.ErrorEventSubjectPrefixedField
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Type %s in %s as datapages.Subject, .Subjects, .SubjectUser or"+
+				" .SubjectUsers, or rename it if it's a payload field",
+			d.FieldName, d.TypeName,
+		)
 
 	case errors.Is(err, parser.ErrEventSubjectSignalInvalid):
 		var d *parser.ErrorEventSubjectSignalInvalid
@@ -436,15 +448,25 @@ func Suggest(err error) string {
 		errors.Is(err, parser.ErrQueryFieldUnsupportedType):
 		return suggestUnsupportedFieldType
 
-	case errors.Is(err, parser.ErrDispatchMustReturnError):
-		var d *paramvalidation.ErrorDispatchMustReturnError
+	case errors.Is(err, parser.ErrDispatchParamLegacy):
+		var d *paramvalidation.ErrorDispatchParamLegacy
 		if !errors.As(err, &d) {
 			return ""
 		}
-		if d.ParamTypes != "" {
-			return fmt.Sprintf("fix: Use `func(%s) error`", d.ParamTypes)
+		return fmt.Sprintf(
+			"fix: Type %s as datapages.Dispatch[EventXXX], one parameter per"+
+				" event type the handler dispatches", d.ParamName,
+		)
+
+	case errors.Is(err, parser.ErrDispatchDuplicate):
+		var d *parser.ErrorDispatchDuplicate
+		if !errors.As(err, &d) {
+			return ""
 		}
-		return "fix: dispatch must return `error`"
+		return fmt.Sprintf(
+			"fix: Remove the second datapages.Dispatch[%s] parameter in %s.%s",
+			d.EventTypeName, d.Recv, d.MethodName,
+		)
 	}
 	return ""
 }
@@ -478,8 +500,6 @@ func Suggest(err error) string {
 //   - ErrSignalsParamNotStruct        — type constraint is clear from message
 //   - ErrSignalsFieldUnexported       — fix is obvious: capitalize the field name
 //   - ErrSignalsFieldDuplicateTag     — message names the duplicate value
-//   - ErrDispatchParamNotFunc         — type constraint is clear from message
-//   - ErrDispatchNoParams             — constraint is clear from message
 //   - ErrDispatchParamNotEvent        — constraint is clear from message
 //   - ErrSessionParamNotSessionType   — constraint is clear from message
 //   - ErrSessionTypeConflict          — the message names both instantiations

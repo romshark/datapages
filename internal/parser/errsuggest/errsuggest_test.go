@@ -290,8 +290,9 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrEventSubjectUserSignal": {
-			err:  &parser.ErrorEventSubjectUserSignal{TypeName: "EventChat"},
-			want: "fix: Remove the signal tag from SubjectUser — it is always bound to the authenticated user's ID",
+			err: &parser.ErrorEventSubjectUserSignal{TypeName: "EventChat"},
+			want: "fix: Remove the signal tag: a datapages.SubjectUser(s) field" +
+				" is always bound to the authenticated user's ID",
 		},
 
 		"ErrTemplHrefRelative/simple": {
@@ -465,21 +466,23 @@ func TestSuggest(t *testing.T) {
 				"float32, float64, or encoding.TextUnmarshaler",
 		},
 
-		"ErrDispatchMustReturnError": {
-			err: &paramvalidation.ErrorDispatchMustReturnError{
+		"ErrDispatchParamLegacy": {
+			err: &paramvalidation.ErrorDispatchParamLegacy{
 				Recv:       "PageFoo",
 				MethodName: "GET",
-				ParamTypes: "EventFoo",
+				ParamName:  "dispatch",
 			},
-			want: "fix: Use `func(EventFoo) error`",
+			want: "fix: Type dispatch as datapages.Dispatch[EventXXX]," +
+				" one parameter per event type the handler dispatches",
 		},
-		"ErrDispatchMustReturnError/multi": {
-			err: &paramvalidation.ErrorDispatchMustReturnError{
-				Recv:       "PageFoo",
-				MethodName: "GET",
-				ParamTypes: "EventFoo, EventBar",
+		"ErrDispatchDuplicate": {
+			err: &parser.ErrorDispatchDuplicate{
+				Recv:          "PageFoo",
+				MethodName:    "GET",
+				EventTypeName: "EventFoo",
 			},
-			want: "fix: Use `func(EventFoo, EventBar) error`",
+			want: "fix: Remove the second datapages.Dispatch[EventFoo]" +
+				" parameter in PageFoo.GET",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

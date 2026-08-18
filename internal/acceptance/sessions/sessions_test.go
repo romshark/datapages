@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/sessions/datapagesgen"
 	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
 	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/modules/sessmanager"
 	sessinmem "github.com/romshark/datapages/modules/sessmanager/inmem"
 	"github.com/romshark/datapages/modules/sesstokgen"
 )
@@ -189,6 +191,17 @@ func (c *client) issuedAt(t *testing.T) time.Time {
 }
 
 // cookie returns the session cookie the server set, if any.
+// setSessionCookie puts a session token into the visitor's jar,
+// which is what a returning visitor's request carries.
+func (c *client) setSessionCookie(t *testing.T, token string) {
+	t.Helper()
+	u, err := url.Parse(c.srv.Server.URL)
+	if err != nil {
+		t.Fatalf("parsing the server URL: %v", err)
+	}
+	c.http.Jar.SetCookies(u, []*http.Cookie{{Name: cookieName, Value: token}})
+}
+
 func (c *client) cookie(t *testing.T) *http.Cookie {
 	t.Helper()
 	u := c.srv.Server.URL
@@ -455,6 +468,74 @@ func TestPrivateEvent(t *testing.T) {
 	}
 	if !bs.never("for alice") {
 		t.Error("a private event reached another user")
+	}
+}
+
+// TestSignInRefusesUnsafeUserID covers the ID a session is created with.
+// It names the subject every event addressed to that user is published to and
+// subscribed by, which makes a wildcard in it a subscription to every user.
+func TestSignInRefusesUnsafeUserID(t *testing.T) {
+	users := map[string]string{
+		"separator": "a.b",
+		"star":      "*",
+		"gt":        ">",
+		"space":     "a b",
+	}
+
+	for name, user := range users {
+		t.Run(name, func(t *testing.T) {
+			srv := newServer(t)
+			c := srv.client(t)
+
+			status, body := c.postWithToken(t, "/login/submit/",
+				`{"user":"`+user+`","nickname":""}`, "")
+			if status != http.StatusInternalServerError {
+				t.Fatalf("signing in as %q: status = %d, want 500\n%s",
+					user, status, body)
+			}
+			if c.cookie(t) != nil {
+				t.Error("a refused sign-in left a session cookie")
+			}
+		})
+	}
+}
+
+// TestStreamRefusesUnsafeUserID covers a session that carries such an ID
+// regardless, which a store filled before the check existed still holds.
+// The stream reads the ID into its subscription subject, so it refuses to open
+// rather than subscribe to every user.
+func TestStreamRefusesUnsafeUserID(t *testing.T) {
+	srv := newServer(t)
+
+	token, err := srv.sessions.CreateSession(context.Background(),
+		sessmanager.Record[app.SessionData]{
+			UserID:    "*",
+			IssuedAt:  time.Now(),
+			ExpiresAt: time.Now().Add(time.Hour),
+		})
+	if err != nil {
+		t.Fatalf("creating the session: %v", err)
+	}
+
+	c := srv.client(t)
+	c.setSessionCookie(t, token)
+
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, srv.URL+"/_$/", nil,
+	)
+	if err != nil {
+		t.Fatalf("building stream request: %v", err)
+	}
+	req.Header.Set("Datastar-Request", "true")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		t.Fatalf("opening stream: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("opening the stream: status = %d, want 500", resp.StatusCode)
 	}
 }
 

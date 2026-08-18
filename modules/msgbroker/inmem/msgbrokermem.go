@@ -38,8 +38,13 @@ type memSub struct {
 	closeMu sync.Mutex
 }
 
+// New creates an in-memory message broker whose subscriptions buffer
+// chanBuffer messages each. A non-positive chanBuffer selects
+// [github.com/romshark/datapages/modules/msgbroker.DefaultBrokerChanBuffer].
 func New(chanBuffer int) *MessageBroker {
-	chanBuffer = min(chanBuffer, msgbroker.DefaultBrokerChanBuffer)
+	if chanBuffer <= 0 {
+		chanBuffer = msgbroker.DefaultBrokerChanBuffer
+	}
 	return &MessageBroker{
 		chanBuffer: chanBuffer,
 		subs:       make(map[string]map[*memSub]struct{}),

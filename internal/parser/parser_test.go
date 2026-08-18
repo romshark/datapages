@@ -321,7 +321,7 @@ func TestParse_StreamHooks(t *testing.T) {
 	require.NotNil(p.StreamOpen.InputSSE)
 	require.NotNil(p.StreamOpen.InputSession)
 	require.NotNil(p.StreamOpen.InputSignals)
-	require.NotNil(p.StreamOpen.InputDispatch)
+	require.Len(p.StreamOpen.InputDispatches, 1)
 	require.NotNil(p.StreamOpen.OutputErr)
 
 	require.Equal("StreamClose", p.StreamClose.Name)
@@ -330,7 +330,7 @@ func TestParse_StreamHooks(t *testing.T) {
 	require.Nil(p.StreamClose.InputSSE)
 	require.NotNil(p.StreamClose.InputSession)
 	require.Nil(p.StreamClose.InputSignals)
-	require.NotNil(p.StreamClose.InputDispatch)
+	require.Len(p.StreamClose.InputDispatches, 1)
 	require.NotNil(p.StreamClose.OutputErr)
 
 	{ // PageStreamMin: only required params (r, streamID), no error return
@@ -344,7 +344,7 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.Nil(p.StreamOpen.InputSSE)
 		require.Nil(p.StreamOpen.InputSession)
 		require.Nil(p.StreamOpen.InputSignals)
-		require.Nil(p.StreamOpen.InputDispatch)
+		require.Empty(p.StreamOpen.InputDispatches)
 		require.Nil(p.StreamOpen.OutputErr)
 
 		require.NotNil(p.StreamClose)
@@ -354,7 +354,7 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.Nil(p.StreamClose.InputSSE)
 		require.Nil(p.StreamClose.InputSession)
 		require.Nil(p.StreamClose.InputSignals)
-		require.Nil(p.StreamClose.InputDispatch)
+		require.Empty(p.StreamClose.InputDispatches)
 		require.Nil(p.StreamClose.OutputErr)
 	}
 
@@ -369,7 +369,7 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.NotNil(p.StreamOpen.InputSSE)
 		require.NotNil(p.StreamOpen.InputSession)
 		require.NotNil(p.StreamOpen.InputSignals)
-		require.NotNil(p.StreamOpen.InputDispatch)
+		require.Len(p.StreamOpen.InputDispatches, 1)
 		require.NotNil(p.StreamOpen.OutputErr)
 
 		require.NotNil(p.StreamClose)
@@ -379,7 +379,7 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.Nil(p.StreamClose.InputSSE)
 		require.NotNil(p.StreamClose.InputSession)
 		require.Nil(p.StreamClose.InputSignals)
-		require.NotNil(p.StreamClose.InputDispatch)
+		require.Len(p.StreamClose.InputDispatches, 1)
 		require.NotNil(p.StreamClose.OutputErr)
 
 		// Event handler with streamID
@@ -411,6 +411,8 @@ func TestParse_ErrStreamHooks(t *testing.T) {
 		parser.ErrSignatureUnsupportedInput, // StreamClose with query
 		parser.ErrSignatureUnsupportedInput, // action handler with streamID
 		parser.ErrStreamIDParamNotUint64,    // StreamOpen with streamID int
+		parser.ErrDispatchParamLegacy,       // StreamOpen with an untyped dispatcher
+		parser.ErrDispatchDuplicate,         // StreamClose with two of one type
 	)
 }
 
@@ -479,6 +481,39 @@ func TestParse_ErrPageIndexPath(t *testing.T) {
 	requireParseErrors(
 		t, err,
 		parser.ErrPageIndexPathMustBeRoot,
+	)
+}
+
+func TestParse_ErrRouteDuplicatePage(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_route_duplicate_page")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteConflict,
+	)
+}
+
+func TestParse_ErrRouteDuplicateAction(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_route_duplicate_action")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteConflict,
+	)
+}
+
+func TestParse_ErrRouteWildcardStream(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_route_wildcard_stream")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteWildcardStream,
 	)
 }
 
@@ -584,7 +619,7 @@ func TestParse_ErrEventSubjectUserNoSession(t *testing.T) {
 }
 
 func TestParse_ErrEventSubjectAfterPayload(t *testing.T) {
-	_, err := parse(t, "err_event_subjprefix_after_payload")
+	_, err := parse(t, "err_event_subj_after_payload")
 	require.NotZero(t, err.Error())
 
 	requireParseErrors(
@@ -623,6 +658,26 @@ func TestParse_ErrEventSubjectUserSignal(t *testing.T) {
 	)
 }
 
+func TestParse_ErrEventSubjectPrefixedField(t *testing.T) {
+	_, err := parse(t, "err_event_subj_prefixed")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectPrefixedField,
+	)
+}
+
+func TestParse_ErrEventSubjectFieldUnexported(t *testing.T) {
+	_, err := parse(t, "err_event_subj_unexported")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventFieldUnexported,
+	)
+}
+
 func TestParse_SignalSubjectFields(t *testing.T) {
 	app, errs := parse(t, "signal_subject")
 	require := require.New(t)
@@ -644,7 +699,7 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 		"EventSingular": {
 			subject: "calc.updated",
 			subjectFields: []model.SubjectField{
-				{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id", Singular: true},
+				{FieldName: "Instance", Kind: model.SubjectKindValue, SignalName: "instance_id"},
 			},
 			isPrivate:      false,
 			isSignalScoped: true,
@@ -652,7 +707,7 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 		"EventPluralUser": {
 			subject: "chat.sent",
 			subjectFields: []model.SubjectField{
-				{FieldName: "SubjectUser", Name: "User"},
+				{FieldName: "Recipient", Kind: model.SubjectKindUser},
 			},
 			isPrivate:      true,
 			isSignalScoped: false,
@@ -660,7 +715,7 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 		"EventSingularUser": {
 			subject: "dm.sent",
 			subjectFields: []model.SubjectField{
-				{FieldName: "SubjectUser", Name: "User", Singular: true},
+				{FieldName: "Recipient", Kind: model.SubjectKindUser},
 			},
 			isPrivate:      true,
 			isSignalScoped: false,
@@ -668,8 +723,8 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 		"EventMixed": {
 			subject: "mixed",
 			subjectFields: []model.SubjectField{
-				{FieldName: "SubjectUser", Name: "User"},
-				{FieldName: "SubjectInstance", Name: "Instance", SignalName: "instance_id", Singular: true},
+				{FieldName: "Recipient", Kind: model.SubjectKindUser},
+				{FieldName: "Instance", Kind: model.SubjectKindValue, SignalName: "instance_id"},
 			},
 			isPrivate:      true,
 			isSignalScoped: true,
@@ -677,9 +732,9 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 		"EventThreeField": {
 			subject: "three",
 			subjectFields: []model.SubjectField{
-				{FieldName: "SubjectUser", Name: "User"},
-				{FieldName: "SubjectRoom", Name: "Room"},
-				{FieldName: "SubjectCalc", Name: "Calc", SignalName: "calc_id", Singular: true},
+				{FieldName: "Recipient", Kind: model.SubjectKindUser},
+				{FieldName: "Room", Kind: model.SubjectKindValue},
+				{FieldName: "Calc", Kind: model.SubjectKindValue, SignalName: "calc_id"},
 			},
 			isPrivate:      true,
 			isSignalScoped: true,
@@ -859,24 +914,21 @@ func TestParse_Dispatch(t *testing.T) {
 		a := findAction(p.Actions, "Single")
 		require.NotNil(a)
 		require.Equal("POST", a.HTTPMethod)
-		require.NotNil(a.InputDispatch)
-		require.Equal("dispatch", a.InputDispatch.Name)
-		require.Equal(
-			[]string{"EventFoo"},
-			a.InputDispatch.EventTypeNames,
-		)
+		require.Len(a.InputDispatches, 1)
+		require.Equal("dispatch", a.InputDispatches[0].Name)
+		require.Equal("EventFoo", a.InputDispatches[0].EventTypeName)
 	}
 
-	// POSTMulti - multi event dispatch
+	// POSTMulti - one dispatcher per event type
 	{
 		a := findAction(p.Actions, "Multi")
 		require.NotNil(a)
 		require.Equal("POST", a.HTTPMethod)
-		require.NotNil(a.InputDispatch)
-		require.Equal(
-			[]string{"EventFoo", "EventBar"},
-			a.InputDispatch.EventTypeNames,
-		)
+		require.Len(a.InputDispatches, 2)
+		require.Equal("dispatchFoo", a.InputDispatches[0].Name)
+		require.Equal("EventFoo", a.InputDispatches[0].EventTypeName)
+		require.Equal("dispatchBar", a.InputDispatches[1].Name)
+		require.Equal("EventBar", a.InputDispatches[1].EventTypeName)
 	}
 
 	// POSTWithSignals - signals before dispatch
@@ -885,11 +937,8 @@ func TestParse_Dispatch(t *testing.T) {
 		require.NotNil(a)
 		require.Equal("POST", a.HTTPMethod)
 		require.NotNil(a.InputSignals)
-		require.NotNil(a.InputDispatch)
-		require.Equal(
-			[]string{"EventFoo"},
-			a.InputDispatch.EventTypeNames,
-		)
+		require.Len(a.InputDispatches, 1)
+		require.Equal("EventFoo", a.InputDispatches[0].EventTypeName)
 	}
 }
 
@@ -900,13 +949,10 @@ func TestParse_ErrDispatch(t *testing.T) {
 
 	requireParseErrors(
 		t, err,
-		parser.ErrDispatchParamNotFunc,
-		parser.ErrDispatchMustReturnError,
-		parser.ErrDispatchMustReturnError,
-		parser.ErrDispatchMustReturnError, // PageNoReturnNoParams: no return
-		parser.ErrDispatchNoParams,        // PageNoReturnNoParams: no params
-		parser.ErrDispatchNoParams,
+		parser.ErrDispatchParamLegacy, // PageLegacyFunc: plain func type
+		parser.ErrDispatchParamLegacy, // PageLegacyName: named "dispatch"
 		parser.ErrDispatchParamNotEvent,
+		parser.ErrDispatchDuplicate,
 	)
 }
 
@@ -1356,13 +1402,16 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrAppRecoverErrorInvalidSignature, "app.go", 20, 13},
 		},
 		"err_dispatch": {
-			{parser.ErrDispatchParamNotFunc, "app.go", 34, 11},
-			{parser.ErrDispatchMustReturnError, "app.go", 47, 11},
-			{parser.ErrDispatchMustReturnError, "app.go", 60, 26},
-			{parser.ErrDispatchMustReturnError, "app.go", 73, 11},
-			{parser.ErrDispatchNoParams, "app.go", 73, 11},
-			{parser.ErrDispatchNoParams, "app.go", 86, 11},
-			{parser.ErrDispatchParamNotEvent, "app.go", 99, 16},
+			{parser.ErrDispatchParamLegacy, "app.go", 34, 11},
+			{parser.ErrDispatchParamLegacy, "app.go", 47, 11},
+			{parser.ErrDispatchParamNotEvent, "app.go", 60, 17},
+			{parser.ErrDispatchDuplicate, "app.go", 74, 19},
+		},
+		"err_event_subj_prefixed": {
+			{parser.ErrEventSubjectPrefixedField, "app.go", 26, 2},
+		},
+		"err_event_subj_unexported": {
+			{parser.ErrEventFieldUnexported, "app.go", 25, 2},
 		},
 		"err_events": {
 			{parser.ErrEventCommMissing, "app.go", 30, 6},
@@ -2025,43 +2074,33 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		require.Equal("/messages/read/{$}", read.Route)
 		require.NotNil(read.InputSignals)
 		require.NotNil(read.InputQuery)
-		require.NotNil(read.InputDispatch)
-		require.Equal(
-			[]string{"EventMessagingRead"},
-			read.InputDispatch.EventTypeNames,
-		)
+		require.Len(read.InputDispatches, 1)
+		require.Equal("EventMessagingRead", read.InputDispatches[0].EventTypeName)
 
 		writing := findAction(p.Actions, "Writing")
 		require.NotNil(writing)
 		require.Equal("/messages/writing/{$}", writing.Route)
-		require.NotNil(writing.InputDispatch)
-		require.Equal(
-			[]string{"EventMessagingWriting"},
-			writing.InputDispatch.EventTypeNames,
-		)
+		require.Len(writing.InputDispatches, 1)
+		require.Equal("EventMessagingWriting", writing.InputDispatches[0].EventTypeName)
 
 		stopped := findAction(
 			p.Actions, "WritingStopped",
 		)
 		require.NotNil(stopped)
 		require.Equal("/messages/writing-stopped/{$}", stopped.Route)
-		require.NotNil(stopped.InputDispatch)
-		require.Equal(
-			[]string{"EventMessagingWritingStopped"},
-			stopped.InputDispatch.EventTypeNames,
-		)
+		require.Len(stopped.InputDispatches, 1)
+		require.Equal("EventMessagingWritingStopped",
+			stopped.InputDispatches[0].EventTypeName)
 
 		send := findAction(p.Actions, "SendMessage")
 		require.NotNil(send)
 		require.Equal("/messages/sendmessage/{$}", send.Route)
-		require.NotNil(send.InputDispatch)
+		require.Len(send.InputDispatches, 2)
 		require.Equal(
-			[]string{
-				"EventMessagingWritingStopped",
-				"EventMessagingSent",
-			},
-			send.InputDispatch.EventTypeNames,
+			"EventMessagingWritingStopped",
+			send.InputDispatches[0].EventTypeName,
 		)
+		require.Equal("EventMessagingSent", send.InputDispatches[1].EventTypeName)
 
 		// 4 own event handlers
 		// (override Base's OnMessagingSent, OnMessagingRead)
@@ -2106,8 +2145,8 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		require.NotNil(send.InputSSE)
 		require.NotNil(send.InputPath)
 		require.NotNil(send.InputSignals)
-		require.NotNil(send.InputDispatch)
-		require.Equal([]string{"EventMessagingSent"}, send.InputDispatch.EventTypeNames)
+		require.Len(send.InputDispatches, 1)
+		require.Equal("EventMessagingSent", send.InputDispatches[0].EventTypeName)
 
 		// Own OnPostArchived + inherited
 		// OnMessagingSent, OnMessagingRead from Base
@@ -2160,7 +2199,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		require.NotNil(closeSess)
 		require.Equal("/settings/close-session/{token}/{$}", closeSess.Route)
 		require.NotNil(closeSess.InputPath)
-		require.NotNil(closeSess.InputDispatch)
+		require.Len(closeSess.InputDispatches, 1)
 		require.NotNil(closeSess.OutputCloseSession)
 
 		closeAll := findAction(
@@ -2168,7 +2207,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		)
 		require.NotNil(closeAll)
 		require.Equal("/settings/close-all-sessions/{$}", closeAll.Route)
-		require.NotNil(closeAll.InputDispatch)
+		require.Len(closeAll.InputDispatches, 1)
 
 		// Own OnSessionClosed + inherited
 		// OnMessagingSent, OnMessagingRead from Base

@@ -16,7 +16,7 @@ import (
 
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/datapagesgen"
-	"github.com/romshark/datapages/modules/msgbroker/natsjs"
+	"github.com/romshark/datapages/modules/msgbroker/natscore"
 )
 
 func main() {
@@ -92,7 +92,7 @@ func withAccessLogger(opts *[]datapagesgen.ServerOption) {
 	}))
 }
 
-func connectNATS() *natsjs.MessageBroker {
+func connectNATS() *natscore.MessageBroker {
 	u := os.Getenv("NATS_URL")
 	if u == "" {
 		slog.Error("NATS_URL not set")
@@ -105,16 +105,7 @@ func connectNATS() *natsjs.MessageBroker {
 		os.Exit(1)
 	}
 
-	messageBroker, err := natsjs.New(conn, natsjs.Config{
-		StreamConfig: &nats.StreamConfig{
-			Name:    "DATAPAGES",
-			Storage: nats.MemoryStorage,
-		},
-	})
-	if err != nil {
-		slog.Error("initializing message broker", slog.Any("err", err))
-		os.Exit(1)
-	}
+	messageBroker := natscore.New(conn, natscore.Config{})
 
 	return messageBroker
 }

@@ -17,15 +17,17 @@ func TestFuzzyMatchParamName(t *testing.T) {
 		"sesionToken":        {paramName: "sesionToken", wantName: "sessionToken", wantOK: true},
 		"signal":             {paramName: "signal", wantName: "signals", wantOK: true},
 		"signls":             {paramName: "signls", wantName: "signals", wantOK: true},
-		"dispatc":            {paramName: "dispatc", wantName: "dispatch", wantOK: true},
-		"sess":               {paramName: "sess", wantOK: false}, // 3 edits too far
-		"sessio":             {paramName: "sessio", wantName: "session", wantOK: true},
-		"qurey":              {paramName: "qurey", wantOK: false}, // 2 edits in 5-char word
-		"qury":               {paramName: "qury", wantName: "query", wantOK: true},
-		"querys":             {paramName: "querys", wantName: "query", wantOK: true},
-		"xyz":                {paramName: "xyz", wantOK: false},
-		"abc":                {paramName: "abc", wantOK: false},
-		"x":                  {paramName: "x", wantOK: false},
+		// "dispatch" is no longer matched by name, dispatchers are
+		// recognized by their datapages.Dispatch[EventXXX] type.
+		"dispatc": {paramName: "dispatc", wantOK: false},
+		"sess":    {paramName: "sess", wantOK: false}, // 3 edits too far
+		"sessio":  {paramName: "sessio", wantName: "session", wantOK: true},
+		"qurey":   {paramName: "qurey", wantOK: false}, // 2 edits in 5-char word
+		"qury":    {paramName: "qury", wantName: "query", wantOK: true},
+		"querys":  {paramName: "querys", wantName: "query", wantOK: true},
+		"xyz":     {paramName: "xyz", wantOK: false},
+		"abc":     {paramName: "abc", wantOK: false},
+		"x":       {paramName: "x", wantOK: false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, ok := fuzzyMatchParamName(tc.paramName, nil)

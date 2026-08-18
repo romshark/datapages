@@ -9,9 +9,19 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/romshark/datapages/internal/parser/model"
 )
+
+// dispatchVarName is the generated variable name of a dispatch closure.
+// The prefix keeps the closures of different handlers apart inside one
+// generated function; the event name keeps a handler's own closures apart.
+//
+//	("dispatch", "EventTodoUpdated") -> "dispatchTodoUpdated"
+func dispatchVarName(prefix, eventTypeName string) string {
+	return prefix + eventConstName(eventTypeName)
+}
 
 // eventConstName strips the "Event" prefix from an event type name.
 // "EventMessagingSent" -> "MessagingSent"
@@ -204,6 +214,13 @@ func routeStreamPath(route string) string {
 	return r + "_$/"
 }
 
+// routeEndsInWildcard reports whether the route's last segment is a {name...} wildcard,
+// which matches the rest of the path.
+func routeEndsInWildcard(route string) bool {
+	last := route[strings.LastIndex(route, "/")+1:]
+	return strings.HasPrefix(last, "{") && strings.HasSuffix(last, "...}")
+}
+
 // routeWithTrailingSlash strips any {$} suffix and ensures the route
 // has a trailing slash.
 //   - "/settings" -> "/settings/"
@@ -228,14 +245,48 @@ func renderType(t model.Type) string {
 	})
 }
 
-// renderAnonStructType renders an anonymous struct type from its AST expression,
-// preserving struct tags. Uses go/format.Node.
+// renderAnonStructType renders an anonymous struct type, preserving struct tags.
+// It renders from the resolved type rather than the source it was written as.
+// The generated package is not the app package, which leaves a type the app
+// names with nothing to resolve to unless it is written with its package.
 func renderAnonStructType(t model.Type, fset *token.FileSet) string {
-	var buf bytes.Buffer
-	if err := format.Node(&buf, fset, t.TypeExpr); err != nil {
-		return ""
+	st, ok := t.Resolved.Underlying().(*types.Struct)
+	if !ok {
+		// Not a struct. Fall back to the source expression.
+		var buf bytes.Buffer
+		if err := format.Node(&buf, fset, t.TypeExpr); err != nil {
+			return ""
+		}
+		return buf.String()
 	}
-	return buf.String()
+	return renderStruct(st)
+}
+
+// renderStruct writes a struct type with every named type qualified by its package.
+// Anonymous struct fields, which signals nest, recurse.
+func renderStruct(st *types.Struct) string {
+	var b strings.Builder
+	b.WriteString("struct {\n")
+	for i := range st.NumFields() {
+		f := st.Field(i)
+		b.WriteString(f.Name())
+		b.WriteByte(' ')
+		if nested, ok := f.Type().(*types.Struct); ok {
+			b.WriteString(renderStruct(nested))
+		} else {
+			b.WriteString(types.TypeString(f.Type(), func(p *types.Package) string {
+				return p.Name()
+			}))
+		}
+		if tag := st.Tag(i); tag != "" {
+			b.WriteString(" `")
+			b.WriteString(tag)
+			b.WriteByte('`')
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteByte('}')
+	return b.String()
 }
 
 // isNamedType returns true if the type is a named type (not anonymous struct).
@@ -325,6 +376,27 @@ type appUsage struct {
 	// stateRuntime: whether any page (including via embedded abstract pages)
 	// takes state *T; enables the per-page-instance state runtime.
 	stateRuntime bool
+	// reflectSignals: func writeSignalValue(...), needed by any page that
+	// reflects a query value into a data-signals attribute.
+	reflectSignals bool
+	// signalSubjects: func isSubjectToken(...), needed by any page that builds
+	// a subscription subject from a client-provided signal.
+	signalSubjects bool
+	// dispatchSubjects: func isSubjectToken(...), needed by any dispatch that
+	// builds a publish subject from the subject fields of its event.
+	dispatchSubjects bool
+	// userSubjects: whether any event addresses a user, which makes the ID of
+	// the session owner name a subject.
+	userSubjects bool
+	// privateStreams: func (s *Server) checkUserSubject(...), needed by any
+	// page that subscribes to an event addressed to the session owner.
+	privateStreams bool
+}
+
+// needsIsSubjectToken reports whether the isSubjectToken guard is emitted.
+func (u appUsage) needsIsSubjectToken() bool {
+	return u.signalSubjects || u.dispatchSubjects || u.privateStreams ||
+		(u.userSubjects && u.createSession)
 }
 
 // needsIsDSReq returns true if the isDSReq helper must be emitted.
@@ -342,11 +414,62 @@ func (u appUsage) needsSetSessionCookie() bool {
 	return u.auth || u.createSession || u.closeSession
 }
 
+// dispatchesSubjectFields reports whether any handler dispatches an event whose
+// subject carries field values. Such a dispatch builds its subject at runtime
+// and needs every value guarded: one that is not a single token produces a
+// subject no subscription matches and the event reaches nobody.
+func dispatchesSubjectFields(
+	m *model.App, eventByName map[string]*model.Event,
+) bool {
+	dispatches := func(h *model.Handler) bool {
+		if h == nil {
+			return false
+		}
+		for _, d := range h.InputDispatches {
+			ev := eventByName[d.EventTypeName]
+			if ev != nil && ev.HasSubjectFields() {
+				return true
+			}
+		}
+		return false
+	}
+	for _, h := range m.Actions {
+		if dispatches(h) {
+			return true
+		}
+	}
+	for _, p := range m.Pages {
+		if p.GET != nil && dispatches(p.GET.Handler) {
+			return true
+		}
+		if dispatches(p.StreamOpen) || dispatches(p.StreamClose) {
+			return true
+		}
+		for _, h := range p.Actions {
+			if dispatches(h) {
+				return true
+			}
+		}
+	}
+	for _, p := range []*model.Page{m.PageError404, m.PageError500} {
+		if p != nil && p.GET != nil && dispatches(p.GET.Handler) {
+			return true
+		}
+	}
+	return false
+}
+
 // computeAppUsage scans the model to determine which optional helpers are needed.
 func computeAppUsage(m *model.App) appUsage {
 	var u appUsage
 
 	u.hasSession = m.Session != nil
+
+	// A global Head that takes a session has every page handler read one,
+	// whatever the handler itself asks for.
+	if m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession {
+		u.auth = true
+	}
 
 	if m.RecoverError != nil || m.PageError500 != nil {
 		u.recoverError = true
@@ -388,12 +511,23 @@ func computeAppUsage(m *model.App) appUsage {
 		if h.InputPath != nil && structHasNonStringField(h.InputPath.Type.Resolved) {
 			u.httpErrBad = true
 		}
+		if h.InputQuery != nil && structHasReflectSignal(h.InputQuery.Type.Resolved) {
+			u.reflectSignals = true
+		}
 	}
 
 	// Build event map for subject field lookup.
 	eventByName := make(map[string]*model.Event, len(m.Events))
 	for _, e := range m.Events {
 		eventByName[e.TypeName] = e
+	}
+
+	u.dispatchSubjects = dispatchesSubjectFields(m, eventByName)
+	for _, e := range m.Events {
+		if e.HasSubjectUser() {
+			u.userSubjects = true
+			break
+		}
 	}
 
 	for _, h := range m.Actions {
@@ -419,6 +553,10 @@ func computeAppUsage(m *model.App) appUsage {
 			}
 			if pageHasSignalScopedEvent(p, eventByName) {
 				u.httpErrBad = true
+				u.signalSubjects = true
+			}
+			if pageHasPrivateEvent(p, eventByName) {
+				u.privateStreams = true
 			}
 			if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
 				u.httpErrBad = true
@@ -714,6 +852,21 @@ func isStringType(t types.Type) bool {
 	return ok && basic.Kind() == types.String
 }
 
+// isNamedStringType reports whether t is a string type carrying a name of its own.
+// A string assigned to one, or one assigned to a string, needs a conversion.
+func isNamedStringType(t types.Type) bool {
+	if !isStringType(t) {
+		return false
+	}
+	_, unnamed := t.(*types.Basic)
+	return !unnamed
+}
+
+// qualifiedTypeName writes a type with every package named.
+func qualifiedTypeName(t types.Type) string {
+	return types.TypeString(t, func(p *types.Package) string { return p.Name() })
+}
+
 // isBoolType returns true if the type's underlying type is bool.
 func isBoolType(t types.Type) bool {
 	basic, ok := t.Underlying().(*types.Basic)
@@ -807,6 +960,20 @@ func structHasNonStringField(t types.Type) bool {
 	return false
 }
 
+// structHasReflectSignal reports whether any field carries a reflectsignal tag.
+func structHasReflectSignal(t types.Type) bool {
+	st, ok := t.Underlying().(*types.Struct)
+	if !ok {
+		return false
+	}
+	for i := range st.NumFields() {
+		if reflectSignalTagValue(st.Tag(i)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // intTypeName returns the Go identifier for an integer type (e.g. "int", "uint32").
 // Precondition: isIntType(t) must be true.
 func intTypeName(t types.Type) string {
@@ -879,4 +1046,70 @@ func appPkgName(pkgPath string) string {
 		return pkgPath[i+1:]
 	}
 	return pkgPath
+}
+
+// signalIdents returns unique exported identifiers for a page's signal-scoped
+// subject fields, derived from their signal names. They name both the fields of
+// the subjSignals struct the stream handler reads and the parameters of the
+// page's evSubj function. The signal name is the key because that's what the
+// fields are deduplicated by: two events can bind the same signal through
+// differently named fields.
+//
+//	"instance_id" -> "InstanceID", "form.calc_id" -> "FormCalcID"
+func signalIdents(fields []model.SubjectField) []string {
+	idents := make([]string, len(fields))
+	seen := make(map[string]bool, len(fields))
+	for i, sf := range fields {
+		base := signalIdent(sf.SignalName)
+		ident := base
+		for n := 2; seen[ident]; n++ {
+			ident = base + itoa(n)
+		}
+		seen[ident] = true
+		idents[i] = ident
+	}
+	return idents
+}
+
+// signalIdentMap maps each signal name to the identifier signalIdents gave it.
+func signalIdentMap(fields []model.SubjectField, idents []string) map[string]string {
+	m := make(map[string]string, len(fields))
+	for i, sf := range fields {
+		m[sf.SignalName] = idents[i]
+	}
+	return m
+}
+
+// signalIdent turns a signal name into an exported Go identifier.
+func signalIdent(signalName string) string {
+	var b strings.Builder
+	newWord := true
+	for _, r := range signalName {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+			if newWord {
+				b.WriteRune(unicode.ToUpper(r))
+				newWord = false
+			} else {
+				b.WriteRune(r)
+			}
+		case r >= '0' && r <= '9':
+			if b.Len() == 0 {
+				continue // An identifier must not start with a digit.
+			}
+			b.WriteRune(r)
+			newWord = false
+		default:
+			newWord = true
+		}
+	}
+	if b.Len() == 0 {
+		return "Signal"
+	}
+	s := b.String()
+	// Uppercase the common trailing initialism for idiomatic Go.
+	if strings.HasSuffix(s, "Id") {
+		s = s[:len(s)-2] + "ID"
+	}
+	return s
 }

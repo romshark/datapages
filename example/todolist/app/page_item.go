@@ -41,7 +41,7 @@ func (p PageItem) DELETEItem(
 	path struct {
 		ID string `path:"id"`
 	},
-	dispatch func(EventTodoUpdated) error,
+	dispatch datapages.Dispatch[EventTodoUpdated],
 ) (redirect datapages.Redirect, err error) {
 	if !p.App.list.DeleteItem(path.ID) {
 		return redirect, fmt.Errorf("%w: todo not found", datapages.ErrNotFound)

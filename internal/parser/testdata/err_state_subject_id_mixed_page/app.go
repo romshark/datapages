@@ -16,12 +16,12 @@ type TabState struct {
 
 // EventFiltersUpdated is "filters.updated"
 type EventFiltersUpdated struct {
-	SubjectStateID string
+	SubjectStateID datapages.SubjectStateID
 }
 
 // EventMessageSent is "message.sent"
 type EventMessageSent struct {
-	SubjectUser []string
+	Recipient datapages.SubjectUser
 }
 
 // PageIndex is /

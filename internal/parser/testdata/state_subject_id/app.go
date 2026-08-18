@@ -18,7 +18,7 @@ type TabState struct {
 // Tab-scoped event: the server subscribes per-tab using the validated
 // Datapages-Instance header at stream connect.
 type EventFiltersUpdated struct {
-	SubjectStateID string
+	SubjectStateID datapages.SubjectStateID
 }
 
 // PageIndex is /
@@ -54,8 +54,10 @@ func (PageIndex) POSTUpdate(
 	signals struct {
 		Filter string `json:"filter"`
 	},
-	dispatch func(EventFiltersUpdated) error,
+	dispatch datapages.Dispatch[EventFiltersUpdated],
 ) error {
 	state.Filter = signals.Filter
-	return dispatch(EventFiltersUpdated{SubjectStateID: stateID})
+	return dispatch(EventFiltersUpdated{
+		SubjectStateID: datapages.SubjectStateID(stateID),
+	})
 }

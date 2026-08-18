@@ -20,7 +20,7 @@ type EventPostArchived struct{}
 
 // EventMessageSent is "message.sent"
 type EventMessageSent struct {
-	SubjectUser []string
+	Recipient datapages.SubjectUser
 }
 
 // PageIndex is /

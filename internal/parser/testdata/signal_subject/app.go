@@ -20,38 +20,38 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 
 // EventSingular is "calc.updated"
 type EventSingular struct {
-	SubjectInstance string `signal:"instance_id"`
+	Instance datapages.Subject `signal:"instance_id"`
 
 	Result float64 `json:"result"`
 }
 
 // EventPluralUser is "chat.sent"
 type EventPluralUser struct {
-	SubjectUser []string
+	Recipient datapages.SubjectUser
 
 	Message string `json:"message"`
 }
 
 // EventSingularUser is "dm.sent"
 type EventSingularUser struct {
-	SubjectUser string
+	Recipient datapages.SubjectUser
 
 	Text string `json:"text"`
 }
 
 // EventMixed is "mixed"
 type EventMixed struct {
-	SubjectUser     []string
-	SubjectInstance string `signal:"instance_id"`
+	Recipient datapages.SubjectUser
+	Instance  datapages.Subject `signal:"instance_id"`
 
 	Data string `json:"data"`
 }
 
 // EventThreeField is "three"
 type EventThreeField struct {
-	SubjectUser []string
-	SubjectRoom []string
-	SubjectCalc string `signal:"calc_id"`
+	Recipient datapages.SubjectUser
+	Room      datapages.Subject
+	Calc      datapages.Subject `signal:"calc_id"`
 
 	Payload string `json:"payload"`
 }
