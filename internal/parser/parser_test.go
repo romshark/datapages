@@ -482,6 +482,39 @@ func TestParse_ErrPageIndexPath(t *testing.T) {
 	)
 }
 
+func TestParse_ErrRouteDuplicatePage(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_route_duplicate_page")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteConflict,
+	)
+}
+
+func TestParse_ErrRouteDuplicateAction(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_route_duplicate_action")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteConflict,
+	)
+}
+
+func TestParse_ErrRouteWildcardStream(t *testing.T) {
+	require := require.New(t)
+	_, err := parse(t, "err_route_wildcard_stream")
+	require.NotZero(err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrRouteWildcardStream,
+	)
+}
+
 func TestParse_ErrPages(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_pages")

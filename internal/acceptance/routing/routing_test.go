@@ -212,6 +212,32 @@ func TestReflectedSignalEscapesMarkup(t *testing.T) {
 	}
 }
 
+// TestTrailingWildcard covers a route whose last segment matches the rest of the path,
+// however many segments that is.
+//
+// The router takes no end-of-path marker after such a wildcard.
+// One appended there leaves a pattern it refuses to parse,
+// which it reports by panicking while the server is being built.
+func TestTrailingWildcard(t *testing.T) {
+	c := newClient(t)
+
+	for name, tt := range map[string]struct{ url, want string }{
+		"one segment":      {"/files/a/", `rest="a/"`},
+		"several segments": {"/files/a/b/c/", `rest="a/b/c/"`},
+		// A wildcard over several segments hands back a decoded path,
+		// which is one string for a separator the caller encoded and one it did not.
+		// Values that have to survive belong in a segment of their own,
+		// where {name} keeps them apart.
+		"encoded separator": {"/files/a%2Fb/", `rest="a/b/"`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := c.Get(t, tt.url)
+			require.Equal(t, http.StatusOK, resp.Status, "GET %s\n%s", tt.url, resp.Body)
+			require.Equal(t, tt.want, resp.Element(t, "echo"), "GET %s", tt.url)
+		})
+	}
+}
+
 // TestEncodedPathSegments covers values that had to be
 // percent-encoded to fit in a URL at all.
 //

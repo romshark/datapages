@@ -180,6 +180,12 @@ var (
 		"subject field must be defined before payload fields",
 	)
 
+	ErrRouteConflict = errors.New("conflicting route")
+
+	ErrRouteWildcardStream = errors.New(
+		"page route ending in a wildcard cannot have a stream",
+	)
+
 	ErrEventSubjectDuplicate = errors.New(
 		"duplicate event subject",
 	)
@@ -558,6 +564,35 @@ func (e *ErrorEventSubjectAfterPayload) Error() string {
 func (e *ErrorEventSubjectAfterPayload) Unwrap() error {
 	return ErrEventSubjectAfterPayload
 }
+
+// ErrorRouteConflict is ErrRouteConflict with the pattern that could not be
+// registered and what the router said about it.
+type ErrorRouteConflict struct {
+	Pattern string
+	Owner   string
+	Reason  string
+}
+
+func (e *ErrorRouteConflict) Error() string {
+	return fmt.Sprintf("%v: %s cannot serve %q: %s",
+		ErrRouteConflict, e.Owner, e.Pattern, e.Reason)
+}
+
+func (e *ErrorRouteConflict) Unwrap() error { return ErrRouteConflict }
+
+// ErrorRouteWildcardStream is ErrRouteWildcardStream with the page.
+// The stream endpoint sits under the page route. A {name...} wildcard matches
+// the rest of the path, which leaves nothing for the endpoint to sit in.
+type ErrorRouteWildcardStream struct {
+	TypeName string
+	Route    string
+}
+
+func (e *ErrorRouteWildcardStream) Error() string {
+	return fmt.Sprintf("%v: %s is %q", ErrRouteWildcardStream, e.TypeName, e.Route)
+}
+
+func (e *ErrorRouteWildcardStream) Unwrap() error { return ErrRouteWildcardStream }
 
 // ErrorEventSubjectDuplicate is ErrEventSubjectDuplicate with the two types
 // that share the subject. A subject is the case an inbound event is matched by,

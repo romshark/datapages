@@ -1644,6 +1644,17 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 			w.Raw("\t\ts.handle")
 			w.Raw(p.TypeName)
 			w.Raw("GET)\n")
+		} else if routeEndsInWildcard(p.Route) {
+			// A {name...} wildcard runs to the end of the path already.
+			// Marking the end after it puts the wildcard in the middle,
+			// which is a pattern net/http will not parse.
+			w.Line(1, "s.mux.HandleFunc(")
+			w.Raw("\t\t\"GET ")
+			w.Raw(p.Route)
+			w.Raw("\",\n")
+			w.Raw("\t\ts.handle")
+			w.Raw(p.TypeName)
+			w.Raw("GET)\n")
 		} else {
 			w.Line(1, "s.mux.HandleFunc(")
 			w.Raw("\t\t\"GET ")

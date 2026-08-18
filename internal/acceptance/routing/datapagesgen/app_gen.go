@@ -394,6 +394,9 @@ func setupHandlers(s *Server) {
 		"GET /c/{value}/{s_value}/{s_s_value}/{$}",
 		s.handlePageConflictGET)
 	s.mux.HandleFunc(
+		"GET /files/{rest...}",
+		s.handlePageFilesGET)
+	s.mux.HandleFunc(
 		"GET /",
 		s.handlePageIndexGET)
 	s.mux.HandleFunc(
@@ -469,6 +472,34 @@ func (s *Server) handlePageConflictGET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.logErr("rendering PageConflict", err)
+		return
+	}
+}
+
+func (s *Server) handlePageFilesGET(w http.ResponseWriter, r *http.Request) {
+
+	var path struct {
+		Rest string `path:"rest"`
+	}
+	path.Rest = r.PathValue("rest")
+
+	p := app.PageFiles{
+		App: s.app,
+	}
+	body, err := p.GET(r, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageFiles.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		writeBodyAttrOnVisibilityChange(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.logErr("rendering PageFiles", err)
 		return
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -60,6 +61,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	validateRequiredHandlers(&ctx, &errs)
 	finalizePages(&ctx)
 	assignSpecialPages(&ctx, &errs)
+	validateRouteConflicts(&ctx, &errs)
 	checkTemplFiles(&ctx, &errs)
 
 	if !ctx.appTypeFound {
@@ -1276,6 +1278,78 @@ func finalizePages(ctx *parseCtx) {
 	for _, name := range slices.Sorted(maps.Keys(ctx.pages)) {
 		ctx.app.Pages = append(ctx.app.Pages, ctx.pages[name])
 	}
+}
+
+// validateRouteConflicts reports routes that cannot live in one router.
+// The generated server registers them on a net/http ServeMux,
+// which rejects a pattern matching the same requests as one already registered.
+// Asking the same mux keeps the answer identical to the one the server gets on startup.
+func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
+	mux := http.NewServeMux()
+	claim := func(method, route string, expr ast.Expr, owner string) {
+		// A route that is not a path is already reported where it is read.
+		if !strings.HasPrefix(route, "/") {
+			return
+		}
+		pattern := method + " " + route
+		if err := registerRoute(mux, pattern); err != nil {
+			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()), &ErrorRouteConflict{
+				Pattern: pattern,
+				Owner:   owner,
+				Reason:  err.Error(),
+			})
+		}
+	}
+
+	for _, p := range ctx.app.Pages {
+		if p.GET != nil && p.GET.Handler != nil {
+			claim(http.MethodGet, p.Route, p.Expr, p.TypeName)
+		}
+		if routeEndsInWildcard(p.Route) && pageHasStream(p) {
+			errs.ErrAt(ctx.pkg.Fset.Position(p.Expr.Pos()),
+				&ErrorRouteWildcardStream{TypeName: p.TypeName, Route: p.Route})
+		}
+		for _, h := range p.Actions {
+			claim(h.HTTPMethod, h.Route, h.Expr, p.TypeName+"."+h.Name)
+		}
+	}
+	for _, h := range ctx.app.Actions {
+		claim(h.HTTPMethod, h.Route, h.Expr, "App."+h.Name)
+	}
+}
+
+// routeEndsInWildcard reports whether the route's last segment is a {name...} wildcard,
+// which matches the rest of the path.
+func routeEndsInWildcard(route string) bool {
+	last := route[strings.LastIndex(route, "/")+1:]
+	return strings.HasPrefix(last, "{") && strings.HasSuffix(last, "...}")
+}
+
+// pageHasStream reports whether the page is served an SSE stream of its own.
+func pageHasStream(p *model.Page) bool {
+	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil
+}
+
+// registerRoute reports what ServeMux says about a pattern.
+// ServeMux says it by panicking, which this turns into a value.
+func registerRoute(mux *http.ServeMux, pattern string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.New(routerReason(fmt.Sprint(r)))
+		}
+	}()
+	mux.HandleFunc(pattern, func(http.ResponseWriter, *http.Request) {})
+	return nil
+}
+
+// routerReason takes the sentence out of a ServeMux panic.
+// A conflict is reported over two lines, the second of which says what the conflict is.
+// The first names the file registering each pattern, which is this file.
+func routerReason(msg string) string {
+	if _, rest, ok := strings.Cut(msg, ":\n"); ok {
+		return strings.TrimSpace(rest)
+	}
+	return strings.TrimSpace(msg)
 }
 
 func assignSpecialPages(ctx *parseCtx, errs *Errors) {

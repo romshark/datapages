@@ -172,6 +172,13 @@ func routeStreamPath(route string) string {
 	return r + "_$/"
 }
 
+// routeEndsInWildcard reports whether the route's last segment is a {name...} wildcard,
+// which matches the rest of the path.
+func routeEndsInWildcard(route string) bool {
+	last := route[strings.LastIndex(route, "/")+1:]
+	return strings.HasPrefix(last, "{") && strings.HasSuffix(last, "...}")
+}
+
 // routeWithTrailingSlash strips any {$} suffix and ensures the route
 // has a trailing slash.
 //   - "/settings" -> "/settings/"

@@ -159,3 +159,19 @@ func (PageConflict) GET(
 	return echo("value=%d s_value=%d s_s_value=%q",
 		path.Value, path.SValue, path.SSValue), nil
 }
+
+// PageFiles is /files/{rest...}
+//
+// A wildcard that matches the rest of the path. The router takes no end-of-path
+// marker after it: one appended there puts the wildcard in the middle,
+// which is a pattern it will not parse.
+type PageFiles struct{ App *App }
+
+func (PageFiles) GET(
+	_ *http.Request,
+	path struct {
+		Rest string `path:"rest"`
+	},
+) (body datapages.Component, err error) {
+	return echo("rest=%q", path.Rest), nil
+}
