@@ -75,11 +75,8 @@ func (PageIndex) GET(
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
 	signals struct {...}, // Optional
-	dispatch(
-		EventSomethingHappened,
-		EventSomethingElseHappened,
-		//...
-	) error // Optional
+	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
+	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
 ) (
 	body datapages.Component,
 	head datapages.Component, // Optional
@@ -120,11 +117,8 @@ func (PageIndex) POSTActionName(
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
 	signals struct {...}, // Optional
-	dispatch(
-		EventSomethingHappened,
-		EventSomethingElseHappened,
-		//...
-	) error // Optional
+	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
+	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
 ) error {
 	// ...
 }
@@ -146,11 +140,8 @@ func (PageIndex) POSTActionName(
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
 	signals struct {...}, // Optional
-	dispatch(
-		EventSomethingHappened,
-		EventSomethingElseHappened,
-		//...
-	) error // Optional
+	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
+	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
 ) (
 	body datapages.Component, // Optional
 	head datapages.Component, // Optional
@@ -197,11 +188,8 @@ func (PageIndex) StreamOpen(
 	sse datapages.SSE, // Optional
 	session datapages.Session[Data], // Optional
 	signals struct{...}, // Optional
-	dispatch(
-		EventSomethingHappened,
-		EventSomethingElseHappened,
-		//...
-	) error, // Optional
+	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
+	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
 ) error {
 	// ...
 }
@@ -216,11 +204,8 @@ func (PageIndex) StreamClose(
 	r *http.Request,
 	streamID uint64,
 	session datapages.Session[Data], // Optional
-	dispatch(
-		EventSomethingHappened,
-		EventSomethingElseHappened,
-		//...
-	) error, // Optional
+	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
+	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
 ) error {
 	// ...
 }
@@ -307,7 +292,7 @@ func (p PageExample) POSTInputChanged(
 func (p PageExample) POSTButtonClicked(
 	r *http.Request,
 	session Session,
-	dispatch(EventSomethingHappened) error,
+	dispatch datapages.Dispatch[EventSomethingHappened],
 ) error {
 	// Update everyone that something happened.
 	return dispatch(EventSomethingHappened{WhoCausedIt: session.UserID()})
@@ -489,15 +474,35 @@ The interface is defined in [datapages.go](datapages.go), which documents each
 method and is the source of truth. It is also rendered on
 [pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#SSE).
 
-#### Parameter: `dispatch func(...) error`
+#### Parameter: `datapages.Dispatch[EventXXX]`
 
 ```go
-dispatch func(EventXXX, /*...*/) error
+dispatchXxx datapages.Dispatch[EventXXX]
 ```
 
-This parameter provides a function for dispatching events and
-only accepts `EventXXX` types as parameters. These events can be handled
-by `OnXXX` page methods.
+This parameter provides a function for dispatching events, which can be handled
+by `OnXXX` page methods. Its name is free, the type is what makes it a dispatcher.
+`EventXXX` must be an event type declared in the application package.
+
+```go
+type Dispatch[Event any] func(
+	event Event,
+	options ...DispatchOption,
+) error
+```
+
+The publish uses the context of the handler that dispatches: the request context
+in actions, and the request context without its cancelation in stream hooks,
+which run while the stream is being torn down.
+`datapages.WithDispatchContext(ctx)` overrides it, which a handler needs only
+when it dispatches after returning, from a goroutine that outlives it,
+or when the publish needs a deadline of its own:
+
+```go
+ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+defer cancel()
+return dispatch(EventSomethingHappened{}, datapages.WithDispatchContext(ctx))
+```
 
 An event type must use json struct field tags, and be strictly commented with
 `// EventXXX is "xxx"` (where `"xxx"` is the NATS subject prefix):
@@ -510,55 +515,71 @@ type EventExample struct {
 ```
 
 Events can declare subject fields to build targeted NATS subjects.
-Any field whose name starts with `Subject` is a subject field.
-Subject fields must have type `string` or `[]string`.
-Subject fields must be defined before any payload fields.
+A field is a subject field when its type is one of these:
 
-- `[]string` — multiple values; the Cartesian product of all `[]string` subject field
-  values is computed at dispatch time and each combination produces a separate publish.
-- `string` — single value; used directly in the subject without looping.
+| type | segment |
+| ---- | ------- |
+| `datapages.Subject` | a segment value |
+| `datapages.SubjectUser` | the ID of the user the event is addressed to |
 
-When an event is dispatched, subject field values are appended
-(in field definition order) to the event's base subject, separated by dots.
+The field name is free, the type decides. Subject fields must be exported and
+must be defined before any payload field.
 
-For example, given `// EventNotify is "notify"`:
+Each subject field carries exactly one value, and one dispatch publishes to
+exactly one subject. When an event is dispatched, subject field values are
+appended (in field definition order) to the event's base subject, separated by
+dots.
+
+For example:
 
 ```go
+// EventNotify is "notify"
+type EventNotify struct {
+	Recipient datapages.SubjectUser `json:"recipient"`
+	Room      datapages.Subject     `json:"room"`
+	Device    datapages.Subject     `json:"device"`
+
+	Text string `json:"text"`
+}
+
 dispatch(EventNotify{
-	SubjectUser:   "u1",
-	SubjectRoom:   []string{"r1", "r2"},
-	SubjectDevice: "mobile",
+	Recipient: "u1",
+	Room:      "r1",
+	Device:    "mobile",
 })
 ```
 
-The following subjects are dispatched:
+publishes to the subject `notify.u1.r1.mobile`.
 
-```
-notify.u1.r1.mobile
-notify.u1.r2.mobile
-```
-
-The `string` field `SubjectUser` contributes one value, the `[]string` field
-`SubjectRoom` expands into two combinations, and the `string` field
-`SubjectDevice` contributes one value.
-
-`SubjectUser` is a special subject field: its presence makes the event stream
-require authentication (only authenticated users whose ID appears in the subject
-will receive the event). It can be `string` (single user) or `[]string` (multiple users).
+To reach several rooms, or several users, dispatch once per value:
 
 ```go
-// Multiple recipients:
-type EventMessageSent struct {
-	SubjectUser     []string `json:"subject_user"`
-	SubjectChatRoom []string `json:"subject_chat_room"`
-
-	Message string `json:"message"`
-	Sender  string `json:"sender"`
+for _, room := range rooms {
+	err := dispatch(EventNotify{
+		Recipient: "u1",
+		Room:      datapages.Subject(room),
+		Device:    "mobile",
+		Text:      "hello",
+	})
+	if err != nil {
+		return err
+	}
 }
+```
 
-// Single recipient:
+The framework doesn't fan a single dispatch out over multiple values.
+Each publish can fail on its own, and the handler decides whether to stop, continue,
+or join the errors. Fanning out also means marshaling one payload per publish,
+so each recipient receives only the values addressed to them.
+
+A `datapages.SubjectUser` field makes the event stream require authentication:
+only the client authenticated as that user receives the event. An application
+dispatching such an event must define a Session type.
+
+```go
+// EventDirectMessage is "message.direct"
 type EventDirectMessage struct {
-	SubjectUser string `json:"subject_user"`
+	Recipient datapages.SubjectUser `json:"recipient"`
 
 	Text   string `json:"text"`
 	Sender string `json:"sender"`
@@ -567,21 +588,22 @@ type EventDirectMessage struct {
 
 ##### Signal-scoped subject fields
 
-A subject field (other than `SubjectUser`) can carry a `signal:"<name>"` struct tag
-to bind its value to a client-side Datastar signal. When a client connects to the
-SSE stream, the server reads the signal value and uses it to build the subscription
-subject. This enables per-instance event routing without authentication.
+A subject field that doesn't address users can carry a `signal:"<name>"` struct
+tag to bind its value to a client-side Datastar signal. When a client connects to
+the SSE stream, the server reads the signal value and uses it to build the
+subscription subject. This enables per-instance event routing without
+authentication.
 
 The signal name must start with a lowercase letter and contain only lowercase letters,
 digits, underscores, or periods (e.g. `signal:"instance_id"`, `signal:"form.calc_id"`).
 
-Signal-scoped subject fields must have type `string` (singular), since the signal
-provides exactly one value. `SubjectUser` must not have a signal tag.
+`datapages.SubjectUser` must not have a signal tag: it's already bound to the
+authenticated user.
 
 ```go
 // EventCalcUpdated is "calc.updated"
 type EventCalcUpdated struct {
-	SubjectInstance string `json:"subject_instance" signal:"instance_id"`
+	Instance datapages.Subject `json:"instance" signal:"instance_id"`
 
 	Result float64 `json:"result"`
 }
@@ -590,15 +612,15 @@ type EventCalcUpdated struct {
 When the SSE stream handler runs, it reads `instance_id` from the client's signals,
 validates it is non-empty, and subscribes to `calc.updated.<instance_id>`.
 
-Signal-scoped events can be mixed with private (`SubjectUser`) events and plain
-public events on the same page. They can also coexist with non-signal subject fields:
+Signal-scoped events can be mixed with user-addressed events and plain public
+events on the same page. They can also coexist with non-signal subject fields:
 
 ```go
 // EventRoomUpdate is "room.update"
 type EventRoomUpdate struct {
-	SubjectUser []string `json:"subject_user"`
-	SubjectRoom []string `json:"subject_chat_room"`
-	SubjectCalc string   `signal:"calc_id"`
+	Recipient datapages.SubjectUser `json:"recipient"`
+	Room      datapages.Subject     `json:"chat_room"`
+	Calc      datapages.Subject     `signal:"calc_id"`
 
 	Data string `json:"data"`
 }
@@ -606,62 +628,48 @@ type EventRoomUpdate struct {
 
 **Restrictions:**
 
-- `SubjectUser` must not have a `signal:"..."` tag.
+- A user-addressed subject field must not have a `signal:"..."` tag.
 - No two subject fields may share the same `signal:"..."` tag value.
 - Signal tag names must match `[a-z][a-z0-9_.]*`.
 
 The following is invalid because a subject field appears after a payload field:
 
 ```go
+// EventInvalid is "invalid"
 type EventInvalid struct {
-	Message     string   `json:"message"`
-	SubjectUser []string // ERROR: subject field after payload field
+	Message   string `json:"message"`
+	Recipient datapages.SubjectUser // ERROR: subject field after payload field
 }
 ```
 
-**Example 1** — Given `// EventExample is "example"`:
+A field named like a subject field but not typed as one is rejected, since it reads as routing metadata but would silently become
+payload:
 
 ```go
-dispatch(EventExample{
-	SubjectUser:                  []string{"u1", "u2"},
-	SubjectAnything:              []string{"a1"},
-	SubjectSomethingElseEntirely: []string{"s1", "s2", "s3"},
-})
+// EventInvalid2 is "invalid2"
+type EventInvalid2 struct {
+	SubjectUser string // ERROR: not typed as a subject field
+}
 ```
 
-The following subjects are dispatched:
-
-```
-example.u1.a1.s1
-example.u1.a1.s2
-example.u1.a1.s3
-example.u2.a1.s1
-example.u2.a1.s2
-example.u2.a1.s3
-```
-
-**Example 2** — Given `// EventExample2 is "example2"`:
+One dispatcher publishes one event type. A handler that publishes several
+declares one parameter per type, and it must not declare two for the same type:
 
 ```go
-dispatch(EventExample2{
-	SubjectAnything: []string{"a1", "a2"},
-	SubjectUser:     []string{"u1", "u2"},
-})
+dispatchA datapages.Dispatch[EventTypeA],
+dispatchB datapages.Dispatch[EventTypeB],
+dispatchC datapages.Dispatch[EventTypeC],
 ```
 
-The following subjects are dispatched:
-
-```
-example2.a1.u1
-example2.a1.u2
-example2.a2.u1
-example2.a2.u2
-```
-
-You may provide multiple event types which are dispatched in the order of definition:
+The events go out in the order the handler dispatches them.
+Nothing is atomic across them: a failed publish neither undoes the ones before it nor
+stops the ones after, which is why joining the errors is usually what you want:
 
 ```go
-dispatch func(EventTypeA, EventTypeB, EventTypeC) error
+return errors.Join(
+	dispatchA(EventTypeA{}),
+	dispatchB(EventTypeB{}),
+)
 ```
 
 ---
@@ -672,8 +680,8 @@ dispatch func(EventTypeA, EventTypeB, EventTypeC) error
 ```go
 // EventMessageSent is "chat.sent"
 type EventMessageSent struct {
-	SubjectUser     []string `json:"subject_user"`
-	SubjectChatRoom []string `json:"subject_chat_room"`
+	Recipient datapages.SubjectUser `json:"recipient"`
+	ChatRoom  datapages.Subject     `json:"chat_room"`
 
 	Message string `json:"message"`
 	Sender  string `json:"sender"`
@@ -690,7 +698,7 @@ func (PageChat) POSTSendMessage(
 		InputText string `json:"inputtext"`
 		ChatRoom  string `json:"chatroom"`
 	},
-	dispatch(EventMessageSent) error,
+	dispatch datapages.Dispatch[EventMessageSent],
 ) error {
 	if !isUserAllowedToSendMessages(session.UserID()) {
 		return errors.New("unauthorized")
@@ -698,12 +706,18 @@ func (PageChat) POSTSendMessage(
 	if signals.InputText == "" {
 		return nil // No-op.
 	}
-	return dispatch(EventMessageSent{
-		SubjectUser:     chatroom.ParticipantIDs,
-		SubjectChatRoom: []string{signals.ChatRoom},
-		Message:               signals.InputText,
-		Sender:                session.UserID(),
-	})
+	for _, participant := range chatroom.ParticipantIDs {
+		err := dispatch(EventMessageSent{
+			Recipient: datapages.SubjectUser(participant),
+			ChatRoom:  datapages.Subject(signals.ChatRoom),
+			Message:   signals.InputText,
+			Sender:    session.UserID(),
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (PageChat) OnMessageSent(

@@ -121,10 +121,8 @@ var (
 	ErrSignalsFieldDuplicateTag = paramvalidation.ErrSignalsFieldDuplicateTag
 	ErrSignalsFieldEmptyTag     = paramvalidation.ErrSignalsFieldEmptyTag
 
-	ErrDispatchParamNotFunc    = paramvalidation.ErrDispatchParamNotFunc
-	ErrDispatchMustReturnError = paramvalidation.ErrDispatchMustReturnError
-	ErrDispatchNoParams        = paramvalidation.ErrDispatchNoParams
-	ErrDispatchParamNotEvent   = paramvalidation.ErrDispatchParamNotEvent
+	ErrDispatchParamNotEvent = paramvalidation.ErrDispatchParamNotEvent
+	ErrDispatchParamLegacy   = paramvalidation.ErrDispatchParamLegacy
 
 	ErrSessionParamNotSessionType = errors.New(
 		"session parameter type must be datapages.Session[Data]",
@@ -173,7 +171,7 @@ var (
 	)
 
 	ErrEventSubjectUserNoSession = errors.New(
-		"event with SubjectUser requires a Session type",
+		"event addressing users requires a Session type",
 	)
 
 	ErrEventSubjectAfterPayload = errors.New(
@@ -195,7 +193,15 @@ var (
 	)
 
 	ErrEventSubjectUserSignal = errors.New(
-		"SubjectUser must not have a signal tag",
+		"user-addressed subject field must not have a signal tag",
+	)
+
+	ErrDispatchDuplicate = errors.New(
+		"multiple dispatchers for the same event type",
+	)
+
+	ErrEventSubjectPrefixedField = errors.New(
+		"event field named like a subject field isn't typed as one",
 	)
 
 	ErrEventSubjectSignalInvalid = errors.New(
@@ -640,6 +646,36 @@ func (e *ErrorEventSubjectUserSignal) Error() string {
 
 func (e *ErrorEventSubjectUserSignal) Unwrap() error {
 	return ErrEventSubjectUserSignal
+}
+
+// ErrorDispatchDuplicate is ErrDispatchDuplicate with the handler context.
+type ErrorDispatchDuplicate struct {
+	Recv          string
+	MethodName    string
+	EventTypeName string
+}
+
+func (e *ErrorDispatchDuplicate) Error() string {
+	return fmt.Sprintf("%v: %s in %s.%s",
+		ErrDispatchDuplicate, e.EventTypeName, e.Recv, e.MethodName)
+}
+
+func (e *ErrorDispatchDuplicate) Unwrap() error { return ErrDispatchDuplicate }
+
+// ErrorEventSubjectPrefixedField is ErrEventSubjectPrefixedField
+// with the field and type context.
+type ErrorEventSubjectPrefixedField struct {
+	FieldName string
+	TypeName  string
+}
+
+func (e *ErrorEventSubjectPrefixedField) Error() string {
+	return fmt.Sprintf("%v: field %s in %s",
+		ErrEventSubjectPrefixedField, e.FieldName, e.TypeName)
+}
+
+func (e *ErrorEventSubjectPrefixedField) Unwrap() error {
+	return ErrEventSubjectPrefixedField
 }
 
 // ErrorEventSubjectSignalInvalid is ErrEventSubjectSignalInvalid

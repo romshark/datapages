@@ -1,4 +1,4 @@
-module datapagestest/fixture/err_event_subjprefix_after_payload
+module datapagestest/fixture/err_event_subj_after_payload
 
 go 1.26.6
 

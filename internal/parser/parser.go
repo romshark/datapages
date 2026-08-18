@@ -328,13 +328,29 @@ func firstPassEventType(
 		)
 	}
 
+	for _, sf := range sfResult.Unexported {
+		errs.ErrAt(
+			ctx.pkg.Fset.Position(sf.Pos),
+			fmt.Errorf("%w: field %s in %s",
+				ErrEventFieldUnexported, sf.FieldName, name),
+		)
+	}
+	for _, sf := range sfResult.Prefixed {
+		errs.ErrAt(
+			ctx.pkg.Fset.Position(sf.Pos),
+			&ErrorEventSubjectPrefixedField{
+				FieldName: sf.FieldName,
+				TypeName:  name,
+			},
+		)
+	}
+
 	var subjectFields []model.SubjectField
 	for _, sf := range sfResult.Fields {
 		subjectFields = append(subjectFields, model.SubjectField{
 			FieldName:  sf.FieldName,
-			Name:       sf.Name,
+			Kind:       sf.Kind,
 			SignalName: sf.SignalName,
-			Singular:   sf.Singular,
 		})
 	}
 
@@ -1516,26 +1532,37 @@ func parseStreamHook(
 			h.InputSignals.Kind = model.InputKindSignals
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
 
-		case paramvalidation.IsDispatchParam(f):
-			if h.InputDispatch != nil {
-				unsupErrs = append(unsupErrs,
-					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
-				continue
-			}
-			eventNames, dispErr := paramvalidation.ValidateDispatchFunc(
+		case paramvalidation.IsDispatchParam(f, info):
+			eventName, dispErr := paramvalidation.ValidateDispatch(
 				f, info, eventTypeNames, recv, fd.Name.Name,
 			)
 			if dispErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), dispErr)
 				continue
 			}
+			if slices.ContainsFunc(h.InputDispatches,
+				func(d *model.InputDispatch) bool {
+					return d.EventTypeName == eventName
+				}) {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
+					&ErrorDispatchDuplicate{
+						Recv:          recv,
+						MethodName:    fd.Name.Name,
+						EventTypeName: eventName,
+					})
+				continue
+			}
 			inp := parseInput(f, info)
 			inp.Kind = model.InputKindDispatch
-			h.InputDispatch = &model.InputDispatch{
-				Input:          inp,
-				EventTypeNames: eventNames,
-			}
+			h.InputDispatches = append(h.InputDispatches, &model.InputDispatch{
+				Input:         inp,
+				EventTypeName: eventName,
+			})
 			h.OrderedInputs = append(h.OrderedInputs, inp)
+
+		case paramvalidation.IsLegacyDispatchParam(f, info):
+			appendPositioned(&unsupErrs, fset, f.Type.Pos(),
+				paramvalidation.LegacyDispatchError(f, recv, fd.Name.Name))
 
 		default:
 			unsupErrs = append(unsupErrs,
@@ -1796,7 +1823,7 @@ func appendPositioned(dst *[]error, fset *token.FileSet, fallback token.Pos, err
 // knownParamNames lists the recognized handler parameter names
 // used for fuzzy matching in unsupportedInputError.
 var knownParamNames = []string{
-	"streamID", "sessionToken", "session", "path", "query", "signals", "dispatch",
+	"streamID", "sessionToken", "session", "path", "query", "signals",
 }
 
 // unsupportedInputError builds an ErrorSignatureUnsupportedInput for a
@@ -1865,7 +1892,6 @@ func typeCandidates(
 	isSession := typecheck.IsSessionType(f.Type, info)
 	isUint64 := typecheck.IsUint64(t)
 	isStruct := isStructType(t)
-	isFunc := isFuncType(t)
 
 	type candidate struct {
 		name     string
@@ -1880,7 +1906,6 @@ func typeCandidates(
 		{"path", h.InputPath != nil, isStruct && !isSession},
 		{"query", h.InputQuery != nil, isStruct && !isSession},
 		{"signals", h.InputSignals != nil, isStruct && !isSession},
-		{"dispatch", h.InputDispatch != nil, isFunc},
 	}
 
 	var names []string
@@ -1894,11 +1919,6 @@ func typeCandidates(
 
 func isStructType(t types.Type) bool {
 	_, ok := t.Underlying().(*types.Struct)
-	return ok
-}
-
-func isFuncType(t types.Type) bool {
-	_, ok := t.Underlying().(*types.Signature)
 	return ok
 }
 
@@ -1940,8 +1960,6 @@ func isParamConsumed(h *model.Handler, name string) bool {
 		return h.InputQuery != nil
 	case "signals":
 		return h.InputSignals != nil
-	case "dispatch":
-		return h.InputDispatch != nil
 	}
 	return false
 }
@@ -2142,26 +2160,37 @@ func parseHandler(
 			h.InputSignals.Kind = model.InputKindSignals
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
 
-		case paramvalidation.IsDispatchParam(f):
-			if h.InputDispatch != nil {
-				unsupErrs = append(unsupErrs,
-					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
-				continue
-			}
-			eventNames, dispErr := paramvalidation.ValidateDispatchFunc(
+		case paramvalidation.IsDispatchParam(f, info):
+			eventName, dispErr := paramvalidation.ValidateDispatch(
 				f, info, eventTypeNames, recv, fd.Name.Name,
 			)
 			if dispErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), dispErr)
 				continue
 			}
+			if slices.ContainsFunc(h.InputDispatches,
+				func(d *model.InputDispatch) bool {
+					return d.EventTypeName == eventName
+				}) {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
+					&ErrorDispatchDuplicate{
+						Recv:          recv,
+						MethodName:    fd.Name.Name,
+						EventTypeName: eventName,
+					})
+				continue
+			}
 			inp := parseInput(f, info)
 			inp.Kind = model.InputKindDispatch
-			h.InputDispatch = &model.InputDispatch{
-				Input:          inp,
-				EventTypeNames: eventNames,
-			}
+			h.InputDispatches = append(h.InputDispatches, &model.InputDispatch{
+				Input:         inp,
+				EventTypeName: eventName,
+			})
 			h.OrderedInputs = append(h.OrderedInputs, inp)
+
+		case paramvalidation.IsLegacyDispatchParam(f, info):
+			appendPositioned(&unsupErrs, fset, f.Type.Pos(),
+				paramvalidation.LegacyDispatchError(f, recv, fd.Name.Name))
 
 		default:
 			unsupErrs = append(unsupErrs,

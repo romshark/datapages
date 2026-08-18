@@ -963,25 +963,28 @@ func (s *Server) handlePageFeedPOSTTick(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventTicked,
+	dispatchTicked := func(
+		e app.EventTicked,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventTicked JSON: %w", err)
-			}
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, EvSubjTicked, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", EvSubjTicked, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventTicked JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTicked, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjTicked, err)
 		}
 		return nil
 	}
 	p := app.PageFeed{
 		App: s.app,
 	}
-	err := p.POSTTick(r, signals, dispatch)
+	err := p.POSTTick(r, signals, dispatchTicked)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageFeed.Tick", err)
 		return
@@ -1187,27 +1190,29 @@ func (s *Server) handlePageRoomsPOSTPost(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventRoomPosted,
+	dispatchRoomPosted := func(
+		e app.EventRoomPosted,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventRoomPosted JSON: %w", err)
-			}
-			p0 := e1.SubjectRoom
-			subj := "room.posted." + p0
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", subj, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventRoomPosted JSON: %w", err)
+		}
+		subj := "room.posted." + string(e.Room)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
 	p := app.PageRooms{
 		App: s.app,
 	}
-	err := p.POSTPost(r, signals, dispatch)
+	err := p.POSTPost(r, signals, dispatchRoomPosted)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRooms.Post", err)
 		return
@@ -1235,28 +1240,29 @@ func (s *Server) handlePageRoomsPOSTNotice(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventNoticed,
+	dispatchNoticed := func(
+		e app.EventNoticed,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventNoticed JSON: %w", err)
-			}
-			for _, p0 := range e1.SubjectUser {
-				subj := "noticed." + p0
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventNoticed JSON: %w", err)
+		}
+		subj := "noticed." + string(e.Recipient)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
 	p := app.PageRooms{
 		App: s.app,
 	}
-	err := p.POSTNotice(r, signals, dispatch)
+	err := p.POSTNotice(r, signals, dispatchNoticed)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRooms.Notice", err)
 		return

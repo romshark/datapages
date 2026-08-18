@@ -1964,21 +1964,22 @@ func (s *Server) handlePageMessagesPOSTRead(
 	}
 	query.MessageID = q.Get("msgid")
 
-	dispatch := func(
-		e1 app.EventMessagingRead,
+	dispatchMessagingRead := func(
+		e app.EventMessagingRead,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventMessagingRead JSON: %w", err)
-			}
-			for _, p0 := range e1.SubjectUser {
-				subj := "messaging.read." + p0
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventMessagingRead JSON: %w", err)
+		}
+		subj := "messaging.read." + string(e.Recipient)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
@@ -1988,7 +1989,7 @@ func (s *Server) handlePageMessagesPOSTRead(
 			App: s.app,
 		},
 	}
-	err := p.POSTRead(r, sess, query, signals, dispatch)
+	err := p.POSTRead(r, sess, query, signals, dispatchMessagingRead)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.Read", err)
 		return
@@ -2014,21 +2015,22 @@ func (s *Server) handlePageMessagesPOSTWriting(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventMessagingWriting,
+	dispatchMessagingWriting := func(
+		e app.EventMessagingWriting,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventMessagingWriting JSON: %w", err)
-			}
-			for _, p0 := range e1.SubjectUser {
-				subj := "messaging.writing." + p0
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventMessagingWriting JSON: %w", err)
+		}
+		subj := "messaging.writing." + string(e.Recipient)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
@@ -2038,7 +2040,7 @@ func (s *Server) handlePageMessagesPOSTWriting(
 			App: s.app,
 		},
 	}
-	err := p.POSTWriting(r, sess, signals, dispatch)
+	err := p.POSTWriting(r, sess, signals, dispatchMessagingWriting)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.Writing", err)
 		return
@@ -2064,21 +2066,22 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventMessagingWritingStopped,
+	dispatchMessagingWritingStopped := func(
+		e app.EventMessagingWritingStopped,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
-			}
-			for _, p0 := range e1.SubjectUser {
-				subj := "messaging.writing-stopped." + p0
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
+		}
+		subj := "messaging.writing-stopped." + string(e.Recipient)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
@@ -2088,7 +2091,7 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 			App: s.app,
 		},
 	}
-	err := p.POSTWritingStopped(r, sess, signals, dispatch)
+	err := p.POSTWritingStopped(r, sess, signals, dispatchMessagingWritingStopped)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.WritingStopped", err)
 		return
@@ -2115,35 +2118,42 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventMessagingWritingStopped,
-		e2 app.EventMessagingSent,
+	dispatchMessagingWritingStopped := func(
+		e app.EventMessagingWritingStopped,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
-			}
-			for _, p0 := range e1.SubjectUser {
-				subj := "messaging.writing-stopped." + p0
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
 		}
-		{
-			j, err := json.Marshal(e2)
-			if err != nil {
-				return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
-			}
-			for _, p0 := range e2.SubjectUser {
-				subj := "messaging.sent." + p0
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
+		}
+		subj := "messaging.writing-stopped." + string(e.Recipient)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
+		}
+		return nil
+	}
+
+	dispatchMessagingSent := func(
+		e app.EventMessagingSent,
+		options ...datapages.DispatchOption,
+	) error {
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
+		}
+		subj := "messaging.sent." + string(e.Recipient)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
@@ -2153,7 +2163,7 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 			App: s.app,
 		},
 	}
-	err := p.POSTSendMessage(r, sess, signals, dispatch)
+	err := p.POSTSendMessage(r, sess, signals, dispatchMessagingWritingStopped, dispatchMessagingSent)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageMessages.SendMessage", err)
 		return
@@ -2438,21 +2448,22 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	}
 	path.Slug = r.PathValue("slug")
 
-	dispatch := func(
-		e1 app.EventMessagingSent,
+	dispatchMessagingSent := func(
+		e app.EventMessagingSent,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
-			}
-			for _, p0 := range e1.SubjectUser {
-				subj := "messaging.sent." + p0
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
+		}
+		subj := "messaging.sent." + string(e.Recipient)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
@@ -2464,7 +2475,7 @@ func (s *Server) handlePagePostPOSTSendMessage(
 			App: s.app,
 		},
 	}
-	err := p.POSTSendMessage(r, newSSE(sse), sess, path, signals, dispatch)
+	err := p.POSTSendMessage(r, newSSE(sse), sess, path, signals, dispatchMessagingSent)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PagePost.SendMessage", err)
 		return
@@ -2797,21 +2808,22 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 	}
 	path.Token = r.PathValue("token")
 
-	dispatch := func(
-		e1 app.EventSessionClosed,
+	dispatchSessionClosed := func(
+		e app.EventSessionClosed,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
-			}
-			for _, p0 := range e1.SubjectUser {
-				subj := "sessions.closed." + p0
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
+		}
+		subj := "sessions.closed." + string(e.Recipient)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
@@ -2821,7 +2833,7 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 			App: s.app,
 		},
 	}
-	closeSession, redirect, err := p.POSTCloseSession(r, sess, path, dispatch)
+	closeSession, redirect, err := p.POSTCloseSession(r, sess, path, dispatchSessionClosed)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageSettings.CloseSession", err)
 		return
@@ -2845,21 +2857,22 @@ func (s *Server) handlePageSettingsPOSTCloseAllSessions(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventSessionClosed,
+	dispatchSessionClosed := func(
+		e app.EventSessionClosed,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
-			}
-			for _, p0 := range e1.SubjectUser {
-				subj := "sessions.closed." + p0
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
+		}
+		subj := "sessions.closed." + string(e.Recipient)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
@@ -2869,7 +2882,7 @@ func (s *Server) handlePageSettingsPOSTCloseAllSessions(
 			App: s.app,
 		},
 	}
-	redirect, err := p.POSTCloseAllSessions(r, sess, dispatch)
+	redirect, err := p.POSTCloseAllSessions(r, sess, dispatchSessionClosed)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageSettings.CloseAllSessions", err)
 		return

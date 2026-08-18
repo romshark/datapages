@@ -22,7 +22,7 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 
 // EventBad is "bad"
 type EventBad struct {
-	SubjectInstance string `signal:"has spaces"`
+	Instance datapages.Subject `signal:"has spaces"`
 
 	Data string `json:"data"`
 }

@@ -693,27 +693,29 @@ func (s *Server) handlePageIndexPOSTInput(
 	}
 	query.Num = q.Get("num")
 
-	dispatch := func(
-		e1 app.EventCalcUpdated,
+	dispatchCalcUpdated := func(
+		e app.EventCalcUpdated,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventCalcUpdated JSON: %w", err)
-			}
-			p0 := e1.SubjectInstanceID
-			subj := "calc.updated." + p0
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", subj, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventCalcUpdated JSON: %w", err)
+		}
+		subj := "calc.updated." + string(e.InstanceID)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
 	p := app.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTInput(r, dispatch, query, signals)
+	err := p.POSTInput(r, dispatchCalcUpdated, query, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Input", err)
 		return

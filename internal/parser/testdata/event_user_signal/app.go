@@ -1,5 +1,6 @@
-// Package app has an event with a SubjectUser field and a signal-tagged
-// subject field, the shape SPECIFICATION.md shows for EventRoomUpdate.
+// Package app has an event with a user-addressed subject field and a
+// signal-tagged subject field, the shape SPECIFICATION.md shows for
+// EventRoomUpdate.
 package app
 
 import (
@@ -14,8 +15,8 @@ type App struct{}
 
 // EventRoomUpdate is "room.update"
 type EventRoomUpdate struct {
-	SubjectUser []string `json:"subject_user"`
-	SubjectCalc string   `json:"subject_calc" signal:"calc_id"`
+	Recipient datapages.SubjectUser `json:"recipient"`
+	Calc      datapages.Subject     `json:"calc" signal:"calc_id"`
 
 	Data string `json:"data"`
 }

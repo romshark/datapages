@@ -50,17 +50,17 @@ type EventTick struct {
 // One subject field bound to a signal. A stream supplies the signal when it
 // connects and receives only what is published for that value.
 type EventRoomSaid struct {
-	SubjectRoom string `signal:"room"`
+	Room datapages.Subject `signal:"room"`
 
 	Text string `json:"text"`
 }
 
 // EventRoomBroadcast is "room.broadcast"
 //
-// The plural form. The dispatched values are expanded into one subject each,
-// so one dispatch reaches several rooms.
+// One dispatch publishes to one subject, so reaching several rooms is a loop
+// over the dispatcher, which leaves the handler in control of the failures.
 type EventRoomBroadcast struct {
-	SubjectRoom []string `signal:"room"`
+	Room datapages.Subject `signal:"room"`
 
 	Text string `json:"text"`
 }
@@ -107,7 +107,7 @@ func (p PageIndex) POSTTick(
 	signals struct {
 		N int `json:"n"`
 	},
-	dispatch func(EventTick) error,
+	dispatch datapages.Dispatch[EventTick],
 ) error {
 	return dispatch(EventTick{N: signals.N})
 }
@@ -176,9 +176,9 @@ func (p PageRoom) POSTSay(
 		Room string `json:"room"`
 		Text string `json:"text"`
 	},
-	dispatch func(EventRoomSaid) error,
+	dispatch datapages.Dispatch[EventRoomSaid],
 ) error {
-	return dispatch(EventRoomSaid{SubjectRoom: signals.Room, Text: signals.Text})
+	return dispatch(EventRoomSaid{Room: datapages.Subject(signals.Room), Text: signals.Text})
 }
 
 // POSTBroadcast is /room/broadcast
@@ -188,10 +188,16 @@ func (p PageRoom) POSTBroadcast(
 		Rooms []string `json:"rooms"`
 		Text  string   `json:"text"`
 	},
-	dispatch func(EventRoomBroadcast) error,
+	dispatch datapages.Dispatch[EventRoomBroadcast],
 ) error {
-	return dispatch(EventRoomBroadcast{
-		SubjectRoom: signals.Rooms,
-		Text:        signals.Text,
-	})
+	for _, room := range signals.Rooms {
+		err := dispatch(EventRoomBroadcast{
+			Room: datapages.Subject(room),
+			Text: signals.Text,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

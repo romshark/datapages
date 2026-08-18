@@ -621,27 +621,29 @@ func (s *Server) handlePageIndexPOSTNote(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventNoted,
+	dispatchNoted := func(
+		e app.EventNoted,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventNoted JSON: %w", err)
-			}
-			p0 := e1.SubjectTopic
-			subj := "noted." + p0
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", subj, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventNoted JSON: %w", err)
+		}
+		subj := "noted." + string(e.Topic)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
 	p := app.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTNote(r, signals, dispatch)
+	err := p.POSTNote(r, signals, dispatchNoted)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Note", err)
 		return

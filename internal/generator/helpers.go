@@ -9,9 +9,19 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/romshark/datapages/internal/parser/model"
 )
+
+// dispatchVarName is the generated variable name of a dispatch closure.
+// The prefix keeps the closures of different handlers apart inside one
+// generated function; the event name keeps a handler's own closures apart.
+//
+//	("dispatch", "EventTodoUpdated") -> "dispatchTodoUpdated"
+func dispatchVarName(prefix, eventTypeName string) string {
+	return prefix + eventConstName(eventTypeName)
+}
 
 // eventConstName strips the "Event" prefix from an event type name.
 // "EventMessagingSent" -> "MessagingSent"
@@ -867,4 +877,70 @@ func appPkgName(pkgPath string) string {
 		return pkgPath[i+1:]
 	}
 	return pkgPath
+}
+
+// signalIdents returns unique exported identifiers for a page's signal-scoped
+// subject fields, derived from their signal names. They name both the fields of
+// the subjSignals struct the stream handler reads and the parameters of the
+// page's evSubj function. The signal name is the key because that's what the
+// fields are deduplicated by: two events can bind the same signal through
+// differently named fields.
+//
+//	"instance_id" -> "InstanceID", "form.calc_id" -> "FormCalcID"
+func signalIdents(fields []model.SubjectField) []string {
+	idents := make([]string, len(fields))
+	seen := make(map[string]bool, len(fields))
+	for i, sf := range fields {
+		base := signalIdent(sf.SignalName)
+		ident := base
+		for n := 2; seen[ident]; n++ {
+			ident = base + itoa(n)
+		}
+		seen[ident] = true
+		idents[i] = ident
+	}
+	return idents
+}
+
+// signalIdentMap maps each signal name to the identifier signalIdents gave it.
+func signalIdentMap(fields []model.SubjectField, idents []string) map[string]string {
+	m := make(map[string]string, len(fields))
+	for i, sf := range fields {
+		m[sf.SignalName] = idents[i]
+	}
+	return m
+}
+
+// signalIdent turns a signal name into an exported Go identifier.
+func signalIdent(signalName string) string {
+	var b strings.Builder
+	newWord := true
+	for _, r := range signalName {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+			if newWord {
+				b.WriteRune(unicode.ToUpper(r))
+				newWord = false
+			} else {
+				b.WriteRune(r)
+			}
+		case r >= '0' && r <= '9':
+			if b.Len() == 0 {
+				continue // An identifier must not start with a digit.
+			}
+			b.WriteRune(r)
+			newWord = false
+		default:
+			newWord = true
+		}
+	}
+	if b.Len() == 0 {
+		return "Signal"
+	}
+	s := b.String()
+	// Uppercase the common trailing initialism for idiomatic Go.
+	if strings.HasSuffix(s, "Id") {
+		s = s[:len(s)-2] + "ID"
+	}
+	return s
 }

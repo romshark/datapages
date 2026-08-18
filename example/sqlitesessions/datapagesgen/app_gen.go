@@ -864,25 +864,26 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventSessionClosed,
+	dispatchSessionClosed := func(
+		e app.EventSessionClosed,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
-			}
-			for _, p0 := range e1.SubjectUser {
-				subj := "sessions.closed." + p0
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
+		}
+		subj := "sessions.closed." + string(e.Recipient)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
-	closeSession, redirect, err := s.app.POSTSignOut(r, sess, dispatch)
+	closeSession, redirect, err := s.app.POSTSignOut(r, sess, dispatchSessionClosed)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.SignOut", err)
 		return

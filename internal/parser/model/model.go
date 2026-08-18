@@ -100,8 +100,10 @@ type Handler struct {
 	InputPath     *Input
 	InputQuery    *Input
 	InputSignals  *Input
-	InputDispatch *InputDispatch
-	OrderedInputs []*Input // Inputs in user-defined order.
+	// InputDispatches are the datapages.Dispatch[EventXXX] parameters,
+	// in user-defined order. One dispatcher publishes one event type.
+	InputDispatches []*InputDispatch
+	OrderedInputs   []*Input // Inputs in user-defined order.
 
 	OutputBody           *TemplComponent // templ.Component body (actions only)
 	OutputHead           *TemplComponent // templ.Component head (actions only)
@@ -116,7 +118,7 @@ type Handler struct {
 
 type InputDispatch struct {
 	*Input
-	EventTypeNames []string
+	EventTypeName string
 }
 
 type EventHandler struct {
@@ -181,19 +183,50 @@ type Type struct {
 	TypeExpr ast.Expr
 }
 
-// SubjectField represents a Subject-prefixed field on an event type.
-// The field name suffix (e.g. "User" from "SubjectUser") identifies the subject segment;
-// values are appended to the NATS subject at dispatch time.
+// SubjectKind identifies the datapages subject segment type of an event field.
+type SubjectKind uint8
+
+const (
+	// SubjectKindNone means the field isn't a subject field.
+	SubjectKindNone SubjectKind = iota
+
+	// SubjectKindValue is datapages.Subject.
+	SubjectKindValue
+
+	// SubjectKindUser is datapages.SubjectUser.
+	SubjectKindUser
+)
+
+// IsSubject reports whether k is any subject segment kind.
+func (k SubjectKind) IsSubject() bool { return k != SubjectKindNone }
+
+// IsUser reports whether k carries the ID of the user the event is addressed to,
+// which makes its stream require authentication.
+func (k SubjectKind) IsUser() bool { return k == SubjectKindUser }
+
+// String returns the datapages type name of k.
+func (k SubjectKind) String() string {
+	switch k {
+	case SubjectKindValue:
+		return "datapages.Subject"
+	case SubjectKindUser:
+		return "datapages.SubjectUser"
+	}
+	return ""
+}
+
+// SubjectField represents a field of an event type that is typed as a
+// datapages subject segment. Its value is appended to the NATS subject
+// at dispatch time, in field definition order.
 //
 // SignalName, when non-empty, marks the field as signal-scoped:
 // the SSE stream handler reads this signal from the client
 // and subscribes to the subject with the signal value appended.
 // This enables per-instance event routing without authentication.
 type SubjectField struct {
-	FieldName  string // e.g. "SubjectUser"
-	Name       string // e.g. "User" (suffix after "Subject")
-	SignalName string // e.g. "instance_id" (from signal:"instance_id" tag)
-	Singular   bool   // true when the field type is string (not []string)
+	FieldName  string      // e.g. "Recipient"
+	Kind       SubjectKind // e.g. SubjectKindUser for datapages.SubjectUser
+	SignalName string      // e.g. "instance_id" (from signal:"instance_id" tag)
 }
 
 type Event struct {
@@ -205,17 +238,17 @@ type Event struct {
 	SubjectFields []SubjectField
 }
 
-// HasSubjectUser reports whether the event has a SubjectUser field.
+// HasSubjectUser reports whether the event has a datapages.SubjectUser subject field.
 func (e *Event) HasSubjectUser() bool {
 	for _, sf := range e.SubjectFields {
-		if sf.Name == "User" {
+		if sf.Kind.IsUser() {
 			return true
 		}
 	}
 	return false
 }
 
-// IsPrivate reports whether the event targets specific users (has a SubjectUser field).
+// IsPrivate reports whether the event targets specific users.
 func (e *Event) IsPrivate() bool { return e.HasSubjectUser() }
 
 // HasSubjectFields reports whether the event has any subject fields.

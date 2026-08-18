@@ -43,7 +43,7 @@ func (PageIndex) POSTPing(
 	signals struct {
 		N int `json:"n"`
 	},
-	dispatch func(EventPing) error,
+	dispatch datapages.Dispatch[EventPing],
 ) error {
 	return dispatch(EventPing{N: signals.N})
 }

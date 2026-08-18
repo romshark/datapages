@@ -1150,28 +1150,29 @@ func (s *Server) handlePageLoginPOSTNotify(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventNotice,
+	dispatchNotice := func(
+		e app.EventNotice,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventNotice JSON: %w", err)
-			}
-			for _, p0 := range e1.SubjectUser {
-				subj := "notice." + p0
-				err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, subj, j)
-				if err != nil {
-					return fmt.Errorf("publishing subject %q: %w", subj, err)
-				}
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventNotice JSON: %w", err)
+		}
+		subj := "notice." + string(e.Recipient)
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", subj, err)
 		}
 		return nil
 	}
 	p := app.PageLogin{
 		App: s.app,
 	}
-	err := p.POSTNotify(r, signals, dispatch)
+	err := p.POSTNotify(r, signals, dispatchNotice)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.Notify", err)
 		return
@@ -1198,25 +1199,28 @@ func (s *Server) handlePageLoginPOSTBroadcast(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventBroadcast,
+	dispatchBroadcast := func(
+		e app.EventBroadcast,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventBroadcast JSON: %w", err)
-			}
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, EvSubjBroadcast, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", EvSubjBroadcast, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventBroadcast JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjBroadcast, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjBroadcast, err)
 		}
 		return nil
 	}
 	p := app.PageLogin{
 		App: s.app,
 	}
-	err := p.POSTBroadcast(r, signals, dispatch)
+	err := p.POSTBroadcast(r, signals, dispatchBroadcast)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageLogin.Broadcast", err)
 		return

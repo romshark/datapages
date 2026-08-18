@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/romshark/datapages"
@@ -113,7 +114,7 @@ func (p PageMessages) POSTRead(
 	signals struct {
 		ChatSelected string `json:"chatselected"`
 	},
-	dispatch func(EventMessagingRead) error,
+	dispatch datapages.Dispatch[EventMessagingRead],
 ) error {
 	post, chat, err := p.getChat(r.Context(), session, signals.ChatSelected)
 	if err != nil {
@@ -130,7 +131,8 @@ func (p PageMessages) POSTRead(
 		return domain.ErrMessageNotFound
 	}
 
-	if session.UserID() != chat.SenderUserName && session.UserID() != post.MerchantUserName {
+	if session.UserID() != chat.SenderUserName &&
+		session.UserID() != post.MerchantUserName {
 		return domain.ErrUnauthorized
 	}
 
@@ -143,13 +145,17 @@ func (p PageMessages) POSTRead(
 		return err
 	}
 
-	return dispatch(
-		EventMessagingRead{
-			SubjectUser: []string{chat.SenderUserName, post.MerchantUserName},
-			ChatID:      signals.ChatSelected,
-			UserID:      session.UserID(),
-		},
-	)
+	for _, recipient := range []string{chat.SenderUserName, post.MerchantUserName} {
+		err := dispatch(EventMessagingRead{
+			Recipient: datapages.SubjectUser(recipient),
+			ChatID:    signals.ChatSelected,
+			UserID:    session.UserID(),
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // POSTWriting is /messages/writing/{$}
@@ -159,28 +165,29 @@ func (p PageMessages) POSTWriting(
 	signals struct {
 		ChatSelected string `json:"chatselected"`
 	},
-	dispatch func(
-		EventMessagingWriting,
-	) error,
+	dispatch datapages.Dispatch[EventMessagingWriting],
 ) error {
 	post, chat, err := p.getChat(r.Context(), session, signals.ChatSelected)
 	if err != nil {
 		return err
 	}
 
-	if session.UserID() != chat.SenderUserName && session.UserID() != post.MerchantUserName {
+	if session.UserID() != chat.SenderUserName &&
+		session.UserID() != post.MerchantUserName {
 		return domain.ErrUnauthorized
 	}
 
-	targetUsers := []string{chat.SenderUserName, post.MerchantUserName}
-
-	return dispatch(
-		EventMessagingWriting{
-			SubjectUser: targetUsers,
-			ChatID:      signals.ChatSelected,
-			UserID:      session.UserID(),
-		},
-	)
+	for _, recipient := range []string{chat.SenderUserName, post.MerchantUserName} {
+		err := dispatch(EventMessagingWriting{
+			Recipient: datapages.SubjectUser(recipient),
+			ChatID:    signals.ChatSelected,
+			UserID:    session.UserID(),
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // POSTWritingStopped is /messages/writing-stopped/{$}
@@ -190,28 +197,29 @@ func (p PageMessages) POSTWritingStopped(
 	signals struct {
 		ChatSelected string `json:"chatselected"`
 	},
-	dispatch func(
-		EventMessagingWritingStopped,
-	) error,
+	dispatch datapages.Dispatch[EventMessagingWritingStopped],
 ) error {
 	post, chat, err := p.getChat(r.Context(), session, signals.ChatSelected)
 	if err != nil {
 		return err
 	}
 
-	if session.UserID() != chat.SenderUserName && session.UserID() != post.MerchantUserName {
+	if session.UserID() != chat.SenderUserName &&
+		session.UserID() != post.MerchantUserName {
 		return domain.ErrUnauthorized
 	}
 
-	targetUsers := []string{chat.SenderUserName, post.MerchantUserName}
-
-	return dispatch(
-		EventMessagingWritingStopped{
-			SubjectUser: targetUsers,
-			ChatID:      signals.ChatSelected,
-			UserID:      session.UserID(),
-		},
-	)
+	for _, recipient := range []string{chat.SenderUserName, post.MerchantUserName} {
+		err := dispatch(EventMessagingWritingStopped{
+			Recipient: datapages.SubjectUser(recipient),
+			ChatID:    signals.ChatSelected,
+			UserID:    session.UserID(),
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // POSTSendMessage is /messages/sendmessage/{$}
@@ -222,10 +230,8 @@ func (p PageMessages) POSTSendMessage(
 		ChatSelected string `json:"chatselected"`
 		MessageText  string `json:"messagetext"`
 	},
-	dispatch func(
-		EventMessagingWritingStopped,
-		EventMessagingSent,
-	) error,
+	dispatchWritingStopped datapages.Dispatch[EventMessagingWritingStopped],
+	dispatchSent datapages.Dispatch[EventMessagingSent],
 ) error {
 	var targetUsers []string
 	err := func() (err error) {
@@ -261,18 +267,22 @@ func (p PageMessages) POSTSendMessage(
 		return err
 	}
 
-	return dispatch(
-		EventMessagingWritingStopped{
-			SubjectUser: targetUsers,
-			ChatID:      signals.ChatSelected,
-			UserID:      session.UserID(),
-		},
-		EventMessagingSent{
-			SubjectUser: targetUsers,
-			ChatID:      signals.ChatSelected,
-			UserID:      session.UserID(),
-		},
-	)
+	var errs []error
+	for _, recipient := range targetUsers {
+		errs = append(errs,
+			dispatchWritingStopped(EventMessagingWritingStopped{
+				Recipient: datapages.SubjectUser(recipient),
+				ChatID:    signals.ChatSelected,
+				UserID:    session.UserID(),
+			}),
+			dispatchSent(EventMessagingSent{
+				Recipient: datapages.SubjectUser(recipient),
+				ChatID:    signals.ChatSelected,
+				UserID:    session.UserID(),
+			}),
+		)
+	}
+	return errors.Join(errs...)
 }
 
 func (p PageMessages) OnMessagingRead(

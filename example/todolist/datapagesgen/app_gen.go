@@ -715,22 +715,25 @@ func (s *Server) handlePUTEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	path.ID = r.PathValue("id")
 
-	dispatch := func(
-		e1 app.EventTodoUpdated,
+	dispatchTodoUpdated := func(
+		e app.EventTodoUpdated,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
-			}
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, EvSubjTodoUpdated, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTodoUpdated, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
 		}
 		return nil
 	}
-	err := s.app.PUTEdit(r, path, query, signals, dispatch)
+	err := s.app.PUTEdit(r, path, query, signals, dispatchTodoUpdated)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Edit", err)
 		return
@@ -888,25 +891,28 @@ func (s *Server) handlePageIndexPOSTCreate(
 		return
 	}
 
-	dispatch := func(
-		e1 app.EventTodoUpdated,
+	dispatchTodoUpdated := func(
+		e app.EventTodoUpdated,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
-			}
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, EvSubjTodoUpdated, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTodoUpdated, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
 		}
 		return nil
 	}
 	p := app.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTCreate(r, signals, dispatch)
+	err := p.POSTCreate(r, signals, dispatchTodoUpdated)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Create", err)
 		return
@@ -1048,25 +1054,28 @@ func (s *Server) handlePageItemDELETEItem(
 	}
 	path.ID = r.PathValue("id")
 
-	dispatch := func(
-		e1 app.EventTodoUpdated,
+	dispatchTodoUpdated := func(
+		e app.EventTodoUpdated,
+		options ...datapages.DispatchOption,
 	) error {
-		{
-			j, err := json.Marshal(e1)
-			if err != nil {
-				return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
-			}
-			err = s.messageBroker.Publish(r.Context(), s.messageBrokerMetrics, EvSubjTodoUpdated, j)
-			if err != nil {
-				return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
-			}
+		conf := datapages.DispatchConfig{Context: r.Context()}
+		for _, o := range options {
+			o(&conf)
+		}
+		j, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
+		}
+		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTodoUpdated, j)
+		if err != nil {
+			return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
 		}
 		return nil
 	}
 	p := app.PageItem{
 		App: s.app,
 	}
-	redirect, err := p.DELETEItem(r, path, signals, dispatch)
+	redirect, err := p.DELETEItem(r, path, signals, dispatchTodoUpdated)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageItem.Item", err)
 		return

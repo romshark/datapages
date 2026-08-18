@@ -439,52 +439,29 @@ func (e *ErrorSignalsFieldDuplicateTag) ASTPos() token.Pos { return e.Pos }
 
 // Dispatch parameter errors.
 var (
-	ErrDispatchParamNotFunc = errors.New(
-		"dispatch parameter must be a function type",
-	)
-	ErrDispatchMustReturnError error = &ErrorDispatchMustReturnError{}
-	ErrDispatchNoParams        error = &ErrorDispatchNoParams{}
-	ErrDispatchParamNotEvent   error = &ErrorDispatchParamNotEvent{}
+	ErrDispatchParamNotEvent error = &ErrorDispatchParamNotEvent{}
+	ErrDispatchParamLegacy   error = &ErrorDispatchParamLegacy{}
 )
 
-// ErrorDispatchMustReturnError is returned when a dispatch function's
-// return type is not exactly `error`.
-type ErrorDispatchMustReturnError struct {
-	Recv       string    // e.g. "PageFoo"
-	MethodName string    // e.g. "GET"
-	ParamTypes string    // e.g. "EventFoo, EventBar"
-	Pos        token.Pos // position of the problematic return type or func keyword
-}
-
-func (e *ErrorDispatchMustReturnError) Error() string {
-	if e.Recv == "" {
-		return "dispatch function must return exactly one value of type error"
-	}
-	return fmt.Sprintf(
-		"dispatch function must return exactly one value of type error in %s.%s",
-		e.Recv, e.MethodName,
-	)
-}
-
-func (e *ErrorDispatchMustReturnError) Is(target error) bool {
-	_, ok := target.(*ErrorDispatchMustReturnError)
-	return ok
-}
-
-func (e *ErrorDispatchMustReturnError) ASTPos() token.Pos { return e.Pos }
-
-// ErrorDispatchParamNotEvent is returned when a dispatch function
-// parameter is not an event type.
+// ErrorDispatchParamNotEvent is returned when the type argument of
+// datapages.Dispatch is not an event type.
 type ErrorDispatchParamNotEvent struct {
 	Recv       string    // e.g. "PageFoo"
 	MethodName string    // e.g. "GET"
-	Pos        token.Pos // position of the non-event parameter type
+	TypeName   string    // e.g. "string"
+	Pos        token.Pos // position of the type argument
 }
 
 func (e *ErrorDispatchParamNotEvent) Error() string {
+	if e.TypeName == "" {
+		return fmt.Sprintf(
+			"datapages.Dispatch type argument must be an event type in %s.%s",
+			e.Recv, e.MethodName,
+		)
+	}
 	return fmt.Sprintf(
-		"dispatch function parameter must be an event type in %s.%s",
-		e.Recv, e.MethodName,
+		"datapages.Dispatch type argument must be an event type in %s.%s: %s",
+		e.Recv, e.MethodName, e.TypeName,
 	)
 }
 
@@ -495,140 +472,90 @@ func (e *ErrorDispatchParamNotEvent) Is(target error) bool {
 
 func (e *ErrorDispatchParamNotEvent) ASTPos() token.Pos { return e.Pos }
 
-// ErrorDispatchNoParams is returned when a dispatch function has no parameters.
-type ErrorDispatchNoParams struct {
+// ErrorDispatchParamLegacy is returned for a handler parameter that dispatches
+// events the way Datapages accepted before datapages.Dispatch,
+// a plain function type or a parameter named "dispatch".
+type ErrorDispatchParamLegacy struct {
 	Recv       string    // e.g. "PageFoo"
 	MethodName string    // e.g. "GET"
-	Pos        token.Pos // position of the empty param list
+	ParamName  string    // e.g. "dispatch"
+	Pos        token.Pos // position of the parameter
 }
 
-func (e *ErrorDispatchNoParams) Error() string {
+func (e *ErrorDispatchParamLegacy) Error() string {
 	return fmt.Sprintf(
-		"dispatch function must have at least one event parameter in %s.%s",
-		e.Recv, e.MethodName,
+		"dispatcher %s in %s.%s must be typed datapages.Dispatch[EventXXX]",
+		e.ParamName, e.Recv, e.MethodName,
 	)
 }
 
-func (e *ErrorDispatchNoParams) Is(target error) bool {
-	_, ok := target.(*ErrorDispatchNoParams)
+func (e *ErrorDispatchParamLegacy) Is(target error) bool {
+	_, ok := target.(*ErrorDispatchParamLegacy)
 	return ok
 }
 
-func (e *ErrorDispatchNoParams) ASTPos() token.Pos { return e.Pos }
+func (e *ErrorDispatchParamLegacy) ASTPos() token.Pos { return e.Pos }
 
-// IsDispatchParam reports whether the AST field is named "dispatch".
-func IsDispatchParam(f *ast.Field) bool {
-	return len(f.Names) > 0 &&
-		f.Names[0].Name == "dispatch"
+// IsDispatchParam reports whether the AST field is typed datapages.Dispatch[EventXXX].
+func IsDispatchParam(f *ast.Field, info *types.Info) bool {
+	return typecheck.IsDispatchType(f.Type, info)
 }
 
-// funcParamTypes returns a comma-separated list of parameter type
-// expressions from a function type AST node (e.g. "EventFoo, EventBar").
-func funcParamTypes(ft *ast.FuncType) string {
-	if ft.Params == nil {
-		return ""
+// IsLegacyDispatchParam reports whether the AST field looks like a dispatcher
+// of the pre-datapages.Dispatch era: a plain function type, or the name the
+// parser used to match dispatchers by.
+func IsLegacyDispatchParam(f *ast.Field, info *types.Info) bool {
+	if len(f.Names) > 0 && f.Names[0].Name == "dispatch" {
+		return true
 	}
-	var parts []string
-	for _, p := range ft.Params.List {
-		t := types.ExprString(p.Type)
-		n := len(p.Names)
-		if n == 0 {
-			n = 1
-		}
-		for range n {
-			parts = append(parts, t)
-		}
+	t := info.TypeOf(f.Type)
+	if t == nil {
+		return false
 	}
-	return strings.Join(parts, ", ")
+	_, isFunc := t.Underlying().(*types.Signature)
+	return isFunc
 }
 
-// ValidateDispatchFunc validates that a dispatch parameter
-// is a function type with EventXXX parameters and a single error return.
-// Returns the list of event type names.
-func ValidateDispatchFunc(
+// LegacyDispatchError builds the error reported for a legacy dispatcher.
+func LegacyDispatchError(
+	f *ast.Field, recv, method string,
+) *ErrorDispatchParamLegacy {
+	name := "_"
+	if len(f.Names) > 0 {
+		name = f.Names[0].Name
+	}
+	return &ErrorDispatchParamLegacy{
+		Recv:       recv,
+		MethodName: method,
+		ParamName:  name,
+		Pos:        f.Type.Pos(),
+	}
+}
+
+// ValidateDispatch validates that the type argument of a datapages.Dispatch[EventXXX]
+// parameter is a declared event type. Returns the event type name.
+func ValidateDispatch(
 	f *ast.Field,
 	info *types.Info,
 	eventTypeNames map[string]struct{},
 	recv, method string,
-) ([]string, error) {
-	ft, ok := f.Type.(*ast.FuncType)
+) (string, error) {
+	name, ok := typecheck.DispatchEventTypeName(f.Type, info)
 	if !ok {
-		return nil, fmt.Errorf(
-			"%w in %s.%s",
-			ErrDispatchParamNotFunc, recv, method,
-		)
-	}
-
-	var errs []error
-
-	// Validate return: exactly one value of type error.
-	retOK := true
-	if ft.Results == nil || len(ft.Results.List) == 0 {
-		retOK = false
-	} else {
-		retCount := 0
-		for _, r := range ft.Results.List {
-			n := len(r.Names)
-			if n == 0 {
-				n = 1
-			}
-			retCount += n
-		}
-		if retCount != 1 {
-			retOK = false
-		} else if retType := info.TypeOf(ft.Results.List[0].Type); !typecheck.IsError(retType) {
-			retOK = false
+		// The caller checks IsDispatchParam first, hence unreachable.
+		return "", &ErrorDispatchParamNotEvent{
+			Recv: recv, MethodName: method, Pos: f.Type.Pos(),
 		}
 	}
-	if !retOK {
-		retPos := ft.Pos() // fallback: func keyword
-		if ft.Results != nil && len(ft.Results.List) > 0 {
-			retPos = ft.Results.List[0].Type.Pos()
-		}
-		errs = append(errs, &ErrorDispatchMustReturnError{
+	if _, isEvent := eventTypeNames[name]; !isEvent {
+		return "", &ErrorDispatchParamNotEvent{
 			Recv:       recv,
 			MethodName: method,
-			ParamTypes: funcParamTypes(ft),
-			Pos:        retPos,
-		})
-	}
-
-	// Validate parameters: at least one, all EventXXX.
-	var eventNames []string
-	if ft.Params == nil || len(ft.Params.List) == 0 {
-		errs = append(errs, &ErrorDispatchNoParams{
-			Recv:       recv,
-			MethodName: method,
-			Pos:        ft.Pos(),
-		})
-	} else {
-		for _, p := range ft.Params.List {
-			name, ok := typecheck.EventTypeNameOf(
-				p.Type, info, eventTypeNames,
-			)
-			if !ok {
-				errs = append(errs, &ErrorDispatchParamNotEvent{
-					Recv:       recv,
-					MethodName: method,
-					Pos:        p.Type.Pos(),
-				})
-				break
-			}
-			// Account for grouped names (a, b EventFoo).
-			n := len(p.Names)
-			if n == 0 {
-				n = 1
-			}
-			for range n {
-				eventNames = append(eventNames, name)
-			}
+			TypeName:   name,
+			Pos:        f.Type.Pos(),
 		}
 	}
-
-	if len(errs) > 0 {
-		return nil, errors.Join(errs...)
-	}
-	return eventNames, nil
+	return name, nil
 }
 
 // ValidatePathAgainstRoute checks that every path struct

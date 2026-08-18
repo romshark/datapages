@@ -14,19 +14,16 @@ type Session = datapages.Session[struct{}]
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(
-	r *http.Request,
-	session Session,
-) (body datapages.Component, err error) {
-	_ = session
+func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
-/* ErrEventSubjectUserSignal: user-addressed subject field with a signal tag */
+/* ErrEventSubjectPrefixedField: field named like a subject field but typed
+   as a payload field, which is what a pre-typed-subjects app looks like */
 
 // EventBad is "bad"
 type EventBad struct {
-	Recipient datapages.SubjectUser `signal:"user_id"`
+	SubjectUser []string `json:"subject_user"`
 
 	Data string `json:"data"`
 }

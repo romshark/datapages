@@ -13,8 +13,8 @@ import (
 
 // EventSessionClosed is "sessions.closed"
 type EventSessionClosed struct {
-	SubjectUser []string
-	Token       string `json:"token"`
+	Recipient datapages.SubjectUser
+	Token     string `json:"token"`
 }
 
 // SessionData is what this application keeps in the session on top of the
@@ -46,14 +46,14 @@ func (*App) Head(r *http.Request) datapages.Component { return head() }
 func (*App) POSTSignOut(
 	r *http.Request,
 	session Session,
-	dispatch func(EventSessionClosed) error,
+	dispatch datapages.Dispatch[EventSessionClosed],
 ) (
 	closeSession bool, redirect datapages.Redirect, err error,
 ) {
 	if !session.IsGuest() {
 		_ = dispatch(EventSessionClosed{
-			SubjectUser: []string{session.UserID()},
-			Token:       session.Token(),
+			Recipient: datapages.SubjectUser(session.UserID()),
+			Token:     session.Token(),
 		})
 	}
 	return true, datapages.Redirect{URL: href.PageIndex()}, nil

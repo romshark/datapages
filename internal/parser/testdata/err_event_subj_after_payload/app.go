@@ -22,11 +22,10 @@ func (PageIndex) GET(
 	return body, err
 }
 
-/* ErrEventSubjectUserSignal: user-addressed subject field with a signal tag */
+/* ErrEventSubjectAfterPayload: subject field after payload field */
 
 // EventBad is "bad"
 type EventBad struct {
-	Recipient datapages.SubjectUser `signal:"user_id"`
-
-	Data string `json:"data"`
+	Message   string `json:"message"`
+	Recipient datapages.SubjectUser
 }

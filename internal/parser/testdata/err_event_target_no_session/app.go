@@ -16,11 +16,11 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, err
 }
 
-/* ErrEventSubjectUserNoSession: SubjectUser without Session type */
+/* ErrEventSubjectUserNoSession: user-addressed event without Session type */
 
 // EventChat is "chat"
 type EventChat struct {
-	SubjectUser []string
+	Recipient datapages.SubjectUser
 
 	Message string `json:"message"`
 }

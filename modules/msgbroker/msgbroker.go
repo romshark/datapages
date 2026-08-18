@@ -15,7 +15,13 @@ type MessageBroker interface {
 		ctx context.Context, metrics Metrics, subjects ...string,
 	) (MessageBrokerSubscription, error)
 
-	// Publish sends a message to a subject (non-blocking)
+	// Publish sends a message to a subject (non-blocking).
+	//
+	// ctx carries cancelation and a deadline, nothing else.
+	// An implementation must not take publish parameters from it.
+	// Another implementation ignores what it doesn't know without error,
+	// so behavior the application relies on disappears silently.
+	// Take such parameters in the implementation's own configuration instead.
 	Publish(ctx context.Context, metrics Metrics, subject string, data []byte) error
 }
 

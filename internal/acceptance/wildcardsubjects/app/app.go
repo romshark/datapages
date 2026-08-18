@@ -17,7 +17,7 @@ type App struct{}
 // The subject field carries no signal tag.
 // Every stream of the page therefore wants every value of it.
 type EventNoted struct {
-	SubjectTopic string
+	Topic datapages.Subject
 
 	Text string `json:"text"`
 }
@@ -45,7 +45,7 @@ func (PageIndex) POSTNote(
 		Topic string `json:"topic"`
 		Text  string `json:"text"`
 	},
-	dispatch func(EventNoted) error,
+	dispatch datapages.Dispatch[EventNoted],
 ) error {
-	return dispatch(EventNoted{SubjectTopic: signals.Topic, Text: signals.Text})
+	return dispatch(EventNoted{Topic: datapages.Subject(signals.Topic), Text: signals.Text})
 }

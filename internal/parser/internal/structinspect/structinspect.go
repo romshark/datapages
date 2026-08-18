@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/romshark/datapages/internal/parser/internal/typecheck"
+	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/parser/validate"
 )
 
@@ -125,37 +127,45 @@ func HasRequiredAppField(
 	return false
 }
 
-// SubjectField describes a Subject-prefixed field found in a struct.
+// SubjectField describes an event field typed as a datapages subject segment.
 type SubjectField struct {
-	FieldName  string    // e.g. "SubjectUser"
-	Name       string    // e.g. "User"
-	SignalName string    // e.g. "instance_id" (from signal:"instance_id" tag, empty otherwise)
-	Singular   bool      // true when the field type is string (not []string)
-	Pos        token.Pos // position of the field name identifier
+	FieldName  string            // e.g. "Recipients"
+	Kind       model.SubjectKind // segment type, e.g. datapages.SubjectUser
+	SignalName string            // e.g. "instance_id" (from signal:"instance_id" tag, empty otherwise)
+	Pos        token.Pos         // position of the field name identifier
 }
 
-// SubjectFieldResult holds the result of inspecting a struct for Subject fields.
+// SubjectFieldResult holds the result of inspecting a struct for subject fields.
 type SubjectFieldResult struct {
-	// Fields are the valid Subject fields found, in definition order.
+	// Fields are the valid subject fields found, in definition order.
 	Fields []SubjectField
-	// AfterPayload is non-nil when a Subject field appears after a
-	// non-Subject (payload) field. It points to the offending field.
+	// AfterPayload is non-nil when a subject field appears after a
+	// non-subject (payload) field. It points to the offending field.
 	AfterPayload *SubjectField
 	// DuplicateSignal is non-nil when two subject fields share the
 	// same signal:"..." tag value. It points to the second occurrence.
 	// DuplicateSignalFirst names the first field that used the signal.
 	DuplicateSignal      *SubjectField
 	DuplicateSignalFirst string
-	// UserWithSignal is non-nil when SubjectUser has a signal:"..." tag.
-	// SubjectUser is auth-scoped and must not be bound to a signal.
+	// UserWithSignal is non-nil when a user-addressed subject field has a
+	// signal:"..." tag. Such a field is bound to the authenticated user
+	// and must not be bound to a signal.
 	UserWithSignal *SubjectField
 	// InvalidSignal is non-nil when a signal:"..." tag value is malformed.
 	InvalidSignal *SubjectField
+	// Unexported lists unexported subject fields.
+	// Generated code in another package can't reach them, hence they're rejected.
+	Unexported []SubjectField
+	// Prefixed lists exported fields named like a subject field
+	// (prefix "Subject") that aren't typed as one. Kind is
+	// model.SubjectKindNone for all of them.
+	Prefixed []SubjectField
 }
 
-// SubjectFields inspects a type spec for Subject-prefixed fields.
-// A valid Subject field has type string or []string.
-// Returns the list of subject fields and whether any appear after payload fields.
+// SubjectFields inspects a type spec for fields typed as datapages subject
+// segments ([github.com/romshark/datapages.Subject], .Subjects, .SubjectUser
+// and .SubjectUsers). Returns them in definition order together with the
+// violations found along the way.
 func SubjectFields(
 	ts *ast.TypeSpec, info *types.Info,
 ) SubjectFieldResult {
@@ -171,33 +181,18 @@ func SubjectFields(
 			continue
 		}
 		name := f.Names[0].Name
-		suffix, isSubject := strings.CutPrefix(name, "Subject")
-		if !isSubject || suffix == "" {
-			// Not a Subject field — it's a payload field.
-			if len(f.Names) == 1 && f.Names[0].IsExported() {
+		kind := typecheck.SubjectKindOf(info.TypeOf(f.Type))
+		if !kind.IsSubject() {
+			// Not a subject field, it's a payload field.
+			if f.Names[0].IsExported() {
 				seenPayload = true
+				if strings.HasPrefix(name, "Subject") {
+					result.Prefixed = append(result.Prefixed, SubjectField{
+						FieldName: name,
+						Pos:       f.Names[0].Pos(),
+					})
+				}
 			}
-			continue
-		}
-
-		// Validate type is string or []string.
-		t := info.TypeOf(f.Type)
-		if t == nil {
-			continue
-		}
-		singular := false
-		switch ut := t.(type) {
-		case *types.Basic:
-			if ut.Kind() != types.String {
-				continue
-			}
-			singular = true
-		case *types.Slice:
-			basic, ok := ut.Elem().(*types.Basic)
-			if !ok || basic.Kind() != types.String {
-				continue
-			}
-		default:
 			continue
 		}
 
@@ -211,16 +206,20 @@ func SubjectFields(
 
 		sf := SubjectField{
 			FieldName:  name,
-			Name:       suffix,
+			Kind:       kind,
 			SignalName: signalName,
-			Singular:   singular,
 			Pos:        f.Names[0].Pos(),
+		}
+
+		if !f.Names[0].IsExported() {
+			result.Unexported = append(result.Unexported, sf)
+			continue
 		}
 
 		if seenPayload && result.AfterPayload == nil {
 			result.AfterPayload = &sf
 		}
-		if suffix == "User" && signalName != "" && result.UserWithSignal == nil {
+		if kind.IsUser() && signalName != "" && result.UserWithSignal == nil {
 			result.UserWithSignal = &sf
 		}
 		if signalName != "" && validate.SignalTagName(signalName) != nil && result.InvalidSignal == nil {
