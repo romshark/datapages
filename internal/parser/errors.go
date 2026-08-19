@@ -115,9 +115,6 @@ var (
 
 	ErrDispatchParamNotEvent = paramvalidation.ErrDispatchParamNotEvent
 
-	ErrSessionParamNotSessionType = errors.New(
-		"session parameter type must be datapages.Session[Data]",
-	)
 	ErrSessionTypeConflict = errors.New(
 		"all handlers must use the same datapages.Session[Data] instantiation",
 	)
@@ -728,11 +725,7 @@ type ErrorSignatureUnsupportedInput struct {
 	ParamType  string // e.g. "*http.Request"
 	Recv       string // e.g. "PageFoo"
 	MethodName string // e.g. "GET"
-	// ExpectedName is set when there is exactly one candidate for the
-	// parameter (e.g. type is Session but name is not "session").
-	ExpectedName string
-	// CandidateNames lists multiple possible parameter names when the
-	// parameter type matches more than one known input slot.
+	// CandidateNames lists the handler inputs the parameter's type could stand for.
 	CandidateNames []string
 }
 

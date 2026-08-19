@@ -92,7 +92,7 @@ func fakeStructInfo() (*ast.Field, *types.Info) {
 	return f, info
 }
 
-// wrapperSrc declares the datapages input wrappers and a function taking one
+// wrapperSrc declares the datapages input types and a function taking one
 // parameter of each, plus one that is none of them. It is type-checked under
 // the import path of the datapages package, which is what the predicates match.
 const wrapperSrc = `package datapages
@@ -100,25 +100,21 @@ const wrapperSrc = `package datapages
 type Path[Values any] struct{ Values Values }
 type Query[Values any] struct{ Values Values }
 type Signals[Values any] struct{ Values Values }
+type Session[Data any] struct{ data Data }
 
 func f(
 	p Path[struct{}],
 	q Query[struct{}],
 	s Signals[struct{}],
 	x int,
+	sess Session[struct{}],
 ) {}`
-
-func field(name string) *ast.Field {
-	return &ast.Field{
-		Names: []*ast.Ident{{Name: name}},
-	}
-}
 
 func TestIsSessionParam(t *testing.T) {
 	t.Parallel()
-	require.True(t, IsSessionParam(field("session")))
-	require.False(t, IsSessionParam(field("path")))
-	require.False(t, IsSessionParam(&ast.Field{}))
+	f, info := typeCheckSrc(t, wrapperSrc)
+	require.True(t, IsSessionParam(firstFuncParam(t, f, 4), info))
+	require.False(t, IsSessionParam(firstFuncParam(t, f, 3), info))
 }
 
 func TestIsPathParam(t *testing.T) {

@@ -427,6 +427,8 @@ session datapages.Session[Data]
 ```
 
 Provides authentication information from cookies.
+The parameter is recognized by its `datapages.Session` type,
+its name is up to the application.
 
 The session is read-only: it exposes `UserID()`, `IsGuest()`, `Token()`,
 `IssuedAt()`, `ExpiresAt()` and `Data()`, and returning [`newSession`](#return-value-newsession-datapagesnewsessiondata)

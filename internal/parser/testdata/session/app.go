@@ -47,9 +47,9 @@ func (PageProfile) GET(
 // Action with session.
 func (PageProfile) POSTUpdate(
 	r *http.Request,
-	session Session,
+	sess Session,
 ) error {
-	_ = session
+	_ = sess
 	return nil
 }
 

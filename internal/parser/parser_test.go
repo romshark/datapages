@@ -1002,7 +1002,7 @@ func TestParse_Session(t *testing.T) {
 		require.Nil(p.GET.InputSession)
 	}
 
-	// PageProfile - GET with session (no sessionToken)
+	// PageProfile - GET with session
 	{
 		p := findPage(app, "PageProfile")
 		require.NotNil(p)
@@ -1014,7 +1014,8 @@ func TestParse_Session(t *testing.T) {
 		update := findAction(p.Actions, "Update")
 		require.NotNil(update)
 		require.NotNil(update.InputSession)
-		require.Equal("session", update.InputSession.Name)
+		// The parameter is matched by its type, not by its name.
+		require.Equal("sess", update.InputSession.Name)
 		require.Nil(update.InputSSE)
 
 		// POSTNotify - action with SSE + session
@@ -1030,21 +1031,21 @@ func TestParse_Session(t *testing.T) {
 		require.Equal("session", evh.InputSession.Name)
 	}
 
-	// PageSettings - sessionToken + session
+	// PageSettings - session
 	{
 		p := findPage(app, "PageSettings")
 		require.NotNil(p)
 
-		// GET with sessionToken and session.
+		// GET with session.
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.InputSession)
 
-		// POSTClose - action with sessionToken + session
+		// POSTClose - action with session
 		close := findAction(p.Actions, "Close")
 		require.NotNil(close)
 		require.NotNil(close.InputSession)
 
-		// Event handler with sessionToken + session
+		// Event handler with session
 		require.Len(p.EventHandlers, 1)
 		evh := p.EventHandlers[0]
 		require.NotNil(evh.InputSession)
@@ -1058,7 +1059,7 @@ func TestParse_ErrSession(t *testing.T) {
 
 	requireParseErrors(
 		t, err,
-		parser.ErrSessionParamNotSessionType,
+		parser.ErrSignatureUnsupportedInput,
 	)
 }
 

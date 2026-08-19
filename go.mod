@@ -6,7 +6,6 @@ require (
 	github.com/a-h/templ v0.3.1020
 	github.com/charmbracelet/huh v1.0.0
 	github.com/fatih/color v1.19.0
-	github.com/lithammer/fuzzysearch v1.1.8
 	github.com/mattn/go-isatty v0.0.24
 	github.com/nats-io/nats.go v1.53.1
 	github.com/romshark/templier v0.12.1

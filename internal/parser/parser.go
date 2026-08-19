@@ -14,7 +14,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/lithammer/fuzzysearch/fuzzy"
 	"golang.org/x/tools/go/packages"
 
 	"github.com/romshark/datapages/internal/gotypes"
@@ -801,14 +800,8 @@ func validateAndAttachEventHandler(
 				// Already validated above.
 			case typecheck.IsSSEParam(f.Type, ctx.pkg.TypesInfo):
 				// Already validated above.
-			case paramvalidation.IsSessionParam(f):
-				if !typecheck.IsSessionType(f.Type, ctx.pkg.TypesInfo) {
-					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), fmt.Errorf(
-						"%w: %s.%s",
-						ErrSessionParamNotSessionType,
-						recv, fd.Name.Name,
-					))
-				}
+			case paramvalidation.IsSessionParam(f, ctx.pkg.TypesInfo):
+				// Already validated above.
 			case typecheck.IsStreamIDType(f.Type, ctx.pkg.TypesInfo):
 				// Already validated above.
 			default:
@@ -1422,7 +1415,7 @@ func parseEventHandler(
 			h.InputStreamID = parseInput(f, f.Type, info)
 			h.InputStreamID.Kind = model.InputKindStreamID
 			h.OrderedInputs = append(h.OrderedInputs, h.InputStreamID)
-		case paramvalidation.IsSessionParam(f):
+		case paramvalidation.IsSessionParam(f, info):
 			h.InputSession = parseInput(f, f.Type, info)
 			h.InputSession.Kind = model.InputKindSession
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
@@ -1509,15 +1502,11 @@ func parseStreamHook(
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
 
-		case paramvalidation.IsSessionParam(f):
+		case paramvalidation.IsSessionParam(f, info):
 			if h.InputSession != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
-			}
-			if !typecheck.IsSessionType(f.Type, info) {
-				return h, fieldErr(fmt.Errorf("%w in %s.%s",
-					ErrSessionParamNotSessionType, recv, fd.Name.Name))
 			}
 			h.InputSession = parseInput(f, f.Type, info)
 			h.InputSession.Kind = model.InputKindSession
@@ -1828,20 +1817,10 @@ func appendPositioned(dst *[]error, fset *token.FileSet, fallback token.Pos, err
 	}
 }
 
-// knownParamNames lists the handler parameter names that are matched by name,
-// used for fuzzy matching in unsupportedInputError.
-var knownParamNames = []string{
-	"sessionToken", "session",
-}
-
 // unsupportedInputError builds an ErrorSignatureUnsupportedInput for a
 // parameter that doesn't match any recognized handler input.
-// It checks whether the parameter's type matches a known input whose
-// name-based check failed, and if so, sets ExpectedName for a rename
-// suggestion. When h is non-nil, it checks whether the expected name
-// would collide with an already-consumed input.
-// As a fallback, it performs fuzzy matching against the parameter names
-// that are still matched by name.
+// When h is non-nil, it names the inputs whose type the parameter could carry
+// and whose slot the handler hasn't filled yet.
 func unsupportedInputError(
 	f *ast.Field, h *model.Handler, info *types.Info, recv, method string,
 ) *ErrorSignatureUnsupportedInput {
@@ -1861,9 +1840,8 @@ func unsupportedInputError(
 		MethodName: method,
 	}
 
-	// Check if the type matches a known input but the name is wrong.
-	// Only suggest renaming when the slot is not already consumed
-	// and the parameter doesn't already have the expected name.
+	// Name the inputs the parameter's type could stand for,
+	// skipping the slots the handler has already filled.
 	if h != nil {
 		switch {
 		case typecheck.IsPtrToNetHTTPReq(f.Type, info):
@@ -1878,17 +1856,10 @@ func unsupportedInputError(
 		}
 	}
 
-	// Try fuzzy name matching for the best rename suggestion.
-	if paramName != "_" {
-		if best, ok := fuzzyMatchParamName(paramName, h); ok {
-			e.ExpectedName = best
-		}
-	}
-
 	return e
 }
 
-// typeCandidates returns the unconsumed known parameter names whose
+// typeCandidates returns the unconsumed handler inputs whose
 // expected type matches the field's type.
 func typeCandidates(
 	f *ast.Field, h *model.Handler, info *types.Info,
@@ -1909,7 +1880,7 @@ func typeCandidates(
 	}
 	all := []candidate{
 		{"datapages.StreamID", h.InputStreamID != nil, isUint64},
-		{"session", h.InputSession != nil, isSession},
+		{"datapages.Session[Data]", h.InputSession != nil, isSession},
 		// A plain struct is what the path, query and signals wrappers carry,
 		// so suggest wrapping it. Named types with a more specific match
 		// (e.g. Session) are not candidates.
@@ -1930,40 +1901,6 @@ func typeCandidates(
 func isStructType(t types.Type) bool {
 	_, ok := t.Underlying().(*types.Struct)
 	return ok
-}
-
-// fuzzyMatchParamName returns the closest known parameter name to name,
-// if one is close enough. It skips names whose slot is already consumed in h.
-func fuzzyMatchParamName(name string, h *model.Handler) (string, bool) {
-	bestName := ""
-	bestDist := -1
-	for _, known := range knownParamNames {
-		if h != nil && isParamConsumed(h, known) {
-			continue
-		}
-		d := fuzzy.LevenshteinDistance(
-			strings.ToLower(name), strings.ToLower(known),
-		)
-		// Accept if distance is at most ~1/3 of the longer name's length.
-		maxDist := max(max(len(name), len(known))/3, 1)
-		if d <= maxDist && (bestDist < 0 || d < bestDist) {
-			bestName = known
-			bestDist = d
-		}
-	}
-	if bestDist < 0 {
-		return "", false
-	}
-	return bestName, true
-}
-
-// isParamConsumed reports whether the named parameter slot is already consumed in h.
-func isParamConsumed(h *model.Handler, name string) bool {
-	switch name {
-	case "session":
-		return h.InputSession != nil
-	}
-	return false
 }
 
 // parseInput builds the model input for a handler parameter.
@@ -2101,15 +2038,11 @@ func parseHandler(
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
 
-		case paramvalidation.IsSessionParam(f):
+		case paramvalidation.IsSessionParam(f, info):
 			if h.InputSession != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
-			}
-			if !typecheck.IsSessionType(f.Type, info) {
-				return h, nil, fieldErr(fmt.Errorf("%w in %s.%s",
-					ErrSessionParamNotSessionType, recv, fd.Name.Name))
 			}
 			h.InputSession = parseInput(f, f.Type, info)
 			h.InputSession.Kind = model.InputKindSession

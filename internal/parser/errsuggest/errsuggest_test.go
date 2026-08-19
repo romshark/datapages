@@ -403,45 +403,15 @@ func TestSuggest(t *testing.T) {
 			},
 			want: "fix: Remove parameter b",
 		},
-		"ErrSignatureUnsupportedInput/rename": {
+		"ErrSignatureUnsupportedInput/single candidate": {
 			err: &parser.ErrorSignatureUnsupportedInput{
-				ParamName:    "sess",
-				ParamType:    "Session",
-				Recv:         "PageFoo",
-				MethodName:   "GET",
-				ExpectedName: "session",
+				ParamName:      "s",
+				ParamType:      "uint64",
+				Recv:           "PageFoo",
+				MethodName:     "StreamOpen",
+				CandidateNames: []string{"datapages.StreamID"},
 			},
-			want: "fix: Rename parameter sess to session",
-		},
-		"ErrSignatureUnsupportedInput/fuzzy sessionTok": {
-			err: &parser.ErrorSignatureUnsupportedInput{
-				ParamName:    "sessionTok",
-				ParamType:    "string",
-				Recv:         "PageFoo",
-				MethodName:   "GET",
-				ExpectedName: "sessionToken",
-			},
-			want: "fix: Rename parameter sessionTok to sessionToken",
-		},
-		"ErrSignatureUnsupportedInput/type string single candidate": {
-			err: &parser.ErrorSignatureUnsupportedInput{
-				ParamName:    "s",
-				ParamType:    "string",
-				Recv:         "PageFoo",
-				MethodName:   "GET",
-				ExpectedName: "sessionToken",
-			},
-			want: "fix: Rename parameter s to sessionToken",
-		},
-		"ErrSignatureUnsupportedInput/name already matches expected": {
-			err: &parser.ErrorSignatureUnsupportedInput{
-				ParamName:    "session",
-				ParamType:    `struct{InstanceID string "json:\"instance_id\""}`,
-				Recv:         "PageIndex",
-				MethodName:   "OnCalcUpdated",
-				ExpectedName: "session",
-			},
-			want: "fix: Remove parameter session",
+			want: "fix: Potential candidates: datapages.StreamID",
 		},
 		"ErrSignatureUnsupportedInput/type struct multiple candidates": {
 			err: &parser.ErrorSignatureUnsupportedInput{

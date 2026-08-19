@@ -131,7 +131,8 @@ type Session = datapages.Session[SessionData]
 use `struct{}` when you need none. All handlers must use the same `Data` type,
 so declare the alias once and use it everywhere.
 
-Handlers accept `session Session` as a parameter and return
+Handlers accept `session Session` as a parameter, matched by its type with a
+free name, and return
 `newSession datapages.NewSession[SessionData]` or `closeSession bool` as return values.
 `NewSession` carries `UserID`, an optional `ExpiresAt` and `Data`,
 datapages generates the token and stamps the issuance time.

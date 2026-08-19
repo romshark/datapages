@@ -98,10 +98,9 @@ func (e *fieldPosError) Error() string     { return e.err.Error() }
 func (e *fieldPosError) Unwrap() error     { return e.err }
 func (e *fieldPosError) ASTPos() token.Pos { return e.pos }
 
-// IsSessionParam reports whether the AST field is named "session".
-func IsSessionParam(f *ast.Field) bool {
-	return len(f.Names) > 0 &&
-		f.Names[0].Name == "session"
+// IsSessionParam reports whether the AST field is typed datapages.Session[Data].
+func IsSessionParam(f *ast.Field, info *types.Info) bool {
+	return typecheck.IsSessionType(f.Type, info)
 }
 
 // IsPathParam reports whether the AST field is typed datapages.Path[Values].
@@ -110,10 +109,9 @@ func IsPathParam(f *ast.Field, info *types.Info) bool {
 	return ok
 }
 
-// ValidatePathStruct validates that the Values type argument of a
-// datapages.Path parameter is a struct with exported fields of supported types
-// (string, bool, integers, floats, or encoding.TextUnmarshaler) each carrying
-// a `path:"..."` tag.
+// ValidatePathStruct validates that the Values type argument of a datapages.Path
+// parameter is a struct with exported fields of supported types (string, bool, integers,
+// floats, or encoding.TextUnmarshaler) each carrying a `path:"..."` tag.
 func ValidatePathStruct(
 	values ast.Expr, info *types.Info, recv, method string,
 ) error {
