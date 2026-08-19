@@ -943,7 +943,7 @@ func (w *Writer) writePageGETStreamHandler(
 	w.writePageStreamOpenHook(p)
 	w.writePageStreamCloseHook(p)
 	w.Line(1, "func(")
-	w.Line(2, "streamID uint64,")
+	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")
 	w.Line(1, ") {")
 	if len(p.EventHandlers) == 0 {
@@ -1049,7 +1049,7 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 		return
 	}
 	w.Line(1, "func(")
-	w.Line(2, "streamID uint64,")
+	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator,")
 	w.Line(1, ") error {")
 	if p.StreamOpen.OutputErr != nil {
@@ -1073,7 +1073,7 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 		w.Line(1, "nil,")
 		return
 	}
-	w.Line(1, "func(streamID uint64) {")
+	w.Line(1, "func(streamID datapages.StreamID) {")
 	if p.StreamClose.OutputErr != nil {
 		w.Raw("\t\tif err := ")
 		w.writeCallExpr(
@@ -1191,7 +1191,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.writePageStreamOpenHook(p)
 	w.writePageStreamCloseHook(p)
 	w.Line(1, "func(")
-	w.Line(2, "streamID uint64,")
+	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")
 	w.Line(1, ") {")
 	w.Line(2, "for msg := range ch {")

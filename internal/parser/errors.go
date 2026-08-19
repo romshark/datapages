@@ -20,7 +20,7 @@ var (
 	ErrAppMissingTypeApp         = errors.New(`missing required type "App"`)
 	ErrAppMissingPageIndex       = errors.New(`missing required page type "PageIndex"`)
 	ErrSignatureMissingReq       = errors.New(`missing the *http.Request parameter`)
-	ErrSignatureMissingStreamID  = errors.New(`missing the streamID uint64 parameter`)
+	ErrSignatureMissingStreamID  = errors.New(`missing the datapages.StreamID parameter`)
 	ErrSignatureMultiErrRet      = errors.New(`multiple error return values`)
 	ErrSignatureUnsupportedInput = errors.New(`unsupported input parameter`)
 	ErrSignatureEvHandMissingSSE = errors.New(
@@ -121,7 +121,6 @@ var (
 	ErrSessionTypeConflict = errors.New(
 		"all handlers must use the same datapages.Session[Data] instantiation",
 	)
-	ErrStreamIDParamNotUint64 = errors.New("streamID parameter must be of type uint64")
 
 	ErrRedirectNotRedirectType = errors.New(
 		"redirect must be of type datapages.Redirect",

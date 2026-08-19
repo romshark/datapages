@@ -163,7 +163,7 @@ The `XXX` placeholder must always match the event name after the type's `Event` 
 func (PageIndex) OnSomethingHappened(
 	event EventSomethingHappened,
 	sse datapages.SSE,
-	streamID uint64, // Optional
+	streamID datapages.StreamID, // Optional
 	session datapages.Session[Data], // Optional
 ) error {
 	// ...
@@ -177,6 +177,8 @@ the stream is closed.
 Datapages handles the error like any other Datastar request error: if `RecoverError`
 is defined it is invoked, otherwise the server falls back to its internal-error path.
 The `streamID` is a per-process unique identifier for the SSE stream instance.
+The parameter is recognized by its `datapages.StreamID` type,
+its name is up to the application.
 Use it to correlate `StreamOpen` and `StreamClose` for the same stream.
 It's intended for internal server-side bookkeeping only and
 should not be exposed to clients.
@@ -184,7 +186,7 @@ should not be exposed to clients.
 ```go
 func (PageIndex) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	sse datapages.SSE, // Optional
 	session datapages.Session[Data], // Optional
 	signals datapages.Signals[struct{...}], // Optional
@@ -202,7 +204,7 @@ If it returns an error, datapages logs the error server-side.
 ```go
 func (PageIndex) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	session datapages.Session[Data], // Optional
 	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional

@@ -84,6 +84,29 @@ type Path[Values any] struct{ Values Values }
 // The tag value must match a json tag in the signals struct.
 type Query[Values any] struct{ Values Values }
 
+// StreamID identifies one SSE stream instance within the process.
+// StreamOpen and StreamClose must receive it, event (OnXXX) handlers may:
+//
+//	func (p PageIndex) StreamOpen(
+//		r *http.Request, streamID datapages.StreamID,
+//	) error {
+//		return p.App.OpenTab(streamID)
+//	}
+//
+//	func (p PageIndex) StreamClose(
+//		r *http.Request, streamID datapages.StreamID,
+//	) error {
+//		return p.App.CloseTab(streamID)
+//	}
+//
+// It pairs the two hooks for the same stream. One session can hold several streams,
+// one per open tab, and the ID is what tells them apart: register per-tab state under
+// it in StreamOpen, read that state in the OnXXX handlers,
+// and drop it in StreamClose. It also ties the log lines of one stream together.
+//
+// Keep it server-side and never hand it to clients.
+type StreamID uint64
+
 // Session is the authenticated session of the client, passed to handlers as the
 // session parameter. It's read-only: return a [NewSession] to change it.
 //

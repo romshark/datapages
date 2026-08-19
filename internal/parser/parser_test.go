@@ -341,6 +341,8 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.Equal("StreamOpen", p.StreamOpen.Name)
 		require.NotNil(p.StreamOpen.InputRequest)
 		require.NotNil(p.StreamOpen.InputStreamID)
+		// The parameter is matched by its type, not by its name.
+		require.Equal("id", p.StreamOpen.InputStreamID.Name)
 		require.Nil(p.StreamOpen.InputSSE)
 		require.Nil(p.StreamOpen.InputSession)
 		require.Nil(p.StreamOpen.InputSignals)
@@ -401,7 +403,7 @@ func TestParse_ErrStreamHooks(t *testing.T) {
 		t, err,
 		parser.ErrSignatureMissingReq,
 		parser.ErrSignatureMissingStreamID,
-		parser.ErrStreamIDParamNotUint64,
+		parser.ErrSignatureMissingStreamID,  // StreamOpen with streamID string
 		parser.ErrSignatureUnsupportedInput, // StreamClose with signals
 		parser.ErrSignatureStreamHookReturnMustBeError,
 		parser.ErrSignatureUnsupportedInput, // StreamClose with sse
@@ -410,7 +412,7 @@ func TestParse_ErrStreamHooks(t *testing.T) {
 		parser.ErrSignatureUnsupportedInput, // StreamOpen with query
 		parser.ErrSignatureUnsupportedInput, // StreamClose with query
 		parser.ErrSignatureUnsupportedInput, // action handler with streamID
-		parser.ErrStreamIDParamNotUint64,    // StreamOpen with streamID int
+		parser.ErrSignatureMissingStreamID,  // StreamOpen with streamID int
 		parser.ErrSignatureUnsupportedInput, // StreamOpen with an untyped dispatcher
 		parser.ErrDispatchDuplicate,         // StreamClose with two of one type
 	)

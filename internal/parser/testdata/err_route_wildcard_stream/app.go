@@ -28,4 +28,8 @@ func (PageFiles) GET(
 	return nil, nil
 }
 
-func (PageFiles) StreamOpen(r *http.Request, streamID uint64) error { return nil }
+func (PageFiles) StreamOpen(
+	r *http.Request, streamID datapages.StreamID,
+) error {
+	return nil
+}

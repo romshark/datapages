@@ -809,14 +809,8 @@ func validateAndAttachEventHandler(
 						recv, fd.Name.Name,
 					))
 				}
-			case len(f.Names) == 1 && f.Names[0].Name == "streamID":
-				if !gotypes.IsUint64(ctx.pkg.TypesInfo.TypeOf(f.Type)) {
-					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), fmt.Errorf(
-						"%w in %s.%s",
-						ErrStreamIDParamNotUint64,
-						recv, fd.Name.Name,
-					))
-				}
+			case typecheck.IsStreamIDType(f.Type, ctx.pkg.TypesInfo):
+				// Already validated above.
 			default:
 				p := f.Type.Pos()
 				if len(f.Names) > 0 {
@@ -1424,8 +1418,7 @@ func parseEventHandler(
 			h.InputSSE = parseInput(f, f.Type, info)
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
-		case len(f.Names) == 1 && f.Names[0].Name == "streamID" &&
-			gotypes.IsUint64(info.TypeOf(f.Type)):
+		case typecheck.IsStreamIDType(f.Type, info):
 			h.InputStreamID = parseInput(f, f.Type, info)
 			h.InputStreamID.Kind = model.InputKindStreamID
 			h.OrderedInputs = append(h.OrderedInputs, h.InputStreamID)
@@ -1490,15 +1483,11 @@ func parseStreamHook(
 			h.OrderedInputs = append(h.OrderedInputs, h.InputRequest)
 			foundReq = true
 
-		case len(f.Names) == 1 && f.Names[0].Name == "streamID":
+		case typecheck.IsStreamIDType(f.Type, info):
 			if h.InputStreamID != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
-			}
-			if !gotypes.IsUint64(info.TypeOf(f.Type)) {
-				return h, fieldErr(fmt.Errorf("%w in %s.%s",
-					ErrStreamIDParamNotUint64, recv, fd.Name.Name))
 			}
 			h.InputStreamID = parseInput(f, f.Type, info)
 			h.InputStreamID.Kind = model.InputKindStreamID
@@ -1842,7 +1831,7 @@ func appendPositioned(dst *[]error, fset *token.FileSet, fallback token.Pos, err
 // knownParamNames lists the handler parameter names that are matched by name,
 // used for fuzzy matching in unsupportedInputError.
 var knownParamNames = []string{
-	"streamID", "sessionToken", "session",
+	"sessionToken", "session",
 }
 
 // unsupportedInputError builds an ErrorSignatureUnsupportedInput for a
@@ -1919,7 +1908,7 @@ func typeCandidates(
 		match    bool
 	}
 	all := []candidate{
-		{"streamID", h.InputStreamID != nil, isUint64},
+		{"datapages.StreamID", h.InputStreamID != nil, isUint64},
 		{"session", h.InputSession != nil, isSession},
 		// A plain struct is what the path, query and signals wrappers carry,
 		// so suggest wrapping it. Named types with a more specific match
@@ -1971,8 +1960,6 @@ func fuzzyMatchParamName(name string, h *model.Handler) (string, bool) {
 // isParamConsumed reports whether the named parameter slot is already consumed in h.
 func isParamConsumed(h *model.Handler, name string) bool {
 	switch name {
-	case "streamID":
-		return h.InputStreamID != nil
 	case "session":
 		return h.InputSession != nil
 	}

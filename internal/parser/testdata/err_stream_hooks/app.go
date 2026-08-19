@@ -17,7 +17,7 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 
 /* ErrSignatureMissingReq */
 
-func (PageIndex) StreamOpen(streamID uint64) error {
+func (PageIndex) StreamOpen(streamID datapages.StreamID) error {
 	return nil
 }
 
@@ -45,7 +45,7 @@ func (PageWrongStreamID) GET(
 	return nil, nil
 }
 
-/* ErrStreamIDParamNotUint64 */
+/* ErrSignatureMissingStreamID: streamID string */
 
 func (PageWrongStreamID) StreamOpen(
 	r *http.Request, streamID string,
@@ -66,7 +66,7 @@ func (PageClosedSignals) GET(
 
 func (PageClosedSignals) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	signals datapages.Signals[struct {
 		Foo string `json:"foo"`
 	}],
@@ -86,7 +86,7 @@ func (PageClosedBadReturn) GET(
 /* ErrSignatureStreamHookReturnMustBeError */
 
 func (PageClosedBadReturn) StreamClose(
-	r *http.Request, streamID uint64,
+	r *http.Request, streamID datapages.StreamID,
 ) int {
 	return 0
 }
@@ -104,7 +104,7 @@ func (PageClosedSSE) GET(
 
 func (PageClosedSSE) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	sse datapages.SSE,
 ) error {
 	return nil
@@ -123,7 +123,7 @@ func (PageOpenPath) GET(
 
 func (PageOpenPath) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	path datapages.Path[struct {
 		ID string `path:"id"`
 	}],
@@ -144,7 +144,7 @@ func (PageClosedPath) GET(
 
 func (PageClosedPath) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	path datapages.Path[struct {
 		ID string `path:"id"`
 	}],
@@ -165,7 +165,7 @@ func (PageOpenQuery) GET(
 
 func (PageOpenQuery) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	query datapages.Query[struct {
 		Search string `query:"search"`
 	}],
@@ -186,7 +186,7 @@ func (PageClosedQuery) GET(
 
 func (PageClosedQuery) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	query datapages.Query[struct {
 		Search string `query:"search"`
 	}],
@@ -203,12 +203,12 @@ func (PageActionStreamID) GET(
 	return nil, nil
 }
 
-/* ErrSignatureUnsupportedInput: streamID not allowed on action handler */
+/* ErrSignatureUnsupportedInput: datapages.StreamID not allowed on action handler */
 
 // POSTDoSomething is /action-stream-id/do-something
 func (PageActionStreamID) POSTDoSomething(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 ) error {
 	return nil
 }
@@ -222,7 +222,7 @@ func (PageWrongStreamIDType) GET(
 	return nil, nil
 }
 
-/* ErrStreamIDParamNotUint64: streamID int instead of uint64 */
+/* ErrSignatureMissingStreamID: streamID int */
 
 func (PageWrongStreamIDType) StreamOpen(
 	r *http.Request, streamID int,
@@ -248,7 +248,7 @@ type EventPing struct {
 
 func (PageHookFuncDispatch) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	dispatch func(EventPing) error,
 ) error {
 	return nil
@@ -267,7 +267,7 @@ func (PageHookDuplicateDispatch) GET(
 
 func (PageHookDuplicateDispatch) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	dispatchPing datapages.Dispatcher[EventPing],
 	dispatchPingAgain datapages.Dispatcher[EventPing],
 ) error {

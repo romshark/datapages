@@ -17,7 +17,7 @@ type Base struct{ App *App }
 
 func (Base) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	sse datapages.SSE,
 	session Session,
 	signals datapages.Signals[struct {
@@ -30,7 +30,7 @@ func (Base) StreamOpen(
 
 func (Base) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	session Session,
 	dispatch datapages.Dispatcher[EventPing],
 ) error {
@@ -56,13 +56,13 @@ func (PageStreamMin) GET(r *http.Request) (body datapages.Component, err error) 
 
 func (PageStreamMin) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	id datapages.StreamID,
 ) {
 }
 
 func (PageStreamMin) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	id datapages.StreamID,
 ) {
 }
 
@@ -75,7 +75,7 @@ func (PageStreamMax) GET(r *http.Request) (body datapages.Component, err error) 
 
 func (PageStreamMax) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	sse datapages.SSE,
 	session Session,
 	signals datapages.Signals[struct {
@@ -88,7 +88,7 @@ func (PageStreamMax) StreamOpen(
 
 func (PageStreamMax) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	session Session,
 	dispatch datapages.Dispatcher[EventPing],
 ) error {
@@ -98,7 +98,7 @@ func (PageStreamMax) StreamClose(
 func (PageStreamMax) OnPing(
 	event EventPing,
 	sse datapages.SSE,
-	streamID uint64,
+	streamID datapages.StreamID,
 ) error {
 	return nil
 }

@@ -483,12 +483,12 @@ func (s *Server) handleStreamRequest(
 	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[app.SessionData],
 	subjects []string,
 	onOpen func(
-		streamID uint64,
+		streamID datapages.StreamID,
 		sse *datastar.ServerSentEventGenerator,
 	) error,
-	onClose func(streamID uint64),
+	onClose func(streamID datapages.StreamID),
 	fn func(
-		streamID uint64,
+		streamID datapages.StreamID,
 		sse *datastar.ServerSentEventGenerator,
 		ch <-chan msgbroker.Message,
 	),
@@ -497,7 +497,7 @@ func (s *Server) handleStreamRequest(
 		return
 	}
 
-	streamID := s.streamSeq.Add(1)
+	streamID := datapages.StreamID(s.streamSeq.Add(1))
 
 	// The subscription is established before the response head goes out.
 	// A client learns the stream is open by reading that head and may dispatch
@@ -1003,7 +1003,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		nil,
 		nil,
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -1052,7 +1052,7 @@ func (s *Server) handlePageIndexGETStreamAnon(w http.ResponseWriter, r *http.Req
 		nil,
 		nil,
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {

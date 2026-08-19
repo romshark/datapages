@@ -25,7 +25,7 @@ func (p PageItem) GET(
 
 func (p PageItem) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	sse datapages.SSE,
 	signals datapages.Signals[struct {
 		ItemID string `json:"itemId"`
@@ -39,7 +39,7 @@ func (p PageItem) StreamOpen(
 	return p.App.patchTabID(streamID, sse)
 }
 
-func (p PageItem) StreamClose(r *http.Request, streamID uint64) {
+func (p PageItem) StreamClose(r *http.Request, streamID datapages.StreamID) {
 	p.App.lockTabs.Lock()
 	delete(p.App.streamIDToTabState, streamID)
 	p.App.lockTabs.Unlock()
@@ -71,7 +71,7 @@ func (p PageItem) DELETEItem(
 func (p PageItem) OnTodoUpdated(
 	event EventTodoUpdated,
 	sse datapages.SSE,
-	streamID uint64,
+	streamID datapages.StreamID,
 ) error {
 	ts := p.App.streamState(streamID)
 	if ts == nil || ts.ItemID == "" {

@@ -40,7 +40,7 @@ func (p PageIndex) GET(
 
 func (p PageIndex) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	sse datapages.SSE,
 	signals datapages.Signals[struct {
 		Search string `json:"search"`
@@ -66,7 +66,7 @@ func (p PageIndex) StreamOpen(
 	return p.App.patchTabID(streamID, sse)
 }
 
-func (p PageIndex) StreamClose(r *http.Request, streamID uint64) {
+func (p PageIndex) StreamClose(r *http.Request, streamID datapages.StreamID) {
 	p.App.lockTabs.Lock()
 	delete(p.App.streamIDToTabState, streamID)
 	p.App.lockTabs.Unlock()
@@ -139,7 +139,7 @@ func (p PageIndex) POSTFilter(
 func (p PageIndex) OnTodoUpdated(
 	event EventTodoUpdated,
 	sse datapages.SSE,
-	streamID uint64,
+	streamID datapages.StreamID,
 ) error {
 	s := p.App.streamState(streamID)
 	todos := p.App.list.GetItems(s.ViewParameters)

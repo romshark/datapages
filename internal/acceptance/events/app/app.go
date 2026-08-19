@@ -94,7 +94,7 @@ func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 // is unavailable or the visitor may not watch this page.
 var errStreamRefused = errors.New("this stream may not open")
 
-func (p PageIndex) StreamOpen(r *http.Request, streamID uint64) error {
+func (p PageIndex) StreamOpen(r *http.Request, streamID datapages.StreamID) error {
 	if r.URL.Query().Get("refuse") != "" {
 		return errStreamRefused
 	}
@@ -104,11 +104,11 @@ func (p PageIndex) StreamOpen(r *http.Request, streamID uint64) error {
 
 func (p PageIndex) StreamClose(
 	_ *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	streamGone datapages.Dispatcher[EventStreamGone],
 ) error {
 	p.App.record("close(%d)", streamID)
-	return streamGone.Dispatch(EventStreamGone{StreamID: streamID})
+	return streamGone.Dispatch(EventStreamGone{StreamID: uint64(streamID)})
 }
 
 func (p PageIndex) OnStreamGone(event EventStreamGone, sse datapages.SSE) error {
@@ -126,7 +126,7 @@ func (p PageIndex) OnPong(event EventPong, sse datapages.SSE) error {
 func (p PageIndex) OnTick(
 	event EventTick,
 	sse datapages.SSE,
-	streamID uint64,
+	streamID datapages.StreamID,
 ) error {
 	p.App.record("tick(%d,%d)", streamID, event.N)
 	return sse.PatchElement(

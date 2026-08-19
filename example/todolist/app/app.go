@@ -34,14 +34,14 @@ type App struct {
 
 	list               *list.List
 	lockTabs           sync.RWMutex
-	streamIDToTabState map[uint64]*tabState
+	streamIDToTabState map[datapages.StreamID]*tabState
 }
 
 func NewApp(hmacKey [32]byte, list *list.List) *App {
 	return &App{
 		hmacKey:            hmacKey,
 		list:               list,
-		streamIDToTabState: make(map[uint64]*tabState),
+		streamIDToTabState: make(map[datapages.StreamID]*tabState),
 	}
 }
 
@@ -98,9 +98,9 @@ func (a *App) PUTEdit(
 }
 
 // signStreamID produces an HMAC-signed tab identifier from a streamID.
-func (a *App) signStreamID(streamID uint64) string {
+func (a *App) signStreamID(streamID datapages.StreamID) string {
 	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], streamID)
+	binary.BigEndian.PutUint64(buf[:], uint64(streamID))
 	mac := hmac.New(sha256.New, a.hmacKey[:])
 	mac.Write(buf[:])
 	return base64.RawURLEncoding.EncodeToString(buf[:]) +
@@ -110,7 +110,7 @@ func (a *App) signStreamID(streamID uint64) string {
 var errInvalidTabID = errors.New("invalid tab ID")
 
 // verifyTabID verifies the HMAC signature and extracts the streamID.
-func (a *App) verifyTabID(tabID string) (uint64, error) {
+func (a *App) verifyTabID(tabID string) (datapages.StreamID, error) {
 	parts := strings.SplitN(tabID, "~", 2)
 	if len(parts) != 2 {
 		return 0, errInvalidTabID
@@ -128,10 +128,10 @@ func (a *App) verifyTabID(tabID string) (uint64, error) {
 	if !hmac.Equal(mac.Sum(nil), sig) {
 		return 0, errInvalidTabID
 	}
-	return binary.BigEndian.Uint64(raw), nil
+	return datapages.StreamID(binary.BigEndian.Uint64(raw)), nil
 }
 
-func (a *App) streamState(streamID uint64) *tabState {
+func (a *App) streamState(streamID datapages.StreamID) *tabState {
 	a.lockTabs.RLock()
 	defer a.lockTabs.RUnlock()
 	ts := a.streamIDToTabState[streamID]
@@ -142,7 +142,7 @@ func (a *App) streamState(streamID uint64) *tabState {
 	return &cp
 }
 
-func (a *App) patchTabID(streamID uint64, sse datapages.SSE) error {
+func (a *App) patchTabID(streamID datapages.StreamID, sse datapages.SSE) error {
 	return sse.PatchSignals(struct {
 		TabID string `json:"tab_id"`
 	}{TabID: a.signStreamID(streamID)})

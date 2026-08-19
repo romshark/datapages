@@ -414,7 +414,7 @@ or the publish needs its own deadline.
 
 ### Handle Events on Pages
 
-Method name starts with `On`. The `event` and `sse` parameters are required. Optional parameters: `streamID uint64`, `session Session`.
+Method name starts with `On`. The `event` and `sse` parameters are required. Optional parameters: `streamID datapages.StreamID`, `session Session`.
 Parameters may appear in any order.
 
 `On` handlers do **not** accept `signals`. If the handler needs client-side signal values, add them as fields on the event type and populate them in the action handler that dispatches the event.
@@ -425,7 +425,7 @@ Use `streamID` to look up per-tab state registered in `StreamOpen` (see Step 9).
 func (PageChat) OnMessageSent(
 	event EventMessageSent,
 	sse datapages.SSE,
-	streamID uint64, // Optional
+	streamID datapages.StreamID, // Optional
 	session Session, // Optional
 ) error {
 	return sse.PatchElement(messageComponent(event.Message))
@@ -522,8 +522,9 @@ type EventCalcUpdated struct {
 
 ### Signature
 
-Both require `r *http.Request` and `streamID uint64`. They return only `error`.
+Both require `r *http.Request` and `streamID datapages.StreamID`. They return only `error`.
 The `streamID` is a per-process unique identifier for the SSE stream instance.
+It is recognized by its `datapages.StreamID` type, the parameter name is free.
 Use it to correlate open and close for the same stream.
 It is intended for internal server-side bookkeeping only and must not be exposed
 to clients, as it could leak information about server activity and connection volume.
@@ -541,7 +542,7 @@ Note: `StreamClose` does **not** accept `sse` or `signals`.
 ```go
 func (PageIndex) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	sse datapages.SSE, // Optional
 	session Session, // Optional
 	signals datapages.Signals[struct { // Optional
@@ -555,7 +556,7 @@ func (PageIndex) StreamOpen(
 
 func (PageIndex) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	session Session, // Optional
 	ping datapages.Dispatcher[EventPing], // Optional
 ) error {

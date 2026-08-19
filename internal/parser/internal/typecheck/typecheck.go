@@ -156,6 +156,11 @@ func isNamedFromPkg(
 	return obj.Pkg().Path() == pkgPath && obj.Name() == name
 }
 
+// IsStreamIDType reports whether expr resolves to datapages.StreamID.
+func IsStreamIDType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "StreamID")
+}
+
 // IsRedirectType reports whether expr resolves to datapages.Redirect.
 func IsRedirectType(expr ast.Expr, info *types.Info) bool {
 	return isNamedFromPkg(expr, info, datapagesPkgPath, "Redirect")
