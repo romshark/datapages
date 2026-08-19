@@ -153,6 +153,26 @@ func (p PageForm) POSTPatch(
 	}{Count: signals.Count + 1})
 }
 
+// POSTPatchAt is /form/patch-at
+//
+// An action that patches a named target in a given mode.
+// An empty selector patches by element id, an empty mode morphs.
+func (p PageForm) POSTPatchAt(
+	_ *http.Request,
+	sse datapages.SSE,
+	signals struct {
+		Selector string `json:"selector"`
+		Mode     string `json:"mode"`
+	},
+) error {
+	p.App.record("patchAt selector=%q mode=%q", signals.Selector, signals.Mode)
+	return sse.PatchElementAt(
+		templ.Raw(`<div id="out">patched</div>`),
+		signals.Selector,
+		datapages.PatchMode(signals.Mode),
+	)
+}
+
 // POSTPing is /ping
 //
 // An action on the app rather than on a page.

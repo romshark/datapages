@@ -466,10 +466,16 @@ This gives you a handle to patch page elements, execute scripts, etc.
 Datastar generator so handler signatures never depend on the datastar package
 directly.
 
-It provides `Context`, `PatchElement`, `RemoveElement`, `ExecuteScript`,
-`PatchSignals`, `PatchSignalsIfMissing`, `Redirect` and `Prefetch`, alongside the
-`PatchOption` values (`WithSelector`, `WithSelectorID`, `WithMode`) and the
-`PatchMode` constants.
+It provides `Context`, `PatchElement`, `PatchElementAt`, `RemoveElement`,
+`ExecuteScript`, `PatchSignals`, `PatchSignalsIfMissing`, `Redirect` and
+`Prefetch`, alongside the `PatchMode` constants.
+
+`PatchElement(c)` morphs each rendered element into the element carrying its id.
+`PatchElementAt(c, selector, mode)` names the target and how it is applied:
+
+```go
+return sse.PatchElementAt(toast(msg), "#toaster", datapages.PatchModeAppend)
+```
 
 The interface is defined in [datapages.go](datapages.go), which documents each
 method and is the source of truth. It is also rendered on

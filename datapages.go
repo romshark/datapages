@@ -131,11 +131,19 @@ type SSE interface {
 	Context() context.Context
 
 	// PatchElement patches the elements rendered by c into the DOM.
-	// They are morphed by default, use [WithMode] to patch them differently.
-	PatchElement(c Component, opts ...PatchOption) error
+	// Each element is morphed into the element carrying its id.
+	// Use [SSE.PatchElementAt] to name a target or to patch in another mode.
+	PatchElement(c Component) error
+
+	// PatchElementAt patches the elements rendered by c into the element(s)
+	// matching the CSS selector, applying them in the given mode.
+	// An empty selector targets by element id, like [SSE.PatchElement] does.
+	// The zero PatchMode morphs using [PatchModeOuter], like [SSE.PatchElement] does.
+	// Any value that is not a [PatchMode] constant is ignored.
+	PatchElementAt(c Component, selectorCSS string, mode PatchMode) error
 
 	// RemoveElement removes the elements matching the CSS selector from the DOM.
-	RemoveElement(selector string) error
+	RemoveElement(selectorCSS string) error
 
 	// ExecuteScript runs a script on the client.
 	ExecuteScript(script string) error
@@ -165,17 +173,6 @@ type SSE interface {
 	Prefetch(urls ...string) error
 }
 
-// PatchConfig is the accumulated configuration of a [SSE.PatchElement] call.
-// The generated runtime translates it to the underlying Datastar options.
-//
-// Selector and SelectorID both name the patch target and are mutually exclusive.
-// If both are set then SelectorID wins, no matter in which order the options were passed.
-type PatchConfig struct {
-	Selector   string
-	SelectorID string
-	Mode       PatchMode
-}
-
 // PatchMode determines how patched elements are applied to the DOM.
 // Removal has no mode, use [SSE.RemoveElement] instead.
 // Zero value is equivalent to [PatchModeOuter].
@@ -203,36 +200,6 @@ const (
 	// PatchModeAfter inserts the element after the existing element.
 	PatchModeAfter PatchMode = "after"
 )
-
-// PatchOption configures [SSE.PatchElement].
-type PatchOption func(*PatchConfig)
-
-// WithSelector targets the element(s) matching a CSS selector.
-// Mutually exclusive with [WithSelectorID] (which wins if both are given).
-func WithSelector(selector string) PatchOption {
-	return func(c *PatchConfig) { c.Selector = selector }
-}
-
-// WithSelectorID targets the element with the given id.
-// Mutually exclusive with [WithSelector] and wins if both are given.
-func WithSelectorID(id string) PatchOption {
-	return func(c *PatchConfig) { c.SelectorID = id }
-}
-
-// WithMode determines how the patched elements are applied to the DOM.
-// Defaults to [PatchModeOuter], which morphs.
-// mode must be one of the [PatchMode] constants, any other value is ignored:
-//
-//   - [PatchModeOuter]
-//   - [PatchModeInner]
-//   - [PatchModeReplace]
-//   - [PatchModePrepend]
-//   - [PatchModeAppend]
-//   - [PatchModeBefore]
-//   - [PatchModeAfter]
-func WithMode(mode PatchMode) PatchOption {
-	return func(c *PatchConfig) { c.Mode = mode }
-}
 
 // Sentinel errors for HTTP status codes. Return one from a handler to control
 // the status code of the response, directly for a zero-alloc response or

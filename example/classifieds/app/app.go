@@ -79,9 +79,7 @@ func (*App) RecoverError(
 	err error,
 	sse datapages.SSE,
 ) error {
-	return sse.PatchElement(toastError500(),
-		datapages.WithSelectorID("toaster"),
-		datapages.WithMode(datapages.PatchModeAppend))
+	return sse.PatchElementAt(toastError500(), "#toaster", datapages.PatchModeAppend)
 	// Or use script execution:
 	//
 	// 	return sse.ExecuteScript(`

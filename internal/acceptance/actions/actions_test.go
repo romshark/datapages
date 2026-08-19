@@ -322,6 +322,65 @@ func TestSSEOutput(t *testing.T) {
 	}
 }
 
+// TestSSEOutputPatchElementAt covers every shape the generated SSE wrapper
+// translates PatchElementAt into: a target, a mode, both, and neither.
+func TestSSEOutputPatchElementAt(t *testing.T) {
+	for name, tc := range map[string]struct {
+		signals string
+		want    []string
+		unwant  []string
+	}{
+		"selector and mode": {
+			signals: `{"selector":"#target","mode":"append"}`,
+			want:    []string{"selector #target", "mode append"},
+		},
+		"selector only": {
+			signals: `{"selector":"#target","mode":""}`,
+			want:    []string{"selector #target"},
+			unwant:  []string{"mode "},
+		},
+		"mode only": {
+			signals: `{"selector":"","mode":"inner"}`,
+			want:    []string{"mode inner"},
+			unwant:  []string{"selector "},
+		},
+		"neither": {
+			signals: `{"selector":"","mode":""}`,
+			unwant:  []string{"selector ", "mode "},
+		},
+		"unknown mode is ignored": {
+			signals: `{"selector":"","mode":"sideways"}`,
+			unwant:  []string{"mode ", "selector "},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := newServer(t)
+
+			resp := srv.do(t, http.MethodPost, "/form/patch-at/", tc.signals)
+			defer func() { _ = resp.Body.Close() }()
+
+			b, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("reading stream: %v", err)
+			}
+			stream := string(b)
+			if !strings.Contains(stream, `<div id="out">patched</div>`) {
+				t.Errorf("stream carries no patched element:\n%s", stream)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(stream, want) {
+					t.Errorf("stream does not carry %q:\n%s", want, stream)
+				}
+			}
+			for _, unwant := range tc.unwant {
+				if strings.Contains(stream, unwant) {
+					t.Errorf("stream carries %q:\n%s", unwant, stream)
+				}
+			}
+		})
+	}
+}
+
 // TestSSEOutputCompressed covers the same action as a client that accepts compression,
 // which every browser does. The events must survive the encoding.
 //

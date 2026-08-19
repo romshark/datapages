@@ -70,7 +70,7 @@ func nav(session Session) templ.Component {
 		var templ_7745c5c3_Var3 templ.SafeURL
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinURLErrs(href.PageIndex())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 128, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 128, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
@@ -88,7 +88,7 @@ func nav(session Session) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTAppSignOut())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 132, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 132, Col: 43}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 			if templ_7745c5c3_Err != nil {
@@ -106,7 +106,7 @@ func nav(session Session) templ.Component {
 			var templ_7745c5c3_Var5 templ.SafeURL
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(href.PageLogin())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 135, Col: 29}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 135, Col: 29}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -119,7 +119,7 @@ func nav(session Session) templ.Component {
 			var templ_7745c5c3_Var6 templ.SafeURL
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinURLErrs(href.PageRegister())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 136, Col: 32}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 136, Col: 32}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
@@ -200,7 +200,7 @@ func pageIndex(session Session, users []User) templ.Component {
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(session.Data().Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 148, Col: 37}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 148, Col: 37}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {
@@ -213,7 +213,7 @@ func pageIndex(session Session, users []User) templ.Component {
 			var templ_7745c5c3_Var10 string
 			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(session.Data().Email)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 149, Col: 48}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 149, Col: 48}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 			if templ_7745c5c3_Err != nil {
@@ -241,7 +241,7 @@ func pageIndex(session Session, users []User) templ.Component {
 			var templ_7745c5c3_Var11 templ.SafeURL
 			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinURLErrs(href.PageRegister())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 158, Col: 32}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 158, Col: 32}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {
@@ -264,7 +264,7 @@ func pageIndex(session Session, users []User) templ.Component {
 				var templ_7745c5c3_Var12 string
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(u.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 164, Col: 21}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 164, Col: 21}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 				if templ_7745c5c3_Err != nil {
@@ -277,7 +277,7 @@ func pageIndex(session Session, users []User) templ.Component {
 				var templ_7745c5c3_Var13 string
 				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(u.Email)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 164, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 164, Col: 46}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 				if templ_7745c5c3_Err != nil {
@@ -368,7 +368,7 @@ func pageLogin(errorMsg string, valid bool) templ.Component {
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageLoginValidate())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 184, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 184, Col: 64}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 		if templ_7745c5c3_Err != nil {
@@ -381,7 +381,7 @@ func pageLogin(errorMsg string, valid bool) templ.Component {
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageLoginSubmit())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 185, Col: 56}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 185, Col: 56}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 		if templ_7745c5c3_Err != nil {
@@ -399,7 +399,7 @@ func pageLogin(errorMsg string, valid bool) templ.Component {
 			var templ_7745c5c3_Var18 string
 			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(errorMsg)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 211, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 211, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 			if templ_7745c5c3_Err != nil {
@@ -427,7 +427,7 @@ func pageLogin(errorMsg string, valid bool) templ.Component {
 		var templ_7745c5c3_Var19 templ.SafeURL
 		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinURLErrs(href.PageRegister())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 215, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 215, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 		if templ_7745c5c3_Err != nil {
@@ -502,7 +502,7 @@ func pageRegister(errorMsg string, valid bool) templ.Component {
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageRegisterValidate())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 231, Col: 67}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 231, Col: 67}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var22)
 		if templ_7745c5c3_Err != nil {
@@ -515,7 +515,7 @@ func pageRegister(errorMsg string, valid bool) templ.Component {
 		var templ_7745c5c3_Var23 string
 		templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageRegisterSubmit())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 232, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 232, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var23)
 		if templ_7745c5c3_Err != nil {
@@ -533,7 +533,7 @@ func pageRegister(errorMsg string, valid bool) templ.Component {
 			var templ_7745c5c3_Var24 string
 			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(errorMsg)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 269, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 269, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 			if templ_7745c5c3_Err != nil {
@@ -561,7 +561,7 @@ func pageRegister(errorMsg string, valid bool) templ.Component {
 		var templ_7745c5c3_Var25 templ.SafeURL
 		templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinURLErrs(href.PageLogin())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 273, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/sqlitesessions/app/app.templ`, Line: 273, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 		if templ_7745c5c3_Err != nil {
