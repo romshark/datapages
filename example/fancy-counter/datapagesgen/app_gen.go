@@ -643,24 +643,7 @@ func (s *Server) handlePageIndexPOSTAdd(
 		}
 	}
 
-	dispatchCounterUpdated := func(
-		e app.EventCounterUpdated,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventCounterUpdated JSON: %w", err)
-		}
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjCounterUpdated, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", EvSubjCounterUpdated, err)
-		}
-		return nil
-	}
+	dispatchCounterUpdated := dispatcherEventCounterUpdated{s: s, ctx: r.Context()}
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -699,24 +682,7 @@ func (s *Server) handlePageIndexPOSTSet(
 		path.Value = int32(i)
 	}
 
-	dispatchCounterUpdated := func(
-		e app.EventCounterUpdated,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventCounterUpdated JSON: %w", err)
-		}
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjCounterUpdated, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", EvSubjCounterUpdated, err)
-		}
-		return nil
-	}
+	dispatchCounterUpdated := dispatcherEventCounterUpdated{s: s, ctx: r.Context()}
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -725,4 +691,27 @@ func (s *Server) handlePageIndexPOSTSet(
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Set", err)
 		return
 	}
+}
+
+type dispatcherEventCounterUpdated struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventCounterUpdated) Dispatch(e app.EventCounterUpdated) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventCounterUpdated) DispatchCtx(
+	ctx context.Context, e app.EventCounterUpdated,
+) error {
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventCounterUpdated JSON: %w", err)
+	}
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, EvSubjCounterUpdated, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", EvSubjCounterUpdated, err)
+	}
+	return nil
 }

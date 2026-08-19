@@ -447,7 +447,7 @@ var (
 )
 
 // ErrorDispatchParamNotEvent is returned when the type argument of
-// datapages.Dispatch is not an event type.
+// datapages.Dispatcher is not an event type.
 type ErrorDispatchParamNotEvent struct {
 	Recv       string    // e.g. "PageFoo"
 	MethodName string    // e.g. "GET"
@@ -458,12 +458,12 @@ type ErrorDispatchParamNotEvent struct {
 func (e *ErrorDispatchParamNotEvent) Error() string {
 	if e.TypeName == "" {
 		return fmt.Sprintf(
-			"datapages.Dispatch type argument must be an event type in %s.%s",
+			"datapages.Dispatcher type argument must be an event type in %s.%s",
 			e.Recv, e.MethodName,
 		)
 	}
 	return fmt.Sprintf(
-		"datapages.Dispatch type argument must be an event type in %s.%s: %s",
+		"datapages.Dispatcher type argument must be an event type in %s.%s: %s",
 		e.Recv, e.MethodName, e.TypeName,
 	)
 }
@@ -476,7 +476,7 @@ func (e *ErrorDispatchParamNotEvent) Is(target error) bool {
 func (e *ErrorDispatchParamNotEvent) ASTPos() token.Pos { return e.Pos }
 
 // ErrorDispatchParamLegacy is returned for a handler parameter that dispatches
-// events the way Datapages accepted before datapages.Dispatch,
+// events the way Datapages accepted before datapages.Dispatcher,
 // a plain function type or a parameter named "dispatch".
 type ErrorDispatchParamLegacy struct {
 	Recv       string    // e.g. "PageFoo"
@@ -487,7 +487,7 @@ type ErrorDispatchParamLegacy struct {
 
 func (e *ErrorDispatchParamLegacy) Error() string {
 	return fmt.Sprintf(
-		"dispatcher %s in %s.%s must be typed datapages.Dispatch[EventXXX]",
+		"dispatcher %s in %s.%s must be typed datapages.Dispatcher[EventXXX]",
 		e.ParamName, e.Recv, e.MethodName,
 	)
 }
@@ -499,14 +499,14 @@ func (e *ErrorDispatchParamLegacy) Is(target error) bool {
 
 func (e *ErrorDispatchParamLegacy) ASTPos() token.Pos { return e.Pos }
 
-// IsDispatchParam reports whether the AST field is typed datapages.Dispatch[EventXXX].
+// IsDispatchParam reports whether the AST field is typed datapages.Dispatcher[EventXXX].
 func IsDispatchParam(f *ast.Field, info *types.Info) bool {
 	return typecheck.IsDispatchType(f.Type, info)
 }
 
 // IsLegacyDispatchParam reports whether the AST field looks like a dispatcher
-// of the pre-datapages.Dispatch era: a plain function type, or the name the
-// parser used to match dispatchers by.
+// of the pre-datapages.Dispatcher era: a plain function type,
+// or the name the parser used to match dispatchers by.
 func IsLegacyDispatchParam(f *ast.Field, info *types.Info) bool {
 	if len(f.Names) > 0 && f.Names[0].Name == "dispatch" {
 		return true
@@ -535,7 +535,7 @@ func LegacyDispatchError(
 	}
 }
 
-// ValidateDispatch validates that the type argument of a datapages.Dispatch[EventXXX]
+// ValidateDispatch validates that the type argument of a datapages.Dispatcher[EventXXX]
 // parameter is a declared event type. Returns the event type name.
 func ValidateDispatch(
 	f *ast.Field,

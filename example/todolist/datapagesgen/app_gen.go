@@ -736,24 +736,7 @@ func (s *Server) handlePUTEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	path.ID = r.PathValue("id")
 
-	dispatchTodoUpdated := func(
-		e app.EventTodoUpdated,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
-		}
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTodoUpdated, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
-		}
-		return nil
-	}
+	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s, ctx: r.Context()}
 	err := s.app.PUTEdit(r, path, query, signals, dispatchTodoUpdated)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Edit", err)
@@ -912,24 +895,7 @@ func (s *Server) handlePageIndexPOSTCreate(
 		return
 	}
 
-	dispatchTodoUpdated := func(
-		e app.EventTodoUpdated,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
-		}
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTodoUpdated, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
-		}
-		return nil
-	}
+	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s, ctx: r.Context()}
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -1075,24 +1041,7 @@ func (s *Server) handlePageItemDELETEItem(
 	}
 	path.ID = r.PathValue("id")
 
-	dispatchTodoUpdated := func(
-		e app.EventTodoUpdated,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
-		}
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTodoUpdated, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
-		}
-		return nil
-	}
+	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s, ctx: r.Context()}
 	p := app.PageItem{
 		App: s.app,
 	}
@@ -1104,4 +1053,27 @@ func (s *Server) handlePageItemDELETEItem(
 	if httpRedirect(w, r, redirect) {
 		return
 	}
+}
+
+type dispatcherEventTodoUpdated struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventTodoUpdated) Dispatch(e app.EventTodoUpdated) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventTodoUpdated) DispatchCtx(
+	ctx context.Context, e app.EventTodoUpdated,
+) error {
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
+	}
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, EvSubjTodoUpdated, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
+	}
+	return nil
 }

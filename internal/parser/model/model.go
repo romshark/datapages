@@ -100,7 +100,7 @@ type Handler struct {
 	InputPath     *Input
 	InputQuery    *Input
 	InputSignals  *Input
-	// InputDispatches are the datapages.Dispatch[EventXXX] parameters,
+	// InputDispatches are the datapages.Dispatcher[EventXXX] parameters,
 	// in user-defined order. One dispatcher publishes one event type.
 	InputDispatches []*InputDispatch
 	OrderedInputs   []*Input // Inputs in user-defined order.

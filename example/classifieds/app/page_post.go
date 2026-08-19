@@ -77,7 +77,7 @@ func (p PagePost) POSTSendMessage(
 	signals struct {
 		MessageText string `json:"messagetext"`
 	},
-	dispatch datapages.Dispatch[EventMessagingSent],
+	messagingSent datapages.Dispatcher[EventMessagingSent],
 ) error {
 	if session.IsGuest() {
 		return domain.ErrUnauthorized
@@ -106,7 +106,7 @@ func (p PagePost) POSTSendMessage(
 	}
 
 	for _, recipient := range []string{post.MerchantUserName, session.UserID()} {
-		if err := dispatch(EventMessagingSent{
+		if err := messagingSent.Dispatch(EventMessagingSent{
 			Recipient: datapages.SubjectUser(recipient),
 			ChatID:    chatID,
 			UserID:    session.UserID(),

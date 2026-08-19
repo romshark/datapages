@@ -986,24 +986,7 @@ func (s *Server) handlePageIndexPOSTAnnounce(
 		return
 	}
 
-	dispatchAnnounced := func(
-		e app.EventAnnounced,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventAnnounced JSON: %w", err)
-		}
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjAnnounced, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", EvSubjAnnounced, err)
-		}
-		return nil
-	}
+	dispatchAnnounced := dispatcherEventAnnounced{s: s, ctx: r.Context()}
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -1025,4 +1008,27 @@ func (s *Server) handlePageIndexPOSTFail(
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Fail", err)
 		return
 	}
+}
+
+type dispatcherEventAnnounced struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventAnnounced) Dispatch(e app.EventAnnounced) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventAnnounced) DispatchCtx(
+	ctx context.Context, e app.EventAnnounced,
+) error {
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventAnnounced JSON: %w", err)
+	}
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, EvSubjAnnounced, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", EvSubjAnnounced, err)
+	}
+	return nil
 }

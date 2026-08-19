@@ -18,7 +18,13 @@ import (
 	"github.com/romshark/datapages/internal/subject"
 )
 
-// dispatchVarName is the generated variable name of a dispatch closure.
+// dispatcherTypeName is the generated datapages.Dispatcher implementation
+// of an event.
+func dispatcherTypeName(eventTypeName string) string {
+	return "dispatcher" + eventTypeName
+}
+
+// dispatchVarName is the generated variable name of a dispatcher.
 // The prefix keeps the closures of different handlers apart inside one
 // generated function; the event name keeps a handler's own closures apart.
 //
@@ -525,6 +531,9 @@ type Writer struct {
 	Buf []byte
 	// eventMap is built once per WriteApp, reused
 	eventMap map[string]*model.Event
+	// dispatchedEvents are the events a handler dispatches,
+	// in the order they were first seen.
+	dispatchedEvents []string
 	// fields is a reusable scratch for structFields
 	fields []structFieldInfo
 	// prometheus defines whether to generate Prometheus metrics code
@@ -577,6 +586,7 @@ func (w *Writer) setSessionType(m *model.App) {
 func (w *Writer) Reset() {
 	w.Buf = w.Buf[:0]
 	clear(w.eventMap)
+	w.dispatchedEvents = w.dispatchedEvents[:0]
 	w.fields = w.fields[:0]
 	w.usage = appUsage{}
 }

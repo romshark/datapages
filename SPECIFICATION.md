@@ -75,8 +75,8 @@ func (PageIndex) GET(
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
 	signals struct {...}, // Optional
-	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
-	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
+	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
+	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) (
 	body datapages.Component,
 	head datapages.Component, // Optional
@@ -117,8 +117,8 @@ func (PageIndex) POSTActionName(
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
 	signals struct {...}, // Optional
-	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
-	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
+	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
+	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) error {
 	// ...
 }
@@ -140,8 +140,8 @@ func (PageIndex) POSTActionName(
 	path struct{...}, // Required only when path variables are used in the URL
 	query struct{...}, // Optional
 	signals struct {...}, // Optional
-	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
-	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
+	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
+	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) (
 	body datapages.Component, // Optional
 	head datapages.Component, // Optional
@@ -188,8 +188,8 @@ func (PageIndex) StreamOpen(
 	sse datapages.SSE, // Optional
 	session datapages.Session[Data], // Optional
 	signals struct{...}, // Optional
-	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
-	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
+	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
+	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) error {
 	// ...
 }
@@ -204,8 +204,8 @@ func (PageIndex) StreamClose(
 	r *http.Request,
 	streamID uint64,
 	session datapages.Session[Data], // Optional
-	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
-	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
+	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
+	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) error {
 	// ...
 }
@@ -292,10 +292,10 @@ func (p PageExample) POSTInputChanged(
 func (p PageExample) POSTButtonClicked(
 	r *http.Request,
 	session Session,
-	dispatch datapages.Dispatch[EventSomethingHappened],
+	somethingHappened datapages.Dispatcher[EventSomethingHappened],
 ) error {
 	// Update everyone that something happened.
-	return dispatch(EventSomethingHappened{WhoCausedIt: session.UserID()})
+	return somethingHappened.Dispatch(EventSomethingHappened{WhoCausedIt: session.UserID()})
 }
 
 func (p PageExample) OnSomethingHappened(
@@ -481,34 +481,34 @@ The interface is defined in [datapages.go](datapages.go), which documents each
 method and is the source of truth. It is also rendered on
 [pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#SSE).
 
-#### Parameter: `datapages.Dispatch[EventXXX]`
+#### Parameter: `datapages.Dispatcher[EventXXX]`
 
 ```go
-dispatchXxx datapages.Dispatch[EventXXX]
+xxx datapages.Dispatcher[EventXXX]
 ```
 
-This parameter provides a function for dispatching events, which can be handled
-by `OnXXX` page methods. Its name is free, the type is what makes it a dispatcher.
+This parameter dispatches events, which can be handled by `OnXXX` page methods.
+Its name is free, the type is what makes it a dispatcher.
 `EventXXX` must be an event type declared in the application package.
 
 ```go
-type Dispatch[Event any] func(
-	event Event,
-	options ...DispatchOption,
-) error
+type Dispatcher[Event any] interface {
+	Dispatch(event Event) error
+	DispatchCtx(ctx context.Context, event Event) error
+}
 ```
 
-The publish uses the context of the handler that dispatches: the request context
-in actions, and the request context without its cancelation in stream hooks,
-which run while the stream is being torn down.
-`datapages.WithDispatchContext(ctx)` overrides it, which a handler needs only
-when it dispatches after returning, from a goroutine that outlives it,
-or when the publish needs a deadline of its own:
+`Dispatch` publishes with the context of the handler that dispatches: the request
+context in actions, and the request context without its cancelation in stream
+hooks, which run while the stream is being torn down. `DispatchCtx` publishes with
+the given context, which a handler needs only when it dispatches after
+returning, from a goroutine that outlives it, or when the publish needs a
+deadline of its own:
 
 ```go
 ctx, cancel := context.WithTimeout(r.Context(), time.Second)
 defer cancel()
-return dispatch(EventSomethingHappened{}, datapages.WithDispatchContext(ctx))
+return somethingHappened.DispatchCtx(ctx, EventSomethingHappened{})
 ```
 
 An event type must use json struct field tags, and be strictly commented with
@@ -549,7 +549,7 @@ type EventNotify struct {
 	Text string `json:"text"`
 }
 
-dispatch(EventNotify{
+notify.Dispatch(EventNotify{
 	Recipient: "u1",
 	Room:      "r1",
 	Device:    "mobile",
@@ -569,7 +569,7 @@ To reach several rooms, or several users, dispatch once per value:
 
 ```go
 for _, room := range rooms {
-	err := dispatch(EventNotify{
+	err := notify.Dispatch(EventNotify{
 		Recipient: "u1",
 		Room:      datapages.Subject(room),
 		Device:    "mobile",
@@ -682,9 +682,9 @@ One dispatcher publishes one event type. A handler that publishes several
 declares one parameter per type, and it must not declare two for the same type:
 
 ```go
-dispatchA datapages.Dispatch[EventTypeA],
-dispatchB datapages.Dispatch[EventTypeB],
-dispatchC datapages.Dispatch[EventTypeC],
+typeA datapages.Dispatcher[EventTypeA],
+typeB datapages.Dispatcher[EventTypeB],
+typeC datapages.Dispatcher[EventTypeC],
 ```
 
 The events go out in the order the handler dispatches them.
@@ -693,8 +693,8 @@ stops the ones after, which is why joining the errors is usually what you want:
 
 ```go
 return errors.Join(
-	dispatchA(EventTypeA{}),
-	dispatchB(EventTypeB{}),
+	typeA.Dispatch(EventTypeA{}),
+	typeB.Dispatch(EventTypeB{}),
 )
 ```
 
@@ -723,7 +723,7 @@ func (PageChat) POSTSendMessage(
 		InputText string `json:"inputtext"`
 		ChatRoom  string `json:"chatroom"`
 	},
-	dispatch datapages.Dispatch[EventMessageSent],
+	messageSent datapages.Dispatcher[EventMessageSent],
 ) error {
 	if !isUserAllowedToSendMessages(session.UserID()) {
 		return errors.New("unauthorized")
@@ -732,7 +732,7 @@ func (PageChat) POSTSendMessage(
 		return nil // No-op.
 	}
 	for _, participant := range chatroom.ParticipantIDs {
-		err := dispatch(EventMessageSent{
+		err := messageSent.Dispatch(EventMessageSent{
 			Recipient: datapages.SubjectUser(participant),
 			ChatRoom:  datapages.Subject(signals.ChatRoom),
 			Message:   signals.InputText,

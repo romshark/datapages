@@ -209,17 +209,17 @@ func namedTypeArg(
 	return args.At(0), true
 }
 
-// IsDispatchType reports whether expr resolves to datapages.Dispatch[Event].
+// IsDispatchType reports whether expr resolves to datapages.Dispatcher[Event].
 func IsDispatchType(expr ast.Expr, info *types.Info) bool {
-	_, ok := namedTypeArg(expr, info, "Dispatch")
+	_, ok := namedTypeArg(expr, info, "Dispatcher")
 	return ok
 }
 
 // DispatchEventTypeName returns the name of the Event type argument of
-// datapages.Dispatch[Event]. ok is false if expr isn't an instantiation of
-// datapages.Dispatch, name is empty if the argument isn't a named type.
+// datapages.Dispatcher[Event]. ok is false if expr isn't an instantiation of
+// datapages.Dispatcher, name is empty if the argument isn't a named type.
 func DispatchEventTypeName(expr ast.Expr, info *types.Info) (name string, ok bool) {
-	arg, ok := namedTypeArg(expr, info, "Dispatch")
+	arg, ok := namedTypeArg(expr, info, "Dispatcher")
 	if !ok {
 		return "", false
 	}

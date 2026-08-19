@@ -83,7 +83,7 @@ func (p PageIndex) POSTCreate(
 		NewDesc  string `json:"newDesc"`
 		NewDue   string `json:"newDue"`
 	},
-	dispatch datapages.Dispatch[EventTodoUpdated],
+	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) error {
 	if _, err := p.App.verifyTabID(signals.TabID); err != nil {
 		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
@@ -101,7 +101,7 @@ func (p PageIndex) POSTCreate(
 		}
 	}
 	p.App.list.AddItem(title, strings.TrimSpace(signals.NewDesc), dueAt)
-	return dispatch(EventTodoUpdated{})
+	return todoUpdated.Dispatch(EventTodoUpdated{})
 }
 
 // POSTFilter is /filter

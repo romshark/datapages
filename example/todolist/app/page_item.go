@@ -54,7 +54,7 @@ func (p PageItem) DELETEItem(
 	signals struct {
 		TabID string `json:"tab_id"`
 	},
-	dispatch datapages.Dispatch[EventTodoUpdated],
+	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) (redirect datapages.Redirect, err error) {
 	if _, err := p.App.verifyTabID(signals.TabID); err != nil {
 		return redirect, fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
@@ -62,7 +62,7 @@ func (p PageItem) DELETEItem(
 	if !p.App.list.DeleteItem(path.ID) {
 		return redirect, fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 	}
-	if err := dispatch(EventTodoUpdated{}); err != nil {
+	if err := todoUpdated.Dispatch(EventTodoUpdated{}); err != nil {
 		return redirect, err
 	}
 	return datapages.Redirect{URL: "/"}, nil

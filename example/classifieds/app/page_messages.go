@@ -114,7 +114,7 @@ func (p PageMessages) POSTRead(
 	signals struct {
 		ChatSelected string `json:"chatselected"`
 	},
-	dispatch datapages.Dispatch[EventMessagingRead],
+	messagingRead datapages.Dispatcher[EventMessagingRead],
 ) error {
 	post, chat, err := p.getChat(r.Context(), session, signals.ChatSelected)
 	if err != nil {
@@ -146,7 +146,7 @@ func (p PageMessages) POSTRead(
 	}
 
 	for _, recipient := range []string{chat.SenderUserName, post.MerchantUserName} {
-		err := dispatch(EventMessagingRead{
+		err := messagingRead.Dispatch(EventMessagingRead{
 			Recipient: datapages.SubjectUser(recipient),
 			ChatID:    signals.ChatSelected,
 			UserID:    session.UserID(),
@@ -165,7 +165,7 @@ func (p PageMessages) POSTWriting(
 	signals struct {
 		ChatSelected string `json:"chatselected"`
 	},
-	dispatch datapages.Dispatch[EventMessagingWriting],
+	messagingWriting datapages.Dispatcher[EventMessagingWriting],
 ) error {
 	post, chat, err := p.getChat(r.Context(), session, signals.ChatSelected)
 	if err != nil {
@@ -178,7 +178,7 @@ func (p PageMessages) POSTWriting(
 	}
 
 	for _, recipient := range []string{chat.SenderUserName, post.MerchantUserName} {
-		err := dispatch(EventMessagingWriting{
+		err := messagingWriting.Dispatch(EventMessagingWriting{
 			Recipient: datapages.SubjectUser(recipient),
 			ChatID:    signals.ChatSelected,
 			UserID:    session.UserID(),
@@ -197,7 +197,7 @@ func (p PageMessages) POSTWritingStopped(
 	signals struct {
 		ChatSelected string `json:"chatselected"`
 	},
-	dispatch datapages.Dispatch[EventMessagingWritingStopped],
+	messagingWritingStopped datapages.Dispatcher[EventMessagingWritingStopped],
 ) error {
 	post, chat, err := p.getChat(r.Context(), session, signals.ChatSelected)
 	if err != nil {
@@ -210,7 +210,7 @@ func (p PageMessages) POSTWritingStopped(
 	}
 
 	for _, recipient := range []string{chat.SenderUserName, post.MerchantUserName} {
-		err := dispatch(EventMessagingWritingStopped{
+		err := messagingWritingStopped.Dispatch(EventMessagingWritingStopped{
 			Recipient: datapages.SubjectUser(recipient),
 			ChatID:    signals.ChatSelected,
 			UserID:    session.UserID(),
@@ -230,8 +230,8 @@ func (p PageMessages) POSTSendMessage(
 		ChatSelected string `json:"chatselected"`
 		MessageText  string `json:"messagetext"`
 	},
-	dispatchWritingStopped datapages.Dispatch[EventMessagingWritingStopped],
-	dispatchSent datapages.Dispatch[EventMessagingSent],
+	messagingWritingStopped datapages.Dispatcher[EventMessagingWritingStopped],
+	messagingSent datapages.Dispatcher[EventMessagingSent],
 ) error {
 	var targetUsers []string
 	err := func() (err error) {
@@ -270,12 +270,12 @@ func (p PageMessages) POSTSendMessage(
 	var errs []error
 	for _, recipient := range targetUsers {
 		errs = append(errs,
-			dispatchWritingStopped(EventMessagingWritingStopped{
+			messagingWritingStopped.Dispatch(EventMessagingWritingStopped{
 				Recipient: datapages.SubjectUser(recipient),
 				ChatID:    signals.ChatSelected,
 				UserID:    session.UserID(),
 			}),
-			dispatchSent(EventMessagingSent{
+			messagingSent.Dispatch(EventMessagingSent{
 				Recipient: datapages.SubjectUser(recipient),
 				ChatID:    signals.ChatSelected,
 				UserID:    session.UserID(),

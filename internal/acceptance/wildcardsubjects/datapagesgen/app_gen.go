@@ -638,30 +638,7 @@ func (s *Server) handlePageIndexPOSTNote(
 		return
 	}
 
-	dispatchNoted := func(
-		e app.EventNoted,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Topic)) {
-			return fmt.Errorf(
-				"EventNoted.Topic must be a non-empty subject token, received %q",
-				e.Topic)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventNoted JSON: %w", err)
-		}
-		subj := "noted." + string(e.Topic)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchNoted := dispatcherEventNoted{s: s, ctx: r.Context()}
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -670,4 +647,33 @@ func (s *Server) handlePageIndexPOSTNote(
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Note", err)
 		return
 	}
+}
+
+type dispatcherEventNoted struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventNoted) Dispatch(e app.EventNoted) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventNoted) DispatchCtx(
+	ctx context.Context, e app.EventNoted,
+) error {
+	if !isSubjectToken(string(e.Topic)) {
+		return fmt.Errorf(
+			"EventNoted.Topic must be a non-empty subject token, received %q",
+			e.Topic)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventNoted JSON: %w", err)
+	}
+	subj := "noted." + string(e.Topic)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
 }

@@ -2015,30 +2015,7 @@ func (s *Server) handlePageMessagesPOSTRead(
 	}
 	query.MessageID = q.Get("msgid")
 
-	dispatchMessagingRead := func(
-		e app.EventMessagingRead,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventMessagingRead.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventMessagingRead JSON: %w", err)
-		}
-		subj := "messaging.read." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchMessagingRead := dispatcherEventMessagingRead{s: s, ctx: r.Context()}
 	p := app.PageMessages{
 		App: s.app,
 		Base: app.Base{
@@ -2071,30 +2048,7 @@ func (s *Server) handlePageMessagesPOSTWriting(
 		return
 	}
 
-	dispatchMessagingWriting := func(
-		e app.EventMessagingWriting,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventMessagingWriting.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventMessagingWriting JSON: %w", err)
-		}
-		subj := "messaging.writing." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchMessagingWriting := dispatcherEventMessagingWriting{s: s, ctx: r.Context()}
 	p := app.PageMessages{
 		App: s.app,
 		Base: app.Base{
@@ -2127,30 +2081,7 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 		return
 	}
 
-	dispatchMessagingWritingStopped := func(
-		e app.EventMessagingWritingStopped,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventMessagingWritingStopped.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
-		}
-		subj := "messaging.writing-stopped." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchMessagingWritingStopped := dispatcherEventMessagingWritingStopped{s: s, ctx: r.Context()}
 	p := app.PageMessages{
 		App: s.app,
 		Base: app.Base{
@@ -2184,55 +2115,9 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 		return
 	}
 
-	dispatchMessagingWritingStopped := func(
-		e app.EventMessagingWritingStopped,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventMessagingWritingStopped.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
-		}
-		subj := "messaging.writing-stopped." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchMessagingWritingStopped := dispatcherEventMessagingWritingStopped{s: s, ctx: r.Context()}
 
-	dispatchMessagingSent := func(
-		e app.EventMessagingSent,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventMessagingSent.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
-		}
-		subj := "messaging.sent." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchMessagingSent := dispatcherEventMessagingSent{s: s, ctx: r.Context()}
 	p := app.PageMessages{
 		App: s.app,
 		Base: app.Base{
@@ -2530,30 +2415,7 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	}
 	path.Slug = r.PathValue("slug")
 
-	dispatchMessagingSent := func(
-		e app.EventMessagingSent,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventMessagingSent.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
-		}
-		subj := "messaging.sent." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchMessagingSent := dispatcherEventMessagingSent{s: s, ctx: r.Context()}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	p := app.PagePost{
@@ -2901,30 +2763,7 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 	}
 	path.Token = r.PathValue("token")
 
-	dispatchSessionClosed := func(
-		e app.EventSessionClosed,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventSessionClosed.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
-		}
-		subj := "sessions.closed." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchSessionClosed := dispatcherEventSessionClosed{s: s, ctx: r.Context()}
 	p := app.PageSettings{
 		App: s.app,
 		Base: app.Base{
@@ -2955,30 +2794,7 @@ func (s *Server) handlePageSettingsPOSTCloseAllSessions(
 		return
 	}
 
-	dispatchSessionClosed := func(
-		e app.EventSessionClosed,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventSessionClosed.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
-		}
-		subj := "sessions.closed." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchSessionClosed := dispatcherEventSessionClosed{s: s, ctx: r.Context()}
 	p := app.PageSettings{
 		App: s.app,
 		Base: app.Base{
@@ -3158,4 +2974,149 @@ func (s *Server) handlePageUserGETStreamAnon(w http.ResponseWriter, r *http.Requ
 				}
 			}
 		})
+}
+
+type dispatcherEventMessagingRead struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventMessagingRead) Dispatch(e app.EventMessagingRead) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventMessagingRead) DispatchCtx(
+	ctx context.Context, e app.EventMessagingRead,
+) error {
+	if !isSubjectToken(string(e.Recipient)) {
+		return fmt.Errorf(
+			"EventMessagingRead.Recipient must be a non-empty subject token, received %q",
+			e.Recipient)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventMessagingRead JSON: %w", err)
+	}
+	subj := "messaging.read." + string(e.Recipient)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
+}
+
+type dispatcherEventMessagingWriting struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventMessagingWriting) Dispatch(e app.EventMessagingWriting) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventMessagingWriting) DispatchCtx(
+	ctx context.Context, e app.EventMessagingWriting,
+) error {
+	if !isSubjectToken(string(e.Recipient)) {
+		return fmt.Errorf(
+			"EventMessagingWriting.Recipient must be a non-empty subject token, received %q",
+			e.Recipient)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventMessagingWriting JSON: %w", err)
+	}
+	subj := "messaging.writing." + string(e.Recipient)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
+}
+
+type dispatcherEventMessagingWritingStopped struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventMessagingWritingStopped) Dispatch(e app.EventMessagingWritingStopped) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventMessagingWritingStopped) DispatchCtx(
+	ctx context.Context, e app.EventMessagingWritingStopped,
+) error {
+	if !isSubjectToken(string(e.Recipient)) {
+		return fmt.Errorf(
+			"EventMessagingWritingStopped.Recipient must be a non-empty subject token, received %q",
+			e.Recipient)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
+	}
+	subj := "messaging.writing-stopped." + string(e.Recipient)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
+}
+
+type dispatcherEventMessagingSent struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventMessagingSent) Dispatch(e app.EventMessagingSent) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventMessagingSent) DispatchCtx(
+	ctx context.Context, e app.EventMessagingSent,
+) error {
+	if !isSubjectToken(string(e.Recipient)) {
+		return fmt.Errorf(
+			"EventMessagingSent.Recipient must be a non-empty subject token, received %q",
+			e.Recipient)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
+	}
+	subj := "messaging.sent." + string(e.Recipient)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
+}
+
+type dispatcherEventSessionClosed struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventSessionClosed) Dispatch(e app.EventSessionClosed) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventSessionClosed) DispatchCtx(
+	ctx context.Context, e app.EventSessionClosed,
+) error {
+	if !isSubjectToken(string(e.Recipient)) {
+		return fmt.Errorf(
+			"EventSessionClosed.Recipient must be a non-empty subject token, received %q",
+			e.Recipient)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
+	}
+	subj := "sessions.closed." + string(e.Recipient)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
 }

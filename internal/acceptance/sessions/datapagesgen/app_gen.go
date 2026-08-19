@@ -1187,30 +1187,7 @@ func (s *Server) handlePageLoginPOSTNotify(
 		return
 	}
 
-	dispatchNotice := func(
-		e app.EventNotice,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventNotice.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventNotice JSON: %w", err)
-		}
-		subj := "notice." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchNotice := dispatcherEventNotice{s: s, ctx: r.Context()}
 	p := app.PageLogin{
 		App: s.app,
 	}
@@ -1241,24 +1218,7 @@ func (s *Server) handlePageLoginPOSTBroadcast(
 		return
 	}
 
-	dispatchBroadcast := func(
-		e app.EventBroadcast,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventBroadcast JSON: %w", err)
-		}
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjBroadcast, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", EvSubjBroadcast, err)
-		}
-		return nil
-	}
+	dispatchBroadcast := dispatcherEventBroadcast{s: s, ctx: r.Context()}
 	p := app.PageLogin{
 		App: s.app,
 	}
@@ -1351,4 +1311,56 @@ func (s *Server) handlePageTokenGET(w http.ResponseWriter, r *http.Request) {
 		s.logErr("rendering PageToken", err)
 		return
 	}
+}
+
+type dispatcherEventNotice struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventNotice) Dispatch(e app.EventNotice) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventNotice) DispatchCtx(
+	ctx context.Context, e app.EventNotice,
+) error {
+	if !isSubjectToken(string(e.Recipient)) {
+		return fmt.Errorf(
+			"EventNotice.Recipient must be a non-empty subject token, received %q",
+			e.Recipient)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventNotice JSON: %w", err)
+	}
+	subj := "notice." + string(e.Recipient)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
+}
+
+type dispatcherEventBroadcast struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventBroadcast) Dispatch(e app.EventBroadcast) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventBroadcast) DispatchCtx(
+	ctx context.Context, e app.EventBroadcast,
+) error {
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventBroadcast JSON: %w", err)
+	}
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, EvSubjBroadcast, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", EvSubjBroadcast, err)
+	}
+	return nil
 }

@@ -145,11 +145,11 @@ func TestStreamCloseDispatches(t *testing.T) {
 		"the event dispatched from StreamClose never arrived")
 }
 
-// TestDispatchContextOption covers datapages.WithDispatchContext.
-// The action dispatches with a context that is already done,
-// so a broker that honors the context refuses to publish and the action fails.
-// Without the option the same dispatch would use the live request context and succeed.
-func TestDispatchContextOption(t *testing.T) {
+// TestDispatchCtx covers Dispatcher.DispatchCtx.
+// The action dispatches with a context that is already done.
+// A broker that honors the context refuses to publish and the action fails.
+// Dispatch would use the live request context and succeed.
+func TestDispatchCtx(t *testing.T) {
 	broker := &ctxBroker{MessageBroker: inmem.New(8)}
 	c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
 
@@ -168,7 +168,7 @@ func TestDispatchContextOption(t *testing.T) {
 
 // ctxBroker publishes only while the context it is given is alive.
 // The in-memory broker ignores the context, which would hide what
-// TestDispatchContextOption is after.
+// TestDispatchCtx is after.
 type ctxBroker struct {
 	msgbroker.MessageBroker
 }

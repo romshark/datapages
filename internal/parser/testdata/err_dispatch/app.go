@@ -57,7 +57,7 @@ type PageBadEvent struct{ App *App }
 
 func (PageBadEvent) GET(
 	r *http.Request,
-	dispatchString datapages.Dispatch[string],
+	dispatchString datapages.Dispatcher[string],
 ) (body datapages.Component, err error) {
 	_ = dispatchString
 	return body, err
@@ -70,8 +70,8 @@ type PageDuplicate struct{ App *App }
 
 func (PageDuplicate) GET(
 	r *http.Request,
-	dispatchFoo datapages.Dispatch[EventFoo],
-	dispatchFooAgain datapages.Dispatch[EventFoo],
+	dispatchFoo datapages.Dispatcher[EventFoo],
+	dispatchFooAgain datapages.Dispatcher[EventFoo],
 ) (body datapages.Component, err error) {
 	_, _ = dispatchFoo, dispatchFooAgain
 	return body, err

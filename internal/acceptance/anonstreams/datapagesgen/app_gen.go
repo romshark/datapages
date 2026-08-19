@@ -1000,24 +1000,7 @@ func (s *Server) handlePageFeedPOSTTick(
 		return
 	}
 
-	dispatchTicked := func(
-		e app.EventTicked,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventTicked JSON: %w", err)
-		}
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTicked, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", EvSubjTicked, err)
-		}
-		return nil
-	}
+	dispatchTicked := dispatcherEventTicked{s: s, ctx: r.Context()}
 	p := app.PageFeed{
 		App: s.app,
 	}
@@ -1232,30 +1215,7 @@ func (s *Server) handlePageRoomsPOSTPost(
 		return
 	}
 
-	dispatchRoomPosted := func(
-		e app.EventRoomPosted,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Room)) {
-			return fmt.Errorf(
-				"EventRoomPosted.Room must be a non-empty subject token, received %q",
-				e.Room)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventRoomPosted JSON: %w", err)
-		}
-		subj := "room.posted." + string(e.Room)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchRoomPosted := dispatcherEventRoomPosted{s: s, ctx: r.Context()}
 	p := app.PageRooms{
 		App: s.app,
 	}
@@ -1287,30 +1247,7 @@ func (s *Server) handlePageRoomsPOSTNotice(
 		return
 	}
 
-	dispatchNoticed := func(
-		e app.EventNoticed,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventNoticed.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventNoticed JSON: %w", err)
-		}
-		subj := "noticed." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchNoticed := dispatcherEventNoticed{s: s, ctx: r.Context()}
 	p := app.PageRooms{
 		App: s.app,
 	}
@@ -1319,4 +1256,85 @@ func (s *Server) handlePageRoomsPOSTNotice(
 		s.httpErrIntern(w, r, nil, "handling action PageRooms.Notice", err)
 		return
 	}
+}
+
+type dispatcherEventTicked struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventTicked) Dispatch(e app.EventTicked) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventTicked) DispatchCtx(
+	ctx context.Context, e app.EventTicked,
+) error {
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventTicked JSON: %w", err)
+	}
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, EvSubjTicked, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", EvSubjTicked, err)
+	}
+	return nil
+}
+
+type dispatcherEventRoomPosted struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventRoomPosted) Dispatch(e app.EventRoomPosted) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventRoomPosted) DispatchCtx(
+	ctx context.Context, e app.EventRoomPosted,
+) error {
+	if !isSubjectToken(string(e.Room)) {
+		return fmt.Errorf(
+			"EventRoomPosted.Room must be a non-empty subject token, received %q",
+			e.Room)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventRoomPosted JSON: %w", err)
+	}
+	subj := "room.posted." + string(e.Room)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
+}
+
+type dispatcherEventNoticed struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventNoticed) Dispatch(e app.EventNoticed) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventNoticed) DispatchCtx(
+	ctx context.Context, e app.EventNoticed,
+) error {
+	if !isSubjectToken(string(e.Recipient)) {
+		return fmt.Errorf(
+			"EventNoticed.Recipient must be a non-empty subject token, received %q",
+			e.Recipient)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventNoticed JSON: %w", err)
+	}
+	subj := "noticed." + string(e.Recipient)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
 }

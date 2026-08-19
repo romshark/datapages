@@ -23,18 +23,18 @@ func (p PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 
 // POSTAdd is /add/{$}
 func (p PageIndex) POSTAdd(
-	r *http.Request, dispatch datapages.Dispatch[EventCounterUpdated],
+	r *http.Request, counterUpdated datapages.Dispatcher[EventCounterUpdated],
 	query struct {
 		Delta int32 `query:"delta"`
 	},
 ) error {
 	p.App.counter.Add(query.Delta)
-	return dispatch(EventCounterUpdated{})
+	return counterUpdated.Dispatch(EventCounterUpdated{})
 }
 
 // POSTSet is /set/{value}/{$}
 func (p PageIndex) POSTSet(
-	r *http.Request, dispatch datapages.Dispatch[EventCounterUpdated],
+	r *http.Request, counterUpdated datapages.Dispatcher[EventCounterUpdated],
 	path struct {
 		Value int32 `path:"value"`
 	},
@@ -47,7 +47,7 @@ func (p PageIndex) POSTSet(
 		v = path.Value
 	}
 	p.App.counter.Store(v)
-	return dispatch(EventCounterUpdated{})
+	return counterUpdated.Dispatch(EventCounterUpdated{})
 }
 
 func (p PageIndex) OnCounterUpdated(

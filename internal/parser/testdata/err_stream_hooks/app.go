@@ -268,8 +268,8 @@ func (PageHookDuplicateDispatch) GET(
 func (PageHookDuplicateDispatch) StreamClose(
 	r *http.Request,
 	streamID uint64,
-	dispatchPing datapages.Dispatch[EventPing],
-	dispatchPingAgain datapages.Dispatch[EventPing],
+	dispatchPing datapages.Dispatcher[EventPing],
+	dispatchPingAgain datapages.Dispatcher[EventPing],
 ) error {
 	return nil
 }

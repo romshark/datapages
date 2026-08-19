@@ -23,7 +23,7 @@ func (Base) StreamOpen(
 	signals struct {
 		Instance string `json:"instance"`
 	},
-	dispatch datapages.Dispatch[EventPing],
+	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	return nil
 }
@@ -32,7 +32,7 @@ func (Base) StreamClose(
 	r *http.Request,
 	streamID uint64,
 	session Session,
-	dispatch datapages.Dispatch[EventPing],
+	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	return nil
 }
@@ -81,7 +81,7 @@ func (PageStreamMax) StreamOpen(
 	signals struct {
 		Instance string `json:"instance"`
 	},
-	dispatch datapages.Dispatch[EventPing],
+	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	return nil
 }
@@ -90,7 +90,7 @@ func (PageStreamMax) StreamClose(
 	r *http.Request,
 	streamID uint64,
 	session Session,
-	dispatch datapages.Dispatch[EventPing],
+	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	return nil
 }

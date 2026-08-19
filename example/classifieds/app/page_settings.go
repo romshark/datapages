@@ -74,7 +74,7 @@ func (p PageSettings) POSTCloseSession(
 	path struct {
 		Token string `path:"token"`
 	},
-	dispatch datapages.Dispatch[EventSessionClosed],
+	sessionClosed datapages.Dispatcher[EventSessionClosed],
 ) (
 	closeSession bool,
 	redirect datapages.Redirect,
@@ -91,12 +91,12 @@ func (p PageSettings) POSTCloseSession(
 		return false, redirect, domain.ErrUnauthorized
 	}
 	// Even though closeSession=true would close the sessions, let's close it
-	// explicitly before we dispatch the event to make sure it's closed before
+	// explicitly before we sessionClosed the event to make sure it's closed before
 	// we claim it is.
 	if err := p.App.sessions.CloseSession(r.Context(), path.Token); err != nil {
 		return false, redirect, err
 	}
-	_ = dispatch(EventSessionClosed{
+	_ = sessionClosed.Dispatch(EventSessionClosed{
 		Recipient: datapages.SubjectUser(sess.UserID),
 		Token:     path.Token,
 	})
@@ -112,7 +112,7 @@ func (p PageSettings) POSTCloseSession(
 func (p PageSettings) POSTCloseAllSessions(
 	r *http.Request,
 	session Session,
-	dispatch datapages.Dispatch[EventSessionClosed],
+	sessionClosed datapages.Dispatcher[EventSessionClosed],
 ) (redirect datapages.Redirect, err error) {
 	if session.IsGuest() {
 		return redirect, domain.ErrUnauthorized
@@ -123,7 +123,7 @@ func (p PageSettings) POSTCloseAllSessions(
 	}
 	recipient := datapages.SubjectUser(session.UserID())
 	for _, token := range closed {
-		_ = dispatch(EventSessionClosed{
+		_ = sessionClosed.Dispatch(EventSessionClosed{
 			Recipient: recipient,
 			Token:     token,
 		})

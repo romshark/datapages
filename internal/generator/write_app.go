@@ -122,6 +122,8 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 			w.writePageActionHandler(p, h, m, appPkg)
 		}
 	}
+
+	w.writeDispatcherTypes(appPkg)
 }
 
 func needsJSON(m *model.App) bool {
@@ -2115,7 +2117,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	}
 
 	// Dispatch closures.
-	w.writeDispatchClosures(h, "dispatch", appPkg, "r.Context()")
+	w.writeDispatchers(h, "dispatch", "r.Context()")
 
 	// SSE for actions that take it.
 	if h.InputSSE != nil && !isAppLevel {
@@ -2268,78 +2270,96 @@ func (w *Writer) writeMethodCall(
 	}
 }
 
-// writeDispatchClosures emits one closure per datapages.Dispatch parameter of
-// the handler. prefix names them apart when a generated function holds the
-// closures of more than one handler, as the stream handler does.
-func (w *Writer) writeDispatchClosures(
-	h *model.Handler, prefix, appPkg, ctxExpr string,
-) {
+// writeDispatchers emits one dispatcher value per datapages.Dispatcher parameter
+// of the handler. prefix names them apart when a generated function holds the
+// dispatchers of more than one handler, as the stream handler does.
+// ctxExpr is the context Dispatch publishes with.
+func (w *Writer) writeDispatchers(h *model.Handler, prefix, ctxExpr string) {
 	for _, d := range h.InputDispatches {
-		w.writeDispatchClosure(d, prefix, appPkg, ctxExpr)
+		if !slices.Contains(w.dispatchedEvents, d.EventTypeName) {
+			w.dispatchedEvents = append(w.dispatchedEvents, d.EventTypeName)
+		}
+		w.Line(0, "")
+		w.Byte('\t')
+		w.Raw(dispatchVarName(prefix, d.EventTypeName))
+		w.Raw(" := ")
+		w.Raw(dispatcherTypeName(d.EventTypeName))
+		w.Raw("{s: s, ctx: ")
+		w.Raw(ctxExpr)
+		w.Raw("}\n")
 	}
 }
 
-// writeDispatchClosure emits the closure passed to a handler as its
-// datapages.Dispatch[EventXXX] argument. It marshals the event and publishes it
-// to every subject its subject fields expand into. ctxExpr is the context the
-// publish uses unless the call overrides it with datapages.WithDispatchContext.
-func (w *Writer) writeDispatchClosure(
-	d *model.InputDispatch, prefix, appPkg, ctxExpr string,
-) {
-	evName := d.EventTypeName
+// writeDispatcherTypes emits the datapages.Dispatcher implementation of every
+// event a handler dispatches. It marshals the event and publishes it to every
+// subject its subject fields expand into.
+func (w *Writer) writeDispatcherTypes(appPkg string) {
+	for _, evName := range w.dispatchedEvents {
+		w.writeDispatcherType(evName, appPkg)
+	}
+}
+
+func (w *Writer) writeDispatcherType(evName, appPkg string) {
 	ev := w.eventMap[evName]
+	typeName := dispatcherTypeName(evName)
+	eventType := appPkg + "." + evName
 
 	w.Line(0, "")
-	w.Raw("\t")
-	w.Raw(dispatchVarName(prefix, evName))
-	w.Raw(" := func(\n")
-	w.Raw("\t\te ")
-	w.Raw(appPkg)
-	w.Byte('.')
-	w.Raw(evName)
-	w.Raw(",\n")
-	w.Line(2, "options ...datapages.DispatchOption,")
-	w.Line(1, ") error {")
+	w.Raw("type ")
+	w.Raw(typeName)
+	w.Raw(" struct {\n")
+	w.Line(1, "s   *Server")
+	w.Line(1, "ctx context.Context")
+	w.Line(0, "}")
 
-	w.Raw("\t\tconf := datapages.DispatchConfig{Context: ")
-	w.Raw(ctxExpr)
-	w.Raw("}\n")
-	w.Line(2, "for _, o := range options {")
-	w.Line(3, "o(&conf)")
-	w.Line(2, "}")
+	w.Line(0, "")
+	w.Raw("func (d ")
+	w.Raw(typeName)
+	w.Raw(") Dispatch(e ")
+	w.Raw(eventType)
+	w.Raw(") error {\n")
+	w.Line(1, "return d.DispatchCtx(d.ctx, e)")
+	w.Line(0, "}")
+
+	w.Line(0, "")
+	w.Raw("func (d ")
+	w.Raw(typeName)
+	w.Raw(") DispatchCtx(\n")
+	w.Line(1, "ctx context.Context, e "+eventType+",")
+	w.Line(0, ") error {")
 
 	if ev != nil && ev.HasSubjectFields() {
 		// Guard before any work: a value carrying a separator or a wildcard
 		// makes a subject of a different shape,
 		// which every subscription then misses in silence.
 		for _, sf := range ev.SubjectFields {
-			w.Raw("\t\tif !isSubjectToken(string(e.")
+			w.Raw("\tif !isSubjectToken(string(e.")
 			w.Raw(sf.FieldName)
 			w.Raw(")) {\n")
-			w.Line(3, "return fmt.Errorf(")
-			w.Raw("\t\t\t\t\"")
+			w.Line(2, "return fmt.Errorf(")
+			w.Raw("\t\t\t\"")
 			w.Raw(evName)
 			w.Byte('.')
 			w.Raw(sf.FieldName)
 			w.Raw(" must be a non-empty subject token, received %q\",\n")
-			w.Raw("\t\t\t\te.")
+			w.Raw("\t\t\te.")
 			w.Raw(sf.FieldName)
 			w.Raw(")\n")
-			w.Line(2, "}")
+			w.Line(1, "}")
 		}
 	}
 
-	w.Line(2, "j, err := json.Marshal(e)")
-	w.Line(2, "if err != nil {")
-	w.Raw("\t\t\treturn fmt.Errorf(\"marshaling ")
+	w.Line(1, "j, err := json.Marshal(e)")
+	w.Line(1, "if err != nil {")
+	w.Raw("\t\treturn fmt.Errorf(\"marshaling ")
 	w.Raw(evName)
 	w.Raw(" JSON: %w\", err)\n")
-	w.Line(2, "}")
+	w.Line(1, "}")
 
 	if ev != nil && ev.HasSubjectFields() {
 		// Every segment carries one value, so the subject is a plain
 		// concatenation of the base subject and the fields, in field order.
-		w.Raw("\t\tsubj := ")
+		w.Raw("\tsubj := ")
 		w.writeQuoted(ev.Subject + ".")
 		for i, sf := range ev.SubjectFields {
 			if i > 0 {
@@ -2352,24 +2372,24 @@ func (w *Writer) writeDispatchClosure(
 			w.Byte(')')
 		}
 		w.Byte('\n')
-		w.Raw("\t\terr = s.messageBroker.Publish(")
-		w.Raw("conf.Context, s.messageBrokerMetrics, subj, j)\n")
-		w.Line(2, "if err != nil {")
-		w.Raw("\t\t\treturn fmt.Errorf(\"publishing subject %q: %w\", subj, err)\n")
-		w.Line(2, "}")
+		w.Raw("\terr = d.s.messageBroker.Publish(")
+		w.Raw("ctx, d.s.messageBrokerMetrics, subj, j)\n")
+		w.Line(1, "if err != nil {")
+		w.Raw("\t\treturn fmt.Errorf(\"publishing subject %q: %w\", subj, err)\n")
+		w.Line(1, "}")
 	} else if ev != nil {
-		w.Raw("\t\terr = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, ")
+		w.Raw("\terr = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, ")
 		w.Raw(evSubjConst(ev))
 		w.Raw(", j)\n")
-		w.Line(2, "if err != nil {")
-		w.Raw("\t\t\treturn fmt.Errorf(\"publishing subject %q: %w\", ")
+		w.Line(1, "if err != nil {")
+		w.Raw("\t\treturn fmt.Errorf(\"publishing subject %q: %w\", ")
 		w.Raw(evSubjConst(ev))
 		w.Raw(", err)\n")
-		w.Line(2, "}")
+		w.Line(1, "}")
 	}
 
-	w.Line(2, "return nil")
-	w.Line(1, "}")
+	w.Line(1, "return nil")
+	w.Line(0, "}")
 }
 
 func renderSignalsType(input *model.Input, m *model.App) string {

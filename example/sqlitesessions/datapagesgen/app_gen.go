@@ -898,30 +898,7 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dispatchSessionClosed := func(
-		e app.EventSessionClosed,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventSessionClosed.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
-		}
-		subj := "sessions.closed." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchSessionClosed := dispatcherEventSessionClosed{s: s, ctx: r.Context()}
 	closeSession, redirect, err := s.app.POSTSignOut(r, sess, dispatchSessionClosed)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.SignOut", err)
@@ -1245,4 +1222,33 @@ func (s *Server) handlePageRegisterPOSTSubmit(
 		s.logErr("rendering response of PageRegister.POSTSubmit", err)
 		return
 	}
+}
+
+type dispatcherEventSessionClosed struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventSessionClosed) Dispatch(e app.EventSessionClosed) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventSessionClosed) DispatchCtx(
+	ctx context.Context, e app.EventSessionClosed,
+) error {
+	if !isSubjectToken(string(e.Recipient)) {
+		return fmt.Errorf(
+			"EventSessionClosed.Recipient must be a non-empty subject token, received %q",
+			e.Recipient)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
+	}
+	subj := "sessions.closed." + string(e.Recipient)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
 }

@@ -95,7 +95,7 @@ func (p PageIndex) GET(r *http.Request) (
 // POSTInput is /input/{$}
 func (p PageIndex) POSTInput(
 	r *http.Request,
-	dispatch datapages.Dispatch[EventCalcUpdated],
+	calcUpdated datapages.Dispatcher[EventCalcUpdated],
 	query struct {
 		Btn int    `query:"btn"`
 		Num string `query:"num"`
@@ -118,7 +118,7 @@ func (p PageIndex) POSTInput(
 		if signals.Fresh {
 			input = ""
 		}
-		return dispatch(EventCalcUpdated{
+		return calcUpdated.Dispatch(EventCalcUpdated{
 			InstanceID: datapages.Subject(signals.InstanceID),
 			Input:      input + query.Num,
 			Fresh:      false,
@@ -129,7 +129,7 @@ func (p PageIndex) POSTInput(
 		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, errInvalidBtn)
 	}
 	input, fresh := calc.Press(signals.Input, signals.Fresh, btn)
-	return dispatch(EventCalcUpdated{
+	return calcUpdated.Dispatch(EventCalcUpdated{
 		InstanceID: datapages.Subject(signals.InstanceID),
 		Input:      input,
 		Fresh:      fresh,

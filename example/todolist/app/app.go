@@ -65,7 +65,7 @@ func (a *App) PUTEdit(
 		Done        bool   `json:"done"`
 		Due         string `json:"due"`
 	},
-	dispatch datapages.Dispatch[EventTodoUpdated],
+	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) error {
 	if _, err := a.verifyTabID(signals.TabID); err != nil {
 		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
@@ -74,7 +74,7 @@ func (a *App) PUTEdit(
 		if !a.list.ToggleItem(path.ID) {
 			return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 		}
-		return dispatch(EventTodoUpdated{})
+		return todoUpdated.Dispatch(EventTodoUpdated{})
 	}
 	title := strings.TrimSpace(signals.Title)
 	if title == "" {
@@ -94,7 +94,7 @@ func (a *App) PUTEdit(
 	) {
 		return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 	}
-	return dispatch(EventTodoUpdated{})
+	return todoUpdated.Dispatch(EventTodoUpdated{})
 }
 
 // signStreamID produces an HMAC-signed tab identifier from a streamID.

@@ -267,7 +267,7 @@ session Session // optional
 path struct { ID string `path:"id"` } // optional
 query struct { P int `query:"p"` } // optional
 signals struct { V string `json:"v"` } // optional
-dispatchFoo datapages.Dispatch[EventFoo] // optional
+somethingHappened datapages.Dispatcher[EventSomethingHappened] // optional
 ```
 
 Import `"github.com/romshark/datapages"` for `datapages.SSE`.
@@ -377,16 +377,16 @@ The subject is quoted. `"messaging.sent"` works. `messaging.sent` does not.
 
 ### Dispatch from Actions
 
-Add a `datapages.Dispatch[EventXXX]` parameter. Its name is free, the type is
+Add a `datapages.Dispatcher[EventXXX]` parameter. Its name is free, the type is
 what makes it a dispatcher.
 
 ```go
 // POSTSend is /chat/send
 func (PageChat) POSTSend(
 	r *http.Request,
-	dispatch datapages.Dispatch[EventMessageSent],
+	messageSent datapages.Dispatcher[EventMessageSent],
 ) error {
-	return dispatch(EventMessageSent{Message: "hello"})
+	return messageSent.Dispatch(EventMessageSent{Message: "hello"})
 }
 ```
 
@@ -396,19 +396,19 @@ Nothing is atomic across them, hence joining the errors:
 ```go
 func (PageChat) POSTSend(
 	r *http.Request,
-	dispatchSent datapages.Dispatch[EventMessageSent],
-	dispatchActive datapages.Dispatch[EventUserActive],
+	messageSent datapages.Dispatcher[EventMessageSent],
+	userActive datapages.Dispatcher[EventUserActive],
 ) error {
 	return errors.Join(
-		dispatchSent(EventMessageSent{Message: "hello"}),
-		dispatchActive(EventUserActive{}),
+		messageSent.Dispatch(EventMessageSent{Message: "hello"}),
+		userActive.Dispatch(EventUserActive{}),
 	)
 }
 ```
 
-The publish uses the context of the handler that dispatches, so nothing has to be passed.
-Override it with `datapages.WithDispatchContext(ctx)` when the event
-goes out after the handler returned or the publish needs its own deadline.
+`Dispatch` publishes with the context of the handler that dispatches.
+Use `DispatchCtx(ctx, event)` when the event goes out after the handler returned
+or the publish needs its own deadline.
 
 ### Handle Events on Pages
 
@@ -469,7 +469,7 @@ decides what to do about it:
 
 ```go
 for _, participant := range room.ParticipantIDs {
-	err := dispatch(EventDirectMessage{
+	err := directMessage.Dispatch(EventDirectMessage{
 		Recipient: datapages.SubjectUser(participant),
 		Content:   signals.Text,
 	})
@@ -529,11 +529,11 @@ to clients, as it could leak information about server activity and connection vo
 `StreamOpen` runs after the SSE stream is established, before any event handler.
 It additionally accepts these optional parameters:
 `sse datapages.SSE`, `session Session`,
-`signals struct{...}`, `datapages.Dispatch[EventXXX]`.
+`signals struct{...}`, `datapages.Dispatcher[EventXXX]`.
 
 `StreamClose` runs when the stream closes.
 It additionally accepts these optional parameters:
-`session Session`, `datapages.Dispatch[EventXXX]`.
+`session Session`, `datapages.Dispatcher[EventXXX]`.
 Note: `StreamClose` does **not** accept `sse` or `signals`.
 
 ```go
@@ -545,7 +545,7 @@ func (PageIndex) StreamOpen(
 	signals struct{ // Optional
 		Instance string `json:"instance"`
 	},
-	dispatch datapages.Dispatch[EventPing], // Optional
+	ping datapages.Dispatcher[EventPing], // Optional
 ) error {
 	// Set up per-tab state, patch signals to the client, etc.
 	return nil
@@ -555,7 +555,7 @@ func (PageIndex) StreamClose(
 	r *http.Request,
 	streamID uint64,
 	session Session, // Optional
-	dispatch datapages.Dispatch[EventPing], // Optional
+	ping datapages.Dispatcher[EventPing], // Optional
 ) error {
 	// Clean up per-tab state.
 	return nil

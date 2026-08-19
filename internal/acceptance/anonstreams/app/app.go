@@ -1,8 +1,8 @@
 // Package app exercises the stream a page serves to a visitor with no session.
 //
 // A page whose events are partly private serves two streams. The one for
-// signed-in visitors carries both kinds; the anonymous one carries what is
-// public, and has to subscribe by the same signal values as the other.
+// signed-in visitors carries both kinds; the anonymous one carries what is public,
+// and has to subscribe by the same signal values as the other.
 package app
 
 import (
@@ -100,9 +100,12 @@ func (p PageRooms) POSTPost(
 		Room string `json:"room"`
 		Text string `json:"text"`
 	},
-	dispatch datapages.Dispatch[EventRoomPosted],
+	roomPosted datapages.Dispatcher[EventRoomPosted],
 ) error {
-	return dispatch(EventRoomPosted{Room: datapages.Subject(signals.Room), Text: signals.Text})
+	return roomPosted.Dispatch(EventRoomPosted{
+		Room: datapages.Subject(signals.Room),
+		Text: signals.Text,
+	})
 }
 
 // POSTNotice is /rooms/notice
@@ -112,9 +115,9 @@ func (p PageRooms) POSTNotice(
 		User string `json:"user"`
 		Text string `json:"text"`
 	},
-	dispatch datapages.Dispatch[EventNoticed],
+	noticed datapages.Dispatcher[EventNoticed],
 ) error {
-	return dispatch(EventNoticed{
+	return noticed.Dispatch(EventNoticed{
 		Recipient: datapages.SubjectUser(signals.User),
 		Text:      signals.Text,
 	})
@@ -154,7 +157,7 @@ func (p PageFeed) POSTTick(
 	signals struct {
 		N int `json:"n"`
 	},
-	dispatch datapages.Dispatch[EventTicked],
+	ticked datapages.Dispatcher[EventTicked],
 ) error {
-	return dispatch(EventTicked{N: signals.N})
+	return ticked.Dispatch(EventTicked{N: signals.N})
 }

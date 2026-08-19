@@ -464,7 +464,7 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf(
-			"fix: Type %s as datapages.Dispatch[EventXXX], one parameter per"+
+			"fix: Type %s as datapages.Dispatcher[EventXXX], one parameter per"+
 				" event type the handler dispatches", d.ParamName,
 		)
 
@@ -474,7 +474,7 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf(
-			"fix: Remove the second datapages.Dispatch[%s] parameter in %s.%s",
+			"fix: Remove the second datapages.Dispatcher[%s] parameter in %s.%s",
 			d.EventTypeName, d.Recv, d.MethodName,
 		)
 	}

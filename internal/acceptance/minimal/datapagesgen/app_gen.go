@@ -629,24 +629,7 @@ func (s *Server) handlePageIndexPOSTPing(
 		return
 	}
 
-	dispatchPing := func(
-		e app.EventPing,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventPing JSON: %w", err)
-		}
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjPing, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", EvSubjPing, err)
-		}
-		return nil
-	}
+	dispatchPing := dispatcherEventPing{s: s, ctx: r.Context()}
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -655,4 +638,27 @@ func (s *Server) handlePageIndexPOSTPing(
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Ping", err)
 		return
 	}
+}
+
+type dispatcherEventPing struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventPing) Dispatch(e app.EventPing) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventPing) DispatchCtx(
+	ctx context.Context, e app.EventPing,
+) error {
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventPing JSON: %w", err)
+	}
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, EvSubjPing, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", EvSubjPing, err)
+	}
+	return nil
 }

@@ -171,9 +171,9 @@ func (p PageLogin) POSTNotify(
 		User string `json:"user"`
 		Text string `json:"text"`
 	},
-	dispatch datapages.Dispatch[EventNotice],
+	notice datapages.Dispatcher[EventNotice],
 ) error {
-	return dispatch(EventNotice{
+	return notice.Dispatch(EventNotice{
 		Recipient: datapages.SubjectUser(signals.User),
 		Text:      signals.Text,
 	})
@@ -187,9 +187,9 @@ func (p PageLogin) POSTBroadcast(
 	signals struct {
 		Text string `json:"text"`
 	},
-	dispatch datapages.Dispatch[EventBroadcast],
+	broadcast datapages.Dispatcher[EventBroadcast],
 ) error {
-	return dispatch(EventBroadcast{Text: signals.Text})
+	return broadcast.Dispatch(EventBroadcast{Text: signals.Text})
 }
 
 // POSTRename is /login/rename

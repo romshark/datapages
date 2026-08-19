@@ -482,7 +482,7 @@ func TestSuggest(t *testing.T) {
 				MethodName: "GET",
 				ParamName:  "dispatch",
 			},
-			want: "fix: Type dispatch as datapages.Dispatch[EventXXX]," +
+			want: "fix: Type dispatch as datapages.Dispatcher[EventXXX]," +
 				" one parameter per event type the handler dispatches",
 		},
 		"ErrDispatchDuplicate": {
@@ -491,7 +491,7 @@ func TestSuggest(t *testing.T) {
 				MethodName:    "GET",
 				EventTypeName: "EventFoo",
 			},
-			want: "fix: Remove the second datapages.Dispatch[EventFoo]" +
+			want: "fix: Remove the second datapages.Dispatcher[EventFoo]" +
 				" parameter in PageFoo.GET",
 		},
 	} {

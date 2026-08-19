@@ -262,62 +262,7 @@ type Subject string
 // what happens when one of the publishes fails.
 type SubjectUser string
 
-// DispatchConfig is the accumulated configuration of a [Dispatch] call.
-// Generated code assembles it from the [DispatchOption] values the call passes.
-type DispatchConfig struct {
-	// Context controls the publish: how long it may take and when it's given up on.
-	// It defaults to the context of the handler that dispatches,
-	// see [WithDispatchContext].
-	Context context.Context
-}
-
-// DispatchOption configures a single [Dispatch] call.
-type DispatchOption func(*DispatchConfig)
-
-// WithDispatchContext publishes with ctx instead of the handler's context.
-// A nil ctx is a no-op, the default is kept.
-//
-// Handlers rarely need this. The default is the request context in actions and
-// the request context without its cancelation in stream hooks, which run while
-// the stream is being torn down. Reach for it when the event is dispatched
-// after the handler returned, from a goroutine that outlives it,
-// or when the publish needs a deadline of its own:
-//
-//	// POSTInvite is /team/invite
-//	func (p PageTeam) POSTInvite(
-//		r *http.Request,
-//		signals struct {
-//			Email string `json:"email"`
-//		},
-//		dispatchSent datapages.Dispatch[EventInviteSent],
-//	) error {
-//		// The request context ends with the response, before the mail is out.
-//		// This one keeps its values, drops its cancelation and sets a deadline.
-//		ctx, cancel := context.WithTimeout(
-//			context.WithoutCancel(r.Context()), time.Minute,
-//		)
-//		go func() {
-//			defer cancel()
-//			if err := p.App.SendInvite(ctx, signals.Email); err != nil {
-//				slog.Error("sending invite", slog.Any("err", err))
-//				return
-//			}
-//			_ = dispatchSent(
-//				EventInviteSent{Email: signals.Email},
-//				datapages.WithDispatchContext(ctx),
-//			)
-//		}()
-//		return nil // Return OK immediately, dispatch event asynchronously.
-//	}
-func WithDispatchContext(ctx context.Context) DispatchOption {
-	return func(c *DispatchConfig) {
-		if ctx != nil {
-			c.Context = ctx
-		}
-	}
-}
-
-// Dispatch publishes an event. Handlers receive it as a parameter,
+// Dispatcher publishes events of one type. Handlers receive it as a parameter,
 // which may carry any name; the type is what makes it a dispatcher.
 // One dispatcher publishes one event type, so a handler that
 // publishes three declares three, and calls each as often as it needs:
@@ -329,9 +274,9 @@ func WithDispatchContext(ctx context.Context) DispatchOption {
 //			Text        string   `json:"text"`
 //			Attachments []string `json:"attachments"`
 //		},
-//		dispatchAttached datapages.Dispatch[EventAttachmentAdded],
-//		dispatchWritingStopped datapages.Dispatch[EventWritingStopped],
-//		dispatchSent datapages.Dispatch[EventMessageSent],
+//		attachmentAdded datapages.Dispatcher[EventAttachmentAdded],
+//		writingStopped datapages.Dispatcher[EventWritingStopped],
+//		messageSent datapages.Dispatcher[EventMessageSent],
 //	) error {
 //		room, err := p.App.Room(r.Context(), signals.RoomID)
 //		if err != nil {
@@ -339,16 +284,16 @@ func WithDispatchContext(ctx context.Context) DispatchOption {
 //		}
 //		var errs []error
 //		for _, name := range signals.Attachments {
-//			errs = append(errs, dispatchAttached(EventAttachmentAdded{
+//			errs = append(errs, attachmentAdded.Dispatch(EventAttachmentAdded{
 //				Recipients: room.ParticipantIDs,
 //				Name:       name,
 //			}))
 //		}
 //		return errors.Join(append(errs,
-//			dispatchWritingStopped(EventWritingStopped{
+//			writingStopped.Dispatch(EventWritingStopped{
 //				Recipients: room.ParticipantIDs,
 //			}),
-//			dispatchSent(EventMessageSent{
+//			messageSent.Dispatch(EventMessageSent{
 //				Recipients: room.ParticipantIDs,
 //				Message:    signals.Text,
 //			}),
@@ -358,7 +303,39 @@ func WithDispatchContext(ctx context.Context) DispatchOption {
 // The events go out in the order the handler dispatches them,
 // arguments of one call included. Nothing is atomic across them:
 // a failed publish neither undoes the ones before it nor stops the ones after.
-//
-// The publish uses the context of the handler it's dispatched from,
-// which [WithDispatchContext] overrides.
-type Dispatch[Event any] func(event Event, options ...DispatchOption) error
+type Dispatcher[Event any] interface {
+	// Dispatch publishes the event. Every open stream subscribed to its subject
+	// receives it, and the OnXXX handler of that page runs.
+	// The publish uses the handler's context: the request context in actions,
+	// the request context without cancelation in stream hooks.
+	Dispatch(event Event) error
+
+	// DispatchCtx is [Dispatcher.Dispatch] with ctx for the publish.
+	// Use it when the event goes out after the handler returned,
+	// or when the publish needs its own deadline:
+	//
+	//	// POSTInvite is /team/invite
+	//	func (p PageTeam) POSTInvite(
+	//		r *http.Request,
+	//		signals struct {
+	//			Email string `json:"email"`
+	//		},
+	//		inviteSent datapages.Dispatcher[EventInviteSent],
+	//	) error {
+	//		// The request context ends with the response, before the mail is out.
+	//		// This one keeps its values, drops its cancelation and sets a deadline.
+	//		ctx, cancel := context.WithTimeout(
+	//			context.WithoutCancel(r.Context()), time.Minute,
+	//		)
+	//		go func() {
+	//			defer cancel()
+	//			if err := p.App.SendInvite(ctx, signals.Email); err != nil {
+	//				slog.Error("sending invite", slog.Any("err", err))
+	//				return
+	//			}
+	//			_ = inviteSent.DispatchCtx(ctx, EventInviteSent{Email: signals.Email})
+	//		}()
+	//		return nil // Return OK immediately, dispatch event asynchronously.
+	//	}
+	DispatchCtx(ctx context.Context, event Event) error
+}

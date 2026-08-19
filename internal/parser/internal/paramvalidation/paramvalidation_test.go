@@ -627,11 +627,10 @@ func typeCheckWithDatapages(t *testing.T, src string) (*ast.File, *types.Info) {
 	fset := token.NewFileSet()
 	dpFile, err := parser.ParseFile(fset, "datapages.go", `package datapages
 
-type DispatchConfig struct{}
-type DispatchOption func(*DispatchConfig)
-type Dispatch[Event any] func(
-	ctx any, event Event, options ...DispatchOption,
-) error
+type Dispatcher[Event any] interface {
+	Dispatch(event Event) error
+	DispatchCtx(ctx any, event Event) error
+}
 `, 0)
 	require.NoError(t, err)
 	dpPkg, err := (&types.Config{}).Check(
@@ -662,7 +661,7 @@ func TestIsDispatchParam(t *testing.T) {
 	src := `package test
 import "github.com/romshark/datapages"
 type EventFoo struct{}
-func f(d datapages.Dispatch[EventFoo], notDispatch string) {}`
+func f(d datapages.Dispatcher[EventFoo], notDispatch string) {}`
 	f, info := typeCheckWithDatapages(t, src)
 	require.True(t, IsDispatchParam(firstFuncParam(t, f, 0), info))
 	require.False(t, IsDispatchParam(firstFuncParam(t, f, 1), info))
@@ -684,28 +683,28 @@ func TestValidateDispatch(t *testing.T) {
 			src: `package test
 import "github.com/romshark/datapages"
 type EventFoo struct{}
-func f(d datapages.Dispatch[EventFoo]) {}`,
+func f(d datapages.Dispatcher[EventFoo]) {}`,
 			wantEvent: "EventFoo",
 		},
 		"valid through alias": {
 			src: `package test
 import "github.com/romshark/datapages"
 type EventBar struct{}
-type DispatchBar = datapages.Dispatch[EventBar]
+type DispatchBar = datapages.Dispatcher[EventBar]
 func f(d DispatchBar) {}`,
 			wantEvent: "EventBar",
 		},
 		"type argument not an event type": {
 			src: `package test
 import "github.com/romshark/datapages"
-func f(d datapages.Dispatch[string]) {}`,
+func f(d datapages.Dispatcher[string]) {}`,
 			wantErr: ErrDispatchParamNotEvent,
 		},
 		"type argument is an undeclared type": {
 			src: `package test
 import "github.com/romshark/datapages"
 type NotAnEvent struct{}
-func f(d datapages.Dispatch[NotAnEvent]) {}`,
+func f(d datapages.Dispatcher[NotAnEvent]) {}`,
 			wantErr: ErrDispatchParamNotEvent,
 		},
 		"not a dispatcher": {

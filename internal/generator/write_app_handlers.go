@@ -283,7 +283,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	// Dispatch closures.
 	if len(h.InputDispatches) > 0 {
 		hasBody = true
-		w.writeDispatchClosures(h, "dispatch", appPkg, "r.Context()")
+		w.writeDispatchers(h, "dispatch", "r.Context()")
 	}
 
 	// Page constructor.
@@ -894,12 +894,10 @@ func (w *Writer) writePageGETStreamHandler(
 	}
 
 	if p.StreamOpen != nil {
-		w.writeDispatchClosures(p.StreamOpen, "dispatchOpen", appPkg,
-			"context.WithoutCancel(r.Context())")
+		w.writeDispatchers(p.StreamOpen, "dispatchOpen", "context.WithoutCancel(r.Context())")
 	}
 	if p.StreamClose != nil {
-		w.writeDispatchClosures(p.StreamClose, "dispatchClosed", appPkg,
-			"context.WithoutCancel(r.Context())")
+		w.writeDispatchers(p.StreamClose, "dispatchClosed", "context.WithoutCancel(r.Context())")
 	}
 
 	// Page constructor.
@@ -1167,12 +1165,10 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		w.Line(1, "}")
 	}
 	if p.StreamOpen != nil {
-		w.writeDispatchClosures(p.StreamOpen, "dispatchOpen", appPkg,
-			"context.WithoutCancel(r.Context())")
+		w.writeDispatchers(p.StreamOpen, "dispatchOpen", "context.WithoutCancel(r.Context())")
 	}
 	if p.StreamClose != nil {
-		w.writeDispatchClosures(p.StreamClose, "dispatchClosed", appPkg,
-			"context.WithoutCancel(r.Context())")
+		w.writeDispatchers(p.StreamClose, "dispatchClosed", "context.WithoutCancel(r.Context())")
 	}
 
 	// Page constructor.
@@ -1298,7 +1294,7 @@ func (w *Writer) writePageActionHandler(
 	}
 
 	// Dispatch closures.
-	w.writeDispatchClosures(h, "dispatch", appPkg, "r.Context()")
+	w.writeDispatchers(h, "dispatch", "r.Context()")
 
 	// SSE for actions that take it.
 	if h.InputSSE != nil {

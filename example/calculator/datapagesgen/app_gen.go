@@ -711,30 +711,7 @@ func (s *Server) handlePageIndexPOSTInput(
 	}
 	query.Num = q.Get("num")
 
-	dispatchCalcUpdated := func(
-		e app.EventCalcUpdated,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.InstanceID)) {
-			return fmt.Errorf(
-				"EventCalcUpdated.InstanceID must be a non-empty subject token, received %q",
-				e.InstanceID)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventCalcUpdated JSON: %w", err)
-		}
-		subj := "calc.updated." + string(e.InstanceID)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchCalcUpdated := dispatcherEventCalcUpdated{s: s, ctx: r.Context()}
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -743,4 +720,33 @@ func (s *Server) handlePageIndexPOSTInput(
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Input", err)
 		return
 	}
+}
+
+type dispatcherEventCalcUpdated struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventCalcUpdated) Dispatch(e app.EventCalcUpdated) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventCalcUpdated) DispatchCtx(
+	ctx context.Context, e app.EventCalcUpdated,
+) error {
+	if !isSubjectToken(string(e.InstanceID)) {
+		return fmt.Errorf(
+			"EventCalcUpdated.InstanceID must be a non-empty subject token, received %q",
+			e.InstanceID)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventCalcUpdated JSON: %w", err)
+	}
+	subj := "calc.updated." + string(e.InstanceID)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
 }

@@ -18,7 +18,7 @@ func TestFuzzyMatchParamName(t *testing.T) {
 		"signal":             {paramName: "signal", wantName: "signals", wantOK: true},
 		"signls":             {paramName: "signls", wantName: "signals", wantOK: true},
 		// "dispatch" is no longer matched by name, dispatchers are
-		// recognized by their datapages.Dispatch[EventXXX] type.
+		// recognized by their datapages.Dispatcher[EventXXX] type.
 		"dispatc": {paramName: "dispatc", wantOK: false},
 		"sess":    {paramName: "sess", wantOK: false}, // 3 edits too far
 		"sessio":  {paramName: "sessio", wantName: "session", wantOK: true},

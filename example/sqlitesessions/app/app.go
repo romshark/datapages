@@ -46,12 +46,12 @@ func (*App) Head(r *http.Request) datapages.Component { return head() }
 func (*App) POSTSignOut(
 	r *http.Request,
 	session Session,
-	dispatch datapages.Dispatch[EventSessionClosed],
+	sessionClosed datapages.Dispatcher[EventSessionClosed],
 ) (
 	closeSession bool, redirect datapages.Redirect, err error,
 ) {
 	if !session.IsGuest() {
-		_ = dispatch(EventSessionClosed{
+		_ = sessionClosed.Dispatch(EventSessionClosed{
 			Recipient: datapages.SubjectUser(session.UserID()),
 			Token:     session.Token(),
 		})

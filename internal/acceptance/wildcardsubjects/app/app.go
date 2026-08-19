@@ -45,7 +45,7 @@ func (PageIndex) POSTNote(
 		Topic string `json:"topic"`
 		Text  string `json:"text"`
 	},
-	dispatch datapages.Dispatch[EventNoted],
+	noted datapages.Dispatcher[EventNoted],
 ) error {
-	return dispatch(EventNoted{Topic: datapages.Subject(signals.Topic), Text: signals.Text})
+	return noted.Dispatch(EventNoted{Topic: datapages.Subject(signals.Topic), Text: signals.Text})
 }
