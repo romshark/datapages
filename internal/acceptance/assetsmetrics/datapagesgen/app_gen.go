@@ -595,8 +595,15 @@ func (s sseWrapper) PatchElementAt(
 		datastar.WithMode(datastar.ElementPatchMode(mode)))
 }
 
+// removeElementModeDataline is the mode line of a removal event.
+const removeElementModeDataline = datastar.ModeDatalineLiteral +
+	string(datastar.ElementPatchModeRemove)
+
 func (s sseWrapper) RemoveElement(selectorCSS string) error {
-	return s.gen.RemoveElement(selectorCSS)
+	return s.gen.Send(datastar.EventTypePatchElements, []string{
+		datastar.SelectorDatalineLiteral + selectorCSS,
+		removeElementModeDataline,
+	})
 }
 
 func (s sseWrapper) ExecuteScript(script string) error {

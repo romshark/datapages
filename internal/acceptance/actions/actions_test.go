@@ -381,6 +381,26 @@ func TestSSEOutputPatchElementAt(t *testing.T) {
 	}
 }
 
+// TestSSEOutputRemoveElement covers the removal event.
+func TestSSEOutputRemoveElement(t *testing.T) {
+	srv := newServer(t)
+
+	resp := srv.do(t, http.MethodPost, "/form/remove/", "")
+	defer func() { _ = resp.Body.Close() }()
+
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading stream: %v", err)
+	}
+	if got, want := string(b),
+		"event: datastar-patch-elements\ndata: selector #gone\ndata: mode remove\n"; !strings.Contains(got, want) {
+		t.Errorf("stream does not carry %q:\n%s", want, got)
+	}
+	if got, want := srv.logOf(t), "remove"; got != want {
+		t.Errorf(" got: %s\nwant: %s", got, want)
+	}
+}
+
 // TestSSEOutputCompressed covers the same action as a client that accepts compression,
 // which every browser does. The events must survive the encoding.
 //

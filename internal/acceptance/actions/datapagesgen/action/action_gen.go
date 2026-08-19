@@ -501,6 +501,22 @@ func POSTPageFormPatchAt(options ...option) string {
 	return b.String()
 }
 
+// POSTPageFormRemove references /form/remove/
+func POSTPageFormRemove(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/form/remove/')"
+	}
+	var b strings.Builder
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/form/remove/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
+	b.WriteString("@post('/form/remove/'")
+	writeOptions(&b, options)
+	b.WriteByte(')')
+	writeAfter(&b, options)
+	return b.String()
+}
+
 // POSTPageFormRender references /form/render/
 func POSTPageFormRender(options ...option) string {
 	if len(options) == 0 {

@@ -173,6 +173,14 @@ func (p PageForm) POSTPatchAt(
 	)
 }
 
+// POSTRemove is /form/remove
+//
+// An action that removes an element from the DOM.
+func (p PageForm) POSTRemove(_ *http.Request, sse datapages.SSE) error {
+	p.App.record("remove")
+	return sse.RemoveElement("#gone")
+}
+
 // POSTPing is /ping
 //
 // An action on the app rather than on a page.

@@ -307,8 +307,15 @@ func (s sseWrapper) PatchElementAt(
 		datastar.WithMode(datastar.ElementPatchMode(mode)))
 }
 
+// removeElementModeDataline is the mode line of a removal event.
+const removeElementModeDataline = datastar.ModeDatalineLiteral +
+	string(datastar.ElementPatchModeRemove)
+
 func (s sseWrapper) RemoveElement(selectorCSS string) error {
-	return s.gen.RemoveElement(selectorCSS)
+	return s.gen.Send(datastar.EventTypePatchElements, []string{
+		datastar.SelectorDatalineLiteral + selectorCSS,
+		removeElementModeDataline,
+	})
 }
 
 func (s sseWrapper) ExecuteScript(script string) error {
@@ -527,6 +534,9 @@ func setupHandlers(s *Server) {
 	s.mux.HandleFunc(
 		"POST /form/patch-at/{$}",
 		s.handlePageFormPOSTPatchAt)
+	s.mux.HandleFunc(
+		"POST /form/remove/{$}",
+		s.handlePageFormPOSTRemove)
 }
 
 func (s *Server) httpErrIntern(
@@ -775,6 +785,24 @@ func (s *Server) handlePageFormPOSTPatchAt(
 	err := p.POSTPatchAt(r, newSSE(sse), signals)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.PatchAt", err)
+		return
+	}
+}
+
+func (s *Server) handlePageFormPOSTRemove(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	p := app.PageForm{
+		App: s.app,
+	}
+	err := p.POSTRemove(r, newSSE(sse))
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageForm.Remove", err)
 		return
 	}
 }
