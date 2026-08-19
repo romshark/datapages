@@ -370,7 +370,7 @@ func firstPassEventType(
 	}
 
 	claim := eventClaim{
-		Claim:    subject.Claim{Subject: subj, HasFields: len(subjectFields) > 0},
+		Subject: subj, HasFields: len(subjectFields) > 0,
 		typeName: name,
 	}
 	for _, first := range ctx.eventClaims {
@@ -1784,8 +1784,7 @@ func (e *positionedError) Unwrap() error { return e.err }
 func resolveErrorPos(
 	e error, fset *token.FileSet, fallback token.Position,
 ) token.Position {
-	var pe *positionedError
-	if errors.As(e, &pe) {
+	if pe, ok := errors.AsType[*positionedError](e); ok {
 		return pe.pos
 	}
 	if ap, ok := e.(interface{ ASTPos() token.Pos }); ok {
@@ -1799,8 +1798,7 @@ func resolveErrorPos(
 // unwrapPositioned returns the inner error if e is a positionedError,
 // otherwise returns e unchanged.
 func unwrapPositioned(e error) error {
-	var pe *positionedError
-	if errors.As(e, &pe) {
+	if pe, ok := errors.AsType[*positionedError](e); ok {
 		return pe.err
 	}
 	return e

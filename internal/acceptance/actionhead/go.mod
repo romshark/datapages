@@ -1,13 +1,12 @@
 module github.com/romshark/datapages/internal/acceptance/actionhead
 
-go 1.26.6
+go 1.27.0
 
 replace github.com/romshark/datapages => ../../../
 
-// Required by Datapages
-require github.com/a-h/templ v0.3.1020
-
 require (
+	// Required by Datapages
+	github.com/a-h/templ v0.3.1020
 	github.com/nats-io/nats.go v1.53.1
 	github.com/romshark/datapages v0.9.4
 	github.com/starfederation/datastar-go v1.2.2

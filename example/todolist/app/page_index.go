@@ -58,11 +58,9 @@ func (p PageIndex) StreamOpen(
 	}
 	p.App.lockTabs.Lock()
 	p.App.streamIDToTabState[streamID] = &tabState{
-		ViewParameters: list.ViewParameters{
-			Search: signals.Search,
-			Filter: filter,
-			Sort:   sortMode,
-		},
+		Search: signals.Search,
+		Filter: filter,
+		Sort:   sortMode,
 	}
 	p.App.lockTabs.Unlock()
 	return p.App.patchTabID(streamID, sse)

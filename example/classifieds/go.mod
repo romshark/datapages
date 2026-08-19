@@ -1,23 +1,21 @@
 module github.com/romshark/datapages/example/classifieds
 
-go 1.26.6
+go 1.27.0
 
 replace github.com/romshark/datapages => ../../
-
-// Required by the demo application
-require github.com/oklog/ulid/v2 v2.1.2
 
 // Required by Datapages
 require (
 	github.com/a-h/templ v0.3.1020
 	github.com/nats-io/nats.go v1.53.1
+	// Required by the demo application
+	github.com/oklog/ulid/v2 v2.1.2
 	github.com/prometheus/client_golang v1.24.1
+	github.com/romshark/datapages v0.9.4
 	github.com/starfederation/datastar-go v1.2.2
 	golang.org/x/crypto v0.55.0
 	golang.org/x/sync v0.22.0
 )
-
-require github.com/romshark/datapages v0.9.4
 
 require (
 	github.com/CAFxX/httpcompression v0.0.9 // indirect

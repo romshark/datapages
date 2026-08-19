@@ -1,6 +1,6 @@
 module github.com/romshark/datapages/example/tailwindcss
 
-go 1.26.6
+go 1.27.0
 
 replace github.com/romshark/datapages => ../../
 
