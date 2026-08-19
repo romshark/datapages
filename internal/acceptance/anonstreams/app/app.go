@@ -96,30 +96,30 @@ func (p PageRooms) OnNoticed(
 // POSTPost is /rooms/post
 func (p PageRooms) POSTPost(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Room string `json:"room"`
 		Text string `json:"text"`
-	},
+	}],
 	roomPosted datapages.Dispatcher[EventRoomPosted],
 ) error {
 	return roomPosted.Dispatch(EventRoomPosted{
-		Room: datapages.Subject(signals.Room),
-		Text: signals.Text,
+		Room: datapages.Subject(signals.Values.Room),
+		Text: signals.Values.Text,
 	})
 }
 
 // POSTNotice is /rooms/notice
 func (p PageRooms) POSTNotice(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		User string `json:"user"`
 		Text string `json:"text"`
-	},
+	}],
 	noticed datapages.Dispatcher[EventNoticed],
 ) error {
 	return noticed.Dispatch(EventNoticed{
-		Recipient: datapages.SubjectUser(signals.User),
-		Text:      signals.Text,
+		Recipient: datapages.SubjectUser(signals.Values.User),
+		Text:      signals.Values.Text,
 	})
 }
 
@@ -154,10 +154,10 @@ func (p PageFeed) OnNoticed(
 // POSTTick is /feed/tick
 func (p PageFeed) POSTTick(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		N int `json:"n"`
-	},
+	}],
 	ticked datapages.Dispatcher[EventTicked],
 ) error {
-	return ticked.Dispatch(EventTicked{N: signals.N})
+	return ticked.Dispatch(EventTicked{N: signals.Values.N})
 }

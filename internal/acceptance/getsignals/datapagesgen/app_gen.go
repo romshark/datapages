@@ -702,12 +702,12 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Term string `json:"term"`
 		Page int    `json:"page"`
-	}
+	}]
 	if r.URL.Query().Has("datastar") {
-		if err := datastar.ReadSignals(r, &signals); err != nil {
+		if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 			s.httpErrBad(w, "reading signals", err)
 			return
 		}

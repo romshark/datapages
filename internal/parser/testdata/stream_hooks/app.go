@@ -20,9 +20,9 @@ func (Base) StreamOpen(
 	streamID uint64,
 	sse datapages.SSE,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		Instance string `json:"instance"`
-	},
+	}],
 	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	return nil
@@ -78,9 +78,9 @@ func (PageStreamMax) StreamOpen(
 	streamID uint64,
 	sse datapages.SSE,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		Instance string `json:"instance"`
-	},
+	}],
 	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	return nil

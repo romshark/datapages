@@ -306,3 +306,36 @@ func SubjectKindOf(t types.Type) model.SubjectKind {
 	}
 	return model.SubjectKindNone
 }
+
+// PathValuesType returns the Values type argument of datapages.Path[Values].
+// ok is false if expr isn't an instantiation of datapages.Path.
+func PathValuesType(expr ast.Expr, info *types.Info) (types.Type, bool) {
+	return namedTypeArg(expr, info, "Path")
+}
+
+// QueryValuesType returns the Values type argument of datapages.Query[Values].
+// ok is false if expr isn't an instantiation of datapages.Query.
+func QueryValuesType(expr ast.Expr, info *types.Info) (types.Type, bool) {
+	return namedTypeArg(expr, info, "Query")
+}
+
+// SignalsValuesType returns the Values type argument of datapages.Signals[Values].
+// ok is false if expr isn't an instantiation of datapages.Signals.
+func SignalsValuesType(expr ast.Expr, info *types.Info) (types.Type, bool) {
+	return namedTypeArg(expr, info, "Signals")
+}
+
+// TypeArgExpr returns the type argument expression of a generic type
+// instantiation such as datapages.Path[struct{...}].
+// It returns expr unchanged if expr isn't an instantiation.
+func TypeArgExpr(expr ast.Expr) ast.Expr {
+	switch t := ast.Unparen(expr).(type) {
+	case *ast.IndexExpr:
+		return t.Index
+	case *ast.IndexListExpr:
+		if len(t.Indices) == 1 {
+			return t.Indices[0]
+		}
+	}
+	return expr
+}

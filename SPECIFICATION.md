@@ -72,9 +72,9 @@ and may include the following optional parameters:
 func (PageIndex) GET(
 	r *http.Request,
 	session datapages.Session[Data], // Optional
-	path struct{...}, // Required only when path variables are used in the URL
-	query struct{...}, // Optional
-	signals struct {...}, // Optional
+	path datapages.Path[struct{...}], // Required only when path variables are used in the URL
+	query datapages.Query[struct{...}], // Optional
+	signals datapages.Signals[struct{...}], // Optional
 	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) (
@@ -114,9 +114,9 @@ func (PageIndex) POSTActionName(
 	r *http.Request,
 	sse datapages.SSE, // Optional
 	session datapages.Session[Data], // Optional
-	path struct{...}, // Required only when path variables are used in the URL
-	query struct{...}, // Optional
-	signals struct {...}, // Optional
+	path datapages.Path[struct{...}], // Required only when path variables are used in the URL
+	query datapages.Query[struct{...}], // Optional
+	signals datapages.Signals[struct{...}], // Optional
 	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) error {
@@ -137,9 +137,9 @@ and `closeSession` return values cannot be used.
 func (PageIndex) POSTActionName(
 	r *http.Request,
 	session datapages.Session[Data], // Optional
-	path struct{...}, // Required only when path variables are used in the URL
-	query struct{...}, // Optional
-	signals struct {...}, // Optional
+	path datapages.Path[struct{...}], // Required only when path variables are used in the URL
+	query datapages.Query[struct{...}], // Optional
+	signals datapages.Signals[struct{...}], // Optional
 	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) (
@@ -187,7 +187,7 @@ func (PageIndex) StreamOpen(
 	streamID uint64,
 	sse datapages.SSE, // Optional
 	session datapages.Session[Data], // Optional
-	signals struct{...}, // Optional
+	signals datapages.Signals[struct{...}], // Optional
 	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) error {
@@ -276,12 +276,12 @@ func (p PageExample) GET(r *http.Request) (body datapages.Component, err error) 
 func (p PageExample) POSTInputChanged(
 	r *http.Request,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		InputValue string `json:"inputvalue"`
-	}
+	}],
 ) (body datapages.Component, err error) {
 	// Patch the page with a fat morph directly on action.
-	data, err := p.App.fetchData(signals.InputValue)
+	data, err := p.App.fetchData(signals.Values.InputValue)
 	if err != nil {
 		return nil, err
 	}
@@ -310,48 +310,52 @@ func (p PageExample) OnSomethingHappened(
 
 </details>
 
-#### Parameter: `signals struct {...}`
+#### Parameter: `datapages.Signals[struct {...}]`
 
 ```go
-signals struct {
+signals datapages.Signals[struct {
 	Foo string `json:"foo"`
 	Bar int	`json:"bar"`
-}
+}]
 ```
 
 Provides the captured [Datastar signals](https://data-star.dev/guide/reactive_signals)
-from the page. Signal fields map directly to Datastar signal names via their `json` tags.
-Any named or anonymous struct is accepted,
+from the page. The parameter is recognized by its `datapages.Signals` type,
+its name is up to the application. The values are read from the `Values` field.
+Signal fields map directly to Datastar signal names via their `json` tags.
+Any named or anonymous struct is accepted as the type argument,
 but every field must have a json struct field tag.
 Any JSON-serializable field type is supported, including nested structs, slices, and maps.
 
 Nested structs map to nested Datastar signals using dot notation:
 
 ```go
-signals struct {
+signals datapages.Signals[struct {
 	Form struct {
 		Name  string `json:"name"`
 		Email string `json:"email"`
 	} `json:"form"`
-}
+}]
 ```
 
 This maps to Datastar signals `$form.name` and `$form.email`, initialized in
 templates with `data-signals:form.name="''"` and `data-signals:form.email="''"`,
 or as a single object `data-signals="{form: {name: '', email: ''}}"`.
-The Go handler receives the nested values as `signals.Form.Name` and
-`signals.Form.Email`.
+The Go handler receives the nested values as `signals.Values.Form.Name` and
+`signals.Values.Form.Email`.
 
-#### Parameter: `path struct {...}`
+#### Parameter: `datapages.Path[struct {...}]`
 
 ```go
-path struct {
+path datapages.Path[struct {
 	ID string `path:"id"`
-}
+}]
 ```
 
 Provides URL path parameters. These parameters must be defined in the URL comment.
-Both named and anonymous struct types are accepted.
+The parameter is recognized by its `datapages.Path` type, its name is up to the
+application. The values are read from the `Values` field.
+Both named and anonymous struct types are accepted as the type argument.
 
 Each field must be exported with a `path:"..."` struct tag
 where the tag value names the corresponding route variable
@@ -379,34 +383,36 @@ Values are parsed from their string representation in the URL.
 If a value cannot be parsed into the target type, the request
 returns HTTP 400 Bad Request.
 
-#### Parameter: `query struct {...}`
+#### Parameter: `datapages.Query[struct {...}]`
 
 ```go
-query struct {
+query datapages.Query[struct {
 	Filter string `query:"f"`
 	Limit  int	`query:"l"`
-}
+}]
 ```
 
 Provides URL query parameters.
-Both named and anonymous struct types are accepted.
+The parameter is recognized by its `datapages.Query` type, its name is up to the
+application. The values are read from the `Values` field.
+Both named and anonymous struct types are accepted as the type argument.
 
 Each field must be exported with a `query:"..."` struct tag
 where the tag value names the query parameter key
 (e.g. `query:"f"` reads from `?f=...`).
 
-The same field types as [`path`](#parameter-path-struct-) are supported.
+The same field types as [`datapages.Path`](#parameter-datapagespathstruct-) are supported.
 
 The `reflectsignal` struct field tag can be used to define what signal shall reflect
 into the query parameter:
 
 ```go
-signals struct {
+signals datapages.Signals[struct {
 	SelectedItem string `json:"selecteditem"`
-},
-query struct {
+}],
+query datapages.Query[struct {
 	SelectedItem string `query:"s" reflectsignal:"selecteditem"`
-}
+}]
 ```
 
 The above example will automatically synchronize the query parameter `s` with the
@@ -719,23 +725,23 @@ type PageChat struct { App *App }
 func (PageChat) POSTSendMessage(
 	r *http.Request,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		InputText string `json:"inputtext"`
 		ChatRoom  string `json:"chatroom"`
-	},
+	}],
 	messageSent datapages.Dispatcher[EventMessageSent],
 ) error {
 	if !isUserAllowedToSendMessages(session.UserID()) {
 		return errors.New("unauthorized")
 	}
-	if signals.InputText == "" {
+	if signals.Values.InputText == "" {
 		return nil // No-op.
 	}
 	for _, participant := range chatroom.ParticipantIDs {
 		err := messageSent.Dispatch(EventMessageSent{
 			Recipient: datapages.SubjectUser(participant),
-			ChatRoom:  datapages.Subject(signals.ChatRoom),
-			Message:   signals.InputText,
+			ChatRoom:  datapages.Subject(signals.Values.ChatRoom),
+			Message:   signals.Values.InputText,
 			Sender:    session.UserID(),
 		})
 		if err != nil {

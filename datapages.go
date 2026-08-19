@@ -14,6 +14,76 @@ type Component interface {
 	Render(ctx context.Context, w io.Writer) error
 }
 
+// Signals carries the client-side Datastar signals.
+// GET, action (POST/PUT/PATCH/DELETE) and StreamOpen handlers may
+// receive it as a parameter.
+//
+// Values is a struct whose exported fields each name a signal with a json:"<name>" tag:
+//
+//	func (p PageChat) POSTSend(
+//		r *http.Request,
+//		signals datapages.Signals[struct {
+//			Text string `json:"text"`
+//		}],
+//	) error {
+//		return p.App.Send(r.Context(), signals.Values.Text)
+//	}
+type Signals[Values any] struct{ Values Values }
+
+// Path carries the URL path variables of the route.
+// GET and action (POST/PUT/PATCH/DELETE) handlers may receive it as a parameter.
+//
+// Values is a struct whose exported fields each name a route variable with a
+// path:"<name>" tag:
+//
+//	// PagePost is /post/{slug}
+//	func (p PagePost) GET(
+//		r *http.Request,
+//		path datapages.Path[struct {
+//			Slug string `path:"slug"`
+//		}],
+//	) (body datapages.Component, err error) {
+//		return postView(path.Values.Slug), nil
+//	}
+//
+// Every route variable needs a field and every field needs a route variable.
+type Path[Values any] struct{ Values Values }
+
+// Query carries the URL query parameters.
+// GET and action (POST/PUT/PATCH/DELETE) handlers may receive it as a parameter.
+//
+// Values is a struct whose exported fields each name a parameter with a
+// query:"<name>" tag.
+// A parameter the URL doesn't carry leaves its field at the zero value:
+//
+//	func (p PageSearch) GET(
+//		r *http.Request,
+//		query datapages.Query[struct {
+//			Term string `query:"term"`
+//		}],
+//	) (body datapages.Component, err error) {
+//		return results(query.Values.Term), nil
+//	}
+//
+// A field can carry a reflectsignal:"<name>" tag naming a signal of the
+// handler's [Signals] parameter. The query parameter gives that signal its
+// value on page load, and the browser URL is rewritten whenever the signal changes:
+//
+//	func (p PageSearch) GET(
+//		r *http.Request,
+//		query datapages.Query[struct {
+//			Term string `query:"term" reflectsignal:"term"`
+//		}],
+//		signals datapages.Signals[struct {
+//			Term string `json:"term"`
+//		}],
+//	) (body datapages.Component, err error) {
+//		return results(query.Values.Term), nil
+//	}
+//
+// The tag value must match a json tag in the signals struct.
+type Query[Values any] struct{ Values Values }
+
 // Session is the authenticated session of the client, passed to handlers as the
 // session parameter. It's read-only: return a [NewSession] to change it.
 //

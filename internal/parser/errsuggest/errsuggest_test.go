@@ -435,23 +435,28 @@ func TestSuggest(t *testing.T) {
 		},
 		"ErrSignatureUnsupportedInput/name already matches expected": {
 			err: &parser.ErrorSignatureUnsupportedInput{
-				ParamName:    "signals",
+				ParamName:    "session",
 				ParamType:    `struct{InstanceID string "json:\"instance_id\""}`,
 				Recv:         "PageIndex",
 				MethodName:   "OnCalcUpdated",
-				ExpectedName: "signals",
+				ExpectedName: "session",
 			},
-			want: "fix: Remove parameter signals",
+			want: "fix: Remove parameter session",
 		},
 		"ErrSignatureUnsupportedInput/type struct multiple candidates": {
 			err: &parser.ErrorSignatureUnsupportedInput{
-				ParamName:      "data",
-				ParamType:      "struct{...}",
-				Recv:           "PageFoo",
-				MethodName:     "GET",
-				CandidateNames: []string{"path", "query", "signals"},
+				ParamName:  "data",
+				ParamType:  "struct{...}",
+				Recv:       "PageFoo",
+				MethodName: "GET",
+				CandidateNames: []string{
+					"datapages.Path[...]",
+					"datapages.Query[...]",
+					"datapages.Signals[...]",
+				},
 			},
-			want: "fix: Potential candidates: path, query, signals",
+			want: "fix: Potential candidates: datapages.Path[...], " +
+				"datapages.Query[...], datapages.Signals[...]",
 		},
 
 		"ErrPathFieldUnsupportedType": {
@@ -476,15 +481,6 @@ func TestSuggest(t *testing.T) {
 				"float32, float64, or encoding.TextUnmarshaler",
 		},
 
-		"ErrDispatchParamLegacy": {
-			err: &paramvalidation.ErrorDispatchParamLegacy{
-				Recv:       "PageFoo",
-				MethodName: "GET",
-				ParamName:  "dispatch",
-			},
-			want: "fix: Type dispatch as datapages.Dispatcher[EventXXX]," +
-				" one parameter per event type the handler dispatches",
-		},
 		"ErrDispatchDuplicate": {
 			err: &parser.ErrorDispatchDuplicate{
 				Recv:          "PageFoo",

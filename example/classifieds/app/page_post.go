@@ -19,20 +19,20 @@ type PagePost struct {
 func (p PagePost) GET(
 	r *http.Request,
 	session Session,
-	path struct {
+	path datapages.Path[struct {
 		Slug string `path:"slug"`
-	},
+	}],
 ) (
 	body, head datapages.Component,
 	redirect datapages.Redirect,
 	err error,
 ) {
-	if strings.TrimSpace(path.Slug) == "" {
+	if strings.TrimSpace(path.Values.Slug) == "" {
 		err = domain.ErrUnauthorized
 		return
 	}
 
-	post, err := p.App.repo.PostBySlug(r.Context(), path.Slug)
+	post, err := p.App.repo.PostBySlug(r.Context(), path.Values.Slug)
 	if err != nil {
 		if errors.Is(err, domain.ErrPostNotFound) {
 			// Redirect to 404 page.
@@ -71,25 +71,25 @@ func (p PagePost) POSTSendMessage(
 	r *http.Request,
 	sse datapages.SSE,
 	session Session,
-	path struct {
+	path datapages.Path[struct {
 		Slug string `path:"slug"`
-	},
-	signals struct {
+	}],
+	signals datapages.Signals[struct {
 		MessageText string `json:"messagetext"`
-	},
+	}],
 	messagingSent datapages.Dispatcher[EventMessagingSent],
 ) error {
 	if session.IsGuest() {
 		return domain.ErrUnauthorized
 	}
 
-	if strings.TrimSpace(path.Slug) == "" {
+	if strings.TrimSpace(path.Values.Slug) == "" {
 		return domain.ErrUnauthorized
 	}
 
 	_ = sse.PatchElement(fragmentMessageFormSending())
 
-	post, err := p.App.repo.PostBySlug(sse.Context(), path.Slug)
+	post, err := p.App.repo.PostBySlug(sse.Context(), path.Values.Slug)
 	if err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func (p PagePost) POSTSendMessage(
 	}
 
 	chatID, err := p.App.repo.NewChat(
-		sse.Context(), post.ID, session.UserID(), signals.MessageText,
+		sse.Context(), post.ID, session.UserID(), signals.Values.MessageText,
 	)
 	if err != nil {
 		return err

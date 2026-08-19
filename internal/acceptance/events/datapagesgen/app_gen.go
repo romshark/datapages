@@ -709,10 +709,10 @@ func (s *Server) handlePageIndexPOSTTick(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		N int `json:"n"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -735,10 +735,10 @@ func (s *Server) handlePageIndexPOSTBoth(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		N int `json:"n"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -763,10 +763,10 @@ func (s *Server) handlePageIndexPOSTCanceled(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		N int `json:"n"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -955,11 +955,11 @@ func (s *Server) handlePageRoomPOSTSay(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Room string `json:"room"`
 		Text string `json:"text"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -982,11 +982,11 @@ func (s *Server) handlePageRoomPOSTBroadcast(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Rooms []string `json:"rooms"`
 		Text  string   `json:"text"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}

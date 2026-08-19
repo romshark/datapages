@@ -23,23 +23,16 @@ var (
 	ErrSignatureMissingStreamID  = errors.New(`missing the streamID uint64 parameter`)
 	ErrSignatureMultiErrRet      = errors.New(`multiple error return values`)
 	ErrSignatureUnsupportedInput = errors.New(`unsupported input parameter`)
-	// Deprecated: use ErrSignatureUnsupportedInput.
-	ErrSignatureUnknownInput     = ErrSignatureUnsupportedInput
 	ErrSignatureEvHandMissingSSE = errors.New(
 		"event handler must have a datapages.SSE parameter",
 	)
-	// Deprecated: use ErrSignatureEvHandMissingSSE.
-	ErrSignatureSecondArgNotSSE         = ErrSignatureEvHandMissingSSE
 	ErrSignatureEvHandReturnMustBeError = errors.New(
 		"event handler must return only error",
 	)
 	ErrSignatureEvHandMissingEvent = errors.New(
 		`event handler must have a parameter named "event" of an event type`,
 	)
-	// Deprecated: use ErrSignatureEvHandMissingEvent.
-	ErrSignatureEvHandFirstArgNotEvent     = ErrSignatureEvHandMissingEvent
-	ErrSignatureEvHandFirstArgTypeNotEvent = ErrSignatureEvHandMissingEvent
-	ErrSignatureGETMissingBody             = errors.New(
+	ErrSignatureGETMissingBody = errors.New(
 		"GET handler must return body datapages.Component",
 	)
 	ErrSignatureGETBodyWrongName = errors.New(
@@ -121,7 +114,6 @@ var (
 	ErrSignalsFieldEmptyTag     = paramvalidation.ErrSignalsFieldEmptyTag
 
 	ErrDispatchParamNotEvent = paramvalidation.ErrDispatchParamNotEvent
-	ErrDispatchParamLegacy   = paramvalidation.ErrDispatchParamLegacy
 
 	ErrSessionParamNotSessionType = errors.New(
 		"session parameter type must be datapages.Session[Data]",

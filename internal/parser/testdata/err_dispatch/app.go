@@ -24,12 +24,12 @@ func (PageIndex) GET(
 	return body, err
 }
 
-// PageLegacyFunc is /legacy-func
-type PageLegacyFunc struct{ App *App }
+// PageFuncParam is /func-param
+type PageFuncParam struct{ App *App }
 
-/* ErrDispatchParamLegacy */
+/* ErrSignatureUnsupportedInput */
 
-func (PageLegacyFunc) GET(
+func (PageFuncParam) GET(
 	r *http.Request,
 	dispatch func(EventFoo) error,
 ) (body datapages.Component, err error) {
@@ -37,12 +37,12 @@ func (PageLegacyFunc) GET(
 	return body, err
 }
 
-// PageLegacyName is /legacy-name
-type PageLegacyName struct{ App *App }
+// PageDispatchInt is /dispatch-int
+type PageDispatchInt struct{ App *App }
 
-/* ErrDispatchParamLegacy */
+/* ErrSignatureUnsupportedInput */
 
-func (PageLegacyName) GET(
+func (PageDispatchInt) GET(
 	r *http.Request,
 	dispatch int,
 ) (body datapages.Component, err error) {

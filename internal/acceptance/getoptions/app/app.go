@@ -46,11 +46,11 @@ type PageMaybe struct{ App *App }
 
 func (PageMaybe) GET(
 	_ *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Go bool `query:"go"`
-	},
+	}],
 ) (body datapages.Component, redirect datapages.Redirect, err error) {
-	if query.Go {
+	if query.Values.Go {
 		return nil, datapages.Redirect{
 			URL:    "/",
 			Status: http.StatusMovedPermanently,

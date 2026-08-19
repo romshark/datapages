@@ -40,12 +40,12 @@ type PageReversed struct{ App *App }
 
 // GET with all params in reverse order.
 func (PageReversed) GET(
-	query struct {
+	query datapages.Query[struct {
 		Page int `query:"page"`
-	},
-	path struct {
+	}],
+	path datapages.Path[struct {
 		ID string `path:"id"`
-	},
+	}],
 	session Session,
 	r *http.Request,
 ) (body datapages.Component, err error) {
@@ -60,9 +60,9 @@ type PageSignalsFirst struct{ App *App }
 
 // GET with signals before request.
 func (PageSignalsFirst) GET(
-	signals struct {
+	signals datapages.Signals[struct {
 		Search string `json:"search"`
-	},
+	}],
 	r *http.Request,
 ) (body datapages.Component, err error) {
 	_ = signals
@@ -102,9 +102,9 @@ func (PageActionReversed) GET(r *http.Request) (body datapages.Component, err er
 func (PageActionReversed) POSTSubmit(
 	session Session,
 	sse datapages.SSE,
-	signals struct {
+	signals datapages.Signals[struct {
 		Name string `json:"name"`
-	},
+	}],
 	r *http.Request,
 ) error {
 	_ = session

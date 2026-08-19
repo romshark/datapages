@@ -35,16 +35,16 @@ type PagePath struct{ App *App }
 
 func (PagePath) GET(
 	_ *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		S string  `path:"str"`
 		I int     `path:"i"`
 		U uint64  `path:"u"`
 		F float64 `path:"f"`
 		B bool    `path:"flag"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	return echo("s=%q i=%d u=%d f=%v b=%v",
-		path.S, path.I, path.U, path.F, path.B), nil
+		path.Values.S, path.Values.I, path.Values.U, path.Values.F, path.Values.B), nil
 }
 
 // PageInts is /ints/{i8}/{i16}/{i32}/{i64}/{u8}/{u16}/{u32}
@@ -52,7 +52,7 @@ type PageInts struct{ App *App }
 
 func (PageInts) GET(
 	_ *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		I8  int8   `path:"i8"`
 		I16 int16  `path:"i16"`
 		I32 int32  `path:"i32"`
@@ -60,11 +60,11 @@ func (PageInts) GET(
 		U8  uint8  `path:"u8"`
 		U16 uint16 `path:"u16"`
 		U32 uint32 `path:"u32"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	return echo("i8=%d i16=%d i32=%d i64=%d u8=%d u16=%d u32=%d",
-		path.I8, path.I16, path.I32, path.I64,
-		path.U8, path.U16, path.U32), nil
+		path.Values.I8, path.Values.I16, path.Values.I32, path.Values.I64,
+		path.Values.U8, path.Values.U16, path.Values.U32), nil
 }
 
 // PageQuery is /q
@@ -72,7 +72,7 @@ type PageQuery struct{ App *App }
 
 func (PageQuery) GET(
 	_ *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Term  string  `query:"term"`
 		Limit int     `query:"limit"`
 		Ratio float32 `query:"ratio"`
@@ -80,11 +80,17 @@ func (PageQuery) GET(
 		Big   uint32  `query:"big"`
 		Deep  int64   `query:"deep"`
 		Flag  bool    `query:"flag"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	return echo("term=%q limit=%d ratio=%v score=%v big=%d deep=%d flag=%v",
-		query.Term, query.Limit, query.Ratio, query.Score,
-		query.Big, query.Deep, query.Flag), nil
+		query.Values.Term, query.Values.Limit, query.Values.Ratio, query.Values.Score,
+		query.Values.Big, query.Values.Deep, query.Values.Flag), nil
+}
+
+// TitledPath is the path variables of PageTitled, a named type where the
+// other pages use an anonymous one.
+type TitledPath struct {
+	Name string `path:"name"`
 }
 
 // PageTitled is /titled/{name}
@@ -95,12 +101,10 @@ type PageTitled struct{ App *App }
 
 func (PageTitled) GET(
 	_ *http.Request,
-	path struct {
-		Name string `path:"name"`
-	},
+	path datapages.Path[TitledPath],
 ) (body, head datapages.Component, err error) {
-	return echo("titled %s", path.Name),
-		templ.Raw("<title>" + path.Name + "</title>"), nil
+	return echo("titled %s", path.Values.Name),
+		templ.Raw("<title>" + path.Values.Name + "</title>"), nil
 }
 
 // PageReflect is /reflect
@@ -112,12 +116,12 @@ type PageReflect struct{ App *App }
 
 func (PageReflect) GET(
 	_ *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Term string `query:"t" reflectsignal:"term"`
 		Page int    `query:"p" reflectsignal:"page"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	return echo("term=%q page=%d", query.Term, query.Page), nil
+	return echo("term=%q page=%d", query.Values.Term, query.Values.Page), nil
 }
 
 // PageMixed is /org/{org}/item/{id}
@@ -128,17 +132,17 @@ type PageMixed struct{ App *App }
 
 func (PageMixed) GET(
 	_ *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		Org string `path:"org"`
 		ID  int    `path:"id"`
-	},
-	query struct {
+	}],
+	query datapages.Query[struct {
 		Tab  string `query:"tab"`
 		Page int    `query:"page"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	return echo("org=%q id=%d tab=%q page=%d",
-		path.Org, path.ID, query.Tab, query.Page), nil
+		path.Values.Org, path.Values.ID, query.Values.Tab, query.Values.Page), nil
 }
 
 // PageConflict is /c/{value}/{s_value}/{s_s_value}
@@ -150,14 +154,14 @@ type PageConflict struct{ App *App }
 
 func (PageConflict) GET(
 	_ *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		Value   int32  `path:"value"`
 		SValue  int32  `path:"s_value"`
 		SSValue string `path:"s_s_value"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	return echo("value=%d s_value=%d s_s_value=%q",
-		path.Value, path.SValue, path.SSValue), nil
+		path.Values.Value, path.Values.SValue, path.Values.SSValue), nil
 }
 
 // PageFiles is /files/{rest...}
@@ -169,9 +173,9 @@ type PageFiles struct{ App *App }
 
 func (PageFiles) GET(
 	_ *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		Rest string `path:"rest"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	return echo("rest=%q", path.Rest), nil
+	return echo("rest=%q", path.Values.Rest), nil
 }

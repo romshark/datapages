@@ -37,12 +37,12 @@ func (PageIndex) OnAnnounced(
 // Publishing is what the broker metrics count.
 func (PageIndex) POSTAnnounce(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Text string `json:"text"`
-	},
+	}],
 	announced datapages.Dispatcher[EventAnnounced],
 ) error {
-	return announced.Dispatch(EventAnnounced{Text: signals.Text})
+	return announced.Dispatch(EventAnnounced{Text: signals.Values.Text})
 }
 
 // POSTFail is /fail

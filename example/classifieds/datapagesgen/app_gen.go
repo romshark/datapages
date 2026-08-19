@@ -1819,11 +1819,11 @@ func (s *Server) handlePageLoginPOSTSubmit(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -1860,10 +1860,10 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Chat string `query:"chat" reflectsignal:"chatselected"`
-	}
-	query.Chat = q.Get("chat")
+	}]
+	query.Values.Chat = q.Get("chat")
 
 	p := app.PageMessages{
 		App: s.app,
@@ -1887,7 +1887,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 		}
 
 		_, _ = io.WriteString(w, `data-signals:chatselected="'`)
-		writeSignalString(w, query.Chat)
+		writeSignalString(w, query.Values.Chat)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
@@ -2001,19 +2001,19 @@ func (s *Server) handlePageMessagesPOSTRead(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		MessageID string `query:"msgid"`
-	}
-	query.MessageID = q.Get("msgid")
+	}]
+	query.Values.MessageID = q.Get("msgid")
 
 	dispatchMessagingRead := dispatcherEventMessagingRead{s: s, ctx: r.Context()}
 	p := app.PageMessages{
@@ -2040,10 +2040,10 @@ func (s *Server) handlePageMessagesPOSTWriting(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -2073,10 +2073,10 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -2106,11 +2106,11 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
 		MessageText  string `json:"messagetext"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -2233,10 +2233,10 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		Slug string `path:"slug"`
-	}
-	path.Slug = r.PathValue("slug")
+	}]
+	path.Values.Slug = r.PathValue("slug")
 
 	p := app.PagePost{
 		App: s.app,
@@ -2262,7 +2262,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/post/`)
-		writeStreamPathValue(w, path.Slug)
+		writeStreamPathValue(w, path.Values.Slug)
 		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
 			_, _ = io.WriteString(w, `/_$/')"`)
@@ -2402,18 +2402,18 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	if !ok {
 		return
 	}
-	var signals struct {
+	var signals datapages.Signals[struct {
 		MessageText string `json:"messagetext"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		Slug string `path:"slug"`
-	}
-	path.Slug = r.PathValue("slug")
+	}]
+	path.Values.Slug = r.PathValue("slug")
 
 	dispatchMessagingSent := dispatcherEventMessagingSent{s: s, ctx: r.Context()}
 
@@ -2438,9 +2438,9 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	var query app.SearchParams
-	query.Term = q.Get("t")
-	query.Category = q.Get("c")
+	var query datapages.Query[app.SearchParams]
+	query.Values.Term = q.Get("t")
+	query.Values.Category = q.Get("c")
 	{
 		if q := q.Get("pmin"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 64)
@@ -2448,7 +2448,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: pmin", err)
 				return
 			}
-			query.PriceMin = i
+			query.Values.PriceMin = i
 		}
 	}
 	{
@@ -2458,10 +2458,10 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: pmax", err)
 				return
 			}
-			query.PriceMax = i
+			query.Values.PriceMax = i
 		}
 	}
-	query.Location = q.Get("l")
+	query.Values.Location = q.Get("l")
 
 	p := app.PageSearch{
 		App: s.app,
@@ -2480,23 +2480,23 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 
 		_, _ = io.WriteString(w, `data-signals:term="'`)
-		writeSignalString(w, query.Term)
+		writeSignalString(w, query.Values.Term)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:category="'`)
-		writeSignalString(w, query.Category)
+		writeSignalString(w, query.Values.Category)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:pmin="`)
-		writeSignalValue(w, strconv.FormatInt(query.PriceMin, 10))
+		writeSignalValue(w, strconv.FormatInt(query.Values.PriceMin, 10))
 		_, _ = io.WriteString(w, `"`)
 
 		_, _ = io.WriteString(w, `data-signals:pmax="`)
-		writeSignalValue(w, strconv.FormatInt(query.PriceMax, 10))
+		writeSignalValue(w, strconv.FormatInt(query.Values.PriceMax, 10))
 		_, _ = io.WriteString(w, `"`)
 
 		_, _ = io.WriteString(w, `data-signals:location="'`)
-		writeSignalString(w, query.Location)
+		writeSignalString(w, query.Values.Location)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
@@ -2590,8 +2590,8 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	if !ok {
 		return
 	}
-	var signals app.SearchParams
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	var signals datapages.Signals[app.SearchParams]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -2725,10 +2725,10 @@ func (s *Server) handlePageSettingsPOSTSave(
 	if !ok {
 		return
 	}
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Username string `json:"username"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -2758,10 +2758,10 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 		return
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		Token string `path:"token"`
-	}
-	path.Token = r.PathValue("token")
+	}]
+	path.Values.Token = r.PathValue("token")
 
 	dispatchSessionClosed := dispatcherEventSessionClosed{s: s, ctx: r.Context()}
 	p := app.PageSettings{
@@ -2817,10 +2817,10 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		Name string `path:"name"`
-	}
-	path.Name = r.PathValue("name")
+	}]
+	path.Values.Name = r.PathValue("name")
 
 	p := app.PageUser{
 		App: s.app,
@@ -2846,7 +2846,7 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/user/`)
-		writeStreamPathValue(w, path.Name)
+		writeStreamPathValue(w, path.Values.Name)
 		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
 			_, _ = io.WriteString(w, `/_$/')"`)

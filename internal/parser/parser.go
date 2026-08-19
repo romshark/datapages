@@ -1417,20 +1417,20 @@ func parseEventHandler(
 	for _, f := range params {
 		switch {
 		case len(f.Names) == 1 && f.Names[0].Name == "event":
-			h.InputEvent = parseInput(f, info)
+			h.InputEvent = parseInput(f, f.Type, info)
 			h.InputEvent.Kind = model.InputKindEvent
 			h.OrderedInputs = append(h.OrderedInputs, h.InputEvent)
 		case typecheck.IsSSEParam(f.Type, info):
-			h.InputSSE = parseInput(f, info)
+			h.InputSSE = parseInput(f, f.Type, info)
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
 		case len(f.Names) == 1 && f.Names[0].Name == "streamID" &&
 			gotypes.IsUint64(info.TypeOf(f.Type)):
-			h.InputStreamID = parseInput(f, info)
+			h.InputStreamID = parseInput(f, f.Type, info)
 			h.InputStreamID.Kind = model.InputKindStreamID
 			h.OrderedInputs = append(h.OrderedInputs, h.InputStreamID)
 		case paramvalidation.IsSessionParam(f):
-			h.InputSession = parseInput(f, info)
+			h.InputSession = parseInput(f, f.Type, info)
 			h.InputSession.Kind = model.InputKindSession
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
 		}
@@ -1485,7 +1485,7 @@ func parseStreamHook(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			h.InputRequest = parseInput(f, info)
+			h.InputRequest = parseInput(f, f.Type, info)
 			h.InputRequest.Kind = model.InputKindRequest
 			h.OrderedInputs = append(h.OrderedInputs, h.InputRequest)
 			foundReq = true
@@ -1500,7 +1500,7 @@ func parseStreamHook(
 				return h, fieldErr(fmt.Errorf("%w in %s.%s",
 					ErrStreamIDParamNotUint64, recv, fd.Name.Name))
 			}
-			h.InputStreamID = parseInput(f, info)
+			h.InputStreamID = parseInput(f, f.Type, info)
 			h.InputStreamID.Kind = model.InputKindStreamID
 			h.OrderedInputs = append(h.OrderedInputs, h.InputStreamID)
 			foundStreamID = true
@@ -1516,7 +1516,7 @@ func parseStreamHook(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			h.InputSSE = parseInput(f, info)
+			h.InputSSE = parseInput(f, f.Type, info)
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
 
@@ -1530,11 +1530,11 @@ func parseStreamHook(
 				return h, fieldErr(fmt.Errorf("%w in %s.%s",
 					ErrSessionParamNotSessionType, recv, fd.Name.Name))
 			}
-			h.InputSession = parseInput(f, info)
+			h.InputSession = parseInput(f, f.Type, info)
 			h.InputSession.Kind = model.InputKindSession
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
 
-		case paramvalidation.IsSignalsParam(f):
+		case paramvalidation.IsSignalsParam(f, info):
 			if kind != methodkind.StreamOpenHook {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
@@ -1545,14 +1545,15 @@ func parseStreamHook(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
+			values := typecheck.TypeArgExpr(f.Type)
 			sigErr := paramvalidation.ValidateSignalsStruct(
-				f, info, recv, fd.Name.Name,
+				values, info, recv, fd.Name.Name,
 			)
 			if sigErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sigErr)
 				continue
 			}
-			h.InputSignals = parseInput(f, info)
+			h.InputSignals = parseInput(f, values, info)
 			h.InputSignals.Kind = model.InputKindSignals
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
 
@@ -1576,17 +1577,13 @@ func parseStreamHook(
 					})
 				continue
 			}
-			inp := parseInput(f, info)
+			inp := parseInput(f, f.Type, info)
 			inp.Kind = model.InputKindDispatch
 			h.InputDispatches = append(h.InputDispatches, &model.InputDispatch{
 				Input:         inp,
 				EventTypeName: eventName,
 			})
 			h.OrderedInputs = append(h.OrderedInputs, inp)
-
-		case paramvalidation.IsLegacyDispatchParam(f, info):
-			appendPositioned(&unsupErrs, fset, f.Type.Pos(),
-				paramvalidation.LegacyDispatchError(f, recv, fd.Name.Name))
 
 		default:
 			unsupErrs = append(unsupErrs,
@@ -1842,10 +1839,10 @@ func appendPositioned(dst *[]error, fset *token.FileSet, fallback token.Pos, err
 	}
 }
 
-// knownParamNames lists the recognized handler parameter names
+// knownParamNames lists the handler parameter names that are matched by name,
 // used for fuzzy matching in unsupportedInputError.
 var knownParamNames = []string{
-	"streamID", "sessionToken", "session", "path", "query", "signals",
+	"streamID", "sessionToken", "session",
 }
 
 // unsupportedInputError builds an ErrorSignatureUnsupportedInput for a
@@ -1854,7 +1851,8 @@ var knownParamNames = []string{
 // name-based check failed, and if so, sets ExpectedName for a rename
 // suggestion. When h is non-nil, it checks whether the expected name
 // would collide with an already-consumed input.
-// As a fallback, it performs fuzzy matching against known parameter names.
+// As a fallback, it performs fuzzy matching against the parameter names
+// that are still matched by name.
 func unsupportedInputError(
 	f *ast.Field, h *model.Handler, info *types.Info, recv, method string,
 ) *ErrorSignatureUnsupportedInput {
@@ -1923,11 +1921,12 @@ func typeCandidates(
 	all := []candidate{
 		{"streamID", h.InputStreamID != nil, isUint64},
 		{"session", h.InputSession != nil, isSession},
-		// Only suggest path/query/signals for plain structs,
-		// not for named types that have a more specific match (e.g. Session).
-		{"path", h.InputPath != nil, isStruct && !isSession},
-		{"query", h.InputQuery != nil, isStruct && !isSession},
-		{"signals", h.InputSignals != nil, isStruct && !isSession},
+		// A plain struct is what the path, query and signals wrappers carry,
+		// so suggest wrapping it. Named types with a more specific match
+		// (e.g. Session) are not candidates.
+		{"datapages.Path[...]", h.InputPath != nil, isStruct && !isSession},
+		{"datapages.Query[...]", h.InputQuery != nil, isStruct && !isSession},
+		{"datapages.Signals[...]", h.InputSignals != nil, isStruct && !isSession},
 	}
 
 	var names []string
@@ -1976,17 +1975,15 @@ func isParamConsumed(h *model.Handler, name string) bool {
 		return h.InputStreamID != nil
 	case "session":
 		return h.InputSession != nil
-	case "path":
-		return h.InputPath != nil
-	case "query":
-		return h.InputQuery != nil
-	case "signals":
-		return h.InputSignals != nil
 	}
 	return false
 }
 
-func parseInput(f *ast.Field, info *types.Info) *model.Input {
+// parseInput builds the model input for a handler parameter.
+// typeExpr is the type the model records, which is f.Type for a plain
+// parameter and the Values type argument for a wrapped one
+// (datapages.Path, datapages.Query, datapages.Signals).
+func parseInput(f *ast.Field, typeExpr ast.Expr, info *types.Info) *model.Input {
 	// request param should be named, but keep best-effort
 	name := ""
 	var expr ast.Expr
@@ -1997,7 +1994,7 @@ func parseInput(f *ast.Field, info *types.Info) *model.Input {
 	return &model.Input{
 		Expr: expr,
 		Name: name,
-		Type: makeType(f.Type, info),
+		Type: makeType(typeExpr, info),
 	}
 }
 
@@ -2102,7 +2099,7 @@ func parseHandler(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			h.InputRequest = parseInput(f, info)
+			h.InputRequest = parseInput(f, f.Type, info)
 			h.InputRequest.Kind = model.InputKindRequest
 			h.OrderedInputs = append(h.OrderedInputs, h.InputRequest)
 			foundReq = true
@@ -2113,7 +2110,7 @@ func parseHandler(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			h.InputSSE = parseInput(f, info)
+			h.InputSSE = parseInput(f, f.Type, info)
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
 
@@ -2127,58 +2124,61 @@ func parseHandler(
 				return h, nil, fieldErr(fmt.Errorf("%w in %s.%s",
 					ErrSessionParamNotSessionType, recv, fd.Name.Name))
 			}
-			h.InputSession = parseInput(f, info)
+			h.InputSession = parseInput(f, f.Type, info)
 			h.InputSession.Kind = model.InputKindSession
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
 
-		case paramvalidation.IsPathParam(f):
+		case paramvalidation.IsPathParam(f, info):
 			if h.InputPath != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
+			values := typecheck.TypeArgExpr(f.Type)
 			pathErr := paramvalidation.ValidatePathStruct(
-				f, info, recv, fd.Name.Name,
+				values, info, recv, fd.Name.Name,
 			)
 			if pathErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), pathErr)
 				continue
 			}
-			h.InputPath = parseInput(f, info)
+			h.InputPath = parseInput(f, values, info)
 			h.InputPath.Kind = model.InputKindPath
 			h.OrderedInputs = append(h.OrderedInputs, h.InputPath)
 
-		case paramvalidation.IsQueryParam(f):
+		case paramvalidation.IsQueryParam(f, info):
 			if h.InputQuery != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
+			values := typecheck.TypeArgExpr(f.Type)
 			queryErr := paramvalidation.ValidateQueryStruct(
-				f, info, recv, fd.Name.Name,
+				values, info, recv, fd.Name.Name,
 			)
 			if queryErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), queryErr)
 				continue
 			}
-			h.InputQuery = parseInput(f, info)
+			h.InputQuery = parseInput(f, values, info)
 			h.InputQuery.Kind = model.InputKindQuery
 			h.OrderedInputs = append(h.OrderedInputs, h.InputQuery)
 
-		case paramvalidation.IsSignalsParam(f):
+		case paramvalidation.IsSignalsParam(f, info):
 			if h.InputSignals != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
+			values := typecheck.TypeArgExpr(f.Type)
 			sigErr := paramvalidation.ValidateSignalsStruct(
-				f, info, recv, fd.Name.Name,
+				values, info, recv, fd.Name.Name,
 			)
 			if sigErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sigErr)
 				continue
 			}
-			h.InputSignals = parseInput(f, info)
+			h.InputSignals = parseInput(f, values, info)
 			h.InputSignals.Kind = model.InputKindSignals
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
 
@@ -2202,17 +2202,13 @@ func parseHandler(
 					})
 				continue
 			}
-			inp := parseInput(f, info)
+			inp := parseInput(f, f.Type, info)
 			inp.Kind = model.InputKindDispatch
 			h.InputDispatches = append(h.InputDispatches, &model.InputDispatch{
 				Input:         inp,
 				EventTypeName: eventName,
 			})
 			h.OrderedInputs = append(h.OrderedInputs, inp)
-
-		case paramvalidation.IsLegacyDispatchParam(f, info):
-			appendPositioned(&unsupErrs, fset, f.Type.Pos(),
-				paramvalidation.LegacyDispatchError(f, recv, fd.Name.Name))
 
 		default:
 			unsupErrs = append(unsupErrs,

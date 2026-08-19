@@ -604,11 +604,11 @@ func (s *Server) handlePageFormPOSTSubmit(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Name string `json:"name"`
 		Age  int    `json:"age"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -666,9 +666,9 @@ func (s *Server) handlePageFormPOSTBump(
 ) {
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		By int `query:"by"`
-	}
+	}]
 	{
 		if q := q.Get("by"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
@@ -676,13 +676,13 @@ func (s *Server) handlePageFormPOSTBump(
 				s.httpErrBad(w, "unexpected value for query parameter: by", err)
 				return
 			}
-			query.By = int(i)
+			query.Values.By = int(i)
 		}
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		ID int `path:"id"`
-	}
+	}]
 	{
 		v := r.PathValue("id")
 		i, err := strconv.ParseInt(v, 10, 0)
@@ -690,7 +690,7 @@ func (s *Server) handlePageFormPOSTBump(
 			s.httpErrBad(w, "unexpected value for path parameter: id", err)
 			return
 		}
-		path.ID = int(i)
+		path.Values.ID = int(i)
 	}
 	p := app.PageForm{
 		App: s.app,
@@ -744,10 +744,10 @@ func (s *Server) handlePageFormPOSTPatch(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Count int `json:"count"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -769,11 +769,11 @@ func (s *Server) handlePageFormPOSTPatchAt(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Selector string `json:"selector"`
 		Mode     string `json:"mode"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}

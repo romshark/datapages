@@ -704,22 +704,22 @@ func (s *Server) handlePUTEdit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		TabID       string `json:"tab_id"`
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Done        bool   `json:"done"`
 		Due         string `json:"due"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Toggle bool `query:"toggle"`
-	}
+	}]
 	{
 		if q := q.Get("toggle"); q != "" {
 			b, err := strconv.ParseBool(q)
@@ -727,14 +727,14 @@ func (s *Server) handlePUTEdit(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: toggle", err)
 				return
 			}
-			query.Toggle = b
+			query.Values.Toggle = b
 		}
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		ID string `path:"id"`
-	}
-	path.ID = r.PathValue("id")
+	}]
+	path.Values.ID = r.PathValue("id")
 
 	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s, ctx: r.Context()}
 	err := s.app.PUTEdit(r, path, query, signals, dispatchTodoUpdated)
@@ -773,14 +773,14 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Search string `query:"q" reflectsignal:"search"`
 		Filter string `query:"filter" reflectsignal:"filter"`
 		Sort   string `query:"sort" reflectsignal:"sort"`
-	}
-	query.Search = q.Get("q")
-	query.Filter = q.Get("filter")
-	query.Sort = q.Get("sort")
+	}]
+	query.Values.Search = q.Get("q")
+	query.Values.Filter = q.Get("filter")
+	query.Values.Sort = q.Get("sort")
 
 	p := app.PageIndex{
 		App: s.app,
@@ -796,15 +796,15 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 
 		_, _ = io.WriteString(w, `data-signals:search="'`)
-		writeSignalString(w, query.Search)
+		writeSignalString(w, query.Values.Search)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:filter="'`)
-		writeSignalString(w, query.Filter)
+		writeSignalString(w, query.Values.Filter)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:sort="'`)
-		writeSignalString(w, query.Sort)
+		writeSignalString(w, query.Values.Sort)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
@@ -834,12 +834,12 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Search string `json:"search"`
 		Filter string `json:"filter"`
 		Sort   string `json:"sort"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -884,13 +884,13 @@ func (s *Server) handlePageIndexPOSTCreate(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		TabID    string `json:"tab_id"`
 		NewTitle string `json:"newTitle"`
 		NewDesc  string `json:"newDesc"`
 		NewDue   string `json:"newDue"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -912,13 +912,13 @@ func (s *Server) handlePageIndexPOSTFilter(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	var signals struct {
+	var signals datapages.Signals[struct {
 		TabID  string `json:"tab_id"`
 		Search string `json:"search"`
 		Filter string `json:"filter"`
 		Sort   string `json:"sort"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -936,10 +936,10 @@ func (s *Server) handlePageIndexPOSTFilter(
 
 func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 
-	var path struct {
+	var path datapages.Path[struct {
 		ID string `path:"id"`
-	}
-	path.ID = r.PathValue("id")
+	}]
+	path.Values.ID = r.PathValue("id")
 
 	p := app.PageItem{
 		App: s.app,
@@ -962,7 +962,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/item/`)
-		writeStreamPathValue(w, path.ID)
+		writeStreamPathValue(w, path.Values.ID)
 		_, _ = io.WriteString(w, `/`)
 		_, _ = io.WriteString(w, `/_$/')"`)
 	}
@@ -980,10 +980,10 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var signals struct {
+	var signals datapages.Signals[struct {
 		ItemID string `json:"itemId"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -1028,18 +1028,18 @@ func (s *Server) handlePageItemDELETEItem(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		TabID string `json:"tab_id"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		ID string `path:"id"`
-	}
-	path.ID = r.PathValue("id")
+	}]
+	path.Values.ID = r.PathValue("id")
 
 	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s, ctx: r.Context()}
 	p := app.PageItem{

@@ -509,9 +509,9 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePageMaybeGET(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Go bool `query:"go"`
-	}
+	}]
 	{
 		if q := q.Get("go"); q != "" {
 			b, err := strconv.ParseBool(q)
@@ -519,7 +519,7 @@ func (s *Server) handlePageMaybeGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: go", err)
 				return
 			}
-			query.Go = b
+			query.Values.Go = b
 		}
 	}
 

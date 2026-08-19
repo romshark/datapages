@@ -131,12 +131,12 @@ func (p PageLogin) GET(r *http.Request, session Session) (
 func (p PageLogin) POSTValidate(
 	r *http.Request,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	msg := validateLogin(signals.Email, signals.Password)
+	msg := validateLogin(signals.Values.Email, signals.Values.Password)
 	return pageLogin(msg, msg == ""), nil
 }
 
@@ -144,10 +144,10 @@ func (p PageLogin) POSTValidate(
 func (p PageLogin) POSTSubmit(
 	r *http.Request,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
-	},
+	}],
 ) (
 	body datapages.Component,
 	redirect datapages.Redirect,
@@ -161,11 +161,11 @@ func (p PageLogin) POSTSubmit(
 		}
 		return
 	}
-	if msg := validateLogin(signals.Email, signals.Password); msg != "" {
+	if msg := validateLogin(signals.Values.Email, signals.Values.Password); msg != "" {
 		body, err = pageLogin(msg, false), nil
 		return
 	}
-	user, err := p.App.users.Authenticate(r.Context(), signals.Email, signals.Password)
+	user, err := p.App.users.Authenticate(r.Context(), signals.Values.Email, signals.Values.Password)
 	if err != nil {
 		if errors.Is(err, userstore.ErrInvalidCredentials) {
 			body, err = pageLogin("Invalid email or password", false), nil
@@ -203,13 +203,13 @@ func (p PageRegister) GET(r *http.Request, session Session) (
 func (p PageRegister) POSTValidate(
 	r *http.Request,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		Name     string `json:"name"`
 		Email    string `json:"email"`
 		Password string `json:"password"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	msg := validateRegister(signals.Name, signals.Email, signals.Password)
+	msg := validateRegister(signals.Values.Name, signals.Values.Email, signals.Values.Password)
 	return pageRegister(msg, msg == ""), nil
 }
 
@@ -217,11 +217,11 @@ func (p PageRegister) POSTValidate(
 func (p PageRegister) POSTSubmit(
 	r *http.Request,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		Name     string `json:"name"`
 		Email    string `json:"email"`
 		Password string `json:"password"`
-	},
+	}],
 ) (
 	body datapages.Component,
 	redirect datapages.Redirect,
@@ -236,13 +236,13 @@ func (p PageRegister) POSTSubmit(
 		return
 	}
 	if msg := validateRegister(
-		signals.Name, signals.Email, signals.Password,
+		signals.Values.Name, signals.Values.Email, signals.Values.Password,
 	); msg != "" {
 		body, err = pageRegister(msg, false), nil
 		return
 	}
 	user, err := p.App.users.Register(
-		r.Context(), signals.Name, signals.Email, signals.Password,
+		r.Context(), signals.Values.Name, signals.Values.Email, signals.Values.Password,
 	)
 	if err != nil {
 		if errors.Is(err, userstore.ErrEmailAlreadyInUse) {

@@ -458,16 +458,6 @@ func Suggest(err error) string {
 		errors.Is(err, parser.ErrQueryFieldUnsupportedType):
 		return suggestUnsupportedFieldType
 
-	case errors.Is(err, parser.ErrDispatchParamLegacy):
-		var d *paramvalidation.ErrorDispatchParamLegacy
-		if !errors.As(err, &d) {
-			return ""
-		}
-		return fmt.Sprintf(
-			"fix: Type %s as datapages.Dispatcher[EventXXX], one parameter per"+
-				" event type the handler dispatches", d.ParamName,
-		)
-
 	case errors.Is(err, parser.ErrDispatchDuplicate):
 		var d *parser.ErrorDispatchDuplicate
 		if !errors.As(err, &d) {

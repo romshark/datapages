@@ -24,11 +24,11 @@ func (p PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 // POSTAdd is /add/{$}
 func (p PageIndex) POSTAdd(
 	r *http.Request, counterUpdated datapages.Dispatcher[EventCounterUpdated],
-	query struct {
+	query datapages.Query[struct {
 		Delta int32 `query:"delta"`
-	},
+	}],
 ) error {
-	p.App.counter.Add(query.Delta)
+	p.App.counter.Add(query.Values.Delta)
 	return counterUpdated.Dispatch(EventCounterUpdated{})
 }
 

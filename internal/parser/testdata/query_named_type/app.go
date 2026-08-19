@@ -16,9 +16,9 @@ type PageIndex struct{ App *App }
 
 func (PageIndex) GET(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		S Slug `query:"s"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	return nil, nil
 }

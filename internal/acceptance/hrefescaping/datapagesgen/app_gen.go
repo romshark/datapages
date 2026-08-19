@@ -596,10 +596,10 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 
-	var path struct {
+	var path datapages.Path[struct {
 		Name string `path:"name"`
-	}
-	path.Name = r.PathValue("name")
+	}]
+	path.Values.Name = r.PathValue("name")
 
 	p := app.PageItem{
 		App: s.app,
@@ -618,7 +618,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/item/`)
-		writeStreamPathValue(w, path.Name)
+		writeStreamPathValue(w, path.Values.Name)
 		_, _ = io.WriteString(w, `/`)
 		_, _ = io.WriteString(w, `/_$/')"`)
 	}
@@ -670,15 +670,15 @@ func (s *Server) handlePageItemPOSTRename(
 	}
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		To string `query:"to"`
-	}
-	query.To = q.Get("to")
+	}]
+	query.Values.To = q.Get("to")
 
-	var path struct {
+	var path datapages.Path[struct {
 		Name string `path:"name"`
-	}
-	path.Name = r.PathValue("name")
+	}]
+	path.Values.Name = r.PathValue("name")
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	p := app.PageItem{
@@ -694,11 +694,11 @@ func (s *Server) handlePageItemPOSTRename(
 func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Term string `query:"term"`
 		Page int    `query:"page"`
-	}
-	query.Term = q.Get("term")
+	}]
+	query.Values.Term = q.Get("term")
 	{
 		if q := q.Get("page"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
@@ -706,7 +706,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: page", err)
 				return
 			}
-			query.Page = int(i)
+			query.Values.Page = int(i)
 		}
 	}
 

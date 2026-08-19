@@ -200,11 +200,11 @@ type PageItem struct{ App *App }
 
 func (PageItem) GET(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID string `path:"id"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	return itemPage(path.ID), nil
+	return itemPage(path.Values.ID), nil
 }
 ```
 
@@ -215,12 +215,12 @@ The tag `path:"id"` must exactly match `{id}` in the route.
 ```go
 func (PageSearch) GET(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Term  string `query:"t"`
 		Limit int    `query:"l"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	return searchPage(query.Term, query.Limit), nil
+	return searchPage(query.Values.Term, query.Values.Limit), nil
 }
 ```
 
@@ -259,14 +259,16 @@ func (*App) POSTSignOut(r *http.Request, session Session) (
 ### Action Parameters
 
 Parameters may be in any order. Skip what you don't need.
+Path, query and signals are recognized by their type, the parameter name is
+free; their values sit in the `Values` field.
 
 ```go
 r *http.Request
 sse datapages.SSE // optional
 session Session // optional
-path struct { ID string `path:"id"` } // optional
-query struct { P int `query:"p"` } // optional
-signals struct { V string `json:"v"` } // optional
+path datapages.Path[struct { ID string `path:"id"` }] // optional
+query datapages.Query[struct { P int `query:"p"` }] // optional
+signals datapages.Signals[struct { V string `json:"v"` }] // optional
 somethingHappened datapages.Dispatcher[EventSomethingHappened] // optional
 ```
 
@@ -334,10 +336,10 @@ Signals are Datastar frontend state. Inline struct with `json` tags.
 // POSTSubmit is /form/submit
 func (PageForm) POSTSubmit(
 	r *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Name  string `json:"name"`
 		Email string `json:"email"`
-	},
+	}],
 ) error {
 	return nil
 }
@@ -348,14 +350,14 @@ Add `reflectsignal` to a query field to bind it to a Datastar signal. The query 
 ```go
 func (PageSearch) GET(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Term string `query:"t" reflectsignal:"term"`
-	},
-	signals struct {
+	}],
+	signals datapages.Signals[struct {
 		Term string `json:"term"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	return searchPage(query.Term), nil
+	return searchPage(query.Values.Term), nil
 }
 ```
 
@@ -471,7 +473,7 @@ decides what to do about it:
 for _, participant := range room.ParticipantIDs {
 	err := directMessage.Dispatch(EventDirectMessage{
 		Recipient: datapages.SubjectUser(participant),
-		Content:   signals.Text,
+		Content:   signals.Values.Text,
 	})
 	if err != nil {
 		return err
@@ -529,7 +531,7 @@ to clients, as it could leak information about server activity and connection vo
 `StreamOpen` runs after the SSE stream is established, before any event handler.
 It additionally accepts these optional parameters:
 `sse datapages.SSE`, `session Session`,
-`signals struct{...}`, `datapages.Dispatcher[EventXXX]`.
+`signals datapages.Signals[struct{...}]`, `datapages.Dispatcher[EventXXX]`.
 
 `StreamClose` runs when the stream closes.
 It additionally accepts these optional parameters:
@@ -542,9 +544,9 @@ func (PageIndex) StreamOpen(
 	streamID uint64,
 	sse datapages.SSE, // Optional
 	session Session, // Optional
-	signals struct{ // Optional
+	signals datapages.Signals[struct { // Optional
 		Instance string `json:"instance"`
-	},
+	}],
 	ping datapages.Dispatcher[EventPing], // Optional
 ) error {
 	// Set up per-tab state, patch signals to the client, etc.

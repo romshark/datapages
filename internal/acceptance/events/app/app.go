@@ -137,12 +137,12 @@ func (p PageIndex) OnTick(
 // POSTTick is /tick
 func (p PageIndex) POSTTick(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		N int `json:"n"`
-	},
+	}],
 	tick datapages.Dispatcher[EventTick],
 ) error {
-	return tick.Dispatch(EventTick{N: signals.N})
+	return tick.Dispatch(EventTick{N: signals.Values.N})
 }
 
 // POSTBoth is /both
@@ -150,15 +150,15 @@ func (p PageIndex) POSTTick(
 // Two dispatchers in one handler, one per event type.
 func (p PageIndex) POSTBoth(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		N int `json:"n"`
-	},
+	}],
 	tick datapages.Dispatcher[EventTick],
 	pong datapages.Dispatcher[EventPong],
 ) error {
 	return errors.Join(
-		tick.Dispatch(EventTick{N: signals.N}),
-		pong.Dispatch(EventPong{N: signals.N}),
+		tick.Dispatch(EventTick{N: signals.Values.N}),
+		pong.Dispatch(EventPong{N: signals.Values.N}),
 	)
 }
 
@@ -169,14 +169,14 @@ func (p PageIndex) POSTBoth(
 // which is how the test tells DispatchCtx apart from Dispatch.
 func (p PageIndex) POSTCanceled(
 	r *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		N int `json:"n"`
-	},
+	}],
 	tick datapages.Dispatcher[EventTick],
 ) error {
 	ctx, cancel := context.WithCancel(r.Context())
 	cancel()
-	return tick.DispatchCtx(ctx, EventTick{N: signals.N})
+	return tick.DispatchCtx(ctx, EventTick{N: signals.Values.N})
 }
 
 // PageLog is /log
@@ -237,30 +237,30 @@ func (p PageRoom) OnRoomBroadcast(
 // POSTSay is /room/say
 func (p PageRoom) POSTSay(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Room string `json:"room"`
 		Text string `json:"text"`
-	},
+	}],
 	roomSaid datapages.Dispatcher[EventRoomSaid],
 ) error {
 	return roomSaid.Dispatch(EventRoomSaid{
-		Room: datapages.Subject(signals.Room), Text: signals.Text,
+		Room: datapages.Subject(signals.Values.Room), Text: signals.Values.Text,
 	})
 }
 
 // POSTBroadcast is /room/broadcast
 func (p PageRoom) POSTBroadcast(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Rooms []string `json:"rooms"`
 		Text  string   `json:"text"`
-	},
+	}],
 	roomBroadcast datapages.Dispatcher[EventRoomBroadcast],
 ) error {
-	for _, room := range signals.Rooms {
+	for _, room := range signals.Values.Rooms {
 		err := roomBroadcast.Dispatch(EventRoomBroadcast{
 			Room: datapages.Subject(room),
-			Text: signals.Text,
+			Text: signals.Values.Text,
 		})
 		if err != nil {
 			return err

@@ -12,19 +12,22 @@ func TestFuzzyMatchParamName(t *testing.T) {
 		wantName  string
 		wantOK    bool
 	}{
-		"exact sessionToken": {paramName: "sessionToken", wantName: "sessionToken", wantOK: true},
-		"sessionTok":         {paramName: "sessionTok", wantName: "sessionToken", wantOK: true},
-		"sesionToken":        {paramName: "sesionToken", wantName: "sessionToken", wantOK: true},
-		"signal":             {paramName: "signal", wantName: "signals", wantOK: true},
-		"signls":             {paramName: "signls", wantName: "signals", wantOK: true},
-		// "dispatch" is no longer matched by name, dispatchers are
-		// recognized by their datapages.Dispatcher[EventXXX] type.
+		"exact sessionToken": {
+			paramName: "sessionToken", wantName: "sessionToken", wantOK: true,
+		},
+		"sessionTok": {
+			paramName: "sessionTok", wantName: "sessionToken", wantOK: true,
+		},
+		"sesionToken": {
+			paramName: "sesionToken", wantName: "sessionToken", wantOK: true,
+		},
+		// Dispatchers, path, query and signals are matched by their datapages.Dispatcher,
+		// datapages.Path, datapages.Query and datapages.Signals types, never by name.
 		"dispatc": {paramName: "dispatc", wantOK: false},
+		"signls":  {paramName: "signls", wantOK: false},
+		"qury":    {paramName: "qury", wantOK: false},
 		"sess":    {paramName: "sess", wantOK: false}, // 3 edits too far
 		"sessio":  {paramName: "sessio", wantName: "session", wantOK: true},
-		"qurey":   {paramName: "qurey", wantOK: false}, // 2 edits in 5-char word
-		"qury":    {paramName: "qury", wantName: "query", wantOK: true},
-		"querys":  {paramName: "querys", wantName: "query", wantOK: true},
 		"xyz":     {paramName: "xyz", wantOK: false},
 		"abc":     {paramName: "abc", wantOK: false},
 		"x":       {paramName: "x", wantOK: false},

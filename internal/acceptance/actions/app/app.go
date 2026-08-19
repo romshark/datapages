@@ -71,12 +71,12 @@ func (PageForm) GET(_ *http.Request) (body datapages.Component, err error) {
 // The plain shape: signals in, nothing out but an error.
 func (p PageForm) POSTSubmit(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Name string `json:"name"`
 		Age  int    `json:"age"`
-	},
+	}],
 ) error {
-	p.App.record("submit name=%q age=%d", signals.Name, signals.Age)
+	p.App.record("submit name=%q age=%d", signals.Values.Name, signals.Values.Age)
 	return nil
 }
 
@@ -103,14 +103,14 @@ func (p PageForm) DELETERemove(_ *http.Request) error {
 // Path variables and query parameters reach actions the same way they reach page loads.
 func (p PageForm) POSTBump(
 	_ *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID int `path:"id"`
-	},
-	query struct {
+	}],
+	query datapages.Query[struct {
 		By int `query:"by"`
-	},
+	}],
 ) error {
-	p.App.record("bump id=%d by=%d", path.ID, query.By)
+	p.App.record("bump id=%d by=%d", path.Values.ID, query.Values.By)
 	return nil
 }
 
@@ -138,19 +138,19 @@ func (p PageForm) POSTGo(_ *http.Request) (
 func (p PageForm) POSTPatch(
 	_ *http.Request,
 	sse datapages.SSE,
-	signals struct {
+	signals datapages.Signals[struct {
 		Count int `json:"count"`
-	},
+	}],
 ) error {
-	p.App.record("patch count=%d", signals.Count)
+	p.App.record("patch count=%d", signals.Values.Count)
 	if err := sse.PatchElement(
-		templ.Raw(fmt.Sprintf(`<div id="out">count %d</div>`, signals.Count+1)),
+		templ.Raw(fmt.Sprintf(`<div id="out">count %d</div>`, signals.Values.Count+1)),
 	); err != nil {
 		return err
 	}
 	return sse.PatchSignals(struct {
 		Count int `json:"count"`
-	}{Count: signals.Count + 1})
+	}{Count: signals.Values.Count + 1})
 }
 
 // POSTPatchAt is /form/patch-at
@@ -160,16 +160,16 @@ func (p PageForm) POSTPatch(
 func (p PageForm) POSTPatchAt(
 	_ *http.Request,
 	sse datapages.SSE,
-	signals struct {
+	signals datapages.Signals[struct {
 		Selector string `json:"selector"`
 		Mode     string `json:"mode"`
-	},
+	}],
 ) error {
-	p.App.record("patchAt selector=%q mode=%q", signals.Selector, signals.Mode)
+	p.App.record("patchAt selector=%q mode=%q", signals.Values.Selector, signals.Values.Mode)
 	return sse.PatchElementAt(
 		templ.Raw(`<div id="out">patched</div>`),
-		signals.Selector,
-		datapages.PatchMode(signals.Mode),
+		signals.Values.Selector,
+		datapages.PatchMode(signals.Values.Mode),
 	)
 }
 

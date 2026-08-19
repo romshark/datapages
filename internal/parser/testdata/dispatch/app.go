@@ -59,9 +59,9 @@ func (PageIndex) POSTMulti(
 // Action with signals before dispatch.
 func (PageIndex) POSTWithSignals(
 	r *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Name string `json:"name"`
-	},
+	}],
 	dispatch datapages.Dispatcher[EventFoo],
 ) error {
 	_ = signals

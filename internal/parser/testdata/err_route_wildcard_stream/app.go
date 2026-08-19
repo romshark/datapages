@@ -21,9 +21,9 @@ type PageFiles struct{ App *App }
 
 func (PageFiles) GET(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		Rest string `path:"rest"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	return nil, nil
 }

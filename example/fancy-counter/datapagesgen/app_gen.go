@@ -629,9 +629,9 @@ func (s *Server) handlePageIndexPOSTAdd(
 ) {
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Delta int32 `query:"delta"`
-	}
+	}]
 	{
 		if q := q.Get("delta"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 32)
@@ -639,7 +639,7 @@ func (s *Server) handlePageIndexPOSTAdd(
 				s.httpErrBad(w, "unexpected value for query parameter: delta", err)
 				return
 			}
-			query.Delta = int32(i)
+			query.Values.Delta = int32(i)
 		}
 	}
 
@@ -661,17 +661,17 @@ func (s *Server) handlePageIndexPOSTSet(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		SetValue int32 `json:"setvalue"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		Value int32 `path:"value"`
-	}
+	}]
 	{
 		v := r.PathValue("value")
 		i, err := strconv.ParseInt(v, 10, 32)
@@ -679,7 +679,7 @@ func (s *Server) handlePageIndexPOSTSet(
 			s.httpErrBad(w, "unexpected value for path parameter: value", err)
 			return
 		}
-		path.Value = int32(i)
+		path.Values.Value = int32(i)
 	}
 
 	dispatchCounterUpdated := dispatcherEventCounterUpdated{s: s, ctx: r.Context()}

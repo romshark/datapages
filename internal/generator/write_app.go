@@ -2100,7 +2100,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 		w.Raw("\tvar signals ")
 		w.Raw(renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, "if err := datastar.ReadSignals(r, &signals); err != nil {")
+		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -2392,21 +2392,28 @@ func (w *Writer) writeDispatcherType(evName, appPkg string) {
 	w.Line(0, "}")
 }
 
+// Handler inputs are carried by datapages.Path, datapages.Query and
+// datapages.Signals, so generated code populates the Values field of each.
+const (
+	varPath    = "path.Values"
+	varQuery   = "query.Values"
+	varSignals = "signals.Values"
+)
+
 func renderSignalsType(input *model.Input, m *model.App) string {
-	if isNamedType(input.Type) {
-		return renderType(input.Type)
-	}
-	return renderAnonStructType(input.Type, m.Fset)
+	return "datapages.Signals[" + renderValuesType(input, m) + "]"
 }
 
 func renderQueryType(input *model.Input, m *model.App) string {
-	if isNamedType(input.Type) {
-		return renderType(input.Type)
-	}
-	return renderAnonStructType(input.Type, m.Fset)
+	return "datapages.Query[" + renderValuesType(input, m) + "]"
 }
 
 func renderPathType(input *model.Input, m *model.App) string {
+	return "datapages.Path[" + renderValuesType(input, m) + "]"
+}
+
+// renderValuesType renders the Values type argument of a wrapped input.
+func renderValuesType(input *model.Input, m *model.App) string {
 	if isNamedType(input.Type) {
 		return renderType(input.Type)
 	}

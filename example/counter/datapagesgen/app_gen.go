@@ -626,9 +626,9 @@ func (s *Server) handlePageIndexPOSTAdd(
 ) {
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Delta int32 `query:"delta"`
-	}
+	}]
 	{
 		if q := q.Get("delta"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 32)
@@ -636,7 +636,7 @@ func (s *Server) handlePageIndexPOSTAdd(
 				s.httpErrBad(w, "unexpected value for query parameter: delta", err)
 				return
 			}
-			query.Delta = int32(i)
+			query.Values.Delta = int32(i)
 		}
 	}
 

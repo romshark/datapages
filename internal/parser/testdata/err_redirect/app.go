@@ -34,7 +34,7 @@ func (PageIndex) POSTBadRedirect(
 
 // POSTStringRedirect is /string-redirect
 //
-// Action with the legacy string redirect.
+// Action returning a string instead of datapages.Redirect.
 func (PageIndex) POSTStringRedirect(
 	r *http.Request,
 ) (redirect string, err error) {

@@ -684,21 +684,21 @@ func (s *Server) handlePageIndexPOSTInput(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		InstanceID string `json:"instance_id"`
 		Input      string `json:"input"`
 		Fresh      bool   `json:"fresh"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Btn int    `query:"btn"`
 		Num string `query:"num"`
-	}
+	}]
 	{
 		if q := q.Get("btn"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
@@ -706,10 +706,10 @@ func (s *Server) handlePageIndexPOSTInput(
 				s.httpErrBad(w, "unexpected value for query parameter: btn", err)
 				return
 			}
-			query.Btn = int(i)
+			query.Values.Btn = int(i)
 		}
 	}
-	query.Num = q.Get("num")
+	query.Values.Num = q.Get("num")
 
 	dispatchCalcUpdated := dispatcherEventCalcUpdated{s: s, ctx: r.Context()}
 	p := app.PageIndex{

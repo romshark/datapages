@@ -24,14 +24,14 @@ type PageIndex struct{ App *App }
 func (PageIndex) GET(
 	_ *http.Request,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		Term string `json:"term"`
 		Page int    `json:"page"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	return templ.Raw(fmt.Sprintf(
 		`<pre id="echo">term=%s page=%d user=%s</pre>`,
-		templ.EscapeString(signals.Term), signals.Page,
+		templ.EscapeString(signals.Values.Term), signals.Values.Page,
 		templ.EscapeString(session.UserID()),
 	)), nil
 }

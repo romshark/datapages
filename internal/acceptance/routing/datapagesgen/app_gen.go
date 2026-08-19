@@ -430,11 +430,11 @@ func (s *Server) httpErrIntern(
 
 func (s *Server) handlePageConflictGET(w http.ResponseWriter, r *http.Request) {
 
-	var path struct {
+	var path datapages.Path[struct {
 		Value   int32  `path:"value"`
 		SValue  int32  `path:"s_value"`
 		SSValue string `path:"s_s_value"`
-	}
+	}]
 	{
 		v := r.PathValue("value")
 		i, err := strconv.ParseInt(v, 10, 32)
@@ -442,7 +442,7 @@ func (s *Server) handlePageConflictGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: value", err)
 			return
 		}
-		path.Value = int32(i)
+		path.Values.Value = int32(i)
 	}
 	{
 		v := r.PathValue("s_value")
@@ -451,9 +451,9 @@ func (s *Server) handlePageConflictGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: s_value", err)
 			return
 		}
-		path.SValue = int32(i)
+		path.Values.SValue = int32(i)
 	}
-	path.SSValue = r.PathValue("s_s_value")
+	path.Values.SSValue = r.PathValue("s_s_value")
 
 	p := app.PageConflict{
 		App: s.app,
@@ -478,10 +478,10 @@ func (s *Server) handlePageConflictGET(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePageFilesGET(w http.ResponseWriter, r *http.Request) {
 
-	var path struct {
+	var path datapages.Path[struct {
 		Rest string `path:"rest"`
-	}
-	path.Rest = r.PathValue("rest")
+	}]
+	path.Values.Rest = r.PathValue("rest")
 
 	p := app.PageFiles{
 		App: s.app,
@@ -533,7 +533,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 
-	var path struct {
+	var path datapages.Path[struct {
 		I8  int8   `path:"i8"`
 		I16 int16  `path:"i16"`
 		I32 int32  `path:"i32"`
@@ -541,7 +541,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 		U8  uint8  `path:"u8"`
 		U16 uint16 `path:"u16"`
 		U32 uint32 `path:"u32"`
-	}
+	}]
 	{
 		v := r.PathValue("i8")
 		i, err := strconv.ParseInt(v, 10, 8)
@@ -549,7 +549,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: i8", err)
 			return
 		}
-		path.I8 = int8(i)
+		path.Values.I8 = int8(i)
 	}
 	{
 		v := r.PathValue("i16")
@@ -558,7 +558,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: i16", err)
 			return
 		}
-		path.I16 = int16(i)
+		path.Values.I16 = int16(i)
 	}
 	{
 		v := r.PathValue("i32")
@@ -567,7 +567,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: i32", err)
 			return
 		}
-		path.I32 = int32(i)
+		path.Values.I32 = int32(i)
 	}
 	{
 		v := r.PathValue("i64")
@@ -576,7 +576,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: i64", err)
 			return
 		}
-		path.I64 = i
+		path.Values.I64 = i
 	}
 	{
 		v := r.PathValue("u8")
@@ -585,7 +585,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: u8", err)
 			return
 		}
-		path.U8 = uint8(u)
+		path.Values.U8 = uint8(u)
 	}
 	{
 		v := r.PathValue("u16")
@@ -594,7 +594,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: u16", err)
 			return
 		}
-		path.U16 = uint16(u)
+		path.Values.U16 = uint16(u)
 	}
 	{
 		v := r.PathValue("u32")
@@ -603,7 +603,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: u32", err)
 			return
 		}
-		path.U32 = uint32(u)
+		path.Values.U32 = uint32(u)
 	}
 
 	p := app.PageInts{
@@ -630,11 +630,11 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePageMixedGET(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Tab  string `query:"tab"`
 		Page int    `query:"page"`
-	}
-	query.Tab = q.Get("tab")
+	}]
+	query.Values.Tab = q.Get("tab")
 	{
 		if q := q.Get("page"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
@@ -642,15 +642,15 @@ func (s *Server) handlePageMixedGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: page", err)
 				return
 			}
-			query.Page = int(i)
+			query.Values.Page = int(i)
 		}
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		Org string `path:"org"`
 		ID  int    `path:"id"`
-	}
-	path.Org = r.PathValue("org")
+	}]
+	path.Values.Org = r.PathValue("org")
 	{
 		v := r.PathValue("id")
 		i, err := strconv.ParseInt(v, 10, 0)
@@ -658,7 +658,7 @@ func (s *Server) handlePageMixedGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: id", err)
 			return
 		}
-		path.ID = int(i)
+		path.Values.ID = int(i)
 	}
 
 	p := app.PageMixed{
@@ -684,14 +684,14 @@ func (s *Server) handlePageMixedGET(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePagePathGET(w http.ResponseWriter, r *http.Request) {
 
-	var path struct {
+	var path datapages.Path[struct {
 		S string  `path:"str"`
 		I int     `path:"i"`
 		U uint64  `path:"u"`
 		F float64 `path:"f"`
 		B bool    `path:"flag"`
-	}
-	path.S = r.PathValue("str")
+	}]
+	path.Values.S = r.PathValue("str")
 	{
 		v := r.PathValue("i")
 		i, err := strconv.ParseInt(v, 10, 0)
@@ -699,7 +699,7 @@ func (s *Server) handlePagePathGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: i", err)
 			return
 		}
-		path.I = int(i)
+		path.Values.I = int(i)
 	}
 	{
 		v := r.PathValue("u")
@@ -708,7 +708,7 @@ func (s *Server) handlePagePathGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: u", err)
 			return
 		}
-		path.U = u
+		path.Values.U = u
 	}
 	{
 		v := r.PathValue("f")
@@ -717,7 +717,7 @@ func (s *Server) handlePagePathGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: f", err)
 			return
 		}
-		path.F = f
+		path.Values.F = f
 	}
 	{
 		v := r.PathValue("flag")
@@ -726,7 +726,7 @@ func (s *Server) handlePagePathGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: flag", err)
 			return
 		}
-		path.B = b
+		path.Values.B = b
 	}
 
 	p := app.PagePath{
@@ -753,7 +753,7 @@ func (s *Server) handlePagePathGET(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Term  string  `query:"term"`
 		Limit int     `query:"limit"`
 		Ratio float32 `query:"ratio"`
@@ -761,8 +761,8 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 		Big   uint32  `query:"big"`
 		Deep  int64   `query:"deep"`
 		Flag  bool    `query:"flag"`
-	}
-	query.Term = q.Get("term")
+	}]
+	query.Values.Term = q.Get("term")
 	{
 		if q := q.Get("limit"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
@@ -770,7 +770,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: limit", err)
 				return
 			}
-			query.Limit = int(i)
+			query.Values.Limit = int(i)
 		}
 	}
 	{
@@ -780,7 +780,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: ratio", err)
 				return
 			}
-			query.Ratio = float32(f)
+			query.Values.Ratio = float32(f)
 		}
 	}
 	{
@@ -790,7 +790,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: score", err)
 				return
 			}
-			query.Score = f
+			query.Values.Score = f
 		}
 	}
 	{
@@ -800,7 +800,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: big", err)
 				return
 			}
-			query.Big = uint32(u)
+			query.Values.Big = uint32(u)
 		}
 	}
 	{
@@ -810,7 +810,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: deep", err)
 				return
 			}
-			query.Deep = i
+			query.Values.Deep = i
 		}
 	}
 	{
@@ -820,7 +820,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: flag", err)
 				return
 			}
-			query.Flag = b
+			query.Values.Flag = b
 		}
 	}
 
@@ -848,11 +848,11 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePageReflectGET(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Term string `query:"t" reflectsignal:"term"`
 		Page int    `query:"p" reflectsignal:"page"`
-	}
-	query.Term = q.Get("t")
+	}]
+	query.Values.Term = q.Get("t")
 	{
 		if q := q.Get("p"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
@@ -860,7 +860,7 @@ func (s *Server) handlePageReflectGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: p", err)
 				return
 			}
-			query.Page = int(i)
+			query.Values.Page = int(i)
 		}
 	}
 
@@ -877,11 +877,11 @@ func (s *Server) handlePageReflectGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 
 		_, _ = io.WriteString(w, `data-signals:term="'`)
-		writeSignalString(w, query.Term)
+		writeSignalString(w, query.Values.Term)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:page="`)
-		writeSignalValue(w, strconv.FormatInt(int64(query.Page), 10))
+		writeSignalValue(w, strconv.FormatInt(int64(query.Values.Page), 10))
 		_, _ = io.WriteString(w, `"`)
 	}
 
@@ -905,10 +905,8 @@ func (s *Server) handlePageReflectGET(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePageTitledGET(w http.ResponseWriter, r *http.Request) {
 
-	var path struct {
-		Name string `path:"name"`
-	}
-	path.Name = r.PathValue("name")
+	var path datapages.Path[app.TitledPath]
+	path.Values.Name = r.PathValue("name")
 
 	p := app.PageTitled{
 		App: s.app,

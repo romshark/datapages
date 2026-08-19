@@ -143,22 +143,22 @@ func (PageLogin) GET(_ *http.Request) (body datapages.Component, err error) {
 // POSTSubmit is /login/submit
 func (p PageLogin) POSTSubmit(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		User     string `json:"user"`
 		Nickname string `json:"nickname"`
-	},
+	}],
 ) (
 	newSession datapages.NewSession[SessionData],
 	redirect datapages.Redirect,
 	err error,
 ) {
-	if signals.User == "" {
+	if signals.Values.User == "" {
 		return newSession, redirect, datapages.ErrBadRequest
 	}
-	p.App.record("login(%s)", signals.User)
+	p.App.record("login(%s)", signals.Values.User)
 	return datapages.NewSession[SessionData]{
-		UserID: signals.User,
-		Data:   SessionData{Nickname: signals.Nickname},
+		UserID: signals.Values.User,
+		Data:   SessionData{Nickname: signals.Values.Nickname},
 	}, datapages.Redirect{URL: "/"}, nil
 }
 
@@ -167,15 +167,15 @@ func (p PageLogin) POSTSubmit(
 // Dispatches a private event to one user.
 func (p PageLogin) POSTNotify(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		User string `json:"user"`
 		Text string `json:"text"`
-	},
+	}],
 	notice datapages.Dispatcher[EventNotice],
 ) error {
 	return notice.Dispatch(EventNotice{
-		Recipient: datapages.SubjectUser(signals.User),
-		Text:      signals.Text,
+		Recipient: datapages.SubjectUser(signals.Values.User),
+		Text:      signals.Values.Text,
 	})
 }
 
@@ -184,12 +184,12 @@ func (p PageLogin) POSTNotify(
 // Dispatches the public event. Anyone watching the page receives it.
 func (p PageLogin) POSTBroadcast(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Text string `json:"text"`
-	},
+	}],
 	broadcast datapages.Dispatcher[EventBroadcast],
 ) error {
-	return broadcast.Dispatch(EventBroadcast{Text: signals.Text})
+	return broadcast.Dispatch(EventBroadcast{Text: signals.Values.Text})
 }
 
 // POSTRename is /login/rename
@@ -198,11 +198,11 @@ func (p PageLogin) POSTBroadcast(
 func (p PageLogin) POSTRename(
 	_ *http.Request,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		Nickname string `json:"nickname"`
-	},
+	}],
 ) error {
-	p.App.record("rename(%s,%s)", session.UserID(), signals.Nickname)
+	p.App.record("rename(%s,%s)", session.UserID(), signals.Values.Nickname)
 	return nil
 }
 

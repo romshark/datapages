@@ -411,7 +411,7 @@ func TestParse_ErrStreamHooks(t *testing.T) {
 		parser.ErrSignatureUnsupportedInput, // StreamClose with query
 		parser.ErrSignatureUnsupportedInput, // action handler with streamID
 		parser.ErrStreamIDParamNotUint64,    // StreamOpen with streamID int
-		parser.ErrDispatchParamLegacy,       // StreamOpen with an untyped dispatcher
+		parser.ErrSignatureUnsupportedInput, // StreamOpen with an untyped dispatcher
 		parser.ErrDispatchDuplicate,         // StreamClose with two of one type
 	)
 }
@@ -805,7 +805,19 @@ func TestParse_Path(t *testing.T) {
 		action := p.Actions[0]
 		require.Equal("POST", action.HTTPMethod)
 		require.NotNil(action.InputPath)
-		require.Equal("path", action.InputPath.Name)
+		// The parameter is matched by its type, not by its name.
+		require.Equal("vars", action.InputPath.Name)
+	}
+
+	// PageNamed - the path values are a named struct type
+	{
+		p := findPage(app, "PageNamed")
+		require.NotNil(p)
+		require.NotNil(p.GET.InputPath)
+		require.Equal(
+			"datapagestest/fixture/path.NamedPath",
+			p.GET.InputPath.Type.Resolved.String(),
+		)
 	}
 }
 
@@ -851,7 +863,8 @@ func TestParse_Query(t *testing.T) {
 		action := p.Actions[0]
 		require.Equal("POST", action.HTTPMethod)
 		require.NotNil(action.InputQuery)
-		require.Equal("query", action.InputQuery.Name)
+		// The parameter is matched by its type, not by its name.
+		require.Equal("params", action.InputQuery.Name)
 	}
 }
 
@@ -890,7 +903,8 @@ func TestParse_Signals(t *testing.T) {
 		require.Len(p.Actions, 1)
 		action := p.Actions[0]
 		require.NotNil(action.InputSignals)
-		require.Equal("signals", action.InputSignals.Name)
+		// The parameter is matched by its type, not by its name.
+		require.Equal("form", action.InputSignals.Name)
 	}
 
 	// PageSearch - GET with query + signals + reflectsignal
@@ -959,8 +973,8 @@ func TestParse_ErrDispatch(t *testing.T) {
 
 	requireParseErrors(
 		t, err,
-		parser.ErrDispatchParamLegacy, // PageLegacyFunc: plain func type
-		parser.ErrDispatchParamLegacy, // PageLegacyName: named "dispatch"
+		parser.ErrSignatureUnsupportedInput, // PageFuncParam: plain func type
+		parser.ErrSignatureUnsupportedInput, // PageDispatchInt: dispatch int
 		parser.ErrDispatchParamNotEvent,
 		parser.ErrDispatchDuplicate,
 	)
@@ -1412,8 +1426,8 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrAppRecoverErrorInvalidSignature, "app.go", 20, 13},
 		},
 		"err_dispatch": {
-			{parser.ErrDispatchParamLegacy, "app.go", 34, 11},
-			{parser.ErrDispatchParamLegacy, "app.go", 47, 11},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 34, 2},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 47, 2},
 			{parser.ErrDispatchParamNotEvent, "app.go", 60, 17},
 			{parser.ErrDispatchDuplicate, "app.go", 74, 19},
 		},
@@ -1446,27 +1460,27 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrEventFieldUnexported, "subpkg.go", 7, 2},
 		},
 		"err_path": {
-			{parser.ErrPathParamNotStruct, "app.go", 25, 48},
-			{parser.ErrPathFieldUnexported, "app.go", 38, 3},
-			{parser.ErrPathFieldUnsupportedType, "app.go", 53, 3},
-			{parser.ErrPathFieldMissingTag, "app.go", 68, 3},
-			{parser.ErrPathFieldNotInRoute, "app.go", 83, 3},
-			{parser.ErrPathMissingRouteVar, "app.go", 95, 23},
-			{parser.ErrPathFieldDuplicateTag, "app.go", 108, 3},
+			{parser.ErrPathParamNotStruct, "app.go", 26, 24},
+			{parser.ErrPathFieldUnexported, "app.go", 40, 3},
+			{parser.ErrPathFieldUnsupportedType, "app.go", 55, 3},
+			{parser.ErrPathFieldMissingTag, "app.go", 70, 3},
+			{parser.ErrPathFieldNotInRoute, "app.go", 85, 3},
+			{parser.ErrPathMissingRouteVar, "app.go", 97, 23},
+			{parser.ErrPathFieldDuplicateTag, "app.go", 110, 3},
 		},
 		"err_query": {
-			{parser.ErrQueryParamNotStruct, "app.go", 25, 49},
-			{parser.ErrQueryFieldUnexported, "app.go", 38, 3},
-			{parser.ErrQueryFieldUnsupportedType, "app.go", 53, 3},
-			{parser.ErrQueryFieldMissingTag, "app.go", 68, 3},
-			{parser.ErrQueryFieldDuplicateTag, "app.go", 84, 3},
+			{parser.ErrQueryParamNotStruct, "app.go", 26, 25},
+			{parser.ErrQueryFieldUnexported, "app.go", 40, 3},
+			{parser.ErrQueryFieldUnsupportedType, "app.go", 55, 3},
+			{parser.ErrQueryFieldMissingTag, "app.go", 70, 3},
+			{parser.ErrQueryFieldDuplicateTag, "app.go", 86, 3},
 		},
 		"err_signals": {
-			{parser.ErrSignalsParamNotStruct, "app.go", 25, 51},
-			{parser.ErrSignalsFieldUnexported, "app.go", 38, 3},
-			{parser.ErrSignalsFieldMissingTag, "app.go", 53, 3},
-			{parser.ErrSignalsFieldDuplicateTag, "app.go", 69, 3},
-			{parser.ErrQueryReflectSignalNotInSignals, "app.go", 83, 2},
+			{parser.ErrSignalsParamNotStruct, "app.go", 26, 27},
+			{parser.ErrSignalsFieldUnexported, "app.go", 40, 3},
+			{parser.ErrSignalsFieldMissingTag, "app.go", 55, 3},
+			{parser.ErrSignalsFieldDuplicateTag, "app.go", 71, 3},
+			{parser.ErrQueryReflectSignalNotInSignals, "app.go", 85, 2},
 		},
 		"err_unsupported_output": {
 			{parser.ErrSignatureUnsupportedOutput, "app.go", 27, 35},

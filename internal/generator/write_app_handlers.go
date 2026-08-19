@@ -273,7 +273,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		w.Raw(renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, `if r.URL.Query().Has("datastar") {`)
-		w.Line(2, "if err := datastar.ReadSignals(r, &signals); err != nil {")
+		w.Line(2, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(3, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(3, "return")
 		w.Line(2, "}")
@@ -513,7 +513,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"'`)\n")
-			w.Raw("\t\twriteSignalString(w, query.")
+			w.Raw("\t\twriteSignalString(w, " + varQuery + ".")
 			w.Raw(f.FieldName)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
@@ -523,7 +523,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			w.Raw(f.SignalName)
 			w.Raw("=\"`)\n")
 			w.Raw("\t\twriteSignalValue(w, ")
-			w.writeFieldToString("query", fi)
+			w.writeFieldToString(varQuery, fi)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `\"`)")
 		}
@@ -680,8 +680,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 		}
 		w.Line(3, "const query = params.toString();")
 		if h.InputPath != nil {
-			// Route has path parameters that must be interpolated
-			// with HTML escaping.
+			// Route has path parameters that must be interpolated with HTML escaping.
 			fields := w.structFields(h.InputPath.Type.Resolved)
 			tagToField := make(map[string]structFieldInfo, len(fields))
 			for _, f := range fields {
@@ -704,7 +703,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Raw("`)\n")
 					f := tagToField[r[i+1:i+j]]
 					w.Raw("\t\ttemplate.HTMLEscape(w, []byte(")
-					w.writeFieldToString("path", f)
+					w.writeFieldToString(varPath, f)
 					w.Raw("))\n")
 					w.Raw("\t\t_, _ = io.WriteString(w, `")
 					r = r[i+j+1:]
@@ -748,7 +747,7 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 		if i < len(vars) {
 			f := tagToField[vars[i]]
 			w.Raw("\t\twriteStreamPathValue(w, ")
-			w.writeFieldToString("path", f)
+			w.writeFieldToString(varPath, f)
 			w.Raw(")\n")
 		}
 	}
@@ -887,17 +886,19 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Raw("\tvar signals ")
 		w.Raw(renderSignalsType(p.StreamOpen.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, "if err := datastar.ReadSignals(r, &signals); err != nil {")
+		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
 
 	if p.StreamOpen != nil {
-		w.writeDispatchers(p.StreamOpen, "dispatchOpen", "context.WithoutCancel(r.Context())")
+		w.writeDispatchers(p.StreamOpen, "dispatchOpen",
+			"context.WithoutCancel(r.Context())")
 	}
 	if p.StreamClose != nil {
-		w.writeDispatchers(p.StreamClose, "dispatchClosed", "context.WithoutCancel(r.Context())")
+		w.writeDispatchers(p.StreamClose, "dispatchClosed",
+			"context.WithoutCancel(r.Context())")
 	}
 
 	// Page constructor.
@@ -1159,16 +1160,18 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		w.Raw("\tvar signals ")
 		w.Raw(renderSignalsType(p.StreamOpen.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, "if err := datastar.ReadSignals(r, &signals); err != nil {")
+		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
 	if p.StreamOpen != nil {
-		w.writeDispatchers(p.StreamOpen, "dispatchOpen", "context.WithoutCancel(r.Context())")
+		w.writeDispatchers(p.StreamOpen, "dispatchOpen",
+			"context.WithoutCancel(r.Context())")
 	}
 	if p.StreamClose != nil {
-		w.writeDispatchers(p.StreamClose, "dispatchClosed", "context.WithoutCancel(r.Context())")
+		w.writeDispatchers(p.StreamClose, "dispatchClosed",
+			"context.WithoutCancel(r.Context())")
 	}
 
 	// Page constructor.
@@ -1277,7 +1280,7 @@ func (w *Writer) writePageActionHandler(
 		w.Raw("\tvar signals ")
 		w.Raw(renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, "if err := datastar.ReadSignals(r, &signals); err != nil {")
+		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1440,7 +1443,7 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 	for _, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
 		if gotypes.IsString(f.Type) {
-			w.Raw("\tquery.")
+			w.Raw("\t" + varQuery + ".")
 			w.Raw(f.Name)
 			w.Raw(" = ")
 			w.writeStringConv(f.Type, func() {
@@ -1454,7 +1457,7 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 			w.Raw("\t\tif q := q.Get(")
 			w.writeQuoted(tag)
 			w.Raw("); q != \"\" {\n")
-			w.writeParseField("query", f, tag, "query parameter", 3)
+			w.writeParseField(varQuery, "q", f, tag, "query parameter", 3)
 			w.Line(2, "}")
 			w.Line(1, "}")
 		}
@@ -1470,7 +1473,7 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
 	for _, f := range fields {
 		tag := structtag.PathTagValue(f.Tag)
 		if gotypes.IsString(f.Type) {
-			w.Raw("\tpath.")
+			w.Raw("\t" + varPath + ".")
 			w.Raw(f.Name)
 			w.Raw(" = ")
 			w.writeStringConv(f.Type, func() {
@@ -1484,28 +1487,22 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
 			w.Raw("\t\tv := r.PathValue(")
 			w.writeQuoted(tag)
 			w.Raw(")\n")
-			w.writeParseField("path", f, tag, "path parameter", 2)
+			w.writeParseField(varPath, "v", f, tag, "path parameter", 2)
 			w.Line(1, "}")
 		}
 	}
 }
 
-// writeParseField emits code that parses a raw string value into a typed
-// struct field. For writeReadQuery the raw variable is named "q"
-// (from the if-guard); for writeReadPath it is "v" (set before the call).
+// writeParseField emits code that parses a raw string value into a typed struct field.
 //
-// varName is "path" or "query" (the struct being populated).
+// varName is the struct being populated, raw is the variable holding the
+// string to parse: "q" from the if-guard writeReadQuery emits, "v" as
+// writeReadPath sets it before the call.
 // label is "path parameter" or "query parameter" (for error messages).
 // indent is the base indentation level for the generated code.
 func (w *Writer) writeParseField(
-	varName string, f structFieldInfo, tag, label string, indent int,
+	varName, raw string, f structFieldInfo, tag, label string, indent int,
 ) {
-	// Determine the raw-string variable name: "q" for query, "v" for path.
-	raw := "q"
-	if varName == "path" {
-		raw = "v"
-	}
-
 	tabs := func(n int) {
 		for range n {
 			w.Byte('\t')

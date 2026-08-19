@@ -67,9 +67,9 @@ func (PageClosedSignals) GET(
 func (PageClosedSignals) StreamClose(
 	r *http.Request,
 	streamID uint64,
-	signals struct {
+	signals datapages.Signals[struct {
 		Foo string `json:"foo"`
-	},
+	}],
 ) error {
 	return nil
 }
@@ -124,9 +124,9 @@ func (PageOpenPath) GET(
 func (PageOpenPath) StreamOpen(
 	r *http.Request,
 	streamID uint64,
-	path struct {
+	path datapages.Path[struct {
 		ID string `path:"id"`
-	},
+	}],
 ) error {
 	return nil
 }
@@ -145,9 +145,9 @@ func (PageClosedPath) GET(
 func (PageClosedPath) StreamClose(
 	r *http.Request,
 	streamID uint64,
-	path struct {
+	path datapages.Path[struct {
 		ID string `path:"id"`
-	},
+	}],
 ) error {
 	return nil
 }
@@ -166,9 +166,9 @@ func (PageOpenQuery) GET(
 func (PageOpenQuery) StreamOpen(
 	r *http.Request,
 	streamID uint64,
-	query struct {
+	query datapages.Query[struct {
 		Search string `query:"search"`
-	},
+	}],
 ) error {
 	return nil
 }
@@ -187,9 +187,9 @@ func (PageClosedQuery) GET(
 func (PageClosedQuery) StreamClose(
 	r *http.Request,
 	streamID uint64,
-	query struct {
+	query datapages.Query[struct {
 		Search string `query:"search"`
-	},
+	}],
 ) error {
 	return nil
 }
@@ -230,10 +230,10 @@ func (PageWrongStreamIDType) StreamOpen(
 	return nil
 }
 
-// PageHookLegacyDispatch is /hook-legacy-dispatch
-type PageHookLegacyDispatch struct{ App *App }
+// PageHookFuncDispatch is /hook-func-dispatch
+type PageHookFuncDispatch struct{ App *App }
 
-func (PageHookLegacyDispatch) GET(
+func (PageHookFuncDispatch) GET(
 	r *http.Request,
 ) (body datapages.Component, err error) {
 	return nil, nil
@@ -244,9 +244,9 @@ type EventPing struct {
 	Data string `json:"data"`
 }
 
-/* ErrDispatchParamLegacy: stream hook with an untyped dispatcher */
+/* ErrSignatureUnsupportedInput: stream hook with an untyped dispatcher */
 
-func (PageHookLegacyDispatch) StreamOpen(
+func (PageHookFuncDispatch) StreamOpen(
 	r *http.Request,
 	streamID uint64,
 	dispatch func(EventPing) error,
