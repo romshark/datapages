@@ -79,7 +79,7 @@ func pageCounter(value int32) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageIndexSet(math.MinInt32))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/fancy-counter/app/app.templ`, Line: 160, Col: 65}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 160, Col: 65}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 		if templ_7745c5c3_Err != nil {
@@ -94,7 +94,7 @@ func pageCounter(value int32) templ.Component {
 			action.QueryPOSTPageIndexAdd{Delta: -1},
 		))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/fancy-counter/app/app.templ`, Line: 164, Col: 5}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 164, Col: 5}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {
@@ -109,7 +109,7 @@ func pageCounter(value int32) templ.Component {
 			action.QueryPOSTPageIndexAdd{Delta: 1},
 		))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/fancy-counter/app/app.templ`, Line: 169, Col: 5}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 169, Col: 5}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 		if templ_7745c5c3_Err != nil {
@@ -122,7 +122,7 @@ func pageCounter(value int32) templ.Component {
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageIndexSet(math.MaxInt32))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/fancy-counter/app/app.templ`, Line: 171, Col: 65}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 171, Col: 65}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 		if templ_7745c5c3_Err != nil {
@@ -135,7 +135,7 @@ func pageCounter(value int32) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageIndexSet(0))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/fancy-counter/app/app.templ`, Line: 175, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 175, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 		if templ_7745c5c3_Err != nil {
@@ -177,7 +177,7 @@ func counterValue(value int32) templ.Component {
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(fmt.Sprint(value))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/fancy-counter/app/app.templ`, Line: 187, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 187, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 		if templ_7745c5c3_Err != nil {

@@ -72,7 +72,7 @@ func pageCounter(value int32) templ.Component {
 			action.QueryPOSTPageIndexAdd{Delta: -1},
 		))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/counter/app/app.templ`, Line: 38, Col: 3}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 38, Col: 3}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 		if templ_7745c5c3_Err != nil {
@@ -85,7 +85,7 @@ func pageCounter(value int32) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(value))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/counter/app/app.templ`, Line: 40, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 40, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -100,7 +100,7 @@ func pageCounter(value int32) templ.Component {
 			action.QueryPOSTPageIndexAdd{Delta: 1},
 		))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `example/counter/app/app.templ`, Line: 44, Col: 3}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 44, Col: 3}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 		if templ_7745c5c3_Err != nil {
