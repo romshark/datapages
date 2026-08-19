@@ -747,7 +747,7 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 		w.Raw("`)\n")
 		if i < len(vars) {
 			f := tagToField[vars[i]]
-			w.Raw("\t\t_, _ = io.WriteString(w, ")
+			w.Raw("\t\twriteStreamPathValue(w, ")
 			w.writeFieldToString("path", f)
 			w.Raw(")\n")
 		}

@@ -5,12 +5,15 @@ package datapagesgen
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -295,6 +298,13 @@ func (s sseWrapper) Prefetch(urls ...string) error {
 	return s.gen.Prefetch(urls...)
 }
 
+// writeStreamPathValue writes v into the @get URL of a data-init attribute.
+// Percent encoding removes the quotes that would end the JavaScript string,
+// HTML escaping removes the ampersand that url.PathEscape keeps.
+func writeStreamPathValue(w http.ResponseWriter, v string) {
+	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
+}
+
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -337,6 +347,61 @@ func (s *Server) writeHTML(
 	}
 	_, err = io.WriteString(w, "</body></html>")
 	return err
+}
+
+func (s *Server) handleStreamRequest(
+	w http.ResponseWriter, r *http.Request,
+	subjects []string,
+	onOpen func(
+		streamID uint64,
+		sse *datastar.ServerSentEventGenerator,
+	) error,
+	onClose func(streamID uint64),
+	fn func(
+		streamID uint64,
+		sse *datastar.ServerSentEventGenerator,
+		ch <-chan msgbroker.Message,
+	),
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	streamID := s.streamSeq.Add(1)
+
+	// The subscription is established before the response head goes out.
+	// A client learns the stream is open by reading that head and may dispatch
+	// immediately after, which must not reach the broker before this.
+	ctx := r.Context()
+	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
+	if err != nil {
+		// Nothing has been written yet, so the error can still carry a status.
+		s.httpErrIntern(w, r, nil, "subscribing to message broker", err)
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+
+	subC := sub.C()
+	if onOpen != nil {
+		if err := onOpen(streamID, sse); err != nil {
+			sub.Close()
+			s.httpErrIntern(w, r, sse, "handling stream open hook", err)
+			return
+		}
+	}
+	go func() {
+		select {
+		case <-r.Context().Done():
+		case <-s.shutdownCh:
+		}
+		sub.Close()
+		if onClose != nil {
+			onClose(streamID)
+		}
+	}()
+
+	fn(streamID, sse, subC)
 }
 
 type Server struct {
@@ -434,12 +499,21 @@ func NewServer(
 
 const (
 
-// Public events:
+	// Public events:
 
+	EvSubjRenamed = "renamed"
 )
 
 func MessageBrokerStreamSubjects() []string {
-	return []string{}
+	return []string{
+		EvSubjRenamed,
+	}
+}
+
+func evSubjPageItem() []string {
+	return []string{
+		EvSubjRenamed,
+	}
 }
 
 func setupHandlers(s *Server) {
@@ -450,6 +524,9 @@ func setupHandlers(s *Server) {
 	s.mux.HandleFunc(
 		"GET /item/{name}/{$}",
 		s.handlePageItemGET)
+	s.mux.HandleFunc(
+		"GET /item/{name}/_$/{$}",
+		s.handlePageItemGETStream)
 	s.mux.HandleFunc(
 		"GET /search/{$}",
 		s.handlePageSearchGET)
@@ -524,12 +601,52 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 	}
 
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, `/item/`)
+		writeStreamPathValue(w, path.Name)
+		_, _ = io.WriteString(w, `/`)
+		_, _ = io.WriteString(w, `/_$/')"`)
+	}
+
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.logErr("rendering PageItem", err)
 		return
 	}
+}
+
+func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	p := app.PageItem{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPageItem(),
+		nil,
+		nil,
+		func(
+			streamID uint64,
+			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+		) {
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjRenamed:
+					var e app.EventRenamed
+					if err := json.Unmarshal(msg.Data, &e); err != nil {
+						s.logErr("unmarshaling EventRenamed JSON", err)
+						continue
+					}
+					if err := p.OnRenamed(e, newSSE(sse)); err != nil {
+						s.logErr("handling PageItem.OnRenamed", err)
+					}
+				}
+			}
+		})
 }
 
 func (s *Server) handlePageItemPOSTRename(

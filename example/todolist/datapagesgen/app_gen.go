@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -369,6 +370,13 @@ func writeSignalString(w http.ResponseWriter, s string) {
 // writeSignalValue writes a number or boolean inside a data-signals attribute.
 func writeSignalValue(w http.ResponseWriter, s string) {
 	_, _ = io.WriteString(w, html.EscapeString(s))
+}
+
+// writeStreamPathValue writes v into the @get URL of a data-init attribute.
+// Percent encoding removes the quotes that would end the JavaScript string,
+// HTML escaping removes the ampersand that url.PathEscape keeps.
+func writeStreamPathValue(w http.ResponseWriter, v string) {
+	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
 }
 
 func (s *Server) writeHTML(
@@ -975,7 +983,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/item/`)
-		_, _ = io.WriteString(w, path.ID)
+		writeStreamPathValue(w, path.ID)
 		_, _ = io.WriteString(w, `/`)
 		_, _ = io.WriteString(w, `/_$/')"`)
 	}

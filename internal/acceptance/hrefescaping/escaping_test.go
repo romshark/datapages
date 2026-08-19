@@ -102,6 +102,34 @@ func TestActionURLEscaping(t *testing.T) {
 		"the values did not survive the action URL")
 }
 
+// TestStreamInitCarriesNoQuote covers the same character in the data-init
+// attribute a stream page renders, which carries the path value it was reached by.
+func TestStreamInitCarriesNoQuote(t *testing.T) {
+	c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+
+	for name, value := range map[string]string{
+		"quote":     `a'b`,
+		"attribute": `a" onload="alert(1)`,
+		"tag":       `a"></template><img src=x onerror=alert(1)>`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := c.Get(t, href.PageItem(value))
+			require.Equal(t, http.StatusOK, resp.Status)
+
+			const attr = `data-init="`
+			i := strings.Index(resp.Body, attr)
+			require.GreaterOrEqual(t, i, 0, "no data-init attribute:\n%s", resp.Body)
+			expr := resp.Body[i+len(attr):]
+			expr = expr[:strings.Index(expr, `"`)]
+
+			require.Equal(t, 2, strings.Count(expr, "'"),
+				"the expression carries a quote of its own: %s", expr)
+			require.NotContains(t, expr, "<",
+				"the expression carries a tag of its own: %s", expr)
+		})
+	}
+}
+
 // TestActionURLCarriesNoQuote covers the character that ends the expression.
 //
 // A template holds the expression as an HTML attribute. The browser decodes the

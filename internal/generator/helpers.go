@@ -312,6 +312,9 @@ type appUsage struct {
 	// reflectSignals: func writeSignalValue(...), needed by any page that
 	// reflects a query value into a data-signals attribute.
 	reflectSignals bool
+	// streamPathVars: func writeStreamPathValue(...), needed by any page that
+	// writes a path value into the stream URL of its data-init attribute.
+	streamPathVars bool
 	// signalSubjects: func isSubjectToken(...), needed by any page that builds
 	// a subscription subject from a client-provided signal.
 	signalSubjects bool
@@ -473,6 +476,9 @@ func computeAppUsage(m *model.App) appUsage {
 			u.stream = true
 			// Event handlers and stream hooks receive a datapages.SSE.
 			u.datapagesSSE = true
+			if p.GET != nil && p.GET.Handler != nil && p.GET.InputPath != nil {
+				u.streamPathVars = true
+			}
 			if pageStreamNeedsAuth(p, eventByName) {
 				u.streamAuth = true
 				u.auth = true

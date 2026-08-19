@@ -54,6 +54,15 @@ func (PageItem) POSTRename(
 	return sse.PatchElement(echo("renamed %q to %q", path.Name, query.To))
 }
 
+// EventRenamed is "renamed"
+type EventRenamed struct{}
+
+// OnRenamed turns PageItem into a stream page, which makes it render the
+// data-init attribute that carries the path value.
+func (PageItem) OnRenamed(event EventRenamed, sse datapages.SSE) error {
+	return sse.PatchElement(echo("renamed"))
+}
+
 // PageSearch is /search
 type PageSearch struct{ App *App }
 

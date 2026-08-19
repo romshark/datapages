@@ -66,6 +66,9 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	if w.usage.reflectSignals {
 		w.writeSignalValueHelper()
 	}
+	if w.usage.streamPathVars {
+		w.writeStreamPathValueHelper()
+	}
 	if w.usage.needsIsSubjectToken() {
 		w.writeIsSubjectToken()
 	}
@@ -1832,6 +1835,19 @@ func (w *Writer) writeCSRFOnlyCheck() {
 	w.Line(1, "if _, _, ok := s.auth(w, r); !ok {")
 	w.Line(2, "return")
 	w.Line(1, "}")
+}
+
+// writeStreamPathValueHelper emits the escaper for path values written into
+// the stream URL of a data-init attribute.
+func (w *Writer) writeStreamPathValueHelper() {
+	w.Raw(`
+// writeStreamPathValue writes v into the @get URL of a data-init attribute.
+// Percent encoding removes the quotes that would end the JavaScript string,
+// HTML escaping removes the ampersand that url.PathEscape keeps.
+func writeStreamPathValue(w http.ResponseWriter, v string) {
+	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
+}
+`)
 }
 
 // writeSignalValueHelper emits the escaper for values reflected into
