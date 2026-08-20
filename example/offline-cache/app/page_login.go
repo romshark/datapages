@@ -16,13 +16,13 @@ func (PageLogin) GET(
 	r *http.Request,
 	session Session,
 	pageCache datapages.PageCacheWriter,
-	query struct {
+	query datapages.Query[struct {
 		Next string `query:"next"`
-	},
+	}],
 ) (
 	body datapages.Component,
 	redirect datapages.Redirect,
-	disableRefreshAfterHidden bool,
+	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
 	err error,
 ) {
 	if !session.IsGuest() {
@@ -41,7 +41,7 @@ func (PageLogin) GET(
 			ver,
 		)
 	}
-	return pageLogin(false, query.Next), datapages.Redirect{}, true, nil
+	return pageLogin(false, query.Values.Next), datapages.Redirect{}, true, nil
 }
 
 // POSTSubmit is /login/submit
@@ -49,11 +49,11 @@ func (p PageLogin) POSTSubmit(
 	r *http.Request,
 	session Session,
 	pageCache datapages.PageCacheWriter,
-	signals struct {
+	signals datapages.Signals[struct {
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`
 		Next            string `json:"next"`
-	},
+	}],
 ) (
 	body datapages.Component,
 	redirect datapages.Redirect,
@@ -69,12 +69,12 @@ func (p PageLogin) POSTSubmit(
 		return
 	}
 
-	uid, err := p.App.repo.Login(signals.EmailOrUsername, signals.Password)
+	uid, err := p.App.repo.Login(signals.Values.EmailOrUsername, signals.Values.Password)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidCredentials) ||
 			errors.Is(err, domain.ErrUserNotFound) {
 			// Re-render the page with feedback.
-			err, body = nil, pageLogin(true, signals.Next)
+			err, body = nil, pageLogin(true, signals.Values.Next)
 		}
 		return
 	}
@@ -84,7 +84,7 @@ func (p PageLogin) POSTSubmit(
 	// stale, wrong-session page is served offline. Pages re-cache with the correct
 	// navbar as they are visited; the redirect below re-bakes the landing page.
 	pageCache.ClearAll()
-	dest := signals.Next
+	dest := signals.Values.Next
 	if !isSafeRelativePath(dest) {
 		dest = href.PageIndex(href.QueryPageIndex{})
 	}

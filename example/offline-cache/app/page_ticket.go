@@ -24,17 +24,17 @@ func (p PageTicket) GET(
 	r *http.Request,
 	session Session,
 	pageCache datapages.PageCacheWriter,
-	path struct {
+	path datapages.Path[struct {
 		Slug string `path:"nameslug"`
-	},
+	}],
 ) (body datapages.Component, redirect datapages.Redirect, err error) {
 	if session.IsGuest() {
 		return nil, datapages.Redirect{URL: href.PageLogin(href.QueryPageLogin{
-			Next: href.PageTicket(path.Slug),
+			Next: href.PageTicket(path.Values.Slug),
 		})}, nil
 	}
 
-	ticket, ok, err := p.App.repo.TicketForShow(r.Context(), session.UserID(), path.Slug)
+	ticket, ok, err := p.App.repo.TicketForShow(r.Context(), session.UserID(), path.Values.Slug)
 	if err != nil {
 		if errors.Is(err, domain.ErrShowNotFound) {
 			return nil, datapages.Redirect{}, datapages.ErrNotFound
@@ -43,7 +43,7 @@ func (p PageTicket) GET(
 	}
 	if !ok {
 		// No ticket yet — send the user to the purchase page.
-		return nil, datapages.Redirect{URL: href.PagePurchase(path.Slug)}, nil
+		return nil, datapages.Redirect{URL: href.PagePurchase(path.Values.Slug)}, nil
 	}
 
 	qr, err := qrDataURI(ticket.Code)
@@ -61,7 +61,7 @@ func (p PageTicket) GET(
 	// it is only re-cached when the client's copy is out of date.
 	ver := offlineCacheVersion(session, strconv.FormatInt(ticket.PurchasedAt.Unix(), 10))
 	if pageCache.Version() != ver {
-		pageCache.Set(href.PageTicket(path.Slug), view, ver)
+		pageCache.Set(href.PageTicket(path.Values.Slug), view, ver)
 	}
 	return view, datapages.Redirect{}, nil
 }

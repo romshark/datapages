@@ -22,13 +22,14 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, fmt.Errorf("unknown page variant")
 }
 
-func (*App) Head(r *http.Request) datapages.Component {
+func (*App) Head(r *http.Request) datapages.Head {
 	return nil
 }
 
+// The parameters are matched by type, so their order and names are free.
 func (*App) RecoverError(
-	err error,
 	sse datapages.SSE,
+	cause error,
 ) error {
 	return nil
 }
@@ -50,6 +51,9 @@ func (PageError500) GET(r *http.Request) (body datapages.Component, err error) {
 // PageExample is /example
 type PageExample struct{ App *App }
 
-func (PageExample) GET(r *http.Request) (body, head datapages.Component, err error) {
-	return body, head, err
+func (PageExample) GET(r *http.Request) (
+	view datapages.Component,
+	meta datapages.Head, err error,
+) {
+	return view, meta, err
 }

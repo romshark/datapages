@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -603,32 +604,45 @@ type sseWrapper struct {
 
 func (s sseWrapper) Context() context.Context { return s.gen.Context() }
 
-func (s sseWrapper) PatchElement(
-	c datapages.Component, opts ...datapages.PatchOption,
+func (s sseWrapper) PatchElement(c datapages.Component) error {
+	return s.gen.PatchElementTempl(c)
+}
+
+func (s sseWrapper) PatchElementAt(
+	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
 ) error {
-	var cfg datapages.PatchConfig
-	for _, o := range opts {
-		o(&cfg)
-	}
-	var ds []datastar.PatchElementOption
-	if cfg.Selector != "" {
-		ds = append(ds, datastar.WithSelector(cfg.Selector))
-	}
-	if cfg.SelectorID != "" {
-		ds = append(ds, datastar.WithSelectorID(cfg.SelectorID))
-	}
-	switch cfg.Mode {
+	switch mode {
 	case datapages.PatchModeOuter, datapages.PatchModeInner,
 		datapages.PatchModeReplace, datapages.PatchModePrepend,
 		datapages.PatchModeAppend, datapages.PatchModeBefore,
 		datapages.PatchModeAfter:
-		ds = append(ds, datastar.WithMode(datastar.ElementPatchMode(cfg.Mode)))
+	default:
+		mode = "" // Not a PatchMode constant, patch in the default mode.
 	}
-	return s.gen.PatchElementTempl(c, ds...)
+	switch {
+	case selectorCSS == "" && mode == "":
+		return s.gen.PatchElementTempl(c)
+	case mode == "":
+		return s.gen.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
+	case selectorCSS == "":
+		return s.gen.PatchElementTempl(
+			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
+		)
+	}
+	return s.gen.PatchElementTempl(c,
+		datastar.WithSelector(selectorCSS),
+		datastar.WithMode(datastar.ElementPatchMode(mode)))
 }
 
-func (s sseWrapper) RemoveElement(selector string) error {
-	return s.gen.RemoveElement(selector)
+// removeElementModeDataline is the mode line of a removal event.
+const removeElementModeDataline = datastar.ModeDatalineLiteral +
+	string(datastar.ElementPatchModeRemove)
+
+func (s sseWrapper) RemoveElement(selectorCSS string) error {
+	return s.gen.Send(datastar.EventTypePatchElements, []string{
+		datastar.SelectorDatalineLiteral + selectorCSS,
+		removeElementModeDataline,
+	})
 }
 
 func (s sseWrapper) ExecuteScript(script string) error {
@@ -668,6 +682,13 @@ func writeSignalString(w http.ResponseWriter, s string) {
 // writeSignalValue writes a number or boolean inside a data-signals attribute.
 func writeSignalValue(w http.ResponseWriter, s string) {
 	_, _ = io.WriteString(w, html.EscapeString(s))
+}
+
+// writeStreamPathValue writes v into the @get URL of a data-init attribute.
+// Percent encoding removes the quotes that would end the JavaScript string,
+// HTML escaping removes the ampersand that url.PathEscape keeps.
+func writeStreamPathValue(w http.ResponseWriter, v string) {
+	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
 }
 
 func isSubjectToken(v string) bool {
@@ -724,7 +745,8 @@ func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
 	sess datapages.Session[struct{}],
-	headGeneric, head, body datapages.Component,
+	headGeneric, head datapages.Head,
+	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -808,12 +830,12 @@ func (s *Server) handleStreamRequest(
 	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[struct{}],
 	subjects []string,
 	onOpen func(
-		streamID uint64,
+		streamID datapages.StreamID,
 		sse *datastar.ServerSentEventGenerator,
 	) error,
-	onClose func(streamID uint64),
+	onClose func(streamID datapages.StreamID),
 	fn func(
-		streamID uint64,
+		streamID datapages.StreamID,
 		sse *datastar.ServerSentEventGenerator,
 		ch <-chan msgbroker.Message,
 	),
@@ -822,7 +844,7 @@ func (s *Server) handleStreamRequest(
 		return
 	}
 
-	streamID := s.streamSeq.Add(1)
+	streamID := datapages.StreamID(s.streamSeq.Add(1))
 
 	// The subscription is established before the response head goes out.
 	// A client learns the stream is open by reading that head and may dispatch
@@ -1603,7 +1625,7 @@ func (s *Server) handlePageError404GETStream(w http.ResponseWriter, r *http.Requ
 		nil,
 		nil,
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -1726,7 +1748,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		nil,
 		nil,
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -1798,11 +1820,11 @@ func (s *Server) handlePageLoginPOSTSubmit(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -1839,10 +1861,10 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Chat string `query:"chat" reflectsignal:"chatselected"`
-	}
-	query.Chat = q.Get("chat")
+	}]
+	query.Values.Chat = q.Get("chat")
 
 	p := app.PageMessages{
 		App: s.app,
@@ -1866,7 +1888,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 		}
 
 		_, _ = io.WriteString(w, `data-signals:chatselected="'`)
-		writeSignalString(w, query.Chat)
+		writeSignalString(w, query.Values.Chat)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
@@ -1923,7 +1945,7 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 		nil,
 		nil,
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -1980,44 +2002,21 @@ func (s *Server) handlePageMessagesPOSTRead(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		MessageID string `query:"msgid"`
-	}
-	query.MessageID = q.Get("msgid")
+	}]
+	query.Values.MessageID = q.Get("msgid")
 
-	dispatchMessagingRead := func(
-		e app.EventMessagingRead,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventMessagingRead.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventMessagingRead JSON: %w", err)
-		}
-		subj := "messaging.read." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchMessagingRead := dispatcherEventMessagingRead{s: s, ctx: r.Context()}
 	p := app.PageMessages{
 		App: s.app,
 		Base: app.Base{
@@ -2042,38 +2041,15 @@ func (s *Server) handlePageMessagesPOSTWriting(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
 
-	dispatchMessagingWriting := func(
-		e app.EventMessagingWriting,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventMessagingWriting.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventMessagingWriting JSON: %w", err)
-		}
-		subj := "messaging.writing." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchMessagingWriting := dispatcherEventMessagingWriting{s: s, ctx: r.Context()}
 	p := app.PageMessages{
 		App: s.app,
 		Base: app.Base{
@@ -2098,38 +2074,15 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
 
-	dispatchMessagingWritingStopped := func(
-		e app.EventMessagingWritingStopped,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventMessagingWritingStopped.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
-		}
-		subj := "messaging.writing-stopped." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchMessagingWritingStopped := dispatcherEventMessagingWritingStopped{s: s, ctx: r.Context()}
 	p := app.PageMessages{
 		App: s.app,
 		Base: app.Base{
@@ -2154,64 +2107,18 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
 		MessageText  string `json:"messagetext"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
 
-	dispatchMessagingWritingStopped := func(
-		e app.EventMessagingWritingStopped,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventMessagingWritingStopped.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
-		}
-		subj := "messaging.writing-stopped." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchMessagingWritingStopped := dispatcherEventMessagingWritingStopped{s: s, ctx: r.Context()}
 
-	dispatchMessagingSent := func(
-		e app.EventMessagingSent,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventMessagingSent.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
-		}
-		subj := "messaging.sent." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchMessagingSent := dispatcherEventMessagingSent{s: s, ctx: r.Context()}
 	p := app.PageMessages{
 		App: s.app,
 		Base: app.Base{
@@ -2293,7 +2200,7 @@ func (s *Server) handlePageMyPostsGETStream(w http.ResponseWriter, r *http.Reque
 		nil,
 		nil,
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -2327,10 +2234,10 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		Slug string `path:"slug"`
-	}
-	path.Slug = r.PathValue("slug")
+	}]
+	path.Values.Slug = r.PathValue("slug")
 
 	p := app.PagePost{
 		App: s.app,
@@ -2356,7 +2263,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/post/`)
-		_, _ = io.WriteString(w, path.Slug)
+		writeStreamPathValue(w, path.Values.Slug)
 		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
 			_, _ = io.WriteString(w, `/_$/')"`)
@@ -2406,7 +2313,7 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 		nil,
 		nil,
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -2467,7 +2374,7 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 		nil,
 		nil,
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -2496,43 +2403,20 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	if !ok {
 		return
 	}
-	var signals struct {
+	var signals datapages.Signals[struct {
 		MessageText string `json:"messagetext"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		Slug string `path:"slug"`
-	}
-	path.Slug = r.PathValue("slug")
+	}]
+	path.Values.Slug = r.PathValue("slug")
 
-	dispatchMessagingSent := func(
-		e app.EventMessagingSent,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventMessagingSent.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
-		}
-		subj := "messaging.sent." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchMessagingSent := dispatcherEventMessagingSent{s: s, ctx: r.Context()}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	p := app.PagePost{
@@ -2555,9 +2439,9 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	var query app.SearchParams
-	query.Term = q.Get("t")
-	query.Category = q.Get("c")
+	var query datapages.Query[app.SearchParams]
+	query.Values.Term = q.Get("t")
+	query.Values.Category = q.Get("c")
 	{
 		if q := q.Get("pmin"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 64)
@@ -2565,7 +2449,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: pmin", err)
 				return
 			}
-			query.PriceMin = i
+			query.Values.PriceMin = i
 		}
 	}
 	{
@@ -2575,10 +2459,10 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: pmax", err)
 				return
 			}
-			query.PriceMax = i
+			query.Values.PriceMax = i
 		}
 	}
-	query.Location = q.Get("l")
+	query.Values.Location = q.Get("l")
 
 	p := app.PageSearch{
 		App: s.app,
@@ -2597,23 +2481,23 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 
 		_, _ = io.WriteString(w, `data-signals:term="'`)
-		writeSignalString(w, query.Term)
+		writeSignalString(w, query.Values.Term)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:category="'`)
-		writeSignalString(w, query.Category)
+		writeSignalString(w, query.Values.Category)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:pmin="`)
-		writeSignalValue(w, strconv.FormatInt(query.PriceMin, 10))
+		writeSignalValue(w, strconv.FormatInt(query.Values.PriceMin, 10))
 		_, _ = io.WriteString(w, `"`)
 
 		_, _ = io.WriteString(w, `data-signals:pmax="`)
-		writeSignalValue(w, strconv.FormatInt(query.PriceMax, 10))
+		writeSignalValue(w, strconv.FormatInt(query.Values.PriceMax, 10))
 		_, _ = io.WriteString(w, `"`)
 
 		_, _ = io.WriteString(w, `data-signals:location="'`)
-		writeSignalString(w, query.Location)
+		writeSignalString(w, query.Values.Location)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
@@ -2669,7 +2553,7 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 		nil,
 		nil,
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -2707,8 +2591,8 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	if !ok {
 		return
 	}
-	var signals app.SearchParams
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	var signals datapages.Signals[app.SearchParams]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -2795,7 +2679,7 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 		nil,
 		nil,
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -2842,10 +2726,10 @@ func (s *Server) handlePageSettingsPOSTSave(
 	if !ok {
 		return
 	}
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Username string `json:"username"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -2875,35 +2759,12 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 		return
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		Token string `path:"token"`
-	}
-	path.Token = r.PathValue("token")
+	}]
+	path.Values.Token = r.PathValue("token")
 
-	dispatchSessionClosed := func(
-		e app.EventSessionClosed,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventSessionClosed.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
-		}
-		subj := "sessions.closed." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchSessionClosed := dispatcherEventSessionClosed{s: s, ctx: r.Context()}
 	p := app.PageSettings{
 		App: s.app,
 		Base: app.Base{
@@ -2934,30 +2795,7 @@ func (s *Server) handlePageSettingsPOSTCloseAllSessions(
 		return
 	}
 
-	dispatchSessionClosed := func(
-		e app.EventSessionClosed,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.Recipient)) {
-			return fmt.Errorf(
-				"EventSessionClosed.Recipient must be a non-empty subject token, received %q",
-				e.Recipient)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
-		}
-		subj := "sessions.closed." + string(e.Recipient)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchSessionClosed := dispatcherEventSessionClosed{s: s, ctx: r.Context()}
 	p := app.PageSettings{
 		App: s.app,
 		Base: app.Base{
@@ -2980,10 +2818,10 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		Name string `path:"name"`
-	}
-	path.Name = r.PathValue("name")
+	}]
+	path.Values.Name = r.PathValue("name")
 
 	p := app.PageUser{
 		App: s.app,
@@ -3009,7 +2847,7 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/user/`)
-		_, _ = io.WriteString(w, path.Name)
+		writeStreamPathValue(w, path.Values.Name)
 		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
 			_, _ = io.WriteString(w, `/_$/')"`)
@@ -3059,7 +2897,7 @@ func (s *Server) handlePageUserGETStream(w http.ResponseWriter, r *http.Request)
 		nil,
 		nil,
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -3120,7 +2958,7 @@ func (s *Server) handlePageUserGETStreamAnon(w http.ResponseWriter, r *http.Requ
 		nil,
 		nil,
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -3137,4 +2975,149 @@ func (s *Server) handlePageUserGETStreamAnon(w http.ResponseWriter, r *http.Requ
 				}
 			}
 		})
+}
+
+type dispatcherEventMessagingRead struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventMessagingRead) Dispatch(e app.EventMessagingRead) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventMessagingRead) DispatchCtx(
+	ctx context.Context, e app.EventMessagingRead,
+) error {
+	if !isSubjectToken(string(e.Recipient)) {
+		return fmt.Errorf(
+			"EventMessagingRead.Recipient must be a non-empty subject token, received %q",
+			e.Recipient)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventMessagingRead JSON: %w", err)
+	}
+	subj := "messaging.read." + string(e.Recipient)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
+}
+
+type dispatcherEventMessagingWriting struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventMessagingWriting) Dispatch(e app.EventMessagingWriting) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventMessagingWriting) DispatchCtx(
+	ctx context.Context, e app.EventMessagingWriting,
+) error {
+	if !isSubjectToken(string(e.Recipient)) {
+		return fmt.Errorf(
+			"EventMessagingWriting.Recipient must be a non-empty subject token, received %q",
+			e.Recipient)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventMessagingWriting JSON: %w", err)
+	}
+	subj := "messaging.writing." + string(e.Recipient)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
+}
+
+type dispatcherEventMessagingWritingStopped struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventMessagingWritingStopped) Dispatch(e app.EventMessagingWritingStopped) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventMessagingWritingStopped) DispatchCtx(
+	ctx context.Context, e app.EventMessagingWritingStopped,
+) error {
+	if !isSubjectToken(string(e.Recipient)) {
+		return fmt.Errorf(
+			"EventMessagingWritingStopped.Recipient must be a non-empty subject token, received %q",
+			e.Recipient)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
+	}
+	subj := "messaging.writing-stopped." + string(e.Recipient)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
+}
+
+type dispatcherEventMessagingSent struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventMessagingSent) Dispatch(e app.EventMessagingSent) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventMessagingSent) DispatchCtx(
+	ctx context.Context, e app.EventMessagingSent,
+) error {
+	if !isSubjectToken(string(e.Recipient)) {
+		return fmt.Errorf(
+			"EventMessagingSent.Recipient must be a non-empty subject token, received %q",
+			e.Recipient)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
+	}
+	subj := "messaging.sent." + string(e.Recipient)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
+}
+
+type dispatcherEventSessionClosed struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventSessionClosed) Dispatch(e app.EventSessionClosed) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventSessionClosed) DispatchCtx(
+	ctx context.Context, e app.EventSessionClosed,
+) error {
+	if !isSubjectToken(string(e.Recipient)) {
+		return fmt.Errorf(
+			"EventSessionClosed.Recipient must be a non-empty subject token, received %q",
+			e.Recipient)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
+	}
+	subj := "sessions.closed." + string(e.Recipient)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
 }

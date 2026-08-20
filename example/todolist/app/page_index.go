@@ -15,60 +15,58 @@ type PageIndex struct{ App *App }
 
 func (p PageIndex) GET(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Search string `query:"q" reflectsignal:"search"`
 		Filter string `query:"filter" reflectsignal:"filter"`
 		Sort   string `query:"sort" reflectsignal:"sort"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	filter := query.Filter
+	filter := query.Values.Filter
 	if filter == "" {
 		filter = "all"
 	}
-	sortMode := query.Sort
+	sortMode := query.Values.Sort
 	if sortMode == "" {
 		sortMode = "created"
 	}
 	vp := list.ViewParameters{
-		Search: query.Search,
+		Search: query.Values.Search,
 		Filter: filter,
 		Sort:   sortMode,
 	}
 	todos := p.App.list.GetItems(vp)
-	return pageIndex(todos, query.Search, filter, sortMode), nil
+	return pageIndex(todos, query.Values.Search, filter, sortMode), nil
 }
 
 func (p PageIndex) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	sse datapages.SSE,
-	signals struct {
+	signals datapages.Signals[struct {
 		Search string `json:"search"`
 		Filter string `json:"filter"`
 		Sort   string `json:"sort"`
-	},
+	}],
 ) error {
-	filter := signals.Filter
+	filter := signals.Values.Filter
 	if filter == "" {
 		filter = "all"
 	}
-	sortMode := signals.Sort
+	sortMode := signals.Values.Sort
 	if sortMode == "" {
 		sortMode = "created"
 	}
 	p.App.lockTabs.Lock()
 	p.App.streamIDToTabState[streamID] = &tabState{
-		ViewParameters: list.ViewParameters{
-			Search: signals.Search,
-			Filter: filter,
-			Sort:   sortMode,
-		},
+		Search: signals.Values.Search,
+		Filter: filter,
+		Sort:   sortMode,
 	}
 	p.App.lockTabs.Unlock()
 	return p.App.patchTabID(streamID, sse)
 }
 
-func (p PageIndex) StreamClose(r *http.Request, streamID uint64) {
+func (p PageIndex) StreamClose(r *http.Request, streamID datapages.StreamID) {
 	p.App.lockTabs.Lock()
 	delete(p.App.streamIDToTabState, streamID)
 	p.App.lockTabs.Unlock()
@@ -77,45 +75,45 @@ func (p PageIndex) StreamClose(r *http.Request, streamID uint64) {
 // POSTCreate is /
 func (p PageIndex) POSTCreate(
 	r *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		TabID    string `json:"tab_id"`
 		NewTitle string `json:"newTitle"`
 		NewDesc  string `json:"newDesc"`
 		NewDue   string `json:"newDue"`
-	},
-	dispatch datapages.Dispatch[EventTodoUpdated],
+	}],
+	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) error {
-	if _, err := p.App.verifyTabID(signals.TabID); err != nil {
+	if _, err := p.App.verifyTabID(signals.Values.TabID); err != nil {
 		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
 	}
-	title := strings.TrimSpace(signals.NewTitle)
+	title := strings.TrimSpace(signals.Values.NewTitle)
 	if title == "" {
 		return fmt.Errorf("%w: title is required", datapages.ErrBadRequest)
 	}
 	var dueAt time.Time
-	if signals.NewDue != "" {
+	if signals.Values.NewDue != "" {
 		var err error
-		dueAt, err = time.Parse("2006-01-02T15:04", signals.NewDue)
+		dueAt, err = time.Parse("2006-01-02T15:04", signals.Values.NewDue)
 		if err != nil {
 			return fmt.Errorf("%w: invalid due date", datapages.ErrBadRequest)
 		}
 	}
-	p.App.list.AddItem(title, strings.TrimSpace(signals.NewDesc), dueAt)
-	return dispatch(EventTodoUpdated{})
+	p.App.list.AddItem(title, strings.TrimSpace(signals.Values.NewDesc), dueAt)
+	return todoUpdated.Dispatch(EventTodoUpdated{})
 }
 
 // POSTFilter is /filter
 func (p PageIndex) POSTFilter(
 	r *http.Request,
 	sse datapages.SSE,
-	signals struct {
+	signals datapages.Signals[struct {
 		TabID  string `json:"tab_id"`
 		Search string `json:"search"`
 		Filter string `json:"filter"`
 		Sort   string `json:"sort"`
-	},
+	}],
 ) error {
-	streamID, err := p.App.verifyTabID(signals.TabID)
+	streamID, err := p.App.verifyTabID(signals.Values.TabID)
 	if err != nil {
 		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
 	}
@@ -123,16 +121,16 @@ func (p PageIndex) POSTFilter(
 	// Update server-side tab state so event handlers use current filters.
 	p.App.lockTabs.Lock()
 	if ts := p.App.streamIDToTabState[streamID]; ts != nil {
-		ts.Search = signals.Search
-		ts.Filter = signals.Filter
-		ts.Sort = signals.Sort
+		ts.Search = signals.Values.Search
+		ts.Filter = signals.Values.Filter
+		ts.Sort = signals.Values.Sort
 	}
 	p.App.lockTabs.Unlock()
 
 	vp := list.ViewParameters{
-		Search: signals.Search,
-		Filter: signals.Filter,
-		Sort:   signals.Sort,
+		Search: signals.Values.Search,
+		Filter: signals.Values.Filter,
+		Sort:   signals.Values.Sort,
 	}
 	todos := p.App.list.GetItems(vp)
 	return sse.PatchElement(todoList(todos))
@@ -141,7 +139,7 @@ func (p PageIndex) POSTFilter(
 func (p PageIndex) OnTodoUpdated(
 	event EventTodoUpdated,
 	sse datapages.SSE,
-	streamID uint64,
+	streamID datapages.StreamID,
 ) error {
 	s := p.App.streamState(streamID)
 	todos := p.App.list.GetItems(s.ViewParameters)

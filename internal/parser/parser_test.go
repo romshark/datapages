@@ -75,7 +75,12 @@ func TestParse_Basic(t *testing.T) {
 	}
 	{
 		require.NotNil(app.RecoverError)
-		requireExprLineCol(t, app, app.RecoverError, "app.go", 29, 13)
+		requireExprLineCol(t, app, app.RecoverError.Expr, "app.go", 30, 13)
+		// The parameters are matched by type, not by name or position.
+		require.Equal(
+			[]string{model.InputKindSSE, model.InputKindErr},
+			app.RecoverError.OrderedInputs,
+		)
 	}
 	{
 		p := app.Pages[3]
@@ -101,7 +106,7 @@ func TestParse_Basic(t *testing.T) {
 	}
 	{
 		require.NotNil(app.PageError404)
-		requireExprLineCol(t, app, app.PageError404.Expr, "app.go", 37, 6)
+		requireExprLineCol(t, app, app.PageError404.Expr, "app.go", 38, 6)
 		require.Equal("/the-not-found-page", app.PageError404.Route)
 		require.NotNil(app.PageError404.GET.Handler)
 		require.Equal("r", app.PageError404.GET.InputRequest.Name)
@@ -112,7 +117,7 @@ func TestParse_Basic(t *testing.T) {
 		{
 			get := app.PageError404.GET
 			require.NotNil(get.Handler)
-			requireExprLineCol(t, app, get.Expr, "app.go", 39, 21)
+			requireExprLineCol(t, app, get.Expr, "app.go", 40, 21)
 			require.NotNil(get.InputRequest)
 			require.Equal("r", get.InputRequest.Name)
 			require.Equal("err", get.OutputErr.Name)
@@ -123,7 +128,7 @@ func TestParse_Basic(t *testing.T) {
 	}
 	{
 		require.NotNil(app.PageError500)
-		requireExprLineCol(t, app, app.PageError500.Expr, "app.go", 44, 6)
+		requireExprLineCol(t, app, app.PageError500.Expr, "app.go", 45, 6)
 		require.Equal("/the-internal-error-page", app.PageError500.Route)
 		require.Empty(app.PageError500.EventHandlers)
 		require.Empty(app.PageError500.Embeds)
@@ -132,7 +137,7 @@ func TestParse_Basic(t *testing.T) {
 		{
 			get := app.PageError500.GET
 			require.NotNil(get.Handler)
-			requireExprLineCol(t, app, get.Expr, "app.go", 46, 21)
+			requireExprLineCol(t, app, get.Expr, "app.go", 47, 21)
 			require.NotNil(get.InputRequest)
 			require.Equal("r", get.InputRequest.Name)
 			require.Equal("err", get.OutputErr.Name)
@@ -146,21 +151,22 @@ func TestParse_Basic(t *testing.T) {
 		require.NotNil(p)
 		require.Equal("PageExample", p.TypeName)
 		require.Equal("/example", p.Route)
-		requireExprLineCol(t, app, p.Expr, "app.go", 51, 6)
+		requireExprLineCol(t, app, p.Expr, "app.go", 52, 6)
 		require.Empty(p.EventHandlers)
 		require.Empty(p.Embeds)
 		require.Empty(p.Actions)
 		require.Zero(p.PageSpecialization)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.Handler)
-		requireExprLineCol(t, app, p.GET.Expr, "app.go", 53, 20)
+		requireExprLineCol(t, app, p.GET.Expr, "app.go", 54, 20)
 		require.NotNil(p.GET.OutputBody)
-		require.Equal("body", p.GET.OutputBody.Name)
+		// Return values are matched by their type, not by their names.
+		require.Equal("view", p.GET.OutputBody.Name)
 		require.Equal(TypeNameComponent,
 			p.GET.OutputBody.Type.Resolved.String())
 		require.NotNil(p.GET.OutputHead)
-		require.Equal("head", p.GET.OutputHead.Name)
-		require.Equal(TypeNameComponent,
+		require.Equal("meta", p.GET.OutputHead.Name)
+		require.Equal("github.com/romshark/datapages.Head",
 			p.GET.OutputHead.Type.Resolved.String())
 	}
 }
@@ -341,6 +347,8 @@ func TestParse_StreamHooks(t *testing.T) {
 		require.Equal("StreamOpen", p.StreamOpen.Name)
 		require.NotNil(p.StreamOpen.InputRequest)
 		require.NotNil(p.StreamOpen.InputStreamID)
+		// The parameter is matched by its type, not by its name.
+		require.Equal("id", p.StreamOpen.InputStreamID.Name)
 		require.Nil(p.StreamOpen.InputSSE)
 		require.Nil(p.StreamOpen.InputSession)
 		require.Nil(p.StreamOpen.InputSignals)
@@ -401,7 +409,7 @@ func TestParse_ErrStreamHooks(t *testing.T) {
 		t, err,
 		parser.ErrSignatureMissingReq,
 		parser.ErrSignatureMissingStreamID,
-		parser.ErrStreamIDParamNotUint64,
+		parser.ErrSignatureMissingStreamID,  // StreamOpen with streamID string
 		parser.ErrSignatureUnsupportedInput, // StreamClose with signals
 		parser.ErrSignatureStreamHookReturnMustBeError,
 		parser.ErrSignatureUnsupportedInput, // StreamClose with sse
@@ -410,8 +418,8 @@ func TestParse_ErrStreamHooks(t *testing.T) {
 		parser.ErrSignatureUnsupportedInput, // StreamOpen with query
 		parser.ErrSignatureUnsupportedInput, // StreamClose with query
 		parser.ErrSignatureUnsupportedInput, // action handler with streamID
-		parser.ErrStreamIDParamNotUint64,    // StreamOpen with streamID int
-		parser.ErrDispatchParamLegacy,       // StreamOpen with an untyped dispatcher
+		parser.ErrSignatureMissingStreamID,  // StreamOpen with streamID int
+		parser.ErrSignatureUnsupportedInput, // StreamOpen with an untyped dispatcher
 		parser.ErrDispatchDuplicate,         // StreamClose with two of one type
 	)
 }
@@ -557,8 +565,8 @@ func TestParse_ErrGET(t *testing.T) {
 		parser.ErrSignatureUnsupportedInput, // asd
 		parser.ErrSignatureUnsupportedInput, // asd2
 		parser.ErrSignatureGETMissingBody,
-		parser.ErrSignatureGETBodyWrongName,
-		parser.ErrSignatureGETHeadWrongName,
+		parser.ErrSignatureDuplicateOutput,
+		parser.ErrSignatureDuplicateOutput,
 	)
 }
 
@@ -570,14 +578,14 @@ func TestParse_ErrEvents(t *testing.T) {
 		t, err,
 		parser.ErrEventCommMissing,
 		parser.ErrEventSubjectInvalid,
-		parser.ErrSignatureEvHandMissingEvent, // OnFirstArgNotNamed: no "event" param
-		parser.ErrSignatureEvHandMissingSSE,   // OnFirstArgNotNamed: no SSE param
-		parser.ErrSignatureUnsupportedInput,   // OnFirstArgNotNamed: notEvent is unsupported
-		parser.ErrSignatureEvHandMissingEvent, // OnFirstArgWrongType: event type is int
-		parser.ErrSignatureEvHandMissingSSE,   // OnFirstArgWrongType: no SSE param
-		parser.ErrSignatureEvHandMissingSSE,   // OnFirstDuplicate: no SSE param
-		parser.ErrEvHandDuplicate,             // OnSecondDuplicate
-		parser.ErrSignatureEvHandMissingSSE,   // OnSecondDuplicate: no SSE param
+		parser.ErrSignatureEvHandMissingEvent,   // OnArgWrongType: int is no event type
+		parser.ErrSignatureEvHandMissingSSE,     // OnArgWrongType: no SSE param
+		parser.ErrSignatureUnsupportedInput,     // OnArgWrongType: int is unsupported
+		parser.ErrSignatureEvHandMissingSSE,     // OnFirstDuplicate: no SSE param
+		parser.ErrEvHandDuplicate,               // OnSecondDuplicate
+		parser.ErrSignatureEvHandMissingSSE,     // OnSecondDuplicate: no SSE param
+		parser.ErrSignatureEvHandMultipleEvents, // OnBoth: two event parameters
+		parser.ErrSignatureUnsupportedInput,     // OnBoth: the second event
 		parser.ErrEventFieldUnexported,
 		parser.ErrEventFieldUnexported,
 		parser.ErrEventFieldMissingTag,
@@ -625,6 +633,16 @@ func TestParse_ErrEventSubjectAfterPayload(t *testing.T) {
 	requireParseErrors(
 		t, err,
 		parser.ErrEventSubjectAfterPayload,
+	)
+}
+
+func TestParse_ErrEventSubjectOverlap(t *testing.T) {
+	_, err := parse(t, "err_event_subject_overlap")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectOverlap,
 	)
 }
 
@@ -795,7 +813,19 @@ func TestParse_Path(t *testing.T) {
 		action := p.Actions[0]
 		require.Equal("POST", action.HTTPMethod)
 		require.NotNil(action.InputPath)
-		require.Equal("path", action.InputPath.Name)
+		// The parameter is matched by its type, not by its name.
+		require.Equal("vars", action.InputPath.Name)
+	}
+
+	// PageNamed - the path values are a named struct type
+	{
+		p := findPage(app, "PageNamed")
+		require.NotNil(p)
+		require.NotNil(p.GET.InputPath)
+		require.Equal(
+			"datapagestest/fixture/path.NamedPath",
+			p.GET.InputPath.Type.Resolved.String(),
+		)
 	}
 }
 
@@ -841,7 +871,8 @@ func TestParse_Query(t *testing.T) {
 		action := p.Actions[0]
 		require.Equal("POST", action.HTTPMethod)
 		require.NotNil(action.InputQuery)
-		require.Equal("query", action.InputQuery.Name)
+		// The parameter is matched by its type, not by its name.
+		require.Equal("params", action.InputQuery.Name)
 	}
 }
 
@@ -880,7 +911,8 @@ func TestParse_Signals(t *testing.T) {
 		require.Len(p.Actions, 1)
 		action := p.Actions[0]
 		require.NotNil(action.InputSignals)
-		require.Equal("signals", action.InputSignals.Name)
+		// The parameter is matched by its type, not by its name.
+		require.Equal("form", action.InputSignals.Name)
 	}
 
 	// PageSearch - GET with query + signals + reflectsignal
@@ -949,8 +981,8 @@ func TestParse_ErrDispatch(t *testing.T) {
 
 	requireParseErrors(
 		t, err,
-		parser.ErrDispatchParamLegacy, // PageLegacyFunc: plain func type
-		parser.ErrDispatchParamLegacy, // PageLegacyName: named "dispatch"
+		parser.ErrSignatureUnsupportedInput, // PageFuncParam: plain func type
+		parser.ErrSignatureUnsupportedInput, // PageDispatchInt: dispatch int
 		parser.ErrDispatchParamNotEvent,
 		parser.ErrDispatchDuplicate,
 	)
@@ -976,7 +1008,7 @@ func TestParse_Session(t *testing.T) {
 		require.Nil(p.GET.InputSession)
 	}
 
-	// PageProfile - GET with session (no sessionToken)
+	// PageProfile - GET with session
 	{
 		p := findPage(app, "PageProfile")
 		require.NotNil(p)
@@ -988,7 +1020,8 @@ func TestParse_Session(t *testing.T) {
 		update := findAction(p.Actions, "Update")
 		require.NotNil(update)
 		require.NotNil(update.InputSession)
-		require.Equal("session", update.InputSession.Name)
+		// The parameter is matched by its type, not by its name.
+		require.Equal("sess", update.InputSession.Name)
 		require.Nil(update.InputSSE)
 
 		// POSTNotify - action with SSE + session
@@ -1004,21 +1037,21 @@ func TestParse_Session(t *testing.T) {
 		require.Equal("session", evh.InputSession.Name)
 	}
 
-	// PageSettings - sessionToken + session
+	// PageSettings - session
 	{
 		p := findPage(app, "PageSettings")
 		require.NotNil(p)
 
-		// GET with sessionToken and session.
+		// GET with session.
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.InputSession)
 
-		// POSTClose - action with sessionToken + session
+		// POSTClose - action with session
 		close := findAction(p.Actions, "Close")
 		require.NotNil(close)
 		require.NotNil(close.InputSession)
 
-		// Event handler with sessionToken + session
+		// Event handler with session
 		require.Len(p.EventHandlers, 1)
 		evh := p.EventHandlers[0]
 		require.NotNil(evh.InputSession)
@@ -1032,7 +1065,7 @@ func TestParse_ErrSession(t *testing.T) {
 
 	requireParseErrors(
 		t, err,
-		parser.ErrSessionParamNotSessionType,
+		parser.ErrSignatureUnsupportedInput,
 	)
 }
 
@@ -1094,8 +1127,8 @@ func TestParse_ErrRedirect(t *testing.T) {
 
 	requireParseErrors(
 		t, err,
-		parser.ErrRedirectNotRedirectType,
-		parser.ErrRedirectNotRedirectType,
+		parser.ErrSignatureUnsupportedOutput,
+		parser.ErrSignatureUnsupportedOutput,
 	)
 }
 
@@ -1107,7 +1140,6 @@ func TestParse_ErrUnsupportedOutput(t *testing.T) {
 	requireParseErrors(
 		t, err,
 		parser.ErrSignatureUnsupportedOutput,
-		parser.ErrSignatureGETBodyWrongName,
 		parser.ErrSignatureUnsupportedOutput,
 	)
 }
@@ -1160,8 +1192,8 @@ func TestParse_ErrSessionOutput(t *testing.T) {
 
 	requireParseErrors(
 		t, err,
-		parser.ErrNewSessionNotSessionType,
-		parser.ErrCloseSessionNotBool,
+		parser.ErrSignatureUnsupportedOutput,
+		parser.ErrSignatureUnsupportedOutput,
 		parser.ErrNewSessionWithSSE,
 		parser.ErrCloseSessionWithSSE,
 	)
@@ -1211,8 +1243,8 @@ func TestParse_ErrGETOptions(t *testing.T) {
 		t, err,
 		parser.ErrEnableBgStreamNotGET,
 		parser.ErrDisableRefreshNotGET,
-		parser.ErrEnableBgStreamNotBool,
-		parser.ErrDisableRefreshNotBool,
+		parser.ErrSignatureUnsupportedOutput,
+		parser.ErrSignatureUnsupportedOutput,
 	)
 }
 
@@ -1351,6 +1383,8 @@ func TestParse_ParamOrder(t *testing.T) {
 		require.Len(p.EventHandlers, 1)
 		evh := p.EventHandlers[0]
 		require.NotNil(evh.InputEvent)
+		// The parameter is matched by its type, not by its name.
+		require.Equal("ping", evh.InputEvent.Name)
 		require.NotNil(evh.InputSSE)
 		require.NotNil(evh.InputSession)
 		require.Equal(
@@ -1380,14 +1414,14 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrSignatureUnsupportedInput, "app.go", 65, 19},
 			{parser.ErrSignatureUnsupportedInput, "app.go", 65, 24},
 			{parser.ErrSignatureGETMissingBody, "app.go", 75, 24},
-			{parser.ErrSignatureGETBodyWrongName, "app.go", 84, 48},
-			{parser.ErrSignatureGETHeadWrongName, "app.go", 95, 2},
+			{parser.ErrSignatureDuplicateOutput, "app.go", 86, 2},
+			{parser.ErrSignatureDuplicateOutput, "app.go", 100, 2},
 		},
 		"err_head": {
 			{parser.ErrAppHeadMustTakeRequest, "app.go", 20, 13},
 		},
 		"err_head_return": {
-			{parser.ErrAppHeadMustReturnTemplComponent, "app.go", 20, 13},
+			{parser.ErrAppHeadMustReturnHead, "app.go", 20, 13},
 		},
 		"err_head_unsupported": {
 			{parser.ErrAppHeadUnsupportedInput, "app.go", 20, 13},
@@ -1402,8 +1436,8 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrAppRecoverErrorInvalidSignature, "app.go", 20, 13},
 		},
 		"err_dispatch": {
-			{parser.ErrDispatchParamLegacy, "app.go", 34, 11},
-			{parser.ErrDispatchParamLegacy, "app.go", 47, 11},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 34, 2},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 47, 2},
 			{parser.ErrDispatchParamNotEvent, "app.go", 60, 17},
 			{parser.ErrDispatchDuplicate, "app.go", 74, 19},
 		},
@@ -1416,52 +1450,51 @@ func TestParse_ErrorPositions(t *testing.T) {
 		"err_events": {
 			{parser.ErrEventCommMissing, "app.go", 30, 6},
 			{parser.ErrEventSubjectInvalid, "app.go", 36, 24},
-			{parser.ErrSignatureEvHandMissingEvent, "app.go", 51, 22},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 51, 22},
-			{parser.ErrSignatureUnsupportedInput, "app.go", 52, 2},
-			{parser.ErrSignatureEvHandMissingEvent, "app.go", 60, 22},
+			{parser.ErrSignatureEvHandMissingEvent, "app.go", 52, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 52, 22},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 53, 2},
 			{parser.ErrSignatureEvHandMissingSSE, "app.go", 60, 22},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 68, 22},
-			{parser.ErrEvHandDuplicate, "app.go", 77, 22},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 77, 22},
-			{parser.ErrEventFieldUnexported, "app.go", 87, 2},
-			{parser.ErrEventFieldUnexported, "app.go", 87, 2},
-			{parser.ErrEventFieldMissingTag, "app.go", 94, 2},
-			{parser.ErrEventFieldDuplicateTag, "app.go", 112, 2},
-			{parser.ErrEventCommInvalid, "app.go", 117, 21},
-			{parser.ErrEventCommInvalid, "app.go", 124, 4},
-			{parser.ErrEventSubjectInvalid, "app.go", 131, 23},
-			{parser.ErrEventSubjectInvalid, "app.go", 138, 24},
-			{parser.ErrEventFieldEmptyTag, "app.go", 149, 2},
+			{parser.ErrEvHandDuplicate, "app.go", 69, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 69, 22},
+			{parser.ErrSignatureEvHandMultipleEvents, "app.go", 94, 23},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 96, 2},
+			{parser.ErrEventFieldUnexported, "app.go", 106, 2},
+			{parser.ErrEventFieldUnexported, "app.go", 106, 2},
+			{parser.ErrEventFieldMissingTag, "app.go", 113, 2},
+			{parser.ErrEventFieldDuplicateTag, "app.go", 131, 2},
+			{parser.ErrEventCommInvalid, "app.go", 136, 21},
+			{parser.ErrEventCommInvalid, "app.go", 143, 4},
+			{parser.ErrEventSubjectInvalid, "app.go", 150, 23},
+			{parser.ErrEventSubjectInvalid, "app.go", 157, 24},
+			{parser.ErrEventFieldEmptyTag, "app.go", 168, 2},
 			{parser.ErrEventFieldUnexported, "subpkg.go", 7, 2},
 		},
 		"err_path": {
-			{parser.ErrPathParamNotStruct, "app.go", 25, 48},
-			{parser.ErrPathFieldUnexported, "app.go", 38, 3},
-			{parser.ErrPathFieldUnsupportedType, "app.go", 53, 3},
-			{parser.ErrPathFieldMissingTag, "app.go", 68, 3},
-			{parser.ErrPathFieldNotInRoute, "app.go", 83, 3},
-			{parser.ErrPathMissingRouteVar, "app.go", 95, 23},
-			{parser.ErrPathFieldDuplicateTag, "app.go", 108, 3},
+			{parser.ErrPathParamNotStruct, "app.go", 26, 24},
+			{parser.ErrPathFieldUnexported, "app.go", 40, 3},
+			{parser.ErrPathFieldUnsupportedType, "app.go", 55, 3},
+			{parser.ErrPathFieldMissingTag, "app.go", 70, 3},
+			{parser.ErrPathFieldNotInRoute, "app.go", 85, 3},
+			{parser.ErrPathMissingRouteVar, "app.go", 97, 23},
+			{parser.ErrPathFieldDuplicateTag, "app.go", 110, 3},
 		},
 		"err_query": {
-			{parser.ErrQueryParamNotStruct, "app.go", 25, 49},
-			{parser.ErrQueryFieldUnexported, "app.go", 38, 3},
-			{parser.ErrQueryFieldUnsupportedType, "app.go", 53, 3},
-			{parser.ErrQueryFieldMissingTag, "app.go", 68, 3},
-			{parser.ErrQueryFieldDuplicateTag, "app.go", 84, 3},
+			{parser.ErrQueryParamNotStruct, "app.go", 26, 25},
+			{parser.ErrQueryFieldUnexported, "app.go", 40, 3},
+			{parser.ErrQueryFieldUnsupportedType, "app.go", 55, 3},
+			{parser.ErrQueryFieldMissingTag, "app.go", 70, 3},
+			{parser.ErrQueryFieldDuplicateTag, "app.go", 86, 3},
 		},
 		"err_signals": {
-			{parser.ErrSignalsParamNotStruct, "app.go", 25, 51},
-			{parser.ErrSignalsFieldUnexported, "app.go", 38, 3},
-			{parser.ErrSignalsFieldMissingTag, "app.go", 53, 3},
-			{parser.ErrSignalsFieldDuplicateTag, "app.go", 69, 3},
-			{parser.ErrQueryReflectSignalNotInSignals, "app.go", 83, 2},
+			{parser.ErrSignalsParamNotStruct, "app.go", 26, 27},
+			{parser.ErrSignalsFieldUnexported, "app.go", 40, 3},
+			{parser.ErrSignalsFieldMissingTag, "app.go", 55, 3},
+			{parser.ErrSignalsFieldDuplicateTag, "app.go", 71, 3},
+			{parser.ErrQueryReflectSignalNotInSignals, "app.go", 85, 2},
 		},
 		"err_unsupported_output": {
-			{parser.ErrSignatureUnsupportedOutput, "app.go", 27, 35},
-			{parser.ErrSignatureGETBodyWrongName, "app.go", 38, 4},
-			{parser.ErrSignatureUnsupportedOutput, "app.go", 47, 8},
+			{parser.ErrSignatureUnsupportedOutput, "app.go", 27, 30},
+			{parser.ErrSignatureUnsupportedOutput, "app.go", 36, 4},
 		},
 		"err_event_handler": {
 			{parser.ErrSignatureEvHandMissingSSE, "app.go", 58, 18},

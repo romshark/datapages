@@ -224,7 +224,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	head, body datapages.Component,
+	head datapages.Head,
+	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -419,9 +420,9 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 
-	var path struct {
+	var path datapages.Path[struct {
 		B bool `path:"b"`
-	}
+	}]
 	{
 		v := r.PathValue("b")
 		b, err := strconv.ParseBool(v)
@@ -429,7 +430,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: b", err)
 			return
 		}
-		path.B = b
+		path.Values.B = b
 	}
 
 	p := app.PageItem{
@@ -456,11 +457,11 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		AnyQuery string `query:"anyQuery"`
 		Page     int    `query:"page"`
-	}
-	query.AnyQuery = q.Get("anyQuery")
+	}]
+	query.Values.AnyQuery = q.Get("anyQuery")
 	{
 		if q := q.Get("page"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
@@ -468,15 +469,15 @@ func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: page", err)
 				return
 			}
-			query.Page = int(i)
+			query.Values.Page = int(i)
 		}
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		L       int    `path:"l"`
 		N       int    `path:"n"`
 		PageStr string `path:"pageStr"`
-	}
+	}]
 	{
 		v := r.PathValue("l")
 		i, err := strconv.ParseInt(v, 10, 0)
@@ -484,7 +485,7 @@ func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: l", err)
 			return
 		}
-		path.L = int(i)
+		path.Values.L = int(i)
 	}
 	{
 		v := r.PathValue("n")
@@ -493,9 +494,9 @@ func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
 			s.httpErrBad(w, "unexpected value for path parameter: n", err)
 			return
 		}
-		path.N = int(i)
+		path.Values.N = int(i)
 	}
-	path.PageStr = r.PathValue("pageStr")
+	path.Values.PageStr = r.PathValue("pageStr")
 
 	p := app.PageMix{
 		App: s.app,

@@ -23,7 +23,7 @@ func (PageIndex) GET(
 
 // POSTSubmit is /logout
 func (PageIndex) POSTSubmit(r *http.Request) (
-	closeSession bool,
+	closeSession datapages.CloseSession,
 	redirect datapages.Redirect,
 	err error,
 ) {

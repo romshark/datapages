@@ -1,19 +1,16 @@
 module github.com/romshark/datapages/example/offline-cache
 
-go 1.26.6
+go 1.27.0
 
 replace github.com/romshark/datapages => ../../
 
 // Required by Datapages
 require (
 	github.com/a-h/templ v0.3.1020
-	github.com/starfederation/datastar-go v1.2.2
-	golang.org/x/crypto v0.55.0
-)
-
-require (
 	github.com/romshark/datapages v0.9.4
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+	github.com/starfederation/datastar-go v1.2.2
+	golang.org/x/crypto v0.55.0
 	golang.org/x/sync v0.22.0
 )
 

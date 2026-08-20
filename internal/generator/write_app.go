@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/internal/routepattern"
+	"github.com/romshark/datapages/internal/subject"
 )
 
 //go:embed app_static.go.txt
@@ -71,6 +73,9 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	if w.usage.reflectSignals {
 		w.writeSignalValueHelper()
 	}
+	if w.usage.streamPathVars {
+		w.writeStreamPathValueHelper()
+	}
 	if w.usage.needsIsSubjectToken() {
 		w.writeIsSubjectToken()
 	}
@@ -124,6 +129,8 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 			w.writePageActionHandler(p, h, m, appPkg)
 		}
 	}
+
+	w.writeDispatcherTypes(appPkg)
 }
 
 func needsJSON(m *model.App) bool {
@@ -458,32 +465,45 @@ type sseWrapper struct {
 
 func (s sseWrapper) Context() context.Context { return s.gen.Context() }
 
-func (s sseWrapper) PatchElement(
-	c datapages.Component, opts ...datapages.PatchOption,
+func (s sseWrapper) PatchElement(c datapages.Component) error {
+	return s.gen.PatchElementTempl(c)
+}
+
+func (s sseWrapper) PatchElementAt(
+	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
 ) error {
-	var cfg datapages.PatchConfig
-	for _, o := range opts {
-		o(&cfg)
-	}
-	var ds []datastar.PatchElementOption
-	if cfg.Selector != "" {
-		ds = append(ds, datastar.WithSelector(cfg.Selector))
-	}
-	if cfg.SelectorID != "" {
-		ds = append(ds, datastar.WithSelectorID(cfg.SelectorID))
-	}
-	switch cfg.Mode {
+	switch mode {
 	case datapages.PatchModeOuter, datapages.PatchModeInner,
 		datapages.PatchModeReplace, datapages.PatchModePrepend,
 		datapages.PatchModeAppend, datapages.PatchModeBefore,
 		datapages.PatchModeAfter:
-		ds = append(ds, datastar.WithMode(datastar.ElementPatchMode(cfg.Mode)))
+	default:
+		mode = "" // Not a PatchMode constant, patch in the default mode.
 	}
-	return s.gen.PatchElementTempl(c, ds...)
+	switch {
+	case selectorCSS == "" && mode == "":
+		return s.gen.PatchElementTempl(c)
+	case mode == "":
+		return s.gen.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
+	case selectorCSS == "":
+		return s.gen.PatchElementTempl(
+			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
+		)
+	}
+	return s.gen.PatchElementTempl(c,
+		datastar.WithSelector(selectorCSS),
+		datastar.WithMode(datastar.ElementPatchMode(mode)))
 }
 
-func (s sseWrapper) RemoveElement(selector string) error {
-	return s.gen.RemoveElement(selector)
+// removeElementModeDataline is the mode line of a removal event.
+const removeElementModeDataline = datastar.ModeDatalineLiteral +
+	string(datastar.ElementPatchModeRemove)
+
+func (s sseWrapper) RemoveElement(selectorCSS string) error {
+	return s.gen.Send(datastar.EventTypePatchElements, []string{
+		datastar.SelectorDatalineLiteral + selectorCSS,
+		removeElementModeDataline,
+	})
 }
 
 func (s sseWrapper) ExecuteScript(script string) error {
@@ -521,7 +541,7 @@ func (w *Writer) writeWithOffline(m *model.App) {
 // navigations to URLs with no cached copy while the browser is offline.
 func WithOffline(conf offline.Config) ServerOption {
 	return WithMiddleware(offline.Middleware(`)
-	w.writeQuoted(routeURL(m.PageOffline.Route))
+	w.writeQuoted(routepattern.WithTrailingSlash(m.PageOffline.Route))
 	w.Raw(`, conf))
 }
 `)
@@ -781,7 +801,8 @@ func (s *Server) writeHTML(
 	} else {
 		w.Raw(`	`)
 	}
-	w.Raw(`head, body datapages.Component,
+	w.Raw(`head datapages.Head,
+	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -898,16 +919,9 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 `)
 }
 
-// writeIsSubjectToken emits the guard for subject values that reach a subject.
-// On the subscribe side a wildcard or a separator would widen the subscription
-// past the value the client asked for. On the publish side either one produces
-// a subject that no subscription matches.
 func (w *Writer) writeIsSubjectToken() {
-	w.Raw(`
-func isSubjectToken(v string) bool {
-	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
-}
-`)
+	w.Byte('\n')
+	w.Raw(subject.GenIsToken())
 }
 
 // writeCheckUserSubject emits the guard for the ID of the session owner,
@@ -1017,12 +1031,12 @@ func (s *Server) handleStreamRequest(
 	w.Raw(`
 	subjects []string,
 	onOpen func(
-		streamID uint64,
+		streamID datapages.StreamID,
 		sse *datastar.ServerSentEventGenerator,
 	) error,
-	onClose func(streamID uint64),
+	onClose func(streamID datapages.StreamID),
 	fn func(
-		streamID uint64,
+		streamID datapages.StreamID,
 		sse *datastar.ServerSentEventGenerator,
 		ch <-chan msgbroker.Message,
 	),
@@ -1031,7 +1045,7 @@ func (s *Server) handleStreamRequest(
 		return
 	}
 
-	streamID := s.streamSeq.Add(1)
+	streamID := datapages.StreamID(s.streamSeq.Add(1))
 
 	// The subscription is established before the response head goes out.
 	// A client learns the stream is open by reading that head and may dispatch
@@ -1623,21 +1637,27 @@ func (w *Writer) writeEvSubjPrivateSignalFunc(
 	}
 	w.Raw(") []string {\n")
 
-	if hasPublic {
-		w.Line(1, "if userID == \"\" {")
-		w.Line(2, "return []string{")
-		for _, eh := range p.EventHandlers {
-			ev := w.eventMap[eh.EventTypeName]
-			if ev == nil || ev.IsPrivate() || ev.IsSignalScoped() {
-				continue
-			}
-			w.Raw("\t\t\t")
-			w.Raw(evSubjConst(ev))
-			w.Raw(",\n")
+	// A stream with no user subscribes by everything that is not addressed to one.
+	// A subject built from an empty user ID names nobody: the in-memory
+	// broker reads it as a literal that never matches, NATS refuses it and the
+	// stream fails to open. Signal-scoped events are public and stay.
+	w.Line(1, "if userID == \"\" {")
+	w.Line(2, "return []string{")
+	for _, eh := range p.EventHandlers {
+		ev := w.eventMap[eh.EventTypeName]
+		if ev == nil || ev.IsPrivate() {
+			continue
 		}
-		w.Line(2, "}")
-		w.Line(1, "}")
+		w.Raw("\t\t\t")
+		if ev.IsSignalScoped() {
+			w.writeEvSignalSubExpr(ev, identBySignal)
+		} else {
+			w.Raw(evSubjConst(ev))
+		}
+		w.Raw(",\n")
 	}
+	w.Line(2, "}")
+	w.Line(1, "}")
 
 	w.Line(1, "return []string{")
 
@@ -1984,7 +2004,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 			continue
 		}
 
-		routeForHandler := routeWithTrailingSlash(p.Route)
+		routeForHandler := routepattern.WithTrailingSlash(p.Route)
 
 		if p.PageSpecialization == model.PageTypeIndex {
 			// Index page: GET /
@@ -1993,7 +2013,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 			w.Raw("\t\ts.handle")
 			w.Raw(p.TypeName)
 			w.Raw("GET)\n")
-		} else if routeEndsInWildcard(p.Route) {
+		} else if routepattern.EndsInWildcard(p.Route) {
 			// A {name...} wildcard runs to the end of the path already.
 			// Marking the end after it puts the wildcard in the middle,
 			// which is a pattern net/http will not parse.
@@ -2040,7 +2060,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 
 	// App-level actions.
 	for _, h := range m.Actions {
-		route := routeWithTrailingSlash(h.Route)
+		route := routepattern.WithTrailingSlash(h.Route)
 		method := strings.ToUpper(h.HTTPMethod)
 
 		w.Line(1, "s.mux.HandleFunc(")
@@ -2058,7 +2078,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 	// Page actions.
 	for _, p := range m.Pages {
 		for _, h := range p.Actions {
-			route := routeWithTrailingSlash(h.Route)
+			route := routepattern.WithTrailingSlash(h.Route)
 			method := strings.ToUpper(h.HTTPMethod)
 
 			w.Line(1, "s.mux.HandleFunc(")
@@ -2126,6 +2146,19 @@ func (w *Writer) writeCSRFOnlyCheck() {
 	w.Line(1, "if _, _, ok := s.auth(w, r); !ok {")
 	w.Line(2, "return")
 	w.Line(1, "}")
+}
+
+// writeStreamPathValueHelper emits the escaper for path values written into
+// the stream URL of a data-init attribute.
+func (w *Writer) writeStreamPathValueHelper() {
+	w.Raw(`
+// writeStreamPathValue writes v into the @get URL of a data-init attribute.
+// Percent encoding removes the quotes that would end the JavaScript string,
+// HTML escaping removes the ampersand that url.PathEscape keeps.
+func writeStreamPathValue(w http.ResponseWriter, v string) {
+	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
+}
+`)
 }
 
 // writeSignalValueHelper emits the escaper for values reflected into
@@ -2213,7 +2246,18 @@ func (s *Server) httpErrIntern(
 	}
 	errRecover := s.`)
 		w.Raw(appPkg)
-		w.Raw(`.RecoverError(err, newSSE(sse))
+		w.Raw(`.RecoverError(`)
+		for i, kind := range m.RecoverError.OrderedInputs {
+			if i > 0 {
+				w.Raw(", ")
+			}
+			if kind == model.InputKindSSE {
+				w.Raw("newSSE(sse)")
+			} else {
+				w.Raw("err")
+			}
+		}
+		w.Raw(`)
 	if errRecover == nil {
 `)
 		if w.prometheus {
@@ -2363,7 +2407,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 		w.Raw("\tvar signals ")
 		w.Raw(renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, "if err := datastar.ReadSignals(r, &signals); err != nil {")
+		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -2380,7 +2424,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	}
 
 	// Dispatch closures.
-	w.writeDispatchClosures(h, "dispatch", appPkg, "r.Context()")
+	w.writeDispatchers(h, "dispatch", "r.Context()")
 
 	// SSE for actions that take it.
 	if h.InputSSE != nil && !isAppLevel {
@@ -2469,7 +2513,7 @@ func (w *Writer) writeMethodCall(
 	// Close session.
 	if h.OutputCloseSession != nil {
 		w.Raw("\tif ")
-		w.Raw(h.OutputCloseSession.Name)
+		w.Raw(outputVar(h.OutputCloseSession))
 		w.Raw(" {\n")
 		w.Line(2, "if err := s.closeSession(w, r, sessToken); err != nil {")
 		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
@@ -2481,10 +2525,10 @@ func (w *Writer) writeMethodCall(
 	// New session.
 	if h.OutputNewSession != nil {
 		w.Raw("\tif j := ")
-		w.Raw(h.OutputNewSession.Name)
+		w.Raw(outputVar(h.OutputNewSession))
 		w.Raw("; j.UserID != \"\" {\n")
 		w.Raw("\t\tif err := s.createSession(w, r, ")
-		w.Raw(h.OutputNewSession.Name)
+		w.Raw(outputVar(h.OutputNewSession))
 		w.Raw("); err != nil {\n")
 		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
 		w.Line(2, "}")
@@ -2496,11 +2540,11 @@ func (w *Writer) writeMethodCall(
 	if h.OutputRedirect != nil {
 		if pageCacheViaRedirect(h) {
 			w.Raw("\tif httpRedirectOffline(w, r, ")
-			w.Raw(h.OutputRedirect.Name)
+			w.Raw(outputVar(h.OutputRedirect))
 			w.Raw(", pageCache) {\n")
 		} else {
 			w.Raw("\tif httpRedirect(w, r, ")
-			w.Raw(h.OutputRedirect.Name)
+			w.Raw(outputVar(h.OutputRedirect))
 			w.Raw(") {\n")
 		}
 		w.Line(2, "return")
@@ -2532,7 +2576,7 @@ func (w *Writer) writeMethodCall(
 		} else {
 			w.Raw("nil, ")
 		}
-		w.Raw(h.OutputBody.Name)
+		w.Raw(outputVar(h.OutputBody.Output))
 		w.Raw(", nil, nil,\n")
 		w.Line(1, "); err != nil {")
 		w.Raw("\t\ts.logErr(\"rendering response of ")
@@ -2546,78 +2590,96 @@ func (w *Writer) writeMethodCall(
 	}
 }
 
-// writeDispatchClosures emits one closure per datapages.Dispatch parameter of
-// the handler. prefix names them apart when a generated function holds the
-// closures of more than one handler, as the stream handler does.
-func (w *Writer) writeDispatchClosures(
-	h *model.Handler, prefix, appPkg, ctxExpr string,
-) {
+// writeDispatchers emits one dispatcher value per datapages.Dispatcher parameter
+// of the handler. prefix names them apart when a generated function holds the
+// dispatchers of more than one handler, as the stream handler does.
+// ctxExpr is the context Dispatch publishes with.
+func (w *Writer) writeDispatchers(h *model.Handler, prefix, ctxExpr string) {
 	for _, d := range h.InputDispatches {
-		w.writeDispatchClosure(d, prefix, appPkg, ctxExpr)
+		if !slices.Contains(w.dispatchedEvents, d.EventTypeName) {
+			w.dispatchedEvents = append(w.dispatchedEvents, d.EventTypeName)
+		}
+		w.Line(0, "")
+		w.Byte('\t')
+		w.Raw(dispatchVarName(prefix, d.EventTypeName))
+		w.Raw(" := ")
+		w.Raw(dispatcherTypeName(d.EventTypeName))
+		w.Raw("{s: s, ctx: ")
+		w.Raw(ctxExpr)
+		w.Raw("}\n")
 	}
 }
 
-// writeDispatchClosure emits the closure passed to a handler as its
-// datapages.Dispatch[EventXXX] argument. It marshals the event and publishes it
-// to every subject its subject fields expand into. ctxExpr is the context the
-// publish uses unless the call overrides it with datapages.WithDispatchContext.
-func (w *Writer) writeDispatchClosure(
-	d *model.InputDispatch, prefix, appPkg, ctxExpr string,
-) {
-	evName := d.EventTypeName
+// writeDispatcherTypes emits the datapages.Dispatcher implementation of every
+// event a handler dispatches. It marshals the event and publishes it to every
+// subject its subject fields expand into.
+func (w *Writer) writeDispatcherTypes(appPkg string) {
+	for _, evName := range w.dispatchedEvents {
+		w.writeDispatcherType(evName, appPkg)
+	}
+}
+
+func (w *Writer) writeDispatcherType(evName, appPkg string) {
 	ev := w.eventMap[evName]
+	typeName := dispatcherTypeName(evName)
+	eventType := appPkg + "." + evName
 
 	w.Line(0, "")
-	w.Raw("\t")
-	w.Raw(dispatchVarName(prefix, evName))
-	w.Raw(" := func(\n")
-	w.Raw("\t\te ")
-	w.Raw(appPkg)
-	w.Byte('.')
-	w.Raw(evName)
-	w.Raw(",\n")
-	w.Line(2, "options ...datapages.DispatchOption,")
-	w.Line(1, ") error {")
+	w.Raw("type ")
+	w.Raw(typeName)
+	w.Raw(" struct {\n")
+	w.Line(1, "s   *Server")
+	w.Line(1, "ctx context.Context")
+	w.Line(0, "}")
 
-	w.Raw("\t\tconf := datapages.DispatchConfig{Context: ")
-	w.Raw(ctxExpr)
-	w.Raw("}\n")
-	w.Line(2, "for _, o := range options {")
-	w.Line(3, "o(&conf)")
-	w.Line(2, "}")
+	w.Line(0, "")
+	w.Raw("func (d ")
+	w.Raw(typeName)
+	w.Raw(") Dispatch(e ")
+	w.Raw(eventType)
+	w.Raw(") error {\n")
+	w.Line(1, "return d.DispatchCtx(d.ctx, e)")
+	w.Line(0, "}")
+
+	w.Line(0, "")
+	w.Raw("func (d ")
+	w.Raw(typeName)
+	w.Raw(") DispatchCtx(\n")
+	w.Line(1, "ctx context.Context, e "+eventType+",")
+	w.Line(0, ") error {")
 
 	if ev != nil && ev.HasSubjectFields() {
 		// Guard before any work: a value carrying a separator or a wildcard
 		// makes a subject of a different shape,
 		// which every subscription then misses in silence.
 		for _, sf := range ev.SubjectFields {
-			w.Raw("\t\tif !isSubjectToken(string(e.")
+			w.Raw("\tif !isSubjectToken(string(e.")
 			w.Raw(sf.FieldName)
 			w.Raw(")) {\n")
-			w.Line(3, "return fmt.Errorf(")
-			w.Raw("\t\t\t\t\"")
+			w.Line(2, "return fmt.Errorf(")
+			w.Raw("\t\t\t\"")
 			w.Raw(evName)
 			w.Byte('.')
 			w.Raw(sf.FieldName)
 			w.Raw(" must be a non-empty subject token, received %q\",\n")
-			w.Raw("\t\t\t\te.")
+			w.Raw("\t\t\te.")
 			w.Raw(sf.FieldName)
 			w.Raw(")\n")
-			w.Line(2, "}")
+			w.Line(1, "}")
 		}
 	}
 
-	w.Line(2, "j, err := json.Marshal(e)")
-	w.Line(2, "if err != nil {")
-	w.Raw("\t\t\treturn fmt.Errorf(\"marshaling ")
+	w.Line(1, "j, err := json.Marshal(e)")
+	w.Line(1, "if err != nil {")
+	w.Raw("\t\treturn fmt.Errorf(\"marshaling ")
 	w.Raw(evName)
 	w.Raw(" JSON: %w\", err)\n")
-	w.Line(2, "}")
+	w.Line(1, "}")
 
 	if ev != nil && ev.HasSubjectFields() {
 		// Every segment carries one value, so the subject is a plain
 		// concatenation of the base subject and the fields, in field order.
-		w.Raw("\t\tsubj := ")
+		w.Raw("\tsubj := ")
 		w.writeQuoted(ev.Subject + ".")
 		for i, sf := range ev.SubjectFields {
 			if i > 0 {
@@ -2630,41 +2692,48 @@ func (w *Writer) writeDispatchClosure(
 			w.Byte(')')
 		}
 		w.Byte('\n')
-		w.Raw("\t\terr = s.messageBroker.Publish(")
-		w.Raw("conf.Context, s.messageBrokerMetrics, subj, j)\n")
-		w.Line(2, "if err != nil {")
-		w.Raw("\t\t\treturn fmt.Errorf(\"publishing subject %q: %w\", subj, err)\n")
-		w.Line(2, "}")
+		w.Raw("\terr = d.s.messageBroker.Publish(")
+		w.Raw("ctx, d.s.messageBrokerMetrics, subj, j)\n")
+		w.Line(1, "if err != nil {")
+		w.Raw("\t\treturn fmt.Errorf(\"publishing subject %q: %w\", subj, err)\n")
+		w.Line(1, "}")
 	} else if ev != nil {
-		w.Raw("\t\terr = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, ")
+		w.Raw("\terr = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, ")
 		w.Raw(evSubjConst(ev))
 		w.Raw(", j)\n")
-		w.Line(2, "if err != nil {")
-		w.Raw("\t\t\treturn fmt.Errorf(\"publishing subject %q: %w\", ")
+		w.Line(1, "if err != nil {")
+		w.Raw("\t\treturn fmt.Errorf(\"publishing subject %q: %w\", ")
 		w.Raw(evSubjConst(ev))
 		w.Raw(", err)\n")
-		w.Line(2, "}")
+		w.Line(1, "}")
 	}
 
-	w.Line(2, "return nil")
-	w.Line(1, "}")
+	w.Line(1, "return nil")
+	w.Line(0, "}")
 }
 
+// Handler inputs are carried by datapages.Path, datapages.Query and
+// datapages.Signals, so generated code populates the Values field of each.
+const (
+	varPath    = "path.Values"
+	varQuery   = "query.Values"
+	varSignals = "signals.Values"
+)
+
 func renderSignalsType(input *model.Input, m *model.App) string {
-	if isNamedType(input.Type) {
-		return renderType(input.Type)
-	}
-	return renderAnonStructType(input.Type, m.Fset)
+	return "datapages.Signals[" + renderValuesType(input, m) + "]"
 }
 
 func renderQueryType(input *model.Input, m *model.App) string {
-	if isNamedType(input.Type) {
-		return renderType(input.Type)
-	}
-	return renderAnonStructType(input.Type, m.Fset)
+	return "datapages.Query[" + renderValuesType(input, m) + "]"
 }
 
 func renderPathType(input *model.Input, m *model.App) string {
+	return "datapages.Path[" + renderValuesType(input, m) + "]"
+}
+
+// renderValuesType renders the Values type argument of a wrapped input.
+func renderValuesType(input *model.Input, m *model.App) string {
 	if isNamedType(input.Type) {
 		return renderType(input.Type)
 	}
@@ -2699,19 +2768,19 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	var outsBuf [8]string
 	outs := outsBuf[:0]
 	if p.GET.OutputBody != nil {
-		outs = append(outs, p.GET.OutputBody.Name)
+		outs = append(outs, outputVar(p.GET.OutputBody.Output))
 	}
 	if p.GET.OutputHead != nil {
-		outs = append(outs, p.GET.OutputHead.Name)
+		outs = append(outs, outputVar(p.GET.OutputHead.Output))
 	}
 	if h.OutputRedirect != nil {
-		outs = append(outs, h.OutputRedirect.Name)
+		outs = append(outs, outputVar(h.OutputRedirect))
 	}
 	if h.OutputDisableRefresh != nil {
-		outs = append(outs, h.OutputDisableRefresh.Name)
+		outs = append(outs, outputVar(h.OutputDisableRefresh))
 	}
 	if h.OutputEnableBgStream != nil {
-		outs = append(outs, h.OutputEnableBgStream.Name)
+		outs = append(outs, outputVar(h.OutputEnableBgStream))
 	}
 	if h.OutputErr != nil {
 		outs = append(outs, "err")
@@ -2738,7 +2807,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	// Redirect.
 	if h.OutputRedirect != nil {
 		w.Raw("\tif httpRedirect(w, r, ")
-		w.Raw(h.OutputRedirect.Name)
+		w.Raw(outputVar(h.OutputRedirect))
 		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -2757,7 +2826,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 
 	headArg := "nil"
 	if p.GET.OutputHead != nil {
-		headArg = p.GET.OutputHead.Name
+		headArg = outputVar(p.GET.OutputHead.Output)
 	}
 
 	w.Line(1, "if err := s.writeHTML(")

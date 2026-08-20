@@ -199,8 +199,9 @@ Datapages is a good fit if you:
 
 ## Contributing
 
-See [CLAUDE.md](CLAUDE.md) for code style, testing
-conventions, commit message format, and project structure.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and commands, and
+[AGENTS.md](AGENTS.md) for code style, testing conventions, commit message format
+and project structure.
 
 Use the `example/classifieds/` application as a real-world
 test fixture when developing Datapages.

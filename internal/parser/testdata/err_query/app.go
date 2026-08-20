@@ -22,7 +22,9 @@ type PageNotStruct struct{ App *App }
 
 /* ErrQueryParamNotStruct */
 
-func (PageNotStruct) GET(r *http.Request, query int) (body datapages.Component, err error) {
+func (PageNotStruct) GET(
+	r *http.Request, query datapages.Query[int],
+) (body datapages.Component, err error) {
 	_ = query
 	return body, err
 }
@@ -34,9 +36,9 @@ type PageUnexported struct{ App *App }
 
 func (PageUnexported) GET(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		term string `query:"t"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = query
 	return body, err
@@ -49,9 +51,9 @@ type PageUnsupportedType struct{ App *App }
 
 func (PageUnsupportedType) GET(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Data []byte `query:"d"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = query
 	return body, err
@@ -64,9 +66,9 @@ type PageMissingTag struct{ App *App }
 
 func (PageMissingTag) GET(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Term string
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = query
 	return body, err
@@ -79,10 +81,10 @@ type PageDuplicateTag struct{ App *App }
 
 func (PageDuplicateTag) GET(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Term  string `query:"q"`
 		Other string `query:"q"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = query
 	return body, err

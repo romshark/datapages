@@ -1,6 +1,6 @@
 module github.com/romshark/datapages/example/calculator
 
-go 1.26.6
+go 1.27.0
 
 replace github.com/romshark/datapages => ../../
 
@@ -10,8 +10,8 @@ require (
 	github.com/romshark/datapages v0.9.4
 	github.com/shopspring/decimal v1.4.0
 	github.com/starfederation/datastar-go v1.2.2
-	github.com/stretchr/testify v1.12.0
-	github.com/wailsapp/wails/v3 v3.0.0-beta.9
+	github.com/stretchr/testify v1.12.1
+	github.com/wailsapp/wails/v3 v3.0.0-beta.10
 	golang.org/x/sync v0.22.0
 )
 
@@ -24,15 +24,12 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
-	github.com/kr/pretty v0.3.1 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/nats-io/nkeys v0.4.16 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
-	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

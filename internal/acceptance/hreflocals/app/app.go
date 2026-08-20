@@ -27,11 +27,11 @@ type PageItem struct{ App *App }
 
 func (PageItem) GET(
 	_ *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		B bool `path:"b"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	return templ.Raw(fmt.Sprintf(`<pre id="echo">b=%t</pre>`, path.B)), nil
+	return templ.Raw(fmt.Sprintf(`<pre id="echo">b=%t</pre>`, path.Values.B)), nil
 }
 
 // PageMix is /mix/{l}/{n}/{pageStr}
@@ -42,19 +42,19 @@ type PageMix struct{ App *App }
 
 func (PageMix) GET(
 	_ *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		L       int    `path:"l"`
 		N       int    `path:"n"`
 		PageStr string `path:"pageStr"`
-	},
-	query struct {
+	}],
+	query datapages.Query[struct {
 		AnyQuery string `query:"anyQuery"`
 		Page     int    `query:"page"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	return templ.Raw(fmt.Sprintf(
 		`<pre id="echo">l=%d n=%d pageStr=%s anyQuery=%s page=%d</pre>`,
-		path.L, path.N, templ.EscapeString(path.PageStr),
-		templ.EscapeString(query.AnyQuery), query.Page,
+		path.Values.L, path.Values.N, templ.EscapeString(path.Values.PageStr),
+		templ.EscapeString(query.Values.AnyQuery), query.Values.Page,
 	)), nil
 }

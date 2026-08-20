@@ -14,7 +14,7 @@ type PageOffline struct{ App *App }
 
 func (PageOffline) GET(r *http.Request) (
 	body datapages.Component,
-	disableRefreshAfterHidden bool,
+	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
 	err error,
 ) {
 	return pageOffline(), true, nil

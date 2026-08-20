@@ -24,7 +24,7 @@ func (PageIndex) GET(
 // POSTBadStream is /bad-stream
 func (PageIndex) POSTBadStream(
 	r *http.Request,
-) (enableBackgroundStreaming bool, err error) {
+) (enableBackgroundStreaming datapages.EnableBackgroundStreaming, err error) {
 	return false, nil
 }
 
@@ -33,14 +33,14 @@ func (PageIndex) POSTBadStream(
 // POSTBadRefresh is /bad-refresh
 func (PageIndex) POSTBadRefresh(
 	r *http.Request,
-) (disableRefreshAfterHidden bool, err error) {
+) (disableRefreshAfterHidden datapages.DisableRefreshAfterHidden, err error) {
 	return false, nil
 }
 
 // PageBadType is /bad-type
 type PageBadType struct{ App *App }
 
-/* ErrEnableBgStreamNotBool: wrong type */
+/* ErrSignatureUnsupportedOutput: wrong type */
 
 func (PageBadType) GET(
 	r *http.Request,
@@ -55,7 +55,7 @@ func (PageBadType) GET(
 // PageBadType2 is /bad-type2
 type PageBadType2 struct{ App *App }
 
-/* ErrDisableRefreshNotBool: wrong type */
+/* ErrSignatureUnsupportedOutput: wrong type */
 
 func (PageBadType2) GET(
 	r *http.Request,

@@ -19,7 +19,7 @@ func (PageIndex) GET(
 	return body, err
 }
 
-/* ErrRedirectNotRedirectType: redirect wrong type */
+/* ErrSignatureUnsupportedOutput: redirect wrong type */
 
 // POSTBadRedirect is /bad-redirect
 //
@@ -30,11 +30,11 @@ func (PageIndex) POSTBadRedirect(
 	return 0, nil
 }
 
-/* ErrRedirectNotRedirectType: redirect as a plain string */
+/* ErrSignatureUnsupportedOutput: redirect as a plain string */
 
 // POSTStringRedirect is /string-redirect
 //
-// Action with the legacy string redirect.
+// Action returning a string instead of datapages.Redirect.
 func (PageIndex) POSTStringRedirect(
 	r *http.Request,
 ) (redirect string, err error) {

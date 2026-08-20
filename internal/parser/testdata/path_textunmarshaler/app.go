@@ -25,9 +25,9 @@ type PageItem struct{ App *App }
 
 func (PageItem) GET(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID ID `path:"id"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	return nil, nil
 }

@@ -24,12 +24,12 @@ func (PageIndex) GET(
 	return body, err
 }
 
-// PageLegacyFunc is /legacy-func
-type PageLegacyFunc struct{ App *App }
+// PageFuncParam is /func-param
+type PageFuncParam struct{ App *App }
 
-/* ErrDispatchParamLegacy */
+/* ErrSignatureUnsupportedInput */
 
-func (PageLegacyFunc) GET(
+func (PageFuncParam) GET(
 	r *http.Request,
 	dispatch func(EventFoo) error,
 ) (body datapages.Component, err error) {
@@ -37,12 +37,12 @@ func (PageLegacyFunc) GET(
 	return body, err
 }
 
-// PageLegacyName is /legacy-name
-type PageLegacyName struct{ App *App }
+// PageDispatchInt is /dispatch-int
+type PageDispatchInt struct{ App *App }
 
-/* ErrDispatchParamLegacy */
+/* ErrSignatureUnsupportedInput */
 
-func (PageLegacyName) GET(
+func (PageDispatchInt) GET(
 	r *http.Request,
 	dispatch int,
 ) (body datapages.Component, err error) {
@@ -57,7 +57,7 @@ type PageBadEvent struct{ App *App }
 
 func (PageBadEvent) GET(
 	r *http.Request,
-	dispatchString datapages.Dispatch[string],
+	dispatchString datapages.Dispatcher[string],
 ) (body datapages.Component, err error) {
 	_ = dispatchString
 	return body, err
@@ -70,8 +70,8 @@ type PageDuplicate struct{ App *App }
 
 func (PageDuplicate) GET(
 	r *http.Request,
-	dispatchFoo datapages.Dispatch[EventFoo],
-	dispatchFooAgain datapages.Dispatch[EventFoo],
+	dispatchFoo datapages.Dispatcher[EventFoo],
+	dispatchFooAgain datapages.Dispatcher[EventFoo],
 ) (body datapages.Component, err error) {
 	_, _ = dispatchFoo, dispatchFooAgain
 	return body, err

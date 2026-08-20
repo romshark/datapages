@@ -15,7 +15,7 @@ type PageLogin struct{ App *App }
 func (PageLogin) GET(r *http.Request, session Session) (
 	body datapages.Component,
 	redirect datapages.Redirect,
-	disableRefreshAfterHidden bool,
+	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
 	err error,
 ) {
 	if !session.IsGuest() {
@@ -29,10 +29,10 @@ func (PageLogin) GET(r *http.Request, session Session) (
 func (p PageLogin) POSTSubmit(
 	r *http.Request,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`
-	},
+	}],
 ) (
 	body datapages.Component,
 	redirect datapages.Redirect,
@@ -47,7 +47,7 @@ func (p PageLogin) POSTSubmit(
 		}
 		return
 	}
-	uid, err := p.App.repo.Login(signals.EmailOrUsername, signals.Password)
+	uid, err := p.App.repo.Login(signals.Values.EmailOrUsername, signals.Values.Password)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidCredentials) ||
 			errors.Is(err, domain.ErrUserNotFound) {

@@ -14,8 +14,8 @@ type App struct{}
 
 // RecoverError renders the failure into the page the visitor is on.
 func (a *App) RecoverError(
-	_ error,
 	sse datapages.SSE,
+	_ error,
 ) error {
 	return sse.PatchElement(
 		templ.Raw(`<div id="toast">something went wrong</div>`))

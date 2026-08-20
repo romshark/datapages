@@ -19,11 +19,11 @@ func (p PageShow) GET(
 	r *http.Request,
 	session Session,
 	pageCache datapages.PageCacheWriter,
-	path struct {
+	path datapages.Path[struct {
 		Slug string `path:"nameslug"`
-	},
-) (body datapages.Component, head datapages.Component, err error) {
-	show, err := p.App.repo.ShowBySlug(r.Context(), path.Slug)
+	}],
+) (body datapages.Component, head datapages.Head, err error) {
+	show, err := p.App.repo.ShowBySlug(r.Context(), path.Values.Slug)
 	if err != nil {
 		if errors.Is(err, domain.ErrShowNotFound) {
 			return nil, nil, datapages.ErrNotFound

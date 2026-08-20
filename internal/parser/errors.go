@@ -13,7 +13,6 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	"github.com/romshark/datapages/internal/parser/internal/paramvalidation"
-	"github.com/romshark/datapages/internal/parser/internal/structtag"
 	"github.com/romshark/datapages/internal/parser/internal/templcheck"
 )
 
@@ -21,40 +20,33 @@ var (
 	ErrAppMissingTypeApp         = errors.New(`missing required type "App"`)
 	ErrAppMissingPageIndex       = errors.New(`missing required page type "PageIndex"`)
 	ErrSignatureMissingReq       = errors.New(`missing the *http.Request parameter`)
-	ErrSignatureMissingStreamID  = errors.New(`missing the streamID uint64 parameter`)
+	ErrSignatureMissingStreamID  = errors.New(`missing the datapages.StreamID parameter`)
 	ErrSignatureMultiErrRet      = errors.New(`multiple error return values`)
 	ErrSignatureUnsupportedInput = errors.New(`unsupported input parameter`)
-	// Deprecated: use ErrSignatureUnsupportedInput.
-	ErrSignatureUnknownInput     = ErrSignatureUnsupportedInput
 	ErrSignatureEvHandMissingSSE = errors.New(
 		"event handler must have a datapages.SSE parameter",
 	)
-	// Deprecated: use ErrSignatureEvHandMissingSSE.
-	ErrSignatureSecondArgNotSSE         = ErrSignatureEvHandMissingSSE
 	ErrSignatureEvHandReturnMustBeError = errors.New(
 		"event handler must return only error",
 	)
 	ErrSignatureEvHandMissingEvent = errors.New(
-		`event handler must have a parameter named "event" of an event type`,
+		"event handler must have a parameter of an event type",
 	)
-	// Deprecated: use ErrSignatureEvHandMissingEvent.
-	ErrSignatureEvHandFirstArgNotEvent     = ErrSignatureEvHandMissingEvent
-	ErrSignatureEvHandFirstArgTypeNotEvent = ErrSignatureEvHandMissingEvent
-	ErrSignatureGETMissingBody             = errors.New(
+	ErrSignatureEvHandMultipleEvents = errors.New(
+		"event handler must have exactly one parameter of an event type",
+	)
+	ErrSignatureGETMissingBody = errors.New(
 		"GET handler must return body datapages.Component",
 	)
-	ErrSignatureGETBodyWrongName = errors.New(
-		"GET handler first datapages.Component return must be named \"body\"",
-	)
-	ErrSignatureGETHeadWrongName = errors.New(
-		"GET handler second datapages.Component return must be named \"head\"",
+	ErrSignatureDuplicateOutput = errors.New(
+		"duplicate return value",
 	)
 
 	ErrAppHeadMustTakeRequest = errors.New(
-		"head must accept *http.Request as first parameter",
+		"head must accept exactly one *http.Request parameter",
 	)
-	ErrAppHeadMustReturnTemplComponent = errors.New(
-		"head must return exactly datapages.Component",
+	ErrAppHeadMustReturnHead = errors.New(
+		"head must return exactly datapages.Head",
 	)
 	ErrAppHeadUnsupportedInput = errors.New("head has unsupported input parameter")
 
@@ -113,7 +105,7 @@ var (
 	ErrQueryFieldEmptyTag        = paramvalidation.ErrQueryFieldEmptyTag
 	ErrQueryFieldUnsupportedType = paramvalidation.ErrQueryFieldUnsupportedType
 
-	ErrQueryReflectSignalNotInSignals = structtag.ErrQueryReflectSignalNotInSignals
+	ErrQueryReflectSignalNotInSignals = paramvalidation.ErrQueryReflectSignalNotInSignals
 
 	ErrSignalsParamNotStruct    = paramvalidation.ErrSignalsParamNotStruct
 	ErrSignalsFieldUnexported   = paramvalidation.ErrSignalsFieldUnexported
@@ -122,39 +114,20 @@ var (
 	ErrSignalsFieldEmptyTag     = paramvalidation.ErrSignalsFieldEmptyTag
 
 	ErrDispatchParamNotEvent = paramvalidation.ErrDispatchParamNotEvent
-	ErrDispatchParamLegacy   = paramvalidation.ErrDispatchParamLegacy
 
-	ErrSessionParamNotSessionType = errors.New(
-		"session parameter type must be datapages.Session[Data]",
-	)
 	ErrSessionTypeConflict = errors.New(
 		"all handlers must use the same datapages.Session[Data] instantiation",
 	)
-	ErrStreamIDParamNotUint64 = errors.New("streamID parameter must be of type uint64")
 
-	ErrRedirectNotRedirectType = errors.New(
-		"redirect must be of type datapages.Redirect",
-	)
-
-	ErrNewSessionNotSessionType = errors.New(
-		"newSession must be of type datapages.NewSession[Data]",
-	)
-	ErrCloseSessionNotBool = errors.New("closeSession must be of type bool")
-	ErrNewSessionWithSSE   = errors.New(
+	ErrNewSessionWithSSE = errors.New(
 		"newSession cannot be used together with sse parameter",
 	)
 	ErrCloseSessionWithSSE = errors.New(
 		"closeSession cannot be used together with sse parameter",
 	)
 
-	ErrEnableBgStreamNotBool = errors.New(
-		"enableBackgroundStreaming must be of type bool",
-	)
 	ErrEnableBgStreamNotGET = errors.New(
 		"enableBackgroundStreaming can only be used in GET handlers",
-	)
-	ErrDisableRefreshNotBool = errors.New(
-		"disableRefreshAfterHidden must be of type bool",
 	)
 	ErrDisableRefreshNotGET = errors.New(
 		"disableRefreshAfterHidden can only be used in GET handlers",
@@ -186,6 +159,10 @@ var (
 
 	ErrEventSubjectDuplicate = errors.New(
 		"duplicate event subject",
+	)
+
+	ErrEventSubjectOverlap = errors.New(
+		"overlapping event subjects",
 	)
 
 	ErrEventSubjectDuplicateSignal = errors.New(
@@ -616,6 +593,24 @@ func (e *ErrorEventSubjectDuplicate) Error() string {
 
 func (e *ErrorEventSubjectDuplicate) Unwrap() error { return ErrEventSubjectDuplicate }
 
+// ErrorEventSubjectOverlap is ErrEventSubjectOverlap with the two types whose
+// subjects cover a common subject. An event with subject fields occupies
+// everything below its own, which leaves no subject there for another event.
+type ErrorEventSubjectOverlap struct {
+	Subject       string
+	TypeName      string
+	FirstSubject  string
+	FirstTypeName string
+}
+
+func (e *ErrorEventSubjectOverlap) Error() string {
+	return fmt.Sprintf("%v: %s declares %q, which overlaps %q of %s",
+		ErrEventSubjectOverlap, e.TypeName, e.Subject,
+		e.FirstSubject, e.FirstTypeName)
+}
+
+func (e *ErrorEventSubjectOverlap) Unwrap() error { return ErrEventSubjectOverlap }
+
 // ErrorEventSubjectDuplicateSignal is ErrEventSubjectDuplicateSignal
 // with suggestion context.
 type ErrorEventSubjectDuplicateSignal struct {
@@ -716,11 +711,7 @@ type ErrorSignatureUnsupportedInput struct {
 	ParamType  string // e.g. "*http.Request"
 	Recv       string // e.g. "PageFoo"
 	MethodName string // e.g. "GET"
-	// ExpectedName is set when there is exactly one candidate for the
-	// parameter (e.g. type is Session but name is not "session").
-	ExpectedName string
-	// CandidateNames lists multiple possible parameter names when the
-	// parameter type matches more than one known input slot.
+	// CandidateNames lists the handler inputs the parameter's type could stand for.
 	CandidateNames []string
 }
 

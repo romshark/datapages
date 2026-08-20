@@ -13,10 +13,13 @@ The `App` type may optionally provide a method for custom global HTML `<head>` t
 func (*App) Head(
 	r *http.Request,
 	session datapages.Session[Data], // Optional
-) datapages.Component {
+) datapages.Head {
 	return globalHeadTags()
 }
 ```
+
+Both parameters are recognized by their type, so their names and order
+are up to the application.
 
 The `RecoverError` method allows you to recover from handler errors to improve UX by
 giving better feedback over SSE. All action handler errors (including the datapages sentinels)
@@ -32,6 +35,9 @@ func (*App) RecoverError(
 	return sse.PatchElement(errorToast(err))
 }
 ```
+
+Both parameters are recognized by their type, so their names and order
+are up to the application.
 
 ### Pages
 
@@ -79,19 +85,19 @@ and may include the following optional parameters:
 func (PageIndex) GET(
 	r *http.Request,
 	session datapages.Session[Data], // Optional
-	path struct{...}, // Required only when path variables are used in the URL
-	query struct{...}, // Optional
-	signals struct {...}, // Optional
-	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
-	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
+	path datapages.Path[struct{...}], // Required only when path variables are used in the URL
+	query datapages.Query[struct{...}], // Optional
+	signals datapages.Signals[struct{...}], // Optional
+	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
+	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) (
 	body datapages.Component,
-	head datapages.Component, // Optional
+	head datapages.Head, // Optional
 	redirect datapages.Redirect, // Optional
 	newSession datapages.NewSession[Data], // Optional
-	closeSession bool, // Optional
-	enableBackgroundStreaming bool, // Optional
-	disableRefreshAfterHidden bool, // Optional
+	closeSession datapages.CloseSession, // Optional
+	enableBackgroundStreaming datapages.EnableBackgroundStreaming, // Optional
+	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden, // Optional
 	err error
 ) {
 	// ...
@@ -104,7 +110,7 @@ not tied to a specific page:
 ```go
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request, session Session) (
-	closeSession bool,
+	closeSession datapages.CloseSession,
 	redirect datapages.Redirect,
 	err error,
 ) {
@@ -121,11 +127,11 @@ func (PageIndex) POSTActionName(
 	r *http.Request,
 	sse datapages.SSE, // Optional
 	session datapages.Session[Data], // Optional
-	path struct{...}, // Required only when path variables are used in the URL
-	query struct{...}, // Optional
-	signals struct {...}, // Optional
-	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
-	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
+	path datapages.Path[struct{...}], // Required only when path variables are used in the URL
+	query datapages.Query[struct{...}], // Optional
+	signals datapages.Signals[struct{...}], // Optional
+	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
+	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) error {
 	// ...
 }
@@ -144,33 +150,33 @@ and `closeSession` return values cannot be used.
 func (PageIndex) POSTActionName(
 	r *http.Request,
 	session datapages.Session[Data], // Optional
-	path struct{...}, // Required only when path variables are used in the URL
-	query struct{...}, // Optional
-	signals struct {...}, // Optional
-	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
-	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
+	path datapages.Path[struct{...}], // Required only when path variables are used in the URL
+	query datapages.Query[struct{...}], // Optional
+	signals datapages.Signals[struct{...}], // Optional
+	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
+	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) (
 	body datapages.Component, // Optional
-	head datapages.Component, // Optional
+	head datapages.Head, // Optional
 	redirect datapages.Redirect, // Optional
 	newSession datapages.NewSession[Data], // Optional
-	closeSession bool, // Optional
+	closeSession datapages.CloseSession, // Optional
 	err error,
 ) {
 	// ...
 }
 ```
 
-All `OnXXX` method parameter lists must include
-the `event` parameter of an event type and
-`sse datapages.SSE`. Parameters may be in any order.
+All `OnXXX` method parameter lists must include exactly one parameter
+of an event type and `sse datapages.SSE`. Parameters may be in any order.
+The event parameter is recognized by its type, its name is up to the application.
 The `XXX` placeholder must always match the event name after the type's `Event` prefix.
 
 ```go
 func (PageIndex) OnSomethingHappened(
 	event EventSomethingHappened,
 	sse datapages.SSE,
-	streamID uint64, // Optional
+	streamID datapages.StreamID, // Optional
 	session datapages.Session[Data], // Optional
 ) error {
 	// ...
@@ -184,6 +190,8 @@ the stream is closed.
 Datapages handles the error like any other Datastar request error: if `RecoverError`
 is defined it is invoked, otherwise the server falls back to its internal-error path.
 The `streamID` is a per-process unique identifier for the SSE stream instance.
+The parameter is recognized by its `datapages.StreamID` type,
+its name is up to the application.
 Use it to correlate `StreamOpen` and `StreamClose` for the same stream.
 It's intended for internal server-side bookkeeping only and
 should not be exposed to clients.
@@ -191,12 +199,12 @@ should not be exposed to clients.
 ```go
 func (PageIndex) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	sse datapages.SSE, // Optional
 	session datapages.Session[Data], // Optional
-	signals struct{...}, // Optional
-	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
-	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
+	signals datapages.Signals[struct{...}], // Optional
+	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
+	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) error {
 	// ...
 }
@@ -209,10 +217,10 @@ If it returns an error, datapages logs the error server-side.
 ```go
 func (PageIndex) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	session datapages.Session[Data], // Optional
-	dispatchSomething datapages.Dispatch[EventSomethingHappened], // Optional
-	dispatchSomethingElse datapages.Dispatch[EventSomethingElseHappened], // Optional
+	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
+	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) error {
 	// ...
 }
@@ -283,12 +291,12 @@ func (p PageExample) GET(r *http.Request) (body datapages.Component, err error) 
 func (p PageExample) POSTInputChanged(
 	r *http.Request,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		InputValue string `json:"inputvalue"`
-	}
+	}],
 ) (body datapages.Component, err error) {
 	// Patch the page with a fat morph directly on action.
-	data, err := p.App.fetchData(signals.InputValue)
+	data, err := p.App.fetchData(signals.Values.InputValue)
 	if err != nil {
 		return nil, err
 	}
@@ -299,10 +307,10 @@ func (p PageExample) POSTInputChanged(
 func (p PageExample) POSTButtonClicked(
 	r *http.Request,
 	session Session,
-	dispatch datapages.Dispatch[EventSomethingHappened],
+	somethingHappened datapages.Dispatcher[EventSomethingHappened],
 ) error {
 	// Update everyone that something happened.
-	return dispatch(EventSomethingHappened{WhoCausedIt: session.UserID()})
+	return somethingHappened.Dispatch(EventSomethingHappened{WhoCausedIt: session.UserID()})
 }
 
 func (p PageExample) OnSomethingHappened(
@@ -317,48 +325,52 @@ func (p PageExample) OnSomethingHappened(
 
 </details>
 
-#### Parameter: `signals struct {...}`
+#### Parameter: `datapages.Signals[struct {...}]`
 
 ```go
-signals struct {
+signals datapages.Signals[struct {
 	Foo string `json:"foo"`
 	Bar int	`json:"bar"`
-}
+}]
 ```
 
 Provides the captured [Datastar signals](https://data-star.dev/guide/reactive_signals)
-from the page. Signal fields map directly to Datastar signal names via their `json` tags.
-Any named or anonymous struct is accepted,
+from the page. The parameter is recognized by its `datapages.Signals` type,
+its name is up to the application. The values are read from the `Values` field.
+Signal fields map directly to Datastar signal names via their `json` tags.
+Any named or anonymous struct is accepted as the type argument,
 but every field must have a json struct field tag.
 Any JSON-serializable field type is supported, including nested structs, slices, and maps.
 
 Nested structs map to nested Datastar signals using dot notation:
 
 ```go
-signals struct {
+signals datapages.Signals[struct {
 	Form struct {
 		Name  string `json:"name"`
 		Email string `json:"email"`
 	} `json:"form"`
-}
+}]
 ```
 
 This maps to Datastar signals `$form.name` and `$form.email`, initialized in
 templates with `data-signals:form.name="''"` and `data-signals:form.email="''"`,
 or as a single object `data-signals="{form: {name: '', email: ''}}"`.
-The Go handler receives the nested values as `signals.Form.Name` and
-`signals.Form.Email`.
+The Go handler receives the nested values as `signals.Values.Form.Name` and
+`signals.Values.Form.Email`.
 
-#### Parameter: `path struct {...}`
+#### Parameter: `datapages.Path[struct {...}]`
 
 ```go
-path struct {
+path datapages.Path[struct {
 	ID string `path:"id"`
-}
+}]
 ```
 
 Provides URL path parameters. These parameters must be defined in the URL comment.
-Both named and anonymous struct types are accepted.
+The parameter is recognized by its `datapages.Path` type, its name is up to the
+application. The values are read from the `Values` field.
+Both named and anonymous struct types are accepted as the type argument.
 
 Each field must be exported with a `path:"..."` struct tag
 where the tag value names the corresponding route variable
@@ -386,34 +398,36 @@ Values are parsed from their string representation in the URL.
 If a value cannot be parsed into the target type, the request
 returns HTTP 400 Bad Request.
 
-#### Parameter: `query struct {...}`
+#### Parameter: `datapages.Query[struct {...}]`
 
 ```go
-query struct {
+query datapages.Query[struct {
 	Filter string `query:"f"`
 	Limit  int	`query:"l"`
-}
+}]
 ```
 
 Provides URL query parameters.
-Both named and anonymous struct types are accepted.
+The parameter is recognized by its `datapages.Query` type, its name is up to the
+application. The values are read from the `Values` field.
+Both named and anonymous struct types are accepted as the type argument.
 
 Each field must be exported with a `query:"..."` struct tag
 where the tag value names the query parameter key
 (e.g. `query:"f"` reads from `?f=...`).
 
-The same field types as [`path`](#parameter-path-struct-) are supported.
+The same field types as [`datapages.Path`](#parameter-datapagespathstruct-) are supported.
 
 The `reflectsignal` struct field tag can be used to define what signal shall reflect
 into the query parameter:
 
 ```go
-signals struct {
+signals datapages.Signals[struct {
 	SelectedItem string `json:"selecteditem"`
-},
-query struct {
+}],
+query datapages.Query[struct {
 	SelectedItem string `query:"s" reflectsignal:"selecteditem"`
-}
+}]
 ```
 
 The above example will automatically synchronize the query parameter `s` with the
@@ -426,6 +440,8 @@ session datapages.Session[Data]
 ```
 
 Provides authentication information from cookies.
+The parameter is recognized by its `datapages.Session` type,
+its name is up to the application.
 
 The session is read-only: it exposes `UserID()`, `IsGuest()`, `Token()`,
 `IssuedAt()`, `ExpiresAt()` and `Data()`, and returning [`newSession`](#return-value-newsession-datapagesnewsessiondata)
@@ -464,18 +480,25 @@ sse datapages.SSE
 ```
 
 This parameter is allowed on `POSTXXX`, `PUTXXX`, `PATCHXXX`, and `DELETEXXX` page methods
-handling [action requests](https://data-star.dev/reference/actions) and
-`OnXXX` event handler page methods.
+handling [action requests](https://data-star.dev/reference/actions),
+on `OnXXX` event handler page methods, on `StreamOpen` and on `RecoverError`.
+`StreamClose` does not accept it.
 This gives you a handle to patch page elements, execute scripts, etc.
 
 `datapages.SSE` (from `github.com/romshark/datapages`) hides the underlying
 Datastar generator so handler signatures never depend on the datastar package
 directly.
 
-It provides `Context`, `PatchElement`, `RemoveElement`, `ExecuteScript`,
-`PatchSignals`, `PatchSignalsIfMissing`, `Redirect` and `Prefetch`, alongside the
-`PatchOption` values (`WithSelector`, `WithSelectorID`, `WithMode`) and the
-`PatchMode` constants.
+It provides `Context`, `PatchElement`, `PatchElementAt`, `RemoveElement`,
+`ExecuteScript`, `PatchSignals`, `PatchSignalsIfMissing`, `Redirect` and
+`Prefetch`, alongside the `PatchMode` constants.
+
+`PatchElement(c)` morphs each rendered element into the element carrying its id.
+`PatchElementAt(c, selector, mode)` names the target and how it is applied:
+
+```go
+return sse.PatchElementAt(toast(msg), "#toaster", datapages.PatchModeAppend)
+```
 
 The interface is defined in [datapages.go](datapages.go), which documents each
 method and is the source of truth. It is also rendered on
@@ -555,14 +578,14 @@ refreshes whenever that data changes:
 func (p PageItem) GET(
 	r *http.Request,
 	pageCache datapages.PageCacheWriter,
-	path struct {
+	path datapages.Path[struct {
 		ID string `path:"id"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	item := p.App.item(path.ID)
+	item := p.App.item(path.Values.ID)
 	if pageCache.Version() < item.Revision {
 		// Missing, or cached before the item last changed.
-		pageCache.Set(href.PageItem(path.ID), itemOffline(item), item.Revision)
+		pageCache.Set(href.PageItem(path.Values.ID), itemOffline(item), item.Revision)
 	}
 	return itemView(item), nil
 }
@@ -593,34 +616,34 @@ func (a *App) POSTPrecache(
 
 See [Service Worker](#service-worker) for how these entries are stored and served.
 
-#### Parameter: `datapages.Dispatch[EventXXX]`
+#### Parameter: `datapages.Dispatcher[EventXXX]`
 
 ```go
-dispatchXxx datapages.Dispatch[EventXXX]
+xxx datapages.Dispatcher[EventXXX]
 ```
 
-This parameter provides a function for dispatching events, which can be handled
-by `OnXXX` page methods. Its name is free, the type is what makes it a dispatcher.
+This parameter dispatches events, which can be handled by `OnXXX` page methods.
+Its name is free, the type is what makes it a dispatcher.
 `EventXXX` must be an event type declared in the application package.
 
 ```go
-type Dispatch[Event any] func(
-	event Event,
-	options ...DispatchOption,
-) error
+type Dispatcher[Event any] interface {
+	Dispatch(event Event) error
+	DispatchCtx(ctx context.Context, event Event) error
+}
 ```
 
-The publish uses the context of the handler that dispatches: the request context
-in actions, and the request context without its cancelation in stream hooks,
-which run while the stream is being torn down.
-`datapages.WithDispatchContext(ctx)` overrides it, which a handler needs only
-when it dispatches after returning, from a goroutine that outlives it,
-or when the publish needs a deadline of its own:
+`Dispatch` publishes with the context of the handler that dispatches: the request
+context in actions, and the request context without its cancelation in stream
+hooks, which run while the stream is being torn down. `DispatchCtx` publishes with
+the given context, which a handler needs only when it dispatches after
+returning, from a goroutine that outlives it, or when the publish needs a
+deadline of its own:
 
 ```go
 ctx, cancel := context.WithTimeout(r.Context(), time.Second)
 defer cancel()
-return dispatch(EventSomethingHappened{}, datapages.WithDispatchContext(ctx))
+return somethingHappened.DispatchCtx(ctx, EventSomethingHappened{})
 ```
 
 An event type must use json struct field tags, and be strictly commented with
@@ -661,7 +684,7 @@ type EventNotify struct {
 	Text string `json:"text"`
 }
 
-dispatch(EventNotify{
+notify.Dispatch(EventNotify{
 	Recipient: "u1",
 	Room:      "r1",
 	Device:    "mobile",
@@ -681,7 +704,7 @@ To reach several rooms, or several users, dispatch once per value:
 
 ```go
 for _, room := range rooms {
-	err := dispatch(EventNotify{
+	err := notify.Dispatch(EventNotify{
 		Recipient: "u1",
 		Room:      datapages.Subject(room),
 		Device:    "mobile",
@@ -765,6 +788,10 @@ type EventRoomUpdate struct {
 - A user-addressed subject field must not have a `signal:"..."` tag.
 - No two subject fields may share the same `signal:"..."` tag value.
 - Signal tag names must match `[a-z][a-z0-9_.]*`.
+- Two events must not share a subject.
+- An event with subject fields occupies every subject below its own. No other
+  event may declare one there. `"notify"` with one subject field rules out
+  `"notify.user"`, since a page cannot tell the two apart on arrival.
 
 The following is invalid because a subject field appears after a payload field:
 
@@ -790,9 +817,9 @@ One dispatcher publishes one event type. A handler that publishes several
 declares one parameter per type, and it must not declare two for the same type:
 
 ```go
-dispatchA datapages.Dispatch[EventTypeA],
-dispatchB datapages.Dispatch[EventTypeB],
-dispatchC datapages.Dispatch[EventTypeC],
+typeA datapages.Dispatcher[EventTypeA],
+typeB datapages.Dispatcher[EventTypeB],
+typeC datapages.Dispatcher[EventTypeC],
 ```
 
 The events go out in the order the handler dispatches them.
@@ -801,8 +828,8 @@ stops the ones after, which is why joining the errors is usually what you want:
 
 ```go
 return errors.Join(
-	dispatchA(EventTypeA{}),
-	dispatchB(EventTypeB{}),
+	typeA.Dispatch(EventTypeA{}),
+	typeB.Dispatch(EventTypeB{}),
 )
 ```
 
@@ -826,25 +853,24 @@ type PageChat struct { App *App }
 
 func (PageChat) POSTSendMessage(
 	r *http.Request,
-	e EventMessageSent,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		InputText string `json:"inputtext"`
 		ChatRoom  string `json:"chatroom"`
-	},
-	dispatch datapages.Dispatch[EventMessageSent],
+	}],
+	messageSent datapages.Dispatcher[EventMessageSent],
 ) error {
 	if !isUserAllowedToSendMessages(session.UserID()) {
 		return errors.New("unauthorized")
 	}
-	if signals.InputText == "" {
+	if signals.Values.InputText == "" {
 		return nil // No-op.
 	}
 	for _, participant := range chatroom.ParticipantIDs {
-		err := dispatch(EventMessageSent{
+		err := messageSent.Dispatch(EventMessageSent{
 			Recipient: datapages.SubjectUser(participant),
-			ChatRoom:  datapages.Subject(signals.ChatRoom),
-			Message:   signals.InputText,
+			ChatRoom:  datapages.Subject(signals.Values.ChatRoom),
+			Message:   signals.Values.InputText,
 			Sender:    session.UserID(),
 		})
 		if err != nil {
@@ -873,7 +899,7 @@ subscribed to its subject at the time of the publish.
 A stream misses an event when:
 
 - its tab is in the background, where the stream is closed by default, see
-  [`enableBackgroundStreaming`](#get-return-value-enablebackgroundstreaming-bool);
+  [`enableBackgroundStreaming`](#get-return-value-enablebackgroundstreaming-datapagesenablebackgroundstreaming);
 - its subscription buffer is full. The buffer holds `ChanBuffer` messages, 16 by
   default, and the broker drops what does not fit instead of blocking the
   publisher. A stream consumes events one at a time: a slow `OnXXX` handler
@@ -881,7 +907,7 @@ A stream misses an event when:
 
 A missed event is not reported to the page. The UI stays stale until the next render,
 which by default follows the tab becoming visible again,
-see [`disableRefreshAfterHidden`](#get-return-value-disablerefreshafterhidden-bool).
+see [`disableRefreshAfterHidden`](#get-return-value-disablerefreshafterhidden-datapagesdisablerefreshafterhidden).
 A render must therefore carry the full state, not a delta.
 
 Applications built with Prometheus metrics export drops as
@@ -891,9 +917,12 @@ Applications built with Prometheus metrics export drops as
 
 Specifies the [Templ](https://templ.guide/) template to use for the contents of the page.
 
-#### Return Value: `head datapages.Component`
+#### Return Value: `head datapages.Head`
 
 Specifies the [Templ](https://templ.guide/) template to use for `<head>` tag of the page.
+`datapages.Head` is `datapages.Component` under another name, which is what
+tells the head apart from the body.
+Return values are recognized by their type, their names are up to the application.
 
 #### Return Value: `redirect datapages.Redirect`
 
@@ -930,10 +959,10 @@ optional `ExpiresAt` and `Data`. See
 [datapages.go](datapages.go) and
 [pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#NewSession).
 
-#### Return Value: `closeSession bool`
+#### Return Value: `closeSession datapages.CloseSession`
 
 ```go
-closeSession bool
+closeSession datapages.CloseSession
 ```
 
 Closes the session and removes any session cookie if `true`, otherwise no-op.
@@ -972,12 +1001,12 @@ defined, all errors (including the datapages sentinels) are routed through it fi
 `RecoverError` is not defined or fails, the server responds with the appropriate HTTP
 status code using the standard status text.
 
-#### `GET` Return Value: `enableBackgroundStreaming bool`
+#### `GET` Return Value: `enableBackgroundStreaming datapages.EnableBackgroundStreaming`
 
 Can only be used for `GET` methods.
 
 ```go
-enableBackgroundStreaming bool
+enableBackgroundStreaming datapages.EnableBackgroundStreaming
 ```
 
 By default, `OnXXX` event handlers can't deliver updates to background tabs.
@@ -993,12 +1022,12 @@ it opens again. See [Event delivery](#event-delivery).
 hidden. If you want to prevent this, you have to explicitly add
 `disableRefreshAfterHidden` to the return values and set it to `false`.
 
-#### `GET` Return Value: `disableRefreshAfterHidden bool`
+#### `GET` Return Value: `disableRefreshAfterHidden datapages.DisableRefreshAfterHidden`
 
 Can only be used for `GET` methods.
 
 ```go
-disableRefreshAfterHidden bool
+disableRefreshAfterHidden datapages.DisableRefreshAfterHidden
 ```
 
 By default, Datapages refreshes the page when it becomes active again after being in the

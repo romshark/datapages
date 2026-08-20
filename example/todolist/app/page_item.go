@@ -12,11 +12,11 @@ type PageItem struct{ App *App }
 
 func (p PageItem) GET(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID string `path:"id"`
-	},
+	}],
 ) (body datapages.Component, redirect datapages.Redirect, err error) {
-	todo, ok := p.App.list.GetItem(path.ID)
+	todo, ok := p.App.list.GetItem(path.Values.ID)
 	if !ok {
 		return nil, datapages.Redirect{URL: "/"}, nil
 	}
@@ -25,21 +25,21 @@ func (p PageItem) GET(
 
 func (p PageItem) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	sse datapages.SSE,
-	signals struct {
+	signals datapages.Signals[struct {
 		ItemID string `json:"itemId"`
-	},
+	}],
 ) error {
 	p.App.lockTabs.Lock()
 	p.App.streamIDToTabState[streamID] = &tabState{
-		ItemID: signals.ItemID,
+		ItemID: signals.Values.ItemID,
 	}
 	p.App.lockTabs.Unlock()
 	return p.App.patchTabID(streamID, sse)
 }
 
-func (p PageItem) StreamClose(r *http.Request, streamID uint64) {
+func (p PageItem) StreamClose(r *http.Request, streamID datapages.StreamID) {
 	p.App.lockTabs.Lock()
 	delete(p.App.streamIDToTabState, streamID)
 	p.App.lockTabs.Unlock()
@@ -48,21 +48,21 @@ func (p PageItem) StreamClose(r *http.Request, streamID uint64) {
 // DELETEItem is /item/{id}/
 func (p PageItem) DELETEItem(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID string `path:"id"`
-	},
-	signals struct {
+	}],
+	signals datapages.Signals[struct {
 		TabID string `json:"tab_id"`
-	},
-	dispatch datapages.Dispatch[EventTodoUpdated],
+	}],
+	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) (redirect datapages.Redirect, err error) {
-	if _, err := p.App.verifyTabID(signals.TabID); err != nil {
+	if _, err := p.App.verifyTabID(signals.Values.TabID); err != nil {
 		return redirect, fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
 	}
-	if !p.App.list.DeleteItem(path.ID) {
+	if !p.App.list.DeleteItem(path.Values.ID) {
 		return redirect, fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 	}
-	if err := dispatch(EventTodoUpdated{}); err != nil {
+	if err := todoUpdated.Dispatch(EventTodoUpdated{}); err != nil {
 		return redirect, err
 	}
 	return datapages.Redirect{URL: "/"}, nil
@@ -71,7 +71,7 @@ func (p PageItem) DELETEItem(
 func (p PageItem) OnTodoUpdated(
 	event EventTodoUpdated,
 	sse datapages.SSE,
-	streamID uint64,
+	streamID datapages.StreamID,
 ) error {
 	ts := p.App.streamState(streamID)
 	if ts == nil || ts.ItemID == "" {

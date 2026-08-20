@@ -20,18 +20,18 @@ type PagePurchase struct {
 func (p PagePurchase) GET(
 	r *http.Request,
 	session Session,
-	path struct {
+	path datapages.Path[struct {
 		Slug string `path:"nameslug"`
-	},
+	}],
 ) (body datapages.Component, redirect datapages.Redirect, err error) {
 	if session.IsGuest() {
 		// Guests must sign in before purchasing.
 		return nil, datapages.Redirect{URL: href.PageLogin(href.QueryPageLogin{
-			Next: href.PagePurchase(path.Slug),
+			Next: href.PagePurchase(path.Values.Slug),
 		})}, nil
 	}
 
-	show, err := p.App.repo.ShowBySlug(r.Context(), path.Slug)
+	show, err := p.App.repo.ShowBySlug(r.Context(), path.Values.Slug)
 	if err != nil {
 		if errors.Is(err, domain.ErrShowNotFound) {
 			return nil, datapages.Redirect{}, datapages.ErrNotFound
@@ -61,25 +61,25 @@ func (p PagePurchase) POSTConfirm(
 	sse datapages.SSE,
 	pageCache datapages.PageCacheWriter,
 	session Session,
-	path struct {
+	path datapages.Path[struct {
 		Slug string `path:"nameslug"`
-	},
+	}],
 ) error {
 	if session.IsGuest() {
 		return navigate(sse, href.PageLogin(href.QueryPageLogin{
-			Next: href.PagePurchase(path.Slug),
+			Next: href.PagePurchase(path.Values.Slug),
 		}))
 	}
 
-	_, err := p.App.repo.BuyTicket(r.Context(), session.UserID(), path.Slug)
+	_, err := p.App.repo.BuyTicket(r.Context(), session.UserID(), path.Values.Slug)
 	switch {
 	case err == nil, errors.Is(err, domain.ErrTicketExists):
 		// Refresh the offline cache so the new ticket and the updated tickets
 		// list are viewable offline right away, then navigate to the ticket.
-		if err := p.refreshOfflineCache(r, pageCache, session, path.Slug); err != nil {
+		if err := p.refreshOfflineCache(r, pageCache, session, path.Values.Slug); err != nil {
 			return err
 		}
-		return navigate(sse, href.PageTicket(path.Slug))
+		return navigate(sse, href.PageTicket(path.Values.Slug))
 	case errors.Is(err, domain.ErrShowNotFound):
 		return datapages.ErrNotFound
 	case errors.Is(err, domain.ErrShowSoldOut):

@@ -94,7 +94,7 @@ func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 // is unavailable or the visitor may not watch this page.
 var errStreamRefused = errors.New("this stream may not open")
 
-func (p PageIndex) StreamOpen(r *http.Request, streamID uint64) error {
+func (p PageIndex) StreamOpen(r *http.Request, streamID datapages.StreamID) error {
 	if r.URL.Query().Get("refuse") != "" {
 		return errStreamRefused
 	}
@@ -104,11 +104,11 @@ func (p PageIndex) StreamOpen(r *http.Request, streamID uint64) error {
 
 func (p PageIndex) StreamClose(
 	_ *http.Request,
-	streamID uint64,
-	dispatchGone datapages.Dispatch[EventStreamGone],
+	streamID datapages.StreamID,
+	streamGone datapages.Dispatcher[EventStreamGone],
 ) error {
 	p.App.record("close(%d)", streamID)
-	return dispatchGone(EventStreamGone{StreamID: streamID})
+	return streamGone.Dispatch(EventStreamGone{StreamID: uint64(streamID)})
 }
 
 func (p PageIndex) OnStreamGone(event EventStreamGone, sse datapages.SSE) error {
@@ -117,16 +117,16 @@ func (p PageIndex) OnStreamGone(event EventStreamGone, sse datapages.SSE) error 
 	)))
 }
 
-func (p PageIndex) OnPong(event EventPong, sse datapages.SSE) error {
+func (p PageIndex) OnPong(pong EventPong, sse datapages.SSE) error {
 	return sse.PatchElement(templ.Raw(fmt.Sprintf(
-		`<div id="pong">pong %d</div>`, event.N,
+		`<div id="pong">pong %d</div>`, pong.N,
 	)))
 }
 
 func (p PageIndex) OnTick(
 	event EventTick,
 	sse datapages.SSE,
-	streamID uint64,
+	streamID datapages.StreamID,
 ) error {
 	p.App.record("tick(%d,%d)", streamID, event.N)
 	return sse.PatchElement(
@@ -137,12 +137,12 @@ func (p PageIndex) OnTick(
 // POSTTick is /tick
 func (p PageIndex) POSTTick(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		N int `json:"n"`
-	},
-	dispatch datapages.Dispatch[EventTick],
+	}],
+	tick datapages.Dispatcher[EventTick],
 ) error {
-	return dispatch(EventTick{N: signals.N})
+	return tick.Dispatch(EventTick{N: signals.Values.N})
 }
 
 // POSTBoth is /both
@@ -150,15 +150,15 @@ func (p PageIndex) POSTTick(
 // Two dispatchers in one handler, one per event type.
 func (p PageIndex) POSTBoth(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		N int `json:"n"`
-	},
-	dispatchTick datapages.Dispatch[EventTick],
-	dispatchPong datapages.Dispatch[EventPong],
+	}],
+	tick datapages.Dispatcher[EventTick],
+	pong datapages.Dispatcher[EventPong],
 ) error {
 	return errors.Join(
-		dispatchTick(EventTick{N: signals.N}),
-		dispatchPong(EventPong{N: signals.N}),
+		tick.Dispatch(EventTick{N: signals.Values.N}),
+		pong.Dispatch(EventPong{N: signals.Values.N}),
 	)
 }
 
@@ -166,17 +166,17 @@ func (p PageIndex) POSTBoth(
 //
 // Dispatches with a context that is already done.
 // A broker that honors the context refuses the publish,
-// which is how the test tells the option apart from the handler's own context.
+// which is how the test tells DispatchCtx apart from Dispatch.
 func (p PageIndex) POSTCanceled(
 	r *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		N int `json:"n"`
-	},
-	dispatch datapages.Dispatch[EventTick],
+	}],
+	tick datapages.Dispatcher[EventTick],
 ) error {
 	ctx, cancel := context.WithCancel(r.Context())
 	cancel()
-	return dispatch(EventTick{N: signals.N}, datapages.WithDispatchContext(ctx))
+	return tick.DispatchCtx(ctx, EventTick{N: signals.Values.N})
 }
 
 // PageLog is /log
@@ -237,30 +237,30 @@ func (p PageRoom) OnRoomBroadcast(
 // POSTSay is /room/say
 func (p PageRoom) POSTSay(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Room string `json:"room"`
 		Text string `json:"text"`
-	},
-	dispatch datapages.Dispatch[EventRoomSaid],
+	}],
+	roomSaid datapages.Dispatcher[EventRoomSaid],
 ) error {
-	return dispatch(EventRoomSaid{
-		Room: datapages.Subject(signals.Room), Text: signals.Text,
+	return roomSaid.Dispatch(EventRoomSaid{
+		Room: datapages.Subject(signals.Values.Room), Text: signals.Values.Text,
 	})
 }
 
 // POSTBroadcast is /room/broadcast
 func (p PageRoom) POSTBroadcast(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Rooms []string `json:"rooms"`
 		Text  string   `json:"text"`
-	},
-	dispatch datapages.Dispatch[EventRoomBroadcast],
+	}],
+	roomBroadcast datapages.Dispatcher[EventRoomBroadcast],
 ) error {
-	for _, room := range signals.Rooms {
-		err := dispatch(EventRoomBroadcast{
+	for _, room := range signals.Values.Rooms {
+		err := roomBroadcast.Dispatch(EventRoomBroadcast{
 			Room: datapages.Subject(room),
-			Text: signals.Text,
+			Text: signals.Values.Text,
 		})
 		if err != nil {
 			return err

@@ -12,7 +12,7 @@ https://github.com/user-attachments/assets/bac07de1-bce6-43fe-af32-41a10c2e0add
 
 ## Prerequisites
 
-- [Go](https://go.dev/dl/) 1.26+
+- [Go](https://go.dev/dl/) 1.27+
 - [Datapages](https://github.com/romshark/datapages) CLI (for `datapages watch`)
 
 ## Run

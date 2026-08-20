@@ -18,19 +18,19 @@ type PageUser struct {
 func (p PageUser) GET(
 	r *http.Request,
 	session Session,
-	path struct {
+	path datapages.Path[struct {
 		Name string `path:"name"`
-	},
+	}],
 ) (
-	body, head datapages.Component,
+	body datapages.Component, head datapages.Head,
 	redirect datapages.Redirect,
 	err error,
 ) {
-	user, err := p.App.repo.UserByName(r.Context(), path.Name)
+	user, err := p.App.repo.UserByName(r.Context(), path.Values.Name)
 	if err != nil {
 		if errors.Is(err, domain.ErrUserNotFound) {
 			// Redirect to 404 page.
-			return nil, nil, datapages.Redirect{URL: href.PageError404()}, nil
+			return nil, head, datapages.Redirect{URL: href.PageError404()}, nil
 		}
 	}
 
@@ -40,12 +40,12 @@ func (p PageUser) GET(
 		},
 	)
 	if err != nil {
-		return nil, nil, redirect, err
+		return nil, head, redirect, err
 	}
 
 	baseData, err := p.baseData(r.Context(), session)
 	if err != nil {
-		return nil, nil, redirect, err
+		return nil, head, redirect, err
 	}
 
 	body = pageUser(session, baseData, user, postsOfUser)

@@ -277,32 +277,45 @@ type sseWrapper struct {
 
 func (s sseWrapper) Context() context.Context { return s.gen.Context() }
 
-func (s sseWrapper) PatchElement(
-	c datapages.Component, opts ...datapages.PatchOption,
+func (s sseWrapper) PatchElement(c datapages.Component) error {
+	return s.gen.PatchElementTempl(c)
+}
+
+func (s sseWrapper) PatchElementAt(
+	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
 ) error {
-	var cfg datapages.PatchConfig
-	for _, o := range opts {
-		o(&cfg)
-	}
-	var ds []datastar.PatchElementOption
-	if cfg.Selector != "" {
-		ds = append(ds, datastar.WithSelector(cfg.Selector))
-	}
-	if cfg.SelectorID != "" {
-		ds = append(ds, datastar.WithSelectorID(cfg.SelectorID))
-	}
-	switch cfg.Mode {
+	switch mode {
 	case datapages.PatchModeOuter, datapages.PatchModeInner,
 		datapages.PatchModeReplace, datapages.PatchModePrepend,
 		datapages.PatchModeAppend, datapages.PatchModeBefore,
 		datapages.PatchModeAfter:
-		ds = append(ds, datastar.WithMode(datastar.ElementPatchMode(cfg.Mode)))
+	default:
+		mode = "" // Not a PatchMode constant, patch in the default mode.
 	}
-	return s.gen.PatchElementTempl(c, ds...)
+	switch {
+	case selectorCSS == "" && mode == "":
+		return s.gen.PatchElementTempl(c)
+	case mode == "":
+		return s.gen.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
+	case selectorCSS == "":
+		return s.gen.PatchElementTempl(
+			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
+		)
+	}
+	return s.gen.PatchElementTempl(c,
+		datastar.WithSelector(selectorCSS),
+		datastar.WithMode(datastar.ElementPatchMode(mode)))
 }
 
-func (s sseWrapper) RemoveElement(selector string) error {
-	return s.gen.RemoveElement(selector)
+// removeElementModeDataline is the mode line of a removal event.
+const removeElementModeDataline = datastar.ModeDatalineLiteral +
+	string(datastar.ElementPatchModeRemove)
+
+func (s sseWrapper) RemoveElement(selectorCSS string) error {
+	return s.gen.Send(datastar.EventTypePatchElements, []string{
+		datastar.SelectorDatalineLiteral + selectorCSS,
+		removeElementModeDataline,
+	})
 }
 
 func (s sseWrapper) ExecuteScript(script string) error {
@@ -328,7 +341,8 @@ func (s sseWrapper) Prefetch(urls ...string) error {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	headGeneric, head, body datapages.Component,
+	headGeneric, head datapages.Head,
+	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -518,6 +532,12 @@ func setupHandlers(s *Server) {
 	s.mux.HandleFunc(
 		"POST /form/patch/{$}",
 		s.handlePageFormPOSTPatch)
+	s.mux.HandleFunc(
+		"POST /form/patch-at/{$}",
+		s.handlePageFormPOSTPatchAt)
+	s.mux.HandleFunc(
+		"POST /form/remove/{$}",
+		s.handlePageFormPOSTRemove)
 }
 
 func (s *Server) httpErrIntern(
@@ -585,11 +605,11 @@ func (s *Server) handlePageFormPOSTSubmit(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Name string `json:"name"`
 		Age  int    `json:"age"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -647,9 +667,9 @@ func (s *Server) handlePageFormPOSTBump(
 ) {
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		By int `query:"by"`
-	}
+	}]
 	{
 		if q := q.Get("by"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
@@ -657,13 +677,13 @@ func (s *Server) handlePageFormPOSTBump(
 				s.httpErrBad(w, "unexpected value for query parameter: by", err)
 				return
 			}
-			query.By = int(i)
+			query.Values.By = int(i)
 		}
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		ID int `path:"id"`
-	}
+	}]
 	{
 		v := r.PathValue("id")
 		i, err := strconv.ParseInt(v, 10, 0)
@@ -671,7 +691,7 @@ func (s *Server) handlePageFormPOSTBump(
 			s.httpErrBad(w, "unexpected value for path parameter: id", err)
 			return
 		}
-		path.ID = int(i)
+		path.Values.ID = int(i)
 	}
 	p := app.PageForm{
 		App: s.app,
@@ -725,10 +745,10 @@ func (s *Server) handlePageFormPOSTPatch(
 	if !s.checkIsDSReq(w, r) {
 		return
 	}
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Count int `json:"count"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -740,6 +760,50 @@ func (s *Server) handlePageFormPOSTPatch(
 	err := p.POSTPatch(r, newSSE(sse), signals)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.Patch", err)
+		return
+	}
+}
+
+func (s *Server) handlePageFormPOSTPatchAt(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	var signals datapages.Signals[struct {
+		Selector string `json:"selector"`
+		Mode     string `json:"mode"`
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	p := app.PageForm{
+		App: s.app,
+	}
+	err := p.POSTPatchAt(r, newSSE(sse), signals)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageForm.PatchAt", err)
+		return
+	}
+}
+
+func (s *Server) handlePageFormPOSTRemove(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	p := app.PageForm{
+		App: s.app,
+	}
+	err := p.POSTRemove(r, newSSE(sse))
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageForm.Remove", err)
 		return
 	}
 }

@@ -354,32 +354,45 @@ type sseWrapper struct {
 
 func (s sseWrapper) Context() context.Context { return s.gen.Context() }
 
-func (s sseWrapper) PatchElement(
-	c datapages.Component, opts ...datapages.PatchOption,
+func (s sseWrapper) PatchElement(c datapages.Component) error {
+	return s.gen.PatchElementTempl(c)
+}
+
+func (s sseWrapper) PatchElementAt(
+	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
 ) error {
-	var cfg datapages.PatchConfig
-	for _, o := range opts {
-		o(&cfg)
-	}
-	var ds []datastar.PatchElementOption
-	if cfg.Selector != "" {
-		ds = append(ds, datastar.WithSelector(cfg.Selector))
-	}
-	if cfg.SelectorID != "" {
-		ds = append(ds, datastar.WithSelectorID(cfg.SelectorID))
-	}
-	switch cfg.Mode {
+	switch mode {
 	case datapages.PatchModeOuter, datapages.PatchModeInner,
 		datapages.PatchModeReplace, datapages.PatchModePrepend,
 		datapages.PatchModeAppend, datapages.PatchModeBefore,
 		datapages.PatchModeAfter:
-		ds = append(ds, datastar.WithMode(datastar.ElementPatchMode(cfg.Mode)))
+	default:
+		mode = "" // Not a PatchMode constant, patch in the default mode.
 	}
-	return s.gen.PatchElementTempl(c, ds...)
+	switch {
+	case selectorCSS == "" && mode == "":
+		return s.gen.PatchElementTempl(c)
+	case mode == "":
+		return s.gen.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
+	case selectorCSS == "":
+		return s.gen.PatchElementTempl(
+			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
+		)
+	}
+	return s.gen.PatchElementTempl(c,
+		datastar.WithSelector(selectorCSS),
+		datastar.WithMode(datastar.ElementPatchMode(mode)))
 }
 
-func (s sseWrapper) RemoveElement(selector string) error {
-	return s.gen.RemoveElement(selector)
+// removeElementModeDataline is the mode line of a removal event.
+const removeElementModeDataline = datastar.ModeDatalineLiteral +
+	string(datastar.ElementPatchModeRemove)
+
+func (s sseWrapper) RemoveElement(selectorCSS string) error {
+	return s.gen.Send(datastar.EventTypePatchElements, []string{
+		datastar.SelectorDatalineLiteral + selectorCSS,
+		removeElementModeDataline,
+	})
 }
 
 func (s sseWrapper) ExecuteScript(script string) error {
@@ -659,7 +672,8 @@ func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
 	sess datapages.Session[struct{}],
-	headGeneric, head, body datapages.Component,
+	headGeneric, head datapages.Head,
+	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -1236,8 +1250,8 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	var query app.SearchParams
-	query.Term = q.Get("q")
+	var query datapages.Query[app.SearchParams]
+	query.Values.Term = q.Get("q")
 	pageCache := newPageCache(s, r, nil)
 
 	p := app.PageIndex{
@@ -1257,7 +1271,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 
 		_, _ = io.WriteString(w, `data-signals:q="'`)
-		writeSignalString(w, query.Term)
+		writeSignalString(w, query.Values.Term)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
@@ -1290,8 +1304,8 @@ func (s *Server) handlePageIndexPOSTSearch(
 	if _, _, ok := s.auth(w, r); !ok {
 		return
 	}
-	var signals app.SearchParams
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	var signals datapages.Signals[app.SearchParams]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -1317,10 +1331,10 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Next string `query:"next"`
-	}
-	query.Next = q.Get("next")
+	}]
+	query.Values.Next = q.Get("next")
 	pageCache := newPageCache(s, r, nil)
 
 	p := app.PageLogin{
@@ -1362,12 +1376,12 @@ func (s *Server) handlePageLoginPOSTSubmit(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`
 		Next            string `json:"next"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -1429,10 +1443,10 @@ func (s *Server) handlePagePurchaseGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		Slug string `path:"nameslug"`
-	}
-	path.Slug = r.PathValue("nameslug")
+	}]
+	path.Values.Slug = r.PathValue("nameslug")
 
 	p := app.PagePurchase{
 		App: s.app,
@@ -1473,10 +1487,10 @@ func (s *Server) handlePagePurchasePOSTConfirm(
 		return
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		Slug string `path:"nameslug"`
-	}
-	path.Slug = r.PathValue("nameslug")
+	}]
+	path.Values.Slug = r.PathValue("nameslug")
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	pageCache := newPageCache(s, r, sse)
@@ -1500,10 +1514,10 @@ func (s *Server) handlePageShowGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		Slug string `path:"nameslug"`
-	}
-	path.Slug = r.PathValue("nameslug")
+	}]
+	path.Values.Slug = r.PathValue("nameslug")
 	pageCache := newPageCache(s, r, nil)
 
 	p := app.PageShow{
@@ -1538,10 +1552,10 @@ func (s *Server) handlePageTicketGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		Slug string `path:"nameslug"`
-	}
-	path.Slug = r.PathValue("nameslug")
+	}]
+	path.Values.Slug = r.PathValue("nameslug")
 	pageCache := newPageCache(s, r, nil)
 
 	p := app.PageTicket{

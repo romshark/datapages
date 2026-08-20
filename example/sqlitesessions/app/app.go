@@ -36,22 +36,22 @@ func NewApp(users *userstore.Store) *App {
 	return &App{users: users}
 }
 
-func (*App) Head(r *http.Request) datapages.Component { return head() }
+func (*App) Head(r *http.Request) datapages.Head { return head() }
 
 // POSTSignOut is /signout/{$}
 //
-// Dispatch must happen before returning closeSession=true, so
-// subscribed tabs receive the event before the framework tears down
+// Dispatch must happen before returning closeSession=true,
+// so subscribed tabs receive the event before the framework tears down
 // this session's SSE connection.
 func (*App) POSTSignOut(
 	r *http.Request,
 	session Session,
-	dispatch datapages.Dispatch[EventSessionClosed],
+	sessionClosed datapages.Dispatcher[EventSessionClosed],
 ) (
-	closeSession bool, redirect datapages.Redirect, err error,
+	closeSession datapages.CloseSession, redirect datapages.Redirect, err error,
 ) {
 	if !session.IsGuest() {
-		_ = dispatch(EventSessionClosed{
+		_ = sessionClosed.Dispatch(EventSessionClosed{
 			Recipient: datapages.SubjectUser(session.UserID()),
 			Token:     session.Token(),
 		})
@@ -63,11 +63,11 @@ func (*App) POSTSignOut(
 type PageIndex struct{ App *App }
 
 func (p PageIndex) GET(r *http.Request, session Session) (
-	body, head datapages.Component, err error,
+	body datapages.Component, head datapages.Head, err error,
 ) {
 	users, err := p.App.users.ListUsers(r.Context())
 	if err != nil {
-		return nil, nil, fmt.Errorf("listing users: %w", err)
+		return nil, head, fmt.Errorf("listing users: %w", err)
 	}
 	return pageIndex(session, users), pageIndexHead(), nil
 }
@@ -117,10 +117,13 @@ func validateRegister(name, email, password string) string {
 type PageLogin struct{ App *App }
 
 func (p PageLogin) GET(r *http.Request, session Session) (
-	body, head datapages.Component, redirect datapages.Redirect, err error,
+	body datapages.Component,
+	head datapages.Head,
+	redirect datapages.Redirect,
+	err error,
 ) {
 	if !session.IsGuest() {
-		return nil, nil, datapages.Redirect{URL: href.PageIndex()}, nil
+		return nil, head, datapages.Redirect{URL: href.PageIndex()}, nil
 	}
 	return pageLogin("", false), pageLoginHead(), redirect, nil
 }
@@ -131,12 +134,12 @@ func (p PageLogin) GET(r *http.Request, session Session) (
 func (p PageLogin) POSTValidate(
 	r *http.Request,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	msg := validateLogin(signals.Email, signals.Password)
+	msg := validateLogin(signals.Values.Email, signals.Values.Password)
 	return pageLogin(msg, msg == ""), nil
 }
 
@@ -144,10 +147,10 @@ func (p PageLogin) POSTValidate(
 func (p PageLogin) POSTSubmit(
 	r *http.Request,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
-	},
+	}],
 ) (
 	body datapages.Component,
 	redirect datapages.Redirect,
@@ -161,11 +164,13 @@ func (p PageLogin) POSTSubmit(
 		}
 		return
 	}
-	if msg := validateLogin(signals.Email, signals.Password); msg != "" {
+	if msg := validateLogin(signals.Values.Email, signals.Values.Password); msg != "" {
 		body, err = pageLogin(msg, false), nil
 		return
 	}
-	user, err := p.App.users.Authenticate(r.Context(), signals.Email, signals.Password)
+	user, err := p.App.users.Authenticate(
+		r.Context(), signals.Values.Email, signals.Values.Password,
+	)
 	if err != nil {
 		if errors.Is(err, userstore.ErrInvalidCredentials) {
 			body, err = pageLogin("Invalid email or password", false), nil
@@ -188,7 +193,10 @@ func (p PageLogin) POSTSubmit(
 type PageRegister struct{ App *App }
 
 func (p PageRegister) GET(r *http.Request, session Session) (
-	body, head datapages.Component, redirect datapages.Redirect, err error,
+	body datapages.Component,
+	head datapages.Head,
+	redirect datapages.Redirect,
+	err error,
 ) {
 	if !session.IsGuest() {
 		redirect = datapages.Redirect{URL: href.PageIndex()}
@@ -203,13 +211,15 @@ func (p PageRegister) GET(r *http.Request, session Session) (
 func (p PageRegister) POSTValidate(
 	r *http.Request,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		Name     string `json:"name"`
 		Email    string `json:"email"`
 		Password string `json:"password"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	msg := validateRegister(signals.Name, signals.Email, signals.Password)
+	msg := validateRegister(
+		signals.Values.Name, signals.Values.Email, signals.Values.Password,
+	)
 	return pageRegister(msg, msg == ""), nil
 }
 
@@ -217,11 +227,11 @@ func (p PageRegister) POSTValidate(
 func (p PageRegister) POSTSubmit(
 	r *http.Request,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		Name     string `json:"name"`
 		Email    string `json:"email"`
 		Password string `json:"password"`
-	},
+	}],
 ) (
 	body datapages.Component,
 	redirect datapages.Redirect,
@@ -236,13 +246,13 @@ func (p PageRegister) POSTSubmit(
 		return
 	}
 	if msg := validateRegister(
-		signals.Name, signals.Email, signals.Password,
+		signals.Values.Name, signals.Values.Email, signals.Values.Password,
 	); msg != "" {
 		body, err = pageRegister(msg, false), nil
 		return
 	}
 	user, err := p.App.users.Register(
-		r.Context(), signals.Name, signals.Email, signals.Password,
+		r.Context(), signals.Values.Name, signals.Values.Email, signals.Values.Password,
 	)
 	if err != nil {
 		if errors.Is(err, userstore.ErrEmailAlreadyInUse) {

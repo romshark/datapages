@@ -16,14 +16,14 @@ type PageSearch struct {
 func (p PageSearch) GET(
 	r *http.Request,
 	session Session,
-	query SearchParams,
+	query datapages.Query[SearchParams],
 ) (body datapages.Component, err error) {
 	posts, err := p.App.repo.SearchPosts(r.Context(), domain.PostSearchParams{
-		Term:     query.Term,
-		Category: query.Category,
-		PriceMin: query.PriceMin,
-		PriceMax: query.PriceMax,
-		Location: query.Location,
+		Term:     query.Values.Term,
+		Category: query.Values.Category,
+		PriceMin: query.Values.PriceMin,
+		PriceMax: query.Values.PriceMax,
+		Location: query.Values.Location,
 	})
 	if err != nil {
 		return nil, err
@@ -39,7 +39,7 @@ func (p PageSearch) GET(
 		return nil, err
 	}
 
-	return pageSearch(session, query, categories, posts, baseData), nil
+	return pageSearch(session, query.Values, categories, posts, baseData), nil
 }
 
 // POSTParamChange is /search/paramchange/{$}
@@ -47,14 +47,14 @@ func (p PageSearch) POSTParamChange(
 	r *http.Request,
 	sse datapages.SSE,
 	session Session,
-	signals SearchParams,
+	signals datapages.Signals[SearchParams],
 ) error {
 	posts, err := p.App.repo.SearchPosts(sse.Context(), domain.PostSearchParams{
-		Term:     signals.Term,
-		Category: signals.Category,
-		PriceMin: signals.PriceMin,
-		PriceMax: signals.PriceMax,
-		Location: signals.Location,
+		Term:     signals.Values.Term,
+		Category: signals.Values.Category,
+		PriceMin: signals.Values.PriceMin,
+		PriceMax: signals.Values.PriceMax,
+		Location: signals.Values.Location,
 	})
 	if err != nil {
 		return err
@@ -70,7 +70,7 @@ func (p PageSearch) POSTParamChange(
 		return err
 	}
 
-	ps := pageSearch(session, signals, categories, posts, baseData)
+	ps := pageSearch(session, signals.Values, categories, posts, baseData)
 	// Re-render the page (fat morph) and close stream.
 	return sse.PatchElement(ps)
 }

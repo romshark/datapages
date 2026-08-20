@@ -105,6 +105,35 @@ type WatchCustomWatcher struct {
 	Requires    WatcherRequires `yaml:"requires"`
 }
 
+// enumOption is one accepted text value of a config enum.
+type enumOption[T any] struct {
+	name  string
+	value T
+}
+
+// unmarshalEnum resolves text against opts, empty text yields the zero value.
+// what names the setting in the error.
+func unmarshalEnum[T any](
+	text []byte, what string, opts []enumOption[T], into *T,
+) error {
+	if len(text) == 0 {
+		var zero T
+		*into = zero
+		return nil
+	}
+	for _, o := range opts {
+		if o.name == string(text) {
+			*into = o.value
+			return nil
+		}
+	}
+	names := make([]string, len(opts))
+	for i, o := range opts {
+		names[i] = o.name
+	}
+	return fmt.Errorf("invalid %s %q, use: %s", what, text, strings.Join(names, ", "))
+}
+
 // LogLevel controls watch mode log verbosity.
 type LogLevel int8
 
@@ -114,20 +143,14 @@ const (
 	LogLevelDebug
 )
 
+var logLevels = []enumOption[LogLevel]{
+	{"erronly", LogLevelErrOnly},
+	{"verbose", LogLevelVerbose},
+	{"debug", LogLevelDebug},
+}
+
 func (l *LogLevel) UnmarshalText(text []byte) error {
-	switch string(text) {
-	case "", "erronly":
-		*l = LogLevelErrOnly
-	case "verbose":
-		*l = LogLevelVerbose
-	case "debug":
-		*l = LogLevelDebug
-	default:
-		return fmt.Errorf(
-			"invalid log level %q, use: erronly, verbose, debug", string(text),
-		)
-	}
-	return nil
+	return unmarshalEnum(text, "log level", logLevels, l)
 }
 
 // LogClear controls when the console is cleared in watch mode.
@@ -139,20 +162,13 @@ const (
 	LogClearOnFileChange
 )
 
+var logClears = []enumOption[LogClear]{
+	{"restart", LogClearOnRestart},
+	{"file-change", LogClearOnFileChange},
+}
+
 func (l *LogClear) UnmarshalText(text []byte) error {
-	switch string(text) {
-	case "":
-		*l = LogClearDisabled
-	case "restart":
-		*l = LogClearOnRestart
-	case "file-change":
-		*l = LogClearOnFileChange
-	default:
-		return fmt.Errorf(
-			"invalid clear-on %q, use: restart, file-change", string(text),
-		)
-	}
-	return nil
+	return unmarshalEnum(text, "clear-on", logClears, l)
 }
 
 // WatcherRequires defines what action a custom watcher triggers.
@@ -165,22 +181,14 @@ const (
 	WatcherRequiresRebuild
 )
 
+var watcherRequires = []enumOption[WatcherRequires]{
+	{"reload", WatcherRequiresReload},
+	{"restart", WatcherRequiresRestart},
+	{"rebuild", WatcherRequiresRebuild},
+}
+
 func (r *WatcherRequires) UnmarshalText(text []byte) error {
-	switch string(text) {
-	case "":
-		*r = WatcherRequiresNone
-	case "reload":
-		*r = WatcherRequiresReload
-	case "restart":
-		*r = WatcherRequiresRestart
-	case "rebuild":
-		*r = WatcherRequiresRebuild
-	default:
-		return fmt.Errorf(
-			"invalid requires %q, use: reload, restart, rebuild", string(text),
-		)
-	}
-	return nil
+	return unmarshalEnum(text, "requires", watcherRequires, r)
 }
 
 // Sentinel errors for assets validation.

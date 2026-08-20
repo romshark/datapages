@@ -30,11 +30,11 @@ type PageItem struct{ App *App }
 
 func (PageItem) GET(
 	_ *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		Name string `path:"name"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	return echo("name=%q", path.Name), nil
+	return echo("name=%q", path.Values.Name), nil
 }
 
 // POSTRename is /item/{name}/rename
@@ -44,14 +44,23 @@ func (PageItem) GET(
 func (PageItem) POSTRename(
 	_ *http.Request,
 	sse datapages.SSE,
-	path struct {
+	path datapages.Path[struct {
 		Name string `path:"name"`
-	},
-	query struct {
+	}],
+	query datapages.Query[struct {
 		To string `query:"to"`
-	},
+	}],
 ) error {
-	return sse.PatchElement(echo("renamed %q to %q", path.Name, query.To))
+	return sse.PatchElement(echo("renamed %q to %q", path.Values.Name, query.Values.To))
+}
+
+// EventRenamed is "renamed"
+type EventRenamed struct{}
+
+// OnRenamed turns PageItem into a stream page, which makes it render the
+// data-init attribute that carries the path value.
+func (PageItem) OnRenamed(event EventRenamed, sse datapages.SSE) error {
+	return sse.PatchElement(echo("renamed"))
 }
 
 // PageSearch is /search
@@ -59,10 +68,10 @@ type PageSearch struct{ App *App }
 
 func (PageSearch) GET(
 	_ *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Term string `query:"term"`
 		Page int    `query:"page"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	return echo("term=%q page=%d", query.Term, query.Page), nil
+	return echo("term=%q page=%d", query.Values.Term, query.Values.Page), nil
 }

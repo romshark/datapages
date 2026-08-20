@@ -12,7 +12,7 @@ import (
 
 type App struct{}
 
-func (a *App) Head(_ *http.Request) datapages.Component {
+func (a *App) Head(_ *http.Request) datapages.Head {
 	return templ.Raw(`<title>global</title>`)
 }
 
@@ -25,7 +25,7 @@ func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 
 // POSTRender is /render
 func (PageIndex) POSTRender(_ *http.Request) (
-	body, head datapages.Component, err error,
+	body datapages.Component, head datapages.Head, err error,
 ) {
 	return templ.Raw("body"), templ.Raw(`<meta name="from" content="action">`), nil
 }

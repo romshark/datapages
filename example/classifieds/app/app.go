@@ -63,7 +63,7 @@ type SearchParams struct {
 
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request, session Session) (
-	closeSession bool,
+	closeSession datapages.CloseSession,
 	redirect datapages.Redirect,
 	err error,
 ) {
@@ -79,9 +79,7 @@ func (*App) RecoverError(
 	err error,
 	sse datapages.SSE,
 ) error {
-	return sse.PatchElement(toastError500(),
-		datapages.WithSelectorID("toaster"),
-		datapages.WithMode(datapages.PatchModeAppend))
+	return sse.PatchElementAt(toastError500(), "#toaster", datapages.PatchModeAppend)
 	// Or use script execution:
 	//
 	// 	return sse.ExecuteScript(`
@@ -101,7 +99,7 @@ func (*App) RecoverError(
 }
 
 // Page render funcs
-func (*App) Head(r *http.Request) datapages.Component {
+func (*App) Head(r *http.Request) datapages.Head {
 	return head()
 }
 
@@ -209,7 +207,7 @@ type PageError500 struct{ App *App }
 
 func (PageError500) GET(r *http.Request) (
 	body datapages.Component,
-	disableRefreshAfterHidden bool,
+	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
 	err error,
 ) {
 	return pageError500(), true, nil

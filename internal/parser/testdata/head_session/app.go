@@ -11,7 +11,8 @@ type Session = datapages.Session[struct{}]
 
 type App struct{}
 
-func (*App) Head(r *http.Request, session Session) datapages.Component { return nil }
+// The parameters are matched by type, so their order and names are free.
+func (*App) Head(session Session, req *http.Request) datapages.Head { return nil }
 
 // PageIndex is /
 type PageIndex struct{ App *App }

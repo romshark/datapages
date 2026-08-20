@@ -19,9 +19,9 @@ func (p PageIndex) GET(
 	r *http.Request,
 	session Session,
 	pageCache datapages.PageCacheWriter,
-	query SearchParams,
+	query datapages.Query[SearchParams],
 ) (body datapages.Component, err error) {
-	shows, err := p.App.repo.SearchShows(r.Context(), query.Term)
+	shows, err := p.App.repo.SearchShows(r.Context(), query.Values.Term)
 	if err != nil {
 		return nil, err
 	}
@@ -40,16 +40,16 @@ func (p PageIndex) GET(
 			ver,
 		)
 	}
-	return pageShows(session, query, shows, baseData), nil
+	return pageShows(session, query.Values, shows, baseData), nil
 }
 
 // POSTSearch is /search/{$}
 func (p PageIndex) POSTSearch(
 	r *http.Request,
 	sse datapages.SSE,
-	signals SearchParams,
+	signals datapages.Signals[SearchParams],
 ) error {
-	shows, err := p.App.repo.SearchShows(sse.Context(), signals.Term)
+	shows, err := p.App.repo.SearchShows(sse.Context(), signals.Values.Term)
 	if err != nil {
 		return err
 	}

@@ -22,7 +22,9 @@ type PageNotStruct struct{ App *App }
 
 /* ErrSignalsParamNotStruct */
 
-func (PageNotStruct) GET(r *http.Request, signals int) (body datapages.Component, err error) {
+func (PageNotStruct) GET(
+	r *http.Request, signals datapages.Signals[int],
+) (body datapages.Component, err error) {
 	_ = signals
 	return body, err
 }
@@ -34,9 +36,9 @@ type PageUnexported struct{ App *App }
 
 func (PageUnexported) GET(
 	r *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		name string `json:"name"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = signals
 	return body, err
@@ -49,9 +51,9 @@ type PageMissingTag struct{ App *App }
 
 func (PageMissingTag) GET(
 	r *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Name string
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = signals
 	return body, err
@@ -64,10 +66,10 @@ type PageDuplicateTag struct{ App *App }
 
 func (PageDuplicateTag) GET(
 	r *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Name  string `json:"name"`
 		Other string `json:"name"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = signals
 	return body, err
@@ -80,12 +82,12 @@ type PageBadReflect struct{ App *App }
 
 func (PageBadReflect) GET(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Term string `query:"t" reflectsignal:"nonexistent"`
-	},
-	signals struct {
+	}],
+	signals datapages.Signals[struct {
 		Filter string `json:"filter"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = query
 	_ = signals

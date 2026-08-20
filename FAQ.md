@@ -21,7 +21,7 @@ Frequently asked questions about Datapages.
   the best balance of performance, type safety, and developer experience.
   Additional engines may be supported in the future if requested.
 
-Templating benchmark source: [`internal/bench/`](internal/bench/)
+Templating benchmark source: [`internal/templatingbench/`](internal/templatingbench/)
 
 ```
 goos: darwin

@@ -35,9 +35,9 @@ func (PageIndex) GET(
 // Action with single-event dispatch.
 func (PageIndex) POSTSingle(
 	r *http.Request,
-	dispatch datapages.Dispatch[EventFoo],
+	dispatch datapages.Dispatcher[EventFoo],
 ) error {
-	return dispatch(EventFoo{Data: "hello"})
+	return dispatch.Dispatch(EventFoo{Data: "hello"})
 }
 
 // POSTMulti is /multi
@@ -45,12 +45,12 @@ func (PageIndex) POSTSingle(
 // Action with one dispatcher per event type.
 func (PageIndex) POSTMulti(
 	r *http.Request,
-	dispatchFoo datapages.Dispatch[EventFoo],
-	dispatchBar datapages.Dispatch[EventBar],
+	dispatchFoo datapages.Dispatcher[EventFoo],
+	dispatchBar datapages.Dispatcher[EventBar],
 ) error {
 	return errors.Join(
-		dispatchFoo(EventFoo{Data: "hello"}),
-		dispatchBar(EventBar{Info: "world"}),
+		dispatchFoo.Dispatch(EventFoo{Data: "hello"}),
+		dispatchBar.Dispatch(EventBar{Info: "world"}),
 	)
 }
 
@@ -59,11 +59,11 @@ func (PageIndex) POSTMulti(
 // Action with signals before dispatch.
 func (PageIndex) POSTWithSignals(
 	r *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Name string `json:"name"`
-	},
-	dispatch datapages.Dispatch[EventFoo],
+	}],
+	dispatch datapages.Dispatcher[EventFoo],
 ) error {
 	_ = signals
-	return dispatch(EventFoo{Data: "hello"})
+	return dispatch.Dispatch(EventFoo{Data: "hello"})
 }

@@ -58,17 +58,23 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add `sse datapages.SSE` parameter",
 		},
 		"ErrSignatureEvHandMissingSSE/wrapped": {
-			err:  fmt.Errorf("%w: PageFoo.OnEventBar", parser.ErrSignatureEvHandMissingSSE),
+			err: fmt.Errorf("%w: PageFoo.OnEventBar",
+				parser.ErrSignatureEvHandMissingSSE),
 			want: "fix: Add `sse datapages.SSE` parameter",
 		},
 
+		"ErrSignatureEvHandMultipleEvents": {
+			err:  parser.ErrSignatureEvHandMultipleEvents,
+			want: "fix: Keep one parameter of an EventXXX type and remove the rest",
+		},
 		"ErrSignatureEvHandMissingEvent": {
 			err:  parser.ErrSignatureEvHandMissingEvent,
-			want: "fix: Add `event EventName` parameter",
+			want: "fix: Add a parameter of an EventXXX type",
 		},
 		"ErrSignatureEvHandMissingEvent/wrapped": {
-			err:  fmt.Errorf("%w: PageFoo.OnEventBar", parser.ErrSignatureEvHandMissingEvent),
-			want: "fix: Add `event EventName` parameter",
+			err: fmt.Errorf("%w: PageFoo.OnEventBar",
+				parser.ErrSignatureEvHandMissingEvent),
+			want: "fix: Add a parameter of an EventXXX type",
 		},
 
 		"ErrPageMissingFieldApp": {
@@ -76,7 +82,9 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add field `App *App` to PageProfile",
 		},
 		"ErrPageMissingFieldApp/wrapped": {
-			err:  fmt.Errorf("outer: %w", &parser.ErrorPageMissingFieldApp{TypeName: "PageProfile"}),
+			err: fmt.Errorf("outer: %w", &parser.ErrorPageMissingFieldApp{
+				TypeName: "PageProfile",
+			}),
 			want: "fix: Add field `App *App` to PageProfile",
 		},
 
@@ -93,7 +101,9 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add `// PageFooBar is /foobar/`",
 		},
 		"ErrPageMissingPathComm/wrapped": {
-			err:  fmt.Errorf("outer: %w", &parser.ErrorPageMissingPathComm{TypeName: "PageProfile"}),
+			err: fmt.Errorf("outer: %w", &parser.ErrorPageMissingPathComm{
+				TypeName: "PageProfile",
+			}),
 			want: "fix: Add `// PageProfile is /profile/`",
 		},
 
@@ -258,7 +268,9 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrEventSubjectUserNoSession": {
-			err:  &parser.ErrorEventSubjectUserNoSession{TypeName: "EventChat", PkgName: "app"},
+			err: &parser.ErrorEventSubjectUserNoSession{
+				TypeName: "EventChat", PkgName: "app",
+			},
 			want: "fix: Define a Session type in package app",
 		},
 
@@ -268,6 +280,16 @@ func TestSuggest(t *testing.T) {
 				TypeName:  "EventChat",
 			},
 			want: "fix: Move SubjectUser before payload fields in EventChat",
+		},
+
+		"ErrEventSubjectOverlap": {
+			err: &parser.ErrorEventSubjectOverlap{
+				Subject:       "notify.user",
+				TypeName:      "EventNotifyUser",
+				FirstSubject:  "notify",
+				FirstTypeName: "EventNotify",
+			},
+			want: "fix: Give EventNotifyUser a subject outside \"notify.\", which EventNotify occupies with its subject fields",
 		},
 
 		"ErrEventSubjectDuplicateSignal": {
@@ -393,55 +415,30 @@ func TestSuggest(t *testing.T) {
 			},
 			want: "fix: Remove parameter b",
 		},
-		"ErrSignatureUnsupportedInput/rename": {
+		"ErrSignatureUnsupportedInput/single candidate": {
 			err: &parser.ErrorSignatureUnsupportedInput{
-				ParamName:    "sess",
-				ParamType:    "Session",
-				Recv:         "PageFoo",
-				MethodName:   "GET",
-				ExpectedName: "session",
+				ParamName:      "s",
+				ParamType:      "uint64",
+				Recv:           "PageFoo",
+				MethodName:     "StreamOpen",
+				CandidateNames: []string{"datapages.StreamID"},
 			},
-			want: "fix: Rename parameter sess to session",
-		},
-		"ErrSignatureUnsupportedInput/fuzzy sessionTok": {
-			err: &parser.ErrorSignatureUnsupportedInput{
-				ParamName:    "sessionTok",
-				ParamType:    "string",
-				Recv:         "PageFoo",
-				MethodName:   "GET",
-				ExpectedName: "sessionToken",
-			},
-			want: "fix: Rename parameter sessionTok to sessionToken",
-		},
-		"ErrSignatureUnsupportedInput/type string single candidate": {
-			err: &parser.ErrorSignatureUnsupportedInput{
-				ParamName:    "s",
-				ParamType:    "string",
-				Recv:         "PageFoo",
-				MethodName:   "GET",
-				ExpectedName: "sessionToken",
-			},
-			want: "fix: Rename parameter s to sessionToken",
-		},
-		"ErrSignatureUnsupportedInput/name already matches expected": {
-			err: &parser.ErrorSignatureUnsupportedInput{
-				ParamName:    "signals",
-				ParamType:    `struct{InstanceID string "json:\"instance_id\""}`,
-				Recv:         "PageIndex",
-				MethodName:   "OnCalcUpdated",
-				ExpectedName: "signals",
-			},
-			want: "fix: Remove parameter signals",
+			want: "fix: Potential candidates: datapages.StreamID",
 		},
 		"ErrSignatureUnsupportedInput/type struct multiple candidates": {
 			err: &parser.ErrorSignatureUnsupportedInput{
-				ParamName:      "data",
-				ParamType:      "struct{...}",
-				Recv:           "PageFoo",
-				MethodName:     "GET",
-				CandidateNames: []string{"path", "query", "signals"},
+				ParamName:  "data",
+				ParamType:  "struct{...}",
+				Recv:       "PageFoo",
+				MethodName: "GET",
+				CandidateNames: []string{
+					"datapages.Path[...]",
+					"datapages.Query[...]",
+					"datapages.Signals[...]",
+				},
 			},
-			want: "fix: Potential candidates: path, query, signals",
+			want: "fix: Potential candidates: datapages.Path[...], " +
+				"datapages.Query[...], datapages.Signals[...]",
 		},
 
 		"ErrPathFieldUnsupportedType": {
@@ -466,22 +463,13 @@ func TestSuggest(t *testing.T) {
 				"float32, float64, or encoding.TextUnmarshaler",
 		},
 
-		"ErrDispatchParamLegacy": {
-			err: &paramvalidation.ErrorDispatchParamLegacy{
-				Recv:       "PageFoo",
-				MethodName: "GET",
-				ParamName:  "dispatch",
-			},
-			want: "fix: Type dispatch as datapages.Dispatch[EventXXX]," +
-				" one parameter per event type the handler dispatches",
-		},
 		"ErrDispatchDuplicate": {
 			err: &parser.ErrorDispatchDuplicate{
 				Recv:          "PageFoo",
 				MethodName:    "GET",
 				EventTypeName: "EventFoo",
 			},
-			want: "fix: Remove the second datapages.Dispatch[EventFoo]" +
+			want: "fix: Remove the second datapages.Dispatcher[EventFoo]" +
 				" parameter in PageFoo.GET",
 		},
 	} {

@@ -29,7 +29,7 @@ const shimVersion = 1
 
 type App struct{}
 
-func (*App) Head(r *http.Request) datapages.Component {
+func (*App) Head(r *http.Request) datapages.Head {
 	return raw(`<title>Fast Shim</title>` +
 		`<meta name="viewport" content="width=device-width,initial-scale=1"/>` +
 		// Inline icon: without one the browser requests /favicon.ico and 404s.
@@ -172,7 +172,7 @@ func doc(title string, content func(io.Writer)) datapages.Component {
 	})
 }
 
-func raw(s string) datapages.Component {
+func raw(s string) datapages.Head {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		_, err := io.WriteString(w, s)
 		return err

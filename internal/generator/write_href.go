@@ -5,8 +5,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/routepattern"
+	"github.com/romshark/datapages/internal/structtag"
 )
 
 // WritePkgHref generates code for the datapagesgen/href package
@@ -143,58 +145,6 @@ func (w *Writer) writeRouteComment(funcName, route string) {
 	w.Byte('\n')
 }
 
-// writeRouteURL writes the URL for a route with no path variables to the buffer.
-// It strips {$} and ensures a trailing slash.
-func (w *Writer) writeRouteURL(route string) {
-	w.Raw(routeURL(route))
-}
-
-// routeURL returns the canonical URL of a route without path variables,
-// e.g. "/offline{$}" and "/offline" both yield "/offline/".
-func routeURL(route string) string {
-	r := strings.TrimSuffix(route, "{$}")
-	r = strings.TrimSuffix(r, "/")
-	if r == "" {
-		return "/"
-	}
-	return r + "/"
-}
-
-// routeSegments splits a route with path variables into alternating
-// literal and variable segments. The returned slices satisfy:
-// URL = literals[0] + vars[0] + literals[1] + vars[1] + ... + literals[len(literals)-1]
-// where len(literals) == len(vars) + 1.
-func routeSegments(route string) (literals []string, vars []string) {
-	// Remove trailing {$} marker.
-	r := strings.TrimSuffix(route, "{$}")
-	r = strings.TrimSuffix(r, "/")
-
-	for {
-		i := strings.IndexByte(r, '{')
-		if i < 0 {
-			// Remaining literal; ensure trailing slash.
-			if r == "" {
-				literals = append(literals, "/")
-			} else {
-				literals = append(literals, r+"/")
-			}
-			break
-		}
-		// Literal before the variable.
-		literals = append(literals, r[:i])
-		r = r[i+1:]
-
-		j := strings.IndexByte(r, '}')
-		varName := strings.TrimSuffix(r[:j], "...")
-		if varName != "$" && varName != "" {
-			vars = append(vars, varName)
-		}
-		r = r[j+1:]
-	}
-
-	return literals, vars
-}
-
 func (w *Writer) writeHrefFunc(p *model.Page) {
 	funcName := p.TypeName
 	pathVars := slices.Collect(routepattern.Vars(p.Route))
@@ -226,7 +176,7 @@ func (w *Writer) writeHrefFunc(p *model.Page) {
 		w.Raw("func ")
 		w.Raw(funcName)
 		w.Raw("() string { return \"")
-		w.writeRouteURL(p.Route)
+		w.Raw(routepattern.WithTrailingSlash(p.Route))
 		w.Raw("\" }\n")
 		return
 	}
@@ -257,7 +207,7 @@ func (w *Writer) writeHrefFuncPathOnly(funcName, route string, params []pathPara
 	// Pre-convert non-string params to strings.
 	w.writePathPreConvert(params)
 
-	literals, _ := routeSegments(route)
+	literals, _ := routepattern.Segments(route)
 	lo := newHrefLocals(params, nil)
 
 	// Builder.
@@ -304,7 +254,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 	// Length calculation.
 	w.Line(1, "var b strings.Builder")
 	w.Raw("\tl := len(\"")
-	w.writeRouteURL(route)
+	w.Raw(routepattern.WithTrailingSlash(route))
 	w.Raw("\")\n")
 	w.Line(1, "if anyQuery {")
 	w.Line(2, `l += len("?")`)
@@ -317,7 +267,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 	w.Line(0, "")
 
 	for _, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `l += len("&")`)
@@ -334,7 +284,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 
 	// Write URL base.
 	w.Raw("\tb.WriteString(\"")
-	w.writeRouteURL(route)
+	w.Raw(routepattern.WithTrailingSlash(route))
 	w.Raw("\")\n")
 	w.Line(1, "if anyQuery {")
 	w.Line(2, `b.WriteString("?")`)
@@ -346,7 +296,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 	w.Line(0, "")
 
 	for i, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `b.WriteString("&")`)
@@ -378,7 +328,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	w.Raw(funcName)
 	w.Raw(") string {\n")
 
-	literals, _ := routeSegments(route)
+	literals, _ := routepattern.Segments(route)
 	lo := newHrefLocals(params, fields)
 
 	// Pre-convert non-string path params.
@@ -424,7 +374,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	w.Line(0, "")
 
 	for _, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s += len(\"&\")", lo.length)
@@ -456,7 +406,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	w.Line(0, "")
 
 	for i, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s.WriteString(\"&\")", lo.builder)
@@ -498,7 +448,7 @@ func (w *Writer) writeHrefQueryType(funcName string, st *types.Struct) {
 	}
 
 	for _, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		typeName := fieldTypeName(f.Type)
 		w.Linef(1, "\t%-*s %-*s `query:\"%s\"`",
 			maxNameLen, f.Name, maxTypeLen, typeName, tag)
@@ -529,7 +479,7 @@ func (w *Writer) pathParamInfos(
 	fields := w.structFields(pathInput.Type.Resolved)
 	tagToType := make(map[string]types.Type, len(fields))
 	for _, f := range fields {
-		if tag := pathTagValue(f.Tag); tag != "" {
+		if tag := structtag.PathTagValue(f.Tag); tag != "" {
 			tagToType[tag] = f.Type
 		}
 	}
@@ -608,7 +558,7 @@ func newHrefLocals(params []pathParamInfo, fields []structFieldInfo) hrefLocals 
 		queryStr:  make(map[string]string, len(fields)),
 	}
 	for _, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		lo.queryStr[tag] = pick(tag + "Str")
 	}
 	return lo
@@ -622,7 +572,7 @@ func (w *Writer) writeTypedParams(params []pathParamInfo) {
 		}
 		w.Raw(p.Name)
 		w.Byte(' ')
-		if p.Type == nil || isStringType(p.Type) {
+		if p.Type == nil || gotypes.IsString(p.Type) {
 			w.Raw("string")
 		} else {
 			w.Raw(fieldTypeName(p.Type))
@@ -655,14 +605,14 @@ func (w *Writer) writePathPreConvert(params []pathParamInfo) {
 // A type it does not format reaches a URL as the text the caller passes,
 // which fieldTypeName declares as a string.
 func isFormattedType(t types.Type) bool {
-	return isIntType(t) || isFloatType(t) || isBoolType(t)
+	return gotypes.IsInt(t) || gotypes.IsFloat(t) || gotypes.IsBool(t)
 }
 
 // writeFormatExpr emits a strconv.Format* expression for a non-string type.
 func (w *Writer) writeFormatExpr(varName string, t types.Type) {
-	if isIntType(t) {
-		_, unsigned := intTypeParseInfo(t)
-		typeName := intTypeName(t)
+	if gotypes.IsInt(t) {
+		_, unsigned := gotypes.IntParseInfo(t)
+		typeName := gotypes.IntTypeName(t)
 		if unsigned {
 			if typeName != "uint64" {
 				w.Rawf("strconv.FormatUint(uint64(%s), 10)", varName)
@@ -676,15 +626,15 @@ func (w *Writer) writeFormatExpr(varName string, t types.Type) {
 				w.Rawf("strconv.FormatInt(%s, 10)", varName)
 			}
 		}
-	} else if isFloatType(t) {
-		bits := floatBits(t)
-		typeName := floatTypeName(t)
+	} else if gotypes.IsFloat(t) {
+		bits := gotypes.FloatBits(t)
+		typeName := gotypes.FloatTypeName(t)
 		if typeName != "float64" {
 			w.Rawf("strconv.FormatFloat(float64(%s), 'f', -1, %d)", varName, bits)
 		} else {
 			w.Rawf("strconv.FormatFloat(%s, 'f', -1, %d)", varName, bits)
 		}
-	} else if isBoolType(t) {
+	} else if gotypes.IsBool(t) {
 		w.Rawf("strconv.FormatBool(%s)", varName)
 	}
 }
@@ -692,7 +642,7 @@ func (w *Writer) writeFormatExpr(varName string, t types.Type) {
 // writeZeroCheck writes the zero-value check expression for a field to the buffer.
 func (w *Writer) writeZeroCheck(expr string, t types.Type) {
 	w.Raw(expr)
-	if isBoolType(t) {
+	if gotypes.IsBool(t) {
 		// bool: the expression itself is the condition
 		return
 	}
@@ -717,13 +667,13 @@ func (w *Writer) writeIfZeroCheck(indent int, expr string, t types.Type) {
 // fieldTypeName returns the Go type name for a field type.
 // For types not directly representable (e.g. TextUnmarshaler), returns "string".
 func fieldTypeName(t types.Type) string {
-	if isIntType(t) {
-		return intTypeName(t)
+	if gotypes.IsInt(t) {
+		return gotypes.IntTypeName(t)
 	}
-	if isFloatType(t) {
-		return floatTypeName(t)
+	if gotypes.IsFloat(t) {
+		return gotypes.FloatTypeName(t)
 	}
-	if isBoolType(t) {
+	if gotypes.IsBool(t) {
 		return "bool"
 	}
 	return "string"
@@ -740,12 +690,12 @@ func (w *Writer) writeQueryPreConvert(lo hrefLocals, fields []structFieldInfo) {
 	}
 	w.Line(1, "var (")
 	for _, f := range fields {
-		w.Linef(2, "%s string", lo.queryStr[queryTagValue(f.Tag)])
+		w.Linef(2, "%s string", lo.queryStr[structtag.QueryTagValue(f.Tag)])
 	}
 	w.Line(1, ")")
 	w.Line(0, "")
 	for _, f := range fields {
-		tag := queryTagValue(f.Tag)
+		tag := structtag.QueryTagValue(f.Tag)
 		w.Raw("\tif ")
 		w.writeZeroCheck("query."+f.Name, f.Type)
 		w.Raw(" {\n")
@@ -764,7 +714,7 @@ func (w *Writer) writeQueryPreConvert(lo hrefLocals, fields []structFieldInfo) {
 // hasNonStringFields reports whether any field has a non-string type.
 func hasNonStringFields(fields []structFieldInfo) bool {
 	for _, f := range fields {
-		if !isStringType(f.Type) {
+		if !gotypes.IsString(f.Type) {
 			return true
 		}
 	}

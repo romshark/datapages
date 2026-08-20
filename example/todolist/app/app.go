@@ -34,73 +34,73 @@ type App struct {
 
 	list               *list.List
 	lockTabs           sync.RWMutex
-	streamIDToTabState map[uint64]*tabState
+	streamIDToTabState map[datapages.StreamID]*tabState
 }
 
 func NewApp(hmacKey [32]byte, list *list.List) *App {
 	return &App{
 		hmacKey:            hmacKey,
 		list:               list,
-		streamIDToTabState: make(map[uint64]*tabState),
+		streamIDToTabState: make(map[datapages.StreamID]*tabState),
 	}
 }
 
-func (*App) Head(r *http.Request) datapages.Component { return head() }
+func (*App) Head(r *http.Request) datapages.Head { return head() }
 
 // PUTEdit is /{id}
 //
 // This action is shared across all pages.
 func (a *App) PUTEdit(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID string `path:"id"`
-	},
-	query struct {
+	}],
+	query datapages.Query[struct {
 		Toggle bool `query:"toggle"`
-	},
-	signals struct {
+	}],
+	signals datapages.Signals[struct {
 		TabID       string `json:"tab_id"`
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Done        bool   `json:"done"`
 		Due         string `json:"due"`
-	},
-	dispatch datapages.Dispatch[EventTodoUpdated],
+	}],
+	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) error {
-	if _, err := a.verifyTabID(signals.TabID); err != nil {
+	if _, err := a.verifyTabID(signals.Values.TabID); err != nil {
 		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
 	}
-	if query.Toggle {
-		if !a.list.ToggleItem(path.ID) {
+	if query.Values.Toggle {
+		if !a.list.ToggleItem(path.Values.ID) {
 			return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 		}
-		return dispatch(EventTodoUpdated{})
+		return todoUpdated.Dispatch(EventTodoUpdated{})
 	}
-	title := strings.TrimSpace(signals.Title)
+	title := strings.TrimSpace(signals.Values.Title)
 	if title == "" {
 		return fmt.Errorf("%w: title is required", datapages.ErrBadRequest)
 	}
 	var dueAt time.Time
-	if signals.Due != "" {
+	if signals.Values.Due != "" {
 		var err error
-		dueAt, err = time.Parse("2006-01-02T15:04", signals.Due)
+		dueAt, err = time.Parse("2006-01-02T15:04", signals.Values.Due)
 		if err != nil {
 			return fmt.Errorf("%w: invalid due date", datapages.ErrBadRequest)
 		}
 	}
 	if !a.list.UpdateItem(
-		path.ID, title, strings.TrimSpace(signals.Description),
-		signals.Done, dueAt,
+		path.Values.ID, title, strings.TrimSpace(signals.Values.Description),
+		signals.Values.Done, dueAt,
 	) {
 		return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 	}
-	return dispatch(EventTodoUpdated{})
+	return todoUpdated.Dispatch(EventTodoUpdated{})
 }
 
 // signStreamID produces an HMAC-signed tab identifier from a streamID.
-func (a *App) signStreamID(streamID uint64) string {
+func (a *App) signStreamID(streamID datapages.StreamID) string {
 	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], streamID)
+	binary.BigEndian.PutUint64(buf[:], uint64(streamID))
 	mac := hmac.New(sha256.New, a.hmacKey[:])
 	mac.Write(buf[:])
 	return base64.RawURLEncoding.EncodeToString(buf[:]) +
@@ -110,7 +110,7 @@ func (a *App) signStreamID(streamID uint64) string {
 var errInvalidTabID = errors.New("invalid tab ID")
 
 // verifyTabID verifies the HMAC signature and extracts the streamID.
-func (a *App) verifyTabID(tabID string) (uint64, error) {
+func (a *App) verifyTabID(tabID string) (datapages.StreamID, error) {
 	parts := strings.SplitN(tabID, "~", 2)
 	if len(parts) != 2 {
 		return 0, errInvalidTabID
@@ -128,10 +128,10 @@ func (a *App) verifyTabID(tabID string) (uint64, error) {
 	if !hmac.Equal(mac.Sum(nil), sig) {
 		return 0, errInvalidTabID
 	}
-	return binary.BigEndian.Uint64(raw), nil
+	return datapages.StreamID(binary.BigEndian.Uint64(raw)), nil
 }
 
-func (a *App) streamState(streamID uint64) *tabState {
+func (a *App) streamState(streamID datapages.StreamID) *tabState {
 	a.lockTabs.RLock()
 	defer a.lockTabs.RUnlock()
 	ts := a.streamIDToTabState[streamID]
@@ -142,7 +142,7 @@ func (a *App) streamState(streamID uint64) *tabState {
 	return &cp
 }
 
-func (a *App) patchTabID(streamID uint64, sse datapages.SSE) error {
+func (a *App) patchTabID(streamID datapages.StreamID, sse datapages.SSE) error {
 	return sse.PatchSignals(struct {
 		TabID string `json:"tab_id"`
 	}{TabID: a.signStreamID(streamID)})

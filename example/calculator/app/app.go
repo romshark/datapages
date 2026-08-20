@@ -75,14 +75,14 @@ func (a *App) verifyID(id string) error {
 	return nil
 }
 
-func (*App) Head(_ *http.Request) datapages.Component { return head() }
+func (*App) Head(_ *http.Request) datapages.Head { return head() }
 
 // PageIndex is /
 type PageIndex struct{ App *App }
 
 func (p PageIndex) GET(r *http.Request) (
 	body datapages.Component,
-	disableRefreshAfterHidden bool,
+	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
 	err error,
 ) {
 	id, err := p.App.newID()
@@ -95,42 +95,42 @@ func (p PageIndex) GET(r *http.Request) (
 // POSTInput is /input/{$}
 func (p PageIndex) POSTInput(
 	r *http.Request,
-	dispatch datapages.Dispatch[EventCalcUpdated],
-	query struct {
+	calcUpdated datapages.Dispatcher[EventCalcUpdated],
+	query datapages.Query[struct {
 		Btn int    `query:"btn"`
 		Num string `query:"num"`
-	},
-	signals struct {
+	}],
+	signals datapages.Signals[struct {
 		InstanceID string `json:"instance_id"`
 		Input      string `json:"input"`
 		Fresh      bool   `json:"fresh"`
-	},
+	}],
 ) error {
-	if err := p.App.verifyID(signals.InstanceID); err != nil {
+	if err := p.App.verifyID(signals.Values.InstanceID); err != nil {
 		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
 	}
 
-	if query.Num != "" {
-		if !numRe.MatchString(query.Num) {
+	if query.Values.Num != "" {
+		if !numRe.MatchString(query.Values.Num) {
 			return fmt.Errorf("%w: %w", datapages.ErrBadRequest, errInvalidNum)
 		}
-		input := signals.Input
-		if signals.Fresh {
+		input := signals.Values.Input
+		if signals.Values.Fresh {
 			input = ""
 		}
-		return dispatch(EventCalcUpdated{
-			InstanceID: datapages.Subject(signals.InstanceID),
-			Input:      input + query.Num,
+		return calcUpdated.Dispatch(EventCalcUpdated{
+			InstanceID: datapages.Subject(signals.Values.InstanceID),
+			Input:      input + query.Values.Num,
 			Fresh:      false,
 		})
 	}
-	btn := calc.CalcButton(query.Btn)
+	btn := calc.CalcButton(query.Values.Btn)
 	if !calc.ValidButton(btn) {
 		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, errInvalidBtn)
 	}
-	input, fresh := calc.Press(signals.Input, signals.Fresh, btn)
-	return dispatch(EventCalcUpdated{
-		InstanceID: datapages.Subject(signals.InstanceID),
+	input, fresh := calc.Press(signals.Values.Input, signals.Values.Fresh, btn)
+	return calcUpdated.Dispatch(EventCalcUpdated{
+		InstanceID: datapages.Subject(signals.Values.InstanceID),
 		Input:      input,
 		Fresh:      fresh,
 	})

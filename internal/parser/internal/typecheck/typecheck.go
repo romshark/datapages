@@ -6,26 +6,9 @@ import (
 	"go/ast"
 	"go/types"
 
+	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
 )
-
-// IsString reports whether t's underlying type is string.
-func IsString(t types.Type) bool {
-	b, ok := t.Underlying().(*types.Basic)
-	return ok && b.Kind() == types.String
-}
-
-// IsUint64 reports whether t's underlying type is uint64.
-func IsUint64(t types.Type) bool {
-	b, ok := t.Underlying().(*types.Basic)
-	return ok && b.Kind() == types.Uint64
-}
-
-// IsBool reports whether t's underlying type is bool.
-func IsBool(t types.Type) bool {
-	b, ok := t.Underlying().(*types.Basic)
-	return ok && b.Kind() == types.Bool
-}
 
 // IsInputFieldType reports whether t is a supported type for
 // path and query struct fields: string, bool, integers
@@ -36,58 +19,14 @@ func IsInputFieldType(t types.Type) bool {
 	if isBasicInputType(t) {
 		return true
 	}
-	return ImplementsTextUnmarshaler(t)
+	return gotypes.ImplementsTextUnmarshaler(t)
 }
 
 // isBasicInputType reports whether t is a basic scalar type
 // supported for path/query fields.
 func isBasicInputType(t types.Type) bool {
-	b, ok := t.Underlying().(*types.Basic)
-	if !ok {
-		return false
-	}
-	switch b.Kind() {
-	case types.String, types.Bool,
-		types.Int, types.Int8, types.Int16,
-		types.Int32, types.Int64,
-		types.Uint, types.Uint8, types.Uint16,
-		types.Uint32, types.Uint64,
-		types.Float32, types.Float64:
-		return true
-	default:
-		return false
-	}
-}
-
-// textUnmarshaler is the method set of encoding.TextUnmarshaler.
-var textUnmarshaler = func() *types.Interface {
-	sig := types.NewSignatureType(
-		nil, nil, nil,
-		types.NewTuple(types.NewVar(
-			0, nil, "text", types.NewSlice(types.Typ[types.Byte]),
-		)),
-		types.NewTuple(types.NewVar(
-			0, nil, "", types.Universe.Lookup("error").Type(),
-		)),
-		false,
-	)
-	return types.NewInterfaceType(
-		[]*types.Func{types.NewFunc(
-			0, nil, "UnmarshalText", sig,
-		)},
-		nil,
-	).Complete()
-}()
-
-// ImplementsTextUnmarshaler reports whether t or *t implements encoding.TextUnmarshaler.
-func ImplementsTextUnmarshaler(t types.Type) bool {
-	if t == nil {
-		return false
-	}
-	if types.Implements(t, textUnmarshaler) {
-		return true
-	}
-	return types.Implements(types.NewPointer(t), textUnmarshaler)
+	return gotypes.IsString(t) || gotypes.IsBool(t) ||
+		gotypes.IsInt(t) || gotypes.IsFloat(t)
 }
 
 // IsTimeTime reports whether t is time.Time from the standard library.
@@ -224,6 +163,33 @@ func isNamedFromPkg(
 	return obj.Pkg().Path() == pkgPath && obj.Name() == name
 }
 
+// IsHeadType reports whether expr resolves to datapages.Head.
+func IsHeadType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "Head")
+}
+
+// IsCloseSessionType reports whether expr resolves to datapages.CloseSession.
+func IsCloseSessionType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "CloseSession")
+}
+
+// IsEnableBgStreamType reports whether expr resolves to
+// datapages.EnableBackgroundStreaming.
+func IsEnableBgStreamType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "EnableBackgroundStreaming")
+}
+
+// IsDisableRefreshType reports whether expr resolves to
+// datapages.DisableRefreshAfterHidden.
+func IsDisableRefreshType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "DisableRefreshAfterHidden")
+}
+
+// IsStreamIDType reports whether expr resolves to datapages.StreamID.
+func IsStreamIDType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "StreamID")
+}
+
 // IsRedirectType reports whether expr resolves to datapages.Redirect.
 func IsRedirectType(expr ast.Expr, info *types.Info) bool {
 	return isNamedFromPkg(expr, info, datapagesPkgPath, "Redirect")
@@ -277,17 +243,17 @@ func namedTypeArg(
 	return args.At(0), true
 }
 
-// IsDispatchType reports whether expr resolves to datapages.Dispatch[Event].
+// IsDispatchType reports whether expr resolves to datapages.Dispatcher[Event].
 func IsDispatchType(expr ast.Expr, info *types.Info) bool {
-	_, ok := namedTypeArg(expr, info, "Dispatch")
+	_, ok := namedTypeArg(expr, info, "Dispatcher")
 	return ok
 }
 
 // DispatchEventTypeName returns the name of the Event type argument of
-// datapages.Dispatch[Event]. ok is false if expr isn't an instantiation of
-// datapages.Dispatch, name is empty if the argument isn't a named type.
+// datapages.Dispatcher[Event]. ok is false if expr isn't an instantiation of
+// datapages.Dispatcher, name is empty if the argument isn't a named type.
 func DispatchEventTypeName(expr ast.Expr, info *types.Info) (name string, ok bool) {
-	arg, ok := namedTypeArg(expr, info, "Dispatch")
+	arg, ok := namedTypeArg(expr, info, "Dispatcher")
 	if !ok {
 		return "", false
 	}
@@ -373,4 +339,37 @@ func SubjectKindOf(t types.Type) model.SubjectKind {
 		return model.SubjectKindUser
 	}
 	return model.SubjectKindNone
+}
+
+// PathValuesType returns the Values type argument of datapages.Path[Values].
+// ok is false if expr isn't an instantiation of datapages.Path.
+func PathValuesType(expr ast.Expr, info *types.Info) (types.Type, bool) {
+	return namedTypeArg(expr, info, "Path")
+}
+
+// QueryValuesType returns the Values type argument of datapages.Query[Values].
+// ok is false if expr isn't an instantiation of datapages.Query.
+func QueryValuesType(expr ast.Expr, info *types.Info) (types.Type, bool) {
+	return namedTypeArg(expr, info, "Query")
+}
+
+// SignalsValuesType returns the Values type argument of datapages.Signals[Values].
+// ok is false if expr isn't an instantiation of datapages.Signals.
+func SignalsValuesType(expr ast.Expr, info *types.Info) (types.Type, bool) {
+	return namedTypeArg(expr, info, "Signals")
+}
+
+// TypeArgExpr returns the type argument expression of a generic type
+// instantiation such as datapages.Path[struct{...}].
+// It returns expr unchanged if expr isn't an instantiation.
+func TypeArgExpr(expr ast.Expr) ast.Expr {
+	switch t := ast.Unparen(expr).(type) {
+	case *ast.IndexExpr:
+		return t.Index
+	case *ast.IndexListExpr:
+		if len(t.Indices) == 1 {
+			return t.Indices[0]
+		}
+	}
+	return expr
 }
