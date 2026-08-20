@@ -167,11 +167,11 @@ Parameters may be in any order. Skip what you don't need.
 r *http.Request
 session Session // optional
 pageCache datapages.PageCacheWriter // optional, see Step 18
-path struct { ID string `path:"id"` } // optional
-query struct { P int `query:"p"` } // optional
+path datapages.Path[struct { ID string `path:"id"` }] // optional
+query datapages.Query[struct { P int `query:"p"` }] // optional
 ```
 
-`sse`, `signals` and `dispatch` belong to action handlers, not GET.
+`sse`, `signals` and `dispatcher` belong to action handlers, not GET.
 
 ### GET Return Values
 
@@ -972,18 +972,18 @@ func (p PageTicket) GET(
 	r *http.Request,
 	session Session,
 	pageCache datapages.PageCacheWriter,
-	path struct{ Slug string `path:"nameslug"` },
-) (body templ.Component, err error) {
+	path datapages.Path[struct{ Slug string `path:"nameslug"` }],
+) (body datapages.Component, err error) {
 	// ...
 	view := pageTicket(ticket)
 	if ver := ticketVersion(ticket); pageCache.Version() != ver {
-		pageCache.Set(href.PageTicket(path.Slug), offlineDoc(view), ver)
+		pageCache.Set(href.PageTicket(path.Values.Slug), offlineDoc(view), ver)
 	}
 	return view, nil
 }
 ```
 
-See [Parameter: `pageCache datapages.PageCacheWriter`](../../SPECIFICATION.md#parameter-offlinecache-datapagesofflinecachewriter)
+See [Parameter: `pageCache datapages.PageCacheWriter`](../../SPECIFICATION.md#parameter-pagecache-datapagespagecachewriter)
 for the interface. `Version()` reports the version the client holds for **this
 request's URL**, so compare it against the resource's server-side version before
 re-caching. It cannot report the version held for any other URL, so eagerly
