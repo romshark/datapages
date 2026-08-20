@@ -22,7 +22,9 @@ type PageNotStruct struct{ App *App }
 
 /* ErrPathParamNotStruct */
 
-func (PageNotStruct) GET(r *http.Request, path int) (body datapages.Component, err error) {
+func (PageNotStruct) GET(
+	r *http.Request, path datapages.Path[int],
+) (body datapages.Component, err error) {
 	_ = path
 	return body, err
 }
@@ -34,9 +36,9 @@ type PageUnexported struct{ App *App }
 
 func (PageUnexported) GET(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		id string `path:"id"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = path
 	return body, err
@@ -49,9 +51,9 @@ type PageUnsupportedType struct{ App *App }
 
 func (PageUnsupportedType) GET(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID []byte `path:"id"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = path
 	return body, err
@@ -64,9 +66,9 @@ type PageMissingTag struct{ App *App }
 
 func (PageMissingTag) GET(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID string
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = path
 	return body, err
@@ -79,9 +81,9 @@ type PageNotInRoute struct{ App *App }
 
 func (PageNotInRoute) GET(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID string `path:"id"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = path
 	return body, err
@@ -103,10 +105,10 @@ type PageDuplicateTag struct{ App *App }
 
 func (PageDuplicateTag) GET(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID    string `path:"id"`
 		Other string `path:"id"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = path
 	return body, err

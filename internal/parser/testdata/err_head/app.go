@@ -17,4 +17,4 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 
 /* ErrAppHeadMustTakeRequest */
 
-func (*App) Head() datapages.Component { return nil }
+func (*App) Head() datapages.Head { return nil }

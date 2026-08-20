@@ -40,10 +40,10 @@ func (PageIndex) OnPing(
 // one action, one dispatch, one handler.
 func (PageIndex) POSTPing(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		N int `json:"n"`
-	},
-	dispatch datapages.Dispatch[EventPing],
+	}],
+	ping datapages.Dispatcher[EventPing],
 ) error {
-	return dispatch(EventPing{N: signals.N})
+	return ping.Dispatch(EventPing{N: signals.Values.N})
 }

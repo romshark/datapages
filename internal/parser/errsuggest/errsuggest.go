@@ -61,7 +61,7 @@ func Suggest(err error) string {
 		return "fix: Add `r *http.Request` parameter"
 
 	case errors.Is(err, parser.ErrSignatureMissingStreamID):
-		return "fix: Add `streamID uint64` parameter"
+		return "fix: Add `streamID datapages.StreamID` parameter"
 
 	case errors.Is(err, parser.ErrSignatureGETMissingBody):
 		return "fix: Add `body templ.Component` to return values"
@@ -70,7 +70,10 @@ func Suggest(err error) string {
 		return "fix: Add `sse datapages.SSE` parameter"
 
 	case errors.Is(err, parser.ErrSignatureEvHandMissingEvent):
-		return "fix: Add `event EventName` parameter"
+		return "fix: Add a parameter of an EventXXX type"
+
+	case errors.Is(err, parser.ErrSignatureEvHandMultipleEvents):
+		return "fix: Keep one parameter of an EventXXX type and remove the rest"
 
 	case errors.Is(err, parser.ErrPageMissingFieldApp):
 		var d *parser.ErrorPageMissingFieldApp
@@ -252,6 +255,16 @@ func Suggest(err error) string {
 			d.FieldName, d.TypeName,
 		)
 
+	case errors.Is(err, parser.ErrEventSubjectOverlap):
+		var d *parser.ErrorEventSubjectOverlap
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Give %s a subject outside %q, which %s occupies with its subject fields",
+			d.TypeName, d.FirstSubject+".", d.FirstTypeName,
+		)
+
 	case errors.Is(err, parser.ErrEventSubjectDuplicateSignal):
 		var d *parser.ErrorEventSubjectDuplicateSignal
 		if !errors.As(err, &d) {
@@ -416,26 +429,6 @@ func Suggest(err error) string {
 		if !errors.As(err, &d) {
 			return ""
 		}
-		// Filter candidates that differ from ExpectedName.
-		var others []string
-		for _, c := range d.CandidateNames {
-			if c != d.ExpectedName {
-				others = append(others, c)
-			}
-		}
-		if d.ExpectedName != "" && d.ExpectedName != d.ParamName {
-			s := fmt.Sprintf(
-				"fix: Rename parameter %s to %s",
-				d.ParamName, d.ExpectedName,
-			)
-			if len(others) > 0 {
-				s += fmt.Sprintf(
-					". Other candidates: %s",
-					strings.Join(others, ", "),
-				)
-			}
-			return s
-		}
 		if len(d.CandidateNames) > 0 {
 			return fmt.Sprintf(
 				"fix: Potential candidates: %s",
@@ -448,23 +441,13 @@ func Suggest(err error) string {
 		errors.Is(err, parser.ErrQueryFieldUnsupportedType):
 		return suggestUnsupportedFieldType
 
-	case errors.Is(err, parser.ErrDispatchParamLegacy):
-		var d *paramvalidation.ErrorDispatchParamLegacy
-		if !errors.As(err, &d) {
-			return ""
-		}
-		return fmt.Sprintf(
-			"fix: Type %s as datapages.Dispatch[EventXXX], one parameter per"+
-				" event type the handler dispatches", d.ParamName,
-		)
-
 	case errors.Is(err, parser.ErrDispatchDuplicate):
 		var d *parser.ErrorDispatchDuplicate
 		if !errors.As(err, &d) {
 			return ""
 		}
 		return fmt.Sprintf(
-			"fix: Remove the second datapages.Dispatch[%s] parameter in %s.%s",
+			"fix: Remove the second datapages.Dispatcher[%s] parameter in %s.%s",
 			d.EventTypeName, d.Recv, d.MethodName,
 		)
 	}
@@ -476,8 +459,6 @@ func Suggest(err error) string {
 //
 //   - ErrSignatureMultiErrRet         — message states to remove the duplicate
 //   - ErrSignatureEvHandReturnMustBeError — message names the required return type
-//   - ErrSignatureGETBodyWrongName    — message states to name it "body"
-//   - ErrSignatureGETHeadWrongName    — message states to name it "head"
 //   - ErrPageHasExtraFields           — message states to remove the fields
 //   - ErrPageConflictingGETEmbed      — message names the conflicting embedded types
 //   - ErrPageNameInvalid              — naming rule is clear from valid examples
@@ -503,14 +484,9 @@ func Suggest(err error) string {
 //   - ErrDispatchParamNotEvent        — constraint is clear from message
 //   - ErrSessionParamNotSessionType   — constraint is clear from message
 //   - ErrSessionTypeConflict          — the message names both instantiations
-//   - ErrRedirectNotRedirectType      — constraint is clear from message
-//   - ErrNewSessionNotSessionType     — constraint is clear from message
-//   - ErrCloseSessionNotBool          — constraint is clear from message
 //   - ErrNewSessionWithSSE            — message states the mutual exclusion
 //   - ErrCloseSessionWithSSE          — message states the mutual exclusion
-//   - ErrEnableBgStreamNotBool        — constraint is clear from message
 //   - ErrEnableBgStreamNotGET         — message states it must be in a GET handler
-//   - ErrDisableRefreshNotBool        — constraint is clear from message
 //   - ErrDisableRefreshNotGET         — message states it must be in a GET handler
 //   - ErrEventSubjectUserNoSession  — has dedicated suggestion above
 //   - ErrEventSubjectAfterPayload   — has dedicated suggestion above

@@ -26,8 +26,12 @@ func typeCheckSrc(t *testing.T, src string) (*ast.File, *types.Info) {
 	info := &types.Info{
 		Types: make(map[ast.Expr]types.TypeAndValue),
 	}
+	pkgPath := "test"
+	if f.Name.Name == "datapages" {
+		pkgPath = "github.com/romshark/datapages"
+	}
 	_, err = (&types.Config{}).Check(
-		"test", fset, []*ast.File{f}, info,
+		pkgPath, fset, []*ast.File{f}, info,
 	)
 	require.NoError(t, err)
 	return f, info
@@ -88,46 +92,53 @@ func fakeStructInfo() (*ast.Field, *types.Info) {
 	return f, info
 }
 
-func field(name string) *ast.Field {
-	return &ast.Field{
-		Names: []*ast.Ident{{Name: name}},
-	}
-}
+// wrapperSrc declares the datapages input types and a function taking one
+// parameter of each, plus one that is none of them. It is type-checked under
+// the import path of the datapages package, which is what the predicates match.
+const wrapperSrc = `package datapages
+
+type Path[Values any] struct{ Values Values }
+type Query[Values any] struct{ Values Values }
+type Signals[Values any] struct{ Values Values }
+type Session[Data any] struct{ data Data }
+
+func f(
+	p Path[struct{}],
+	q Query[struct{}],
+	s Signals[struct{}],
+	x int,
+	sess Session[struct{}],
+) {}`
 
 func TestIsSessionParam(t *testing.T) {
 	t.Parallel()
-	require.True(t, IsSessionParam(field("session")))
-	require.False(t, IsSessionParam(field("path")))
-	require.False(t, IsSessionParam(&ast.Field{}))
-}
-
-func TestIsLegacyDispatchParam(t *testing.T) {
-	t.Parallel()
-	info := &types.Info{Types: map[ast.Expr]types.TypeAndValue{}}
-	require.True(t, IsLegacyDispatchParam(field("dispatch"), info))
-	require.False(t, IsLegacyDispatchParam(field("path"), info))
-	require.False(t, IsLegacyDispatchParam(&ast.Field{}, info))
+	f, info := typeCheckSrc(t, wrapperSrc)
+	require.True(t, IsSessionParam(firstFuncParam(t, f, 4), info))
+	require.False(t, IsSessionParam(firstFuncParam(t, f, 3), info))
 }
 
 func TestIsPathParam(t *testing.T) {
 	t.Parallel()
-	require.True(t, IsPathParam(field("path")))
-	require.False(t, IsPathParam(field("query")))
-	require.False(t, IsPathParam(&ast.Field{}))
+	f, info := typeCheckSrc(t, wrapperSrc)
+	require.True(t, IsPathParam(firstFuncParam(t, f, 0), info))
+	require.False(t, IsPathParam(firstFuncParam(t, f, 1), info))
+	require.False(t, IsPathParam(firstFuncParam(t, f, 3), info))
 }
 
 func TestIsQueryParam(t *testing.T) {
 	t.Parallel()
-	require.True(t, IsQueryParam(field("query")))
-	require.False(t, IsQueryParam(field("path")))
-	require.False(t, IsQueryParam(&ast.Field{}))
+	f, info := typeCheckSrc(t, wrapperSrc)
+	require.True(t, IsQueryParam(firstFuncParam(t, f, 1), info))
+	require.False(t, IsQueryParam(firstFuncParam(t, f, 0), info))
+	require.False(t, IsQueryParam(firstFuncParam(t, f, 3), info))
 }
 
 func TestIsSignalsParam(t *testing.T) {
 	t.Parallel()
-	require.True(t, IsSignalsParam(field("signals")))
-	require.False(t, IsSignalsParam(field("path")))
-	require.False(t, IsSignalsParam(&ast.Field{}))
+	f, info := typeCheckSrc(t, wrapperSrc)
+	require.True(t, IsSignalsParam(firstFuncParam(t, f, 2), info))
+	require.False(t, IsSignalsParam(firstFuncParam(t, f, 0), info))
+	require.False(t, IsSignalsParam(firstFuncParam(t, f, 3), info))
 }
 
 func TestValidatePathStruct(t *testing.T) {
@@ -258,7 +269,7 @@ func f(path struct {
 			f, info := typeCheckSrc(t, tt.src)
 			p := firstFuncParam(t, f, 0)
 			err := ValidatePathStruct(
-				p, info, "Recv", "Method",
+				p.Type, info, "Recv", "Method",
 			)
 			if tt.wantErr == nil {
 				require.NoError(t, err)
@@ -272,7 +283,7 @@ func f(path struct {
 		t.Parallel()
 		f, info := fakeStructInfo()
 		err := ValidatePathStruct(
-			f, info, "Recv", "Method",
+			f.Type, info, "Recv", "Method",
 		)
 		require.ErrorIs(t, err, ErrPathParamNotStruct)
 	})
@@ -390,7 +401,7 @@ func f(query struct {
 			f, info := typeCheckSrc(t, tt.src)
 			p := firstFuncParam(t, f, 0)
 			err := ValidateQueryStruct(
-				p, info, "Recv", "Method",
+				p.Type, info, "Recv", "Method",
 			)
 			if tt.wantErr == nil {
 				require.NoError(t, err)
@@ -404,7 +415,7 @@ func f(query struct {
 		t.Parallel()
 		f, info := fakeStructInfo()
 		err := ValidateQueryStruct(
-			f, info, "Recv", "Method",
+			f.Type, info, "Recv", "Method",
 		)
 		require.ErrorIs(t, err, ErrQueryParamNotStruct)
 	})
@@ -474,7 +485,7 @@ func f(signals struct {
 			f, info := typeCheckSrc(t, tt.src)
 			p := firstFuncParam(t, f, 0)
 			err := ValidateSignalsStruct(
-				p, info, "Recv", "Method",
+				p.Type, info, "Recv", "Method",
 			)
 			if tt.wantErr == nil {
 				require.NoError(t, err)
@@ -488,7 +499,7 @@ func f(signals struct {
 		t.Parallel()
 		f, info := fakeStructInfo()
 		err := ValidateSignalsStruct(
-			f, info, "Recv", "Method",
+			f.Type, info, "Recv", "Method",
 		)
 		require.ErrorIs(
 			t, err, ErrSignalsParamNotStruct,
@@ -627,11 +638,10 @@ func typeCheckWithDatapages(t *testing.T, src string) (*ast.File, *types.Info) {
 	fset := token.NewFileSet()
 	dpFile, err := parser.ParseFile(fset, "datapages.go", `package datapages
 
-type DispatchConfig struct{}
-type DispatchOption func(*DispatchConfig)
-type Dispatch[Event any] func(
-	ctx any, event Event, options ...DispatchOption,
-) error
+type Dispatcher[Event any] interface {
+	Dispatch(event Event) error
+	DispatchCtx(ctx any, event Event) error
+}
 `, 0)
 	require.NoError(t, err)
 	dpPkg, err := (&types.Config{}).Check(
@@ -662,7 +672,7 @@ func TestIsDispatchParam(t *testing.T) {
 	src := `package test
 import "github.com/romshark/datapages"
 type EventFoo struct{}
-func f(d datapages.Dispatch[EventFoo], notDispatch string) {}`
+func f(d datapages.Dispatcher[EventFoo], notDispatch string) {}`
 	f, info := typeCheckWithDatapages(t, src)
 	require.True(t, IsDispatchParam(firstFuncParam(t, f, 0), info))
 	require.False(t, IsDispatchParam(firstFuncParam(t, f, 1), info))
@@ -684,28 +694,28 @@ func TestValidateDispatch(t *testing.T) {
 			src: `package test
 import "github.com/romshark/datapages"
 type EventFoo struct{}
-func f(d datapages.Dispatch[EventFoo]) {}`,
+func f(d datapages.Dispatcher[EventFoo]) {}`,
 			wantEvent: "EventFoo",
 		},
 		"valid through alias": {
 			src: `package test
 import "github.com/romshark/datapages"
 type EventBar struct{}
-type DispatchBar = datapages.Dispatch[EventBar]
+type DispatchBar = datapages.Dispatcher[EventBar]
 func f(d DispatchBar) {}`,
 			wantEvent: "EventBar",
 		},
 		"type argument not an event type": {
 			src: `package test
 import "github.com/romshark/datapages"
-func f(d datapages.Dispatch[string]) {}`,
+func f(d datapages.Dispatcher[string]) {}`,
 			wantErr: ErrDispatchParamNotEvent,
 		},
 		"type argument is an undeclared type": {
 			src: `package test
 import "github.com/romshark/datapages"
 type NotAnEvent struct{}
-func f(d datapages.Dispatch[NotAnEvent]) {}`,
+func f(d datapages.Dispatcher[NotAnEvent]) {}`,
 			wantErr: ErrDispatchParamNotEvent,
 		},
 		"not a dispatcher": {
@@ -735,6 +745,60 @@ func f(d string) {}`,
 			} else {
 				require.ErrorIs(t, err, tt.wantErr)
 			}
+		})
+	}
+}
+
+func TestValidateReflectSignal(t *testing.T) {
+	sigType := namedType(t, "package test\n"+
+		"type P struct {\n"+
+		"\tCount int `json:\"count\"`\n"+
+		"\tName  string `json:\"name\"`\n"+
+		"}")
+	queryType := func(tag string) types.Type {
+		return namedType(t, "package test\n"+
+			"type P struct {\n"+
+			"\tSearch string `"+tag+"`\n"+
+			"}")
+	}
+	input := func(t types.Type) *model.Input {
+		return &model.Input{Type: model.Type{Resolved: t}}
+	}
+	notAStruct := input(types.Typ[types.Int])
+
+	for name, td := range map[string]struct {
+		handler *model.Handler
+		wantErr error
+	}{
+		"no query":         {handler: &model.Handler{}},
+		"no signals":       {handler: &model.Handler{InputQuery: notAStruct}},
+		"query not struct": {handler: &model.Handler{InputQuery: notAStruct, InputSignals: notAStruct}},
+		"signals not struct": {handler: &model.Handler{
+			InputQuery: input(sigType), InputSignals: notAStruct,
+		}},
+		"no reflectsignal tag": {handler: &model.Handler{
+			InputQuery:   input(queryType(`query:"search"`)),
+			InputSignals: input(sigType),
+		}},
+		"reflectsignal matches signal": {handler: &model.Handler{
+			InputQuery:   input(queryType(`query:"search" reflectsignal:"count"`)),
+			InputSignals: input(sigType),
+		}},
+		"reflectsignal not in signals": {
+			handler: &model.Handler{
+				InputQuery:   input(queryType(`query:"search" reflectsignal:"missing"`)),
+				InputSignals: input(sigType),
+			},
+			wantErr: ErrQueryReflectSignalNotInSignals,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := ValidateReflectSignal(td.handler, "Recv", "Method")
+			if td.wantErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, td.wantErr)
 		})
 	}
 }

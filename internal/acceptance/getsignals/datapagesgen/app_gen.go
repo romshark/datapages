@@ -280,7 +280,8 @@ func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
 	sess datapages.Session[struct{}],
-	head, body datapages.Component,
+	head datapages.Head,
+	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -702,12 +703,12 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Term string `json:"term"`
 		Page int    `json:"page"`
-	}
+	}]
 	if r.URL.Query().Has("datastar") {
-		if err := datastar.ReadSignals(r, &signals); err != nil {
+		if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 			s.httpErrBad(w, "reading signals", err)
 			return
 		}

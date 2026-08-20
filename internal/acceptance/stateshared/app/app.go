@@ -34,7 +34,7 @@ type Base struct{ App *App }
 
 func (Base) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	state *TabContext,
 ) error {
 	_, _, _ = r, streamID, state
@@ -67,13 +67,13 @@ func (PageIndex) POSTNote(
 	_ *http.Request,
 	state *TabContext,
 	stateID string,
-	signals struct {
+	signals datapages.Signals[struct {
 		Note string `json:"note"`
-	},
-	dispatch datapages.Dispatch[EventChanged],
+	}],
+	dispatch datapages.Dispatcher[EventChanged],
 ) error {
-	state.Note = signals.Note
-	return dispatch(EventChanged{
+	state.Note = signals.Values.Note
+	return dispatch.Dispatch(EventChanged{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
 }
@@ -106,10 +106,10 @@ func (a *App) POSTBump(
 	_ *http.Request,
 	state *TabContext,
 	stateID string,
-	dispatch datapages.Dispatch[EventChanged],
+	dispatch datapages.Dispatcher[EventChanged],
 ) error {
 	state.Counter++
-	return dispatch(EventChanged{
+	return dispatch.Dispatch(EventChanged{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
 }

@@ -30,7 +30,7 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 
 func (PageIndex) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	state *TabState,
 ) error {
 	return nil
@@ -51,13 +51,13 @@ func (PageIndex) POSTUpdate(
 	r *http.Request,
 	state *TabState,
 	stateID string,
-	signals struct {
+	signals datapages.Signals[struct {
 		Filter string `json:"filter"`
-	},
-	dispatch datapages.Dispatch[EventFiltersUpdated],
+	}],
+	dispatch datapages.Dispatcher[EventFiltersUpdated],
 ) error {
-	state.Filter = signals.Filter
-	return dispatch(EventFiltersUpdated{
+	state.Filter = signals.Values.Filter
+	return dispatch.Dispatch(EventFiltersUpdated{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
 }

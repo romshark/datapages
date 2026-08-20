@@ -22,7 +22,7 @@ type Base struct{ App *App }
 
 func (Base) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	state *TabContext,
 ) error {
 	return nil

@@ -28,7 +28,7 @@ type EventFiltersUpdated struct {
 	SubjectStateID datapages.SubjectStateID
 }
 
-func (*App) Head(_ *http.Request) datapages.Component {
+func (*App) Head(_ *http.Request) datapages.Head {
 	return templ.Raw(`<title>acceptance</title>`)
 }
 
@@ -41,7 +41,7 @@ func (p PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 
 func (p PageIndex) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	state *StateFilters,
 ) error {
 	return nil
@@ -55,13 +55,13 @@ func (p PageIndex) POSTUpdate(
 	r *http.Request,
 	state *StateFilters,
 	stateID string,
-	signals struct {
+	signals datapages.Signals[struct {
 		Filter string `json:"filter"`
-	},
-	dispatch datapages.Dispatch[EventFiltersUpdated],
+	}],
+	dispatch datapages.Dispatcher[EventFiltersUpdated],
 ) error {
-	state.Filter = signals.Filter
-	return dispatch(EventFiltersUpdated{
+	state.Filter = signals.Values.Filter
+	return dispatch.Dispatch(EventFiltersUpdated{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
 }
@@ -91,7 +91,7 @@ func (p PageFailOpen) GET(r *http.Request) (body datapages.Component, err error)
 
 func (p PageFailOpen) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	state *StateFilters,
 ) error {
 	return ErrStreamOpen
@@ -112,7 +112,7 @@ func (p PagePanicOnClose) GET(r *http.Request) (body datapages.Component, err er
 
 func (p PagePanicOnClose) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	state *StateFilters,
 ) error {
 	panic(ErrStreamClose)

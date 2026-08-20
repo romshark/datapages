@@ -43,7 +43,7 @@ func NewApp(l *list.List) *App {
 	return &App{list: l}
 }
 
-func (*App) Head(r *http.Request) datapages.Component { return head() }
+func (*App) Head(r *http.Request) datapages.Head { return head() }
 
 // PUTEdit is /{id}
 //
@@ -51,43 +51,43 @@ func (*App) Head(r *http.Request) datapages.Component { return head() }
 // editing a todo mutates global list state, not per-tab state.
 func (a *App) PUTEdit(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID string `path:"id"`
-	},
-	query struct {
+	}],
+	query datapages.Query[struct {
 		Toggle bool `query:"toggle"`
-	},
-	signals struct {
+	}],
+	signals datapages.Signals[struct {
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Done        bool   `json:"done"`
 		Due         string `json:"due"`
-	},
-	dispatch datapages.Dispatch[EventTodoUpdated],
+	}],
+	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) error {
-	if query.Toggle {
-		if !a.list.ToggleItem(path.ID) {
+	if query.Values.Toggle {
+		if !a.list.ToggleItem(path.Values.ID) {
 			return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 		}
-		return dispatch(EventTodoUpdated{})
+		return todoUpdated.Dispatch(EventTodoUpdated{})
 	}
-	title := strings.TrimSpace(signals.Title)
+	title := strings.TrimSpace(signals.Values.Title)
 	if title == "" {
 		return fmt.Errorf("%w: title is required", datapages.ErrBadRequest)
 	}
 	var dueAt time.Time
-	if signals.Due != "" {
+	if signals.Values.Due != "" {
 		var err error
-		dueAt, err = time.Parse("2006-01-02T15:04", signals.Due)
+		dueAt, err = time.Parse("2006-01-02T15:04", signals.Values.Due)
 		if err != nil {
 			return fmt.Errorf("%w: invalid due date", datapages.ErrBadRequest)
 		}
 	}
 	if !a.list.UpdateItem(
-		path.ID, title, strings.TrimSpace(signals.Description),
-		signals.Done, dueAt,
+		path.Values.ID, title, strings.TrimSpace(signals.Values.Description),
+		signals.Values.Done, dueAt,
 	) {
 		return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 	}
-	return dispatch(EventTodoUpdated{})
+	return todoUpdated.Dispatch(EventTodoUpdated{})
 }

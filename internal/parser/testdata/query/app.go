@@ -20,14 +20,14 @@ type PageSearch struct{ App *App }
 
 func (PageSearch) GET(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Term     string  `query:"t"`
 		Category string  `query:"c"`
 		Limit    int     `query:"l"`
 		PriceMin int64   `query:"pmin"`
 		MaxPrice float64 `query:"pmax"`
 		InStock  bool    `query:"instock"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = query
 	return body, err
@@ -36,10 +36,10 @@ func (PageSearch) GET(
 // POSTFilter is /search/filter
 func (PageSearch) POSTFilter(
 	r *http.Request,
-	query struct {
+	params datapages.Query[struct {
 		Page int `query:"p"`
-	},
+	}],
 ) error {
-	_ = query
+	_ = params
 	return nil
 }

@@ -156,39 +156,36 @@ func runInit(
 		return err
 	}
 
-	// Step 7: Write compose.yaml if missing.
-	if _, err := writeComposeIfMissing(projectDir, out); err != nil {
-		return err
+	// Step 7: Write the remaining project files if missing.
+	for _, f := range []struct {
+		rel     string
+		content string
+	}{
+		{"compose.yaml", skeleton.ComposeYAML},
+		{"Makefile", skeleton.Makefile},
+		{".vscode/extensions.json", skeleton.VSCodeExtensions},
+		{".github/workflows/ci.yml", skeleton.CIWorkflow},
+	} {
+		if _, err := writeIfMissing(
+			projectDir, f.rel, []byte(f.content), out,
+		); err != nil {
+			return err
+		}
 	}
 
-	// Step 8: Write Makefile if missing.
-	if _, err := writeMakefileIfMissing(projectDir, out); err != nil {
-		return err
-	}
-
-	// Step 8b: Write .vscode/extensions.json if missing.
-	if _, err := writeVSCodeExtensionsIfMissing(projectDir, out); err != nil {
-		return err
-	}
-
-	// Step 8c: Write .github/workflows/ci.yml if missing.
-	if _, err := writeGithubWorkflowIfMissing(projectDir, out); err != nil {
-		return err
-	}
-
-	// Step 9: Run go mod tidy to resolve app package dependencies
+	// Step 8: Run go mod tidy to resolve app package dependencies
 	// (e.g. templ) so the parser can type-check before code generation.
 	if err := goModTidy(projectDir); err != nil {
 		return err
 	}
 
-	// Step 10: Run templ generate to produce _templ.go files from .templ
+	// Step 9: Run templ generate to produce _templ.go files from .templ
 	// sources so the parser can type-check before code generation.
 	if err := templGenerate(projectDir); err != nil {
 		return err
 	}
 
-	// Step 11: Run code generation so all imports exist for the final tidy.
+	// Step 10: Run code generation so all imports exist for the final tidy.
 	conf, _, err := config.Load(projectDir)
 	if err != nil {
 		return err
@@ -197,7 +194,7 @@ func runInit(
 		return err
 	}
 
-	// Step 12: Run go mod tidy again to resolve generated code dependencies.
+	// Step 11: Run go mod tidy again to resolve generated code dependencies.
 	if err := goModTidy(projectDir); err != nil {
 		return err
 	}
@@ -370,44 +367,29 @@ func remoteURLToModulePath(rawURL string) string {
 	return rawURL
 }
 
-func gitInit(dir string) error {
-	c := exec.Command("git", "init")
+// runIn runs a command in dir, reporting its combined output on failure.
+// label names the command in that error.
+func runIn(dir, label, name string, args ...string) error {
+	c := exec.Command(name, args...)
 	c.Dir = dir
 	if out, err := c.CombinedOutput(); err != nil {
-		return fmt.Errorf("git init: %s", strings.TrimSpace(string(out)))
+		return fmt.Errorf("%s: %s", label, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
 
+func gitInit(dir string) error { return runIn(dir, "git init", "git", "init") }
+
 func goModInit(dir, modulePath string) error {
-	c := exec.Command("go", "mod", "init", modulePath)
-	c.Dir = dir
-	if out, err := c.CombinedOutput(); err != nil {
-		return fmt.Errorf("go mod init: %s", strings.TrimSpace(string(out)))
-	}
-	return nil
+	return runIn(dir, "go mod init", "go", "mod", "init", modulePath)
 }
 
 func templGenerate(dir string) error {
-	c := exec.Command(
-		"go", "run", "github.com/a-h/templ/cmd/templ@latest",
-		"generate", "./app/",
-	)
-	c.Dir = dir
-	if out, err := c.CombinedOutput(); err != nil {
-		return fmt.Errorf("templ generate: %s", strings.TrimSpace(string(out)))
-	}
-	return nil
+	return runIn(dir, "templ generate",
+		"go", "run", "github.com/a-h/templ/cmd/templ@latest", "generate", "./app/")
 }
 
-func goModTidy(dir string) error {
-	c := exec.Command("go", "mod", "tidy")
-	c.Dir = dir
-	if out, err := c.CombinedOutput(); err != nil {
-		return fmt.Errorf("go mod tidy: %s", strings.TrimSpace(string(out)))
-	}
-	return nil
-}
+func goModTidy(dir string) error { return runIn(dir, "go mod tidy", "go", "mod", "tidy") }
 
 func writeDefaultConfigIfMissing(
 	projectDir string, prometheus bool, w io.Writer,
@@ -424,30 +406,41 @@ func writeDefaultConfigIfMissing(
 	return true, nil
 }
 
-func writeAppGoIfMissing(projectDir string, w io.Writer) (bool, error) {
-	appDir := filepath.Join(projectDir, "app")
-	appFile := filepath.Join(appDir, "app.go")
-	if _, err := os.Stat(appFile); err == nil {
+// writeIfMissing writes content to rel under projectDir unless rel exists.
+func writeIfMissing(
+	projectDir, rel string, content []byte, w io.Writer,
+) (bool, error) {
+	path := filepath.Join(projectDir, filepath.FromSlash(rel))
+	if _, err := os.Stat(path); err == nil {
 		return false, nil
 	}
-	if err := os.MkdirAll(appDir, 0o755); err != nil {
-		return false, fmt.Errorf("creating app directory: %w", err)
+	if dir := filepath.Dir(path); dir != projectDir {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return false, fmt.Errorf("creating %s: %w", filepath.Dir(rel), err)
+		}
 	}
-	if err := os.WriteFile(appFile, []byte(skeleton.AppGo), 0o644); err != nil {
-		return false, fmt.Errorf("writing app/app.go: %w", err)
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		return false, fmt.Errorf("writing %s: %w", rel, err)
 	}
-	_, _ = fmt.Fprintln(w, "Created app/app.go")
-	templFile := filepath.Join(appDir, "app.templ")
-	if err := os.WriteFile(templFile, []byte(skeleton.AppTempl), 0o644); err != nil {
-		return false, fmt.Errorf("writing app/app.templ: %w", err)
-	}
-	_, _ = fmt.Fprintln(w, "Created app/app.templ")
+	_, _ = fmt.Fprintf(w, "Created %s\n", rel)
 	return true, nil
 }
 
+func writeAppGoIfMissing(projectDir string, w io.Writer) (bool, error) {
+	wrote, err := writeIfMissing(
+		projectDir, "app/app.go", []byte(skeleton.AppGo), w,
+	)
+	if err != nil || !wrote {
+		return false, err
+	}
+	_, err = writeIfMissing(
+		projectDir, "app/app.templ", []byte(skeleton.AppTempl), w,
+	)
+	return true, err
+}
+
 func writeEnvIfMissing(projectDir string, w io.Writer) (bool, error) {
-	envFile := filepath.Join(projectDir, ".env")
-	if _, err := os.Stat(envFile); err == nil {
+	if _, err := os.Stat(filepath.Join(projectDir, ".env")); err == nil {
 		return false, nil
 	}
 	csrfSecret, err := randomHex(32)
@@ -461,69 +454,7 @@ func writeEnvIfMissing(projectDir string, w io.Writer) (bool, error) {
 	content := "NATS_URL=nats://localhost:4222\n" +
 		"CSRF_SECRET=" + csrfSecret + "\n" +
 		"SESSION_ENCRYPTION_KEY=" + sessKey + "\n"
-	if err := os.WriteFile(envFile, []byte(content), 0o644); err != nil {
-		return false, fmt.Errorf("writing .env: %w", err)
-	}
-	_, _ = fmt.Fprintln(w, "Created .env")
-	return true, nil
-}
-
-func writeComposeIfMissing(projectDir string, w io.Writer) (bool, error) {
-	composePath := filepath.Join(projectDir, "compose.yaml")
-	if _, err := os.Stat(composePath); err == nil {
-		return false, nil
-	}
-	if err := os.WriteFile(composePath, []byte(skeleton.ComposeYAML), 0o644); err != nil {
-		return false, fmt.Errorf("writing compose.yaml: %w", err)
-	}
-	_, _ = fmt.Fprintln(w, "Created compose.yaml")
-	return true, nil
-}
-
-func writeMakefileIfMissing(projectDir string, w io.Writer) (bool, error) {
-	makefilePath := filepath.Join(projectDir, "Makefile")
-	if _, err := os.Stat(makefilePath); err == nil {
-		return false, nil
-	}
-	if err := os.WriteFile(makefilePath, []byte(skeleton.Makefile), 0o644); err != nil {
-		return false, fmt.Errorf("writing Makefile: %w", err)
-	}
-	_, _ = fmt.Fprintln(w, "Created Makefile")
-	return true, nil
-}
-
-func writeGithubWorkflowIfMissing(projectDir string, w io.Writer) (bool, error) {
-	ciPath := filepath.Join(projectDir, ".github", "workflows", "ci.yml")
-	if _, err := os.Stat(ciPath); err == nil {
-		return false, nil
-	}
-	if err := os.MkdirAll(
-		filepath.Join(projectDir, ".github", "workflows"), 0o755,
-	); err != nil {
-		return false, fmt.Errorf("creating .github/workflows directory: %w", err)
-	}
-	if err := os.WriteFile(ciPath, []byte(skeleton.CIWorkflow), 0o644); err != nil {
-		return false, fmt.Errorf("writing .github/workflows/ci.yml: %w", err)
-	}
-	_, _ = fmt.Fprintln(w, "Created .github/workflows/ci.yml")
-	return true, nil
-}
-
-func writeVSCodeExtensionsIfMissing(projectDir string, w io.Writer) (bool, error) {
-	extPath := filepath.Join(projectDir, ".vscode", "extensions.json")
-	if _, err := os.Stat(extPath); err == nil {
-		return false, nil
-	}
-	if err := os.MkdirAll(filepath.Join(projectDir, ".vscode"), 0o755); err != nil {
-		return false, fmt.Errorf("creating .vscode directory: %w", err)
-	}
-	if err := os.WriteFile(
-		extPath, []byte(skeleton.VSCodeExtensions), 0o644,
-	); err != nil {
-		return false, fmt.Errorf("writing .vscode/extensions.json: %w", err)
-	}
-	_, _ = fmt.Fprintln(w, "Created .vscode/extensions.json")
-	return true, nil
+	return writeIfMissing(projectDir, ".env", []byte(content), w)
 }
 
 func randomHex(n int) (string, error) {

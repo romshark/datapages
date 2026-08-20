@@ -32,9 +32,9 @@ Bug fixes and small improvements can go straight to a pull request.
 5. Commit and push your branch.
 6. Open a pull request against `main`.
 
-For development setup, commands, code style, testing conventions,
-and commit message format, see the
-[Development](README.md#development) section in the README.
+For development setup and commands, see [Development](#development) below.
+For code style, testing conventions and commit message format,
+see [AGENTS.md](AGENTS.md).
 
 ## Development
 

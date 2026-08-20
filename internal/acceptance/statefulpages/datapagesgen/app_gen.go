@@ -253,32 +253,45 @@ type sseWrapper struct {
 
 func (s sseWrapper) Context() context.Context { return s.gen.Context() }
 
-func (s sseWrapper) PatchElement(
-	c datapages.Component, opts ...datapages.PatchOption,
+func (s sseWrapper) PatchElement(c datapages.Component) error {
+	return s.gen.PatchElementTempl(c)
+}
+
+func (s sseWrapper) PatchElementAt(
+	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
 ) error {
-	var cfg datapages.PatchConfig
-	for _, o := range opts {
-		o(&cfg)
-	}
-	var ds []datastar.PatchElementOption
-	if cfg.Selector != "" {
-		ds = append(ds, datastar.WithSelector(cfg.Selector))
-	}
-	if cfg.SelectorID != "" {
-		ds = append(ds, datastar.WithSelectorID(cfg.SelectorID))
-	}
-	switch cfg.Mode {
+	switch mode {
 	case datapages.PatchModeOuter, datapages.PatchModeInner,
 		datapages.PatchModeReplace, datapages.PatchModePrepend,
 		datapages.PatchModeAppend, datapages.PatchModeBefore,
 		datapages.PatchModeAfter:
-		ds = append(ds, datastar.WithMode(datastar.ElementPatchMode(cfg.Mode)))
+	default:
+		mode = "" // Not a PatchMode constant, patch in the default mode.
 	}
-	return s.gen.PatchElementTempl(c, ds...)
+	switch {
+	case selectorCSS == "" && mode == "":
+		return s.gen.PatchElementTempl(c)
+	case mode == "":
+		return s.gen.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
+	case selectorCSS == "":
+		return s.gen.PatchElementTempl(
+			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
+		)
+	}
+	return s.gen.PatchElementTempl(c,
+		datastar.WithSelector(selectorCSS),
+		datastar.WithMode(datastar.ElementPatchMode(mode)))
 }
 
-func (s sseWrapper) RemoveElement(selector string) error {
-	return s.gen.RemoveElement(selector)
+// removeElementModeDataline is the mode line of a removal event.
+const removeElementModeDataline = datastar.ModeDatalineLiteral +
+	string(datastar.ElementPatchModeRemove)
+
+func (s sseWrapper) RemoveElement(selectorCSS string) error {
+	return s.gen.Send(datastar.EventTypePatchElements, []string{
+		datastar.SelectorDatalineLiteral + selectorCSS,
+		removeElementModeDataline,
+	})
 }
 
 func (s sseWrapper) ExecuteScript(script string) error {
@@ -308,7 +321,8 @@ func isSubjectToken(v string) bool {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	headGeneric, head, body datapages.Component,
+	headGeneric, head datapages.Head,
+	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -408,12 +422,12 @@ func (s *Server) handleStreamRequest(
 	w http.ResponseWriter, r *http.Request,
 	subjects []string,
 	onOpen func(
-		streamID uint64,
+		streamID datapages.StreamID,
 		sse *datastar.ServerSentEventGenerator,
 	) error,
-	onClose func(streamID uint64),
+	onClose func(streamID datapages.StreamID),
 	fn func(
-		streamID uint64,
+		streamID datapages.StreamID,
 		sse *datastar.ServerSentEventGenerator,
 		ch <-chan msgbroker.Message,
 	),
@@ -422,7 +436,7 @@ func (s *Server) handleStreamRequest(
 		return
 	}
 
-	streamID := s.streamSeq.Add(1)
+	streamID := datapages.StreamID(s.streamSeq.Add(1))
 
 	// The subscription is established before the response head goes out.
 	// A client learns the stream is open by reading that head and may dispatch
@@ -1016,7 +1030,7 @@ func (s *Server) handlePageFailOpenGETStream(w http.ResponseWriter, r *http.Requ
 	}
 	s.handleStreamRequest(w, r, evSubjPageFailOpen(),
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
 			slot = s.allocateStateFilters(instanceID)
@@ -1043,11 +1057,11 @@ func (s *Server) handlePageFailOpenGETStream(w http.ResponseWriter, r *http.Requ
 			opened = true
 			return nil
 		},
-		func(streamID uint64) {
+		func(streamID datapages.StreamID) {
 			s.releaseStateFilters(instanceID, slot)
 		},
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for range ch {
@@ -1127,7 +1141,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	}
 	s.handleStreamRequest(w, r, evSubjPageIndex(stateID),
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
 			slot = s.allocateStateFilters(instanceID)
@@ -1154,11 +1168,11 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			opened = true
 			return nil
 		},
-		func(streamID uint64) {
+		func(streamID datapages.StreamID) {
 			s.releaseStateFilters(instanceID, slot)
 		},
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -1203,10 +1217,10 @@ func (s *Server) handlePageIndexPOSTUpdate(
 	}
 	stateID := s.stateRouteKey(instanceID)
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Filter string `json:"filter"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -1218,30 +1232,7 @@ func (s *Server) handlePageIndexPOSTUpdate(
 		return
 	}
 
-	dispatchFiltersUpdated := func(
-		e app.EventFiltersUpdated,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.SubjectStateID)) {
-			return fmt.Errorf(
-				"EventFiltersUpdated.SubjectStateID must be a non-empty subject token, received %q",
-				e.SubjectStateID)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventFiltersUpdated JSON: %w", err)
-		}
-		subj := "filters.updated." + string(e.SubjectStateID)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchFiltersUpdated := dispatcherEventFiltersUpdated{s: s, ctx: r.Context()}
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -1319,7 +1310,7 @@ func (s *Server) handlePagePanicOnCloseGETStream(w http.ResponseWriter, r *http.
 	}
 	s.handleStreamRequest(w, r, evSubjPagePanicOnClose(),
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
 			slot = s.allocateStateFilters(instanceID)
@@ -1333,7 +1324,7 @@ func (s *Server) handlePagePanicOnCloseGETStream(w http.ResponseWriter, r *http.
 			defer slot.mu.Unlock()
 			return nil
 		},
-		func(streamID uint64) {
+		func(streamID datapages.StreamID) {
 			// Both of these run even when the hook below panics.
 			// Deferred calls unwind in reverse, which puts the release after the unlock,
 			// and the release takes this same mutex.
@@ -1347,10 +1338,39 @@ func (s *Server) handlePagePanicOnCloseGETStream(w http.ResponseWriter, r *http.
 			}
 		},
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for range ch {
 			}
 		})
+}
+
+type dispatcherEventFiltersUpdated struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventFiltersUpdated) Dispatch(e app.EventFiltersUpdated) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventFiltersUpdated) DispatchCtx(
+	ctx context.Context, e app.EventFiltersUpdated,
+) error {
+	if !isSubjectToken(string(e.SubjectStateID)) {
+		return fmt.Errorf(
+			"EventFiltersUpdated.SubjectStateID must be a non-empty subject token, received %q",
+			e.SubjectStateID)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventFiltersUpdated JSON: %w", err)
+	}
+	subj := "filters.updated." + string(e.SubjectStateID)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
 }

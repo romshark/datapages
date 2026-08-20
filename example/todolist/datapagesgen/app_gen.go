@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime/debug"
 	"slices"
@@ -310,32 +311,45 @@ type sseWrapper struct {
 
 func (s sseWrapper) Context() context.Context { return s.gen.Context() }
 
-func (s sseWrapper) PatchElement(
-	c datapages.Component, opts ...datapages.PatchOption,
+func (s sseWrapper) PatchElement(c datapages.Component) error {
+	return s.gen.PatchElementTempl(c)
+}
+
+func (s sseWrapper) PatchElementAt(
+	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
 ) error {
-	var cfg datapages.PatchConfig
-	for _, o := range opts {
-		o(&cfg)
-	}
-	var ds []datastar.PatchElementOption
-	if cfg.Selector != "" {
-		ds = append(ds, datastar.WithSelector(cfg.Selector))
-	}
-	if cfg.SelectorID != "" {
-		ds = append(ds, datastar.WithSelectorID(cfg.SelectorID))
-	}
-	switch cfg.Mode {
+	switch mode {
 	case datapages.PatchModeOuter, datapages.PatchModeInner,
 		datapages.PatchModeReplace, datapages.PatchModePrepend,
 		datapages.PatchModeAppend, datapages.PatchModeBefore,
 		datapages.PatchModeAfter:
-		ds = append(ds, datastar.WithMode(datastar.ElementPatchMode(cfg.Mode)))
+	default:
+		mode = "" // Not a PatchMode constant, patch in the default mode.
 	}
-	return s.gen.PatchElementTempl(c, ds...)
+	switch {
+	case selectorCSS == "" && mode == "":
+		return s.gen.PatchElementTempl(c)
+	case mode == "":
+		return s.gen.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
+	case selectorCSS == "":
+		return s.gen.PatchElementTempl(
+			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
+		)
+	}
+	return s.gen.PatchElementTempl(c,
+		datastar.WithSelector(selectorCSS),
+		datastar.WithMode(datastar.ElementPatchMode(mode)))
 }
 
-func (s sseWrapper) RemoveElement(selector string) error {
-	return s.gen.RemoveElement(selector)
+// removeElementModeDataline is the mode line of a removal event.
+const removeElementModeDataline = datastar.ModeDatalineLiteral +
+	string(datastar.ElementPatchModeRemove)
+
+func (s sseWrapper) RemoveElement(selectorCSS string) error {
+	return s.gen.Send(datastar.EventTypePatchElements, []string{
+		datastar.SelectorDatalineLiteral + selectorCSS,
+		removeElementModeDataline,
+	})
 }
 
 func (s sseWrapper) ExecuteScript(script string) error {
@@ -377,10 +391,18 @@ func writeSignalValue(w http.ResponseWriter, s string) {
 	_, _ = io.WriteString(w, html.EscapeString(s))
 }
 
+// writeStreamPathValue writes v into the @get URL of a data-init attribute.
+// Percent encoding removes the quotes that would end the JavaScript string,
+// HTML escaping removes the ampersand that url.PathEscape keeps.
+func writeStreamPathValue(w http.ResponseWriter, v string) {
+	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
+}
+
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	headGeneric, head, body datapages.Component,
+	headGeneric, head datapages.Head,
+	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -480,12 +502,12 @@ func (s *Server) handleStreamRequest(
 	w http.ResponseWriter, r *http.Request,
 	subjects []string,
 	onOpen func(
-		streamID uint64,
+		streamID datapages.StreamID,
 		sse *datastar.ServerSentEventGenerator,
 	) error,
-	onClose func(streamID uint64),
+	onClose func(streamID datapages.StreamID),
 	fn func(
-		streamID uint64,
+		streamID datapages.StreamID,
 		sse *datastar.ServerSentEventGenerator,
 		ch <-chan msgbroker.Message,
 	),
@@ -494,7 +516,7 @@ func (s *Server) handleStreamRequest(
 		return
 	}
 
-	streamID := s.streamSeq.Add(1)
+	streamID := datapages.StreamID(s.streamSeq.Add(1))
 
 	// The subscription is established before the response head goes out.
 	// A client learns the stream is open by reading that head and may dispatch
@@ -1132,21 +1154,21 @@ func (s *Server) handlePUTEdit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Done        bool   `json:"done"`
 		Due         string `json:"due"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Toggle bool `query:"toggle"`
-	}
+	}]
 	{
 		if q := q.Get("toggle"); q != "" {
 			b, err := strconv.ParseBool(q)
@@ -1154,33 +1176,16 @@ func (s *Server) handlePUTEdit(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: toggle", err)
 				return
 			}
-			query.Toggle = b
+			query.Values.Toggle = b
 		}
 	}
 
-	var path struct {
+	var path datapages.Path[struct {
 		ID string `path:"id"`
-	}
-	path.ID = r.PathValue("id")
+	}]
+	path.Values.ID = r.PathValue("id")
 
-	dispatchTodoUpdated := func(
-		e app.EventTodoUpdated,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
-		}
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTodoUpdated, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
-		}
-		return nil
-	}
+	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s, ctx: r.Context()}
 	err := s.app.PUTEdit(r, path, query, signals, dispatchTodoUpdated)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Edit", err)
@@ -1217,14 +1222,14 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Search string `query:"q" reflectsignal:"search"`
 		Filter string `query:"filter" reflectsignal:"filter"`
 		Sort   string `query:"sort" reflectsignal:"sort"`
-	}
-	query.Search = q.Get("q")
-	query.Filter = q.Get("filter")
-	query.Sort = q.Get("sort")
+	}]
+	query.Values.Search = q.Get("q")
+	query.Values.Filter = q.Get("filter")
+	query.Values.Sort = q.Get("sort")
 
 	// Mint the per-instance identifier for this page load.
 	// The client echoes this value on action requests and on the SSE
@@ -1253,15 +1258,15 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 
 		_, _ = io.WriteString(w, `data-signals:search="'`)
-		writeSignalString(w, query.Search)
+		writeSignalString(w, query.Values.Search)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:filter="'`)
-		writeSignalString(w, query.Filter)
+		writeSignalString(w, query.Values.Filter)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:sort="'`)
-		writeSignalString(w, query.Sort)
+		writeSignalString(w, query.Values.Sort)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
@@ -1291,12 +1296,12 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Search string `json:"search"`
 		Filter string `json:"filter"`
 		Sort   string `json:"sort"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -1321,7 +1326,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	}
 	s.handleStreamRequest(w, r, evSubjPageIndex(),
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
 			slot = s.allocateStateIndex(instanceID)
@@ -1348,11 +1353,11 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			opened = true
 			return nil
 		},
-		func(streamID uint64) {
+		func(streamID datapages.StreamID) {
 			s.releaseStateIndex(instanceID, slot)
 		},
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -1384,34 +1389,17 @@ func (s *Server) handlePageIndexPOSTCreate(
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		NewTitle string `json:"newTitle"`
 		NewDesc  string `json:"newDesc"`
 		NewDue   string `json:"newDue"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
 
-	dispatchTodoUpdated := func(
-		e app.EventTodoUpdated,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
-		}
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTodoUpdated, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
-		}
-		return nil
-	}
+	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s, ctx: r.Context()}
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -1440,12 +1428,12 @@ func (s *Server) handlePageIndexPOSTFilter(
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Search string `json:"search"`
 		Filter string `json:"filter"`
 		Sort   string `json:"sort"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -1470,10 +1458,10 @@ func (s *Server) handlePageIndexPOSTFilter(
 
 func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 
-	var path struct {
+	var path datapages.Path[struct {
 		ID string `path:"id"`
-	}
-	path.ID = r.PathValue("id")
+	}]
+	path.Values.ID = r.PathValue("id")
 
 	// Mint the per-instance identifier for this page load.
 	// The client echoes this value on action requests and on the SSE
@@ -1509,7 +1497,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/item/`)
-		_, _ = io.WriteString(w, path.ID)
+		writeStreamPathValue(w, path.Values.ID)
 		_, _ = io.WriteString(w, `/`)
 		_, _ = io.WriteString(w, `/_$/')"`)
 	}
@@ -1527,10 +1515,10 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var signals struct {
+	var signals datapages.Signals[struct {
 		ItemID string `json:"itemId"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -1555,7 +1543,7 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 	}
 	s.handleStreamRequest(w, r, evSubjPageItem(),
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
 			slot = s.allocateStateItem(instanceID)
@@ -1582,11 +1570,11 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 			opened = true
 			return nil
 		},
-		func(streamID uint64) {
+		func(streamID datapages.StreamID) {
 			s.releaseStateItem(instanceID, slot)
 		},
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -1615,29 +1603,12 @@ func (s *Server) handlePageItemDELETEItem(
 	w http.ResponseWriter, r *http.Request,
 ) {
 
-	var path struct {
+	var path datapages.Path[struct {
 		ID string `path:"id"`
-	}
-	path.ID = r.PathValue("id")
+	}]
+	path.Values.ID = r.PathValue("id")
 
-	dispatchTodoUpdated := func(
-		e app.EventTodoUpdated,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
-		}
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, EvSubjTodoUpdated, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
-		}
-		return nil
-	}
+	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s, ctx: r.Context()}
 	p := app.PageItem{
 		App: s.app,
 	}
@@ -1649,4 +1620,27 @@ func (s *Server) handlePageItemDELETEItem(
 	if httpRedirect(w, r, redirect) {
 		return
 	}
+}
+
+type dispatcherEventTodoUpdated struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventTodoUpdated) Dispatch(e app.EventTodoUpdated) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventTodoUpdated) DispatchCtx(
+	ctx context.Context, e app.EventTodoUpdated,
+) error {
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventTodoUpdated JSON: %w", err)
+	}
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, EvSubjTodoUpdated, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", EvSubjTodoUpdated, err)
+	}
+	return nil
 }

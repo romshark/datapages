@@ -22,7 +22,7 @@ type App struct{}
 // gives the pages below a second, anonymous stream route.
 type Session = datapages.Session[struct{}]
 
-func (a *App) Head(_ *http.Request) datapages.Component {
+func (a *App) Head(_ *http.Request) datapages.Head {
 	return templ.Raw(`<title>anonstreams</title>`)
 }
 
@@ -98,27 +98,30 @@ func (p PageRooms) OnNoticed(
 // POSTPost is /rooms/post
 func (p PageRooms) POSTPost(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Room string `json:"room"`
 		Text string `json:"text"`
-	},
-	dispatch datapages.Dispatch[EventRoomPosted],
+	}],
+	roomPosted datapages.Dispatcher[EventRoomPosted],
 ) error {
-	return dispatch(EventRoomPosted{Room: datapages.Subject(signals.Room), Text: signals.Text})
+	return roomPosted.Dispatch(EventRoomPosted{
+		Room: datapages.Subject(signals.Values.Room),
+		Text: signals.Values.Text,
+	})
 }
 
 // POSTNotice is /rooms/notice
 func (p PageRooms) POSTNotice(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		User string `json:"user"`
 		Text string `json:"text"`
-	},
-	dispatch datapages.Dispatch[EventNoticed],
+	}],
+	noticed datapages.Dispatcher[EventNoticed],
 ) error {
-	return dispatch(EventNoticed{
-		Recipient: datapages.SubjectUser(signals.User),
-		Text:      signals.Text,
+	return noticed.Dispatch(EventNoticed{
+		Recipient: datapages.SubjectUser(signals.Values.User),
+		Text:      signals.Values.Text,
 	})
 }
 
@@ -136,7 +139,7 @@ func (PageTabs) GET(_ *http.Request) (body datapages.Component, err error) {
 }
 
 func (PageTabs) StreamOpen(
-	_ *http.Request, streamID uint64, state *StateTab,
+	_ *http.Request, streamID datapages.StreamID, state *StateTab,
 ) error {
 	return nil
 }
@@ -168,8 +171,8 @@ func (p PageTabs) OnNoticed(
 func (p PageTabs) POSTBump(
 	_ *http.Request,
 	state *StateTab,
-	dispatch datapages.Dispatch[EventTicked],
+	ticked datapages.Dispatcher[EventTicked],
 ) error {
 	state.Count++
-	return dispatch(EventTicked{N: state.Count})
+	return ticked.Dispatch(EventTicked{N: state.Count})
 }

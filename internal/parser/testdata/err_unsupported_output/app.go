@@ -28,17 +28,6 @@ func (PageBadGETOutput) GET(
 	return body, false, err
 }
 
-// PageUppercaseBody is /uppercase-body
-type PageUppercaseBody struct{ App *App }
-
-/* ErrSignatureGETBodyWrongName: Body != body */
-
-func (PageUppercaseBody) GET(
-	r *http.Request,
-) (Body datapages.Component, err error) {
-	return Body, err
-}
-
 /* ErrSignatureUnsupportedOutput: foo is not a valid return name */
 
 // POSTBadActionOutput is /bad-action-output

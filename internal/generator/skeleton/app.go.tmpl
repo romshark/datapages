@@ -12,7 +12,7 @@ type App struct{}
 // to keep data in the session, it's available as session.Data in handlers.
 type Session = datapages.Session[struct{}]
 
-func (*App) Head(r *http.Request) datapages.Component {
+func (*App) Head(r *http.Request) datapages.Head {
 	return nil
 }
 

@@ -15,49 +15,49 @@ type PageIndex struct{ App *App }
 
 func (p PageIndex) GET(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Search string `query:"q" reflectsignal:"search"`
 		Filter string `query:"filter" reflectsignal:"filter"`
 		Sort   string `query:"sort" reflectsignal:"sort"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	filter := query.Filter
+	filter := query.Values.Filter
 	if filter == "" {
 		filter = "all"
 	}
-	sortMode := query.Sort
+	sortMode := query.Values.Sort
 	if sortMode == "" {
 		sortMode = "created"
 	}
 	vp := list.ViewParameters{
-		Search: query.Search,
+		Search: query.Values.Search,
 		Filter: filter,
 		Sort:   sortMode,
 	}
 	todos := p.App.list.GetItems(vp)
-	return pageIndex(todos, query.Search, filter, sortMode), nil
+	return pageIndex(todos, query.Values.Search, filter, sortMode), nil
 }
 
 func (p PageIndex) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	state *StateIndex,
-	signals struct {
+	signals datapages.Signals[struct {
 		Search string `json:"search"`
 		Filter string `json:"filter"`
 		Sort   string `json:"sort"`
-	},
+	}],
 ) error {
-	filter := signals.Filter
+	filter := signals.Values.Filter
 	if filter == "" {
 		filter = "all"
 	}
-	sortMode := signals.Sort
+	sortMode := signals.Values.Sort
 	if sortMode == "" {
 		sortMode = "created"
 	}
 	state.ViewParameters = list.ViewParameters{
-		Search: signals.Search,
+		Search: signals.Values.Search,
 		Filter: filter,
 		Sort:   sortMode,
 	}
@@ -67,27 +67,27 @@ func (p PageIndex) StreamOpen(
 // POSTCreate is /
 func (p PageIndex) POSTCreate(
 	r *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		NewTitle string `json:"newTitle"`
 		NewDesc  string `json:"newDesc"`
 		NewDue   string `json:"newDue"`
-	},
-	dispatch datapages.Dispatch[EventTodoUpdated],
+	}],
+	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) error {
-	title := strings.TrimSpace(signals.NewTitle)
+	title := strings.TrimSpace(signals.Values.NewTitle)
 	if title == "" {
 		return fmt.Errorf("%w: title is required", datapages.ErrBadRequest)
 	}
 	var dueAt time.Time
-	if signals.NewDue != "" {
+	if signals.Values.NewDue != "" {
 		var err error
-		dueAt, err = time.Parse("2006-01-02T15:04", signals.NewDue)
+		dueAt, err = time.Parse("2006-01-02T15:04", signals.Values.NewDue)
 		if err != nil {
 			return fmt.Errorf("%w: invalid due date", datapages.ErrBadRequest)
 		}
 	}
-	p.App.list.AddItem(title, strings.TrimSpace(signals.NewDesc), dueAt)
-	return dispatch(EventTodoUpdated{})
+	p.App.list.AddItem(title, strings.TrimSpace(signals.Values.NewDesc), dueAt)
+	return todoUpdated.Dispatch(EventTodoUpdated{})
 }
 
 // POSTFilter is /filter
@@ -95,15 +95,15 @@ func (p PageIndex) POSTFilter(
 	r *http.Request,
 	sse datapages.SSE,
 	state *StateIndex,
-	signals struct {
+	signals datapages.Signals[struct {
 		Search string `json:"search"`
 		Filter string `json:"filter"`
 		Sort   string `json:"sort"`
-	},
+	}],
 ) error {
-	state.Search = signals.Search
-	state.Filter = signals.Filter
-	state.Sort = signals.Sort
+	state.Search = signals.Values.Search
+	state.Filter = signals.Values.Filter
+	state.Sort = signals.Values.Sort
 
 	todos := p.App.list.GetItems(state.ViewParameters)
 	return sse.PatchElement(todoList(todos))

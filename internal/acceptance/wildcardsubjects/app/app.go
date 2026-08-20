@@ -41,11 +41,14 @@ func (PageIndex) OnNoted(
 // POSTNote is /note
 func (PageIndex) POSTNote(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Topic string `json:"topic"`
 		Text  string `json:"text"`
-	},
-	dispatch datapages.Dispatch[EventNoted],
+	}],
+	noted datapages.Dispatcher[EventNoted],
 ) error {
-	return dispatch(EventNoted{Topic: datapages.Subject(signals.Topic), Text: signals.Text})
+	return noted.Dispatch(EventNoted{
+		Topic: datapages.Subject(signals.Values.Topic),
+		Text:  signals.Values.Text,
+	})
 }

@@ -25,13 +25,13 @@ func (PageForm) GET(r *http.Request) (body datapages.Component, err error) {
 // POSTSubmit is /form/submit
 func (PageForm) POSTSubmit(
 	r *http.Request,
-	signals struct {
+	form datapages.Signals[struct {
 		Name  string `json:"name"`
 		Email string `json:"email"`
 		Age   int    `json:"age"`
-	},
+	}],
 ) error {
-	_ = signals
+	_ = form
 	return nil
 }
 
@@ -41,12 +41,12 @@ type PageSearch struct{ App *App }
 // GET with query + signals + reflectsignal
 func (PageSearch) GET(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Term string `query:"t" reflectsignal:"term"`
-	},
-	signals struct {
+	}],
+	signals datapages.Signals[struct {
 		Term string `json:"term"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = query
 	_ = signals
@@ -56,12 +56,12 @@ func (PageSearch) GET(
 // POSTFilter is /search/filter
 func (PageSearch) POSTFilter(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Page int `query:"p"`
-	},
-	signals struct {
+	}],
+	signals datapages.Signals[struct {
 		Term string `json:"term"`
-	},
+	}],
 ) error {
 	_ = query
 	_ = signals

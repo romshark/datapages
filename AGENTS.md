@@ -25,9 +25,19 @@
   from a Go source package.
 - `internal/parser/model/` - data model of a Datapages application.
 - `internal/parser/validate/` - naming convention validation.
-- `internal/parser/internal/` - internal utilities (e.g. route pattern parsing).
+- `internal/parser/errsuggest/` - "did you mean" suggestions for parser errors.
+- `internal/parser/internal/` - parser-only utilities (method kinds, parameter
+  validation, struct inspection, templ linting, type predicates, URL paths).
 - `internal/parser/testdata/` - each subdirectory is a self-contained Go module
   used as a test fixture. Prefix `err_` for expected-error cases.
+- `internal/gotypes/` - go/types predicates and renderings that know nothing
+  about Datapages. Shared by the parser and the generator.
+- `internal/routepattern/` - net/http ServeMux route pattern parsing.
+- `internal/structtag/` - the `path`, `query`, `json` and `reflectsignal` tag
+  readers.
+- `internal/subject/` - message broker subject rules: the token rule and which
+  subjects an event claims.
+- `internal/templatingbench/` - templating engine benchmarks quoted in `FAQ.md`.
 - `example/calculator/` - basic calculator with server-side evaluation (separate module).
 - `example/counter/` - minimal counter example (separate module).
 - `example/fancy-counter/` - polished counter with animations (separate module).

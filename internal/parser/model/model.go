@@ -18,8 +18,8 @@ type App struct {
 	PageError404 *Page
 	PageError500 *Page
 
-	RecoverError        ast.Expr    // Nullable.
-	GlobalHeadGenerator *GlobalHead // Nullable.
+	RecoverError        *RecoverError // Nullable.
+	GlobalHeadGenerator *GlobalHead   // Nullable.
 
 	Session *SessionType // Nullable.
 
@@ -33,9 +33,21 @@ type App struct {
 	States map[string]*StateType
 }
 
+// GlobalHead is the app-wide (*App).Head hook. Its parameters are matched by
+// type in any order, so OrderedInputs records the order it declares them in.
 type GlobalHead struct {
 	Expr         ast.Expr
 	InputSession bool
+	// OrderedInputs lists InputKind constants in declaration order.
+	OrderedInputs []string
+}
+
+// RecoverError is the (*App).RecoverError hook. Its parameters are matched by
+// type in any order, so OrderedInputs records the order it declares them in.
+type RecoverError struct {
+	Expr ast.Expr
+	// OrderedInputs lists InputKind constants in declaration order.
+	OrderedInputs []string
 }
 
 // SessionType is the datapages.Session[Data] instantiation the application uses.
@@ -135,7 +147,7 @@ type Handler struct {
 	InputSignals  *Input
 	InputState    *InputState // state *T; nullable.
 	InputStateID  *Input      // stateID string; nullable.
-	// InputDispatches are the datapages.Dispatch[EventXXX] parameters,
+	// InputDispatches are the datapages.Dispatcher[EventXXX] parameters,
 	// in user-defined order. One dispatcher publishes one event type.
 	InputDispatches []*InputDispatch
 	OrderedInputs   []*Input // Inputs in user-defined order.
@@ -197,6 +209,7 @@ const (
 	InputKindEvent    = "event"
 	InputKindState    = "state"
 	InputKindStateID  = "stateID"
+	InputKindErr      = "err"
 )
 
 // OutputKind constants identify handler output return value kinds.

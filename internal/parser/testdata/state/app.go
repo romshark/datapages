@@ -42,7 +42,7 @@ type Base struct{ App *App }
 
 func (Base) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	state *TabContext,
 ) error {
 	return nil
@@ -57,7 +57,7 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 
 func (PageIndex) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	sse datapages.SSE,
 	state *StateIndex,
 ) error {
@@ -66,7 +66,7 @@ func (PageIndex) StreamOpen(
 
 func (PageIndex) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	state *StateIndex,
 ) error {
 	return nil
@@ -76,7 +76,7 @@ func (PageIndex) StreamClose(
 func (PageIndex) POSTIncrement(
 	r *http.Request,
 	state *StateIndex,
-	dispatch datapages.Dispatch[EventPing],
+	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	return nil
 }

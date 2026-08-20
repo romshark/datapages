@@ -30,6 +30,6 @@ func (PageIndex) POSTDummy(
 
 // StreamOpen anchors the state lifecycle so the fixture isolates the
 // ErrStateOnGET error without also tripping ErrStateWithoutStream.
-func (PageIndex) StreamOpen(r *http.Request, streamID uint64) error {
+func (PageIndex) StreamOpen(r *http.Request, streamID datapages.StreamID) error {
 	return nil
 }

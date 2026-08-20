@@ -17,22 +17,22 @@ type Base struct{ App *App }
 
 func (Base) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	sse datapages.SSE,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		Instance string `json:"instance"`
-	},
-	dispatch datapages.Dispatch[EventPing],
+	}],
+	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	return nil
 }
 
 func (Base) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	session Session,
-	dispatch datapages.Dispatch[EventPing],
+	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	return nil
 }
@@ -56,13 +56,13 @@ func (PageStreamMin) GET(r *http.Request) (body datapages.Component, err error) 
 
 func (PageStreamMin) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	id datapages.StreamID,
 ) {
 }
 
 func (PageStreamMin) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	id datapages.StreamID,
 ) {
 }
 
@@ -75,22 +75,22 @@ func (PageStreamMax) GET(r *http.Request) (body datapages.Component, err error) 
 
 func (PageStreamMax) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	sse datapages.SSE,
 	session Session,
-	signals struct {
+	signals datapages.Signals[struct {
 		Instance string `json:"instance"`
-	},
-	dispatch datapages.Dispatch[EventPing],
+	}],
+	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	return nil
 }
 
 func (PageStreamMax) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	session Session,
-	dispatch datapages.Dispatch[EventPing],
+	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	return nil
 }
@@ -98,7 +98,7 @@ func (PageStreamMax) StreamClose(
 func (PageStreamMax) OnPing(
 	event EventPing,
 	sse datapages.SSE,
-	streamID uint64,
+	streamID datapages.StreamID,
 ) error {
 	return nil
 }

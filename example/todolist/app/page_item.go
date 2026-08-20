@@ -12,11 +12,11 @@ type PageItem struct{ App *App }
 
 func (p PageItem) GET(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID string `path:"id"`
-	},
+	}],
 ) (body datapages.Component, redirect datapages.Redirect, err error) {
-	todo, ok := p.App.list.GetItem(path.ID)
+	todo, ok := p.App.list.GetItem(path.Values.ID)
 	if !ok {
 		return nil, datapages.Redirect{URL: "/"}, nil
 	}
@@ -25,28 +25,28 @@ func (p PageItem) GET(
 
 func (p PageItem) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	state *StateItem,
-	signals struct {
+	signals datapages.Signals[struct {
 		ItemID string `json:"itemId"`
-	},
+	}],
 ) error {
-	state.ItemID = signals.ItemID
+	state.ItemID = signals.Values.ItemID
 	return nil
 }
 
 // DELETEItem is /item/{id}/
 func (p PageItem) DELETEItem(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID string `path:"id"`
-	},
-	dispatch datapages.Dispatch[EventTodoUpdated],
+	}],
+	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) (redirect datapages.Redirect, err error) {
-	if !p.App.list.DeleteItem(path.ID) {
+	if !p.App.list.DeleteItem(path.Values.ID) {
 		return redirect, fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 	}
-	if err := dispatch(EventTodoUpdated{}); err != nil {
+	if err := todoUpdated.Dispatch(EventTodoUpdated{}); err != nil {
 		return redirect, err
 	}
 	return datapages.Redirect{URL: "/"}, nil

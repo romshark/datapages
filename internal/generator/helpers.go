@@ -6,15 +6,25 @@ import (
 	"go/format"
 	"go/token"
 	"go/types"
-	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"unicode"
 
+	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/internal/routepattern"
+	"github.com/romshark/datapages/internal/structtag"
+	"github.com/romshark/datapages/internal/subject"
 )
 
-// dispatchVarName is the generated variable name of a dispatch closure.
+// dispatcherTypeName is the generated datapages.Dispatcher implementation
+// of an event.
+func dispatcherTypeName(eventTypeName string) string {
+	return "dispatcher" + eventTypeName
+}
+
+// dispatchVarName is the generated variable name of a dispatcher.
 // The prefix keeps the closures of different handlers apart inside one
 // generated function; the event name keeps a handler's own closures apart.
 //
@@ -76,7 +86,7 @@ func evSubjValue(e *model.Event) string {
 // evSubjPrefValue returns the subject prefix value used to match private events.
 // "messaging.sent."
 func evSubjPrefValue(e *model.Event) string {
-	return e.Subject + "."
+	return subject.Prefix(e.Subject)
 }
 
 // stripPagePrefix strips "Page" prefix from type name: "PageSettings" -> "Settings"
@@ -210,28 +220,7 @@ func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool 
 //   - "/post/{slug}/" -> "/post/{slug}/_$/"
 //   - "/" -> "/_$/"
 func routeStreamPath(route string) string {
-	r := routeWithTrailingSlash(route)
-	return r + "_$/"
-}
-
-// routeEndsInWildcard reports whether the route's last segment is a {name...} wildcard,
-// which matches the rest of the path.
-func routeEndsInWildcard(route string) bool {
-	last := route[strings.LastIndex(route, "/")+1:]
-	return strings.HasPrefix(last, "{") && strings.HasSuffix(last, "...}")
-}
-
-// routeWithTrailingSlash strips any {$} suffix and ensures the route
-// has a trailing slash.
-//   - "/settings" -> "/settings/"
-//   - "/user/{name}/{$}" -> "/user/{name}/"
-//   - "/" -> "/"
-func routeWithTrailingSlash(route string) string {
-	route = strings.TrimSuffix(route, "{$}")
-	if !strings.HasSuffix(route, "/") {
-		return route + "/"
-	}
-	return route
+	return routepattern.WithTrailingSlash(route) + "_$/"
 }
 
 // renderType renders a Go type using types.TypeString,
@@ -326,21 +315,6 @@ func (w *Writer) structFields(t types.Type) []structFieldInfo {
 	return w.fields
 }
 
-// queryTagValue extracts the value from a `query:"value"` struct tag.
-func queryTagValue(tag string) string {
-	return reflect.StructTag(tag).Get("query")
-}
-
-// reflectSignalTagValue extracts the value from a `reflectsignal:"value"` struct tag.
-func reflectSignalTagValue(tag string) string {
-	return reflect.StructTag(tag).Get("reflectsignal")
-}
-
-// pathTagValue extracts the value from a `path:"value"` struct tag.
-func pathTagValue(tag string) string {
-	return reflect.StructTag(tag).Get("path")
-}
-
 // appUsage tracks which optional helpers are referenced by the generated handler code.
 // It is computed once from the model before any code is emitted, and used to
 // conditionally emit helper functions/methods that would otherwise be dead code.
@@ -379,6 +353,9 @@ type appUsage struct {
 	// reflectSignals: func writeSignalValue(...), needed by any page that
 	// reflects a query value into a data-signals attribute.
 	reflectSignals bool
+	// streamPathVars: func writeStreamPathValue(...), needed by any page that
+	// writes a path value into the stream URL of its data-init attribute.
+	streamPathVars bool
 	// signalSubjects: func isSubjectToken(...), needed by any page that builds
 	// a subscription subject from a client-provided signal.
 	signalSubjects bool
@@ -433,10 +410,8 @@ func dispatchesSubjectFields(
 		}
 		return false
 	}
-	for _, h := range m.Actions {
-		if dispatches(h) {
-			return true
-		}
+	if slices.ContainsFunc(m.Actions, dispatches) {
+		return true
 	}
 	for _, p := range m.Pages {
 		if p.GET != nil && dispatches(p.GET.Handler) {
@@ -445,10 +420,8 @@ func dispatchesSubjectFields(
 		if dispatches(p.StreamOpen) || dispatches(p.StreamClose) {
 			return true
 		}
-		for _, h := range p.Actions {
-			if dispatches(h) {
-				return true
-			}
+		if slices.ContainsFunc(p.Actions, dispatches) {
+			return true
 		}
 	}
 	for _, p := range []*model.Page{m.PageError404, m.PageError500} {
@@ -544,6 +517,9 @@ func computeAppUsage(m *model.App) appUsage {
 			u.stream = true
 			// Event handlers and stream hooks receive a datapages.SSE.
 			u.datapagesSSE = true
+			if p.GET != nil && p.GET.Handler != nil && p.GET.InputPath != nil {
+				u.streamPathVars = true
+			}
 			if pageStreamNeedsAuth(p, eventByName) {
 				u.streamAuth = true
 				u.auth = true
@@ -593,6 +569,9 @@ type Writer struct {
 	Buf []byte
 	// eventMap is built once per WriteApp, reused
 	eventMap map[string]*model.Event
+	// dispatchedEvents are the events a handler dispatches,
+	// in the order they were first seen.
+	dispatchedEvents []string
 	// fields is a reusable scratch for structFields
 	fields []structFieldInfo
 	// prometheus defines whether to generate Prometheus metrics code
@@ -645,6 +624,7 @@ func (w *Writer) setSessionType(m *model.App) {
 func (w *Writer) Reset() {
 	w.Buf = w.Buf[:0]
 	clear(w.eventMap)
+	w.dispatchedEvents = w.dispatchedEvents[:0]
 	w.fields = w.fields[:0]
 	w.usage = appUsage{}
 }
@@ -846,105 +826,6 @@ func (w *Writer) writeAnyCheck(varName string, fields []structFieldInfo) {
 	}
 }
 
-// isStringType returns true if the type is string.
-func isStringType(t types.Type) bool {
-	basic, ok := t.Underlying().(*types.Basic)
-	return ok && basic.Kind() == types.String
-}
-
-// isNamedStringType reports whether t is a string type carrying a name of its own.
-// A string assigned to one, or one assigned to a string, needs a conversion.
-func isNamedStringType(t types.Type) bool {
-	if !isStringType(t) {
-		return false
-	}
-	_, unnamed := t.(*types.Basic)
-	return !unnamed
-}
-
-// qualifiedTypeName writes a type with every package named.
-func qualifiedTypeName(t types.Type) string {
-	return types.TypeString(t, func(p *types.Package) string { return p.Name() })
-}
-
-// isBoolType returns true if the type's underlying type is bool.
-func isBoolType(t types.Type) bool {
-	basic, ok := t.Underlying().(*types.Basic)
-	return ok && basic.Kind() == types.Bool
-}
-
-// isFloatType returns true if the type is float32 or float64.
-func isFloatType(t types.Type) bool {
-	basic, ok := t.Underlying().(*types.Basic)
-	if !ok {
-		return false
-	}
-	return basic.Kind() == types.Float32 || basic.Kind() == types.Float64
-}
-
-// floatTypeName returns "float32" or "float64".
-// Precondition: isFloatType(t) must be true.
-func floatTypeName(t types.Type) string {
-	if t.Underlying().(*types.Basic).Kind() == types.Float32 {
-		return "float32"
-	}
-	return "float64"
-}
-
-// floatBits returns the strconv bit-size for ParseFloat.
-// Precondition: isFloatType(t) must be true.
-func floatBits(t types.Type) int {
-	if t.Underlying().(*types.Basic).Kind() == types.Float32 {
-		return 32
-	}
-	return 64
-}
-
-// textUnmarshaler is the method set of encoding.TextUnmarshaler.
-var textUnmarshaler = func() *types.Interface {
-	sig := types.NewSignatureType(
-		nil, nil, nil,
-		types.NewTuple(types.NewVar(
-			0, nil, "text", types.NewSlice(types.Typ[types.Byte]),
-		)),
-		types.NewTuple(types.NewVar(
-			0, nil, "", types.Universe.Lookup("error").Type(),
-		)),
-		false,
-	)
-	return types.NewInterfaceType(
-		[]*types.Func{types.NewFunc(
-			0, nil, "UnmarshalText", sig,
-		)},
-		nil,
-	).Complete()
-}()
-
-// isTextUnmarshaler returns true if t or *t implements encoding.TextUnmarshaler.
-func isTextUnmarshaler(t types.Type) bool {
-	if t == nil {
-		return false
-	}
-	if types.Implements(t, textUnmarshaler) {
-		return true
-	}
-	return types.Implements(types.NewPointer(t), textUnmarshaler)
-}
-
-// isIntType returns true if the type is int64, int, etc.
-func isIntType(t types.Type) bool {
-	basic, ok := t.Underlying().(*types.Basic)
-	if !ok {
-		return false
-	}
-	switch basic.Kind() {
-	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
-		types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64:
-		return true
-	}
-	return false
-}
-
 // structHasNonStringField returns true if the resolved struct type
 // has any field whose type is not string.
 func structHasNonStringField(t types.Type) bool {
@@ -953,7 +834,7 @@ func structHasNonStringField(t types.Type) bool {
 		return false
 	}
 	for field := range st.Fields() {
-		if !isStringType(field.Type()) {
+		if !gotypes.IsString(field.Type()) {
 			return true
 		}
 	}
@@ -967,66 +848,11 @@ func structHasReflectSignal(t types.Type) bool {
 		return false
 	}
 	for i := range st.NumFields() {
-		if reflectSignalTagValue(st.Tag(i)) != "" {
+		if structtag.ReflectSignalTagValue(st.Tag(i)) != "" {
 			return true
 		}
 	}
 	return false
-}
-
-// intTypeName returns the Go identifier for an integer type (e.g. "int", "uint32").
-// Precondition: isIntType(t) must be true.
-func intTypeName(t types.Type) string {
-	switch t.Underlying().(*types.Basic).Kind() {
-	case types.Int:
-		return "int"
-	case types.Int8:
-		return "int8"
-	case types.Int16:
-		return "int16"
-	case types.Int32:
-		return "int32"
-	case types.Int64:
-		return "int64"
-	case types.Uint:
-		return "uint"
-	case types.Uint8:
-		return "uint8"
-	case types.Uint16:
-		return "uint16"
-	case types.Uint32:
-		return "uint32"
-	default: // Uint64
-		return "uint64"
-	}
-}
-
-// intTypeParseInfo returns the strconv bit-size argument and
-// whether the type is unsigned, for use with strconv.ParseInt / strconv.ParseUint.
-// Precondition: isIntType(t) must be true.
-func intTypeParseInfo(t types.Type) (bits int, unsigned bool) {
-	switch t.Underlying().(*types.Basic).Kind() {
-	case types.Int:
-		return 0, false
-	case types.Int8:
-		return 8, false
-	case types.Int16:
-		return 16, false
-	case types.Int32:
-		return 32, false
-	case types.Int64:
-		return 64, false
-	case types.Uint:
-		return 0, true
-	case types.Uint8:
-		return 8, true
-	case types.Uint16:
-		return 16, true
-	case types.Uint32:
-		return 32, true
-	default: // Uint64
-		return 64, true
-	}
 }
 
 // appPkgQualifier returns the identifier that qualifies app types in generated code.

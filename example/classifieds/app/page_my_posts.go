@@ -18,17 +18,17 @@ func (p PageMyPosts) GET(
 	r *http.Request,
 	session Session,
 ) (
-	body, head datapages.Component,
+	body datapages.Component, head datapages.Head,
 	redirect datapages.Redirect,
 	err error,
 ) {
 	if session.IsGuest() {
-		return nil, nil, datapages.Redirect{URL: href.PageLogin()}, nil
+		return nil, head, datapages.Redirect{URL: href.PageLogin()}, nil
 	}
 
 	user, err := p.App.repo.UserByName(r.Context(), session.UserID())
 	if err != nil {
-		return nil, nil, redirect, err
+		return nil, head, redirect, err
 	}
 
 	postsOfUser, err := p.App.repo.SearchPosts(
@@ -37,12 +37,12 @@ func (p PageMyPosts) GET(
 		},
 	)
 	if err != nil {
-		return nil, nil, redirect, err
+		return nil, head, redirect, err
 	}
 
 	baseData, err := p.baseData(r.Context(), session)
 	if err != nil {
-		return nil, nil, redirect, err
+		return nil, head, redirect, err
 	}
 
 	body = pageMyPosts(session, baseData, user, postsOfUser)

@@ -4,7 +4,10 @@ import (
 	"go/types"
 	"strings"
 
+	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/internal/routepattern"
+	"github.com/romshark/datapages/internal/structtag"
 )
 
 // handlerArgVar maps an InputKind constant to the local variable name
@@ -47,10 +50,26 @@ func handlerArgVar(kind string, skipSSE bool) string {
 }
 
 // outputVar returns the generated variable name for an output.
-// Error outputs always use "err"; others use their source name.
+// Outputs are matched by type, so the name the app picked is not the one
+// generated code binds them to.
 func outputVar(out *model.Output) string {
-	if out.Kind == model.OutputKindErr {
+	switch out.Kind {
+	case model.OutputKindErr:
 		return "err"
+	case model.OutputKindBody:
+		return "body"
+	case model.OutputKindHead:
+		return "head"
+	case model.OutputKindRedirect:
+		return "redirect"
+	case model.OutputKindNewSession:
+		return "newSession"
+	case model.OutputKindCloseSession:
+		return "closeSession"
+	case model.OutputKindEnableBgStream:
+		return "enableBackgroundStreaming"
+	case model.OutputKindDisableRefresh:
+		return "disableRefreshAfterHidden"
 	}
 	return out.Name
 }
@@ -71,19 +90,19 @@ func handlerGETOutputVars(
 	var outsBuf [8]string
 	outs := outsBuf[:0]
 	if get.OutputBody != nil {
-		outs = append(outs, get.OutputBody.Name)
+		outs = append(outs, outputVar(get.OutputBody.Output))
 	}
 	if get.OutputHead != nil {
-		outs = append(outs, get.OutputHead.Name)
+		outs = append(outs, outputVar(get.OutputHead.Output))
 	}
 	if h.OutputRedirect != nil {
-		outs = append(outs, h.OutputRedirect.Name)
+		outs = append(outs, outputVar(h.OutputRedirect))
 	}
 	if h.OutputEnableBgStream != nil {
-		outs = append(outs, h.OutputEnableBgStream.Name)
+		outs = append(outs, outputVar(h.OutputEnableBgStream))
 	}
 	if h.OutputDisableRefresh != nil {
-		outs = append(outs, h.OutputDisableRefresh.Name)
+		outs = append(outs, outputVar(h.OutputDisableRefresh))
 	}
 	if h.OutputErr != nil {
 		outs = append(outs, "err")
@@ -105,22 +124,22 @@ func handlerOutputVars(h *model.Handler) []string {
 	var outsBuf [8]string
 	outs := outsBuf[:0]
 	if h.OutputBody != nil {
-		outs = append(outs, h.OutputBody.Name)
+		outs = append(outs, outputVar(h.OutputBody.Output))
 	}
 	if h.OutputCloseSession != nil {
-		outs = append(outs, h.OutputCloseSession.Name)
+		outs = append(outs, outputVar(h.OutputCloseSession))
 	}
 	if h.OutputRedirect != nil {
-		outs = append(outs, h.OutputRedirect.Name)
+		outs = append(outs, outputVar(h.OutputRedirect))
 	}
 	if h.OutputNewSession != nil {
-		outs = append(outs, h.OutputNewSession.Name)
+		outs = append(outs, outputVar(h.OutputNewSession))
 	}
 	if h.OutputEnableBgStream != nil {
-		outs = append(outs, h.OutputEnableBgStream.Name)
+		outs = append(outs, outputVar(h.OutputEnableBgStream))
 	}
 	if h.OutputDisableRefresh != nil {
-		outs = append(outs, h.OutputDisableRefresh.Name)
+		outs = append(outs, outputVar(h.OutputDisableRefresh))
 	}
 	if h.OutputErr != nil {
 		outs = append(outs, "err")
@@ -278,7 +297,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		w.Raw(renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, `if r.URL.Query().Has("datastar") {`)
-		w.Line(2, "if err := datastar.ReadSignals(r, &signals); err != nil {")
+		w.Line(2, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(3, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(3, "return")
 		w.Line(2, "}")
@@ -288,7 +307,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	// Dispatch closures.
 	if len(h.InputDispatches) > 0 {
 		hasBody = true
-		w.writeDispatchClosures(h, "dispatch", appPkg, "r.Context()")
+		w.writeDispatchers(h, "dispatch", "r.Context()")
 	}
 
 	// Stateful page: mint the Datapages-Instance header so the client can
@@ -362,7 +381,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	if h.OutputEnableBgStream != nil &&
 		h.OutputDisableRefresh != nil && !pageHasStream(p) {
 		for i, o := range outs {
-			if o == h.OutputEnableBgStream.Name {
+			if o == outputVar(h.OutputEnableBgStream) {
 				outs[i] = "_"
 				break
 			}
@@ -399,7 +418,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	// Redirect.
 	if h.OutputRedirect != nil {
 		w.Raw("\tif httpRedirect(w, r, ")
-		w.Raw(h.OutputRedirect.Name)
+		w.Raw(outputVar(h.OutputRedirect))
 		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -416,12 +435,12 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 
 	headArg := "nil"
 	if p.GET.OutputHead != nil {
-		headArg = p.GET.OutputHead.Name
+		headArg = outputVar(p.GET.OutputHead.Output)
 	}
 
 	bodyName := "body"
 	if p.GET.OutputBody != nil {
-		bodyName = p.GET.OutputBody.Name
+		bodyName = outputVar(p.GET.OutputBody.Output)
 	}
 
 	w.Line(0, "")
@@ -470,7 +489,7 @@ func hasSessionInput(h *model.Handler) bool {
 func (w *Writer) writeSessionOutputs(h *model.Handler) {
 	if h.OutputCloseSession != nil {
 		w.Raw("\tif ")
-		w.Raw(h.OutputCloseSession.Name)
+		w.Raw(outputVar(h.OutputCloseSession))
 		w.Raw(" {\n")
 		w.Line(2, "if err := s.closeSession(w, r, sessToken); err != nil {")
 		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
@@ -480,10 +499,10 @@ func (w *Writer) writeSessionOutputs(h *model.Handler) {
 	}
 	if h.OutputNewSession != nil {
 		w.Raw("\tif j := ")
-		w.Raw(h.OutputNewSession.Name)
+		w.Raw(outputVar(h.OutputNewSession))
 		w.Raw("; j.UserID != \"\" {\n")
 		w.Raw("\t\tif err := s.createSession(w, r, ")
-		w.Raw(h.OutputNewSession.Name)
+		w.Raw(outputVar(h.OutputNewSession))
 		w.Raw("); err != nil {\n")
 		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
 		w.Line(3, "return")
@@ -495,15 +514,21 @@ func (w *Writer) writeSessionOutputs(h *model.Handler) {
 // writeGenericHeadCall emits: genericHead := s.app.Head(r[, sess])
 // hasSess indicates whether a "sess" variable is in scope.
 func (w *Writer) writeGenericHeadCall(gh *model.GlobalHead, hasSess bool) {
-	w.Raw("\tgenericHead := s.app.Head(r")
-	if gh.InputSession {
-		if hasSess {
-			w.Raw(", sess")
-		} else {
+	w.Raw("\tgenericHead := s.app.Head(")
+	for i, kind := range gh.OrderedInputs {
+		if i > 0 {
 			w.Raw(", ")
-			w.Raw(w.sessionType)
-			w.Raw("{}")
 		}
+		if kind == model.InputKindRequest {
+			w.Raw("r")
+			continue
+		}
+		if hasSess {
+			w.Raw("sess")
+			continue
+		}
+		w.Raw(w.sessionType)
+		w.Raw("{}")
 	}
 	w.Raw(")\n")
 }
@@ -520,13 +545,13 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 	if h.InputQuery != nil {
 		fields := w.structFields(h.InputQuery.Type.Resolved)
 		for _, f := range fields {
-			rs := reflectSignalTagValue(f.Tag)
+			rs := structtag.ReflectSignalTagValue(f.Tag)
 			if rs != "" {
 				reflectFields = append(reflectFields, reflectSignalField{
 					SignalName: rs,
 					FieldName:  f.Name,
 					Type:       f.Type,
-					QueryTag:   queryTagValue(f.Tag),
+					QueryTag:   structtag.QueryTagValue(f.Tag),
 				})
 			}
 		}
@@ -540,13 +565,13 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 
 	if hasDisableRefresh {
 		w.Raw("\t\tif !")
-		w.Raw(h.OutputDisableRefresh.Name)
+		w.Raw(outputVar(h.OutputDisableRefresh))
 		w.Raw(" {\n")
 		w.Line(3, "writeBodyAttrOnVisibilityChange(w)")
 		w.Line(2, "}")
 	} else if hasEnableBgStream {
 		w.Raw("\t\tif !")
-		w.Raw(h.OutputEnableBgStream.Name)
+		w.Raw(outputVar(h.OutputEnableBgStream))
 		w.Raw(" {\n")
 		w.Line(3, "writeBodyAttrOnVisibilityChange(w)")
 		w.Line(2, "}")
@@ -557,12 +582,12 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 	// Reflect signal attrs.
 	for _, f := range reflectFields {
 		fi := structFieldInfo{Name: f.FieldName, Type: f.Type}
-		if isStringType(f.Type) {
+		if gotypes.IsString(f.Type) {
 			w.Line(0, "")
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"'`)\n")
-			w.Raw("\t\twriteSignalString(w, query.")
+			w.Raw("\t\twriteSignalString(w, " + varQuery + ".")
 			w.Raw(f.FieldName)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
@@ -572,7 +597,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			w.Raw(f.SignalName)
 			w.Raw("=\"`)\n")
 			w.Raw("\t\twriteSignalValue(w, ")
-			w.writeFieldToString("query", fi)
+			w.writeFieldToString(varQuery, fi)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `\"`)")
 		}
@@ -634,7 +659,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 						w.Line(2, `if sess.UserID() != "" {`)
 						w.Line(3, "_, _ = io.WriteString(w, `/_$/'`)")
 						w.Raw("\t\t\tif ")
-						w.Raw(h.OutputEnableBgStream.Name)
+						w.Raw(outputVar(h.OutputEnableBgStream))
 						w.Raw(" {\n")
 						w.Line(4, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
 						w.Line(3, "} else {")
@@ -653,7 +678,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Raw(streamPath)
 					w.Raw("'`)\n")
 					w.Raw("\t\t\tif ")
-					w.Raw(h.OutputEnableBgStream.Name)
+					w.Raw(outputVar(h.OutputEnableBgStream))
 					w.Raw(" {\n")
 					w.Line(4, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
 					w.Line(3, "} else {")
@@ -678,7 +703,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				if hasEnableBgStream {
 					w.Line(2, "_, _ = io.WriteString(w, `/_$/'`)")
 					w.Raw("\t\tif ")
-					w.Raw(h.OutputEnableBgStream.Name)
+					w.Raw(outputVar(h.OutputEnableBgStream))
 					w.Raw(" {\n")
 					w.Line(3, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
 					w.Line(2, "} else {")
@@ -693,7 +718,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				w.Raw(streamPath)
 				w.Raw("'`)\n")
 				w.Raw("\t\tif ")
-				w.Raw(h.OutputEnableBgStream.Name)
+				w.Raw(outputVar(h.OutputEnableBgStream))
 				w.Raw(" {\n")
 				w.Line(3, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
 				w.Line(2, "} else {")
@@ -733,7 +758,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			fields := w.structFields(h.InputPath.Type.Resolved)
 			tagToField := make(map[string]structFieldInfo, len(fields))
 			for _, f := range fields {
-				if tag := pathTagValue(f.Tag); tag != "" {
+				if tag := structtag.PathTagValue(f.Tag); tag != "" {
 					tagToField[tag] = f
 				}
 			}
@@ -752,7 +777,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Raw("`)\n")
 					f := tagToField[r[i+1:i+j]]
 					w.Raw("\t\ttemplate.HTMLEscape(w, []byte(")
-					w.writeFieldToString("path", f)
+					w.writeFieldToString(varPath, f)
 					w.Raw("))\n")
 					w.Raw("\t\t_, _ = io.WriteString(w, `")
 					r = r[i+j+1:]
@@ -783,20 +808,20 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 	fields := w.structFields(pathInput.Type.Resolved)
 	tagToField := make(map[string]structFieldInfo, len(fields))
 	for _, f := range fields {
-		if tag := pathTagValue(f.Tag); tag != "" {
+		if tag := structtag.PathTagValue(f.Tag); tag != "" {
 			tagToField[tag] = f
 		}
 	}
 	// Build the path prefix up to the variable, then write the variable.
-	literals, vars := routeSegments(route)
+	literals, vars := routepattern.Segments(route)
 	for i, lit := range literals {
 		w.Raw("\t\t_, _ = io.WriteString(w, `")
 		w.Raw(lit)
 		w.Raw("`)\n")
 		if i < len(vars) {
 			f := tagToField[vars[i]]
-			w.Raw("\t\t_, _ = io.WriteString(w, ")
-			w.writeFieldToString("path", f)
+			w.Raw("\t\twriteStreamPathValue(w, ")
+			w.writeFieldToString(varPath, f)
 			w.Raw(")\n")
 		}
 	}
@@ -807,15 +832,15 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 // strconv.Format* or fmt.Sprint.
 func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
 	ref := varName + "." + f.Name
-	if isStringType(f.Type) {
-		if isNamedStringType(f.Type) {
+	if gotypes.IsString(f.Type) {
+		if gotypes.IsNamedString(f.Type) {
 			w.Rawf("string(%s)", ref)
 			return
 		}
 		w.Raw(ref)
-	} else if isIntType(f.Type) {
-		_, unsigned := intTypeParseInfo(f.Type)
-		typeName := intTypeName(f.Type)
+	} else if gotypes.IsInt(f.Type) {
+		_, unsigned := gotypes.IntParseInfo(f.Type)
+		typeName := gotypes.IntTypeName(f.Type)
 		if unsigned {
 			if typeName != "uint64" {
 				w.Rawf("strconv.FormatUint(uint64(%s), 10)", ref)
@@ -829,15 +854,15 @@ func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
 				w.Rawf("strconv.FormatInt(%s, 10)", ref)
 			}
 		}
-	} else if isFloatType(f.Type) {
-		bits := floatBits(f.Type)
-		typeName := floatTypeName(f.Type)
+	} else if gotypes.IsFloat(f.Type) {
+		bits := gotypes.FloatBits(f.Type)
+		typeName := gotypes.FloatTypeName(f.Type)
 		if typeName != "float64" {
 			w.Rawf("strconv.FormatFloat(float64(%s), 'f', -1, %d)", ref, bits)
 		} else {
 			w.Rawf("strconv.FormatFloat(%s, 'f', -1, %d)", ref, bits)
 		}
-	} else if isBoolType(f.Type) {
+	} else if gotypes.IsBool(f.Type) {
 		w.Rawf("strconv.FormatBool(%s)", ref)
 	} else {
 		// TextUnmarshaler or other — use fmt.Sprint as fallback.
@@ -909,18 +934,18 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Raw("\tvar signals ")
 		w.Raw(renderSignalsType(p.StreamOpen.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, "if err := datastar.ReadSignals(r, &signals); err != nil {")
+		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
 
 	if p.StreamOpen != nil {
-		w.writeDispatchClosures(p.StreamOpen, "dispatchOpen", appPkg,
+		w.writeDispatchers(p.StreamOpen, "dispatchOpen",
 			"context.WithoutCancel(r.Context())")
 	}
 	if p.StreamClose != nil {
-		w.writeDispatchClosures(p.StreamClose, "dispatchClosed", appPkg,
+		w.writeDispatchers(p.StreamClose, "dispatchClosed",
 			"context.WithoutCancel(r.Context())")
 	}
 
@@ -981,7 +1006,7 @@ func (w *Writer) writePageGETStreamHandler(
 	w.writePageStreamOpenHook(p)
 	w.writePageStreamCloseHook(p)
 	w.Line(1, "func(")
-	w.Line(2, "streamID uint64,")
+	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")
 	w.Line(1, ") {")
 	if len(p.EventHandlers) == 0 {
@@ -1110,7 +1135,7 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 		return
 	}
 	w.Line(1, "func(")
-	w.Line(2, "streamID uint64,")
+	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator,")
 	w.Line(1, ") error {")
 	if p.StreamOpen.OutputErr != nil {
@@ -1142,7 +1167,7 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 	suffix := stateSuffix(p.State)
 	w.Line(1, "func(")
-	w.Line(2, "streamID uint64,")
+	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator,")
 	w.Line(1, ") error {")
 	w.Linef(2, "slot = s.allocate%s(instanceID)", suffix)
@@ -1208,7 +1233,7 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 		w.Line(1, "nil,")
 		return
 	}
-	w.Line(1, "func(streamID uint64) {")
+	w.Line(1, "func(streamID datapages.StreamID) {")
 	if p.StreamClose.OutputErr != nil {
 		w.Raw("\t\tif err := ")
 		w.writeCallExpr(
@@ -1242,7 +1267,7 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 // while the slot is alive.
 func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 	suffix := stateSuffix(p.State)
-	w.Line(1, "func(streamID uint64) {")
+	w.Line(1, "func(streamID datapages.StreamID) {")
 
 	// The slot is taken only to call the user's hook under it. Without a hook
 	// there is nothing to serialize, and the release below takes the slot on its own.
@@ -1335,17 +1360,17 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		w.Raw("\tvar signals ")
 		w.Raw(renderSignalsType(p.StreamOpen.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, "if err := datastar.ReadSignals(r, &signals); err != nil {")
+		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
 	if p.StreamOpen != nil {
-		w.writeDispatchClosures(p.StreamOpen, "dispatchOpen", appPkg,
+		w.writeDispatchers(p.StreamOpen, "dispatchOpen",
 			"context.WithoutCancel(r.Context())")
 	}
 	if p.StreamClose != nil {
-		w.writeDispatchClosures(p.StreamClose, "dispatchClosed", appPkg,
+		w.writeDispatchers(p.StreamClose, "dispatchClosed",
 			"context.WithoutCancel(r.Context())")
 	}
 
@@ -1381,7 +1406,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.writePageStreamOpenHook(p)
 	w.writePageStreamCloseHook(p)
 	w.Line(1, "func(")
-	w.Line(2, "streamID uint64,")
+	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")
 	w.Line(1, ") {")
 	w.Line(2, "for msg := range ch {")
@@ -1482,7 +1507,7 @@ func (w *Writer) writePageActionHandler(
 		w.Raw("\tvar signals ")
 		w.Raw(renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, "if err := datastar.ReadSignals(r, &signals); err != nil {")
+		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1506,7 +1531,7 @@ func (w *Writer) writePageActionHandler(
 	}
 
 	// Dispatch closures.
-	w.writeDispatchClosures(h, "dispatch", appPkg, "r.Context()")
+	w.writeDispatchers(h, "dispatch", "r.Context()")
 
 	// SSE for actions that take it.
 	if h.InputSSE != nil {
@@ -1577,7 +1602,7 @@ func (w *Writer) writeActionMethodCall(
 	// Redirect.
 	if h.OutputRedirect != nil {
 		w.Raw("\tif httpRedirect(w, r, ")
-		w.Raw(h.OutputRedirect.Name)
+		w.Raw(outputVar(h.OutputRedirect))
 		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1607,12 +1632,12 @@ func (w *Writer) writeActionMethodCall(
 		// renders has to carry. Anything else leaves the value the handler
 		// returned unused, which is also a package that does not compile.
 		if h.OutputHead != nil {
-			w.Raw(h.OutputHead.Name)
+			w.Raw(outputVar(h.OutputHead.Output))
 		} else {
 			w.Raw("nil")
 		}
 		w.Raw(", ")
-		w.Raw(h.OutputBody.Name)
+		w.Raw(outputVar(h.OutputBody.Output))
 		w.Raw(", nil, nil,\n")
 		w.Line(1, "); err != nil {")
 		w.Raw("\t\ts.logErr(\"rendering response of ")
@@ -1650,9 +1675,9 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 	w.Byte('\n')
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
-		tag := queryTagValue(f.Tag)
-		if isStringType(f.Type) {
-			w.Raw("\tquery.")
+		tag := structtag.QueryTagValue(f.Tag)
+		if gotypes.IsString(f.Type) {
+			w.Raw("\t" + varQuery + ".")
 			w.Raw(f.Name)
 			w.Raw(" = ")
 			w.writeStringConv(f.Type, func() {
@@ -1666,7 +1691,7 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 			w.Raw("\t\tif q := q.Get(")
 			w.writeQuoted(tag)
 			w.Raw("); q != \"\" {\n")
-			w.writeParseField("query", f, tag, "query parameter", 3)
+			w.writeParseField(varQuery, "q", f, tag, "query parameter", 3)
 			w.Line(2, "}")
 			w.Line(1, "}")
 		}
@@ -1680,9 +1705,9 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
 	w.Byte('\n')
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
-		tag := pathTagValue(f.Tag)
-		if isStringType(f.Type) {
-			w.Raw("\tpath.")
+		tag := structtag.PathTagValue(f.Tag)
+		if gotypes.IsString(f.Type) {
+			w.Raw("\t" + varPath + ".")
 			w.Raw(f.Name)
 			w.Raw(" = ")
 			w.writeStringConv(f.Type, func() {
@@ -1696,37 +1721,31 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
 			w.Raw("\t\tv := r.PathValue(")
 			w.writeQuoted(tag)
 			w.Raw(")\n")
-			w.writeParseField("path", f, tag, "path parameter", 2)
+			w.writeParseField(varPath, "v", f, tag, "path parameter", 2)
 			w.Line(1, "}")
 		}
 	}
 }
 
-// writeParseField emits code that parses a raw string value into a typed
-// struct field. For writeReadQuery the raw variable is named "q"
-// (from the if-guard); for writeReadPath it is "v" (set before the call).
+// writeParseField emits code that parses a raw string value into a typed struct field.
 //
-// varName is "path" or "query" (the struct being populated).
+// varName is the struct being populated, raw is the variable holding the
+// string to parse: "q" from the if-guard writeReadQuery emits, "v" as
+// writeReadPath sets it before the call.
 // label is "path parameter" or "query parameter" (for error messages).
 // indent is the base indentation level for the generated code.
 func (w *Writer) writeParseField(
-	varName string, f structFieldInfo, tag, label string, indent int,
+	varName, raw string, f structFieldInfo, tag, label string, indent int,
 ) {
-	// Determine the raw-string variable name: "q" for query, "v" for path.
-	raw := "q"
-	if varName == "path" {
-		raw = "v"
-	}
-
 	tabs := func(n int) {
 		for range n {
 			w.Byte('\t')
 		}
 	}
 
-	if isIntType(f.Type) {
-		bits, unsigned := intTypeParseInfo(f.Type)
-		typeName := intTypeName(f.Type)
+	if gotypes.IsInt(f.Type) {
+		bits, unsigned := gotypes.IntParseInfo(f.Type)
+		typeName := gotypes.IntTypeName(f.Type)
 		if unsigned {
 			tabs(indent)
 			w.Rawf("u, err := strconv.ParseUint(%s, 10, %d)\n", raw, bits)
@@ -1761,9 +1780,9 @@ func (w *Writer) writeParseField(
 			}
 		}
 		w.Byte('\n')
-	} else if isFloatType(f.Type) {
-		bits := floatBits(f.Type)
-		typeName := floatTypeName(f.Type)
+	} else if gotypes.IsFloat(f.Type) {
+		bits := gotypes.FloatBits(f.Type)
+		typeName := gotypes.FloatTypeName(f.Type)
 		tabs(indent)
 		w.Rawf("f, err := strconv.ParseFloat(%s, %d)\n", raw, bits)
 		tabs(indent)
@@ -1785,7 +1804,7 @@ func (w *Writer) writeParseField(
 			w.Raw("f")
 		}
 		w.Byte('\n')
-	} else if isBoolType(f.Type) {
+	} else if gotypes.IsBool(f.Type) {
 		tabs(indent)
 		w.Rawf("b, err := strconv.ParseBool(%s)\n", raw)
 		tabs(indent)
@@ -1801,7 +1820,7 @@ func (w *Writer) writeParseField(
 		w.Byte('.')
 		w.Raw(f.Name)
 		w.Raw(" = b\n")
-	} else if isTextUnmarshaler(f.Type) {
+	} else if gotypes.ImplementsTextUnmarshaler(f.Type) {
 		tabs(indent)
 		w.Rawf("if err := %s.%s.UnmarshalText([]byte(%s)); err != nil {\n",
 			varName, f.Name, raw)
@@ -1824,11 +1843,11 @@ type reflectSignalField struct {
 // writeStringConv writes inner, converted to t when t is
 // a string type with a name of its own.
 func (w *Writer) writeStringConv(t types.Type, inner func()) {
-	if !isNamedStringType(t) {
+	if !gotypes.IsNamedString(t) {
 		inner()
 		return
 	}
-	w.Raw(qualifiedTypeName(t))
+	w.Raw(gotypes.QualifiedTypeName(t))
 	w.Byte('(')
 	inner()
 	w.Byte(')')

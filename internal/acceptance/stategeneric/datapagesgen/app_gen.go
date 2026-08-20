@@ -253,32 +253,45 @@ type sseWrapper struct {
 
 func (s sseWrapper) Context() context.Context { return s.gen.Context() }
 
-func (s sseWrapper) PatchElement(
-	c datapages.Component, opts ...datapages.PatchOption,
+func (s sseWrapper) PatchElement(c datapages.Component) error {
+	return s.gen.PatchElementTempl(c)
+}
+
+func (s sseWrapper) PatchElementAt(
+	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
 ) error {
-	var cfg datapages.PatchConfig
-	for _, o := range opts {
-		o(&cfg)
-	}
-	var ds []datastar.PatchElementOption
-	if cfg.Selector != "" {
-		ds = append(ds, datastar.WithSelector(cfg.Selector))
-	}
-	if cfg.SelectorID != "" {
-		ds = append(ds, datastar.WithSelectorID(cfg.SelectorID))
-	}
-	switch cfg.Mode {
+	switch mode {
 	case datapages.PatchModeOuter, datapages.PatchModeInner,
 		datapages.PatchModeReplace, datapages.PatchModePrepend,
 		datapages.PatchModeAppend, datapages.PatchModeBefore,
 		datapages.PatchModeAfter:
-		ds = append(ds, datastar.WithMode(datastar.ElementPatchMode(cfg.Mode)))
+	default:
+		mode = "" // Not a PatchMode constant, patch in the default mode.
 	}
-	return s.gen.PatchElementTempl(c, ds...)
+	switch {
+	case selectorCSS == "" && mode == "":
+		return s.gen.PatchElementTempl(c)
+	case mode == "":
+		return s.gen.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
+	case selectorCSS == "":
+		return s.gen.PatchElementTempl(
+			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
+		)
+	}
+	return s.gen.PatchElementTempl(c,
+		datastar.WithSelector(selectorCSS),
+		datastar.WithMode(datastar.ElementPatchMode(mode)))
 }
 
-func (s sseWrapper) RemoveElement(selector string) error {
-	return s.gen.RemoveElement(selector)
+// removeElementModeDataline is the mode line of a removal event.
+const removeElementModeDataline = datastar.ModeDatalineLiteral +
+	string(datastar.ElementPatchModeRemove)
+
+func (s sseWrapper) RemoveElement(selectorCSS string) error {
+	return s.gen.Send(datastar.EventTypePatchElements, []string{
+		datastar.SelectorDatalineLiteral + selectorCSS,
+		removeElementModeDataline,
+	})
 }
 
 func (s sseWrapper) ExecuteScript(script string) error {
@@ -308,7 +321,8 @@ func isSubjectToken(v string) bool {
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	head, body datapages.Component,
+	head datapages.Head,
+	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -403,12 +417,12 @@ func (s *Server) handleStreamRequest(
 	w http.ResponseWriter, r *http.Request,
 	subjects []string,
 	onOpen func(
-		streamID uint64,
+		streamID datapages.StreamID,
 		sse *datastar.ServerSentEventGenerator,
 	) error,
-	onClose func(streamID uint64),
+	onClose func(streamID datapages.StreamID),
 	fn func(
-		streamID uint64,
+		streamID datapages.StreamID,
 		sse *datastar.ServerSentEventGenerator,
 		ch <-chan msgbroker.Message,
 	),
@@ -417,7 +431,7 @@ func (s *Server) handleStreamRequest(
 		return
 	}
 
-	streamID := s.streamSeq.Add(1)
+	streamID := datapages.StreamID(s.streamSeq.Add(1))
 
 	// The subscription is established before the response head goes out.
 	// A client learns the stream is open by reading that head and may dispatch
@@ -1270,7 +1284,7 @@ func (s *Server) handlePageCountGETStream(w http.ResponseWriter, r *http.Request
 	}
 	s.handleStreamRequest(w, r, evSubjPageCount(stateID),
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
 			slot = s.allocateStateCounter(instanceID)
@@ -1297,11 +1311,11 @@ func (s *Server) handlePageCountGETStream(w http.ResponseWriter, r *http.Request
 			opened = true
 			return nil
 		},
-		func(streamID uint64) {
+		func(streamID datapages.StreamID) {
 			s.releaseStateCounter(instanceID, slot)
 		},
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -1350,30 +1364,7 @@ func (s *Server) handlePageCountPOSTBump(
 		return
 	}
 
-	dispatchPing := func(
-		e app.EventPing,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.SubjectStateID)) {
-			return fmt.Errorf(
-				"EventPing.SubjectStateID must be a non-empty subject token, received %q",
-				e.SubjectStateID)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventPing JSON: %w", err)
-		}
-		subj := "ping." + string(e.SubjectStateID)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchPing := dispatcherEventPing{s: s, ctx: r.Context()}
 	p := app.PageCount{
 		App: s.app,
 		Base: app.Base[app.StateCounter]{
@@ -1460,7 +1451,7 @@ func (s *Server) handlePageEmbedOnlyGETStream(w http.ResponseWriter, r *http.Req
 	}
 	s.handleStreamRequest(w, r, evSubjPageEmbedOnly(stateID),
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
 			slot = s.allocateStateLabel(instanceID)
@@ -1487,11 +1478,11 @@ func (s *Server) handlePageEmbedOnlyGETStream(w http.ResponseWriter, r *http.Req
 			opened = true
 			return nil
 		},
-		func(streamID uint64) {
+		func(streamID datapages.StreamID) {
 			s.releaseStateLabel(instanceID, slot)
 		},
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -1616,7 +1607,7 @@ func (s *Server) handlePageLabelGETStream(w http.ResponseWriter, r *http.Request
 	}
 	s.handleStreamRequest(w, r, evSubjPageLabel(stateID),
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
 			slot = s.allocateStateLabel(instanceID)
@@ -1643,11 +1634,11 @@ func (s *Server) handlePageLabelGETStream(w http.ResponseWriter, r *http.Request
 			opened = true
 			return nil
 		},
-		func(streamID uint64) {
+		func(streamID datapages.StreamID) {
 			s.releaseStateLabel(instanceID, slot)
 		},
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -1692,10 +1683,10 @@ func (s *Server) handlePageLabelPOSTSet(
 	}
 	stateID := s.stateRouteKey(instanceID)
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
-	var signals struct {
+	var signals datapages.Signals[struct {
 		Text string `json:"text"`
-	}
-	if err := datastar.ReadSignals(r, &signals); err != nil {
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.httpErrBad(w, "reading signals", err)
 		return
 	}
@@ -1707,30 +1698,7 @@ func (s *Server) handlePageLabelPOSTSet(
 		return
 	}
 
-	dispatchPing := func(
-		e app.EventPing,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.SubjectStateID)) {
-			return fmt.Errorf(
-				"EventPing.SubjectStateID must be a non-empty subject token, received %q",
-				e.SubjectStateID)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventPing JSON: %w", err)
-		}
-		subj := "ping." + string(e.SubjectStateID)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchPing := dispatcherEventPing{s: s, ctx: r.Context()}
 	p := app.PageLabel{
 		App: s.app,
 		Base: app.Base[app.StateLabel]{
@@ -1823,7 +1791,7 @@ func (s *Server) handlePageNestedGETStream(w http.ResponseWriter, r *http.Reques
 	}
 	s.handleStreamRequest(w, r, evSubjPageNested(stateID),
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
 			slot = s.allocateStateNested(instanceID)
@@ -1850,11 +1818,11 @@ func (s *Server) handlePageNestedGETStream(w http.ResponseWriter, r *http.Reques
 			opened = true
 			return nil
 		},
-		func(streamID uint64) {
+		func(streamID datapages.StreamID) {
 			s.releaseStateNested(instanceID, slot)
 		},
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -1903,30 +1871,7 @@ func (s *Server) handlePageNestedPOSTBump(
 		return
 	}
 
-	dispatchPing := func(
-		e app.EventPing,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.SubjectStateID)) {
-			return fmt.Errorf(
-				"EventPing.SubjectStateID must be a non-empty subject token, received %q",
-				e.SubjectStateID)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventPing JSON: %w", err)
-		}
-		subj := "ping." + string(e.SubjectStateID)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchPing := dispatcherEventPing{s: s, ctx: r.Context()}
 	p := app.PageNested{
 		App: s.app,
 		Mid: app.Mid[app.StateNested]{
@@ -2016,7 +1961,7 @@ func (s *Server) handlePagePointerGETStream(w http.ResponseWriter, r *http.Reque
 	}
 	s.handleStreamRequest(w, r, evSubjPagePointer(stateID),
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
 			slot = s.allocateStatePointer(instanceID)
@@ -2043,11 +1988,11 @@ func (s *Server) handlePagePointerGETStream(w http.ResponseWriter, r *http.Reque
 			opened = true
 			return nil
 		},
-		func(streamID uint64) {
+		func(streamID datapages.StreamID) {
 			s.releaseStatePointer(instanceID, slot)
 		},
 		func(
-			streamID uint64,
+			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
 			for msg := range ch {
@@ -2096,30 +2041,7 @@ func (s *Server) handlePagePointerPOSTBump(
 		return
 	}
 
-	dispatchPing := func(
-		e app.EventPing,
-		options ...datapages.DispatchOption,
-	) error {
-		conf := datapages.DispatchConfig{Context: r.Context()}
-		for _, o := range options {
-			o(&conf)
-		}
-		if !isSubjectToken(string(e.SubjectStateID)) {
-			return fmt.Errorf(
-				"EventPing.SubjectStateID must be a non-empty subject token, received %q",
-				e.SubjectStateID)
-		}
-		j, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("marshaling EventPing JSON: %w", err)
-		}
-		subj := "ping." + string(e.SubjectStateID)
-		err = s.messageBroker.Publish(conf.Context, s.messageBrokerMetrics, subj, j)
-		if err != nil {
-			return fmt.Errorf("publishing subject %q: %w", subj, err)
-		}
-		return nil
-	}
+	dispatchPing := dispatcherEventPing{s: s, ctx: r.Context()}
 	p := app.PagePointer{
 		App: s.app,
 		Base: &app.Base[app.StatePointer]{
@@ -2131,4 +2053,33 @@ func (s *Server) handlePagePointerPOSTBump(
 		s.httpErrIntern(w, r, nil, "handling action PagePointer.Bump", err)
 		return
 	}
+}
+
+type dispatcherEventPing struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventPing) Dispatch(e app.EventPing) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventPing) DispatchCtx(
+	ctx context.Context, e app.EventPing,
+) error {
+	if !isSubjectToken(string(e.SubjectStateID)) {
+		return fmt.Errorf(
+			"EventPing.SubjectStateID must be a non-empty subject token, received %q",
+			e.SubjectStateID)
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventPing JSON: %w", err)
+	}
+	subj := "ping." + string(e.SubjectStateID)
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
 }

@@ -37,6 +37,6 @@ func (PageIndex) POSTB(
 
 // StreamOpen anchors the state lifecycle so the fixture isolates the
 // ErrStateConflict error without also tripping ErrStateWithoutStream.
-func (PageIndex) StreamOpen(r *http.Request, streamID uint64) error {
+func (PageIndex) StreamOpen(r *http.Request, streamID datapages.StreamID) error {
 	return nil
 }

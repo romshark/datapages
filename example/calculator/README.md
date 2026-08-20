@@ -90,7 +90,7 @@ keyboard events to button clicks and validates clipboard paste input.
 
 ## Prerequisites
 
-- [Go](https://go.dev/dl/) 1.26+
+- [Go](https://go.dev/dl/) 1.27+
 - [Mage](https://magefile.org/) build tool
 - [Datapages](https://github.com/romshark/datapages) CLI (for `datapages watch`)
 - [Maestro](https://maestro.dev) CLI (for E2E tests only):

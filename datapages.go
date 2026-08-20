@@ -14,6 +14,141 @@ type Component interface {
 	Render(ctx context.Context, w io.Writer) error
 }
 
+// Signals carries the client-side Datastar signals.
+// GET, action (POST/PUT/PATCH/DELETE) and StreamOpen handlers may
+// receive it as a parameter.
+//
+// Values is a struct whose exported fields each name a signal with a json:"<name>" tag:
+//
+//	func (p PageChat) POSTSend(
+//		r *http.Request,
+//		signals datapages.Signals[struct {
+//			Text string `json:"text"`
+//		}],
+//	) error {
+//		return p.App.Send(r.Context(), signals.Values.Text)
+//	}
+type Signals[Values any] struct{ Values Values }
+
+// Path carries the URL path variables of the route.
+// GET and action (POST/PUT/PATCH/DELETE) handlers may receive it as a parameter.
+//
+// Values is a struct whose exported fields each name a route variable with a
+// path:"<name>" tag:
+//
+//	// PagePost is /post/{slug}
+//	func (p PagePost) GET(
+//		r *http.Request,
+//		path datapages.Path[struct {
+//			Slug string `path:"slug"`
+//		}],
+//	) (body datapages.Component, err error) {
+//		return postView(path.Values.Slug), nil
+//	}
+//
+// Every route variable needs a field and every field needs a route variable.
+type Path[Values any] struct{ Values Values }
+
+// Query carries the URL query parameters.
+// GET and action (POST/PUT/PATCH/DELETE) handlers may receive it as a parameter.
+//
+// Values is a struct whose exported fields each name a parameter with a
+// query:"<name>" tag.
+// A parameter the URL doesn't carry leaves its field at the zero value:
+//
+//	func (p PageSearch) GET(
+//		r *http.Request,
+//		query datapages.Query[struct {
+//			Term string `query:"term"`
+//		}],
+//	) (body datapages.Component, err error) {
+//		return results(query.Values.Term), nil
+//	}
+//
+// A field can carry a reflectsignal:"<name>" tag naming a signal of the
+// handler's [Signals] parameter. The query parameter gives that signal its
+// value on page load, and the browser URL is rewritten whenever the signal changes:
+//
+//	func (p PageSearch) GET(
+//		r *http.Request,
+//		query datapages.Query[struct {
+//			Term string `query:"term" reflectsignal:"term"`
+//		}],
+//		signals datapages.Signals[struct {
+//			Term string `json:"term"`
+//		}],
+//	) (body datapages.Component, err error) {
+//		return results(query.Values.Term), nil
+//	}
+//
+// The tag value must match a json tag in the signals struct.
+type Query[Values any] struct{ Values Values }
+
+// StreamID identifies one SSE stream instance within the process.
+// StreamOpen and StreamClose must receive it, event (OnXXX) handlers may:
+//
+//	func (p PageIndex) StreamOpen(
+//		r *http.Request, streamID datapages.StreamID,
+//	) error {
+//		return p.App.OpenTab(streamID)
+//	}
+//
+//	func (p PageIndex) StreamClose(
+//		r *http.Request, streamID datapages.StreamID,
+//	) error {
+//		return p.App.CloseTab(streamID)
+//	}
+//
+// It pairs the two hooks for the same stream. One session can hold several streams,
+// one per open tab, and the ID is what tells them apart: register per-tab state under
+// it in StreamOpen, read that state in the OnXXX handlers,
+// and drop it in StreamClose. It also ties the log lines of one stream together.
+//
+// Keep it server-side and never hand it to clients.
+type StreamID uint64
+
+// Head is the page head a GET or action handler returns alongside its body.
+// It carries whatever belongs inside <head>, such as a title and meta tags:
+//
+//	func (p PagePost) GET(r *http.Request) (
+//		body datapages.Component,
+//		head datapages.Head,
+//		err error,
+//	) {
+//		return postView(post), postMeta(post), nil
+//	}
+//
+// It's a [Component] under another name, which is what tells it apart from the body.
+// A nil head renders nothing, leaving the page with the head the app
+// generates for every page.
+type Head Component
+
+// CloseSession is returned by handlers to sign the client out.
+// Datapages drops the session and removes the session cookie:
+//
+//	func (p PageAccount) POSTSignOut(r *http.Request) (
+//		closeSession datapages.CloseSession,
+//		redirect datapages.Redirect,
+//		err error,
+//	) {
+//		return true, datapages.Redirect{URL: href.PageIndex()}, nil
+//	}
+//
+// The zero value is a no-op, the client keeps its session.
+// It can't be combined with an [SSE] parameter, which has already sent the
+// response headers the cookie would travel in.
+type CloseSession bool
+
+// EnableBackgroundStreaming is returned by GET handlers to keep the page's SSE
+// stream open while its browser tab sits in the background.
+// The zero value lets the browser close the stream with the tab.
+type EnableBackgroundStreaming bool
+
+// DisableRefreshAfterHidden is returned by GET handlers to stop the page from
+// reloading when its browser tab comes back to the foreground.
+// The zero value refreshes, which brings a stale page up to date.
+type DisableRefreshAfterHidden bool
+
 // Session is the authenticated session of the client, passed to handlers as the
 // session parameter. It's read-only: return a [NewSession] to change it.
 //
@@ -131,11 +266,19 @@ type SSE interface {
 	Context() context.Context
 
 	// PatchElement patches the elements rendered by c into the DOM.
-	// They are morphed by default, use [WithMode] to patch them differently.
-	PatchElement(c Component, opts ...PatchOption) error
+	// Each element is morphed into the element carrying its id.
+	// Use [SSE.PatchElementAt] to name a target or to patch in another mode.
+	PatchElement(c Component) error
+
+	// PatchElementAt patches the elements rendered by c into the element(s)
+	// matching the CSS selector, applying them in the given mode.
+	// An empty selector targets by element id, like [SSE.PatchElement] does.
+	// The zero PatchMode morphs using [PatchModeOuter], like [SSE.PatchElement] does.
+	// Any value that is not a [PatchMode] constant is ignored.
+	PatchElementAt(c Component, selectorCSS string, mode PatchMode) error
 
 	// RemoveElement removes the elements matching the CSS selector from the DOM.
-	RemoveElement(selector string) error
+	RemoveElement(selectorCSS string) error
 
 	// ExecuteScript runs a script on the client.
 	ExecuteScript(script string) error
@@ -165,17 +308,6 @@ type SSE interface {
 	Prefetch(urls ...string) error
 }
 
-// PatchConfig is the accumulated configuration of a [SSE.PatchElement] call.
-// The generated runtime translates it to the underlying Datastar options.
-//
-// Selector and SelectorID both name the patch target and are mutually exclusive.
-// If both are set then SelectorID wins, no matter in which order the options were passed.
-type PatchConfig struct {
-	Selector   string
-	SelectorID string
-	Mode       PatchMode
-}
-
 // PatchMode determines how patched elements are applied to the DOM.
 // Removal has no mode, use [SSE.RemoveElement] instead.
 // Zero value is equivalent to [PatchModeOuter].
@@ -203,36 +335,6 @@ const (
 	// PatchModeAfter inserts the element after the existing element.
 	PatchModeAfter PatchMode = "after"
 )
-
-// PatchOption configures [SSE.PatchElement].
-type PatchOption func(*PatchConfig)
-
-// WithSelector targets the element(s) matching a CSS selector.
-// Mutually exclusive with [WithSelectorID] (which wins if both are given).
-func WithSelector(selector string) PatchOption {
-	return func(c *PatchConfig) { c.Selector = selector }
-}
-
-// WithSelectorID targets the element with the given id.
-// Mutually exclusive with [WithSelector] and wins if both are given.
-func WithSelectorID(id string) PatchOption {
-	return func(c *PatchConfig) { c.SelectorID = id }
-}
-
-// WithMode determines how the patched elements are applied to the DOM.
-// Defaults to [PatchModeOuter], which morphs.
-// mode must be one of the [PatchMode] constants, any other value is ignored:
-//
-//   - [PatchModeOuter]
-//   - [PatchModeInner]
-//   - [PatchModeReplace]
-//   - [PatchModePrepend]
-//   - [PatchModeAppend]
-//   - [PatchModeBefore]
-//   - [PatchModeAfter]
-func WithMode(mode PatchMode) PatchOption {
-	return func(c *PatchConfig) { c.Mode = mode }
-}
 
 // Sentinel errors for HTTP status codes. Return one from a handler to control
 // the status code of the response, directly for a zero-alloc response or
@@ -314,62 +416,7 @@ type SubjectUser string
 // carry a signal:"<name>" tag, and it must be the event's only subject field.
 type SubjectStateID string
 
-// DispatchConfig is the accumulated configuration of a [Dispatch] call.
-// Generated code assembles it from the [DispatchOption] values the call passes.
-type DispatchConfig struct {
-	// Context controls the publish: how long it may take and when it's given up on.
-	// It defaults to the context of the handler that dispatches,
-	// see [WithDispatchContext].
-	Context context.Context
-}
-
-// DispatchOption configures a single [Dispatch] call.
-type DispatchOption func(*DispatchConfig)
-
-// WithDispatchContext publishes with ctx instead of the handler's context.
-// A nil ctx is a no-op, the default is kept.
-//
-// Handlers rarely need this. The default is the request context in actions and
-// the request context without its cancelation in stream hooks, which run while
-// the stream is being torn down. Reach for it when the event is dispatched
-// after the handler returned, from a goroutine that outlives it,
-// or when the publish needs a deadline of its own:
-//
-//	// POSTInvite is /team/invite
-//	func (p PageTeam) POSTInvite(
-//		r *http.Request,
-//		signals struct {
-//			Email string `json:"email"`
-//		},
-//		dispatchSent datapages.Dispatch[EventInviteSent],
-//	) error {
-//		// The request context ends with the response, before the mail is out.
-//		// This one keeps its values, drops its cancelation and sets a deadline.
-//		ctx, cancel := context.WithTimeout(
-//			context.WithoutCancel(r.Context()), time.Minute,
-//		)
-//		go func() {
-//			defer cancel()
-//			if err := p.App.SendInvite(ctx, signals.Email); err != nil {
-//				slog.Error("sending invite", slog.Any("err", err))
-//				return
-//			}
-//			_ = dispatchSent(
-//				EventInviteSent{Email: signals.Email},
-//				datapages.WithDispatchContext(ctx),
-//			)
-//		}()
-//		return nil // Return OK immediately, dispatch event asynchronously.
-//	}
-func WithDispatchContext(ctx context.Context) DispatchOption {
-	return func(c *DispatchConfig) {
-		if ctx != nil {
-			c.Context = ctx
-		}
-	}
-}
-
-// Dispatch publishes an event. Handlers receive it as a parameter,
+// Dispatcher publishes events of one type. Handlers receive it as a parameter,
 // which may carry any name; the type is what makes it a dispatcher.
 // One dispatcher publishes one event type, so a handler that
 // publishes three declares three, and calls each as often as it needs:
@@ -381,9 +428,9 @@ func WithDispatchContext(ctx context.Context) DispatchOption {
 //			Text        string   `json:"text"`
 //			Attachments []string `json:"attachments"`
 //		},
-//		dispatchAttached datapages.Dispatch[EventAttachmentAdded],
-//		dispatchWritingStopped datapages.Dispatch[EventWritingStopped],
-//		dispatchSent datapages.Dispatch[EventMessageSent],
+//		attachmentAdded datapages.Dispatcher[EventAttachmentAdded],
+//		writingStopped datapages.Dispatcher[EventWritingStopped],
+//		messageSent datapages.Dispatcher[EventMessageSent],
 //	) error {
 //		room, err := p.App.Room(r.Context(), signals.RoomID)
 //		if err != nil {
@@ -391,16 +438,16 @@ func WithDispatchContext(ctx context.Context) DispatchOption {
 //		}
 //		var errs []error
 //		for _, name := range signals.Attachments {
-//			errs = append(errs, dispatchAttached(EventAttachmentAdded{
+//			errs = append(errs, attachmentAdded.Dispatch(EventAttachmentAdded{
 //				Recipients: room.ParticipantIDs,
 //				Name:       name,
 //			}))
 //		}
 //		return errors.Join(append(errs,
-//			dispatchWritingStopped(EventWritingStopped{
+//			writingStopped.Dispatch(EventWritingStopped{
 //				Recipients: room.ParticipantIDs,
 //			}),
-//			dispatchSent(EventMessageSent{
+//			messageSent.Dispatch(EventMessageSent{
 //				Recipients: room.ParticipantIDs,
 //				Message:    signals.Text,
 //			}),
@@ -410,7 +457,39 @@ func WithDispatchContext(ctx context.Context) DispatchOption {
 // The events go out in the order the handler dispatches them,
 // arguments of one call included. Nothing is atomic across them:
 // a failed publish neither undoes the ones before it nor stops the ones after.
-//
-// The publish uses the context of the handler it's dispatched from,
-// which [WithDispatchContext] overrides.
-type Dispatch[Event any] func(event Event, options ...DispatchOption) error
+type Dispatcher[Event any] interface {
+	// Dispatch publishes the event. Every open stream subscribed to its subject
+	// receives it, and the OnXXX handler of that page runs.
+	// The publish uses the handler's context: the request context in actions,
+	// the request context without cancelation in stream hooks.
+	Dispatch(event Event) error
+
+	// DispatchCtx is [Dispatcher.Dispatch] with ctx for the publish.
+	// Use it when the event goes out after the handler returned,
+	// or when the publish needs its own deadline:
+	//
+	//	// POSTInvite is /team/invite
+	//	func (p PageTeam) POSTInvite(
+	//		r *http.Request,
+	//		signals struct {
+	//			Email string `json:"email"`
+	//		},
+	//		inviteSent datapages.Dispatcher[EventInviteSent],
+	//	) error {
+	//		// The request context ends with the response, before the mail is out.
+	//		// This one keeps its values, drops its cancelation and sets a deadline.
+	//		ctx, cancel := context.WithTimeout(
+	//			context.WithoutCancel(r.Context()), time.Minute,
+	//		)
+	//		go func() {
+	//			defer cancel()
+	//			if err := p.App.SendInvite(ctx, signals.Email); err != nil {
+	//				slog.Error("sending invite", slog.Any("err", err))
+	//				return
+	//			}
+	//			_ = inviteSent.DispatchCtx(ctx, EventInviteSent{Email: signals.Email})
+	//		}()
+	//		return nil // Return OK immediately, dispatch event asynchronously.
+	//	}
+	DispatchCtx(ctx context.Context, event Event) error
+}

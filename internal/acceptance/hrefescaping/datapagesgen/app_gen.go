@@ -5,13 +5,17 @@ package datapagesgen
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -247,32 +251,45 @@ type sseWrapper struct {
 
 func (s sseWrapper) Context() context.Context { return s.gen.Context() }
 
-func (s sseWrapper) PatchElement(
-	c datapages.Component, opts ...datapages.PatchOption,
+func (s sseWrapper) PatchElement(c datapages.Component) error {
+	return s.gen.PatchElementTempl(c)
+}
+
+func (s sseWrapper) PatchElementAt(
+	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
 ) error {
-	var cfg datapages.PatchConfig
-	for _, o := range opts {
-		o(&cfg)
-	}
-	var ds []datastar.PatchElementOption
-	if cfg.Selector != "" {
-		ds = append(ds, datastar.WithSelector(cfg.Selector))
-	}
-	if cfg.SelectorID != "" {
-		ds = append(ds, datastar.WithSelectorID(cfg.SelectorID))
-	}
-	switch cfg.Mode {
+	switch mode {
 	case datapages.PatchModeOuter, datapages.PatchModeInner,
 		datapages.PatchModeReplace, datapages.PatchModePrepend,
 		datapages.PatchModeAppend, datapages.PatchModeBefore,
 		datapages.PatchModeAfter:
-		ds = append(ds, datastar.WithMode(datastar.ElementPatchMode(cfg.Mode)))
+	default:
+		mode = "" // Not a PatchMode constant, patch in the default mode.
 	}
-	return s.gen.PatchElementTempl(c, ds...)
+	switch {
+	case selectorCSS == "" && mode == "":
+		return s.gen.PatchElementTempl(c)
+	case mode == "":
+		return s.gen.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
+	case selectorCSS == "":
+		return s.gen.PatchElementTempl(
+			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
+		)
+	}
+	return s.gen.PatchElementTempl(c,
+		datastar.WithSelector(selectorCSS),
+		datastar.WithMode(datastar.ElementPatchMode(mode)))
 }
 
-func (s sseWrapper) RemoveElement(selector string) error {
-	return s.gen.RemoveElement(selector)
+// removeElementModeDataline is the mode line of a removal event.
+const removeElementModeDataline = datastar.ModeDatalineLiteral +
+	string(datastar.ElementPatchModeRemove)
+
+func (s sseWrapper) RemoveElement(selectorCSS string) error {
+	return s.gen.Send(datastar.EventTypePatchElements, []string{
+		datastar.SelectorDatalineLiteral + selectorCSS,
+		removeElementModeDataline,
+	})
 }
 
 func (s sseWrapper) ExecuteScript(script string) error {
@@ -295,10 +312,18 @@ func (s sseWrapper) Prefetch(urls ...string) error {
 	return s.gen.Prefetch(urls...)
 }
 
+// writeStreamPathValue writes v into the @get URL of a data-init attribute.
+// Percent encoding removes the quotes that would end the JavaScript string,
+// HTML escaping removes the ampersand that url.PathEscape keeps.
+func writeStreamPathValue(w http.ResponseWriter, v string) {
+	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
+}
+
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	head, body datapages.Component,
+	head datapages.Head,
+	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -337,6 +362,68 @@ func (s *Server) writeHTML(
 	}
 	_, err = io.WriteString(w, "</body></html>")
 	return err
+}
+
+func (s *Server) handleStreamRequest(
+	w http.ResponseWriter, r *http.Request,
+	subjects []string,
+	onOpen func(
+		streamID datapages.StreamID,
+		sse *datastar.ServerSentEventGenerator,
+	) error,
+	onClose func(streamID datapages.StreamID),
+	fn func(
+		streamID datapages.StreamID,
+		sse *datastar.ServerSentEventGenerator,
+		ch <-chan msgbroker.Message,
+	),
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	streamID := datapages.StreamID(s.streamSeq.Add(1))
+
+	// The subscription is established before the response head goes out.
+	// A client learns the stream is open by reading that head and may dispatch
+	// immediately after, which must not reach the broker before this.
+	ctx := r.Context()
+	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
+	if err != nil {
+		// Nothing has been written yet, so the error can still carry a status.
+		s.httpErrIntern(w, r, nil, "subscribing to message broker", err)
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+
+	subC := sub.C()
+	if onOpen != nil {
+		if err := onOpen(streamID, sse); err != nil {
+			sub.Close()
+			s.httpErrIntern(w, r, sse, "handling stream open hook", err)
+			return
+		}
+	}
+	go func() {
+		select {
+		case <-r.Context().Done():
+		case <-s.shutdownCh:
+		}
+		sub.Close()
+		if onClose != nil {
+			// Not the goroutine net/http recovers.
+			defer func() {
+				if rec := recover(); rec != nil {
+					s.logErr("recovering panic in stream close hook",
+						fmt.Errorf("%v\n%s", rec, debug.Stack()))
+				}
+			}()
+			onClose(streamID)
+		}
+	}()
+
+	fn(streamID, sse, subC)
 }
 
 type Server struct {
@@ -434,12 +521,21 @@ func NewServer(
 
 const (
 
-// Public events:
+	// Public events:
 
+	EvSubjRenamed = "renamed"
 )
 
 func MessageBrokerStreamSubjects() []string {
-	return []string{}
+	return []string{
+		EvSubjRenamed,
+	}
+}
+
+func evSubjPageItem() []string {
+	return []string{
+		EvSubjRenamed,
+	}
 }
 
 func setupHandlers(s *Server) {
@@ -450,6 +546,9 @@ func setupHandlers(s *Server) {
 	s.mux.HandleFunc(
 		"GET /item/{name}/{$}",
 		s.handlePageItemGET)
+	s.mux.HandleFunc(
+		"GET /item/{name}/_$/{$}",
+		s.handlePageItemGETStream)
 	s.mux.HandleFunc(
 		"GET /search/{$}",
 		s.handlePageSearchGET)
@@ -506,10 +605,10 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 
-	var path struct {
+	var path datapages.Path[struct {
 		Name string `path:"name"`
-	}
-	path.Name = r.PathValue("name")
+	}]
+	path.Values.Name = r.PathValue("name")
 
 	p := app.PageItem{
 		App: s.app,
@@ -524,12 +623,52 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 		writeBodyAttrOnVisibilityChange(w)
 	}
 
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, `/item/`)
+		writeStreamPathValue(w, path.Values.Name)
+		_, _ = io.WriteString(w, `/`)
+		_, _ = io.WriteString(w, `/_$/')"`)
+	}
+
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.logErr("rendering PageItem", err)
 		return
 	}
+}
+
+func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+
+	p := app.PageItem{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPageItem(),
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
+		) {
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjRenamed:
+					var e app.EventRenamed
+					if err := json.Unmarshal(msg.Data, &e); err != nil {
+						s.logErr("unmarshaling EventRenamed JSON", err)
+						continue
+					}
+					if err := p.OnRenamed(e, newSSE(sse)); err != nil {
+						s.logErr("handling PageItem.OnRenamed", err)
+					}
+				}
+			}
+		})
 }
 
 func (s *Server) handlePageItemPOSTRename(
@@ -540,15 +679,15 @@ func (s *Server) handlePageItemPOSTRename(
 	}
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		To string `query:"to"`
-	}
-	query.To = q.Get("to")
+	}]
+	query.Values.To = q.Get("to")
 
-	var path struct {
+	var path datapages.Path[struct {
 		Name string `path:"name"`
-	}
-	path.Name = r.PathValue("name")
+	}]
+	path.Values.Name = r.PathValue("name")
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	p := app.PageItem{
@@ -564,11 +703,11 @@ func (s *Server) handlePageItemPOSTRename(
 func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Term string `query:"term"`
 		Page int    `query:"page"`
-	}
-	query.Term = q.Get("term")
+	}]
+	query.Values.Term = q.Get("term")
 	{
 		if q := q.Get("page"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
@@ -576,7 +715,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: page", err)
 				return
 			}
-			query.Page = int(i)
+			query.Values.Page = int(i)
 		}
 	}
 

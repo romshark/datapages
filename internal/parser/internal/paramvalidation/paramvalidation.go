@@ -10,16 +10,16 @@ import (
 	"go/types"
 	"strings"
 
-	"github.com/romshark/datapages/internal/parser/internal/structtag"
 	"github.com/romshark/datapages/internal/parser/internal/typecheck"
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/routepattern"
+	"github.com/romshark/datapages/internal/structtag"
 )
 
 // Path parameter errors.
 var (
 	ErrPathParamNotStruct = errors.New(
-		"path parameter must be an anonymous struct",
+		"path parameter must be a struct",
 	)
 	ErrPathFieldUnexported = errors.New(
 		"path struct field must be exported",
@@ -64,6 +64,9 @@ var (
 	ErrQueryFieldUnsupportedType = errors.New(
 		"query struct field has unsupported type",
 	)
+	ErrQueryReflectSignalNotInSignals = errors.New(
+		"query reflectsignal tag references signal not in signals parameter",
+	)
 )
 
 // Signals parameter errors.
@@ -95,10 +98,9 @@ func (e *fieldPosError) Error() string     { return e.err.Error() }
 func (e *fieldPosError) Unwrap() error     { return e.err }
 func (e *fieldPosError) ASTPos() token.Pos { return e.pos }
 
-// IsSessionParam reports whether the AST field is named "session".
-func IsSessionParam(f *ast.Field) bool {
-	return len(f.Names) > 0 &&
-		f.Names[0].Name == "session"
+// IsSessionParam reports whether the AST field is typed datapages.Session[Data].
+func IsSessionParam(f *ast.Field, info *types.Info) bool {
+	return typecheck.IsSessionType(f.Type, info)
 }
 
 // IsStateParam reports whether the AST field is named "state".
@@ -126,25 +128,19 @@ func StateParamElementName(f *ast.Field) string {
 	return id.Name
 }
 
-// IsPathParam reports whether the AST field is named "path".
-func IsPathParam(f *ast.Field) bool {
-	return len(f.Names) > 0 && f.Names[0].Name == "path"
+// IsPathParam reports whether the AST field is typed datapages.Path[Values].
+func IsPathParam(f *ast.Field, info *types.Info) bool {
+	_, ok := typecheck.PathValuesType(f.Type, info)
+	return ok
 }
 
-// ValidatePathStruct validates that a path parameter is an  anonymous struct with
-// exported fields of supported types (string, bool, integers, floats,
-// or encoding.TextUnmarshaler) each carrying a `path:"..."` tag.
+// ValidatePathStruct validates that the Values type argument of a datapages.Path
+// parameter is a struct with exported fields of supported types (string, bool, integers,
+// floats, or encoding.TextUnmarshaler) each carrying a `path:"..."` tag.
 func ValidatePathStruct(
-	f *ast.Field, info *types.Info, recv, method string,
+	values ast.Expr, info *types.Info, recv, method string,
 ) error {
-	if _, ok := f.Type.(*ast.StructType); !ok {
-		return fmt.Errorf(
-			"%w in %s.%s",
-			ErrPathParamNotStruct, recv, method,
-		)
-	}
-
-	t := info.TypeOf(f.Type)
+	t := info.TypeOf(values)
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
 		return fmt.Errorf(
@@ -197,17 +193,19 @@ func ValidatePathStruct(
 	return nil
 }
 
-// IsQueryParam reports whether the AST field is named "query".
-func IsQueryParam(f *ast.Field) bool {
-	return len(f.Names) > 0 && f.Names[0].Name == "query"
+// IsQueryParam reports whether the AST field is typed datapages.Query[Values].
+func IsQueryParam(f *ast.Field, info *types.Info) bool {
+	_, ok := typecheck.QueryValuesType(f.Type, info)
+	return ok
 }
 
-// ValidateQueryStruct validates that a query parameter is a
-// struct with exported fields each carrying a `query:"..."` tag.
+// ValidateQueryStruct validates that the Values type argument of a
+// datapages.Query parameter is a struct with exported fields each
+// carrying a `query:"..."` tag.
 func ValidateQueryStruct(
-	f *ast.Field, info *types.Info, recv, method string,
+	values ast.Expr, info *types.Info, recv, method string,
 ) error {
-	t := info.TypeOf(f.Type)
+	t := info.TypeOf(values)
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
 		return fmt.Errorf(
@@ -260,18 +258,19 @@ func ValidateQueryStruct(
 	return nil
 }
 
-// IsSignalsParam reports whether the AST field is named "signals".
-func IsSignalsParam(f *ast.Field) bool {
-	return len(f.Names) > 0 &&
-		f.Names[0].Name == "signals"
+// IsSignalsParam reports whether the AST field is typed datapages.Signals[Values].
+func IsSignalsParam(f *ast.Field, info *types.Info) bool {
+	_, ok := typecheck.SignalsValuesType(f.Type, info)
+	return ok
 }
 
-// ValidateSignalsStruct validates that a signals parameter
-// is a struct with exported fields each carrying a `json:"..."` tag.
+// ValidateSignalsStruct validates that the Values type argument of a
+// datapages.Signals parameter is a struct with exported fields each
+// carrying a `json:"..."` tag.
 func ValidateSignalsStruct(
-	f *ast.Field, info *types.Info, recv, method string,
+	values ast.Expr, info *types.Info, recv, method string,
 ) error {
-	t := info.TypeOf(f.Type)
+	t := info.TypeOf(values)
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
 		return fmt.Errorf(
@@ -462,14 +461,12 @@ func (e *ErrorSignalsFieldDuplicateTag) Error() string {
 func (e *ErrorSignalsFieldDuplicateTag) Unwrap() error     { return ErrSignalsFieldDuplicateTag }
 func (e *ErrorSignalsFieldDuplicateTag) ASTPos() token.Pos { return e.Pos }
 
-// Dispatch parameter errors.
-var (
-	ErrDispatchParamNotEvent error = &ErrorDispatchParamNotEvent{}
-	ErrDispatchParamLegacy   error = &ErrorDispatchParamLegacy{}
-)
+// ErrDispatchParamNotEvent is reported when the type argument of
+// datapages.Dispatcher is not an event type.
+var ErrDispatchParamNotEvent error = &ErrorDispatchParamNotEvent{}
 
 // ErrorDispatchParamNotEvent is returned when the type argument of
-// datapages.Dispatch is not an event type.
+// datapages.Dispatcher is not an event type.
 type ErrorDispatchParamNotEvent struct {
 	Recv       string    // e.g. "PageFoo"
 	MethodName string    // e.g. "GET"
@@ -480,12 +477,12 @@ type ErrorDispatchParamNotEvent struct {
 func (e *ErrorDispatchParamNotEvent) Error() string {
 	if e.TypeName == "" {
 		return fmt.Sprintf(
-			"datapages.Dispatch type argument must be an event type in %s.%s",
+			"datapages.Dispatcher type argument must be an event type in %s.%s",
 			e.Recv, e.MethodName,
 		)
 	}
 	return fmt.Sprintf(
-		"datapages.Dispatch type argument must be an event type in %s.%s: %s",
+		"datapages.Dispatcher type argument must be an event type in %s.%s: %s",
 		e.Recv, e.MethodName, e.TypeName,
 	)
 }
@@ -497,67 +494,12 @@ func (e *ErrorDispatchParamNotEvent) Is(target error) bool {
 
 func (e *ErrorDispatchParamNotEvent) ASTPos() token.Pos { return e.Pos }
 
-// ErrorDispatchParamLegacy is returned for a handler parameter that dispatches
-// events the way Datapages accepted before datapages.Dispatch,
-// a plain function type or a parameter named "dispatch".
-type ErrorDispatchParamLegacy struct {
-	Recv       string    // e.g. "PageFoo"
-	MethodName string    // e.g. "GET"
-	ParamName  string    // e.g. "dispatch"
-	Pos        token.Pos // position of the parameter
-}
-
-func (e *ErrorDispatchParamLegacy) Error() string {
-	return fmt.Sprintf(
-		"dispatcher %s in %s.%s must be typed datapages.Dispatch[EventXXX]",
-		e.ParamName, e.Recv, e.MethodName,
-	)
-}
-
-func (e *ErrorDispatchParamLegacy) Is(target error) bool {
-	_, ok := target.(*ErrorDispatchParamLegacy)
-	return ok
-}
-
-func (e *ErrorDispatchParamLegacy) ASTPos() token.Pos { return e.Pos }
-
-// IsDispatchParam reports whether the AST field is typed datapages.Dispatch[EventXXX].
+// IsDispatchParam reports whether the AST field is typed datapages.Dispatcher[EventXXX].
 func IsDispatchParam(f *ast.Field, info *types.Info) bool {
 	return typecheck.IsDispatchType(f.Type, info)
 }
 
-// IsLegacyDispatchParam reports whether the AST field looks like a dispatcher
-// of the pre-datapages.Dispatch era: a plain function type, or the name the
-// parser used to match dispatchers by.
-func IsLegacyDispatchParam(f *ast.Field, info *types.Info) bool {
-	if len(f.Names) > 0 && f.Names[0].Name == "dispatch" {
-		return true
-	}
-	t := info.TypeOf(f.Type)
-	if t == nil {
-		return false
-	}
-	_, isFunc := t.Underlying().(*types.Signature)
-	return isFunc
-}
-
-// LegacyDispatchError builds the error reported for a legacy dispatcher.
-func LegacyDispatchError(
-	f *ast.Field, recv, method string,
-) *ErrorDispatchParamLegacy {
-	name := "_"
-	if len(f.Names) > 0 {
-		name = f.Names[0].Name
-	}
-	return &ErrorDispatchParamLegacy{
-		Recv:       recv,
-		MethodName: method,
-		ParamName:  name,
-		Pos:        f.Type.Pos(),
-	}
-}
-
-// ValidateDispatch validates that the type argument of a datapages.Dispatch[EventXXX]
+// ValidateDispatch validates that the type argument of a datapages.Dispatcher[EventXXX]
 // parameter is a declared event type. Returns the event type name.
 func ValidateDispatch(
 	f *ast.Field,
@@ -635,4 +577,45 @@ func ValidatePathAgainstRoute(
 		))
 	}
 	return errors.Join(errs...)
+}
+
+// ValidateReflectSignal checks that every reflectsignal tag
+// on a query field references a json tag value in the signals struct.
+func ValidateReflectSignal(
+	h *model.Handler, recv, method string,
+) error {
+	if h.InputQuery == nil || h.InputSignals == nil {
+		return nil
+	}
+
+	querySt, ok := h.InputQuery.Type.Resolved.Underlying().(*types.Struct)
+	if !ok {
+		return nil
+	}
+	sigSt, ok := h.InputSignals.Type.Resolved.Underlying().(*types.Struct)
+	if !ok {
+		return nil
+	}
+
+	sigNames := make(map[string]bool, sigSt.NumFields())
+	for i := range sigSt.NumFields() {
+		if v := structtag.JSONTagValue(sigSt.Tag(i)); v != "" {
+			sigNames[v] = true
+		}
+	}
+
+	for i := range querySt.NumFields() {
+		rs := structtag.ReflectSignalTagValue(querySt.Tag(i))
+		if rs == "" {
+			continue
+		}
+		if !sigNames[rs] {
+			return fmt.Errorf(
+				"%w: %q in %s.%s",
+				ErrQueryReflectSignalNotInSignals,
+				rs, recv, method,
+			)
+		}
+	}
+	return nil
 }

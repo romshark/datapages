@@ -1,6 +1,6 @@
 module datapagestest/fixture/err_state_subject_id_mixed_page
 
-go 1.26.6
+go 1.27.0
 
 require github.com/romshark/datapages v0.9.4
 

@@ -36,11 +36,11 @@ func (p PageIndex) GET(_ *http.Request, session Session) (
 // POSTSignIn is /sign-in
 func (PageIndex) POSTSignIn(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		User string `json:"user"`
-	},
+	}],
 ) (newSession datapages.NewSession[struct{}], err error) {
-	return datapages.NewSession[struct{}]{UserID: signals.User}, nil
+	return datapages.NewSession[struct{}]{UserID: signals.Values.User}, nil
 }
 
 // POSTDelete is /delete
@@ -49,11 +49,11 @@ func (PageIndex) POSTSignIn(
 // It therefore declares no session and is never checked.
 func (p PageIndex) POSTDelete(
 	_ *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Confirm bool `json:"confirm"`
-	},
+	}],
 ) error {
-	if !signals.Confirm {
+	if !signals.Values.Confirm {
 		return nil
 	}
 	p.App.mu.Lock()

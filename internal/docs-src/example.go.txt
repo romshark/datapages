@@ -7,7 +7,7 @@
     path <span class="kw">struct</span> {
         ID <span class="ty">string</span> <span class="st">&#96;path:"id"&#96;</span>
     },
-) (body templ.<span class="ty">Component</span>, err <span class="ty">error</span>) {
+) (body datapages.<span class="ty">Component</span>, err <span class="ty">error</span>) {
     user, err := p.App.repo.<span class="fn">FindUser</span>(path.ID)
     <span class="kw">if</span> err != <span class="kw">nil</span> {
         <span class="kw">return</span> <span class="kw">nil</span>, err
@@ -22,7 +22,7 @@
     path <span class="kw">struct</span> {
         ID <span class="ty">string</span> <span class="st">&#96;path:"id"&#96;</span>
     },
-    dispatch <span class="kw">func</span>(<span class="ty">EventUserFollowed</span>) <span class="ty">error</span>,
+    dispatch datapages.<span class="ty">Dispatch</span>[<span class="ty">EventUserFollowed</span>],
 ) <span class="ty">error</span> {
     <span class="kw">return</span> <span class="fn">dispatch</span>(<span class="ty">EventUserFollowed</span>{TargetID: path.ID})
 }</pre>

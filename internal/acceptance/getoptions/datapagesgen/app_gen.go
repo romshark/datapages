@@ -258,7 +258,8 @@ func httpRedirect(
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	head, body datapages.Component,
+	head datapages.Head,
+	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
@@ -509,9 +510,9 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePageMaybeGET(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
-	var query struct {
+	var query datapages.Query[struct {
 		Go bool `query:"go"`
-	}
+	}]
 	{
 		if q := q.Get("go"); q != "" {
 			b, err := strconv.ParseBool(q)
@@ -519,7 +520,7 @@ func (s *Server) handlePageMaybeGET(w http.ResponseWriter, r *http.Request) {
 				s.httpErrBad(w, "unexpected value for query parameter: go", err)
 				return
 			}
-			query.Go = b
+			query.Values.Go = b
 		}
 	}
 

@@ -57,7 +57,7 @@ type Base[S any] struct{ App *App }
 
 func (b Base[S]) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	state *S,
 ) error {
 	_, _, _ = r, streamID, state
@@ -91,10 +91,10 @@ func (PageCount) POSTBump(
 	_ *http.Request,
 	state *StateCounter,
 	stateID string,
-	dispatch datapages.Dispatch[EventPing],
+	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	state.N++
-	return dispatch(EventPing{
+	return dispatch.Dispatch(EventPing{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
 }
@@ -114,13 +114,13 @@ func (PageLabel) POSTSet(
 	_ *http.Request,
 	state *StateLabel,
 	stateID string,
-	signals struct {
+	signals datapages.Signals[struct {
 		Text string `json:"text"`
-	},
-	dispatch datapages.Dispatch[EventPing],
+	}],
+	dispatch datapages.Dispatcher[EventPing],
 ) error {
-	state.Text = signals.Text
-	return dispatch(EventPing{
+	state.Text = signals.Values.Text
+	return dispatch.Dispatch(EventPing{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
 }
@@ -163,10 +163,10 @@ func (PageNested) POSTBump(
 	_ *http.Request,
 	state *StateNested,
 	stateID string,
-	dispatch datapages.Dispatch[EventPing],
+	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	state.N++
-	return dispatch(EventPing{
+	return dispatch.Dispatch(EventPing{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
 }
@@ -189,10 +189,10 @@ func (PagePointer) POSTBump(
 	_ *http.Request,
 	state *StatePointer,
 	stateID string,
-	dispatch datapages.Dispatch[EventPing],
+	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	state.N++
-	return dispatch(EventPing{
+	return dispatch.Dispatch(EventPing{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
 }

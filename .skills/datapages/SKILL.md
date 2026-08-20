@@ -23,8 +23,10 @@ Learn them separately.
   run `templ generate` yourself after creating or modifying `.templ` files.
   Docs: https://templ.guide/developer-tools/llm/
 - **Datastar** (`github.com/starfederation/datastar-go/datastar`) - Frontend
-  reactivity via HTML attributes and SSE. Actions use `data-on-click` and
-  `data-action` attributes in templates. Docs: https://data-star.dev
+  reactivity via HTML attributes and SSE. Actions go into `data-on:<event>`
+  attributes (`data-on:click`, `data-on:submit`). The hyphen form is reserved for
+  plugins (`data-on-intersect`, `data-on-interval`, `data-on-signal-patch`).
+  Docs: https://data-star.dev
   See also: [datastar/SKILL.md](../datastar/SKILL.md)
 
 ## Architecture
@@ -47,7 +49,8 @@ Prometheus metrics generation is enabled by default.
 Use `--prometheus=false` to disable it.
 
 It creates `app/app.go`, `app/app.templ`, `datapages.yaml`, `.env`, `compose.yaml`,
-`Makefile`, and `cmd/server/main.go`.
+`Makefile`, `.vscode/extensions.json` and `.github/workflows/ci.yml`, appends `.env`
+to `.gitignore`, and runs `datapages gen`, which writes `cmd/server/main.go`.
 
 If the project already has `datapages.yaml`, skip this step.
 
@@ -128,8 +131,10 @@ type Session = datapages.Session[SessionData]
 use `struct{}` when you need none. All handlers must use the same `Data` type,
 so declare the alias once and use it everywhere.
 
-Handlers accept `session Session` as a parameter and return
-`newSession datapages.NewSession[SessionData]` or `closeSession bool` as return values.
+Handlers accept `session Session` as a parameter, matched by its type with a
+free name, and return
+`newSession datapages.NewSession[SessionData]` or `closeSession datapages.CloseSession`
+as return values.
 `NewSession` carries `UserID`, an optional `ExpiresAt` and `Data`,
 datapages generates the token and stamps the issuance time.
 
@@ -158,15 +163,16 @@ See https://pkg.go.dev/net/http#hdr-Patterns-ServeMux for the full spec.
 
 The minimum is `(body datapages.Component, err error)`.
 You can add more. Pick only what you need.
+Return values are matched by their type, the names below are conventional.
 
 ```go
 body datapages.Component // always first
-head datapages.Component // optional
+head datapages.Head // optional
 redirect datapages.Redirect // optional
 newSession datapages.NewSession[Data] // optional
-closeSession bool // optional
-enableBackgroundStreaming bool // optional
-disableRefreshAfterHidden bool // optional
+closeSession datapages.CloseSession // optional
+enableBackgroundStreaming datapages.EnableBackgroundStreaming // optional
+disableRefreshAfterHidden datapages.DisableRefreshAfterHidden // optional
 err error // always last
 ```
 
@@ -174,13 +180,18 @@ Examples:
 
 ```go
 // body + head
-(body, head datapages.Component, err error)
+(body datapages.Component, head datapages.Head, err error)
 
 // body + redirect
 (body datapages.Component, redirect datapages.Redirect, err error)
 
 // body + new session + disableRefreshAfterHidden
-(body datapages.Component, newSession datapages.NewSession[Data], disableRefreshAfterHidden bool, err error)
+(
+	body datapages.Component,
+	newSession datapages.NewSession[Data],
+	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
+	err error,
+)
 ```
 
 ## Step 5: Path Variables and Query Parameters
@@ -197,11 +208,11 @@ type PageItem struct{ App *App }
 
 func (PageItem) GET(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID string `path:"id"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	return itemPage(path.ID), nil
+	return itemPage(path.Values.ID), nil
 }
 ```
 
@@ -212,12 +223,12 @@ The tag `path:"id"` must exactly match `{id}` in the route.
 ```go
 func (PageSearch) GET(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Term  string `query:"t"`
 		Limit int    `query:"l"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	return searchPage(query.Term, query.Limit), nil
+	return searchPage(query.Values.Term, query.Values.Limit), nil
 }
 ```
 
@@ -245,7 +256,7 @@ Actions can also be defined on `*App` (pointer receiver) for global actions not 
 ```go
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request, session Session) (
-	closeSession bool,
+	closeSession datapages.CloseSession,
 	redirect datapages.Redirect,
 	err error,
 ) {
@@ -256,15 +267,17 @@ func (*App) POSTSignOut(r *http.Request, session Session) (
 ### Action Parameters
 
 Parameters may be in any order. Skip what you don't need.
+Path, query and signals are recognized by their type, the parameter name is
+free; their values sit in the `Values` field.
 
 ```go
 r *http.Request
 sse datapages.SSE // optional
 session Session // optional
-path struct { ID string `path:"id"` } // optional
-query struct { P int `query:"p"` } // optional
-signals struct { V string `json:"v"` } // optional
-dispatchFoo datapages.Dispatch[EventFoo] // optional
+path datapages.Path[struct { ID string `path:"id"` }] // optional
+query datapages.Query[struct { P int `query:"p"` }] // optional
+signals datapages.Signals[struct { V string `json:"v"` }] // optional
+somethingHappened datapages.Dispatcher[EventSomethingHappened] // optional
 ```
 
 Import `"github.com/romshark/datapages"` for `datapages.SSE`.
@@ -279,10 +292,10 @@ Pick only what you need.
 
 ```go
 body datapages.Component // optional
-head datapages.Component // optional
+head datapages.Head // optional
 redirect datapages.Redirect // optional
 newSession datapages.NewSession[Data] // optional
-closeSession bool // optional
+closeSession datapages.CloseSession // optional
 err error // always last
 ```
 
@@ -309,7 +322,7 @@ New session:
 
 Close session:
 ```go
-) (closeSession bool, redirect datapages.Redirect, err error) {
+) (closeSession datapages.CloseSession, redirect datapages.Redirect, err error) {
 	return true, datapages.Redirect{URL: "/login"}, nil
 }
 ```
@@ -331,10 +344,10 @@ Signals are Datastar frontend state. Inline struct with `json` tags.
 // POSTSubmit is /form/submit
 func (PageForm) POSTSubmit(
 	r *http.Request,
-	signals struct {
+	signals datapages.Signals[struct {
 		Name  string `json:"name"`
 		Email string `json:"email"`
-	},
+	}],
 ) error {
 	return nil
 }
@@ -345,14 +358,14 @@ Add `reflectsignal` to a query field to bind it to a Datastar signal. The query 
 ```go
 func (PageSearch) GET(
 	r *http.Request,
-	query struct {
+	query datapages.Query[struct {
 		Term string `query:"t" reflectsignal:"term"`
-	},
-	signals struct {
+	}],
+	signals datapages.Signals[struct {
 		Term string `json:"term"`
-	},
+	}],
 ) (body datapages.Component, err error) {
-	return searchPage(query.Term), nil
+	return searchPage(query.Values.Term), nil
 }
 ```
 
@@ -374,16 +387,16 @@ The subject is quoted. `"messaging.sent"` works. `messaging.sent` does not.
 
 ### Dispatch from Actions
 
-Add a `datapages.Dispatch[EventXXX]` parameter. Its name is free, the type is
+Add a `datapages.Dispatcher[EventXXX]` parameter. Its name is free, the type is
 what makes it a dispatcher.
 
 ```go
 // POSTSend is /chat/send
 func (PageChat) POSTSend(
 	r *http.Request,
-	dispatch datapages.Dispatch[EventMessageSent],
+	messageSent datapages.Dispatcher[EventMessageSent],
 ) error {
-	return dispatch(EventMessageSent{Message: "hello"})
+	return messageSent.Dispatch(EventMessageSent{Message: "hello"})
 }
 ```
 
@@ -393,23 +406,25 @@ Nothing is atomic across them, hence joining the errors:
 ```go
 func (PageChat) POSTSend(
 	r *http.Request,
-	dispatchSent datapages.Dispatch[EventMessageSent],
-	dispatchActive datapages.Dispatch[EventUserActive],
+	messageSent datapages.Dispatcher[EventMessageSent],
+	userActive datapages.Dispatcher[EventUserActive],
 ) error {
 	return errors.Join(
-		dispatchSent(EventMessageSent{Message: "hello"}),
-		dispatchActive(EventUserActive{}),
+		messageSent.Dispatch(EventMessageSent{Message: "hello"}),
+		userActive.Dispatch(EventUserActive{}),
 	)
 }
 ```
 
-The publish uses the context of the handler that dispatches, so nothing has to be passed.
-Override it with `datapages.WithDispatchContext(ctx)` when the event
-goes out after the handler returned or the publish needs its own deadline.
+`Dispatch` publishes with the context of the handler that dispatches.
+Use `DispatchCtx(ctx, event)` when the event goes out after the handler returned
+or the publish needs its own deadline.
 
 ### Handle Events on Pages
 
-Method name starts with `On`. The `event` and `sse` parameters are required. Optional parameters: `streamID uint64`, `session Session`.
+Method name starts with `On`. Exactly one parameter of an event type and an
+`sse datapages.SSE` are required. The event parameter is matched by its type,
+the name is free. Optional parameters: `streamID datapages.StreamID`, `session Session`.
 Parameters may appear in any order.
 
 `On` handlers do **not** accept `signals`. If the handler needs client-side signal values, add them as fields on the event type and populate them in the action handler that dispatches the event.
@@ -420,7 +435,7 @@ Use `streamID` to look up per-tab state registered in `StreamOpen` (see Step 9).
 func (PageChat) OnMessageSent(
 	event EventMessageSent,
 	sse datapages.SSE,
-	streamID uint64, // Optional
+	streamID datapages.StreamID, // Optional
 	session Session, // Optional
 ) error {
 	return sse.PatchElement(messageComponent(event.Message))
@@ -466,9 +481,9 @@ decides what to do about it:
 
 ```go
 for _, participant := range room.ParticipantIDs {
-	err := dispatch(EventDirectMessage{
+	err := directMessage.Dispatch(EventDirectMessage{
 		Recipient: datapages.SubjectUser(participant),
-		Content:   signals.Text,
+		Content:   signals.Values.Text,
 	})
 	if err != nil {
 		return err
@@ -513,8 +528,9 @@ type EventCalcUpdated struct {
 
 ### Signature
 
-Both require `r *http.Request` and `streamID uint64`. They return only `error`.
+Both require `r *http.Request` and `streamID datapages.StreamID`. They return only `error`.
 The `streamID` is a per-process unique identifier for the SSE stream instance.
+It is recognized by its `datapages.StreamID` type, the parameter name is free.
 Use it to correlate open and close for the same stream.
 It is intended for internal server-side bookkeeping only and must not be exposed
 to clients, as it could leak information about server activity and connection volume.
@@ -522,23 +538,23 @@ to clients, as it could leak information about server activity and connection vo
 `StreamOpen` runs after the SSE stream is established, before any event handler.
 It additionally accepts these optional parameters:
 `sse datapages.SSE`, `session Session`,
-`signals struct{...}`, `datapages.Dispatch[EventXXX]`.
+`signals datapages.Signals[struct{...}]`, `datapages.Dispatcher[EventXXX]`.
 
 `StreamClose` runs when the stream closes.
 It additionally accepts these optional parameters:
-`session Session`, `datapages.Dispatch[EventXXX]`.
+`session Session`, `datapages.Dispatcher[EventXXX]`.
 Note: `StreamClose` does **not** accept `sse` or `signals`.
 
 ```go
 func (PageIndex) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	sse datapages.SSE, // Optional
 	session Session, // Optional
-	signals struct{ // Optional
+	signals datapages.Signals[struct { // Optional
 		Instance string `json:"instance"`
-	},
-	dispatch datapages.Dispatch[EventPing], // Optional
+	}],
+	ping datapages.Dispatcher[EventPing], // Optional
 ) error {
 	// Set up per-tab state, patch signals to the client, etc.
 	return nil
@@ -546,9 +562,9 @@ func (PageIndex) StreamOpen(
 
 func (PageIndex) StreamClose(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	session Session, // Optional
-	dispatch datapages.Dispatch[EventPing], // Optional
+	ping datapages.Dispatcher[EventPing], // Optional
 ) error {
 	// Clean up per-tab state.
 	return nil
@@ -741,10 +757,12 @@ Adds shared `<head>` content (meta tags, stylesheets, scripts) to every page, so
 func (*App) Head(
 	r *http.Request,
 	session Session, // optional
-) datapages.Component {
+) datapages.Head {
 	return globalHead()
 }
 ```
+
+Both parameters are matched by their type, the names and order are free.
 
 ## Step 14: Add Error Recovery (Optional)
 
@@ -758,6 +776,8 @@ func (*App) RecoverError(
 	return sse.PatchElement(errorToast(err))
 }
 ```
+
+Both parameters are matched by their type, the names and order are free.
 
 ## Step 15: Configure the Server Entry Point
 
@@ -917,17 +937,19 @@ Generated functions return URL strings for `<a href>` attributes. One function p
 
 ```templ
 // Simple page
-<a href={ href.Index() }>Home</a>
-<a href={ href.Login() }>Log in</a>
+<a href={ href.PageIndex() }>Home</a>
+<a href={ href.PageLogin() }>Log in</a>
 
 // Page with path variable (e.g. PagePost is /post/{slug})
-<a href={ href.Post(post.Slug) }>{ post.Title }</a>
+<a href={ href.PagePost(post.Slug) }>{ post.Title }</a>
 
 // Page with query parameters
-<a href={ href.Messages(href.QueryMessages{Chat: chatID}) }>Messages</a>
+<a href={ href.PageMessages(href.QueryPageMessages{Chat: chatID}) }>Messages</a>
 ```
 
-Query parameter structs are generated as `href.Query<PageName>`. Zero-value fields are omitted from the URL.
+Each function is named after the page type, so `PageIndex` becomes `href.PageIndex`.
+Query parameter structs are generated as `href.Query<PageTypeName>`.
+Zero-value fields are omitted from the URL.
 
 ### `datapagesgen/action` — Datastar Actions
 
@@ -950,7 +972,8 @@ Generated functions return Datastar action strings (`@post('/...')`, `@put('/...
 
 // Action with Datastar options (e.g. payload, contentType, filterSignals)
 <button data-on:click={ action.POSTPageLoginSubmit(
-    action.WithOption(action.OptPayload, "'auto'"),
+    action.WithContentType(action.ContentTypeForm),
+    action.WithPayload("{extra: 1}"),
 ) }>Submit</button>
 
 // Action with before/after expressions (joined with "; " separators)
@@ -960,10 +983,31 @@ Generated functions return Datastar action strings (`@post('/...')`, `@put('/...
 ) }>Submit</button>
 ```
 
-All generated action functions accept variadic modifier arguments:
+All generated action functions accept variadic modifiers.
+One typed helper per [Datastar action option](https://data-star.dev/reference/actions#options):
 
-- `action.WithOption(key, value)` — passes a [Datastar action option](https://data-star.dev/reference/actions#options). The key is an `action.Opt` constant (e.g. `OptContentType`, `OptFilterSignals`, `OptSelector`, `OptHeaders`, `OptOpenWhenHidden`, `OptPayload`, `OptRetry`, `OptRetryInterval`, `OptRetryScaler`, `OptRetryMaxWaitMs`, `OptRetryMaxCount`, `OptRequestCancellation`). The value is a raw JavaScript expression string (use `"'auto'"` for a JS string, `"true"` for a boolean).
-- `action.WithBefore(expr)` — prepends a JavaScript expression before the action call, separated by `"; "`.
-- `action.WithAfter(expr)` — appends a JavaScript expression after the action call, separated by `"; "`.
+| helper | argument |
+| ------ | -------- |
+| `action.WithContentType(ct)` | `action.ContentTypeJSON`, `action.ContentTypeForm` |
+| `action.WithSelector(sel)` | CSS selector of the form to send |
+| `action.WithFilterSignals(include, exclude)` | regex patterns, `exclude` may be empty |
+| `action.WithHeaders(m)` | `map[string]string` |
+| `action.WithOpenWhenHidden(b)` | `bool` |
+| `action.WithPayload(expr)` | raw JavaScript expression |
+| `action.WithRetry(r)` | `action.RetryAuto`, `RetryError`, `RetryAlways`, `RetryNever` |
+| `action.WithRetryInterval(ms)` | `int` |
+| `action.WithRetryScaler(x)` | `float64` |
+| `action.WithRetryMaxWaitMs(ms)` | `int` |
+| `action.WithRetryMaxCount(n)` | `int` |
+| `action.WithRequestCancellation(rc)` | `action.RequestCancellationAuto`, `RequestCancellationCleanup`, `RequestCancellationDisabled` |
+| `action.WithRequestCancellationController(expr)` | expression holding an `AbortController` |
+
+Two more modifiers wrap the call itself:
+
+- `action.WithBefore(expr)` prepends a JavaScript expression, joined with `"; "`.
+- `action.WithAfter(expr)` appends a JavaScript expression, joined with `"; "`.
+
+`action.WithOption(key, value string)` passes an option the helpers don't cover.
+Both arguments are raw strings, the value a JavaScript expression.
 
 Naming convention: `{METHOD}Page{PageName}{HandlerName}` for page actions, `{METHOD}App{HandlerName}` for app-level actions. Query parameter structs are generated as `action.Query<FunctionName>`.

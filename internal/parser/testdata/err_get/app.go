@@ -76,24 +76,29 @@ func (PageMissingBody) GET(r *http.Request) (err error) {
 	return err
 }
 
-// PageBodyWrongName is /body-wrong-name
-type PageBodyWrongName struct{ App *App }
+// PageTwoBodies is /two-bodies
+type PageTwoBodies struct{ App *App }
 
-/* ErrSignatureGETBodyWrongName */
+/* ErrSignatureDuplicateOutput */
 
-func (PageBodyWrongName) GET(r *http.Request) (content datapages.Component, err error) {
-	return content, err
-}
-
-// PageHeadWrongName is /head-wrong-name
-type PageHeadWrongName struct{ App *App }
-
-/* ErrSignatureGETHeadWrongName */
-
-func (PageHeadWrongName) GET(r *http.Request) (
+func (PageTwoBodies) GET(r *http.Request) (
 	body datapages.Component,
-	header datapages.Component, /* should be "head" not "header" */
+	second datapages.Component,
 	err error,
 ) {
-	return body, header, err
+	return body, second, err
+}
+
+// PageTwoHeads is /two-heads
+type PageTwoHeads struct{ App *App }
+
+/* ErrSignatureDuplicateOutput */
+
+func (PageTwoHeads) GET(r *http.Request) (
+	body datapages.Component,
+	head datapages.Head,
+	second datapages.Head,
+	err error,
+) {
+	return body, head, second, err
 }

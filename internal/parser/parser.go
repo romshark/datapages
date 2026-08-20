@@ -14,18 +14,19 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/lithammer/fuzzysearch/fuzzy"
 	"golang.org/x/tools/go/packages"
 
+	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/internal/methodkind"
 	"github.com/romshark/datapages/internal/parser/internal/paramvalidation"
 	"github.com/romshark/datapages/internal/parser/internal/structinspect"
-	"github.com/romshark/datapages/internal/parser/internal/structtag"
 	"github.com/romshark/datapages/internal/parser/internal/templcheck"
 	"github.com/romshark/datapages/internal/parser/internal/typecheck"
 	"github.com/romshark/datapages/internal/parser/internal/urlpath"
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/parser/validate"
+	"github.com/romshark/datapages/internal/routepattern"
+	"github.com/romshark/datapages/internal/subject"
 )
 
 func Parse(appPackagePath string) (app *model.App, errs Errors) {
@@ -85,6 +86,10 @@ type parseCtx struct {
 
 	// subject -> the event type that claimed it first.
 	eventSubjects map[string]string
+
+	// Every subject claimed so far, in declaration order,
+	// for the overlap check an exact map cannot make.
+	eventClaims []eventClaim
 
 	pages     map[string]*model.Page
 	abstracts map[string]*model.AbstractPage
@@ -383,7 +388,26 @@ func firstPassEventType(ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSp
 		})
 		return
 	}
+
+	claim := eventClaim{
+		Subject: subj, HasFields: len(subjectFields) > 0,
+		typeName: name,
+	}
+	for _, first := range ctx.eventClaims {
+		if !claim.Overlaps(first.Claim) {
+			continue
+		}
+		errs.ErrAt(typePos, &ErrorEventSubjectOverlap{
+			Subject:       subj,
+			TypeName:      name,
+			FirstSubject:  first.Subject,
+			FirstTypeName: first.typeName,
+		})
+		return
+	}
+
 	ctx.eventSubjects[subj] = name
+	ctx.eventClaims = append(ctx.eventClaims, claim)
 
 	ctx.app.Events = append(ctx.app.Events, &model.Event{
 		Expr:          ts.Name,
@@ -393,7 +417,15 @@ func firstPassEventType(ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSp
 	})
 }
 
-func extractEventSubject(typeName string, doc *ast.CommentGroup) (string, error) {
+// eventClaim names the event behind a subject claim.
+type eventClaim struct {
+	subject.Claim
+	typeName string
+}
+
+func extractEventSubject(
+	typeName string, doc *ast.CommentGroup,
+) (string, error) {
 	// Validate first (sentinel errors).
 	if err := validate.EventSubjectComment(typeName, doc); err != nil {
 		return "", err
@@ -733,37 +765,43 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 					info := ctx.pkg.TypesInfo
 					pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
-					// Head must return exactly templ.Component.
+					// Head must return exactly datapages.Head.
 					results := fd.Type.Results
 					if results == nil || results.NumFields() != 1 ||
-						!typecheck.IsComponent(info.TypeOf(results.List[0].Type)) {
-						errs.ErrAt(pos, ErrAppHeadMustReturnTemplComponent)
+						!typecheck.IsHeadType(results.List[0].Type, info) {
+						errs.ErrAt(pos, ErrAppHeadMustReturnHead)
 						continue
 					}
 
-					// Head must accept *http.Request as first param,
-					// optionally followed by session.
-					params := fd.Type.Params
-					if params == nil || params.NumFields() < 1 ||
-						!typecheck.IsPtrToNetHTTPReq(params.List[0].Type, info) {
-						errs.ErrAt(pos, ErrAppHeadMustTakeRequest)
-						continue
-					}
-
+					// Head must take *http.Request and may take a session.
+					// Both are matched by type in any order.
 					gh := &model.GlobalHead{Expr: fd.Name}
 					valid := true
-					for i := 1; i < params.NumFields(); i++ {
-						f := params.List[i]
-						switch {
-						case typecheck.IsSessionType(f.Type, info):
-							gh.InputSession = true
-							noteSessionType(ctx, errs, f.Type, info)
-						default:
-							errs.ErrAt(pos, ErrAppHeadUnsupportedInput)
-							valid = false
+					nReq, nSess := 0, 0
+					if fd.Type.Params != nil {
+						for _, f := range expandFieldList(fd.Type.Params.List) {
+							switch {
+							case typecheck.IsPtrToNetHTTPReq(f.Type, info):
+								nReq++
+								gh.OrderedInputs = append(
+									gh.OrderedInputs, model.InputKindRequest)
+							case typecheck.IsSessionType(f.Type, info):
+								nSess++
+								gh.InputSession = true
+								noteSessionType(ctx, errs, f.Type, info)
+								gh.OrderedInputs = append(
+									gh.OrderedInputs, model.InputKindSession)
+							default:
+								errs.ErrAt(pos, ErrAppHeadUnsupportedInput)
+								valid = false
+							}
 						}
 					}
 					if !valid {
+						continue
+					}
+					if nReq != 1 || nSess > 1 {
+						errs.ErrAt(pos, ErrAppHeadMustTakeRequest)
 						continue
 					}
 
@@ -771,17 +809,37 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 				case "RecoverError":
 					info := ctx.pkg.TypesInfo
 					pos := ctx.pkg.Fset.Position(fd.Name.Pos())
-					params := fd.Type.Params
 					results := fd.Type.Results
-					if params == nil || params.NumFields() != 2 ||
-						!typecheck.IsError(info.TypeOf(params.List[0].Type)) ||
-						!typecheck.IsSSEParam(params.List[1].Type, info) ||
-						results == nil || results.NumFields() != 1 ||
+					if results == nil || results.NumFields() != 1 ||
 						!typecheck.IsError(info.TypeOf(results.List[0].Type)) {
 						errs.ErrAt(pos, ErrAppRecoverErrorInvalidSignature)
 						continue
 					}
-					ctx.app.RecoverError = fd.Name
+					// The error and the SSE are matched by type in any order.
+					var ordered []string
+					nErr, nSSE := 0, 0
+					if fd.Type.Params != nil {
+						for _, f := range expandFieldList(fd.Type.Params.List) {
+							switch {
+							case typecheck.IsError(info.TypeOf(f.Type)):
+								nErr++
+								ordered = append(ordered, model.InputKindErr)
+							case typecheck.IsSSEParam(f.Type, info):
+								nSSE++
+								ordered = append(ordered, model.InputKindSSE)
+							default:
+								ordered = append(ordered, "")
+							}
+						}
+					}
+					if nErr != 1 || nSSE != 1 || len(ordered) != 2 {
+						errs.ErrAt(pos, ErrAppRecoverErrorInvalidSignature)
+						continue
+					}
+					ctx.app.RecoverError = &model.RecoverError{
+						Expr:          fd.Name,
+						OrderedInputs: ordered,
+					}
 				default:
 					kind, suffix := methodkind.Classify(fd.Name.Name)
 					if kind.IsAction() {
@@ -858,34 +916,37 @@ func validateAndAttachEventHandler(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	// Invariants for OnXXX handlers:
-	//   - Must have a parameter named "event" of an EventXXX type
+	//   - Must have exactly one parameter of an EventXXX type
 	//   - Must have a *datastar.ServerSentEventGenerator parameter
 	//   - Only one handler per EventXXX per receiver type
 	//   - Parameters may be in any order
 	params := fd.Type.Params
 	var evName string
 
-	// Find and validate the event parameter (by name "event").
-	foundEvent := false
+	// Find the event parameter by type. The event a handler takes is the one
+	// parameter carrying a declared event type, whatever the parameter is named.
+	evParams := 0
 	if params != nil {
 		for _, f := range params.List {
-			if len(f.Names) == 1 && f.Names[0].Name == "event" {
-				var ok bool
-				evName, ok = typecheck.EventTypeNameOf(
-					f.Type, ctx.pkg.TypesInfo, ctx.eventTypeNames,
-				)
-				if !ok {
-					errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
-						ErrSignatureEvHandMissingEvent, recv, fd.Name.Name))
-				}
-				foundEvent = true
-				break
+			name, ok := typecheck.EventTypeNameOf(
+				f.Type, ctx.pkg.TypesInfo, ctx.eventTypeNames,
+			)
+			if !ok {
+				continue
+			}
+			evParams += max(len(f.Names), 1)
+			if evName == "" {
+				evName = name
 			}
 		}
 	}
-	if !foundEvent {
+	switch {
+	case evParams == 0:
 		errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
 			ErrSignatureEvHandMissingEvent, recv, fd.Name.Name))
+	case evParams > 1:
+		errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+			ErrSignatureEvHandMultipleEvents, recv, fd.Name.Name))
 	}
 
 	// Check for duplicate event handlers.
@@ -928,31 +989,19 @@ func validateAndAttachEventHandler(
 	if params != nil {
 		for _, f := range params.List {
 			switch {
-			case len(f.Names) == 1 && f.Names[0].Name == "event":
+			case typecheck.IsEventType(f.Type, ctx.pkg.TypesInfo, evName):
 				// Already validated above.
 			case typecheck.IsSSEParam(f.Type, ctx.pkg.TypesInfo):
 				// Already validated above.
-			case paramvalidation.IsSessionParam(f):
-				if !typecheck.IsSessionType(f.Type, ctx.pkg.TypesInfo) {
-					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), fmt.Errorf(
-						"%w: %s.%s",
-						ErrSessionParamNotSessionType,
-						recv, fd.Name.Name,
-					))
-				}
-			case len(f.Names) == 1 && f.Names[0].Name == "streamID":
-				if !typecheck.IsUint64(ctx.pkg.TypesInfo.TypeOf(f.Type)) {
-					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), fmt.Errorf(
-						"%w in %s.%s",
-						ErrStreamIDParamNotUint64,
-						recv, fd.Name.Name,
-					))
-				}
+			case paramvalidation.IsSessionParam(f, ctx.pkg.TypesInfo):
+				// Already validated above.
+			case typecheck.IsStreamIDType(f.Type, ctx.pkg.TypesInfo):
+				// Already validated above.
 			case paramvalidation.IsStateParam(f):
 				// Delegated to parseEventHandler which resolves the
 				// pointer element type against the declared state types.
 			case paramvalidation.IsStateIDParam(f):
-				if !typecheck.IsString(ctx.pkg.TypesInfo.TypeOf(f.Type)) {
+				if !gotypes.IsString(ctx.pkg.TypesInfo.TypeOf(f.Type)) {
 					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), fmt.Errorf(
 						"%w: %s.%s",
 						ErrStateIDParamNotString,
@@ -1129,7 +1178,7 @@ func attachHTTPHandler(
 
 	// Validate reflectsignal tags on query fields reference actual signals.
 	if herr == nil {
-		if rsErr := structtag.ValidateReflectSignal(h, recv, fd.Name.Name); rsErr != nil {
+		if rsErr := paramvalidation.ValidateReflectSignal(h, recv, fd.Name.Name); rsErr != nil {
 			p := pos
 			if h.InputQuery != nil {
 				p = ctx.pkg.Fset.Position(h.InputQuery.Expr.Pos())
@@ -1705,7 +1754,7 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 		if p.GET != nil && p.GET.Handler != nil {
 			claim(http.MethodGet, p.Route, p.Expr, p.TypeName)
 		}
-		if routeEndsInWildcard(p.Route) && pageHasStream(p) {
+		if routepattern.EndsInWildcard(p.Route) && pageHasStream(p) {
 			errs.ErrAt(ctx.pkg.Fset.Position(p.Expr.Pos()),
 				&ErrorRouteWildcardStream{TypeName: p.TypeName, Route: p.Route})
 		}
@@ -1716,13 +1765,6 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 	for _, h := range ctx.app.Actions {
 		claim(h.HTTPMethod, h.Route, h.Expr, "App."+h.Name)
 	}
-}
-
-// routeEndsInWildcard reports whether the route's last segment is a {name...} wildcard,
-// which matches the rest of the path.
-func routeEndsInWildcard(route string) bool {
-	last := route[strings.LastIndex(route, "/")+1:]
-	return strings.HasPrefix(last, "{") && strings.HasSuffix(last, "...}")
 }
 
 // pageHasStream reports whether the page is served an SSE stream of its own.
@@ -1779,21 +1821,20 @@ func parseEventHandler(
 	// Match parameters by name/type in any order.
 	for _, f := range params {
 		switch {
-		case len(f.Names) == 1 && f.Names[0].Name == "event":
-			h.InputEvent = parseInput(f, info)
+		case typecheck.IsEventType(f.Type, info, eventTypeName):
+			h.InputEvent = parseInput(f, f.Type, info)
 			h.InputEvent.Kind = model.InputKindEvent
 			h.OrderedInputs = append(h.OrderedInputs, h.InputEvent)
 		case typecheck.IsSSEParam(f.Type, info):
-			h.InputSSE = parseInput(f, info)
+			h.InputSSE = parseInput(f, f.Type, info)
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
-		case len(f.Names) == 1 && f.Names[0].Name == "streamID" &&
-			typecheck.IsUint64(info.TypeOf(f.Type)):
-			h.InputStreamID = parseInput(f, info)
+		case typecheck.IsStreamIDType(f.Type, info):
+			h.InputStreamID = parseInput(f, f.Type, info)
 			h.InputStreamID.Kind = model.InputKindStreamID
 			h.OrderedInputs = append(h.OrderedInputs, h.InputStreamID)
-		case paramvalidation.IsSessionParam(f):
-			h.InputSession = parseInput(f, info)
+		case paramvalidation.IsSessionParam(f, info):
+			h.InputSession = parseInput(f, f.Type, info)
 			h.InputSession.Kind = model.InputKindSession
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
 		case paramvalidation.IsStateParam(f):
@@ -1814,11 +1855,11 @@ func parseEventHandler(
 				return h, fmt.Errorf("%w in %s.%s",
 					ErrStateIDDuplicate, recv, fd.Name.Name)
 			}
-			if !typecheck.IsString(info.TypeOf(f.Type)) {
+			if !gotypes.IsString(info.TypeOf(f.Type)) {
 				return h, fmt.Errorf("%w in %s.%s",
 					ErrStateIDParamNotString, recv, fd.Name.Name)
 			}
-			inp := parseInput(f, info)
+			inp := parseInput(f, f.Type, info)
 			inp.Kind = model.InputKindStateID
 			h.InputStateID = inp
 			h.OrderedInputs = append(h.OrderedInputs, inp)
@@ -1881,22 +1922,18 @@ func parseStreamHook(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			h.InputRequest = parseInput(f, info)
+			h.InputRequest = parseInput(f, f.Type, info)
 			h.InputRequest.Kind = model.InputKindRequest
 			h.OrderedInputs = append(h.OrderedInputs, h.InputRequest)
 			foundReq = true
 
-		case len(f.Names) == 1 && f.Names[0].Name == "streamID":
+		case typecheck.IsStreamIDType(f.Type, info):
 			if h.InputStreamID != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			if !typecheck.IsUint64(info.TypeOf(f.Type)) {
-				return h, fieldErr(fmt.Errorf("%w in %s.%s",
-					ErrStreamIDParamNotUint64, recv, fd.Name.Name))
-			}
-			h.InputStreamID = parseInput(f, info)
+			h.InputStreamID = parseInput(f, f.Type, info)
 			h.InputStreamID.Kind = model.InputKindStreamID
 			h.OrderedInputs = append(h.OrderedInputs, h.InputStreamID)
 			foundStreamID = true
@@ -1912,25 +1949,21 @@ func parseStreamHook(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			h.InputSSE = parseInput(f, info)
+			h.InputSSE = parseInput(f, f.Type, info)
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
 
-		case paramvalidation.IsSessionParam(f):
+		case paramvalidation.IsSessionParam(f, info):
 			if h.InputSession != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			if !typecheck.IsSessionType(f.Type, info) {
-				return h, fieldErr(fmt.Errorf("%w in %s.%s",
-					ErrSessionParamNotSessionType, recv, fd.Name.Name))
-			}
-			h.InputSession = parseInput(f, info)
+			h.InputSession = parseInput(f, f.Type, info)
 			h.InputSession.Kind = model.InputKindSession
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
 
-		case paramvalidation.IsSignalsParam(f):
+		case paramvalidation.IsSignalsParam(f, info):
 			if kind != methodkind.StreamOpenHook {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
@@ -1941,14 +1974,15 @@ func parseStreamHook(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
+			values := typecheck.TypeArgExpr(f.Type)
 			sigErr := paramvalidation.ValidateSignalsStruct(
-				f, info, recv, fd.Name.Name,
+				values, info, recv, fd.Name.Name,
 			)
 			if sigErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sigErr)
 				continue
 			}
-			h.InputSignals = parseInput(f, info)
+			h.InputSignals = parseInput(f, values, info)
 			h.InputSignals.Kind = model.InputKindSignals
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
 
@@ -1972,7 +2006,7 @@ func parseStreamHook(
 					})
 				continue
 			}
-			inp := parseInput(f, info)
+			inp := parseInput(f, f.Type, info)
 			inp.Kind = model.InputKindDispatch
 			h.InputDispatches = append(h.InputDispatches, &model.InputDispatch{
 				Input:         inp,
@@ -2001,20 +2035,16 @@ func parseStreamHook(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			if !typecheck.IsString(info.TypeOf(f.Type)) {
+			if !gotypes.IsString(info.TypeOf(f.Type)) {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
 					fmt.Errorf("%w in %s.%s",
 						ErrStateIDParamNotString, recv, fd.Name.Name))
 				continue
 			}
-			inp := parseInput(f, info)
+			inp := parseInput(f, f.Type, info)
 			inp.Kind = model.InputKindStateID
 			h.InputStateID = inp
 			h.OrderedInputs = append(h.OrderedInputs, inp)
-
-		case paramvalidation.IsLegacyDispatchParam(f, info):
-			appendPositioned(&unsupErrs, fset, f.Type.Pos(),
-				paramvalidation.LegacyDispatchError(f, recv, fd.Name.Name))
 
 		default:
 			unsupErrs = append(unsupErrs,
@@ -2216,8 +2246,7 @@ func (e *positionedError) Unwrap() error { return e.err }
 func resolveErrorPos(
 	e error, fset *token.FileSet, fallback token.Position,
 ) token.Position {
-	var pe *positionedError
-	if errors.As(e, &pe) {
+	if pe, ok := errors.AsType[*positionedError](e); ok {
 		return pe.pos
 	}
 	if ap, ok := e.(interface{ ASTPos() token.Pos }); ok {
@@ -2231,8 +2260,7 @@ func resolveErrorPos(
 // unwrapPositioned returns the inner error if e is a positionedError,
 // otherwise returns e unchanged.
 func unwrapPositioned(e error) error {
-	var pe *positionedError
-	if errors.As(e, &pe) {
+	if pe, ok := errors.AsType[*positionedError](e); ok {
 		return pe.err
 	}
 	return e
@@ -2276,19 +2304,10 @@ func appendPositioned(dst *[]error, fset *token.FileSet, fallback token.Pos, err
 	}
 }
 
-// knownParamNames lists the recognized handler parameter names
-// used for fuzzy matching in unsupportedInputError.
-var knownParamNames = []string{
-	"streamID", "sessionToken", "session", "path", "query", "signals",
-}
-
 // unsupportedInputError builds an ErrorSignatureUnsupportedInput for a
 // parameter that doesn't match any recognized handler input.
-// It checks whether the parameter's type matches a known input whose
-// name-based check failed, and if so, sets ExpectedName for a rename suggestion.
-// When h is non-nil, it checks whether the expected name
-// would collide with an already-consumed input.
-// As a fallback, it performs fuzzy matching against known parameter names.
+// When h is non-nil, it names the inputs whose type the parameter could carry
+// and whose slot the handler hasn't filled yet.
 func unsupportedInputError(
 	f *ast.Field, h *model.Handler, info *types.Info, recv, method string,
 ) *ErrorSignatureUnsupportedInput {
@@ -2308,9 +2327,8 @@ func unsupportedInputError(
 		MethodName: method,
 	}
 
-	// Check if the type matches a known input but the name is wrong.
-	// Only suggest renaming when the slot is not already consumed
-	// and the parameter doesn't already have the expected name.
+	// Name the inputs the parameter's type could stand for,
+	// skipping the slots the handler has already filled.
 	if h != nil {
 		switch {
 		case typecheck.IsPtrToNetHTTPReq(f.Type, info):
@@ -2325,17 +2343,10 @@ func unsupportedInputError(
 		}
 	}
 
-	// Try fuzzy name matching for the best rename suggestion.
-	if paramName != "_" {
-		if best, ok := fuzzyMatchParamName(paramName, h); ok {
-			e.ExpectedName = best
-		}
-	}
-
 	return e
 }
 
-// typeCandidates returns the unconsumed known parameter names whose
+// typeCandidates returns the unconsumed handler inputs whose
 // expected type matches the field's type.
 func typeCandidates(
 	f *ast.Field, h *model.Handler, info *types.Info,
@@ -2346,7 +2357,7 @@ func typeCandidates(
 	}
 
 	isSession := typecheck.IsSessionType(f.Type, info)
-	isUint64 := typecheck.IsUint64(t)
+	isUint64 := gotypes.IsUint64(t)
 	isStruct := isStructType(t)
 
 	type candidate struct {
@@ -2355,13 +2366,14 @@ func typeCandidates(
 		match    bool
 	}
 	all := []candidate{
-		{"streamID", h.InputStreamID != nil, isUint64},
-		{"session", h.InputSession != nil, isSession},
-		// Only suggest path/query/signals for plain structs,
-		// not for named types that have a more specific match (e.g. Session).
-		{"path", h.InputPath != nil, isStruct && !isSession},
-		{"query", h.InputQuery != nil, isStruct && !isSession},
-		{"signals", h.InputSignals != nil, isStruct && !isSession},
+		{"datapages.StreamID", h.InputStreamID != nil, isUint64},
+		{"datapages.Session[Data]", h.InputSession != nil, isSession},
+		// A plain struct is what the path, query and signals wrappers carry,
+		// so suggest wrapping it. Named types with a more specific match
+		// (e.g. Session) are not candidates.
+		{"datapages.Path[...]", h.InputPath != nil, isStruct && !isSession},
+		{"datapages.Query[...]", h.InputQuery != nil, isStruct && !isSession},
+		{"datapages.Signals[...]", h.InputSignals != nil, isStruct && !isSession},
 	}
 
 	var names []string
@@ -2376,48 +2388,6 @@ func typeCandidates(
 func isStructType(t types.Type) bool {
 	_, ok := t.Underlying().(*types.Struct)
 	return ok
-}
-
-// fuzzyMatchParamName returns the closest known parameter name to name,
-// if one is close enough. It skips names whose slot is already consumed in h.
-func fuzzyMatchParamName(name string, h *model.Handler) (string, bool) {
-	bestName := ""
-	bestDist := -1
-	for _, known := range knownParamNames {
-		if h != nil && isParamConsumed(h, known) {
-			continue
-		}
-		d := fuzzy.LevenshteinDistance(
-			strings.ToLower(name), strings.ToLower(known),
-		)
-		// Accept if distance is at most ~1/3 of the longer name's length.
-		maxDist := max(max(len(name), len(known))/3, 1)
-		if d <= maxDist && (bestDist < 0 || d < bestDist) {
-			bestName = known
-			bestDist = d
-		}
-	}
-	if bestDist < 0 {
-		return "", false
-	}
-	return bestName, true
-}
-
-// isParamConsumed reports whether the named parameter slot is already consumed in h.
-func isParamConsumed(h *model.Handler, name string) bool {
-	switch name {
-	case "streamID":
-		return h.InputStreamID != nil
-	case "session":
-		return h.InputSession != nil
-	case "path":
-		return h.InputPath != nil
-	case "query":
-		return h.InputQuery != nil
-	case "signals":
-		return h.InputSignals != nil
-	}
-	return false
 }
 
 // parseStateParam attempts to match f as a `state *T` parameter.
@@ -2444,7 +2414,7 @@ func parseStateParam(
 	// Type parameter of the enclosing abstract page — accept as a placeholder;
 	// the concrete state binding is resolved at each embed site during flattening.
 	if slices.Contains(typeParams, elemName) {
-		inp := parseInput(f, info)
+		inp := parseInput(f, f.Type, info)
 		inp.Kind = model.InputKindState
 		return &model.InputState{
 			Input:         inp,
@@ -2460,7 +2430,7 @@ func parseStateParam(
 		return nil, fmt.Errorf("%w in %s.%s: %s",
 			ErrStateParamInvalidType, recv, method, err)
 	}
-	inp := parseInput(f, info)
+	inp := parseInput(f, f.Type, info)
 	inp.Kind = model.InputKindState
 	return &model.InputState{Input: inp, StateTypeName: elemName}, nil
 }
@@ -2528,7 +2498,11 @@ func bindStateTypeArg(
 	}
 }
 
-func parseInput(f *ast.Field, info *types.Info) *model.Input {
+// parseInput builds the model input for a handler parameter.
+// typeExpr is the type the model records, which is f.Type for a plain
+// parameter and the Values type argument for a wrapped one
+// (datapages.Path, datapages.Query, datapages.Signals).
+func parseInput(f *ast.Field, typeExpr ast.Expr, info *types.Info) *model.Input {
 	// request param should be named, but keep best-effort
 	name := ""
 	var expr ast.Expr
@@ -2539,7 +2513,7 @@ func parseInput(f *ast.Field, info *types.Info) *model.Input {
 	return &model.Input{
 		Expr: expr,
 		Name: name,
-		Type: makeType(f.Type, info),
+		Type: makeType(typeExpr, info),
 	}
 }
 
@@ -2557,45 +2531,22 @@ func buildHandlerGET(
 		Handler: h,
 	}
 
-	// Collect all templ.Component outputs
-	var templComponents []*model.Output
 	for _, out := range outputs {
-		if typecheck.IsComponent(out.Type.Resolved) {
-			templComponents = append(templComponents, out)
+		switch out.Kind {
+		case model.OutputKindBody:
+			if get.OutputBody == nil {
+				get.OutputBody = &model.TemplComponent{Output: out}
+			}
+		case model.OutputKindHead:
+			if get.OutputHead == nil {
+				get.OutputHead = &model.TemplComponent{Output: out}
+			}
 		}
 	}
 
-	// Validate: GET must have at least one templ.Component return (body)
-	if len(templComponents) == 0 {
+	// Validate: GET must return a body datapages.Component
+	if get.OutputBody == nil {
 		return get, ErrSignatureGETMissingBody
-	}
-
-	// Validate: First templ.Component must be named "body"
-	firstComp := templComponents[0]
-	if firstComp.Name != "body" {
-		if firstComp.Expr != nil {
-			return get, &positionedError{
-				pos: fset.Position(firstComp.Expr.Pos()),
-				err: ErrSignatureGETBodyWrongName,
-			}
-		}
-		return get, ErrSignatureGETBodyWrongName
-	}
-	get.OutputBody = &model.TemplComponent{Output: firstComp}
-
-	// Validate: If there's a second templ.Component, it must be named "head"
-	if len(templComponents) > 1 {
-		secondComp := templComponents[1]
-		if secondComp.Name != "head" {
-			if secondComp.Expr != nil {
-				return get, &positionedError{
-					pos: fset.Position(secondComp.Expr.Pos()),
-					err: ErrSignatureGETHeadWrongName,
-				}
-			}
-			return get, ErrSignatureGETHeadWrongName
-		}
-		get.OutputHead = &model.TemplComponent{Output: secondComp}
 	}
 
 	return get, nil
@@ -2646,7 +2597,7 @@ func parseHandler(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			h.InputRequest = parseInput(f, info)
+			h.InputRequest = parseInput(f, f.Type, info)
 			h.InputRequest.Kind = model.InputKindRequest
 			h.OrderedInputs = append(h.OrderedInputs, h.InputRequest)
 			foundReq = true
@@ -2657,72 +2608,71 @@ func parseHandler(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			h.InputSSE = parseInput(f, info)
+			h.InputSSE = parseInput(f, f.Type, info)
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
 
-		case paramvalidation.IsSessionParam(f):
+		case paramvalidation.IsSessionParam(f, info):
 			if h.InputSession != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			if !typecheck.IsSessionType(f.Type, info) {
-				return h, nil, fieldErr(fmt.Errorf("%w in %s.%s",
-					ErrSessionParamNotSessionType, recv, fd.Name.Name))
-			}
-			h.InputSession = parseInput(f, info)
+			h.InputSession = parseInput(f, f.Type, info)
 			h.InputSession.Kind = model.InputKindSession
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
 
-		case paramvalidation.IsPathParam(f):
+		case paramvalidation.IsPathParam(f, info):
 			if h.InputPath != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
+			values := typecheck.TypeArgExpr(f.Type)
 			pathErr := paramvalidation.ValidatePathStruct(
-				f, info, recv, fd.Name.Name,
+				values, info, recv, fd.Name.Name,
 			)
 			if pathErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), pathErr)
 				continue
 			}
-			h.InputPath = parseInput(f, info)
+			h.InputPath = parseInput(f, values, info)
 			h.InputPath.Kind = model.InputKindPath
 			h.OrderedInputs = append(h.OrderedInputs, h.InputPath)
 
-		case paramvalidation.IsQueryParam(f):
+		case paramvalidation.IsQueryParam(f, info):
 			if h.InputQuery != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
+			values := typecheck.TypeArgExpr(f.Type)
 			queryErr := paramvalidation.ValidateQueryStruct(
-				f, info, recv, fd.Name.Name,
+				values, info, recv, fd.Name.Name,
 			)
 			if queryErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), queryErr)
 				continue
 			}
-			h.InputQuery = parseInput(f, info)
+			h.InputQuery = parseInput(f, values, info)
 			h.InputQuery.Kind = model.InputKindQuery
 			h.OrderedInputs = append(h.OrderedInputs, h.InputQuery)
 
-		case paramvalidation.IsSignalsParam(f):
+		case paramvalidation.IsSignalsParam(f, info):
 			if h.InputSignals != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
+			values := typecheck.TypeArgExpr(f.Type)
 			sigErr := paramvalidation.ValidateSignalsStruct(
-				f, info, recv, fd.Name.Name,
+				values, info, recv, fd.Name.Name,
 			)
 			if sigErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sigErr)
 				continue
 			}
-			h.InputSignals = parseInput(f, info)
+			h.InputSignals = parseInput(f, values, info)
 			h.InputSignals.Kind = model.InputKindSignals
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSignals)
 
@@ -2746,7 +2696,7 @@ func parseHandler(
 					})
 				continue
 			}
-			inp := parseInput(f, info)
+			inp := parseInput(f, f.Type, info)
 			inp.Kind = model.InputKindDispatch
 			h.InputDispatches = append(h.InputDispatches, &model.InputDispatch{
 				Input:         inp,
@@ -2781,20 +2731,16 @@ func parseHandler(
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
 				continue
 			}
-			if !typecheck.IsString(info.TypeOf(f.Type)) {
+			if !gotypes.IsString(info.TypeOf(f.Type)) {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
 					fmt.Errorf("%w in %s.%s",
 						ErrStateIDParamNotString, recv, fd.Name.Name))
 				continue
 			}
-			inp := parseInput(f, info)
+			inp := parseInput(f, f.Type, info)
 			inp.Kind = model.InputKindStateID
 			h.InputStateID = inp
 			h.OrderedInputs = append(h.OrderedInputs, inp)
-
-		case paramvalidation.IsLegacyDispatchParam(f, info):
-			appendPositioned(&unsupErrs, fset, f.Type.Pos(),
-				paramvalidation.LegacyDispatchError(f, recv, fd.Name.Name))
 
 		default:
 			unsupErrs = append(unsupErrs,
@@ -2822,112 +2768,115 @@ func parseHandler(
 
 	var outputs []*model.Output
 	var multiErrPos token.Pos
+	var seenBody, seenHead bool
 	for _, r := range fd.Type.Results.List {
 		t := makeType(r.Type, info)
 
+		// A result field declares one value per name, or a single unnamed one.
+		// Every output is matched by its type, the name is the app's to pick.
+		exprs := make([]ast.Expr, 0, max(len(r.Names), 1))
+		names := make([]string, 0, max(len(r.Names), 1))
 		if len(r.Names) == 0 {
-			if typecheck.IsError(t.Resolved) {
-				if h.OutputErr != nil {
-					multiErrPos = r.Type.Pos()
-					continue
-				}
-				h.OutputErr = &model.Output{Kind: model.OutputKindErr, Type: t}
-				h.OrderedOutputs = append(h.OrderedOutputs, h.OutputErr)
-				continue
+			exprs, names = append(exprs, nil), append(names, "")
+		} else {
+			for _, n := range r.Names {
+				exprs, names = append(exprs, n), append(names, n.Name)
 			}
-			outputs = append(outputs, &model.Output{Type: t})
-			continue
 		}
 
-		for _, n := range r.Names {
-			out := &model.Output{
-				Expr: n,
-				Name: n.Name,
-				Type: t,
+		for i, name := range names {
+			out := &model.Output{Expr: exprs[i], Name: name, Type: t}
+			pos := r.Type.Pos()
+			if exprs[i] != nil {
+				pos = exprs[i].Pos()
 			}
-			if typecheck.IsError(t.Resolved) {
+			retErr := func(err error) *positionedError {
+				return &positionedError{pos: fset.Position(pos), err: err}
+			}
+
+			dup := func() *positionedError {
+				return retErr(fmt.Errorf("%w %s %s in %s.%s",
+					ErrSignatureDuplicateOutput, name, t.Resolved,
+					recv, fd.Name.Name))
+			}
+
+			switch {
+			case typecheck.IsError(t.Resolved):
 				if h.OutputErr != nil {
-					multiErrPos = n.Pos()
+					multiErrPos = pos
 					continue
 				}
 				out.Kind = model.OutputKindErr
 				h.OutputErr = out
 				h.OrderedOutputs = append(h.OrderedOutputs, out)
 				continue
-			}
-			retErr := func(err error) *positionedError {
-				return &positionedError{pos: fset.Position(r.Type.Pos()), err: err}
-			}
 
-			switch n.Name {
-			case "redirect":
-				if !typecheck.IsRedirectType(r.Type, info) {
-					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
-						ErrRedirectNotRedirectType, recv, fd.Name.Name))
+			case typecheck.IsRedirectType(r.Type, info):
+				if h.OutputRedirect != nil {
+					return h, nil, dup()
 				}
 				out.Kind = model.OutputKindRedirect
 				h.OutputRedirect = out
-				h.OrderedOutputs = append(h.OrderedOutputs, out)
-				continue
-			case "newSession":
-				if !typecheck.IsNewSessionType(r.Type, info) {
-					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
-						ErrNewSessionNotSessionType, recv, fd.Name.Name))
+
+			case typecheck.IsNewSessionType(r.Type, info):
+				if h.OutputNewSession != nil {
+					return h, nil, dup()
 				}
 				out.Kind = model.OutputKindNewSession
 				h.OutputNewSession = out
-				h.OrderedOutputs = append(h.OrderedOutputs, out)
-				continue
-			case "closeSession":
-				if !typecheck.IsBool(t.Resolved) {
-					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
-						ErrCloseSessionNotBool, recv, fd.Name.Name))
+
+			case typecheck.IsCloseSessionType(r.Type, info):
+				if h.OutputCloseSession != nil {
+					return h, nil, dup()
 				}
 				out.Kind = model.OutputKindCloseSession
 				h.OutputCloseSession = out
-				h.OrderedOutputs = append(h.OrderedOutputs, out)
-				continue
-			case "enableBackgroundStreaming":
+
+			case typecheck.IsEnableBgStreamType(r.Type, info):
 				if kind != methodkind.GETHandler {
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrEnableBgStreamNotGET, recv, fd.Name.Name))
 				}
-				if !typecheck.IsBool(t.Resolved) {
-					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
-						ErrEnableBgStreamNotBool, recv, fd.Name.Name))
+				if h.OutputEnableBgStream != nil {
+					return h, nil, dup()
 				}
 				out.Kind = model.OutputKindEnableBgStream
 				h.OutputEnableBgStream = out
-				h.OrderedOutputs = append(h.OrderedOutputs, out)
-				continue
 
-			case "disableRefreshAfterHidden":
+			case typecheck.IsDisableRefreshType(r.Type, info):
 				if kind != methodkind.GETHandler {
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrDisableRefreshNotGET, recv, fd.Name.Name))
 				}
-				if !typecheck.IsBool(t.Resolved) {
-					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
-						ErrDisableRefreshNotBool, recv, fd.Name.Name))
+				if h.OutputDisableRefresh != nil {
+					return h, nil, dup()
 				}
 				out.Kind = model.OutputKindDisableRefresh
 				h.OutputDisableRefresh = out
-				h.OrderedOutputs = append(h.OrderedOutputs, out)
-				continue
-			default:
-				if !typecheck.IsComponent(t.Resolved) {
-					return h, nil, retErr(fmt.Errorf(
-						"%w %s %s in %s.%s",
-						ErrSignatureUnsupportedOutput, n.Name, t.Resolved,
-						recv, fd.Name.Name,
-					))
+
+			case typecheck.IsHeadType(r.Type, info):
+				if seenHead {
+					return h, nil, dup()
 				}
-				// templ.Component returns are validated later
-				// by buildHandlerGET / action body detection.
-				// Use the user's name as Kind (body/head).
-				out.Kind = n.Name
-				h.OrderedOutputs = append(h.OrderedOutputs, out)
+				seenHead = true
+				out.Kind = model.OutputKindHead
+
+			case typecheck.IsComponent(t.Resolved):
+				if seenBody {
+					return h, nil, dup()
+				}
+				seenBody = true
+				out.Kind = model.OutputKindBody
+
+			default:
+				return h, nil, retErr(fmt.Errorf(
+					"%w %s %s in %s.%s",
+					ErrSignatureUnsupportedOutput, name, t.Resolved,
+					recv, fd.Name.Name,
+				))
 			}
+
+			h.OrderedOutputs = append(h.OrderedOutputs, out)
 			outputs = append(outputs, out)
 		}
 	}
@@ -2948,32 +2897,19 @@ func parseHandler(
 			ErrCloseSessionWithSSE, recv, fd.Name.Name)
 	}
 
-	// For action handlers, detect the templ.Component body and head outputs.
-	// The rule is the one a GET follows: the first component is the body,
-	// a second one is the head, and both are named after what they are.
+	// For action handlers, pick up the body and head the same way a GET does.
 	if kind.IsAction() {
-		var comps []*model.Output
 		for _, out := range outputs {
-			if typecheck.IsComponent(out.Type.Resolved) {
-				comps = append(comps, out)
-			}
-		}
-		if len(comps) > 0 {
-			h.OutputBody = &model.TemplComponent{Output: comps[0]}
-		}
-		if len(comps) > 1 {
-			second := comps[1]
-			if second.Name != "head" {
-				err := fmt.Errorf("%w in %s.%s",
-					ErrSignatureGETHeadWrongName, recv, fd.Name.Name)
-				if second.Expr != nil {
-					return h, outputs, &positionedError{
-						pos: fset.Position(second.Expr.Pos()), err: err,
-					}
+			switch out.Kind {
+			case model.OutputKindBody:
+				if h.OutputBody == nil {
+					h.OutputBody = &model.TemplComponent{Output: out}
 				}
-				return h, outputs, err
+			case model.OutputKindHead:
+				if h.OutputHead == nil {
+					h.OutputHead = &model.TemplComponent{Output: out}
+				}
 			}
-			h.OutputHead = &model.TemplComponent{Output: second}
 		}
 	}
 

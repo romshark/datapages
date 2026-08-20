@@ -32,7 +32,7 @@ type Base[S any] struct{ App *App }
 
 func (Base[S]) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	state *S,
 ) error {
 	return nil

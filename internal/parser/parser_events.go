@@ -6,8 +6,8 @@ import (
 	"go/types"
 	"strings"
 
-	"github.com/romshark/datapages/internal/parser/internal/structtag"
 	"github.com/romshark/datapages/internal/parser/internal/typecheck"
+	"github.com/romshark/datapages/internal/structtag"
 )
 
 // _jsonUnmarshalerIface and _textUnmarshalerIface are synthetic interface types

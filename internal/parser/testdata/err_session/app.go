@@ -22,7 +22,7 @@ func (PageIndex) GET(
 // PageBadType is /bad-type
 type PageBadType struct{ App *App }
 
-/* ErrSessionParamNotSessionType: wrong type */
+/* ErrSignatureUnsupportedInput: not a datapages.Session */
 
 func (PageBadType) GET(
 	r *http.Request,

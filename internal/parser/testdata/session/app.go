@@ -15,7 +15,7 @@ type EventPing struct {
 	Data string `json:"data"`
 }
 
-func (*App) Head(r *http.Request, session Session) datapages.Component {
+func (*App) Head(r *http.Request, session Session) datapages.Head {
 	_ = session
 	return nil
 }
@@ -47,9 +47,9 @@ func (PageProfile) GET(
 // Action with session.
 func (PageProfile) POSTUpdate(
 	r *http.Request,
-	session Session,
+	sess Session,
 ) error {
-	_ = session
+	_ = sess
 	return nil
 }
 

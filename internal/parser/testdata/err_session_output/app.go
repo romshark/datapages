@@ -21,7 +21,7 @@ func (PageIndex) GET(
 	return body, err
 }
 
-/* ErrNewSessionNotSessionType: wrong type */
+/* ErrSignatureUnsupportedOutput: wrong type */
 
 // POSTBadNew is /bad-new
 func (PageIndex) POSTBadNew(
@@ -30,7 +30,7 @@ func (PageIndex) POSTBadNew(
 	return 0, nil
 }
 
-/* ErrCloseSessionNotBool: wrong type */
+/* ErrSignatureUnsupportedOutput: wrong type */
 
 // POSTBadClose is /bad-close
 func (PageIndex) POSTBadClose(
@@ -56,7 +56,7 @@ func (PageIndex) POSTNewWithSSE(
 func (PageIndex) POSTCloseWithSSE(
 	r *http.Request,
 	sse datapages.SSE,
-) (closeSession bool, err error) {
+) (closeSession datapages.CloseSession, err error) {
 	_ = sse
 	return false, nil
 }

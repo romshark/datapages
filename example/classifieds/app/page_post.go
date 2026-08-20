@@ -19,35 +19,35 @@ type PagePost struct {
 func (p PagePost) GET(
 	r *http.Request,
 	session Session,
-	path struct {
+	path datapages.Path[struct {
 		Slug string `path:"slug"`
-	},
+	}],
 ) (
-	body, head datapages.Component,
+	body datapages.Component, head datapages.Head,
 	redirect datapages.Redirect,
 	err error,
 ) {
-	if strings.TrimSpace(path.Slug) == "" {
+	if strings.TrimSpace(path.Values.Slug) == "" {
 		err = domain.ErrUnauthorized
 		return
 	}
 
-	post, err := p.App.repo.PostBySlug(r.Context(), path.Slug)
+	post, err := p.App.repo.PostBySlug(r.Context(), path.Values.Slug)
 	if err != nil {
 		if errors.Is(err, domain.ErrPostNotFound) {
 			// Redirect to 404 page.
-			return nil, nil, datapages.Redirect{URL: href.PageError404()}, nil
+			return nil, head, datapages.Redirect{URL: href.PageError404()}, nil
 		}
 	}
 
 	similarPosts, err := p.App.repo.SimilarPosts(r.Context(), post.ID, 4)
 	if err != nil {
-		return nil, nil, redirect, err
+		return nil, head, redirect, err
 	}
 
 	baseData, err := p.baseData(r.Context(), session)
 	if err != nil {
-		return nil, nil, redirect, err
+		return nil, head, redirect, err
 	}
 
 	var chatID string
@@ -71,25 +71,25 @@ func (p PagePost) POSTSendMessage(
 	r *http.Request,
 	sse datapages.SSE,
 	session Session,
-	path struct {
+	path datapages.Path[struct {
 		Slug string `path:"slug"`
-	},
-	signals struct {
+	}],
+	signals datapages.Signals[struct {
 		MessageText string `json:"messagetext"`
-	},
-	dispatch datapages.Dispatch[EventMessagingSent],
+	}],
+	messagingSent datapages.Dispatcher[EventMessagingSent],
 ) error {
 	if session.IsGuest() {
 		return domain.ErrUnauthorized
 	}
 
-	if strings.TrimSpace(path.Slug) == "" {
+	if strings.TrimSpace(path.Values.Slug) == "" {
 		return domain.ErrUnauthorized
 	}
 
 	_ = sse.PatchElement(fragmentMessageFormSending())
 
-	post, err := p.App.repo.PostBySlug(sse.Context(), path.Slug)
+	post, err := p.App.repo.PostBySlug(sse.Context(), path.Values.Slug)
 	if err != nil {
 		return err
 	}
@@ -99,14 +99,14 @@ func (p PagePost) POSTSendMessage(
 	}
 
 	chatID, err := p.App.repo.NewChat(
-		sse.Context(), post.ID, session.UserID(), signals.MessageText,
+		sse.Context(), post.ID, session.UserID(), signals.Values.MessageText,
 	)
 	if err != nil {
 		return err
 	}
 
 	for _, recipient := range []string{post.MerchantUserName, session.UserID()} {
-		if err := dispatch(EventMessagingSent{
+		if err := messagingSent.Dispatch(EventMessagingSent{
 			Recipient: datapages.SubjectUser(recipient),
 			ChatID:    chatID,
 			UserID:    session.UserID(),

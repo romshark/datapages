@@ -38,7 +38,7 @@ func (PageIndex) GET(r *http.Request, session Session) (
 
 func (PageIndex) StreamOpen(
 	r *http.Request,
-	streamID uint64,
+	streamID datapages.StreamID,
 	state *TabState,
 ) error {
 	return nil

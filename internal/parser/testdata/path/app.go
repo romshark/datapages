@@ -20,9 +20,9 @@ type PageItem struct{ App *App }
 
 func (PageItem) GET(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID string `path:"id"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = path
 	return body, err
@@ -31,11 +31,11 @@ func (PageItem) GET(
 // POSTUpdate is /item/{id}/update
 func (PageItem) POSTUpdate(
 	r *http.Request,
-	path struct {
+	vars datapages.Path[struct {
 		ID string `path:"id"`
-	},
+	}],
 ) error {
-	_ = path
+	_ = vars
 	return nil
 }
 
@@ -44,10 +44,26 @@ type PageProduct struct{ App *App }
 
 func (PageProduct) GET(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		ID      int32   `path:"id"`
 		Version float64 `path:"version"`
-	},
+	}],
+) (body datapages.Component, err error) {
+	_ = path
+	return body, err
+}
+
+// NamedPath is a named path struct, accepted like an anonymous one.
+type NamedPath struct {
+	ID string `path:"id"`
+}
+
+// PageNamed is /named/{id}
+type PageNamed struct{ App *App }
+
+func (PageNamed) GET(
+	r *http.Request,
+	path datapages.Path[NamedPath],
 ) (body datapages.Component, err error) {
 	_ = path
 	return body, err
@@ -58,9 +74,9 @@ type PageToggle struct{ App *App }
 
 func (PageToggle) GET(
 	r *http.Request,
-	path struct {
+	path datapages.Path[struct {
 		Active bool `path:"active"`
-	},
+	}],
 ) (body datapages.Component, err error) {
 	_ = path
 	return body, err
