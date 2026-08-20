@@ -30,7 +30,10 @@ var (
 		"event handler must return only error",
 	)
 	ErrSignatureEvHandMissingEvent = errors.New(
-		`event handler must have a parameter named "event" of an event type`,
+		"event handler must have a parameter of an event type",
+	)
+	ErrSignatureEvHandMultipleEvents = errors.New(
+		"event handler must have exactly one parameter of an event type",
 	)
 	ErrSignatureGETMissingBody = errors.New(
 		"GET handler must return body datapages.Component",

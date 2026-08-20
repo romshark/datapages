@@ -154,9 +154,9 @@ func (PageIndex) POSTActionName(
 }
 ```
 
-All `OnXXX` method parameter lists must include
-the `event` parameter of an event type and
-`sse datapages.SSE`. Parameters may be in any order.
+All `OnXXX` method parameter lists must include exactly one parameter
+of an event type and `sse datapages.SSE`. Parameters may be in any order.
+The event parameter is recognized by its type, its name is up to the application.
 The `XXX` placeholder must always match the event name after the type's `Event` prefix.
 
 ```go

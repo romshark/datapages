@@ -117,9 +117,9 @@ func (p PageIndex) OnStreamGone(event EventStreamGone, sse datapages.SSE) error 
 	)))
 }
 
-func (p PageIndex) OnPong(event EventPong, sse datapages.SSE) error {
+func (p PageIndex) OnPong(pong EventPong, sse datapages.SSE) error {
 	return sse.PatchElement(templ.Raw(fmt.Sprintf(
-		`<div id="pong">pong %d</div>`, event.N,
+		`<div id="pong">pong %d</div>`, pong.N,
 	)))
 }
 

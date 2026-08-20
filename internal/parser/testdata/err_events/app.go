@@ -45,25 +45,17 @@ func (PageEventTest) GET(r *http.Request) (body datapages.Component, err error) 
 	return body, err
 }
 
-/* ErrEvHandFirstArgNotEvent */
-/* ErrEvHandSecondArgNotSSE */
+/* ErrSignatureEvHandMissingEvent */
+/* ErrSignatureEvHandMissingSSE */
+/* ErrSignatureUnsupportedInput */
 
-func (PageEventTest) OnFirstArgNotNamed(
-	notEvent EventFoo,
-) error {
-	return nil
-}
-
-/* ErrEvHandFirstArgTypeNotEvent */
-/* ErrEvHandSecondArgNotSSE */
-
-func (PageEventTest) OnFirstArgWrongType(
+func (PageEventTest) OnArgWrongType(
 	event int,
 ) error {
 	return nil
 }
 
-/* ErrEvHandSecondArgNotSSE */
+/* ErrSignatureEvHandMissingSSE */
 
 func (PageEventTest) OnFirstDuplicate(
 	event EventFoo,
@@ -72,10 +64,37 @@ func (PageEventTest) OnFirstDuplicate(
 }
 
 /* ErrEvHandDuplicate */
-/* ErrEvHandSecondArgNotSSE */
+/* ErrSignatureEvHandMissingSSE */
 
 func (PageEventTest) OnSecondDuplicate(
 	event EventFoo,
+) error {
+	return nil
+}
+
+// EventAlpha is "alpha"
+type EventAlpha struct {
+	A string `json:"a"`
+}
+
+// EventBeta is "beta"
+type EventBeta struct {
+	B string `json:"b"`
+}
+
+// PageMultiEvent is /multi-event
+type PageMultiEvent struct{ App *App }
+
+func (PageMultiEvent) GET(r *http.Request) (body datapages.Component, err error) {
+	return body, err
+}
+
+/* ErrSignatureEvHandMultipleEvents */
+
+func (PageMultiEvent) OnBoth(
+	alpha EventAlpha,
+	beta EventBeta,
+	sse datapages.SSE,
 ) error {
 	return nil
 }

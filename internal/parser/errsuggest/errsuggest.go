@@ -70,7 +70,10 @@ func Suggest(err error) string {
 		return "fix: Add `sse datapages.SSE` parameter"
 
 	case errors.Is(err, parser.ErrSignatureEvHandMissingEvent):
-		return "fix: Add `event EventName` parameter"
+		return "fix: Add a parameter of an EventXXX type"
+
+	case errors.Is(err, parser.ErrSignatureEvHandMultipleEvents):
+		return "fix: Keep one parameter of an EventXXX type and remove the rest"
 
 	case errors.Is(err, parser.ErrPageMissingFieldApp):
 		var d *parser.ErrorPageMissingFieldApp

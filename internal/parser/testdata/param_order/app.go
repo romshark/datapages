@@ -120,14 +120,15 @@ func (PageEventReversed) GET(r *http.Request) (body datapages.Component, err err
 	return body, err
 }
 
-// Event handler with SSE before event (reversed from conventional).
+// Event handler with SSE before the event (reversed from conventional)
+// and an event parameter of its own name.
 func (PageEventReversed) OnEventPing(
 	sse datapages.SSE,
 	session Session,
-	event EventPing,
+	ping EventPing,
 ) error {
 	_ = sse
 	_ = session
-	_ = event
+	_ = ping
 	return nil
 }

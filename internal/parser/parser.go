@@ -726,34 +726,37 @@ func validateAndAttachEventHandler(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	// Invariants for OnXXX handlers:
-	//   - Must have a parameter named "event" of an EventXXX type
+	//   - Must have exactly one parameter of an EventXXX type
 	//   - Must have a *datastar.ServerSentEventGenerator parameter
 	//   - Only one handler per EventXXX per receiver type
 	//   - Parameters may be in any order
 	params := fd.Type.Params
 	var evName string
 
-	// Find and validate the event parameter (by name "event").
-	foundEvent := false
+	// Find the event parameter by type. The event a handler takes is the one
+	// parameter carrying a declared event type, whatever the parameter is named.
+	evParams := 0
 	if params != nil {
 		for _, f := range params.List {
-			if len(f.Names) == 1 && f.Names[0].Name == "event" {
-				var ok bool
-				evName, ok = typecheck.EventTypeNameOf(
-					f.Type, ctx.pkg.TypesInfo, ctx.eventTypeNames,
-				)
-				if !ok {
-					errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
-						ErrSignatureEvHandMissingEvent, recv, fd.Name.Name))
-				}
-				foundEvent = true
-				break
+			name, ok := typecheck.EventTypeNameOf(
+				f.Type, ctx.pkg.TypesInfo, ctx.eventTypeNames,
+			)
+			if !ok {
+				continue
+			}
+			evParams += max(len(f.Names), 1)
+			if evName == "" {
+				evName = name
 			}
 		}
 	}
-	if !foundEvent {
+	switch {
+	case evParams == 0:
 		errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
 			ErrSignatureEvHandMissingEvent, recv, fd.Name.Name))
+	case evParams > 1:
+		errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
+			ErrSignatureEvHandMultipleEvents, recv, fd.Name.Name))
 	}
 
 	// Check for duplicate event handlers.
@@ -796,7 +799,7 @@ func validateAndAttachEventHandler(
 	if params != nil {
 		for _, f := range params.List {
 			switch {
-			case len(f.Names) == 1 && f.Names[0].Name == "event":
+			case typecheck.IsEventType(f.Type, ctx.pkg.TypesInfo, evName):
 				// Already validated above.
 			case typecheck.IsSSEParam(f.Type, ctx.pkg.TypesInfo):
 				// Already validated above.
@@ -1403,7 +1406,7 @@ func parseEventHandler(
 	// Match parameters by name/type in any order.
 	for _, f := range params {
 		switch {
-		case len(f.Names) == 1 && f.Names[0].Name == "event":
+		case typecheck.IsEventType(f.Type, info, eventTypeName):
 			h.InputEvent = parseInput(f, f.Type, info)
 			h.InputEvent.Kind = model.InputKindEvent
 			h.OrderedInputs = append(h.OrderedInputs, h.InputEvent)

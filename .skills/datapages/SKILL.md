@@ -422,7 +422,9 @@ or the publish needs its own deadline.
 
 ### Handle Events on Pages
 
-Method name starts with `On`. The `event` and `sse` parameters are required. Optional parameters: `streamID datapages.StreamID`, `session Session`.
+Method name starts with `On`. Exactly one parameter of an event type and an
+`sse datapages.SSE` are required. The event parameter is matched by its type,
+the name is free. Optional parameters: `streamID datapages.StreamID`, `session Session`.
 Parameters may appear in any order.
 
 `On` handlers do **not** accept `signals`. If the handler needs client-side signal values, add them as fields on the event type and populate them in the action handler that dispatches the event.

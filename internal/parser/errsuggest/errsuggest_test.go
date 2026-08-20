@@ -58,17 +58,23 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add `sse datapages.SSE` parameter",
 		},
 		"ErrSignatureEvHandMissingSSE/wrapped": {
-			err:  fmt.Errorf("%w: PageFoo.OnEventBar", parser.ErrSignatureEvHandMissingSSE),
+			err: fmt.Errorf("%w: PageFoo.OnEventBar",
+				parser.ErrSignatureEvHandMissingSSE),
 			want: "fix: Add `sse datapages.SSE` parameter",
 		},
 
+		"ErrSignatureEvHandMultipleEvents": {
+			err:  parser.ErrSignatureEvHandMultipleEvents,
+			want: "fix: Keep one parameter of an EventXXX type and remove the rest",
+		},
 		"ErrSignatureEvHandMissingEvent": {
 			err:  parser.ErrSignatureEvHandMissingEvent,
-			want: "fix: Add `event EventName` parameter",
+			want: "fix: Add a parameter of an EventXXX type",
 		},
 		"ErrSignatureEvHandMissingEvent/wrapped": {
-			err:  fmt.Errorf("%w: PageFoo.OnEventBar", parser.ErrSignatureEvHandMissingEvent),
-			want: "fix: Add `event EventName` parameter",
+			err: fmt.Errorf("%w: PageFoo.OnEventBar",
+				parser.ErrSignatureEvHandMissingEvent),
+			want: "fix: Add a parameter of an EventXXX type",
 		},
 
 		"ErrPageMissingFieldApp": {
@@ -76,7 +82,9 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add field `App *App` to PageProfile",
 		},
 		"ErrPageMissingFieldApp/wrapped": {
-			err:  fmt.Errorf("outer: %w", &parser.ErrorPageMissingFieldApp{TypeName: "PageProfile"}),
+			err: fmt.Errorf("outer: %w", &parser.ErrorPageMissingFieldApp{
+				TypeName: "PageProfile",
+			}),
 			want: "fix: Add field `App *App` to PageProfile",
 		},
 
@@ -93,7 +101,9 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add `// PageFooBar is /foobar/`",
 		},
 		"ErrPageMissingPathComm/wrapped": {
-			err:  fmt.Errorf("outer: %w", &parser.ErrorPageMissingPathComm{TypeName: "PageProfile"}),
+			err: fmt.Errorf("outer: %w", &parser.ErrorPageMissingPathComm{
+				TypeName: "PageProfile",
+			}),
 			want: "fix: Add `// PageProfile is /profile/`",
 		},
 
@@ -258,7 +268,9 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrEventSubjectUserNoSession": {
-			err:  &parser.ErrorEventSubjectUserNoSession{TypeName: "EventChat", PkgName: "app"},
+			err: &parser.ErrorEventSubjectUserNoSession{
+				TypeName: "EventChat", PkgName: "app",
+			},
 			want: "fix: Define a Session type in package app",
 		},
 

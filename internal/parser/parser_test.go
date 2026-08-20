@@ -573,14 +573,14 @@ func TestParse_ErrEvents(t *testing.T) {
 		t, err,
 		parser.ErrEventCommMissing,
 		parser.ErrEventSubjectInvalid,
-		parser.ErrSignatureEvHandMissingEvent, // OnFirstArgNotNamed: no "event" param
-		parser.ErrSignatureEvHandMissingSSE,   // OnFirstArgNotNamed: no SSE param
-		parser.ErrSignatureUnsupportedInput,   // OnFirstArgNotNamed: notEvent is unsupported
-		parser.ErrSignatureEvHandMissingEvent, // OnFirstArgWrongType: event type is int
-		parser.ErrSignatureEvHandMissingSSE,   // OnFirstArgWrongType: no SSE param
-		parser.ErrSignatureEvHandMissingSSE,   // OnFirstDuplicate: no SSE param
-		parser.ErrEvHandDuplicate,             // OnSecondDuplicate
-		parser.ErrSignatureEvHandMissingSSE,   // OnSecondDuplicate: no SSE param
+		parser.ErrSignatureEvHandMissingEvent,   // OnArgWrongType: int is no event type
+		parser.ErrSignatureEvHandMissingSSE,     // OnArgWrongType: no SSE param
+		parser.ErrSignatureUnsupportedInput,     // OnArgWrongType: int is unsupported
+		parser.ErrSignatureEvHandMissingSSE,     // OnFirstDuplicate: no SSE param
+		parser.ErrEvHandDuplicate,               // OnSecondDuplicate
+		parser.ErrSignatureEvHandMissingSSE,     // OnSecondDuplicate: no SSE param
+		parser.ErrSignatureEvHandMultipleEvents, // OnBoth: two event parameters
+		parser.ErrSignatureUnsupportedInput,     // OnBoth: the second event
 		parser.ErrEventFieldUnexported,
 		parser.ErrEventFieldUnexported,
 		parser.ErrEventFieldMissingTag,
@@ -1378,6 +1378,8 @@ func TestParse_ParamOrder(t *testing.T) {
 		require.Len(p.EventHandlers, 1)
 		evh := p.EventHandlers[0]
 		require.NotNil(evh.InputEvent)
+		// The parameter is matched by its type, not by its name.
+		require.Equal("ping", evh.InputEvent.Name)
 		require.NotNil(evh.InputSSE)
 		require.NotNil(evh.InputSession)
 		require.Equal(
@@ -1443,23 +1445,23 @@ func TestParse_ErrorPositions(t *testing.T) {
 		"err_events": {
 			{parser.ErrEventCommMissing, "app.go", 30, 6},
 			{parser.ErrEventSubjectInvalid, "app.go", 36, 24},
-			{parser.ErrSignatureEvHandMissingEvent, "app.go", 51, 22},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 51, 22},
-			{parser.ErrSignatureUnsupportedInput, "app.go", 52, 2},
-			{parser.ErrSignatureEvHandMissingEvent, "app.go", 60, 22},
+			{parser.ErrSignatureEvHandMissingEvent, "app.go", 52, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 52, 22},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 53, 2},
 			{parser.ErrSignatureEvHandMissingSSE, "app.go", 60, 22},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 68, 22},
-			{parser.ErrEvHandDuplicate, "app.go", 77, 22},
-			{parser.ErrSignatureEvHandMissingSSE, "app.go", 77, 22},
-			{parser.ErrEventFieldUnexported, "app.go", 87, 2},
-			{parser.ErrEventFieldUnexported, "app.go", 87, 2},
-			{parser.ErrEventFieldMissingTag, "app.go", 94, 2},
-			{parser.ErrEventFieldDuplicateTag, "app.go", 112, 2},
-			{parser.ErrEventCommInvalid, "app.go", 117, 21},
-			{parser.ErrEventCommInvalid, "app.go", 124, 4},
-			{parser.ErrEventSubjectInvalid, "app.go", 131, 23},
-			{parser.ErrEventSubjectInvalid, "app.go", 138, 24},
-			{parser.ErrEventFieldEmptyTag, "app.go", 149, 2},
+			{parser.ErrEvHandDuplicate, "app.go", 69, 22},
+			{parser.ErrSignatureEvHandMissingSSE, "app.go", 69, 22},
+			{parser.ErrSignatureEvHandMultipleEvents, "app.go", 94, 23},
+			{parser.ErrSignatureUnsupportedInput, "app.go", 96, 2},
+			{parser.ErrEventFieldUnexported, "app.go", 106, 2},
+			{parser.ErrEventFieldUnexported, "app.go", 106, 2},
+			{parser.ErrEventFieldMissingTag, "app.go", 113, 2},
+			{parser.ErrEventFieldDuplicateTag, "app.go", 131, 2},
+			{parser.ErrEventCommInvalid, "app.go", 136, 21},
+			{parser.ErrEventCommInvalid, "app.go", 143, 4},
+			{parser.ErrEventSubjectInvalid, "app.go", 150, 23},
+			{parser.ErrEventSubjectInvalid, "app.go", 157, 24},
+			{parser.ErrEventFieldEmptyTag, "app.go", 168, 2},
 			{parser.ErrEventFieldUnexported, "subpkg.go", 7, 2},
 		},
 		"err_path": {
