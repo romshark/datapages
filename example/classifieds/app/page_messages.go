@@ -25,7 +25,7 @@ func (p PageMessages) GET(
 ) (
 	body datapages.Component,
 	redirect datapages.Redirect,
-	enableBackgroundStreaming bool,
+	enableBackgroundStreaming datapages.EnableBackgroundStreaming,
 	err error,
 ) {
 	if session.IsGuest() {

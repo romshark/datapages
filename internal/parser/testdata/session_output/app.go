@@ -53,7 +53,7 @@ func (PageLogin) POSTSubmit(
 func (PageLogin) POSTSignOut(
 	r *http.Request,
 ) (
-	closeSession bool,
+	closeSession datapages.CloseSession,
 	redirect datapages.Redirect,
 	err error,
 ) {

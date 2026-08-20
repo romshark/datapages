@@ -102,7 +102,7 @@ type PageTitled struct{ App *App }
 func (PageTitled) GET(
 	_ *http.Request,
 	path datapages.Path[TitledPath],
-) (body, head datapages.Component, err error) {
+) (view datapages.Component, meta datapages.Head, err error) {
 	return echo("titled %s", path.Values.Name),
 		templ.Raw("<title>" + path.Values.Name + "</title>"), nil
 }

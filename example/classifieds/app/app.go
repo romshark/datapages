@@ -63,7 +63,7 @@ type SearchParams struct {
 
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request, session Session) (
-	closeSession bool,
+	closeSession datapages.CloseSession,
 	redirect datapages.Redirect,
 	err error,
 ) {
@@ -207,7 +207,7 @@ type PageError500 struct{ App *App }
 
 func (PageError500) GET(r *http.Request) (
 	body datapages.Component,
-	disableRefreshAfterHidden bool,
+	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
 	err error,
 ) {
 	return pageError500(), true, nil

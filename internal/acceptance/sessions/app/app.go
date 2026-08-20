@@ -208,7 +208,7 @@ func (p PageLogin) POSTRename(
 
 // POSTSignOut is /sign-out
 func (a *App) POSTSignOut(_ *http.Request, session Session) (
-	closeSession bool, redirect datapages.Redirect, err error,
+	closeSession datapages.CloseSession, redirect datapages.Redirect, err error,
 ) {
 	a.record("signout(%s)", session.UserID())
 	return true, datapages.Redirect{URL: "/"}, nil

@@ -156,6 +156,28 @@ func isNamedFromPkg(
 	return obj.Pkg().Path() == pkgPath && obj.Name() == name
 }
 
+// IsHeadType reports whether expr resolves to datapages.Head.
+func IsHeadType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "Head")
+}
+
+// IsCloseSessionType reports whether expr resolves to datapages.CloseSession.
+func IsCloseSessionType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "CloseSession")
+}
+
+// IsEnableBgStreamType reports whether expr resolves to
+// datapages.EnableBackgroundStreaming.
+func IsEnableBgStreamType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "EnableBackgroundStreaming")
+}
+
+// IsDisableRefreshType reports whether expr resolves to
+// datapages.DisableRefreshAfterHidden.
+func IsDisableRefreshType(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "DisableRefreshAfterHidden")
+}
+
 // IsStreamIDType reports whether expr resolves to datapages.StreamID.
 func IsStreamIDType(expr ast.Expr, info *types.Info) bool {
 	return isNamedFromPkg(expr, info, datapagesPkgPath, "StreamID")

@@ -35,11 +35,8 @@ var (
 	ErrSignatureGETMissingBody = errors.New(
 		"GET handler must return body datapages.Component",
 	)
-	ErrSignatureGETBodyWrongName = errors.New(
-		"GET handler first datapages.Component return must be named \"body\"",
-	)
-	ErrSignatureGETHeadWrongName = errors.New(
-		"GET handler second datapages.Component return must be named \"head\"",
+	ErrSignatureDuplicateOutput = errors.New(
+		"duplicate return value",
 	)
 
 	ErrAppHeadMustTakeRequest = errors.New(
@@ -119,29 +116,15 @@ var (
 		"all handlers must use the same datapages.Session[Data] instantiation",
 	)
 
-	ErrRedirectNotRedirectType = errors.New(
-		"redirect must be of type datapages.Redirect",
-	)
-
-	ErrNewSessionNotSessionType = errors.New(
-		"newSession must be of type datapages.NewSession[Data]",
-	)
-	ErrCloseSessionNotBool = errors.New("closeSession must be of type bool")
-	ErrNewSessionWithSSE   = errors.New(
+	ErrNewSessionWithSSE = errors.New(
 		"newSession cannot be used together with sse parameter",
 	)
 	ErrCloseSessionWithSSE = errors.New(
 		"closeSession cannot be used together with sse parameter",
 	)
 
-	ErrEnableBgStreamNotBool = errors.New(
-		"enableBackgroundStreaming must be of type bool",
-	)
 	ErrEnableBgStreamNotGET = errors.New(
 		"enableBackgroundStreaming can only be used in GET handlers",
-	)
-	ErrDisableRefreshNotBool = errors.New(
-		"disableRefreshAfterHidden must be of type bool",
 	)
 	ErrDisableRefreshNotGET = errors.New(
 		"disableRefreshAfterHidden can only be used in GET handlers",

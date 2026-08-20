@@ -65,7 +65,9 @@ func (PageMaybe) GET(
 type PageBackground struct{ App *App }
 
 func (PageBackground) GET(_ *http.Request) (
-	body datapages.Component, enableBackgroundStreaming bool, err error,
+	body datapages.Component,
+	bgStreaming datapages.EnableBackgroundStreaming,
+	err error,
 ) {
 	return echo("background"), true, nil
 }
@@ -76,7 +78,9 @@ func (PageBackground) GET(_ *http.Request) (
 type PageNoRefresh struct{ App *App }
 
 func (PageNoRefresh) GET(_ *http.Request) (
-	body datapages.Component, disableRefreshAfterHidden bool, err error,
+	body datapages.Component,
+	noRefresh datapages.DisableRefreshAfterHidden,
+	err error,
 ) {
 	return echo("no refresh"), true, nil
 }

@@ -133,7 +133,8 @@ so declare the alias once and use it everywhere.
 
 Handlers accept `session Session` as a parameter, matched by its type with a
 free name, and return
-`newSession datapages.NewSession[SessionData]` or `closeSession bool` as return values.
+`newSession datapages.NewSession[SessionData]` or `closeSession datapages.CloseSession`
+as return values.
 `NewSession` carries `UserID`, an optional `ExpiresAt` and `Data`,
 datapages generates the token and stamps the issuance time.
 
@@ -162,15 +163,16 @@ See https://pkg.go.dev/net/http#hdr-Patterns-ServeMux for the full spec.
 
 The minimum is `(body datapages.Component, err error)`.
 You can add more. Pick only what you need.
+Return values are matched by their type, the names below are conventional.
 
 ```go
 body datapages.Component // always first
-head datapages.Component // optional
+head datapages.Head // optional, wrap the template: datapages.Head{Component: ...}
 redirect datapages.Redirect // optional
 newSession datapages.NewSession[Data] // optional
-closeSession bool // optional
-enableBackgroundStreaming bool // optional
-disableRefreshAfterHidden bool // optional
+closeSession datapages.CloseSession // optional
+enableBackgroundStreaming datapages.EnableBackgroundStreaming // optional
+disableRefreshAfterHidden datapages.DisableRefreshAfterHidden // optional
 err error // always last
 ```
 
@@ -178,13 +180,18 @@ Examples:
 
 ```go
 // body + head
-(body, head datapages.Component, err error)
+(body datapages.Component, head datapages.Head, err error)
 
 // body + redirect
 (body datapages.Component, redirect datapages.Redirect, err error)
 
 // body + new session + disableRefreshAfterHidden
-(body datapages.Component, newSession datapages.NewSession[Data], disableRefreshAfterHidden bool, err error)
+(
+	body datapages.Component,
+	newSession datapages.NewSession[Data],
+	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
+	err error,
+)
 ```
 
 ## Step 5: Path Variables and Query Parameters
@@ -249,7 +256,7 @@ Actions can also be defined on `*App` (pointer receiver) for global actions not 
 ```go
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request, session Session) (
-	closeSession bool,
+	closeSession datapages.CloseSession,
 	redirect datapages.Redirect,
 	err error,
 ) {
@@ -285,10 +292,10 @@ Pick only what you need.
 
 ```go
 body datapages.Component // optional
-head datapages.Component // optional
+head datapages.Head // optional
 redirect datapages.Redirect // optional
 newSession datapages.NewSession[Data] // optional
-closeSession bool // optional
+closeSession datapages.CloseSession // optional
 err error // always last
 ```
 
@@ -315,7 +322,7 @@ New session:
 
 Close session:
 ```go
-) (closeSession bool, redirect datapages.Redirect, err error) {
+) (closeSession datapages.CloseSession, redirect datapages.Redirect, err error) {
 	return true, datapages.Redirect{URL: "/login"}, nil
 }
 ```

@@ -2200,7 +2200,7 @@ func (w *Writer) writeMethodCall(
 	// Close session.
 	if h.OutputCloseSession != nil {
 		w.Raw("\tif ")
-		w.Raw(h.OutputCloseSession.Name)
+		w.Raw(outputVar(h.OutputCloseSession))
 		w.Raw(" {\n")
 		w.Line(2, "if err := s.closeSession(w, r, sessToken); err != nil {")
 		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
@@ -2212,10 +2212,10 @@ func (w *Writer) writeMethodCall(
 	// New session.
 	if h.OutputNewSession != nil {
 		w.Raw("\tif j := ")
-		w.Raw(h.OutputNewSession.Name)
+		w.Raw(outputVar(h.OutputNewSession))
 		w.Raw("; j.UserID != \"\" {\n")
 		w.Raw("\t\tif err := s.createSession(w, r, ")
-		w.Raw(h.OutputNewSession.Name)
+		w.Raw(outputVar(h.OutputNewSession))
 		w.Raw("); err != nil {\n")
 		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
 		w.Line(2, "}")
@@ -2225,7 +2225,7 @@ func (w *Writer) writeMethodCall(
 	// Redirect.
 	if h.OutputRedirect != nil {
 		w.Raw("\tif httpRedirect(w, r, ")
-		w.Raw(h.OutputRedirect.Name)
+		w.Raw(outputVar(h.OutputRedirect))
 		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -2256,7 +2256,7 @@ func (w *Writer) writeMethodCall(
 		} else {
 			w.Raw("nil, ")
 		}
-		w.Raw(h.OutputBody.Name)
+		w.Raw(outputVar(h.OutputBody.Output))
 		w.Raw(", nil, nil,\n")
 		w.Line(1, "); err != nil {")
 		w.Raw("\t\ts.logErr(\"rendering response of ")
@@ -2448,19 +2448,19 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	var outsBuf [8]string
 	outs := outsBuf[:0]
 	if p.GET.OutputBody != nil {
-		outs = append(outs, p.GET.OutputBody.Name)
+		outs = append(outs, outputVar(p.GET.OutputBody.Output))
 	}
 	if p.GET.OutputHead != nil {
-		outs = append(outs, p.GET.OutputHead.Name)
+		outs = append(outs, outputVar(p.GET.OutputHead.Output))
 	}
 	if h.OutputRedirect != nil {
-		outs = append(outs, h.OutputRedirect.Name)
+		outs = append(outs, outputVar(h.OutputRedirect))
 	}
 	if h.OutputDisableRefresh != nil {
-		outs = append(outs, h.OutputDisableRefresh.Name)
+		outs = append(outs, outputVar(h.OutputDisableRefresh))
 	}
 	if h.OutputEnableBgStream != nil {
-		outs = append(outs, h.OutputEnableBgStream.Name)
+		outs = append(outs, outputVar(h.OutputEnableBgStream))
 	}
 	if h.OutputErr != nil {
 		outs = append(outs, "err")
@@ -2487,7 +2487,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	// Redirect.
 	if h.OutputRedirect != nil {
 		w.Raw("\tif httpRedirect(w, r, ")
-		w.Raw(h.OutputRedirect.Name)
+		w.Raw(outputVar(h.OutputRedirect))
 		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -2506,7 +2506,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 
 	headArg := "nil"
 	if p.GET.OutputHead != nil {
-		headArg = p.GET.OutputHead.Name
+		headArg = outputVar(p.GET.OutputHead.Output)
 	}
 
 	w.Line(1, "if err := s.writeHTML(")

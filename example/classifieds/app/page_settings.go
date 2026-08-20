@@ -76,7 +76,7 @@ func (p PageSettings) POSTCloseSession(
 	}],
 	sessionClosed datapages.Dispatcher[EventSessionClosed],
 ) (
-	closeSession bool,
+	closeSession datapages.CloseSession,
 	redirect datapages.Redirect,
 	err error,
 ) {

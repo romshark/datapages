@@ -40,15 +40,15 @@ func (*App) Head(r *http.Request) datapages.Component { return head() }
 
 // POSTSignOut is /signout/{$}
 //
-// Dispatch must happen before returning closeSession=true, so
-// subscribed tabs receive the event before the framework tears down
+// Dispatch must happen before returning closeSession=true,
+// so subscribed tabs receive the event before the framework tears down
 // this session's SSE connection.
 func (*App) POSTSignOut(
 	r *http.Request,
 	session Session,
 	sessionClosed datapages.Dispatcher[EventSessionClosed],
 ) (
-	closeSession bool, redirect datapages.Redirect, err error,
+	closeSession datapages.CloseSession, redirect datapages.Redirect, err error,
 ) {
 	if !session.IsGuest() {
 		_ = sessionClosed.Dispatch(EventSessionClosed{
@@ -63,11 +63,11 @@ func (*App) POSTSignOut(
 type PageIndex struct{ App *App }
 
 func (p PageIndex) GET(r *http.Request, session Session) (
-	body, head datapages.Component, err error,
+	body datapages.Component, head datapages.Head, err error,
 ) {
 	users, err := p.App.users.ListUsers(r.Context())
 	if err != nil {
-		return nil, nil, fmt.Errorf("listing users: %w", err)
+		return nil, head, fmt.Errorf("listing users: %w", err)
 	}
 	return pageIndex(session, users), pageIndexHead(), nil
 }
@@ -117,10 +117,13 @@ func validateRegister(name, email, password string) string {
 type PageLogin struct{ App *App }
 
 func (p PageLogin) GET(r *http.Request, session Session) (
-	body, head datapages.Component, redirect datapages.Redirect, err error,
+	body datapages.Component,
+	head datapages.Head,
+	redirect datapages.Redirect,
+	err error,
 ) {
 	if !session.IsGuest() {
-		return nil, nil, datapages.Redirect{URL: href.PageIndex()}, nil
+		return nil, head, datapages.Redirect{URL: href.PageIndex()}, nil
 	}
 	return pageLogin("", false), pageLoginHead(), redirect, nil
 }
@@ -165,7 +168,9 @@ func (p PageLogin) POSTSubmit(
 		body, err = pageLogin(msg, false), nil
 		return
 	}
-	user, err := p.App.users.Authenticate(r.Context(), signals.Values.Email, signals.Values.Password)
+	user, err := p.App.users.Authenticate(
+		r.Context(), signals.Values.Email, signals.Values.Password,
+	)
 	if err != nil {
 		if errors.Is(err, userstore.ErrInvalidCredentials) {
 			body, err = pageLogin("Invalid email or password", false), nil
@@ -188,7 +193,10 @@ func (p PageLogin) POSTSubmit(
 type PageRegister struct{ App *App }
 
 func (p PageRegister) GET(r *http.Request, session Session) (
-	body, head datapages.Component, redirect datapages.Redirect, err error,
+	body datapages.Component,
+	head datapages.Head,
+	redirect datapages.Redirect,
+	err error,
 ) {
 	if !session.IsGuest() {
 		redirect = datapages.Redirect{URL: href.PageIndex()}
@@ -209,7 +217,9 @@ func (p PageRegister) POSTValidate(
 		Password string `json:"password"`
 	}],
 ) (body datapages.Component, err error) {
-	msg := validateRegister(signals.Values.Name, signals.Values.Email, signals.Values.Password)
+	msg := validateRegister(
+		signals.Values.Name, signals.Values.Email, signals.Values.Password,
+	)
 	return pageRegister(msg, msg == ""), nil
 }
 

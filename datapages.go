@@ -107,6 +107,48 @@ type Query[Values any] struct{ Values Values }
 // Keep it server-side and never hand it to clients.
 type StreamID uint64
 
+// Head is the page head a GET or action handler returns alongside its body.
+// It carries whatever belongs inside <head>, such as a title and meta tags:
+//
+//	func (p PagePost) GET(r *http.Request) (
+//		body datapages.Component,
+//		head datapages.Head,
+//		err error,
+//	) {
+//		return postView(post), postMeta(post), nil
+//	}
+//
+// It's a [Component] under another name, which is what tells it apart from the body.
+// A nil head renders nothing, leaving the page with the head the app
+// generates for every page.
+type Head Component
+
+// CloseSession is returned by handlers to sign the client out.
+// Datapages drops the session and removes the session cookie:
+//
+//	func (p PageAccount) POSTSignOut(r *http.Request) (
+//		closeSession datapages.CloseSession,
+//		redirect datapages.Redirect,
+//		err error,
+//	) {
+//		return true, datapages.Redirect{URL: href.PageIndex()}, nil
+//	}
+//
+// The zero value is a no-op, the client keeps its session.
+// It can't be combined with an [SSE] parameter, which has already sent the
+// response headers the cookie would travel in.
+type CloseSession bool
+
+// EnableBackgroundStreaming is returned by GET handlers to keep the page's SSE
+// stream open while its browser tab sits in the background.
+// The zero value lets the browser close the stream with the tab.
+type EnableBackgroundStreaming bool
+
+// DisableRefreshAfterHidden is returned by GET handlers to stop the page from
+// reloading when its browser tab comes back to the foreground.
+// The zero value refreshes, which brings a stale page up to date.
+type DisableRefreshAfterHidden bool
+
 // Session is the authenticated session of the client, passed to handlers as the
 // session parameter. It's read-only: return a [NewSession] to change it.
 //

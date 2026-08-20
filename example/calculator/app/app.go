@@ -82,7 +82,7 @@ type PageIndex struct{ App *App }
 
 func (p PageIndex) GET(r *http.Request) (
 	body datapages.Component,
-	disableRefreshAfterHidden bool,
+	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
 	err error,
 ) {
 	id, err := p.App.newID()

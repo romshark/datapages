@@ -42,10 +42,26 @@ func handlerArgVar(kind string, skipSSE bool) string {
 }
 
 // outputVar returns the generated variable name for an output.
-// Error outputs always use "err"; others use their source name.
+// Outputs are matched by type, so the name the app picked is not the one
+// generated code binds them to.
 func outputVar(out *model.Output) string {
-	if out.Kind == model.OutputKindErr {
+	switch out.Kind {
+	case model.OutputKindErr:
 		return "err"
+	case model.OutputKindBody:
+		return "body"
+	case model.OutputKindHead:
+		return "head"
+	case model.OutputKindRedirect:
+		return "redirect"
+	case model.OutputKindNewSession:
+		return "newSession"
+	case model.OutputKindCloseSession:
+		return "closeSession"
+	case model.OutputKindEnableBgStream:
+		return "enableBackgroundStreaming"
+	case model.OutputKindDisableRefresh:
+		return "disableRefreshAfterHidden"
 	}
 	return out.Name
 }
@@ -66,19 +82,19 @@ func handlerGETOutputVars(
 	var outsBuf [8]string
 	outs := outsBuf[:0]
 	if get.OutputBody != nil {
-		outs = append(outs, get.OutputBody.Name)
+		outs = append(outs, outputVar(get.OutputBody.Output))
 	}
 	if get.OutputHead != nil {
-		outs = append(outs, get.OutputHead.Name)
+		outs = append(outs, outputVar(get.OutputHead.Output))
 	}
 	if h.OutputRedirect != nil {
-		outs = append(outs, h.OutputRedirect.Name)
+		outs = append(outs, outputVar(h.OutputRedirect))
 	}
 	if h.OutputEnableBgStream != nil {
-		outs = append(outs, h.OutputEnableBgStream.Name)
+		outs = append(outs, outputVar(h.OutputEnableBgStream))
 	}
 	if h.OutputDisableRefresh != nil {
-		outs = append(outs, h.OutputDisableRefresh.Name)
+		outs = append(outs, outputVar(h.OutputDisableRefresh))
 	}
 	if h.OutputErr != nil {
 		outs = append(outs, "err")
@@ -100,22 +116,22 @@ func handlerOutputVars(h *model.Handler) []string {
 	var outsBuf [8]string
 	outs := outsBuf[:0]
 	if h.OutputBody != nil {
-		outs = append(outs, h.OutputBody.Name)
+		outs = append(outs, outputVar(h.OutputBody.Output))
 	}
 	if h.OutputCloseSession != nil {
-		outs = append(outs, h.OutputCloseSession.Name)
+		outs = append(outs, outputVar(h.OutputCloseSession))
 	}
 	if h.OutputRedirect != nil {
-		outs = append(outs, h.OutputRedirect.Name)
+		outs = append(outs, outputVar(h.OutputRedirect))
 	}
 	if h.OutputNewSession != nil {
-		outs = append(outs, h.OutputNewSession.Name)
+		outs = append(outs, outputVar(h.OutputNewSession))
 	}
 	if h.OutputEnableBgStream != nil {
-		outs = append(outs, h.OutputEnableBgStream.Name)
+		outs = append(outs, outputVar(h.OutputEnableBgStream))
 	}
 	if h.OutputDisableRefresh != nil {
-		outs = append(outs, h.OutputDisableRefresh.Name)
+		outs = append(outs, outputVar(h.OutputDisableRefresh))
 	}
 	if h.OutputErr != nil {
 		outs = append(outs, "err")
@@ -313,7 +329,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 	if h.OutputEnableBgStream != nil &&
 		h.OutputDisableRefresh != nil && !pageHasStream(p) {
 		for i, o := range outs {
-			if o == h.OutputEnableBgStream.Name {
+			if o == outputVar(h.OutputEnableBgStream) {
 				outs[i] = "_"
 				break
 			}
@@ -350,7 +366,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 	// Redirect.
 	if h.OutputRedirect != nil {
 		w.Raw("\tif httpRedirect(w, r, ")
-		w.Raw(h.OutputRedirect.Name)
+		w.Raw(outputVar(h.OutputRedirect))
 		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -367,12 +383,12 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 
 	headArg := "nil"
 	if p.GET.OutputHead != nil {
-		headArg = p.GET.OutputHead.Name
+		headArg = outputVar(p.GET.OutputHead.Output)
 	}
 
 	bodyName := "body"
 	if p.GET.OutputBody != nil {
-		bodyName = p.GET.OutputBody.Name
+		bodyName = outputVar(p.GET.OutputBody.Output)
 	}
 
 	w.Line(0, "")
@@ -421,7 +437,7 @@ func hasSessionInput(h *model.Handler) bool {
 func (w *Writer) writeSessionOutputs(h *model.Handler) {
 	if h.OutputCloseSession != nil {
 		w.Raw("\tif ")
-		w.Raw(h.OutputCloseSession.Name)
+		w.Raw(outputVar(h.OutputCloseSession))
 		w.Raw(" {\n")
 		w.Line(2, "if err := s.closeSession(w, r, sessToken); err != nil {")
 		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
@@ -431,10 +447,10 @@ func (w *Writer) writeSessionOutputs(h *model.Handler) {
 	}
 	if h.OutputNewSession != nil {
 		w.Raw("\tif j := ")
-		w.Raw(h.OutputNewSession.Name)
+		w.Raw(outputVar(h.OutputNewSession))
 		w.Raw("; j.UserID != \"\" {\n")
 		w.Raw("\t\tif err := s.createSession(w, r, ")
-		w.Raw(h.OutputNewSession.Name)
+		w.Raw(outputVar(h.OutputNewSession))
 		w.Raw("); err != nil {\n")
 		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
 		w.Line(3, "return")
@@ -491,13 +507,13 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 
 	if hasDisableRefresh {
 		w.Raw("\t\tif !")
-		w.Raw(h.OutputDisableRefresh.Name)
+		w.Raw(outputVar(h.OutputDisableRefresh))
 		w.Raw(" {\n")
 		w.Line(3, "writeBodyAttrOnVisibilityChange(w)")
 		w.Line(2, "}")
 	} else if hasEnableBgStream {
 		w.Raw("\t\tif !")
-		w.Raw(h.OutputEnableBgStream.Name)
+		w.Raw(outputVar(h.OutputEnableBgStream))
 		w.Raw(" {\n")
 		w.Line(3, "writeBodyAttrOnVisibilityChange(w)")
 		w.Line(2, "}")
@@ -585,7 +601,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 						w.Line(2, `if sess.UserID() != "" {`)
 						w.Line(3, "_, _ = io.WriteString(w, `/_$/'`)")
 						w.Raw("\t\t\tif ")
-						w.Raw(h.OutputEnableBgStream.Name)
+						w.Raw(outputVar(h.OutputEnableBgStream))
 						w.Raw(" {\n")
 						w.Line(4, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
 						w.Line(3, "} else {")
@@ -604,7 +620,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Raw(streamPath)
 					w.Raw("'`)\n")
 					w.Raw("\t\t\tif ")
-					w.Raw(h.OutputEnableBgStream.Name)
+					w.Raw(outputVar(h.OutputEnableBgStream))
 					w.Raw(" {\n")
 					w.Line(4, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
 					w.Line(3, "} else {")
@@ -629,7 +645,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				if hasEnableBgStream {
 					w.Line(2, "_, _ = io.WriteString(w, `/_$/'`)")
 					w.Raw("\t\tif ")
-					w.Raw(h.OutputEnableBgStream.Name)
+					w.Raw(outputVar(h.OutputEnableBgStream))
 					w.Raw(" {\n")
 					w.Line(3, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
 					w.Line(2, "} else {")
@@ -644,7 +660,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				w.Raw(streamPath)
 				w.Raw("'`)\n")
 				w.Raw("\t\tif ")
-				w.Raw(h.OutputEnableBgStream.Name)
+				w.Raw(outputVar(h.OutputEnableBgStream))
 				w.Raw(" {\n")
 				w.Line(3, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
 				w.Line(2, "} else {")
@@ -1368,7 +1384,7 @@ func (w *Writer) writeActionMethodCall(
 	// Redirect.
 	if h.OutputRedirect != nil {
 		w.Raw("\tif httpRedirect(w, r, ")
-		w.Raw(h.OutputRedirect.Name)
+		w.Raw(outputVar(h.OutputRedirect))
 		w.Raw(") {\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1398,12 +1414,12 @@ func (w *Writer) writeActionMethodCall(
 		// renders has to carry. Anything else leaves the value the handler
 		// returned unused, which is also a package that does not compile.
 		if h.OutputHead != nil {
-			w.Raw(h.OutputHead.Name)
+			w.Raw(outputVar(h.OutputHead.Output))
 		} else {
 			w.Raw("nil")
 		}
 		w.Raw(", ")
-		w.Raw(h.OutputBody.Name)
+		w.Raw(outputVar(h.OutputBody.Output))
 		w.Raw(", nil, nil,\n")
 		w.Line(1, "); err != nil {")
 		w.Raw("\t\ts.logErr(\"rendering response of ")

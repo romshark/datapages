@@ -55,7 +55,7 @@ func (PageEnter) GET(_ *http.Request) (
 //
 // An action that ends the session the caller holds.
 func (PageIndex) POSTLeave(_ *http.Request, session Session) (
-	closeSession bool,
+	closeSession datapages.CloseSession,
 	err error,
 ) {
 	return session.Token() != "", nil

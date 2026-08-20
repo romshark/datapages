@@ -456,8 +456,6 @@ func Suggest(err error) string {
 //
 //   - ErrSignatureMultiErrRet         — message states to remove the duplicate
 //   - ErrSignatureEvHandReturnMustBeError — message names the required return type
-//   - ErrSignatureGETBodyWrongName    — message states to name it "body"
-//   - ErrSignatureGETHeadWrongName    — message states to name it "head"
 //   - ErrPageHasExtraFields           — message states to remove the fields
 //   - ErrPageConflictingGETEmbed      — message names the conflicting embedded types
 //   - ErrPageNameInvalid              — naming rule is clear from valid examples
@@ -483,14 +481,9 @@ func Suggest(err error) string {
 //   - ErrDispatchParamNotEvent        — constraint is clear from message
 //   - ErrSessionParamNotSessionType   — constraint is clear from message
 //   - ErrSessionTypeConflict          — the message names both instantiations
-//   - ErrRedirectNotRedirectType      — constraint is clear from message
-//   - ErrNewSessionNotSessionType     — constraint is clear from message
-//   - ErrCloseSessionNotBool          — constraint is clear from message
 //   - ErrNewSessionWithSSE            — message states the mutual exclusion
 //   - ErrCloseSessionWithSSE          — message states the mutual exclusion
-//   - ErrEnableBgStreamNotBool        — constraint is clear from message
 //   - ErrEnableBgStreamNotGET         — message states it must be in a GET handler
-//   - ErrDisableRefreshNotBool        — constraint is clear from message
 //   - ErrDisableRefreshNotGET         — message states it must be in a GET handler
 //   - ErrEventSubjectUserNoSession  — has dedicated suggestion above
 //   - ErrEventSubjectAfterPayload   — has dedicated suggestion above

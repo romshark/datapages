@@ -79,12 +79,12 @@ func (PageIndex) GET(
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) (
 	body datapages.Component,
-	head datapages.Component, // Optional
+	head datapages.Head, // Optional
 	redirect datapages.Redirect, // Optional
 	newSession datapages.NewSession[Data], // Optional
-	closeSession bool, // Optional
-	enableBackgroundStreaming bool, // Optional
-	disableRefreshAfterHidden bool, // Optional
+	closeSession datapages.CloseSession, // Optional
+	enableBackgroundStreaming datapages.EnableBackgroundStreaming, // Optional
+	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden, // Optional
 	err error
 ) {
 	// ...
@@ -97,7 +97,7 @@ not tied to a specific page:
 ```go
 // POSTSignOut is /sign-out/{$}
 func (*App) POSTSignOut(r *http.Request, session Session) (
-	closeSession bool,
+	closeSession datapages.CloseSession,
 	redirect datapages.Redirect,
 	err error,
 ) {
@@ -144,10 +144,10 @@ func (PageIndex) POSTActionName(
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) (
 	body datapages.Component, // Optional
-	head datapages.Component, // Optional
+	head datapages.Head, // Optional
 	redirect datapages.Redirect, // Optional
 	newSession datapages.NewSession[Data], // Optional
-	closeSession bool, // Optional
+	closeSession datapages.CloseSession, // Optional
 	err error,
 ) {
 	// ...
@@ -774,7 +774,7 @@ subscribed to its subject at the time of the publish.
 A stream misses an event when:
 
 - its tab is in the background, where the stream is closed by default, see
-  [`enableBackgroundStreaming`](#get-return-value-enablebackgroundstreaming-bool);
+  [`enableBackgroundStreaming`](#get-return-value-enablebackgroundstreaming-datapagesenablebackgroundstreaming);
 - its subscription buffer is full. The buffer holds `ChanBuffer` messages, 16 by
   default, and the broker drops what does not fit instead of blocking the
   publisher. A stream consumes events one at a time: a slow `OnXXX` handler
@@ -782,7 +782,7 @@ A stream misses an event when:
 
 A missed event is not reported to the page. The UI stays stale until the next render,
 which by default follows the tab becoming visible again,
-see [`disableRefreshAfterHidden`](#get-return-value-disablerefreshafterhidden-bool).
+see [`disableRefreshAfterHidden`](#get-return-value-disablerefreshafterhidden-datapagesdisablerefreshafterhidden).
 A render must therefore carry the full state, not a delta.
 
 Applications built with Prometheus metrics export drops as
@@ -792,9 +792,11 @@ Applications built with Prometheus metrics export drops as
 
 Specifies the [Templ](https://templ.guide/) template to use for the contents of the page.
 
-#### Return Value: `head datapages.Component`
+#### Return Value: `head datapages.Head`
 
 Specifies the [Templ](https://templ.guide/) template to use for `<head>` tag of the page.
+Wrap the template in `datapages.Head{Component: ...}`.
+Return values are recognized by their type, their names are up to the application.
 
 #### Return Value: `redirect datapages.Redirect`
 
@@ -831,10 +833,10 @@ optional `ExpiresAt` and `Data`. See
 [datapages.go](datapages.go) and
 [pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#NewSession).
 
-#### Return Value: `closeSession bool`
+#### Return Value: `closeSession datapages.CloseSession`
 
 ```go
-closeSession bool
+closeSession datapages.CloseSession
 ```
 
 Closes the session and removes any session cookie if `true`, otherwise no-op.
@@ -873,12 +875,12 @@ defined, all errors (including the datapages sentinels) are routed through it fi
 `RecoverError` is not defined or fails, the server responds with the appropriate HTTP
 status code using the standard status text.
 
-#### `GET` Return Value: `enableBackgroundStreaming bool`
+#### `GET` Return Value: `enableBackgroundStreaming datapages.EnableBackgroundStreaming`
 
 Can only be used for `GET` methods.
 
 ```go
-enableBackgroundStreaming bool
+enableBackgroundStreaming datapages.EnableBackgroundStreaming
 ```
 
 By default, `OnXXX` event handlers can't deliver updates to background tabs.
@@ -894,12 +896,12 @@ it opens again. See [Event delivery](#event-delivery).
 hidden. If you want to prevent this, you have to explicitly add
 `disableRefreshAfterHidden` to the return values and set it to `false`.
 
-#### `GET` Return Value: `disableRefreshAfterHidden bool`
+#### `GET` Return Value: `disableRefreshAfterHidden datapages.DisableRefreshAfterHidden`
 
 Can only be used for `GET` methods.
 
 ```go
-disableRefreshAfterHidden bool
+disableRefreshAfterHidden datapages.DisableRefreshAfterHidden
 ```
 
 By default, Datapages refreshes the page when it becomes active again after being in the

@@ -1936,45 +1936,22 @@ func buildHandlerGET(
 		Handler: h,
 	}
 
-	// Collect all templ.Component outputs
-	var templComponents []*model.Output
 	for _, out := range outputs {
-		if typecheck.IsComponent(out.Type.Resolved) {
-			templComponents = append(templComponents, out)
+		switch out.Kind {
+		case model.OutputKindBody:
+			if get.OutputBody == nil {
+				get.OutputBody = &model.TemplComponent{Output: out}
+			}
+		case model.OutputKindHead:
+			if get.OutputHead == nil {
+				get.OutputHead = &model.TemplComponent{Output: out}
+			}
 		}
 	}
 
-	// Validate: GET must have at least one templ.Component return (body)
-	if len(templComponents) == 0 {
+	// Validate: GET must return a body datapages.Component
+	if get.OutputBody == nil {
 		return get, ErrSignatureGETMissingBody
-	}
-
-	// Validate: First templ.Component must be named "body"
-	firstComp := templComponents[0]
-	if firstComp.Name != "body" {
-		if firstComp.Expr != nil {
-			return get, &positionedError{
-				pos: fset.Position(firstComp.Expr.Pos()),
-				err: ErrSignatureGETBodyWrongName,
-			}
-		}
-		return get, ErrSignatureGETBodyWrongName
-	}
-	get.OutputBody = &model.TemplComponent{Output: firstComp}
-
-	// Validate: If there's a second templ.Component, it must be named "head"
-	if len(templComponents) > 1 {
-		secondComp := templComponents[1]
-		if secondComp.Name != "head" {
-			if secondComp.Expr != nil {
-				return get, &positionedError{
-					pos: fset.Position(secondComp.Expr.Pos()),
-					err: ErrSignatureGETHeadWrongName,
-				}
-			}
-			return get, ErrSignatureGETHeadWrongName
-		}
-		get.OutputHead = &model.TemplComponent{Output: secondComp}
 	}
 
 	return get, nil
@@ -2152,112 +2129,115 @@ func parseHandler(
 
 	var outputs []*model.Output
 	var multiErrPos token.Pos
+	var seenBody, seenHead bool
 	for _, r := range fd.Type.Results.List {
 		t := makeType(r.Type, info)
 
+		// A result field declares one value per name, or a single unnamed one.
+		// Every output is matched by its type, the name is the app's to pick.
+		exprs := make([]ast.Expr, 0, max(len(r.Names), 1))
+		names := make([]string, 0, max(len(r.Names), 1))
 		if len(r.Names) == 0 {
-			if typecheck.IsError(t.Resolved) {
-				if h.OutputErr != nil {
-					multiErrPos = r.Type.Pos()
-					continue
-				}
-				h.OutputErr = &model.Output{Kind: model.OutputKindErr, Type: t}
-				h.OrderedOutputs = append(h.OrderedOutputs, h.OutputErr)
-				continue
+			exprs, names = append(exprs, nil), append(names, "")
+		} else {
+			for _, n := range r.Names {
+				exprs, names = append(exprs, n), append(names, n.Name)
 			}
-			outputs = append(outputs, &model.Output{Type: t})
-			continue
 		}
 
-		for _, n := range r.Names {
-			out := &model.Output{
-				Expr: n,
-				Name: n.Name,
-				Type: t,
+		for i, name := range names {
+			out := &model.Output{Expr: exprs[i], Name: name, Type: t}
+			pos := r.Type.Pos()
+			if exprs[i] != nil {
+				pos = exprs[i].Pos()
 			}
-			if typecheck.IsError(t.Resolved) {
+			retErr := func(err error) *positionedError {
+				return &positionedError{pos: fset.Position(pos), err: err}
+			}
+
+			dup := func() *positionedError {
+				return retErr(fmt.Errorf("%w %s %s in %s.%s",
+					ErrSignatureDuplicateOutput, name, t.Resolved,
+					recv, fd.Name.Name))
+			}
+
+			switch {
+			case typecheck.IsError(t.Resolved):
 				if h.OutputErr != nil {
-					multiErrPos = n.Pos()
+					multiErrPos = pos
 					continue
 				}
 				out.Kind = model.OutputKindErr
 				h.OutputErr = out
 				h.OrderedOutputs = append(h.OrderedOutputs, out)
 				continue
-			}
-			retErr := func(err error) *positionedError {
-				return &positionedError{pos: fset.Position(r.Type.Pos()), err: err}
-			}
 
-			switch n.Name {
-			case "redirect":
-				if !typecheck.IsRedirectType(r.Type, info) {
-					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
-						ErrRedirectNotRedirectType, recv, fd.Name.Name))
+			case typecheck.IsRedirectType(r.Type, info):
+				if h.OutputRedirect != nil {
+					return h, nil, dup()
 				}
 				out.Kind = model.OutputKindRedirect
 				h.OutputRedirect = out
-				h.OrderedOutputs = append(h.OrderedOutputs, out)
-				continue
-			case "newSession":
-				if !typecheck.IsNewSessionType(r.Type, info) {
-					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
-						ErrNewSessionNotSessionType, recv, fd.Name.Name))
+
+			case typecheck.IsNewSessionType(r.Type, info):
+				if h.OutputNewSession != nil {
+					return h, nil, dup()
 				}
 				out.Kind = model.OutputKindNewSession
 				h.OutputNewSession = out
-				h.OrderedOutputs = append(h.OrderedOutputs, out)
-				continue
-			case "closeSession":
-				if !gotypes.IsBool(t.Resolved) {
-					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
-						ErrCloseSessionNotBool, recv, fd.Name.Name))
+
+			case typecheck.IsCloseSessionType(r.Type, info):
+				if h.OutputCloseSession != nil {
+					return h, nil, dup()
 				}
 				out.Kind = model.OutputKindCloseSession
 				h.OutputCloseSession = out
-				h.OrderedOutputs = append(h.OrderedOutputs, out)
-				continue
-			case "enableBackgroundStreaming":
+
+			case typecheck.IsEnableBgStreamType(r.Type, info):
 				if kind != methodkind.GETHandler {
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrEnableBgStreamNotGET, recv, fd.Name.Name))
 				}
-				if !gotypes.IsBool(t.Resolved) {
-					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
-						ErrEnableBgStreamNotBool, recv, fd.Name.Name))
+				if h.OutputEnableBgStream != nil {
+					return h, nil, dup()
 				}
 				out.Kind = model.OutputKindEnableBgStream
 				h.OutputEnableBgStream = out
-				h.OrderedOutputs = append(h.OrderedOutputs, out)
-				continue
 
-			case "disableRefreshAfterHidden":
+			case typecheck.IsDisableRefreshType(r.Type, info):
 				if kind != methodkind.GETHandler {
 					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
 						ErrDisableRefreshNotGET, recv, fd.Name.Name))
 				}
-				if !gotypes.IsBool(t.Resolved) {
-					return h, nil, retErr(fmt.Errorf("%w in %s.%s",
-						ErrDisableRefreshNotBool, recv, fd.Name.Name))
+				if h.OutputDisableRefresh != nil {
+					return h, nil, dup()
 				}
 				out.Kind = model.OutputKindDisableRefresh
 				h.OutputDisableRefresh = out
-				h.OrderedOutputs = append(h.OrderedOutputs, out)
-				continue
-			default:
-				if !typecheck.IsComponent(t.Resolved) {
-					return h, nil, retErr(fmt.Errorf(
-						"%w %s %s in %s.%s",
-						ErrSignatureUnsupportedOutput, n.Name, t.Resolved,
-						recv, fd.Name.Name,
-					))
+
+			case typecheck.IsHeadType(r.Type, info):
+				if seenHead {
+					return h, nil, dup()
 				}
-				// templ.Component returns are validated later
-				// by buildHandlerGET / action body detection.
-				// Use the user's name as Kind (body/head).
-				out.Kind = n.Name
-				h.OrderedOutputs = append(h.OrderedOutputs, out)
+				seenHead = true
+				out.Kind = model.OutputKindHead
+
+			case typecheck.IsComponent(t.Resolved):
+				if seenBody {
+					return h, nil, dup()
+				}
+				seenBody = true
+				out.Kind = model.OutputKindBody
+
+			default:
+				return h, nil, retErr(fmt.Errorf(
+					"%w %s %s in %s.%s",
+					ErrSignatureUnsupportedOutput, name, t.Resolved,
+					recv, fd.Name.Name,
+				))
 			}
+
+			h.OrderedOutputs = append(h.OrderedOutputs, out)
 			outputs = append(outputs, out)
 		}
 	}
@@ -2278,32 +2258,19 @@ func parseHandler(
 			ErrCloseSessionWithSSE, recv, fd.Name.Name)
 	}
 
-	// For action handlers, detect the templ.Component body and head outputs.
-	// The rule is the one a GET follows: the first component is the body,
-	// a second one is the head, and both are named after what they are.
+	// For action handlers, pick up the body and head the same way a GET does.
 	if kind.IsAction() {
-		var comps []*model.Output
 		for _, out := range outputs {
-			if typecheck.IsComponent(out.Type.Resolved) {
-				comps = append(comps, out)
-			}
-		}
-		if len(comps) > 0 {
-			h.OutputBody = &model.TemplComponent{Output: comps[0]}
-		}
-		if len(comps) > 1 {
-			second := comps[1]
-			if second.Name != "head" {
-				err := fmt.Errorf("%w in %s.%s",
-					ErrSignatureGETHeadWrongName, recv, fd.Name.Name)
-				if second.Expr != nil {
-					return h, outputs, &positionedError{
-						pos: fset.Position(second.Expr.Pos()), err: err,
-					}
+			switch out.Kind {
+			case model.OutputKindBody:
+				if h.OutputBody == nil {
+					h.OutputBody = &model.TemplComponent{Output: out}
 				}
-				return h, outputs, err
+			case model.OutputKindHead:
+				if h.OutputHead == nil {
+					h.OutputHead = &model.TemplComponent{Output: out}
+				}
 			}
-			h.OutputHead = &model.TemplComponent{Output: second}
 		}
 	}
 

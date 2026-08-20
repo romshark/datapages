@@ -15,7 +15,7 @@ type PageLogin struct{ App *App }
 func (PageLogin) GET(r *http.Request, session Session) (
 	body datapages.Component,
 	redirect datapages.Redirect,
-	disableRefreshAfterHidden bool,
+	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
 	err error,
 ) {
 	if !session.IsGuest() {

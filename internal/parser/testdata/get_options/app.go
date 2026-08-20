@@ -26,7 +26,7 @@ func (PageStream) GET(
 	r *http.Request,
 ) (
 	body datapages.Component,
-	enableBackgroundStreaming bool,
+	enableBackgroundStreaming datapages.EnableBackgroundStreaming,
 	err error,
 ) {
 	return body, true, nil
@@ -40,7 +40,7 @@ func (PageNoRefresh) GET(
 	r *http.Request,
 ) (
 	body datapages.Component,
-	disableRefreshAfterHidden bool,
+	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
 	err error,
 ) {
 	return body, true, nil

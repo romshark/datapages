@@ -25,7 +25,7 @@ func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 
 // POSTRender is /render
 func (PageIndex) POSTRender(_ *http.Request) (
-	body, head datapages.Component, err error,
+	body datapages.Component, head datapages.Head, err error,
 ) {
 	return templ.Raw("body"), templ.Raw(`<meta name="from" content="action">`), nil
 }

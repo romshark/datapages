@@ -19,7 +19,7 @@ func (PageIndex) GET(
 	return body, err
 }
 
-/* ErrRedirectNotRedirectType: redirect wrong type */
+/* ErrSignatureUnsupportedOutput: redirect wrong type */
 
 // POSTBadRedirect is /bad-redirect
 //
@@ -30,7 +30,7 @@ func (PageIndex) POSTBadRedirect(
 	return 0, nil
 }
 
-/* ErrRedirectNotRedirectType: redirect as a plain string */
+/* ErrSignatureUnsupportedOutput: redirect as a plain string */
 
 // POSTStringRedirect is /string-redirect
 //

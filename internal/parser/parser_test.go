@@ -155,12 +155,13 @@ func TestParse_Basic(t *testing.T) {
 		require.NotNil(p.GET.Handler)
 		requireExprLineCol(t, app, p.GET.Expr, "app.go", 53, 20)
 		require.NotNil(p.GET.OutputBody)
-		require.Equal("body", p.GET.OutputBody.Name)
+		// Return values are matched by their type, not by their names.
+		require.Equal("view", p.GET.OutputBody.Name)
 		require.Equal(TypeNameComponent,
 			p.GET.OutputBody.Type.Resolved.String())
 		require.NotNil(p.GET.OutputHead)
-		require.Equal("head", p.GET.OutputHead.Name)
-		require.Equal(TypeNameComponent,
+		require.Equal("meta", p.GET.OutputHead.Name)
+		require.Equal("github.com/romshark/datapages.Head",
 			p.GET.OutputHead.Type.Resolved.String())
 	}
 }
@@ -559,8 +560,8 @@ func TestParse_ErrGET(t *testing.T) {
 		parser.ErrSignatureUnsupportedInput, // asd
 		parser.ErrSignatureUnsupportedInput, // asd2
 		parser.ErrSignatureGETMissingBody,
-		parser.ErrSignatureGETBodyWrongName,
-		parser.ErrSignatureGETHeadWrongName,
+		parser.ErrSignatureDuplicateOutput,
+		parser.ErrSignatureDuplicateOutput,
 	)
 }
 
@@ -1121,8 +1122,8 @@ func TestParse_ErrRedirect(t *testing.T) {
 
 	requireParseErrors(
 		t, err,
-		parser.ErrRedirectNotRedirectType,
-		parser.ErrRedirectNotRedirectType,
+		parser.ErrSignatureUnsupportedOutput,
+		parser.ErrSignatureUnsupportedOutput,
 	)
 }
 
@@ -1134,7 +1135,6 @@ func TestParse_ErrUnsupportedOutput(t *testing.T) {
 	requireParseErrors(
 		t, err,
 		parser.ErrSignatureUnsupportedOutput,
-		parser.ErrSignatureGETBodyWrongName,
 		parser.ErrSignatureUnsupportedOutput,
 	)
 }
@@ -1187,8 +1187,8 @@ func TestParse_ErrSessionOutput(t *testing.T) {
 
 	requireParseErrors(
 		t, err,
-		parser.ErrNewSessionNotSessionType,
-		parser.ErrCloseSessionNotBool,
+		parser.ErrSignatureUnsupportedOutput,
+		parser.ErrSignatureUnsupportedOutput,
 		parser.ErrNewSessionWithSSE,
 		parser.ErrCloseSessionWithSSE,
 	)
@@ -1238,8 +1238,8 @@ func TestParse_ErrGETOptions(t *testing.T) {
 		t, err,
 		parser.ErrEnableBgStreamNotGET,
 		parser.ErrDisableRefreshNotGET,
-		parser.ErrEnableBgStreamNotBool,
-		parser.ErrDisableRefreshNotBool,
+		parser.ErrSignatureUnsupportedOutput,
+		parser.ErrSignatureUnsupportedOutput,
 	)
 }
 
@@ -1407,8 +1407,8 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrSignatureUnsupportedInput, "app.go", 65, 19},
 			{parser.ErrSignatureUnsupportedInput, "app.go", 65, 24},
 			{parser.ErrSignatureGETMissingBody, "app.go", 75, 24},
-			{parser.ErrSignatureGETBodyWrongName, "app.go", 84, 48},
-			{parser.ErrSignatureGETHeadWrongName, "app.go", 95, 2},
+			{parser.ErrSignatureDuplicateOutput, "app.go", 86, 2},
+			{parser.ErrSignatureDuplicateOutput, "app.go", 100, 2},
 		},
 		"err_head": {
 			{parser.ErrAppHeadMustTakeRequest, "app.go", 20, 13},
@@ -1486,9 +1486,8 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrQueryReflectSignalNotInSignals, "app.go", 85, 2},
 		},
 		"err_unsupported_output": {
-			{parser.ErrSignatureUnsupportedOutput, "app.go", 27, 35},
-			{parser.ErrSignatureGETBodyWrongName, "app.go", 38, 4},
-			{parser.ErrSignatureUnsupportedOutput, "app.go", 47, 8},
+			{parser.ErrSignatureUnsupportedOutput, "app.go", 27, 30},
+			{parser.ErrSignatureUnsupportedOutput, "app.go", 36, 4},
 		},
 		"err_event_handler": {
 			{parser.ErrSignatureEvHandMissingSSE, "app.go", 58, 18},

@@ -50,6 +50,9 @@ func (PageError500) GET(r *http.Request) (body datapages.Component, err error) {
 // PageExample is /example
 type PageExample struct{ App *App }
 
-func (PageExample) GET(r *http.Request) (body, head datapages.Component, err error) {
-	return body, head, err
+func (PageExample) GET(r *http.Request) (
+	view datapages.Component,
+	meta datapages.Head, err error,
+) {
+	return view, meta, err
 }

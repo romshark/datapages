@@ -23,7 +23,7 @@ func (p PagePost) GET(
 		Slug string `path:"slug"`
 	}],
 ) (
-	body, head datapages.Component,
+	body datapages.Component, head datapages.Head,
 	redirect datapages.Redirect,
 	err error,
 ) {
@@ -36,18 +36,18 @@ func (p PagePost) GET(
 	if err != nil {
 		if errors.Is(err, domain.ErrPostNotFound) {
 			// Redirect to 404 page.
-			return nil, nil, datapages.Redirect{URL: href.PageError404()}, nil
+			return nil, head, datapages.Redirect{URL: href.PageError404()}, nil
 		}
 	}
 
 	similarPosts, err := p.App.repo.SimilarPosts(r.Context(), post.ID, 4)
 	if err != nil {
-		return nil, nil, redirect, err
+		return nil, head, redirect, err
 	}
 
 	baseData, err := p.baseData(r.Context(), session)
 	if err != nil {
-		return nil, nil, redirect, err
+		return nil, head, redirect, err
 	}
 
 	var chatID string
