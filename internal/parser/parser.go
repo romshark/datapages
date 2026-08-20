@@ -609,29 +609,35 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 						continue
 					}
 
-					// Head must accept *http.Request as first param,
-					// optionally followed by session.
-					params := fd.Type.Params
-					if params == nil || params.NumFields() < 1 ||
-						!typecheck.IsPtrToNetHTTPReq(params.List[0].Type, info) {
-						errs.ErrAt(pos, ErrAppHeadMustTakeRequest)
-						continue
-					}
-
+					// Head must take *http.Request and may take a session.
+					// Both are matched by type in any order.
 					gh := &model.GlobalHead{Expr: fd.Name}
 					valid := true
-					for i := 1; i < params.NumFields(); i++ {
-						f := params.List[i]
-						switch {
-						case typecheck.IsSessionType(f.Type, info):
-							gh.InputSession = true
-							noteSessionType(ctx, errs, f.Type, info)
-						default:
-							errs.ErrAt(pos, ErrAppHeadUnsupportedInput)
-							valid = false
+					nReq, nSess := 0, 0
+					if fd.Type.Params != nil {
+						for _, f := range expandFieldList(fd.Type.Params.List) {
+							switch {
+							case typecheck.IsPtrToNetHTTPReq(f.Type, info):
+								nReq++
+								gh.OrderedInputs = append(
+									gh.OrderedInputs, model.InputKindRequest)
+							case typecheck.IsSessionType(f.Type, info):
+								nSess++
+								gh.InputSession = true
+								noteSessionType(ctx, errs, f.Type, info)
+								gh.OrderedInputs = append(
+									gh.OrderedInputs, model.InputKindSession)
+							default:
+								errs.ErrAt(pos, ErrAppHeadUnsupportedInput)
+								valid = false
+							}
 						}
 					}
 					if !valid {
+						continue
+					}
+					if nReq != 1 || nSess > 1 {
+						errs.ErrAt(pos, ErrAppHeadMustTakeRequest)
 						continue
 					}
 

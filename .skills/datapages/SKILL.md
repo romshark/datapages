@@ -647,6 +647,8 @@ func (*App) Head(
 }
 ```
 
+Both parameters are matched by their type, the names and order are free.
+
 ## Step 13: Add Error Recovery (Optional)
 
 When a handler returns an error during a Datastar SSE request, a plain HTTP error is invisible to the user - there is no visible feedback, only a console log that normal users never see. `RecoverError` lets you handle this gracefully by patching in an error UI (e.g. a toast notification) over SSE instead. All action handler errors (including the datapages sentinels) are routed through `RecoverError` when defined. Use `errors.Is(err, datapages.ErrBadRequest)` etc. inside `RecoverError` to distinguish error types.

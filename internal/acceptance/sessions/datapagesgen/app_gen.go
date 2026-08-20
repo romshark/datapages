@@ -950,7 +950,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
 		return
 	}
-	genericHead := s.app.Head(r, sess)
+	genericHead := s.app.Head(sess, r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
@@ -1086,7 +1086,7 @@ func (s *Server) handlePageLogGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageLog.GET", err)
 		return
 	}
-	genericHead := s.app.Head(r, sess)
+	genericHead := s.app.Head(sess, r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
@@ -1114,7 +1114,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
 		return
 	}
-	genericHead := s.app.Head(r, sess)
+	genericHead := s.app.Head(sess, r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
@@ -1272,7 +1272,7 @@ func (s *Server) handlePageSecretGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageSecret.GET", err)
 		return
 	}
-	genericHead := s.app.Head(r, sess)
+	genericHead := s.app.Head(sess, r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)
@@ -1300,7 +1300,7 @@ func (s *Server) handlePageTokenGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageToken.GET", err)
 		return
 	}
-	genericHead := s.app.Head(r, sess)
+	genericHead := s.app.Head(sess, r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		writeBodyAttrOnVisibilityChange(w)

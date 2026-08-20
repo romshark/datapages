@@ -28,9 +28,13 @@ type App struct {
 	Actions []*Handler // App-level POST/PUT/PATCH/DELETE actions.
 }
 
+// GlobalHead is the app-wide (*App).Head hook. Its parameters are matched by
+// type in any order, so OrderedInputs records the order it declares them in.
 type GlobalHead struct {
 	Expr         ast.Expr
 	InputSession bool
+	// OrderedInputs lists InputKind constants in declaration order.
+	OrderedInputs []string
 }
 
 // RecoverError is the (*App).RecoverError hook. Its parameters are matched by

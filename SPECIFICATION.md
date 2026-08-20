@@ -18,6 +18,9 @@ func (*App) Head(
 }
 ```
 
+Both parameters are recognized by their type, so their names and order
+are up to the application.
+
 The `RecoverError` method allows you to recover from handler errors to improve UX by
 giving better feedback over SSE. All action handler errors (including the datapages sentinels)
 are routed through `RecoverError` when it is defined and the request is

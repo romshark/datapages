@@ -43,7 +43,7 @@ var (
 	)
 
 	ErrAppHeadMustTakeRequest = errors.New(
-		"head must accept *http.Request as first parameter",
+		"head must accept exactly one *http.Request parameter",
 	)
 	ErrAppHeadMustReturnHead = errors.New(
 		"head must return exactly datapages.Head",

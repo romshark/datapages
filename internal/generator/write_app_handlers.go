@@ -462,15 +462,21 @@ func (w *Writer) writeSessionOutputs(h *model.Handler) {
 // writeGenericHeadCall emits: genericHead := s.app.Head(r[, sess])
 // hasSess indicates whether a "sess" variable is in scope.
 func (w *Writer) writeGenericHeadCall(gh *model.GlobalHead, hasSess bool) {
-	w.Raw("\tgenericHead := s.app.Head(r")
-	if gh.InputSession {
-		if hasSess {
-			w.Raw(", sess")
-		} else {
+	w.Raw("\tgenericHead := s.app.Head(")
+	for i, kind := range gh.OrderedInputs {
+		if i > 0 {
 			w.Raw(", ")
-			w.Raw(w.sessionType)
-			w.Raw("{}")
 		}
+		if kind == model.InputKindRequest {
+			w.Raw("r")
+			continue
+		}
+		if hasSess {
+			w.Raw("sess")
+			continue
+		}
+		w.Raw(w.sessionType)
+		w.Raw("{}")
 	}
 	w.Raw(")\n")
 }
