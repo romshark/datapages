@@ -461,7 +461,7 @@ func (s *Server) httpErrIntern(
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
 		committed = true
 	}
-	errRecover := s.app.RecoverError(err, newSSE(sse))
+	errRecover := s.app.RecoverError(newSSE(sse), err)
 	if errRecover == nil {
 		return // Feedback delivered gracefully.
 	}

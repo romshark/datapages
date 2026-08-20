@@ -26,9 +26,10 @@ func (*App) Head(r *http.Request) datapages.Head {
 	return nil
 }
 
+// The parameters are matched by type, so their order and names are free.
 func (*App) RecoverError(
-	err error,
 	sse datapages.SSE,
+	cause error,
 ) error {
 	return nil
 }

@@ -639,17 +639,37 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 				case "RecoverError":
 					info := ctx.pkg.TypesInfo
 					pos := ctx.pkg.Fset.Position(fd.Name.Pos())
-					params := fd.Type.Params
 					results := fd.Type.Results
-					if params == nil || params.NumFields() != 2 ||
-						!typecheck.IsError(info.TypeOf(params.List[0].Type)) ||
-						!typecheck.IsSSEParam(params.List[1].Type, info) ||
-						results == nil || results.NumFields() != 1 ||
+					if results == nil || results.NumFields() != 1 ||
 						!typecheck.IsError(info.TypeOf(results.List[0].Type)) {
 						errs.ErrAt(pos, ErrAppRecoverErrorInvalidSignature)
 						continue
 					}
-					ctx.app.RecoverError = fd.Name
+					// The error and the SSE are matched by type in any order.
+					var ordered []string
+					nErr, nSSE := 0, 0
+					if fd.Type.Params != nil {
+						for _, f := range expandFieldList(fd.Type.Params.List) {
+							switch {
+							case typecheck.IsError(info.TypeOf(f.Type)):
+								nErr++
+								ordered = append(ordered, model.InputKindErr)
+							case typecheck.IsSSEParam(f.Type, info):
+								nSSE++
+								ordered = append(ordered, model.InputKindSSE)
+							default:
+								ordered = append(ordered, "")
+							}
+						}
+					}
+					if nErr != 1 || nSSE != 1 || len(ordered) != 2 {
+						errs.ErrAt(pos, ErrAppRecoverErrorInvalidSignature)
+						continue
+					}
+					ctx.app.RecoverError = &model.RecoverError{
+						Expr:          fd.Name,
+						OrderedInputs: ordered,
+					}
 				default:
 					kind, suffix := methodkind.Classify(fd.Name.Name)
 					if kind.IsAction() {

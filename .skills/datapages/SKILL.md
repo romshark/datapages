@@ -660,6 +660,8 @@ func (*App) RecoverError(
 }
 ```
 
+Both parameters are matched by their type, the names and order are free.
+
 ## Step 14: Configure the Server Entry Point
 
 `datapages gen` generates `cmd/server/main.go` on the first run. After that, you own this file - it is not regenerated or overwritten. Edit it to configure dependencies, middleware, and server options.

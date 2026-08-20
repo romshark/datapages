@@ -33,6 +33,9 @@ func (*App) RecoverError(
 }
 ```
 
+Both parameters are recognized by their type, so their names and order
+are up to the application.
+
 ### Pages
 
 Individual pages are defined with `type PageXXX struct { App *App }` and

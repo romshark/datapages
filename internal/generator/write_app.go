@@ -1951,7 +1951,18 @@ func (s *Server) httpErrIntern(
 	}
 	errRecover := s.`)
 		w.Raw(appPkg)
-		w.Raw(`.RecoverError(err, newSSE(sse))
+		w.Raw(`.RecoverError(`)
+		for i, kind := range m.RecoverError.OrderedInputs {
+			if i > 0 {
+				w.Raw(", ")
+			}
+			if kind == model.InputKindSSE {
+				w.Raw("newSSE(sse)")
+			} else {
+				w.Raw("err")
+			}
+		}
+		w.Raw(`)
 	if errRecover == nil {
 `)
 		if w.prometheus {

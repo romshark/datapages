@@ -75,7 +75,12 @@ func TestParse_Basic(t *testing.T) {
 	}
 	{
 		require.NotNil(app.RecoverError)
-		requireExprLineCol(t, app, app.RecoverError, "app.go", 29, 13)
+		requireExprLineCol(t, app, app.RecoverError.Expr, "app.go", 30, 13)
+		// The parameters are matched by type, not by name or position.
+		require.Equal(
+			[]string{model.InputKindSSE, model.InputKindErr},
+			app.RecoverError.OrderedInputs,
+		)
 	}
 	{
 		p := app.Pages[3]
@@ -101,7 +106,7 @@ func TestParse_Basic(t *testing.T) {
 	}
 	{
 		require.NotNil(app.PageError404)
-		requireExprLineCol(t, app, app.PageError404.Expr, "app.go", 37, 6)
+		requireExprLineCol(t, app, app.PageError404.Expr, "app.go", 38, 6)
 		require.Equal("/the-not-found-page", app.PageError404.Route)
 		require.NotNil(app.PageError404.GET.Handler)
 		require.Equal("r", app.PageError404.GET.InputRequest.Name)
@@ -112,7 +117,7 @@ func TestParse_Basic(t *testing.T) {
 		{
 			get := app.PageError404.GET
 			require.NotNil(get.Handler)
-			requireExprLineCol(t, app, get.Expr, "app.go", 39, 21)
+			requireExprLineCol(t, app, get.Expr, "app.go", 40, 21)
 			require.NotNil(get.InputRequest)
 			require.Equal("r", get.InputRequest.Name)
 			require.Equal("err", get.OutputErr.Name)
@@ -123,7 +128,7 @@ func TestParse_Basic(t *testing.T) {
 	}
 	{
 		require.NotNil(app.PageError500)
-		requireExprLineCol(t, app, app.PageError500.Expr, "app.go", 44, 6)
+		requireExprLineCol(t, app, app.PageError500.Expr, "app.go", 45, 6)
 		require.Equal("/the-internal-error-page", app.PageError500.Route)
 		require.Empty(app.PageError500.EventHandlers)
 		require.Empty(app.PageError500.Embeds)
@@ -132,7 +137,7 @@ func TestParse_Basic(t *testing.T) {
 		{
 			get := app.PageError500.GET
 			require.NotNil(get.Handler)
-			requireExprLineCol(t, app, get.Expr, "app.go", 46, 21)
+			requireExprLineCol(t, app, get.Expr, "app.go", 47, 21)
 			require.NotNil(get.InputRequest)
 			require.Equal("r", get.InputRequest.Name)
 			require.Equal("err", get.OutputErr.Name)
@@ -146,14 +151,14 @@ func TestParse_Basic(t *testing.T) {
 		require.NotNil(p)
 		require.Equal("PageExample", p.TypeName)
 		require.Equal("/example", p.Route)
-		requireExprLineCol(t, app, p.Expr, "app.go", 51, 6)
+		requireExprLineCol(t, app, p.Expr, "app.go", 52, 6)
 		require.Empty(p.EventHandlers)
 		require.Empty(p.Embeds)
 		require.Empty(p.Actions)
 		require.Zero(p.PageSpecialization)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.Handler)
-		requireExprLineCol(t, app, p.GET.Expr, "app.go", 53, 20)
+		requireExprLineCol(t, app, p.GET.Expr, "app.go", 54, 20)
 		require.NotNil(p.GET.OutputBody)
 		// Return values are matched by their type, not by their names.
 		require.Equal("view", p.GET.OutputBody.Name)

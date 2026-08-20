@@ -18,8 +18,8 @@ type App struct {
 	PageError404 *Page
 	PageError500 *Page
 
-	RecoverError        ast.Expr    // Nullable.
-	GlobalHeadGenerator *GlobalHead // Nullable.
+	RecoverError        *RecoverError // Nullable.
+	GlobalHeadGenerator *GlobalHead   // Nullable.
 
 	Session *SessionType // Nullable.
 
@@ -31,6 +31,14 @@ type App struct {
 type GlobalHead struct {
 	Expr         ast.Expr
 	InputSession bool
+}
+
+// RecoverError is the (*App).RecoverError hook. Its parameters are matched by
+// type in any order, so OrderedInputs records the order it declares them in.
+type RecoverError struct {
+	Expr ast.Expr
+	// OrderedInputs lists InputKind constants in declaration order.
+	OrderedInputs []string
 }
 
 // SessionType is the datapages.Session[Data] instantiation the application uses.
@@ -147,6 +155,7 @@ const (
 	InputKindSignals  = "signals"
 	InputKindDispatch = "dispatch"
 	InputKindEvent    = "event"
+	InputKindErr      = "err"
 )
 
 // OutputKind constants identify handler output return value kinds.
