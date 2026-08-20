@@ -8,13 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -25,7 +23,9 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
+	"github.com/romshark/datapages/runtime/htmlattr"
 	"github.com/romshark/datapages/runtime/httpread"
+	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"golang.org/x/sync/errgroup"
 
@@ -109,15 +109,6 @@ func WithAssets(fsys embed.FS) ServerOption {
 		}
 		return nil
 	}
-}
-
-func devNoCache(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store, max-age=0")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-		next.ServeHTTP(w, r)
-	})
 }
 
 // brokerMetrics implements msgbroker.Metrics as a no-op.
@@ -245,12 +236,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func isDSReq(r *http.Request) bool {
-	return r.Header.Get("Datastar-Request") == "true"
-}
-
 func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
-	if !isDSReq(r) {
+	if !httpserve.IsDatastarRequest(r) {
 		s.logger.Debug("not a datastar request",
 			slog.Any("method", r.Method),
 			slog.String("path", r.URL.Path))
@@ -258,62 +245,6 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 		return false
 	}
 	return true
-}
-
-func httpRedirect(
-	w http.ResponseWriter, r *http.Request, redirect datapages.Redirect,
-) (exit bool) {
-	if redirect.URL == "" {
-		return false
-	}
-
-	if isDSReq(r) {
-		// Force client-side navigation via JS for Datastar requests.
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = fmt.Fprintf(w, "window.location = %q;", redirect.URL)
-		return true
-	}
-
-	status := redirect.Status
-	switch status {
-	case http.StatusMovedPermanently,
-		http.StatusFound,
-		http.StatusSeeOther,
-		http.StatusTemporaryRedirect,
-		http.StatusPermanentRedirect:
-		// OK
-	default:
-		status = http.StatusFound
-	}
-
-	http.Redirect(w, r, redirect.URL, status)
-	return true
-}
-
-var signalStringEscaper = strings.NewReplacer(
-	"\\", `\\`,
-	"'", `\'`,
-	"\n", `\n`,
-	"\r", `\r`,
-)
-
-// writeSignalString writes s as a quoted string inside a data-signals attribute.
-// The browser decodes the attribute before Datastar evaluates it.
-// s is escaped for the JavaScript string first and for the attribute second.
-func writeSignalString(w http.ResponseWriter, s string) {
-	_, _ = io.WriteString(w, html.EscapeString(signalStringEscaper.Replace(s)))
-}
-
-// writeSignalValue writes a number or boolean inside a data-signals attribute.
-func writeSignalValue(w http.ResponseWriter, s string) {
-	_, _ = io.WriteString(w, html.EscapeString(s))
-}
-
-// writeStreamPathValue writes v into the @get URL of a data-init attribute.
-// Percent encoding removes the quotes that would end the JavaScript string,
-// HTML escaping removes the ampersand that url.PathEscape keeps.
-func writeStreamPathValue(w http.ResponseWriter, v string) {
-	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
 }
 
 func (s *Server) writeHTML(
@@ -517,7 +448,7 @@ func NewServer(
 	if s.assetsFS != nil {
 		h := http.StripPrefix(assets.URLPrefix, http.FileServer(s.assetsFS))
 		if IsDevMode() {
-			h = devNoCache(h)
+			h = httpserve.DevNoCache(h)
 		}
 		s.mux.Handle("GET "+assets.URLPrefix, h)
 	}
@@ -611,13 +542,13 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, redirect := p.GET(r)
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 	if err := s.writeHTML(
 		w, r, genericHead, nil, body, bodyAttrs, nil,
@@ -677,13 +608,13 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	body, redirect := p.GET(r)
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -720,18 +651,18 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 
 		_, _ = io.WriteString(w, `data-signals:search="'`)
-		writeSignalString(w, query.Values.Search)
+		htmlattr.WriteSignalString(w, query.Values.Search)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:filter="'`)
-		writeSignalString(w, query.Values.Filter)
+		htmlattr.WriteSignalString(w, query.Values.Filter)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:sort="'`)
-		writeSignalString(w, query.Values.Sort)
+		htmlattr.WriteSignalString(w, query.Values.Sort)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
@@ -877,20 +808,20 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageItem.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
 
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/item/`)
-		writeStreamPathValue(w, path.Values.ID)
+		htmlattr.WritePathValue(w, path.Values.ID)
 		_, _ = io.WriteString(w, `/`)
 		_, _ = io.WriteString(w, `/_$/')"`)
 	}
@@ -979,7 +910,7 @@ func (s *Server) handlePageItemDELETEItem(
 		s.httpErrIntern(w, r, nil, "handling action PageItem.Item", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 }

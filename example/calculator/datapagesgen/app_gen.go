@@ -24,6 +24,7 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
 	"github.com/romshark/datapages/runtime/httpread"
+	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"golang.org/x/sync/errgroup"
 
@@ -107,15 +108,6 @@ func WithAssets(fsys embed.FS) ServerOption {
 		}
 		return nil
 	}
-}
-
-func devNoCache(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store, max-age=0")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-		next.ServeHTTP(w, r)
-	})
 }
 
 // brokerMetrics implements msgbroker.Metrics as a no-op.
@@ -243,12 +235,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func isDSReq(r *http.Request) bool {
-	return r.Header.Get("Datastar-Request") == "true"
-}
-
 func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
-	if !isDSReq(r) {
+	if !httpserve.IsDatastarRequest(r) {
 		s.logger.Debug("not a datastar request",
 			slog.Any("method", r.Method),
 			slog.String("path", r.URL.Path))
@@ -463,7 +451,7 @@ func NewServer(
 	if s.assetsFS != nil {
 		h := http.StripPrefix(assets.URLPrefix, http.FileServer(s.assetsFS))
 		if IsDevMode() {
-			h = devNoCache(h)
+			h = httpserve.DevNoCache(h)
 		}
 		s.mux.Handle("GET "+assets.URLPrefix, h)
 	}
@@ -549,7 +537,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		if !disableRefreshAfterHidden {
-			writeBodyAttrOnVisibilityChange(w)
+			httpserve.WriteReloadOnVisibility(w)
 		}
 	}
 

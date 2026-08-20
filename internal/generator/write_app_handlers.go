@@ -370,7 +370,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 
 	// Redirect.
 	if h.OutputRedirect != nil {
-		w.Raw("\tif httpRedirect(w, r, ")
+		w.Raw("\tif httpserve.Redirect(w, r, ")
 		w.Raw(outputVar(h.OutputRedirect))
 		w.Raw(") {\n")
 		w.Line(2, "return")
@@ -520,16 +520,16 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 		w.Raw("\t\tif !")
 		w.Raw(outputVar(h.OutputDisableRefresh))
 		w.Raw(" {\n")
-		w.Line(3, "writeBodyAttrOnVisibilityChange(w)")
+		w.Line(3, "httpserve.WriteReloadOnVisibility(w)")
 		w.Line(2, "}")
 	} else if hasEnableBgStream {
 		w.Raw("\t\tif !")
 		w.Raw(outputVar(h.OutputEnableBgStream))
 		w.Raw(" {\n")
-		w.Line(3, "writeBodyAttrOnVisibilityChange(w)")
+		w.Line(3, "httpserve.WriteReloadOnVisibility(w)")
 		w.Line(2, "}")
 	} else {
-		w.Line(2, "writeBodyAttrOnVisibilityChange(w)")
+		w.Line(2, "httpserve.WriteReloadOnVisibility(w)")
 	}
 
 	// Reflect signal attrs.
@@ -540,7 +540,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"'`)\n")
-			w.Raw("\t\twriteSignalString(w, " + varQuery + ".")
+			w.Raw("\t\thtmlattr.WriteSignalString(w, " + varQuery + ".")
 			w.Raw(f.FieldName)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
@@ -549,7 +549,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"`)\n")
-			w.Raw("\t\twriteSignalValue(w, ")
+			w.Raw("\t\thtmlattr.WriteSignalValue(w, ")
 			w.writeFieldToString(varQuery, fi)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `\"`)")
@@ -773,7 +773,7 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 		w.Raw("`)\n")
 		if i < len(vars) {
 			f := tagToField[vars[i]]
-			w.Raw("\t\twriteStreamPathValue(w, ")
+			w.Raw("\t\thtmlattr.WritePathValue(w, ")
 			w.writeFieldToString(varPath, f)
 			w.Raw(")\n")
 		}
@@ -1422,7 +1422,7 @@ func (w *Writer) writeActionMethodCall(
 
 	// Redirect.
 	if h.OutputRedirect != nil {
-		w.Raw("\tif httpRedirect(w, r, ")
+		w.Raw("\tif httpserve.Redirect(w, r, ")
 		w.Raw(outputVar(h.OutputRedirect))
 		w.Raw(") {\n")
 		w.Line(2, "return")

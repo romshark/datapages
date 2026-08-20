@@ -428,9 +428,9 @@ func TestSSEOutputSignals(t *testing.T) {
 				`data: signals {"count":3}`,
 			},
 		},
-		// The response head is out before the handler patches, so the error
-		// cannot carry a status. What it must not do is panic and drop the
-		// connection, which is what the Datastar helper does.
+		// The response head is out before the handler patches, which leaves
+		// the error no status to carry. The request must end without a panic
+		// that drops the connection.
 		"unmarshalable value": {
 			path:       "/form/signals-bad/",
 			wantStatus: http.StatusOK,

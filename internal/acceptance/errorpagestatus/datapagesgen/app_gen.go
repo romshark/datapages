@@ -20,6 +20,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
+	"github.com/romshark/datapages/runtime/httpserve"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/internal/acceptance/errorpagestatus/app"
@@ -400,7 +401,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 	if err := s.writeHTML(
 		w, r, nil, body, bodyAttrs, nil,
@@ -421,7 +422,7 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -448,7 +449,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(

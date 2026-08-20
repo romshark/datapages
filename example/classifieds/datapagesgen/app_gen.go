@@ -3,19 +3,16 @@
 package datapagesgen
 
 import (
-	"bufio"
 	"context"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -29,7 +26,9 @@ import (
 	"github.com/romshark/datapages/modules/msgbroker"
 	"github.com/romshark/datapages/modules/sessmanager"
 	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/runtime/htmlattr"
 	"github.com/romshark/datapages/runtime/httpread"
+	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"golang.org/x/sync/errgroup"
 
@@ -39,6 +38,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/romshark/datapages/runtime/prom"
 	"github.com/starfederation/datastar-go/datastar"
 )
 
@@ -117,15 +117,6 @@ func WithAssets(fsys embed.FS) ServerOption {
 	}
 }
 
-func devNoCache(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store, max-age=0")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-		next.ServeHTTP(w, r)
-	})
-}
-
 // WithPrometheus starts a dedicated HTTP server exposing /metrics.
 // Example host address: "127.0.0.1:9091" or ":9091".
 func WithPrometheus(conf PrometheusConfig) ServerOption {
@@ -143,9 +134,7 @@ func WithPrometheus(conf PrometheusConfig) ServerOption {
 		}
 
 		// Register built-in metrics on the configured registerer exactly once.
-		registerPrometheusMetricsOnce.Do(func() {
-			registerMetricsWith(conf.Registerer)
-		})
+		prom.Register(conf.Registerer)
 
 		// Register user-defined collectors.
 		for _, c := range conf.Collectors {
@@ -178,228 +167,15 @@ type PrometheusConfig struct {
 	Collectors []prometheus.Collector // User-defined metrics to register
 }
 
-var registerPrometheusMetricsOnce sync.Once
-
-// --- Prometheus Metrics ---
-
-// Datapages metrics
-var (
-	mHTTPRequestsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Subsystem: "http",
-			Name:      "requests_total",
-			Help:      "Total HTTP requests",
-		},
-		[]string{"method", "path", "status"},
-	)
-	mHTTPRequestDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Namespace: "datapages",
-			Subsystem: "http",
-			Name:      "request_duration_seconds",
-			Help:      "HTTP request latency",
-			Buckets:   prometheus.DefBuckets,
-		},
-		[]string{"method", "path"},
-	)
-	mInternalErrorsRecovered = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Name:      "internal_errors_recovered_total",
-			Help:      "Internal errors recovered without HTTP failure",
-		},
-	)
-	mInternalErrorsNotRecovered = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Name:      "internal_errors_not_recovered_total",
-			Help: "Internal errors that could not be recovered and " +
-				"resulted in an HTTP error response",
-		},
-	)
-	mInFlightRequests = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "datapages",
-			Subsystem: "http",
-			Name:      "in_flight_requests",
-			Help:      "Current in-flight HTTP requests",
-		},
-	)
-
-	mSSEConnections = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "datapages",
-			Subsystem: "http",
-			Name:      "sse_connections",
-			Help:      "Active SSE connections",
-		},
-	)
-
-	// By-kind (low-cardinality) publish counters.
-	// Useful because subjects include user IDs (high-cardinality),
-	// so we collapse to event kinds.
-	mBrokerEventPublishes = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Subsystem: "event_broker",
-			Name:      "publishes_by_kind_total",
-			Help:      "Published events by kind (low-cardinality)",
-		},
-		[]string{"kind"},
-	)
-
-	// Dropped broker deliveries (slow consumers).
-	mBrokerDeliveriesDropped = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Subsystem: "event_broker",
-			Name:      "deliveries_dropped_total",
-			Help:      "Dropped broker deliveries due to slow consumers",
-		},
-	)
-
-	// SSE connection lifetime + disconnect reasons.
-	mSSEConnectionDuration = prometheus.NewHistogram(
-		prometheus.HistogramOpts{
-			Namespace: "datapages",
-			Subsystem: "sse",
-			Name:      "connection_duration_seconds",
-			Help:      "SSE connection lifetime in seconds",
-			Buckets:   prometheus.DefBuckets,
-		},
-	)
-
-	mSSEDisconnects = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Subsystem: "sse",
-			Name:      "disconnects_total",
-			Help:      "SSE disconnects by reason",
-		},
-		[]string{"reason"}, // "ttl" | "client" | "shutdown"
-	)
-
-	mSessionCreations = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Subsystem: "session",
-			Name:      "creations_total",
-			Help:      "Session creations",
-		},
-		[]string{"result"}, // "success" | "error"
-	)
-	mSessionClosures = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Subsystem: "session",
-			Name:      "closures_total",
-			Help:      "Session closures",
-		},
-		[]string{"result"}, // "success" | "error"
-	)
-	mSessionReads = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Subsystem: "session",
-			Name:      "reads_total",
-			Help:      "Session reads from cookie",
-		},
-		[]string{"result"}, // "valid" | "none" | "stale" | "expired" | "error"
-	)
-)
-
-// registerMetricsWith registers the built-in datapages metrics on r.
-func registerMetricsWith(r prometheus.Registerer) {
-	r.MustRegister(
-		mHTTPRequestsTotal,
-		mHTTPRequestDuration,
-		mInFlightRequests,
-		mInternalErrorsRecovered,
-		mInternalErrorsNotRecovered,
-		mSSEConnections,
-		mSSEConnectionDuration,
-		mSSEDisconnects,
-		mBrokerEventPublishes,
-		mBrokerDeliveriesDropped,
-		mSessionCreations,
-		mSessionClosures,
-		mSessionReads,
-	)
-}
-
 // brokerMetrics implements msgbroker.Metrics using the built-in Prometheus counters.
 type brokerMetrics struct{}
 
 func (m brokerMetrics) OnPublish(subject string) {
-	mBrokerEventPublishes.WithLabelValues(brokerSubjectKind(subject)).Inc()
+	prom.BrokerPublish(brokerSubjectKind(subject))
 }
 
 func (m brokerMetrics) OnDeliveryDropped() {
-	mBrokerDeliveriesDropped.Inc()
-}
-
-type statusRW struct {
-	http.ResponseWriter
-	status int
-}
-
-func (w *statusRW) WriteHeader(code int) {
-	w.status = code
-	w.ResponseWriter.WriteHeader(code)
-}
-
-func (w *statusRW) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-func (w *statusRW) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	h, ok := w.ResponseWriter.(http.Hijacker)
-	if !ok {
-		return nil, nil, errors.New(
-			"underlying ResponseWriter does not implement http.Hijacker",
-		)
-	}
-	return h.Hijack()
-}
-
-func (w *statusRW) Push(target string, opts *http.PushOptions) error {
-	p, ok := w.ResponseWriter.(http.Pusher)
-	if !ok {
-		return http.ErrNotSupported
-	}
-	return p.Push(target, opts)
-}
-
-// routeLabel returns a low-cardinality label for the route.
-// Prefer r.Pattern (Go 1.22 ServeMux patterns) and fall back to the raw path.
-func routeLabel(r *http.Request) string {
-	if p := r.Pattern; p != "" {
-		return p
-	}
-	return r.URL.Path
-}
-
-// metricsMiddleware must be the very first middleware in the chain (outermost),
-// so it measures everything, including other middleware work.
-func (s *Server) metricsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		mInFlightRequests.Inc()
-		defer mInFlightRequests.Dec()
-
-		rw := &statusRW{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(rw, r)
-
-		path := routeLabel(r)
-		mHTTPRequestsTotal.WithLabelValues(r.Method, path, strconv.Itoa(rw.status)).Inc()
-
-		reqDur := time.Since(start).Seconds()
-		mHTTPRequestDuration.WithLabelValues(r.Method, path).Observe(reqDur)
-	})
+	prom.BrokerDeliveryDropped()
 }
 
 func (s *Server) listenAndServe(
@@ -544,12 +320,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func isDSReq(r *http.Request) bool {
-	return r.Header.Get("Datastar-Request") == "true"
-}
-
 func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
-	if !isDSReq(r) {
+	if !httpserve.IsDatastarRequest(r) {
 		s.logger.Debug("not a datastar request",
 			slog.Any("method", r.Method),
 			slog.String("path", r.URL.Path))
@@ -557,62 +329,6 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 		return false
 	}
 	return true
-}
-
-func httpRedirect(
-	w http.ResponseWriter, r *http.Request, redirect datapages.Redirect,
-) (exit bool) {
-	if redirect.URL == "" {
-		return false
-	}
-
-	if isDSReq(r) {
-		// Force client-side navigation via JS for Datastar requests.
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = fmt.Fprintf(w, "window.location = %q;", redirect.URL)
-		return true
-	}
-
-	status := redirect.Status
-	switch status {
-	case http.StatusMovedPermanently,
-		http.StatusFound,
-		http.StatusSeeOther,
-		http.StatusTemporaryRedirect,
-		http.StatusPermanentRedirect:
-		// OK
-	default:
-		status = http.StatusFound
-	}
-
-	http.Redirect(w, r, redirect.URL, status)
-	return true
-}
-
-var signalStringEscaper = strings.NewReplacer(
-	"\\", `\\`,
-	"'", `\'`,
-	"\n", `\n`,
-	"\r", `\r`,
-)
-
-// writeSignalString writes s as a quoted string inside a data-signals attribute.
-// The browser decodes the attribute before Datastar evaluates it.
-// s is escaped for the JavaScript string first and for the attribute second.
-func writeSignalString(w http.ResponseWriter, s string) {
-	_, _ = io.WriteString(w, html.EscapeString(signalStringEscaper.Replace(s)))
-}
-
-// writeSignalValue writes a number or boolean inside a data-signals attribute.
-func writeSignalValue(w http.ResponseWriter, s string) {
-	_, _ = io.WriteString(w, html.EscapeString(s))
-}
-
-// writeStreamPathValue writes v into the @get URL of a data-init attribute.
-// Percent encoding removes the quotes that would end the JavaScript string,
-// HTML escaping removes the ampersand that url.PathEscape keeps.
-func writeStreamPathValue(w http.ResponseWriter, v string) {
-	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
 }
 
 func isSubjectToken(v string) bool {
@@ -781,8 +497,8 @@ func (s *Server) handleStreamRequest(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	mSSEConnections.Inc()
-	defer mSSEConnections.Dec()
+	prom.SSEConnectionOpened()
+	defer prom.SSEConnectionClosed()
 	start := time.Now()
 
 	subC := sub.C()
@@ -809,13 +525,13 @@ func (s *Server) handleStreamRequest(
 	go func() {
 		select {
 		case <-sessionClosed:
-			mSSEDisconnects.WithLabelValues("close").Inc()
+			prom.SSEDisconnect("close")
 		case <-r.Context().Done():
-			mSSEDisconnects.WithLabelValues("client").Inc()
+			prom.SSEDisconnect("client")
 		case <-s.shutdownCh:
-			mSSEDisconnects.WithLabelValues("shutdown").Inc()
+			prom.SSEDisconnect("shutdown")
 		}
-		mSSEConnectionDuration.Observe(time.Since(start).Seconds())
+		prom.SSEConnectionDuration(start)
 		sub.Close()
 		if onClose != nil {
 			onClose(streamID)
@@ -954,14 +670,14 @@ func NewServer(
 		panic("CSRFConfig.TokenManager is nil")
 	}
 	if s.metricsServer != nil {
-		s.middleware = append(s.middleware, s.metricsMiddleware)
+		s.middleware = append(s.middleware, prom.Middleware)
 	}
 
 	setupHandlers(s)
 	if s.assetsFS != nil {
 		h := http.StripPrefix(assets.URLPrefix, http.FileServer(s.assetsFS))
 		if IsDevMode() {
-			h = devNoCache(h)
+			h = httpserve.DevNoCache(h)
 		}
 		s.mux.Handle("GET "+assets.URLPrefix, h)
 	}
@@ -1172,10 +888,10 @@ func (s *Server) createSession(
 		Data:      session.Data,
 	})
 	if err != nil {
-		mSessionCreations.WithLabelValues("error").Inc()
+		prom.SessionCreated("error")
 		return err
 	}
-	mSessionCreations.WithLabelValues("success").Inc()
+	prom.SessionCreated("success")
 	s.setSessionCookie(w, token)
 	return nil
 }
@@ -1185,10 +901,10 @@ func (s *Server) closeSession(
 	token string,
 ) error {
 	if err := s.sessionManager.CloseSession(r.Context(), token); err != nil {
-		mSessionClosures.WithLabelValues("error").Inc()
+		prom.SessionClosed("error")
 		return err
 	}
-	mSessionClosures.WithLabelValues("success").Inc()
+	prom.SessionClosed("success")
 	s.setSessionCookie(w, "")
 	return nil
 }
@@ -1200,20 +916,20 @@ func (s *Server) auth(
 ) (sess datapages.Session[struct{}], token string, ok bool) {
 	cookieVal, found := httpread.CookieValue(r, s.authConf.TokenCookie.Name)
 	if !found {
-		mSessionReads.WithLabelValues("none").Inc()
+		prom.SessionRead("none")
 		return sess, "", true
 	}
 
 	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(cookieVal)
 	if err != nil {
 		// Transient backend failure; keep the cookie, fail the request.
-		mSessionReads.WithLabelValues("error").Inc()
+		prom.SessionRead("error")
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 		return datapages.Session[struct{}]{}, "", false
 	}
 	if !ok {
 		// Cookie is stale or malformed; clear it and continue as unauthenticated.
-		mSessionReads.WithLabelValues("stale").Inc()
+		prom.SessionRead("stale")
 		s.setSessionCookie(w, "")
 		return datapages.Session[struct{}]{}, "", true
 	}
@@ -1223,11 +939,11 @@ func (s *Server) auth(
 
 	if !sess.ExpiresAt().IsZero() && !time.Now().Before(sess.ExpiresAt()) {
 		// Session has expired; clear the cookie and continue as unauthenticated.
-		mSessionReads.WithLabelValues("expired").Inc()
+		prom.SessionRead("expired")
 		s.setSessionCookie(w, "")
 		return datapages.Session[struct{}]{}, "", true
 	}
-	mSessionReads.WithLabelValues("valid").Inc()
+	prom.SessionRead("valid")
 
 	if !s.checkCSRF(w, r, sess) {
 		return sess, token, false
@@ -1380,7 +1096,7 @@ func (s *Server) httpErrIntern(
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.logErr(msg, err)
-	if !isDSReq(r) {
+	if !httpserve.IsDatastarRequest(r) {
 		// A page load gets the app's own 500 page, with the status that
 		// says what happened. The page's own route serves 200;
 		// this is the other way in.
@@ -1397,11 +1113,11 @@ func (s *Server) httpErrIntern(
 	}
 	errRecover := s.app.RecoverError(err, dpsse.New(sse))
 	if errRecover == nil {
-		mInternalErrorsRecovered.Inc()
+		prom.InternalErrorRecovered()
 		return // Feedback delivered gracefully.
 	}
 	// RecoverError failed — fall back to HTTP error response.
-	mInternalErrorsNotRecovered.Inc()
+	prom.InternalErrorNotRecovered()
 	s.logger.Error("recovering error",
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
@@ -1450,7 +1166,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 	if err := s.writeHTML(
 		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, nil,
@@ -1476,7 +1192,7 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 }
@@ -1514,7 +1230,7 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
@@ -1602,7 +1318,7 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		if !disableRefreshAfterHidden {
-			writeBodyAttrOnVisibilityChange(w)
+			httpserve.WriteReloadOnVisibility(w)
 		}
 	}
 
@@ -1639,7 +1355,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
@@ -1728,14 +1444,14 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		if !disableRefreshAfterHidden {
-			writeBodyAttrOnVisibilityChange(w)
+			httpserve.WriteReloadOnVisibility(w)
 		}
 	}
 
@@ -1780,7 +1496,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 			return
 		}
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -1814,18 +1530,18 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageMessages.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		if !enableBackgroundStreaming {
-			writeBodyAttrOnVisibilityChange(w)
+			httpserve.WriteReloadOnVisibility(w)
 		}
 
 		_, _ = io.WriteString(w, `data-signals:chatselected="'`)
-		writeSignalString(w, query.Values.Chat)
+		htmlattr.WriteSignalString(w, query.Values.Chat)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
@@ -2089,13 +1805,13 @@ func (s *Server) handlePageMyPostsGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageMyPosts.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
@@ -2192,20 +1908,20 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PagePost.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
 
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/post/`)
-		writeStreamPathValue(w, path.Values.Slug)
+		htmlattr.WritePathValue(w, path.Values.Slug)
 		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
 			_, _ = io.WriteString(w, `/_$/')"`)
@@ -2423,26 +2139,26 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 
 		_, _ = io.WriteString(w, `data-signals:term="'`)
-		writeSignalString(w, query.Values.Term)
+		htmlattr.WriteSignalString(w, query.Values.Term)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:category="'`)
-		writeSignalString(w, query.Values.Category)
+		htmlattr.WriteSignalString(w, query.Values.Category)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:pmin="`)
-		writeSignalValue(w, strconv.FormatInt(query.Values.PriceMin, 10))
+		htmlattr.WriteSignalValue(w, strconv.FormatInt(query.Values.PriceMin, 10))
 		_, _ = io.WriteString(w, `"`)
 
 		_, _ = io.WriteString(w, `data-signals:pmax="`)
-		writeSignalValue(w, strconv.FormatInt(query.Values.PriceMax, 10))
+		htmlattr.WriteSignalValue(w, strconv.FormatInt(query.Values.PriceMax, 10))
 		_, _ = io.WriteString(w, `"`)
 
 		_, _ = io.WriteString(w, `data-signals:location="'`)
-		writeSignalString(w, query.Values.Location)
+		htmlattr.WriteSignalString(w, query.Values.Location)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
@@ -2575,13 +2291,13 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageSettings.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
@@ -2696,7 +2412,7 @@ func (s *Server) handlePageSettingsPOSTSave(
 		s.httpErrIntern(w, r, sse, "handling action PageSettings.Save", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 }
@@ -2732,7 +2448,7 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 			return
 		}
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 }
@@ -2757,7 +2473,7 @@ func (s *Server) handlePageSettingsPOSTCloseAllSessions(
 		s.httpErrIntern(w, r, nil, "handling action PageSettings.CloseAllSessions", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 }
@@ -2784,20 +2500,20 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageUser.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
 
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/user/`)
-		writeStreamPathValue(w, path.Values.Name)
+		htmlattr.WritePathValue(w, path.Values.Name)
 		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
 			_, _ = io.WriteString(w, `/_$/')"`)

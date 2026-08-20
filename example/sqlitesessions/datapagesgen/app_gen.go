@@ -25,6 +25,7 @@ import (
 	"github.com/romshark/datapages/modules/sessmanager"
 	"github.com/romshark/datapages/modules/sesstokgen"
 	"github.com/romshark/datapages/runtime/httpread"
+	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"golang.org/x/sync/errgroup"
 
@@ -224,48 +225,14 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func isDSReq(r *http.Request) bool {
-	return r.Header.Get("Datastar-Request") == "true"
-}
-
 func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
-	if !isDSReq(r) {
+	if !httpserve.IsDatastarRequest(r) {
 		s.logger.Debug("not a datastar request",
 			slog.Any("method", r.Method),
 			slog.String("path", r.URL.Path))
 		http.Error(w, http.StatusText(http.StatusNotAcceptable), http.StatusNotAcceptable)
 		return false
 	}
-	return true
-}
-
-func httpRedirect(
-	w http.ResponseWriter, r *http.Request, redirect datapages.Redirect,
-) (exit bool) {
-	if redirect.URL == "" {
-		return false
-	}
-
-	if isDSReq(r) {
-		// Force client-side navigation via JS for Datastar requests.
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = fmt.Fprintf(w, "window.location = %q;", redirect.URL)
-		return true
-	}
-
-	status := redirect.Status
-	switch status {
-	case http.StatusMovedPermanently,
-		http.StatusFound,
-		http.StatusSeeOther,
-		http.StatusTemporaryRedirect,
-		http.StatusPermanentRedirect:
-		// OK
-	default:
-		status = http.StatusFound
-	}
-
-	http.Redirect(w, r, redirect.URL, status)
 	return true
 }
 
@@ -845,7 +812,7 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 }
@@ -872,7 +839,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
@@ -948,13 +915,13 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -1034,7 +1001,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 			return
 		}
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -1060,13 +1027,13 @@ func (s *Server) handlePageRegisterGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageRegister.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -1148,7 +1115,7 @@ func (s *Server) handlePageRegisterPOSTSubmit(
 			return
 		}
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 	genericHead := s.app.Head(r)

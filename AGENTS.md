@@ -72,8 +72,9 @@ The non-internal packages besides the root are:
 - `modules/` - pluggable modules (csrf, msgbroker, sessmanager, sesstokgen),
   imported by application code.
 - `runtime/` - packages generated code imports: `sse` (the datapages.SSE
-  implementation), `httpread` (cookie and query readers), `hrefcheck`
-  (href validation).
+  implementation), `httpread` (cookie and query readers), `httpserve` (HTTP
+  glue), `htmlattr` (attribute escapers), `prom` (Prometheus instrumentation),
+  `hrefcheck` (href validation).
 
 These cannot be moved into `internal/`: generated code lives in the user's own
 module, which may not import `github.com/romshark/datapages/internal/...`. Note the
@@ -92,6 +93,11 @@ can be tested against the standard library directly:
 
 - `runtime/sse` implements `datapages.SSE` on the Datastar generator, which
   keeps datastar out of handler signatures.
+- `runtime/httpserve` holds the redirect, the Datastar request check and the
+  dev-mode cache headers.
+- `runtime/htmlattr` escapes values written into Datastar attributes. Its tests
+  fuzz the output for anything that could end the attribute or the script.
+- `runtime/prom` holds the metrics, their registration and the middleware.
 - `runtime/httpread` reads cookies and query parameters the way `net/http` and
   `net/url` read them, without their allocations. Its tests fuzz it against them.
 - `runtime/hrefcheck` is imported by generated `href` packages.

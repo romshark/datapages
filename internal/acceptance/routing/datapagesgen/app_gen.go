@@ -7,7 +7,6 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"log/slog"
 	"net"
@@ -22,7 +21,9 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
+	"github.com/romshark/datapages/runtime/htmlattr"
 	"github.com/romshark/datapages/runtime/httpread"
+	"github.com/romshark/datapages/runtime/httpserve"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/internal/acceptance/routing/app"
@@ -215,25 +216,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
-}
-
-var signalStringEscaper = strings.NewReplacer(
-	"\\", `\\`,
-	"'", `\'`,
-	"\n", `\n`,
-	"\r", `\r`,
-)
-
-// writeSignalString writes s as a quoted string inside a data-signals attribute.
-// The browser decodes the attribute before Datastar evaluates it.
-// s is escaped for the JavaScript string first and for the attribute second.
-func writeSignalString(w http.ResponseWriter, s string) {
-	_, _ = io.WriteString(w, html.EscapeString(signalStringEscaper.Replace(s)))
-}
-
-// writeSignalValue writes a number or boolean inside a data-signals attribute.
-func writeSignalValue(w http.ResponseWriter, s string) {
-	_, _ = io.WriteString(w, html.EscapeString(s))
 }
 
 func (s *Server) writeHTML(
@@ -469,7 +451,7 @@ func (s *Server) handlePageConflictGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -497,7 +479,7 @@ func (s *Server) handlePageFilesGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -524,7 +506,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -620,7 +602,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -674,7 +656,7 @@ func (s *Server) handlePageMixedGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -742,7 +724,7 @@ func (s *Server) handlePagePathGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -836,7 +818,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -875,14 +857,14 @@ func (s *Server) handlePageReflectGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 
 		_, _ = io.WriteString(w, `data-signals:term="'`)
-		writeSignalString(w, query.Values.Term)
+		htmlattr.WriteSignalString(w, query.Values.Term)
 		_, _ = io.WriteString(w, `'"`)
 
 		_, _ = io.WriteString(w, `data-signals:page="`)
-		writeSignalValue(w, strconv.FormatInt(int64(query.Values.Page), 10))
+		htmlattr.WriteSignalValue(w, strconv.FormatInt(int64(query.Values.Page), 10))
 		_, _ = io.WriteString(w, `"`)
 	}
 
@@ -919,7 +901,7 @@ func (s *Server) handlePageTitledGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(

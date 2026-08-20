@@ -1,5 +1,7 @@
-// Package sse implements [datapages.SSE] on top of the Datastar generator.
-// It exists for generated code to call, not for application code.
+// Package sse implements datapages.SSE on the Datastar generator.
+// It keeps datastar out of handler signatures.
+//
+// Application code must not import this package.
 package sse
 
 import (
@@ -14,6 +16,7 @@ import (
 )
 
 // New wraps a Datastar generator as a [datapages.SSE].
+// Every call of the result writes one event on gen.
 func New(g *datastar.ServerSentEventGenerator) datapages.SSE {
 	return wrapper{g: g}
 }

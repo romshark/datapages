@@ -8,12 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -24,7 +22,9 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
+	"github.com/romshark/datapages/runtime/htmlattr"
 	"github.com/romshark/datapages/runtime/httpread"
+	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"golang.org/x/sync/errgroup"
 
@@ -220,12 +220,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func isDSReq(r *http.Request) bool {
-	return r.Header.Get("Datastar-Request") == "true"
-}
-
 func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
-	if !isDSReq(r) {
+	if !httpserve.IsDatastarRequest(r) {
 		s.logger.Debug("not a datastar request",
 			slog.Any("method", r.Method),
 			slog.String("path", r.URL.Path))
@@ -233,13 +229,6 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 		return false
 	}
 	return true
-}
-
-// writeStreamPathValue writes v into the @get URL of a data-init attribute.
-// Percent encoding removes the quotes that would end the JavaScript string,
-// HTML escaping removes the ampersand that url.PathEscape keeps.
-func writeStreamPathValue(w http.ResponseWriter, v string) {
-	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
 }
 
 func (s *Server) writeHTML(
@@ -514,7 +503,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -542,14 +531,14 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
 
 		_, _ = io.WriteString(w, `data-init="@get('`)
 		_, _ = io.WriteString(w, `/item/`)
-		writeStreamPathValue(w, path.Values.Name)
+		htmlattr.WritePathValue(w, path.Values.Name)
 		_, _ = io.WriteString(w, `/`)
 		_, _ = io.WriteString(w, `/_$/')"`)
 	}
@@ -650,7 +639,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(

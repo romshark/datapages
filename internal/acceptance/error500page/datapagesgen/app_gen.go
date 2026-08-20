@@ -20,6 +20,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
+	"github.com/romshark/datapages/runtime/httpserve"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/internal/acceptance/error500page/app"
@@ -209,10 +210,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func isDSReq(r *http.Request) bool {
-	return r.Header.Get("Datastar-Request") == "true"
-}
-
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -395,7 +392,7 @@ func (s *Server) httpErrIntern(
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.logErr(msg, err)
-	if !isDSReq(r) {
+	if !httpserve.IsDatastarRequest(r) {
 		// A page load gets the app's own 500 page, with the status that
 		// says what happened. The page's own route serves 200;
 		// this is the other way in.
@@ -418,7 +415,7 @@ func (s *Server) handlePageBoomGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -440,7 +437,7 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -467,7 +464,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(

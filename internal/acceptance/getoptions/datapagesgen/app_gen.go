@@ -22,6 +22,7 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
 	"github.com/romshark/datapages/runtime/httpread"
+	"github.com/romshark/datapages/runtime/httpserve"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/internal/acceptance/getoptions/app"
@@ -214,40 +215,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
-}
-
-func isDSReq(r *http.Request) bool {
-	return r.Header.Get("Datastar-Request") == "true"
-}
-
-func httpRedirect(
-	w http.ResponseWriter, r *http.Request, redirect datapages.Redirect,
-) (exit bool) {
-	if redirect.URL == "" {
-		return false
-	}
-
-	if isDSReq(r) {
-		// Force client-side navigation via JS for Datastar requests.
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = fmt.Fprintf(w, "window.location = %q;", redirect.URL)
-		return true
-	}
-
-	status := redirect.Status
-	switch status {
-	case http.StatusMovedPermanently,
-		http.StatusFound,
-		http.StatusSeeOther,
-		http.StatusTemporaryRedirect,
-		http.StatusPermanentRedirect:
-		// OK
-	default:
-		status = http.StatusFound
-	}
-
-	http.Redirect(w, r, redirect.URL, status)
-	return true
 }
 
 func (s *Server) writeHTML(
@@ -446,7 +413,7 @@ func (s *Server) handlePageBackgroundGET(w http.ResponseWriter, r *http.Request)
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		if !enableBackgroundStreaming {
-			writeBodyAttrOnVisibilityChange(w)
+			httpserve.WriteReloadOnVisibility(w)
 		}
 	}
 
@@ -467,12 +434,12 @@ func (s *Server) handlePageGoneGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageGone.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -499,7 +466,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -534,12 +501,12 @@ func (s *Server) handlePageMaybeGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageMaybe.GET", err)
 		return
 	}
-	if httpRedirect(w, r, redirect) {
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	if err := s.writeHTML(
@@ -562,7 +529,7 @@ func (s *Server) handlePageNoRefreshGET(w http.ResponseWriter, r *http.Request) 
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		if !disableRefreshAfterHidden {
-			writeBodyAttrOnVisibilityChange(w)
+			httpserve.WriteReloadOnVisibility(w)
 		}
 	}
 

@@ -10,7 +10,7 @@ import (
 	"github.com/romshark/datapages/runtime/httpread"
 )
 
-// cookieOracle is what net/http answers for the same header.
+// cookieOracle is what net/http returns for the same header.
 func cookieOracle(t *testing.T, header, name string) (string, bool) {
 	t.Helper()
 	r := &http.Request{Header: http.Header{"Cookie": []string{header}}}
@@ -32,6 +32,8 @@ func TestCookieValue(t *testing.T) {
 		"space before name":  " " + name + "=abc",
 		"space after name":   name + " =abc",
 		"tab around pair":    "\t" + name + "=abc\t",
+		"trailing cr":        name + "=abc\r",
+		"trailing lf":        name + "=abc\n",
 		"invalid value byte": name + `=a"b`,
 		"invalid then valid": name + `=a"b; ` + name + "=abc",
 		"another cookie":     "theme=dark",

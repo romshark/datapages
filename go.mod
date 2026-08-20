@@ -8,6 +8,7 @@ require (
 	github.com/fatih/color v1.19.0
 	github.com/mattn/go-isatty v0.0.24
 	github.com/nats-io/nats.go v1.53.1
+	github.com/prometheus/client_golang v1.24.1
 	github.com/romshark/templier v0.12.1
 	github.com/romshark/yamagiconf v1.1.1
 	github.com/spf13/cobra v1.10.2
@@ -28,6 +29,7 @@ require (
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymanbagabas/go-udiff v0.4.0 // indirect
+	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
 	github.com/catppuccin/go v0.3.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -87,11 +89,15 @@ require (
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
+	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nats-io/nkeys v0.4.16 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/power-devops/perfstat v0.0.0-20260805114148-88456608a4f6 // indirect
+	github.com/prometheus/client_model v0.6.2 // indirect
+	github.com/prometheus/common v0.70.1 // indirect
+	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.7 // indirect
 	github.com/sirupsen/logrus v1.10.1 // indirect
@@ -113,4 +119,5 @@ require (
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )

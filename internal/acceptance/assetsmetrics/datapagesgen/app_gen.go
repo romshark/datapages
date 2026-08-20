@@ -3,7 +3,6 @@
 package datapagesgen
 
 import (
-	"bufio"
 	"context"
 	"embed"
 	"encoding/json"
@@ -16,7 +15,6 @@ import (
 	"net/http"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,6 +22,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
+	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"golang.org/x/sync/errgroup"
 
@@ -33,6 +32,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/romshark/datapages/runtime/prom"
 	"github.com/starfederation/datastar-go/datastar"
 )
 
@@ -111,15 +111,6 @@ func WithAssets(fsys embed.FS) ServerOption {
 	}
 }
 
-func devNoCache(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store, max-age=0")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-		next.ServeHTTP(w, r)
-	})
-}
-
 // WithPrometheus starts a dedicated HTTP server exposing /metrics.
 // Example host address: "127.0.0.1:9091" or ":9091".
 func WithPrometheus(conf PrometheusConfig) ServerOption {
@@ -137,9 +128,7 @@ func WithPrometheus(conf PrometheusConfig) ServerOption {
 		}
 
 		// Register built-in metrics on the configured registerer exactly once.
-		registerPrometheusMetricsOnce.Do(func() {
-			registerMetricsWith(conf.Registerer)
-		})
+		prom.Register(conf.Registerer)
 
 		// Register user-defined collectors.
 		for _, c := range conf.Collectors {
@@ -172,228 +161,15 @@ type PrometheusConfig struct {
 	Collectors []prometheus.Collector // User-defined metrics to register
 }
 
-var registerPrometheusMetricsOnce sync.Once
-
-// --- Prometheus Metrics ---
-
-// Datapages metrics
-var (
-	mHTTPRequestsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Subsystem: "http",
-			Name:      "requests_total",
-			Help:      "Total HTTP requests",
-		},
-		[]string{"method", "path", "status"},
-	)
-	mHTTPRequestDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Namespace: "datapages",
-			Subsystem: "http",
-			Name:      "request_duration_seconds",
-			Help:      "HTTP request latency",
-			Buckets:   prometheus.DefBuckets,
-		},
-		[]string{"method", "path"},
-	)
-	mInternalErrorsRecovered = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Name:      "internal_errors_recovered_total",
-			Help:      "Internal errors recovered without HTTP failure",
-		},
-	)
-	mInternalErrorsNotRecovered = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Name:      "internal_errors_not_recovered_total",
-			Help: "Internal errors that could not be recovered and " +
-				"resulted in an HTTP error response",
-		},
-	)
-	mInFlightRequests = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "datapages",
-			Subsystem: "http",
-			Name:      "in_flight_requests",
-			Help:      "Current in-flight HTTP requests",
-		},
-	)
-
-	mSSEConnections = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "datapages",
-			Subsystem: "http",
-			Name:      "sse_connections",
-			Help:      "Active SSE connections",
-		},
-	)
-
-	// By-kind (low-cardinality) publish counters.
-	// Useful because subjects include user IDs (high-cardinality),
-	// so we collapse to event kinds.
-	mBrokerEventPublishes = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Subsystem: "event_broker",
-			Name:      "publishes_by_kind_total",
-			Help:      "Published events by kind (low-cardinality)",
-		},
-		[]string{"kind"},
-	)
-
-	// Dropped broker deliveries (slow consumers).
-	mBrokerDeliveriesDropped = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Subsystem: "event_broker",
-			Name:      "deliveries_dropped_total",
-			Help:      "Dropped broker deliveries due to slow consumers",
-		},
-	)
-
-	// SSE connection lifetime + disconnect reasons.
-	mSSEConnectionDuration = prometheus.NewHistogram(
-		prometheus.HistogramOpts{
-			Namespace: "datapages",
-			Subsystem: "sse",
-			Name:      "connection_duration_seconds",
-			Help:      "SSE connection lifetime in seconds",
-			Buckets:   prometheus.DefBuckets,
-		},
-	)
-
-	mSSEDisconnects = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Subsystem: "sse",
-			Name:      "disconnects_total",
-			Help:      "SSE disconnects by reason",
-		},
-		[]string{"reason"}, // "ttl" | "client" | "shutdown"
-	)
-
-	mSessionCreations = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Subsystem: "session",
-			Name:      "creations_total",
-			Help:      "Session creations",
-		},
-		[]string{"result"}, // "success" | "error"
-	)
-	mSessionClosures = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Subsystem: "session",
-			Name:      "closures_total",
-			Help:      "Session closures",
-		},
-		[]string{"result"}, // "success" | "error"
-	)
-	mSessionReads = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: "datapages",
-			Subsystem: "session",
-			Name:      "reads_total",
-			Help:      "Session reads from cookie",
-		},
-		[]string{"result"}, // "valid" | "none" | "stale" | "expired" | "error"
-	)
-)
-
-// registerMetricsWith registers the built-in datapages metrics on r.
-func registerMetricsWith(r prometheus.Registerer) {
-	r.MustRegister(
-		mHTTPRequestsTotal,
-		mHTTPRequestDuration,
-		mInFlightRequests,
-		mInternalErrorsRecovered,
-		mInternalErrorsNotRecovered,
-		mSSEConnections,
-		mSSEConnectionDuration,
-		mSSEDisconnects,
-		mBrokerEventPublishes,
-		mBrokerDeliveriesDropped,
-		mSessionCreations,
-		mSessionClosures,
-		mSessionReads,
-	)
-}
-
 // brokerMetrics implements msgbroker.Metrics using the built-in Prometheus counters.
 type brokerMetrics struct{}
 
 func (m brokerMetrics) OnPublish(subject string) {
-	mBrokerEventPublishes.WithLabelValues(brokerSubjectKind(subject)).Inc()
+	prom.BrokerPublish(brokerSubjectKind(subject))
 }
 
 func (m brokerMetrics) OnDeliveryDropped() {
-	mBrokerDeliveriesDropped.Inc()
-}
-
-type statusRW struct {
-	http.ResponseWriter
-	status int
-}
-
-func (w *statusRW) WriteHeader(code int) {
-	w.status = code
-	w.ResponseWriter.WriteHeader(code)
-}
-
-func (w *statusRW) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-func (w *statusRW) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	h, ok := w.ResponseWriter.(http.Hijacker)
-	if !ok {
-		return nil, nil, errors.New(
-			"underlying ResponseWriter does not implement http.Hijacker",
-		)
-	}
-	return h.Hijack()
-}
-
-func (w *statusRW) Push(target string, opts *http.PushOptions) error {
-	p, ok := w.ResponseWriter.(http.Pusher)
-	if !ok {
-		return http.ErrNotSupported
-	}
-	return p.Push(target, opts)
-}
-
-// routeLabel returns a low-cardinality label for the route.
-// Prefer r.Pattern (Go 1.22 ServeMux patterns) and fall back to the raw path.
-func routeLabel(r *http.Request) string {
-	if p := r.Pattern; p != "" {
-		return p
-	}
-	return r.URL.Path
-}
-
-// metricsMiddleware must be the very first middleware in the chain (outermost),
-// so it measures everything, including other middleware work.
-func (s *Server) metricsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		mInFlightRequests.Inc()
-		defer mInFlightRequests.Dec()
-
-		rw := &statusRW{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(rw, r)
-
-		path := routeLabel(r)
-		mHTTPRequestsTotal.WithLabelValues(r.Method, path, strconv.Itoa(rw.status)).Inc()
-
-		reqDur := time.Since(start).Seconds()
-		mHTTPRequestDuration.WithLabelValues(r.Method, path).Observe(reqDur)
-	})
+	prom.BrokerDeliveryDropped()
 }
 
 func (s *Server) listenAndServe(
@@ -534,12 +310,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func isDSReq(r *http.Request) bool {
-	return r.Header.Get("Datastar-Request") == "true"
-}
-
 func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
-	if !isDSReq(r) {
+	if !httpserve.IsDatastarRequest(r) {
 		s.logger.Debug("not a datastar request",
 			slog.Any("method", r.Method),
 			slog.String("path", r.URL.Path))
@@ -625,8 +397,8 @@ func (s *Server) handleStreamRequest(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	mSSEConnections.Inc()
-	defer mSSEConnections.Dec()
+	prom.SSEConnectionOpened()
+	defer prom.SSEConnectionClosed()
 	start := time.Now()
 
 	subC := sub.C()
@@ -640,11 +412,11 @@ func (s *Server) handleStreamRequest(
 	go func() {
 		select {
 		case <-r.Context().Done():
-			mSSEDisconnects.WithLabelValues("client").Inc()
+			prom.SSEDisconnect("client")
 		case <-s.shutdownCh:
-			mSSEDisconnects.WithLabelValues("shutdown").Inc()
+			prom.SSEDisconnect("shutdown")
 		}
-		mSSEConnectionDuration.Observe(time.Since(start).Seconds())
+		prom.SSEConnectionDuration(start)
 		sub.Close()
 		if onClose != nil {
 			onClose(streamID)
@@ -755,14 +527,14 @@ func NewServer(
 		}
 	}
 	if s.metricsServer != nil {
-		s.middleware = append(s.middleware, s.metricsMiddleware)
+		s.middleware = append(s.middleware, prom.Middleware)
 	}
 
 	setupHandlers(s)
 	if s.assetsFS != nil {
 		h := http.StripPrefix(assets.URLPrefix, http.FileServer(s.assetsFS))
 		if IsDevMode() {
-			h = devNoCache(h)
+			h = httpserve.DevNoCache(h)
 		}
 		s.mux.Handle("GET "+assets.URLPrefix, h)
 	}
@@ -854,7 +626,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		writeBodyAttrOnVisibilityChange(w)
+		httpserve.WriteReloadOnVisibility(w)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {

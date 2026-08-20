@@ -14,7 +14,6 @@ import (
 	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/routepattern"
-	"github.com/romshark/datapages/internal/structtag"
 	"github.com/romshark/datapages/internal/subject"
 )
 
@@ -308,7 +307,7 @@ type appUsage struct {
 	streamAuth bool
 	// dsRequest: func (s *Server) checkIsDSReq(...)
 	dsRequest bool
-	// recoverError: isDSReq is called in httpErrIntern by an app that has
+	// recoverError: httpErrIntern asks httpserve.IsDatastarRequest for an app that has
 	// PageError500, RecoverError, or both. The two features are independent
 	// and either one makes the helper's answer decide what the response is.
 	recoverError bool
@@ -320,12 +319,6 @@ type appUsage struct {
 	// datapagesSSE: whether any handler takes a datapages.SSE param
 	// (needs the datapages import and the generated sseWrapper).
 	datapagesSSE bool
-	// reflectSignals: func writeSignalValue(...), needed by any page that
-	// reflects a query value into a data-signals attribute.
-	reflectSignals bool
-	// streamPathVars: func writeStreamPathValue(...), needed by any page that
-	// writes a path value into the stream URL of its data-init attribute.
-	streamPathVars bool
 	// signalSubjects: func isSubjectToken(...), needed by any page that builds
 	// a subscription subject from a client-provided signal.
 	signalSubjects bool
@@ -344,11 +337,6 @@ type appUsage struct {
 func (u appUsage) needsIsSubjectToken() bool {
 	return u.signalSubjects || u.dispatchSubjects || u.privateStreams ||
 		(u.userSubjects && u.createSession)
-}
-
-// needsIsDSReq returns true if the isDSReq helper must be emitted.
-func (u appUsage) needsIsDSReq() bool {
-	return u.stream || u.dsRequest || u.httpRedirect || u.recoverError
 }
 
 // needsCheckIsDSReq returns true if the checkIsDSReq method must be emitted.
@@ -454,9 +442,6 @@ func computeAppUsage(m *model.App) appUsage {
 		if h.InputPath != nil && structHasNonStringField(h.InputPath.Type.Resolved) {
 			u.httpErrBad = true
 		}
-		if h.InputQuery != nil && structHasReflectSignal(h.InputQuery.Type.Resolved) {
-			u.reflectSignals = true
-		}
 	}
 
 	// Build event map for subject field lookup.
@@ -487,9 +472,6 @@ func computeAppUsage(m *model.App) appUsage {
 			u.stream = true
 			// Event handlers and stream hooks receive a datapages.SSE.
 			u.datapagesSSE = true
-			if p.GET != nil && p.GET.Handler != nil && p.GET.InputPath != nil {
-				u.streamPathVars = true
-			}
 			if pageStreamNeedsAuth(p, eventByName) {
 				u.streamAuth = true
 				u.auth = true
@@ -746,20 +728,6 @@ func structHasNonStringField(t types.Type) bool {
 	}
 	for field := range st.Fields() {
 		if !gotypes.IsString(field.Type()) {
-			return true
-		}
-	}
-	return false
-}
-
-// structHasReflectSignal reports whether any field carries a reflectsignal tag.
-func structHasReflectSignal(t types.Type) bool {
-	st, ok := t.Underlying().(*types.Struct)
-	if !ok {
-		return false
-	}
-	for i := range st.NumFields() {
-		if structtag.ReflectSignalTagValue(st.Tag(i)) != "" {
 			return true
 		}
 	}

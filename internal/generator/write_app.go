@@ -51,20 +51,8 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 `)
 	}
 	w.writeShutdown()
-	if w.usage.needsIsDSReq() {
-		w.writeIsDSReq()
-	}
 	if w.usage.needsCheckIsDSReq() {
 		w.writeCheckIsDSReq()
-	}
-	if w.usage.httpRedirect {
-		w.writeHTTPRedirect()
-	}
-	if w.usage.reflectSignals {
-		w.writeSignalValueHelper()
-	}
-	if w.usage.streamPathVars {
-		w.writeStreamPathValueHelper()
 	}
 	if w.usage.needsIsSubjectToken() {
 		w.writeIsSubjectToken()
@@ -182,6 +170,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"github.com/romshark/datapages/modules/sessmanager"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/sesstokgen"`)
 	w.Line(1, `"github.com/romshark/datapages/runtime/httpread"`)
+	w.Line(1, `"github.com/romshark/datapages/runtime/htmlattr"`)
 	w.Line(1, `dpsse "github.com/romshark/datapages/runtime/sse"`)
 	w.Line(1, `"golang.org/x/sync/errgroup"`)
 	w.Line(0, "")
@@ -208,6 +197,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(0, "")
 	if w.prometheus {
 		w.Line(1, `"github.com/prometheus/client_golang/prometheus"`)
+		w.Line(1, `"github.com/romshark/datapages/runtime/prom"`)
 		w.Line(1, `"github.com/prometheus/client_golang/prometheus/promhttp"`)
 	}
 	w.Line(1, `"github.com/starfederation/datastar-go/datastar"`)
@@ -239,15 +229,6 @@ func WithAssets(fsys embed.FS) ServerOption {
 		}
 		return nil
 	}
-}
-
-func devNoCache(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store, max-age=0")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-		next.ServeHTTP(w, r)
-	})
 }
 `)
 	} else {
@@ -548,18 +529,10 @@ func (s *Server) writeHTML(
 `)
 }
 
-func (w *Writer) writeIsDSReq() {
-	w.Raw(`
-func isDSReq(r *http.Request) bool {
-	return r.Header.Get("Datastar-Request") == "true"
-}
-`)
-}
-
 func (w *Writer) writeCheckIsDSReq() {
 	w.Raw(`
 func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
-	if !isDSReq(r) {
+	if !httpserve.IsDatastarRequest(r) {
 		s.logger.Debug("not a datastar request",
 			slog.Any("method", r.Method),
 			slog.String("path", r.URL.Path))
@@ -591,40 +564,6 @@ func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool
 		http.StatusText(http.StatusInternalServerError),
 		http.StatusInternalServerError)
 	return false
-}
-`)
-}
-
-func (w *Writer) writeHTTPRedirect() {
-	w.Raw(`
-func httpRedirect(
-	w http.ResponseWriter, r *http.Request, redirect datapages.Redirect,
-) (exit bool) {
-	if redirect.URL == "" {
-		return false
-	}
-
-	if isDSReq(r) {
-		// Force client-side navigation via JS for Datastar requests.
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = fmt.Fprintf(w, "window.location = %q;", redirect.URL)
-		return true
-	}
-
-	status := redirect.Status
-	switch status {
-	case http.StatusMovedPermanently,
-		http.StatusFound,
-		http.StatusSeeOther,
-		http.StatusTemporaryRedirect,
-		http.StatusPermanentRedirect:
-		// OK
-	default:
-		status = http.StatusFound
-	}
-
-	http.Redirect(w, r, redirect.URL, status)
-	return true
 }
 `)
 }
@@ -671,8 +610,8 @@ func (s *Server) handleStreamRequest(
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 `)
 	if w.prometheus {
-		w.Raw(`	mSSEConnections.Inc()
-	defer mSSEConnections.Dec()
+		w.Raw(`	prom.SSEConnectionOpened()
+	defer prom.SSEConnectionClosed()
 	start := time.Now()
 `)
 	}
@@ -709,26 +648,26 @@ func (s *Server) handleStreamRequest(
 		w.Raw(`		case <-sessionClosed:
 `)
 		if w.prometheus {
-			w.Raw(`			mSSEDisconnects.WithLabelValues("close").Inc()
+			w.Raw(`			prom.SSEDisconnect("close")
 `)
 		}
 	}
 	w.Raw(`		case <-r.Context().Done():
 `)
 	if w.prometheus {
-		w.Raw(`			mSSEDisconnects.WithLabelValues("client").Inc()
+		w.Raw(`			prom.SSEDisconnect("client")
 `)
 	}
 	w.Raw(`		case <-s.shutdownCh:
 `)
 	if w.prometheus {
-		w.Raw(`			mSSEDisconnects.WithLabelValues("shutdown").Inc()
+		w.Raw(`			prom.SSEDisconnect("shutdown")
 `)
 	}
 	w.Raw(`		}
 `)
 	if w.prometheus {
-		w.Raw(`		mSSEConnectionDuration.Observe(time.Since(start).Seconds())
+		w.Raw(`		prom.SSEConnectionDuration(start)
 `)
 	}
 	w.Raw(`		sub.Close()
@@ -922,7 +861,7 @@ func NewServer(
 	}
 	if w.prometheus {
 		w.Raw(`	if s.metricsServer != nil {
-		s.middleware = append(s.middleware, s.metricsMiddleware)
+		s.middleware = append(s.middleware, prom.Middleware)
 	}
 `)
 	}
@@ -933,7 +872,7 @@ func NewServer(
 		w.Raw(`	if s.assetsFS != nil {
 		h := http.StripPrefix(assets.URLPrefix, http.FileServer(s.assetsFS))
 		if IsDevMode() {
-			h = devNoCache(h)
+			h = httpserve.DevNoCache(h)
 		}
 		s.mux.Handle("GET "+assets.URLPrefix, h)
 	}
@@ -1465,14 +1404,14 @@ func (s *Server) createSession(
 	if err != nil {
 `)
 		if w.prometheus {
-			w.Raw(`		mSessionCreations.WithLabelValues("error").Inc()
+			w.Raw(`		prom.SessionCreated("error")
 `)
 		}
 		w.Raw(`		return err
 	}
 `)
 		if w.prometheus {
-			w.Raw(`	mSessionCreations.WithLabelValues("success").Inc()
+			w.Raw(`	prom.SessionCreated("success")
 `)
 		}
 		w.Raw(`	s.setSessionCookie(w, token)
@@ -1491,14 +1430,14 @@ func (s *Server) closeSession(
 	if err := s.sessionManager.CloseSession(r.Context(), token); err != nil {
 `)
 		if w.prometheus {
-			w.Raw(`		mSessionClosures.WithLabelValues("error").Inc()
+			w.Raw(`		prom.SessionClosed("error")
 `)
 		}
 		w.Raw(`		return err
 	}
 `)
 		if w.prometheus {
-			w.Raw(`	mSessionClosures.WithLabelValues("success").Inc()
+			w.Raw(`	prom.SessionClosed("success")
 `)
 		}
 		w.Raw(`	s.setSessionCookie(w, "")
@@ -1521,7 +1460,7 @@ func (s *Server) auth(
 	if !found {`)
 		if w.prometheus {
 			w.Raw(`
-			mSessionReads.WithLabelValues("none").Inc()`)
+			prom.SessionRead("none")`)
 		}
 		w.Raw(`
 		return sess, "", true
@@ -1532,7 +1471,7 @@ func (s *Server) auth(
 		// Transient backend failure; keep the cookie, fail the request.`)
 		if w.prometheus {
 			w.Raw(`
-		mSessionReads.WithLabelValues("error").Inc()`)
+		prom.SessionRead("error")`)
 		}
 		w.Raw(`
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
@@ -1544,7 +1483,7 @@ func (s *Server) auth(
 		// Cookie is stale or malformed; clear it and continue as unauthenticated.`)
 		if w.prometheus {
 			w.Raw(`
-		mSessionReads.WithLabelValues("stale").Inc()`)
+		prom.SessionRead("stale")`)
 		}
 		w.Raw(`
 		s.setSessionCookie(w, "")
@@ -1560,7 +1499,7 @@ func (s *Server) auth(
 		// Session has expired; clear the cookie and continue as unauthenticated.`)
 		if w.prometheus {
 			w.Raw(`
-		mSessionReads.WithLabelValues("expired").Inc()`)
+		prom.SessionRead("expired")`)
 		}
 		w.Raw(`
 		s.setSessionCookie(w, "")
@@ -1570,7 +1509,7 @@ func (s *Server) auth(
 	}
 `)
 		if w.prometheus {
-			w.Raw(`	mSessionReads.WithLabelValues("valid").Inc()
+			w.Raw(`	prom.SessionRead("valid")
 `)
 		}
 		w.Raw(`
@@ -1765,44 +1704,6 @@ func (w *Writer) writeCSRFOnlyCheck() {
 	w.Line(1, "}")
 }
 
-// writeStreamPathValueHelper emits the escaper for path values written into
-// the stream URL of a data-init attribute.
-func (w *Writer) writeStreamPathValueHelper() {
-	w.Raw(`
-// writeStreamPathValue writes v into the @get URL of a data-init attribute.
-// Percent encoding removes the quotes that would end the JavaScript string,
-// HTML escaping removes the ampersand that url.PathEscape keeps.
-func writeStreamPathValue(w http.ResponseWriter, v string) {
-	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
-}
-`)
-}
-
-// writeSignalValueHelper emits the escaper for values reflected into
-// data-signals attributes.
-func (w *Writer) writeSignalValueHelper() {
-	w.Raw(`
-var signalStringEscaper = strings.NewReplacer(
-	"\\", ` + "`" + `\\` + "`" + `,
-	"'", ` + "`" + `\'` + "`" + `,
-	"\n", ` + "`" + `\n` + "`" + `,
-	"\r", ` + "`" + `\r` + "`" + `,
-)
-
-// writeSignalString writes s as a quoted string inside a data-signals attribute.
-// The browser decodes the attribute before Datastar evaluates it.
-// s is escaped for the JavaScript string first and for the attribute second.
-func writeSignalString(w http.ResponseWriter, s string) {
-	_, _ = io.WriteString(w, html.EscapeString(signalStringEscaper.Replace(s)))
-}
-
-// writeSignalValue writes a number or boolean inside a data-signals attribute.
-func writeSignalValue(w http.ResponseWriter, s string) {
-	_, _ = io.WriteString(w, html.EscapeString(s))
-}
-`)
-}
-
 func (w *Writer) writeAppErrHelpers(m *model.App, appPkg string) {
 	hasPage := m.PageError500 != nil
 	hasRecover := m.RecoverError != nil
@@ -1843,7 +1744,7 @@ func (s *Server) httpErrIntern(
 	s.logErr(msg, err)
 `)
 	if hasPage {
-		w.Raw(`	if !isDSReq(r) {
+		w.Raw(`	if !httpserve.IsDatastarRequest(r) {
 		// A page load gets the app's own 500 page, with the status that
 		// says what happened. The page's own route serves 200;
 		// this is the other way in.
@@ -1878,7 +1779,7 @@ func (s *Server) httpErrIntern(
 	if errRecover == nil {
 `)
 		if w.prometheus {
-			w.Raw(`		mInternalErrorsRecovered.Inc()
+			w.Raw(`		prom.InternalErrorRecovered()
 `)
 		}
 		w.Raw(`		return // Feedback delivered gracefully.
@@ -1886,7 +1787,7 @@ func (s *Server) httpErrIntern(
 	// RecoverError failed — fall back to HTTP error response.
 `)
 		if w.prometheus {
-			w.Raw(`	mInternalErrorsNotRecovered.Inc()
+			w.Raw(`	prom.InternalErrorNotRecovered()
 `)
 		}
 		w.Raw(`	s.logger.Error("recovering error",
@@ -2148,7 +2049,7 @@ func (w *Writer) writeMethodCall(
 
 	// Redirect.
 	if h.OutputRedirect != nil {
-		w.Raw("\tif httpRedirect(w, r, ")
+		w.Raw("\tif httpserve.Redirect(w, r, ")
 		w.Raw(outputVar(h.OutputRedirect))
 		w.Raw(") {\n")
 		w.Line(2, "return")
@@ -2410,7 +2311,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 
 	// Redirect.
 	if h.OutputRedirect != nil {
-		w.Raw("\tif httpRedirect(w, r, ")
+		w.Raw("\tif httpserve.Redirect(w, r, ")
 		w.Raw(outputVar(h.OutputRedirect))
 		w.Raw(") {\n")
 		w.Line(2, "return")
@@ -2425,7 +2326,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	// Body attrs - simple for render404/error pages.
 	w.Line(0, "")
 	w.Line(1, "bodyAttrs := func(w http.ResponseWriter) {")
-	w.Line(2, "writeBodyAttrOnVisibilityChange(w)")
+	w.Line(2, "httpserve.WriteReloadOnVisibility(w)")
 	w.Line(1, "}")
 
 	headArg := "nil"

@@ -1,9 +1,7 @@
-// Package httpread reads request values the standard library also reads,
-// without the allocations its general-purpose parsers make.
-// It exists for generated code to call.
+// Package httpread reads a cookie or a query parameter off a request.
+// It provides optimized versions of equivalent functions from net/http and net/url.
 //
-// Every function here answers what net/http and net/url answer.
-// The tests fuzz them against those packages.
+// Application code must not import this package.
 package httpread
 
 import (
@@ -20,8 +18,6 @@ const asciiSpace = " \t\n\r"
 const maxScannedCookies = 64
 
 // IsCookieName reports whether s is a name a cookie may carry.
-// net/http skips a pair whose name is not one, which makes a cookie
-// of such a name unreadable.
 func IsCookieName(s string) bool {
 	if s == "" {
 		return false

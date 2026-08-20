@@ -96,8 +96,8 @@ func TestPatchElement(t *testing.T) {
 	}
 }
 
-// TestRemoveElementMatchesDatastar covers the removal event, which the wrapper
-// writes itself instead of calling datastar.RemoveElement.
+// TestRemoveElementMatchesDatastar covers the removal event the wrapper writes.
+// Its bytes must be the ones datastar.RemoveElement writes.
 func TestRemoveElementMatchesDatastar(t *testing.T) {
 	t.Parallel()
 
