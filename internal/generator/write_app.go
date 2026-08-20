@@ -60,9 +60,6 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	if w.usage.httpRedirect {
 		w.writeHTTPRedirect()
 	}
-	if w.usage.datapagesSSE {
-		w.writeSSEWrapper()
-	}
 	if w.usage.reflectSignals {
 		w.writeSignalValueHelper()
 	}
@@ -72,7 +69,6 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	if w.usage.needsIsSubjectToken() {
 		w.writeIsSubjectToken()
 	}
-	w.writeQueryHelpers()
 	if w.usage.privateStreams {
 		w.writeCheckUserSubject()
 	}
@@ -185,6 +181,8 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"github.com/romshark/datapages/modules/msgbroker"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/sessmanager"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/sesstokgen"`)
+	w.Line(1, `"github.com/romshark/datapages/runtime/httpread"`)
+	w.Line(1, `dpsse "github.com/romshark/datapages/runtime/sse"`)
 	w.Line(1, `"golang.org/x/sync/errgroup"`)
 	w.Line(0, "")
 	w.Byte('\t')
@@ -214,108 +212,6 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	}
 	w.Line(1, `"github.com/starfederation/datastar-go/datastar"`)
 	w.Line(0, ")")
-}
-
-// writeSSEWrapper emits the datapages.SSE implementation backed by Datastar.
-// It is generated into the application package rather than imported,
-// so the datastar-free datapages.SSE seam needs no runtime package of its own.
-func (w *Writer) writeSSEWrapper() {
-	w.Raw(`
-// newSSE wraps a Datastar generator as a datapages.SSE.
-func newSSE(gen *datastar.ServerSentEventGenerator) datapages.SSE {
-	return sseWrapper{gen: gen}
-}
-
-type sseWrapper struct {
-	gen *datastar.ServerSentEventGenerator
-}
-
-func (s sseWrapper) Context() context.Context { return s.gen.Context() }
-
-func (s sseWrapper) PatchElement(c datapages.Component) error {
-	return s.gen.PatchElementTempl(c)
-}
-
-func (s sseWrapper) PatchElementAt(
-	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
-) error {
-	switch mode {
-	case datapages.PatchModeOuter, datapages.PatchModeInner,
-		datapages.PatchModeReplace, datapages.PatchModePrepend,
-		datapages.PatchModeAppend, datapages.PatchModeBefore,
-		datapages.PatchModeAfter:
-	default:
-		mode = "" // Not a PatchMode constant, patch in the default mode.
-	}
-	switch {
-	case selectorCSS == "" && mode == "":
-		return s.gen.PatchElementTempl(c)
-	case mode == "":
-		return s.gen.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
-	case selectorCSS == "":
-		return s.gen.PatchElementTempl(
-			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
-		)
-	}
-	return s.gen.PatchElementTempl(c,
-		datastar.WithSelector(selectorCSS),
-		datastar.WithMode(datastar.ElementPatchMode(mode)))
-}
-
-// removeElementModeDataline is the mode line of a removal event.
-const removeElementModeDataline = datastar.ModeDatalineLiteral +
-	string(datastar.ElementPatchModeRemove)
-
-func (s sseWrapper) RemoveElement(selectorCSS string) error {
-	return s.gen.Send(datastar.EventTypePatchElements, []string{
-		datastar.SelectorDatalineLiteral + selectorCSS,
-		removeElementModeDataline,
-	})
-}
-
-func (s sseWrapper) ExecuteScript(script string) error {
-	return s.gen.ExecuteScript(script)
-}
-
-func (s sseWrapper) PatchSignals(v any) error {
-	j, err := marshalSignals(v)
-	if err != nil {
-		return err
-	}
-	return s.gen.PatchSignals(j)
-}
-
-func (s sseWrapper) PatchSignalsIfMissing(v any) error {
-	j, err := marshalSignals(v)
-	if err != nil {
-		return err
-	}
-	return s.gen.PatchSignals(j, datastar.WithOnlyIfMissing(true))
-}
-
-// marshalSignals encodes v as JSON. A json.RawMessage passes through.
-func marshalSignals(v any) ([]byte, error) {
-	if raw, ok := v.(json.RawMessage); ok {
-		if !json.Valid(raw) {
-			return nil, errors.New("signals are not valid JSON")
-		}
-		return raw, nil
-	}
-	j, err := json.Marshal(v)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling signals JSON: %w", err)
-	}
-	return j, nil
-}
-
-func (s sseWrapper) Redirect(target string) error {
-	return s.gen.Redirect(target)
-}
-
-func (s sseWrapper) Prefetch(urls ...string) error {
-	return s.gen.Prefetch(urls...)
-}
-`)
 }
 
 func (w *Writer) hasAssets() bool { return w.assetsURLPrefix != "" }
@@ -1054,55 +950,6 @@ func NewServer(
 `)
 }
 
-// writeQueryHelpers emits the query string readers. They read one parameter
-// where url.URL.Query would parse the whole query into a map.
-func (w *Writer) writeQueryHelpers() {
-	if !w.usage.queryValue && !w.usage.queryHas {
-		return
-	}
-	w.Raw(`
-// queryLookup returns the first value of key in rawQuery.
-// It reads what url.URL.Query parses: pairs are separated by "&",
-// a pair carrying ";" is skipped, and both sides are query-unescaped.
-func queryLookup(rawQuery, key string) (value string, ok bool) {
-	for rawQuery != "" {
-		var pair string
-		pair, rawQuery, _ = strings.Cut(rawQuery, "&")
-		if pair == "" || strings.Contains(pair, ";") {
-			continue
-		}
-		name, value, _ := strings.Cut(pair, "=")
-		name, err := url.QueryUnescape(name)
-		if err != nil || name != key {
-			continue
-		}
-		value, err = url.QueryUnescape(value)
-		if err != nil {
-			continue
-		}
-		return value, true
-	}
-	return "", false
-}
-`)
-	if w.usage.queryValue {
-		w.Raw(`
-func queryValue(rawQuery, key string) string {
-	v, _ := queryLookup(rawQuery, key)
-	return v
-}
-`)
-	}
-	if w.usage.queryHas {
-		w.Raw(`
-func queryHas(rawQuery, key string) bool {
-	_, ok := queryLookup(rawQuery, key)
-	return ok
-}
-`)
-	}
-}
-
 func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
 	// EvSubj* constants (subscription subjects with wildcards for prefixed events).
 	w.Line(0, "")
@@ -1554,6 +1401,11 @@ func WithAuth(o AuthConfig) ServerOption {
 		if o.TokenCookie.Name == "" {
 			o.TokenCookie.Name = DefaultAuthSessionCookieName
 		}
+		if !httpread.IsCookieName(o.TokenCookie.Name) {
+			return fmt.Errorf(
+				"WithAuth: invalid cookie name: %q", o.TokenCookie.Name,
+			)
+		}
 		s.authConf = &o
 		s.sessionTokenGenerator = o.SessionTokenGenerator
 		return nil
@@ -1665,20 +1517,17 @@ func (s *Server) auth(
 ) (sess `)
 		w.Raw(w.sessionType)
 		w.Raw(`, token string, ok bool) {
-	c, err := r.Cookie(s.authConf.TokenCookie.Name)
-	if err != nil {
-		if errors.Is(err, http.ErrNoCookie) {`)
+	cookieVal, found := httpread.CookieValue(r, s.authConf.TokenCookie.Name)
+	if !found {`)
 		if w.prometheus {
 			w.Raw(`
 			mSessionReads.WithLabelValues("none").Inc()`)
 		}
 		w.Raw(`
-			return sess, "", true
-		}
-		return sess, "", false
+		return sess, "", true
 	}
 
-	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(c)
+	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(cookieVal)
 	if err != nil {
 		// Transient backend failure; keep the cookie, fail the request.`)
 		if w.prometheus {
@@ -2020,7 +1869,7 @@ func (s *Server) httpErrIntern(
 				w.Raw(", ")
 			}
 			if kind == model.InputKindSSE {
-				w.Raw("newSSE(sse)")
+				w.Raw("dpsse.New(sse)")
 			} else {
 				w.Raw("err")
 			}

@@ -21,6 +21,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/internal/acceptance/wildcardsubjects/app"
@@ -228,101 +229,6 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 		return false
 	}
 	return true
-}
-
-// newSSE wraps a Datastar generator as a datapages.SSE.
-func newSSE(gen *datastar.ServerSentEventGenerator) datapages.SSE {
-	return sseWrapper{gen: gen}
-}
-
-type sseWrapper struct {
-	gen *datastar.ServerSentEventGenerator
-}
-
-func (s sseWrapper) Context() context.Context { return s.gen.Context() }
-
-func (s sseWrapper) PatchElement(c datapages.Component) error {
-	return s.gen.PatchElementTempl(c)
-}
-
-func (s sseWrapper) PatchElementAt(
-	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
-) error {
-	switch mode {
-	case datapages.PatchModeOuter, datapages.PatchModeInner,
-		datapages.PatchModeReplace, datapages.PatchModePrepend,
-		datapages.PatchModeAppend, datapages.PatchModeBefore,
-		datapages.PatchModeAfter:
-	default:
-		mode = "" // Not a PatchMode constant, patch in the default mode.
-	}
-	switch {
-	case selectorCSS == "" && mode == "":
-		return s.gen.PatchElementTempl(c)
-	case mode == "":
-		return s.gen.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
-	case selectorCSS == "":
-		return s.gen.PatchElementTempl(
-			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
-		)
-	}
-	return s.gen.PatchElementTempl(c,
-		datastar.WithSelector(selectorCSS),
-		datastar.WithMode(datastar.ElementPatchMode(mode)))
-}
-
-// removeElementModeDataline is the mode line of a removal event.
-const removeElementModeDataline = datastar.ModeDatalineLiteral +
-	string(datastar.ElementPatchModeRemove)
-
-func (s sseWrapper) RemoveElement(selectorCSS string) error {
-	return s.gen.Send(datastar.EventTypePatchElements, []string{
-		datastar.SelectorDatalineLiteral + selectorCSS,
-		removeElementModeDataline,
-	})
-}
-
-func (s sseWrapper) ExecuteScript(script string) error {
-	return s.gen.ExecuteScript(script)
-}
-
-func (s sseWrapper) PatchSignals(v any) error {
-	j, err := marshalSignals(v)
-	if err != nil {
-		return err
-	}
-	return s.gen.PatchSignals(j)
-}
-
-func (s sseWrapper) PatchSignalsIfMissing(v any) error {
-	j, err := marshalSignals(v)
-	if err != nil {
-		return err
-	}
-	return s.gen.PatchSignals(j, datastar.WithOnlyIfMissing(true))
-}
-
-// marshalSignals encodes v as JSON. A json.RawMessage passes through.
-func marshalSignals(v any) ([]byte, error) {
-	if raw, ok := v.(json.RawMessage); ok {
-		if !json.Valid(raw) {
-			return nil, errors.New("signals are not valid JSON")
-		}
-		return raw, nil
-	}
-	j, err := json.Marshal(v)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling signals JSON: %w", err)
-	}
-	return j, nil
-}
-
-func (s sseWrapper) Redirect(target string) error {
-	return s.gen.Redirect(target)
-}
-
-func (s sseWrapper) Prefetch(urls ...string) error {
-	return s.gen.Prefetch(urls...)
 }
 
 func isSubjectToken(v string) bool {
@@ -639,7 +545,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.logErr("unmarshaling EventNoted JSON", err)
 						continue
 					}
-					if err := p.OnNoted(eventNoted, newSSE(sse)); err != nil {
+					if err := p.OnNoted(eventNoted, dpsse.New(sse)); err != nil {
 						s.logErr("handling PageIndex.OnNoted", err)
 					}
 				}

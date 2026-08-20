@@ -400,7 +400,9 @@ func PATCHPageFormTouch(options ...option) string {
 // POSTPageFormBump references /form/{id}/bump/
 func POSTPageFormBump(id int, query QueryPOSTPageFormBump, options ...option) string {
 	s_id := strconv.FormatInt(int64(id), 10)
-	var byStr string
+	var (
+		byStr string
+	)
 
 	if query.By != 0 {
 		byStr = strconv.FormatInt(int64(query.By), 10)

@@ -20,8 +20,8 @@ import (
 	templparser "github.com/a-h/templ/parser/v2"
 	"golang.org/x/tools/go/packages"
 
-	"github.com/romshark/datapages/hrefcheck"
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/runtime/hrefcheck"
 )
 
 // ErrFunc is called for each error found during checking.

@@ -264,6 +264,59 @@ func TestAnonymous(t *testing.T) {
 
 // TestSignInAndOut covers the whole life of a session: an action creates it,
 // later requests carry it, and an action ends it.
+// TestCookieHeaderVariants covers the Cookie header shapes the generated
+// reader must read the way net/http.Request.Cookie reads them.
+// The expectation comes from that method, not from a hand written table.
+func TestCookieHeaderVariants(t *testing.T) {
+	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+		srv := newServer(t, broker)
+		c := srv.client(t)
+		c.signIn(t, "alice", "Al")
+		token := c.cookie(t).Value
+
+		for name, header := range map[string]string{
+			"plain":               cookieName + "=" + token,
+			"among other pairs":   "theme=dark; " + cookieName + "=" + token + "; lang=en",
+			"quoted value":        cookieName + `="` + token + `"`,
+			"space before name":   " " + cookieName + "=" + token,
+			"space after name":    cookieName + " =" + token,
+			"invalid value byte":  cookieName + `=a"b`,
+			"invalid then valid":  cookieName + `=a"b; ` + cookieName + "=" + token,
+			"another cookie only": "theme=dark",
+			"empty value":         cookieName + "=",
+			"empty header":        "",
+			"many other pairs": strings.Repeat("a=b; ", 200) +
+				cookieName + "=" + token,
+		} {
+			t.Run(name, func(t *testing.T) {
+				want := "anonymous"
+				oracle := &http.Request{
+					Header: http.Header{"Cookie": []string{header}},
+				}
+				if ck, err := oracle.Cookie(cookieName); err == nil &&
+					ck.Value == token {
+					want = "user=alice"
+				}
+
+				req, err := http.NewRequestWithContext(context.Background(),
+					http.MethodGet, srv.URL+"/", nil)
+				require.NoError(t, err)
+				req.Header.Set("Accept-Encoding", "identity")
+				if header != "" {
+					req.Header.Set("Cookie", header)
+				}
+				resp, err := (&http.Client{}).Do(req)
+				require.NoError(t, err)
+				defer func() { _ = resp.Body.Close() }()
+				b, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				require.Contains(t, string(b), want)
+			})
+		}
+	})
+}
+
 func TestSignInAndOut(t *testing.T) {
 	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
 		srv := newServer(t, broker)

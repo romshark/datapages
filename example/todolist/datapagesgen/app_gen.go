@@ -25,6 +25,8 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
+	"github.com/romshark/datapages/runtime/httpread"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/example/todolist/app"
@@ -288,101 +290,6 @@ func httpRedirect(
 	return true
 }
 
-// newSSE wraps a Datastar generator as a datapages.SSE.
-func newSSE(gen *datastar.ServerSentEventGenerator) datapages.SSE {
-	return sseWrapper{gen: gen}
-}
-
-type sseWrapper struct {
-	gen *datastar.ServerSentEventGenerator
-}
-
-func (s sseWrapper) Context() context.Context { return s.gen.Context() }
-
-func (s sseWrapper) PatchElement(c datapages.Component) error {
-	return s.gen.PatchElementTempl(c)
-}
-
-func (s sseWrapper) PatchElementAt(
-	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
-) error {
-	switch mode {
-	case datapages.PatchModeOuter, datapages.PatchModeInner,
-		datapages.PatchModeReplace, datapages.PatchModePrepend,
-		datapages.PatchModeAppend, datapages.PatchModeBefore,
-		datapages.PatchModeAfter:
-	default:
-		mode = "" // Not a PatchMode constant, patch in the default mode.
-	}
-	switch {
-	case selectorCSS == "" && mode == "":
-		return s.gen.PatchElementTempl(c)
-	case mode == "":
-		return s.gen.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
-	case selectorCSS == "":
-		return s.gen.PatchElementTempl(
-			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
-		)
-	}
-	return s.gen.PatchElementTempl(c,
-		datastar.WithSelector(selectorCSS),
-		datastar.WithMode(datastar.ElementPatchMode(mode)))
-}
-
-// removeElementModeDataline is the mode line of a removal event.
-const removeElementModeDataline = datastar.ModeDatalineLiteral +
-	string(datastar.ElementPatchModeRemove)
-
-func (s sseWrapper) RemoveElement(selectorCSS string) error {
-	return s.gen.Send(datastar.EventTypePatchElements, []string{
-		datastar.SelectorDatalineLiteral + selectorCSS,
-		removeElementModeDataline,
-	})
-}
-
-func (s sseWrapper) ExecuteScript(script string) error {
-	return s.gen.ExecuteScript(script)
-}
-
-func (s sseWrapper) PatchSignals(v any) error {
-	j, err := marshalSignals(v)
-	if err != nil {
-		return err
-	}
-	return s.gen.PatchSignals(j)
-}
-
-func (s sseWrapper) PatchSignalsIfMissing(v any) error {
-	j, err := marshalSignals(v)
-	if err != nil {
-		return err
-	}
-	return s.gen.PatchSignals(j, datastar.WithOnlyIfMissing(true))
-}
-
-// marshalSignals encodes v as JSON. A json.RawMessage passes through.
-func marshalSignals(v any) ([]byte, error) {
-	if raw, ok := v.(json.RawMessage); ok {
-		if !json.Valid(raw) {
-			return nil, errors.New("signals are not valid JSON")
-		}
-		return raw, nil
-	}
-	j, err := json.Marshal(v)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling signals JSON: %w", err)
-	}
-	return j, nil
-}
-
-func (s sseWrapper) Redirect(target string) error {
-	return s.gen.Redirect(target)
-}
-
-func (s sseWrapper) Prefetch(urls ...string) error {
-	return s.gen.Prefetch(urls...)
-}
-
 var signalStringEscaper = strings.NewReplacer(
 	"\\", `\\`,
 	"'", `\'`,
@@ -407,35 +314,6 @@ func writeSignalValue(w http.ResponseWriter, s string) {
 // HTML escaping removes the ampersand that url.PathEscape keeps.
 func writeStreamPathValue(w http.ResponseWriter, v string) {
 	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
-}
-
-// queryLookup returns the first value of key in rawQuery.
-// It reads what url.URL.Query parses: pairs are separated by "&",
-// a pair carrying ";" is skipped, and both sides are query-unescaped.
-func queryLookup(rawQuery, key string) (value string, ok bool) {
-	for rawQuery != "" {
-		var pair string
-		pair, rawQuery, _ = strings.Cut(rawQuery, "&")
-		if pair == "" || strings.Contains(pair, ";") {
-			continue
-		}
-		name, value, _ := strings.Cut(pair, "=")
-		name, err := url.QueryUnescape(name)
-		if err != nil || name != key {
-			continue
-		}
-		value, err = url.QueryUnescape(value)
-		if err != nil {
-			continue
-		}
-		return value, true
-	}
-	return "", false
-}
-
-func queryValue(rawQuery, key string) string {
-	v, _ := queryLookup(rawQuery, key)
-	return v
 }
 
 func (s *Server) writeHTML(
@@ -771,7 +649,7 @@ func (s *Server) handlePUTEdit(w http.ResponseWriter, r *http.Request) {
 		Toggle bool `query:"toggle"`
 	}]
 	{
-		if q := queryValue(r.URL.RawQuery, "toggle"); q != "" {
+		if q := httpread.QueryValue(r.URL.RawQuery, "toggle"); q != "" {
 			b, err := strconv.ParseBool(q)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: toggle", err)
@@ -827,9 +705,9 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		Filter string `query:"filter" reflectsignal:"filter"`
 		Sort   string `query:"sort" reflectsignal:"sort"`
 	}]
-	query.Values.Search = queryValue(r.URL.RawQuery, "q")
-	query.Values.Filter = queryValue(r.URL.RawQuery, "filter")
-	query.Values.Sort = queryValue(r.URL.RawQuery, "sort")
+	query.Values.Search = httpread.QueryValue(r.URL.RawQuery, "q")
+	query.Values.Filter = httpread.QueryValue(r.URL.RawQuery, "filter")
+	query.Values.Sort = httpread.QueryValue(r.URL.RawQuery, "sort")
 
 	p := app.PageIndex{
 		App: s.app,
@@ -901,7 +779,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
-			return p.StreamOpen(r, streamID, newSSE(sse), signals)
+			return p.StreamOpen(r, streamID, dpsse.New(sse), signals)
 		},
 		func(streamID datapages.StreamID) {
 			p.StreamClose(r, streamID)
@@ -919,7 +797,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.logErr("unmarshaling EventTodoUpdated JSON", err)
 						continue
 					}
-					if err := p.OnTodoUpdated(eventTodoUpdated, newSSE(sse), streamID); err != nil {
+					if err := p.OnTodoUpdated(eventTodoUpdated, dpsse.New(sse), streamID); err != nil {
 						s.logErr("handling PageIndex.OnTodoUpdated", err)
 					}
 				}
@@ -977,7 +855,7 @@ func (s *Server) handlePageIndexPOSTFilter(
 	p := app.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTFilter(r, newSSE(sse), signals)
+	err := p.POSTFilter(r, dpsse.New(sse), signals)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Filter", err)
 		return
@@ -1046,7 +924,7 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
-			return p.StreamOpen(r, streamID, newSSE(sse), signals)
+			return p.StreamOpen(r, streamID, dpsse.New(sse), signals)
 		},
 		func(streamID datapages.StreamID) {
 			p.StreamClose(r, streamID)
@@ -1064,7 +942,7 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 						s.logErr("unmarshaling EventTodoUpdated JSON", err)
 						continue
 					}
-					if err := p.OnTodoUpdated(eventTodoUpdated, newSSE(sse), streamID); err != nil {
+					if err := p.OnTodoUpdated(eventTodoUpdated, dpsse.New(sse), streamID); err != nil {
 						s.logErr("handling PageItem.OnTodoUpdated", err)
 					}
 				}

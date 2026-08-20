@@ -71,20 +71,30 @@ The non-internal packages besides the root are:
 
 - `modules/` - pluggable modules (csrf, msgbroker, sessmanager, sesstokgen),
   imported by application code.
-- `hrefcheck/` - imported by generated `href` packages.
+- `runtime/` - packages generated code imports: `sse` (the datapages.SSE
+  implementation), `httpread` (cookie and query readers), `hrefcheck`
+  (href validation).
 
 These cannot be moved into `internal/`: generated code lives in the user's own
 module, which may not import `github.com/romshark/datapages/internal/...`. Note the
 `example/*` modules would NOT catch such a mistake, since their paths sit under the
 `github.com/romshark/datapages/` prefix and so satisfy the internal-import rule.
 
-Runtime support is generated into `datapagesgen` rather than imported, so it needs
-no package of its own and stays out of the public API:
+What the application model shapes is generated into `datapagesgen`, which keeps it
+out of the public API and free of version skew between the generator and a
+separately pinned dependency:
 
-- `writeSSEWrapper` emits the `datapages.SSE` implementation (`newSSE`/`sseWrapper`).
+- the dispatchers, the handlers, the subject lists and `setupHandlers`.
 
-Prefer this over adding a public runtime package: it also removes version skew
-between the generator and a separately pinned runtime dependency.
+What mirrors the standard library lives in `runtime/` and is imported, because
+its correctness follows the Go version rather than the application, and a package
+can be tested against the standard library directly:
+
+- `runtime/sse` implements `datapages.SSE` on the Datastar generator, which
+  keeps datastar out of handler signatures.
+- `runtime/httpread` reads cookies and query parameters the way `net/http` and
+  `net/url` read them, without their allocations. Its tests fuzz it against them.
+- `runtime/hrefcheck` is imported by generated `href` packages.
 
 # Datapages Framework
 

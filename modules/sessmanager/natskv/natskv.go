@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"iter"
-	"net/http"
 	"strings"
 
 	"github.com/nats-io/nats.go"
@@ -137,18 +136,18 @@ type kvRecord struct {
 
 // ReadSessionFromCookie decrypts the cookie value to
 // recover the composite KV key and retrieves the session.
-// Returns ok=false, err=nil if the cookie is nil, empty, malformed,
+// Returns ok=false, err=nil if the value is empty, malformed,
 // or the session is not found (caller should remove the cookie).
 // Returns ok=false, err!=nil on transient backend failures
 // (caller should keep the cookie and fail the request).
 func (s *SessionManager[Data]) ReadSessionFromCookie(
-	c *http.Cookie,
+	cookieValue string,
 ) (rec sessmanager.Record[Data], token string, ok bool, err error) {
-	if c == nil || c.Value == "" {
+	if cookieValue == "" {
 		return rec, "", false, nil
 	}
 
-	kvKey, err := decrypt(s.aeads, c.Value)
+	kvKey, err := decrypt(s.aeads, cookieValue)
 	if err != nil {
 		return rec, "", false, nil
 	}
@@ -176,7 +175,7 @@ func (s *SessionManager[Data]) ReadSessionFromCookie(
 	// The user id in the key is authoritative.
 	rec.UserID = uid
 
-	return rec, c.Value, true, nil
+	return rec, cookieValue, true, nil
 }
 
 // NotifyClosed watches for deletion of the session

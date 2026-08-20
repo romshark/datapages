@@ -2,7 +2,6 @@ package inmem_test
 
 import (
 	"context"
-	"net/http"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -41,10 +40,10 @@ func (m payloadManager) CreateSession(
 	)
 }
 
-func (m payloadManager) ReadSessionFromCookie(c *http.Cookie) (
+func (m payloadManager) ReadSessionFromCookie(cookieValue string) (
 	session testSession, token, userID string, ok bool, err error,
 ) {
-	rec, token, ok, err := m.SessionManager.ReadSessionFromCookie(c)
+	rec, token, ok, err := m.SessionManager.ReadSessionFromCookie(cookieValue)
 	return rec.Data, token, rec.UserID, ok, err
 }
 
@@ -94,22 +93,19 @@ func TestReadSessionFromCookie(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := map[string]struct {
-		cookie   *http.Cookie
+		cookie   string
 		wantOK   bool
 		wantUID  string
 		wantSess testSession
 	}{
-		"nil cookie": {
-			cookie: nil, wantOK: false,
-		},
 		"empty value": {
-			cookie: &http.Cookie{Value: ""}, wantOK: false,
+			cookie: "", wantOK: false,
 		},
 		"nonexistent token": {
-			cookie: &http.Cookie{Value: "no-such-token"}, wantOK: false,
+			cookie: "no-such-token", wantOK: false,
 		},
 		"valid session": {
-			cookie:   &http.Cookie{Value: token},
+			cookie:   token,
 			wantOK:   true,
 			wantUID:  "alice",
 			wantSess: testSession{Username: "alice", Role: "admin"},
@@ -141,7 +137,7 @@ func TestReadSessionFromCookieStale(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sm.CloseSession(ctx, token))
 
-	_, _, _, ok, err := sm.ReadSessionFromCookie(&http.Cookie{Value: token})
+	_, _, _, ok, err := sm.ReadSessionFromCookie(token)
 	require.NoError(t, err)
 	require.False(t, ok)
 }
@@ -170,7 +166,7 @@ func TestCreateSession(t *testing.T) {
 			require.NotEmpty(t, token)
 
 			sess, retTok, uid, ok, err := sm.ReadSessionFromCookie(
-				&http.Cookie{Value: token},
+				token,
 			)
 			require.NoError(t, err)
 			require.True(t, ok)
@@ -227,7 +223,7 @@ func TestCreateSessionTokenCollisionOverwrites(t *testing.T) {
 
 	// The second session overwrites the first.
 	sess, retTok, uid, ok, err := sm.ReadSessionFromCookie(
-		&http.Cookie{Value: tok1},
+		tok1,
 	)
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -271,7 +267,7 @@ func TestCloseSession(t *testing.T) {
 			require.NoError(t, err)
 
 			_, _, _, ok, err := sm.ReadSessionFromCookie(
-				&http.Cookie{Value: token},
+				token,
 			)
 			require.NoError(t, err)
 			require.False(t, ok)
@@ -455,7 +451,7 @@ func TestRecordRoundTrip(t *testing.T) {
 	token, err := sm.CreateSession(ctx, want)
 	require.NoError(t, err)
 
-	got, retTok, ok, err := sm.ReadSessionFromCookie(&http.Cookie{Value: token})
+	got, retTok, ok, err := sm.ReadSessionFromCookie(token)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, token, retTok)
@@ -513,7 +509,7 @@ func TestSaveSessionPreservesUserID(t *testing.T) {
 
 	require.NoError(t, sm.SaveSession(ctx, token, testSession{Role: "new"}))
 
-	_, _, uid, ok, err := sm.ReadSessionFromCookie(&http.Cookie{Value: token})
+	_, _, uid, ok, err := sm.ReadSessionFromCookie(token)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, "alice", uid)
@@ -774,7 +770,7 @@ func TestConcurrentCreateAndRead(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			sess, _, _, ok, err := sm.ReadSessionFromCookie(
-				&http.Cookie{Value: tokens[i]},
+				tokens[i],
 			)
 			readErrs[i] = err
 			readOK[i] = ok
@@ -820,7 +816,7 @@ func TestConcurrentCreateAndClose(t *testing.T) {
 
 	for _, tok := range tokens {
 		_, _, _, ok, err := sm.ReadSessionFromCookie(
-			&http.Cookie{Value: tok},
+			tok,
 		)
 		require.NoError(t, err)
 		require.False(t, ok)
@@ -916,7 +912,7 @@ func TestConcurrentReadDuringClose(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		readSess, _, _, readOK, readErr = sm.ReadSessionFromCookie(
-			&http.Cookie{Value: token},
+			token,
 		)
 	}()
 

@@ -5,14 +5,12 @@ package datapagesgen
 import (
 	"context"
 	"embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -23,6 +21,8 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
+	"github.com/romshark/datapages/runtime/httpread"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/internal/acceptance/actions/app"
@@ -260,130 +260,6 @@ func httpRedirect(
 
 	http.Redirect(w, r, redirect.URL, status)
 	return true
-}
-
-// newSSE wraps a Datastar generator as a datapages.SSE.
-func newSSE(gen *datastar.ServerSentEventGenerator) datapages.SSE {
-	return sseWrapper{gen: gen}
-}
-
-type sseWrapper struct {
-	gen *datastar.ServerSentEventGenerator
-}
-
-func (s sseWrapper) Context() context.Context { return s.gen.Context() }
-
-func (s sseWrapper) PatchElement(c datapages.Component) error {
-	return s.gen.PatchElementTempl(c)
-}
-
-func (s sseWrapper) PatchElementAt(
-	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
-) error {
-	switch mode {
-	case datapages.PatchModeOuter, datapages.PatchModeInner,
-		datapages.PatchModeReplace, datapages.PatchModePrepend,
-		datapages.PatchModeAppend, datapages.PatchModeBefore,
-		datapages.PatchModeAfter:
-	default:
-		mode = "" // Not a PatchMode constant, patch in the default mode.
-	}
-	switch {
-	case selectorCSS == "" && mode == "":
-		return s.gen.PatchElementTempl(c)
-	case mode == "":
-		return s.gen.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
-	case selectorCSS == "":
-		return s.gen.PatchElementTempl(
-			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
-		)
-	}
-	return s.gen.PatchElementTempl(c,
-		datastar.WithSelector(selectorCSS),
-		datastar.WithMode(datastar.ElementPatchMode(mode)))
-}
-
-// removeElementModeDataline is the mode line of a removal event.
-const removeElementModeDataline = datastar.ModeDatalineLiteral +
-	string(datastar.ElementPatchModeRemove)
-
-func (s sseWrapper) RemoveElement(selectorCSS string) error {
-	return s.gen.Send(datastar.EventTypePatchElements, []string{
-		datastar.SelectorDatalineLiteral + selectorCSS,
-		removeElementModeDataline,
-	})
-}
-
-func (s sseWrapper) ExecuteScript(script string) error {
-	return s.gen.ExecuteScript(script)
-}
-
-func (s sseWrapper) PatchSignals(v any) error {
-	j, err := marshalSignals(v)
-	if err != nil {
-		return err
-	}
-	return s.gen.PatchSignals(j)
-}
-
-func (s sseWrapper) PatchSignalsIfMissing(v any) error {
-	j, err := marshalSignals(v)
-	if err != nil {
-		return err
-	}
-	return s.gen.PatchSignals(j, datastar.WithOnlyIfMissing(true))
-}
-
-// marshalSignals encodes v as JSON. A json.RawMessage passes through.
-func marshalSignals(v any) ([]byte, error) {
-	if raw, ok := v.(json.RawMessage); ok {
-		if !json.Valid(raw) {
-			return nil, errors.New("signals are not valid JSON")
-		}
-		return raw, nil
-	}
-	j, err := json.Marshal(v)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling signals JSON: %w", err)
-	}
-	return j, nil
-}
-
-func (s sseWrapper) Redirect(target string) error {
-	return s.gen.Redirect(target)
-}
-
-func (s sseWrapper) Prefetch(urls ...string) error {
-	return s.gen.Prefetch(urls...)
-}
-
-// queryLookup returns the first value of key in rawQuery.
-// It reads what url.URL.Query parses: pairs are separated by "&",
-// a pair carrying ";" is skipped, and both sides are query-unescaped.
-func queryLookup(rawQuery, key string) (value string, ok bool) {
-	for rawQuery != "" {
-		var pair string
-		pair, rawQuery, _ = strings.Cut(rawQuery, "&")
-		if pair == "" || strings.Contains(pair, ";") {
-			continue
-		}
-		name, value, _ := strings.Cut(pair, "=")
-		name, err := url.QueryUnescape(name)
-		if err != nil || name != key {
-			continue
-		}
-		value, err = url.QueryUnescape(value)
-		if err != nil {
-			continue
-		}
-		return value, true
-	}
-	return "", false
-}
-
-func queryValue(rawQuery, key string) string {
-	v, _ := queryLookup(rawQuery, key)
-	return v
 }
 
 func (s *Server) writeHTML(
@@ -735,7 +611,7 @@ func (s *Server) handlePageFormPOSTBump(
 		By int `query:"by"`
 	}]
 	{
-		if q := queryValue(r.URL.RawQuery, "by"); q != "" {
+		if q := httpread.QueryValue(r.URL.RawQuery, "by"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: by", err)
@@ -821,7 +697,7 @@ func (s *Server) handlePageFormPOSTPatch(
 	p := app.PageForm{
 		App: s.app,
 	}
-	err := p.POSTPatch(r, newSSE(sse), signals)
+	err := p.POSTPatch(r, dpsse.New(sse), signals)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.Patch", err)
 		return
@@ -847,7 +723,7 @@ func (s *Server) handlePageFormPOSTPatchAt(
 	p := app.PageForm{
 		App: s.app,
 	}
-	err := p.POSTPatchAt(r, newSSE(sse), signals)
+	err := p.POSTPatchAt(r, dpsse.New(sse), signals)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.PatchAt", err)
 		return
@@ -865,7 +741,7 @@ func (s *Server) handlePageFormPOSTSignalsRaw(
 	p := app.PageForm{
 		App: s.app,
 	}
-	err := p.POSTSignalsRaw(r, newSSE(sse))
+	err := p.POSTSignalsRaw(r, dpsse.New(sse))
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.SignalsRaw", err)
 		return
@@ -883,7 +759,7 @@ func (s *Server) handlePageFormPOSTSignalsMissing(
 	p := app.PageForm{
 		App: s.app,
 	}
-	err := p.POSTSignalsMissing(r, newSSE(sse))
+	err := p.POSTSignalsMissing(r, dpsse.New(sse))
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.SignalsMissing", err)
 		return
@@ -901,7 +777,7 @@ func (s *Server) handlePageFormPOSTSignalsBad(
 	p := app.PageForm{
 		App: s.app,
 	}
-	err := p.POSTSignalsBad(r, newSSE(sse))
+	err := p.POSTSignalsBad(r, dpsse.New(sse))
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.SignalsBad", err)
 		return
@@ -919,7 +795,7 @@ func (s *Server) handlePageFormPOSTRemove(
 	p := app.PageForm{
 		App: s.app,
 	}
-	err := p.POSTRemove(r, newSSE(sse))
+	err := p.POSTRemove(r, dpsse.New(sse))
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageForm.Remove", err)
 		return

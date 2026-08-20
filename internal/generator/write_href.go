@@ -80,7 +80,7 @@ func (w *Writer) writeHrefHeader(needsStrconv, needsStrings bool) {
 	}
 	w.Line(1, `"sync/atomic"`)
 	w.Line(0, "")
-	w.Line(1, `"github.com/romshark/datapages/hrefcheck"`)
+	w.Line(1, `"github.com/romshark/datapages/runtime/hrefcheck"`)
 	w.Line(0, ")")
 }
 

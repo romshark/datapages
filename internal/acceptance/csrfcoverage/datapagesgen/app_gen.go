@@ -23,6 +23,7 @@ import (
 	"github.com/romshark/datapages/modules/msgbroker"
 	"github.com/romshark/datapages/modules/sessmanager"
 	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/runtime/httpread"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/app"
@@ -543,6 +544,11 @@ func WithAuth(o AuthConfig) ServerOption {
 		if o.TokenCookie.Name == "" {
 			o.TokenCookie.Name = DefaultAuthSessionCookieName
 		}
+		if !httpread.IsCookieName(o.TokenCookie.Name) {
+			return fmt.Errorf(
+				"WithAuth: invalid cookie name: %q", o.TokenCookie.Name,
+			)
+		}
 		s.authConf = &o
 		s.sessionTokenGenerator = o.SessionTokenGenerator
 		return nil
@@ -587,15 +593,12 @@ func (s *Server) createSession(
 func (s *Server) auth(
 	w http.ResponseWriter, r *http.Request,
 ) (sess datapages.Session[struct{}], token string, ok bool) {
-	c, err := r.Cookie(s.authConf.TokenCookie.Name)
-	if err != nil {
-		if errors.Is(err, http.ErrNoCookie) {
-			return sess, "", true
-		}
-		return sess, "", false
+	cookieVal, found := httpread.CookieValue(r, s.authConf.TokenCookie.Name)
+	if !found {
+		return sess, "", true
 	}
 
-	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(c)
+	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(cookieVal)
 	if err != nil {
 		// Transient backend failure; keep the cookie, fail the request.
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)

@@ -29,7 +29,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"sync"
 	"time"
 
@@ -133,13 +132,13 @@ func New(
 // [Store.CloseSession] synchronously to drop it, then report ok=false.
 // If the cleanup itself errors, we log it and still report ok=false —
 // the next read will try again.
-func (s *Store) ReadSessionFromCookie(c *http.Cookie) (
+func (s *Store) ReadSessionFromCookie(cookieValue string) (
 	rec sessmanager.Record[app.SessionData], token string, ok bool, err error,
 ) {
-	if c == nil || c.Value == "" {
+	if cookieValue == "" {
 		return rec, "", false, nil
 	}
-	token = c.Value
+	token = cookieValue
 
 	rows, qerr := s.db.QueryRows(
 		`SELECT s.user_id, s.created_at, s.expires_at, u.name, u.email

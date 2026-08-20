@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"sync/atomic"
 
-	"github.com/romshark/datapages/hrefcheck"
+	"github.com/romshark/datapages/runtime/hrefcheck"
 )
 
 var logger atomic.Pointer[slog.Logger]

@@ -24,6 +24,8 @@ import (
 	"github.com/romshark/datapages/modules/msgbroker"
 	"github.com/romshark/datapages/modules/sessmanager"
 	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/runtime/httpread"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/internal/acceptance/anonstreams/app"
@@ -235,101 +237,6 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 		return false
 	}
 	return true
-}
-
-// newSSE wraps a Datastar generator as a datapages.SSE.
-func newSSE(gen *datastar.ServerSentEventGenerator) datapages.SSE {
-	return sseWrapper{gen: gen}
-}
-
-type sseWrapper struct {
-	gen *datastar.ServerSentEventGenerator
-}
-
-func (s sseWrapper) Context() context.Context { return s.gen.Context() }
-
-func (s sseWrapper) PatchElement(c datapages.Component) error {
-	return s.gen.PatchElementTempl(c)
-}
-
-func (s sseWrapper) PatchElementAt(
-	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
-) error {
-	switch mode {
-	case datapages.PatchModeOuter, datapages.PatchModeInner,
-		datapages.PatchModeReplace, datapages.PatchModePrepend,
-		datapages.PatchModeAppend, datapages.PatchModeBefore,
-		datapages.PatchModeAfter:
-	default:
-		mode = "" // Not a PatchMode constant, patch in the default mode.
-	}
-	switch {
-	case selectorCSS == "" && mode == "":
-		return s.gen.PatchElementTempl(c)
-	case mode == "":
-		return s.gen.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
-	case selectorCSS == "":
-		return s.gen.PatchElementTempl(
-			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
-		)
-	}
-	return s.gen.PatchElementTempl(c,
-		datastar.WithSelector(selectorCSS),
-		datastar.WithMode(datastar.ElementPatchMode(mode)))
-}
-
-// removeElementModeDataline is the mode line of a removal event.
-const removeElementModeDataline = datastar.ModeDatalineLiteral +
-	string(datastar.ElementPatchModeRemove)
-
-func (s sseWrapper) RemoveElement(selectorCSS string) error {
-	return s.gen.Send(datastar.EventTypePatchElements, []string{
-		datastar.SelectorDatalineLiteral + selectorCSS,
-		removeElementModeDataline,
-	})
-}
-
-func (s sseWrapper) ExecuteScript(script string) error {
-	return s.gen.ExecuteScript(script)
-}
-
-func (s sseWrapper) PatchSignals(v any) error {
-	j, err := marshalSignals(v)
-	if err != nil {
-		return err
-	}
-	return s.gen.PatchSignals(j)
-}
-
-func (s sseWrapper) PatchSignalsIfMissing(v any) error {
-	j, err := marshalSignals(v)
-	if err != nil {
-		return err
-	}
-	return s.gen.PatchSignals(j, datastar.WithOnlyIfMissing(true))
-}
-
-// marshalSignals encodes v as JSON. A json.RawMessage passes through.
-func marshalSignals(v any) ([]byte, error) {
-	if raw, ok := v.(json.RawMessage); ok {
-		if !json.Valid(raw) {
-			return nil, errors.New("signals are not valid JSON")
-		}
-		return raw, nil
-	}
-	j, err := json.Marshal(v)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling signals JSON: %w", err)
-	}
-	return j, nil
-}
-
-func (s sseWrapper) Redirect(target string) error {
-	return s.gen.Redirect(target)
-}
-
-func (s sseWrapper) Prefetch(urls ...string) error {
-	return s.gen.Prefetch(urls...)
 }
 
 func isSubjectToken(v string) bool {
@@ -765,6 +672,11 @@ func WithAuth(o AuthConfig) ServerOption {
 		if o.TokenCookie.Name == "" {
 			o.TokenCookie.Name = DefaultAuthSessionCookieName
 		}
+		if !httpread.IsCookieName(o.TokenCookie.Name) {
+			return fmt.Errorf(
+				"WithAuth: invalid cookie name: %q", o.TokenCookie.Name,
+			)
+		}
 		s.authConf = &o
 		s.sessionTokenGenerator = o.SessionTokenGenerator
 		return nil
@@ -793,15 +705,12 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, value string) {
 func (s *Server) auth(
 	w http.ResponseWriter, r *http.Request,
 ) (sess datapages.Session[struct{}], token string, ok bool) {
-	c, err := r.Cookie(s.authConf.TokenCookie.Name)
-	if err != nil {
-		if errors.Is(err, http.ErrNoCookie) {
-			return sess, "", true
-		}
-		return sess, "", false
+	cookieVal, found := httpread.CookieValue(r, s.authConf.TokenCookie.Name)
+	if !found {
+		return sess, "", true
 	}
 
-	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(c)
+	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(cookieVal)
 	if err != nil {
 		// Transient backend failure; keep the cookie, fail the request.
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
@@ -951,7 +860,7 @@ func (s *Server) handlePageFeedGETStream(w http.ResponseWriter, r *http.Request)
 						s.logErr("unmarshaling EventTicked JSON", err)
 						continue
 					}
-					if err := p.OnTicked(eventTicked, newSSE(sse)); err != nil {
+					if err := p.OnTicked(eventTicked, dpsse.New(sse)); err != nil {
 						s.logErr("handling PageFeed.OnTicked", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefNoticed):
@@ -960,7 +869,7 @@ func (s *Server) handlePageFeedGETStream(w http.ResponseWriter, r *http.Request)
 						s.logErr("unmarshaling EventNoticed JSON", err)
 						continue
 					}
-					if err := p.OnNoticed(eventNoticed, newSSE(sse)); err != nil {
+					if err := p.OnNoticed(eventNoticed, dpsse.New(sse)); err != nil {
 						s.logErr("handling PageFeed.OnNoticed", err)
 					}
 				}
@@ -1001,7 +910,7 @@ func (s *Server) handlePageFeedGETStreamAnon(w http.ResponseWriter, r *http.Requ
 						s.logErr("unmarshaling EventTicked JSON", err)
 						continue
 					}
-					if err := p.OnTicked(eventTicked, newSSE(sse)); err != nil {
+					if err := p.OnTicked(eventTicked, dpsse.New(sse)); err != nil {
 						s.logErr("handling PageFeed.OnTicked", err)
 					}
 				}
@@ -1155,7 +1064,7 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 						s.logErr("unmarshaling EventRoomPosted JSON", err)
 						continue
 					}
-					if err := p.OnRoomPosted(eventRoomPosted, newSSE(sse)); err != nil {
+					if err := p.OnRoomPosted(eventRoomPosted, dpsse.New(sse)); err != nil {
 						s.logErr("handling PageRooms.OnRoomPosted", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefNoticed):
@@ -1164,7 +1073,7 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 						s.logErr("unmarshaling EventNoticed JSON", err)
 						continue
 					}
-					if err := p.OnNoticed(eventNoticed, newSSE(sse)); err != nil {
+					if err := p.OnNoticed(eventNoticed, dpsse.New(sse)); err != nil {
 						s.logErr("handling PageRooms.OnNoticed", err)
 					}
 				}
@@ -1218,7 +1127,7 @@ func (s *Server) handlePageRoomsGETStreamAnon(w http.ResponseWriter, r *http.Req
 						s.logErr("unmarshaling EventRoomPosted JSON", err)
 						continue
 					}
-					if err := p.OnRoomPosted(eventRoomPosted, newSSE(sse)); err != nil {
+					if err := p.OnRoomPosted(eventRoomPosted, dpsse.New(sse)); err != nil {
 						s.logErr("handling PageRooms.OnRoomPosted", err)
 					}
 				}

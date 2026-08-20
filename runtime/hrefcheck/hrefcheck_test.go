@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/hrefcheck"
+	"github.com/romshark/datapages/runtime/hrefcheck"
 )
 
 func TestIsAllowedNonRelativeHref(t *testing.T) {

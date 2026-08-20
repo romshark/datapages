@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -23,6 +22,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
+	"github.com/romshark/datapages/runtime/httpread"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/internal/acceptance/routing/app"
@@ -234,35 +234,6 @@ func writeSignalString(w http.ResponseWriter, s string) {
 // writeSignalValue writes a number or boolean inside a data-signals attribute.
 func writeSignalValue(w http.ResponseWriter, s string) {
 	_, _ = io.WriteString(w, html.EscapeString(s))
-}
-
-// queryLookup returns the first value of key in rawQuery.
-// It reads what url.URL.Query parses: pairs are separated by "&",
-// a pair carrying ";" is skipped, and both sides are query-unescaped.
-func queryLookup(rawQuery, key string) (value string, ok bool) {
-	for rawQuery != "" {
-		var pair string
-		pair, rawQuery, _ = strings.Cut(rawQuery, "&")
-		if pair == "" || strings.Contains(pair, ";") {
-			continue
-		}
-		name, value, _ := strings.Cut(pair, "=")
-		name, err := url.QueryUnescape(name)
-		if err != nil || name != key {
-			continue
-		}
-		value, err = url.QueryUnescape(value)
-		if err != nil {
-			continue
-		}
-		return value, true
-	}
-	return "", false
-}
-
-func queryValue(rawQuery, key string) string {
-	v, _ := queryLookup(rawQuery, key)
-	return v
 }
 
 func (s *Server) writeHTML(
@@ -666,9 +637,9 @@ func (s *Server) handlePageMixedGET(w http.ResponseWriter, r *http.Request) {
 		Tab  string `query:"tab"`
 		Page int    `query:"page"`
 	}]
-	query.Values.Tab = queryValue(r.URL.RawQuery, "tab")
+	query.Values.Tab = httpread.QueryValue(r.URL.RawQuery, "tab")
 	{
-		if q := queryValue(r.URL.RawQuery, "page"); q != "" {
+		if q := httpread.QueryValue(r.URL.RawQuery, "page"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: page", err)
@@ -793,9 +764,9 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 		Deep  int64   `query:"deep"`
 		Flag  bool    `query:"flag"`
 	}]
-	query.Values.Term = queryValue(r.URL.RawQuery, "term")
+	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "term")
 	{
-		if q := queryValue(r.URL.RawQuery, "limit"); q != "" {
+		if q := httpread.QueryValue(r.URL.RawQuery, "limit"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: limit", err)
@@ -805,7 +776,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	{
-		if q := queryValue(r.URL.RawQuery, "ratio"); q != "" {
+		if q := httpread.QueryValue(r.URL.RawQuery, "ratio"); q != "" {
 			f, err := strconv.ParseFloat(q, 32)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: ratio", err)
@@ -815,7 +786,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	{
-		if q := queryValue(r.URL.RawQuery, "score"); q != "" {
+		if q := httpread.QueryValue(r.URL.RawQuery, "score"); q != "" {
 			f, err := strconv.ParseFloat(q, 64)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: score", err)
@@ -825,7 +796,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	{
-		if q := queryValue(r.URL.RawQuery, "big"); q != "" {
+		if q := httpread.QueryValue(r.URL.RawQuery, "big"); q != "" {
 			u, err := strconv.ParseUint(q, 10, 32)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: big", err)
@@ -835,7 +806,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	{
-		if q := queryValue(r.URL.RawQuery, "deep"); q != "" {
+		if q := httpread.QueryValue(r.URL.RawQuery, "deep"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 64)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: deep", err)
@@ -845,7 +816,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	{
-		if q := queryValue(r.URL.RawQuery, "flag"); q != "" {
+		if q := httpread.QueryValue(r.URL.RawQuery, "flag"); q != "" {
 			b, err := strconv.ParseBool(q)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: flag", err)
@@ -882,9 +853,9 @@ func (s *Server) handlePageReflectGET(w http.ResponseWriter, r *http.Request) {
 		Term string `query:"t" reflectsignal:"term"`
 		Page int    `query:"p" reflectsignal:"page"`
 	}]
-	query.Values.Term = queryValue(r.URL.RawQuery, "t")
+	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "t")
 	{
-		if q := queryValue(r.URL.RawQuery, "p"); q != "" {
+		if q := httpread.QueryValue(r.URL.RawQuery, "p"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: p", err)

@@ -9,7 +9,6 @@ package inmem
 import (
 	"context"
 	"errors"
-	"net/http"
 	"sync"
 
 	"github.com/romshark/datapages/modules/sessmanager"
@@ -54,22 +53,22 @@ func New[Data any](tokenGen sessmanager.TokenGenerator) *SessionManager[Data] {
 
 // ReadSessionFromCookie returns the record associated with the cookie value.
 // The cookie value is the raw session token.
-func (m *SessionManager[Data]) ReadSessionFromCookie(c *http.Cookie) (
+func (m *SessionManager[Data]) ReadSessionFromCookie(cookieValue string) (
 	rec sessmanager.Record[Data], token string, ok bool, err error,
 ) {
-	if c == nil || c.Value == "" {
+	if cookieValue == "" {
 		return rec, "", false, nil
 	}
 
 	m.lock.Lock()
-	e, exists := m.sessions[c.Value]
+	e, exists := m.sessions[cookieValue]
 	m.lock.Unlock()
 
 	if !exists {
 		return rec, "", false, nil
 	}
 
-	return e.rec, c.Value, true, nil
+	return e.rec, cookieValue, true, nil
 }
 
 // CreateSession stores a new session and returns a token to be used as a cookie value.

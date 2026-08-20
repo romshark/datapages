@@ -24,7 +24,7 @@ func handlerArgVar(kind string, skipSSE bool) string {
 			return ""
 		}
 		// Handlers receive datapages.SSE, never the raw Datastar generator.
-		return "newSSE(sse)"
+		return "dpsse.New(sse)"
 	case model.InputKindSession:
 		return "sess"
 	case model.InputKindPath:
@@ -168,7 +168,7 @@ func handlerInputArgs(
 		args = append(args, "streamID")
 	}
 	if h.InputSSE != nil && !skipSSE {
-		args = append(args, "newSSE(sse)")
+		args = append(args, "dpsse.New(sse)")
 	}
 	if h.InputSession != nil {
 		args = append(args, "sess")
@@ -220,7 +220,7 @@ func eventHandlerInputArgs(eh *model.EventHandler, eventVar string) []string {
 		args = append(args, eventVar)
 	}
 	if eh.InputSSE != nil {
-		args = append(args, "newSSE(sse)")
+		args = append(args, "dpsse.New(sse)")
 	}
 	if eh.InputStreamID != nil {
 		args = append(args, "streamID")
@@ -293,7 +293,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		w.Raw("\tvar signals ")
 		w.Raw(renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, `if queryHas(r.URL.RawQuery, "datastar") {`)
+		w.Line(1, `if httpread.QueryHas(r.URL.RawQuery, "datastar") {`)
 		w.Line(2, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(3, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(3, "return")
@@ -1501,14 +1501,14 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 			w.Raw(f.Name)
 			w.Raw(" = ")
 			w.writeStringConv(f.Type, func() {
-				w.Raw("queryValue(r.URL.RawQuery, ")
+				w.Raw("httpread.QueryValue(r.URL.RawQuery, ")
 				w.writeQuoted(tag)
 				w.Raw(")")
 			})
 			w.Byte('\n')
 		} else {
 			w.Line(1, "{")
-			w.Raw("\t\tif q := queryValue(r.URL.RawQuery, ")
+			w.Raw("\t\tif q := httpread.QueryValue(r.URL.RawQuery, ")
 			w.writeQuoted(tag)
 			w.Raw("); q != \"\" {\n")
 			w.writeParseField(varQuery, "q", f, tag, "query parameter", 3)

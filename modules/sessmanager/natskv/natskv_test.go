@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"maps"
-	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -73,10 +72,10 @@ func (m payloadManager) CreateSession(
 	)
 }
 
-func (m payloadManager) ReadSessionFromCookie(c *http.Cookie) (
+func (m payloadManager) ReadSessionFromCookie(cookieValue string) (
 	session testSession, token, userID string, ok bool, err error,
 ) {
-	rec, token, ok, err := m.SessionManager.ReadSessionFromCookie(c)
+	rec, token, ok, err := m.SessionManager.ReadSessionFromCookie(cookieValue)
 	return rec.Data, token, rec.UserID, ok, err
 }
 
@@ -340,28 +339,25 @@ func TestReadSessionFromCookie(t *testing.T) {
 	require.NoError(t, sm.CloseSession(ctx, staleTok))
 
 	tests := map[string]struct {
-		cookie  *http.Cookie
+		cookie  string
 		wantOK  bool
 		wantUID string
 	}{
-		"nil cookie": {
-			cookie: nil, wantOK: false,
-		},
 		"empty value": {
-			cookie: &http.Cookie{Value: ""}, wantOK: false,
+			cookie: "", wantOK: false,
 		},
 		"invalid base64": {
-			cookie: &http.Cookie{Value: "!!!bad!!!"}, wantOK: false,
+			cookie: "!!!bad!!!", wantOK: false,
 		},
 		"wrong encryption key": {
-			cookie: &http.Cookie{Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+			cookie: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 			wantOK: false,
 		},
 		"stale session": {
-			cookie: &http.Cookie{Value: staleTok}, wantOK: false,
+			cookie: staleTok, wantOK: false,
 		},
 		"valid session": {
-			cookie: &http.Cookie{Value: token}, wantOK: true, wantUID: "carol",
+			cookie: token, wantOK: true, wantUID: "carol",
 		},
 	}
 	for name, tc := range tests {
@@ -401,7 +397,7 @@ func TestReadSessionFromCookieBadJSON(t *testing.T) {
 	_, err = kv.Put(keys[0], []byte("not-json"))
 	require.NoError(t, err)
 
-	_, _, _, ok, err := sm.ReadSessionFromCookie(&http.Cookie{Value: token})
+	_, _, _, ok, err := sm.ReadSessionFromCookie(token)
 	require.NoError(t, err)
 	require.False(t, ok)
 }
@@ -464,7 +460,7 @@ func TestCloseSession(t *testing.T) {
 				// Verify session is gone.
 				_, err = sm.Session(ctx, token)
 				require.ErrorIs(t, err, natskv.ErrSessionNotFound)
-				_, _, _, ok, err := sm.ReadSessionFromCookie(&http.Cookie{Value: token})
+				_, _, _, ok, err := sm.ReadSessionFromCookie(token)
 				require.NoError(t, err)
 				require.False(t, ok)
 			}
@@ -690,7 +686,7 @@ func TestKeyRotation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "alice", sess.Username)
 
-	cookie := &http.Cookie{Value: token}
+	cookie := token
 	sess, _, uid, ok, err := smNew.ReadSessionFromCookie(cookie)
 	require.NoError(t, err)
 	require.True(t, ok)

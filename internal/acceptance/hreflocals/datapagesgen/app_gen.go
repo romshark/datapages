@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -22,6 +21,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
+	"github.com/romshark/datapages/runtime/httpread"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/internal/acceptance/hreflocals/app"
@@ -214,35 +214,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
-}
-
-// queryLookup returns the first value of key in rawQuery.
-// It reads what url.URL.Query parses: pairs are separated by "&",
-// a pair carrying ";" is skipped, and both sides are query-unescaped.
-func queryLookup(rawQuery, key string) (value string, ok bool) {
-	for rawQuery != "" {
-		var pair string
-		pair, rawQuery, _ = strings.Cut(rawQuery, "&")
-		if pair == "" || strings.Contains(pair, ";") {
-			continue
-		}
-		name, value, _ := strings.Cut(pair, "=")
-		name, err := url.QueryUnescape(name)
-		if err != nil || name != key {
-			continue
-		}
-		value, err = url.QueryUnescape(value)
-		if err != nil {
-			continue
-		}
-		return value, true
-	}
-	return "", false
-}
-
-func queryValue(rawQuery, key string) string {
-	v, _ := queryLookup(rawQuery, key)
-	return v
 }
 
 func (s *Server) writeHTML(
@@ -492,9 +463,9 @@ func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
 		AnyQuery string `query:"anyQuery"`
 		Page     int    `query:"page"`
 	}]
-	query.Values.AnyQuery = queryValue(r.URL.RawQuery, "anyQuery")
+	query.Values.AnyQuery = httpread.QueryValue(r.URL.RawQuery, "anyQuery")
 	{
-		if q := queryValue(r.URL.RawQuery, "page"); q != "" {
+		if q := httpread.QueryValue(r.URL.RawQuery, "page"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: page", err)

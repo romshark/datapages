@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -24,6 +23,7 @@ import (
 	"github.com/romshark/datapages/modules/msgbroker"
 	"github.com/romshark/datapages/modules/sessmanager"
 	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/runtime/httpread"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/internal/acceptance/getsignals/app"
@@ -235,35 +235,6 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 		return false
 	}
 	return true
-}
-
-// queryLookup returns the first value of key in rawQuery.
-// It reads what url.URL.Query parses: pairs are separated by "&",
-// a pair carrying ";" is skipped, and both sides are query-unescaped.
-func queryLookup(rawQuery, key string) (value string, ok bool) {
-	for rawQuery != "" {
-		var pair string
-		pair, rawQuery, _ = strings.Cut(rawQuery, "&")
-		if pair == "" || strings.Contains(pair, ";") {
-			continue
-		}
-		name, value, _ := strings.Cut(pair, "=")
-		name, err := url.QueryUnescape(name)
-		if err != nil || name != key {
-			continue
-		}
-		value, err = url.QueryUnescape(value)
-		if err != nil {
-			continue
-		}
-		return value, true
-	}
-	return "", false
-}
-
-func queryHas(rawQuery, key string) bool {
-	_, ok := queryLookup(rawQuery, key)
-	return ok
 }
 
 func (s *Server) checkCSRF(
@@ -573,6 +544,11 @@ func WithAuth(o AuthConfig) ServerOption {
 		if o.TokenCookie.Name == "" {
 			o.TokenCookie.Name = DefaultAuthSessionCookieName
 		}
+		if !httpread.IsCookieName(o.TokenCookie.Name) {
+			return fmt.Errorf(
+				"WithAuth: invalid cookie name: %q", o.TokenCookie.Name,
+			)
+		}
 		s.authConf = &o
 		s.sessionTokenGenerator = o.SessionTokenGenerator
 		return nil
@@ -628,15 +604,12 @@ func (s *Server) closeSession(
 func (s *Server) auth(
 	w http.ResponseWriter, r *http.Request,
 ) (sess datapages.Session[struct{}], token string, ok bool) {
-	c, err := r.Cookie(s.authConf.TokenCookie.Name)
-	if err != nil {
-		if errors.Is(err, http.ErrNoCookie) {
-			return sess, "", true
-		}
-		return sess, "", false
+	cookieVal, found := httpread.CookieValue(r, s.authConf.TokenCookie.Name)
+	if !found {
+		return sess, "", true
 	}
 
-	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(c)
+	rec, token, ok, err := s.sessionManager.ReadSessionFromCookie(cookieVal)
 	if err != nil {
 		// Transient backend failure; keep the cookie, fail the request.
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
@@ -739,7 +712,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		Term string `json:"term"`
 		Page int    `json:"page"`
 	}]
-	if queryHas(r.URL.RawQuery, "datastar") {
+	if httpread.QueryHas(r.URL.RawQuery, "datastar") {
 		if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 			s.httpErrBad(w, "reading signals", err)
 			return

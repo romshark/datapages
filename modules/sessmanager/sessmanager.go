@@ -2,7 +2,6 @@ package sessmanager
 
 import (
 	"context"
-	"net/http"
 	"time"
 )
 
@@ -32,12 +31,13 @@ type Record[Data any] struct {
 }
 
 type SessionManager[Data any] interface {
-	// ReadSessionFromCookie returns the stored record and the raw authentication token.
-	// Returns ok=false, err=nil if the cookie is absent, malformed,
+	// ReadSessionFromCookie returns the stored record and the raw authentication
+	// token for the value of the session cookie.
+	// Returns ok=false, err=nil if the value is empty, malformed,
 	// or the session no longer exists; the caller should remove the cookie.
 	// Returns (ok=false,err!=nil) on transient backend failures,
 	// in which case the caller should keep the cookie and fail the request.
-	ReadSessionFromCookie(c *http.Cookie) (
+	ReadSessionFromCookie(cookieValue string) (
 		rec Record[Data], token string, ok bool, err error,
 	)
 

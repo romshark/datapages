@@ -21,6 +21,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/internal/acceptance/events/app"
@@ -228,101 +229,6 @@ func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) 
 		return false
 	}
 	return true
-}
-
-// newSSE wraps a Datastar generator as a datapages.SSE.
-func newSSE(gen *datastar.ServerSentEventGenerator) datapages.SSE {
-	return sseWrapper{gen: gen}
-}
-
-type sseWrapper struct {
-	gen *datastar.ServerSentEventGenerator
-}
-
-func (s sseWrapper) Context() context.Context { return s.gen.Context() }
-
-func (s sseWrapper) PatchElement(c datapages.Component) error {
-	return s.gen.PatchElementTempl(c)
-}
-
-func (s sseWrapper) PatchElementAt(
-	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
-) error {
-	switch mode {
-	case datapages.PatchModeOuter, datapages.PatchModeInner,
-		datapages.PatchModeReplace, datapages.PatchModePrepend,
-		datapages.PatchModeAppend, datapages.PatchModeBefore,
-		datapages.PatchModeAfter:
-	default:
-		mode = "" // Not a PatchMode constant, patch in the default mode.
-	}
-	switch {
-	case selectorCSS == "" && mode == "":
-		return s.gen.PatchElementTempl(c)
-	case mode == "":
-		return s.gen.PatchElementTempl(c, datastar.WithSelector(selectorCSS))
-	case selectorCSS == "":
-		return s.gen.PatchElementTempl(
-			c, datastar.WithMode(datastar.ElementPatchMode(mode)),
-		)
-	}
-	return s.gen.PatchElementTempl(c,
-		datastar.WithSelector(selectorCSS),
-		datastar.WithMode(datastar.ElementPatchMode(mode)))
-}
-
-// removeElementModeDataline is the mode line of a removal event.
-const removeElementModeDataline = datastar.ModeDatalineLiteral +
-	string(datastar.ElementPatchModeRemove)
-
-func (s sseWrapper) RemoveElement(selectorCSS string) error {
-	return s.gen.Send(datastar.EventTypePatchElements, []string{
-		datastar.SelectorDatalineLiteral + selectorCSS,
-		removeElementModeDataline,
-	})
-}
-
-func (s sseWrapper) ExecuteScript(script string) error {
-	return s.gen.ExecuteScript(script)
-}
-
-func (s sseWrapper) PatchSignals(v any) error {
-	j, err := marshalSignals(v)
-	if err != nil {
-		return err
-	}
-	return s.gen.PatchSignals(j)
-}
-
-func (s sseWrapper) PatchSignalsIfMissing(v any) error {
-	j, err := marshalSignals(v)
-	if err != nil {
-		return err
-	}
-	return s.gen.PatchSignals(j, datastar.WithOnlyIfMissing(true))
-}
-
-// marshalSignals encodes v as JSON. A json.RawMessage passes through.
-func marshalSignals(v any) ([]byte, error) {
-	if raw, ok := v.(json.RawMessage); ok {
-		if !json.Valid(raw) {
-			return nil, errors.New("signals are not valid JSON")
-		}
-		return raw, nil
-	}
-	j, err := json.Marshal(v)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling signals JSON: %w", err)
-	}
-	return j, nil
-}
-
-func (s sseWrapper) Redirect(target string) error {
-	return s.gen.Redirect(target)
-}
-
-func (s sseWrapper) Prefetch(urls ...string) error {
-	return s.gen.Prefetch(urls...)
 }
 
 func isSubjectToken(v string) bool {
@@ -708,7 +614,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.logErr("unmarshaling EventStreamGone JSON", err)
 						continue
 					}
-					if err := p.OnStreamGone(eventStreamGone, newSSE(sse)); err != nil {
+					if err := p.OnStreamGone(eventStreamGone, dpsse.New(sse)); err != nil {
 						s.logErr("handling PageIndex.OnStreamGone", err)
 					}
 				case EvSubjPong:
@@ -717,7 +623,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.logErr("unmarshaling EventPong JSON", err)
 						continue
 					}
-					if err := p.OnPong(eventPong, newSSE(sse)); err != nil {
+					if err := p.OnPong(eventPong, dpsse.New(sse)); err != nil {
 						s.logErr("handling PageIndex.OnPong", err)
 					}
 				case EvSubjTick:
@@ -726,7 +632,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.logErr("unmarshaling EventTick JSON", err)
 						continue
 					}
-					if err := p.OnTick(eventTick, newSSE(sse), streamID); err != nil {
+					if err := p.OnTick(eventTick, dpsse.New(sse), streamID); err != nil {
 						s.logErr("handling PageIndex.OnTick", err)
 					}
 				case EvSubjNote:
@@ -735,7 +641,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.logErr("unmarshaling EventNote JSON", err)
 						continue
 					}
-					if err := p.OnNote(eventNote, newSSE(sse)); err != nil {
+					if err := p.OnNote(eventNote, dpsse.New(sse)); err != nil {
 						s.logErr("handling PageIndex.OnNote", err)
 					}
 				}
@@ -928,7 +834,7 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 						s.logErr("unmarshaling EventTick JSON", err)
 						continue
 					}
-					if err := p.OnTick(eventTick, newSSE(sse)); err != nil {
+					if err := p.OnTick(eventTick, dpsse.New(sse)); err != nil {
 						s.logErr("handling PageOther.OnTick", err)
 					}
 				}
@@ -1001,7 +907,7 @@ func (s *Server) handlePageRoomGETStream(w http.ResponseWriter, r *http.Request)
 						s.logErr("unmarshaling EventRoomSaid JSON", err)
 						continue
 					}
-					if err := p.OnRoomSaid(eventRoomSaid, newSSE(sse)); err != nil {
+					if err := p.OnRoomSaid(eventRoomSaid, dpsse.New(sse)); err != nil {
 						s.logErr("handling PageRoom.OnRoomSaid", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefRoomBroadcast):
@@ -1010,7 +916,7 @@ func (s *Server) handlePageRoomGETStream(w http.ResponseWriter, r *http.Request)
 						s.logErr("unmarshaling EventRoomBroadcast JSON", err)
 						continue
 					}
-					if err := p.OnRoomBroadcast(eventRoomBroadcast, newSSE(sse)); err != nil {
+					if err := p.OnRoomBroadcast(eventRoomBroadcast, dpsse.New(sse)); err != nil {
 						s.logErr("handling PageRoom.OnRoomBroadcast", err)
 					}
 				}

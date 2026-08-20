@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -22,6 +21,7 @@ import (
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/msgbroker"
+	"github.com/romshark/datapages/runtime/httpread"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages/internal/acceptance/getoptions/app"
@@ -248,35 +248,6 @@ func httpRedirect(
 
 	http.Redirect(w, r, redirect.URL, status)
 	return true
-}
-
-// queryLookup returns the first value of key in rawQuery.
-// It reads what url.URL.Query parses: pairs are separated by "&",
-// a pair carrying ";" is skipped, and both sides are query-unescaped.
-func queryLookup(rawQuery, key string) (value string, ok bool) {
-	for rawQuery != "" {
-		var pair string
-		pair, rawQuery, _ = strings.Cut(rawQuery, "&")
-		if pair == "" || strings.Contains(pair, ";") {
-			continue
-		}
-		name, value, _ := strings.Cut(pair, "=")
-		name, err := url.QueryUnescape(name)
-		if err != nil || name != key {
-			continue
-		}
-		value, err = url.QueryUnescape(value)
-		if err != nil {
-			continue
-		}
-		return value, true
-	}
-	return "", false
-}
-
-func queryValue(rawQuery, key string) string {
-	v, _ := queryLookup(rawQuery, key)
-	return v
 }
 
 func (s *Server) writeHTML(
@@ -545,7 +516,7 @@ func (s *Server) handlePageMaybeGET(w http.ResponseWriter, r *http.Request) {
 		Go bool `query:"go"`
 	}]
 	{
-		if q := queryValue(r.URL.RawQuery, "go"); q != "" {
+		if q := httpread.QueryValue(r.URL.RawQuery, "go"); q != "" {
 			b, err := strconv.ParseBool(q)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: go", err)
