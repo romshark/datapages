@@ -548,7 +548,8 @@ func (s *Server) writeHTML(
 	} else {
 		w.Raw(`	`)
 	}
-	w.Raw(`head, body datapages.Component,
+	w.Raw(`head datapages.Head,
+	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {

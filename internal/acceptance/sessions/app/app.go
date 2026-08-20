@@ -64,7 +64,7 @@ type EventBroadcast struct {
 
 // Head is the shared head. It is given the session and can therefore differ
 // for a signed-in visitor.
-func (a *App) Head(_ *http.Request, session Session) datapages.Component {
+func (a *App) Head(_ *http.Request, session Session) datapages.Head {
 	if session.IsGuest() {
 		return templ.Raw(`<title>anonymous</title>`)
 	}

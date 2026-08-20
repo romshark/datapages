@@ -20,7 +20,7 @@ type App struct{}
 // gives the pages below a second, anonymous stream route.
 type Session = datapages.Session[struct{}]
 
-func (a *App) Head(_ *http.Request) datapages.Component {
+func (a *App) Head(_ *http.Request) datapages.Head {
 	return templ.Raw(`<title>anonstreams</title>`)
 }
 

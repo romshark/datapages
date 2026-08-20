@@ -39,7 +39,7 @@ func echo(s string) datapages.Component {
 }
 
 // Head is the head every page and every rendering action shares.
-func (a *App) Head(_ *http.Request) datapages.Component {
+func (a *App) Head(_ *http.Request) datapages.Head {
 	return templ.Raw(`<title>actions</title>`)
 }
 

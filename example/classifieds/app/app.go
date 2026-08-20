@@ -99,7 +99,7 @@ func (*App) RecoverError(
 }
 
 // Page render funcs
-func (*App) Head(r *http.Request) datapages.Component {
+func (*App) Head(r *http.Request) datapages.Head {
 	return head()
 }
 

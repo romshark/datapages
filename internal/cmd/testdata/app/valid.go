@@ -8,7 +8,7 @@ import (
 
 type App struct{}
 
-func (*App) Head(r *http.Request) datapages.Component {
+func (*App) Head(r *http.Request) datapages.Head {
 	return nil
 }
 

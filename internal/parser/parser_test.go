@@ -1416,7 +1416,7 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrAppHeadMustTakeRequest, "app.go", 20, 13},
 		},
 		"err_head_return": {
-			{parser.ErrAppHeadMustReturnTemplComponent, "app.go", 20, 13},
+			{parser.ErrAppHeadMustReturnHead, "app.go", 20, 13},
 		},
 		"err_head_unsupported": {
 			{parser.ErrAppHeadUnsupportedInput, "app.go", 20, 13},

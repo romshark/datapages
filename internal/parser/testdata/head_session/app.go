@@ -11,7 +11,7 @@ type Session = datapages.Session[struct{}]
 
 type App struct{}
 
-func (*App) Head(r *http.Request, session Session) datapages.Component { return nil }
+func (*App) Head(r *http.Request, session Session) datapages.Head { return nil }
 
 // PageIndex is /
 type PageIndex struct{ App *App }

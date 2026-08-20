@@ -12,7 +12,7 @@ import (
 
 type App struct{}
 
-func (a *App) Head(_ *http.Request) datapages.Component {
+func (a *App) Head(_ *http.Request) datapages.Head {
 	return templ.Raw(`<title>global</title>`)
 }
 

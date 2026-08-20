@@ -167,7 +167,7 @@ Return values are matched by their type, the names below are conventional.
 
 ```go
 body datapages.Component // always first
-head datapages.Head // optional, wrap the template: datapages.Head{Component: ...}
+head datapages.Head // optional
 redirect datapages.Redirect // optional
 newSession datapages.NewSession[Data] // optional
 closeSession datapages.CloseSession // optional
@@ -642,7 +642,7 @@ Adds shared `<head>` content (meta tags, stylesheets, scripts) to every page, so
 func (*App) Head(
 	r *http.Request,
 	session Session, // optional
-) datapages.Component {
+) datapages.Head {
 	return globalHead()
 }
 ```

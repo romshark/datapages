@@ -15,7 +15,7 @@ type EventPing struct {
 	Data string `json:"data"`
 }
 
-func (*App) Head(r *http.Request, session Session) datapages.Component {
+func (*App) Head(r *http.Request, session Session) datapages.Head {
 	_ = session
 	return nil
 }

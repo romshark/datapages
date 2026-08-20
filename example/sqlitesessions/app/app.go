@@ -36,7 +36,7 @@ func NewApp(users *userstore.Store) *App {
 	return &App{users: users}
 }
 
-func (*App) Head(r *http.Request) datapages.Component { return head() }
+func (*App) Head(r *http.Request) datapages.Head { return head() }
 
 // POSTSignOut is /signout/{$}
 //

@@ -12,7 +12,7 @@ var StaticFS embed.FS
 
 type App struct{}
 
-func (*App) Head(r *http.Request) datapages.Component { return head() }
+func (*App) Head(r *http.Request) datapages.Head { return head() }
 
 // PageIndex is /
 type PageIndex struct{ App *App }

@@ -17,4 +17,4 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 
 /* ErrAppHeadUnsupportedInput */
 
-func (*App) Head(r *http.Request, foo int) datapages.Component { return nil }
+func (*App) Head(r *http.Request, foo int) datapages.Head { return nil }

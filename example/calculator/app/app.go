@@ -75,7 +75,7 @@ func (a *App) verifyID(id string) error {
 	return nil
 }
 
-func (*App) Head(_ *http.Request) datapages.Component { return head() }
+func (*App) Head(_ *http.Request) datapages.Head { return head() }
 
 // PageIndex is /
 type PageIndex struct{ App *App }

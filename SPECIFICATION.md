@@ -13,7 +13,7 @@ The `App` type may optionally provide a method for custom global HTML `<head>` t
 func (*App) Head(
 	r *http.Request,
 	session datapages.Session[Data], // Optional
-) datapages.Component {
+) datapages.Head {
 	return globalHeadTags()
 }
 ```
@@ -795,7 +795,8 @@ Specifies the [Templ](https://templ.guide/) template to use for the contents of 
 #### Return Value: `head datapages.Head`
 
 Specifies the [Templ](https://templ.guide/) template to use for `<head>` tag of the page.
-Wrap the template in `datapages.Head{Component: ...}`.
+`datapages.Head` is `datapages.Component` under another name, which is what
+tells the head apart from the body.
 Return values are recognized by their type, their names are up to the application.
 
 #### Return Value: `redirect datapages.Redirect`

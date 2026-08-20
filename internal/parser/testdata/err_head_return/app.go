@@ -15,6 +15,6 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
 
-/* ErrAppHeadMustReturnTemplComponent */
+/* ErrAppHeadMustReturnHead */
 
 func (*App) Head(r *http.Request) (datapages.Component, error) { return nil, nil }

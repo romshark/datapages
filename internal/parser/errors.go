@@ -45,8 +45,8 @@ var (
 	ErrAppHeadMustTakeRequest = errors.New(
 		"head must accept *http.Request as first parameter",
 	)
-	ErrAppHeadMustReturnTemplComponent = errors.New(
-		"head must return exactly datapages.Component",
+	ErrAppHeadMustReturnHead = errors.New(
+		"head must return exactly datapages.Head",
 	)
 	ErrAppHeadUnsupportedInput = errors.New("head has unsupported input parameter")
 

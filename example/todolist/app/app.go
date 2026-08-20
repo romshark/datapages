@@ -45,7 +45,7 @@ func NewApp(hmacKey [32]byte, list *list.List) *App {
 	}
 }
 
-func (*App) Head(r *http.Request) datapages.Component { return head() }
+func (*App) Head(r *http.Request) datapages.Head { return head() }
 
 // PUTEdit is /{id}
 //

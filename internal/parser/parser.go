@@ -601,11 +601,11 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 					info := ctx.pkg.TypesInfo
 					pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
-					// Head must return exactly templ.Component.
+					// Head must return exactly datapages.Head.
 					results := fd.Type.Results
 					if results == nil || results.NumFields() != 1 ||
-						!typecheck.IsComponent(info.TypeOf(results.List[0].Type)) {
-						errs.ErrAt(pos, ErrAppHeadMustReturnTemplComponent)
+						!typecheck.IsHeadType(results.List[0].Type, info) {
+						errs.ErrAt(pos, ErrAppHeadMustReturnHead)
 						continue
 					}
 

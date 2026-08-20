@@ -22,7 +22,7 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 	return body, fmt.Errorf("unknown page variant")
 }
 
-func (*App) Head(r *http.Request) datapages.Component {
+func (*App) Head(r *http.Request) datapages.Head {
 	return nil
 }
 
