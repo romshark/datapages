@@ -145,6 +145,22 @@ func TestStreamCloseDispatches(t *testing.T) {
 		"the event dispatched from StreamClose never arrived")
 }
 
+// TestEventDecodeIsNotCarriedOver covers a field the JSON of the second event
+// leaves out. The stream must show it empty, not what the first event carried.
+func TestEventDecodeIsNotCarriedOver(t *testing.T) {
+	c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+
+	s := c.OpenStream(t, "/_$/", nil)
+
+	postOK(t, c, "/note/", `{"text":"first"}`)
+	require.True(t, s.Saw(`<div id="note">note=first</div>`),
+		"the first note never arrived")
+
+	postOK(t, c, "/note/", `{"text":""}`)
+	require.True(t, s.Saw(`<div id="note">note=</div>`),
+		"the empty note kept the text of the one before it")
+}
+
 // TestDispatchCtx covers Dispatcher.DispatchCtx.
 // The action dispatches with a context that is already done.
 // A broker that honors the context refuses to publish and the action fails.

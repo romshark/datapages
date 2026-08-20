@@ -182,8 +182,6 @@ func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	handler := http.Handler(s.mux)
-
 	// Normalize trailing slashes: ensure all paths end with /
 	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
 		r.URL.Path = p + "/"
@@ -192,11 +190,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for _, h := range s.middleware {
-		handler = h(handler)
-	}
-
-	handler.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 
 // Shutdown gracefully shuts down all server components.
@@ -227,8 +221,7 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="`+s.datastarJSSrc+`"></script>`)
+	_, err := io.WriteString(w, s.htmlPrefix)
 	if err != nil {
 		return err
 	}
@@ -276,7 +269,9 @@ type Server struct {
 	mux                  *http.ServeMux
 	logger               *slog.Logger
 	middleware           []func(http.Handler) http.Handler
+	handler              http.Handler
 	datastarJSSrc        string
+	htmlPrefix           string
 	enabledTLS           bool
 }
 
@@ -326,6 +321,8 @@ func NewServer(
 	if s.datastarJSSrc == "" {
 		s.datastarJSSrc = DefaultDatastarJSSrc
 	}
+	s.htmlPrefix = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+		<script type="module" src="` + s.datastarJSSrc + `"></script>`
 	if s.logger == nil {
 		opt := &slog.HandlerOptions{
 			Level: slog.LevelInfo,
@@ -353,6 +350,11 @@ func NewServer(
 	}
 
 	setupHandlers(s)
+
+	s.handler = http.Handler(s.mux)
+	for _, h := range s.middleware {
+		s.handler = h(s.handler)
+	}
 
 	return s
 }

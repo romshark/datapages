@@ -2,6 +2,7 @@ package generator
 
 import (
 	"go/types"
+	"slices"
 	"strings"
 
 	"github.com/romshark/datapages/internal/gotypes"
@@ -199,11 +200,15 @@ func dispatchArgVar(h *model.Handler, inp *model.Input, prefix string) string {
 
 // eventHandlerInputArgs builds the argument list for an event handler call
 // in the order defined by eh.OrderedInputs.
-func eventHandlerInputArgs(eh *model.EventHandler) []string {
+func eventHandlerInputArgs(eh *model.EventHandler, eventVar string) []string {
 	if len(eh.OrderedInputs) > 0 {
 		args := make([]string, 0, len(eh.OrderedInputs))
 		for _, inp := range eh.OrderedInputs {
-			if v := handlerArgVar(inp.Kind, false); v != "" {
+			v := handlerArgVar(inp.Kind, false)
+			if inp.Kind == model.InputKindEvent {
+				v = eventVar
+			}
+			if v != "" {
 				args = append(args, v)
 			}
 		}
@@ -212,7 +217,7 @@ func eventHandlerInputArgs(eh *model.EventHandler) []string {
 	// Fallback for manually constructed EventHandler (e.g. in tests).
 	var args []string
 	if eh.InputEvent != nil {
-		args = append(args, "e")
+		args = append(args, eventVar)
 	}
 	if eh.InputSSE != nil {
 		args = append(args, "newSSE(sse)")
@@ -288,7 +293,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		w.Raw("\tvar signals ")
 		w.Raw(renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
-		w.Line(1, `if r.URL.Query().Has("datastar") {`)
+		w.Line(1, `if queryHas(r.URL.RawQuery, "datastar") {`)
 		w.Line(2, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(3, `s.httpErrBad(w, "reading signals", err)`)
 		w.Line(3, "return")
@@ -960,7 +965,7 @@ func (w *Writer) writePageGETStreamHandler(
 		}
 		w.Raw("),\n")
 	} else {
-		w.Raw("(),\n")
+		w.Raw(",\n")
 	}
 	w.writePageStreamOpenHook(p)
 	w.writePageStreamCloseHook(p)
@@ -972,6 +977,7 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Line(2, "for range ch {")
 		w.Line(2, "}")
 	} else {
+		w.writeStreamEventVars(p.EventHandlers, appPkg)
 		w.Line(2, "for msg := range ch {")
 		// An event matched by prefix cannot be compared against: its constant
 		// is the pattern the stream subscribed by, and a message carries the values.
@@ -1005,6 +1011,28 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Line(0, "}")
 }
 
+// writeStreamEventVars declares the event of every case of the message loop.
+// One declaration per stream keeps the decode of every message off the heap.
+func (w *Writer) writeStreamEventVars(
+	handlers []*model.EventHandler, appPkg string,
+) {
+	var declared []string
+	for _, eh := range handlers {
+		ev := w.eventMap[eh.EventTypeName]
+		if ev == nil || slices.Contains(declared, ev.TypeName) {
+			continue
+		}
+		declared = append(declared, ev.TypeName)
+		w.Raw("\t\tvar ")
+		w.Raw(eventVarName(ev.TypeName))
+		w.Byte(' ')
+		w.Raw(appPkg)
+		w.Byte('.')
+		w.Raw(ev.TypeName)
+		w.Byte('\n')
+	}
+}
+
 func (w *Writer) writeStreamEventCase(
 	p *model.Page, eh *model.EventHandler, ev *model.Event,
 	appPkg string, tagged bool,
@@ -1025,26 +1053,30 @@ func (w *Writer) writeStreamEventCase(
 		w.Raw(":\n")
 	}
 
-	w.Raw("\t\t\t\tvar e ")
+	eventVar := eventVarName(ev.TypeName)
+	w.Byte('\t')
+	w.Raw("\t\t\t")
+	w.Raw(eventVar)
+	w.Raw(" = ")
 	w.Raw(appPkg)
 	w.Byte('.')
 	w.Raw(ev.TypeName)
-	w.Byte('\n')
-	w.Line(4, "if err := json.Unmarshal(msg.Data, &e); err != nil {")
+	w.Raw("{}\n")
+	w.Line(4, "if err := json.Unmarshal(msg.Data, &"+eventVar+"); err != nil {")
 	w.Raw("\t\t\t\t\ts.logErr(\"unmarshaling ")
 	w.Raw(ev.TypeName)
 	w.Raw(" JSON\", err)\n")
 	w.Line(5, "continue")
 	w.Line(4, "}")
 
-	w.writeEventHandlerCall(p.TypeName, eh, "p")
+	w.writeEventHandlerCall(p.TypeName, eh, "p", eventVar)
 }
 
 func (w *Writer) writeEventHandlerCall(
-	ownerLabel string, eh *model.EventHandler, receiver string,
+	ownerLabel string, eh *model.EventHandler, receiver, eventVar string,
 ) {
 	// Build args in user-defined order.
-	args := eventHandlerInputArgs(eh)
+	args := eventHandlerInputArgs(eh, eventVar)
 
 	methodName := "On" + eh.Name
 
@@ -1216,8 +1248,6 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")
 	w.Line(1, ") {")
-	w.Line(2, "for msg := range ch {")
-
 	// Only public events reach an anonymous stream.
 	var publicHandlers []*model.EventHandler
 	needsPrefixMatch := false
@@ -1231,6 +1261,9 @@ func (w *Writer) writePageGETStreamAnonHandler(
 			needsPrefixMatch = true
 		}
 	}
+
+	w.writeStreamEventVars(publicHandlers, appPkg)
+	w.Line(2, "for msg := range ch {")
 
 	// An event matched by prefix cannot be compared against: its constant is
 	// the pattern the stream subscribed by, and a message carries the values.
@@ -1457,7 +1490,6 @@ func (w *Writer) writeActionErrCheck(
 
 func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 	w.Line(0, "")
-	w.Line(1, "q := r.URL.Query()")
 	w.Raw("\tvar query ")
 	w.Raw(renderQueryType(input, m))
 	w.Byte('\n')
@@ -1469,14 +1501,14 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 			w.Raw(f.Name)
 			w.Raw(" = ")
 			w.writeStringConv(f.Type, func() {
-				w.Raw("q.Get(")
+				w.Raw("queryValue(r.URL.RawQuery, ")
 				w.writeQuoted(tag)
 				w.Raw(")")
 			})
 			w.Byte('\n')
 		} else {
 			w.Line(1, "{")
-			w.Raw("\t\tif q := q.Get(")
+			w.Raw("\t\tif q := queryValue(r.URL.RawQuery, ")
 			w.writeQuoted(tag)
 			w.Raw("); q != \"\" {\n")
 			w.writeParseField(varQuery, "q", f, tag, "query parameter", 3)

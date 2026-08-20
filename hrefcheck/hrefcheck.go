@@ -1,9 +1,6 @@
 package hrefcheck
 
-import (
-	"net/url"
-	"strings"
-)
+import "strings"
 
 // IsAllowedNonRelativeHref returns false for:
 //   - empty/whitespace
@@ -48,11 +45,31 @@ func IsAllowedNonRelativeHref(s string) bool {
 	}
 
 	// If it has an explicit URI scheme, allow it unless banned.
-	u, err := url.Parse(s)
-	if err == nil && u.Scheme != "" {
-		return !strings.EqualFold(u.Scheme, "javascript")
+	if scheme, ok := scheme(s); ok {
+		return !strings.EqualFold(scheme, "javascript")
 	}
 
 	// Everything else is a plain relative path.
 	return false
+}
+
+// scheme returns the RFC 3986 scheme s starts with.
+func scheme(s string) (string, bool) {
+	for i := range len(s) {
+		switch c := s[i]; {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
+		case c >= '0' && c <= '9', c == '+', c == '-', c == '.':
+			if i == 0 {
+				return "", false
+			}
+		case c == ':':
+			if i == 0 {
+				return "", false
+			}
+			return s[:i], true
+		default:
+			return "", false
+		}
+	}
+	return "", false
 }

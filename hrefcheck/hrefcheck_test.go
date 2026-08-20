@@ -19,6 +19,9 @@ func TestIsAllowedNonRelativeHref(t *testing.T) {
 		"root_relative":      {input: "/login", want: false},
 		"root_relative_deep": {input: "/static/style.css", want: false},
 		"dot_relative":       {input: "./page", want: false},
+		// The scheme decides, the rest of the URL is not parsed.
+		"space_in_url":       {input: "https://exa mple.com", want: true},
+		"bad_escape":         {input: "https://example.com/%zz", want: true},
 		"dotdot_relative":    {input: "../page", want: false},
 		"bare_relative":      {input: "page", want: false},
 		"bare_relative_path": {input: "foo/bar", want: false},

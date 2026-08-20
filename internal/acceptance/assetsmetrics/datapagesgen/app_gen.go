@@ -493,8 +493,6 @@ func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	handler := http.Handler(s.mux)
-
 	// Normalize trailing slashes: ensure all paths end with /
 	// except for static file paths
 	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
@@ -506,11 +504,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for _, h := range s.middleware {
-		handler = h(handler)
-	}
-
-	handler.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 
 func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
@@ -611,11 +605,34 @@ func (s sseWrapper) ExecuteScript(script string) error {
 }
 
 func (s sseWrapper) PatchSignals(v any) error {
-	return s.gen.MarshalAndPatchSignals(v)
+	j, err := marshalSignals(v)
+	if err != nil {
+		return err
+	}
+	return s.gen.PatchSignals(j)
 }
 
 func (s sseWrapper) PatchSignalsIfMissing(v any) error {
-	return s.gen.MarshalAndPatchSignalsIfMissing(v)
+	j, err := marshalSignals(v)
+	if err != nil {
+		return err
+	}
+	return s.gen.PatchSignals(j, datastar.WithOnlyIfMissing(true))
+}
+
+// marshalSignals encodes v as JSON. A json.RawMessage passes through.
+func marshalSignals(v any) ([]byte, error) {
+	if raw, ok := v.(json.RawMessage); ok {
+		if !json.Valid(raw) {
+			return nil, errors.New("signals are not valid JSON")
+		}
+		return raw, nil
+	}
+	j, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling signals JSON: %w", err)
+	}
+	return j, nil
 }
 
 func (s sseWrapper) Redirect(target string) error {
@@ -634,8 +651,7 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="`+s.datastarJSSrc+`"></script>`)
+	_, err := io.WriteString(w, s.htmlPrefix)
 	if err != nil {
 		return err
 	}
@@ -744,7 +760,9 @@ type Server struct {
 	mux                  *http.ServeMux
 	logger               *slog.Logger
 	middleware           []func(http.Handler) http.Handler
+	handler              http.Handler
 	datastarJSSrc        string
+	htmlPrefix           string
 	enabledTLS           bool
 	assetsFS             http.FileSystem
 
@@ -803,6 +821,8 @@ func NewServer(
 	if s.datastarJSSrc == "" {
 		s.datastarJSSrc = DefaultDatastarJSSrc
 	}
+	s.htmlPrefix = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+		<script type="module" src="` + s.datastarJSSrc + `"></script>`
 	if s.logger == nil {
 		opt := &slog.HandlerOptions{
 			Level: slog.LevelInfo,
@@ -841,6 +861,11 @@ func NewServer(
 		s.mux.Handle("GET "+assets.URLPrefix, h)
 	}
 
+	s.handler = http.Handler(s.mux)
+	for _, h := range s.middleware {
+		s.handler = h(s.handler)
+	}
+
 	return s
 }
 
@@ -857,10 +882,8 @@ func MessageBrokerStreamSubjects() []string {
 	}
 }
 
-func evSubjPageIndex() []string {
-	return []string{
-		EvSubjAnnounced,
-	}
+var evSubjPageIndex = []string{
+	EvSubjAnnounced,
 }
 
 // brokerSubjectKind folds subjects that carry a value back into the event name.
@@ -949,22 +972,23 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	p := app.PageIndex{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageIndex(),
+	s.handleStreamRequest(w, r, evSubjPageIndex,
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventAnnounced app.EventAnnounced
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjAnnounced:
-					var e app.EventAnnounced
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventAnnounced = app.EventAnnounced{}
+					if err := json.Unmarshal(msg.Data, &eventAnnounced); err != nil {
 						s.logErr("unmarshaling EventAnnounced JSON", err)
 						continue
 					}
-					if err := p.OnAnnounced(e, newSSE(sse)); err != nil {
+					if err := p.OnAnnounced(eventAnnounced, newSSE(sse)); err != nil {
 						s.logErr("handling PageIndex.OnAnnounced", err)
 					}
 				}

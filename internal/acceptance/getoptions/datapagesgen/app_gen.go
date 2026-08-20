@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -183,8 +184,6 @@ func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	handler := http.Handler(s.mux)
-
 	// Normalize trailing slashes: ensure all paths end with /
 	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
 		r.URL.Path = p + "/"
@@ -193,11 +192,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for _, h := range s.middleware {
-		handler = h(handler)
-	}
-
-	handler.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 
 func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
@@ -255,6 +250,35 @@ func httpRedirect(
 	return true
 }
 
+// queryLookup returns the first value of key in rawQuery.
+// It reads what url.URL.Query parses: pairs are separated by "&",
+// a pair carrying ";" is skipped, and both sides are query-unescaped.
+func queryLookup(rawQuery, key string) (value string, ok bool) {
+	for rawQuery != "" {
+		var pair string
+		pair, rawQuery, _ = strings.Cut(rawQuery, "&")
+		if pair == "" || strings.Contains(pair, ";") {
+			continue
+		}
+		name, value, _ := strings.Cut(pair, "=")
+		name, err := url.QueryUnescape(name)
+		if err != nil || name != key {
+			continue
+		}
+		value, err = url.QueryUnescape(value)
+		if err != nil {
+			continue
+		}
+		return value, true
+	}
+	return "", false
+}
+
+func queryValue(rawQuery, key string) string {
+	v, _ := queryLookup(rawQuery, key)
+	return v
+}
+
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -263,8 +287,7 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="`+s.datastarJSSrc+`"></script>`)
+	_, err := io.WriteString(w, s.htmlPrefix)
 	if err != nil {
 		return err
 	}
@@ -312,7 +335,9 @@ type Server struct {
 	mux                  *http.ServeMux
 	logger               *slog.Logger
 	middleware           []func(http.Handler) http.Handler
+	handler              http.Handler
 	datastarJSSrc        string
+	htmlPrefix           string
 	enabledTLS           bool
 }
 
@@ -362,6 +387,8 @@ func NewServer(
 	if s.datastarJSSrc == "" {
 		s.datastarJSSrc = DefaultDatastarJSSrc
 	}
+	s.htmlPrefix = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+		<script type="module" src="` + s.datastarJSSrc + `"></script>`
 	if s.logger == nil {
 		opt := &slog.HandlerOptions{
 			Level: slog.LevelInfo,
@@ -389,6 +416,11 @@ func NewServer(
 	}
 
 	setupHandlers(s)
+
+	s.handler = http.Handler(s.mux)
+	for _, h := range s.middleware {
+		s.handler = h(s.handler)
+	}
 
 	return s
 }
@@ -509,12 +541,11 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePageMaybeGET(w http.ResponseWriter, r *http.Request) {
 
-	q := r.URL.Query()
 	var query datapages.Query[struct {
 		Go bool `query:"go"`
 	}]
 	{
-		if q := q.Get("go"); q != "" {
+		if q := queryValue(r.URL.RawQuery, "go"); q != "" {
 			b, err := strconv.ParseBool(q)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: go", err)

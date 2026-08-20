@@ -72,6 +72,7 @@ func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
 	if w.usage.needsIsSubjectToken() {
 		w.writeIsSubjectToken()
 	}
+	w.writeQueryHelpers()
 	if w.usage.privateStreams {
 		w.writeCheckUserSubject()
 	}
@@ -277,11 +278,34 @@ func (s sseWrapper) ExecuteScript(script string) error {
 }
 
 func (s sseWrapper) PatchSignals(v any) error {
-	return s.gen.MarshalAndPatchSignals(v)
+	j, err := marshalSignals(v)
+	if err != nil {
+		return err
+	}
+	return s.gen.PatchSignals(j)
 }
 
 func (s sseWrapper) PatchSignalsIfMissing(v any) error {
-	return s.gen.MarshalAndPatchSignalsIfMissing(v)
+	j, err := marshalSignals(v)
+	if err != nil {
+		return err
+	}
+	return s.gen.PatchSignals(j, datastar.WithOnlyIfMissing(true))
+}
+
+// marshalSignals encodes v as JSON. A json.RawMessage passes through.
+func marshalSignals(v any) ([]byte, error) {
+	if raw, ok := v.(json.RawMessage); ok {
+		if !json.Valid(raw) {
+			return nil, errors.New("signals are not valid JSON")
+		}
+		return raw, nil
+	}
+	j, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling signals JSON: %w", err)
+	}
+	return j, nil
 }
 
 func (s sseWrapper) Redirect(target string) error {
@@ -350,8 +374,6 @@ func (w *Writer) writeServeHTTP() {
 	if w.hasAssets() {
 		w.Raw(`
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	handler := http.Handler(s.mux)
-
 	// Normalize trailing slashes: ensure all paths end with /
 	// except for static file paths
 	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
@@ -363,18 +385,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for _, h := range s.middleware {
-		handler = h(handler)
-	}
-
-	handler.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 `)
 	} else {
 		w.Raw(`
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	handler := http.Handler(s.mux)
-
 	// Normalize trailing slashes: ensure all paths end with /
 	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
 		r.URL.Path = p + "/"
@@ -383,11 +399,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for _, h := range s.middleware {
-		handler = h(handler)
-	}
-
-	handler.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 `)
 	}
@@ -553,10 +565,7 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, ` + "`" +
-		`<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="` + "`" +
-		`+s.datastarJSSrc+` + "`" + `"></script>` + "`" + `)
+	_, err := io.WriteString(w, s.htmlPrefix)
 	if err != nil {
 		return err
 	}
@@ -853,7 +862,9 @@ type Server struct {
 	mux                  *http.ServeMux
 	logger               *slog.Logger
 	middleware           []func(http.Handler) http.Handler
+	handler              http.Handler
 	datastarJSSrc        string
+	htmlPrefix           string
 	enabledTLS           bool
 `)
 	if w.hasAssets() {
@@ -977,6 +988,8 @@ func NewServer(
 	if s.datastarJSSrc == "" {
 		s.datastarJSSrc = DefaultDatastarJSSrc
 	}
+	s.htmlPrefix = ` + "`" + `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+		<script type="module" src="` + "`" + ` + s.datastarJSSrc + ` + "`" + `"></script>` + "`" + `
 	if s.logger == nil {
 		opt := &slog.HandlerOptions{
 			Level: slog.LevelInfo,
@@ -1031,9 +1044,63 @@ func NewServer(
 `)
 	}
 	w.Raw(`
+	s.handler = http.Handler(s.mux)
+	for _, h := range s.middleware {
+		s.handler = h(s.handler)
+	}
+
 	return s
 }
 `)
+}
+
+// writeQueryHelpers emits the query string readers. They read one parameter
+// where url.URL.Query would parse the whole query into a map.
+func (w *Writer) writeQueryHelpers() {
+	if !w.usage.queryValue && !w.usage.queryHas {
+		return
+	}
+	w.Raw(`
+// queryLookup returns the first value of key in rawQuery.
+// It reads what url.URL.Query parses: pairs are separated by "&",
+// a pair carrying ";" is skipped, and both sides are query-unescaped.
+func queryLookup(rawQuery, key string) (value string, ok bool) {
+	for rawQuery != "" {
+		var pair string
+		pair, rawQuery, _ = strings.Cut(rawQuery, "&")
+		if pair == "" || strings.Contains(pair, ";") {
+			continue
+		}
+		name, value, _ := strings.Cut(pair, "=")
+		name, err := url.QueryUnescape(name)
+		if err != nil || name != key {
+			continue
+		}
+		value, err = url.QueryUnescape(value)
+		if err != nil {
+			continue
+		}
+		return value, true
+	}
+	return "", false
+}
+`)
+	if w.usage.queryValue {
+		w.Raw(`
+func queryValue(rawQuery, key string) string {
+	v, _ := queryLookup(rawQuery, key)
+	return v
+}
+`)
+	}
+	if w.usage.queryHas {
+		w.Raw(`
+func queryHas(rawQuery, key string) bool {
+	_, ok := queryLookup(rawQuery, key)
+	return ok
+}
+`)
+	}
 }
 
 func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
@@ -1107,11 +1174,9 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 		}
 		if len(p.EventHandlers) == 0 {
 			w.Line(0, "")
-			w.Raw("func evSubj")
+			w.Raw("var evSubj")
 			w.Raw(p.TypeName)
-			w.Raw("() []string {\n")
-			w.Line(1, "return []string{}")
-			w.Line(0, "}")
+			w.Raw(" = []string{}\n")
 			continue
 		}
 
@@ -1173,22 +1238,20 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 		}
 
 		if hasPublic && !hasPrivate {
-			// All events are public. No userID needed.
+			// All events are public, the list is the same for every stream.
 			w.Line(0, "")
-			w.Raw("func ")
+			w.Raw("var ")
 			w.Raw(name)
-			w.Raw("() []string {\n")
-			w.Line(1, "return []string{")
+			w.Raw(" = []string{\n")
 			for _, eh := range p.EventHandlers {
 				ev := w.eventMap[eh.EventTypeName]
 				if ev == nil {
 					continue
 				}
-				w.Raw("\t\t")
+				w.Byte('\t')
 				w.Raw(evSubjConst(ev))
 				w.Raw(",\n")
 			}
-			w.Line(1, "}")
 			w.Line(0, "}")
 			continue
 		}

@@ -18,6 +18,11 @@ import (
 	"github.com/romshark/datapages/internal/subject"
 )
 
+// eventVarName is the generated variable name of a decoded event.
+func eventVarName(eventTypeName string) string {
+	return strings.ToLower(eventTypeName[:1]) + eventTypeName[1:]
+}
+
 // dispatcherTypeName is the generated datapages.Dispatcher implementation
 // of an event.
 func dispatcherTypeName(eventTypeName string) string {
@@ -327,6 +332,11 @@ type appUsage struct {
 	// dispatchSubjects: func isSubjectToken(...), needed by any dispatch that
 	// builds a publish subject from the subject fields of its event.
 	dispatchSubjects bool
+	// queryValue: func queryValue(...), needed by any handler
+	// that reads query parameters.
+	queryValue bool
+	// queryHas: func queryHas(...), needed by any page GET that reads signals.
+	queryHas bool
 	// userSubjects: whether any event addresses a user, which makes the ID of
 	// the session owner name a subject.
 	userSubjects bool
@@ -443,8 +453,11 @@ func computeAppUsage(m *model.App) appUsage {
 		if h.InputSignals != nil {
 			u.httpErrBad = true
 		}
-		if h.InputQuery != nil && structHasNonStringField(h.InputQuery.Type.Resolved) {
-			u.httpErrBad = true
+		if h.InputQuery != nil {
+			u.queryValue = true
+			if structHasNonStringField(h.InputQuery.Type.Resolved) {
+				u.httpErrBad = true
+			}
 		}
 		if h.InputPath != nil && structHasNonStringField(h.InputPath.Type.Resolved) {
 			u.httpErrBad = true
@@ -477,6 +490,9 @@ func computeAppUsage(m *model.App) appUsage {
 	for _, p := range m.Pages {
 		if p.GET != nil {
 			checkHandler(p.GET.Handler)
+			if p.GET.Handler != nil && p.GET.InputSignals != nil {
+				u.queryHas = true
+			}
 		}
 		if pageHasStream(p) {
 			u.stream = true

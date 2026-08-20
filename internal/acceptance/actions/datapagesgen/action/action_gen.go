@@ -400,9 +400,7 @@ func PATCHPageFormTouch(options ...option) string {
 // POSTPageFormBump references /form/{id}/bump/
 func POSTPageFormBump(id int, query QueryPOSTPageFormBump, options ...option) string {
 	s_id := strconv.FormatInt(int64(id), 10)
-	var (
-		byStr string
-	)
+	var byStr string
 
 	if query.By != 0 {
 		byStr = strconv.FormatInt(int64(query.By), 10)
@@ -527,6 +525,54 @@ func POSTPageFormRender(options ...option) string {
 	b.Grow(bl + len("@post('/form/render/'") + optionsLen(options) + len(")") + al)
 	writeBefore(&b, options)
 	b.WriteString("@post('/form/render/'")
+	writeOptions(&b, options)
+	b.WriteByte(')')
+	writeAfter(&b, options)
+	return b.String()
+}
+
+// POSTPageFormSignalsBad references /form/signals-bad/
+func POSTPageFormSignalsBad(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/form/signals-bad/')"
+	}
+	var b strings.Builder
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/form/signals-bad/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
+	b.WriteString("@post('/form/signals-bad/'")
+	writeOptions(&b, options)
+	b.WriteByte(')')
+	writeAfter(&b, options)
+	return b.String()
+}
+
+// POSTPageFormSignalsMissing references /form/signals-missing/
+func POSTPageFormSignalsMissing(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/form/signals-missing/')"
+	}
+	var b strings.Builder
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/form/signals-missing/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
+	b.WriteString("@post('/form/signals-missing/'")
+	writeOptions(&b, options)
+	b.WriteByte(')')
+	writeAfter(&b, options)
+	return b.String()
+}
+
+// POSTPageFormSignalsRaw references /form/signals-raw/
+func POSTPageFormSignalsRaw(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/form/signals-raw/')"
+	}
+	var b strings.Builder
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/form/signals-raw/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
+	b.WriteString("@post('/form/signals-raw/'")
 	writeOptions(&b, options)
 	b.WriteByte(')')
 	writeAfter(&b, options)

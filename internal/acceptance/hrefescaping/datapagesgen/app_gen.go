@@ -186,8 +186,6 @@ func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	handler := http.Handler(s.mux)
-
 	// Normalize trailing slashes: ensure all paths end with /
 	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
 		r.URL.Path = p + "/"
@@ -196,11 +194,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for _, h := range s.middleware {
-		handler = h(handler)
-	}
-
-	handler.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 
 func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
@@ -296,11 +290,34 @@ func (s sseWrapper) ExecuteScript(script string) error {
 }
 
 func (s sseWrapper) PatchSignals(v any) error {
-	return s.gen.MarshalAndPatchSignals(v)
+	j, err := marshalSignals(v)
+	if err != nil {
+		return err
+	}
+	return s.gen.PatchSignals(j)
 }
 
 func (s sseWrapper) PatchSignalsIfMissing(v any) error {
-	return s.gen.MarshalAndPatchSignalsIfMissing(v)
+	j, err := marshalSignals(v)
+	if err != nil {
+		return err
+	}
+	return s.gen.PatchSignals(j, datastar.WithOnlyIfMissing(true))
+}
+
+// marshalSignals encodes v as JSON. A json.RawMessage passes through.
+func marshalSignals(v any) ([]byte, error) {
+	if raw, ok := v.(json.RawMessage); ok {
+		if !json.Valid(raw) {
+			return nil, errors.New("signals are not valid JSON")
+		}
+		return raw, nil
+	}
+	j, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling signals JSON: %w", err)
+	}
+	return j, nil
 }
 
 func (s sseWrapper) Redirect(target string) error {
@@ -318,6 +335,35 @@ func writeStreamPathValue(w http.ResponseWriter, v string) {
 	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
 }
 
+// queryLookup returns the first value of key in rawQuery.
+// It reads what url.URL.Query parses: pairs are separated by "&",
+// a pair carrying ";" is skipped, and both sides are query-unescaped.
+func queryLookup(rawQuery, key string) (value string, ok bool) {
+	for rawQuery != "" {
+		var pair string
+		pair, rawQuery, _ = strings.Cut(rawQuery, "&")
+		if pair == "" || strings.Contains(pair, ";") {
+			continue
+		}
+		name, value, _ := strings.Cut(pair, "=")
+		name, err := url.QueryUnescape(name)
+		if err != nil || name != key {
+			continue
+		}
+		value, err = url.QueryUnescape(value)
+		if err != nil {
+			continue
+		}
+		return value, true
+	}
+	return "", false
+}
+
+func queryValue(rawQuery, key string) string {
+	v, _ := queryLookup(rawQuery, key)
+	return v
+}
+
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -326,8 +372,7 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="`+s.datastarJSSrc+`"></script>`)
+	_, err := io.WriteString(w, s.htmlPrefix)
 	if err != nil {
 		return err
 	}
@@ -430,7 +475,9 @@ type Server struct {
 	mux                  *http.ServeMux
 	logger               *slog.Logger
 	middleware           []func(http.Handler) http.Handler
+	handler              http.Handler
 	datastarJSSrc        string
+	htmlPrefix           string
 	enabledTLS           bool
 }
 
@@ -480,6 +527,8 @@ func NewServer(
 	if s.datastarJSSrc == "" {
 		s.datastarJSSrc = DefaultDatastarJSSrc
 	}
+	s.htmlPrefix = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+		<script type="module" src="` + s.datastarJSSrc + `"></script>`
 	if s.logger == nil {
 		opt := &slog.HandlerOptions{
 			Level: slog.LevelInfo,
@@ -508,6 +557,11 @@ func NewServer(
 
 	setupHandlers(s)
 
+	s.handler = http.Handler(s.mux)
+	for _, h := range s.middleware {
+		s.handler = h(s.handler)
+	}
+
 	return s
 }
 
@@ -524,10 +578,8 @@ func MessageBrokerStreamSubjects() []string {
 	}
 }
 
-func evSubjPageItem() []string {
-	return []string{
-		EvSubjRenamed,
-	}
+var evSubjPageItem = []string{
+	EvSubjRenamed,
 }
 
 func setupHandlers(s *Server) {
@@ -640,22 +692,23 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 	p := app.PageItem{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageItem(),
+	s.handleStreamRequest(w, r, evSubjPageItem,
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventRenamed app.EventRenamed
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjRenamed:
-					var e app.EventRenamed
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventRenamed = app.EventRenamed{}
+					if err := json.Unmarshal(msg.Data, &eventRenamed); err != nil {
 						s.logErr("unmarshaling EventRenamed JSON", err)
 						continue
 					}
-					if err := p.OnRenamed(e, newSSE(sse)); err != nil {
+					if err := p.OnRenamed(eventRenamed, newSSE(sse)); err != nil {
 						s.logErr("handling PageItem.OnRenamed", err)
 					}
 				}
@@ -670,11 +723,10 @@ func (s *Server) handlePageItemPOSTRename(
 		return
 	}
 
-	q := r.URL.Query()
 	var query datapages.Query[struct {
 		To string `query:"to"`
 	}]
-	query.Values.To = q.Get("to")
+	query.Values.To = queryValue(r.URL.RawQuery, "to")
 
 	var path datapages.Path[struct {
 		Name string `path:"name"`
@@ -694,14 +746,13 @@ func (s *Server) handlePageItemPOSTRename(
 
 func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 
-	q := r.URL.Query()
 	var query datapages.Query[struct {
 		Term string `query:"term"`
 		Page int    `query:"page"`
 	}]
-	query.Values.Term = q.Get("term")
+	query.Values.Term = queryValue(r.URL.RawQuery, "term")
 	{
-		if q := q.Get("page"); q != "" {
+		if q := queryValue(r.URL.RawQuery, "page"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: page", err)

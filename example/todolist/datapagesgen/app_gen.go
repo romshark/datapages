@@ -208,8 +208,6 @@ func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	handler := http.Handler(s.mux)
-
 	// Normalize trailing slashes: ensure all paths end with /
 	// except for static file paths
 	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
@@ -221,11 +219,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for _, h := range s.middleware {
-		handler = h(handler)
-	}
-
-	handler.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 
 func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
@@ -351,11 +345,34 @@ func (s sseWrapper) ExecuteScript(script string) error {
 }
 
 func (s sseWrapper) PatchSignals(v any) error {
-	return s.gen.MarshalAndPatchSignals(v)
+	j, err := marshalSignals(v)
+	if err != nil {
+		return err
+	}
+	return s.gen.PatchSignals(j)
 }
 
 func (s sseWrapper) PatchSignalsIfMissing(v any) error {
-	return s.gen.MarshalAndPatchSignalsIfMissing(v)
+	j, err := marshalSignals(v)
+	if err != nil {
+		return err
+	}
+	return s.gen.PatchSignals(j, datastar.WithOnlyIfMissing(true))
+}
+
+// marshalSignals encodes v as JSON. A json.RawMessage passes through.
+func marshalSignals(v any) ([]byte, error) {
+	if raw, ok := v.(json.RawMessage); ok {
+		if !json.Valid(raw) {
+			return nil, errors.New("signals are not valid JSON")
+		}
+		return raw, nil
+	}
+	j, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling signals JSON: %w", err)
+	}
+	return j, nil
 }
 
 func (s sseWrapper) Redirect(target string) error {
@@ -392,6 +409,35 @@ func writeStreamPathValue(w http.ResponseWriter, v string) {
 	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
 }
 
+// queryLookup returns the first value of key in rawQuery.
+// It reads what url.URL.Query parses: pairs are separated by "&",
+// a pair carrying ";" is skipped, and both sides are query-unescaped.
+func queryLookup(rawQuery, key string) (value string, ok bool) {
+	for rawQuery != "" {
+		var pair string
+		pair, rawQuery, _ = strings.Cut(rawQuery, "&")
+		if pair == "" || strings.Contains(pair, ";") {
+			continue
+		}
+		name, value, _ := strings.Cut(pair, "=")
+		name, err := url.QueryUnescape(name)
+		if err != nil || name != key {
+			continue
+		}
+		value, err = url.QueryUnescape(value)
+		if err != nil {
+			continue
+		}
+		return value, true
+	}
+	return "", false
+}
+
+func queryValue(rawQuery, key string) string {
+	v, _ := queryLookup(rawQuery, key)
+	return v
+}
+
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -400,8 +446,7 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="`+s.datastarJSSrc+`"></script>`)
+	_, err := io.WriteString(w, s.htmlPrefix)
 	if err != nil {
 		return err
 	}
@@ -509,7 +554,9 @@ type Server struct {
 	mux                  *http.ServeMux
 	logger               *slog.Logger
 	middleware           []func(http.Handler) http.Handler
+	handler              http.Handler
 	datastarJSSrc        string
+	htmlPrefix           string
 	enabledTLS           bool
 	assetsFS             http.FileSystem
 }
@@ -560,6 +607,8 @@ func NewServer(
 	if s.datastarJSSrc == "" {
 		s.datastarJSSrc = DefaultDatastarJSSrc
 	}
+	s.htmlPrefix = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+		<script type="module" src="` + s.datastarJSSrc + `"></script>`
 	if s.logger == nil {
 		opt := &slog.HandlerOptions{
 			Level: slog.LevelInfo,
@@ -595,6 +644,11 @@ func NewServer(
 		s.mux.Handle("GET "+assets.URLPrefix, h)
 	}
 
+	s.handler = http.Handler(s.mux)
+	for _, h := range s.middleware {
+		s.handler = h(s.handler)
+	}
+
 	return s
 }
 
@@ -611,16 +665,12 @@ func MessageBrokerStreamSubjects() []string {
 	}
 }
 
-func evSubjPageIndex() []string {
-	return []string{
-		EvSubjTodoUpdated,
-	}
+var evSubjPageIndex = []string{
+	EvSubjTodoUpdated,
 }
 
-func evSubjPageItem() []string {
-	return []string{
-		EvSubjTodoUpdated,
-	}
+var evSubjPageItem = []string{
+	EvSubjTodoUpdated,
 }
 
 func setupHandlers(s *Server) {
@@ -717,12 +767,11 @@ func (s *Server) handlePUTEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	q := r.URL.Query()
 	var query datapages.Query[struct {
 		Toggle bool `query:"toggle"`
 	}]
 	{
-		if q := q.Get("toggle"); q != "" {
+		if q := queryValue(r.URL.RawQuery, "toggle"); q != "" {
 			b, err := strconv.ParseBool(q)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: toggle", err)
@@ -773,15 +822,14 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	q := r.URL.Query()
 	var query datapages.Query[struct {
 		Search string `query:"q" reflectsignal:"search"`
 		Filter string `query:"filter" reflectsignal:"filter"`
 		Sort   string `query:"sort" reflectsignal:"sort"`
 	}]
-	query.Values.Search = q.Get("q")
-	query.Values.Filter = q.Get("filter")
-	query.Values.Sort = q.Get("sort")
+	query.Values.Search = queryValue(r.URL.RawQuery, "q")
+	query.Values.Filter = queryValue(r.URL.RawQuery, "filter")
+	query.Values.Sort = queryValue(r.URL.RawQuery, "sort")
 
 	p := app.PageIndex{
 		App: s.app,
@@ -848,7 +896,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	p := app.PageIndex{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageIndex(),
+	s.handleStreamRequest(w, r, evSubjPageIndex,
 		func(
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
@@ -862,15 +910,16 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventTodoUpdated app.EventTodoUpdated
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjTodoUpdated:
-					var e app.EventTodoUpdated
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventTodoUpdated = app.EventTodoUpdated{}
+					if err := json.Unmarshal(msg.Data, &eventTodoUpdated); err != nil {
 						s.logErr("unmarshaling EventTodoUpdated JSON", err)
 						continue
 					}
-					if err := p.OnTodoUpdated(e, newSSE(sse), streamID); err != nil {
+					if err := p.OnTodoUpdated(eventTodoUpdated, newSSE(sse), streamID); err != nil {
 						s.logErr("handling PageIndex.OnTodoUpdated", err)
 					}
 				}
@@ -992,7 +1041,7 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 	p := app.PageItem{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageItem(),
+	s.handleStreamRequest(w, r, evSubjPageItem,
 		func(
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
@@ -1006,15 +1055,16 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventTodoUpdated app.EventTodoUpdated
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjTodoUpdated:
-					var e app.EventTodoUpdated
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventTodoUpdated = app.EventTodoUpdated{}
+					if err := json.Unmarshal(msg.Data, &eventTodoUpdated); err != nil {
 						s.logErr("unmarshaling EventTodoUpdated JSON", err)
 						continue
 					}
-					if err := p.OnTodoUpdated(e, newSSE(sse), streamID); err != nil {
+					if err := p.OnTodoUpdated(eventTodoUpdated, newSSE(sse), streamID); err != nil {
 						s.logErr("handling PageItem.OnTodoUpdated", err)
 					}
 				}

@@ -183,8 +183,6 @@ func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	handler := http.Handler(s.mux)
-
 	// Normalize trailing slashes: ensure all paths end with /
 	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
 		r.URL.Path = p + "/"
@@ -193,11 +191,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for _, h := range s.middleware {
-		handler = h(handler)
-	}
-
-	handler.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 
 func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
@@ -293,11 +287,34 @@ func (s sseWrapper) ExecuteScript(script string) error {
 }
 
 func (s sseWrapper) PatchSignals(v any) error {
-	return s.gen.MarshalAndPatchSignals(v)
+	j, err := marshalSignals(v)
+	if err != nil {
+		return err
+	}
+	return s.gen.PatchSignals(j)
 }
 
 func (s sseWrapper) PatchSignalsIfMissing(v any) error {
-	return s.gen.MarshalAndPatchSignalsIfMissing(v)
+	j, err := marshalSignals(v)
+	if err != nil {
+		return err
+	}
+	return s.gen.PatchSignals(j, datastar.WithOnlyIfMissing(true))
+}
+
+// marshalSignals encodes v as JSON. A json.RawMessage passes through.
+func marshalSignals(v any) ([]byte, error) {
+	if raw, ok := v.(json.RawMessage); ok {
+		if !json.Valid(raw) {
+			return nil, errors.New("signals are not valid JSON")
+		}
+		return raw, nil
+	}
+	j, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling signals JSON: %w", err)
+	}
+	return j, nil
 }
 
 func (s sseWrapper) Redirect(target string) error {
@@ -320,8 +337,7 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="`+s.datastarJSSrc+`"></script>`)
+	_, err := io.WriteString(w, s.htmlPrefix)
 	if err != nil {
 		return err
 	}
@@ -424,7 +440,9 @@ type Server struct {
 	mux                  *http.ServeMux
 	logger               *slog.Logger
 	middleware           []func(http.Handler) http.Handler
+	handler              http.Handler
 	datastarJSSrc        string
+	htmlPrefix           string
 	enabledTLS           bool
 }
 
@@ -474,6 +492,8 @@ func NewServer(
 	if s.datastarJSSrc == "" {
 		s.datastarJSSrc = DefaultDatastarJSSrc
 	}
+	s.htmlPrefix = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+		<script type="module" src="` + s.datastarJSSrc + `"></script>`
 	if s.logger == nil {
 		opt := &slog.HandlerOptions{
 			Level: slog.LevelInfo,
@@ -502,6 +522,11 @@ func NewServer(
 
 	setupHandlers(s)
 
+	s.handler = http.Handler(s.mux)
+	for _, h := range s.middleware {
+		s.handler = h(s.handler)
+	}
+
 	return s
 }
 
@@ -509,6 +534,7 @@ const (
 
 	// Public events:
 
+	EvSubjNote          = "note"
 	EvSubjPong          = "pong"
 	EvSubjRoomBroadcast = "room.broadcast.*"
 	EvSubjRoomSaid      = "room.said.*"
@@ -523,6 +549,7 @@ const (
 
 func MessageBrokerStreamSubjects() []string {
 	return []string{
+		EvSubjNote,
 		EvSubjPong,
 		EvSubjRoomBroadcast,
 		EvSubjRoomSaid,
@@ -531,18 +558,15 @@ func MessageBrokerStreamSubjects() []string {
 	}
 }
 
-func evSubjPageIndex() []string {
-	return []string{
-		EvSubjStreamGone,
-		EvSubjPong,
-		EvSubjTick,
-	}
+var evSubjPageIndex = []string{
+	EvSubjStreamGone,
+	EvSubjPong,
+	EvSubjTick,
+	EvSubjNote,
 }
 
-func evSubjPageOther() []string {
-	return []string{
-		EvSubjTick,
-	}
+var evSubjPageOther = []string{
+	EvSubjTick,
 }
 
 func evSubjPageRoom(subjRoom string) []string {
@@ -575,6 +599,9 @@ func setupHandlers(s *Server) {
 	s.mux.HandleFunc(
 		"GET /room/_$/{$}",
 		s.handlePageRoomGETStream)
+	s.mux.HandleFunc(
+		"POST /note/{$}",
+		s.handlePageIndexPOSTNote)
 	s.mux.HandleFunc(
 		"POST /tick/{$}",
 		s.handlePageIndexPOSTTick)
@@ -653,7 +680,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	p := app.PageIndex{
 		App: s.app,
 	}
-	s.handleStreamRequest(w, r, evSubjPageIndex(),
+	s.handleStreamRequest(w, r, evSubjPageIndex,
 		func(
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
@@ -669,38 +696,77 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventStreamGone app.EventStreamGone
+			var eventPong app.EventPong
+			var eventTick app.EventTick
+			var eventNote app.EventNote
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjStreamGone:
-					var e app.EventStreamGone
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventStreamGone = app.EventStreamGone{}
+					if err := json.Unmarshal(msg.Data, &eventStreamGone); err != nil {
 						s.logErr("unmarshaling EventStreamGone JSON", err)
 						continue
 					}
-					if err := p.OnStreamGone(e, newSSE(sse)); err != nil {
+					if err := p.OnStreamGone(eventStreamGone, newSSE(sse)); err != nil {
 						s.logErr("handling PageIndex.OnStreamGone", err)
 					}
 				case EvSubjPong:
-					var e app.EventPong
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventPong = app.EventPong{}
+					if err := json.Unmarshal(msg.Data, &eventPong); err != nil {
 						s.logErr("unmarshaling EventPong JSON", err)
 						continue
 					}
-					if err := p.OnPong(e, newSSE(sse)); err != nil {
+					if err := p.OnPong(eventPong, newSSE(sse)); err != nil {
 						s.logErr("handling PageIndex.OnPong", err)
 					}
 				case EvSubjTick:
-					var e app.EventTick
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventTick = app.EventTick{}
+					if err := json.Unmarshal(msg.Data, &eventTick); err != nil {
 						s.logErr("unmarshaling EventTick JSON", err)
 						continue
 					}
-					if err := p.OnTick(e, newSSE(sse), streamID); err != nil {
+					if err := p.OnTick(eventTick, newSSE(sse), streamID); err != nil {
 						s.logErr("handling PageIndex.OnTick", err)
+					}
+				case EvSubjNote:
+					eventNote = app.EventNote{}
+					if err := json.Unmarshal(msg.Data, &eventNote); err != nil {
+						s.logErr("unmarshaling EventNote JSON", err)
+						continue
+					}
+					if err := p.OnNote(eventNote, newSSE(sse)); err != nil {
+						s.logErr("handling PageIndex.OnNote", err)
 					}
 				}
 			}
 		})
+}
+
+func (s *Server) handlePageIndexPOSTNote(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.checkIsDSReq(w, r) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	var signals datapages.Signals[struct {
+		Text string `json:"text"`
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		s.httpErrBad(w, "reading signals", err)
+		return
+	}
+
+	dispatchNote := dispatcherEventNote{s: s, ctx: r.Context()}
+	p := app.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTNote(r, signals, dispatchNote)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Note", err)
+		return
+	}
 }
 
 func (s *Server) handlePageIndexPOSTTick(
@@ -846,22 +912,23 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 			App: s.app,
 		},
 	}
-	s.handleStreamRequest(w, r, evSubjPageOther(),
+	s.handleStreamRequest(w, r, evSubjPageOther,
 		nil,
 		nil,
 		func(
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventTick app.EventTick
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjTick:
-					var e app.EventTick
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventTick = app.EventTick{}
+					if err := json.Unmarshal(msg.Data, &eventTick); err != nil {
 						s.logErr("unmarshaling EventTick JSON", err)
 						continue
 					}
-					if err := p.OnTick(e, newSSE(sse)); err != nil {
+					if err := p.OnTick(eventTick, newSSE(sse)); err != nil {
 						s.logErr("handling PageOther.OnTick", err)
 					}
 				}
@@ -924,24 +991,26 @@ func (s *Server) handlePageRoomGETStream(w http.ResponseWriter, r *http.Request)
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventRoomSaid app.EventRoomSaid
+			var eventRoomBroadcast app.EventRoomBroadcast
 			for msg := range ch {
 				switch {
 				case strings.HasPrefix(msg.Subject, EvSubjPrefRoomSaid):
-					var e app.EventRoomSaid
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventRoomSaid = app.EventRoomSaid{}
+					if err := json.Unmarshal(msg.Data, &eventRoomSaid); err != nil {
 						s.logErr("unmarshaling EventRoomSaid JSON", err)
 						continue
 					}
-					if err := p.OnRoomSaid(e, newSSE(sse)); err != nil {
+					if err := p.OnRoomSaid(eventRoomSaid, newSSE(sse)); err != nil {
 						s.logErr("handling PageRoom.OnRoomSaid", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefRoomBroadcast):
-					var e app.EventRoomBroadcast
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventRoomBroadcast = app.EventRoomBroadcast{}
+					if err := json.Unmarshal(msg.Data, &eventRoomBroadcast); err != nil {
 						s.logErr("unmarshaling EventRoomBroadcast JSON", err)
 						continue
 					}
-					if err := p.OnRoomBroadcast(e, newSSE(sse)); err != nil {
+					if err := p.OnRoomBroadcast(eventRoomBroadcast, newSSE(sse)); err != nil {
 						s.logErr("handling PageRoom.OnRoomBroadcast", err)
 					}
 				}
@@ -1022,6 +1091,29 @@ func (d dispatcherEventStreamGone) DispatchCtx(
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, EvSubjStreamGone, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", EvSubjStreamGone, err)
+	}
+	return nil
+}
+
+type dispatcherEventNote struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventNote) Dispatch(e app.EventNote) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventNote) DispatchCtx(
+	ctx context.Context, e app.EventNote,
+) error {
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventNote JSON: %w", err)
+	}
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, EvSubjNote, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", EvSubjNote, err)
 	}
 	return nil
 }

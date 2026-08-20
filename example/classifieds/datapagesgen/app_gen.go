@@ -502,8 +502,6 @@ func writeBodyAttrOnVisibilityChange(w http.ResponseWriter) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	handler := http.Handler(s.mux)
-
 	// Normalize trailing slashes: ensure all paths end with /
 	// except for static file paths
 	if p := r.URL.Path; p != "/" && !strings.HasSuffix(p, "/") {
@@ -515,11 +513,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for _, h := range s.middleware {
-		handler = h(handler)
-	}
-
-	handler.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 
 func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
@@ -650,11 +644,34 @@ func (s sseWrapper) ExecuteScript(script string) error {
 }
 
 func (s sseWrapper) PatchSignals(v any) error {
-	return s.gen.MarshalAndPatchSignals(v)
+	j, err := marshalSignals(v)
+	if err != nil {
+		return err
+	}
+	return s.gen.PatchSignals(j)
 }
 
 func (s sseWrapper) PatchSignalsIfMissing(v any) error {
-	return s.gen.MarshalAndPatchSignalsIfMissing(v)
+	j, err := marshalSignals(v)
+	if err != nil {
+		return err
+	}
+	return s.gen.PatchSignals(j, datastar.WithOnlyIfMissing(true))
+}
+
+// marshalSignals encodes v as JSON. A json.RawMessage passes through.
+func marshalSignals(v any) ([]byte, error) {
+	if raw, ok := v.(json.RawMessage); ok {
+		if !json.Valid(raw) {
+			return nil, errors.New("signals are not valid JSON")
+		}
+		return raw, nil
+	}
+	j, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling signals JSON: %w", err)
+	}
+	return j, nil
 }
 
 func (s sseWrapper) Redirect(target string) error {
@@ -693,6 +710,35 @@ func writeStreamPathValue(w http.ResponseWriter, v string) {
 
 func isSubjectToken(v string) bool {
 	return v != "" && !strings.ContainsAny(v, ".*> \t\r\n")
+}
+
+// queryLookup returns the first value of key in rawQuery.
+// It reads what url.URL.Query parses: pairs are separated by "&",
+// a pair carrying ";" is skipped, and both sides are query-unescaped.
+func queryLookup(rawQuery, key string) (value string, ok bool) {
+	for rawQuery != "" {
+		var pair string
+		pair, rawQuery, _ = strings.Cut(rawQuery, "&")
+		if pair == "" || strings.Contains(pair, ";") {
+			continue
+		}
+		name, value, _ := strings.Cut(pair, "=")
+		name, err := url.QueryUnescape(name)
+		if err != nil || name != key {
+			continue
+		}
+		value, err = url.QueryUnescape(value)
+		if err != nil {
+			continue
+		}
+		return value, true
+	}
+	return "", false
+}
+
+func queryValue(rawQuery, key string) string {
+	v, _ := queryLookup(rawQuery, key)
+	return v
 }
 
 func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool) {
@@ -750,8 +796,7 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="`+s.datastarJSSrc+`"></script>`)
+	_, err := io.WriteString(w, s.htmlPrefix)
 	if err != nil {
 		return err
 	}
@@ -914,7 +959,9 @@ type Server struct {
 	mux                  *http.ServeMux
 	logger               *slog.Logger
 	middleware           []func(http.Handler) http.Handler
+	handler              http.Handler
 	datastarJSSrc        string
+	htmlPrefix           string
 	enabledTLS           bool
 	assetsFS             http.FileSystem
 
@@ -996,6 +1043,8 @@ func NewServer(
 	if s.datastarJSSrc == "" {
 		s.datastarJSSrc = DefaultDatastarJSSrc
 	}
+	s.htmlPrefix = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+		<script type="module" src="` + s.datastarJSSrc + `"></script>`
 	if s.logger == nil {
 		opt := &slog.HandlerOptions{
 			Level: slog.LevelInfo,
@@ -1037,6 +1086,11 @@ func NewServer(
 			h = devNoCache(h)
 		}
 		s.mux.Handle("GET "+assets.URLPrefix, h)
+	}
+
+	s.handler = http.Handler(s.mux)
+	for _, h := range s.middleware {
+		s.handler = h(s.handler)
 	}
 
 	return s
@@ -1628,24 +1682,26 @@ func (s *Server) handlePageError404GETStream(w http.ResponseWriter, r *http.Requ
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventMessagingSent app.EventMessagingSent
+			var eventMessagingRead app.EventMessagingRead
 			for msg := range ch {
 				switch {
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					var e app.EventMessagingSent
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingSent = app.EventMessagingSent{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.logErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingSent(eventMessagingSent, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageError404.OnMessagingSent", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					var e app.EventMessagingRead
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingRead = app.EventMessagingRead{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.logErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingRead(eventMessagingRead, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageError404.OnMessagingRead", err)
 					}
 				}
@@ -1751,24 +1807,26 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventMessagingSent app.EventMessagingSent
+			var eventMessagingRead app.EventMessagingRead
 			for msg := range ch {
 				switch {
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					var e app.EventMessagingSent
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingSent = app.EventMessagingSent{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.logErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingSent(eventMessagingSent, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageIndex.OnMessagingSent", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					var e app.EventMessagingRead
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingRead = app.EventMessagingRead{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.logErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingRead(eventMessagingRead, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageIndex.OnMessagingRead", err)
 					}
 				}
@@ -1860,11 +1918,10 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	q := r.URL.Query()
 	var query datapages.Query[struct {
 		Chat string `query:"chat" reflectsignal:"chatselected"`
 	}]
-	query.Values.Chat = q.Get("chat")
+	query.Values.Chat = queryValue(r.URL.RawQuery, "chat")
 
 	p := app.PageMessages{
 		App: s.app,
@@ -1948,42 +2005,46 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventMessagingRead app.EventMessagingRead
+			var eventMessagingWriting app.EventMessagingWriting
+			var eventMessagingWritingStopped app.EventMessagingWritingStopped
+			var eventMessagingSent app.EventMessagingSent
 			for msg := range ch {
 				switch {
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					var e app.EventMessagingRead
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingRead = app.EventMessagingRead{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.logErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingRead(eventMessagingRead, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageMessages.OnMessagingRead", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingWriting):
-					var e app.EventMessagingWriting
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingWriting = app.EventMessagingWriting{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingWriting); err != nil {
 						s.logErr("unmarshaling EventMessagingWriting JSON", err)
 						continue
 					}
-					if err := p.OnMessagingWriting(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingWriting(eventMessagingWriting, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageMessages.OnMessagingWriting", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingWritingStopped):
-					var e app.EventMessagingWritingStopped
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingWritingStopped = app.EventMessagingWritingStopped{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingWritingStopped); err != nil {
 						s.logErr("unmarshaling EventMessagingWritingStopped JSON", err)
 						continue
 					}
-					if err := p.OnMessagingWritingStopped(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingWritingStopped(eventMessagingWritingStopped, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageMessages.OnMessagingWritingStopped", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					var e app.EventMessagingSent
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingSent = app.EventMessagingSent{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.logErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingSent(eventMessagingSent, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageMessages.OnMessagingSent", err)
 					}
 				}
@@ -2010,11 +2071,10 @@ func (s *Server) handlePageMessagesPOSTRead(
 		return
 	}
 
-	q := r.URL.Query()
 	var query datapages.Query[struct {
 		MessageID string `query:"msgid"`
 	}]
-	query.Values.MessageID = q.Get("msgid")
+	query.Values.MessageID = queryValue(r.URL.RawQuery, "msgid")
 
 	dispatchMessagingRead := dispatcherEventMessagingRead{s: s, ctx: r.Context()}
 	p := app.PageMessages{
@@ -2203,24 +2263,26 @@ func (s *Server) handlePageMyPostsGETStream(w http.ResponseWriter, r *http.Reque
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventMessagingSent app.EventMessagingSent
+			var eventMessagingRead app.EventMessagingRead
 			for msg := range ch {
 				switch {
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					var e app.EventMessagingSent
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingSent = app.EventMessagingSent{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.logErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingSent(eventMessagingSent, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageMyPosts.OnMessagingSent", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					var e app.EventMessagingRead
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingRead = app.EventMessagingRead{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.logErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingRead(eventMessagingRead, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageMyPosts.OnMessagingRead", err)
 					}
 				}
@@ -2316,33 +2378,36 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventPostArchived app.EventPostArchived
+			var eventMessagingSent app.EventMessagingSent
+			var eventMessagingRead app.EventMessagingRead
 			for msg := range ch {
 				switch {
 				case msg.Subject == EvSubjPostArchived:
-					var e app.EventPostArchived
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventPostArchived = app.EventPostArchived{}
+					if err := json.Unmarshal(msg.Data, &eventPostArchived); err != nil {
 						s.logErr("unmarshaling EventPostArchived JSON", err)
 						continue
 					}
-					if err := p.OnPostArchived(e, newSSE(sse), sess); err != nil {
+					if err := p.OnPostArchived(eventPostArchived, newSSE(sse), sess); err != nil {
 						s.logErr("handling PagePost.OnPostArchived", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					var e app.EventMessagingSent
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingSent = app.EventMessagingSent{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.logErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingSent(eventMessagingSent, newSSE(sse), sess); err != nil {
 						s.logErr("handling PagePost.OnMessagingSent", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					var e app.EventMessagingRead
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingRead = app.EventMessagingRead{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.logErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingRead(eventMessagingRead, newSSE(sse), sess); err != nil {
 						s.logErr("handling PagePost.OnMessagingRead", err)
 					}
 				}
@@ -2377,15 +2442,16 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventPostArchived app.EventPostArchived
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjPostArchived:
-					var e app.EventPostArchived
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventPostArchived = app.EventPostArchived{}
+					if err := json.Unmarshal(msg.Data, &eventPostArchived); err != nil {
 						s.logErr("unmarshaling EventPostArchived JSON", err)
 						continue
 					}
-					if err := p.OnPostArchived(e, newSSE(sse), sess); err != nil {
+					if err := p.OnPostArchived(eventPostArchived, newSSE(sse), sess); err != nil {
 						s.logErr("handling PagePost.OnPostArchived", err)
 					}
 				}
@@ -2438,12 +2504,11 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	q := r.URL.Query()
 	var query datapages.Query[app.SearchParams]
-	query.Values.Term = q.Get("t")
-	query.Values.Category = q.Get("c")
+	query.Values.Term = queryValue(r.URL.RawQuery, "t")
+	query.Values.Category = queryValue(r.URL.RawQuery, "c")
 	{
-		if q := q.Get("pmin"); q != "" {
+		if q := queryValue(r.URL.RawQuery, "pmin"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 64)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: pmin", err)
@@ -2453,7 +2518,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	{
-		if q := q.Get("pmax"); q != "" {
+		if q := queryValue(r.URL.RawQuery, "pmax"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 64)
 			if err != nil {
 				s.httpErrBad(w, "unexpected value for query parameter: pmax", err)
@@ -2462,7 +2527,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 			query.Values.PriceMax = i
 		}
 	}
-	query.Values.Location = q.Get("l")
+	query.Values.Location = queryValue(r.URL.RawQuery, "l")
 
 	p := app.PageSearch{
 		App: s.app,
@@ -2556,24 +2621,26 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventMessagingSent app.EventMessagingSent
+			var eventMessagingRead app.EventMessagingRead
 			for msg := range ch {
 				switch {
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					var e app.EventMessagingSent
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingSent = app.EventMessagingSent{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.logErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingSent(eventMessagingSent, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageSearch.OnMessagingSent", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					var e app.EventMessagingRead
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingRead = app.EventMessagingRead{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.logErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingRead(eventMessagingRead, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageSearch.OnMessagingRead", err)
 					}
 				}
@@ -2682,33 +2749,36 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventSessionClosed app.EventSessionClosed
+			var eventMessagingSent app.EventMessagingSent
+			var eventMessagingRead app.EventMessagingRead
 			for msg := range ch {
 				switch {
 				case strings.HasPrefix(msg.Subject, EvSubjPrefSessionClosed):
-					var e app.EventSessionClosed
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventSessionClosed = app.EventSessionClosed{}
+					if err := json.Unmarshal(msg.Data, &eventSessionClosed); err != nil {
 						s.logErr("unmarshaling EventSessionClosed JSON", err)
 						continue
 					}
-					if err := p.OnSessionClosed(e, newSSE(sse), sess); err != nil {
+					if err := p.OnSessionClosed(eventSessionClosed, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageSettings.OnSessionClosed", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					var e app.EventMessagingSent
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingSent = app.EventMessagingSent{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.logErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingSent(eventMessagingSent, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageSettings.OnMessagingSent", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					var e app.EventMessagingRead
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingRead = app.EventMessagingRead{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.logErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingRead(eventMessagingRead, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageSettings.OnMessagingRead", err)
 					}
 				}
@@ -2900,33 +2970,36 @@ func (s *Server) handlePageUserGETStream(w http.ResponseWriter, r *http.Request)
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventPostArchived app.EventPostArchived
+			var eventMessagingSent app.EventMessagingSent
+			var eventMessagingRead app.EventMessagingRead
 			for msg := range ch {
 				switch {
 				case msg.Subject == EvSubjPostArchived:
-					var e app.EventPostArchived
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventPostArchived = app.EventPostArchived{}
+					if err := json.Unmarshal(msg.Data, &eventPostArchived); err != nil {
 						s.logErr("unmarshaling EventPostArchived JSON", err)
 						continue
 					}
-					if err := p.OnPostArchived(e, newSSE(sse), sess); err != nil {
+					if err := p.OnPostArchived(eventPostArchived, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageUser.OnPostArchived", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					var e app.EventMessagingSent
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingSent = app.EventMessagingSent{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.logErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingSent(eventMessagingSent, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageUser.OnMessagingSent", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					var e app.EventMessagingRead
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventMessagingRead = app.EventMessagingRead{}
+					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.logErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(e, newSSE(sse), sess); err != nil {
+					if err := p.OnMessagingRead(eventMessagingRead, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageUser.OnMessagingRead", err)
 					}
 				}
@@ -2961,15 +3034,16 @@ func (s *Server) handlePageUserGETStreamAnon(w http.ResponseWriter, r *http.Requ
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,
 		) {
+			var eventPostArchived app.EventPostArchived
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjPostArchived:
-					var e app.EventPostArchived
-					if err := json.Unmarshal(msg.Data, &e); err != nil {
+					eventPostArchived = app.EventPostArchived{}
+					if err := json.Unmarshal(msg.Data, &eventPostArchived); err != nil {
 						s.logErr("unmarshaling EventPostArchived JSON", err)
 						continue
 					}
-					if err := p.OnPostArchived(e, newSSE(sse), sess); err != nil {
+					if err := p.OnPostArchived(eventPostArchived, newSSE(sse), sess); err != nil {
 						s.logErr("handling PageUser.OnPostArchived", err)
 					}
 				}

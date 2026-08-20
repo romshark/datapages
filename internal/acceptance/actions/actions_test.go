@@ -401,6 +401,70 @@ func TestSSEOutputRemoveElement(t *testing.T) {
 	}
 }
 
+// TestSSEOutputSignals covers the signal patches of the SSE wrapper:
+// JSON given as json.RawMessage, the if-missing variant,
+// and a value that does not marshal.
+func TestSSEOutputSignals(t *testing.T) {
+	for name, tc := range map[string]struct {
+		path       string
+		wantStatus int
+		want       []string
+		unwant     []string
+	}{
+		"raw json": {
+			path:       "/form/signals-raw/",
+			wantStatus: http.StatusOK,
+			want: []string{
+				"event: datastar-patch-signals",
+				`data: signals {"count":7}`,
+			},
+			unwant: []string{"onlyIfMissing"},
+		},
+		"if missing": {
+			path:       "/form/signals-missing/",
+			wantStatus: http.StatusOK,
+			want: []string{
+				"data: onlyIfMissing true",
+				`data: signals {"count":3}`,
+			},
+		},
+		// The response head is out before the handler patches, so the error
+		// cannot carry a status. What it must not do is panic and drop the
+		// connection, which is what the Datastar helper does.
+		"unmarshalable value": {
+			path:       "/form/signals-bad/",
+			wantStatus: http.StatusOK,
+			unwant:     []string{"datastar-patch-signals"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := newServer(t)
+
+			resp := srv.do(t, http.MethodPost, tc.path, "")
+			defer func() { _ = resp.Body.Close() }()
+
+			if resp.StatusCode != tc.wantStatus {
+				t.Errorf("status = %d, want %d", resp.StatusCode, tc.wantStatus)
+			}
+			b, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("reading stream: %v", err)
+			}
+			stream := string(b)
+			for _, want := range tc.want {
+				if !strings.Contains(stream, want) {
+					t.Errorf("stream does not carry %q:\n%s", want, stream)
+				}
+			}
+			for _, unwant := range tc.unwant {
+				if strings.Contains(stream, unwant) {
+					t.Errorf("stream carries %q:\n%s", unwant, stream)
+				}
+			}
+		})
+	}
+}
+
 // TestSSEOutputCompressed covers the same action as a client that accepts compression,
 // which every browser does. The events must survive the encoding.
 //

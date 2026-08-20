@@ -365,6 +365,22 @@ func POSTPageIndexCanceled(options ...option) string {
 	return b.String()
 }
 
+// POSTPageIndexNote references /note/
+func POSTPageIndexNote(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/note/')"
+	}
+	var b strings.Builder
+	bl, al := beforeAfterLen(options)
+	b.Grow(bl + len("@post('/note/'") + optionsLen(options) + len(")") + al)
+	writeBefore(&b, options)
+	b.WriteString("@post('/note/'")
+	writeOptions(&b, options)
+	b.WriteByte(')')
+	writeAfter(&b, options)
+	return b.String()
+}
+
 // POSTPageIndexTick references /tick/
 func POSTPageIndexTick(options ...option) string {
 	if len(options) == 0 {

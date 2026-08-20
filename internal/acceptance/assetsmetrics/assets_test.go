@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -59,6 +60,24 @@ func get(t *testing.T, srv *httptest.Server, path string) *http.Response {
 // TestAssetsAreServed covers the files the app embeds. The prefix comes from
 // the configuration and reaches both the URL builder and the route.
 // The two must agree on it.
+// TestAssetPath covers the asset URL builders against path.Join,
+// which is what they fall back to.
+func TestAssetPath(t *testing.T) {
+	for _, p := range []string{
+		"style.css", "sub/nested.js", "", ".", "..", "../secret", "/style.css",
+		"sub//nested.js", "sub/./nested.js", "sub/../nested.js", "sub/",
+		"..hidden.css",
+	} {
+		want := path.Join(assets.URLPrefix, p)
+		if got := href.Asset(p); got != want {
+			t.Errorf("href.Asset(%q) = %q, want %q", p, got, want)
+		}
+		if got := assets.Path(p); got != want {
+			t.Errorf("assets.Path(%q) = %q, want %q", p, got, want)
+		}
+	}
+}
+
 func TestAssetsAreServed(t *testing.T) {
 	srv := newServer(t)
 
