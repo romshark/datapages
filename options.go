@@ -49,8 +49,8 @@ type ServerConfig struct {
 	// the app package declared and only the generated code knows.
 	AssetsEmbed *embed.FS
 
-	// Auth configures the session cookie and the token generator.
-	Auth SessionsConfig
+	// Sessions configures the session cookie and the token generator.
+	Sessions SessionsConfig
 
 	// CSRF configures the CSRF protection. A nil value disables it.
 	CSRF *CSRFConfig
@@ -73,17 +73,17 @@ type ServerOption func(*ServerConfig) error
 //
 // The zero value is what most applications want.
 type SessionsConfig struct {
-	// SessionTokenGenerator makes the token a new session is stored under.
+	// TokenGenerator makes the token a new session is stored under.
 	// The token is a bearer credential: whoever holds it is the session,
 	// which is why it has to be unguessable.
 	//
 	// Optional. Defaults to sessions.DefaultTokenGenerator with sessions.DefaultTokenLen
 	// (32 random bytes). Replace it to lengthen the token or to draw the
 	// randomness from somewhere else.
-	SessionTokenGenerator sessions.TokenGenerator
+	TokenGenerator sessions.TokenGenerator
 
-	// TokenCookie is the cookie the token travels in.
-	TokenCookie AuthCookieConfig
+	// Cookie is the cookie the token travels in.
+	Cookie AuthCookieConfig
 
 	// DisableHTTPOnly exposes the session cookie to client-side JavaScript.
 	//
@@ -202,15 +202,15 @@ func WithAssetsFS(fsys http.FileSystem) ServerOption {
 // WithSessions sets session-based authentication configuration.
 func WithSessions(o SessionsConfig) ServerOption {
 	return func(c *ServerConfig) error {
-		if o.TokenCookie.Name == "" {
-			o.TokenCookie.Name = DefaultSessionCookieName
+		if o.Cookie.Name == "" {
+			o.Cookie.Name = DefaultSessionCookieName
 		}
-		if !httpread.IsCookieName(o.TokenCookie.Name) {
+		if !httpread.IsCookieName(o.Cookie.Name) {
 			return fmt.Errorf(
-				"WithSessions: invalid cookie name: %q", o.TokenCookie.Name,
+				"WithSessions: invalid cookie name: %q", o.Cookie.Name,
 			)
 		}
-		c.Auth = o
+		c.Sessions = o
 		return nil
 	}
 }

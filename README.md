@@ -13,7 +13,7 @@
 
 > [!NOTE]
 > **v0.10 is coming** with API improvements, stateful pages,
-> service worker support and more!
+> service worker support, multi-app modules and more!
 
 A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) web framework
 for building dynamic, server-rendered web applications in pure Go.

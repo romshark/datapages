@@ -635,7 +635,7 @@ func (s *Server) Init(
 	}
 `)
 	if w.usage.hasSession {
-		w.Raw(`	s.Manager = auth.NewManager(s.Core, sessionManager, cfg.Auth, cfg.CSRF, `)
+		w.Raw(`	s.Manager = auth.NewManager(s.Core, sessionManager, cfg.Sessions, cfg.CSRF, `)
 		if w.prometheus {
 			w.Raw(`prom.AuthMetrics{}`)
 		} else {

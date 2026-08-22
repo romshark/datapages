@@ -325,7 +325,7 @@ func (s *Server) Init(
 			return fmt.Errorf("initializing message broker streams: %w", err)
 		}
 	}
-	s.Manager = auth.NewManager(s.Core, sessionManager, cfg.Auth, cfg.CSRF, prom.AuthMetrics{})
+	s.Manager = auth.NewManager(s.Core, sessionManager, cfg.Sessions, cfg.CSRF, prom.AuthMetrics{})
 
 	setupHandlers(s)
 	if assetsFS != nil {

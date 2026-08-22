@@ -52,11 +52,11 @@ func NewManager[Data any](
 	csrfConf *datapages.CSRFConfig,
 	metrics Metrics,
 ) *Manager[Data] {
-	if conf.TokenCookie.Name == "" {
-		conf.TokenCookie.Name = datapages.DefaultSessionCookieName
+	if conf.Cookie.Name == "" {
+		conf.Cookie.Name = datapages.DefaultSessionCookieName
 	}
-	if conf.SessionTokenGenerator == nil {
-		conf.SessionTokenGenerator = sessions.DefaultTokenGenerator{
+	if conf.TokenGenerator == nil {
+		conf.TokenGenerator = sessions.DefaultTokenGenerator{
 			Length: sessions.DefaultTokenLen,
 		}
 	}
@@ -70,11 +70,11 @@ func NewManager[Data any](
 }
 
 // CookieName is the name of the cookie the session token is kept in.
-func (m *Manager[Data]) CookieName() string { return m.conf.TokenCookie.Name }
+func (m *Manager[Data]) CookieName() string { return m.conf.Cookie.Name }
 
 // SessionTokenGenerator generates the token a new session is named by.
 func (m *Manager[Data]) SessionTokenGenerator() sessions.TokenGenerator {
-	return m.conf.SessionTokenGenerator
+	return m.conf.TokenGenerator
 }
 
 // SessionManager is the store the sessions live in.
@@ -102,7 +102,7 @@ func (m *Manager[Data]) sessionRead(outcome string) {
 func (m *Manager[Data]) ReadSession(w http.ResponseWriter, r *http.Request) (
 	sess datapages.Session[Data], token string, ok bool,
 ) {
-	cookieVal, found := httpread.CookieValue(r, m.conf.TokenCookie.Name)
+	cookieVal, found := httpread.CookieValue(r, m.conf.Cookie.Name)
 	if !found {
 		m.sessionRead("none")
 		return sess, "", true
@@ -170,10 +170,10 @@ func (m *Manager[Data]) CheckCSRF(
 // SetSessionCookie writes the session cookie. An empty value clears it.
 func (m *Manager[Data]) SetSessionCookie(w http.ResponseWriter, value string) {
 	cookie := http.Cookie{
-		Name:     m.conf.TokenCookie.Name,
+		Name:     m.conf.Cookie.Name,
 		Value:    value,
 		Path:     "/",
-		Domain:   m.conf.TokenCookie.Domain,
+		Domain:   m.conf.Cookie.Domain,
 		HttpOnly: !m.conf.DisableHTTPOnly,
 		Secure:   m.server.TLSEnabled(),
 		SameSite: http.SameSiteLaxMode,
