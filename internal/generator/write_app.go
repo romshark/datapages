@@ -292,11 +292,9 @@ func (s *Server) writeHTML(
 	}
 `)
 	if m.Session != nil {
-		w.Raw(`	if sess.UserID() != "" {
-		csrfToken := s.CSRFToken(sess.UserID(), sess.IssuedAt())
-		if csrfToken != "" {
-			// Write the fetch X-CSRF-Token header injector.
-			if _, err := io.WriteString(w, ` + "`" + `
+		w.Raw(`	if sess.UserID() != "" && s.CSRFEnabled() {
+		// Write the fetch X-CSRF-Token header injector.
+		if _, err := io.WriteString(w, ` + "`" + `
 	<script type="module">
 		const o = globalThis.fetch.bind(globalThis)
 		globalThis.fetch=(i,init={}) => {
@@ -307,21 +305,21 @@ func (s *Server) writeHTML(
 			) return isReq ? o(r,init):o(r)
 			const h=new Headers(r.headers)
 			h.set("X-CSRF-Token",'` + "`" + `); err != nil {
-				return err
-			}
-			if _, err := io.WriteString(w, csrfToken); err != nil {
-				return err
-			}
-			if _, err := io.WriteString(w, ` + "`" + `')
+			return err
+		}
+		n, err := s.WriteCSRFToken(w, sess.Token())
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			s.Logger().Warn("wrote empty CSRF token",
+				slog.String("user-id", sess.UserID()))
+		}
+		if _, err := io.WriteString(w, ` + "`" + `')
 			return o(new Request(r,{...init,headers:h}))
 		}
 	</script>` + "`" + `); err != nil {
-				return err
-			}
-		} else {
-			s.Logger().Warn("generated empty CSRF token",
-				slog.String("user-id", sess.UserID()),
-				slog.Time("issued-at", sess.IssuedAt()))
+			return err
 		}
 	}
 `)
@@ -555,7 +553,7 @@ func (w *Writer) writeAppInit(appPkg string) {
 		w.Raw(`
 //   - datapages.WithSessionManager (required)
 //   - datapages.WithSessions
-//   - datapages.WithCSRFProtection (required)`)
+//   - datapages.WithCSRFProtection`)
 	}
 	if w.prometheus {
 		w.Raw(`
@@ -605,9 +603,6 @@ func (s *Server) Init(
 		w.Raw(`	if sessionManager == nil {
 		return errors.New("missing option WithSessionManager")
 	}
-	if cfg.CSRF == nil {
-		return errors.New("missing option WithCSRFProtection")
-	}
 `)
 	}
 	w.Raw(`
@@ -635,7 +630,7 @@ func (s *Server) Init(
 	}
 `)
 	if w.usage.hasSession {
-		w.Raw(`	s.Manager = auth.NewManager(s.Core, sessionManager, cfg.Sessions, cfg.CSRF, `)
+		w.Raw(`	s.Manager = auth.NewManager(s.Core, sessionManager, cfg, `)
 		if w.prometheus {
 			w.Raw(`prom.AuthMetrics{}`)
 		} else {

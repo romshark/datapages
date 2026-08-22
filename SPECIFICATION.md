@@ -1013,9 +1013,9 @@ cross-page action ownership errors.
 
 ## Technical Limitations
 
-- For now, with CSRF protection enabled, you will not be able to use plain HTML forms,
-  since the CSRF token is auto-injected for Datastar `fetch` requests
-  (where `Datastar-Request` header is `true`).
+- For now, an application that declares a session type cannot use plain HTML forms.
+  CSRF protection is on for it and the CSRF token is auto-injected only for
+  Datastar `fetch` requests (where the `Datastar-Request` header is `true`).
   You must use Datastar actions for any sort of server interactivity.
 
 - The href linter cannot detect absolute links to your own domain

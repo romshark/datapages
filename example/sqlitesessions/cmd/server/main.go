@@ -19,7 +19,6 @@ import (
 	"github.com/romshark/datapages/example/sqlitesessions/app/sessionstore"
 	"github.com/romshark/datapages/example/sqlitesessions/app/sqdb"
 	"github.com/romshark/datapages/example/sqlitesessions/app/userstore"
-	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 	"github.com/romshark/datapages/modules/sessions"
 )
@@ -28,8 +27,6 @@ func main() {
 	host := envOr("HOST", "localhost")
 	port := envOr("PORT", "8080")
 	dbPath := envOr("SESSION_DB_PATH", "./sqlitesessions.db")
-	// Override in production.
-	csrfSecret := envOr("CSRF_SECRET", "dev-csrf-secret-change-me-in-production")
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -78,12 +75,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	csrfTM, err := csrfhmac.New([]byte(csrfSecret))
-	if err != nil {
-		slog.Error("initializing CSRF token manager", slog.Any("err", err))
-		os.Exit(1)
-	}
-
 	a := app.NewApp(userStore)
 	s, err := datapages.NewServer[
 		app.App,
@@ -95,10 +86,6 @@ func main() {
 		inmem.New(0),
 		datapages.WithSessionManager[app.SessionData](sessionStore),
 		datapages.WithSessions(datapages.SessionsConfig{}),
-		datapages.WithCSRFProtection(datapages.CSRFConfig{
-			Tokens:         csrfTM,
-			DevBypassToken: os.Getenv("CSRF_DEV_BYPASS"),
-		}),
 		datapages.WithMiddleware(accessLog()),
 	)
 	if err != nil {

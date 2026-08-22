@@ -6,11 +6,13 @@ package auth
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/subject"
@@ -36,22 +38,24 @@ type Server interface {
 
 // Manager reads and writes the session of a request.
 type Manager[Data any] struct {
-	server   Server
-	sessions sessions.Manager[Data]
-	conf     datapages.SessionsConfig
-	csrf     *datapages.CSRFConfig
-	metrics  Metrics
+	server       Server
+	sessions     sessions.Manager[Data]
+	conf         datapages.SessionsConfig
+	csrf         datapages.CSRFConfig
+	csrfDisabled bool
+	metrics      Metrics
 }
 
 // NewManager returns a manager reading sessions from store.
-// conf and csrfConf may be zero, metrics may be nil.
+// cfg may be zero, in which case the CSRF protection runs on the
+// built-in tokens. metrics may be nil.
 func NewManager[Data any](
 	server Server,
 	store sessions.Manager[Data],
-	conf datapages.SessionsConfig,
-	csrfConf *datapages.CSRFConfig,
+	cfg datapages.ServerConfig,
 	metrics Metrics,
 ) *Manager[Data] {
+	conf := cfg.Sessions
 	if conf.Cookie.Name == "" {
 		conf.Cookie.Name = datapages.DefaultSessionCookieName
 	}
@@ -60,12 +64,26 @@ func NewManager[Data any](
 			Length: sessions.DefaultTokenLen,
 		}
 	}
+	var csrfConf datapages.CSRFConfig
+	if cfg.CSRF != nil {
+		csrfConf = *cfg.CSRF
+	}
+	if csrfConf.Tokens == nil {
+		csrfConf.Tokens = csrf.Tokens{}
+	}
+	if csrfConf.Disabled {
+		server.Logger().Warn("CSRF protection is disabled",
+			slog.String("reason", "CSRFConfig.Disabled is set"),
+			slog.String("effect", "state-changing actions are accepted on the "+
+				"session cookie alone"))
+	}
 	return &Manager[Data]{
-		server:   server,
-		sessions: store,
-		conf:     conf,
-		csrf:     csrfConf,
-		metrics:  metrics,
+		server:       server,
+		sessions:     store,
+		conf:         conf,
+		csrf:         csrfConf,
+		csrfDisabled: csrfConf.Disabled,
+		metrics:      metrics,
 	}
 }
 
@@ -82,13 +100,19 @@ func (m *Manager[Data]) SessionManager() sessions.Manager[Data] {
 	return m.sessions
 }
 
-// CSRFToken returns the token a signed-in visitor sends back on an action.
-// It is empty when CSRF protection is off.
-func (m *Manager[Data]) CSRFToken(userID string, issuedAt time.Time) string {
-	if m.csrf == nil {
-		return ""
+// CSRFEnabled reports whether state-changing actions are CSRF protected.
+func (m *Manager[Data]) CSRFEnabled() bool { return !m.csrfDisabled }
+
+// WriteCSRFToken writes the token a signed-in visitor sends back on an action
+// and reports how many bytes it wrote. It writes nothing for a guest and when
+// CSRF protection is off.
+func (m *Manager[Data]) WriteCSRFToken(
+	w io.Writer, sessionToken string,
+) (n int, err error) {
+	if m.csrfDisabled {
+		return 0, nil
 	}
-	return m.csrf.Tokens.GenerateToken(userID, issuedAt.Unix())
+	return m.csrf.Tokens.WriteToken(w, sessionToken)
 }
 
 func (m *Manager[Data]) sessionRead(outcome string) {
@@ -133,7 +157,7 @@ func (m *Manager[Data]) ReadSession(w http.ResponseWriter, r *http.Request) (
 	}
 	m.sessionRead("valid")
 
-	if !m.CheckCSRF(w, r, sess.UserID(), sess.IssuedAt()) {
+	if !m.CheckCSRF(w, r, token) {
 		return sess, token, false
 	}
 
@@ -143,13 +167,13 @@ func (m *Manager[Data]) ReadSession(w http.ResponseWriter, r *http.Request) (
 // CheckCSRF answers r and returns false when the request carries no valid
 // CSRF token. A read method, a guest and disabled protection all pass.
 func (m *Manager[Data]) CheckCSRF(
-	w http.ResponseWriter, r *http.Request, userID string, issuedAt time.Time,
+	w http.ResponseWriter, r *http.Request, sessionToken string,
 ) (ok bool) {
-	if userID == "" ||
+	if sessionToken == "" ||
 		r.Method == http.MethodGet ||
 		r.Method == http.MethodOptions ||
 		r.Method == http.MethodHead ||
-		m.csrf == nil {
+		m.csrfDisabled {
 		return true
 	}
 	t := r.Header.Get("X-CSRF-Token")
@@ -157,10 +181,7 @@ func (m *Manager[Data]) CheckCSRF(
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return false
 	}
-	if m.csrf.DevBypassToken != "" && t == m.csrf.DevBypassToken {
-		return true
-	}
-	if !m.csrf.Tokens.ValidateToken(userID, issuedAt.Unix(), t) {
+	if !m.csrf.Tokens.ValidateToken(sessionToken, t) {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return false
 	}

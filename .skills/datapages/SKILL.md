@@ -781,10 +781,11 @@ opts = append(opts, datapages.WithMiddleware(func(next http.Handler) http.Handle
 	})
 }))
 
-// CSRF protection (required for session-based apps)
+// CSRF protection is on for every app with a Session type and needs no
+// option. The token is derived from the session token.
+// Configure it only to replace the tokens or to turn the protection off.
 opts = append(opts, datapages.WithCSRFProtection(datapages.CSRFConfig{
-	Tokens:         tm,
-	DevBypassToken: os.Getenv("CSRF_DEV_BYPASS"),
+	Tokens: myTokens,
 }))
 
 // Authentication (required when Session type is defined)

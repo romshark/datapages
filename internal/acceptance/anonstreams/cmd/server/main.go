@@ -18,7 +18,6 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/anonstreams/app"
 	"github.com/romshark/datapages/internal/acceptance/anonstreams/app/datapagesgen"
-	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
 	"github.com/romshark/datapages/modules/messaging/natscore"
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/modules/sessions/natskv"
@@ -36,7 +35,6 @@ func main() {
 	var opts []datapages.ServerOption
 	withAccessLogger(&opts)
 	withSessions(&opts)
-	withCSRFProtection(&opts)
 
 	messageBroker, sessionManager := connectNATS()
 
@@ -111,19 +109,6 @@ func withAccessLogger(opts *[]datapages.ServerOption) {
 
 func withSessions(opts *[]datapages.ServerOption) {
 	*opts = append(*opts, datapages.WithSessions(datapages.SessionsConfig{}))
-}
-
-func withCSRFProtection(opts *[]datapages.ServerOption) {
-	secret := os.Getenv("CSRF_SECRET")
-	tm, err := csrfhmac.New([]byte(secret))
-	if err != nil {
-		slog.Error("initializing CSRF token manager", slog.Any("err", err))
-		os.Exit(1)
-	}
-	*opts = append(*opts, datapages.WithCSRFProtection(datapages.CSRFConfig{
-		Tokens:         tm,
-		DevBypassToken: os.Getenv("CSRF_DEV_BYPASS"),
-	}))
 }
 
 func connectNATS() (

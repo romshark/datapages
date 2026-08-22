@@ -137,7 +137,6 @@ define run_k6
 	$(K6) run \
 		-e HOST=$$HOST \
 		-e PORT=$$PORT \
-		-e CSRF_DEV_BYPASS=$$CSRF_DEV_BYPASS \
 		-e SCENARIO=$(2) \
 		$(if $(VUS),-e VUS=$(VUS)) \
 		$(if $(DURATION),-e DURATION=$(DURATION)) \

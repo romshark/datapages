@@ -52,7 +52,8 @@ type ServerConfig struct {
 	// Sessions configures the session cookie and the token generator.
 	Sessions SessionsConfig
 
-	// CSRF configures the CSRF protection. A nil value disables it.
+	// CSRF configures the CSRF protection.
+	// A nil value leaves it on with the built-in defaults.
 	CSRF *CSRFConfig
 
 	// sessionManager is what [WithSessionManager] carries.
@@ -117,30 +118,25 @@ type AuthCookieConfig struct {
 }
 
 // CSRFConfig configures the CSRF (Cross-Site-Request-Forgery) protection of
-// state-changing actions.
-//
-// Without it a page on another origin could make the browser send an action
-// request carrying the session cookie. The token proves the request came from
-// a page this server rendered.
+// state-changing actions, that is already enabled by default for applications
+// that use session based authentication.
 type CSRFConfig struct {
-	// Tokens issues the token a page carries and verifies the one a request
-	// comes back with. Both halves are one value: a generator and a validator
-	// that disagreed would fail only once a request arrived.
+	// Disabled turns the protection off. The other fields are then unused.
 	//
-	// It is required, a nil value is an error. See modules/csrf/hmac for an
-	// implementation that needs no storage, deriving the token from a secret
-	// plus the session it belongs to.
+	// WARNING: Every state-changing action of an authenticated visitor is then
+	// accepted on the session cookie alone, which is what a cross-site page
+	// needs to make the browser act for them. Set this only when something in
+	// front of the server already rejects cross-origin requests.
+	Disabled bool
+
+	// Tokens writes and validates CSRF tokens.
+	//
+	// Optional. Defaults to [csrf.Tokens],
+	// which derives the token from the session token.
 	Tokens interface {
-		csrf.TokenGenerator
+		csrf.TokenWriter
 		csrf.TokenValidator
 	}
-
-	// DevBypassToken, if non-empty, is accepted as a valid
-	// CSRF token for any session. Use this only in development
-	// to allow tools like k6 to exercise POST endpoints.
-	//
-	// [WithCSRFProtection] refuses it outside dev mode.
-	DevBypassToken string
 }
 
 // WithLogger sets a custom error logger.
@@ -215,16 +211,14 @@ func WithSessions(o SessionsConfig) ServerOption {
 	}
 }
 
-// WithCSRFProtection enables Cross-Site-Request-Forgery protection on
+// WithCSRFProtection configures the Cross-Site-Request-Forgery protection of
 // POST/PUT/PATCH/DELETE action endpoints.
+//
+// The protection is on for every application that declares a session type,
+// with or without this option. Use it to replace the built-in tokens or to
+// turn the protection off, not to switch it on.
 func WithCSRFProtection(conf CSRFConfig) ServerOption {
 	return func(c *ServerConfig) error {
-		if conf.Tokens == nil {
-			return errors.New("nil CSRF tokens")
-		}
-		if conf.DevBypassToken != "" && !IsDevMode() {
-			return errors.New("CSRF dev bypass token must not be set in non-dev mode")
-		}
 		c.CSRF = &conf
 		return nil
 	}

@@ -6,7 +6,6 @@
 package acceptance_test
 
 import (
-	"crypto/sha256"
 	"testing"
 
 	"github.com/romshark/datapages"
@@ -15,7 +14,6 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/anonstreams/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/anonstreams/app/datapagesgen/href"
 	"github.com/romshark/datapages/internal/acceptance/contract"
-	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 	"github.com/romshark/datapages/modules/sessions"
@@ -26,17 +24,9 @@ func TestContract(t *testing.T) {
 	contract.Run(t, contract.Case{
 		NewServer: func(t *testing.T, opts ...any) contract.Server {
 			t.Helper()
-			key := sha256.Sum256([]byte("acceptance-csrf"))
-			tm, err := csrfhmac.New(key[:])
-			if err != nil {
-				t.Fatalf("building CSRF token manager: %v", err)
-			}
 			sessions := sessinmem.New[struct{}](
 				sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 			)
-			opts = append(opts, datapages.WithCSRFProtection(
-				datapages.CSRFConfig{Tokens: tm},
-			))
 			return mustNewServer(t, &app.App{},
 				inmem.New(messaging.DefaultBrokerChanBuffer), sessions,
 				contract.Options[datapages.ServerOption](opts)...)

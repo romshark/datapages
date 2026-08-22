@@ -63,8 +63,8 @@ Use ≥30s to get meaningful p95/p99.
 
 - `HOST`, `PORT` — server address.
 - `SCHEME` — `http` or `https`. Auto-picks `https` when `PORT=443`.
-- `CSRF_DEV_BYPASS` — if set, used as `X-CSRF-Token`. Otherwise the full-flow
-  script scrapes the token from the page.
+- The script scrapes the CSRF token from the page it signs in with. There is no
+  bypass to configure.
 
 For stage (HTTPS with mkcert), run `mkcert -install` once or set
 `K6_INSECURE_SKIP_TLS_VERIFY=true`.

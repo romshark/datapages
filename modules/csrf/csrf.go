@@ -1,26 +1,24 @@
-// Package csrf defines the interface for
-// CSRF (Cross-Site Request Forgery) token generation and validation.
-//
-// The built-in implementations live in the subpackages.
 package csrf
 
-type UnixSeconds = int64
+import "io"
 
-// TokenGenerator issues CSRF tokens.
+// TokenWriter issues CSRF tokens writing them to an [io.Writer].
 //
 // Implementations are safe for concurrent use.
-type TokenGenerator interface {
-	// GenerateToken returns a CSRF token bound to the given userID
-	// and session issuance time (unix seconds).
-	// Returns an empty string if sessIssuedAtUnix is negative.
-	GenerateToken(userID string, sessIssuedAtUnix UnixSeconds) string
+type TokenWriter interface {
+	// WriteToken writes a CSRF token bound to the session named by sessionToken to
+	// w and reports how many bytes it wrote. Writes nothing for an empty sessionToken.
+	//
+	// The token is handed to the client, hence it must not be possible to
+	// recover sessionToken from it.
+	WriteToken(w io.Writer, sessionToken string) (n int, err error)
 }
 
 // TokenValidator checks CSRF tokens against the session they belong to.
 //
 // Implementations are safe for concurrent use.
 type TokenValidator interface {
-	// ValidateToken checks whether token is valid for the given
-	// userID and session issuance time (unix seconds).
-	ValidateToken(userID string, sessIssuedAtUnix UnixSeconds, token string) bool
+	// ValidateToken reports whether token is a valid CSRF token for the
+	// session named by sessionToken.
+	ValidateToken(sessionToken, token string) bool
 }

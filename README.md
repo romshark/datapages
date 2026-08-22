@@ -179,7 +179,7 @@ Datapages ships pluggable modules with swappable implementations:
   - [`natscore`](https://pkg.go.dev/github.com/romshark/datapages/modules/messaging/natscore) - Core NATS backed message broker
   - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/messaging/inmem) - In-memory fan-out message broker (single-instance only)
 - [`TokenGenerator`, `TokenValidator`](modules/csrf/csrf.go)
-  - [`hmac`](https://pkg.go.dev/github.com/romshark/datapages/modules/csrf/hmac) - HMAC-SHA256 with BREACH-resistant masking
+  - [`Tokens`](modules/csrf/tokens.go) - the built-in default: HKDF-SHA256 over the session token, BREACH-resistant masking, nothing to configure
 - [`TokenGenerator`](modules/sessions/sessions.go)
 
 ## Motivation
