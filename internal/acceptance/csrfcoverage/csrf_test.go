@@ -12,12 +12,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/app"
-	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/datapagesgen"
 	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
-	sessinmem "github.com/romshark/datapages/modules/sessmanager/inmem"
-	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
+	"github.com/romshark/datapages/modules/sessions"
+	sessinmem "github.com/romshark/datapages/modules/sessions/inmem"
 )
 
 // TestCSRFCoversEveryAction covers a state-changing action that declares
@@ -32,13 +33,14 @@ func TestCSRFCoversEveryAction(t *testing.T) {
 		t.Fatalf("building CSRF token manager: %v", err)
 	}
 	sessions := sessinmem.New[struct{}](
-		sesstokgen.Generator{Length: sesstokgen.DefaultLength},
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 	)
 
-	srv := httptest.NewServer(datapagesgen.NewServer(
-		&app.App{}, inmem.New(8), sessions,
-		datapagesgen.WithCSRFProtection(
-			datapagesgen.CSRFConfig{TokenManager: tm},
+	srv := httptest.NewServer(mustNewServer(
+		t,
+		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), sessions,
+		datapages.WithCSRFProtection(
+			datapages.CSRFConfig{Tokens: tm},
 		),
 	))
 	t.Cleanup(srv.Close)

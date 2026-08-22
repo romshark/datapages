@@ -1,11 +1,4 @@
-app: app
-gen:
-  package: datapagesgen
-  prometheus: false
 cmd: cmd/server
-assets:
-  url-prefix: /static/
-  dir: ./app/static/
 watch:
   exclude:
     - ".git/**" # git internals

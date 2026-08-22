@@ -11,6 +11,8 @@ import (
 	"github.com/romshark/datapages/example/todolist/list"
 )
 
+// StaticFS is /static/
+//
 //go:embed static/*
 var StaticFS embed.FS
 

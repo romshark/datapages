@@ -13,7 +13,7 @@ import (
 var mainGoTmpl string
 
 //go:embed app.go.tmpl
-var AppGo string
+var appGoTmpl string
 
 //go:embed app.templ.tmpl
 var AppTempl string
@@ -30,10 +30,27 @@ var VSCodeExtensions string
 //go:embed ci.yml.tmpl
 var CIWorkflow string
 
-var tmpl = template.Must(template.New("main.go").Parse(mainGoTmpl))
+var (
+	tmpl       = template.Must(template.New("main.go").Parse(mainGoTmpl))
+	appGoTempl = template.Must(template.New("app.go").Parse(appGoTmpl))
+)
+
+// AppGo renders the app/app.go skeleton and returns formatted Go source.
+func AppGo() ([]byte, error) {
+	var buf bytes.Buffer
+	if err := appGoTempl.Execute(&buf, nil); err != nil {
+		return nil, fmt.Errorf("executing app.go template: %w", err)
+	}
+	src, err := format.Source(buf.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("formatting app.go: %w", err)
+	}
+	return src, nil
+}
 
 type mainGoData struct {
 	AppImport  string
+	AppPkg     string
 	GenImport  string
 	Gen        string
 	Prometheus bool
@@ -45,17 +62,19 @@ type mainGoData struct {
 }
 
 // MainGo renders the cmd/server/main.go template with the given import paths
-// and returns formatted Go source.
+// and returns formatted Go source. appPkgName is the name the app package
+// declares, which need not match the last element of its import path.
 //
 // sessionData is the rendered session Data type,
 // empty for an application without sessions.
 func MainGo(
-	appImportPath, genImportPath, genPkgName string,
+	appImportPath, appPkgName, genImportPath, genPkgName string,
 	prometheus bool, sessionData string,
 ) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, mainGoData{
 		AppImport:   appImportPath,
+		AppPkg:      appPkgName,
 		GenImport:   genImportPath,
 		Gen:         genPkgName,
 		Prometheus:  prometheus,

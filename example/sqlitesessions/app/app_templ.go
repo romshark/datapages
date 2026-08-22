@@ -9,8 +9,8 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
-	"github.com/romshark/datapages/example/sqlitesessions/datapagesgen/action"
-	"github.com/romshark/datapages/example/sqlitesessions/datapagesgen/href"
+	"github.com/romshark/datapages/example/sqlitesessions/app/datapagesgen/action"
+	"github.com/romshark/datapages/example/sqlitesessions/app/datapagesgen/href"
 )
 
 func head() templ.Component {

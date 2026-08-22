@@ -1,5 +1,16 @@
 package generator
 
+// assetPathBody returns the body of an asset path builder.
+// path.Join is what it falls back to: the concatenation is the same result
+// for a clean relative path, which is what an asset name is.
+func assetPathBody(prefix string) string {
+	return "\tif p == \"\" || p == \".\" || p[0] == '/' ||\n" +
+		"\t\tstrings.HasPrefix(p, \"..\") || p != path.Clean(p) {\n" +
+		"\t\treturn path.Join(" + prefix + ", p)\n" +
+		"\t}\n" +
+		"\treturn " + prefix + " + p\n"
+}
+
 // WritePkgAssets generates code for the assets subpackage (assets/assets_gen.go).
 // It emits the URLPrefix, Dir, and DevDir constants.
 func (w *Writer) WritePkgAssets() {
@@ -26,6 +37,6 @@ func (w *Writer) WritePkgAssets() {
 	w.Line(0, "// Path returns the URL path for a static asset file.")
 	w.Line(0, "// For example, Path(\"style.css\") returns \"/static/style.css\".")
 	w.Line(0, "func Path(p string) string {")
-	w.Line(1, "return path.Join(URLPrefix, p)")
+	w.Raw(assetPathBody("URLPrefix"))
 	w.Line(0, "}")
 }

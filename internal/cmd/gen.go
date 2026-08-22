@@ -18,6 +18,7 @@ import (
 	datapagesparser "github.com/romshark/datapages/internal/parser"
 	"github.com/romshark/datapages/internal/parser/errsuggest"
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/internal/serverscan"
 )
 
 func newGenCmd(stderr io.Writer, version string) *cobra.Command {
@@ -31,7 +32,11 @@ func newGenCmd(stderr io.Writer, version string) *cobra.Command {
   - Type-safe action helpers (action package)
   - Server entry point (cmd package, created only if missing)
 
-Requires a datapages.yaml config file. Run "datapages init" to create one.
+The app package and the destination are read from the type arguments of the
+datapages.NewServer call. A module without one is generated with the defaults
+(./app and ./datapagesgen) and gets a cmd/server/main.go written for it.
+
+Assets and Prometheus are read from the Config variable of the app package.
 
 This command does not run "templ generate". You must run it yourself
 before "datapages gen" if you have created or modified .templ files.
@@ -45,19 +50,22 @@ Errors go to stderr. The exit code is non-zero whenever parsing fails.`,
 			if err != nil {
 				return err
 			}
-			conf, found, err := config.Load(moduleDir)
+			conf, _, err := config.Load(moduleDir)
 			if err != nil {
 				return err
 			}
-			if !found {
-				return config.ErrNoConfig
-			}
-			return runGen(moduleDir, conf, stderr, version)
+			return runGen(moduleDir, conf, false, stderr, version)
 		},
 	}
 }
 
-func runGen(moduleDir string, cfg config.Config, stderr io.Writer, version string) error {
+// runGen generates every app of the module. scaffoldProm asks for Prometheus
+// in the main.go written for a module that holds no NewServer call yet, which
+// is the only run with no call to read the option from.
+func runGen(
+	moduleDir string, cfg config.Config, scaffoldProm bool,
+	stderr io.Writer, version string,
+) error {
 	modulePath, err := readModulePath(moduleDir)
 	if err != nil {
 		return err
@@ -67,26 +75,44 @@ func runGen(moduleDir string, cfg config.Config, stderr io.Writer, version strin
 		return err
 	}
 
-	cmdDir := filepath.Join(moduleDir, cfg.Cmd)
-	cmdExists, err := checkCmdPackage(cmdDir)
+	scan, err := serverscan.Scan(moduleDir, modulePath)
 	if err != nil {
 		return err
 	}
 
-	genDir := filepath.Join(moduleDir, cfg.Gen.Package)
-	genPkgName := filepath.Base(genDir)
-	genImport := modulePath + "/" + cfg.Gen.Package
-	prometheus := cfg.Gen.Prometheus != nil && *cfg.Gen.Prometheus
-	var assetsURLPrefix, assetsDir string
-	if cfg.Assets != nil {
-		assetsURLPrefix = cfg.Assets.URLPrefix
-		// Derive embed.FS subdirectory from the on-disk path by stripping
-		// the app package prefix: "./app/static" -> "static".
-		cleaned := filepath.Clean(cfg.Assets.Dir)
-		assetsDir = strings.TrimPrefix(cleaned, cfg.App+string(filepath.Separator))
+	// Every app is generated, even when another one failed to parse:
+	// one broken model must not leave the rest of the module without code.
+	var errs []error
+	for _, app := range scan.Apps {
+		app.Prometheus = app.Prometheus || (scan.Fallback && scaffoldProm)
+		if err := genApp(moduleDir, cfg, scan, app, stderr); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
-	app, parseErr := parseApp(filepath.Join(moduleDir, cfg.App), stderr)
+	// Run go mod tidy after generation so that go.sum stays in sync,
+	// especially after upgradeGoMod bumps the datapages version.
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Dir = moduleDir
+	if out, err := tidy.CombinedOutput(); err != nil {
+		errs = append(errs, fmt.Errorf("go mod tidy: %s", out))
+	}
+	return errors.Join(errs...)
+}
+
+// genApp parses one app package and generates the code for it.
+func genApp(
+	moduleDir string, cfg config.Config,
+	scan serverscan.Result, app serverscan.App, stderr io.Writer,
+) error {
+	m, parseErr := parseApp(filepath.Join(moduleDir, app.Dir), stderr)
+
+	genDir := filepath.Join(moduleDir, app.GenDir)
+	var assets model.Assets
+	if m != nil {
+		assets = m.Assets
+	}
+
 	if parseErr != nil {
 		// Existing generated code is left alone. The parser returns a partial
 		// model for a rejected package. Code generated from it describes an
@@ -96,43 +122,44 @@ func runGen(moduleDir string, cfg config.Config, stderr io.Writer, version strin
 		// A package that was never generated is different. There is nothing
 		// to lose and the app package imports it.
 		// Stubs make the import resolve while the errors are fixed.
-		if err := writeStubsIfAbsent(
-			genDir, genPkgName, assetsURLPrefix != "",
-		); err != nil {
+		if err := writeStubsIfAbsent(genDir, assets.URLPrefix != ""); err != nil {
 			return err
 		}
 		return parseErr
 	}
+
 	if err := generator.Generate(
-		genDir, genPkgName, app, 0o644, generator.Options{
-			Prometheus:      prometheus,
-			AssetsURLPrefix: assetsURLPrefix,
-			AssetsDir:       assetsDir,
-			AppDir:          cfg.App,
-			GenImport:       genImport,
+		genDir, serverscan.GenSubdir, m, 0o644, generator.Options{
+			Prometheus:      app.Prometheus,
+			AssetsURLPrefix: assets.URLPrefix,
+			AssetsDir:       assets.Dir,
+			AppDir:          app.Dir,
+			GenImport:       app.GenImport,
 		},
 	); err != nil {
 		return fmt.Errorf("generating code: %w", err)
 	}
 
-	if !cmdExists {
-		appImport := modulePath + "/" + cfg.App
-		if err := generator.GenerateCmd(
-			cmdDir, appImport, genImport, genPkgName, prometheus, app, 0o644,
-		); err != nil {
-			return fmt.Errorf("generating cmd: %w", err)
+	// A module without a NewServer call has no entry point yet.
+	if scan.Fallback {
+		cmdDir := filepath.Join(moduleDir, cfg.Cmd)
+		cmdExists, err := checkCmdPackage(cmdDir)
+		if err != nil {
+			return err
+		}
+		if !cmdExists {
+			if err := generator.GenerateCmd(
+				cmdDir, app.Import, app.GenImport, serverscan.GenSubdir,
+				app.Prometheus, m, 0o644,
+			); err != nil {
+				return fmt.Errorf("generating cmd: %w", err)
+			}
 		}
 	}
 
-	// Run go mod tidy after generation so that go.sum stays in sync,
-	// especially after upgradeGoMod bumps the datapages version.
-	tidy := exec.Command("go", "mod", "tidy")
-	tidy.Dir = moduleDir
-	if out, err := tidy.CombinedOutput(); err != nil {
-		return fmt.Errorf("go mod tidy: %s", out)
-	}
-
-	return nil
+	// The calls are checked against what the app package was parsed to
+	// declare, which is why this runs last.
+	return serverscan.CheckSessionOption(app, m.Session != nil)
 }
 
 // writeStubsIfAbsent writes package declaration stubs when
@@ -143,14 +170,14 @@ func runGen(moduleDir string, cfg config.Config, stderr io.Writer, version strin
 // The unresolved import then hides the reported errors.
 // A stub holds no application code and cannot be wrong.
 // On a project that generated before, the existing code is the better stub.
-func writeStubsIfAbsent(genDir, genPkgName string, hasAssets bool) error {
+func writeStubsIfAbsent(genDir string, hasAssets bool) error {
 	if _, err := os.Stat(filepath.Join(genDir, "app_gen.go")); err == nil {
 		return nil // generated before, keep it
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("reading %s: %w", genDir, err)
 	}
 	if err := generator.Generate(
-		genDir, genPkgName, nil, 0o644,
+		genDir, serverscan.GenSubdir, nil, 0o644,
 		generator.Options{AssetsURLPrefix: stubAssetsPrefix(hasAssets)},
 	); err != nil {
 		return fmt.Errorf("generating stubs: %w", err)
@@ -209,8 +236,8 @@ func parseApp(appDir string, stderr io.Writer) (*model.App, error) {
 		}
 	}
 	_, _ = fmt.Fprintln(stderr)
-	// The partial model is returned for callers that only inspect it.
-	// Generating from it is not safe. It describes an application the user did not write.
+	// Return the partial model alongside the error: callers may still
+	// generate code from whatever was successfully parsed.
 	return app, fmt.Errorf("parsing app package: %s",
 		count.Sprintf("%d error(s)", errs.Len()))
 }

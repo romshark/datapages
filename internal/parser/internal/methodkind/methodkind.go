@@ -4,7 +4,8 @@ package methodkind
 
 import "strings"
 
-// Kind represents the kind of handler method.
+// Kind is what a method name makes of a method: an HTTP handler, a stream hook
+// or an event handler. The zero value is an ordinary method.
 type Kind int8
 
 const (
@@ -49,8 +50,8 @@ func (k Kind) HTTPMethod() string {
 	return ""
 }
 
-// Classify determines the handler kind and name suffix from
-// a method name. Returns zero Kind for unrecognized names.
+// Classify reads the kind and the name suffix out of a method name.
+// An unrecognized name yields the zero Kind.
 func Classify(name string) (kind Kind, suffix string) {
 	if name == "" {
 		return 0, ""

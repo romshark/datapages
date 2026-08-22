@@ -268,7 +268,8 @@ func posLess(a, b token.Position) bool {
 	return a.Column < b.Column
 }
 
-// earliest position we can anchor "global" errors to (package statement).
+// earliestPkgPos returns the package statement an error without a position of
+// its own is anchored to.
 func earliestPkgPos(pkg *packages.Package) token.Position {
 	best := token.Position{}
 	for _, f := range pkg.Syntax {
@@ -280,16 +281,17 @@ func earliestPkgPos(pkg *packages.Package) token.Position {
 	return best
 }
 
-// Best-effort parse for packages.Error.Pos which is typically "file:line:col".
+// posFromPackagesError reads the "file:line:col" of a packages.Error.
+// A field it cannot read stays zero.
+//
+// The parse cuts from the right, hence a Windows drive letter in
+// "C:\x\y\z.go:12:3" is not mistaken for the line.
 func posFromPackagesError(pe packages.Error) token.Position {
-	// keep it simple: split from the right so Windows drive letters don't break it
-	// e.g. "C:\x\y\z.go:12:3"
 	s := pe.Pos
 	if s == "" {
 		return token.Position{}
 	}
 
-	// last ":col"
 	i := strings.LastIndexByte(s, ':')
 	if i < 0 {
 		return normPos(token.Position{Filename: s})
@@ -297,7 +299,6 @@ func posFromPackagesError(pe packages.Error) token.Position {
 	colStr := s[i+1:]
 	s = s[:i]
 
-	// last ":line"
 	j := strings.LastIndexByte(s, ':')
 	if j < 0 {
 		return normPos(token.Position{Filename: s})
@@ -402,7 +403,7 @@ func sortErrors(e *Errors) {
 			}
 			return 1
 		}
-		// deterministic tie-break
+		// Two errors at one position keep the order they were reported in.
 		if a.seq < b.seq {
 			return -1
 		}

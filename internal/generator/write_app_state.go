@@ -223,7 +223,6 @@ func boundStateTypes(m *model.App) []*model.StateType {
 
 // writeStateRuntime emits the server-side state runtime:
 //
-//   - StateConfig + WithStateConfig option
 //   - The sharded instance store, shared by all state types
 //   - Per state type: slot type + sync.Pool + store of live instances
 //   - HMAC sign/verify helpers for Datapages-Instance header
@@ -235,8 +234,6 @@ func (w *Writer) writeStateRuntime(m *model.App, appPkg string) {
 		return
 	}
 
-	w.writeStateConfigType()
-	w.writeStateConfigOption()
 	w.writeStateHMACHelpers()
 	w.writeStateStoreType()
 
@@ -311,68 +308,6 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 	}
 	delete(sh.m, id)
 	return true
-}
-`)
-}
-
-func (w *Writer) writeStateConfigType() {
-	w.Raw(`
-// stateHMACKeyMinLen is the shortest key WithStateConfig accepts,
-// the output size of the hash the key is used with.
-const stateHMACKeyMinLen = 32
-
-// DefaultMaxConcurrentInstances is the default value of
-// [StateConfig.MaxConcurrentInstances]
-const DefaultMaxConcurrentInstances = 10_000
-
-// StateConfig configures the per-page-instance server-side state runtime.
-// Pass via WithStateConfig when at least one handler takes state *T.
-type StateConfig struct {
-	// HMACKey signs the Datapages-Instance identifier that rides on
-	// request/response headers. Required; 32 bytes or more.
-	// Rotating the key invalidates all live instances. A client whose
-	// request is rejected reloads the page once and starts a fresh instance;
-	// what it had not sent is lost.
-	//
-	// Give this purpose a key of its own, 32 random bytes or more. Sharing one key
-	// across subsystems makes the security of each of them the security of all.
-	HMACKey []byte
-
-	// MaxConcurrentInstances caps how many instances exist at the same time,
-	// across all state types. An instance lives exactly as long as its stream.
-	// A stream open beyond the cap is answered 503 with Retry-After.
-	//
-	// Zero selects [DefaultMaxConcurrentInstances]. A negative value removes the cap.
-	MaxConcurrentInstances int
-}
-`)
-}
-
-func (w *Writer) writeStateConfigOption() {
-	w.Raw(`
-// WithStateConfig enables the per-page-instance server-side state runtime.
-// Required when at least one handler takes state *T.
-//
-// On multi-server deployments the load balancer MUST route requests for a
-// given client consistently to the same backend (sticky sessions),
-// since state lives in process memory.
-func WithStateConfig(conf StateConfig) ServerOption {
-	return func(s *Server) error {
-		// The bound is the output size of SHA-256, which is what RFC 2104
-		// asks of a key. It catches a short literal and nothing else:
-		// length is not entropy, and 32 bytes derived from one weak
-		// passphrase pass this check.
-		if len(conf.HMACKey) < stateHMACKeyMinLen {
-			return fmt.Errorf(
-				"WithStateConfig: HMACKey must be at least %d bytes, got %d",
-				stateHMACKeyMinLen, len(conf.HMACKey))
-		}
-		if conf.MaxConcurrentInstances == 0 {
-			conf.MaxConcurrentInstances = DefaultMaxConcurrentInstances
-		}
-		s.stateConf = &conf
-		return nil
-	}
 }
 `)
 }
@@ -461,7 +396,7 @@ func (s *Server) stateRouteKey(id string) string {
 
 // stateLiveInstances counts the instances of every state type.
 // Memory is shared between them,
-// and so is the budget in StateConfig.MaxConcurrentInstances.
+// and so is the budget in datapages.StateConfig.MaxConcurrentInstances.
 var stateLiveInstances atomic.Int64
 
 // stateNoInstanceLimit is what a negative MaxConcurrentInstances means:

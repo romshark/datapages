@@ -318,9 +318,9 @@ func TestWatch(t *testing.T) {
 		// Gen runs synchronously before the engine; wait for generated files.
 		require.Eventually(t, func() bool {
 			for _, f := range []string{
-				"datapagesgen/app_gen.go",
-				"datapagesgen/action/action_gen.go",
-				"datapagesgen/href/href_gen.go",
+				"app/datapagesgen/app_gen.go",
+				"app/datapagesgen/action/action_gen.go",
+				"app/datapagesgen/href/href_gen.go",
 				"cmd/server/main.go",
 			} {
 				if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
@@ -345,9 +345,9 @@ func TestLintGen(t *testing.T) {
 	checkGenPackage := func(t *testing.T, dir string) {
 		t.Helper()
 		for _, f := range []string{
-			"datapagesgen/app_gen.go",
-			"datapagesgen/action/action_gen.go",
-			"datapagesgen/href/href_gen.go",
+			"app/datapagesgen/app_gen.go",
+			"app/datapagesgen/action/action_gen.go",
+			"app/datapagesgen/href/href_gen.go",
 		} {
 			require.FileExists(t, filepath.Join(dir, f))
 		}
@@ -378,8 +378,8 @@ func TestLintGen(t *testing.T) {
 			checkGen:  checkGenPackage,
 		},
 		// App type present, other pages broken. The parser returns a partial
-		// model. Nothing is generated from it. The entry point is not written either.
-		// Only stubs appear.
+		// model. Nothing is generated from it. The entry point is not written
+		// either. Only stubs appear.
 		"error partial model": {
 			appGoFile: "invalid_with_app.go",
 			wantOK:    false,
@@ -395,12 +395,15 @@ func TestLintGen(t *testing.T) {
 			wantOK:   true,
 			checkGen: checkGenFiles,
 		},
+		// A module without a datapages.yaml is generated with the defaults:
+		// the yaml carries nothing the generator needs any more.
 		"no config": {
 			appGoFile: "valid.go",
 			prepare: func(t *testing.T, dir string) {
 				removeExistingFile(t, filepath.Join(dir, "datapages.yaml"))
 			},
-			wantOK: false,
+			wantOK:   true,
+			checkGen: checkGenFiles,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -626,7 +629,7 @@ func TestGenFailureLeavesGeneratedCode(t *testing.T) {
 	)
 	require.Zero(t, code, "gen stderr: %s", stderr.String())
 
-	genDir := filepath.Join(dir, "datapagesgen")
+	genDir := filepath.Join(dir, "app", "datapagesgen")
 	before := hashDir(t, genDir)
 
 	// Break the app package the way an edit in progress does.
@@ -671,9 +674,9 @@ func TestGenFailureWritesStubsWhenNothingGenerated(t *testing.T) {
 	require.Equal(t, 1, code, "gen must fail on an app package it cannot parse")
 
 	for _, f := range []string{
-		"datapagesgen/app_gen.go",
-		"datapagesgen/action/action_gen.go",
-		"datapagesgen/href/href_gen.go",
+		"app/datapagesgen/app_gen.go",
+		"app/datapagesgen/action/action_gen.go",
+		"app/datapagesgen/href/href_gen.go",
 	} {
 		path := filepath.Join(dir, f)
 		require.FileExists(t, path)
@@ -879,7 +882,7 @@ func TestInit(t *testing.T) {
 				require.NoError(t, err, "go mod init: %s", out)
 				require.NoError(t, os.WriteFile(
 					filepath.Join(dir, "datapages.yaml"),
-					[]byte("app: app\n"),
+					[]byte("cmd: cmd/server\n"),
 					0o644,
 				))
 				appDir := filepath.Join(dir, "app")

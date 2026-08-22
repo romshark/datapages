@@ -5,7 +5,6 @@ package acceptance_test
 import (
 	"context"
 	"crypto/sha256"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,10 +14,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/statefulpages/app"
-	"github.com/romshark/datapages/internal/acceptance/statefulpages/datapagesgen"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/internal/acceptance/statefulpages/app/datapagesgen"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 const (
@@ -33,8 +34,8 @@ const (
 func newClient(t *testing.T) *client.Client {
 	t.Helper()
 	key := sha256.Sum256([]byte("acceptance"))
-	return client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8),
-		datapagesgen.WithStateConfig(datapagesgen.StateConfig{HMACKey: key[:]})))
+	return client.New(t, mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithStateConfig(datapages.StateConfig{HMACKey: key[:]})))
 }
 
 // update sends the action that writes a tab's state.
@@ -164,16 +165,17 @@ func TestSlowRequestDoesNotStallTab(t *testing.T) {
 // A key is refused where it is given,
 // rather than weakening every id the server goes on to sign with it.
 func TestShortHMACKey(t *testing.T) {
-	var recovered any
-	func() {
-		defer func() { recovered = recover() }()
-		_ = datapagesgen.NewServer(&app.App{}, inmem.New(8),
-			datapagesgen.WithStateConfig(datapagesgen.StateConfig{
-				HMACKey: []byte("too short to sign with"),
-			}))
-	}()
-	require.NotNil(t, recovered, "a 22 byte HMACKey was accepted")
-	require.Contains(t, fmt.Sprint(recovered), "HMACKey",
+	_, err := datapages.NewServer[
+		app.App,
+		datapages.DisableSessions,
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithStateConfig(datapages.StateConfig{
+			HMACKey: []byte("too short to sign with"),
+		}))
+	require.Error(t, err, "a 22 byte HMACKey was accepted")
+	require.Contains(t, err.Error(), "HMACKey",
 		"the refusal does not name what is wrong")
 }
 
@@ -193,8 +195,8 @@ func TestInstanceCap(t *testing.T) {
 	const capacity = 40
 
 	key := sha256.Sum256([]byte("acceptance"))
-	srv := httptest.NewServer(datapagesgen.NewServer(&app.App{}, inmem.New(8),
-		datapagesgen.WithStateConfig(datapagesgen.StateConfig{
+	srv := httptest.NewServer(mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithStateConfig(datapages.StateConfig{
 			HMACKey:                key[:],
 			MaxConcurrentInstances: capacity,
 		})))
@@ -250,8 +252,8 @@ func TestInstanceCapDisabled(t *testing.T) {
 	const streams = 8
 
 	key := sha256.Sum256([]byte("acceptance"))
-	srv := httptest.NewServer(datapagesgen.NewServer(&app.App{}, inmem.New(8),
-		datapagesgen.WithStateConfig(datapagesgen.StateConfig{
+	srv := httptest.NewServer(mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithStateConfig(datapages.StateConfig{
 			HMACKey:                key[:],
 			MaxConcurrentInstances: -1,
 		})))
@@ -296,8 +298,8 @@ func TestInstanceCapDisabled(t *testing.T) {
 // id is dropped. An id the server still answers is an instance it still holds.
 func TestFailedOpenReleasesInstance(t *testing.T) {
 	key := sha256.Sum256([]byte("acceptance"))
-	c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8),
-		datapagesgen.WithStateConfig(datapagesgen.StateConfig{
+	c := client.New(t, mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithStateConfig(datapages.StateConfig{
 			HMACKey: key[:],
 		})))
 
@@ -339,8 +341,8 @@ func TestFailedOpenReleasesInstance(t *testing.T) {
 // and the release wedges the tab instead and keeps its instance forever.
 func TestPanicInStreamCloseIsContained(t *testing.T) {
 	key := sha256.Sum256([]byte("acceptance"))
-	c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8),
-		datapagesgen.WithStateConfig(datapagesgen.StateConfig{
+	c := client.New(t, mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithStateConfig(datapages.StateConfig{
 			HMACKey: key[:],
 		})))
 

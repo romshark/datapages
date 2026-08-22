@@ -8,7 +8,7 @@ package app
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "github.com/romshark/datapages/example/tailwindcss/datapagesgen/assets"
+import "github.com/romshark/datapages/example/tailwindcss/app/datapagesgen/assets"
 
 func head() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {

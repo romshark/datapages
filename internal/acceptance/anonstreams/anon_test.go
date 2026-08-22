@@ -10,30 +10,30 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/anonstreams/app"
-	"github.com/romshark/datapages/internal/acceptance/anonstreams/datapagesgen"
 	"github.com/romshark/datapages/internal/acceptance/brokers"
 	"github.com/romshark/datapages/internal/acceptance/client"
 	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
-	"github.com/romshark/datapages/modules/msgbroker"
-	sessinmem "github.com/romshark/datapages/modules/sessmanager/inmem"
-	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/sessions"
+	sessinmem "github.com/romshark/datapages/modules/sessions/inmem"
 )
 
 func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
 
-func newClient(t *testing.T, broker msgbroker.MessageBroker) *client.Client {
+func newClient(t *testing.T, broker messaging.Broker) *client.Client {
 	t.Helper()
 	key := sha256.Sum256([]byte("acceptance-csrf"))
 	tm, err := csrfhmac.New(key[:])
 	require.NoError(t, err, "building CSRF token manager")
 	sessions := sessinmem.New[struct{}](
-		sesstokgen.Generator{Length: sesstokgen.DefaultLength},
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 	)
 	stateKey := sha256.Sum256([]byte("acceptance-state"))
-	return client.New(t, datapagesgen.NewServer(&app.App{}, broker, sessions,
-		datapagesgen.WithCSRFProtection(datapagesgen.CSRFConfig{TokenManager: tm}),
-		datapagesgen.WithStateConfig(datapagesgen.StateConfig{
+	return client.New(t, mustNewServer(t, &app.App{}, broker, sessions,
+		datapages.WithCSRFProtection(datapages.CSRFConfig{Tokens: tm}),
+		datapages.WithStateConfig(datapages.StateConfig{
 			HMACKey: stateKey[:],
 		})))
 }
@@ -42,7 +42,7 @@ func newClient(t *testing.T, broker msgbroker.MessageBroker) *client.Client {
 // that scopes its events by a signal: the stream receives what is published
 // for the value it connected with, and nothing published for another.
 func TestAnonStreamSubscribesBySignal(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := newClient(t, broker)
 
 		one := c.OpenStream(t, "/rooms/_$/", map[string]string{"room": "one"})
@@ -62,7 +62,7 @@ func TestAnonStreamSubscribesBySignal(t *testing.T) {
 // TestAnonStreamCarriesNoPrivateEvent covers the reason the route exists:
 // a visitor with no session is nobody, so a private event has no way to reach them.
 func TestAnonStreamCarriesNoPrivateEvent(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := newClient(t, broker)
 
 		s := c.OpenStream(t, "/rooms/_$/", map[string]string{"room": "one"})
@@ -80,7 +80,7 @@ func TestAnonStreamCarriesNoPrivateEvent(t *testing.T) {
 // the tab gets an instance of its own, and its handlers are given the
 // value that belongs to it.
 func TestAnonStreamHoldsPerTabState(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := newClient(t, broker)
 
 		a := c.OpenTab(t, "/tabs/", "/tabs/_$/")

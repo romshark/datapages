@@ -11,9 +11,10 @@ import (
 
 	"github.com/nats-io/nats.go"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/calculator/app"
-	"github.com/romshark/datapages/example/calculator/datapagesgen"
-	"github.com/romshark/datapages/modules/msgbroker/natscore"
+	"github.com/romshark/datapages/example/calculator/app/datapagesgen"
+	"github.com/romshark/datapages/modules/messaging/natscore"
 )
 
 func main() {
@@ -40,10 +41,16 @@ func main() {
 	msgBroker := natscore.New(nc, natscore.Config{})
 
 	a := app.NewApp(sha256.Sum256([]byte(hmacSecret)))
-	s := datapagesgen.NewServer(
-		a, msgBroker,
-		datapagesgen.WithAssets(app.StaticFS),
-	)
+	s, err := datapages.NewServer[
+		app.App,
+		datapages.DisableSessions,
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](a, msgBroker, datapages.WithAssets(app.StaticFS))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: creating server: %v\n", err)
+		os.Exit(1)
+	}
 
 	err = s.ListenAndServe(context.Background(), *fHost)
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {

@@ -11,14 +11,15 @@ import (
 
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/hreflocals/app"
-	"github.com/romshark/datapages/internal/acceptance/hreflocals/datapagesgen"
-	"github.com/romshark/datapages/internal/acceptance/hreflocals/datapagesgen/href"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/internal/acceptance/hreflocals/app/datapagesgen/href"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 func newClient(t *testing.T) *client.Client {
 	t.Helper()
-	return client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+	return client.New(t, mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
 // TestBuilderNameIsFree covers a path variable named after the URL writer's

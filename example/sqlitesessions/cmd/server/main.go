@@ -13,14 +13,15 @@ import (
 
 	sqinn "github.com/cvilsmeier/sqinn-go/v2"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/sqlitesessions/app"
+	"github.com/romshark/datapages/example/sqlitesessions/app/datapagesgen"
 	"github.com/romshark/datapages/example/sqlitesessions/app/sessionstore"
 	"github.com/romshark/datapages/example/sqlitesessions/app/sqdb"
 	"github.com/romshark/datapages/example/sqlitesessions/app/userstore"
-	"github.com/romshark/datapages/example/sqlitesessions/datapagesgen"
 	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
-	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/modules/messaging/inmem"
+	"github.com/romshark/datapages/modules/sessions"
 )
 
 func main() {
@@ -68,7 +69,7 @@ func main() {
 	}
 	sessionStore, err := sessionstore.New(
 		conn,
-		sesstokgen.Generator{Length: sesstokgen.DefaultLength},
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 		7*24*time.Hour,
 		slog.Default(),
 	)
@@ -84,17 +85,26 @@ func main() {
 	}
 
 	a := app.NewApp(userStore)
-	s := datapagesgen.NewServer(
+	s, err := datapages.NewServer[
+		app.App,
+		app.SessionData,
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](
 		a,
 		inmem.New(0),
-		sessionStore,
-		datapagesgen.WithAuth(datapagesgen.AuthConfig{}),
-		datapagesgen.WithCSRFProtection(datapagesgen.CSRFConfig{
-			TokenManager:   csrfTM,
+		datapages.WithSessionManager[app.SessionData](sessionStore),
+		datapages.WithSessions(datapages.SessionsConfig{}),
+		datapages.WithCSRFProtection(datapages.CSRFConfig{
+			Tokens:         csrfTM,
 			DevBypassToken: os.Getenv("CSRF_DEV_BYPASS"),
 		}),
-		datapagesgen.WithMiddleware(accessLog()),
+		datapages.WithMiddleware(accessLog()),
 	)
+	if err != nil {
+		slog.Error("creating server", slog.Any("err", err))
+		os.Exit(1)
+	}
 
 	addr := net.JoinHostPort(host, port)
 	slog.Info("listening", slog.String("addr", addr))

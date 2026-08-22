@@ -13,9 +13,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/romshark/datapages/example/todolist/datapagesgen/action"
-	"github.com/romshark/datapages/example/todolist/datapagesgen/assets"
-	"github.com/romshark/datapages/example/todolist/datapagesgen/href"
+	"github.com/romshark/datapages/example/todolist/app/datapagesgen/action"
+	"github.com/romshark/datapages/example/todolist/app/datapagesgen/assets"
+	"github.com/romshark/datapages/example/todolist/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/todolist/list"
 )
 

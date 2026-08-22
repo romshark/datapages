@@ -13,8 +13,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/brokers"
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/wildcardsubjects/app"
-	"github.com/romshark/datapages/internal/acceptance/wildcardsubjects/datapagesgen"
-	"github.com/romshark/datapages/modules/msgbroker"
+	"github.com/romshark/datapages/modules/messaging"
 )
 
 func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
@@ -22,8 +21,8 @@ func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
 // TestWildcardSubjectDelivery covers a page subscribed to every value of a subject:
 // the event reaches it whatever value it was dispatched with.
 func TestWildcardSubjectDelivery(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		s := c.OpenStream(t, "/_$/", nil)
 
@@ -39,8 +38,8 @@ func TestWildcardSubjectDelivery(t *testing.T) {
 // TestSecondValueReachesTheSameStream covers a second value of the same
 // subject reaching the same stream.
 func TestSecondValueReachesTheSameStream(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		s := c.OpenStream(t, "/_$/", nil)
 
@@ -68,10 +67,10 @@ func TestSubjectValueMustBeOneToken(t *testing.T) {
 		"space":     "a b",
 	}
 
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		for name, topic := range values {
 			t.Run(name, func(t *testing.T) {
-				c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+				c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 				s := c.OpenStream(t, "/_$/", nil)
 

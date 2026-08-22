@@ -90,29 +90,24 @@ func validateEventType(
 	}
 	visited[t] = true
 
-	// If pointer, unwrap
 	if ptr, ok := t.(*types.Pointer); ok {
 		validateEventType(ctx, errs, name, ptr.Elem(), visited)
 		return
 	}
 
-	// Don't recurse into named types that implement json.Unmarshaler or
-	// encoding.TextUnmarshaler — they handle their own JSON encoding
-	// (e.g. time.Time). Check both value and pointer receiver method sets.
+	// A named type that unmarshals itself, time.Time for one, decides its own
+	// JSON. Its fields are none of the parser's business. Both the value and
+	// the pointer method set count.
 	if named, ok := t.(*types.Named); ok {
 		if implementsUnmarshaler(named) {
 			return
 		}
 	}
 
-	// We only care about structs.
+	// Only a struct carries fields to walk into. An event type is one,
+	// a field further down may be an int or a string.
 	st, ok := t.Underlying().(*types.Struct)
 	if !ok {
-		// Named types wrapping basics? strictly speaking
-		// events are structs in this framework.
-		// But if it's a field deep down, it might be int/string.
-		// The top level event IS a struct per firstPassTypes logic (maybe? let's check).
-		// For now we only deeply validate structs.
 		return
 	}
 

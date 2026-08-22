@@ -7,6 +7,8 @@ import (
 	"github.com/romshark/datapages"
 )
 
+// StaticFS is /static/
+//
 //go:embed static/*
 var StaticFS embed.FS
 

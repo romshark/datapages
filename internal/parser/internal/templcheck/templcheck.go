@@ -20,8 +20,8 @@ import (
 	templparser "github.com/a-h/templ/parser/v2"
 	"golang.org/x/tools/go/packages"
 
-	"github.com/romshark/datapages/hrefcheck"
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/runtime/hrefcheck"
 )
 
 // ErrFunc is called for each error found during checking.
@@ -464,14 +464,12 @@ func extractHardcodedActionURLs(value string) []string {
 // ErrActionUnverifiableWithSuffix to guide the user towards WithBefore/WithAfter.
 // For any other compound expression it reports the generic ErrActionUnverifiable.
 func (c *checker) checkActionEmbedding(pos token.Position, expr string, exprAST ast.Expr) {
-	// Top-level is a bare action call -> OK.
 	if call, ok := exprAST.(*ast.CallExpr); ok {
 		if _, ok := c.actionPkg.isCall(call); ok {
 			return
 		}
 	}
 
-	// Check for string + action.XXX() or action.XXX() + string pattern.
 	if bin, ok := exprAST.(*ast.BinaryExpr); ok && bin.Op == token.ADD {
 		callY, yIsCall := bin.Y.(*ast.CallExpr)
 		callX, xIsCall := bin.X.(*ast.CallExpr)
@@ -554,13 +552,15 @@ func (c *checker) resolveSimpleExpr(node ast.Expr) (string, bool) {
 }
 
 // checkHrefExpr validates an expression href attribute on an <a> tag.
-// It parses the expression as Go source and walks the AST to determine:
-//  1. If expr calls href.Xxx() -> OK (but check href.External for disallowed URLs).
-//  2. If expr contains any other function call -> ErrHrefUnverifiable.
-//  3. If expr contains unresolved identifiers (variables) -> ErrHrefUnverifiable.
-//  4. If expr contains disallowed string literals or constants -> ErrHrefRelative.
-//  5. If expr contains only allowed literals/constants -> OK.
-//  6. Otherwise -> ErrHrefUnverifiable.
+// It parses the expression as Go source and walks the AST,
+// taking the first of these that holds:
+//
+//  1. A call to href.Xxx passes, except an href.External naming a relative URL.
+//  2. Any other function call is unverifiable.
+//  3. An unresolved identifier, a variable or a parameter, is unverifiable.
+//  4. A disallowed string literal or constant is a relative href.
+//  5. Only allowed literals and constants pass.
+//  6. Anything else is unverifiable.
 func checkHrefExpr(
 	errFn ErrFunc,
 	pos token.Position,
@@ -572,7 +572,6 @@ func checkHrefExpr(
 ) {
 	info := analyzeHrefExpr(exprAST, constValues, importConsts, hrefPkg)
 
-	// 1. Uses href package -> check External for disallowed URLs, otherwise OK.
 	if info.usesHrefPkg {
 		if info.externalURL != "" &&
 			!hrefcheck.IsAllowedNonRelativeHref(info.externalURL) {
@@ -581,30 +580,25 @@ func checkHrefExpr(
 		return
 	}
 
-	// 2. Any non-href function call makes the expression unverifiable.
 	if info.hasCall {
 		errFn(pos, &ErrorHrefUnverifiable{Expr: expr})
 		return
 	}
 
-	// 3. Unresolved identifiers (variables, parameters) make the expression unverifiable.
 	if info.hasUnresolved {
 		errFn(pos, &ErrorHrefUnverifiable{Expr: expr})
 		return
 	}
 
-	// 4. Disallowed string literal or constant value.
 	if info.disallowedURL != "" {
 		errFn(pos, &ErrorHrefRelative{URL: info.disallowedURL})
 		return
 	}
 
-	// 5. All resolved values are allowed external URLs -> OK.
 	if info.hasAllowed {
 		return
 	}
 
-	// 6. Expression doesn't use href package at all.
 	errFn(pos, &ErrorHrefUnverifiable{Expr: expr})
 }
 

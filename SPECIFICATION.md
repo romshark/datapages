@@ -448,19 +448,22 @@ state-id matches the dispatched value receives the event. Rules:
    A reconnect with the same id opens a new stream and takes a freshly zeroed `*T`.
    An instance lives exactly as long as the stream that created it.
 
-**Configuration**. `WithStateConfig` is required on `NewServer` when any
-handler takes `state`:
+**Configuration**. `datapages.WithStateConfig` is required on
+`datapages.NewServer` when any handler takes `state`:
 
 ```go
-s := datapagesgen.NewServer(a, msgBroker,
-    datapagesgen.WithStateConfig(datapagesgen.StateConfig{
+s, err := datapages.NewServer[
+    app.App, datapages.DisableSessions, datapages.DisablePrometheus, datapagesgen.Server,
+](a, msgBroker,
+    datapages.WithStateConfig(datapages.StateConfig{
         HMACKey:                hmacKey, // required, 32+ bytes
         MaxConcurrentInstances: 10_000,  // optional, 0 takes the default
     }),
 )
 ```
 
-`NewServer` panics when an app with stateful pages receives no `StateConfig`.
+`NewServer` returns an error when an app with stateful pages receives no
+`StateConfig`.
 
 `HMACKey` signs the instance identifier. Key rotation or process restart
 invalidates every live instance; connected clients recover by reloading the

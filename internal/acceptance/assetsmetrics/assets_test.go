@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -14,11 +15,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app"
-	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/datapagesgen"
-	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/datapagesgen/assets"
-	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/datapagesgen/href"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen"
+	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen/assets"
+	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen/href"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 // registry is shared. The generated code registers its collectors once per
@@ -27,10 +30,11 @@ var registry = prometheus.NewRegistry()
 
 func newServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(datapagesgen.NewServer(
-		&app.App{}, inmem.New(8),
-		datapagesgen.WithAssets(app.StaticFS),
-		datapagesgen.WithPrometheus(datapagesgen.PrometheusConfig{
+	srv := httptest.NewServer(mustNewServer(
+		t,
+		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithAssets(app.StaticFS),
+		datapages.WithPrometheus(datapages.PrometheusConfig{
 			Host:       "127.0.0.1:0",
 			Registerer: registry,
 			Gatherer:   registry,
@@ -59,6 +63,24 @@ func get(t *testing.T, srv *httptest.Server, path string) *http.Response {
 // TestAssetsAreServed covers the files the app embeds. The prefix comes from
 // the configuration and reaches both the URL builder and the route.
 // The two must agree on it.
+// TestAssetPath covers the asset URL builders against path.Join,
+// which is what they fall back to.
+func TestAssetPath(t *testing.T) {
+	for _, p := range []string{
+		"style.css", "sub/nested.js", "", ".", "..", "../secret", "/style.css",
+		"sub//nested.js", "sub/./nested.js", "sub/../nested.js", "sub/",
+		"..hidden.css",
+	} {
+		want := path.Join(assets.URLPrefix, p)
+		if got := href.Asset(p); got != want {
+			t.Errorf("href.Asset(%q) = %q, want %q", p, got, want)
+		}
+		if got := assets.Path(p); got != want {
+			t.Errorf("assets.Path(%q) = %q, want %q", p, got, want)
+		}
+	}
+}
+
 func TestAssetsAreServed(t *testing.T) {
 	srv := newServer(t)
 
@@ -158,14 +180,15 @@ func TestDevModeServesFromDisk(t *testing.T) {
 	// The generated code reads dev mode from the environment when the option is applied.
 	// The variable is set before the server is built.
 	t.Setenv("TEMPL_DEV_MODE", "true")
-	if !datapagesgen.IsDevMode() {
+	if !datapages.IsDevMode() {
 		t.Fatal("the server does not consider this dev mode")
 	}
 
-	srv := httptest.NewServer(datapagesgen.NewServer(
-		&app.App{}, inmem.New(8),
-		datapagesgen.WithAssets(app.StaticFS),
-		datapagesgen.WithPrometheus(datapagesgen.PrometheusConfig{
+	srv := httptest.NewServer(mustNewServer(
+		t,
+		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithAssets(app.StaticFS),
+		datapages.WithPrometheus(datapages.PrometheusConfig{
 			Host:       "127.0.0.1:0",
 			Registerer: registry,
 			Gatherer:   registry,
@@ -308,4 +331,23 @@ func counterTotal(t *testing.T, name string) float64 {
 		}
 	}
 	return total
+}
+
+// TestMetricsWithoutOption covers a server generated with
+// datapages.EnablePrometheus and built without datapages.WithPrometheus.
+// The metrics it counts have nowhere to go.
+func TestMetricsWithoutOption(t *testing.T) {
+	s, err := datapages.NewServer[
+		app.App,
+		datapages.DisableSessions,
+		datapages.EnablePrometheus,
+		datapagesgen.Server,
+	](&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithAssets(app.StaticFS))
+	if s != nil {
+		t.Fatal("server built without WithPrometheus")
+	}
+	if err == nil || !strings.Contains(err.Error(), "missing option WithPrometheus") {
+		t.Fatalf("error is %v, want missing option WithPrometheus", err)
+	}
 }

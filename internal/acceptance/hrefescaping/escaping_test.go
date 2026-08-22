@@ -12,16 +12,17 @@ import (
 
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/hrefescaping/app"
-	"github.com/romshark/datapages/internal/acceptance/hrefescaping/datapagesgen"
-	"github.com/romshark/datapages/internal/acceptance/hrefescaping/datapagesgen/action"
-	"github.com/romshark/datapages/internal/acceptance/hrefescaping/datapagesgen/href"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/internal/acceptance/hrefescaping/app/datapagesgen/action"
+	"github.com/romshark/datapages/internal/acceptance/hrefescaping/app/datapagesgen/href"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 // TestHrefEscaping hands a value with a URL separator in it to a generated
 // builder and asks the server what it received.
 func TestHrefEscaping(t *testing.T) {
-	c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+	c := client.New(t, mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
 
 	tests := map[string]struct {
 		url  string
@@ -85,7 +86,8 @@ func TestHrefEscaping(t *testing.T) {
 // TestActionURLEscaping covers the same round trip through an action expression,
 // which carries its URL the same way a link does.
 func TestActionURLEscaping(t *testing.T) {
-	c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+	c := client.New(t, mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
 
 	expr := action.POSTPageItemRename("a/b",
 		action.QueryPOSTPageItemRename{To: "c&d=e"})
@@ -105,7 +107,8 @@ func TestActionURLEscaping(t *testing.T) {
 // TestStreamInitCarriesNoQuote covers the same character in the data-init
 // attribute a stream page renders, which carries the path value it was reached by.
 func TestStreamInitCarriesNoQuote(t *testing.T) {
-	c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+	c := client.New(t, mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
 
 	for name, value := range map[string]string{
 		"quote":     `a'b`,

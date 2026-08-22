@@ -24,7 +24,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"embed"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -61,10 +60,9 @@ type Case struct {
 	// converts them back to the generated option type.
 	NewServer func(t *testing.T, opts ...any) Server
 
-	// WithAssets and the fields below it hand the suite one generated
+	// The fields below hand the suite one generated
 	// server option each. A nil field skips the assertions that need it.
-	WithAssets     func(embed.FS) any
-	WithMiddleware func(func(http.Handler) http.Handler) any
+	WithMiddleware func(...func(http.Handler) http.Handler) any
 	WithDatastarJS func(src string) any
 	WithHTTPServer func(*http.Server) any
 	WithLogger     func(*slog.Logger) any
@@ -109,10 +107,6 @@ type Case struct {
 	StateAction     string
 	StateActionBody string
 
-	// HasAssets says whether the case was generated with asset serving configured.
-	// It decides what WithAssets is allowed to do.
-	HasAssets bool
-
 	// OptionedAction is one of the case's action expressions built with every
 	// option the generated package offers, in the order listed by optionKeys.
 	// A template can pass any combination to any action. Every generated
@@ -122,16 +116,20 @@ type Case struct {
 
 // Opt adapts a generated option constructor to what a Case field takes.
 // The suite cannot name the generated option type; the case keeps it.
-//
-//	WithAssets: contract.Opt(datapagesgen.WithAssets),
 func Opt[A, O any](f func(A) O) func(A) any {
 	return func(a A) any { return f(a) }
+}
+
+// OptVariadic adapts a variadic option constructor the way [Opt] adapts a
+// unary one.
+func OptVariadic[A, O any](f func(...A) O) func(...A) any {
+	return func(a ...A) any { return f(a...) }
 }
 
 // Options converts what the suite passed to NewServer back to the option type
 // of the case's generated package.
 //
-//	datapagesgen.NewServer(app, broker, contract.Options[datapagesgen.ServerOption](opts)...)
+//	datapagesgen.NewServer(app, broker, contract.Options[datapages.ServerOption](opts)...)
 func Options[O any](opts []any) []O {
 	out := make([]O, len(opts))
 	for i, o := range opts {
@@ -153,7 +151,6 @@ func Run(t *testing.T, c Case) {
 	t.Helper()
 	for name, run := range map[string]func(*testing.T){
 		"ActionOptions":              c.testActionOptions,
-		"AssetsOption":               c.testAssetsOption,
 		"ClientGoesAway":             c.testClientGoesAway,
 		"Compression":                c.testCompression,
 		"DatastarJS":                 c.testDatastarJS,
@@ -870,30 +867,6 @@ func (c Case) testExternalHref(t *testing.T) {
 	}
 }
 
-// testAssetsOption covers WithAssets against what the app configured.
-// An app with no assets in its datapages.yaml has no directory to serve.
-// The option has to say so instead of quietly serving nothing.
-func (c Case) testAssetsOption(t *testing.T) {
-	if c.HasAssets {
-		t.Skip("the case configures assets and serves them in its own tests")
-	}
-	if c.WithAssets == nil {
-		t.Skip("the case wires no WithAssets")
-	}
-
-	var recovered any
-	func() {
-		defer func() { recovered = recover() }()
-		_ = c.NewServer(t, c.WithAssets(embed.FS{}))
-	}()
-	if recovered == nil {
-		t.Fatal("WithAssets was accepted by an app that configures no assets")
-	}
-	if msg := fmt.Sprint(recovered); !strings.Contains(msg, "assets") {
-		t.Errorf("the refusal does not say what is wrong: %v", recovered)
-	}
-}
-
 // testClientGoesAway covers a page load whose client disappears while
 // the page is being written.
 //
@@ -978,15 +951,17 @@ func (c Case) testMiddleware(t *testing.T) {
 		}
 	}
 
+	// One call carrying two and a second call carrying one: all three run in
+	// the order they were written, across calls.
 	srv := c.server(t,
-		c.WithMiddleware(tag("first")),
-		c.WithMiddleware(tag("second")))
+		c.WithMiddleware(tag("first"), tag("second")),
+		c.WithMiddleware(tag("third")))
 	_, _ = get(t, srv, c.index())
 
 	mu.Lock()
 	got := strings.Join(order, ",")
 	mu.Unlock()
-	if want := "first,second"; got != want {
+	if want := "first,second,third"; got != want {
 		t.Errorf("middleware ran in order %q, want %q", got, want)
 	}
 

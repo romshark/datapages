@@ -7,6 +7,7 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -171,6 +172,30 @@ func (p PageForm) POSTPatchAt(
 		signals.Values.Selector,
 		datapages.PatchMode(signals.Values.Mode),
 	)
+}
+
+// POSTSignalsRaw is /form/signals-raw
+//
+// Signals given as JSON go out as they are.
+func (p PageForm) POSTSignalsRaw(_ *http.Request, sse datapages.SSE) error {
+	p.App.record("signals raw")
+	return sse.PatchSignals(json.RawMessage(`{"count":7}`))
+}
+
+// POSTSignalsMissing is /form/signals-missing
+func (p PageForm) POSTSignalsMissing(_ *http.Request, sse datapages.SSE) error {
+	p.App.record("signals missing")
+	return sse.PatchSignalsIfMissing(struct {
+		Count int `json:"count"`
+	}{Count: 3})
+}
+
+// POSTSignalsBad is /form/signals-bad
+//
+// A value that does not marshal must come back as an error.
+func (p PageForm) POSTSignalsBad(_ *http.Request, sse datapages.SSE) error {
+	p.App.record("signals bad")
+	return sse.PatchSignals(make(chan int))
 }
 
 // POSTRemove is /form/remove

@@ -16,12 +16,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/brokers"
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/events/app"
-	"github.com/romshark/datapages/internal/acceptance/events/datapagesgen"
-	"github.com/romshark/datapages/modules/msgbroker"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/internal/acceptance/events/app/datapagesgen"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 // postOK sends an action and requires the server to accept it.
@@ -39,8 +40,8 @@ func logOf(t *testing.T, c *client.Client) string {
 }
 
 func TestPublicEventReachesEveryStream(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		a := c.OpenStream(t, "/_$/", nil)
 		b := c.OpenStream(t, "/_$/", nil)
@@ -58,8 +59,8 @@ func TestPublicEventReachesEveryStream(t *testing.T) {
 // Both must run and both must see the same stream id.
 // An application uses that id to pair up what it allocated with what it releases.
 func TestStreamHooks(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		s := c.OpenStream(t, "/_$/", nil)
 		opened := logOf(t, c)
@@ -79,8 +80,8 @@ func TestStreamHooks(t *testing.T) {
 // TestStreamIDReachesEventHandler covers the stream id an event handler may ask for.
 // It must name the stream the handler is writing on, not some other.
 func TestStreamIDReachesEventHandler(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		_ = c.OpenStream(t, "/_$/", nil)
 		opened := logOf(t, c)
@@ -98,8 +99,8 @@ func TestStreamIDReachesEventHandler(t *testing.T) {
 // TestEmbeddedHandler covers a page that declares no event handler of its own
 // and embeds one. The page receives the event through the embedded type.
 func TestEmbeddedHandler(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		other := c.OpenStream(t, "/other/_$/", nil)
 		postOK(t, c, "/tick/", `{"n":1}`)
@@ -113,8 +114,8 @@ func TestEmbeddedHandler(t *testing.T) {
 // Both events must reach the stream, since each dispatcher publishes on
 // its own and neither depends on the other.
 func TestTwoDispatchers(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		s := c.OpenStream(t, "/_$/", nil)
 
@@ -133,8 +134,8 @@ func TestTwoDispatchers(t *testing.T) {
 // The broker here refuses a dead context, which is what makes the difference visible:
 // a stream that stays open must receive what the closing one sent.
 func TestStreamCloseDispatches(t *testing.T) {
-	broker := &ctxBroker{MessageBroker: inmem.New(8)}
-	c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	broker := &ctxBroker{Broker: inmem.New(messaging.DefaultBrokerChanBuffer)}
+	c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 	watcher := c.OpenStream(t, "/_$/", nil)
 	leaving := c.OpenStream(t, "/_$/", nil)
@@ -145,13 +146,30 @@ func TestStreamCloseDispatches(t *testing.T) {
 		"the event dispatched from StreamClose never arrived")
 }
 
+// TestEventDecodeIsNotCarriedOver covers a field the JSON of the second event
+// leaves out. The stream must show it empty, not what the first event carried.
+func TestEventDecodeIsNotCarriedOver(t *testing.T) {
+	c := client.New(t, mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
+
+	s := c.OpenStream(t, "/_$/", nil)
+
+	postOK(t, c, "/note/", `{"text":"first"}`)
+	require.True(t, s.Saw(`<div id="note">note=first</div>`),
+		"the first note never arrived")
+
+	postOK(t, c, "/note/", `{"text":""}`)
+	require.True(t, s.Saw(`<div id="note">note=</div>`),
+		"the empty note kept the text of the one before it")
+}
+
 // TestDispatchCtx covers Dispatcher.DispatchCtx.
 // The action dispatches with a context that is already done.
 // A broker that honors the context refuses to publish and the action fails.
 // Dispatch would use the live request context and succeed.
 func TestDispatchCtx(t *testing.T) {
-	broker := &ctxBroker{MessageBroker: inmem.New(8)}
-	c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	broker := &ctxBroker{Broker: inmem.New(messaging.DefaultBrokerChanBuffer)}
+	c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 	s := c.OpenStream(t, "/_$/", nil)
 
@@ -170,24 +188,24 @@ func TestDispatchCtx(t *testing.T) {
 // The in-memory broker ignores the context, which would hide what
 // TestDispatchCtx is after.
 type ctxBroker struct {
-	msgbroker.MessageBroker
+	messaging.Broker
 }
 
 func (b *ctxBroker) Publish(
-	ctx context.Context, metrics msgbroker.Metrics, subject string, data []byte,
+	ctx context.Context, metrics messaging.Metrics, subject string, data []byte,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return b.MessageBroker.Publish(ctx, metrics, subject, data)
+	return b.Broker.Publish(ctx, metrics, subject, data)
 }
 
 // TestSubjectScoping covers an event whose subject carries a value the stream
 // chose when it connected. Two streams of one page, two values, one dispatch:
 // only the addressed stream may see it.
 func TestSubjectScoping(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		red := c.OpenStream(t, "/room/_$/", map[string]string{"room": "red"})
 		blue := c.OpenStream(t, "/room/_$/", map[string]string{"room": "blue"})
@@ -206,8 +224,8 @@ func TestSubjectScoping(t *testing.T) {
 // which a broker that delivers per matching subscription can turn into more copies
 // than the page asked for.
 func TestOneCopyPerStream(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		red := c.OpenStream(t, "/room/_$/", map[string]string{"room": "red"})
 
@@ -238,8 +256,8 @@ func countSeen(s *client.Stream, sub string) int {
 // One dispatch carrying two values is published to both subjects.
 // Both streams see it and a third one does not.
 func TestSubjectFanout(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		red := c.OpenStream(t, "/room/_$/", map[string]string{"room": "red"})
 		blue := c.OpenStream(t, "/room/_$/", map[string]string{"room": "blue"})
@@ -264,8 +282,8 @@ func TestSubjectFanout(t *testing.T) {
 // rather than leave a connection open that no handler is behind,
 // and it must not run StreamClose for a stream that never opened.
 func TestStreamOpenRefuses(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
@@ -310,8 +328,8 @@ func TestStreamOpenRefuses(t *testing.T) {
 
 // TestStreamRequiresDatastar covers a stream route reached by a plain client.
 func TestStreamRequiresDatastar(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		resp, err := http.Get(c.URL() + "/_$/")
 		require.NoError(t, err, "GET /_$/")
@@ -326,8 +344,8 @@ func TestStreamRequiresDatastar(t *testing.T) {
 // its subscription is scoped by. There is nothing to subscribe to,
 // and the client is told so rather than served a stream that stays silent.
 func TestMissingSubjectSignal(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		req, err := http.NewRequestWithContext(context.Background(),
 			http.MethodGet, c.URL()+"/room/_$/", nil)
@@ -348,8 +366,8 @@ func TestMissingSubjectSignal(t *testing.T) {
 // the stream to every value of that subject and hand the client events meant
 // for other instances, so the stream must be refused instead.
 func TestWildcardSubjectSignalRefused(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		for _, signal := range []string{"*", ">", "red.blue", "", " "} {
 			encoded, err := json.Marshal(map[string]string{"room": signal})
@@ -373,14 +391,14 @@ func TestWildcardSubjectSignalRefused(t *testing.T) {
 // TestBrokerStreamInitialization covers the hand-off to a message broker that
 // needs its streams created before anything is published to them.
 //
-// A broker that implements msgbroker.StreamInitializer is given every subject
+// A broker that implements messaging.StreamInitializer is given every subject
 // the app can publish, once, at startup. No broker shipped with datapages needs
 // it, the hand-off exists for brokers that must declare a topic or a stream
 // before a publish to it can succeed. Nothing on the datapages side reports a
 // subject that was left out: the publish simply goes nowhere.
 func TestBrokerStreamInitialization(t *testing.T) {
-	broker := &initializingBroker{MessageBroker: inmem.New(8)}
-	_ = client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	broker := &initializingBroker{MessageBroker: inmem.New(messaging.DefaultBrokerChanBuffer)}
+	_ = client.New(t, mustNewServer(t, &app.App{}, broker))
 
 	if broker.calls != 1 {
 		t.Fatalf("InitStreams ran %d times, want once", broker.calls)
@@ -413,16 +431,18 @@ func TestBrokerStreamInitialization(t *testing.T) {
 // event it publishes.
 func TestBrokerInitFailureIsFatal(t *testing.T) {
 	broker := &initializingBroker{
-		MessageBroker: inmem.New(8),
+		MessageBroker: inmem.New(messaging.DefaultBrokerChanBuffer),
 		err:           errors.New("the stream could not be created"),
 	}
 
-	defer func() {
-		if recover() == nil {
-			t.Error("a broker that cannot create its streams was accepted")
-		}
-	}()
-	_ = datapagesgen.NewServer(&app.App{}, broker)
+	s, err := datapages.NewServer[
+		app.App,
+		datapages.DisableSessions,
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](&app.App{}, broker)
+	require.Nil(t, s, "a broker that cannot create its streams was accepted")
+	require.ErrorContains(t, err, "initializing message broker streams")
 }
 
 // initializingBroker is a broker that needs its streams set up.
@@ -444,8 +464,8 @@ func (b *initializingBroker) InitStreams(subjects []string) error {
 // It has no stream route at all, and asking for one is a 404 rather than
 // a stream that never carries anything.
 func TestPageWithoutStream(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
-		c := client.New(t, datapagesgen.NewServer(&app.App{}, broker))
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
 		req, err := http.NewRequestWithContext(context.Background(),
 			http.MethodGet, c.URL()+"/log/_$/", nil)

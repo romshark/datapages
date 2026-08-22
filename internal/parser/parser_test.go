@@ -14,6 +14,7 @@ import (
 
 	"github.com/romshark/datapages/internal/parser"
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/internal/parser/validate"
 )
 
 const TypeNameComponent = "github.com/romshark/datapages.Component"
@@ -2266,4 +2267,24 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		require.Len(p.EventHandlers, 3)
 		require.NotNil(findEventHandler(p.EventHandlers, "PostArchived"))
 	}
+}
+
+func TestParse_Assets(t *testing.T) {
+	app, errs := parse(t, "assets")
+	requireParseErrors(t, errs /*none*/)
+	require.NotNil(t, app)
+	require.Equal(t,
+		model.Assets{URLPrefix: "/static/", Dir: "static"}, app.Assets)
+}
+
+func TestParse_AssetsMissing(t *testing.T) {
+	app, errs := parse(t, "minimal")
+	requireParseErrors(t, errs /*none*/)
+	require.NotNil(t, app)
+	require.Zero(t, app.Assets)
+}
+
+func TestParse_ErrAssets(t *testing.T) {
+	_, errs := parse(t, "err_assets")
+	requireParseErrors(t, errs, validate.ErrAssetsURLPrefixNoTrailingSlash)
 }

@@ -8,15 +8,17 @@ package acceptance_test
 import (
 	"testing"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/contract"
 	"github.com/romshark/datapages/internal/acceptance/sessions/app"
-	"github.com/romshark/datapages/internal/acceptance/sessions/datapagesgen"
-	"github.com/romshark/datapages/internal/acceptance/sessions/datapagesgen/action"
-	"github.com/romshark/datapages/internal/acceptance/sessions/datapagesgen/href"
+	"github.com/romshark/datapages/internal/acceptance/sessions/app/datapagesgen"
+	"github.com/romshark/datapages/internal/acceptance/sessions/app/datapagesgen/action"
+	"github.com/romshark/datapages/internal/acceptance/sessions/app/datapagesgen/href"
 	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
-	sessinmem "github.com/romshark/datapages/modules/sessmanager/inmem"
-	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
+	"github.com/romshark/datapages/modules/sessions"
+	sessinmem "github.com/romshark/datapages/modules/sessions/inmem"
 )
 
 func TestContract(t *testing.T) {
@@ -27,22 +29,23 @@ func TestContract(t *testing.T) {
 			if err != nil {
 				t.Fatalf("building CSRF token manager: %v", err)
 			}
-			sessions := sessinmem.New[app.SessionData](
-				sesstokgen.Generator{Length: sesstokgen.DefaultLength},
+			inMemSessions := sessinmem.New[app.SessionData](
+				sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 			)
-			opts = append(opts, datapagesgen.WithCSRFProtection(
-				datapagesgen.CSRFConfig{TokenManager: tm},
+			opts = append(opts, datapages.WithCSRFProtection(
+				datapages.CSRFConfig{Tokens: tm},
 			))
-			return datapagesgen.NewServer(
-				&app.App{}, inmem.New(8), sessions,
-				contract.Options[datapagesgen.ServerOption](opts)...,
+			return mustNewServer(
+				t,
+				&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+				inMemSessions,
+				contract.Options[datapages.ServerOption](opts)...,
 			)
 		},
-		WithAssets:     contract.Opt(datapagesgen.WithAssets),
-		WithMiddleware: contract.Opt(datapagesgen.WithMiddleware),
-		WithDatastarJS: contract.Opt(datapagesgen.WithDatastarJS),
-		WithHTTPServer: contract.Opt(datapagesgen.WithHTTPServer),
-		WithLogger:     contract.Opt(datapagesgen.WithLogger),
+		WithMiddleware: contract.OptVariadic(datapages.WithMiddleware),
+		WithDatastarJS: contract.Opt(datapages.WithDatastarJS),
+		WithHTTPServer: contract.Opt(datapages.WithHTTPServer),
+		WithLogger:     contract.Opt(datapages.WithLogger),
 		StreamSubjects: datapagesgen.MessageBrokerStreamSubjects,
 		HrefExternal:   href.External,
 		HrefSetLogger:  href.SetLogger,

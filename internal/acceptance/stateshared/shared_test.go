@@ -9,18 +9,19 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/stateshared/app"
-	"github.com/romshark/datapages/internal/acceptance/stateshared/datapagesgen"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 func newClient(t *testing.T) *client.Client {
 	t.Helper()
 	key := sha256.Sum256([]byte("acceptance"))
-	return client.New(t, datapagesgen.NewServer(
-		&app.App{}, inmem.New(8),
-		datapagesgen.WithStateConfig(datapagesgen.StateConfig{HMACKey: key[:]})))
+	return client.New(t, mustNewServer(t,
+		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithStateConfig(datapages.StateConfig{HMACKey: key[:]})))
 }
 
 // TestSharedStateIsPerTab covers two tabs of one page bound to a shared state

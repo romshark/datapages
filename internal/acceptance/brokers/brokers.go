@@ -18,9 +18,9 @@ import (
 	"github.com/stretchr/testify/require"
 	natsctr "github.com/testcontainers/testcontainers-go/modules/nats"
 
-	"github.com/romshark/datapages/modules/msgbroker"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
-	"github.com/romshark/datapages/modules/msgbroker/natscore"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
+	"github.com/romshark/datapages/modules/messaging/natscore"
 )
 
 // ChanBuffer is the subscription buffer every broker built here is given.
@@ -52,10 +52,10 @@ func Main(m *testing.M) int {
 }
 
 // Each runs body once per broker, each with a broker and a subtest of its own.
-func Each(t *testing.T, body func(t *testing.T, broker msgbroker.MessageBroker)) {
+func Each(t *testing.T, body func(t *testing.T, broker messaging.Broker)) {
 	t.Helper()
-	build := map[string]func(t *testing.T) msgbroker.MessageBroker{
-		"inmem": func(*testing.T) msgbroker.MessageBroker {
+	build := map[string]func(t *testing.T) messaging.Broker{
+		"inmem": func(*testing.T) messaging.Broker {
 			return inmem.New(ChanBuffer)
 		},
 		"nats": NATS,
@@ -66,7 +66,7 @@ func Each(t *testing.T, body func(t *testing.T, broker msgbroker.MessageBroker))
 }
 
 // NATS builds a broker on the server Main started.
-func NATS(t *testing.T) msgbroker.MessageBroker {
+func NATS(t *testing.T) messaging.Broker {
 	t.Helper()
 	return natscore.New(Conn(t), natscore.Config{ChanBuffer: ChanBuffer})
 }

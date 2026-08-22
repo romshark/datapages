@@ -53,6 +53,14 @@ type EventPong struct {
 	N int `json:"n"`
 }
 
+// EventNote is "note"
+//
+// The text is left out of the JSON when it is empty, which is what a decode
+// target reused across messages would keep from the message before.
+type EventNote struct {
+	Text string `json:"text,omitempty"`
+}
+
 // EventStreamGone is "stream.gone"
 //
 // Dispatched from StreamClose, which runs while the stream is being torn down.
@@ -132,6 +140,23 @@ func (p PageIndex) OnTick(
 	return sse.PatchElement(
 		templ.Raw(fmt.Sprintf(`<div id="out">tick %d</div>`, event.N)),
 	)
+}
+
+func (p PageIndex) OnNote(note EventNote, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(
+		fmt.Sprintf(`<div id="note">note=%s</div>`, note.Text),
+	))
+}
+
+// POSTNote is /note
+func (p PageIndex) POSTNote(
+	_ *http.Request,
+	signals datapages.Signals[struct {
+		Text string `json:"text"`
+	}],
+	note datapages.Dispatcher[EventNote],
+) error {
+	return note.Dispatch(EventNote{Text: signals.Values.Text})
 }
 
 // POSTTick is /tick

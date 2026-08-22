@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages/internal/acceptance/brokers"
-	"github.com/romshark/datapages/internal/acceptance/events/datapagesgen"
+	"github.com/romshark/datapages/internal/acceptance/events/app/datapagesgen"
 )
 
 func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }

@@ -9,9 +9,10 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/webcomponents/app"
-	"github.com/romshark/datapages/example/webcomponents/datapagesgen"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/example/webcomponents/app/datapagesgen"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 func main() {
@@ -21,11 +22,20 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	opts := []datapagesgen.ServerOption{
-		datapagesgen.WithAssets(app.StaticFS),
+	opts := []datapages.ServerOption{
+		datapages.WithAssets(app.StaticFS),
 	}
 
-	s := datapagesgen.NewServer(&app.App{}, inmem.New(0), opts...)
+	s, err := datapages.NewServer[
+		app.App,
+		datapages.DisableSessions,
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](&app.App{}, inmem.New(0), opts...)
+	if err != nil {
+		slog.Error("creating server", slog.Any("err", err))
+		os.Exit(1)
+	}
 
 	addr := net.JoinHostPort(host, port)
 	slog.Info("listening", slog.String("addr", addr))

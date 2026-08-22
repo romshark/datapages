@@ -27,8 +27,6 @@ jobs:
           - path: "example/counter"
             name: "counter"
             has_templ: true
-          - path: "example/fancy-counter"
-            name: "fancy-counter"
             has_templ: true
           - path: "example/classifieds"
             name: "classifieds"
