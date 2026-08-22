@@ -1,55 +1,5 @@
 
-// WithPrometheus starts a dedicated HTTP server exposing /metrics.
-// Example host address: "127.0.0.1:9091" or ":9091".
-func WithPrometheus(conf PrometheusConfig) ServerOption {
-	return func(s *Server) error {
-		if conf.Host == "" {
-			return errors.New("prometheus host address must not be empty")
-		}
-
-		// Defaults
-		if conf.Registerer == nil {
-			conf.Registerer = prometheus.DefaultRegisterer
-		}
-		if conf.Gatherer == nil {
-			conf.Gatherer = prometheus.DefaultGatherer
-		}
-
-		// Register built-in metrics on the configured registerer exactly once.
-		prom.Register(conf.Registerer)
-
-		// Register user-defined collectors.
-		for _, c := range conf.Collectors {
-			conf.Registerer.MustRegister(c)
-		}
-
-		var h http.Handler
-		if conf.Handler != nil {
-			h = conf.Handler
-		} else {
-			h = promhttp.HandlerFor(conf.Gatherer, promhttp.HandlerOpts{})
-		}
-
-		mux := http.NewServeMux()
-		mux.Handle("/metrics", h)
-
-		s.metricsServer = &http.Server{
-			Addr:    conf.Host,
-			Handler: mux,
-		}
-		return nil
-	}
-}
-
-type PrometheusConfig struct {
-	Host       string
-	Registerer prometheus.Registerer  // Optional, default: prometheus.DefaultRegisterer
-	Gatherer   prometheus.Gatherer    // Optional, default: prometheus.DefaultGatherer
-	Handler    http.Handler           // Optional override
-	Collectors []prometheus.Collector // User-defined metrics to register
-}
-
-// brokerMetrics implements msgbroker.Metrics using the built-in Prometheus counters.
+// brokerMetrics implements messaging.Metrics using the built-in Prometheus counters.
 type brokerMetrics struct{}
 
 func (m brokerMetrics) OnPublish(subject string) {

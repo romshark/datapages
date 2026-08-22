@@ -12,9 +12,9 @@ import (
 	"testing"
 
 	"github.com/romshark/datapages/internal/acceptance/actions/app"
-	"github.com/romshark/datapages/internal/acceptance/actions/datapagesgen"
-	"github.com/romshark/datapages/internal/acceptance/actions/datapagesgen/action"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/internal/acceptance/actions/app/datapagesgen/action"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 type server struct {
@@ -23,7 +23,8 @@ type server struct {
 
 func newServer(t *testing.T) server {
 	t.Helper()
-	s := httptest.NewServer(datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+	s := httptest.NewServer(mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
 	t.Cleanup(s.Close)
 	return server{s}
 }

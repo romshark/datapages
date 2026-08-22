@@ -204,6 +204,14 @@ func InternalErrorRecovered() { mInternalErrorsRecovered.Inc() }
 // InternalErrorNotRecovered counts an error the generated server answered.
 func InternalErrorNotRecovered() { mInternalErrorsNotRecovered.Inc() }
 
+// AuthMetrics counts what the session manager does.
+// It implements auth.Metrics.
+type AuthMetrics struct{}
+
+func (AuthMetrics) SessionRead(outcome string)    { SessionRead(outcome) }
+func (AuthMetrics) SessionCreated(outcome string) { SessionCreated(outcome) }
+func (AuthMetrics) SessionClosed(outcome string)  { SessionClosed(outcome) }
+
 // BrokerPublish counts an event published, by the kind of its subject.
 func BrokerPublish(subjectKind string) {
 	mBrokerEventPublishes.WithLabelValues(subjectKind).Inc()

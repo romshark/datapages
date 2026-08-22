@@ -1,6 +1,6 @@
 // Package sessionstore is the main highlight of the sqlitesessions
 // example: a SQLite-backed implementation of the framework's
-// [sessmanager.SessionManager] interface for [app.Session].
+// [sessions.Manager] interface for [app.Session].
 //
 // # Schema design
 //
@@ -12,7 +12,7 @@
 // # Framework methods
 //
 // The framework requires exactly four methods
-// ([sessmanager.SessionManager]):
+// ([sessions.Manager]):
 //
 //   - ReadSessionFromCookie — called on every authenticated request
 //     to materialize the session from the cookie value.
@@ -36,17 +36,17 @@ import (
 
 	"github.com/romshark/datapages/example/sqlitesessions/app"
 	"github.com/romshark/datapages/example/sqlitesessions/app/sqdb"
-	"github.com/romshark/datapages/modules/sessmanager"
+	"github.com/romshark/datapages/modules/sessions"
 )
 
-// Store implements [sessmanager.SessionManager] for [app.Session].
+// Store implements [sessions.Manager] for [app.Session].
 //
 // DB access goes through sqdb.DB, which handles every mutex concern —
 // Store itself holds no DB lock. The only mutex it owns is notifyLock,
 // which guards the in-memory notifier map used by NotifyClosed.
 type Store struct {
 	db       sqdb.DB
-	tokenGen sessmanager.TokenGenerator
+	tokenGen sessions.TokenGenerator
 	lifetime time.Duration
 	log      *slog.Logger
 
@@ -64,7 +64,7 @@ type notifier struct {
 // Compile-time proof that *Store satisfies the framework interface.
 // If you add or remove a method this line will break first, pointing
 // at the contract, instead of at some random call site elsewhere.
-var _ sessmanager.SessionManager[app.SessionData] = (*Store)(nil)
+var _ sessions.Manager[app.SessionData] = (*Store)(nil)
 
 // New creates the sessions table if missing and returns a Store ready
 // to plug into [datapagesgen.NewServer] as the session manager
@@ -81,7 +81,7 @@ var _ sessmanager.SessionManager[app.SessionData] = (*Store)(nil)
 // defaults to [slog.Default]() when nil.
 func New(
 	db sqdb.DB,
-	tokenGen sessmanager.TokenGenerator,
+	tokenGen sessions.TokenGenerator,
 	lifetime time.Duration,
 	log *slog.Logger,
 ) (*Store, error) {
@@ -133,7 +133,7 @@ func New(
 // If the cleanup itself errors, we log it and still report ok=false —
 // the next read will try again.
 func (s *Store) ReadSessionFromCookie(cookieValue string) (
-	rec sessmanager.Record[app.SessionData], token string, ok bool, err error,
+	rec sessions.Record[app.SessionData], token string, ok bool, err error,
 ) {
 	if cookieValue == "" {
 		return rec, "", false, nil
@@ -179,7 +179,7 @@ func (s *Store) ReadSessionFromCookie(cookieValue string) (
 		return rec, "", false, nil
 	}
 
-	rec = sessmanager.Record[app.SessionData]{
+	rec = sessions.Record[app.SessionData]{
 		UserID:   userID,
 		IssuedAt: time.Unix(createdAt, 0),
 		Data:     app.SessionData{Name: name, Email: email},
@@ -196,7 +196,7 @@ func (s *Store) ReadSessionFromCookie(cookieValue string) (
 // argument is ignored: Name and Email already live in the users
 // table and are joined in on read.
 func (s *Store) CreateSession(
-	_ context.Context, rec sessmanager.Record[app.SessionData],
+	_ context.Context, rec sessions.Record[app.SessionData],
 ) (string, error) {
 	if rec.UserID == "" {
 		return "", errors.New("empty user id")
@@ -243,7 +243,7 @@ func (s *Store) CloseSession(_ context.Context, token string) error {
 // out on one tab, NotifyClosed lets the framework shut down every
 // streaming response keyed to that session.
 //
-// Semantics follow the interface contract in [sessmanager]:
+// Semantics follow the interface contract in [sessions]:
 //
 //   - If the session does not exist at call time, fn is invoked
 //     immediately and the registration is skipped. This handles the

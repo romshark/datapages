@@ -11,9 +11,11 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/calculator/app"
-	"github.com/romshark/datapages/example/calculator/datapagesgen"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/example/calculator/app/datapagesgen"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 func main() {
@@ -30,11 +32,16 @@ func main() {
 	// In desktop app mode we don't need neither the HMAC secret,
 	// nor the NATS message broker, since it's a single-user system.
 	a := app.NewApp([32]byte{})
-	msgBroker := inmem.New(8)
-	s := datapagesgen.NewServer(
-		a, msgBroker,
-		datapagesgen.WithAssets(app.StaticFS),
-	)
+	msgBroker := inmem.New(messaging.DefaultBrokerChanBuffer)
+	s, err := datapages.NewServer[
+		app.App,
+		datapages.DisableSessions,
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](a, msgBroker, datapages.WithAssets(app.StaticFS))
+	if err != nil {
+		panic(err)
+	}
 
 	serverCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()

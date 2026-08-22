@@ -8,8 +8,8 @@ import (
 	"github.com/a-h/templ"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
-	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 )
 
 // PageSettings is /settings

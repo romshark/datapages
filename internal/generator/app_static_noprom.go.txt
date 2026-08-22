@@ -1,5 +1,5 @@
 
-// brokerMetrics implements msgbroker.Metrics as a no-op.
+// brokerMetrics implements messaging.Metrics as a no-op.
 type brokerMetrics struct{}
 
 func (m brokerMetrics) OnPublish(subject string) {}

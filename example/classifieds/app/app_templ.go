@@ -12,9 +12,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/action"
+	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
-	"github.com/romshark/datapages/example/classifieds/datapagesgen/action"
-	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
 	"slices"
 )
 

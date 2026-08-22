@@ -5,12 +5,14 @@ package acceptance_test
 import (
 	"testing"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app"
-	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/datapagesgen"
-	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/datapagesgen/action"
-	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/datapagesgen/href"
+	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen"
+	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen/action"
+	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen/href"
 	"github.com/romshark/datapages/internal/acceptance/contract"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 func TestContract(t *testing.T) {
@@ -18,20 +20,19 @@ func TestContract(t *testing.T) {
 		NewServer: func(t *testing.T, opts ...any) contract.Server {
 			t.Helper()
 			opts = append(opts,
-				datapagesgen.WithAssets(app.StaticFS),
-				datapagesgen.WithPrometheus(datapagesgen.PrometheusConfig{
+				datapages.WithAssets(app.StaticFS),
+				datapages.WithPrometheus(datapages.PrometheusConfig{
 					Host:       "127.0.0.1:0",
 					Registerer: registry,
 					Gatherer:   registry,
 				}))
-			return datapagesgen.NewServer(&app.App{}, inmem.New(8),
-				contract.Options[datapagesgen.ServerOption](opts)...)
+			return mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+				contract.Options[datapages.ServerOption](opts)...)
 		},
-		WithAssets:     contract.Opt(datapagesgen.WithAssets),
-		WithMiddleware: contract.Opt(datapagesgen.WithMiddleware),
-		WithDatastarJS: contract.Opt(datapagesgen.WithDatastarJS),
-		WithHTTPServer: contract.Opt(datapagesgen.WithHTTPServer),
-		WithLogger:     contract.Opt(datapagesgen.WithLogger),
+		WithMiddleware: contract.OptVariadic(datapages.WithMiddleware),
+		WithDatastarJS: contract.Opt(datapages.WithDatastarJS),
+		WithHTTPServer: contract.Opt(datapages.WithHTTPServer),
+		WithLogger:     contract.Opt(datapages.WithLogger),
 		StreamSubjects: datapagesgen.MessageBrokerStreamSubjects,
 		HrefExternal:   href.External,
 		HrefSetLogger:  href.SetLogger,
@@ -66,7 +67,6 @@ func TestContract(t *testing.T) {
 			action.WithAfter("$busy = false"),
 		),
 		StreamPath:     "/_$/",
-		HasAssets:      true,
 		DispatchAction: action.POSTPageIndexAnnounce(),
 		DispatchBody:   `{"text":"hello"}`,
 	})

@@ -6,7 +6,7 @@ The code you'd write is in
 [app](https://github.com/romshark/datapages/tree/main/example/classifieds/app)
 (the "source package").
 The code that the generator produces is in
-[datapagesgen](https://github.com/romshark/datapages/tree/main/example/classifieds/datapagesgen).
+[datapagesgen](https://github.com/romshark/datapages/tree/main/example/classifieds/app/datapagesgen).
 
 ## Development Mode
 

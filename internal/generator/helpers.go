@@ -319,10 +319,10 @@ type appUsage struct {
 	// datapagesSSE: whether any handler takes a datapages.SSE param
 	// (needs the datapages import and the generated sseWrapper).
 	datapagesSSE bool
-	// signalSubjects: func isSubjectToken(...), needed by any page that builds
+	// signalSubjects: subject.IsToken is called by any page that builds
 	// a subscription subject from a client-provided signal.
 	signalSubjects bool
-	// dispatchSubjects: func isSubjectToken(...), needed by any dispatch that
+	// dispatchSubjects: subject.IsToken is called by any dispatch that
 	// builds a publish subject from the subject fields of its event.
 	dispatchSubjects bool
 	// userSubjects: whether any event addresses a user, which makes the ID of
@@ -333,20 +333,9 @@ type appUsage struct {
 	privateStreams bool
 }
 
-// needsIsSubjectToken reports whether the isSubjectToken guard is emitted.
-func (u appUsage) needsIsSubjectToken() bool {
-	return u.signalSubjects || u.dispatchSubjects || u.privateStreams ||
-		(u.userSubjects && u.createSession)
-}
-
 // needsCheckIsDSReq returns true if the checkIsDSReq method must be emitted.
 func (u appUsage) needsCheckIsDSReq() bool {
 	return u.stream || u.dsRequest
-}
-
-// needsSetSessionCookie returns true if setSessionCookie must be emitted.
-func (u appUsage) needsSetSessionCookie() bool {
-	return u.auth || u.createSession || u.closeSession
 }
 
 // dispatchesSubjectFields reports whether any handler dispatches an event whose
@@ -546,7 +535,7 @@ type Writer struct {
 	newSessionType string
 	// makeSessionCall assembles a session from a session manager record.
 	makeSessionCall string
-	// recordType is the rendered sessmanager.Record instantiation.
+	// recordType is the rendered sessions.Record instantiation.
 	recordType string
 	// sessionDataType is the rendered session Data type argument.
 	sessionDataType string
@@ -564,7 +553,7 @@ func (w *Writer) setSessionType(m *model.App) {
 	data := renderType(m.Session.Data)
 	w.sessionType = "datapages.Session[" + data + "]"
 	w.newSessionType = "datapages.NewSession[" + data + "]"
-	w.recordType = "sessmanager.Record[" + data + "]"
+	w.recordType = "sessions.Record[" + data + "]"
 	w.sessionDataType = data
 	w.makeSessionCall = "datapages.MakeSession(\n" +
 		"\t\trec.UserID, token, rec.IssuedAt, rec.ExpiresAt, rec.Data,\n\t)"

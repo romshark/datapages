@@ -24,8 +24,12 @@ func GenerateCmd(
 	if m != nil && m.Session != nil {
 		sessionData = renderType(m.Session.Data)
 	}
+	appPkgName := "app"
+	if m != nil && m.PkgName != "" {
+		appPkgName = m.PkgName
+	}
 	src, err := skeleton.MainGo(
-		appImportPath, genImportPath, genPkgName, prometheus, sessionData,
+		appImportPath, appPkgName, genImportPath, genPkgName, prometheus, sessionData,
 	)
 	if err != nil {
 		return fmt.Errorf("generating cmd/main.go: %w", err)

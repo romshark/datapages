@@ -11,31 +11,34 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/getsignals/app"
-	"github.com/romshark/datapages/internal/acceptance/getsignals/datapagesgen"
 	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
-	sessinmem "github.com/romshark/datapages/modules/sessmanager/inmem"
-	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
+	"github.com/romshark/datapages/modules/sessions"
+	sessinmem "github.com/romshark/datapages/modules/sessions/inmem"
 )
 
 // newClient starts the server and returns a client that keeps its cookies,
 // together with the CSRF token manager and the session manager, which a test
 // needs to send an action as the visitor the session names.
 func newClient(t *testing.T) (
-	*client.Client, *csrfhmac.TokenManager, *sessinmem.SessionManager[struct{}],
+	*client.Client, *csrfhmac.Tokens, *sessinmem.SessionManager[struct{}],
 ) {
 	t.Helper()
 	key := sha256.Sum256([]byte("acceptance-csrf"))
 	tm, err := csrfhmac.New(key[:])
 	require.NoError(t, err, "building CSRF token manager")
-	sessions := sessinmem.New[struct{}](
-		sesstokgen.Generator{Length: sesstokgen.DefaultLength},
+	inMemSessions := sessinmem.New[struct{}](
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 	)
-	h := datapagesgen.NewServer(&app.App{}, inmem.New(8), sessions,
-		datapagesgen.WithCSRFProtection(datapagesgen.CSRFConfig{TokenManager: tm}))
-	return client.New(t, h).WithJar(t), tm, sessions
+	h := mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer),
+		inMemSessions,
+		datapages.WithCSRFProtection(datapages.CSRFConfig{Tokens: tm}))
+	return client.New(t, h).WithJar(t), tm, inMemSessions
 }
 
 // issuedAt is the time the server stamped on the session the response set.

@@ -9,10 +9,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/assets"
+	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
-	"github.com/romshark/datapages/example/classifieds/datapagesgen/assets"
-	"github.com/romshark/datapages/example/classifieds/datapagesgen/href"
-	"github.com/romshark/datapages/modules/sessmanager"
+	"github.com/romshark/datapages/modules/sessions"
 )
 
 type Session = datapages.Session[struct{}]
@@ -23,7 +23,7 @@ type Metrics struct {
 }
 
 // SessionRecord is what the session manager stores for a session.
-type SessionRecord = sessmanager.Record[struct{}]
+type SessionRecord = sessions.Record[struct{}]
 
 type SessionManager interface {
 	Session(ctx context.Context, token string) (SessionRecord, error)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/romshark/datapages/internal/generator"
 	"github.com/romshark/datapages/internal/parser"
+	"github.com/romshark/datapages/internal/serverscan"
 )
 
 // examples lists the example applications whose generated code is committed,
@@ -21,21 +22,14 @@ import (
 // and they are the only generated code in this repository that a reader ever sees.
 // Committed output that no longer matches the generator misleads every one of
 // those readers.
-var examples = map[string]struct {
-	prometheus      bool
-	assetsURLPrefix string
-	assetsDir       string
-}{
-	"calculator": {assetsURLPrefix: "/static/", assetsDir: "static"},
-	"classifieds": {
-		prometheus: true, assetsURLPrefix: "/static/", assetsDir: "static",
-	},
-	"counter":        {},
-	"fancy-counter":  {},
-	"sqlitesessions": {},
-	"tailwindcss":    {assetsURLPrefix: "/static/", assetsDir: "static"},
-	"todolist":       {assetsURLPrefix: "/static/", assetsDir: "static"},
-	"webcomponents":  {assetsURLPrefix: "/static/", assetsDir: "static"},
+var examples = []string{
+	"calculator",
+	"classifieds",
+	"counter",
+	"sqlitesessions",
+	"tailwindcss",
+	"todolist",
+	"webcomponents",
 }
 
 // TestExamplesAreUpToDate regenerates each example and
@@ -44,29 +38,42 @@ var examples = map[string]struct {
 // This is the one test that reads generated code as text, and it reads it for
 // a reason text is the right medium for: the committed files are the artifact.
 // What the generated code does is covered by the acceptance suites.
+//
+// Nothing here names what an example configures or where its code goes: the
+// configuration is the Config variable of its app package and the destination
+// follows the app package, both of which the run below reads.
 func TestExamplesAreUpToDate(t *testing.T) {
-	for name, opts := range examples {
+	for _, name := range examples {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			dir := filepath.Join("..", "..", "example", name)
-			app, errs := parser.Parse(filepath.Join(dir, "app"))
-			require.Zero(t, errs.Len(), "unexpected parser errors:\n%s", listErrors(errs))
-			require.NotNil(t, app, "parser returned nil model")
-
 			modPath := modulePathOf(t, dir)
-			got := t.TempDir()
-			require.NoError(t, generator.Generate(
-				got, "datapagesgen", app, 0o644, generator.Options{
-					Prometheus:      opts.prometheus,
-					AssetsURLPrefix: opts.assetsURLPrefix,
-					AssetsDir:       opts.assetsDir,
-					AppDir:          "app",
-					GenImport:       modPath + "/datapagesgen",
-				},
-			))
+			scan, err := serverscan.Scan(dir, modPath)
+			require.NoError(t, err)
+			require.NotEmpty(t, scan.Apps)
 
-			compareTrees(t, got, filepath.Join(dir, "datapagesgen"))
+			// An example may build more than one application, in which case
+			// every one of them is committed and every one is compared.
+			for _, a := range scan.Apps {
+				app, errs := parser.Parse(filepath.Join(dir, a.Dir))
+				require.Zero(t, errs.Len(),
+					"unexpected parser errors in %s:\n%s", a.Dir, listErrors(errs))
+				require.NotNil(t, app, "parser returned nil model for %s", a.Dir)
+
+				got := t.TempDir()
+				require.NoError(t, generator.Generate(
+					got, serverscan.GenSubdir, app, 0o644, generator.Options{
+						Prometheus:      a.Prometheus,
+						AssetsURLPrefix: app.Assets.URLPrefix,
+						AssetsDir:       app.Assets.Dir,
+						AppDir:          a.Dir,
+						GenImport:       a.GenImport,
+					},
+				))
+
+				compareTrees(t, got, filepath.Join(dir, a.GenDir))
+			}
 		})
 	}
 }

@@ -54,19 +54,59 @@ to `.gitignore`, and runs `datapages gen`, which writes `cmd/server/main.go`.
 
 If the project already has `datapages.yaml`, skip this step.
 
-### `datapages.yaml` Structure
+### Where Configuration Lives
 
-The generated config looks like this:
+Nothing about the build is configured. Every setting is read from the code that
+already states it.
+
+Static file serving is turned on by an `embed.FS` whose doc comment names the
+URL path it is served at, the way a page type names its route:
+
+```go
+// app/assets.go
+
+// StaticFS is /static/
+//go:embed static/*
+var StaticFS embed.FS
+```
+
+The comment gives the `URLPrefix` constant of the generated `assets`
+subpackage. The directive gives the `embed.FS` subdirectory and the dev-mode
+disk path. A package with no such variable serves no files.
+
+The app package, the metrics mode and the package to generate into are not
+configured anywhere. They are the `App`, `Metrics` and `S` type arguments of the
+`datapages.NewServer` call in `cmd/server/main.go`, which `datapages gen` reads:
+
+```go
+datapages.NewServer[
+	app.App,                     // App
+	datapages.DisableSessions,   // SessionData
+	datapages.DisablePrometheus, // Metrics
+	datapagesgen.Server,         // S
+](...)
+```
+
+The generated code carries the Prometheus instrumentation for
+`datapages.EnablePrometheus` and none for `datapages.DisablePrometheus`. Unlike an option slice, a type argument is always
+written at the call site, so the generator can read the choice.
+
+Generated code always goes into a `datapagesgen` package directly under the app
+package it belongs to, so the `S` type argument must name it:
+
+```
+app/                app/datapagesgen/
+app/frontend/       app/frontend/datapagesgen/
+```
+
+One module may build any number of applications, one app package each.
+`datapages gen` generates all of them; `datapages watch` runs one, so a module
+building more than one needs `datapages watch --app frontend`.
+
+`datapages.yaml` keeps only what the tooling needs:
 
 ```yaml
-app: app # App source package path
-gen:
-  package: datapagesgen # Generated code package path
-  prometheus: true # Enable Prometheus metrics generation
 cmd: cmd/server # Server cmd package path
-assets: # Static asset file serving (optional)
-  url-prefix: /static/ # URL path prefix
-  dir: ./app/static/ # Path to static files, relative to module root
 watch: # Dev server settings for live-reload
   exclude:
     - ".git/**"
@@ -74,15 +114,8 @@ watch: # Dev server settings for live-reload
     - "*~"
 ```
 
-The fields agents are most likely to change (usually not necessary):
-
-- `app` — path to the app source package (default `app`)
-- `gen.package` — where generated code goes (default `datapagesgen`)
-- `gen.prometheus` — set `false` to disable metrics generation
 - `cmd` — path to the server command package (default `cmd/server`)
-- `assets` — static asset serving config (optional). When omitted, asset serving is disabled. When set, both sub-fields are required:
-  - `assets.url-prefix` — URL path prefix; must start and end with `/`. Emitted as the `URLPrefix` constant in the generated `assets` subpackage.
-  - `assets.dir` — on-disk path to the static files directory (e.g. `./app/static/`). Used for `embed.FS` subdirectory derivation and dev-mode disk serving.
+- `watch` — dev server settings
 
 ## Step 2: Define Minimal App
 
@@ -673,21 +706,43 @@ The generated `main.go` imports two key packages from your project:
 ```go
 import (
 	"your-module/app" // your application package
-	"your-module/datapagesgen" // generated server package
+	"your-module/app/datapagesgen" // generated server package
 )
 ```
 
 ### Create the Server
 
-`datapagesgen.NewServer` requires your app, a message broker, and (if you defined a `Session` type) a session manager:
+`datapages.NewServer` requires your app and a message broker. Its type arguments
+name your `App`, your `SessionData` (`datapages.DisableSessions` when you defined
+no `Session` type), the `Metrics` mode (`datapages.EnablePrometheus` or
+`datapages.DisablePrometheus`) and the generated `Server`:
 
 ```go
-// Without sessions:
-s := datapagesgen.NewServer(a, messageBroker, opts...)
+// Without sessions and without metrics:
+s, err := datapages.NewServer[
+	app.App, datapages.DisableSessions, datapages.DisablePrometheus, datapagesgen.Server,
+](
+	a, messageBroker, opts...,
+)
 
-// With sessions:
-s := datapagesgen.NewServer(a, messageBroker, sessionManager, opts...)
+// With sessions, the manager is an option:
+opts = append(opts, datapages.WithSessionManager[app.SessionData](sessionManager))
+s, err := datapages.NewServer[
+	app.App, app.SessionData, datapages.DisablePrometheus, datapagesgen.Server,
+](
+	a, messageBroker, opts...,
+)
 ```
+
+`datapages.EnablePrometheus` requires `WithPrometheus`,
+`datapages.DisablePrometheus` rejects it.
+
+Name the session data type at the `WithSessionManager` call: it is not inferred
+from a concrete manager, and naming it is what makes the compiler check the
+manager against what the app declares.
+
+`datapages gen` reads these type arguments to find the app package and the
+package to generate into, so keep the call in the module.
 
 ### Message Broker
 
@@ -696,30 +751,30 @@ A message broker is always required. It delivers events between pages and handle
 Use core NATS for the message broker:
 
 ```go
-import "github.com/romshark/datapages/modules/msgbroker/natscore"
+import "github.com/romshark/datapages/modules/messaging/natscore"
 ```
 
-An in-memory broker (`github.com/romshark/datapages/modules/msgbroker/inmem`) exists but should only be used in single-instance setups. Prefer core NATS in most cases.
+An in-memory broker (`github.com/romshark/datapages/modules/messaging/inmem`) exists but should only be used in single-instance setups. Prefer core NATS in most cases.
 
 ### Session Manager
 
 Required only if you defined a `Session` type. Use NATS KV for the session manager:
 
 ```go
-import "github.com/romshark/datapages/modules/sessmanager/natskv"
+import "github.com/romshark/datapages/modules/sessions/natskv"
 ```
 
-An in-memory session manager (`github.com/romshark/datapages/modules/sessmanager/inmem`) exists but should only be used in single-instance setups where losing sessions on restart is acceptable. Prefer NATS KV in most cases.
+An in-memory session manager (`github.com/romshark/datapages/modules/sessions/inmem`) exists but should only be used in single-instance setups where losing sessions on restart is acceptable. Prefer NATS KV in most cases.
 
 ### Server Options
 
 Pass options to `NewServer` to configure middleware, CSRF protection, static files, TLS, etc.:
 
 ```go
-var opts []datapagesgen.ServerOption
+var opts []datapages.ServerOption
 
 // Middleware — adds custom HTTP middleware
-opts = append(opts, datapagesgen.WithMiddleware(func(next http.Handler) http.Handler {
+opts = append(opts, datapages.WithMiddleware(func(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		slog.Info("access", slog.String("path", r.URL.Path))
 		next.ServeHTTP(w, r)
@@ -727,27 +782,28 @@ opts = append(opts, datapagesgen.WithMiddleware(func(next http.Handler) http.Han
 }))
 
 // CSRF protection (required for session-based apps)
-opts = append(opts, datapagesgen.WithCSRFProtection(datapagesgen.CSRFConfig{
-	TokenManager:   tm,
+opts = append(opts, datapages.WithCSRFProtection(datapages.CSRFConfig{
+	Tokens:         tm,
 	DevBypassToken: os.Getenv("CSRF_DEV_BYPASS"),
 }))
 
 // Authentication (required when Session type is defined)
-opts = append(opts, datapagesgen.WithAuth(datapagesgen.AuthConfig{}))
+opts = append(opts, datapages.WithSessions(datapages.SessionsConfig{}))
 
-// Custom logger (consider slog.LevelDebug when datapagesgen.IsDevMode() is true)
-opts = append(opts, datapagesgen.WithLogger(slog.Default()))
+// Custom logger (consider slog.LevelDebug when datapages.IsDevMode() is true)
+opts = append(opts, datapages.WithLogger(slog.Default()))
 
 // Custom HTTP server (Addr and Handler are always overwritten)
-opts = append(opts, datapagesgen.WithHTTPServer(&http.Server{
+opts = append(opts, datapages.WithHTTPServer(&http.Server{
 	ReadHeaderTimeout: 10 * time.Second,
 }))
 
 // Custom Datastar JS bundle URL (defaults to CDN)
-opts = append(opts, datapagesgen.WithDatastarJS("https://cdn.example.com/datastar.js"))
+opts = append(opts, datapages.WithDatastarJS("https://cdn.example.com/datastar.js"))
 
-// Prometheus metrics on a dedicated HTTP server
-opts = append(opts, datapagesgen.WithPrometheus(datapagesgen.PrometheusConfig{
+// Prometheus metrics on a dedicated HTTP server.
+// Requires the datapages.EnablePrometheus type argument at the NewServer call.
+opts = append(opts, datapages.WithPrometheus(datapages.PrometheusConfig{
 	Host: ":9091",
 }))
 ```
@@ -771,20 +827,25 @@ package app
 
 import "embed"
 
+// StaticFS is /static/
 //go:embed static/*
 var StaticFS embed.FS
 ```
 
-Then register the static filesystem in `cmd/server/main.go` using a server option.
-This is only needed when the app serves static files (CSS, JS, images, fonts):
+The doc comment names the URL path and is what turns serving on. Then hand the
+filesystem to the server in `cmd/server/main.go`:
 
 ```go
-opts = append(opts, datapagesgen.WithAssets(app.StaticFS))
+opts = append(opts, datapages.WithAssets(app.StaticFS))
 ```
 
-`WithAssets` takes an `embed.FS` and handles everything automatically: in production, it extracts the subdirectory (`assets.Dir`) and serves embedded files; in dev mode (`IsDevMode`), it serves from disk (`assets.DevDir`) with caching disabled for live reloading without recompilation.
+`WithAssets` carries only the `embed.FS`. The generated server applies what the
+app package declared: in production it extracts the subdirectory (`assets.Dir`)
+and serves the embedded files; in dev mode (`IsDevMode`) it serves from disk
+(`assets.DevDir`) with caching disabled, for live reloading without
+recompilation. An app package that declares no assets rejects the option.
 
-The URL path prefix is the generated `assets.URLPrefix` constant (configured via `assets.url-prefix` in `datapages.yaml`). The embed.FS subdirectory and dev-mode disk path are derived from `assets.dir`.
+The URL path prefix is the generated `assets.URLPrefix` constant, which comes from the doc comment of the `embed.FS` variable. The embed.FS subdirectory and dev-mode disk path come from its `//go:embed` directive.
 
 Reference static files in templates using the static prefix (e.g. `/static/style.css`).
 
@@ -816,7 +877,7 @@ datapages help <command>  # show help for a specific command
 
 `datapages gen` produces two packages with type-safe URL builders. **Always use these instead of hardcoding URLs.**
 
-### `datapagesgen/href` — Page Links
+### `app/datapagesgen/href` — Page Links
 
 Generated functions return URL strings for `<a href>` attributes. One function per page.
 
@@ -836,7 +897,7 @@ Each function is named after the page type, so `PageIndex` becomes `href.PageInd
 Query parameter structs are generated as `href.Query<PageTypeName>`.
 Zero-value fields are omitted from the URL.
 
-### `datapagesgen/action` — Datastar Actions
+### `app/datapagesgen/action` — Datastar Actions
 
 Generated functions return Datastar action strings (`@post('/...')`, `@put('/...')`, etc.) for use in `data-on:click` and similar attributes. One function per action handler.
 

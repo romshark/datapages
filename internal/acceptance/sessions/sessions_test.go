@@ -20,14 +20,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/brokers"
 	"github.com/romshark/datapages/internal/acceptance/sessions/app"
-	"github.com/romshark/datapages/internal/acceptance/sessions/datapagesgen"
 	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
-	"github.com/romshark/datapages/modules/msgbroker"
-	"github.com/romshark/datapages/modules/sessmanager"
-	sessinmem "github.com/romshark/datapages/modules/sessmanager/inmem"
-	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/sessions"
+	sessinmem "github.com/romshark/datapages/modules/sessions/inmem"
 )
 
 const cookieName = "sessiontoken"
@@ -36,21 +35,21 @@ var csrfSecret = []byte("acceptance-csrf-secret-value-0123")
 
 type server struct {
 	*httptest.Server
-	csrf     *csrfhmac.TokenManager
+	csrf     *csrfhmac.Tokens
 	sessions *sessinmem.SessionManager[app.SessionData]
 }
 
 // newServer starts the generated server.
 //
 // An app that declares a Session type must be given a CSRF token manager:
-// NewServer panics without one, which is asserted separately below.
+// datapages.NewServer fails without one, which is asserted separately below.
 func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
 
-func newServer(t *testing.T, broker msgbroker.MessageBroker) server {
+func newServer(t *testing.T, broker messaging.Broker) server {
 	t.Helper()
 
 	sessions := sessinmem.New[app.SessionData](
-		sesstokgen.Generator{Length: sesstokgen.DefaultLength},
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 	)
 
 	tm, err := csrfhmac.New(csrfSecret)
@@ -58,10 +57,10 @@ func newServer(t *testing.T, broker msgbroker.MessageBroker) server {
 		t.Fatalf("building CSRF token manager: %v", err)
 	}
 
-	s := httptest.NewServer(datapagesgen.NewServer(
+	s := httptest.NewServer(mustNewServer(t,
 		&app.App{}, broker, sessions,
-		datapagesgen.WithCSRFProtection(
-			datapagesgen.CSRFConfig{TokenManager: tm},
+		datapages.WithCSRFProtection(
+			datapages.CSRFConfig{Tokens: tm},
 		),
 	))
 	t.Cleanup(s.Close)
@@ -241,7 +240,7 @@ func echoed(t *testing.T, body string) string {
 // TestAnonymous covers a visitor with no session.
 // Every handler that asks for one gets the zero value rather than an error.
 func TestAnonymous(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
 		c := srv.client(t)
@@ -268,7 +267,7 @@ func TestAnonymous(t *testing.T) {
 // reader must read the way net/http.Request.Cookie reads them.
 // The expectation comes from that method, not from a hand written table.
 func TestCookieHeaderVariants(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 		c := srv.client(t)
 		c.signIn(t, "alice", "Al")
@@ -318,7 +317,7 @@ func TestCookieHeaderVariants(t *testing.T) {
 }
 
 func TestSignInAndOut(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
 		c := srv.client(t)
@@ -373,7 +372,7 @@ func TestSignInAndOut(t *testing.T) {
 // TestSessionToken covers the handler parameter that asks for the token
 // instead of the session.
 func TestSessionToken(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
 		c := srv.client(t)
@@ -400,7 +399,7 @@ func TestSessionToken(t *testing.T) {
 // The visitor continues as anonymous and the cookie is cleared,
 // rather than being refused on every later request.
 func TestStaleCookie(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
 		req, err := http.NewRequestWithContext(
@@ -441,7 +440,7 @@ func TestStaleCookie(t *testing.T) {
 // TestErrorSentinel covers the status an action or
 // page takes from the sentinel it returns.
 func TestErrorSentinel(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
 		c := srv.client(t)
@@ -469,7 +468,7 @@ func TestErrorSentinel(t *testing.T) {
 // visitor has a session.
 // Without a session there is nothing to forge and an anonymous request is let through.
 func TestCSRF(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
 		t.Run("anonymous request needs no token", func(t *testing.T) {
@@ -521,7 +520,7 @@ func TestCSRF(t *testing.T) {
 // TestPrivateEvent covers an event addressed to a user. Two visitors,
 // two streams, one dispatch: the user it names sees it and the other does not.
 func TestPrivateEvent(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
 		alice := srv.client(t)
@@ -557,7 +556,7 @@ func TestSignInRefusesUnsafeUserID(t *testing.T) {
 		"space":     "a b",
 	}
 
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		for name, user := range users {
 			t.Run(name, func(t *testing.T) {
 				srv := newServer(t, broker)
@@ -582,11 +581,11 @@ func TestSignInRefusesUnsafeUserID(t *testing.T) {
 // The stream reads the ID into its subscription subject, so it refuses to open
 // rather than subscribe to every user.
 func TestStreamRefusesUnsafeUserID(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
 		token, err := srv.sessions.CreateSession(context.Background(),
-			sessmanager.Record[app.SessionData]{
+			sessions.Record[app.SessionData]{
 				UserID:    "*",
 				IssuedAt:  time.Now(),
 				ExpiresAt: time.Now().Add(time.Hour),
@@ -626,7 +625,7 @@ func TestStreamRefusesUnsafeUserID(t *testing.T) {
 // The private event is addressed to a user, and a connection with no user must
 // never be given it: that is one visitor reading another's messages.
 func TestAnonymousStream(t *testing.T) {
-	brokers.Each(t, func(t *testing.T, broker msgbroker.MessageBroker) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
 		anon := srv.client(t)

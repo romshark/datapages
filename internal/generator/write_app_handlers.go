@@ -247,7 +247,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		(m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession)
 	if needsSession {
 		hasBody = true
-		w.Line(1, "sess, _, ok := s.auth(w, r)")
+		w.Line(1, "sess, _, ok := s.ReadSession(w, r)")
 		w.Line(1, "if !ok {")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -423,7 +423,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 		w.Raw("nil,\n")
 	}
 	w.Line(1, "); err != nil {")
-	w.Raw("\t\ts.logErr(\"rendering ")
+	w.Raw("\t\ts.LogErr(\"rendering ")
 	w.Raw(p.TypeName)
 	w.Raw("\", err)\n")
 	w.Line(2, "return")
@@ -444,7 +444,7 @@ func (w *Writer) writeSessionOutputs(h *model.Handler) {
 		w.Raw("\tif ")
 		w.Raw(outputVar(h.OutputCloseSession))
 		w.Raw(" {\n")
-		w.Line(2, "if err := s.closeSession(w, r, sessToken); err != nil {")
+		w.Line(2, "if err := s.CloseSession(w, r, sessToken); err != nil {")
 		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
 		w.Line(3, "return")
 		w.Line(2, "}")
@@ -454,7 +454,7 @@ func (w *Writer) writeSessionOutputs(h *model.Handler) {
 		w.Raw("\tif j := ")
 		w.Raw(outputVar(h.OutputNewSession))
 		w.Raw("; j.UserID != \"\" {\n")
-		w.Raw("\t\tif err := s.createSession(w, r, ")
+		w.Raw("\t\tif err := s.CreateSession(w, r, ")
 		w.Raw(outputVar(h.OutputNewSession))
 		w.Raw("); err != nil {\n")
 		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
@@ -840,7 +840,7 @@ func (w *Writer) writePageGETStreamHandler(
 	hasPrivate := pageHasPrivateEvent(p, w.eventMap)
 	hasSignalScoped := pageHasSignalScopedEvent(p, w.eventMap)
 	if needsAuth {
-		w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
+		w.Line(1, "sess, sessToken, ok := s.ReadSession(w, r)")
 		w.Line(1, "if !ok {")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -896,7 +896,7 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Line(2, "return")
 		w.Line(1, "}")
 		for i, sf := range signalFields {
-			w.Raw("\tif !isSubjectToken(subjSignals.")
+			w.Raw("\tif !subject.IsToken(subjSignals.")
 			w.Raw(signalIdents[i])
 			w.Raw(") {\n")
 			w.Raw("\t\ts.httpErrBad(w, \"invalid signal\",\n")
@@ -971,7 +971,7 @@ func (w *Writer) writePageGETStreamHandler(
 	w.writePageStreamCloseHook(p)
 	w.Line(1, "func(")
 	w.Line(2, "streamID datapages.StreamID,")
-	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")
+	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,")
 	w.Line(1, ") {")
 	if len(p.EventHandlers) == 0 {
 		w.Line(2, "for range ch {")
@@ -1063,7 +1063,7 @@ func (w *Writer) writeStreamEventCase(
 	w.Raw(ev.TypeName)
 	w.Raw("{}\n")
 	w.Line(4, "if err := json.Unmarshal(msg.Data, &"+eventVar+"); err != nil {")
-	w.Raw("\t\t\t\t\ts.logErr(\"unmarshaling ")
+	w.Raw("\t\t\t\t\ts.LogErr(\"unmarshaling ")
 	w.Raw(ev.TypeName)
 	w.Raw(" JSON\", err)\n")
 	w.Line(5, "continue")
@@ -1084,7 +1084,7 @@ func (w *Writer) writeEventHandlerCall(
 		w.Raw("\t\t\t\tif err := ")
 		w.writeCallExpr(receiver, methodName, args)
 		w.Raw("; err != nil {\n")
-		w.Raw("\t\t\t\t\ts.logErr(\"handling ")
+		w.Raw("\t\t\t\t\ts.LogErr(\"handling ")
 		w.Raw(ownerLabel)
 		w.Byte('.')
 		w.Raw(methodName)
@@ -1135,7 +1135,7 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 			handlerInputArgs(p.StreamClose, false, "dispatchClosed"),
 		)
 		w.Raw("; err != nil {\n")
-		w.Raw("\t\t\ts.logErr(\"handling ")
+		w.Raw("\t\t\ts.LogErr(\"handling ")
 		w.Raw(p.TypeName)
 		w.Raw(".StreamClose\", err)\n")
 		w.Line(2, "}")
@@ -1162,7 +1162,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Line(1, "if !s.checkIsDSReq(w, r) {")
 	w.Line(2, "return")
 	w.Line(1, "}")
-	w.Line(1, "sess, sessToken, ok := s.auth(w, r)")
+	w.Line(1, "sess, sessToken, ok := s.ReadSession(w, r)")
 	w.Line(1, "if !ok {")
 	w.Line(2, "return")
 	w.Line(1, "}")
@@ -1197,7 +1197,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		w.Line(2, "return")
 		w.Line(1, "}")
 		for i, sf := range signalFields {
-			w.Raw("\tif !isSubjectToken(subjSignals.")
+			w.Raw("\tif !subject.IsToken(subjSignals.")
 			w.Raw(signalIdents[i])
 			w.Raw(") {\n")
 			w.Raw("\t\ts.httpErrBad(w, \"invalid signal\",\n")
@@ -1246,7 +1246,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.writePageStreamCloseHook(p)
 	w.Line(1, "func(")
 	w.Line(2, "streamID datapages.StreamID,")
-	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan msgbroker.Message,")
+	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,")
 	w.Line(1, ") {")
 	// Only public events reach an anonymous stream.
 	var publicHandlers []*model.EventHandler
@@ -1314,9 +1314,9 @@ func (w *Writer) writePageActionHandler(
 			sessVar = "sess"
 		}
 		if needsToken {
-			w.Linef(1, "%s, sessToken, ok := s.auth(w, r)", sessVar)
+			w.Linef(1, "%s, sessToken, ok := s.ReadSession(w, r)", sessVar)
 		} else {
-			w.Linef(1, "%s, _, ok := s.auth(w, r)", sessVar)
+			w.Linef(1, "%s, _, ok := s.ReadSession(w, r)", sessVar)
 		}
 		w.Line(1, "if !ok {")
 		w.Line(2, "return")
@@ -1461,7 +1461,7 @@ func (w *Writer) writeActionMethodCall(
 		w.Raw(outputVar(h.OutputBody.Output))
 		w.Raw(", nil, nil,\n")
 		w.Line(1, "); err != nil {")
-		w.Raw("\t\ts.logErr(\"rendering response of ")
+		w.Raw("\t\ts.LogErr(\"rendering response of ")
 		w.Raw(p.TypeName)
 		w.Byte('.')
 		w.Raw(h.HTTPMethod)

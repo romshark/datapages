@@ -15,12 +15,13 @@ import (
 
 	"github.com/nats-io/nats.go"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/app"
-	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/datapagesgen"
+	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/app/datapagesgen"
 	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
-	"github.com/romshark/datapages/modules/msgbroker/natscore"
-	"github.com/romshark/datapages/modules/sessmanager/natskv"
-	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/modules/messaging/natscore"
+	"github.com/romshark/datapages/modules/sessions"
+	"github.com/romshark/datapages/modules/sessions/natskv"
 )
 
 func main() {
@@ -32,16 +33,27 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	var opts []datapagesgen.ServerOption
+	var opts []datapages.ServerOption
 	withAccessLogger(&opts)
-	withAuth(&opts)
+	withSessions(&opts)
 	withCSRFProtection(&opts)
 
 	messageBroker, sessionManager := connectNATS()
 
 	// TODO: Initialize your app.
 	a := &app.App{}
-	s := datapagesgen.NewServer(a, messageBroker, sessionManager, opts...)
+	opts = append(opts, datapages.WithSessionManager[struct{}](sessionManager))
+
+	s, err := datapages.NewServer[
+		app.App,
+		struct{},
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](a, messageBroker, opts...)
+	if err != nil {
+		slog.Error("creating server", slog.Any("err", err))
+		os.Exit(1)
+	}
 	listenAndServe(ctx, s, net.JoinHostPort(host, port))
 }
 
@@ -83,11 +95,11 @@ func loadEnvFile(path string) {
 	}
 }
 
-func withAccessLogger(opts *[]datapagesgen.ServerOption) {
+func withAccessLogger(opts *[]datapages.ServerOption) {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
-	*opts = append(*opts, datapagesgen.WithMiddleware(func(next http.Handler) http.Handler {
+	*opts = append(*opts, datapages.WithMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			logger.Info("access",
 				slog.String("method", r.Method),
@@ -97,19 +109,19 @@ func withAccessLogger(opts *[]datapagesgen.ServerOption) {
 	}))
 }
 
-func withAuth(opts *[]datapagesgen.ServerOption) {
-	*opts = append(*opts, datapagesgen.WithAuth(datapagesgen.AuthConfig{}))
+func withSessions(opts *[]datapages.ServerOption) {
+	*opts = append(*opts, datapages.WithSessions(datapages.SessionsConfig{}))
 }
 
-func withCSRFProtection(opts *[]datapagesgen.ServerOption) {
+func withCSRFProtection(opts *[]datapages.ServerOption) {
 	secret := os.Getenv("CSRF_SECRET")
 	tm, err := csrfhmac.New([]byte(secret))
 	if err != nil {
 		slog.Error("initializing CSRF token manager", slog.Any("err", err))
 		os.Exit(1)
 	}
-	*opts = append(*opts, datapagesgen.WithCSRFProtection(datapagesgen.CSRFConfig{
-		TokenManager:   tm,
+	*opts = append(*opts, datapages.WithCSRFProtection(datapages.CSRFConfig{
+		Tokens:         tm,
 		DevBypassToken: os.Getenv("CSRF_DEV_BYPASS"),
 	}))
 }
@@ -143,7 +155,7 @@ func connectNATS() (
 
 	sessionManager, err := natskv.New[struct{}](
 		conn,
-		sesstokgen.Generator{Length: sesstokgen.DefaultLength},
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 		natskv.Config{EncryptionKey: sessionEncryptionKey},
 	)
 	if err != nil {
@@ -156,7 +168,7 @@ func connectNATS() (
 	return messageBroker, sessionManager
 }
 
-func listenAndServe(ctx context.Context, s *datapagesgen.Server, host string) {
+func listenAndServe(ctx context.Context, s datapages.Server, host string) {
 	pathCert := os.Getenv("PATH_TLS_CERT")
 	pathKey := os.Getenv("PATH_TLS_KEY")
 

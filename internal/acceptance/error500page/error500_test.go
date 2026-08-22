@@ -10,13 +10,14 @@ import (
 
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/error500page/app"
-	"github.com/romshark/datapages/internal/acceptance/error500page/datapagesgen"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 func newClient(t *testing.T) *client.Client {
 	t.Helper()
-	return client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+	return client.New(t, mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
 // TestError500PageIsRendered covers a failed page load in an app that supplies

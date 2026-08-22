@@ -24,8 +24,6 @@ jobs:
             name: "root"
           - path: "example/counter"
             name: "counter"
-          - path: "example/fancy-counter"
-            name: "fancy-counter"
           - path: "example/classifieds"
             name: "classifieds"
           - path: "example/tailwindcss"

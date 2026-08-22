@@ -1,8 +1,6 @@
 package subject_test
 
 import (
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -38,13 +36,6 @@ func TestIsToken(t *testing.T) {
 func TestPrefix(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, "messaging.sent.", subject.Prefix("messaging.sent"))
-}
-
-func TestGenIsToken(t *testing.T) {
-	t.Parallel()
-	src := subject.GenIsToken()
-	require.True(t, strings.HasPrefix(src, "func isSubjectToken(v string) bool {"))
-	require.Contains(t, src, strconv.Quote(subject.Reserved))
 }
 
 func TestClaimOverlaps(t *testing.T) {

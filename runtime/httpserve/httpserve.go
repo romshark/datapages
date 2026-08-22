@@ -1,7 +1,3 @@
-// Package httpserve holds the redirect, the Datastar request check and
-// the dev-mode cache headers of a generated server.
-//
-// Application code must not import this package.
 package httpserve
 
 import (

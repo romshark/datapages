@@ -24,10 +24,10 @@ cd internal/acceptance/routing && go test -race ./...
 module. Per case it:
 
 1. reads `datapages.yaml`, parses the `app` package, generates into a temporary
-   directory, and compares the result with the committed `datapagesgen`.
+   directory, and compares the result with the committed `app/datapagesgen`.
    A difference fails with *run: mage genDatapages*.
    The case then runs what the generator writes today;
-2. runs `go test -race -count=1 -coverpkg=./datapagesgen/... ./...` inside the
+2. runs `go test -race -count=1 -coverpkg=./app/datapagesgen/... ./...` inside the
    module and merges the coverage profile.
 
 `go test ./internal/acceptance/ -run 'TestAcceptance/routing'` runs one case.
@@ -38,11 +38,11 @@ module. Per case it:
 ```
 internal/acceptance/mycase/
   go.mod  go.sum          module github.com/romshark/datapages/internal/acceptance/mycase
-  datapages.yaml          what "datapages gen" reads
   app/app.go              the application, in package app
+  app/datapagesgen/       generated, committed
   mycase_test.go          the tests, in package acceptance_test
   contract_case_test.go   wires the case into the shared suite
-  datapagesgen/           generated, committed
+  newserver_test.go       the mustNewServer helper
   cmd/server/             generated once, committed; compiled by every run
   acceptance.json         optional, see below
 ```
@@ -56,7 +56,7 @@ does the same way: the headers a Datastar request carries, and reading an SSE
 stream in the background. A case writes only the requests that are its own.
 
 ```go
-c := client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+c := client.New(t, mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer)))
 
 resp := c.Get(t, href.PageIndex())            // no content negotiation
 require.Equal(t, "term=x", resp.Element(t, "echo"))
@@ -68,6 +68,10 @@ require.True(t, s.Never("other tab"))         // waits the window out
 ```
 
 It names no generated code. A case keeps everything the model decides.
+
+`mustNewServer` is the per-case helper in `newserver_test.go`. It wraps
+`datapages.NewServer` with the case's three type arguments and fails the test
+on a configuration error, which no test can carry on from.
 Assertions use `testify/require`.
 
 Two things to know when writing requests:
@@ -102,10 +106,9 @@ different code in each case. A case joins with one test:
 func TestContract(t *testing.T) {
 	contract.Run(t, contract.Case{
 		NewServer: func(t *testing.T, opts ...any) contract.Server {
-			return datapagesgen.NewServer(&app.App{}, inmem.New(8),
-				contract.Options[datapagesgen.ServerOption](opts)...)
+			return mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+				contract.Options[datapages.ServerOption](opts)...)
 		},
-		WithAssets: contract.Opt(datapagesgen.WithAssets),
 		// …
 	})
 }

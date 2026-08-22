@@ -16,11 +16,14 @@ import (
 	"github.com/romshark/datapages/modules/csrf"
 )
 
-var _ csrf.TokenManager = (*TokenManager)(nil)
+var (
+	_ csrf.TokenGenerator = (*Tokens)(nil)
+	_ csrf.TokenValidator = (*Tokens)(nil)
+)
 
-// TokenManager implements csrf.TokenManager using HMAC-SHA256
-// with BREACH-resistant random masking.
-type TokenManager struct {
+// Tokens implements csrf.TokenGenerator and csrf.TokenValidator using
+// HMAC-SHA256 with BREACH-resistant random masking.
+type Tokens struct {
 	pool sync.Pool
 }
 
@@ -34,16 +37,16 @@ type generationContext struct {
 	out          []byte
 }
 
-// New creates a new HMAC-SHA256 based TokenManager.
+// New creates HMAC-SHA256 based CSRF tokens.
 // secret is used as the HMAC key and must not be empty.
-func New(secret []byte) (*TokenManager, error) {
+func New(secret []byte) (*Tokens, error) {
 	if len(secret) < 1 {
 		return nil, errors.New("empty CSRF secret")
 	}
 	s := make([]byte, len(secret))
 	copy(s, secret)
 
-	tm := &TokenManager{}
+	tm := &Tokens{}
 	tm.pool.New = func() any {
 		return &generationContext{
 			hmac:         hmac.New(sha256.New, s),
@@ -58,8 +61,9 @@ func New(secret []byte) (*TokenManager, error) {
 	return tm, nil
 }
 
-// withCtx derives a stable, per-session base secret value and invokes fn with pooled buffers.
-func (tm *TokenManager) withCtx(
+// withCtx derives a stable, per-session base secret value and
+// invokes fn with pooled buffers.
+func (tm *Tokens) withCtx(
 	userID string, sessIssuedAtUnix int64,
 	fn func(*generationContext),
 ) {
@@ -84,7 +88,7 @@ func (tm *TokenManager) withCtx(
 //   - A random mask is generated per response.
 //   - The real token is XORed with the mask.
 //   - The mask is prepended so the server can reverse it.
-func (tm *TokenManager) GenerateToken(
+func (tm *Tokens) GenerateToken(
 	userID string, sessIssuedAtUnix int64,
 ) (t string) {
 	if sessIssuedAtUnix < 0 {
@@ -92,7 +96,7 @@ func (tm *TokenManager) GenerateToken(
 	}
 	tm.withCtx(userID, sessIssuedAtUnix, func(gc *generationContext) {
 		if _, err := rand.Read(gc.mask); err != nil {
-			panic(err) // rand.Read should never fail on a healthy system.
+			panic(err) // [rand.Read] should never fail on a healthy system.
 		}
 
 		// [ mask | masked_token ]
@@ -108,7 +112,7 @@ func (tm *TokenManager) GenerateToken(
 }
 
 // ValidateToken verifies a client-supplied token.
-func (tm *TokenManager) ValidateToken(
+func (tm *Tokens) ValidateToken(
 	userID string, sessIssuedAtUnix int64, token string,
 ) (ok bool) {
 	if len(token) != 86 || sessIssuedAtUnix < 0 {

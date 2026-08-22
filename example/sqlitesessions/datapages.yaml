@@ -1,7 +1,3 @@
-app: app
-gen:
-  package: datapagesgen
-  prometheus: false
 cmd: cmd/server
 watch:
   app-host: "http://localhost:8080"

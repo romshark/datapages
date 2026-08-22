@@ -13,14 +13,15 @@ import (
 
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/routing/app"
-	"github.com/romshark/datapages/internal/acceptance/routing/datapagesgen"
-	"github.com/romshark/datapages/internal/acceptance/routing/datapagesgen/href"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/internal/acceptance/routing/app/datapagesgen/href"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 func newClient(t *testing.T) *client.Client {
 	t.Helper()
-	return client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+	return client.New(t, mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
 // TestRoundTrip covers the pair the generator writes for every page:

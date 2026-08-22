@@ -39,7 +39,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	}
 
 	if pkg.Types == nil || pkg.TypesInfo == nil {
-		// Include package errors only when we don't have type information
+		// Without type information the package errors are all there is to report.
 		for _, pe := range pkg.Errors {
 			errs.ErrAt(posFromPackagesError(pe), pe)
 		}
@@ -56,6 +56,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	validateEvents(&ctx, &errs)
 	secondPassEmbeds(&ctx, &errs)
 	thirdPassMethods(&ctx, &errs)
+	collectAssets(&ctx, &errs)
 	collectSessionType(&ctx, &errs)
 	validateEventsNeedSession(&ctx, &errs)
 	flattenPages(&ctx, &errs)
@@ -289,7 +290,8 @@ func firstPassEventType(
 			subjPos := eventSubjectPos(doc, name, ctx.pkg.Fset, typePos)
 			errs.ErrAt(subjPos, fmt.Errorf("%w: %s", ErrEventSubjectInvalid, name))
 		default:
-			// Defensive fallback: treat as invalid comment.
+			// validate returns no other error for a comment, an unknown one
+			// still means the comment cannot be read.
 			errs.ErrAt(typePos, &ErrorEventCommInvalid{TypeName: name})
 		}
 		return
@@ -405,12 +407,10 @@ type eventClaim struct {
 func extractEventSubject(
 	typeName string, doc *ast.CommentGroup,
 ) (string, error) {
-	// Validate first (sentinel errors).
 	if err := validate.EventSubjectComment(typeName, doc); err != nil {
 		return "", err
 	}
 
-	// Extract (validated => safe).
 	for _, c := range doc.List {
 		txt := strings.TrimSpace(strings.TrimPrefix(c.Text, "//"))
 		txt = strings.TrimSpace(txt)
@@ -418,15 +418,14 @@ func extractEventSubject(
 		if !ok {
 			continue
 		}
-		// validate.EventSubjectCommentSubject guarantees:
-		// - starts/ends with '"'
-		// - non-empty payload
+		// [validate.EventSubjectComment] passed, hence the subject is quoted
+		// and carries a payload.
 		if len(rest) >= 2 && rest[0] == '"' && rest[len(rest)-1] == '"' {
 			return rest[1 : len(rest)-1], nil
 		}
 		break
 	}
-	// Should not happen if validation succeeded.
+	// Unreachable while validation and extraction read the same comment.
 	return "", validate.ErrEventSubjectInvalid
 }
 
@@ -620,13 +619,15 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 							case typecheck.IsPtrToNetHTTPReq(f.Type, info):
 								nReq++
 								gh.OrderedInputs = append(
-									gh.OrderedInputs, model.InputKindRequest)
+									gh.OrderedInputs, model.InputKindRequest,
+								)
 							case typecheck.IsSessionType(f.Type, info):
 								nSess++
 								gh.InputSession = true
 								noteSessionType(ctx, errs, f.Type, info)
 								gh.OrderedInputs = append(
-									gh.OrderedInputs, model.InputKindSession)
+									gh.OrderedInputs, model.InputKindSession,
+								)
 							default:
 								errs.ErrAt(pos, ErrAppHeadUnsupportedInput)
 								valid = false
@@ -821,18 +822,15 @@ func validateAndAttachEventHandler(
 			fmt.Errorf("%w: %s.%s", ErrSignatureEvHandMissingSSE, recv, fd.Name.Name))
 	}
 
-	// Validate remaining recognized parameters (order-independent).
+	// What is left after the event, the SSE, the session and the stream ID,
+	// each of which was matched by type already, is unsupported.
 	if params != nil {
 		for _, f := range params.List {
 			switch {
 			case typecheck.IsEventType(f.Type, ctx.pkg.TypesInfo, evName):
-				// Already validated above.
 			case typecheck.IsSSEParam(f.Type, ctx.pkg.TypesInfo):
-				// Already validated above.
 			case paramvalidation.IsSessionParam(f, ctx.pkg.TypesInfo):
-				// Already validated above.
 			case typecheck.IsStreamIDType(f.Type, ctx.pkg.TypesInfo):
-				// Already validated above.
 			default:
 				p := f.Type.Pos()
 				if len(f.Names) > 0 {
@@ -857,10 +855,8 @@ func validateAndAttachEventHandler(
 
 	h := parseEventHandler(fd, ctx.pkg.TypesInfo, suffix, evName)
 
-	// If it was valid, or best-effort (even if invalid arguments), we attach it.
-	// But if evName is empty, it won't be useful for flattening override checks.
-	// We attach it anyway so that AST info is there.
-
+	// A handler with an empty evName carries no event for the override checks
+	// to match on. It is attached anyway, for its AST position.
 	if pg != nil {
 		pg.EventHandlers = append(pg.EventHandlers, h)
 	} else {
@@ -1082,15 +1078,13 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	handledEvents := map[string]string{}
 	handledEventPos := map[string]token.Pos{}
 
-	// GET ownership tracking
 	getOwner := ""             // "page" or abstract type name
-	getOwnerPos := token.NoPos // IMPORTANT: now points to embed site for embedded GET
+	getOwnerPos := token.NoPos // Embed site for an inherited GET
 	streamOpenOwner := ""
 	streamOpenOwnerPos := token.NoPos
 	streamClosedOwner := ""
 	streamClosedOwnerPos := token.NoPos
 
-	// Register own methods
 	if pg.GET != nil {
 		ownedMethods["GET"] = true
 		getOwner = "page"
@@ -1150,7 +1144,8 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 		}
 		visited[ap.TypeName] = true
 
-		// enqueue children, carrying THEIR embed positions (in the parent abstract)
+		// A child carries the position of its embed site in the parent abstract,
+		// which is where a conflict it introduces is reported.
 		apEmbPos := structinspect.EmbeddedFieldPosMap(typeStruct(ctx, ap.TypeName))
 		for _, child := range ap.Embeds {
 			queue = append(queue, qitem{
@@ -1159,7 +1154,6 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 			})
 		}
 
-		// Methods
 		for _, m := range ap.Methods {
 			if m.HTTPMethod == "GET" {
 				// Page's own GET always wins; no conflict in that case.
@@ -1276,7 +1270,6 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 			}
 		}
 
-		// EventHandlers
 		for _, h := range ap.EventHandlers {
 			ev := h.EventTypeName
 			if ev == "" {
@@ -1648,12 +1641,10 @@ func loadPackage(appPackagePath string) (*packages.Package, error) {
 		return loadSingle(cfg, ".")
 	}
 
-	// If it looks like a filesystem path but doesn't exist,
-	// keep as pattern anyway.
+	// A path that does not exist is loaded as an import pattern instead.
 	pattern := appPackagePath
 	if filepath.IsAbs(appPackagePath) {
-		// go list doesn't like absolute patterns;
-		// fallback to directory load if possible.
+		// go list rejects an absolute pattern, load its directory instead.
 		dir := filepath.Dir(appPackagePath)
 		if st, err := os.Stat(dir); err == nil && st.IsDir() {
 			cfg.Dir = dir
@@ -1715,7 +1706,7 @@ func parseRoute(
 		return "", false, false
 	}
 
-	// The definition MUST be on the first line.
+	// The route must stand on the first line of the doc comment.
 	c := cg.List[0]
 	txt := strings.TrimSpace(strings.TrimPrefix(c.Text, "//"))
 
@@ -1726,7 +1717,8 @@ func parseRoute(
 		return "", false, false
 	}
 
-	// We *will* return found=true from here on.
+	// The comment names the symbol, hence it is an attempt at a route:
+	// found is true from here on, valid is not.
 	if !strings.HasPrefix(txt, want) {
 		return "", true, false
 	}
@@ -1910,9 +1902,9 @@ func typeCandidates(
 	all := []candidate{
 		{"datapages.StreamID", h.InputStreamID != nil, isUint64},
 		{"datapages.Session[Data]", h.InputSession != nil, isSession},
-		// A plain struct is what the path, query and signals wrappers carry,
-		// so suggest wrapping it. Named types with a more specific match
-		// (e.g. Session) are not candidates.
+		// The path, query and signals wrappers all carry a plain struct,
+		// hence a plain struct suggests wrapping. A named type with
+		// a more specific match, Session for one, is not a candidate.
 		{"datapages.Path[...]", h.InputPath != nil, isStruct && !isSession},
 		{"datapages.Query[...]", h.InputQuery != nil, isStruct && !isSession},
 		{"datapages.Signals[...]", h.InputSignals != nil, isStruct && !isSession},
@@ -1937,7 +1929,7 @@ func isStructType(t types.Type) bool {
 // parameter and the Values type argument for a wrapped one
 // (datapages.Path, datapages.Query, datapages.Signals).
 func parseInput(f *ast.Field, typeExpr ast.Expr, info *types.Info) *model.Input {
-	// request param should be named, but keep best-effort
+	// An unnamed parameter still yields an input, with an empty name.
 	name := ""
 	var expr ast.Expr
 	if len(f.Names) > 0 {
@@ -2151,7 +2143,6 @@ func parseHandler(
 		return h, nil, errors.Join(unsupErrs...)
 	}
 
-	// Results
 	if fd.Type.Results == nil {
 		return h, nil, nil
 	}

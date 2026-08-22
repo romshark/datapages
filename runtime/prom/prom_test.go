@@ -10,6 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages/runtime/auth"
 	"github.com/romshark/datapages/runtime/prom"
 )
 
@@ -74,4 +75,14 @@ func TestCounters(t *testing.T) {
 	require.Contains(t, gather(t, "datapages_event_broker_publishes_by_kind_total"), "public")
 	require.NotEmpty(t, gather(t, "datapages_internal_errors_recovered_total"))
 	require.NotEmpty(t, gather(t, "datapages_sse_connection_duration_seconds"))
+}
+
+// TestAuthMetricsImplementsAuth covers that the counters satisfy what the
+// session manager asks for.
+func TestAuthMetricsImplementsAuth(t *testing.T) {
+	var m auth.Metrics = prom.AuthMetrics{}
+	m.SessionRead("valid")
+	m.SessionCreated("success")
+	m.SessionClosed("success")
+	require.Contains(t, gather(t, "datapages_session_reads_total"), "valid")
 }
