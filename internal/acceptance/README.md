@@ -34,6 +34,12 @@ module. Per case it:
 `go test ./internal/acceptance/ -run 'TestAcceptance/routing'` runs one case.
 `-short` skips all of them.
 
+`anonstreams`, `events`, `sessions` and `wildcardsubjects` assert against both
+brokers datapages ships, so they run `brokers.Main` from their `TestMain` and
+need a running Docker daemon: it starts a real NATS server in a container.
+Without one they fail with *starting NATS container*. Every other case runs on
+the in-memory broker alone and needs nothing.
+
 ## Writing a case
 
 ```

@@ -42,6 +42,7 @@ see [AGENTS.md](AGENTS.md).
 
 - [Go](https://go.dev/dl/) (see version in `go.mod`)
 - [Mage](https://magefile.org/) (or use `go run github.com/magefile/mage@latest`)
+- A running Docker daemon. `mage test` runs acceptance tests, some of which start a NATS server in a container using testcontainers. Without Docker those tests fail.
 
 ### Commands
 

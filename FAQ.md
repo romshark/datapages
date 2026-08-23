@@ -28,13 +28,13 @@ goos: darwin
 goarch: arm64
 pkg: github.com/romshark/datapages/internal/templatingbench
 cpu: Apple M4 Pro
-BenchmarkTemplatingStd-14                3509767               329.4 ns/op           256 B/op          8 allocs/op
-BenchmarkTemplatingTempl-14             12522609                95.28 ns/op          117 B/op          4 allocs/op
-BenchmarkTemplatingQuicktemplate-14     55614774                21.76 ns/op            0 B/op          0 allocs/op
-BenchmarkTemplatingGomponents-14        10426274               115.2 ns/op            16 B/op          1 allocs/op
-BenchmarkTemplatingJet-14               16843957                69.83 ns/op           24 B/op          1 allocs/op
+BenchmarkTemplatingStd-14                3781242               302.1 ns/op           256 B/op          8 allocs/op
+BenchmarkTemplatingTempl-14             13310950                90.89 ns/op          165 B/op          5 allocs/op
+BenchmarkTemplatingQuicktemplate-14     53826442                22.41 ns/op            0 B/op          0 allocs/op
+BenchmarkTemplatingGomponents-14        19847491                60.69 ns/op            0 B/op          0 allocs/op
+BenchmarkTemplatingJet-14               16934940                70.05 ns/op           24 B/op          1 allocs/op
 PASS
-ok      github.com/romshark/datapages/internal/templatingbench  6.216s
+ok      github.com/romshark/datapages/internal/templatingbench  6.173s
 ```
 
 Shoutout to the

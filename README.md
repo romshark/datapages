@@ -152,7 +152,11 @@ watch:
 
 These top-level keys are supported:
 
-- `cmd`: path to the server command package. Default: `cmd/server`
+- `cmd`: where `datapages gen` writes the first `cmd/server/main.go`,
+- and which command `datapages watch` builds while no `NewServer` call is written in a
+  `main` package yet. Default: `cmd/server`. Once such a call exists,
+  the command it is written in is the entry point and this key is unused,
+  which is why a module building several applications does not set it.
 - `watch`: optional development server settings (app host, proxy timeout,
   debounce, TLS, compiler flags, logging, custom watchers, etc.)
 

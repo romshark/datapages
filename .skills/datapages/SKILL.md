@@ -114,8 +114,12 @@ watch: # Dev server settings for live-reload
     - "*~"
 ```
 
-- `cmd` — path to the server command package (default `cmd/server`)
-- `watch` — dev server settings
+- `cmd` - where `datapages gen` writes the first `cmd/server/main.go`, and which
+  command `datapages watch` builds while no `NewServer` call is written in a
+  `main` package yet (default `cmd/server`). Once such a call exists, the
+  command it is written in is the entry point and this key is unused. A module
+  building several applications leaves it out.
+- `watch` - dev server settings
 
 ## Step 2: Define Minimal App
 
