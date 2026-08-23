@@ -80,6 +80,9 @@ Public, imported by application or generated code:
   - `subject` - the subject token rule the parser and the dispatchers share.
   - `prom` - Prometheus metrics, registration and middleware.
   - `hrefcheck` - imported by generated `href` packages.
+  - `actionexpr` - builds the Datastar action expression: the call, its
+    options and the JavaScript around it. The generated `action` package
+    forwards to it.
 
 Examples, one module each:
 

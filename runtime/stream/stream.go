@@ -1,5 +1,6 @@
-// Package stream serves the SSE event stream of a page: the broker
-// subscription behind it, the session that may end it and the shutdown that closes it.
+// Package stream serves the SSE event stream of a page.
+// It holds the broker subscription behind the stream,
+// the session that may end it and the shutdown that closes it.
 //
 // Application code must not import this package.
 package stream
@@ -51,8 +52,8 @@ type Handler struct {
 
 // NewHandler returns a handler subscribing to broker.
 //
-// sessions ends a stream when the session it belongs to is closed. It may be nil,
-// in which case no stream watches its session. metrics may be nil.
+// sessions ends a stream when the session it belongs to is closed.
+// It may be nil, in which case no stream watches its session. metrics may be nil.
 func NewHandler(
 	core *httpserve.Core,
 	broker messaging.Broker,
@@ -74,8 +75,8 @@ func NewHandler(
 // Handle serves the stream of one request, subscribed to subjects,
 // and returns once fn does. onOpen, onClose and fn may be nil.
 //
-// sessionKey names the session the stream belongs to. It is watched only when
-// userID is non-empty and the handler was given a session store.
+// sessionKey names the session the stream belongs to.
+// It is watched only when userID is non-empty and the handler was given a session store.
 func (h *Handler) Handle(
 	w http.ResponseWriter, r *http.Request,
 	sessionKey, userID string,
@@ -103,7 +104,7 @@ func (h *Handler) Handle(
 	ctx := r.Context()
 	sub, err := h.broker.Subscribe(ctx, h.brokerMetrics, subjects...)
 	if err != nil {
-		// Nothing has been written yet, so the error can still carry a status.
+		// Nothing has been written yet, which lets the error carry a status.
 		h.onErr(w, r, nil, "subscribing to message broker", err)
 		return
 	}

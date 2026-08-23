@@ -3,7 +3,6 @@ package generator
 import (
 	"go/types"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/romshark/datapages/internal/gotypes"
@@ -124,7 +123,7 @@ func (w *Writer) writeHrefAsset() {
 	w.Line(0, "// Asset returns the URL path for a static asset file.")
 	w.Linef(0, `// For example, Asset("style.css") returns %q.`, w.assetsURLPrefix+"style.css")
 	w.Line(0, "func Asset(p string) string {")
-	w.Raw(assetPathBody(strconv.Quote(w.assetsURLPrefix)))
+	w.Linef(1, "return hrefcheck.AssetPath(%q, p)", w.assetsURLPrefix)
 	w.Line(0, "}")
 }
 

@@ -3,10 +3,7 @@
 // Package assets provides constants for embedded static file serving.
 package assets
 
-import (
-	"path"
-	"strings"
-)
+import "github.com/romshark/datapages/runtime/hrefcheck"
 
 // URLPrefix is the URL path prefix for serving static files.
 const URLPrefix = "/static/"
@@ -20,9 +17,5 @@ const DevDir = "./app/static"
 // Path returns the URL path for a static asset file.
 // For example, Path("style.css") returns "/static/style.css".
 func Path(p string) string {
-	if p == "" || p == "." || p[0] == '/' ||
-		strings.HasPrefix(p, "..") || p != path.Clean(p) {
-		return path.Join(URLPrefix, p)
-	}
-	return URLPrefix + p
+	return hrefcheck.AssetPath(URLPrefix, p)
 }

@@ -6,7 +6,6 @@ package href
 
 import (
 	"log/slog"
-	"path"
 	"strings"
 	"sync/atomic"
 
@@ -41,11 +40,7 @@ func External(url string) string {
 // Asset returns the URL path for a static asset file.
 // For example, Asset("style.css") returns "/static/style.css".
 func Asset(p string) string {
-	if p == "" || p == "." || p[0] == '/' ||
-		strings.HasPrefix(p, "..") || p != path.Clean(p) {
-		return path.Join("/static/", p)
-	}
-	return "/static/" + p
+	return hrefcheck.AssetPath("/static/", p)
 }
 
 // PageIndex references /{$}
