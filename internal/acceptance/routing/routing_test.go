@@ -256,22 +256,59 @@ func TestReflectedSignalEscapesMarkup(t *testing.T) {
 // The router takes no end-of-path marker after such a wildcard.
 // One appended there leaves a pattern it refuses to parse,
 // which it reports by panicking while the server is being built.
+//
+// The server appends a slash to a path that carries none, and a wildcard runs
+// to the end of the path, so that slash arrives inside the value.
+// Every row here reaches the handler as the same value whether the URL carried a
+// trailing slash or not.
 func TestTrailingWildcard(t *testing.T) {
 	c := newClient(t)
 
 	for name, tt := range map[string]struct{ url, want string }{
-		"one segment":      {"/files/a/", `rest="a/"`},
-		"several segments": {"/files/a/b/c/", `rest="a/b/c/"`},
+		"one segment":               {"/files/a/", `rest="a"`},
+		"one segment no slash":      {"/files/a", `rest="a"`},
+		"several segments":          {"/files/a/b/c/", `rest="a/b/c"`},
+		"several segments no slash": {"/files/a/b/c", `rest="a/b/c"`},
 		// A wildcard over several segments hands back a decoded path,
 		// which is one string for a separator the caller encoded and one it did not.
 		// Values that have to survive belong in a segment of their own,
 		// where {name} keeps them apart.
-		"encoded separator": {"/files/a%2Fb/", `rest="a/b/"`},
+		"encoded separator": {"/files/a%2Fb/", `rest="a/b"`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			resp := c.Get(t, tt.url)
 			require.Equal(t, http.StatusOK, resp.Status, "GET %s\n%s", tt.url, resp.Body)
 			require.Equal(t, tt.want, resp.Element(t, "echo"), "GET %s", tt.url)
+		})
+	}
+}
+
+// TestTrailingWildcardHrefRoundTrip sends what the generated builder produces
+// back through the router it was generated from.
+//
+// The builder ends every URL in a slash, the way it does for every other page.
+// For a wildcard that slash is part of the value unless the handler drops it,
+// which is what made a value come back with a separator appended to it.
+func TestTrailingWildcardHrefRoundTrip(t *testing.T) {
+	c := newClient(t)
+
+	for name, want := range map[string]string{
+		"one segment":      "a",
+		"several segments": "a/b/c",
+		"space":            "x y",
+		"percent":          "100%",
+		"dot segment":      "docs/readme.md",
+		// A slash of the value reaches the server encoded, which is what
+		// keeps it apart from the one the server appends to the path.
+		"trailing slash":           "a/",
+		"inner and trailing slash": "a/b/",
+	} {
+		t.Run(name, func(t *testing.T) {
+			url := href.PageFiles(want)
+			resp := c.Get(t, url)
+			require.Equal(t, http.StatusOK, resp.Status, "GET %s\n%s", url, resp.Body)
+			require.Equal(t, `rest=`+strconv.Quote(want), resp.Element(t, "echo"),
+				"href.PageFiles(%q) built %s", want, url)
 		})
 	}
 }
@@ -304,6 +341,12 @@ func TestEncodedPathSegments(t *testing.T) {
 		},
 		"encoded percent": {
 			"/p/100%25/1/2/3.5/true/", `s="100%" i=1 u=2 f=3.5 b=true`,
+		},
+		// A {name} segment keeps a separator it ends in.
+		// Only the variable a route ends in carries the slash the server appends,
+		// and only that one is read with the trim that drops it again.
+		"encoded trailing slash": {
+			"/p/a%2F/1/2/3.5/true/", `s="a/" i=1 u=2 f=3.5 b=true`,
 		},
 	}
 

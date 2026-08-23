@@ -1272,7 +1272,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 
 	// Read path params.
 	if h.InputPath != nil {
-		w.writeReadPath(h.InputPath, m)
+		w.writeReadPath(h.InputPath, m, h.Route)
 	}
 
 	// Dispatch closures.
