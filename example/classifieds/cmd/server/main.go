@@ -13,13 +13,13 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/classifieds/app"
-	"github.com/romshark/datapages/example/classifieds/datapagesgen"
-	"github.com/romshark/datapages/example/classifieds/datapagesgen/assets"
-	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
-	"github.com/romshark/datapages/modules/msgbroker/natscore"
-	"github.com/romshark/datapages/modules/sessmanager/natskv"
-	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/example/classifieds/app/datapagesgen"
+	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/assets"
+	"github.com/romshark/datapages/modules/messaging/natscore"
+	"github.com/romshark/datapages/modules/sessions"
+	"github.com/romshark/datapages/modules/sessions/natskv"
 )
 
 const (
@@ -43,13 +43,12 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	var opts []datapagesgen.ServerOption
+	var opts []datapages.ServerOption
 
 	if os.Getenv("DISABLE_ACCESS_LOG") == "" {
 		withAccessLogger(&opts)
 	}
-	withAuth(&opts)
-	withCSRFProtection(&opts)
+	withSessions(&opts)
 	withAssets(&opts)
 
 	messageBroker, sessionManager := connectNATS()
@@ -58,15 +57,26 @@ func main() {
 	a := app.NewApp(sessionManager, repo)
 	initMetrics(&a.Metrics, &opts)
 
-	s := datapagesgen.NewServer(a, messageBroker, sessionManager, opts...)
+	opts = append(opts, datapages.WithSessionManager(sessionManager))
+
+	s, err := datapages.NewServer[
+		app.App,
+		struct{},
+		datapages.EnablePrometheus,
+		datapagesgen.Server,
+	](a, messageBroker, opts...)
+	if err != nil {
+		slog.Error("creating server", slog.Any("err", err))
+		os.Exit(1)
+	}
 	listenAndServe(ctx, s, net.JoinHostPort(host, port))
 }
 
-func withAccessLogger(opts *[]datapagesgen.ServerOption) {
+func withAccessLogger(opts *[]datapages.ServerOption) {
 	loggerAccess := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
-	o := datapagesgen.WithMiddleware(func(next http.Handler) http.Handler {
+	o := datapages.WithMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			loggerAccess.Info("access",
 				slog.String("method", r.Method),
@@ -77,26 +87,14 @@ func withAccessLogger(opts *[]datapagesgen.ServerOption) {
 	*opts = append(*opts, o)
 }
 
-func withAssets(opts *[]datapagesgen.ServerOption) {
+func withAssets(opts *[]datapages.ServerOption) {
 	*opts = append(*opts,
-		datapagesgen.WithAssets(app.StaticFS),
-		datapagesgen.WithDatastarJS(assets.Path("ds.min.js")))
+		datapages.WithAssets(app.StaticFS),
+		datapages.WithDatastarJS(assets.Path("ds.min.js")))
 }
 
-func withAuth(opts *[]datapagesgen.ServerOption) {
-	*opts = append(*opts, datapagesgen.WithAuth(datapagesgen.AuthConfig{}))
-}
-
-func withCSRFProtection(opts *[]datapagesgen.ServerOption) {
-	tm, err := csrfhmac.New([]byte(os.Getenv("CSRF_SECRET")))
-	if err != nil {
-		slog.Error("initializing CSRF token manager", slog.Any("err", err))
-		os.Exit(1)
-	}
-	*opts = append(*opts, datapagesgen.WithCSRFProtection(datapagesgen.CSRFConfig{
-		TokenManager:   tm,
-		DevBypassToken: os.Getenv("CSRF_DEV_BYPASS"),
-	}))
+func withSessions(opts *[]datapages.ServerOption) {
+	*opts = append(*opts, datapages.WithSessions(datapages.SessionsConfig{}))
 }
 
 func connectNATS() (
@@ -125,8 +123,8 @@ func connectNATS() (
 
 	sessionManager, err = natskv.New[struct{}](
 		conn,
-		sesstokgen.Generator{
-			Length: sesstokgen.DefaultLength,
+		sessions.DefaultTokenGenerator{
+			Length: sessions.DefaultTokenLen,
 		},
 		natskv.Config{
 			EncryptionKey: []byte(sessionEncryptionKey),
@@ -143,7 +141,7 @@ func connectNATS() (
 	return messageBroker, sessionManager
 }
 
-func initMetrics(m *app.Metrics, opts *[]datapagesgen.ServerOption) {
+func initMetrics(m *app.Metrics, opts *[]datapages.ServerOption) {
 	m.LoginSubmissions = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "app",
@@ -175,7 +173,7 @@ func initMetrics(m *app.Metrics, opts *[]datapagesgen.ServerOption) {
 	addr := net.JoinHostPort(host, port)
 	*opts = append(
 		*opts,
-		datapagesgen.WithPrometheus(datapagesgen.PrometheusConfig{
+		datapages.WithPrometheus(datapages.PrometheusConfig{
 			Host: addr,
 			Collectors: []prometheus.Collector{
 				m.LoginSubmissions,
@@ -185,7 +183,7 @@ func initMetrics(m *app.Metrics, opts *[]datapagesgen.ServerOption) {
 	)
 }
 
-func listenAndServe(ctx context.Context, s *datapagesgen.Server, host string) {
+func listenAndServe(ctx context.Context, s datapages.Server, host string) {
 	var err error
 	pathCert := os.Getenv("PATH_TLS_CERT")
 	pathKey := os.Getenv("PATH_TLS_KEY")

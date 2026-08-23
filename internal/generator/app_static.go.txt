@@ -1,55 +1,11 @@
-
 const (
-	DefaultHTTPReadTimeout       = 30 * time.Second
-	DefaultHTTPReadHeaderTimeout = 5 * time.Second
-	DefaultHTTPWriteTimeout      = 0 // SSE needs this disabled.
-	DefaultHTTPIdleTimeout       = 60 * time.Second
-	DefaultHTTPMaxHeaderBytes    = 1 << 20 // 1 MB
+	DefaultHTTPReadTimeout       = httpserve.DefaultHTTPReadTimeout
+	DefaultHTTPReadHeaderTimeout = httpserve.DefaultHTTPReadHeaderTimeout
+	DefaultHTTPWriteTimeout      = httpserve.DefaultHTTPWriteTimeout
+	DefaultHTTPIdleTimeout       = httpserve.DefaultHTTPIdleTimeout
+	DefaultHTTPMaxHeaderBytes    = httpserve.DefaultHTTPMaxHeaderBytes
 
 	// DefaultDatastarJSSrc is the default URL for the Datastar JavaScript bundle.
-	DefaultDatastarJSSrc = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.2/bundles/datastar.js"
+	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
-
-// IsDevMode returns true when in the development environment.
-// Returns false for production environments.
-func IsDevMode() bool { return os.Getenv("TEMPL_DEV_MODE") != "" }
-
-// ServerOption is a functional option for configuring Server
-type ServerOption func(*Server) error
-
-// WithMiddleware adds a custom middleware.
-func WithMiddleware(middleware func(http.Handler) http.Handler) ServerOption {
-	return func(s *Server) error {
-		s.middleware = append(s.middleware, middleware)
-		return nil
-	}
-}
-
-// WithLogger sets a custom error logger.
-// Consider setting level DEBUG when IsDevMode() returns true.
-func WithLogger(l *slog.Logger) ServerOption {
-	return func(s *Server) error {
-		s.logger = l
-		return nil
-	}
-}
-
-// WithHTTPServer sets a custom HTTP server.
-// The Addr and Handler fields are always overwritten.
-func WithHTTPServer(server *http.Server) ServerOption {
-	return func(s *Server) error {
-		s.httpServer = server
-		return nil
-	}
-}
-
-// WithDatastarJS sets a custom URL for the Datastar JavaScript bundle.
-// Defaults to DefaultDatastarJSSrc if not set.
-func WithDatastarJS(src string) ServerOption {
-	return func(s *Server) error {
-		s.datastarJSSrc = src
-		return nil
-	}
-}
-
 

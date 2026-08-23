@@ -1,16 +1,24 @@
-// Package csrf defines the interface for CSRF token generation and validation.
 package csrf
 
-// TokenManager generates and validates CSRF tokens.
-//
-// Implementations must be safe for concurrent use.
-type TokenManager interface {
-	// GenerateToken returns a CSRF token bound to the given userID
-	// and session issuance time (unix seconds).
-	// Returns an empty string if sessIssuedAtUnix is negative.
-	GenerateToken(userID string, sessIssuedAtUnix int64) string
+import "io"
 
-	// ValidateToken checks whether token is valid for the given
-	// userID and session issuance time (unix seconds).
-	ValidateToken(userID string, sessIssuedAtUnix int64, token string) bool
+// TokenWriter issues CSRF tokens writing them to an [io.Writer].
+//
+// Implementations are safe for concurrent use.
+type TokenWriter interface {
+	// WriteToken writes a CSRF token bound to the session named by sessionToken to
+	// w and reports how many bytes it wrote. Writes nothing for an empty sessionToken.
+	//
+	// The token is handed to the client, hence it must not be possible to
+	// recover sessionToken from it.
+	WriteToken(w io.Writer, sessionToken string) (n int, err error)
+}
+
+// TokenValidator checks CSRF tokens against the session they belong to.
+//
+// Implementations are safe for concurrent use.
+type TokenValidator interface {
+	// ValidateToken reports whether token is a valid CSRF token for the
+	// session named by sessionToken.
+	ValidateToken(sessionToken, token string) bool
 }

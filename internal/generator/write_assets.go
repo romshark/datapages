@@ -8,6 +8,8 @@ func (w *Writer) WritePkgAssets() {
 	w.Line(0, "// Package assets provides constants for embedded static file serving.")
 	w.Line(0, "package assets")
 	w.Line(0, "")
+	w.Line(0, `import "github.com/romshark/datapages/runtime/hrefcheck"`)
+	w.Line(0, "")
 	w.Raw("// URLPrefix is the URL path prefix for serving static files.\n")
 	w.Raw("const URLPrefix = ")
 	w.writeQuoted(w.assetsURLPrefix)
@@ -26,6 +28,6 @@ func (w *Writer) WritePkgAssets() {
 	w.Line(0, "// Path returns the URL path for a static asset file.")
 	w.Line(0, "// For example, Path(\"style.css\") returns \"/static/style.css\".")
 	w.Line(0, "func Path(p string) string {")
-	w.Line(1, "return path.Join(URLPrefix, p)")
+	w.Line(1, "return hrefcheck.AssetPath(URLPrefix, p)")
 	w.Line(0, "}")
 }

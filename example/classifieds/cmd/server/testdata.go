@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/assets"
 	"github.com/romshark/datapages/example/classifieds/app/domain"
-	"github.com/romshark/datapages/example/classifieds/datapagesgen/assets"
 )
 
 func timestamp(value string) time.Time {

@@ -15,7 +15,7 @@ It demonstrates Datapages best practices:
 - **Session-based auth** — pages that require a login redirect guests to the
   sign-in page and back again (`?next=`).
 - **Type-safe URLs and actions** — every link and action uses the generated
-  `datapagesgen/href` and `datapagesgen/action` packages.
+  `app/datapagesgen/href` and `app/datapagesgen/action` packages.
 - **Automatic light/dark mode** via `prefers-color-scheme`.
 - **Offline support** via the `modules/offline` service-worker module (see below).
 
@@ -74,8 +74,12 @@ Offline support is provided by the reusable `github.com/romshark/datapages/modul
 module and wired in with a single server option in `cmd/server/main.go`:
 
 ```go
-datapagesgen.WithMiddleware(offline.Middleware(app.OfflineConfig))
+datapagesgen.WithOffline(app.OfflineConfig())
 ```
+
+`WithOffline` is generated because the app declares `PageOffline`: it supplies
+that page's route to the module, so the route stays declared only on the page
+type.
 
 The middleware serves a generated **service worker** at `/service-worker.js` and
 automatically injects its registration into every page — the application's
@@ -90,14 +94,15 @@ What it does:
   while offline shows *"You're currently offline, come back when you're back
   online."* (the `/offline` page, `PageOffline`).
 - **Keeps bought tickets viewable offline.** `PageTicket.GET` receives a
-  `cache datapages.Offline` handle and calls `cache.Set(view, ticket.Code)` to
-  store the ticket's offline snapshot (versioned by the ticket code, so it is
-  only re-cached when it changes). Ticket routes are also listed in
-  `OfflineConfig.CacheRoutes` as a fallback.
+  `pageCache datapages.PageCacheWriter` handle and calls
+  `pageCache.Set(href.PageTicket(slug), view, ver)` to store the ticket's
+  offline snapshot (versioned by the ticket code, so it is only re-cached when
+  it changes).
 
 `OfflineConfig` lives in `app/offline.go`. Any GET or action handler can control
-its page's offline copy through the injected `cache datapages.Offline`
-parameter: `Version()`, `Set(component, version)`, `SetURL(...)`, `Invalidate(...)`.
+its page's offline copy through the injected `pageCache
+datapages.PageCacheWriter` parameter: `Version()`, `Set(url, body, version)`,
+`SetShim(...)`, `Clear(url)`, `ClearAll()`.
 Actions receive `sse datapages.SSE`, which hides the datastar runtime.
 
 Try it: load the app, buy (or open) a ticket, then stop the server and reload —

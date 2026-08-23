@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/romshark/datapages/internal/acceptance/getoptions/app"
-	"github.com/romshark/datapages/internal/acceptance/getoptions/datapagesgen"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 // reloadAttr is what the server writes on the body so that a tab reloads the
@@ -21,7 +21,8 @@ const reloadAttr = "data-on:visibilitychange"
 
 func newServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+	srv := httptest.NewServer(mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
 	t.Cleanup(srv.Close)
 	return srv
 }

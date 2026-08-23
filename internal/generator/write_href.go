@@ -11,8 +11,7 @@ import (
 	"github.com/romshark/datapages/internal/structtag"
 )
 
-// WritePkgHref generates code for the datapagesgen/href package
-// and appends it to buffer.
+// WritePkgHref generates code for the datapagesgen/href package and appends it to buffer.
 func (w *Writer) WritePkgHref(m *model.App) {
 	needsStrconv, needsStrings := false, false
 	for _, p := range m.Pages {
@@ -80,7 +79,7 @@ func (w *Writer) writeHrefHeader(needsStrconv, needsStrings bool) {
 	}
 	w.Line(1, `"sync/atomic"`)
 	w.Line(0, "")
-	w.Line(1, `"github.com/romshark/datapages/hrefcheck"`)
+	w.Line(1, `"github.com/romshark/datapages/runtime/hrefcheck"`)
 	w.Line(0, ")")
 }
 
@@ -124,7 +123,7 @@ func (w *Writer) writeHrefAsset() {
 	w.Line(0, "// Asset returns the URL path for a static asset file.")
 	w.Linef(0, `// For example, Asset("style.css") returns %q.`, w.assetsURLPrefix+"style.css")
 	w.Line(0, "func Asset(p string) string {")
-	w.Linef(1, "return path.Join(%q, p)", w.assetsURLPrefix)
+	w.Linef(1, "return hrefcheck.AssetPath(%q, p)", w.assetsURLPrefix)
 	w.Line(0, "}")
 }
 

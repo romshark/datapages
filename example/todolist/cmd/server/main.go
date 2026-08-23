@@ -10,10 +10,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/todolist/app"
-	"github.com/romshark/datapages/example/todolist/datapagesgen"
+	"github.com/romshark/datapages/example/todolist/app/datapagesgen"
 	"github.com/romshark/datapages/example/todolist/list"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 func main() {
@@ -43,12 +45,20 @@ func main() {
 	}
 
 	a := app.NewApp(sha256.Sum256([]byte(hmacSecret)), l)
-	msgBroker := inmem.New(8)
-	s := datapagesgen.NewServer(a, msgBroker,
-		datapagesgen.WithAssets(app.StaticFS))
+	msgBroker := inmem.New(messaging.DefaultBrokerChanBuffer)
+	s, err := datapages.NewServer[
+		app.App,
+		datapages.DisableSessions,
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](a, msgBroker, datapages.WithAssets(app.StaticFS))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 
 	fmt.Fprintf(os.Stderr, "listening on http://%s\n", *fHost)
-	err := s.ListenAndServe(context.Background(), *fHost)
+	err = s.ListenAndServe(context.Background(), *fHost)
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

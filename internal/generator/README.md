@@ -28,8 +28,9 @@ for three reasons:
 - A `go build` per fixture is cheap and reuses fixtures the parser maintains. A
   fixture added by parser work is covered the day it lands.
 - It builds the app package in a directory named `pages` while the package is
-  named `app`. Both are free choices in `datapages.yaml`. No acceptance case
-  uses that combination.
+  named `app`. The directory is whatever the `datapages.NewServer` call points
+  at and the package name is whatever the source declares, so the two need not match.
+  No acceptance case uses that combination.
 
 ## TestGeneratePartialModels
 
@@ -47,6 +48,6 @@ What `datapages gen` does with an app package that does not parse is covered by
 much of the code it writes the acceptance cases run.
 
 ```
-generator (./internal/generator/...):  89.9% of statements
+generator (./internal/generator/...):  92.6% of statements
 code it generates:           77.6% of statements (run by the acceptance cases)
 ```

@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/romshark/datapages"
-	"github.com/romshark/datapages/example/todolist/datapagesgen/href"
+	"github.com/romshark/datapages/example/todolist/app/datapagesgen/href"
 )
 
 // PageError404 is /not-found

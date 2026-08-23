@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/romshark/datapages/example/offline-cache/datapagesgen/assets"
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/assets"
 	"github.com/romshark/datapages/modules/offline"
 )
 

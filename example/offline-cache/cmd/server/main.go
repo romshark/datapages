@@ -9,13 +9,14 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/offline-cache/app"
-	"github.com/romshark/datapages/example/offline-cache/datapagesgen"
-	"github.com/romshark/datapages/example/offline-cache/datapagesgen/assets"
-	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
-	msgbrokerinmem "github.com/romshark/datapages/modules/msgbroker/inmem"
-	sessinmem "github.com/romshark/datapages/modules/sessmanager/inmem"
-	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen"
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/assets"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
+	"github.com/romshark/datapages/modules/sessions"
+	sessinmem "github.com/romshark/datapages/modules/sessions/inmem"
 )
 
 func main() {
@@ -30,24 +31,32 @@ func main() {
 	repo := NewRepository()
 	a := app.NewApp(repo)
 
-	messageBroker := msgbrokerinmem.New(8)
-	sessionManager := sessinmem.New[struct{}](sesstokgen.Generator{
-		Length: sesstokgen.DefaultLength,
+	messageBroker := inmem.New(messaging.DefaultBrokerChanBuffer)
+	sessionManager := sessinmem.New[struct{}](sessions.DefaultTokenGenerator{
+		Length: sessions.DefaultTokenLen,
 	})
 
-	opts := []datapagesgen.ServerOption{
-		datapagesgen.WithAuth(datapagesgen.AuthConfig{}),
-		datapagesgen.WithAssets(app.StaticFS),
+	s, err := datapages.NewServer[
+		app.App,
+		struct{},
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](
+		a, messageBroker,
+		datapages.WithSessionManager[struct{}](sessionManager),
+		datapages.WithSessions(datapages.SessionsConfig{}),
+		datapages.WithAssets(app.StaticFS),
 		// Self-host Datastar so the app also works offline.
-		datapagesgen.WithDatastarJS(assets.Path("datastar.js")),
+		datapages.WithDatastarJS(assets.Path("datastar.js")),
 		// Service-worker-based offline support: serves the worker and injects
 		// its registration into every page. The PageOffline route is supplied
 		// by the generated option.
 		datapagesgen.WithOffline(app.OfflineConfig()),
+	)
+	if err != nil {
+		slog.Error("creating server", slog.Any("err", err))
+		os.Exit(1)
 	}
-	withCSRFProtection(&opts)
-
-	s := datapagesgen.NewServer(a, messageBroker, sessionManager, opts...)
 
 	slog.Info("listening", slog.String("addr", *fHost))
 	if err := s.ListenAndServe(ctx, *fHost); err != nil &&
@@ -55,21 +64,4 @@ func main() {
 		slog.Error("serving", slog.Any("err", err))
 		os.Exit(1)
 	}
-}
-
-func withCSRFProtection(opts *[]datapagesgen.ServerOption) {
-	secret := os.Getenv("CSRF_SECRET")
-	if secret == "" {
-		// Development fallback. Set CSRF_SECRET in real deployments.
-		secret = "dev-only-csrf-secret-change-me"
-	}
-	tm, err := csrfhmac.New([]byte(secret))
-	if err != nil {
-		slog.Error("initializing CSRF token manager", slog.Any("err", err))
-		os.Exit(1)
-	}
-	*opts = append(*opts, datapagesgen.WithCSRFProtection(datapagesgen.CSRFConfig{
-		TokenManager:   tm,
-		DevBypassToken: os.Getenv("CSRF_DEV_BYPASS"),
-	}))
 }

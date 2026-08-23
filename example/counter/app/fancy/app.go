@@ -1,0 +1,57 @@
+package fancy
+
+import (
+	"net/http"
+	"sync/atomic"
+
+	"github.com/romshark/datapages"
+)
+
+// EventCounterUpdated is "counter.updated"
+type EventCounterUpdated struct{}
+
+type App struct{ counter atomic.Int32 }
+
+func (*App) Head(_ *http.Request) datapages.Head { return head() }
+
+// PageIndex is /
+type PageIndex struct{ App *App }
+
+func (p PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
+	return pageCounter(p.App.counter.Load()), nil
+}
+
+// POSTAdd is /add/{$}
+func (p PageIndex) POSTAdd(
+	r *http.Request, counterUpdated datapages.Dispatcher[EventCounterUpdated],
+	query datapages.Query[struct {
+		Delta int32 `query:"delta"`
+	}],
+) error {
+	p.App.counter.Add(query.Values.Delta)
+	return counterUpdated.Dispatch(EventCounterUpdated{})
+}
+
+// POSTSet is /set/{value}/{$}
+func (p PageIndex) POSTSet(
+	r *http.Request, counterUpdated datapages.Dispatcher[EventCounterUpdated],
+	path datapages.Path[struct {
+		Value int32 `path:"value"`
+	}],
+	signals datapages.Signals[struct {
+		SetValue int32 `json:"setvalue"`
+	}],
+) error {
+	v := signals.Values.SetValue
+	if path.Values.Value != 0 {
+		v = path.Values.Value
+	}
+	p.App.counter.Store(v)
+	return counterUpdated.Dispatch(EventCounterUpdated{})
+}
+
+func (p PageIndex) OnCounterUpdated(
+	event EventCounterUpdated, sse datapages.SSE,
+) error {
+	return sse.PatchElement(counterValue(p.App.counter.Load()))
+}

@@ -1,48 +1,41 @@
 // Wires the getsignals case into the shared contract suite.
 //
 // An app that declares a Session type must be given a CSRF token manager:
-// NewServer panics without one.
+// datapages.NewServer fails without one.
 
 package acceptance_test
 
 import (
-	"crypto/sha256"
 	"testing"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/contract"
 	"github.com/romshark/datapages/internal/acceptance/getsignals/app"
-	"github.com/romshark/datapages/internal/acceptance/getsignals/datapagesgen"
-	"github.com/romshark/datapages/internal/acceptance/getsignals/datapagesgen/action"
-	"github.com/romshark/datapages/internal/acceptance/getsignals/datapagesgen/href"
-	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
-	sessinmem "github.com/romshark/datapages/modules/sessmanager/inmem"
-	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/internal/acceptance/getsignals/app/datapagesgen"
+	"github.com/romshark/datapages/internal/acceptance/getsignals/app/datapagesgen/action"
+	"github.com/romshark/datapages/internal/acceptance/getsignals/app/datapagesgen/href"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
+	"github.com/romshark/datapages/modules/sessions"
+	sessinmem "github.com/romshark/datapages/modules/sessions/inmem"
 )
 
 func TestContract(t *testing.T) {
 	contract.Run(t, contract.Case{
 		NewServer: func(t *testing.T, opts ...any) contract.Server {
 			t.Helper()
-			key := sha256.Sum256([]byte("acceptance-csrf"))
-			tm, err := csrfhmac.New(key[:])
-			if err != nil {
-				t.Fatalf("building CSRF token manager: %v", err)
-			}
-			sessions := sessinmem.New[struct{}](
-				sesstokgen.Generator{Length: sesstokgen.DefaultLength},
+			inMemSessions := sessinmem.New[struct{}](
+				sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 			)
-			opts = append(opts, datapagesgen.WithCSRFProtection(
-				datapagesgen.CSRFConfig{TokenManager: tm},
-			))
-			return datapagesgen.NewServer(&app.App{}, inmem.New(8), sessions,
-				contract.Options[datapagesgen.ServerOption](opts)...)
+			return mustNewServer(t, &app.App{},
+				inmem.New(messaging.DefaultBrokerChanBuffer),
+				inMemSessions,
+				contract.Options[datapages.ServerOption](opts)...)
 		},
-		WithAssets:     contract.Opt(datapagesgen.WithAssets),
-		WithMiddleware: contract.Opt(datapagesgen.WithMiddleware),
-		WithDatastarJS: contract.Opt(datapagesgen.WithDatastarJS),
-		WithHTTPServer: contract.Opt(datapagesgen.WithHTTPServer),
-		WithLogger:     contract.Opt(datapagesgen.WithLogger),
+		WithMiddleware: contract.OptVariadic(datapages.WithMiddleware),
+		WithDatastarJS: contract.Opt(datapages.WithDatastarJS),
+		WithHTTPServer: contract.Opt(datapages.WithHTTPServer),
+		WithLogger:     contract.Opt(datapages.WithLogger),
 		StreamSubjects: datapagesgen.MessageBrokerStreamSubjects,
 		HrefExternal:   href.External,
 		HrefSetLogger:  href.SetLogger,

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,42 +12,11 @@ import (
 
 // Config holds the datapages.yaml configuration.
 type Config struct {
-	// App is the path to the app source package (default: "app").
-	App string `yaml:"app"`
-
-	// Gen configures the generated package.
-	Gen GenConfig `yaml:"gen"`
-
 	// Cmd is the path to the server cmd package (default: "cmd/server").
 	Cmd string `yaml:"cmd"`
 
-	// Assets configures embedded static asset file serving (optional).
-	// When nil, asset serving is disabled. When set, both URLPrefix and Dir
-	// are required.
-	Assets *AssetsConfig `yaml:"assets"`
-
 	// Watch is the Templier watch mode settings (optional).
 	Watch *WatchConfig `yaml:"watch"`
-}
-
-// GenConfig configures the generated package.
-type GenConfig struct {
-	// Package is the path to the generated package (default: "datapagesgen").
-	Package string `yaml:"package"`
-
-	// Prometheus enables Prometheus metrics generation (default: true).
-	Prometheus *bool `yaml:"prometheus"`
-}
-
-// AssetsConfig configures embedded static asset file serving.
-type AssetsConfig struct {
-	// URLPrefix is the URL path prefix for serving embedded static files.
-	// Must start and end with '/'. Example: "/static/".
-	URLPrefix string `yaml:"url-prefix"`
-
-	// Dir is the on-disk path to the embedded static files directory, relative to
-	// the module root. Example: "./app/static/".
-	Dir string `yaml:"dir"`
 }
 
 // WatchConfig holds Templier watch mode settings.
@@ -191,122 +159,6 @@ func (r *WatcherRequires) UnmarshalText(text []byte) error {
 	return unmarshalEnum(text, "requires", watcherRequires, r)
 }
 
-// Sentinel errors for assets validation.
-var (
-	ErrAssetsDirRequired = errors.New(
-		"assets.dir is required when embedded asset serving is enabled",
-	)
-	ErrAssetsURLPrefixRequired = errors.New(
-		"assets.url-prefix is required when embedded asset serving is enabled",
-	)
-	ErrAssetsURLPrefixNoLeadingSlash = errors.New(
-		"assets.url-prefix must start with '/'",
-	)
-	ErrAssetsURLPrefixNoTrailingSlash = errors.New(
-		"assets.url-prefix must end with '/'",
-	)
-	ErrAssetsURLPrefixDoubleSlash = errors.New(
-		"assets.url-prefix must not contain double slashes",
-	)
-	ErrAssetsURLPrefixQueryString = errors.New(
-		"assets.url-prefix must not contain a query string",
-	)
-	ErrAssetsURLPrefixFragment = errors.New(
-		"assets.url-prefix must not contain a fragment",
-	)
-	ErrAssetsURLPrefixDotSegment = errors.New(
-		"assets.url-prefix must not contain dot segments",
-	)
-	ErrAssetsURLPrefixBackslash = errors.New(
-		"assets.url-prefix must not contain backslashes",
-	)
-	ErrAssetsURLPrefixEncodedTraversal = errors.New(
-		"assets.url-prefix must not contain percent-encoded dots, " +
-			"slashes, or backslashes",
-	)
-	ErrAssetsURLPrefixRoot = errors.New(
-		"assets.url-prefix must not be \"/\"; it would conflict with page routes",
-	)
-	ErrAssetsURLPrefixInvalidChar = errors.New(
-		"assets.url-prefix contains invalid characters; " +
-			"use only ASCII letters, digits, hyphens, underscores, and slashes",
-	)
-)
-
-// ValidateAssetsURLPrefix checks that s is a valid URL path prefix for embedded files.
-func ValidateAssetsURLPrefix(s string) error {
-	if !strings.HasPrefix(s, "/") {
-		return ErrAssetsURLPrefixNoLeadingSlash
-	}
-	if !strings.HasSuffix(s, "/") {
-		return ErrAssetsURLPrefixNoTrailingSlash
-	}
-	if s == "/" {
-		return ErrAssetsURLPrefixRoot
-	}
-	if strings.Contains(s, "//") {
-		return ErrAssetsURLPrefixDoubleSlash
-	}
-	if strings.Contains(s, "?") {
-		return ErrAssetsURLPrefixQueryString
-	}
-	if strings.Contains(s, "#") {
-		return ErrAssetsURLPrefixFragment
-	}
-	if strings.Contains(s, "/.") {
-		return ErrAssetsURLPrefixDotSegment
-	}
-	if strings.Contains(s, `\`) {
-		return ErrAssetsURLPrefixBackslash
-	}
-	if i := strings.Index(s, "%"); i >= 0 {
-		if err := checkPercentEncoding(s[i:]); err != nil {
-			return err
-		}
-	}
-	for i := range len(s) {
-		c := s[i]
-		if c <= ' ' || c >= 0x7f || c == '{' || c == '}' ||
-			c == '<' || c == '>' || c == '|' || c == '^' || c == '`' {
-			return ErrAssetsURLPrefixInvalidChar
-		}
-	}
-	return nil
-}
-
-// checkPercentEncoding scans s (starting from the first '%') for percent-encoded
-// sequences and rejects encoded dots (%2e/%2E), slashes (%2f/%2F), and
-// backslashes (%5c/%5C) that could bypass path traversal checks.
-func checkPercentEncoding(s string) error {
-	for i := 0; i < len(s); i++ {
-		if s[i] != '%' {
-			continue
-		}
-		if i+2 >= len(s) {
-			return ErrAssetsURLPrefixInvalidChar
-		}
-		hi, lo := s[i+1], s[i+2]
-		if !isHexDigit(hi) || !isHexDigit(lo) {
-			return ErrAssetsURLPrefixInvalidChar
-		}
-		upper := strings.ToUpper(string([]byte{hi, lo}))
-		if upper == "2E" || upper == "2F" || upper == "5C" {
-			return ErrAssetsURLPrefixEncodedTraversal
-		}
-		i += 2
-	}
-	return nil
-}
-
-func isHexDigit(c byte) bool {
-	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
-}
-
-// ErrNoConfig is returned when no datapages.yaml is found.
-var ErrNoConfig = fmt.Errorf(
-	"no datapages.yaml found; run `datapages init` to create a project",
-)
-
 // Load reads datapages.yml or datapages.yaml from moduleDir.
 // If neither file exists, default values are returned and found is false.
 // Returns an error if both files exist simultaneously.
@@ -331,50 +183,27 @@ func Load(moduleDir string) (c Config, found bool, _ error) {
 		}
 		found = true
 	}
-	if c.App == "" {
-		c.App = "app"
-	}
-	if c.Gen.Package == "" {
-		c.Gen.Package = "datapagesgen"
-	}
 	if c.Cmd == "" {
 		c.Cmd = "cmd/server"
-	}
-	if c.Gen.Prometheus == nil {
-		v := true
-		c.Gen.Prometheus = &v
-	}
-	if c.Assets != nil {
-		if c.Assets.URLPrefix == "" {
-			return Config{}, false, ErrAssetsURLPrefixRequired
-		}
-		if c.Assets.Dir == "" {
-			return Config{}, false, ErrAssetsDirRequired
-		}
-		if err := ValidateAssetsURLPrefix(c.Assets.URLPrefix); err != nil {
-			return Config{}, false, err
-		}
 	}
 	return c, found, nil
 }
 
-// DefaultYAML returns the default datapages.yaml content.
-func DefaultYAML(prometheus bool) string {
-	return fmt.Sprintf(`app: app
-gen:
-  package: datapagesgen
-  prometheus: %t
-cmd: cmd/server
+// DefaultYAML is the default datapages.yaml content.
+//
+// What the application itself configures is not in here: the app package, the
+// destination and the Prometheus option are read from the datapages.NewServer
+// call, assets from the Config variable of the app package.
+const DefaultYAML = `cmd: cmd/server
 watch:
   exclude:
     - ".git/**" # git internals
     - ".*"      # hidden files/directories
     - "*~"      # editor backup files
-`, prometheus)
-}
+`
 
 // WriteDefault writes a default datapages.yaml to moduleDir.
-func WriteDefault(moduleDir string, prometheus bool) error {
+func WriteDefault(moduleDir string) error {
 	p := filepath.Join(moduleDir, "datapages.yaml")
-	return os.WriteFile(p, []byte(DefaultYAML(prometheus)), 0o644)
+	return os.WriteFile(p, []byte(DefaultYAML), 0o644)
 }

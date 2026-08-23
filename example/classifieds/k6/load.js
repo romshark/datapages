@@ -11,8 +11,6 @@ const PORT = __ENV.PORT || '8080';
 const SCHEME = __ENV.SCHEME || (PORT === '443' ? 'https' : 'http');
 const BASE = `${SCHEME}://${HOST}:${PORT}`;
 
-const CSRF_BYPASS = __ENV.CSRF_DEV_BYPASS || '';
-
 // The server injects a fetch shim into authenticated HTML pages containing
 // the per-session CSRF token:
 //   h.set("X-CSRF-Token",'<token>')
@@ -20,8 +18,7 @@ const CSRF_TOKEN_RE = /X-CSRF-Token"\s*,\s*'([^']+)'/;
 
 function dsHeaders(token) {
   const h = { 'Datastar-Request': 'true' };
-  if (CSRF_BYPASS) h['X-CSRF-Token'] = CSRF_BYPASS;
-  else if (token) h['X-CSRF-Token'] = token;
+  if (token) h['X-CSRF-Token'] = token;
   return h;
 }
 

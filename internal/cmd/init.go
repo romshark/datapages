@@ -190,7 +190,7 @@ func runInit(
 	if err != nil {
 		return err
 	}
-	if err := runGen(projectDir, conf, stderr, ""); err != nil {
+	if err := runGen(projectDir, conf, prometheus, stderr, ""); err != nil {
 		return err
 	}
 
@@ -399,7 +399,7 @@ func writeDefaultConfigIfMissing(
 			return false, nil
 		}
 	}
-	if err := config.WriteDefault(projectDir, prometheus); err != nil {
+	if err := config.WriteDefault(projectDir); err != nil {
 		return false, err
 	}
 	_, _ = fmt.Fprintln(w, "Created datapages.yaml")
@@ -427,8 +427,12 @@ func writeIfMissing(
 }
 
 func writeAppGoIfMissing(projectDir string, w io.Writer) (bool, error) {
+	src, err := skeleton.AppGo()
+	if err != nil {
+		return false, err
+	}
 	wrote, err := writeIfMissing(
-		projectDir, "app/app.go", []byte(skeleton.AppGo), w,
+		projectDir, "app/app.go", src, w,
 	)
 	if err != nil || !wrote {
 		return false, err

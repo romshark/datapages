@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/acceptance/actionoptions/datapagesgen/action"
+	"github.com/romshark/datapages/internal/acceptance/actionoptions/app/datapagesgen/action"
 )
 
 // TestEmptyOptionIsSkipped covers an option helper given nothing to say,

@@ -6,7 +6,7 @@ The code you'd write is in
 [app](https://github.com/romshark/datapages/tree/main/example/classifieds/app)
 (the "source package").
 The code that the generator produces is in
-[datapagesgen](https://github.com/romshark/datapages/tree/main/example/classifieds/datapagesgen).
+[datapagesgen](https://github.com/romshark/datapages/tree/main/example/classifieds/app/datapagesgen).
 
 ## Development Mode
 
@@ -15,7 +15,8 @@ make dev
 ```
 
 You can then access:
-- Preview: http://localhost:52000/
+- Preview: http://localhost:7331/ (the live-reload proxy of `datapages watch`;
+  the app itself listens on http://localhost:52000/, see `.env.dev`)
 - Grafana Dashboards: http://localhost:3000/
 - Prometheus UI: http://localhost:9091/
 
@@ -37,6 +38,7 @@ then in another terminal run one of:
 | `make load`                | Full flow: login, browse, sign-out             |
 | `make load-smoke-homepage` | Hits `/` only                                  |
 | `make load-smoke-search`   | Hits `/search/` with varied query params       |
+| `make load-smoke-login`    | Hits the unauthenticated `/login/` page only   |
 
 Pick the env file with `LOAD_ENV` (default `./.env.dev`):
 
@@ -63,8 +65,8 @@ Use ≥30s to get meaningful p95/p99.
 
 - `HOST`, `PORT` — server address.
 - `SCHEME` — `http` or `https`. Auto-picks `https` when `PORT=443`.
-- `CSRF_DEV_BYPASS` — if set, used as `X-CSRF-Token`. Otherwise the full-flow
-  script scrapes the token from the page.
+- The script scrapes the CSRF token from the page it signs in with. There is no
+  bypass to configure.
 
 For stage (HTTPS with mkcert), run `mkcert -install` once or set
 `K6_INSECURE_SKIP_TLS_VERIFY=true`.

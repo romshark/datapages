@@ -11,9 +11,9 @@ import templruntime "github.com/a-h/templ/runtime"
 import (
 	"fmt"
 
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/action"
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/offline-cache/app/domain"
-	"github.com/romshark/datapages/example/offline-cache/datapagesgen/action"
-	"github.com/romshark/datapages/example/offline-cache/datapagesgen/href"
 )
 
 // dateLayout is the human-readable format used to render show start times.

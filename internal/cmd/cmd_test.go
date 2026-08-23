@@ -326,9 +326,9 @@ func TestWatch(t *testing.T) {
 		// Gen runs synchronously before the engine; wait for generated files.
 		require.Eventually(t, func() bool {
 			for _, f := range []string{
-				"datapagesgen/app_gen.go",
-				"datapagesgen/action/action_gen.go",
-				"datapagesgen/href/href_gen.go",
+				"app/datapagesgen/app_gen.go",
+				"app/datapagesgen/action/action_gen.go",
+				"app/datapagesgen/href/href_gen.go",
 				"cmd/server/main.go",
 			} {
 				if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
@@ -353,9 +353,9 @@ func TestLintGen(t *testing.T) {
 	checkGenPackage := func(t *testing.T, dir string) {
 		t.Helper()
 		for _, f := range []string{
-			"datapagesgen/app_gen.go",
-			"datapagesgen/action/action_gen.go",
-			"datapagesgen/href/href_gen.go",
+			"app/datapagesgen/app_gen.go",
+			"app/datapagesgen/action/action_gen.go",
+			"app/datapagesgen/href/href_gen.go",
 		} {
 			require.FileExists(t, filepath.Join(dir, f))
 		}
@@ -401,12 +401,15 @@ func TestLintGen(t *testing.T) {
 			wantOK:   true,
 			checkGen: checkGenFiles,
 		},
+		// A module without a datapages.yaml is generated with the defaults:
+		// the yaml carries nothing the generator needs any more.
 		"no config": {
 			appGoFile: "valid.go",
 			prepare: func(t *testing.T, dir string) {
 				removeExistingFile(t, filepath.Join(dir, "datapages.yaml"))
 			},
-			wantOK: false,
+			wantOK:   true,
+			checkGen: checkGenFiles,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -616,10 +619,6 @@ func TestGenGoModUpgrade(t *testing.T) {
 func TestGenServeFailingErrorPage(t *testing.T) {
 	dir := setupProject(t, "failing_error_page.go")
 
-	// Without Prometheus the generated server needs no options.
-	writeFileAt(t, filepath.Join(dir, "datapages.yaml"),
-		"app: app\ngen:\n  package: datapagesgen\n  prometheus: false\ncmd: cmd/server\n")
-
 	var stdout, stderr bytes.Buffer
 	code := cmd.Run(
 		context.Background(), []string{"datapages", "gen"},
@@ -635,14 +634,24 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 
 	"testproject/app"
-	"testproject/datapagesgen"
+	"testproject/app/datapagesgen"
 )
 
 func main() {
-	ts := httptest.NewServer(datapagesgen.NewServer(&app.App{}, inmem.New(16)))
+	s, err := datapages.NewServer[
+		app.App,
+		datapages.DisableSessions,
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](&app.App{}, inmem.New(16))
+	if err != nil {
+		panic(err)
+	}
+	ts := httptest.NewServer(s)
 	defer ts.Close()
 	resp, err := http.Get(ts.URL + "/")
 	if err != nil {
@@ -854,7 +863,7 @@ func TestInit(t *testing.T) {
 				require.NoError(t, err, "go mod init: %s", out)
 				require.NoError(t, os.WriteFile(
 					filepath.Join(dir, "datapages.yaml"),
-					[]byte("app: app\n"),
+					[]byte("cmd: cmd/server\n"),
 					0o644,
 				))
 				appDir := filepath.Join(dir, "app")

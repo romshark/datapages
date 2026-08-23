@@ -10,8 +10,8 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/offline-cache/app/domain"
-	"github.com/romshark/datapages/example/offline-cache/datapagesgen/href"
 )
 
 // PageTicket is /shows/{nameslug}/ticket

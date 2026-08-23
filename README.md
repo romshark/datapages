@@ -13,7 +13,7 @@
 
 > [!NOTE]
 > **v0.10 is coming** with API improvements, stateful pages,
-> service worker support and more!
+> service worker support, multi-app modules and more!
 
 A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) web framework
 for building dynamic, server-rendered web applications in pure Go.
@@ -30,8 +30,9 @@ or simple [HTMX](https://htmx.org/)-style websites - Datapages will serve you we
 
 ## Examples
 
-- [`counter`](example/counter/) — Minimal real-time counter. Bare bones starting point.
-- [`fancy-counter`](example/fancy-counter/) — Fancy real-time collaborative counter.
+- [`counter`](example/counter/) — Real-time counter built twice in one module,
+  bare bones as `app/simple` and polished as `app/fancy`. Bare bones starting
+  point, and the example of a module that builds more than one application.
 - [`todolist`](example/todolist/) — Real-time collaborative todo list with per-tab
   server-side state (Most [Tao](https://data-star.dev/guide/the_tao_of_datastar) conform example).
 - [`calculator`](example/calculator/) — Hybrid calculator app that runs both as
@@ -45,7 +46,7 @@ or simple [HTMX](https://htmx.org/)-style websites - Datapages will serve you we
   Landing page with vanilla and [Lit](https://lit.dev)-based Web Components
   bundled via esbuild through a custom watcher.
 - [`sqlitesessions`](example/sqlitesessions/) —
-  Custom `sessmanager.SessionManager` implementation backed by SQLite
+  Custom `sessions.Manager` implementation backed by SQLite
   via [sqinn-go](https://github.com/cvilsmeier/sqinn-go) (no cgo).
 - [`fast-shim`](example/fast-shim/) —
   Instant page loads: the worker paints a cached shim, then Datastar morphs in
@@ -80,16 +81,73 @@ datapages init
 
 ## Configuration
 
-Datapages reads configuration from `datapages.yaml` or `datapages.yml` in the
-module root. If both files exist, the CLI treats that as an error.
+Nothing about the build is configured. Every setting is read from the code
+that already states it.
 
-The default scaffold created by `datapages init` looks like this:
+Static file serving is turned on by an `embed.FS` whose doc comment names the
+URL path it is served at, the way a page names its route. The comment gives
+the prefix, the `//go:embed` directive gives the directory:
+
+```go
+// app/assets.go
+
+// StaticFS is /static/
+//go:embed static/*
+var StaticFS embed.FS
+```
+
+The URL path in the comment must start and end with `/` and cannot be `/`.
+The `//go:embed` directive must name exactly one directory inside the app
+package.
+
+The app package, the session data type, the metrics mode and the package to
+generate into are the type arguments of the `datapages.NewServer` call.
+
+```go
+s, err := datapages.NewServer[
+	app.App,                     // App
+	datapages.DisableSessions,   // SessionData
+	datapages.DisablePrometheus, // Metrics
+	datapagesgen.Server,         // S
+](
+	a, broker, datapages.WithLogger(logger),
+)
+```
+
+`App` names the app package. `Metrics` decides the Prometheus counters:
+`datapages.EnablePrometheus` generates the code that counts and requires
+`WithPrometheus` to serve it, `datapages.DisablePrometheus` generates no
+counters, has no Prometheus imports and rejects that option. Use
+`datapages init --prometheus=false` to scaffold a project whose entry point
+names it.
+`S` must name that app package's `datapagesgen`, which is where its code is
+generated:
+`app/datapagesgen` for `./app`, `app/frontend/datapagesgen` for `./app/frontend`.
+
+One module may build any number of applications. Each app package gets its own
+model, its own generated package and its own entry point:
+
+```
+app/frontend/                 cmd/frontend/
+app/frontend/datapagesgen/
+app/admindashboard/           cmd/admindashboard/
+app/admindashboard/datapagesgen/
+```
+
+`datapages gen` generates every one of them. `datapages watch` runs one, so a
+module that builds more than one needs `--app` to say which:
+
+```sh
+datapages watch --app frontend
+```
+
+A module with no `NewServer` call yet is generated into `app/datapagesgen`
+from `./app` and gets a `cmd/server/main.go` written for it.
+
+What is left is the tooling, which `datapages.yaml` or `datapages.yml` in the
+module root carries. If both files exist, the CLI treats that as an error.
 
 ```yaml
-app: app
-gen:
-  package: datapagesgen
-  prometheus: true
 cmd: cmd/server
 watch:
   exclude:
@@ -98,34 +156,15 @@ watch:
     - "*~"      # editor backup files
 ```
 
-Optional sections can be added as needed:
-
-```yaml
-assets:
-  url-prefix: /static/
-  dir: ./app/static/
-```
-
 These top-level keys are supported:
 
-- `app`: path to the app source package. Default: `app`
-- `gen.package`: path to the generated package. Default: `datapagesgen`
-- `gen.prometheus`: enable Prometheus metric generation. Default: `true`
-- `cmd`: path to the server command package. Default: `cmd/server`
-- `assets`: embedded static asset serving configuration
-- `watch`: development server settings
-
-When `assets` is set, both fields are required. `url-prefix` must start and end
-with `/` and cannot be `/`.
-
-When `gen.prometheus` is set to `false`, the generated server code will not
-include Prometheus imports, metric variables, or the `WithPrometheus` server
-option. Use `datapages init --prometheus=false` to scaffold a project without
-Prometheus.
-
-The optional `watch` section configures the development server
-(host, proxy timeout, debounce, TLS, compiler flags, logging, custom watchers,
-etc.).
+- `cmd`: where `datapages gen` writes the first `cmd/server/main.go`,
+- and which command `datapages watch` builds while no `NewServer` call is written in a
+  `main` package yet. Default: `cmd/server`. Once such a call exists,
+  the command it is written in is the entry point and this key is unused,
+  which is why a module building several applications does not set it.
+- `watch`: optional development server settings (app host, proxy timeout,
+  debounce, TLS, compiler flags, logging, custom watchers, etc.)
 
 ## Specification
 
@@ -138,16 +177,15 @@ See [FAQ.md](FAQ.md) for frequently asked questions.
 
 Datapages ships pluggable modules with swappable implementations:
 
-- [`SessionManager[S]`](modules/sessmanager/sessmanager.go)
-  - [`natskv`](https://pkg.go.dev/github.com/romshark/datapages/modules/sessmanager/natskv) - NATS KV store with AES-128-GCM encrypted cookies
-  - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/sessmanager/inmem) - In-memory sessions (lost on restart; single-instance only)
-- [`MessageBroker`](modules/msgbroker/msgbroker.go)
-  - [`natscore`](https://pkg.go.dev/github.com/romshark/datapages/modules/msgbroker/natscore) - Core NATS backed message broker
-  - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/msgbroker/inmem) - In-memory fan-out message broker (single-instance only)
-- [`TokenManager`](modules/csrf/csrf.go)
-  - [`hmac`](https://pkg.go.dev/github.com/romshark/datapages/modules/csrf/hmac) - HMAC-SHA256 with BREACH-resistant masking
-- [`TokenGenerator`](modules/sessmanager/sessmanager.go)
-  - [`sesstokgen`](https://pkg.go.dev/github.com/romshark/datapages/modules/sesstokgen) - Cryptographically random session tokens (256-bit)
+- [`Manager[Data]`](modules/sessions/sessions.go)
+  - [`natskv`](https://pkg.go.dev/github.com/romshark/datapages/modules/sessions/natskv) - NATS KV store with AES-128-GCM encrypted cookies
+  - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/sessions/inmem) - In-memory sessions (lost on restart; single-instance only)
+- [`Broker`](modules/messaging/messaging.go)
+  - [`natscore`](https://pkg.go.dev/github.com/romshark/datapages/modules/messaging/natscore) - Core NATS backed message broker
+  - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/messaging/inmem) - In-memory fan-out message broker (single-instance only)
+- [`TokenWriter`, `TokenValidator`](modules/csrf/csrf.go)
+  - [`Tokens`](modules/csrf/tokens.go) - the built-in default: HKDF-SHA256 over the session token, BREACH-resistant masking, nothing to configure
+- [`TokenGenerator`](modules/sessions/sessions.go)
 
 ## Motivation
 

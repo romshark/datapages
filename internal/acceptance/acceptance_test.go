@@ -28,9 +28,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages/internal/cmd/config"
 	"github.com/romshark/datapages/internal/generator"
 	"github.com/romshark/datapages/internal/parser"
+	"github.com/romshark/datapages/internal/serverscan"
 )
 
 var (
@@ -88,7 +88,7 @@ func runCase(t *testing.T, name string) {
 	profile := filepath.Join(t.TempDir(), "cover.out")
 	args := []string{
 		"test", "-count=1",
-		"-coverpkg=./datapagesgen/...", "-coverprofile=" + profile, "./...",
+		"-coverpkg=./app/datapagesgen/...", "-coverprofile=" + profile, "./...",
 	}
 	if !opts.NoRace {
 		args = append(args, "-race")
@@ -118,47 +118,44 @@ func readCaseOptions(t *testing.T, name string) caseOptions {
 func requireGeneratedIsCurrent(t *testing.T, name string) {
 	t.Helper()
 	dst := t.TempDir()
-	cfg := generateInto(t, name, dst)
-	compareTrees(t, filepath.Join(dst, cfg.Gen.Package),
-		filepath.Join(name, cfg.Gen.Package))
+	app := generateInto(t, name, dst)
+	compareTrees(t, filepath.Join(dst, app.GenDir), filepath.Join(name, app.GenDir))
 }
 
 // generateInto parses the case's app package and generates it into dst,
-// the way "datapages gen" does, and returns the config it read.
-func generateInto(t *testing.T, name, dst string) config.Config {
+// the way "datapages gen" does, and returns the app the scan found.
+//
+// A case builds one application. A module may build any number, which is what
+// the scan reports, and a case naming more than one is a mistake in the case.
+func generateInto(t *testing.T, name, dst string) serverscan.App {
 	t.Helper()
 
-	cfg, found, err := config.Load(name)
+	modPath := modulePath(name)
+	scan, err := serverscan.Scan(name, modPath)
 	require.NoError(t, err)
-	require.True(t, found, "%s has no datapages.yaml", name)
+	require.False(t, scan.Fallback, "%s holds no datapages.NewServer call", name)
+	require.Len(t, scan.Apps, 1, "%s builds more than one application", name)
+	app := scan.Apps[0]
 
-	app, errs := parser.Parse(filepath.Join(name, cfg.App))
+	m, errs := parser.Parse(filepath.Join(name, app.Dir))
 	for _, err := range errs.All() {
 		t.Errorf("parser: %v", err)
 	}
 	require.Zero(t, errs.Len())
-	require.NotNil(t, app, "parser returned nil model")
+	require.NotNil(t, m, "parser returned nil model")
+	require.NoError(t, serverscan.CheckSessionOption(app, m.Session != nil))
 
-	modPath := modulePath(name)
-	var assetsURLPrefix, assetsDir string
-	if cfg.Assets != nil {
-		assetsURLPrefix = cfg.Assets.URLPrefix
-		// The embed.FS subdirectory is the on-disk path without the app
-		// package prefix: "./app/static" -> "static".
-		cleaned := filepath.Clean(cfg.Assets.Dir)
-		assetsDir = strings.TrimPrefix(cleaned, cfg.App+string(filepath.Separator))
-	}
 	require.NoError(t, generator.Generate(
-		filepath.Join(dst, cfg.Gen.Package), filepath.Base(cfg.Gen.Package),
-		app, 0o644, generator.Options{
-			Prometheus:      cfg.Gen.Prometheus != nil && *cfg.Gen.Prometheus,
-			AssetsURLPrefix: assetsURLPrefix,
-			AssetsDir:       assetsDir,
-			AppDir:          cfg.App,
-			GenImport:       modPath + "/" + cfg.Gen.Package,
+		filepath.Join(dst, app.GenDir), serverscan.GenSubdir,
+		m, 0o644, generator.Options{
+			Prometheus:      app.Prometheus,
+			AssetsURLPrefix: m.Assets.URLPrefix,
+			AssetsDir:       m.Assets.Dir,
+			AppDir:          app.Dir,
+			GenImport:       app.GenImport,
 		},
 	))
-	return cfg
+	return app
 }
 
 // modulePath is the import path of a case module.

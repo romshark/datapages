@@ -17,7 +17,7 @@ import (
 	"github.com/a-h/templ"
 
 	"github.com/romshark/datapages"
-	"github.com/romshark/datapages/example/fast-shim/datapagesgen/href"
+	"github.com/romshark/datapages/example/fast-shim/app/datapagesgen/href"
 )
 
 // SlowQuery is how long the "database" takes. It is what a shim hides.

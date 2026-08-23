@@ -11,12 +11,15 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/routepattern"
-	"github.com/romshark/datapages/internal/structtag"
 	"github.com/romshark/datapages/internal/subject"
 )
+
+// eventVarName is the generated variable name of a decoded event.
+func eventVarName(eventTypeName string) string {
+	return strings.ToLower(eventTypeName[:1]) + eventTypeName[1:]
+}
 
 // dispatcherTypeName is the generated datapages.Dispatcher implementation
 // of an event.
@@ -301,14 +304,10 @@ type appUsage struct {
 	stream bool
 	// streamAuth: whether any stream handler needs auth (page has private events).
 	streamAuth bool
-	// dsRequest: func (s *Server) checkIsDSReq(...)
-	dsRequest bool
-	// recoverError: isDSReq is called in httpErrIntern by an app that has
+	// recoverError: httpErrIntern asks httpserve.IsDatastarRequest for an app that has
 	// PageError500, RecoverError, or both. The two features are independent
 	// and either one makes the helper's answer decide what the response is.
 	recoverError bool
-	// httpErrBad: whether the httpErrBad helper is needed.
-	httpErrBad bool
 	// errSentinels: whether any action returns an error, so the generated
 	// fallback maps the datapages error sentinels to status codes.
 	errSentinels bool
@@ -321,16 +320,10 @@ type appUsage struct {
 	// offlinePage: whether PageOffline is declared (needs the offline module
 	// import and the generated WithOffline option).
 	offlinePage bool
-	// reflectSignals: func writeSignalValue(...), needed by any page that
-	// reflects a query value into a data-signals attribute.
-	reflectSignals bool
-	// streamPathVars: func writeStreamPathValue(...), needed by any page that
-	// writes a path value into the stream URL of its data-init attribute.
-	streamPathVars bool
-	// signalSubjects: func isSubjectToken(...), needed by any page that builds
+	// signalSubjects: subject.IsToken is called by any page that builds
 	// a subscription subject from a client-provided signal.
 	signalSubjects bool
-	// dispatchSubjects: func isSubjectToken(...), needed by any dispatch that
+	// dispatchSubjects: subject.IsToken is called by any dispatch that
 	// builds a publish subject from the subject fields of its event.
 	dispatchSubjects bool
 	// userSubjects: whether any event addresses a user, which makes the ID of
@@ -339,27 +332,6 @@ type appUsage struct {
 	// privateStreams: func (s *Server) checkUserSubject(...), needed by any
 	// page that subscribes to an event addressed to the session owner.
 	privateStreams bool
-}
-
-// needsIsSubjectToken reports whether the isSubjectToken guard is emitted.
-func (u appUsage) needsIsSubjectToken() bool {
-	return u.signalSubjects || u.dispatchSubjects || u.privateStreams ||
-		(u.userSubjects && u.createSession)
-}
-
-// needsIsDSReq returns true if the isDSReq helper must be emitted.
-func (u appUsage) needsIsDSReq() bool {
-	return u.stream || u.dsRequest || u.httpRedirect || u.recoverError
-}
-
-// needsCheckIsDSReq returns true if the checkIsDSReq method must be emitted.
-func (u appUsage) needsCheckIsDSReq() bool {
-	return u.stream || u.dsRequest
-}
-
-// needsSetSessionCookie returns true if setSessionCookie must be emitted.
-func (u appUsage) needsSetSessionCookie() bool {
-	return u.auth || u.createSession || u.closeSession
 }
 
 // dispatchesSubjectFields reports whether any handler dispatches an event whose
@@ -441,26 +413,11 @@ func computeAppUsage(m *model.App) appUsage {
 		if h.OutputRedirect != nil {
 			u.httpRedirect = true
 		}
-		if h.InputSSE != nil || h.InputSignals != nil {
-			u.dsRequest = true
-		}
 		if h.InputSSE != nil {
 			u.datapagesSSE = true
 		}
 		if h.InputPageCache != nil {
 			u.pageCache = true
-		}
-		if h.InputSignals != nil {
-			u.httpErrBad = true
-		}
-		if h.InputQuery != nil && structHasNonStringField(h.InputQuery.Type.Resolved) {
-			u.httpErrBad = true
-		}
-		if h.InputPath != nil && structHasNonStringField(h.InputPath.Type.Resolved) {
-			u.httpErrBad = true
-		}
-		if h.InputQuery != nil && structHasReflectSignal(h.InputQuery.Type.Resolved) {
-			u.reflectSignals = true
 		}
 	}
 
@@ -492,25 +449,15 @@ func computeAppUsage(m *model.App) appUsage {
 			u.stream = true
 			// Event handlers and stream hooks receive a datapages.SSE.
 			u.datapagesSSE = true
-			if p.GET != nil && p.GET.Handler != nil && p.GET.InputPath != nil {
-				u.streamPathVars = true
-			}
 			if pageStreamNeedsAuth(p, eventByName) {
 				u.streamAuth = true
 				u.auth = true
 			}
-			if pageHasAnonStream(p, eventByName) {
-				u.httpErrBad = true
-			}
 			if pageHasSignalScopedEvent(p, eventByName) {
-				u.httpErrBad = true
 				u.signalSubjects = true
 			}
 			if pageHasPrivateEvent(p, eventByName) {
 				u.privateStreams = true
-			}
-			if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
-				u.httpErrBad = true
 			}
 		}
 		for _, h := range p.Actions {
@@ -569,7 +516,7 @@ type Writer struct {
 	newSessionType string
 	// makeSessionCall assembles a session from a session manager record.
 	makeSessionCall string
-	// recordType is the rendered sessmanager.Record instantiation.
+	// recordType is the rendered sessions.Record instantiation.
 	recordType string
 	// sessionDataType is the rendered session Data type argument.
 	sessionDataType string
@@ -587,7 +534,7 @@ func (w *Writer) setSessionType(m *model.App) {
 	data := renderType(m.Session.Data)
 	w.sessionType = "datapages.Session[" + data + "]"
 	w.newSessionType = "datapages.NewSession[" + data + "]"
-	w.recordType = "sessmanager.Record[" + data + "]"
+	w.recordType = "sessions.Record[" + data + "]"
 	w.sessionDataType = data
 	w.makeSessionCall = "datapages.MakeSession(\n" +
 		"\t\trec.UserID, token, rec.IssuedAt, rec.ExpiresAt, rec.Data,\n\t)"
@@ -740,35 +687,6 @@ func (w *Writer) writeAnyCheck(varName string, fields []structFieldInfo) {
 			w.Byte('\n')
 		}
 	}
-}
-
-// structHasNonStringField returns true if the resolved struct type
-// has any field whose type is not string.
-func structHasNonStringField(t types.Type) bool {
-	st, ok := t.Underlying().(*types.Struct)
-	if !ok {
-		return false
-	}
-	for field := range st.Fields() {
-		if !gotypes.IsString(field.Type()) {
-			return true
-		}
-	}
-	return false
-}
-
-// structHasReflectSignal reports whether any field carries a reflectsignal tag.
-func structHasReflectSignal(t types.Type) bool {
-	st, ok := t.Underlying().(*types.Struct)
-	if !ok {
-		return false
-	}
-	for i := range st.NumFields() {
-		if structtag.ReflectSignalTagValue(st.Tag(i)) != "" {
-			return true
-		}
-	}
-	return false
 }
 
 // appPkgQualifier returns the identifier that qualifies app types in generated code.

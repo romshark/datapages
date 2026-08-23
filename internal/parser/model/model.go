@@ -24,9 +24,24 @@ type App struct {
 
 	Session *SessionType // Nullable.
 
+	// Assets is the static file serving the app package declares.
+	// The zero value serves no files.
+	Assets Assets
+
 	Pages   []*Page
 	Events  []*Event
 	Actions []*Handler // App-level POST/PUT/PATCH/DELETE actions.
+}
+
+// Assets is the static file serving an embed.FS variable of the app package
+// declares by naming a URL path in its doc comment.
+type Assets struct {
+	// URLPrefix is the URL path the files are served under.
+	URLPrefix string
+
+	// Dir is the directory the files are read from,
+	// relative to the app package.
+	Dir string
 }
 
 // GlobalHead is the app-wide (*App).Head hook. Its parameters are matched by

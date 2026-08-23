@@ -9,9 +9,11 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/fast-shim/app"
-	"github.com/romshark/datapages/example/fast-shim/datapagesgen"
-	msgbrokerinmem "github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/example/fast-shim/app/datapagesgen"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 	"github.com/romshark/datapages/modules/offline"
 )
 
@@ -23,16 +25,25 @@ func main() {
 	defer cancel()
 
 	a := &app.App{}
-	messageBroker := msgbrokerinmem.New(8)
+	messageBroker := inmem.New(messaging.DefaultBrokerChanBuffer)
 
-	s := datapagesgen.NewServer(
+	s, err := datapages.NewServer[
+		app.App,
+		datapages.DisableSessions,
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](
 		a, messageBroker,
 		// Serves the worker that paints cached shims and morphs in the live page.
 		// No PageOffline here; the worker keeps its own fallback.
-		datapagesgen.WithMiddleware(offline.Middleware("", offline.Config{
+		datapages.WithMiddleware(offline.Middleware("", offline.Config{
 			WorkerVersion: 3, // bump on worker changes to drop the old cache
 		})),
 	)
+	if err != nil {
+		slog.Error("creating server", slog.Any("err", err))
+		os.Exit(1)
+	}
 
 	slog.Info("listening", slog.String("addr", *fHost))
 	if err := s.ListenAndServe(ctx, *fHost); err != nil &&

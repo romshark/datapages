@@ -289,8 +289,7 @@ func IsEventType(
 }
 
 // EventTypeNameOf returns the EventXXX type name for expr
-// if it is (or points to) a named type whose name is in
-// eventTypeNames.
+// if it is (or points to) a named type whose name is in eventTypeNames.
 func EventTypeNameOf(
 	expr ast.Expr,
 	info *types.Info,

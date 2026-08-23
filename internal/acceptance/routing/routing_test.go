@@ -5,6 +5,7 @@ package acceptance_test
 import (
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -12,14 +13,15 @@ import (
 
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/routing/app"
-	"github.com/romshark/datapages/internal/acceptance/routing/datapagesgen"
-	"github.com/romshark/datapages/internal/acceptance/routing/datapagesgen/href"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/internal/acceptance/routing/app/datapagesgen/href"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 func newClient(t *testing.T) *client.Client {
 	t.Helper()
-	return client.New(t, datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+	return client.New(t, mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
 // TestRoundTrip covers the pair the generator writes for every page:
@@ -92,6 +94,42 @@ func TestQueryDefaults(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 	const want = `term="" limit=0 ratio=0 score=0 big=0 deep=0 flag=false`
 	require.Equal(t, want, resp.Element(t, "echo"))
+}
+
+// TestRawQuery covers query strings the generated reader must
+// read the way url.URL.Query does.
+func TestRawQuery(t *testing.T) {
+	c := newClient(t)
+
+	for name, tt := range map[string]struct {
+		rawQuery string
+		want     string
+	}{
+		"plus is a space":      {rawQuery: "term=a+b", want: "a b"},
+		"escaped key":          {rawQuery: "te%72m=x", want: "x"},
+		"first value wins":     {rawQuery: "term=1&term=2", want: "1"},
+		"semicolon pair drops": {rawQuery: "term=a;b", want: ""},
+		"bad escape drops":     {rawQuery: "term=%zz&term=ok", want: "ok"},
+		"empty pairs":          {rawQuery: "&&term=y", want: "y"},
+		"escaped value":        {rawQuery: "term=%2Fx", want: "/x"},
+		"key without value":    {rawQuery: "term", want: ""},
+		"value carries =":      {rawQuery: "term=a=b", want: "a=b"},
+		"plus in key":          {rawQuery: "te+rm=x", want: ""},
+		"empty key first":      {rawQuery: "=x&term=y", want: "y"},
+		"escaped plus":         {rawQuery: "term=%2Bx", want: "+x"},
+		"case sensitive key":   {rawQuery: "TERM=x&term=y", want: "y"},
+		"utf8 value":           {rawQuery: "term=%E2%9C%93", want: "\u2713"},
+		"other key first":      {rawQuery: "x=1&term=2&term=3", want: "2"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := c.Get(t, "/q/?"+tt.rawQuery)
+			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+			require.Equal(t,
+				`term=`+strconv.Quote(tt.want)+
+					` limit=0 ratio=0 score=0 big=0 deep=0 flag=false`,
+				resp.Element(t, "echo"))
+		})
+	}
 }
 
 // TestUnparsableValues covers URLs whose values do not fit the declared type.

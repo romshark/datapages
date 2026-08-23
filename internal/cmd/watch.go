@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/romshark/datapages/internal/cmd/config"
+	"github.com/romshark/datapages/internal/serverscan"
 )
 
 func newWatchCmd(stderr io.Writer, version string) *cobra.Command {
@@ -28,17 +29,46 @@ func newWatchCmd(stderr io.Writer, version string) *cobra.Command {
 		Long: `Start a development server that watches for file changes, rebuilds
 the application, and live-reloads the browser tabs. Configuration is read
 from the "watch" section of datapages.yaml; sane defaults are used
-if the section is missing.`,
+if the section is missing.
+
+One dev server runs one application. A module that builds more than one
+needs --app to say which, naming the app package: "datapages watch --app frontend".`,
 	}
 	host := cmd.Flags().String("host", "localhost:7331",
 		"Host address for the dev server proxy")
+	app := cmd.Flags().String("app", "",
+		"App package to run, required when the module builds more than one")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
-		return runWatch(c.Context(), *host, stderr, version)
+		return runWatch(c.Context(), *host, *app, stderr, version)
 	}
 	return cmd
 }
 
-func runWatch(ctx context.Context, host string, stderr io.Writer, version string) error {
+// selectApp picks the app the dev server runs.
+// A module building one needs no flag; one building more must name it.
+func selectApp(r serverscan.Result, name string) (serverscan.App, error) {
+	if name != "" {
+		a, ok := r.Find(name)
+		if !ok {
+			return serverscan.App{}, fmt.Errorf(
+				"no app package %q in this module, it builds: %s",
+				name, strings.Join(r.Names(), ", "),
+			)
+		}
+		return a, nil
+	}
+	if len(r.Apps) == 1 {
+		return r.Apps[0], nil
+	}
+	return serverscan.App{}, fmt.Errorf(
+		"this module builds %d applications (%s), name the one to run with --app",
+		len(r.Apps), strings.Join(r.Names(), ", "),
+	)
+}
+
+func runWatch(
+	ctx context.Context, host, appName string, stderr io.Writer, version string,
+) error {
 	// Start the update check immediately so it has maximum time to complete.
 	startUpdateCheck(ctx, version, stderr, http.DefaultClient)
 
@@ -46,21 +76,41 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 	if err != nil {
 		return err
 	}
-	conf, found, err := config.Load(moduleDir)
+	cfg, found, err := config.Load(moduleDir)
 	if err != nil {
 		return err
 	}
 	if !found {
-		if err := config.WriteDefault(moduleDir, true); err != nil {
+		if err := config.WriteDefault(moduleDir); err != nil {
 			return err
 		}
 	}
-	if err := runGen(moduleDir, conf, stderr, version); err != nil {
+	if err := runGen(moduleDir, cfg, false, stderr, version); err != nil {
 		// Non-fatal: individual parse errors are already on stderr.
 		// The gen watcher will retry and surface errors in the browser on next save.
 		_, _ = fmt.Fprintln(stderr, err)
 	}
-	w := conf.Watch
+	// The app packages are whatever the NewServer calls name, which the run
+	// above has just made resolvable.
+	modulePath, err := readModulePath(moduleDir)
+	if err != nil {
+		return err
+	}
+	scan, err := serverscan.Scan(moduleDir, modulePath)
+	if err != nil {
+		return err
+	}
+	app, err := selectApp(scan, appName)
+	if err != nil {
+		return err
+	}
+	// The entry point is the command the call is written in. A module that
+	// keeps none falls back to the configured cmd package.
+	cmdDir, ok := app.Cmd()
+	if !ok {
+		cmdDir = cfg.Cmd
+	}
+	w := cfg.Watch
 	if w == nil {
 		w = &config.WatchConfig{}
 	}
@@ -93,7 +143,7 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 		App: engine.AppConfig{
 			DirSrcRoot: moduleDir,
 			Exclude:    w.Exclude,
-			DirCmd:     "./" + conf.Cmd + "/",
+			DirCmd:     "./" + filepath.ToSlash(cmdDir) + "/",
 			DirWork:    dirWork,
 			Flags:      splitFlags(w.Flags),
 			Host:       appHost,
@@ -137,12 +187,11 @@ func runWatch(ctx context.Context, host string, stderr io.Writer, version string
 		}
 		engineConf.CustomWatchers = append([]engine.CustomWatcherConfig{
 			{
-				Name: "datapages gen",
-				Include: []string{
-					filepath.ToSlash(filepath.Clean(conf.App)) + "/**/*.go",
-					"datapages.yaml",
-					"datapages.yml",
-				},
+				Name:    "datapages gen",
+				Include: watchInclude(scan),
+				// The generated packages sit under the app packages they
+				// belong to. Without this a run of gen would trigger gen.
+				Exclude:   watchExclude(scan),
 				Cmd:       genExe + " gen",
 				FailOnErr: true,
 				Requires:  engine.ActionRebuild,
@@ -230,8 +279,8 @@ func mapCustomWatchers(watchers []config.WatchCustomWatcher) []engine.CustomWatc
 	return out
 }
 
-// An unmapped value yields the engine zero value, which is the default of each
-// enum: LogLevelError, LogClearNever and ActionNone.
+// An unmapped value yields the engine zero value, which is the default of each enum:
+// LogLevelError, LogClearNever and ActionNone.
 var (
 	engineLogLevel = map[config.LogLevel]engine.LogLevel{
 		config.LogLevelErrOnly: engine.LogLevelError,
@@ -257,4 +306,25 @@ func mapLogClear(l config.LogClear) engine.LogClearOn { return engineLogClear[l]
 
 func mapWatcherRequires(r config.WatcherRequires) engine.ActionType {
 	return engineAction[r]
+}
+
+// watchInclude lists what a change to re-runs "datapages gen" for:
+// the Go sources of every app package of the module.
+func watchInclude(r serverscan.Result) []string {
+	include := make([]string, 0, len(r.Apps)+2)
+	for _, a := range r.Apps {
+		include = append(include, filepath.ToSlash(a.Dir)+"/**/*.go")
+	}
+	return append(include, "datapages.yaml", "datapages.yml")
+}
+
+// watchExclude holds the generated packages out of what triggers a run.
+// They sit under the app packages, so a run of gen writes into what the
+// gen watcher watches, which would trigger it again without this.
+func watchExclude(r serverscan.Result) []string {
+	exclude := make([]string, 0, len(r.Apps))
+	for _, a := range r.Apps {
+		exclude = append(exclude, filepath.ToSlash(a.GenDir)+"/**")
+	}
+	return exclude
 }

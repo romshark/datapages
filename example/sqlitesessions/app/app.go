@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/example/sqlitesessions/app/datapagesgen/href"
 	"github.com/romshark/datapages/example/sqlitesessions/app/userstore"
-	"github.com/romshark/datapages/example/sqlitesessions/datapagesgen/href"
 )
 
 // EventSessionClosed is "sessions.closed"

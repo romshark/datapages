@@ -13,22 +13,20 @@ import (
 
 	sqinn "github.com/cvilsmeier/sqinn-go/v2"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/sqlitesessions/app"
+	"github.com/romshark/datapages/example/sqlitesessions/app/datapagesgen"
 	"github.com/romshark/datapages/example/sqlitesessions/app/sessionstore"
 	"github.com/romshark/datapages/example/sqlitesessions/app/sqdb"
 	"github.com/romshark/datapages/example/sqlitesessions/app/userstore"
-	"github.com/romshark/datapages/example/sqlitesessions/datapagesgen"
-	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
-	"github.com/romshark/datapages/modules/sesstokgen"
+	"github.com/romshark/datapages/modules/messaging/inmem"
+	"github.com/romshark/datapages/modules/sessions"
 )
 
 func main() {
 	host := envOr("HOST", "localhost")
 	port := envOr("PORT", "8080")
 	dbPath := envOr("SESSION_DB_PATH", "./sqlitesessions.db")
-	// Override in production.
-	csrfSecret := envOr("CSRF_SECRET", "dev-csrf-secret-change-me-in-production")
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -68,7 +66,7 @@ func main() {
 	}
 	sessionStore, err := sessionstore.New(
 		conn,
-		sesstokgen.Generator{Length: sesstokgen.DefaultLength},
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 		7*24*time.Hour,
 		slog.Default(),
 	)
@@ -77,24 +75,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	csrfTM, err := csrfhmac.New([]byte(csrfSecret))
-	if err != nil {
-		slog.Error("initializing CSRF token manager", slog.Any("err", err))
-		os.Exit(1)
-	}
-
 	a := app.NewApp(userStore)
-	s := datapagesgen.NewServer(
+	s, err := datapages.NewServer[
+		app.App,
+		app.SessionData,
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](
 		a,
 		inmem.New(0),
-		sessionStore,
-		datapagesgen.WithAuth(datapagesgen.AuthConfig{}),
-		datapagesgen.WithCSRFProtection(datapagesgen.CSRFConfig{
-			TokenManager:   csrfTM,
-			DevBypassToken: os.Getenv("CSRF_DEV_BYPASS"),
-		}),
-		datapagesgen.WithMiddleware(accessLog()),
+		datapages.WithSessionManager[app.SessionData](sessionStore),
+		datapages.WithSessions(datapages.SessionsConfig{}),
+		datapages.WithMiddleware(accessLog()),
 	)
+	if err != nil {
+		slog.Error("creating server", slog.Any("err", err))
+		os.Exit(1)
+	}
 
 	addr := net.JoinHostPort(host, port)
 	slog.Info("listening", slog.String("addr", addr))

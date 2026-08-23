@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages/internal/cmd/config"
+	"github.com/romshark/datapages/internal/serverscan"
 )
 
 func TestSplitFlags(t *testing.T) {
@@ -335,6 +336,57 @@ func TestRemoteURLToModulePath(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, remoteURLToModulePath(tc.input))
+		})
+	}
+}
+
+func TestSelectApp(t *testing.T) {
+	one := serverscan.Result{Apps: []serverscan.App{
+		{Name: "app", Dir: "app"},
+	}}
+	two := serverscan.Result{Apps: []serverscan.App{
+		{Name: "admin", Dir: filepath.Join("app", "admin")},
+		{Name: "frontend", Dir: filepath.Join("app", "frontend")},
+	}}
+	for name, tt := range map[string]struct {
+		result  serverscan.Result
+		flag    string
+		wantDir string
+		wantErr string
+	}{
+		"one app needs no flag": {
+			result: one, wantDir: "app",
+		},
+		"one app named anyway": {
+			result: one, flag: "app", wantDir: "app",
+		},
+		"two apps need the flag": {
+			result: two,
+			wantErr: "this module builds 2 applications (admin, frontend), " +
+				"name the one to run with --app",
+		},
+		"two apps by name": {
+			result: two, flag: "frontend",
+			wantDir: filepath.Join("app", "frontend"),
+		},
+		"two apps by directory": {
+			result: two, flag: "app/admin",
+			wantDir: filepath.Join("app", "admin"),
+		},
+		"unknown name": {
+			result: two, flag: "nope",
+			wantErr: `no app package "nope" in this module, ` +
+				"it builds: admin, frontend",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a, err := selectApp(tt.result, tt.flag)
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantDir, a.Dir)
 		})
 	}
 }

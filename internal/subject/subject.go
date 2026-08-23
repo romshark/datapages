@@ -4,39 +4,26 @@
 package subject
 
 import (
-	"fmt"
 	"strings"
+
+	"github.com/romshark/datapages/runtime/subject"
 )
 
 const (
 	// Sep separates the tokens of a subject.
-	Sep = "."
+	Sep = subject.Sep
 	// Wildcards match one token ("*") and everything below (">").
-	Wildcards = "*>"
+	Wildcards = subject.Wildcards
 	// Reserved are the characters a subject token must not contain.
-	Reserved = Sep + Wildcards + " \t\r\n"
+	Reserved = subject.Reserved
 )
 
 // IsToken reports whether v may be filled into a subject.
-// On the subscribe side a wildcard or a separator would widen the subscription
-// past the value the client asked for. On the publish side either one produces
-// a subject that no subscription matches.
-func IsToken(v string) bool {
-	return v != "" && !strings.ContainsAny(v, Reserved)
-}
+func IsToken(v string) bool { return subject.IsToken(v) }
 
-// Prefix returns the subject prefix an event with subject fields publishes under.
-// "messaging.sent" -> "messaging.sent."
-func Prefix(s string) string { return s + Sep }
-
-// GenIsToken renders the Go source of the isSubjectToken guard that
-// generated code carries.
-func GenIsToken() string {
-	return fmt.Sprintf(`func isSubjectToken(v string) bool {
-	return v != "" && !strings.ContainsAny(v, %q)
-}
-`, Reserved)
-}
+// Prefix returns the subject prefix an event with subject fields publishes
+// under. "messaging.sent" becomes "messaging.sent.".
+func Prefix(s string) string { return subject.Prefix(s) }
 
 // Claim is the set of subjects one event occupies. An event with subject fields
 // publishes under its subject and a page routes what arrives to it by that prefix,

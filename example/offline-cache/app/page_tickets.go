@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/romshark/datapages"
-	"github.com/romshark/datapages/example/offline-cache/datapagesgen/href"
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/href"
 )
 
 // PageTickets is /tickets

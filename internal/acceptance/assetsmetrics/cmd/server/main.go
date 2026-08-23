@@ -14,9 +14,10 @@ import (
 
 	"github.com/nats-io/nats.go"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app"
-	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/datapagesgen"
-	"github.com/romshark/datapages/modules/msgbroker/natscore"
+	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app/datapagesgen"
+	"github.com/romshark/datapages/modules/messaging/natscore"
 )
 
 func main() {
@@ -28,7 +29,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	var opts []datapagesgen.ServerOption
+	var opts []datapages.ServerOption
 	withAccessLogger(&opts)
 	initMetrics(&opts)
 
@@ -36,7 +37,17 @@ func main() {
 
 	// TODO: Initialize your app.
 	a := &app.App{}
-	s := datapagesgen.NewServer(a, messageBroker, opts...)
+
+	s, err := datapages.NewServer[
+		app.App,
+		datapages.DisableSessions,
+		datapages.EnablePrometheus,
+		datapagesgen.Server,
+	](a, messageBroker, opts...)
+	if err != nil {
+		slog.Error("creating server", slog.Any("err", err))
+		os.Exit(1)
+	}
 	listenAndServe(ctx, s, net.JoinHostPort(host, port))
 }
 
@@ -78,11 +89,11 @@ func loadEnvFile(path string) {
 	}
 }
 
-func withAccessLogger(opts *[]datapagesgen.ServerOption) {
+func withAccessLogger(opts *[]datapages.ServerOption) {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
-	*opts = append(*opts, datapagesgen.WithMiddleware(func(next http.Handler) http.Handler {
+	*opts = append(*opts, datapages.WithMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			logger.Info("access",
 				slog.String("method", r.Method),
@@ -110,15 +121,15 @@ func connectNATS() *natscore.MessageBroker {
 	return messageBroker
 }
 
-func initMetrics(opts *[]datapagesgen.ServerOption) {
+func initMetrics(opts *[]datapages.ServerOption) {
 	host := envOr("HOST_METRICS", "localhost")
 	port := envOr("PORT_METRICS", "9090")
-	*opts = append(*opts, datapagesgen.WithPrometheus(datapagesgen.PrometheusConfig{
+	*opts = append(*opts, datapages.WithPrometheus(datapages.PrometheusConfig{
 		Host: net.JoinHostPort(host, port),
 	}))
 }
 
-func listenAndServe(ctx context.Context, s *datapagesgen.Server, host string) {
+func listenAndServe(ctx context.Context, s datapages.Server, host string) {
 	pathCert := os.Getenv("PATH_TLS_CERT")
 	pathKey := os.Getenv("PATH_TLS_KEY")
 

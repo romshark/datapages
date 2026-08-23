@@ -11,13 +11,14 @@ import (
 	"testing"
 
 	"github.com/romshark/datapages/internal/acceptance/recovererror/app"
-	"github.com/romshark/datapages/internal/acceptance/recovererror/datapagesgen"
-	"github.com/romshark/datapages/modules/msgbroker/inmem"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
 func newServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(datapagesgen.NewServer(&app.App{}, inmem.New(8)))
+	srv := httptest.NewServer(mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
 	t.Cleanup(srv.Close)
 	return srv
 }

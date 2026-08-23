@@ -4,11 +4,11 @@
 <span class="kw">func</span> (p <span class="ty">PageProfile</span>) <span class="fn">GET</span>(
     r *http.<span class="ty">Request</span>,
     session <span class="ty">Session</span>,
-    path <span class="kw">struct</span> {
+    path datapages.<span class="ty">Path</span>[<span class="kw">struct</span> {
         ID <span class="ty">string</span> <span class="st">&#96;path:"id"&#96;</span>
-    },
+    }],
 ) (body datapages.<span class="ty">Component</span>, err <span class="ty">error</span>) {
-    user, err := p.App.repo.<span class="fn">FindUser</span>(path.ID)
+    user, err := p.App.repo.<span class="fn">FindUser</span>(path.Values.ID)
     <span class="kw">if</span> err != <span class="kw">nil</span> {
         <span class="kw">return</span> <span class="kw">nil</span>, err
     }
@@ -19,10 +19,10 @@
 <span class="kw">func</span> (p <span class="ty">PageProfile</span>) <span class="fn">POSTFollow</span>(
     r *http.<span class="ty">Request</span>,
     session <span class="ty">Session</span>,
-    path <span class="kw">struct</span> {
+    path datapages.<span class="ty">Path</span>[<span class="kw">struct</span> {
         ID <span class="ty">string</span> <span class="st">&#96;path:"id"&#96;</span>
-    },
-    dispatch datapages.<span class="ty">Dispatch</span>[<span class="ty">EventUserFollowed</span>],
+    }],
+    userFollowed datapages.<span class="ty">Dispatcher</span>[<span class="ty">EventUserFollowed</span>],
 ) <span class="ty">error</span> {
-    <span class="kw">return</span> <span class="fn">dispatch</span>(<span class="ty">EventUserFollowed</span>{TargetID: path.ID})
+    <span class="kw">return</span> userFollowed.<span class="fn">Dispatch</span>(<span class="ty">EventUserFollowed</span>{TargetID: path.Values.ID})
 }</pre>
