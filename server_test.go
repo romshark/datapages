@@ -157,9 +157,9 @@ func TestNewServerErr(t *testing.T) {
 				datapages.DisableSessions,
 				datapages.DisablePrometheus,
 				testServer,
-			](app, broker, datapages.WithCSRFProtection(datapages.CSRFConfig{}))
+			](app, broker, datapages.WithMiddleware(nil))
 			return err
-		}, "applying server option: nil CSRF tokens"},
+		}, "applying server option: WithMiddleware: nil middleware at index 0"},
 		"failing init": {func() error {
 			_, err := datapages.NewServer[
 				testApp,

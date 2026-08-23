@@ -3,52 +3,38 @@
 package acceptance_test
 
 import (
-	"crypto/sha256"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/getsignals/app"
-	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
+	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 	"github.com/romshark/datapages/modules/sessions"
 	sessinmem "github.com/romshark/datapages/modules/sessions/inmem"
 )
 
-// newClient starts the server and returns a client that keeps its cookies,
-// together with the CSRF token manager and the session manager, which a test
-// needs to send an action as the visitor the session names.
-func newClient(t *testing.T) (
-	*client.Client, *csrfhmac.Tokens, *sessinmem.SessionManager[struct{}],
-) {
+// newClient starts the server and returns a client that keeps its cookies.
+func newClient(t *testing.T) *client.Client {
 	t.Helper()
-	key := sha256.Sum256([]byte("acceptance-csrf"))
-	tm, err := csrfhmac.New(key[:])
-	require.NoError(t, err, "building CSRF token manager")
 	inMemSessions := sessinmem.New[struct{}](
 		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 	)
 	h := mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer),
-		inMemSessions,
-		datapages.WithCSRFProtection(datapages.CSRFConfig{Tokens: tm}))
-	return client.New(t, h).WithJar(t), tm, inMemSessions
+		inMemSessions)
+	return client.New(t, h).WithJar(t)
 }
 
-// issuedAt is the time the server stamped on the session the response set.
-// Datapages stamps it, so a test that has to reproduce a CSRF token
-// reads it back rather than predicting it.
-func issuedAt(
-	t *testing.T,
-	sessions *sessinmem.SessionManager[struct{}],
-	resp client.Response,
-) time.Time {
+// csrfToken is the token the visitor sends back on an action.
+// Datapages derives it from the session token, which is what the response set
+// the session cookie to.
+func csrfToken(t *testing.T, resp client.Response) string {
 	t.Helper()
 	for _, raw := range resp.Header.Values("Set-Cookie") {
 		ck, err := http.ParseSetCookie(raw)
@@ -56,12 +42,13 @@ func issuedAt(
 		if ck.Name != "sessiontoken" {
 			continue
 		}
-		rec, err := sessions.Session(t.Context(), ck.Value)
-		require.NoError(t, err, "reading the session record")
-		return rec.IssuedAt
+		var b strings.Builder
+		_, err = csrf.Tokens{}.WriteToken(&b, ck.Value)
+		require.NoError(t, err, "writing the CSRF token")
+		return b.String()
 	}
 	t.Fatal("the response set no session cookie")
-	return time.Time{}
+	return ""
 }
 
 // signalsQuery is how the Datastar client sends signals on a GET.
@@ -71,7 +58,7 @@ func signalsQuery(json string) string {
 
 // TestGETReadsSignals covers a page load carrying signals.
 func TestGETReadsSignals(t *testing.T) {
-	c, _, _ := newClient(t)
+	c := newClient(t)
 
 	resp := c.Get(t, signalsQuery(`{"term":"shoes","page":3}`))
 
@@ -82,7 +69,7 @@ func TestGETReadsSignals(t *testing.T) {
 // TestGETWithoutSignals covers the ordinary page load:
 // a visitor who typed the URL sends no signals and the handler is given the zero value.
 func TestGETWithoutSignals(t *testing.T) {
-	c, _, _ := newClient(t)
+	c := newClient(t)
 
 	resp := c.Get(t, "/")
 
@@ -93,7 +80,7 @@ func TestGETWithoutSignals(t *testing.T) {
 // TestGETWithMalformedSignals covers a datastar parameter that is not signals.
 // The request is refused rather than served a page built from nothing.
 func TestGETWithMalformedSignals(t *testing.T) {
-	c, _, _ := newClient(t)
+	c := newClient(t)
 
 	resp := c.Get(t, signalsQuery(`{"term":`))
 
@@ -103,7 +90,7 @@ func TestGETWithMalformedSignals(t *testing.T) {
 // TestGETIssuesASession covers a page load that returns newSession:
 // the cookie is set on that same response, and the next page load reads the session.
 func TestGETIssuesASession(t *testing.T) {
-	c, _, _ := newClient(t)
+	c := newClient(t)
 
 	enter := c.Get(t, "/enter/")
 	require.Equal(t, http.StatusOK, enter.Status)
@@ -120,12 +107,12 @@ func TestGETIssuesASession(t *testing.T) {
 // TestActionClosesTheSession covers the other end: an action that reads only
 // the session token ends the session, and the page stops seeing it.
 func TestActionClosesTheSession(t *testing.T) {
-	c, csrf, sessions := newClient(t)
+	c := newClient(t)
 
 	enter := c.Get(t, "/enter/")
 	require.Equal(t, "term= page=0 user=alice", c.Get(t, "/").Element(t, "echo"))
 
-	token := csrf.GenerateToken("alice", issuedAt(t, sessions, enter).Unix())
+	token := csrfToken(t, enter)
 	req := c.Request(t, http.MethodPost, "/leave/", "")
 	req.Header.Set("X-CSRF-Token", token)
 	require.Equal(t, http.StatusOK, c.Do(t, req).Status)

@@ -47,6 +47,12 @@ type Metrics interface {
 	OnDeliveryDropped()
 }
 
+// NoopMetrics implements [Metrics] and counts nothing.
+type NoopMetrics struct{}
+
+func (NoopMetrics) OnPublish(subject string) {}
+func (NoopMetrics) OnDeliveryDropped()       {}
+
 // StreamInitializer is an optional interface that message brokers can implement
 // to receive the set of stream subjects during server initialization.
 // Brokers that require the destination of a message to be declared up front,

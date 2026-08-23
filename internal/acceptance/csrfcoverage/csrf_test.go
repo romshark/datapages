@@ -12,9 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/app"
-	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 	"github.com/romshark/datapages/modules/sessions"
@@ -28,10 +26,6 @@ import (
 // which is the request a cross-site page can make their browser send.
 // The server refuses it and the action does not take effect.
 func TestCSRFCoversEveryAction(t *testing.T) {
-	tm, err := csrfhmac.New([]byte("acceptance-csrf-secret-value-0123"))
-	if err != nil {
-		t.Fatalf("building CSRF token manager: %v", err)
-	}
 	sessions := sessinmem.New[struct{}](
 		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 	)
@@ -39,9 +33,6 @@ func TestCSRFCoversEveryAction(t *testing.T) {
 	srv := httptest.NewServer(mustNewServer(
 		t,
 		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), sessions,
-		datapages.WithCSRFProtection(
-			datapages.CSRFConfig{Tokens: tm},
-		),
 	))
 	t.Cleanup(srv.Close)
 

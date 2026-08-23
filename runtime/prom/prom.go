@@ -212,6 +212,15 @@ func (AuthMetrics) SessionRead(outcome string)    { SessionRead(outcome) }
 func (AuthMetrics) SessionCreated(outcome string) { SessionCreated(outcome) }
 func (AuthMetrics) SessionClosed(outcome string)  { SessionClosed(outcome) }
 
+// StreamMetrics counts what the stream handler does.
+// It implements stream.Metrics.
+type StreamMetrics struct{}
+
+func (StreamMetrics) ConnectionOpened()              { SSEConnectionOpened() }
+func (StreamMetrics) ConnectionClosed()              { SSEConnectionClosed() }
+func (StreamMetrics) Disconnect(reason string)       { SSEDisconnect(reason) }
+func (StreamMetrics) ConnectionDuration(t time.Time) { SSEConnectionDuration(t) }
+
 // BrokerPublish counts an event published, by the kind of its subject.
 func BrokerPublish(subjectKind string) {
 	mBrokerEventPublishes.WithLabelValues(subjectKind).Inc()

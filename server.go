@@ -14,6 +14,8 @@ import (
 
 // IsDevMode returns true when in the development environment.
 // Returns false for production environments.
+//
+// Only templier sets the variable, which is what "datapages watch" runs the app under.
 func IsDevMode() bool { return os.Getenv("TEMPL_DEV_MODE") != "" }
 
 // DisableSessions disables session-based authentication code generation and

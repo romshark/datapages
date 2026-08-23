@@ -20,10 +20,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/brokers"
 	"github.com/romshark/datapages/internal/acceptance/sessions/app"
-	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
+	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
 	sessinmem "github.com/romshark/datapages/modules/sessions/inmem"
@@ -31,18 +30,16 @@ import (
 
 const cookieName = "sessiontoken"
 
-var csrfSecret = []byte("acceptance-csrf-secret-value-0123")
-
 type server struct {
 	*httptest.Server
-	csrf     *csrfhmac.Tokens
+	csrf     csrf.Tokens
 	sessions *sessinmem.SessionManager[app.SessionData]
 }
 
 // newServer starts the generated server.
 //
-// An app that declares a Session type must be given a CSRF token manager:
-// datapages.NewServer fails without one, which is asserted separately below.
+// An app that declares a Session type is CSRF protected without being given
+// anything: the token is derived from the session token.
 func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
 
 func newServer(t *testing.T, broker messaging.Broker) server {
@@ -52,19 +49,9 @@ func newServer(t *testing.T, broker messaging.Broker) server {
 		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 	)
 
-	tm, err := csrfhmac.New(csrfSecret)
-	if err != nil {
-		t.Fatalf("building CSRF token manager: %v", err)
-	}
-
-	s := httptest.NewServer(mustNewServer(t,
-		&app.App{}, broker, sessions,
-		datapages.WithCSRFProtection(
-			datapages.CSRFConfig{Tokens: tm},
-		),
-	))
+	s := httptest.NewServer(mustNewServer(t, &app.App{}, broker, sessions))
 	t.Cleanup(s.Close)
-	return server{Server: s, csrf: tm, sessions: sessions}
+	return server{Server: s, sessions: sessions}
 }
 
 // client is one visitor:
@@ -173,20 +160,35 @@ func (c *client) signIn(t *testing.T, user, nickname string) string {
 	if status != http.StatusOK {
 		t.Fatalf("signing in: status = %d\n%s", status, body)
 	}
-	c.token = c.srv.csrf.GenerateToken(user, c.issuedAt(t).Unix())
+	c.token = csrfToken(t, c.srv.csrf, c.sessionToken(t))
 	return c.token
 }
 
-// issuedAt is the time the server stamped on the visitor's session.
-// Datapages stamps it, so a test that has to reproduce a CSRF token
-// reads it back rather than predicting it.
-func (c *client) issuedAt(t *testing.T) time.Time {
+// csrfToken is the token derived from sessionToken as a string,
+// which is what a test sends where the browser would send the header.
+func csrfToken(t *testing.T, tokens csrf.Tokens, sessionToken string) string {
+	t.Helper()
+	var b strings.Builder
+	_, err := tokens.WriteToken(&b, sessionToken)
+	require.NoError(t, err, "writing the CSRF token")
+	return b.String()
+}
+
+// sessionToken is the token the visitor's session cookie carries,
+// which is what the CSRF token is derived from.
+func (c *client) sessionToken(t *testing.T) string {
 	t.Helper()
 	ck := c.cookie(t)
 	if ck == nil {
 		t.Fatal("the visitor holds no session cookie")
 	}
-	rec, err := c.srv.sessions.Session(context.Background(), ck.Value)
+	return ck.Value
+}
+
+// issuedAt is the time the server stamped on the visitor's session.
+func (c *client) issuedAt(t *testing.T) time.Time {
+	t.Helper()
+	rec, err := c.srv.sessions.Session(context.Background(), c.sessionToken(t))
 	if err != nil {
 		t.Fatalf("reading the session record: %v", err)
 	}
@@ -491,7 +493,7 @@ func TestCSRF(t *testing.T) {
 		t.Run("session request with a wrong token is refused", func(t *testing.T) {
 			c := srv.client(t)
 			c.signIn(t, "frank", "")
-			wrong := srv.csrf.GenerateToken("someone-else", c.issuedAt(t).Unix())
+			wrong := csrfToken(t, srv.csrf, "the-token-of-someone-else")
 			if status, _ := c.postWithToken(t, "/login/rename/",
 				`{"nickname":"F"}`, wrong); status != http.StatusForbidden {
 				t.Errorf("status = %d, want %d", status, http.StatusForbidden)

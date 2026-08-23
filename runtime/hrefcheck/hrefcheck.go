@@ -1,6 +1,28 @@
+// Package hrefcheck reports which URLs may go into an href attribute and
+// builds the URL path of a static asset.
+//
+// Application code must not import this package.
 package hrefcheck
 
-import "strings"
+import (
+	"path"
+	"strings"
+)
+
+// AssetPath is the URL path of the static asset p under prefix.
+//
+// Concatenation is the fast path, taken for the clean relative names a template writes.
+// Anything else goes through path.Join, which normalizes it.
+// Join does not confine the result to prefix. AssetPath("/static/", "../x") is "/x".
+// The result is a URL the router resolves, not a file system path.
+// It reaches the asset handler only while it keeps the prefix.
+func AssetPath(prefix, p string) string {
+	if p == "" || p == "." || p[0] == '/' ||
+		strings.HasPrefix(p, "..") || p != path.Clean(p) {
+		return path.Join(prefix, p)
+	}
+	return prefix + p
+}
 
 // IsAllowedNonRelativeHref returns false for:
 //   - empty/whitespace

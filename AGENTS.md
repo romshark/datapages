@@ -64,12 +64,15 @@ Public, imported by application or generated code:
 - `modules/` - pluggable modules: csrf, messaging, sessions.
 - `runtime/` - what generated code imports:
   - `httpserve` - the server core a generated one embeds: listener, routes,
-    middleware chain, logger, shutdown, redirect, Datastar request check and
-    dev-mode cache headers.
+    middleware chain, logger, shutdown, redirect, Datastar request check,
+    dev-mode cache headers, the assets file system and the HTML document
+    writer.
   - `auth` - session cookie, the record behind it and the CSRF check. Generic
     over the application's session data.
   - `sse` - implements `datapages.SSE` on the Datastar generator, which keeps
     datastar out of handler signatures.
+  - `stream` - serves the SSE event stream of a page: the broker subscription
+    behind it, the session that may end it and the shutdown that closes it.
   - `httpread` - reads cookies and query parameters the way `net/http` and
     `net/url` do, without their allocations. Fuzzed against them.
   - `htmlattr` - escapes values written into Datastar attributes. Fuzzed for
@@ -77,12 +80,17 @@ Public, imported by application or generated code:
   - `subject` - the subject token rule the parser and the dispatchers share.
   - `prom` - Prometheus metrics, registration and middleware.
   - `hrefcheck` - imported by generated `href` packages.
+  - `actionexpr` - builds the Datastar action expression: the call, its
+    options and the JavaScript around it. The generated `action` package
+    forwards to it.
 
 Examples, one module each:
 
 - `example/calculator/` - server-side evaluation.
 - `example/counter/` - the same counter twice in one module, `app/simple` and
   `app/fancy`, one entry point each. The multi-application example.
+- `example/todolist/` - collaborative todo list with per-tab server-side state
+  registered in `StreamOpen` and read by the event handlers.
 - `example/classifieds/` - the full application.
 - `example/tailwindcss/` - static page with Tailwind CSS.
 - `example/webcomponents/` - vanilla and Lit Web Components bundled via esbuild.
@@ -152,10 +160,6 @@ Any change to the generator requires `mage genDatapages` in the same commit.
 `TestExamplesAreUpToDate` (`internal/generator/generator_test.go:45`) and the
 acceptance tests regenerate and diff against the committed output, and report
 `run: mage genDatapages` when it differs, is missing or is no longer generated.
-
-An acceptance case whose `acceptance.json` has `"expect_build_error"` keeps no
-generated code. Its runner generates into a throwaway module, since the
-committed package is not supposed to compile.
 
 # Datapages Framework
 

@@ -8,17 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
-	"runtime/debug"
 	"strings"
-	"sync/atomic"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
+	"github.com/romshark/datapages/runtime/stream"
 	"github.com/romshark/datapages/runtime/subject"
 
 	"github.com/romshark/datapages/internal/acceptance/events/app"
@@ -38,45 +36,7 @@ const (
 	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
 
-// assetsFileSystem rejects datapages.WithAssets: the app package declares no
-// embed.FS with a URL path in its doc comment, hence there is nothing to serve.
-func assetsFileSystem(cfg datapages.ServerConfig) (http.FileSystem, error) {
-	if cfg.AssetsFS != nil {
-		return cfg.AssetsFS, nil
-	}
-	if cfg.AssetsEmbed != nil {
-		return nil, errors.New(
-			"datapages.WithAssets: the app package declares no assets",
-		)
-	}
-	return nil, nil
-}
-
-// brokerMetrics implements messaging.Metrics as a no-op.
-type brokerMetrics struct{}
-
-func (m brokerMetrics) OnPublish(subject string) {}
-func (m brokerMetrics) OnDeliveryDropped()       {}
-
-// --- Message Broker ---
-
 const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
-
-func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
-	s.Logger().Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
-	http.Error(w, msg, http.StatusBadRequest)
-}
-
-func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
-	if !httpserve.IsDatastarRequest(r) {
-		s.Logger().Debug("not a datastar request",
-			slog.Any("method", r.Method),
-			slog.String("path", r.URL.Path))
-		http.Error(w, http.StatusText(http.StatusNotAcceptable), http.StatusNotAcceptable)
-		return false
-	}
-	return true
-}
 
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
@@ -86,40 +46,12 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, s.HTMLPrefix())
-	if err != nil {
-		return err
-	}
-	if head != nil {
-		if err := head.Render(r.Context(), w); err != nil {
-			return err
-		}
-	}
-	if _, err := io.WriteString(w, "</head><body "); err != nil {
-		return err
-	}
-	if writeBodyAttrs != nil {
-		writeBodyAttrs(w)
-	}
-	if _, err := io.WriteString(w, ">"); err != nil {
-		return err
-	}
-	if body != nil {
-		if err := body.Render(r.Context(), w); err != nil {
-			return err
-		}
-	}
-	if writeBodySuffix != nil {
-		if _, err := io.WriteString(w, "<template "); err != nil {
-			return err
-		}
-		writeBodySuffix(w)
-		if _, err := io.WriteString(w, "></template>"); err != nil {
-			return err
-		}
-	}
-	_, err = io.WriteString(w, "</body></html>")
-	return err
+	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Head:            head,
+		Body:            body,
+		WriteBodyAttrs:  writeBodyAttrs,
+		WriteBodySuffix: writeBodySuffix,
+	})
 }
 
 func (s *Server) handleStreamRequest(
@@ -136,59 +68,14 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	if !s.checkIsDSReq(w, r) {
-		return
-	}
-
-	streamID := datapages.StreamID(s.streamSeq.Add(1))
-
-	// The subscription is established before the response head goes out.
-	// A client learns the stream is open by reading that head and may dispatch
-	// immediately after, which must not reach the broker before this.
-	ctx := r.Context()
-	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
-	if err != nil {
-		// Nothing has been written yet, so the error can still carry a status.
-		s.httpErrIntern(w, r, nil, "subscribing to message broker", err)
-		return
-	}
-
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-
-	subC := sub.C()
-	if onOpen != nil {
-		if err := onOpen(streamID, sse); err != nil {
-			sub.Close()
-			s.httpErrIntern(w, r, sse, "handling stream open hook", err)
-			return
-		}
-	}
-	go func() {
-		select {
-		case <-r.Context().Done():
-		case <-s.ShutdownCh():
-		}
-		sub.Close()
-		if onClose != nil {
-			// Not the goroutine net/http recovers.
-			defer func() {
-				if rec := recover(); rec != nil {
-					s.LogErr("recovering panic in stream close hook",
-						fmt.Errorf("%v\n%s", rec, debug.Stack()))
-				}
-			}()
-			onClose(streamID)
-		}
-	}()
-
-	fn(streamID, sse, subC)
+	s.streams.Handle(w, r, "", "", subjects, onOpen, onClose, fn)
 }
 
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
-	messageBrokerMetrics brokerMetrics
-	streamSeq            atomic.Uint64
+	messageBrokerMetrics messaging.NoopMetrics
+	streams              *stream.Handler
 	app                  *app.App
 }
 
@@ -220,7 +107,7 @@ func (s *Server) Init(
 			"the server is generated with datapages.DisablePrometheus")
 	}
 
-	assetsFS, err := assetsFileSystem(cfg)
+	assetsFS, err := httpserve.AssetsFileSystem(cfg, "", "")
 	if err != nil {
 		return err
 	}
@@ -229,13 +116,19 @@ func (s *Server) Init(
 	s.Core = httpserve.NewCore(cfg, "")
 	s.app = app
 	s.messageBroker = messageBroker
-	s.messageBrokerMetrics = brokerMetrics{}
+	s.messageBrokerMetrics = messaging.NoopMetrics{}
 
 	if si, ok := s.messageBroker.(messaging.StreamInitializer); ok {
 		if err := si.InitStreams(MessageBrokerStreamSubjects()); err != nil {
 			return fmt.Errorf("initializing message broker streams: %w", err)
 		}
 	}
+	s.streams = stream.NewHandler(
+		s.Core, messageBroker, s.messageBrokerMetrics,
+		nil,
+		nil,
+		s.httpErrIntern,
+	)
 
 	setupHandlers(s)
 
@@ -339,18 +232,7 @@ func (s *Server) httpErrIntern(
 	_ *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
-	switch {
-	case errors.Is(err, datapages.ErrBadRequest):
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	case errors.Is(err, datapages.ErrForbidden):
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-	case errors.Is(err, datapages.ErrNotFound):
-		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-	case errors.Is(err, datapages.ErrConflict):
-		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
-	default:
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-	}
+	httpserve.WriteErrStatus(w, err)
 }
 
 func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
@@ -386,7 +268,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
@@ -461,7 +343,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 func (s *Server) handlePageIndexPOSTNote(
 	w http.ResponseWriter, r *http.Request,
 ) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
@@ -469,7 +351,7 @@ func (s *Server) handlePageIndexPOSTNote(
 		Text string `json:"text"`
 	}]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.httpErrBad(w, "reading signals", err)
+		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
 
@@ -487,7 +369,7 @@ func (s *Server) handlePageIndexPOSTNote(
 func (s *Server) handlePageIndexPOSTTick(
 	w http.ResponseWriter, r *http.Request,
 ) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
@@ -495,7 +377,7 @@ func (s *Server) handlePageIndexPOSTTick(
 		N int `json:"n"`
 	}]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.httpErrBad(w, "reading signals", err)
+		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
 
@@ -513,7 +395,7 @@ func (s *Server) handlePageIndexPOSTTick(
 func (s *Server) handlePageIndexPOSTBoth(
 	w http.ResponseWriter, r *http.Request,
 ) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
@@ -521,7 +403,7 @@ func (s *Server) handlePageIndexPOSTBoth(
 		N int `json:"n"`
 	}]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.httpErrBad(w, "reading signals", err)
+		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
 
@@ -541,7 +423,7 @@ func (s *Server) handlePageIndexPOSTBoth(
 func (s *Server) handlePageIndexPOSTCanceled(
 	w http.ResponseWriter, r *http.Request,
 ) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
@@ -549,7 +431,7 @@ func (s *Server) handlePageIndexPOSTCanceled(
 		N int `json:"n"`
 	}]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.httpErrBad(w, "reading signals", err)
+		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
 
@@ -617,7 +499,7 @@ func (s *Server) handlePageOtherGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
@@ -679,7 +561,7 @@ func (s *Server) handlePageRoomGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePageRoomGETStream(w http.ResponseWriter, r *http.Request) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
@@ -687,11 +569,11 @@ func (s *Server) handlePageRoomGETStream(w http.ResponseWriter, r *http.Request)
 		Room string `json:"room"`
 	}
 	if err := datastar.ReadSignals(r, &subjSignals); err != nil {
-		s.httpErrBad(w, "reading signals", err)
+		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
 	if !subject.IsToken(subjSignals.Room) {
-		s.httpErrBad(w, "invalid signal",
+		s.HTTPErrBad(w, "invalid signal",
 			fmt.Errorf("signal %q must be a non-empty subject token", "room"))
 		return
 	}
@@ -736,7 +618,7 @@ func (s *Server) handlePageRoomGETStream(w http.ResponseWriter, r *http.Request)
 func (s *Server) handlePageRoomPOSTSay(
 	w http.ResponseWriter, r *http.Request,
 ) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
@@ -745,7 +627,7 @@ func (s *Server) handlePageRoomPOSTSay(
 		Text string `json:"text"`
 	}]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.httpErrBad(w, "reading signals", err)
+		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
 
@@ -763,7 +645,7 @@ func (s *Server) handlePageRoomPOSTSay(
 func (s *Server) handlePageRoomPOSTBroadcast(
 	w http.ResponseWriter, r *http.Request,
 ) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
@@ -772,7 +654,7 @@ func (s *Server) handlePageRoomPOSTBroadcast(
 		Text  string   `json:"text"`
 	}]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.httpErrBad(w, "reading signals", err)
+		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
 

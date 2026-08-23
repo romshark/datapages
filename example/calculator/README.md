@@ -93,6 +93,9 @@ keyboard events to button clicks and validates clipboard paste input.
 - [Go](https://go.dev/dl/) 1.27+
 - [Mage](https://magefile.org/) build tool
 - [Datapages](https://github.com/romshark/datapages) CLI (for `datapages watch`)
+- A running Docker daemon, for server and dev mode only. `mage runServer` and
+  `mage dev` start the NATS server of `docker-compose.yml` and take it down
+  again on exit. `mage runDesktop` needs none because it runs on the in-memory broker.
 - [Maestro](https://maestro.dev) CLI (for E2E tests only):
   [install instructions](https://docs.maestro.dev/maestro-cli/how-to-install-maestro-cli)
 

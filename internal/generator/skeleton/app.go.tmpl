@@ -16,7 +16,7 @@ import (
 type App struct{}
 
 // Session carries no application data yet. Replace struct{} with your own type
-// to keep data in the session, it's available as session.Data in handlers.
+// to keep data in the session, handlers read it with session.Data().
 type Session = datapages.Session[struct{}]
 
 func (*App) Head(r *http.Request) datapages.Head {

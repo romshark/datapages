@@ -59,7 +59,9 @@ Any action method, `OnXXX`, `StreamOpen`, or `StreamClose` may also take
 
 `XXX` is just a name placeholder.
 
-Page types must only contain the exported `App *App` field, no more, no less.
+A page type must declare exactly one named field, the exported `App *App`.
+Any other named field is rejected. Embedded types are the exception and are
+validated separately, see [Abstract Page Types](#abstract-page-types).
 Methods can be enriched with capabilities through parameters.
 
 URLs must be specified by a strictly formatted comment
@@ -182,7 +184,8 @@ func (PageIndex) OnSomethingHappened(
 
 `StreamOpen` runs after the page SSE stream has been established and before
 any event handler is invoked.
-It may return only `error`. If it returns an error, stream setup stops immediately and
+It returns `error`, or nothing at all. `error` is the only return value it may declare.
+If it returns an error, stream setup stops immediately and
 the stream is closed.
 Datapages handles the error like any other Datastar request error: if `RecoverError`
 is defined it is invoked, otherwise the server falls back to its internal-error path.
@@ -208,7 +211,7 @@ func (PageIndex) StreamOpen(
 ```
 
 `StreamClose` runs when the page SSE stream closes.
-It may return only `error`.
+It returns `error`, or nothing at all. `error` is the only return value it may declare.
 If it returns an error, datapages logs the error server-side.
 
 ```go
@@ -1066,10 +1069,13 @@ func (p PageIndex) POSTInput(...) error {
 ```
 
 Available sentinels:
-- `datapages.ErrBadRequest` — 400
-- `datapages.ErrForbidden` — 403
-- `datapages.ErrNotFound` — 404
-- `datapages.ErrConflict` — 409
+- `datapages.ErrBadRequest` - 400
+- `datapages.ErrForbidden` - 403
+- `datapages.ErrNotFound` - 404
+- `datapages.ErrConflict` - 409
+
+Don't wrap more than one sentinel into a single error. If you do, the first of
+`ErrBadRequest`, `ErrForbidden`, `ErrNotFound`, `ErrConflict` decides the status.
 
 Return a sentinel directly, or wrap into the original error. When `RecoverError` is
 defined, all errors (including the datapages sentinels) are routed through it first. If
@@ -1139,18 +1145,37 @@ template-specific checks on `.templ` files:
 - **Hardcoded action URLs**: using a hardcoded URL in a Datastar action context
   (e.g. `@post('/foo/bar')`) instead of the generated `action` package
   (e.g. `action={ action.POSTPageProfileSave() }`).
+- **Unverifiable action expression**: an expression in a Datastar action context
+  that is not a plain `action.XXX()` call (e.g.
+  `data-on:click={ buildAction() }`, `data-on:click={ fmt.Sprintf(...) }`).
+  The linter cannot statically verify these.
+- **Action call with a prefix or suffix**: an `action.XXX()` call concatenated
+  with another string (e.g. `data-on:click={ "$busy = true; " + action.POSTPageIndexSave() }`).
+  Reported separately from the generic unverifiable case, with the concatenated
+  side named. Use `action.WithBefore(expr)` and `action.WithAfter(expr)`
+  instead, which put the expression inside the generated action string.
 - **Form action attribute**: using a `<form action=...>` attribute (constant or
   expression). Datapages does not support plain HTML form submissions — use
   `data-on:submit` with Datastar actions instead.
-- **Action context**: using an `action.XXX()` call in an attribute that is not a Datastar
-  action context (`data-on:<event>`, `data-on-<plugin>`, `data-init`). For example,
-  `action.POSTPageIndexSubmit()` in an `href` attribute.
-- **Href context**: using an `href.XXX()` call in a Datastar action context
-  (`data-on:<event>`, `data-on-<plugin>`, `data-init`). Href functions return URL paths,
-  not Datastar action strings — use `action.XXX()` instead.
+- **Action context**: using an `action.XXX()` call in an attribute that is not a
+  Datastar action context.
+  For example, `action.POSTPageIndexSubmit()` in an `href` attribute.
+- **Href context**: using an `href.XXX()` call in a Datastar action context.
+  Href functions return URL paths, not Datastar action strings,
+  use `action.XXX()` instead.
 - **Action on wrong page**: using an action that belongs to a different page
   (e.g. `action.POSTPageProfileSave()` in a template rendered by `PageSettings`).
   App-level actions are allowed on any page.
+
+These attributes are the Datastar action contexts, and no others:
+
+- `data-on:<event>`, any DOM event.
+- `data-on-intersect`, `data-on-interval` and `data-on-signal-patch`,
+  the plugin events the linter knows.
+- `data-init`.
+
+The plugin and `data-init` attributes may carry Datastar modifiers
+(`data-on-intersect.once`, `data-on-interval__duration.500ms`).
 
 ### Allowed href values
 
@@ -1207,9 +1232,9 @@ cross-page action ownership errors.
 
 ## Technical Limitations
 
-- For now, with CSRF protection enabled, you will not be able to use plain HTML forms,
-  since the CSRF token is auto-injected for Datastar `fetch` requests
-  (where `Datastar-Request` header is `true`).
+- For now, an application that declares a session type cannot use plain HTML forms.
+  CSRF protection is on for it and the CSRF token is auto-injected only for
+  Datastar `fetch` requests (where the `Datastar-Request` header is `true`).
   You must use Datastar actions for any sort of server interactivity.
 
 - The href linter cannot detect absolute links to your own domain

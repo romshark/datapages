@@ -16,9 +16,6 @@ var appStaticContent string
 //go:embed app_static_prom.go.txt
 var appStaticPromContent string
 
-//go:embed app_static_noprom.go.txt
-var appStaticNoPromContent string
-
 //go:embed app_static_2.go.txt
 var appStaticContent2 string
 
@@ -33,24 +30,10 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 
 	w.writeAppHeader(pkgName, m.PkgPath, needsJSON(m))
 	w.Raw(appStaticContent)
-	w.writeAssetsFileSystem()
 	if w.prometheus {
 		w.Raw(appStaticPromContent)
-	} else {
-		w.Raw(appStaticNoPromContent)
 	}
 	w.Raw(appStaticContent2)
-	if w.usage.httpErrBad {
-		w.Raw(`
-func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
-	s.Logger().Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
-	http.Error(w, msg, http.StatusBadRequest)
-}
-`)
-	}
-	if w.usage.needsCheckIsDSReq() {
-		w.writeCheckIsDSReq()
-	}
 	if w.usage.privateStreams {
 		w.writeCheckUserSubject()
 	}
@@ -174,6 +157,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"github.com/romshark/datapages/runtime/httpread"`)
 	w.Line(1, `"github.com/romshark/datapages/runtime/httpserve"`)
 	w.Line(1, `dpsse "github.com/romshark/datapages/runtime/sse"`)
+	w.Line(1, `"github.com/romshark/datapages/runtime/stream"`)
 	w.Line(1, `"github.com/romshark/datapages/runtime/subject"`)
 	w.Line(1, `"golang.org/x/sync/errgroup"`)
 	w.Line(0, "")
@@ -209,50 +193,13 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 
 func (w *Writer) hasAssets() bool { return w.assetsURLPrefix != "" }
 
-// writeAssetsFileSystem emits what turns the embed.FS of
-// datapages.WithAssets into the file system the routes are served from.
-// Only the generated code knows the subdirectory and the dev-mode path,
-// both of which the app package declared.
-func (w *Writer) writeAssetsFileSystem() {
-	if !w.hasAssets() {
-		w.Raw(`
-// assetsFileSystem rejects datapages.WithAssets: the app package declares no
-// embed.FS with a URL path in its doc comment, hence there is nothing to serve.
-func assetsFileSystem(cfg datapages.ServerConfig) (http.FileSystem, error) {
-	if cfg.AssetsFS != nil {
-		return cfg.AssetsFS, nil
+// brokerMetricsType names what implements messaging.Metrics for the broker.
+// Only a Prometheus build has counters to feed, the rest count nothing.
+func (w *Writer) brokerMetricsType() string {
+	if w.prometheus {
+		return "brokerMetrics"
 	}
-	if cfg.AssetsEmbed != nil {
-		return nil, errors.New(
-			"datapages.WithAssets: the app package declares no assets",
-		)
-	}
-	return nil, nil
-}
-`)
-		return
-	}
-	w.Raw(`
-// assetsFileSystem is what the static files are served from.
-// In dev mode (datapages.IsDevMode) they are read from disk (assets.DevDir)
-// so that a change reloads without recompilation.
-func assetsFileSystem(cfg datapages.ServerConfig) (http.FileSystem, error) {
-	if cfg.AssetsFS != nil {
-		return cfg.AssetsFS, nil
-	}
-	if cfg.AssetsEmbed == nil {
-		return nil, nil
-	}
-	if datapages.IsDevMode() {
-		return http.Dir(assets.DevDir), nil
-	}
-	sub, err := fs.Sub(*cfg.AssetsEmbed, assets.Dir)
-	if err != nil {
-		return nil, fmt.Errorf("datapages.WithAssets: %w", err)
-	}
-	return http.FS(sub), nil
-}
-`)
+	return "messaging.NoopMetrics"
 }
 
 func (w *Writer) writeAppCheckCSRF() {
@@ -282,119 +229,33 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-`)
-
-	if !w.usage.stateRuntime {
-		w.Raw(`	_, err := io.WriteString(w, s.HTMLPrefix())
-	if err != nil {
-		return err
-	}
-`)
-	} else {
-		// The fetch wrapper goes between the two halves of the prefix.
-		// It must be installed before anything else on the page can fetch.
-		w.Raw(`	_, err := io.WriteString(w, s.HTMLHead())
-	if err != nil {
-		return err
-	}
-`)
-		w.writeStateFetchWrapper()
-		w.Raw(`	if _, err := io.WriteString(w, s.HTMLDatastarScript()); err != nil {
-		return err
-	}
-`)
-	}
-
-	if m.GlobalHeadGenerator != nil {
-		w.Raw(`	if headGeneric != nil {
-		if err := headGeneric.Render(r.Context(), w); err != nil {
-			return err
-		}
-	}
-`)
-	}
-
-	w.Raw(`	if head != nil {
-		if err := head.Render(r.Context(), w); err != nil {
-			return err
-		}
-	}
+	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
 `)
 	if m.Session != nil {
-		w.Raw(`	if sess.UserID() != "" {
-		csrfToken := s.CSRFToken(sess.UserID(), sess.IssuedAt())
-		if csrfToken != "" {
-			// Write the fetch X-CSRF-Token header injector.
-			if _, err := io.WriteString(w, ` + "`" + `
-	<script type="module">
-		const o = globalThis.fetch.bind(globalThis)
-		globalThis.fetch=(i,init={}) => {
-			const isReq=i instanceof Request
-			const r=isReq ? i:new Request(i,init)
-			if (r.headers.get("Datastar-Request")!=="true" ||
-				r.method=="GET"||r.method=="HEAD"||r.method=="OPTIONS"
-			) return isReq ? o(r,init):o(r)
-			const h=new Headers(r.headers)
-			h.set("X-CSRF-Token",'` + "`" + `); err != nil {
-				return err
-			}
-			if _, err := io.WriteString(w, csrfToken); err != nil {
-				return err
-			}
-			if _, err := io.WriteString(w, ` + "`" + `')
-			return o(new Request(r,{...init,headers:h}))
-		}
-	</script>` + "`" + `); err != nil {
-				return err
-			}
-		} else {
-			s.Logger().Warn("generated empty CSRF token",
-				slog.String("user-id", sess.UserID()),
-				slog.Time("issued-at", sess.IssuedAt()))
-		}
-	}
+		w.Raw(`		CSRF:            s.Manager,
+		UserID:          sess.UserID(),
+		SessionToken:    sess.Token(),
 `)
 	}
-	w.Raw(`	if _, err := io.WriteString(w, "</head><body "); err != nil {
-		return err
-	}
-	if writeBodyAttrs != nil {
-		writeBodyAttrs(w)
-	}
-	if _, err := io.WriteString(w, ">"); err != nil {
-		return err
-	}
-	if body != nil {
-		if err := body.Render(r.Context(), w); err != nil {
-			return err
-		}
-	}
-	if writeBodySuffix != nil {
-		if _, err := io.WriteString(w, "<template "); err != nil {
-			return err
-		}
-		writeBodySuffix(w)
-		if _, err := io.WriteString(w, "></template>"); err != nil {
-			return err
-		}
-	}
-	_, err = io.WriteString(w, "</body></html>")
-	return err
-}
+	if m.GlobalHeadGenerator != nil {
+		w.Raw(`		HeadGeneric:     headGeneric,
 `)
-}
-
-func (w *Writer) writeCheckIsDSReq() {
-	w.Raw(`
-func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
-	if !httpserve.IsDatastarRequest(r) {
-		s.Logger().Debug("not a datastar request",
-			slog.Any("method", r.Method),
-			slog.String("path", r.URL.Path))
-		http.Error(w, http.StatusText(http.StatusNotAcceptable), http.StatusNotAcceptable)
-		return false
 	}
-	return true
+	if w.usage.stateRuntime {
+		// The wrapper writes to the response writer this closure captures,
+		// which is the same writer httpserve hands the prologue.
+		w.Raw(`		WriteHeadPrologue: func(io.Writer) error {
+`)
+		w.writeStateFetchWrapper()
+		w.Raw(`			return nil
+		},
+`)
+	}
+	w.Raw(`		Head:            head,
+		Body:            body,
+		WriteBodyAttrs:  writeBodyAttrs,
+		WriteBodySuffix: writeBodySuffix,
+	})
 }
 `)
 }
@@ -440,108 +301,13 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	if !s.checkIsDSReq(w, r) {
-		return
-	}
-
-	streamID := datapages.StreamID(s.streamSeq.Add(1))
-
-	// The subscription is established before the response head goes out.
-	// A client learns the stream is open by reading that head and may dispatch
-	// immediately after, which must not reach the broker before this.
-	ctx := r.Context()
-	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
-	if err != nil {
-		// Nothing has been written yet, so the error can still carry a status.
-		s.httpErrIntern(w, r, nil, "subscribing to message broker", err)
-		return
-	}
-
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-`)
-	if w.prometheus {
-		w.Raw(`	prom.SSEConnectionOpened()
-	defer prom.SSEConnectionClosed()
-	start := time.Now()
-`)
-	}
-	w.Raw(`
-	subC := sub.C()
-	if onOpen != nil {
-		if err := onOpen(streamID, sse); err != nil {
-			sub.Close()
-			s.httpErrIntern(w, r, sse, "handling stream open hook", err)
-			return
-		}
-	}
-`)
+	s.streams.Handle(w, r, `)
 	if w.usage.streamAuth {
-		w.Raw(`	sessionClosed := make(chan struct{})
-
-	if sess.UserID() != "" {
-		ctx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		if err := s.SessionManager().NotifyClosed(ctx, sessKey, func() {
-			close(sessionClosed)
-		}); err != nil {
-			// The open hook already ran. This stream holds whatever it took:
-			// a subscription, and on a stateful page an instance.
-			// The watchdog below is what usually gives those back and it does
-			// not exist yet.
-			sub.Close()
-			if onClose != nil {
-				onClose(streamID)
-			}
-			s.httpErrIntern(w, r, sse, "setting up session closure watcher", err)
-			return
-		}
+		w.Raw(`sessKey, sess.UserID()`)
+	} else {
+		w.Raw(`"", ""`)
 	}
-
-`)
-	}
-	w.Raw(`	go func() {
-		select {
-`)
-	if w.usage.streamAuth {
-		w.Raw(`		case <-sessionClosed:
-`)
-		if w.prometheus {
-			w.Raw(`			prom.SSEDisconnect("close")
-`)
-		}
-	}
-	w.Raw(`		case <-r.Context().Done():
-`)
-	if w.prometheus {
-		w.Raw(`			prom.SSEDisconnect("client")
-`)
-	}
-	w.Raw(`		case <-s.ShutdownCh():
-`)
-	if w.prometheus {
-		w.Raw(`			prom.SSEDisconnect("shutdown")
-`)
-	}
-	w.Raw(`		}
-`)
-	if w.prometheus {
-		w.Raw(`		prom.SSEConnectionDuration(start)
-`)
-	}
-	w.Raw(`		sub.Close()
-		if onClose != nil {
-			// Not the goroutine net/http recovers.
-			defer func() {
-				if rec := recover(); rec != nil {
-					s.LogErr("recovering panic in stream close hook",
-						fmt.Errorf("%v\n%s", rec, debug.Stack()))
-				}
-			}()
-			onClose(streamID)
-		}
-	}()
-
-	fn(streamID, sse, subC)
+	w.Raw(`, subjects, onOpen, onClose, fn)
 }
 `)
 }
@@ -551,9 +317,15 @@ func (w *Writer) writeAppServerStruct(appPkg string) {
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
-	messageBrokerMetrics brokerMetrics
-	streamSeq            atomic.Uint64
-	app                  *`)
+	messageBrokerMetrics `)
+	w.Raw(w.brokerMetricsType())
+	w.Raw(`
+`)
+	if w.usage.stream {
+		w.Raw(`	streams              *stream.Handler
+`)
+	}
+	w.Raw(`	app                  *`)
 	w.Raw(appPkg)
 	w.Raw(`.App
 `)
@@ -603,7 +375,7 @@ func (w *Writer) writeAppInit(appPkg string) {
 		w.Raw(`
 //   - datapages.WithSessionManager (required)
 //   - datapages.WithSessions
-//   - datapages.WithCSRFProtection (required)`)
+//   - datapages.WithCSRFProtection`)
 	}
 	if w.prometheus {
 		w.Raw(`
@@ -653,9 +425,6 @@ func (s *Server) Init(
 		w.Raw(`	if sessionManager == nil {
 		return errors.New("missing option WithSessionManager")
 	}
-	if cfg.CSRF == nil {
-		return errors.New("missing option WithCSRFProtection")
-	}
 `)
 	}
 	if w.usage.stateRuntime {
@@ -666,7 +435,13 @@ func (s *Server) Init(
 `)
 	}
 	w.Raw(`
-	assetsFS, err := assetsFileSystem(cfg)
+	assetsFS, err := httpserve.AssetsFileSystem(cfg, `)
+	if w.hasAssets() {
+		w.Raw(`assets.DevDir, assets.Dir`)
+	} else {
+		w.Raw(`"", ""`)
+	}
+	w.Raw(`)
 	if err != nil {
 		return err
 	}
@@ -681,7 +456,9 @@ func (s *Server) Init(
 	w.Raw(`)
 	s.app = app
 	s.messageBroker = messageBroker
-	s.messageBrokerMetrics = brokerMetrics{}
+	s.messageBrokerMetrics = `)
+	w.Raw(w.brokerMetricsType())
+	w.Raw(`{}
 
 	if si, ok := s.messageBroker.(messaging.StreamInitializer); ok {
 		if err := si.InitStreams(MessageBrokerStreamSubjects()); err != nil {
@@ -694,7 +471,7 @@ func (s *Server) Init(
 `)
 	}
 	if w.usage.hasSession {
-		w.Raw(`	s.Manager = auth.NewManager(s.Core, sessionManager, cfg.Auth, cfg.CSRF, `)
+		w.Raw(`	s.Manager = auth.NewManager(s.Core, sessionManager, cfg, `)
 		if w.prometheus {
 			w.Raw(`prom.AuthMetrics{}`)
 		} else {
@@ -703,19 +480,31 @@ func (s *Server) Init(
 		w.Raw(`)
 `)
 	}
+	if w.usage.stream {
+		w.Raw(`	s.streams = stream.NewHandler(
+		s.Core, messageBroker, s.messageBrokerMetrics,
+`)
+		if w.usage.streamAuth {
+			w.Raw(`		s.SessionManager(),
+`)
+		} else {
+			w.Raw(`		nil,
+`)
+		}
+		if w.prometheus {
+			w.Raw(`		prom.StreamMetrics{},
+`)
+		} else {
+			w.Raw(`		nil,
+`)
+		}
+		w.Raw(`		s.httpErrIntern,
+	)
+`)
+	}
 	w.Raw(`
 	setupHandlers(s)
 `)
-	if w.hasAssets() {
-		w.Raw(`	if assetsFS != nil {
-		h := http.StripPrefix(assets.URLPrefix, http.FileServer(assetsFS))
-		if datapages.IsDevMode() {
-			h = httpserve.DevNoCache(h)
-		}
-		s.Mux().Handle("GET "+assets.URLPrefix, h)
-	}
-`)
-	}
 	w.Raw(`
 	s.Build()
 	href.SetLogger(s.Logger())
@@ -1306,18 +1095,7 @@ func (w *Writer) writeHTTPErrFallback() {
 `)
 		return
 	}
-	w.Raw(`	switch {
-	case errors.Is(err, datapages.ErrBadRequest):
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	case errors.Is(err, datapages.ErrForbidden):
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-	case errors.Is(err, datapages.ErrNotFound):
-		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-	case errors.Is(err, datapages.ErrConflict):
-		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
-	default:
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-	}
+	w.Raw(`	httpserve.WriteErrStatus(w, err)
 `)
 }
 
@@ -1533,7 +1311,7 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 	w.Raw("(w http.ResponseWriter, r *http.Request) {\n")
 
 	if h.InputSSE != nil || h.InputSignals != nil {
-		w.Line(1, "if !s.checkIsDSReq(w, r) {")
+		w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
 		w.Line(0, "")
@@ -1594,7 +1372,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 		w.Raw(renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
-		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
+		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}

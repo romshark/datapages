@@ -5,16 +5,46 @@
 package action
 
 import (
-	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/romshark/datapages/runtime/actionexpr"
 )
 
-type option struct {
-	key   string
-	value string
-	kind  uint8 // 0=option, 1=before, 2=after
-}
+// The generated helpers take the options of runtime/actionexpr.
+// Aliases keep them nameable from a template that imports only this package.
+type (
+	option              = actionexpr.Option
+	ContentType         = actionexpr.ContentType
+	Retry               = actionexpr.Retry
+	RequestCancellation = actionexpr.RequestCancellation
+)
+
+const (
+	// ContentTypeJSON sends all signals in a JSON request (default).
+	ContentTypeJSON = actionexpr.ContentTypeJSON
+	// ContentTypeForm looks for the closest form to the element,
+	// performs validation on form elements, and sends them as a form request.
+	// No signals are sent. Use WithSelector to target a specific form.
+	ContentTypeForm = actionexpr.ContentTypeForm
+
+	// RetryAuto retries on network errors only (default).
+	RetryAuto = actionexpr.RetryAuto
+	// RetryError retries on 4xx and 5xx responses.
+	RetryError = actionexpr.RetryError
+	// RetryAlways retries on all non-204 responses except redirects.
+	RetryAlways = actionexpr.RetryAlways
+	// RetryNever disables retries.
+	RetryNever = actionexpr.RetryNever
+
+	// RequestCancellationAuto cancels existing requests on the same element (default).
+	RequestCancellationAuto = actionexpr.RequestCancellationAuto
+	// RequestCancellationCleanup cancels existing requests on the same element
+	// and on element or attribute cleanup.
+	RequestCancellationCleanup = actionexpr.RequestCancellationCleanup
+	// RequestCancellationDisabled allows concurrent requests.
+	RequestCancellationDisabled = actionexpr.RequestCancellationDisabled
+)
 
 // WithOption creates an action option key-value pair.
 // The key is an option name and the value is a raw JavaScript expression.
@@ -37,40 +67,22 @@ type option struct {
 //
 // See https://data-star.dev/reference/actions#options
 func WithOption(key, value string) option {
-	return option{key: key, value: value}
+	return actionexpr.WithOption(key, value)
 }
 
 // WithBefore prepends a JavaScript expression before the action call.
 // Multiple before expressions are joined with "; " separators.
-func WithBefore(expr string) option {
-	return option{value: expr, kind: 1}
-}
+func WithBefore(expr string) option { return actionexpr.WithBefore(expr) }
 
 // WithAfter appends a JavaScript expression after the action call.
 // Multiple after expressions are joined with "; " separators.
-func WithAfter(expr string) option {
-	return option{value: expr, kind: 2}
-}
-
-// ContentType is the type of content to send with an action request.
-//
-// See https://data-star.dev/reference/actions#options
-type ContentType string
-
-const (
-	// ContentTypeJSON sends all signals in a JSON request (default).
-	ContentTypeJSON ContentType = "'json'"
-	// ContentTypeForm looks for the closest form to the element,
-	// performs validation on form elements, and sends them as a form request.
-	// No signals are sent. Use WithSelector to target a specific form.
-	ContentTypeForm ContentType = "'form'"
-)
+func WithAfter(expr string) option { return actionexpr.WithAfter(expr) }
 
 // WithContentType creates an action option that controls the content type:
 //   - ContentTypeJSON (default)
 //   - ContentTypeForm
 func WithContentType(ct ContentType) option {
-	return option{key: "contentType", value: string(ct)}
+	return actionexpr.WithContentType(ct)
 }
 
 // WithFilterSignals creates an action option with a regex pattern to match
@@ -80,57 +92,12 @@ func WithContentType(ct ContentType) option {
 //
 // See https://data-star.dev/reference/actions#options
 func WithFilterSignals(include, exclude string) option {
-	if include == "" {
-		include = ".*"
-	}
-	n := len("{include: /") + len(include) + len("/}")
-	if exclude != "" {
-		n += len(", exclude: /") + len(exclude) + len("/") // before closing }
-	}
-	var b strings.Builder
-	b.Grow(n)
-	b.WriteString("{include: /")
-	b.WriteString(include)
-	if exclude != "" {
-		b.WriteString("/, exclude: /")
-		b.WriteString(exclude)
-	}
-	b.WriteString("/}")
-	return option{key: "filterSignals", value: b.String()}
+	return actionexpr.WithFilterSignals(include, exclude)
 }
 
 // WithHeaders creates an action option with HTTP headers to send with the request.
 func WithHeaders(headers map[string]string) option {
-	if len(headers) == 0 {
-		return option{}
-	}
-	// Pre-calculate size assuming no escaping needed (lower bound).
-	n := 2 // {}
-	i := 0
-	for k, v := range headers {
-		if i > 0 {
-			n += 2 // ", "
-		}
-		i++
-		n += len(k) + len(v) + 6 // 'k': 'v'
-	}
-	var b strings.Builder
-	b.Grow(n)
-	b.WriteByte('{')
-	first := true
-	for k, v := range headers {
-		if !first {
-			b.WriteString(", ")
-		}
-		first = false
-		b.WriteString("'")
-		b.WriteString(escapeJS(k))
-		b.WriteString("': '")
-		b.WriteString(escapeJS(v))
-		b.WriteString("'")
-	}
-	b.WriteByte('}')
-	return option{key: "headers", value: b.String()}
+	return actionexpr.WithHeaders(headers)
 }
 
 // WithOpenWhenHidden creates an action option that controls whether to keep
@@ -138,85 +105,50 @@ func WithHeaders(headers map[string]string) option {
 // cause a drain on battery life. Defaults to false for get requests,
 // and true for all other HTTP methods.
 func WithOpenWhenHidden(open bool) option {
-	return option{key: "openWhenHidden", value: strconv.FormatBool(open)}
+	return actionexpr.WithOpenWhenHidden(open)
 }
 
 // WithPayload creates an action option with a JavaScript expression
 // for the request payload.
-func WithPayload(expr string) option {
-	return option{key: "payload", value: expr}
-}
+func WithPayload(expr string) option { return actionexpr.WithPayload(expr) }
 
 // WithSelector creates an action option that specifies a CSS selector for
 // the form to send when ContentType is ContentTypeForm.
 // If not specified, the closest form to the element is used.
 func WithSelector(selector string) option {
-	return option{key: "selector", value: "'" + escapeJS(selector) + "'"}
+	return actionexpr.WithSelector(selector)
 }
-
-// Retry determines when to retry requests.
-//
-// See https://data-star.dev/reference/actions#options
-type Retry string
-
-const (
-	// RetryAuto retries on network errors only (default).
-	RetryAuto Retry = "'auto'"
-	// RetryError retries on 4xx and 5xx responses.
-	RetryError Retry = "'error'"
-	// RetryAlways retries on all non-204 responses except redirects.
-	RetryAlways Retry = "'always'"
-	// RetryNever disables retries.
-	RetryNever Retry = "'never'"
-)
 
 // WithRetry creates an action option that determines when to retry requests:
 //   - RetryAuto (default)
 //   - RetryError
 //   - RetryAlways
 //   - RetryNever
-func WithRetry(r Retry) option {
-	return option{key: "retry", value: string(r)}
-}
+func WithRetry(r Retry) option { return actionexpr.WithRetry(r) }
 
 // WithRetryInterval creates an action option for the retry interval in milliseconds.
 // Defaults to 1000 (one second).
 func WithRetryInterval(ms int) option {
-	return option{key: "retryInterval", value: strconv.Itoa(ms)}
+	return actionexpr.WithRetryInterval(ms)
 }
 
 // WithRetryScaler creates an action option for the numeric multiplier
 // applied to scale retry wait times. Defaults to 2.
 func WithRetryScaler(multiplier float64) option {
-	return option{key: "retryScaler", value: strconv.FormatFloat(multiplier, 'f', -1, 64)}
+	return actionexpr.WithRetryScaler(multiplier)
 }
 
 // WithRetryMaxWaitMs creates an action option for the maximum allowable wait time
 // in milliseconds between retries. Defaults to 30000 (30 seconds).
 func WithRetryMaxWaitMs(ms int) option {
-	return option{key: "retryMaxWaitMs", value: strconv.Itoa(ms)}
+	return actionexpr.WithRetryMaxWaitMs(ms)
 }
 
 // WithRetryMaxCount creates an action option for the maximum number
 // of retry attempts. Defaults to 10.
 func WithRetryMaxCount(count int) option {
-	return option{key: "retryMaxCount", value: strconv.Itoa(count)}
+	return actionexpr.WithRetryMaxCount(count)
 }
-
-// RequestCancellation controls request cancellation behavior.
-//
-// See https://data-star.dev/reference/actions#request-cancellation
-type RequestCancellation string
-
-const (
-	// RequestCancellationAuto cancels existing requests on the same element (default).
-	RequestCancellationAuto RequestCancellation = "'auto'"
-	// RequestCancellationCleanup cancels existing requests on the same element
-	// and on element or attribute cleanup.
-	RequestCancellationCleanup RequestCancellation = "'cleanup'"
-	// RequestCancellationDisabled allows concurrent requests.
-	RequestCancellationDisabled RequestCancellation = "'disabled'"
-)
 
 // WithRequestCancellation creates an action option that controls
 // request cancellation behavior:
@@ -224,7 +156,7 @@ const (
 //   - RequestCancellationCleanup
 //   - RequestCancellationDisabled
 func WithRequestCancellation(rc RequestCancellation) option {
-	return option{key: "requestCancellation", value: string(rc)}
+	return actionexpr.WithRequestCancellation(rc)
 }
 
 // WithRequestCancellationController creates an action option that uses
@@ -234,97 +166,7 @@ func WithRequestCancellation(rc RequestCancellation) option {
 //
 // See https://data-star.dev/reference/actions#request-cancellation
 func WithRequestCancellationController(expr string) option {
-	return option{key: "requestCancellation", value: expr}
-}
-
-// escapeJS escapes single quotes and backslashes for use in JS single-quoted strings.
-func escapeJS(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "'", "\\'")
-	return s
-}
-
-// isEntry reports whether an option belongs in the options object.
-//
-// A helper given nothing to say returns the zero option: WithHeaders of
-// an empty map, say, which is what a template computing its headers
-// produces whenever the map comes out empty. Writing it would put
-// "{: }" in the expression, which no browser can parse.
-func isEntry(o option) bool {
-	return o.kind == 0 && o.key != ""
-}
-
-func writeOptions(b *strings.Builder, options []option) {
-	if !slices.ContainsFunc(options, isEntry) {
-		return
-	}
-	b.WriteString(", {")
-	first := true
-	for _, o := range options {
-		if !isEntry(o) {
-			continue
-		}
-		if !first {
-			b.WriteString(", ")
-		}
-		first = false
-		b.WriteString(o.key)
-		b.WriteString(": ")
-		b.WriteString(o.value)
-	}
-	b.WriteString("}")
-}
-
-func optionsLen(options []option) int {
-	if len(options) == 0 {
-		return 0
-	}
-	n := 0
-	count := 0
-	for _, o := range options {
-		if !isEntry(o) {
-			continue
-		}
-		if count > 0 {
-			n += len(", ")
-		}
-		count++
-		n += len(o.key) + len(": ") + len(o.value)
-	}
-	if count == 0 {
-		return 0
-	}
-	return n + len(", {}")
-}
-
-func writeBefore(b *strings.Builder, options []option) {
-	for _, o := range options {
-		if o.kind == 1 {
-			b.WriteString(o.value)
-			b.WriteString("; ")
-		}
-	}
-}
-
-func writeAfter(b *strings.Builder, options []option) {
-	for _, o := range options {
-		if o.kind == 2 {
-			b.WriteString("; ")
-			b.WriteString(o.value)
-		}
-	}
-}
-
-func beforeAfterLen(options []option) (before, after int) {
-	for _, o := range options {
-		switch o.kind {
-		case 1:
-			before += len(o.value) + len("; ")
-		case 2:
-			after += len("; ") + len(o.value)
-		}
-	}
-	return
+	return actionexpr.WithRequestCancellationController(expr)
 }
 
 // DELETEAppAll references /all/
@@ -333,13 +175,13 @@ func DELETEAppAll(options ...option) string {
 		return "@delete('/all/')"
 	}
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@delete('/all/'") + optionsLen(options) + len(")") + al)
-	writeBefore(&b, options)
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@delete('/all/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@delete('/all/'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
 
@@ -349,13 +191,13 @@ func POSTAppPing(options ...option) string {
 		return "@post('/ping/')"
 	}
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@post('/ping/'") + optionsLen(options) + len(")") + al)
-	writeBefore(&b, options)
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/ping/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/ping/'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
 
@@ -365,13 +207,13 @@ func DELETEPageFormRemove(options ...option) string {
 		return "@delete('/form/remove/')"
 	}
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@delete('/form/remove/'") + optionsLen(options) + len(")") + al)
-	writeBefore(&b, options)
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@delete('/form/remove/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@delete('/form/remove/'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
 
@@ -381,13 +223,13 @@ func PATCHPageFormTouch(options ...option) string {
 		return "@patch('/form/touch/')"
 	}
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@patch('/form/touch/'") + optionsLen(options) + len(")") + al)
-	writeBefore(&b, options)
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@patch('/form/touch/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@patch('/form/touch/'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
 
@@ -405,8 +247,8 @@ func POSTPageFormBump(id int, query QueryPOSTPageFormBump, options ...option) st
 	anyQuery := query.By != 0
 
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	l := bl + len("@post('/form/") + len(s_id) + len("/bump/") + len("'") + optionsLen(options) + len(")") + al
+	bl, al := actionexpr.BeforeAfterLen(options)
+	l := bl + len("@post('/form/") + len(s_id) + len("/bump/") + len("'") + actionexpr.OptionsLen(options) + len(")") + al
 	if anyQuery {
 		l += len("?")
 	}
@@ -420,7 +262,7 @@ func POSTPageFormBump(id int, query QueryPOSTPageFormBump, options ...option) st
 
 	b.Grow(l)
 
-	writeBefore(&b, options)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/form/")
 	b.WriteString(s_id)
 	b.WriteString("/bump/")
@@ -436,9 +278,9 @@ func POSTPageFormBump(id int, query QueryPOSTPageFormBump, options ...option) st
 		b.WriteString(byStr)
 	}
 	b.WriteString("'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 
 	return b.String()
 }
@@ -453,13 +295,13 @@ func POSTPageFormGo(options ...option) string {
 		return "@post('/form/go/')"
 	}
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@post('/form/go/'") + optionsLen(options) + len(")") + al)
-	writeBefore(&b, options)
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/form/go/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/form/go/'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
 
@@ -469,13 +311,13 @@ func POSTPageFormPatch(options ...option) string {
 		return "@post('/form/patch/')"
 	}
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@post('/form/patch/'") + optionsLen(options) + len(")") + al)
-	writeBefore(&b, options)
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/form/patch/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/form/patch/'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
 
@@ -485,13 +327,13 @@ func POSTPageFormPatchAt(options ...option) string {
 		return "@post('/form/patch-at/')"
 	}
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@post('/form/patch-at/'") + optionsLen(options) + len(")") + al)
-	writeBefore(&b, options)
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/form/patch-at/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/form/patch-at/'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
 
@@ -501,13 +343,13 @@ func POSTPageFormRemove(options ...option) string {
 		return "@post('/form/remove/')"
 	}
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@post('/form/remove/'") + optionsLen(options) + len(")") + al)
-	writeBefore(&b, options)
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/form/remove/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/form/remove/'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
 
@@ -517,13 +359,13 @@ func POSTPageFormRender(options ...option) string {
 		return "@post('/form/render/')"
 	}
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@post('/form/render/'") + optionsLen(options) + len(")") + al)
-	writeBefore(&b, options)
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/form/render/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/form/render/'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
 
@@ -533,13 +375,13 @@ func POSTPageFormSignalsBad(options ...option) string {
 		return "@post('/form/signals-bad/')"
 	}
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@post('/form/signals-bad/'") + optionsLen(options) + len(")") + al)
-	writeBefore(&b, options)
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/form/signals-bad/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/form/signals-bad/'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
 
@@ -549,13 +391,13 @@ func POSTPageFormSignalsMissing(options ...option) string {
 		return "@post('/form/signals-missing/')"
 	}
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@post('/form/signals-missing/'") + optionsLen(options) + len(")") + al)
-	writeBefore(&b, options)
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/form/signals-missing/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/form/signals-missing/'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
 
@@ -565,13 +407,13 @@ func POSTPageFormSignalsRaw(options ...option) string {
 		return "@post('/form/signals-raw/')"
 	}
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@post('/form/signals-raw/'") + optionsLen(options) + len(")") + al)
-	writeBefore(&b, options)
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/form/signals-raw/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/form/signals-raw/'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
 
@@ -581,13 +423,13 @@ func POSTPageFormSubmit(options ...option) string {
 		return "@post('/form/submit/')"
 	}
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@post('/form/submit/'") + optionsLen(options) + len(")") + al)
-	writeBefore(&b, options)
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/form/submit/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/form/submit/'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
 
@@ -597,12 +439,12 @@ func PUTPageFormReplace(options ...option) string {
 		return "@put('/form/replace/')"
 	}
 	var b strings.Builder
-	bl, al := beforeAfterLen(options)
-	b.Grow(bl + len("@put('/form/replace/'") + optionsLen(options) + len(")") + al)
-	writeBefore(&b, options)
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@put('/form/replace/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@put('/form/replace/'")
-	writeOptions(&b, options)
+	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
-	writeAfter(&b, options)
+	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }

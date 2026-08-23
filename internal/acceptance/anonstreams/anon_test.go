@@ -14,7 +14,6 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/anonstreams/app"
 	"github.com/romshark/datapages/internal/acceptance/brokers"
 	"github.com/romshark/datapages/internal/acceptance/client"
-	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
 	sessinmem "github.com/romshark/datapages/modules/sessions/inmem"
@@ -24,15 +23,11 @@ func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
 
 func newClient(t *testing.T, broker messaging.Broker) *client.Client {
 	t.Helper()
-	key := sha256.Sum256([]byte("acceptance-csrf"))
-	tm, err := csrfhmac.New(key[:])
-	require.NoError(t, err, "building CSRF token manager")
 	sessions := sessinmem.New[struct{}](
 		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 	)
 	stateKey := sha256.Sum256([]byte("acceptance-state"))
 	return client.New(t, mustNewServer(t, &app.App{}, broker, sessions,
-		datapages.WithCSRFProtection(datapages.CSRFConfig{Tokens: tm}),
 		datapages.WithStateConfig(datapages.StateConfig{
 			HMACKey: stateKey[:],
 		})))

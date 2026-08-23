@@ -13,7 +13,7 @@
 
 > [!NOTE]
 > **v0.10 is coming** with API improvements, stateful pages,
-> service worker support and more!
+> service worker support, multi-app modules and more!
 
 A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) web framework
 for building dynamic, server-rendered web applications in pure Go.
@@ -90,6 +90,10 @@ the prefix, the `//go:embed` directive gives the directory:
 var StaticFS embed.FS
 ```
 
+The URL path in the comment must start and end with `/` and cannot be `/`.
+The `//go:embed` directive must name exactly one directory inside the app
+package.
+
 The app package, the session data type, the metrics mode and the package to
 generate into are the type arguments of the `datapages.NewServer` call.
 
@@ -107,7 +111,9 @@ s, err := datapages.NewServer[
 `App` names the app package. `Metrics` decides the Prometheus counters:
 `datapages.EnablePrometheus` generates the code that counts and requires
 `WithPrometheus` to serve it, `datapages.DisablePrometheus` generates no
-counters and rejects that option.
+counters, has no Prometheus imports and rejects that option. Use
+`datapages init --prometheus=false` to scaffold a project whose entry point
+names it.
 `S` must name that app package's `datapagesgen`, which is where its code is
 generated:
 `app/datapagesgen` for `./app`, `app/frontend/datapagesgen` for `./app/frontend`.
@@ -146,20 +152,13 @@ watch:
 
 These top-level keys are supported:
 
-- `cmd`: path to the server command package. Default: `cmd/server`
-- `watch`: development server settings
-
-The URL path in the comment must start and end with `/` and cannot be `/`.
-The `//go:embed` directive must name exactly one directory inside the app
-package.
-
-With `datapages.DisablePrometheus` the generated code has no Prometheus imports and
-no metric variables. Use `datapages init --prometheus=false` to scaffold a
-project whose entry point names it.
-
-The optional `watch` section configures the development server
-(host, proxy timeout, debounce, TLS, compiler flags, logging, custom watchers,
-etc.).
+- `cmd`: where `datapages gen` writes the first `cmd/server/main.go`,
+- and which command `datapages watch` builds while no `NewServer` call is written in a
+  `main` package yet. Default: `cmd/server`. Once such a call exists,
+  the command it is written in is the entry point and this key is unused,
+  which is why a module building several applications does not set it.
+- `watch`: optional development server settings (app host, proxy timeout,
+  debounce, TLS, compiler flags, logging, custom watchers, etc.)
 
 ## Per-tab state
 
@@ -217,8 +216,8 @@ Datapages ships pluggable modules with swappable implementations:
 - [`Broker`](modules/messaging/messaging.go)
   - [`natscore`](https://pkg.go.dev/github.com/romshark/datapages/modules/messaging/natscore) - Core NATS backed message broker
   - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/messaging/inmem) - In-memory fan-out message broker (single-instance only)
-- [`TokenGenerator`, `TokenValidator`](modules/csrf/csrf.go)
-  - [`hmac`](https://pkg.go.dev/github.com/romshark/datapages/modules/csrf/hmac) - HMAC-SHA256 with BREACH-resistant masking
+- [`TokenWriter`, `TokenValidator`](modules/csrf/csrf.go)
+  - [`Tokens`](modules/csrf/tokens.go) - the built-in default: HKDF-SHA256 over the session token, BREACH-resistant masking, nothing to configure
 - [`TokenGenerator`](modules/sessions/sessions.go)
 
 ## Motivation

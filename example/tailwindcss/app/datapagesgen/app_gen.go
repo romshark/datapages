@@ -5,10 +5,7 @@ package datapagesgen
 import (
 	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"net/http"
-	"sync/atomic"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
@@ -33,34 +30,6 @@ const (
 	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
 
-// assetsFileSystem is what the static files are served from.
-// In dev mode (datapages.IsDevMode) they are read from disk (assets.DevDir)
-// so that a change reloads without recompilation.
-func assetsFileSystem(cfg datapages.ServerConfig) (http.FileSystem, error) {
-	if cfg.AssetsFS != nil {
-		return cfg.AssetsFS, nil
-	}
-	if cfg.AssetsEmbed == nil {
-		return nil, nil
-	}
-	if datapages.IsDevMode() {
-		return http.Dir(assets.DevDir), nil
-	}
-	sub, err := fs.Sub(*cfg.AssetsEmbed, assets.Dir)
-	if err != nil {
-		return nil, fmt.Errorf("datapages.WithAssets: %w", err)
-	}
-	return http.FS(sub), nil
-}
-
-// brokerMetrics implements messaging.Metrics as a no-op.
-type brokerMetrics struct{}
-
-func (m brokerMetrics) OnPublish(subject string) {}
-func (m brokerMetrics) OnDeliveryDropped()       {}
-
-// --- Message Broker ---
-
 const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
 
 func (s *Server) writeHTML(
@@ -71,52 +40,19 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, s.HTMLPrefix())
-	if err != nil {
-		return err
-	}
-	if headGeneric != nil {
-		if err := headGeneric.Render(r.Context(), w); err != nil {
-			return err
-		}
-	}
-	if head != nil {
-		if err := head.Render(r.Context(), w); err != nil {
-			return err
-		}
-	}
-	if _, err := io.WriteString(w, "</head><body "); err != nil {
-		return err
-	}
-	if writeBodyAttrs != nil {
-		writeBodyAttrs(w)
-	}
-	if _, err := io.WriteString(w, ">"); err != nil {
-		return err
-	}
-	if body != nil {
-		if err := body.Render(r.Context(), w); err != nil {
-			return err
-		}
-	}
-	if writeBodySuffix != nil {
-		if _, err := io.WriteString(w, "<template "); err != nil {
-			return err
-		}
-		writeBodySuffix(w)
-		if _, err := io.WriteString(w, "></template>"); err != nil {
-			return err
-		}
-	}
-	_, err = io.WriteString(w, "</body></html>")
-	return err
+	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		HeadGeneric:     headGeneric,
+		Head:            head,
+		Body:            body,
+		WriteBodyAttrs:  writeBodyAttrs,
+		WriteBodySuffix: writeBodySuffix,
+	})
 }
 
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
-	messageBrokerMetrics brokerMetrics
-	streamSeq            atomic.Uint64
+	messageBrokerMetrics messaging.NoopMetrics
 	app                  *app.App
 }
 
@@ -148,7 +84,7 @@ func (s *Server) Init(
 			"the server is generated with datapages.DisablePrometheus")
 	}
 
-	assetsFS, err := assetsFileSystem(cfg)
+	assetsFS, err := httpserve.AssetsFileSystem(cfg, assets.DevDir, assets.Dir)
 	if err != nil {
 		return err
 	}
@@ -157,7 +93,7 @@ func (s *Server) Init(
 	s.Core = httpserve.NewCore(cfg, assets.URLPrefix)
 	s.app = app
 	s.messageBroker = messageBroker
-	s.messageBrokerMetrics = brokerMetrics{}
+	s.messageBrokerMetrics = messaging.NoopMetrics{}
 
 	if si, ok := s.messageBroker.(messaging.StreamInitializer); ok {
 		if err := si.InitStreams(MessageBrokerStreamSubjects()); err != nil {
@@ -166,13 +102,6 @@ func (s *Server) Init(
 	}
 
 	setupHandlers(s)
-	if assetsFS != nil {
-		h := http.StripPrefix(assets.URLPrefix, http.FileServer(assetsFS))
-		if datapages.IsDevMode() {
-			h = httpserve.DevNoCache(h)
-		}
-		s.Mux().Handle("GET "+assets.URLPrefix, h)
-	}
 
 	s.Build()
 	href.SetLogger(s.Logger())

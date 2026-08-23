@@ -6,10 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
-	"sync/atomic"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
@@ -35,34 +33,7 @@ const (
 	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
 
-// assetsFileSystem rejects datapages.WithAssets: the app package declares no
-// embed.FS with a URL path in its doc comment, hence there is nothing to serve.
-func assetsFileSystem(cfg datapages.ServerConfig) (http.FileSystem, error) {
-	if cfg.AssetsFS != nil {
-		return cfg.AssetsFS, nil
-	}
-	if cfg.AssetsEmbed != nil {
-		return nil, errors.New(
-			"datapages.WithAssets: the app package declares no assets",
-		)
-	}
-	return nil, nil
-}
-
-// brokerMetrics implements messaging.Metrics as a no-op.
-type brokerMetrics struct{}
-
-func (m brokerMetrics) OnPublish(subject string) {}
-func (m brokerMetrics) OnDeliveryDropped()       {}
-
-// --- Message Broker ---
-
 const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
-
-func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
-	s.Logger().Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
-	http.Error(w, msg, http.StatusBadRequest)
-}
 
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
@@ -72,47 +43,18 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, s.HTMLPrefix())
-	if err != nil {
-		return err
-	}
-	if head != nil {
-		if err := head.Render(r.Context(), w); err != nil {
-			return err
-		}
-	}
-	if _, err := io.WriteString(w, "</head><body "); err != nil {
-		return err
-	}
-	if writeBodyAttrs != nil {
-		writeBodyAttrs(w)
-	}
-	if _, err := io.WriteString(w, ">"); err != nil {
-		return err
-	}
-	if body != nil {
-		if err := body.Render(r.Context(), w); err != nil {
-			return err
-		}
-	}
-	if writeBodySuffix != nil {
-		if _, err := io.WriteString(w, "<template "); err != nil {
-			return err
-		}
-		writeBodySuffix(w)
-		if _, err := io.WriteString(w, "></template>"); err != nil {
-			return err
-		}
-	}
-	_, err = io.WriteString(w, "</body></html>")
-	return err
+	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		Head:            head,
+		Body:            body,
+		WriteBodyAttrs:  writeBodyAttrs,
+		WriteBodySuffix: writeBodySuffix,
+	})
 }
 
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
-	messageBrokerMetrics brokerMetrics
-	streamSeq            atomic.Uint64
+	messageBrokerMetrics messaging.NoopMetrics
 	app                  *app.App
 }
 
@@ -144,7 +86,7 @@ func (s *Server) Init(
 			"the server is generated with datapages.DisablePrometheus")
 	}
 
-	assetsFS, err := assetsFileSystem(cfg)
+	assetsFS, err := httpserve.AssetsFileSystem(cfg, "", "")
 	if err != nil {
 		return err
 	}
@@ -153,7 +95,7 @@ func (s *Server) Init(
 	s.Core = httpserve.NewCore(cfg, "")
 	s.app = app
 	s.messageBroker = messageBroker
-	s.messageBrokerMetrics = brokerMetrics{}
+	s.messageBrokerMetrics = messaging.NoopMetrics{}
 
 	if si, ok := s.messageBroker.(messaging.StreamInitializer); ok {
 		if err := si.InitStreams(MessageBrokerStreamSubjects()); err != nil {
@@ -230,7 +172,7 @@ func (s *Server) handlePageConflictGET(w http.ResponseWriter, r *http.Request) {
 		v := r.PathValue("value")
 		i, err := strconv.ParseInt(v, 10, 32)
 		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: value", err)
+			s.HTTPErrBad(w, "unexpected value for path parameter: value", err)
 			return
 		}
 		path.Values.Value = int32(i)
@@ -239,7 +181,7 @@ func (s *Server) handlePageConflictGET(w http.ResponseWriter, r *http.Request) {
 		v := r.PathValue("s_value")
 		i, err := strconv.ParseInt(v, 10, 32)
 		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: s_value", err)
+			s.HTTPErrBad(w, "unexpected value for path parameter: s_value", err)
 			return
 		}
 		path.Values.SValue = int32(i)
@@ -337,7 +279,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 		v := r.PathValue("i8")
 		i, err := strconv.ParseInt(v, 10, 8)
 		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: i8", err)
+			s.HTTPErrBad(w, "unexpected value for path parameter: i8", err)
 			return
 		}
 		path.Values.I8 = int8(i)
@@ -346,7 +288,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 		v := r.PathValue("i16")
 		i, err := strconv.ParseInt(v, 10, 16)
 		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: i16", err)
+			s.HTTPErrBad(w, "unexpected value for path parameter: i16", err)
 			return
 		}
 		path.Values.I16 = int16(i)
@@ -355,7 +297,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 		v := r.PathValue("i32")
 		i, err := strconv.ParseInt(v, 10, 32)
 		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: i32", err)
+			s.HTTPErrBad(w, "unexpected value for path parameter: i32", err)
 			return
 		}
 		path.Values.I32 = int32(i)
@@ -364,7 +306,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 		v := r.PathValue("i64")
 		i, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: i64", err)
+			s.HTTPErrBad(w, "unexpected value for path parameter: i64", err)
 			return
 		}
 		path.Values.I64 = i
@@ -373,7 +315,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 		v := r.PathValue("u8")
 		u, err := strconv.ParseUint(v, 10, 8)
 		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: u8", err)
+			s.HTTPErrBad(w, "unexpected value for path parameter: u8", err)
 			return
 		}
 		path.Values.U8 = uint8(u)
@@ -382,7 +324,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 		v := r.PathValue("u16")
 		u, err := strconv.ParseUint(v, 10, 16)
 		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: u16", err)
+			s.HTTPErrBad(w, "unexpected value for path parameter: u16", err)
 			return
 		}
 		path.Values.U16 = uint16(u)
@@ -391,7 +333,7 @@ func (s *Server) handlePageIntsGET(w http.ResponseWriter, r *http.Request) {
 		v := r.PathValue("u32")
 		u, err := strconv.ParseUint(v, 10, 32)
 		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: u32", err)
+			s.HTTPErrBad(w, "unexpected value for path parameter: u32", err)
 			return
 		}
 		path.Values.U32 = uint32(u)
@@ -429,7 +371,7 @@ func (s *Server) handlePageMixedGET(w http.ResponseWriter, r *http.Request) {
 		if q := httpread.QueryValue(r.URL.RawQuery, "page"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
 			if err != nil {
-				s.httpErrBad(w, "unexpected value for query parameter: page", err)
+				s.HTTPErrBad(w, "unexpected value for query parameter: page", err)
 				return
 			}
 			query.Values.Page = int(i)
@@ -445,7 +387,7 @@ func (s *Server) handlePageMixedGET(w http.ResponseWriter, r *http.Request) {
 		v := r.PathValue("id")
 		i, err := strconv.ParseInt(v, 10, 0)
 		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: id", err)
+			s.HTTPErrBad(w, "unexpected value for path parameter: id", err)
 			return
 		}
 		path.Values.ID = int(i)
@@ -486,7 +428,7 @@ func (s *Server) handlePagePathGET(w http.ResponseWriter, r *http.Request) {
 		v := r.PathValue("i")
 		i, err := strconv.ParseInt(v, 10, 0)
 		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: i", err)
+			s.HTTPErrBad(w, "unexpected value for path parameter: i", err)
 			return
 		}
 		path.Values.I = int(i)
@@ -495,7 +437,7 @@ func (s *Server) handlePagePathGET(w http.ResponseWriter, r *http.Request) {
 		v := r.PathValue("u")
 		u, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: u", err)
+			s.HTTPErrBad(w, "unexpected value for path parameter: u", err)
 			return
 		}
 		path.Values.U = u
@@ -504,7 +446,7 @@ func (s *Server) handlePagePathGET(w http.ResponseWriter, r *http.Request) {
 		v := r.PathValue("f")
 		f, err := strconv.ParseFloat(v, 64)
 		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: f", err)
+			s.HTTPErrBad(w, "unexpected value for path parameter: f", err)
 			return
 		}
 		path.Values.F = f
@@ -513,7 +455,7 @@ func (s *Server) handlePagePathGET(w http.ResponseWriter, r *http.Request) {
 		v := r.PathValue("flag")
 		b, err := strconv.ParseBool(v)
 		if err != nil {
-			s.httpErrBad(w, "unexpected value for path parameter: flag", err)
+			s.HTTPErrBad(w, "unexpected value for path parameter: flag", err)
 			return
 		}
 		path.Values.B = b
@@ -556,7 +498,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 		if q := httpread.QueryValue(r.URL.RawQuery, "limit"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
 			if err != nil {
-				s.httpErrBad(w, "unexpected value for query parameter: limit", err)
+				s.HTTPErrBad(w, "unexpected value for query parameter: limit", err)
 				return
 			}
 			query.Values.Limit = int(i)
@@ -566,7 +508,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 		if q := httpread.QueryValue(r.URL.RawQuery, "ratio"); q != "" {
 			f, err := strconv.ParseFloat(q, 32)
 			if err != nil {
-				s.httpErrBad(w, "unexpected value for query parameter: ratio", err)
+				s.HTTPErrBad(w, "unexpected value for query parameter: ratio", err)
 				return
 			}
 			query.Values.Ratio = float32(f)
@@ -576,7 +518,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 		if q := httpread.QueryValue(r.URL.RawQuery, "score"); q != "" {
 			f, err := strconv.ParseFloat(q, 64)
 			if err != nil {
-				s.httpErrBad(w, "unexpected value for query parameter: score", err)
+				s.HTTPErrBad(w, "unexpected value for query parameter: score", err)
 				return
 			}
 			query.Values.Score = f
@@ -586,7 +528,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 		if q := httpread.QueryValue(r.URL.RawQuery, "big"); q != "" {
 			u, err := strconv.ParseUint(q, 10, 32)
 			if err != nil {
-				s.httpErrBad(w, "unexpected value for query parameter: big", err)
+				s.HTTPErrBad(w, "unexpected value for query parameter: big", err)
 				return
 			}
 			query.Values.Big = uint32(u)
@@ -596,7 +538,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 		if q := httpread.QueryValue(r.URL.RawQuery, "deep"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 64)
 			if err != nil {
-				s.httpErrBad(w, "unexpected value for query parameter: deep", err)
+				s.HTTPErrBad(w, "unexpected value for query parameter: deep", err)
 				return
 			}
 			query.Values.Deep = i
@@ -606,7 +548,7 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 		if q := httpread.QueryValue(r.URL.RawQuery, "flag"); q != "" {
 			b, err := strconv.ParseBool(q)
 			if err != nil {
-				s.httpErrBad(w, "unexpected value for query parameter: flag", err)
+				s.HTTPErrBad(w, "unexpected value for query parameter: flag", err)
 				return
 			}
 			query.Values.Flag = b
@@ -645,7 +587,7 @@ func (s *Server) handlePageReflectGET(w http.ResponseWriter, r *http.Request) {
 		if q := httpread.QueryValue(r.URL.RawQuery, "p"); q != "" {
 			i, err := strconv.ParseInt(q, 10, 0)
 			if err != nil {
-				s.httpErrBad(w, "unexpected value for query parameter: p", err)
+				s.HTTPErrBad(w, "unexpected value for query parameter: p", err)
 				return
 			}
 			query.Values.Page = int(i)

@@ -1,7 +1,7 @@
 // Wires the sessions case into the shared contract suite.
 //
-// An app with a Session type must be given a session manager and a CSRF token manager.
-// This constructor supplies both.
+// An app with a Session type must be given a session manager.
+// This constructor supplies it.
 
 package acceptance_test
 
@@ -14,7 +14,6 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/sessions/app/datapagesgen"
 	"github.com/romshark/datapages/internal/acceptance/sessions/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/sessions/app/datapagesgen/href"
-	csrfhmac "github.com/romshark/datapages/modules/csrf/hmac"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 	"github.com/romshark/datapages/modules/sessions"
@@ -25,16 +24,9 @@ func TestContract(t *testing.T) {
 	contract.Run(t, contract.Case{
 		NewServer: func(t *testing.T, opts ...any) contract.Server {
 			t.Helper()
-			tm, err := csrfhmac.New(csrfSecret)
-			if err != nil {
-				t.Fatalf("building CSRF token manager: %v", err)
-			}
 			inMemSessions := sessinmem.New[app.SessionData](
 				sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 			)
-			opts = append(opts, datapages.WithCSRFProtection(
-				datapages.CSRFConfig{Tokens: tm},
-			))
 			return mustNewServer(
 				t,
 				&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),

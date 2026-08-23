@@ -1,6 +1,10 @@
 package httpserve_test
 
 import (
+	"embed"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -113,4 +117,80 @@ func TestWriteReloadOnVisibility(t *testing.T) {
 		`data-on:visibilitychange__window="`+
 			`if (!document.hidden) window.location.reload()" `,
 		b.String())
+}
+
+func TestWriteErrStatus(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		err  error
+		want int
+	}{
+		"nil":       {nil, http.StatusInternalServerError},
+		"unknown":   {errors.New("boom"), http.StatusInternalServerError},
+		"bad":       {datapages.ErrBadRequest, http.StatusBadRequest},
+		"forbidden": {datapages.ErrForbidden, http.StatusForbidden},
+		"notfound":  {datapages.ErrNotFound, http.StatusNotFound},
+		"conflict":  {datapages.ErrConflict, http.StatusConflict},
+		"wrapped": {
+			fmt.Errorf("reading user: %w", datapages.ErrNotFound),
+			http.StatusNotFound,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			httpserve.WriteErrStatus(rec, tc.err)
+			require.Equal(t, tc.want, rec.Code)
+			require.Equal(t,
+				http.StatusText(tc.want), strings.TrimSpace(rec.Body.String()))
+		})
+	}
+}
+
+//go:embed testdata/static/hello.txt
+var testAssets embed.FS
+
+func TestAssetsFileSystem(t *testing.T) {
+	t.Parallel()
+
+	t.Run("explicit fs wins", func(t *testing.T) {
+		t.Parallel()
+		want := http.Dir("/somewhere")
+		got, err := httpserve.AssetsFileSystem(datapages.ServerConfig{
+			AssetsFS:    want,
+			AssetsEmbed: &testAssets,
+		}, "app/static", "static")
+		require.NoError(t, err)
+		require.Equal(t, want, got)
+	})
+
+	t.Run("no option", func(t *testing.T) {
+		t.Parallel()
+		got, err := httpserve.AssetsFileSystem(
+			datapages.ServerConfig{}, "app/static", "static")
+		require.NoError(t, err)
+		require.Nil(t, got)
+	})
+
+	t.Run("app declares none", func(t *testing.T) {
+		t.Parallel()
+		_, err := httpserve.AssetsFileSystem(
+			datapages.ServerConfig{AssetsEmbed: &testAssets}, "", "")
+		require.ErrorContains(t, err, "the app package declares no assets")
+	})
+
+	t.Run("embed subdirectory", func(t *testing.T) {
+		t.Parallel()
+		fsys, err := httpserve.AssetsFileSystem(
+			datapages.ServerConfig{AssetsEmbed: &testAssets},
+			"testdata/static", "testdata/static")
+		require.NoError(t, err)
+		f, err := fsys.Open("hello.txt")
+		require.NoError(t, err)
+		defer func() { _ = f.Close() }()
+		b, err := io.ReadAll(f)
+		require.NoError(t, err)
+		require.Equal(t, "hello", strings.TrimSpace(string(b)))
+	})
 }

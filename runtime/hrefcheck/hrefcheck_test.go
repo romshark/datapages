@@ -47,3 +47,27 @@ func TestIsAllowedNonRelativeHref(t *testing.T) {
 		})
 	}
 }
+
+func TestAssetPath(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		prefix, p, want string
+	}{
+		"plain":        {"/static/", "style.css", "/static/style.css"},
+		"subdirectory": {"/static/", "css/app.css", "/static/css/app.css"},
+		"empty":        {"/static/", "", "/static"},
+		"dot":          {"/static/", ".", "/static"},
+		"absolute":     {"/static/", "/etc/passwd", "/static/etc/passwd"},
+		// path.Join normalizes, it does not confine: this leaves the prefix.
+		"escape":        {"/static/", "../secret", "/secret"},
+		"unclean":       {"/static/", "css//app.css", "/static/css/app.css"},
+		"trailing dots": {"/static/", "a/./b", "/static/a/b"},
+		"other prefix":  {"/assets/", "logo.svg", "/assets/logo.svg"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, hrefcheck.AssetPath(tc.prefix, tc.p))
+		})
+	}
+}

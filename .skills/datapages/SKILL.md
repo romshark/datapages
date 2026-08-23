@@ -114,8 +114,12 @@ watch: # Dev server settings for live-reload
     - "*~"
 ```
 
-- `cmd` — path to the server command package (default `cmd/server`)
-- `watch` — dev server settings
+- `cmd` - where `datapages gen` writes the first `cmd/server/main.go`, and which
+  command `datapages watch` builds while no `NewServer` call is written in a
+  `main` package yet (default `cmd/server`). Once such a call exists, the
+  command it is written in is the entry point and this key is unused. A module
+  building several applications leaves it out.
+- `watch` - dev server settings
 
 ## Step 2: Define Minimal App
 
@@ -364,8 +368,12 @@ HTTP error status (use the `datapages` sentinels):
 ```go
 return datapages.ErrBadRequest                                    // 400, zero alloc
 return datapages.ErrForbidden                                     // 403
+return datapages.ErrConflict                                      // 409
 return fmt.Errorf("%w: %w", datapages.ErrNotFound, errOriginal)   // 404, preserves original
 ```
+
+Wrap at most one sentinel per error. With several, the first of `ErrBadRequest`,
+`ErrForbidden`, `ErrNotFound`, `ErrConflict` decides the status.
 
 Errors without a sentinel default to 500 (or `RecoverError` if defined).
 
@@ -561,7 +569,8 @@ type EventCalcUpdated struct {
 
 ### Signature
 
-Both require `r *http.Request` and `streamID datapages.StreamID`. They return only `error`.
+Both require `r *http.Request` and `streamID datapages.StreamID`.
+Both return `error`, or nothing at all: `error` is the only return value they may declare.
 The `streamID` is a per-process unique identifier for the SSE stream instance.
 It is recognized by its `datapages.StreamID` type, the parameter name is free.
 Use it to correlate open and close for the same stream.
@@ -895,10 +904,11 @@ opts = append(opts, datapages.WithMiddleware(func(next http.Handler) http.Handle
 	})
 }))
 
-// CSRF protection (required for session-based apps)
+// CSRF protection is on for every app with a Session type and needs no
+// option. The token is derived from the session token.
+// Configure it only to replace the tokens or to turn the protection off.
 opts = append(opts, datapages.WithCSRFProtection(datapages.CSRFConfig{
-	Tokens:         tm,
-	DevBypassToken: os.Getenv("CSRF_DEV_BYPASS"),
+	Tokens: myTokens,
 }))
 
 // Authentication (required when Session type is defined)
@@ -961,7 +971,16 @@ recompilation. An app package that declares no assets rejects the option.
 
 The URL path prefix is the generated `assets.URLPrefix` constant, which comes from the doc comment of the `embed.FS` variable. The embed.FS subdirectory and dev-mode disk path come from its `//go:embed` directive.
 
-Reference static files in templates using the static prefix (e.g. `/static/style.css`).
+Reference static files in templates through the generated `assets.Path` helper,
+never a hardcoded path, so the prefix stays in one place:
+
+```templ
+<link rel="stylesheet" href={ assets.Path("style.css") }/>
+<script src={ assets.Path("bundle.js") } defer></script>
+```
+
+In an `<a href>` use `href.Asset("style.css")` instead: the linter rejects a
+hardcoded root-relative `href` there.
 
 ## Step 17: Generate and Run
 
