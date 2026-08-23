@@ -8,6 +8,12 @@ The code you'd write is in
 The code that the generator produces is in
 [datapagesgen](https://github.com/romshark/datapages/tree/main/example/classifieds/app/datapagesgen).
 
+## Prerequisites
+
+A running Docker daemon. `make dev` and `make stage` start NATS, Prometheus and
+Grafana as containers and stop them again on `make down`.
+The `datapages` CLI has to be on `PATH`, `make dev` runs `datapages watch`.
+
 ## Development Mode
 
 ```sh

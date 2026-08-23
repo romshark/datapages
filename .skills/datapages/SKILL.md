@@ -589,7 +589,8 @@ type EventCalcUpdated struct {
 
 ### Signature
 
-Both require `r *http.Request` and `streamID datapages.StreamID`. They return only `error`.
+Both require `r *http.Request` and `streamID datapages.StreamID`.
+Both return `error`, or nothing at all: `error` is the only return value they may declare.
 The `streamID` is a per-process unique identifier for the SSE stream instance.
 It is recognized by its `datapages.StreamID` type, the parameter name is free.
 Use it to correlate open and close for the same stream.
