@@ -180,7 +180,8 @@ func (PageIndex) OnSomethingHappened(
 
 `StreamOpen` runs after the page SSE stream has been established and before
 any event handler is invoked.
-It may return only `error`. If it returns an error, stream setup stops immediately and
+It returns `error`, or nothing at all. `error` is the only return value it may declare.
+If it returns an error, stream setup stops immediately and
 the stream is closed.
 Datapages handles the error like any other Datastar request error: if `RecoverError`
 is defined it is invoked, otherwise the server falls back to its internal-error path.
@@ -206,7 +207,7 @@ func (PageIndex) StreamOpen(
 ```
 
 `StreamClose` runs when the page SSE stream closes.
-It may return only `error`.
+It returns `error`, or nothing at all. `error` is the only return value it may declare.
 If it returns an error, datapages logs the error server-side.
 
 ```go
@@ -963,15 +964,25 @@ template-specific checks on `.templ` files:
 - **Form action attribute**: using a `<form action=...>` attribute (constant or
   expression). Datapages does not support plain HTML form submissions — use
   `data-on:submit` with Datastar actions instead.
-- **Action context**: using an `action.XXX()` call in an attribute that is not a Datastar
-  action context (`data-on:<event>`, `data-on-<plugin>`, `data-init`). For example,
-  `action.POSTPageIndexSubmit()` in an `href` attribute.
-- **Href context**: using an `href.XXX()` call in a Datastar action context
-  (`data-on:<event>`, `data-on-<plugin>`, `data-init`). Href functions return URL paths,
-  not Datastar action strings — use `action.XXX()` instead.
+- **Action context**: using an `action.XXX()` call in an attribute that is not a
+  Datastar action context.
+  For example, `action.POSTPageIndexSubmit()` in an `href` attribute.
+- **Href context**: using an `href.XXX()` call in a Datastar action context.
+  Href functions return URL paths, not Datastar action strings,
+  use `action.XXX()` instead.
 - **Action on wrong page**: using an action that belongs to a different page
   (e.g. `action.POSTPageProfileSave()` in a template rendered by `PageSettings`).
   App-level actions are allowed on any page.
+
+These attributes are the Datastar action contexts, and no others:
+
+- `data-on:<event>`, any DOM event.
+- `data-on-intersect`, `data-on-interval` and `data-on-signal-patch`,
+  the plugin events the linter knows.
+- `data-init`.
+
+The plugin and `data-init` attributes may carry Datastar modifiers
+(`data-on-intersect.once`, `data-on-interval__duration.500ms`).
 
 ### Allowed href values
 

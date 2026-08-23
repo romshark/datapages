@@ -178,6 +178,8 @@ func WithHTTPServer(server *http.Server) ServerOption {
 }
 
 // WithDatastarJS sets a custom URL for the Datastar JavaScript bundle.
+// Without it the page shell loads
+// [github.com/romshark/datapages/runtime/httpserve.DefaultDatastarJSSrc].
 func WithDatastarJS(src string) ServerOption {
 	return func(c *ServerConfig) error {
 		c.DatastarJS = src
