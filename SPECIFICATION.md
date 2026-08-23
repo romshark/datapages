@@ -873,9 +873,13 @@ func (p PageIndex) POSTInput(...) error {
 ```
 
 Available sentinels:
-- `datapages.ErrBadRequest` — 400
-- `datapages.ErrForbidden` — 403
-- `datapages.ErrNotFound` — 404
+- `datapages.ErrBadRequest` - 400
+- `datapages.ErrForbidden` - 403
+- `datapages.ErrNotFound` - 404
+- `datapages.ErrConflict` - 409
+
+Don't wrap more than one sentinel into a single error. If you do, the first of
+`ErrBadRequest`, `ErrForbidden`, `ErrNotFound`, `ErrConflict` decides the status.
 
 Return a sentinel directly, or wrap into the original error. When `RecoverError` is
 defined, all errors (including the datapages sentinels) are routed through it first. If

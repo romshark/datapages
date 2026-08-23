@@ -26,7 +26,8 @@ import (
 // visible to an assertion made on the output as text.
 //
 // The app package sits in a directory named "pages" while the package itself
-// is named "app". Both are free choices in datapages.yaml.
+// is named "app". The directory is whatever the datapages.NewServer call points
+// at and the package name is whatever the source declares, so the two need not match.
 // A generator that assumes they match compiles only in the examples.
 func TestCompileFixtures(t *testing.T) {
 	if testing.Short() {

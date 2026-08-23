@@ -15,7 +15,8 @@ make dev
 ```
 
 You can then access:
-- Preview: http://localhost:52000/
+- Preview: http://localhost:7331/ (the live-reload proxy of `datapages watch`;
+  the app itself listens on http://localhost:52000/, see `.env.dev`)
 - Grafana Dashboards: http://localhost:3000/
 - Prometheus UI: http://localhost:9091/
 
@@ -37,6 +38,7 @@ then in another terminal run one of:
 | `make load`                | Full flow: login, browse, sign-out             |
 | `make load-smoke-homepage` | Hits `/` only                                  |
 | `make load-smoke-search`   | Hits `/search/` with varied query params       |
+| `make load-smoke-login`    | Hits the unauthenticated `/login/` page only   |
 
 Pick the env file with `LOAD_ENV` (default `./.env.dev`):
 

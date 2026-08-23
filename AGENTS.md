@@ -89,6 +89,8 @@ Examples, one module each:
 - `example/calculator/` - server-side evaluation.
 - `example/counter/` - the same counter twice in one module, `app/simple` and
   `app/fancy`, one entry point each. The multi-application example.
+- `example/todolist/` - collaborative todo list with per-tab server-side state
+  registered in `StreamOpen` and read by the event handlers.
 - `example/classifieds/` - the full application.
 - `example/tailwindcss/` - static page with Tailwind CSS.
 - `example/webcomponents/` - vanilla and Lit Web Components bundled via esbuild.
@@ -158,10 +160,6 @@ Any change to the generator requires `mage genDatapages` in the same commit.
 `TestExamplesAreUpToDate` (`internal/generator/generator_test.go:45`) and the
 acceptance tests regenerate and diff against the committed output, and report
 `run: mage genDatapages` when it differs, is missing or is no longer generated.
-
-An acceptance case whose `acceptance.json` has `"expect_build_error"` keeps no
-generated code. Its runner generates into a throwaway module, since the
-committed package is not supposed to compile.
 
 # Datapages Framework
 

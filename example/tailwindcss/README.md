@@ -2,27 +2,31 @@
 
 Demonstrates how to integrate [TailwindCSS](https://tailwindcss.com) with
 Datapages using a custom watcher that rebuilds `output.css` whenever
-`.templ` files or `input.css` change.
+`.templ` files or `input.tw.css` change.
 
 ## How It Works
 
-The `datapages.yaml` defines a custom watcher:
+The `datapages.yaml` defines two custom watchers:
 
 ```yaml
 custom-watchers:
-  - name: "TailwindCSS"
+  - name: "Rebuild CSS"
     include:
       - "app/**/*.templ"
       - "input.tw.css"
     cmd: "npx tailwindcss -i ./input.tw.css -o ./app/static/output.css"
     fail-on-error: true
+  - name: "Reload on static assets change"
+    include:
+      - "app/static/**"
     requires: reload
 ```
 
-Whenever a watched file changes, Datapages runs the `tailwindcss` command to
-regenerate `app/static/output.css`, then triggers a browser reload.
+Whenever a watched source file changes, Datapages runs the `tailwindcss` command
+to regenerate `app/static/output.css`. That write lands under `app/static/`,
+which the second watcher watches, and it triggers the browser reload.
 
-TailwindCSS v4 uses a CSS-first configuration. `input.css` imports the
+TailwindCSS v4 uses a CSS-first configuration. `input.tw.css` imports the
 framework and declares which source files to scan for utility classes:
 
 ```css

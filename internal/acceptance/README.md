@@ -23,8 +23,9 @@ cd internal/acceptance/routing && go test -race ./...
 [`acceptance_test.go`](acceptance_test.go) is a plain test package of the root
 module. Per case it:
 
-1. reads `datapages.yaml`, parses the `app` package, generates into a temporary
-   directory, and compares the result with the committed `app/datapagesgen`.
+1. scans the module for its `datapages.NewServer` call, parses the `app` package,
+   generates into a temporary directory, and compares the result with the
+   committed `app/datapagesgen`.
    A difference fails with *run: mage genDatapages*.
    The case then runs what the generator writes today;
 2. runs `go test -race -count=1 -coverpkg=./app/datapagesgen/... ./...` inside the
@@ -44,7 +45,6 @@ internal/acceptance/mycase/
   contract_case_test.go   wires the case into the shared suite
   newserver_test.go       the mustNewServer helper
   cmd/server/             generated once, committed; compiled by every run
-  acceptance.json         optional, see below
 ```
 
 Copy an existing case, rewrite `go.mod`, then run `mage genDatapages`.
@@ -81,15 +81,18 @@ Two things to know when writing requests:
 - The in-memory broker matches subjects the way NATS does. `*` covers one
   token, `>` covers the rest. See `wildcardsubjects`.
 
-### `acceptance.json`
+### Configuration
 
-| field | meaning |
-| ----- | ------- |
-| `no_race` | run the case without the race detector |
+A case configures nothing. What shapes generation is in the code: the app directory,
+the generated package and the metrics mode are the type arguments of
+the `datapages.NewServer` call in `cmd/server/main.go`, which `serverscan.Scan` reads,
+and the assets come from the `embed.FS` the app package declares.
+No case carries a `datapages.yaml`.
 
-`datapages.yaml` carries everything that shapes generation: the app directory,
-the generated package name, Prometheus, assets. It is the same file an
-application of a user has.
+The runner reads an optional `acceptance.json` next to the `go.mod`
+(`readCaseOptions` in `acceptance_test.go`) with one field, `no_race`, which
+drops the race detector for that case. No case currently has one: add the file
+only when a case is too slow or too noisy under `-race`, and say in the case why.
 
 ## The shared contract suite
 

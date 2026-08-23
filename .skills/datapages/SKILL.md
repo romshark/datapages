@@ -364,8 +364,12 @@ HTTP error status (use the `datapages` sentinels):
 ```go
 return datapages.ErrBadRequest                                    // 400, zero alloc
 return datapages.ErrForbidden                                     // 403
+return datapages.ErrConflict                                      // 409
 return fmt.Errorf("%w: %w", datapages.ErrNotFound, errOriginal)   // 404, preserves original
 ```
+
+Wrap at most one sentinel per error. With several, the first of `ErrBadRequest`,
+`ErrForbidden`, `ErrNotFound`, `ErrConflict` decides the status.
 
 Errors without a sentinel default to 500 (or `RecoverError` if defined).
 
@@ -848,7 +852,16 @@ recompilation. An app package that declares no assets rejects the option.
 
 The URL path prefix is the generated `assets.URLPrefix` constant, which comes from the doc comment of the `embed.FS` variable. The embed.FS subdirectory and dev-mode disk path come from its `//go:embed` directive.
 
-Reference static files in templates using the static prefix (e.g. `/static/style.css`).
+Reference static files in templates through the generated `assets.Path` helper,
+never a hardcoded path, so the prefix stays in one place:
+
+```templ
+<link rel="stylesheet" href={ assets.Path("style.css") }/>
+<script src={ assets.Path("bundle.js") } defer></script>
+```
+
+In an `<a href>` use `href.Asset("style.css")` instead: the linter rejects a
+hardcoded root-relative `href` there.
 
 ## Step 16: Generate and Run
 
