@@ -114,6 +114,14 @@ func (c *Core) Build() {
 		)
 	}
 
+	if c.assetsFS != nil && c.assetsURLPrefix != "" {
+		h := http.StripPrefix(c.assetsURLPrefix, http.FileServer(c.assetsFS))
+		if datapages.IsDevMode() {
+			h = DevNoCache(h)
+		}
+		c.mux.Handle("GET "+c.assetsURLPrefix, h)
+	}
+
 	c.handler = http.Handler(c.mux)
 	for _, h := range c.middleware {
 		c.handler = h(c.handler)
@@ -133,6 +141,30 @@ func (c *Core) Logger() *slog.Logger { return c.logger }
 // LogErr logs err under msg.
 func (c *Core) LogErr(msg string, err error) {
 	c.logger.Error(msg, slog.Any("err", err))
+}
+
+// HTTPErrBad answers r with 400 and logs msg as the cause.
+func (c *Core) HTTPErrBad(w http.ResponseWriter, msg string, err error) {
+	c.logger.Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
+	http.Error(w, msg, http.StatusBadRequest)
+}
+
+// CheckDatastarRequest reports whether r was issued by the Datastar client.
+// It answers r with 406 when it was not, in which case the handler must
+// write nothing more.
+func (c *Core) CheckDatastarRequest(
+	w http.ResponseWriter, r *http.Request,
+) (ok bool) {
+	if !IsDatastarRequest(r) {
+		c.logger.Debug("not a datastar request",
+			slog.Any("method", r.Method),
+			slog.String("path", r.URL.Path))
+		http.Error(w,
+			http.StatusText(http.StatusNotAcceptable),
+			http.StatusNotAcceptable)
+		return false
+	}
+	return true
 }
 
 // ShutdownCh is closed when the shutdown begins.

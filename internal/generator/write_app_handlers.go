@@ -295,7 +295,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		w.Byte('\n')
 		w.Line(1, `if httpread.QueryHas(r.URL.RawQuery, "datastar") {`)
 		w.Line(2, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
-		w.Line(3, `s.httpErrBad(w, "reading signals", err)`)
+		w.Line(3, `s.HTTPErrBad(w, "reading signals", err)`)
 		w.Line(3, "return")
 		w.Line(2, "}")
 		w.Line(1, "}")
@@ -832,7 +832,7 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Raw(p.TypeName)
 	w.Raw("GETStream(w http.ResponseWriter, r *http.Request) {\n")
 
-	w.Line(1, "if !s.checkIsDSReq(w, r) {")
+	w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 	w.Line(2, "return")
 	w.Line(1, "}")
 
@@ -892,14 +892,14 @@ func (w *Writer) writePageGETStreamHandler(
 		}
 		w.Line(1, "}")
 		w.Line(1, "if err := datastar.ReadSignals(r, &subjSignals); err != nil {")
-		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
+		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
 		for i, sf := range signalFields {
 			w.Raw("\tif !subject.IsToken(subjSignals.")
 			w.Raw(signalIdents[i])
 			w.Raw(") {\n")
-			w.Raw("\t\ts.httpErrBad(w, \"invalid signal\",\n")
+			w.Raw("\t\ts.HTTPErrBad(w, \"invalid signal\",\n")
 			w.Raw("\t\t\tfmt.Errorf(\"signal %q must be a non-empty subject token\", ")
 			w.writeQuoted(sf.SignalName)
 			w.Raw("))\n")
@@ -914,7 +914,7 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Raw(renderSignalsType(p.StreamOpen.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
-		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
+		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
@@ -1159,7 +1159,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Raw(p.TypeName)
 	w.Raw("GETStreamAnon(w http.ResponseWriter, r *http.Request) {\n")
 
-	w.Line(1, "if !s.checkIsDSReq(w, r) {")
+	w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 	w.Line(2, "return")
 	w.Line(1, "}")
 	w.Line(1, "sess, sessToken, ok := s.ReadSession(w, r)")
@@ -1168,7 +1168,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	w.Line(1, "}")
 	w.Line(0, "")
 	w.Line(1, `if sess.UserID() != "" {`)
-	w.Line(2, `s.httpErrBad(w, "authenticated client on anonymous stream", nil)`)
+	w.Line(2, `s.HTTPErrBad(w, "authenticated client on anonymous stream", nil)`)
 	w.Line(2, "return")
 	w.Line(1, "}")
 
@@ -1193,14 +1193,14 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		}
 		w.Line(1, "}")
 		w.Line(1, "if err := datastar.ReadSignals(r, &subjSignals); err != nil {")
-		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
+		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
 		for i, sf := range signalFields {
 			w.Raw("\tif !subject.IsToken(subjSignals.")
 			w.Raw(signalIdents[i])
 			w.Raw(") {\n")
-			w.Raw("\t\ts.httpErrBad(w, \"invalid signal\",\n")
+			w.Raw("\t\ts.HTTPErrBad(w, \"invalid signal\",\n")
 			w.Raw("\t\t\tfmt.Errorf(\"signal %q must be a non-empty subject token\", ")
 			w.writeQuoted(sf.SignalName)
 			w.Raw("))\n")
@@ -1215,7 +1215,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		w.Raw(renderSignalsType(p.StreamOpen.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
-		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
+		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
@@ -1297,7 +1297,7 @@ func (w *Writer) writePageActionHandler(
 	w.Line(0, ") {")
 
 	if h.InputSSE != nil || h.InputSignals != nil {
-		w.Line(1, "if !s.checkIsDSReq(w, r) {")
+		w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
@@ -1336,7 +1336,7 @@ func (w *Writer) writePageActionHandler(
 		w.Raw(renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
-		w.Line(2, `s.httpErrBad(w, "reading signals", err)`)
+		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
 		w.Line(2, "return")
 		w.Line(1, "}")
 	}
@@ -1576,7 +1576,7 @@ func (w *Writer) writeParseField(
 		tabs(indent)
 		w.Raw("if err != nil {\n")
 		tabs(indent + 1)
-		w.Rawf("s.httpErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
+		w.Rawf("s.HTTPErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
 		tabs(indent + 1)
 		w.Raw("return\n")
 		tabs(indent)
@@ -1608,7 +1608,7 @@ func (w *Writer) writeParseField(
 		tabs(indent)
 		w.Raw("if err != nil {\n")
 		tabs(indent + 1)
-		w.Rawf("s.httpErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
+		w.Rawf("s.HTTPErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
 		tabs(indent + 1)
 		w.Raw("return\n")
 		tabs(indent)
@@ -1630,7 +1630,7 @@ func (w *Writer) writeParseField(
 		tabs(indent)
 		w.Raw("if err != nil {\n")
 		tabs(indent + 1)
-		w.Rawf("s.httpErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
+		w.Rawf("s.HTTPErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
 		tabs(indent + 1)
 		w.Raw("return\n")
 		tabs(indent)
@@ -1645,7 +1645,7 @@ func (w *Writer) writeParseField(
 		w.Rawf("if err := %s.%s.UnmarshalText([]byte(%s)); err != nil {\n",
 			varName, f.Name, raw)
 		tabs(indent + 1)
-		w.Rawf("s.httpErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
+		w.Rawf("s.HTTPErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
 		tabs(indent + 1)
 		w.Raw("return\n")
 		tabs(indent)

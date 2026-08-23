@@ -115,6 +115,52 @@ func (m *Manager[Data]) WriteCSRFToken(
 	return m.csrf.Tokens.WriteToken(w, sessionToken)
 }
 
+// csrfScriptPrefix and csrfScriptSuffix wrap the CSRF token in the module
+// script that adds it to every state-changing Datastar fetch. Datastar issues
+// those through globalThis.fetch, which is why overriding it reaches them all.
+const (
+	csrfScriptPrefix = `
+	<script type="module">
+		const o = globalThis.fetch.bind(globalThis)
+		globalThis.fetch=(i,init={}) => {
+			const isReq=i instanceof Request
+			const r=isReq ? i:new Request(i,init)
+			if (r.headers.get("Datastar-Request")!=="true" ||
+				r.method=="GET"||r.method=="HEAD"||r.method=="OPTIONS"
+			) return isReq ? o(r,init):o(r)
+			const h=new Headers(r.headers)
+			h.set("X-CSRF-Token",'`
+
+	csrfScriptSuffix = `')
+			return o(new Request(r,{...init,headers:h}))
+		}
+	</script>`
+)
+
+// WriteCSRFScript writes the script that adds the X-CSRF-Token header to every
+// state-changing Datastar fetch of the page. It writes nothing for a guest
+// (empty userID) and when CSRF protection is off.
+func (m *Manager[Data]) WriteCSRFScript(
+	w io.Writer, userID, sessionToken string,
+) error {
+	if userID == "" || m.csrfDisabled {
+		return nil
+	}
+	if _, err := io.WriteString(w, csrfScriptPrefix); err != nil {
+		return err
+	}
+	n, err := m.WriteCSRFToken(w, sessionToken)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		m.server.Logger().Warn("wrote empty CSRF token",
+			slog.String("user-id", userID))
+	}
+	_, err = io.WriteString(w, csrfScriptSuffix)
+	return err
+}
+
 func (m *Manager[Data]) sessionRead(outcome string) {
 	if m.metrics != nil {
 		m.metrics.SessionRead(outcome)

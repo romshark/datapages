@@ -8,10 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
-	"sync/atomic"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
@@ -19,6 +17,7 @@ import (
 	"github.com/romshark/datapages/runtime/auth"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
+	"github.com/romshark/datapages/runtime/stream"
 	"github.com/romshark/datapages/runtime/subject"
 
 	"github.com/romshark/datapages/internal/acceptance/sessions/app"
@@ -38,45 +37,7 @@ const (
 	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
 
-// assetsFileSystem rejects datapages.WithAssets: the app package declares no
-// embed.FS with a URL path in its doc comment, hence there is nothing to serve.
-func assetsFileSystem(cfg datapages.ServerConfig) (http.FileSystem, error) {
-	if cfg.AssetsFS != nil {
-		return cfg.AssetsFS, nil
-	}
-	if cfg.AssetsEmbed != nil {
-		return nil, errors.New(
-			"datapages.WithAssets: the app package declares no assets",
-		)
-	}
-	return nil, nil
-}
-
-// brokerMetrics implements messaging.Metrics as a no-op.
-type brokerMetrics struct{}
-
-func (m brokerMetrics) OnPublish(subject string) {}
-func (m brokerMetrics) OnDeliveryDropped()       {}
-
-// --- Message Broker ---
-
 const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
-
-func (s *Server) httpErrBad(w http.ResponseWriter, msg string, err error) {
-	s.Logger().Debug("bad request", slog.String("cause", msg), slog.Any("err", err))
-	http.Error(w, msg, http.StatusBadRequest)
-}
-
-func (s *Server) checkIsDSReq(w http.ResponseWriter, r *http.Request) (ok bool) {
-	if !httpserve.IsDatastarRequest(r) {
-		s.Logger().Debug("not a datastar request",
-			slog.Any("method", r.Method),
-			slog.String("path", r.URL.Path))
-		http.Error(w, http.StatusText(http.StatusNotAcceptable), http.StatusNotAcceptable)
-		return false
-	}
-	return true
-}
 
 func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool) {
 	if subject.IsToken(userID) {
@@ -99,75 +60,16 @@ func (s *Server) writeHTML(
 	writeBodyAttrs func(w http.ResponseWriter),
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
-	_, err := io.WriteString(w, s.HTMLPrefix())
-	if err != nil {
-		return err
-	}
-	if headGeneric != nil {
-		if err := headGeneric.Render(r.Context(), w); err != nil {
-			return err
-		}
-	}
-	if head != nil {
-		if err := head.Render(r.Context(), w); err != nil {
-			return err
-		}
-	}
-	if sess.UserID() != "" && s.CSRFEnabled() {
-		// Write the fetch X-CSRF-Token header injector.
-		if _, err := io.WriteString(w, `
-	<script type="module">
-		const o = globalThis.fetch.bind(globalThis)
-		globalThis.fetch=(i,init={}) => {
-			const isReq=i instanceof Request
-			const r=isReq ? i:new Request(i,init)
-			if (r.headers.get("Datastar-Request")!=="true" ||
-				r.method=="GET"||r.method=="HEAD"||r.method=="OPTIONS"
-			) return isReq ? o(r,init):o(r)
-			const h=new Headers(r.headers)
-			h.set("X-CSRF-Token",'`); err != nil {
-			return err
-		}
-		n, err := s.WriteCSRFToken(w, sess.Token())
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			s.Logger().Warn("wrote empty CSRF token",
-				slog.String("user-id", sess.UserID()))
-		}
-		if _, err := io.WriteString(w, `')
-			return o(new Request(r,{...init,headers:h}))
-		}
-	</script>`); err != nil {
-			return err
-		}
-	}
-	if _, err := io.WriteString(w, "</head><body "); err != nil {
-		return err
-	}
-	if writeBodyAttrs != nil {
-		writeBodyAttrs(w)
-	}
-	if _, err := io.WriteString(w, ">"); err != nil {
-		return err
-	}
-	if body != nil {
-		if err := body.Render(r.Context(), w); err != nil {
-			return err
-		}
-	}
-	if writeBodySuffix != nil {
-		if _, err := io.WriteString(w, "<template "); err != nil {
-			return err
-		}
-		writeBodySuffix(w)
-		if _, err := io.WriteString(w, "></template>"); err != nil {
-			return err
-		}
-	}
-	_, err = io.WriteString(w, "</body></html>")
-	return err
+	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
+		CSRF:            s.Manager,
+		UserID:          sess.UserID(),
+		SessionToken:    sess.Token(),
+		HeadGeneric:     headGeneric,
+		Head:            head,
+		Body:            body,
+		WriteBodyAttrs:  writeBodyAttrs,
+		WriteBodySuffix: writeBodySuffix,
+	})
 }
 
 func (s *Server) handleStreamRequest(
@@ -184,66 +86,14 @@ func (s *Server) handleStreamRequest(
 		ch <-chan messaging.Message,
 	),
 ) {
-	if !s.checkIsDSReq(w, r) {
-		return
-	}
-
-	streamID := datapages.StreamID(s.streamSeq.Add(1))
-
-	// The subscription is established before the response head goes out.
-	// A client learns the stream is open by reading that head and may dispatch
-	// immediately after, which must not reach the broker before this.
-	ctx := r.Context()
-	sub, err := s.messageBroker.Subscribe(ctx, s.messageBrokerMetrics, subjects...)
-	if err != nil {
-		// Nothing has been written yet, so the error can still carry a status.
-		s.httpErrIntern(w, r, nil, "subscribing to message broker", err)
-		return
-	}
-
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-
-	subC := sub.C()
-	if onOpen != nil {
-		if err := onOpen(streamID, sse); err != nil {
-			sub.Close()
-			s.httpErrIntern(w, r, sse, "handling stream open hook", err)
-			return
-		}
-	}
-	sessionClosed := make(chan struct{})
-
-	if sess.UserID() != "" {
-		ctx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		if err := s.SessionManager().NotifyClosed(ctx, sessKey, func() {
-			close(sessionClosed)
-		}); err != nil {
-			s.httpErrIntern(w, r, sse, "setting up session closure watcher", err)
-			return
-		}
-	}
-
-	go func() {
-		select {
-		case <-sessionClosed:
-		case <-r.Context().Done():
-		case <-s.ShutdownCh():
-		}
-		sub.Close()
-		if onClose != nil {
-			onClose(streamID)
-		}
-	}()
-
-	fn(streamID, sse, subC)
+	s.streams.Handle(w, r, sessKey, sess.UserID(), subjects, onOpen, onClose, fn)
 }
 
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
-	messageBrokerMetrics brokerMetrics
-	streamSeq            atomic.Uint64
+	messageBrokerMetrics messaging.NoopMetrics
+	streams              *stream.Handler
 	app                  *app.App
 	*auth.Manager[app.SessionData]
 }
@@ -279,7 +129,7 @@ func (s *Server) Init(
 		return errors.New("missing option WithSessionManager")
 	}
 
-	assetsFS, err := assetsFileSystem(cfg)
+	assetsFS, err := httpserve.AssetsFileSystem(cfg, "", "")
 	if err != nil {
 		return err
 	}
@@ -288,7 +138,7 @@ func (s *Server) Init(
 	s.Core = httpserve.NewCore(cfg, "")
 	s.app = app
 	s.messageBroker = messageBroker
-	s.messageBrokerMetrics = brokerMetrics{}
+	s.messageBrokerMetrics = messaging.NoopMetrics{}
 
 	if si, ok := s.messageBroker.(messaging.StreamInitializer); ok {
 		if err := si.InitStreams(MessageBrokerStreamSubjects()); err != nil {
@@ -296,6 +146,12 @@ func (s *Server) Init(
 		}
 	}
 	s.Manager = auth.NewManager(s.Core, sessionManager, cfg, nil)
+	s.streams = stream.NewHandler(
+		s.Core, messageBroker, s.messageBrokerMetrics,
+		s.SessionManager(),
+		nil,
+		s.httpErrIntern,
+	)
 
 	setupHandlers(s)
 
@@ -381,18 +237,7 @@ func (s *Server) httpErrIntern(
 	_ *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
-	switch {
-	case errors.Is(err, datapages.ErrBadRequest):
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	case errors.Is(err, datapages.ErrForbidden):
-		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-	case errors.Is(err, datapages.ErrNotFound):
-		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-	case errors.Is(err, datapages.ErrConflict):
-		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
-	default:
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-	}
+	httpserve.WriteErrStatus(w, err)
 }
 
 func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
@@ -460,7 +305,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 	sess, sessToken, ok := s.ReadSession(w, r)
@@ -520,7 +365,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handlePageIndexGETStreamAnon(w http.ResponseWriter, r *http.Request) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 	sess, sessToken, ok := s.ReadSession(w, r)
@@ -529,7 +374,7 @@ func (s *Server) handlePageIndexGETStreamAnon(w http.ResponseWriter, r *http.Req
 	}
 
 	if sess.UserID() != "" {
-		s.httpErrBad(w, "authenticated client on anonymous stream", nil)
+		s.HTTPErrBad(w, "authenticated client on anonymous stream", nil)
 		return
 	}
 
@@ -619,7 +464,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePageLoginPOSTSubmit(
 	w http.ResponseWriter, r *http.Request,
 ) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 	// CSRF protection covers every state-changing action, including
@@ -633,7 +478,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 		Nickname string `json:"nickname"`
 	}]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.httpErrBad(w, "reading signals", err)
+		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
 	p := app.PageLogin{
@@ -658,7 +503,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 func (s *Server) handlePageLoginPOSTNotify(
 	w http.ResponseWriter, r *http.Request,
 ) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 	// CSRF protection covers every state-changing action, including
@@ -672,7 +517,7 @@ func (s *Server) handlePageLoginPOSTNotify(
 		Text string `json:"text"`
 	}]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.httpErrBad(w, "reading signals", err)
+		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
 
@@ -690,7 +535,7 @@ func (s *Server) handlePageLoginPOSTNotify(
 func (s *Server) handlePageLoginPOSTBroadcast(
 	w http.ResponseWriter, r *http.Request,
 ) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 	// CSRF protection covers every state-changing action, including
@@ -703,7 +548,7 @@ func (s *Server) handlePageLoginPOSTBroadcast(
 		Text string `json:"text"`
 	}]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.httpErrBad(w, "reading signals", err)
+		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
 
@@ -721,7 +566,7 @@ func (s *Server) handlePageLoginPOSTBroadcast(
 func (s *Server) handlePageLoginPOSTRename(
 	w http.ResponseWriter, r *http.Request,
 ) {
-	if !s.checkIsDSReq(w, r) {
+	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 	sess, _, ok := s.ReadSession(w, r)
@@ -733,7 +578,7 @@ func (s *Server) handlePageLoginPOSTRename(
 		Nickname string `json:"nickname"`
 	}]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.httpErrBad(w, "reading signals", err)
+		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
 	p := app.PageLogin{

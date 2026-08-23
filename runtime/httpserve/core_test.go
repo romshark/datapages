@@ -151,3 +151,27 @@ func TestShutdownEndsListenAndServe(t *testing.T) {
 	}
 	<-c.ShutdownCh()
 }
+
+func TestBuildServesAssets(t *testing.T) {
+	t.Parallel()
+
+	c := httpserve.NewCore(datapages.ServerConfig{
+		AssetsFS: http.Dir("testdata/static"),
+	}, "/static/")
+	c.Build()
+
+	w := serve(t, c, "/static/hello.txt")
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "hello", strings.TrimSpace(w.Body.String()))
+}
+
+func TestBuildWithoutAssetsPrefix(t *testing.T) {
+	t.Parallel()
+
+	c := httpserve.NewCore(datapages.ServerConfig{
+		AssetsFS: http.Dir("testdata/static"),
+	}, "")
+	c.Build()
+
+	require.Equal(t, http.StatusNotFound, serve(t, c, "/static/hello.txt").Code)
+}

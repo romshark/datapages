@@ -1,6 +1,0 @@
-
-// brokerMetrics implements messaging.Metrics as a no-op.
-type brokerMetrics struct{}
-
-func (m brokerMetrics) OnPublish(subject string) {}
-func (m brokerMetrics) OnDeliveryDropped()       {}
