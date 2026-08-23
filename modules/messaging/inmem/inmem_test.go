@@ -45,11 +45,62 @@ func TestMatches(t *testing.T) {
 	}
 }
 
-// countingMetrics records how often delivery dropped a message.
-type countingMetrics struct{ dropped int }
+// countingMetrics counts publishes and dropped deliveries.
+type countingMetrics struct{ published, dropped int }
 
-func (*countingMetrics) OnPublish(string)     {}
+func (m *countingMetrics) OnPublish(string)   { m.published++ }
 func (m *countingMetrics) OnDeliveryDropped() { m.dropped++ }
+
+// TestPublishIsCountedWithoutSubscribers covers parity with natscore, which
+// counts every publish: core NATS knows nothing about subscribers.
+func TestPublishIsCountedWithoutSubscribers(t *testing.T) {
+	ctx := context.Background()
+
+	for name, subscribeTo := range map[string]string{
+		"no subscription at all":          "",
+		"subscription on another subject": "other.subject",
+		"pattern matching nothing":        "other.*",
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := inmem.New(messaging.DefaultBrokerChanBuffer)
+			t.Cleanup(func() { require.NoError(t, b.Close()) })
+
+			metrics := new(countingMetrics)
+			if subscribeTo != "" {
+				sub, err := b.Subscribe(ctx, metrics, subscribeTo)
+				require.NoError(t, err)
+				t.Cleanup(sub.Close)
+			}
+
+			require.NoError(t, b.Publish(ctx, metrics, "note.one", []byte("x")))
+
+			require.Equal(t, 1, metrics.published,
+				"a publish nobody is subscribed to must still be counted")
+			require.Zero(t, metrics.dropped,
+				"nothing was delivered, so nothing was dropped")
+		})
+	}
+}
+
+// TestPublishIsCountedOnce covers a publish that reaches subscribers:
+// it is one publish however many of them there are.
+func TestPublishIsCountedOnce(t *testing.T) {
+	ctx := context.Background()
+	b := inmem.New(messaging.DefaultBrokerChanBuffer)
+	t.Cleanup(func() { require.NoError(t, b.Close()) })
+
+	metrics := new(countingMetrics)
+	for _, subject := range []string{"note.one", "note.*", "note.>"} {
+		sub, err := b.Subscribe(ctx, metrics, subject)
+		require.NoError(t, err)
+		t.Cleanup(sub.Close)
+	}
+
+	require.NoError(t, b.Publish(ctx, metrics, "note.one", []byte("x")))
+
+	require.Equal(t, 1, metrics.published)
+	require.Zero(t, metrics.dropped)
+}
 
 // TestDefaultBrokerChanBuffer covers a broker created without a buffer size.
 // Its subscriptions must buffer all the same.
