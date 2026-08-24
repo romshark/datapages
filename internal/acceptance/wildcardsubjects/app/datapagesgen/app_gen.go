@@ -283,16 +283,14 @@ func (d dispatcherEventNoted) Dispatch(e app.EventNoted) error {
 func (d dispatcherEventNoted) DispatchCtx(
 	ctx context.Context, e app.EventNoted,
 ) error {
-	if !subject.IsToken(string(e.Topic)) {
-		return fmt.Errorf(
-			"EventNoted.Topic must be a non-empty subject token, received %q",
-			e.Topic)
+	if e.Topic == "" {
+		return errors.New("EventNoted.Topic must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventNoted JSON: %w", err)
 	}
-	subj := "noted." + string(e.Topic)
+	subj := "noted." + subject.Encode(string(e.Topic))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)

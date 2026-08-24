@@ -39,18 +39,6 @@ const (
 
 const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
 
-func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool) {
-	if subject.IsToken(userID) {
-		return true
-	}
-	s.LogErr("subscribing private events", fmt.Errorf(
-		"session user ID %q is not a subject token", userID))
-	http.Error(w,
-		http.StatusText(http.StatusInternalServerError),
-		http.StatusInternalServerError)
-	return false
-}
-
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -188,7 +176,7 @@ func evSubjPageIndex(userID string) []string {
 	}
 	return []string{
 		EvSubjBroadcast,
-		"notice." + userID,
+		"notice." + subject.Encode(userID),
 	}
 }
 
@@ -321,9 +309,6 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			target += "?" + r.URL.RawQuery
 		}
 		http.Redirect(w, r, target, http.StatusSeeOther)
-		return
-	}
-	if !s.checkUserSubject(w, sess.UserID()) {
 		return
 	}
 
@@ -659,16 +644,14 @@ func (d dispatcherEventNotice) Dispatch(e app.EventNotice) error {
 func (d dispatcherEventNotice) DispatchCtx(
 	ctx context.Context, e app.EventNotice,
 ) error {
-	if !subject.IsToken(string(e.Recipient)) {
-		return fmt.Errorf(
-			"EventNotice.Recipient must be a non-empty subject token, received %q",
-			e.Recipient)
+	if e.Recipient == "" {
+		return errors.New("EventNotice.Recipient must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventNotice JSON: %w", err)
 	}
-	subj := "notice." + string(e.Recipient)
+	subj := "notice." + subject.Encode(string(e.Recipient))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)

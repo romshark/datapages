@@ -56,18 +56,6 @@ func (m brokerMetrics) OnDeliveryDropped() {
 
 const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
 
-func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool) {
-	if subject.IsToken(userID) {
-		return true
-	}
-	s.LogErr("subscribing private events", fmt.Errorf(
-		"session user ID %q is not a subject token", userID))
-	http.Error(w,
-		http.StatusText(http.StatusInternalServerError),
-		http.StatusInternalServerError)
-	return false
-}
-
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -211,31 +199,31 @@ func MessageBrokerStreamSubjects() []string {
 
 func evSubjPageError404(userID string) []string {
 	return []string{
-		"messaging.sent." + userID,
-		"messaging.read." + userID,
+		"messaging.sent." + subject.Encode(userID),
+		"messaging.read." + subject.Encode(userID),
 	}
 }
 
 func evSubjPageIndex(userID string) []string {
 	return []string{
-		"messaging.sent." + userID,
-		"messaging.read." + userID,
+		"messaging.sent." + subject.Encode(userID),
+		"messaging.read." + subject.Encode(userID),
 	}
 }
 
 func evSubjPageMessages(userID string) []string {
 	return []string{
-		"messaging.read." + userID,
-		"messaging.writing." + userID,
-		"messaging.writing-stopped." + userID,
-		"messaging.sent." + userID,
+		"messaging.read." + subject.Encode(userID),
+		"messaging.writing." + subject.Encode(userID),
+		"messaging.writing-stopped." + subject.Encode(userID),
+		"messaging.sent." + subject.Encode(userID),
 	}
 }
 
 func evSubjPageMyPosts(userID string) []string {
 	return []string{
-		"messaging.sent." + userID,
-		"messaging.read." + userID,
+		"messaging.sent." + subject.Encode(userID),
+		"messaging.read." + subject.Encode(userID),
 	}
 }
 
@@ -247,23 +235,23 @@ func evSubjPagePost(userID string) []string {
 	}
 	return []string{
 		EvSubjPostArchived,
-		"messaging.sent." + userID,
-		"messaging.read." + userID,
+		"messaging.sent." + subject.Encode(userID),
+		"messaging.read." + subject.Encode(userID),
 	}
 }
 
 func evSubjPageSearch(userID string) []string {
 	return []string{
-		"messaging.sent." + userID,
-		"messaging.read." + userID,
+		"messaging.sent." + subject.Encode(userID),
+		"messaging.read." + subject.Encode(userID),
 	}
 }
 
 func evSubjPageSettings(userID string) []string {
 	return []string{
-		"sessions.closed." + userID,
-		"messaging.sent." + userID,
-		"messaging.read." + userID,
+		"sessions.closed." + subject.Encode(userID),
+		"messaging.sent." + subject.Encode(userID),
+		"messaging.read." + subject.Encode(userID),
 	}
 }
 
@@ -275,8 +263,8 @@ func evSubjPageUser(userID string) []string {
 	}
 	return []string{
 		EvSubjPostArchived,
-		"messaging.sent." + userID,
-		"messaging.read." + userID,
+		"messaging.sent." + subject.Encode(userID),
+		"messaging.read." + subject.Encode(userID),
 	}
 }
 
@@ -567,9 +555,6 @@ func (s *Server) handlePageError404GETStream(w http.ResponseWriter, r *http.Requ
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
-	if !s.checkUserSubject(w, sess.UserID()) {
-		return
-	}
 
 	p := app.PageError404{
 		App: s.app,
@@ -690,9 +675,6 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 
 	if sess.UserID() == "" {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-		return
-	}
-	if !s.checkUserSubject(w, sess.UserID()) {
 		return
 	}
 
@@ -888,9 +870,6 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 
 	if sess.UserID() == "" {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-		return
-	}
-	if !s.checkUserSubject(w, sess.UserID()) {
 		return
 	}
 
@@ -1148,9 +1127,6 @@ func (s *Server) handlePageMyPostsGETStream(w http.ResponseWriter, r *http.Reque
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
-	if !s.checkUserSubject(w, sess.UserID()) {
-		return
-	}
 
 	p := app.PageMyPosts{
 		App: s.app,
@@ -1261,9 +1237,6 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 			target += "?" + r.URL.RawQuery
 		}
 		http.Redirect(w, r, target, http.StatusSeeOther)
-		return
-	}
-	if !s.checkUserSubject(w, sess.UserID()) {
 		return
 	}
 
@@ -1506,9 +1479,6 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
-	if !s.checkUserSubject(w, sess.UserID()) {
-		return
-	}
 
 	p := app.PageSearch{
 		App: s.app,
@@ -1632,9 +1602,6 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 
 	if sess.UserID() == "" {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-		return
-	}
-	if !s.checkUserSubject(w, sess.UserID()) {
 		return
 	}
 
@@ -1855,9 +1822,6 @@ func (s *Server) handlePageUserGETStream(w http.ResponseWriter, r *http.Request)
 		http.Redirect(w, r, target, http.StatusSeeOther)
 		return
 	}
-	if !s.checkUserSubject(w, sess.UserID()) {
-		return
-	}
 
 	p := app.PageUser{
 		App: s.app,
@@ -1965,16 +1929,14 @@ func (d dispatcherEventMessagingRead) Dispatch(e app.EventMessagingRead) error {
 func (d dispatcherEventMessagingRead) DispatchCtx(
 	ctx context.Context, e app.EventMessagingRead,
 ) error {
-	if !subject.IsToken(string(e.Recipient)) {
-		return fmt.Errorf(
-			"EventMessagingRead.Recipient must be a non-empty subject token, received %q",
-			e.Recipient)
+	if e.Recipient == "" {
+		return errors.New("EventMessagingRead.Recipient must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventMessagingRead JSON: %w", err)
 	}
-	subj := "messaging.read." + string(e.Recipient)
+	subj := "messaging.read." + subject.Encode(string(e.Recipient))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)
@@ -1994,16 +1956,14 @@ func (d dispatcherEventMessagingWriting) Dispatch(e app.EventMessagingWriting) e
 func (d dispatcherEventMessagingWriting) DispatchCtx(
 	ctx context.Context, e app.EventMessagingWriting,
 ) error {
-	if !subject.IsToken(string(e.Recipient)) {
-		return fmt.Errorf(
-			"EventMessagingWriting.Recipient must be a non-empty subject token, received %q",
-			e.Recipient)
+	if e.Recipient == "" {
+		return errors.New("EventMessagingWriting.Recipient must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventMessagingWriting JSON: %w", err)
 	}
-	subj := "messaging.writing." + string(e.Recipient)
+	subj := "messaging.writing." + subject.Encode(string(e.Recipient))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)
@@ -2023,16 +1983,14 @@ func (d dispatcherEventMessagingWritingStopped) Dispatch(e app.EventMessagingWri
 func (d dispatcherEventMessagingWritingStopped) DispatchCtx(
 	ctx context.Context, e app.EventMessagingWritingStopped,
 ) error {
-	if !subject.IsToken(string(e.Recipient)) {
-		return fmt.Errorf(
-			"EventMessagingWritingStopped.Recipient must be a non-empty subject token, received %q",
-			e.Recipient)
+	if e.Recipient == "" {
+		return errors.New("EventMessagingWritingStopped.Recipient must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventMessagingWritingStopped JSON: %w", err)
 	}
-	subj := "messaging.writing-stopped." + string(e.Recipient)
+	subj := "messaging.writing-stopped." + subject.Encode(string(e.Recipient))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)
@@ -2052,16 +2010,14 @@ func (d dispatcherEventMessagingSent) Dispatch(e app.EventMessagingSent) error {
 func (d dispatcherEventMessagingSent) DispatchCtx(
 	ctx context.Context, e app.EventMessagingSent,
 ) error {
-	if !subject.IsToken(string(e.Recipient)) {
-		return fmt.Errorf(
-			"EventMessagingSent.Recipient must be a non-empty subject token, received %q",
-			e.Recipient)
+	if e.Recipient == "" {
+		return errors.New("EventMessagingSent.Recipient must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventMessagingSent JSON: %w", err)
 	}
-	subj := "messaging.sent." + string(e.Recipient)
+	subj := "messaging.sent." + subject.Encode(string(e.Recipient))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)
@@ -2081,16 +2037,14 @@ func (d dispatcherEventSessionClosed) Dispatch(e app.EventSessionClosed) error {
 func (d dispatcherEventSessionClosed) DispatchCtx(
 	ctx context.Context, e app.EventSessionClosed,
 ) error {
-	if !subject.IsToken(string(e.Recipient)) {
-		return fmt.Errorf(
-			"EventSessionClosed.Recipient must be a non-empty subject token, received %q",
-			e.Recipient)
+	if e.Recipient == "" {
+		return errors.New("EventSessionClosed.Recipient must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
 	}
-	subj := "sessions.closed." + string(e.Recipient)
+	subj := "sessions.closed." + subject.Encode(string(e.Recipient))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)

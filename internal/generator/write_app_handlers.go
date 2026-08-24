@@ -868,11 +868,6 @@ func (w *Writer) writePageGETStreamHandler(
 			w.Line(2, "return")
 			w.Line(1, "}")
 		}
-
-		// The ID reaches the subscription subject from here on.
-		w.Line(1, "if !s.checkUserSubject(w, sess.UserID()) {")
-		w.Line(2, "return")
-		w.Line(1, "}")
 	}
 
 	// Read signal-scoped subject values for subscription.
@@ -896,11 +891,11 @@ func (w *Writer) writePageGETStreamHandler(
 		w.Line(2, "return")
 		w.Line(1, "}")
 		for i, sf := range signalFields {
-			w.Raw("\tif !subject.IsToken(subjSignals.")
+			w.Raw("\tif subjSignals.")
 			w.Raw(signalIdents[i])
-			w.Raw(") {\n")
+			w.Raw(" == \"\" {\n")
 			w.Raw("\t\ts.HTTPErrBad(w, \"invalid signal\",\n")
-			w.Raw("\t\t\tfmt.Errorf(\"signal %q must be a non-empty subject token\", ")
+			w.Raw("\t\t\tfmt.Errorf(\"signal %q must not be empty\", ")
 			w.writeQuoted(sf.SignalName)
 			w.Raw("))\n")
 			w.Line(2, "return")
@@ -1197,11 +1192,11 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		w.Line(2, "return")
 		w.Line(1, "}")
 		for i, sf := range signalFields {
-			w.Raw("\tif !subject.IsToken(subjSignals.")
+			w.Raw("\tif subjSignals.")
 			w.Raw(signalIdents[i])
-			w.Raw(") {\n")
+			w.Raw(" == \"\" {\n")
 			w.Raw("\t\ts.HTTPErrBad(w, \"invalid signal\",\n")
-			w.Raw("\t\t\tfmt.Errorf(\"signal %q must be a non-empty subject token\", ")
+			w.Raw("\t\t\tfmt.Errorf(\"signal %q must not be empty\", ")
 			w.writeQuoted(sf.SignalName)
 			w.Raw("))\n")
 			w.Line(2, "return")

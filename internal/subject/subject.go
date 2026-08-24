@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	// Sep separates the tokens of a subject.
-	Sep = subject.Sep
+	// Separator stands between the tokens of a subject.
+	Separator = subject.Separator
 	// Wildcards match one token ("*") and everything below (">").
 	Wildcards = subject.Wildcards
 	// Reserved are the characters a subject token must not contain.
