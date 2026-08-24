@@ -112,7 +112,7 @@ func (s *Server) Init(
 	if sessionManager != nil {
 		return errors.New("unexpected option WithSessionManager: package app declares no session type")
 	}
-	if cfg.MetricsServer == nil {
+	if cfg.Prometheus == nil {
 		// This server is generated with datapages.EnablePrometheus,
 		// hence the metrics it counts must be served.
 		return errors.New("missing option WithPrometheus")
@@ -124,7 +124,10 @@ func (s *Server) Init(
 	}
 	cfg.AssetsFS = assetsFS
 
-	s.Core = httpserve.NewCore(cfg, assets.URLPrefix)
+	s.Core, err = httpserve.NewCore(cfg, assets.URLPrefix)
+	if err != nil {
+		return err
+	}
 	s.app = app
 	s.messageBroker = messageBroker
 	s.messageBrokerMetrics = brokerMetrics{}

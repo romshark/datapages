@@ -7,10 +7,10 @@ package prom
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -142,27 +142,45 @@ var (
 	)
 )
 
-var registerOnce sync.Once
+// Register registers the built-in metrics on r, followed by extra.
+// A collector r already holds is skipped, which lets two servers of one
+// process share a registerer.
+func Register(r prometheus.Registerer, extra ...prometheus.Collector) error {
+	builtin := [...]prometheus.Collector{
+		mHTTPRequestsTotal,
+		mHTTPRequestDuration,
+		mInFlightRequests,
+		mInternalErrorsRecovered,
+		mInternalErrorsNotRecovered,
+		mSSEConnections,
+		mSSEConnectionDuration,
+		mSSEDisconnects,
+		mBrokerEventPublishes,
+		mBrokerDeliveriesDropped,
+		mSessionCreations,
+		mSessionClosures,
+		mSessionReads,
+	}
+	for _, c := range builtin {
+		if err := register(r, c); err != nil {
+			return err
+		}
+	}
+	for _, c := range extra {
+		if err := register(r, c); err != nil {
+			return fmt.Errorf("registering collector: %w", err)
+		}
+	}
+	return nil
+}
 
-// Register registers the built-in metrics on r, once per process.
-func Register(r prometheus.Registerer) {
-	registerOnce.Do(func() {
-		r.MustRegister(
-			mHTTPRequestsTotal,
-			mHTTPRequestDuration,
-			mInFlightRequests,
-			mInternalErrorsRecovered,
-			mInternalErrorsNotRecovered,
-			mSSEConnections,
-			mSSEConnectionDuration,
-			mSSEDisconnects,
-			mBrokerEventPublishes,
-			mBrokerDeliveriesDropped,
-			mSessionCreations,
-			mSessionClosures,
-			mSessionReads,
-		)
-	})
+func register(r prometheus.Registerer, c prometheus.Collector) error {
+	err := r.Register(c)
+	var already prometheus.AlreadyRegisteredError
+	if err == nil || errors.As(err, &already) {
+		return nil
+	}
+	return err
 }
 
 // SSEConnectionOpened counts a stream the server just accepted.

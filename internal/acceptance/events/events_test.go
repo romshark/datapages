@@ -361,30 +361,48 @@ func TestMissingSubjectSignal(t *testing.T) {
 	})
 }
 
-// TestWildcardSubjectSignalRefused covers a client that puts a NATS wildcard in
-// the signal its subscription is scoped by. Taken as given, "*" would subscribe
-// the stream to every value of that subject and hand the client events meant
-// for other instances, so the stream must be refused instead.
-func TestWildcardSubjectSignalRefused(t *testing.T) {
+// TestSubjectSignalEscaped covers the value a client puts in the signal that
+// scopes its subscription. Escaped it names one segment, so a client sending
+// a wildcard subscribes to that literal value and to nothing else.
+func TestSubjectSignalEscaped(t *testing.T) {
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
-		for _, signal := range []string{"*", ">", "red.blue", "", " "} {
-			encoded, err := json.Marshal(map[string]string{"room": signal})
-			require.NoError(t, err, "encoding signals")
+		star := c.OpenStream(t, "/room/_$/", map[string]string{"room": "*"})
+		red := c.OpenStream(t, "/room/_$/", map[string]string{"room": "red"})
 
-			req, err := http.NewRequestWithContext(context.Background(),
-				http.MethodGet,
-				c.URL()+"/room/_$/?datastar="+url.QueryEscape(string(encoded)), nil)
-			require.NoError(t, err, "building request")
-			req.Header.Set("Datastar-Request", "true")
+		postOK(t, c, "/room/say/", `{"room":"red","text":"hello red"}`)
+		require.True(t, red.Saw(`<div id="said">hello red</div>`),
+			"the addressed stream received nothing")
+		require.True(t, star.Never("hello red"),
+			"a wildcard signal widened the subscription to another room")
 
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err, "GET /room/_$/")
-			_ = resp.Body.Close()
-			require.Equal(t, http.StatusBadRequest, resp.StatusCode,
-				"signal %q was accepted as a subject token", signal)
-		}
+		postOK(t, c, "/room/say/", `{"room":"*","text":"hello star"}`)
+		require.True(t, star.Saw(`<div id="said">hello star</div>`),
+			"the stream scoped to a wildcard value received nothing")
+	})
+}
+
+// TestEmptySubjectSignalRefused covers the one value escaping cannot save.
+// An empty signal names no segment, which leaves a subject no subscription matches.
+func TestEmptySubjectSignalRefused(t *testing.T) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+
+		encoded, err := json.Marshal(map[string]string{"room": ""})
+		require.NoError(t, err, "encoding signals")
+
+		req, err := http.NewRequestWithContext(context.Background(),
+			http.MethodGet,
+			c.URL()+"/room/_$/?datastar="+url.QueryEscape(string(encoded)), nil)
+		require.NoError(t, err, "building request")
+		req.Header.Set("Datastar-Request", "true")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err, "GET /room/_$/")
+		_ = resp.Body.Close()
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode,
+			"an empty signal was accepted")
 	})
 }
 

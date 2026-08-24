@@ -601,43 +601,45 @@ func TestSignInAcceptsAnyUserID(t *testing.T) {
 	})
 }
 
-// TestStreamRefusesUnsafeUserID covers a session that carries such an ID
-// regardless, which a store filled before the check existed still holds.
-// The stream reads the ID into its subscription subject, so it refuses to open
-// rather than subscribe to every user.
-func TestStreamRefusesUnsafeUserID(t *testing.T) {
+// TestStreamOpensForAnyUserID covers a session whose user ID cannot stand in
+// a subject as it is, created straight in the store the way a manager of an
+// application's own would. The stream subscribes by the escaped ID,
+// so it opens for one a sign-in never went through.
+func TestStreamOpensForAnyUserID(t *testing.T) {
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		srv := newServer(t, broker)
+		for name, userID := range map[string]string{
+			"star":      "*",
+			"gt":        ">",
+			"separator": "a.b",
+			"email":     "alice@example.com",
+		} {
+			t.Run(name, func(t *testing.T) {
+				srv := newServer(t, broker)
 
-		token, err := srv.sessions.CreateSession(context.Background(),
-			sessions.Record[app.SessionData]{
-				UserID:    "*",
-				IssuedAt:  time.Now(),
-				ExpiresAt: time.Now().Add(time.Hour),
+				token, err := srv.sessions.CreateSession(context.Background(),
+					sessions.Record[app.SessionData]{
+						UserID:    userID,
+						IssuedAt:  time.Now(),
+						ExpiresAt: time.Now().Add(time.Hour),
+					})
+				require.NoError(t, err, "creating the session")
+
+				c := srv.client(t)
+				c.setSessionCookie(t, token)
+
+				req, err := http.NewRequestWithContext(
+					context.Background(), http.MethodGet, srv.URL+"/_$/", nil,
+				)
+				require.NoError(t, err, "building stream request")
+				req.Header.Set("Datastar-Request", "true")
+
+				resp, err := c.http.Do(req)
+				require.NoError(t, err, "opening stream")
+				defer func() { _ = resp.Body.Close() }()
+
+				require.Equal(t, http.StatusOK, resp.StatusCode,
+					"the stream refused user ID %q", userID)
 			})
-		if err != nil {
-			t.Fatalf("creating the session: %v", err)
-		}
-
-		c := srv.client(t)
-		c.setSessionCookie(t, token)
-
-		req, err := http.NewRequestWithContext(
-			context.Background(), http.MethodGet, srv.URL+"/_$/", nil,
-		)
-		if err != nil {
-			t.Fatalf("building stream request: %v", err)
-		}
-		req.Header.Set("Datastar-Request", "true")
-
-		resp, err := c.http.Do(req)
-		if err != nil {
-			t.Fatalf("opening stream: %v", err)
-		}
-		defer func() { _ = resp.Body.Close() }()
-
-		if resp.StatusCode != http.StatusInternalServerError {
-			t.Errorf("opening the stream: status = %d, want 500", resp.StatusCode)
 		}
 	})
 }

@@ -358,14 +358,14 @@ func (s *Server) Init(
 `)
 	}
 	if w.prometheus {
-		w.Raw(`	if cfg.MetricsServer == nil {
+		w.Raw(`	if cfg.Prometheus == nil {
 		// This server is generated with datapages.EnablePrometheus,
 		// hence the metrics it counts must be served.
 		return errors.New("missing option WithPrometheus")
 	}
 `)
 	} else {
-		w.Raw(`	if cfg.MetricsServer != nil {
+		w.Raw(`	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
 		// hence there is no instrumentation for the metrics to count.
 		return errors.New("unexpected option WithPrometheus: " +
@@ -392,13 +392,16 @@ func (s *Server) Init(
 	}
 	cfg.AssetsFS = assetsFS
 
-	s.Core = httpserve.NewCore(cfg, `)
+	s.Core, err = httpserve.NewCore(cfg, `)
 	if w.hasAssets() {
 		w.Raw(`assets.URLPrefix`)
 	} else {
 		w.Raw(`""`)
 	}
 	w.Raw(`)
+	if err != nil {
+		return err
+	}
 	s.app = app
 	s.messageBroker = messageBroker
 	s.messageBrokerMetrics = `)
