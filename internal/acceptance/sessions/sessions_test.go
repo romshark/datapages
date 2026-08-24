@@ -547,32 +547,55 @@ func TestPrivateEvent(t *testing.T) {
 	})
 }
 
-// TestSignInRefusesUnsafeUserID covers the ID a session is created with.
-// It names the subject every event addressed to that user is published to and
-// subscribed by, which makes a wildcard in it a subscription to every user.
-func TestSignInRefusesUnsafeUserID(t *testing.T) {
+// TestSignInAcceptsAnyUserID covers a user ID that cannot stand in a subject as it is.
+// The ID names the subject every event addressed to that user is published to and
+// subscribed by, and both sides escape it the same way.
+//
+// The wildcards are the cases that matter. Escaped, one is a literal token,
+// which is what keeps a client signing in as "*" or ">" subscribed to itself
+// and to nobody else.
+func TestSignInAcceptsAnyUserID(t *testing.T) {
 	users := map[string]string{
+		"email":     "alice@example.com",
 		"separator": "a.b",
 		"star":      "*",
 		"gt":        ">",
 		"space":     "a b",
+		"percent":   "100%",
 	}
 
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		for name, user := range users {
 			t.Run(name, func(t *testing.T) {
 				srv := newServer(t, broker)
-				c := srv.client(t)
 
-				status, body := c.postWithToken(t, "/login/submit/",
-					`{"user":"`+user+`","nickname":""}`, "")
-				if status != http.StatusInternalServerError {
-					t.Fatalf("signing in as %q: status = %d, want 500\n%s",
-						user, status, body)
-				}
-				if c.cookie(t) != nil {
-					t.Error("a refused sign-in left a session cookie")
-				}
+				c := srv.client(t)
+				c.signIn(t, user, "")
+				require.NotNil(t, c.cookie(t), "sign-in left no session cookie")
+
+				bob := srv.client(t)
+				bob.signIn(t, "bob", "")
+
+				cs := c.openStream(t)
+				bs := bob.openStream(t)
+
+				// Addressed to bob. A user ID carrying a wildcard would
+				// subscribe to every user, this one to nobody but itself.
+				status, body := bob.post(t, "/login/notify/",
+					`{"user":"bob","text":"for bob"}`)
+				require.Equal(t, http.StatusOK, status, body)
+				require.True(t, bs.saw(`<div id="notice">bob: for bob</div>`),
+					"bob received nothing")
+				require.True(t, cs.never("for bob"),
+					"a private event reached a user it was not addressed to")
+
+				// Addressed to the user itself, which is what proves the
+				// publish and the subscription agree on the escaped subject.
+				status, body = c.post(t, "/login/notify/",
+					`{"user":`+strconv.Quote(user)+`,"text":"for me"}`)
+				require.Equal(t, http.StatusOK, status, body)
+				require.True(t, cs.saw(`<div id="notice">`+user+`: for me</div>`),
+					"the addressed user's stream received nothing")
 			})
 		}
 	})

@@ -197,6 +197,20 @@ func (c *Core) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.handler.ServeHTTP(w, r)
 }
 
+// WildcardPathValue reads the value of a {name...} route wildcard.
+//
+// [Core.ServeHTTP] appends a slash to a path that carries none. A wildcard
+// runs to the end of the path, so that slash lands inside its value instead of
+// after it, and every request reaches the handler with one, however the client
+// wrote the URL. Trimming it is what makes the value the handler reads the
+// value the caller built the URL with.
+//
+// A value that ends in a slash of its own cannot be told apart from one the
+// normalization added and loses it too.
+func WildcardPathValue(r *http.Request, name string) string {
+	return strings.TrimSuffix(r.PathValue(name), "/")
+}
+
 // ListenAndServe starts the HTTP server.
 //
 // The provided context controls graceful shutdown.

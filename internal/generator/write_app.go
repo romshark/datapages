@@ -40,9 +40,6 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 		}
 		w.writePageCache(m)
 	}
-	if w.usage.privateStreams {
-		w.writeCheckUserSubject()
-	}
 	if w.usage.auth && w.usage.hasSession {
 		w.writeAppCheckCSRF()
 	}
@@ -487,25 +484,6 @@ func (s *Server) writeHTML(
 		WriteBodyAttrs:  writeBodyAttrs,
 		WriteBodySuffix: writeBodySuffix,
 	})
-}
-`)
-}
-
-// writeCheckUserSubject emits the guard for the ID of the session owner,
-// which names the subject a private subscription reads.
-// A wildcard in it would widen that subscription to every user.
-func (w *Writer) writeCheckUserSubject() {
-	w.Raw(`
-func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool) {
-	if subject.IsToken(userID) {
-		return true
-	}
-	s.LogErr("subscribing private events", fmt.Errorf(
-		"session user ID %q is not a subject token", userID))
-	http.Error(w,
-		http.StatusText(http.StatusInternalServerError),
-		http.StatusInternalServerError)
-	return false
 }
 `)
 }
@@ -995,7 +973,7 @@ func (w *Writer) writeEvUserSubExpr(e *model.Event) {
 	}
 
 	w.writeQuoted(beforeUser.String() + ".")
-	w.Raw(" + userID")
+	w.Raw(" + subject.Encode(userID)")
 	if afterUser.String() != "" {
 		w.Raw(" + ")
 		w.writeQuoted(afterUser.String())
@@ -1155,8 +1133,9 @@ func (w *Writer) writeEvSignalSubExpr(
 			w.Raw(" + ")
 		}
 		if sf.SignalName != "" {
-			w.Raw("subj")
+			w.Raw("subject.Encode(subj")
 			w.Raw(identBySignal[sf.SignalName])
+			w.Byte(')')
 		} else {
 			w.writeQuoted("*")
 		}
@@ -1567,7 +1546,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 
 	// Read path params.
 	if h.InputPath != nil {
-		w.writeReadPath(h.InputPath, m)
+		w.writeReadPath(h.InputPath, m, h.Route)
 	}
 
 	// Dispatch closures.
@@ -1800,18 +1779,14 @@ func (w *Writer) writeDispatcherType(evName, appPkg string) {
 		// makes a subject of a different shape,
 		// which every subscription then misses in silence.
 		for _, sf := range ev.SubjectFields {
-			w.Raw("\tif !subject.IsToken(string(e.")
+			w.Raw("\tif e.")
 			w.Raw(sf.FieldName)
-			w.Raw(")) {\n")
-			w.Line(2, "return fmt.Errorf(")
-			w.Raw("\t\t\t\"")
+			w.Raw(" == \"\" {\n")
+			w.Raw("\t\treturn errors.New(\"")
 			w.Raw(evName)
 			w.Byte('.')
 			w.Raw(sf.FieldName)
-			w.Raw(" must be a non-empty subject token, received %q\",\n")
-			w.Raw("\t\t\te.")
-			w.Raw(sf.FieldName)
-			w.Raw(")\n")
+			w.Raw(" must not be empty\")\n")
 			w.Line(1, "}")
 		}
 	}
@@ -1834,9 +1809,9 @@ func (w *Writer) writeDispatcherType(evName, appPkg string) {
 			} else {
 				w.Raw(" + ")
 			}
-			w.Raw("string(e.")
+			w.Raw("subject.Encode(string(e.")
 			w.Raw(sf.FieldName)
-			w.Byte(')')
+			w.Raw("))")
 		}
 		w.Byte('\n')
 		w.Raw("\terr = d.s.messageBroker.Publish(")

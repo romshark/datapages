@@ -696,12 +696,15 @@ notify.Dispatch(EventNotify{
 
 publishes to the subject `notify.u1.r1.mobile`.
 
-Every subject field value must be one subject token: non-empty and free of `.`,
-`*`, `>` and whitespace. A dispatch carrying anything else returns an error and
-publishes nothing. A value with a separator in it would otherwise build a
-subject of a different shape, which no subscription matches, and the event would
-be lost without a trace.
-Applications whose user IDs are email addresses are the likeliest to hit this.
+A subject field value may carry any byte. A value is escaped on its way into
+the subject, so `.`, `*`, `>` and whitespace name one segment rather than
+ending it or matching more than themselves. An email address is a valid value.
+Only an empty value is refused: it names no segment, and the dispatch returns
+an error and publishes nothing.
+
+The escaping is applied to the publish and the subscription alike,
+and a value that needs none is used as it is. Escaped values reach the broker
+percent-encoded, so `a.b` publishes to `notify.a%2Eb`.
 
 To reach several rooms, or several users, dispatch once per value:
 
@@ -728,10 +731,11 @@ A `datapages.SubjectUser` field makes the event stream require authentication:
 only the client authenticated as that user receives the event. An application
 dispatching such an event must define a Session type.
 
-The user ID names the subject on both sides and must therefore be a subject
-token like any other subject field value. In an application that declares
-a user-addressed event, `newSession` is checked against that rule and a stream
-refuses to open for a session whose ID breaks it.
+The user ID names the subject on both sides and is escaped there like any
+other subject field value, which is why it can be an email address.
+Only its length is bounded, since the whole subject has to fit what the broker accepts
+on one line. Use [`datapages.ValidateUserID`](#validating-a-user-id) to check
+an ID before a session carries it.
 
 ```go
 // EventDirectMessage is "message.direct"
@@ -767,10 +771,9 @@ type EventCalcUpdated struct {
 ```
 
 When the SSE stream handler runs, it reads `instance_id` from the client's signals,
-validates it is one subject token, and subscribes to `calc.updated.<instance_id>`.
-A signal that is empty or that carries `.`, `*`, `>` or whitespace is refused
-with 400: a wildcard would otherwise let the client widen its subscription to
-every instance.
+escapes it, and subscribes to `calc.updated.<instance_id>`. An empty signal is
+refused with 400. A wildcard needs no refusing: escaped, it is one literal
+segment, so a client sending `*` subscribes to that value and to nothing else.
 
 Signal-scoped events can be mixed with user-addressed events and plain public
 events on the same page. They can also coexist with non-signal subject fields:
@@ -961,6 +964,33 @@ session token and stamps the issuance time, the handler supplies `UserID`, an
 optional `ExpiresAt` and `Data`. See
 [datapages.go](datapages.go) and
 [pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#NewSession).
+
+#### Validating a User ID
+
+```go
+func ValidateUserID(userID string) error
+```
+
+A user ID may carry any byte: what cannot stand in a subject is escaped.
+Two things are still refused, and `datapages.ValidateUserID` reports both
+without allocating:
+
+- `datapages.ErrUserIDEmpty`, an empty ID names nobody.
+- `datapages.ErrUserIDTooLong`, an ID whose escaped form is longer than
+  `datapages.MaxUserIDEncodedLen`. A subject travels on one broker line,
+  which bounds what fits.
+
+Call it before returning a `newSession`,
+to answer the request rather than fail the sign-in:
+
+```go
+if err := datapages.ValidateUserID(id); err != nil {
+	return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
+}
+```
+
+`newSession` is checked against the same rule,
+and a sign-in carrying an ID that breaks it fails.
 
 #### Return Value: `closeSession datapages.CloseSession`
 

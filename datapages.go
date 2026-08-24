@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/romshark/datapages/runtime/subject"
 )
 
 // Component is anything that renders itself, such as a templ.Component.
@@ -396,6 +398,40 @@ type Subject string
 // dispatch once per user, which leaves the handler in control of
 // what happens when one of the publishes fails.
 type SubjectUser string
+
+// User ID errors reported by [ValidateUserID].
+var (
+	// ErrUserIDEmpty is returned for an empty user ID,
+	// which names no subject and identifies nobody.
+	ErrUserIDEmpty = errors.New("user ID is empty")
+
+	// ErrUserIDTooLong is returned for a user ID whose encoded form
+	// is longer than [MaxUserIDEncodedLen].
+	ErrUserIDTooLong = errors.New("user ID is too long")
+)
+
+// MaxUserIDEncodedLen is the longest a user ID may be once escaped.
+//
+// A user ID is one token of a longer subject and hence, is limited to this length.
+// The limit is conservative, yet well above what any real identifier should need.
+const MaxUserIDEncodedLen = 1024
+
+// ValidateUserID returns nil for valid user identifiers.
+// Returns [ErrUserIDEmpty] for empty identifiers and [ErrUserIDTooLong] for
+// identifiers that are longer than [MaxUserIDEncodedLen] after escaping.
+//
+//	if err := datapages.ValidateUserID(id); err != nil {
+//		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
+//	}
+func ValidateUserID(userID string) error {
+	if userID == "" {
+		return ErrUserIDEmpty
+	}
+	if subject.EncodedLen(userID) > MaxUserIDEncodedLen {
+		return ErrUserIDTooLong
+	}
+	return nil
+}
 
 // Dispatcher publishes events of one type. Handlers receive it as a parameter,
 // which may carry any name; the type is what makes it a dispatcher.

@@ -39,18 +39,6 @@ const (
 
 const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
 
-func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool) {
-	if subject.IsToken(userID) {
-		return true
-	}
-	s.LogErr("subscribing private events", fmt.Errorf(
-		"session user ID %q is not a subject token", userID))
-	http.Error(w,
-		http.StatusText(http.StatusInternalServerError),
-		http.StatusInternalServerError)
-	return false
-}
-
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -180,7 +168,7 @@ func MessageBrokerStreamSubjects() []string {
 
 func evSubjPageIndex(userID string) []string {
 	return []string{
-		"sessions.closed." + userID,
+		"sessions.closed." + subject.Encode(userID),
 	}
 }
 
@@ -297,9 +285,6 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 
 	if sess.UserID() == "" {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
-		return
-	}
-	if !s.checkUserSubject(w, sess.UserID()) {
 		return
 	}
 
@@ -568,16 +553,14 @@ func (d dispatcherEventSessionClosed) Dispatch(e app.EventSessionClosed) error {
 func (d dispatcherEventSessionClosed) DispatchCtx(
 	ctx context.Context, e app.EventSessionClosed,
 ) error {
-	if !subject.IsToken(string(e.Recipient)) {
-		return fmt.Errorf(
-			"EventSessionClosed.Recipient must be a non-empty subject token, received %q",
-			e.Recipient)
+	if e.Recipient == "" {
+		return errors.New("EventSessionClosed.Recipient must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventSessionClosed JSON: %w", err)
 	}
-	subj := "sessions.closed." + string(e.Recipient)
+	subj := "sessions.closed." + subject.Encode(string(e.Recipient))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)

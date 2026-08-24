@@ -513,15 +513,15 @@ Subject field values are appended to the event's base NATS subject in field
 order, separated by dots. Each field carries one value, so one dispatch
 publishes to one subject.
 
-Every value must be a single subject token: non-empty and free of `.`, `*`, `>`
-and whitespace. A dispatch carrying anything else returns an error and publishes
-nothing. Map an email address or any other dotted identifier to an opaque ID
-before it reaches a subject field.
+A value may carry any byte. What cannot stand in a subject is escaped on the way in,
+so an email address or any other dotted identifier is a valid value.
+Only an empty value is refused: the dispatch returns an error and publishes nothing.
 
 A `datapages.SubjectUser` field makes the event stream require authentication:
-only the client authenticated as that user receives it, which requires a
-Session type. The user ID is a subject value like any other and follows the same
-rule: `newSession` is refused when the ID is not a subject token.
+only the client authenticated as that user receives it, which requires a Session type.
+The user ID is a subject value like any other and is escaped the same way,
+so it can be an email address. Only its length is bounded: check an
+ID with `datapages.ValidateUserID` before returning it as a `newSession`.
 
 ```go
 // EventDirectMessage is "messaging.direct"
@@ -550,9 +550,9 @@ for _, participant := range room.ParticipantIDs {
 
 Any subject field other than `datapages.SubjectUser` can carry a
 `signal:"<name>"` tag to bind it to a client-side Datastar signal: the stream
-subscribes to the value that signal holds. The client supplies that value, and
-a stream whose signal is not a subject token is refused with 400. A wildcard
-would otherwise let the client subscribe to every instance.
+subscribes to the value that signal holds. The client supplies that value and
+an empty one is refused with 400. A wildcard needs no refusing: escaped, it is
+one literal segment, so a client sending `*` subscribes to that value alone.
 
 ```go
 // EventCalcUpdated is "calc.updated"

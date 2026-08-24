@@ -77,7 +77,8 @@ Public, imported by application or generated code:
     `net/url` do, without their allocations. Fuzzed against them.
   - `htmlattr` - escapes values written into Datastar attributes. Fuzzed for
     anything that could end the attribute or the script.
-  - `subject` - the subject token rule the parser and the dispatchers share.
+  - `subject` - the escaping a value gets on its way into a subject,
+    shared by the parser and the dispatchers.
   - `prom` - Prometheus metrics, registration and middleware.
   - `hrefcheck` - imported by generated `href` packages.
   - `actionexpr` - builds the Datastar action expression: the call, its
