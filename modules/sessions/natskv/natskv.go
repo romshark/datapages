@@ -2,7 +2,7 @@
 // of the SessionManager based on the NATS Key-Value Store.
 //
 // Sessions are stored in NATS KV with composite keys
-// ({encodedUserID}.{uniqueSessionID}) to enable efficient per-user prefix lookups.
+// ({encodedUserID}.{encodedSessionID}) to enable efficient per-user prefix lookups.
 // The cookie value is the composite key encrypted with AES-128-GCM,
 // such that the userID is never exposed to the client.
 package natskv
@@ -29,14 +29,12 @@ import (
 const DefaultBucket = "SESSIONS"
 
 // SessionTokenGenerator generates cryptographically secure unique session tokens.
-// Tokens must not contain NATS subject characters ('.', '*', '>').
+// A token may carry any character: it is encoded into the KV key.
 type SessionTokenGenerator interface {
 	Generate() (string, error)
 }
 
 var (
-	ErrUnsafeSessionID = errors.New("uniqueSessionID contains NATS-unsafe characters")
-
 	ErrEncryptionKeyLen      = errors.New("encryption key must be exactly 16 bytes")
 	ErrEmptyUserID           = errors.New("userID must not be empty")
 	ErrEmptySessionID        = errors.New("uniqueSessionID must not be empty")
@@ -237,7 +235,16 @@ func (s *SessionManager[Data]) SaveSession(
 	if err != nil {
 		return fmt.Errorf("decrypting token: %w", err)
 	}
+	return s.putSession(kvKey, token, rec)
+}
 
+// putSession stores rec under kvKey.
+//
+// The token is stored beside the record rather than derived from it: it is what the
+// client carries, and what a caller holding only a token decrypts back into kvKey.
+func (s *SessionManager[Data]) putSession(
+	kvKey, token string, rec sessions.Record[Data],
+) error {
 	data, err := json.Marshal(rec)
 	if err != nil {
 		return fmt.Errorf("marshaling session data: %w", err)
@@ -267,6 +274,9 @@ func (s *SessionManager[Data]) CreateSession(
 	if err != nil {
 		return "", err
 	}
+	if uniqueSessionID == "" {
+		return "", ErrEmptySessionID
+	}
 
 	kvKey := compositeKey(rec.UserID, uniqueSessionID)
 	token, err = encrypt(s.aeads[0], kvKey)
@@ -274,7 +284,7 @@ func (s *SessionManager[Data]) CreateSession(
 		return "", fmt.Errorf("encrypting session token: %w", err)
 	}
 
-	if err := s.SaveSession(ctx, token, rec); err != nil {
+	if err := s.putSession(string(kvKey), token, rec); err != nil {
 		return "", err
 	}
 	return token, nil
@@ -307,7 +317,7 @@ func (s *SessionManager[Data]) CloseAllUserSessions(
 	if userID == "" {
 		return buffer, ErrEmptyUserID
 	}
-	prefix := encodeUserID(userID) + ".*"
+	prefix := userKeyPattern(userID)
 	opts := []nats.WatchOpt{nats.IgnoreDeletes(), nats.Context(ctx)}
 	if buffer == nil {
 		opts = append(opts, nats.MetaOnly())
@@ -378,7 +388,7 @@ func (s *SessionManager[Data]) UserSessions(
 		if userID == "" {
 			return
 		}
-		prefix := encodeUserID(userID) + ".*"
+		prefix := userKeyPattern(userID)
 		watcher, err := s.kv.Watch(prefix, nats.IgnoreDeletes(), nats.Context(ctx))
 		if err != nil {
 			return
@@ -407,21 +417,28 @@ func (s *SessionManager[Data]) UserSessions(
 	}
 }
 
-// encodeUserID encodes a userID into a base64url string
-// safe for use in NATS KV keys and subject patterns.
-func encodeUserID(userID string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(userID))
+// keyEncoding has no '.', '*' or '>' in its alphabet. A '.' in either half of
+// a key would put it below the "{user}.*" pattern a revocation watches.
+var keyEncoding = base64.RawURLEncoding
+
+// compositeKey builds the NATS KV key:
+// {base64url(userID)}.{base64url(sessionID)}.
+//
+// It returns the bytes it built. [encrypt] reads them and the KV store wants a string,
+// which is one conversion either way.
+func compositeKey(userID, sessionID string) []byte {
+	b := make([]byte, 0, keyEncoding.EncodedLen(len(userID))+
+		len(".")+keyEncoding.EncodedLen(len(sessionID)))
+	b = keyEncoding.AppendEncode(b, []byte(userID))
+	b = append(b, '.')
+	return keyEncoding.AppendEncode(b, []byte(sessionID))
 }
 
-// compositeKey builds the NATS KV key: {base64url(userID)}.{token}.
-func compositeKey(userID, token string) string {
-	encoded := encodeUserID(userID)
-	var b strings.Builder
-	b.Grow(len(encoded) + len(".") + len(token))
-	b.WriteString(encoded)
-	b.WriteByte('.')
-	b.WriteString(token)
-	return b.String()
+// userKeyPattern matches every key a session of userID is stored under.
+func userKeyPattern(userID string) string {
+	b := make([]byte, 0, keyEncoding.EncodedLen(len(userID))+len(".*"))
+	b = keyEncoding.AppendEncode(b, []byte(userID))
+	return string(append(b, ".*"...))
 }
 
 // parseCompositeKeyUserID extracts and decodes the userID from a composite KV key.
@@ -438,12 +455,12 @@ func parseCompositeKeyUserID(kvKey string) (string, error) {
 }
 
 // encrypt encrypts plaintext using AES-128-GCM and returns a base64url-encoded string.
-func encrypt(aead cipher.AEAD, plaintext string) (string, error) {
+func encrypt(aead cipher.AEAD, plaintext []byte) (string, error) {
 	nonce := make([]byte, aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return "", fmt.Errorf("generating nonce: %w", err)
 	}
-	ciphertext := aead.Seal(nonce, nonce, []byte(plaintext), nil)
+	ciphertext := aead.Seal(nonce, nonce, plaintext, nil)
 	return base64.RawURLEncoding.EncodeToString(ciphertext), nil
 }
 
