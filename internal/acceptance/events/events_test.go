@@ -362,8 +362,8 @@ func TestMissingSubjectSignal(t *testing.T) {
 }
 
 // TestSubjectSignalEscaped covers the value a client puts in the signal that
-// scopes its subscription. Escaped it names one segment, so a client sending
-// a wildcard subscribes to that literal value and to nothing else.
+// scopes its subscription. Escaped it names one segment,
+// which keeps a client sending a wildcard subscribed to that value alone.
 func TestSubjectSignalEscaped(t *testing.T) {
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
@@ -496,5 +496,43 @@ func TestPageWithoutStream(t *testing.T) {
 		if resp.StatusCode != http.StatusNotFound {
 			t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
 		}
+	})
+}
+
+// TestStreamClosePanicDoesNotEndTheProcess covers a StreamClose that panics.
+// Unrecovered it ends the process, taking every other stream with it,
+// which the requests after the disconnect are here to catch.
+func TestStreamClosePanicDoesNotEndTheProcess(t *testing.T) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+
+		panicking := c.OpenStream(t, "/panic-on-close/_$/", nil)
+		survivor := c.OpenStream(t, "/_$/", nil)
+
+		// Disconnecting is what runs StreamClose.
+		panicking.Close()
+
+		resp := c.Get(t, "/")
+		require.Equal(t, http.StatusOK, resp.Status,
+			"the server stopped answering after the panic")
+
+		// The streams the panic did not belong to are still delivered to.
+		postOK(t, c, "/tick/", `{"n":7}`)
+		require.True(t, survivor.Saw(`<div id="out">tick 7</div>`),
+			"an unrelated stream stopped receiving after the panic")
+	})
+}
+
+// TestStreamClosePanicIsReported covers what the recovery leaves behind.
+// A panic nothing reports is one nobody fixes. The hook has to have run.
+func TestStreamClosePanicIsReported(t *testing.T) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+
+		s := c.OpenStream(t, "/panic-on-close/_$/", nil)
+		s.Close()
+
+		require.Contains(t, logOf(t, c), "streamclose(",
+			"StreamClose never ran")
 	})
 }

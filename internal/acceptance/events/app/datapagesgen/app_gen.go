@@ -180,6 +180,10 @@ var evSubjPageOther = []string{
 	EvSubjTick,
 }
 
+var evSubjPagePanicOnClose = []string{
+	EvSubjTick,
+}
+
 func evSubjPageRoom(subjRoom string) []string {
 	return []string{
 		"room.said." + subject.Encode(subjRoom),
@@ -204,6 +208,12 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /other/_$/{$}",
 		s.handlePageOtherGETStream)
+	s.Mux().HandleFunc(
+		"GET /panic-on-close/{$}",
+		s.handlePagePanicOnCloseGET)
+	s.Mux().HandleFunc(
+		"GET /panic-on-close/_$/{$}",
+		s.handlePagePanicOnCloseGETStream)
 	s.Mux().HandleFunc(
 		"GET /room/{$}",
 		s.handlePageRoomGET)
@@ -530,6 +540,74 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 					}
 					if err := p.OnTick(eventTick, dpsse.New(sse)); err != nil {
 						s.LogErr("handling PageOther.OnTick", err)
+					}
+				}
+			}
+		})
+}
+
+func (s *Server) handlePagePanicOnCloseGET(w http.ResponseWriter, r *http.Request) {
+	p := app.PagePanicOnClose{
+		App: s.app,
+	}
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PagePanicOnClose.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('/panic-on-close/_$/')"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PagePanicOnClose", err)
+		return
+	}
+}
+
+func (s *Server) handlePagePanicOnCloseGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	p := app.PagePanicOnClose{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPagePanicOnClose,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator,
+		) error {
+			return p.StreamOpen(r, streamID)
+		},
+		func(streamID datapages.StreamID) {
+			if err := p.StreamClose(r, streamID); err != nil {
+				s.LogErr("handling PagePanicOnClose.StreamClose", err)
+			}
+		},
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			var eventTick app.EventTick
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjTick:
+					eventTick = app.EventTick{}
+					if err := json.Unmarshal(msg.Data, &eventTick); err != nil {
+						s.LogErr("unmarshaling EventTick JSON", err)
+						continue
+					}
+					if err := p.OnTick(eventTick, dpsse.New(sse)); err != nil {
+						s.LogErr("handling PagePanicOnClose.OnTick", err)
 					}
 				}
 			}

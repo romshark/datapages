@@ -7,7 +7,10 @@ package stream
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
+	"runtime/debug"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -133,8 +136,11 @@ func (h *Handler) Handle(
 		sessionClosed = make(chan struct{})
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
+		// Purely defensive. At the time of writing,
+		// no store here reports a closure twice, but one that did would panic.
+		var once sync.Once
 		if err := h.sessions.NotifyClosed(ctx, sessionKey, func() {
-			close(sessionClosed)
+			once.Do(func() { close(sessionClosed) })
 		}); err != nil {
 			sub.Close()
 			h.onErr(w, r, sse, "setting up session closure watcher", err)
@@ -143,6 +149,16 @@ func (h *Handler) Handle(
 	}
 
 	go func() {
+		// Prevent a crash in case of a panic in onClose.
+		defer func() {
+			if v := recover(); v != nil {
+				h.core.Logger().Error("recovered panic while closing the stream",
+					slog.Any("panic", v),
+					slog.Uint64("stream-id", uint64(streamID)),
+					slog.String("stack", string(debug.Stack())))
+			}
+		}()
+
 		reason := ""
 		select {
 		case <-sessionClosed:

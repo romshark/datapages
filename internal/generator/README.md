@@ -49,5 +49,5 @@ much of the code it writes the acceptance cases run.
 
 ```
 generator (./internal/generator/...):  92.6% of statements
-code it generates:           77.6% of statements (run by the acceptance cases)
+code it generates:           78.4% of statements (run by the acceptance cases)
 ```
