@@ -915,16 +915,14 @@ func (d dispatcherEventFiltersUpdated) Dispatch(e app.EventFiltersUpdated) error
 func (d dispatcherEventFiltersUpdated) DispatchCtx(
 	ctx context.Context, e app.EventFiltersUpdated,
 ) error {
-	if !subject.IsToken(string(e.SubjectStateID)) {
-		return fmt.Errorf(
-			"EventFiltersUpdated.SubjectStateID must be a non-empty subject token, received %q",
-			e.SubjectStateID)
+	if e.SubjectStateID == "" {
+		return errors.New("EventFiltersUpdated.SubjectStateID must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventFiltersUpdated JSON: %w", err)
 	}
-	subj := "filters.updated." + string(e.SubjectStateID)
+	subj := "filters.updated." + subject.Encode(string(e.SubjectStateID))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)

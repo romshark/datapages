@@ -286,7 +286,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	// Read path params.
 	if h.InputPath != nil {
 		hasBody = true
-		w.writeReadPath(h.InputPath, m)
+		w.writeReadPath(h.InputPath, m, h.Route)
 	}
 
 	// Read signals.
@@ -362,11 +362,11 @@ func (w *Writer) writeSubjectSignalsRead(signalFields []model.SubjectField) {
 	w.Line(2, "return")
 	w.Line(1, "}")
 	for i, sf := range signalFields {
-		w.Raw("\tif !subject.IsToken(subjSignals.")
+		w.Raw("\tif subjSignals.")
 		w.Raw(idents[i])
-		w.Raw(") {\n")
+		w.Raw(" == \"\" {\n")
 		w.Raw("\t\ts.HTTPErrBad(w, \"invalid signal\",\n")
-		w.Raw("\t\t\tfmt.Errorf(\"signal %q must be a non-empty subject token\", ")
+		w.Raw("\t\t\tfmt.Errorf(\"signal %q must not be empty\", ")
 		w.writeQuoted(sf.SignalName)
 		w.Raw("))\n")
 		w.Line(2, "return")
@@ -920,11 +920,6 @@ func (w *Writer) writePageGETStreamHandler(
 			w.Line(2, "return")
 			w.Line(1, "}")
 		}
-
-		// The ID reaches the subscription subject from here on.
-		w.Line(1, "if !s.checkUserSubject(w, sess.UserID()) {")
-		w.Line(2, "return")
-		w.Line(1, "}")
 	}
 
 	// Read signal-scoped subject values for subscription.
@@ -1553,7 +1548,7 @@ func (w *Writer) writePageActionHandler(
 
 	// Read path params.
 	if h.InputPath != nil {
-		w.writeReadPath(h.InputPath, m)
+		w.writeReadPath(h.InputPath, m, h.Route)
 	}
 
 	// The request is read; claim the state for the duration of the handler.
@@ -1730,33 +1725,53 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 	}
 }
 
-func (w *Writer) writeReadPath(input *model.Input, m *model.App) {
+func (w *Writer) writeReadPath(input *model.Input, m *model.App, route string) {
 	w.Line(0, "")
 	w.Raw("\tvar path ")
 	w.Raw(renderPathType(input, m))
 	w.Byte('\n')
+	wildcard := wildcardVar(route)
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
 		tag := structtag.PathTagValue(f.Tag)
+		read := func() {
+			if tag != "" && tag == wildcard {
+				w.Raw("httpserve.WildcardPathValue(r, ")
+			} else {
+				w.Raw("r.PathValue(")
+			}
+			w.writeQuoted(tag)
+			w.Raw(")")
+		}
 		if gotypes.IsString(f.Type) {
 			w.Raw("\t" + varPath + ".")
 			w.Raw(f.Name)
 			w.Raw(" = ")
-			w.writeStringConv(f.Type, func() {
-				w.Raw("r.PathValue(")
-				w.writeQuoted(tag)
-				w.Raw(")")
-			})
+			w.writeStringConv(f.Type, read)
 			w.Byte('\n')
 		} else {
 			w.Line(1, "{")
-			w.Raw("\t\tv := r.PathValue(")
-			w.writeQuoted(tag)
-			w.Raw(")\n")
+			w.Raw("\t\tv := ")
+			read()
+			w.Byte('\n')
 			w.writeParseField(varPath, "v", f, tag, "path parameter", 2)
 			w.Line(1, "}")
 		}
 	}
+}
+
+// wildcardVar names the {name...} variable a route ends in, empty when it ends
+// in anything else. It is the only path variable whose value carries the slash
+// [github.com/romshark/datapages/runtime/httpserve.Core.ServeHTTP] appends.
+func wildcardVar(route string) string {
+	if !routepattern.EndsInWildcard(route) {
+		return ""
+	}
+	last := ""
+	for v := range routepattern.Vars(route) {
+		last = v
+	}
+	return last
 }
 
 // writeParseField emits code that parses a raw string value into a typed struct field.

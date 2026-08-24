@@ -349,18 +349,15 @@ type appUsage struct {
 	// stateRuntime: whether any page (including via embedded abstract pages)
 	// takes state *T; enables the per-page-instance state runtime.
 	stateRuntime bool
-	// signalSubjects: subject.IsToken is called by any page that builds
+	// signalSubjects: subject.Encode is called by any page that builds
 	// a subscription subject from a client-provided signal.
 	signalSubjects bool
-	// dispatchSubjects: subject.IsToken is called by any dispatch that
+	// dispatchSubjects: subject.Encode is called by any dispatch that
 	// builds a publish subject from the subject fields of its event.
 	dispatchSubjects bool
 	// userSubjects: whether any event addresses a user, which makes the ID of
 	// the session owner name a subject.
 	userSubjects bool
-	// privateStreams: func (s *Server) checkUserSubject(...), needed by any
-	// page that subscribes to an event addressed to the session owner.
-	privateStreams bool
 }
 
 // dispatchesSubjectFields reports whether any handler dispatches an event whose
@@ -480,9 +477,6 @@ func computeAppUsage(m *model.App) appUsage {
 			}
 			if pageHasSignalScopedEvent(p, eventByName) {
 				u.signalSubjects = true
-			}
-			if pageHasPrivateEvent(p, eventByName) {
-				u.privateStreams = true
 			}
 		}
 		for _, h := range p.Actions {

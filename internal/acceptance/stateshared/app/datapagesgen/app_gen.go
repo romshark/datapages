@@ -897,16 +897,14 @@ func (d dispatcherEventChanged) Dispatch(e app.EventChanged) error {
 func (d dispatcherEventChanged) DispatchCtx(
 	ctx context.Context, e app.EventChanged,
 ) error {
-	if !subject.IsToken(string(e.SubjectStateID)) {
-		return fmt.Errorf(
-			"EventChanged.SubjectStateID must be a non-empty subject token, received %q",
-			e.SubjectStateID)
+	if e.SubjectStateID == "" {
+		return errors.New("EventChanged.SubjectStateID must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventChanged JSON: %w", err)
 	}
-	subj := "changed." + string(e.SubjectStateID)
+	subj := "changed." + subject.Encode(string(e.SubjectStateID))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)

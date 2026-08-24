@@ -15,7 +15,6 @@ import (
 	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/httpread"
-	"github.com/romshark/datapages/runtime/subject"
 )
 
 // Metrics counts what the manager does. A nil Metrics counts nothing.
@@ -256,10 +255,8 @@ func (m *Manager[Data]) SetSessionCookie(w http.ResponseWriter, value string) {
 func (m *Manager[Data]) CreateSession(
 	w http.ResponseWriter, r *http.Request, session datapages.NewSession[Data],
 ) error {
-	if !subject.IsToken(session.UserID) {
-		return fmt.Errorf(
-			"user ID must be a non-empty subject token, received %q",
-			session.UserID)
+	if err := datapages.ValidateUserID(session.UserID); err != nil {
+		return fmt.Errorf("user ID %q: %w", session.UserID, err)
 	}
 	token, err := m.sessions.CreateSession(r.Context(), sessions.Record[Data]{
 		UserID:    session.UserID,

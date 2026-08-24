@@ -1636,16 +1636,14 @@ func (d dispatcherEventPing) Dispatch(e app.EventPing) error {
 func (d dispatcherEventPing) DispatchCtx(
 	ctx context.Context, e app.EventPing,
 ) error {
-	if !subject.IsToken(string(e.SubjectStateID)) {
-		return fmt.Errorf(
-			"EventPing.SubjectStateID must be a non-empty subject token, received %q",
-			e.SubjectStateID)
+	if e.SubjectStateID == "" {
+		return errors.New("EventPing.SubjectStateID must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventPing JSON: %w", err)
 	}
-	subj := "ping." + string(e.SubjectStateID)
+	subj := "ping." + subject.Encode(string(e.SubjectStateID))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)

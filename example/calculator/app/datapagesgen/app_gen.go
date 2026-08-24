@@ -161,7 +161,7 @@ func MessageBrokerStreamSubjects() []string {
 
 func evSubjPageIndex(subjInstanceID string) []string {
 	return []string{
-		"calc.updated." + subjInstanceID,
+		"calc.updated." + subject.Encode(subjInstanceID),
 	}
 }
 
@@ -233,9 +233,9 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
-	if !subject.IsToken(subjSignals.InstanceID) {
+	if subjSignals.InstanceID == "" {
 		s.HTTPErrBad(w, "invalid signal",
-			fmt.Errorf("signal %q must be a non-empty subject token", "instance_id"))
+			fmt.Errorf("signal %q must not be empty", "instance_id"))
 		return
 	}
 
@@ -322,16 +322,14 @@ func (d dispatcherEventCalcUpdated) Dispatch(e app.EventCalcUpdated) error {
 func (d dispatcherEventCalcUpdated) DispatchCtx(
 	ctx context.Context, e app.EventCalcUpdated,
 ) error {
-	if !subject.IsToken(string(e.InstanceID)) {
-		return fmt.Errorf(
-			"EventCalcUpdated.InstanceID must be a non-empty subject token, received %q",
-			e.InstanceID)
+	if e.InstanceID == "" {
+		return errors.New("EventCalcUpdated.InstanceID must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventCalcUpdated JSON: %w", err)
 	}
-	subj := "calc.updated." + string(e.InstanceID)
+	subj := "calc.updated." + subject.Encode(string(e.InstanceID))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)

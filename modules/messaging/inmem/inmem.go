@@ -62,6 +62,10 @@ func (b *MessageBroker) Publish(
 	subject string,
 	data []byte,
 ) error {
+	// Count every publish to mirror natscore implementation.
+	// Core NATS cannot tell whether anyone is listening.
+	metrics.OnPublish(subject)
+
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 
@@ -74,8 +78,8 @@ func (b *MessageBroker) Publish(
 			continue
 		}
 		for sub := range subs {
-			// A subscription may hold several patterns that match the same
-			// subject. It receives the message once.
+			// A subscription may hold several patterns that match the same subject.
+			// It receives the message once.
 			if !slices.Contains(matched, sub) {
 				matched = append(matched, sub)
 			}
@@ -90,7 +94,6 @@ func (b *MessageBroker) Publish(
 		Subject: subject,
 		Data:    bytes.Clone(data),
 	}
-	metrics.OnPublish(subject)
 
 	for _, sub := range matched {
 		select {

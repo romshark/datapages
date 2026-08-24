@@ -214,7 +214,7 @@ func (s *Server) handlePageFilesGET(w http.ResponseWriter, r *http.Request) {
 	var path datapages.Path[struct {
 		Rest string `path:"rest"`
 	}]
-	path.Values.Rest = r.PathValue("rest")
+	path.Values.Rest = httpserve.WildcardPathValue(r, "rest")
 
 	p := app.PageFiles{
 		App: s.app,

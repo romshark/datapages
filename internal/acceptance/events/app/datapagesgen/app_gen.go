@@ -179,8 +179,8 @@ var evSubjPageOther = []string{
 
 func evSubjPageRoom(subjRoom string) []string {
 	return []string{
-		"room.said." + subjRoom,
-		"room.broadcast." + subjRoom,
+		"room.said." + subject.Encode(subjRoom),
+		"room.broadcast." + subject.Encode(subjRoom),
 	}
 }
 
@@ -572,9 +572,9 @@ func (s *Server) handlePageRoomGETStream(w http.ResponseWriter, r *http.Request)
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
-	if !subject.IsToken(subjSignals.Room) {
+	if subjSignals.Room == "" {
 		s.HTTPErrBad(w, "invalid signal",
-			fmt.Errorf("signal %q must be a non-empty subject token", "room"))
+			fmt.Errorf("signal %q must not be empty", "room"))
 		return
 	}
 
@@ -773,16 +773,14 @@ func (d dispatcherEventRoomSaid) Dispatch(e app.EventRoomSaid) error {
 func (d dispatcherEventRoomSaid) DispatchCtx(
 	ctx context.Context, e app.EventRoomSaid,
 ) error {
-	if !subject.IsToken(string(e.Room)) {
-		return fmt.Errorf(
-			"EventRoomSaid.Room must be a non-empty subject token, received %q",
-			e.Room)
+	if e.Room == "" {
+		return errors.New("EventRoomSaid.Room must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventRoomSaid JSON: %w", err)
 	}
-	subj := "room.said." + string(e.Room)
+	subj := "room.said." + subject.Encode(string(e.Room))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)
@@ -802,16 +800,14 @@ func (d dispatcherEventRoomBroadcast) Dispatch(e app.EventRoomBroadcast) error {
 func (d dispatcherEventRoomBroadcast) DispatchCtx(
 	ctx context.Context, e app.EventRoomBroadcast,
 ) error {
-	if !subject.IsToken(string(e.Room)) {
-		return fmt.Errorf(
-			"EventRoomBroadcast.Room must be a non-empty subject token, received %q",
-			e.Room)
+	if e.Room == "" {
+		return errors.New("EventRoomBroadcast.Room must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventRoomBroadcast JSON: %w", err)
 	}
-	subj := "room.broadcast." + string(e.Room)
+	subj := "room.broadcast." + subject.Encode(string(e.Room))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)

@@ -175,3 +175,24 @@ func TestBuildWithoutAssetsPrefix(t *testing.T) {
 
 	require.Equal(t, http.StatusNotFound, serve(t, c, "/static/hello.txt").Code)
 }
+
+// TestWildcardPathValue covers the value a {name...} route wildcard hands a
+// handler after [httpserve.Core.ServeHTTP] normalized the path.
+func TestWildcardPathValue(t *testing.T) {
+	for name, tt := range map[string]struct{ raw, want string }{
+		"one segment":       {"a", "a"},
+		"trailing slash":    {"a/", "a"},
+		"several segments":  {"a/b/c", "a/b/c"},
+		"segments slash":    {"a/b/c/", "a/b/c"},
+		"empty":             {"", ""},
+		"slash only":        {"/", ""},
+		"inner slash kept":  {"a//b/", "a//b"},
+		"one slash trimmed": {"a//", "a/"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.SetPathValue("rest", tt.raw)
+			require.Equal(t, tt.want, httpserve.WildcardPathValue(r, "rest"))
+		})
+	}
+}

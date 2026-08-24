@@ -46,18 +46,6 @@ const (
 
 const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
 
-func (s *Server) checkUserSubject(w http.ResponseWriter, userID string) (ok bool) {
-	if subject.IsToken(userID) {
-		return true
-	}
-	s.LogErr("subscribing private events", fmt.Errorf(
-		"session user ID %q is not a subject token", userID))
-	http.Error(w,
-		http.StatusText(http.StatusInternalServerError),
-		http.StatusInternalServerError)
-	return false
-}
-
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -250,12 +238,12 @@ func MessageBrokerStreamSubjects() []string {
 func evSubjPageRooms(userID string, subjRoom string) []string {
 	if userID == "" {
 		return []string{
-			"room.posted." + subjRoom,
+			"room.posted." + subject.Encode(subjRoom),
 		}
 	}
 	return []string{
-		"noticed." + userID,
-		"room.posted." + subjRoom,
+		"noticed." + subject.Encode(userID),
+		"room.posted." + subject.Encode(subjRoom),
 	}
 }
 
@@ -267,7 +255,7 @@ func evSubjPageTabs(userID string) []string {
 	}
 	return []string{
 		EvSubjTicked,
-		"noticed." + userID,
+		"noticed." + subject.Encode(userID),
 	}
 }
 
@@ -646,9 +634,6 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, target, http.StatusSeeOther)
 		return
 	}
-	if !s.checkUserSubject(w, sess.UserID()) {
-		return
-	}
 
 	var subjSignals struct {
 		Room string `json:"room"`
@@ -657,9 +642,9 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
-	if !subject.IsToken(subjSignals.Room) {
+	if subjSignals.Room == "" {
 		s.HTTPErrBad(w, "invalid signal",
-			fmt.Errorf("signal %q must be a non-empty subject token", "room"))
+			fmt.Errorf("signal %q must not be empty", "room"))
 		return
 	}
 
@@ -721,9 +706,9 @@ func (s *Server) handlePageRoomsGETStreamAnon(w http.ResponseWriter, r *http.Req
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
-	if !subject.IsToken(subjSignals.Room) {
+	if subjSignals.Room == "" {
 		s.HTTPErrBad(w, "invalid signal",
-			fmt.Errorf("signal %q must be a non-empty subject token", "room"))
+			fmt.Errorf("signal %q must not be empty", "room"))
 		return
 	}
 
@@ -875,9 +860,6 @@ func (s *Server) handlePageTabsGETStream(w http.ResponseWriter, r *http.Request)
 			target += "?" + r.URL.RawQuery
 		}
 		http.Redirect(w, r, target, http.StatusSeeOther)
-		return
-	}
-	if !s.checkUserSubject(w, sess.UserID()) {
 		return
 	}
 
@@ -1116,16 +1098,14 @@ func (d dispatcherEventRoomPosted) Dispatch(e app.EventRoomPosted) error {
 func (d dispatcherEventRoomPosted) DispatchCtx(
 	ctx context.Context, e app.EventRoomPosted,
 ) error {
-	if !subject.IsToken(string(e.Room)) {
-		return fmt.Errorf(
-			"EventRoomPosted.Room must be a non-empty subject token, received %q",
-			e.Room)
+	if e.Room == "" {
+		return errors.New("EventRoomPosted.Room must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventRoomPosted JSON: %w", err)
 	}
-	subj := "room.posted." + string(e.Room)
+	subj := "room.posted." + subject.Encode(string(e.Room))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)
@@ -1145,16 +1125,14 @@ func (d dispatcherEventNoticed) Dispatch(e app.EventNoticed) error {
 func (d dispatcherEventNoticed) DispatchCtx(
 	ctx context.Context, e app.EventNoticed,
 ) error {
-	if !subject.IsToken(string(e.Recipient)) {
-		return fmt.Errorf(
-			"EventNoticed.Recipient must be a non-empty subject token, received %q",
-			e.Recipient)
+	if e.Recipient == "" {
+		return errors.New("EventNoticed.Recipient must not be empty")
 	}
 	j, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshaling EventNoticed JSON: %w", err)
 	}
-	subj := "noticed." + string(e.Recipient)
+	subj := "noticed." + subject.Encode(string(e.Recipient))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)
