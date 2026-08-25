@@ -55,6 +55,8 @@ var (
 			`(error, datapages.SSE) error`,
 	)
 
+	ErrTypeParams = errors.New("type parameters are not supported")
+
 	ErrPageMissingFieldApp     = errors.New(`page is missing the "App *App" field`)
 	ErrPageHasExtraFields      = errors.New(`page struct has unsupported fields`)
 	ErrPageMissingGET          = errors.New(`page is missing the GET handler`)

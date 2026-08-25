@@ -5,6 +5,11 @@
 Generator requires a path to an application source package
 that must contain an `App` type and the `type PageIndex struct`.
 
+`App`, page, abstract page and event types are declared without type parameters.
+Generated code names them as written, hence a type parameter list
+is rejected with "type parameters are not supported".
+Any other generic type of the package is free to use them.
+
 ### App
 
 The `App` type may optionally provide a method for custom global HTML `<head>` tags:

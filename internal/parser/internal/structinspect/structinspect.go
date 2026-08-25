@@ -15,16 +15,31 @@ import (
 	"github.com/romshark/datapages/internal/parser/validate"
 )
 
-// ReceiverTypeName extracts the type name from a method
-// receiver expression, handling both T and *T forms.
-func ReceiverTypeName(expr ast.Expr) string {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		if id, ok := t.X.(*ast.Ident); ok {
-			return id.Name
+// baseIdent unwraps a type expression to the identifier naming its type:
+// T, *T, T[A] and *T[A, B] all yield T. A qualified name yields nil,
+// the passes key on names declared in the app package.
+func baseIdent(expr ast.Expr) *ast.Ident {
+	for {
+		switch t := expr.(type) {
+		case *ast.Ident:
+			return t
+		case *ast.StarExpr:
+			expr = t.X
+		case *ast.IndexExpr:
+			expr = t.X
+		case *ast.IndexListExpr:
+			expr = t.X
+		default:
+			return nil
 		}
+	}
+}
+
+// ReceiverTypeName extracts the type name from a method
+// receiver expression, handling the T, *T and generic forms.
+func ReceiverTypeName(expr ast.Expr) string {
+	if id := baseIdent(expr); id != nil {
+		return id.Name
 	}
 	return ""
 }
@@ -37,13 +52,8 @@ func EmbeddedTypeNames(st *ast.StructType) []string {
 		if len(f.Names) != 0 {
 			continue
 		}
-		switch t := f.Type.(type) {
-		case *ast.Ident:
-			out = append(out, t.Name)
-		case *ast.StarExpr:
-			if id, ok := t.X.(*ast.Ident); ok {
-				out = append(out, id.Name)
-			}
+		if id := baseIdent(f.Type); id != nil {
+			out = append(out, id.Name)
 		}
 	}
 	return out
@@ -62,13 +72,8 @@ func EmbeddedFieldPosMap(
 		if len(f.Names) != 0 {
 			continue
 		}
-		switch t := f.Type.(type) {
-		case *ast.Ident:
-			out[t.Name] = t.Pos()
-		case *ast.StarExpr:
-			if id, ok := t.X.(*ast.Ident); ok {
-				out[id.Name] = id.Pos()
-			}
+		if id := baseIdent(f.Type); id != nil {
+			out[id.Name] = id.Pos()
 		}
 	}
 	return out
