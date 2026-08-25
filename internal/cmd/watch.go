@@ -214,6 +214,22 @@ func runWatch(
 	return err
 }
 
+// genWatcherCmd is the shell line that re-runs gen on a file change.
+//
+// Templier validates the first word of the line with [os/exec.LookPath] and
+// runs the line through `sh -c`. "env" is a program of its own, which passes that
+// check however the path of this binary reads, and it execs the quoted path whole.
+// The path as the first word splits at its first space.
+func genWatcherCmd(exe string) string {
+	return "env " + shQuote(exe) + " gen"
+}
+
+// shQuote wraps s as one word of a shell command. A single quote ends the quoting,
+// escapes itself and reopens it, which is the only form `sh` takes.
+func shQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 func splitFlags(s string) []string {
 	if s == "" {
 		return nil
