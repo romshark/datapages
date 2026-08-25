@@ -443,6 +443,7 @@ func (s *Server) handlePageIndexPOSTFilter(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
 	var signals datapages.Signals[struct {
 		TabID  string `json:"tab_id"`
 		Search string `json:"search"`

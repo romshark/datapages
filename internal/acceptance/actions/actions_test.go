@@ -156,6 +156,27 @@ func TestSignalsAreRequired(t *testing.T) {
 	require.Empty(t, srv.logOf(t), "the handler ran on a body it could not read")
 }
 
+// TestBodySizeLimit covers the limit on a signals body, on an action that
+// opens an SSE on its own request as well as on one that does not.
+// Both read the signals before anything else, hence the limit costs the SSE nothing.
+func TestBodySizeLimit(t *testing.T) {
+	t.Parallel()
+	// datapagesgen.DefaultBodySizeLimit is 1 MiB.
+	body := `{"count":1,"pad":"` + strings.Repeat("a", 2*1024*1024) + `"}`
+	for name, expr := range map[string]string{
+		"signals":     action.POSTPageFormSubmit(),
+		"signals+sse": action.POSTPageFormPatch(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			srv := newServer(t)
+			status, _ := srv.call(t, http.MethodPost, urlOf(t, expr), body)
+			require.Equal(t, http.StatusBadRequest, status)
+			require.Empty(t, srv.logOf(t), "the handler ran on an oversized body")
+		})
+	}
+}
+
 // TestBodyOutput covers an action that answers with a document.
 func TestBodyOutput(t *testing.T) {
 	t.Parallel()

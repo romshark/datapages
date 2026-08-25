@@ -1232,7 +1232,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	p *model.Page, h *model.Handler, m *model.App, appPkg string, isAppLevel bool,
 ) {
 	// Body size limit for non-GET actions.
-	if h.InputSignals != nil && h.InputSSE == nil {
+	if h.InputSignals != nil {
 		w.Line(1, "r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)")
 	}
 

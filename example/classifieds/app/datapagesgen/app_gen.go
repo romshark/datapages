@@ -1347,6 +1347,7 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	if !ok {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
 	var signals datapages.Signals[struct {
 		MessageText string `json:"messagetext"`
 	}]
@@ -1533,6 +1534,7 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	if !ok {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
 	var signals datapages.Signals[app.SearchParams]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
@@ -1668,6 +1670,7 @@ func (s *Server) handlePageSettingsPOSTSave(
 	if !ok {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
 	var signals datapages.Signals[struct {
 		Username string `json:"username"`
 	}]
