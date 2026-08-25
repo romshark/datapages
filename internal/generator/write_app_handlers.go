@@ -1602,17 +1602,9 @@ func (w *Writer) writeParseField(
 		w.Raw(f.Name)
 		w.Raw(" = ")
 		if unsigned {
-			if typeName != "uint64" {
-				w.Raw(typeName + "(u)")
-			} else {
-				w.Raw("u")
-			}
+			w.writeConv(convTypeName(f.Type, typeName), "uint64", "u")
 		} else {
-			if typeName != "int64" {
-				w.Raw(typeName + "(i)")
-			} else {
-				w.Raw("i")
-			}
+			w.writeConv(convTypeName(f.Type, typeName), "int64", "i")
 		}
 		w.Byte('\n')
 	} else if gotypes.IsFloat(f.Type) {
@@ -1633,11 +1625,7 @@ func (w *Writer) writeParseField(
 		w.Byte('.')
 		w.Raw(f.Name)
 		w.Raw(" = ")
-		if typeName != "float64" {
-			w.Raw("float32(f)")
-		} else {
-			w.Raw("f")
-		}
+		w.writeConv(convTypeName(f.Type, typeName), "float64", "f")
 		w.Byte('\n')
 	} else if gotypes.IsBool(f.Type) {
 		tabs(indent)
@@ -1654,7 +1642,9 @@ func (w *Writer) writeParseField(
 		w.Raw(varName)
 		w.Byte('.')
 		w.Raw(f.Name)
-		w.Raw(" = b\n")
+		w.Raw(" = ")
+		w.writeConv(convTypeName(f.Type, "bool"), "bool", "b")
+		w.Byte('\n')
 	} else if gotypes.ImplementsTextUnmarshaler(f.Type) {
 		tabs(indent)
 		w.Rawf("if err := %s.%s.UnmarshalText([]byte(%s)); err != nil {\n",
@@ -1673,6 +1663,26 @@ type reflectSignalField struct {
 	FieldName  string
 	Type       types.Type
 	QueryTag   string
+}
+
+// convTypeName is the type a parsed value is assigned as: the declared type
+// when the field names one, the basic type otherwise.
+// strconv returns a basic value, which a named field cannot take without a conversion.
+func convTypeName(t types.Type, basic string) string {
+	if _, isBasic := t.(*types.Basic); isBasic {
+		return basic
+	}
+	return gotypes.QualifiedTypeName(t)
+}
+
+// writeConv writes expr converted to typeName, or expr alone when strconv
+// already returns that type. parsed is what strconv hands back.
+func (w *Writer) writeConv(typeName, parsed, expr string) {
+	if typeName == parsed {
+		w.Raw(expr)
+		return
+	}
+	w.Raw(typeName + "(" + expr + ")")
 }
 
 // writeStringConv writes inner, converted to t when t is
