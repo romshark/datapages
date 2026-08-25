@@ -446,6 +446,7 @@ func PageReflect(query QueryPageReflect) string {
 	var (
 		tStr string
 		pStr string
+		sStr string
 	)
 
 	if query.Term != "" {
@@ -454,9 +455,13 @@ func PageReflect(query QueryPageReflect) string {
 	if query.Page != 0 {
 		pStr = strconv.FormatInt(int64(query.Page), 10)
 	}
+	if query.Slug != nil {
+		sStr = url.QueryEscape(textOf(query.Slug))
+	}
 
 	anyQuery := query.Term != "" ||
-		query.Page != 0
+		query.Page != 0 ||
+		query.Slug != nil
 
 	var b strings.Builder
 	l := len("/reflect/")
@@ -481,6 +486,13 @@ func PageReflect(query QueryPageReflect) string {
 		n++
 		l += len("p=") + len(pStr)
 	}
+	if query.Slug != nil {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("s=") + len(sStr)
+	}
 	_ = n
 
 	b.Grow(l)
@@ -504,8 +516,16 @@ func PageReflect(query QueryPageReflect) string {
 		if n > 0 {
 			b.WriteString("&")
 		}
+		n++
 		b.WriteString("p=")
 		b.WriteString(pStr)
+	}
+	if query.Slug != nil {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("s=")
+		b.WriteString(sStr)
 	}
 
 	return b.String()
@@ -513,8 +533,9 @@ func PageReflect(query QueryPageReflect) string {
 
 // QueryPageReflect is the query parameters for PageReflect
 type QueryPageReflect struct {
-	Term string `query:"t"`
-	Page int    `query:"p"`
+	Term string                 `query:"t"`
+	Page int                    `query:"p"`
+	Slug encoding.TextMarshaler `query:"s"`
 }
 
 // PageSlug references /slug/{slug}/{$}

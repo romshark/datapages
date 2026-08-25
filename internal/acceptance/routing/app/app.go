@@ -120,9 +120,11 @@ func (PageReflect) GET(
 	query datapages.Query[struct {
 		Term string `query:"t" reflectsignal:"term"`
 		Page int    `query:"p" reflectsignal:"page"`
+		Slug Slug   `query:"s" reflectsignal:"slug"`
 	}],
 ) (body datapages.Component, err error) {
-	return echo("term=%q page=%d", query.Values.Term, query.Values.Page), nil
+	return echo("term=%q page=%d slug=%q",
+		query.Values.Term, query.Values.Page, query.Values.Slug), nil
 }
 
 // PageMixed is /org/{org}/item/{id}
@@ -181,18 +183,20 @@ func (PageFiles) GET(
 	return echo("rest=%q", path.Values.Rest), nil
 }
 
-// Slug parses through its own UnmarshalText and renders through its own
-// MarshalText. Only lowercase is valid, and MarshalText lowercases: a URL
-// built from Slug("HELLO") is one the handler accepts, a URL built by
-// converting the same value is one it answers with 400.
+// Slug renders through its own MarshalText and parses through its own UnmarshalText.
+// MarshalText prefixes and lowercases, UnmarshalText strips the prefix and
+// refuses uppercase. The prefix is what tells a marshal apart from a conversion,
+// and taking it as optional keeps a hand-written URL valid.
 type Slug string
 
+const slugPrefix = "s-"
+
 func (s Slug) MarshalText() ([]byte, error) {
-	return []byte(strings.ToLower(string(s))), nil
+	return []byte(slugPrefix + strings.ToLower(string(s))), nil
 }
 
 func (s *Slug) UnmarshalText(b []byte) error {
-	v := string(b)
+	v := strings.TrimPrefix(string(b), slugPrefix)
 	if v != strings.ToLower(v) {
 		return fmt.Errorf("slug must be lowercase, received %q", v)
 	}
