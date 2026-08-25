@@ -1437,11 +1437,21 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 		w.Line(0, "")
 	}
 
+	if h404.InputPageCache != nil {
+		w.Line(1, "pageCache := newPageCache(s, r, nil)")
+	}
+
 	w.writePageConstructorStmt("p", p, appPkg)
 	w.Line(0, "")
 
 	// Call GET.
 	w.writeGETCall(p, m, "render404")
+
+	// Bake queued offline writes as a trailing script after the page HTML,
+	// the way the page's own route does.
+	if h404.InputPageCache != nil {
+		w.Line(1, "_ = pageCache.writeBake(w)")
+	}
 
 	w.Line(0, "}")
 }
