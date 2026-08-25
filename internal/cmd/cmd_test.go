@@ -332,9 +332,13 @@ func TestWatch(t *testing.T) {
 
 		cancel()
 
+		// The engine returns once the build it is running finishes.
+		// The fixture module replaces datapages with this checkout,
+		// so a runner with a cold build cache compiles the framework and its
+		// dependencies before it can honor the cancel.
 		select {
 		case <-done:
-		case <-time.After(30 * time.Second):
+		case <-time.After(3 * time.Minute):
 			t.Fatal("watch did not stop after cancel")
 		}
 	})
