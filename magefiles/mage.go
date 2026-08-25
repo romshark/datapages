@@ -1,10 +1,19 @@
+// Build targets for this repository.
 package main
+
+// Mage generates the main this package lacks: every exported function is a
+// target, and "mage -l" lists them with the first line of their doc comment.
+// A plain program would need that main, argument parsing and a table of
+// targets, with every new target written once and registered once.
+//
+// Nothing here imports mage. The targets are plain Go on the standard library.
 
 import (
 	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -186,6 +195,97 @@ func CheckMod() error {
 		}
 		return nil
 	})
+}
+
+// CheckGen runs every generator and fails if a file changes.
+// All generated code is committed.
+// A change here means someone edited the source or the generator
+// without running "mage gen".
+//
+// The working tree must be clean.
+// Every change left afterwards is then one a generator made.
+//
+// The generators run one at a time and each reports the files it changed,
+// which names the target to rerun and the place to look.
+//
+// Changed files are left in place: they belong in the commit.
+// [CheckMod] restores instead, since a tidied go.mod is not always wanted.
+func CheckGen() error {
+	changed, err := gitChanged()
+	if err != nil {
+		return err
+	}
+	if len(changed) > 0 {
+		return fmt.Errorf("working tree is not clean, commit or stash first:\n%s",
+			formatChanged(changed))
+	}
+
+	generators := []struct {
+		target string
+		run    func() error
+	}{
+		{"mage genTempl", GenTempl},
+		{"mage genDatapages", GenDatapages},
+		{"mage genDocs", GenDocs},
+	}
+
+	// A file one generator changed stays changed for the rest of the run.
+	// Attributing it to the first generator that touched it keeps each report
+	// to the files that generator is responsible for.
+	attributed := make(map[string]bool)
+	var report []string
+	for _, g := range generators {
+		if err := g.run(); err != nil {
+			return err
+		}
+		if changed, err = gitChanged(); err != nil {
+			return err
+		}
+		stale := make(map[string]string)
+		for path, state := range changed {
+			if !attributed[path] {
+				attributed[path] = true
+				stale[path] = state
+			}
+		}
+		if len(stale) > 0 {
+			report = append(report, g.target+":\n"+formatChanged(stale))
+		}
+	}
+	if len(report) == 0 {
+		return nil
+	}
+	return fmt.Errorf("generated code is stale, rerun and commit:\n%s",
+		strings.Join(report, "\n"))
+}
+
+// gitChanged maps every changed path to its two-letter git status code.
+// Ignored paths never appear, docs/index.html among them.
+func gitChanged() (map[string]string, error) {
+	out, err := output("git", "status", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	changed := make(map[string]string)
+	for line := range strings.Lines(out) {
+		// "XY path", where XY is the index and the worktree status.
+		if line = strings.TrimRight(line, "\n"); len(line) < 4 {
+			continue
+		}
+		changed[line[3:]] = line[:2]
+	}
+	return changed, nil
+}
+
+// formatChanged renders the paths the way "git status --porcelain" prints
+// them, indented and sorted so that two runs read the same.
+func formatChanged(changed map[string]string) string {
+	lines := make([]string, 0, len(changed))
+	for path, state := range changed {
+		lines = append(lines, "  "+state+" "+path)
+	}
+	slices.Sort(lines)
+	return strings.Join(lines, "\n")
 }
 
 // LintDatapages builds the datapages CLI from source

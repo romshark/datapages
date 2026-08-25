@@ -17,6 +17,7 @@
 - Generate templ files: `mage genTempl`
 - Generate datapages code: `mage genDatapages`
 - Generate all (templ + datapages + docs): `mage gen`
+- Check that all generated code is current: `mage checkGen`
 - Run go fix on all modules: `mage goFix`
 - Run everything: `mage all`
 
