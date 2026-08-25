@@ -73,11 +73,12 @@ in [net/http Mux pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns-ServeM
 
 The page type `PageIndex` (for URL `/`) is required.
 
-Page types `PageError500`, `PageError404` and `PageOffline` are optional special
-pages. `PageError500` and `PageError404` render the `500` and `404` responses;
-`PageOffline` is the offline fallback the [service worker](#service-worker) serves
-when the browser is offline and the requested URL is not cached.
-Otherwise datapages will use its own defaults.
+Page types `PageError500`, `PageError404` and `PageOffline` are optional special pages.
+The names are reserved: a page type carrying one of them is that special page,
+whatever the application means by it. `PageError500` and `PageError404`
+render the `500` and `404` responses; `PageOffline` is the offline fallback the
+[service worker](#service-worker) serves when the browser is offline and the
+requested URL is not cached. Otherwise datapages will use its own defaults.
 
 Each declares its route by comment like any other page. `PageError500` and
 `PageOffline` always render with a zero `Session`: the former runs after handling
@@ -1217,7 +1218,7 @@ cross-page action ownership errors.
 ## Service Worker
 
 The service worker backs the
-[`pageCache`](#parameter-offlinecache-datapagesofflinecachewriter) parameter.
+[`pageCache`](#parameter-pagecache-datapagespagecachewriter) parameter.
 It runs only in a secure context (HTTPS or localhost); otherwise the offline API
 does nothing.
 

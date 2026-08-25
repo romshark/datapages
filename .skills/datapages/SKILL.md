@@ -1094,21 +1094,21 @@ caching other pages is always unconditional.
   // version has to account for it. A constant would freeze the first snapshot.
   ver := snapshotVersion(session.UserID, owned) // e.g. an FNV-1a hash of both
   if pageCache.Version() != ver {
-  	pageCache.Set(href.PageItem(id), offlineDoc(view), ver)
+      pageCache.Set(href.PageItem(id), offlineDoc(view), ver)
   }
   ```
 - **Use `!=`, not `<`, for unordered version keys** (e.g. a hash). `<` only
   re-caches on increase, so it silently keeps stale snapshots.
 - **When one change invalidates many pages, use `ClearAll()`.**
-  Re-caching every affected URL from a single handler is impractical or straight
-	impossible. `ClearAll()` drops the whole cache, `Clear(url)` drops one entry.
-	Nothing repopulates on its own; an entry comes back only when some handler `Set`s
-	that URL again. For a page that caches lazily this happens on its next online visit,
-	because after a clear `Version()` reports 0 and the version guard fires. This applies
-	to anything that changes how pages render across the board, such as a locale or
-	permission change. Signing in and out is the common case: a snapshot cached for a guest
-  still shows the signed-out navigation after login, so call `ClearAll()` in both
-  actions.
+  Re-caching every affected URL from a single handler is impractical or impossible.
+	`ClearAll()` drops the whole cache, `Clear(url)` drops one entry.
+  Nothing repopulates on its own; an entry comes back only when some handler
+  `Set`s that URL again. For a page that caches lazily this happens on its next
+  online visit, because after a clear `Version()` reports 0 and the version guard fires.
+	This applies to anything that changes how pages render across the board,
+  such as a locale or permission change. Signing in and out is the common case:
+	a snapshot cached for a guest still shows the signed-out navigation after login,
+  so call `ClearAll()` in both actions.
 - **A cached page stays stale until something `Set`s it again.** A lazily cached
   page refreshes on its next online visit; when a state change elsewhere
   invalidates it, re-`Set` it from the action that caused the change.

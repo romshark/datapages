@@ -186,7 +186,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(0, ")")
 }
 
-// writeOfflineCache emits the datapages.PageCacheWriter implementation and its
+// writePageCache emits the datapages.PageCacheWriter implementation and its
 // delivery lifecycle (SSE flush, GET bake, redirect script). It is generated into
 // the application package rather than imported. It stays out of the public API.
 func (w *Writer) writePageCache(m *model.App) {
