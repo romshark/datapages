@@ -1034,7 +1034,7 @@ func OfflineConfig() offline.Config {
 // PageOffline is /offline
 type PageOffline struct{ App *App }
 
-func (PageOffline) GET(r *http.Request) (body templ.Component, err error) {
+func (PageOffline) GET(r *http.Request) (body datapages.Component, err error) {
 	return pageOffline(), nil
 }
 ```
