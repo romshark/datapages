@@ -1282,8 +1282,10 @@ Serving a navigation works as follows:
   is not defined or precaching it failed.
 
 Assets that cached pages reference are cached as well, so those pages render fully
-offline and not just as unstyled HTML. All same-origin requests are cached on first
-load. Cross-origin requests are cached only for the request destinations the
+offline and not just as unstyled HTML. Same-origin requests are cached on first load,
+except the ones Datastar issues: an action, a page hydrate and a page's
+event stream are generated per request and always come from the network.
+Cross-origin requests are cached only for the request destinations the
 application opts in to, by default stylesheets, scripts, fonts and images; such
 responses are often opaque and are stored as such. Restricting them by destination
 keeps API and analytics calls out of the cache, as they must not be answered from a

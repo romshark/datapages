@@ -75,8 +75,8 @@ self.addEventListener('message', function (e) {
   })());
 });
 
-// Extract <body>...</body> from a document. Workers have no DOMParser; done on
-// the string.
+// Extract <body>...</body> from a document.
+// Workers have no DOMParser; done on the string.
 function bodyElement(html) {
   const start = html.indexOf('<body');
   const end = html.lastIndexOf('</body>');
@@ -98,10 +98,24 @@ function sseFrame(eventName, kvs) {
   return lines.join('\n') + '\n\n';
 }
 
-// True for page navigations. Only mode and destination are trusted. Datastar
-// fetches also send Accept: text/html; matching on that would misclassify them.
+// True for page navigations. Only mode and destination are trusted.
+// Datastar fetches also send Accept: text/html; matching on that would misclassify them.
 function isNavigation(req) {
   return req.mode === 'navigate' || req.destination === 'document';
+}
+
+// True for a request Datastar issued, which it marks with this header on every fetch.
+// Such a request is dynamic: an action, a page hydrate or the page's event stream.
+// The server reads the same header.
+function isDatastarRequest(req) {
+  return req.headers.get('Datastar-Request') !== null;
+}
+
+// True for a response that never ends. Reading one into the cache would buffer
+// it for the life of the stream and the entry would never land.
+function isEventStream(res) {
+  const ct = res.headers.get('Content-Type');
+  return ct !== null && ct.indexOf('text/event-stream') !== -1;
 }
 
 self.addEventListener('fetch', function (e) {
@@ -111,8 +125,8 @@ self.addEventListener('fetch', function (e) {
   const url = new URL(req.url);
   const sameOrigin = url.origin === self.location.origin;
 
-  // HTML navigations. A cached shim is served at once. Otherwise online serves
-  // live, offline serves the cached body or the fallback page.
+  // HTML navigations. A cached shim is served at once. Otherwise online serves live,
+  // offline serves the cached body or the fallback page.
   if (sameOrigin && isNavigation(req)) {
     e.respondWith((async function () {
       const cache = await caches.open(CACHE);
@@ -127,8 +141,7 @@ self.addEventListener('fetch', function (e) {
       }
 
       if (cached && cached.headers.get(SHIM_HEADER)) {
-        // Serve the shim now, fetch live in parallel. The shim requests this URL
-        // below.
+        // Serve the shim now, fetch live in parallel. The shim requests this URL below.
         const live = fetch(url.pathname, { headers: headers });
         live.catch(function () {}); // handled below
         pendingLive.set(url.pathname, live);
@@ -158,8 +171,8 @@ self.addEventListener('fetch', function (e) {
       try {
         const res = await live;
         const html = await res.text();
-        // Datastar matches by id without a selector; a whole document matches
-        // nothing. Target the body.
+        // Datastar matches by id without a selector; a whole document matches nothing.
+        // Target the body.
         const body = bodyElement(html);
         if (!body) {
           return new Response(html, {
@@ -180,9 +193,13 @@ self.addEventListener('fetch', function (e) {
     return;
   }
 
+  // Anything else Datastar asked for goes to the network untouched:
+  // its answer is generated per request and must never come from a cache.
+  if (isDatastarRequest(req)) return;
+
   // Cache-first for assets. Same-origin static files, plus the cross-origin
-  // destinations opted in via Config.CrossOriginDestinations. Cross-origin
-  // responses are often opaque (status 0, res.ok false); cache them anyway.
+  // destinations opted in via Config.CrossOriginDestinations.
+  // Cross-origin responses are often opaque (status 0, res.ok false); cache them anyway.
   if (sameOrigin || CROSS_ORIGIN_DESTINATIONS.indexOf(req.destination) !== -1) {
     e.respondWith((async function () {
       const cache = await caches.open(CACHE);
@@ -196,7 +213,7 @@ self.addEventListener('fetch', function (e) {
       if (hit) return hit;
       try {
         const res = await fetch(req);
-        if (res && (res.ok || res.type === 'opaque')) {
+        if (res && (res.ok || res.type === 'opaque') && !isEventStream(res)) {
           cache.put(req, res.clone()).catch(function () {});
         }
         return res;

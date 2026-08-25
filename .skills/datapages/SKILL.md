@@ -1080,10 +1080,10 @@ caching other pages is always unconditional.
 - **A cached page is only as complete as its assets.** Caching the HTML is not
   enough: its stylesheets, scripts, fonts and images must be in the cache too. The
   app shell goes in `Config.Assets` and is precached when the worker installs;
-  everything else is cached the first time it loads online: all same-origin files,
-  and cross-origin requests whose destination is listed in
-  `Config.CrossOriginDestinations` (stylesheets, scripts, fonts and images by
-  default). An asset that is neither listed nor ever loaded online is missing
+  everything else is cached the first time it loads online: same-origin files
+  other than what Datastar requests, and cross-origin requests whose destination
+  is listed in `Config.CrossOriginDestinations` (stylesheets, scripts, fonts and
+  images by default). An asset that is neither listed nor ever loaded online is missing
   offline. Self-host Datastar via `WithDatastarJS` since the CDN is unreachable
   offline.
 - **Version by everything the snapshot depends on.** A constant version caches once
