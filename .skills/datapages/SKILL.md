@@ -554,7 +554,7 @@ type EventCalcUpdated struct {
 ### When to use stream hooks
 
 - **Per-tab server-side state.** Declare an exported struct and take
-  `state *T` in `StreamOpen`, actions, and `OnXXX` handlers.
+  `state datapages.State[T]` in `StreamOpen`, actions, and `OnXXX` handlers.
 	The generator allocates one zeroed state per tab, serializes handler calls
   with a per-instance mutex, and drops the state on `StreamClose`.
 	No manual tab-id signing or map bookkeeping. See Step 10.
@@ -562,14 +562,15 @@ type EventCalcUpdated struct {
   dispatch events and event handlers (queries) render the updated UI. The
   event handler needs context about *which* tab it is rendering for (e.g.
   which item is being viewed, which filters are active). Capture that context
-  into `state *T` inside `StreamOpen`, then read it from the event handler
+  into `state.Values` inside `StreamOpen`, then read it from the event handler
   via the same `state` parameter.
 - **Resource lifecycle.** Acquire per-stream resources (subscriptions,
   connections, counters) in `StreamOpen` and release them in `StreamClose`.
 
 ### Signature
 
-Both require `r *http.Request` and `streamID datapages.StreamID`.
+Both require `r *http.Request`, and at least one of
+`streamID datapages.StreamID` or `state datapages.State[T]`.
 Both return `error`, or nothing at all: `error` is the only return value they may declare.
 The `streamID` is a per-process unique identifier for the SSE stream instance.
 It is recognized by its `datapages.StreamID` type, the parameter name is free.
@@ -579,12 +580,13 @@ to clients, as it could leak information about server activity and connection vo
 
 `StreamOpen` runs after the SSE stream is established, before any event handler.
 It additionally accepts these optional parameters:
-`sse datapages.SSE`, `session Session`,
+`sse datapages.SSE`, `session Session`, `state datapages.State[T]`,
 `signals datapages.Signals[struct{...}]`, `datapages.Dispatcher[EventXXX]`.
 
 `StreamClose` runs when the stream closes.
 It additionally accepts these optional parameters:
-`session Session`, `datapages.Dispatcher[EventXXX]`.
+`session Session`, `state datapages.State[T]`,
+`datapages.Dispatcher[EventXXX]`.
 Note: `StreamClose` does **not** accept `sse` or `signals`.
 
 ```go
@@ -620,8 +622,9 @@ following the same pattern as event handlers (see next step).
 
 When a page needs state that lives across a tab's lifetime but must not leak
 between tabs — filters, cursors, which item is being viewed, a per-tab
-counter — declare any exported struct type and accept `state *T` on the
-handlers that read or write it.
+counter — declare any exported struct type and accept
+`state datapages.State[T]` on the handlers that read or write it.
+The struct is reached through the `Values` field, which is a `*T`.
 
 ```go
 type IndexState struct {
@@ -632,34 +635,34 @@ type IndexState struct {
 func (PageIndex) StreamOpen(
     r *http.Request,
     streamID datapages.StreamID,
-    state *IndexState,
+    state datapages.State[IndexState],
     signals datapages.Signals[struct {
         Filter string `json:"filter"`
     }],
 ) error {
-    state.Filter = signals.Values.Filter
+    state.Values.Filter = signals.Values.Filter
     return nil
 }
 
 // POSTFilter is /filter
-func (PageIndex) POSTFilter(
+func (p PageIndex) POSTFilter(
     r *http.Request,
     sse datapages.SSE,
-    state *IndexState,
+    state datapages.State[IndexState],
     signals datapages.Signals[struct {
         Filter string `json:"filter"`
     }],
 ) error {
-    state.Filter = signals.Values.Filter
-    return sse.PatchElement(itemList(p.App.filter(state.Filter)))
+    state.Values.Filter = signals.Values.Filter
+    return sse.PatchElement(itemList(p.App.filter(state.Values.Filter)))
 }
 
-func (PageIndex) OnItemsChanged(
+func (p PageIndex) OnItemsChanged(
     event EventItemsChanged,
     sse datapages.SSE,
-    state *IndexState,
+    state datapages.State[IndexState],
 ) error {
-    return sse.PatchElement(itemList(p.App.filter(state.Filter)))
+    return sse.PatchElement(itemList(p.App.filter(state.Values.Filter)))
 }
 ```
 
@@ -673,12 +676,14 @@ func (PageIndex) OnItemsChanged(
   `StreamOpen`, `StreamClose`, or an `OnXXX` handler. The stream is what bounds
   the instance's lifetime: it allocates the slot on connect and releases it on
   disconnect.
-- Global `*App` actions can take `state *T`, but they only succeed when the
+- Global `*App` actions can take `datapages.State[T]`, but they only succeed when the
   calling tab is bound to a page that uses that same `T` — otherwise the
   runtime returns `409 Conflict`. App actions intended to work from every
   page should remain stateless.
-- Always a pointer: `state *T`, never `state T`.
-- A stateful handler may take `stateID string` alongside `state *T`.
+- `state.Values` must not outlive the handler that received it. The mutex
+  serializes handlers, not a goroutine one of them started: a goroutine holding
+  the pointer races with the tab's later handlers. Copy the fields out instead.
+- A stateful handler may take `stateID string` alongside `datapages.State[T]`.
   It names the calling tab in message broker subjects. The value is derived
   from the instance id and grants nothing on its own, which keeps the id
   out of broker logs and storage. Pair it with a `datapages.SubjectStateID`
@@ -702,8 +707,8 @@ func (PageIndex) OnItemsChanged(
   response, which reconnects the stream and mints a fresh instance. It does
   not retry the action, so unsaved form input is lost.
 - Releases the state on `StreamClose`. An instance lives exactly as long as
-  its stream, so a transient network blip resets per-tab state. Keep in `*T`
-  only what a tab can afford to lose.
+  its stream, so a transient network blip resets per-tab state. Keep in the
+  state struct only what a tab can afford to lose.
 
 **Server configuration**. Stateful apps must opt in via
 `datapages.WithStateConfig`:
