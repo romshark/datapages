@@ -52,6 +52,12 @@ func WithTrailingSlash(route string) string {
 	return route
 }
 
+// StreamPath returns the path the SSE stream of a page route is served under:
+//   - "/settings/" -> "/settings/_$/"
+//   - "/post/{slug}/" -> "/post/{slug}/_$/"
+//   - "/" -> "/_$/"
+func StreamPath(route string) string { return WithTrailingSlash(route) + "_$/" }
+
 // Segments splits a route into alternating literal and variable segments:
 //
 //	URL = literals[0] + vars[0] + literals[1] + ... + literals[len(literals)-1]

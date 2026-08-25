@@ -515,6 +515,21 @@ func TestParse_ErrRouteDuplicateAction(t *testing.T) {
 	)
 }
 
+// TestParse_ErrRouteAssetsConflict covers a page served under the URL prefix
+// the assets are served under. The core registers that prefix,
+// which no page route may claim.
+func TestParse_ErrRouteAssetsConflict(t *testing.T) {
+	_, err := parse(t, "err_route_assets_conflict")
+	requireParseErrors(t, err, parser.ErrRouteConflict)
+}
+
+// TestParse_ErrRouteStreamConflict covers a page at the URL another page's SSE
+// stream is served under.
+func TestParse_ErrRouteStreamConflict(t *testing.T) {
+	_, err := parse(t, "err_route_stream_conflict")
+	requireParseErrors(t, err, parser.ErrRouteConflict)
+}
+
 func TestParse_ErrRouteWildcardStream(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_route_wildcard_stream")

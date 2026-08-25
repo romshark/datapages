@@ -574,7 +574,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 	// Fun fact: this is a writer writing a writer writing an attribute.
 	if hasStream {
 		hasPrivate := pageHasPrivateEvent(p, w.eventMap)
-		streamPath := routeStreamPath(p.Route)
+		streamPath := routepattern.StreamPath(p.Route)
 		if hasPrivate && h.InputSession != nil {
 			if hasAnonStream {
 				// Mixed: authenticated -> "/_$/"; anonymous -> "/_$/anon/"
