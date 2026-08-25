@@ -496,9 +496,6 @@ func Suggest(err error) string {
 //   - ErrPageNameInvalid              — naming rule is clear from valid examples
 //   - ErrPageNotStruct                — message names the required type form
 //   - ErrTypeParams                   — message names the type and what it may not have
-//   - ErrStateTypeArgPointer: only ever reported next to ErrTypeParams,
-//     whose fix is to drop the type parameters. Dropping the star alone
-//     still fails.
 //   - ErrActionNameMissing            — message states a name is required
 //   - ErrActionNameInvalid            — naming rule is clear from valid examples
 //   - ErrEventSubjectInvalid          — message states subject must be a quoted string

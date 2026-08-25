@@ -117,11 +117,6 @@ type AbstractPage struct {
 	Expr     ast.Expr
 	TypeName string
 
-	// TypeParams lists the abstract page's type parameter names in
-	// declaration order, e.g. ["S"] for `type Base[S any] struct {...}`.
-	// Empty when the abstract is not generic.
-	TypeParams []string
-
 	Methods       []*Handler
 	StreamOpen    *Handler
 	StreamClose   *Handler
@@ -184,14 +179,9 @@ type InputDispatch struct {
 }
 
 // InputState wraps the state input with the referenced state type name.
-//
-// When IsTypeParam is true, StateTypeName holds the type-parameter name
-// (e.g. "S") of the enclosing abstract page, not a concrete state type.
-// The concrete binding is resolved per-page during embed flattening.
 type InputState struct {
 	*Input
 	StateTypeName string
-	IsTypeParam   bool
 }
 
 type EventHandler struct {

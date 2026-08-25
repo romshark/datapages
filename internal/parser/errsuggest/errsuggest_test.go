@@ -527,12 +527,6 @@ func TestSuggest(t *testing.T) {
 			err:  parser.ErrStateIDWithoutState,
 			want: "fix: Add a `state datapages.State[T]` parameter, or remove stateID",
 		},
-
-		// Excluded on purpose, see the list at the end of errsuggest.go.
-		"ErrStateTypeArgPointer": {
-			err:  parser.ErrStateTypeArgPointer,
-			want: "",
-		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, errsuggest.Suggest(tc.err))

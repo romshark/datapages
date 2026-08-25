@@ -1714,16 +1714,6 @@ func TestParse_ErrStateTypeArgQualified(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrStateTypeArgNotNamed)
 }
 
-// TestParse_ErrStateTypeArgPointer covers Base[*StateA] at an embed site.
-// An abstract page takes its state as datapages.State[S]. A pointer type
-// argument would ask for datapages.State[*T]. The type parameters on Base are
-// rejected on their own, which is why two errors are expected.
-func TestParse_ErrStateTypeArgPointer(t *testing.T) {
-	_, err := parse(t, "err_state_type_arg_pointer")
-	requireParseErrors(t, err,
-		parser.ErrTypeParams, parser.ErrStateTypeArgPointer)
-}
-
 // TestParse_ErrStateParamInvalidType covers a type argument naming a type the
 // app package declares as something other than a struct.
 func TestParse_ErrStateParamInvalidType(t *testing.T) {

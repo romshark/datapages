@@ -203,10 +203,6 @@ var (
 	ErrStateDuplicate = errors.New(
 		"handler has multiple state parameters",
 	)
-	ErrStateTypeArgPointer = errors.New(
-		"type argument of an embedded abstract page must not be a pointer; " +
-			"an abstract page takes its state as datapages.State[S]",
-	)
 	ErrStateIDDuplicate = errors.New(
 		"handler has multiple stateID parameters",
 	)

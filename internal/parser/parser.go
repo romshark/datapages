@@ -98,10 +98,6 @@ type parseCtx struct {
 	// recv -> event type name -> first handler position
 	seenEvHandlerByRecv map[string]map[string]token.Pos
 
-	// Embed sites whose type argument was already reported as a pointer.
-	// Every handler of the abstract page passes through the same site.
-	reportedPtrTypeArg map[token.Pos]bool
-
 	// Non-error outputs per handler, used by buildHandlerGET.
 	handlerOutputs map[*model.Handler][]*model.Output
 
@@ -599,125 +595,9 @@ func firstPassPageOrAbstractType(
 		return
 	}
 	ctx.abstracts[name] = &model.AbstractPage{
-		Expr:       ts.Name,
-		TypeName:   name,
-		TypeParams: typeParamNames(ts),
+		Expr:     ts.Name,
+		TypeName: name,
 	}
-}
-
-// abstractTypeParams returns the declared type parameter names of the
-// given receiver when it names an abstract page; empty otherwise.
-func abstractTypeParams(ctx *parseCtx, recv string) []string {
-	if ap, ok := ctx.abstracts[recv]; ok {
-		return ap.TypeParams
-	}
-	return nil
-}
-
-// resolveTypeArgs zips an abstract's type parameter names with the
-// concrete type argument names supplied at the embed site and returns a
-// substitution map param -> arg. Returns nil when the abstract is not generic,
-// when no args were supplied, or when the counts do not match.
-// throughTypeArgs resolves the type arguments written at an embed site inside
-// an abstract page against the arguments that abstract page was itself
-// instantiated with. An argument that names none of them is already concrete
-// and passes through unchanged.
-func throughTypeArgs(args []string, outer map[string]string) []string {
-	if len(args) == 0 || len(outer) == 0 {
-		return args
-	}
-	out := make([]string, len(args))
-	for i, a := range args {
-		if concrete, ok := outer[a]; ok {
-			out[i] = concrete
-			continue
-		}
-		out[i] = a
-	}
-	return out
-}
-
-func resolveTypeArgs(params, args []string) map[string]string {
-	if len(params) == 0 || len(args) != len(params) {
-		return nil
-	}
-	out := make(map[string]string, len(params))
-	for i, p := range params {
-		out[p] = args[i]
-	}
-	return out
-}
-
-// substituteStateTypeParam clones h when its state parameter references
-// an abstract's type parameter and the embed site supplied a concrete
-// substitution for that parameter. The clone's InputState loses
-// IsTypeParam and gains the concrete StateTypeName.
-// Returns h unchanged when no substitution applies.
-func substituteStateTypeParam(
-	h *model.Handler, typeArgs map[string]string,
-) *model.Handler {
-	if h == nil || h.InputState == nil || !h.InputState.IsTypeParam {
-		return h
-	}
-	concrete, ok := typeArgs[h.InputState.StateTypeName]
-	if !ok {
-		return h
-	}
-	clone := *h
-	innerInput := *h.InputState.Input
-	clone.InputState = &model.InputState{
-		Input:         &innerInput,
-		StateTypeName: concrete,
-	}
-	clone.OrderedInputs = append([]*model.Input(nil), h.OrderedInputs...)
-	for i, inp := range clone.OrderedInputs {
-		if inp == h.InputState.Input {
-			clone.OrderedInputs[i] = clone.InputState.Input
-		}
-	}
-	return &clone
-}
-
-// substituteEventHandlerStateTypeParam is the EventHandler analogue of
-// substituteStateTypeParam.
-func substituteEventHandlerStateTypeParam(
-	eh *model.EventHandler, typeArgs map[string]string,
-) *model.EventHandler {
-	if eh == nil || eh.InputState == nil || !eh.InputState.IsTypeParam {
-		return eh
-	}
-	concrete, ok := typeArgs[eh.InputState.StateTypeName]
-	if !ok {
-		return eh
-	}
-	clone := *eh
-	innerInput := *eh.InputState.Input
-	clone.InputState = &model.InputState{
-		Input:         &innerInput,
-		StateTypeName: concrete,
-	}
-	clone.OrderedInputs = append([]*model.Input(nil), eh.OrderedInputs...)
-	for i, inp := range clone.OrderedInputs {
-		if inp == eh.InputState.Input {
-			clone.OrderedInputs[i] = clone.InputState.Input
-		}
-	}
-	return &clone
-}
-
-// typeParamNames returns the declared type parameter names of a type spec
-// in source order. Empty when the type is not generic.
-func typeParamNames(ts *ast.TypeSpec) []string {
-	if ts == nil || ts.TypeParams == nil {
-		return nil
-	}
-	var out []string
-	for _, f := range ts.TypeParams.List {
-		for _, n := range f.Names {
-			out = append(out, n.Name)
-		}
-	}
-	return out
 }
 
 func secondPassEmbeds(ctx *parseCtx, errs *Errors) {
@@ -1061,7 +941,6 @@ func validateAndAttachEventHandler(
 
 	h, ehErr := parseEventHandler(
 		fd, ctx.pkg.TypesInfo, ctx,
-		abstractTypeParams(ctx, recv),
 		recv, suffix, evName,
 	)
 	if ehErr != nil {
@@ -1091,7 +970,7 @@ func validateAndAttachStreamHook(
 	h, herr := parseStreamHook(
 		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset,
 		ctx.eventTypeNames, ctx,
-		abstractTypeParams(ctx, recv), kind,
+		kind,
 	)
 	if herr != nil {
 		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
@@ -1154,7 +1033,7 @@ func attachHTTPHandler(
 	h, outputs, herr := parseHandler(
 		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset,
 		ctx.eventTypeNames, ctx,
-		abstractTypeParams(ctx, recv), kind, suffix,
+		kind, suffix,
 	)
 	if herr != nil {
 		// Keep going; still attach a best-effort handler model.
@@ -1251,7 +1130,7 @@ func attachAppAction(
 	h, outputs, herr := parseHandler(
 		"App", fd, ctx.pkg.TypesInfo, ctx.pkg.Fset,
 		ctx.eventTypeNames, ctx,
-		nil /* no type params on App */, kind, suffix,
+		kind, suffix,
 	)
 	if herr != nil {
 		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
@@ -1338,24 +1217,19 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	}
 
 	// Queue items carry the embed site position that introduced this abstract.
-	// typeArgs holds the concrete type arguments supplied at the embed site,
-	// keyed by the abstract's type parameter names (empty when non-generic).
 	type qitem struct {
 		ap       *model.AbstractPage
 		embedPos token.Pos
-		typeArgs map[string]string
 	}
 
 	// seed queue from the page's struct embed sites
 	pageSt := typeStruct(ctx, pg.TypeName)
 	pageEmbPos := structinspect.EmbeddedFieldPosMap(pageSt)
-	pageEmbArgs := structinspect.EmbeddedTypeArgNames(pageSt)
 	queue := make([]qitem, 0, len(pg.Embeds))
 	for _, ap := range pg.Embeds {
 		queue = append(queue, qitem{
 			ap:       ap,
 			embedPos: pageEmbPos[ap.TypeName],
-			typeArgs: resolveTypeArgs(ap.TypeParams, pageEmbArgs[ap.TypeName]),
 		})
 	}
 
@@ -1369,36 +1243,14 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 		}
 		visited[ap.TypeName] = true
 
-		// The type argument at an embed site can be the only place a state type appears.
-		// Bind it while walking the embeds, before the page level state resolution runs.
-		substHandler := func(h *model.Handler) *model.Handler {
-			out := substituteStateTypeParam(h, it.typeArgs)
-			if out != nil {
-				bindStateTypeArg(ctx, errs, out.InputState, it.embedPos)
-			}
-			return out
-		}
-		substEventHandler := func(eh *model.EventHandler) *model.EventHandler {
-			out := substituteEventHandlerStateTypeParam(eh, it.typeArgs)
-			if out != nil {
-				bindStateTypeArg(ctx, errs, out.InputState, it.embedPos)
-			}
-			return out
-		}
-
 		// A child carries the position of its embed site in the parent abstract,
 		// which is where a conflict it introduces is reported.
 		apSt := typeStruct(ctx, ap.TypeName)
 		apEmbPos := structinspect.EmbeddedFieldPosMap(apSt)
-		apEmbArgs := structinspect.EmbeddedTypeArgNames(apSt)
 		for _, child := range ap.Embeds {
 			queue = append(queue, qitem{
 				ap:       child,
 				embedPos: apEmbPos[child.TypeName],
-				typeArgs: resolveTypeArgs(child.TypeParams,
-					// The parent may pass its own type parameters down:
-					// Mid[StateA] embedding Base[S] instantiates Base[StateA].
-					throughTypeArgs(apEmbArgs[child.TypeName], it.typeArgs)),
 			})
 		}
 
@@ -1454,7 +1306,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 			}
 			ownedMethods[m.Name] = true
 			pg.Actions = append(pg.Actions,
-				substHandler(m))
+				m)
 		}
 
 		if ap.StreamOpen != nil {
@@ -1464,7 +1316,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				if ap.StreamOpen.Expr != nil {
 					streamOpenOwnerPos = ap.StreamOpen.Expr.Pos()
 				}
-				pg.StreamOpen = substHandler(ap.StreamOpen)
+				pg.StreamOpen = ap.StreamOpen
 			case "page", ap.TypeName:
 				// Page-owned or already inherited from the same abstract wins.
 			default:
@@ -1495,7 +1347,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				if ap.StreamClose.Expr != nil {
 					streamClosedOwnerPos = ap.StreamClose.Expr.Pos()
 				}
-				pg.StreamClose = substHandler(ap.StreamClose)
+				pg.StreamClose = ap.StreamClose
 			case "page", ap.TypeName:
 				// Page-owned or already inherited from the same abstract wins.
 			default:
@@ -1527,7 +1379,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				}
 				ownedMethods[h.Name] = true
 				pg.EventHandlers = append(pg.EventHandlers,
-					substEventHandler(h))
+					h)
 				continue
 			}
 
@@ -1565,7 +1417,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				handledEventPos[ev] = h.Expr.Pos()
 			}
 			pg.EventHandlers = append(pg.EventHandlers,
-				substEventHandler(h))
+				h)
 		}
 	}
 }
@@ -1816,7 +1668,6 @@ func assignSpecialPages(ctx *parseCtx, errs *Errors) {
 func parseEventHandler(
 	fd *ast.FuncDecl, info *types.Info,
 	ctx *parseCtx,
-	typeParams []string,
 	recv, name, eventTypeName string,
 ) (*model.EventHandler, error) {
 	params := fd.Type.Params.List
@@ -1853,7 +1704,7 @@ func parseEventHandler(
 				return h, fmt.Errorf("%w in %s.%s",
 					ErrStateDuplicate, recv, fd.Name.Name)
 			}
-			is, sterr := parseStateParam(f, info, ctx, typeParams, recv, fd.Name.Name)
+			is, sterr := parseStateParam(f, info, ctx, recv, fd.Name.Name)
 			if sterr != nil {
 				return h, sterr
 			}
@@ -1897,7 +1748,6 @@ func parseStreamHook(
 	fset *token.FileSet,
 	eventTypeNames map[string]struct{},
 	ctx *parseCtx,
-	typeParams []string,
 	kind methodkind.Kind,
 ) (*model.Handler, error) {
 	h := &model.Handler{
@@ -2030,7 +1880,7 @@ func parseStreamHook(
 						ErrStateDuplicate, recv, fd.Name.Name)))
 				continue
 			}
-			is, sterr := parseStateParam(f, info, ctx, typeParams, recv, fd.Name.Name)
+			is, sterr := parseStateParam(f, info, ctx, recv, fd.Name.Name)
 			if sterr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sterr)
 				continue
@@ -2411,7 +2261,6 @@ func parseStateParam(
 	f *ast.Field,
 	info *types.Info,
 	ctx *parseCtx,
-	typeParams []string,
 	recv, method string,
 ) (*model.InputState, error) {
 	if !paramvalidation.IsStateParam(f, info) {
@@ -2421,18 +2270,6 @@ func parseStateParam(
 	if elemName == "" {
 		return nil, fmt.Errorf("%w in %s.%s",
 			ErrStateTypeArgNotNamed, recv, method)
-	}
-
-	// Type parameter of the enclosing abstract page — accept as a placeholder;
-	// the concrete state binding is resolved at each embed site during flattening.
-	if slices.Contains(typeParams, elemName) {
-		inp := parseInput(f, f.Type, info)
-		inp.Kind = model.InputKindState
-		return &model.InputState{
-			Input:         inp,
-			StateTypeName: elemName,
-			IsTypeParam:   true,
-		}, nil
 	}
 
 	// Concrete state type: must be a declared, exported struct in the
@@ -2475,39 +2312,6 @@ func registerStateType(ctx *parseCtx, name string) error {
 		TypeName: name,
 	}
 	return nil
-}
-
-// bindStateTypeArg records the state type of a handler inherited from a
-// generic abstract page. The type comes from the embed site,
-// not from a datapages.State[T] parameter, and is otherwise unknown to the app model.
-// Already registered types are kept as they are.
-func bindStateTypeArg(
-	ctx *parseCtx, errs *Errors, is *model.InputState, embedPos token.Pos,
-) {
-	if is == nil || is.IsTypeParam {
-		return
-	}
-	// The abstract page's handlers take datapages.State[S]. A pointer type
-	// argument would make that State[*T], which no state runtime can serve.
-	if name, ok := strings.CutPrefix(is.StateTypeName, "*"); ok {
-		if !ctx.reportedPtrTypeArg[embedPos] {
-			if ctx.reportedPtrTypeArg == nil {
-				ctx.reportedPtrTypeArg = map[token.Pos]bool{}
-			}
-			ctx.reportedPtrTypeArg[embedPos] = true
-			errs.ErrAt(ctx.pkg.Fset.Position(embedPos),
-				fmt.Errorf("%w: *%s", ErrStateTypeArgPointer, name))
-		}
-		// Carry the element type from here on. The page then references one
-		// state type rather than two spellings of the same one, which keeps
-		// the pointer error the only thing reported about this embed.
-		is.StateTypeName = name
-		return
-	}
-	if err := registerStateType(ctx, is.StateTypeName); err != nil {
-		errs.ErrAt(ctx.pkg.Fset.Position(embedPos),
-			fmt.Errorf("%w: %s", ErrStateParamInvalidType, err))
-	}
 }
 
 // parseInput builds the model input for a handler parameter.
@@ -2571,7 +2375,6 @@ func parseHandler(
 	fset *token.FileSet,
 	eventTypeNames map[string]struct{},
 	ctx *parseCtx,
-	typeParams []string,
 	kind methodkind.Kind,
 	name string,
 ) (*model.Handler, []*model.Output, error) {
@@ -2723,7 +2526,7 @@ func parseHandler(
 						ErrStateDuplicate, recv, fd.Name.Name)))
 				continue
 			}
-			is, sterr := parseStateParam(f, info, ctx, typeParams, recv, fd.Name.Name)
+			is, sterr := parseStateParam(f, info, ctx, recv, fd.Name.Name)
 			if sterr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sterr)
 				continue
