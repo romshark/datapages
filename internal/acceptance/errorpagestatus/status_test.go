@@ -23,6 +23,7 @@ func newClient(t *testing.T) *client.Client {
 // TestErrorPageStatus covers a URL no page claims in an app that supplies a 404 page:
 // the visitor gets that page and the response carries 404.
 func TestErrorPageStatus(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, "/no-such-page/")
@@ -36,6 +37,7 @@ func TestErrorPageStatus(t *testing.T) {
 
 // TestRoutedPageIsUnaffected covers a URL a page does claim.
 func TestRoutedPageIsUnaffected(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, "/")

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
@@ -26,6 +28,7 @@ import (
 // which is the request a cross-site page can make their browser send.
 // The server refuses it and the action does not take effect.
 func TestCSRFCoversEveryAction(t *testing.T) {
+	t.Parallel()
 	sessions := sessinmem.New[struct{}](
 		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 	)
@@ -37,57 +40,41 @@ func TestCSRFCoversEveryAction(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatalf("building cookie jar: %v", err)
-	}
+	require.NoError(t, err, "building cookie jar")
 	client := &http.Client{Jar: jar}
 
 	post := func(path, body, token string) int {
 		req, err := http.NewRequestWithContext(context.Background(),
 			http.MethodPost, srv.URL+path, strings.NewReader(body))
-		if err != nil {
-			t.Fatalf("building POST %s: %v", path, err)
-		}
+		require.NoError(t, err, "building POST %s", path)
 		req.Header.Set("Datastar-Request", "true")
 		req.Header.Set("Content-Type", "application/json")
 		if token != "" {
 			req.Header.Set("X-CSRF-Token", token)
 		}
 		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatalf("POST %s: %v", path, err)
-		}
+		require.NoError(t, err, "POST %s", path)
 		defer func() { _ = resp.Body.Close() }()
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return resp.StatusCode
 	}
 
-	if st := post("/sign-in/", `{"user":"alice"}`, ""); st != http.StatusOK {
-		t.Fatalf("signing in: status = %d", st)
-	}
+	require.Equal(t, http.StatusOK,
+		post("/sign-in/", `{"user":"alice"}`, ""), "signing in")
 
-	if st := post("/delete/", `{"confirm":true}`, ""); st != http.StatusForbidden {
-		t.Errorf("a state-changing action of a visitor with a session was "+
-			"served without a CSRF token: status = %d, want %d",
-			st, http.StatusForbidden)
-	}
+	require.Equal(t, http.StatusForbidden,
+		post("/delete/", `{"confirm":true}`, ""),
+		"a state-changing action of a visitor with a session was served "+
+			"without a CSRF token")
 
 	req, err := http.NewRequestWithContext(
 		context.Background(), http.MethodGet, srv.URL+"/", nil,
 	)
-	if err != nil {
-		t.Fatalf("building GET /: %v", err)
-	}
+	require.NoError(t, err, "building GET /")
 	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("GET /: %v", err)
-	}
+	require.NoError(t, err, "GET /")
 	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("reading /: %v", err)
-	}
-	if strings.Contains(string(b), "deleted=1") {
-		t.Error("the refused action took effect")
-	}
+	require.NoError(t, err, "reading /")
+	require.NotContains(t, string(b), "deleted=1", "the refused action took effect")
 }

@@ -28,6 +28,7 @@ func newClient(t *testing.T) *client.Client {
 // pair until the stack is gone, which takes the process with it rather than
 // the request. The server has to stop at the plain status instead.
 func TestFailingError500PageStillAnswers(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, "/boom/")
@@ -41,6 +42,7 @@ func TestFailingError500PageStillAnswers(t *testing.T) {
 // TestFailingError500PageOnItsOwnRoute covers the same page requested
 // directly, where nothing failed before it.
 func TestFailingError500PageOnItsOwnRoute(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, "/server-error/")

@@ -22,6 +22,7 @@ func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
 // TestWildcardSubjectDelivery covers a page subscribed to every value of a subject:
 // the event reaches it whatever value it was dispatched with.
 func TestWildcardSubjectDelivery(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -39,6 +40,7 @@ func TestWildcardSubjectDelivery(t *testing.T) {
 // TestSecondValueReachesTheSameStream covers a second value of the same
 // subject reaching the same stream.
 func TestSecondValueReachesTheSameStream(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -63,6 +65,7 @@ func TestSecondValueReachesTheSameStream(t *testing.T) {
 // a subject as it is. Escaped it names one segment, which the subscription
 // this page opens over every value of the field matches like any other.
 func TestSubjectValueIsEscaped(t *testing.T) {
+	t.Parallel()
 	values := map[string]string{
 		"plain":     "plain",
 		"separator": "a.b",
@@ -94,6 +97,7 @@ func TestSubjectValueIsEscaped(t *testing.T) {
 // TestSubjectValueMustNotBeEmpty covers the one value escaping cannot save. An empty
 // value names no segment, which leaves a subject of a shape no subscription matches.
 func TestSubjectValueMustNotBeEmpty(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 

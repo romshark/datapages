@@ -228,8 +228,8 @@ func TestSlowSubscriberDrops(t *testing.T) {
 
 // TestNoStreamIsCreated covers what separates this broker from a JetStream one:
 // it publishes and delivers without a stream backing the subject.
-// The container has JetStream enabled, so an accidental dependency on it would
-// pass every other test in this file and only fail on a deployment without it.
+// The container has JetStream enabled. An accidental dependency on it passes
+// every other test in this file and fails only on a deployment without it.
 func TestNoStreamIsCreated(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{})
 	m := new(testMetrics)

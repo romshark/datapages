@@ -14,6 +14,7 @@ import (
 // TestEmptyOptionIsSkipped covers an option helper given nothing to say,
 // such as WithHeaders of an empty map: the expression carries no options object.
 func TestEmptyOptionIsSkipped(t *testing.T) {
+	t.Parallel()
 	tests := map[string]string{
 		"a nil header map": action.POSTPageIndexSave(action.WithHeaders(nil)),
 		"an empty header map": action.POSTPageIndexSave(
@@ -32,6 +33,7 @@ func TestEmptyOptionIsSkipped(t *testing.T) {
 // TestOptionsAreWritten covers an empty option next to real ones:
 // only the empty one is dropped.
 func TestOptionsAreWritten(t *testing.T) {
+	t.Parallel()
 	expr := action.POSTPageIndexSave(
 		action.WithHeaders(nil),
 		action.WithSelector("#out"),

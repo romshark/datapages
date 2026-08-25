@@ -1,14 +1,12 @@
 // Runs every acceptance case.
 //
 // A case is a module under this directory: an application, the code generated from it,
-// and the tests that drive it over HTTP. The generated code is committed,
-// which is what lets an editor resolve it and a reader read it.
+// and the tests that send it requests over HTTP. The generated code is committed.
 //
-// This runner does two things per case. It regenerates the case into a
-// temporary directory and compares the result with what is committed,
-// so that the code under test is the code the generator writes today.
-// Then it runs the case's own tests, with coverage over its generated packages,
-// and reports how much of the generated code the suite executes.
+// Per case the runner regenerates it into a temporary directory and compares
+// the result with what is committed, which makes the code under test the code
+// the generator writes today. It then runs the case's own tests, with coverage
+// over its generated packages, and reports how much of that code the suite executes.
 
 package acceptance_test
 
@@ -83,12 +81,12 @@ func runCase(t *testing.T, name string) {
 	t.Helper()
 	opts := readCaseOptions(t, name)
 
-	requireGeneratedIsCurrent(t, name)
+	apps := requireGeneratedIsCurrent(t, name)
 
 	profile := filepath.Join(t.TempDir(), "cover.out")
 	args := []string{
 		"test", "-count=1",
-		"-coverpkg=./app/datapagesgen/...", "-coverprofile=" + profile, "./...",
+		"-coverpkg=" + coverPkgs(apps), "-coverprofile=" + profile, "./...",
 	}
 	if !opts.NoRace {
 		args = append(args, "-race")
@@ -115,47 +113,61 @@ func readCaseOptions(t *testing.T, name string) caseOptions {
 
 // requireGeneratedIsCurrent regenerates the case beside its committed code and
 // compares the two. What the suite runs is then what the generator writes.
-func requireGeneratedIsCurrent(t *testing.T, name string) {
+func requireGeneratedIsCurrent(t *testing.T, name string) []serverscan.App {
 	t.Helper()
 	dst := t.TempDir()
-	app := generateInto(t, name, dst)
-	compareTrees(t, filepath.Join(dst, app.GenDir), filepath.Join(name, app.GenDir))
+	apps := generateInto(t, name, dst)
+	for _, app := range apps {
+		compareTrees(t, filepath.Join(dst, app.GenDir), filepath.Join(name, app.GenDir))
+	}
+	return apps
 }
 
-// generateInto parses the case's app package and generates it into dst,
-// the way "datapages gen" does, and returns the app the scan found.
+// generateInto parses the app packages of the case and generates them into dst,
+// the way "datapages gen" does, and returns the apps the scan found.
 //
-// A case builds one application. A module may build any number, which is what
-// the scan reports, and a case naming more than one is a mistake in the case.
-func generateInto(t *testing.T, name, dst string) serverscan.App {
+// How many applications a case builds is not fixed. Most build one; multiapp builds two.
+// Each is generated on its own, from its own app package.
+func generateInto(t *testing.T, name, dst string) []serverscan.App {
 	t.Helper()
 
 	modPath := modulePath(name)
 	scan, err := serverscan.Scan(name, modPath)
 	require.NoError(t, err)
 	require.False(t, scan.Fallback, "%s holds no datapages.NewServer call", name)
-	require.Len(t, scan.Apps, 1, "%s builds more than one application", name)
-	app := scan.Apps[0]
+	require.NotEmpty(t, scan.Apps)
 
-	m, errs := parser.Parse(filepath.Join(name, app.Dir))
-	for _, err := range errs.All() {
-		t.Errorf("parser: %v", err)
+	for _, app := range scan.Apps {
+		m, errs := parser.Parse(filepath.Join(name, app.Dir))
+		for _, err := range errs.All() {
+			t.Errorf("parser: %v", err)
+		}
+		require.Zero(t, errs.Len())
+		require.NotNil(t, m, "parser returned nil model")
+		require.NoError(t, serverscan.CheckSessionOption(app, m.Session != nil))
+
+		require.NoError(t, generator.Generate(
+			filepath.Join(dst, app.GenDir), serverscan.GenSubdir,
+			m, 0o644, generator.Options{
+				Prometheus:      app.Prometheus,
+				AssetsURLPrefix: m.Assets.URLPrefix,
+				AssetsDir:       m.Assets.Dir,
+				AppDir:          app.Dir,
+				GenImport:       app.GenImport,
+			},
+		))
 	}
-	require.Zero(t, errs.Len())
-	require.NotNil(t, m, "parser returned nil model")
-	require.NoError(t, serverscan.CheckSessionOption(app, m.Session != nil))
+	return scan.Apps
+}
 
-	require.NoError(t, generator.Generate(
-		filepath.Join(dst, app.GenDir), serverscan.GenSubdir,
-		m, 0o644, generator.Options{
-			Prometheus:      app.Prometheus,
-			AssetsURLPrefix: m.Assets.URLPrefix,
-			AssetsDir:       m.Assets.Dir,
-			AppDir:          app.Dir,
-			GenImport:       app.GenImport,
-		},
-	))
-	return app
+// coverPkgs is the -coverpkg list of a case: the generated package of
+// every app it builds, which is the code the suite reports coverage of.
+func coverPkgs(apps []serverscan.App) string {
+	pkgs := make([]string, len(apps))
+	for i, a := range apps {
+		pkgs[i] = "./" + filepath.ToSlash(a.GenDir) + "/..."
+	}
+	return strings.Join(pkgs, ",")
 }
 
 // modulePath is the import path of a case module.
@@ -209,8 +221,6 @@ func readTree(t *testing.T, dir string) map[string]string {
 	require.NoError(t, err, "reading %s", dir)
 	return files
 }
-
-// --- coverage of the generated code ----------------------------------------
 
 // coverage accumulates one coverage profile per acceptance case.
 var coverage coverageSet

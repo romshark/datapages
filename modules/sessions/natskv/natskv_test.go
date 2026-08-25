@@ -731,7 +731,7 @@ func TestNotifyClosed(t *testing.T) {
 		err = sm.NotifyClosed(ctx, token, called.Inc)
 		require.NoError(t, err)
 
-		// Session still exists — fn must not have been called.
+		// The session still exists: fn must not have been called.
 		m := maps.Collect(sm.UserSessions(ctx, userID))
 		require.Len(t, m, 1)
 		for _, rec := range m {

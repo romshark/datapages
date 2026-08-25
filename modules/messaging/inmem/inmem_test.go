@@ -192,10 +192,13 @@ func TestOneMessagePerSubscription(t *testing.T) {
 	require.NoError(t,
 		b.Publish(ctx, noMetrics{}, "note.one", []byte("x")))
 
+	// Publish delivers into the subscription before it returns,
+	// hence whatever the channel holds now is everything it will ever hold.
+	// Waiting for a second message would only be waiting.
 	<-sub.C()
 	select {
 	case msg := <-sub.C():
 		t.Fatalf("the message arrived twice: %s", msg.Subject)
-	case <-time.After(100 * time.Millisecond):
+	default:
 	}
 }

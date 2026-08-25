@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +24,7 @@ func TestUnmarshalLogLevel(t *testing.T) {
 			var l LogLevel
 			err := l.UnmarshalText([]byte(tc.input))
 			if tc.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tc.want, l)
@@ -49,7 +48,7 @@ func TestUnmarshalLogClear(t *testing.T) {
 			var l LogClear
 			err := l.UnmarshalText([]byte(tc.input))
 			if tc.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tc.want, l)
@@ -74,7 +73,7 @@ func TestUnmarshalWatcherRequires(t *testing.T) {
 			var r WatcherRequires
 			err := r.UnmarshalText([]byte(tc.input))
 			if tc.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tc.want, r)

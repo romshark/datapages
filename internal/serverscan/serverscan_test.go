@@ -12,7 +12,7 @@ import (
 
 const modulePath = "example.com/mod"
 
-// write lays out a module from a path→content map and returns its root.
+// write lays out a module from a path -> content map and returns its root.
 func write(t *testing.T, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -65,6 +65,19 @@ func TestScan(t *testing.T) {
 	}{
 		"no call falls back": {
 			files:    map[string]string{"app/app.go": "package app\n"},
+			appDirs:  []string{"app"},
+			fallback: true,
+		},
+		"blank import falls back": {
+			files: map[string]string{
+				"app/app.go": "package app\n",
+				"cmd/server/main.go": `package main
+
+import _ "github.com/romshark/datapages"
+
+func main() {}
+`,
+			},
 			appDirs:  []string{"app"},
 			fallback: true,
 		},
@@ -349,6 +362,40 @@ func main() {
 			},
 			msg: "lives in a generated package",
 		},
+		"dot import": {
+			files: map[string]string{
+				"app/app.go":                  "package app\n",
+				"app/datapagesgen/app_gen.go": genPkg(true),
+				"cmd/server/main.go": `package main
+
+import (
+	. "github.com/romshark/datapages"
+	"example.com/mod/app"
+	gen "example.com/mod/app/datapagesgen"
+)
+
+func main() {
+	s, err := NewServer[app.App, DisableSessions, DisablePrometheus, gen.Server](nil, nil)
+	_, _ = s, err
+}
+`,
+			},
+			msg: "the datapages package must not be dot-imported",
+		},
+		"dot import without a call": {
+			files: map[string]string{
+				"app/app.go": "package app\n",
+				"cmd/server/main.go": `package main
+
+import . "github.com/romshark/datapages"
+
+var _ Component
+
+func main() {}
+`,
+			},
+			msg: "the datapages package must not be dot-imported",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := write(t, tt.files)
@@ -360,8 +407,8 @@ func main() {
 }
 
 // TestScanStubDestination covers a destination a failed run left as stubs.
-// A stub carries the generated header, so the next run generates over it
-// instead of reading it as a package datapages did not write.
+// A stub carries the generated header, which makes the next run generate over
+// it instead of reading it as a package datapages did not write.
 func TestScanStubDestination(t *testing.T) {
 	root := write(t, map[string]string{
 		"app/app.go": "package app\n",
@@ -530,4 +577,59 @@ func TestScanPrometheusPerApp(t *testing.T) {
 	require.True(t, ok)
 	require.False(t, front.Prometheus)
 	require.Equal(t, "datapages.DisablePrometheus", front.Metrics.Src)
+}
+
+// TestScanAliasedTypeArgs covers two calls naming one app package under
+// different import names.
+//
+// A file importing two packages of the same name has to alias one of them.
+// Comparing type arguments as written would then read one session type as two
+// and refuse the module.
+func TestScanAliasedTypeArgs(t *testing.T) {
+	root := write(t, map[string]string{
+		"app/app.go":                  "package app\n",
+		"app/datapagesgen/app_gen.go": genPkg(true),
+		"cmd/server/main.go": mainGo("app",
+			"app.App, app.SessionData, datapages.DisablePrometheus, gen.Server",
+			", datapages.WithSessionManager[app.SessionData](nil)"),
+		"serve/serve.go": `package serve
+
+import (
+	dp "github.com/romshark/datapages"
+	appalias "example.com/mod/app"
+	genalias "example.com/mod/app/datapagesgen"
+)
+
+func New() {
+	s, err := dp.NewServer[
+		appalias.App, appalias.SessionData, dp.DisablePrometheus, genalias.Server,
+	](nil, nil, dp.WithSessionManager[appalias.SessionData](nil))
+	_, _ = s, err
+}
+`,
+	})
+	r, err := serverscan.Scan(root, modulePath)
+	require.NoError(t, err)
+	require.Len(t, r.Apps, 1)
+	require.Len(t, r.Apps[0].Calls, 2)
+	require.True(t, r.Apps[0].HasSession)
+}
+
+// TestScanLocalTypeArgsDisagree covers two calls naming session types that
+// resolve to no import. There is no import path to compare them by,
+// hence they are compared as written.
+func TestScanLocalTypeArgsDisagree(t *testing.T) {
+	root := write(t, map[string]string{
+		"app/app.go":                  "package app\n",
+		"app/datapagesgen/app_gen.go": genPkg(true),
+		"cmd/a/main.go": mainGo("app",
+			"app.App, struct{}, datapages.DisablePrometheus, gen.Server",
+			", datapages.WithSessionManager[struct{}](nil)"),
+		"cmd/b/main.go": mainGo("app",
+			"app.App, struct{ N int }, datapages.DisablePrometheus, gen.Server",
+			", datapages.WithSessionManager[struct{ N int }](nil)"),
+	})
+	_, err := serverscan.Scan(root, modulePath)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "names SessionData")
 }

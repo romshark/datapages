@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -71,11 +72,25 @@ func NATS(t *testing.T) messaging.Broker {
 	return natscore.New(Conn(t), natscore.Config{ChanBuffer: ChanBuffer})
 }
 
+// natsMu serializes the tests that reach the NATS server.
+//
+// One server serves the whole case and its subject space is shared: two tests
+// publishing one subject at the same time would each read the other's messages.
+// The lock is released by a cleanup registered before the test registers its
+// own, hence after the streams and the server it opens are closed.
+var natsMu sync.Mutex
+
 // Conn connects to the server Main started.
+//
+// It blocks until no other test of this case is on the server, which is what
+// makes a case with parallel tests deterministic.
 func Conn(t *testing.T) *nats.Conn {
 	t.Helper()
 	require.NotEmpty(t, natsURL,
 		"no NATS server: the case must run brokers.Main from its TestMain")
+
+	natsMu.Lock()
+	t.Cleanup(natsMu.Unlock)
 
 	// The testcontainers NATS module only waits for the port to be open,
 	// not for the server to be fully initialized.

@@ -63,6 +63,19 @@ type TypeArg struct {
 	Name string
 }
 
+// same reports whether a and b name the same type.
+//
+// Comparing what is written would make an import alias a type of its own,
+// and a file importing two packages of the same name has to alias one of them.
+// A type declared in the calling package resolves to no import and is compared
+// as written: there is no import path to compare it by.
+func (a TypeArg) same(b TypeArg) bool {
+	if a.Import == "" || b.Import == "" {
+		return a.Src == b.Src
+	}
+	return a.Import == b.Import && a.Name == b.Name
+}
+
 // Call is one datapages.NewServer call.
 type Call struct {
 	// Pos is where the call is written.
@@ -280,14 +293,14 @@ func checkAgreement(moduleDir string, a *App, c Call, errs *Errors) {
 		return
 	}
 	first := relTo(moduleDir, a.Calls[0].Pos)
-	if c.SessionData.Src != a.SessionData.Src {
+	if !c.SessionData.same(a.SessionData) {
 		errs.addf(c.Pos,
 			"datapages.NewServer names SessionData %s for %s, "+
 				"but the call at %s names %s",
 			c.SessionData.Src, a.Dir, first, a.SessionData.Src)
 		errs.hint("every call naming one app package must name one session type")
 	}
-	if c.Metrics.Src != a.Metrics.Src {
+	if !c.Metrics.same(a.Metrics) {
 		errs.addf(c.Pos,
 			"datapages.NewServer names Metrics %s for %s, "+
 				"but the call at %s names %s",
@@ -378,13 +391,15 @@ func dirOf(a TypeArg, modulePath string) (string, error) {
 		return "", fmt.Errorf("the app type %s must live in its own package", a.Src)
 	case a.Import == modulePath:
 		return "", fmt.Errorf(
-			"the app type %s must not live in the module root", a.Src)
+			"the app type %s must not live in the module root", a.Src,
+		)
 	case !strings.HasPrefix(a.Import, modulePath+"/"):
 		return "", fmt.Errorf("the app type %s lives in another module (%s)",
 			a.Src, a.Import)
 	case strings.HasSuffix(a.Import, "/"+GenSubdir):
 		return "", fmt.Errorf(
-			"the app type %s lives in a generated package", a.Src)
+			"the app type %s lives in a generated package", a.Src,
+		)
 	}
 	return filepath.FromSlash(strings.TrimPrefix(a.Import, modulePath+"/")), nil
 }
@@ -443,7 +458,14 @@ func scanPackage(root, dir string, errs *Errors) []Call {
 	}
 	var calls []Call
 	for _, f := range files {
-		dp := importName(f, DatapagesImport)
+		dp, dot := importName(f, DatapagesImport)
+		if dot != nil {
+			pos := relTo(root, fset.Position(dot.Pos()))
+			errs.addf(pos, "the datapages package must not be dot-imported")
+			errs.hint("fix: import " + DatapagesImport +
+				" under a name, the scan reads the calls by their qualifier")
+			continue
+		}
 		if dp == "" {
 			continue
 		}
@@ -498,7 +520,7 @@ func scanFile(
 			return true
 		}
 		c.Prometheus = c.Metrics.Name == EnablePrometheus
-		c.SessionOpt = hasOption(call, f, pkgFiles, dp, "WithSessionManager")
+		c.SessionOpt = hasOption(call, pkgFiles, dp, "WithSessionManager")
 		calls = append(calls, c)
 		return true
 	})
@@ -570,9 +592,7 @@ func typeArg(f *ast.File, e ast.Expr) TypeArg {
 //
 // An option built under a condition counts: the condition decides whether it
 // takes effect, the mention decides what has to exist for it to.
-func hasOption(
-	call *ast.CallExpr, f *ast.File, pkgFiles []*ast.File, qual, name string,
-) bool {
+func hasOption(call *ast.CallExpr, pkgFiles []*ast.File, qual, name string) bool {
 	if qual == "" {
 		return false
 	}
@@ -619,22 +639,27 @@ func mentionsOption(n ast.Node, qual, name string) bool {
 }
 
 // importName returns the name path is bound to in f, empty when f doesn't
-// import it. A dot import yields an empty name: the scan cannot see through it.
-func importName(f *ast.File, path string) string {
+// import it or imports it blank. dot is the import spec when f dot-imports
+// path, which the caller reports: the scan matches a qualifier against the
+// name and has no qualifier to match once the name is gone.
+func importName(f *ast.File, path string) (name string, dot *ast.ImportSpec) {
 	for _, im := range f.Imports {
 		p, err := strconv.Unquote(im.Path.Value)
 		if err != nil || p != path {
 			continue
 		}
 		if im.Name == nil {
-			return path[strings.LastIndex(path, "/")+1:]
+			return path[strings.LastIndex(path, "/")+1:], nil
 		}
-		if im.Name.Name == "." || im.Name.Name == "_" {
-			return ""
+		switch im.Name.Name {
+		case ".":
+			return "", im
+		case "_":
+			return "", nil
 		}
-		return im.Name.Name
+		return im.Name.Name, nil
 	}
-	return ""
+	return "", nil
 }
 
 // importPath returns the path bound to name in f, empty when there is none.

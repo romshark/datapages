@@ -1,4 +1,4 @@
-// Drives the generated router of ./app over HTTP.
+// Covers the generated router of ./app over HTTP.
 
 package acceptance_test
 
@@ -29,6 +29,7 @@ func newClient(t *testing.T) *client.Client {
 // They are generated from one model and are asserted here against each other.
 // A change of order, name or number format in one of them cannot pass unnoticed.
 func TestRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	tests := map[string]struct {
@@ -88,6 +89,7 @@ func TestRoundTrip(t *testing.T) {
 // TestQueryDefaults covers a query string that leaves everything out.
 // Absent parameters are the common case on a first page load and must not be an error.
 func TestQueryDefaults(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, "/q/")
@@ -99,6 +101,7 @@ func TestQueryDefaults(t *testing.T) {
 // TestRawQuery covers query strings the generated reader must
 // read the way url.URL.Query does.
 func TestRawQuery(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	for name, tt := range map[string]struct {
@@ -136,6 +139,7 @@ func TestRawQuery(t *testing.T) {
 // The handler must not run, and the client must learn that it sent the bad
 // request rather than that the server broke.
 func TestUnparsableValues(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	tests := map[string]string{
@@ -177,6 +181,7 @@ func TestUnparsableValues(t *testing.T) {
 // The handler hands it back and the server has to put it in the document,
 // inside <head> and before the resp.Body.
 func TestPageHead(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, href.PageTitled("welcome"))
@@ -192,11 +197,12 @@ func TestPageHead(t *testing.T) {
 
 // TestReflectedSignals covers a query parameter bound to a signal.
 //
-// The binding is two things the page carries rather than anything the handler returns:
-// the signal's initial value, taken from the URL, and the code that writes it back into
-// the URL when it changes. A page that renders correctly and carries neither
+// The binding is what the page carries rather than anything the handler returns:
+// the signal's initial value, taken from the URL, and the code that writes it back
+// into the URL when it changes. A page that renders correctly and carries neither
 // leaves the client without state and the URL without the current values.
 func TestReflectedSignals(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, "/reflect/?t=shoes&p=3")
@@ -217,6 +223,7 @@ func TestReflectedSignals(t *testing.T) {
 // The server writes it into an attribute of the body tag, where a quote ends the
 // attribute and an angle bracket opens an element of its own.
 func TestReflectedSignalEscapesMarkup(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	tests := map[string]struct {
@@ -258,10 +265,11 @@ func TestReflectedSignalEscapesMarkup(t *testing.T) {
 // which it reports by panicking while the server is being built.
 //
 // The server appends a slash to a path that carries none, and a wildcard runs
-// to the end of the path, so that slash arrives inside the value.
+// to the end of the path, which puts that slash inside the value.
 // Every row here reaches the handler as the same value whether the URL carried a
 // trailing slash or not.
 func TestTrailingWildcard(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	for name, tt := range map[string]struct{ url, want string }{
@@ -290,6 +298,7 @@ func TestTrailingWildcard(t *testing.T) {
 // For a wildcard that slash is part of the value unless the handler drops it,
 // which is what made a value come back with a separator appended to it.
 func TestTrailingWildcardHrefRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	for name, want := range map[string]string{
@@ -321,6 +330,7 @@ func TestTrailingWildcardHrefRoundTrip(t *testing.T) {
 // A rewrite that updates one and not the other routes the request by
 // one path and reads its variables out of the other.
 func TestEncodedPathSegments(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	tests := map[string]struct{ url, want string }{
@@ -361,6 +371,7 @@ func TestEncodedPathSegments(t *testing.T) {
 
 // TestUnknownRoutes covers paths no page claims.
 func TestUnknownRoutes(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	for name, url := range map[string]string{
@@ -381,6 +392,7 @@ func TestUnknownRoutes(t *testing.T) {
 // two generated halves agree; these assertions pin down what they agree on,
 // because a self-consistent pair can still address the wrong thing.
 func TestHrefLiterals(t *testing.T) {
+	t.Parallel()
 	tests := map[string]struct{ got, want string }{
 		"index":           {href.PageIndex(), "/"},
 		"path variables":  {href.PagePath("a", 1, 2, 3.5, false), "/p/a/1/2/3.5/false/"},

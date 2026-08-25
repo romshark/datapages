@@ -1,4 +1,4 @@
-// Drives the generated asset serving and metrics of ./app.
+// Covers the generated asset serving and metrics of ./app.
 
 package acceptance_test
 
@@ -14,6 +14,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/assetsmetrics/app"
@@ -49,39 +50,33 @@ func get(t *testing.T, srv *httptest.Server, path string) *http.Response {
 	req, err := http.NewRequestWithContext(
 		context.Background(), http.MethodGet, srv.URL+path, nil,
 	)
-	if err != nil {
-		t.Fatalf("building GET %s: %v", path, err)
-	}
+	require.NoError(t, err, "building GET %s", path)
 	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := srv.Client().Do(req)
-	if err != nil {
-		t.Fatalf("GET %s: %v", path, err)
-	}
+	require.NoError(t, err, "GET %s", path)
 	return resp
 }
 
-// TestAssetsAreServed covers the files the app embeds. The prefix comes from
-// the configuration and reaches both the URL builder and the route.
-// The two must agree on it.
 // TestAssetPath covers the asset URL builders against path.Join,
 // which is what they fall back to.
 func TestAssetPath(t *testing.T) {
+	t.Parallel()
 	for _, p := range []string{
 		"style.css", "sub/nested.js", "", ".", "..", "../secret", "/style.css",
 		"sub//nested.js", "sub/./nested.js", "sub/../nested.js", "sub/",
 		"..hidden.css",
 	} {
 		want := path.Join(assets.URLPrefix, p)
-		if got := href.Asset(p); got != want {
-			t.Errorf("href.Asset(%q) = %q, want %q", p, got, want)
-		}
-		if got := assets.Path(p); got != want {
-			t.Errorf("assets.Path(%q) = %q, want %q", p, got, want)
-		}
+		require.Equal(t, want, href.Asset(p), "href.Asset(%q)", p)
+		require.Equal(t, want, assets.Path(p), "assets.Path(%q)", p)
 	}
 }
 
+// TestAssetsAreServed covers the files the app embeds. The prefix comes from
+// the configuration and reaches both the URL builder and the route.
+// The two must agree on it.
 func TestAssetsAreServed(t *testing.T) {
+	t.Parallel()
 	srv := newServer(t)
 
 	tests := map[string]struct {
@@ -113,22 +108,16 @@ func TestAssetsAreServed(t *testing.T) {
 			resp := get(t, srv, tt.url)
 			defer func() { _ = resp.Body.Close() }()
 			b, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatalf("reading %s: %v", tt.url, err)
-			}
-			if resp.StatusCode != tt.wantStatus {
-				t.Fatalf("GET %s: status = %d, want %d",
-					tt.url, resp.StatusCode, tt.wantStatus)
-			}
-			if tt.wantBody != "" && !strings.Contains(string(b), tt.wantBody) {
-				t.Errorf("GET %s: body does not carry %q:\n%s",
-					tt.url, tt.wantBody, b)
+			require.NoError(t, err, "reading %s", tt.url)
+			require.Equal(t, tt.wantStatus, resp.StatusCode, "GET %s", tt.url)
+			if tt.wantBody != "" {
+				require.Contains(t, string(b), tt.wantBody, "GET %s", tt.url)
 			}
 			if tt.wantType != "" {
-				if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, tt.wantType) {
-					t.Errorf("GET %s: Content-Type = %q, want prefix %q",
-						tt.url, got, tt.wantType)
-				}
+				require.True(t,
+					strings.HasPrefix(resp.Header.Get("Content-Type"), tt.wantType),
+					"GET %s: Content-Type = %q, want prefix %q",
+					tt.url, resp.Header.Get("Content-Type"), tt.wantType)
 			}
 		})
 	}
@@ -137,19 +126,15 @@ func TestAssetsAreServed(t *testing.T) {
 // TestAssetURLs covers the two generated ways to name an asset.
 // Both are used in templates and both must produce the configured prefix.
 func TestAssetURLs(t *testing.T) {
-	if got, want := assets.URLPrefix, "/static/"; got != want {
-		t.Errorf("assets.URLPrefix = %q, want %q", got, want)
-	}
-	if got, want := assets.Path("style.css"), "/static/style.css"; got != want {
-		t.Errorf("assets.Path = %q, want %q", got, want)
-	}
-	if got, want := href.Asset("style.css"), "/static/style.css"; got != want {
-		t.Errorf("href.Asset = %q, want %q", got, want)
-	}
+	t.Parallel()
+	require.Equal(t, "/static/", assets.URLPrefix)
+	require.Equal(t, "/static/style.css", assets.Path("style.css"))
+	require.Equal(t, "/static/style.css", href.Asset("style.css"))
 }
 
 // TestAssetsEscapeTheirDirectory covers a path that climbs out of the embedded directory.
 func TestAssetsEscapeTheirDirectory(t *testing.T) {
+	t.Parallel()
 	srv := newServer(t)
 
 	for name, url := range map[string]string{
@@ -161,10 +146,10 @@ func TestAssetsEscapeTheirDirectory(t *testing.T) {
 			resp := get(t, srv, url)
 			defer func() { _ = resp.Body.Close() }()
 			b, _ := io.ReadAll(resp.Body)
-			if resp.StatusCode == http.StatusOK &&
-				strings.Contains(string(b), "package app") {
-				t.Errorf("GET %s served a file outside the assets directory", url)
-			}
+			require.False(t,
+				resp.StatusCode == http.StatusOK &&
+					strings.Contains(string(b), "package app"),
+				"GET %s served a file outside the assets directory", url)
 		})
 	}
 }
@@ -176,13 +161,14 @@ func TestAssetsEscapeTheirDirectory(t *testing.T) {
 // This works only if the path the generator wrote into the assets package matches where
 // the files are, and only if the responses are not cached.
 // A cached stylesheet is a change the developer cannot see.
+//
+// TestDevModeServesFromDisk must not use t.Parallel() because
+// [testing.T.Setenv] forbids it.
 func TestDevModeServesFromDisk(t *testing.T) {
 	// The generated code reads dev mode from the environment when the option is applied.
 	// The variable is set before the server is built.
 	t.Setenv("TEMPL_DEV_MODE", "true")
-	if !datapages.IsDevMode() {
-		t.Fatal("the server does not consider this dev mode")
-	}
+	require.True(t, datapages.IsDevMode(), "the server does not consider this dev mode")
 
 	srv := httptest.NewServer(mustNewServer(
 		t,
@@ -199,25 +185,21 @@ func TestDevModeServesFromDisk(t *testing.T) {
 	resp := get(t, srv, href.Asset("style.css"))
 	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("reading the stylesheet: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200. The dev directory the generator "+
-			"wrote is %q, relative to the module root", resp.StatusCode, assets.DevDir)
-	}
-	if !strings.Contains(string(b), "rebeccapurple") {
-		t.Errorf("the file on disk was not served:\n%s", b)
-	}
-	if cc := resp.Header.Get("Cache-Control"); !strings.Contains(cc, "no-store") {
-		t.Errorf("Cache-Control = %q, want it to forbid caching in dev mode", cc)
-	}
+	require.NoError(t, err, "reading the stylesheet")
+	require.Equal(t, http.StatusOK, resp.StatusCode,
+		"the dev directory the generator wrote is %q, relative to the module root",
+		assets.DevDir)
+	require.Contains(t, string(b), "rebeccapurple",
+		"the file on disk was not served")
+	require.Contains(t, resp.Header.Get("Cache-Control"), "no-store",
+		"caching is not forbidden in dev mode")
 }
 
 // TestMetrics covers the instrumentation the Prometheus option adds.
 // The counters are read from the registry the server was given,
 // the same registry a scrape reads.
 func TestMetrics(t *testing.T) {
+	t.Parallel()
 	srv := newServer(t)
 
 	resp := get(t, srv, "/")
@@ -226,101 +208,76 @@ func TestMetrics(t *testing.T) {
 	req, err := http.NewRequestWithContext(
 		context.Background(), http.MethodPost, srv.URL+"/fail/", nil,
 	)
-	if err != nil {
-		t.Fatalf("building request: %v", err)
-	}
+	require.NoError(t, err, "building request")
 	req.Header.Set("Datastar-Request", "true")
 	failResp, err := srv.Client().Do(req)
-	if err != nil {
-		t.Fatalf("POST /fail/: %v", err)
-	}
+	require.NoError(t, err, "POST /fail/")
 	_ = failResp.Body.Close()
 
 	families, err := registry.Gather()
-	if err != nil {
-		t.Fatalf("gathering metrics: %v", err)
-	}
+	require.NoError(t, err, "gathering metrics")
 	byName := map[string]*dto.MetricFamily{}
 	for _, f := range families {
 		byName[f.GetName()] = f
 	}
 
 	reqs, ok := byName["datapages_http_requests_total"]
-	if !ok {
-		t.Fatal("the request counter was not registered")
-	}
+	require.True(t, ok, "the request counter was not registered")
 	var total float64
 	for _, m := range reqs.GetMetric() {
 		total += m.GetCounter().GetValue()
 	}
-	if total < 2 {
-		t.Errorf("the request counter stands at %v after two requests", total)
-	}
+	require.GreaterOrEqual(t, total, float64(2),
+		"the request counter stands at %v after two requests", total)
 
-	if _, ok := byName["datapages_http_request_duration_seconds"]; !ok {
-		t.Error("the request duration histogram was not registered")
-	}
+	require.Contains(t, byName, "datapages_http_request_duration_seconds",
+		"the request duration histogram was not registered")
 }
 
 // TestBrokerMetrics covers the counters the generated code hands the message broker.
 // They are what an operator watches to see events flowing,
 // and they only move if the generated dispatch passes them along.
 func TestBrokerMetrics(t *testing.T) {
+	t.Parallel()
 	srv := newServer(t)
 
-	// A subscriber has to exist: a message with nowhere to go is not
-	// published, and nothing counts it.
+	// A subscriber has to exist: a message with nowhere to go is not published,
+	// and nothing counts it.
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/_$/", nil)
-	if err != nil {
-		t.Fatalf("building stream request: %v", err)
-	}
+	require.NoError(t, err, "building stream request")
 	req.Header.Set("Datastar-Request", "true")
 	req.Header.Set("Accept-Encoding", "identity")
 	stream, err := srv.Client().Do(req)
-	if err != nil {
-		t.Fatalf("opening stream: %v", err)
-	}
+	require.NoError(t, err, "opening stream")
 	t.Cleanup(func() { _ = stream.Body.Close() })
-	if stream.StatusCode != http.StatusOK {
-		t.Fatalf("opening stream: status %d", stream.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, stream.StatusCode, "opening stream")
 	time.Sleep(200 * time.Millisecond)
 
 	before := counterTotal(t, "datapages_event_broker_publishes_by_kind_total")
 
 	announce, err := http.NewRequestWithContext(context.Background(),
 		http.MethodPost, srv.URL+"/announce/", strings.NewReader(`{"text":"hi"}`))
-	if err != nil {
-		t.Fatalf("building announce request: %v", err)
-	}
+	require.NoError(t, err, "building announce request")
 	announce.Header.Set("Datastar-Request", "true")
 	announce.Header.Set("Content-Type", "application/json")
 	resp, err := srv.Client().Do(announce)
-	if err != nil {
-		t.Fatalf("POST /announce/: %v", err)
-	}
+	require.NoError(t, err, "POST /announce/")
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("POST /announce/: status %d", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, resp.StatusCode, "POST /announce/")
 
-	if after := counterTotal(
-		t, "datapages_event_broker_publishes_by_kind_total",
-	); after <= before {
-		t.Errorf("the publish counter stands at %v after a dispatch, was %v",
-			after, before)
-	}
+	after := counterTotal(t, "datapages_event_broker_publishes_by_kind_total")
+	require.Greater(t, after, before,
+		"the publish counter stands at %v after a dispatch, was %v",
+		after, before)
 }
 
 // counterTotal sums every sample of a counter family in the registry.
 func counterTotal(t *testing.T, name string) float64 {
 	t.Helper()
 	families, err := registry.Gather()
-	if err != nil {
-		t.Fatalf("gathering metrics: %v", err)
-	}
+	require.NoError(t, err, "gathering metrics")
 	var total float64
 	for _, f := range families {
 		if f.GetName() != name {
@@ -337,6 +294,7 @@ func counterTotal(t *testing.T, name string) float64 {
 // datapages.EnablePrometheus and built without datapages.WithPrometheus.
 // The metrics it counts have nowhere to go.
 func TestMetricsWithoutOption(t *testing.T) {
+	t.Parallel()
 	s, err := datapages.NewServer[
 		app.App,
 		datapages.DisableSessions,
@@ -344,10 +302,6 @@ func TestMetricsWithoutOption(t *testing.T) {
 		datapagesgen.Server,
 	](&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
 		datapages.WithAssets(app.StaticFS))
-	if s != nil {
-		t.Fatal("server built without WithPrometheus")
-	}
-	if err == nil || !strings.Contains(err.Error(), "missing option WithPrometheus") {
-		t.Fatalf("error is %v, want missing option WithPrometheus", err)
-	}
+	require.Nil(t, s, "server built without WithPrometheus")
+	require.ErrorContains(t, err, "missing option WithPrometheus")
 }

@@ -1,4 +1,4 @@
-// Drives the generated session handling of ./app.
+// Covers the generated session handling of ./app.
 
 package acceptance_test
 
@@ -242,6 +242,7 @@ func echoed(t *testing.T, body string) string {
 // TestAnonymous covers a visitor with no session.
 // Every handler that asks for one gets the zero value rather than an error.
 func TestAnonymous(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -269,6 +270,7 @@ func TestAnonymous(t *testing.T) {
 // reader must read the way net/http.Request.Cookie reads them.
 // The expectation comes from that method, not from a hand written table.
 func TestCookieHeaderVariants(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 		c := srv.client(t)
@@ -319,6 +321,7 @@ func TestCookieHeaderVariants(t *testing.T) {
 }
 
 func TestSignInAndOut(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -374,6 +377,7 @@ func TestSignInAndOut(t *testing.T) {
 // TestSessionToken covers the handler parameter that asks for the token
 // instead of the session.
 func TestSessionToken(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -401,6 +405,7 @@ func TestSessionToken(t *testing.T) {
 // The visitor continues as anonymous and the cookie is cleared,
 // rather than being refused on every later request.
 func TestStaleCookie(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -442,6 +447,7 @@ func TestStaleCookie(t *testing.T) {
 // TestErrorSentinel covers the status an action or
 // page takes from the sentinel it returns.
 func TestErrorSentinel(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -470,6 +476,7 @@ func TestErrorSentinel(t *testing.T) {
 // visitor has a session.
 // Without a session there is nothing to forge and an anonymous request is let through.
 func TestCSRF(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -522,6 +529,7 @@ func TestCSRF(t *testing.T) {
 // TestPrivateEvent covers an event addressed to a user. Two visitors,
 // two streams, one dispatch: the user it names sees it and the other does not.
 func TestPrivateEvent(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -555,6 +563,7 @@ func TestPrivateEvent(t *testing.T) {
 // which is what keeps a client signing in as "*" or ">" subscribed to itself
 // and to nobody else.
 func TestSignInAcceptsAnyUserID(t *testing.T) {
+	t.Parallel()
 	users := map[string]string{
 		"email":     "alice@example.com",
 		"separator": "a.b",
@@ -606,6 +615,7 @@ func TestSignInAcceptsAnyUserID(t *testing.T) {
 // application's own would. The stream subscribes by the escaped ID,
 // so it opens for one a sign-in never went through.
 func TestStreamOpensForAnyUserID(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		for name, userID := range map[string]string{
 			"star":      "*",
@@ -652,6 +662,7 @@ func TestStreamOpensForAnyUserID(t *testing.T) {
 // The private event is addressed to a user, and a connection with no user must
 // never be given it: that is one visitor reading another's messages.
 func TestAnonymousStream(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -692,8 +703,6 @@ func TestAnonymousStream(t *testing.T) {
 		}
 	})
 }
-
-// --- helpers ---------------------------------------------------------------
 
 type stream struct {
 	t      *testing.T
