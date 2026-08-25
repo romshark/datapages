@@ -905,3 +905,49 @@ func TestEmptySessionIDRefused(t *testing.T) {
 type emptyGen struct{}
 
 func (emptyGen) Generate() (string, error) { return "", nil }
+
+// TestDeleteExpired covers the sweep. NATS expires keys at one age for the
+// whole bucket, which is not the ExpiresAt a session carries.
+func TestDeleteExpired(t *testing.T) {
+	conn := setupNATS(t)
+	sm, err := natskv.New[testSession](conn, tokGen, natskv.Config{
+		EncryptionKey: validKey(),
+		KVConfig:      nats.KeyValueConfig{Bucket: "DELETEEXPIRED"},
+	})
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	past, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+		UserID: "alice", ExpiresAt: time.Now().Add(-time.Hour),
+	})
+	require.NoError(t, err)
+	future, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+		UserID: "bob", ExpiresAt: time.Now().Add(time.Hour),
+	})
+	require.NoError(t, err)
+	never, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+		UserID: "carol",
+	})
+	require.NoError(t, err)
+
+	deleted, err := sm.DeleteExpired(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, deleted, "the sweep took the wrong number of sessions")
+
+	_, _, ok, err := sm.ReadSessionFromCookie(past)
+	require.NoError(t, err)
+	require.False(t, ok, "the expired session is still stored")
+
+	for name, token := range map[string]string{
+		"not yet expired": future,
+		"never expires":   never,
+	} {
+		_, _, ok, err := sm.ReadSessionFromCookie(token)
+		require.NoError(t, err)
+		require.True(t, ok, "the sweep took a session that %s", name)
+	}
+
+	deleted, err = sm.DeleteExpired(ctx)
+	require.NoError(t, err)
+	require.Zero(t, deleted)
+}

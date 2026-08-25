@@ -19,6 +19,7 @@ import (
 	"io"
 	"iter"
 	"strings"
+	"time"
 
 	"github.com/nats-io/nats.go"
 
@@ -484,4 +485,44 @@ func decrypt(aeads []cipher.AEAD, encrypted string) (string, error) {
 		}
 	}
 	return "", ErrAllDecryptionKeysFailed
+}
+
+// DeleteExpired deletes every session whose ExpiresAt has passed.
+// It reads the bucket key by key: the expiry is inside each record,
+// and a bucket TTL would be one age for every key.
+func (s *SessionManager[Data]) DeleteExpired(ctx context.Context) (int, error) {
+	watcher, err := s.kv.WatchAll(nats.IgnoreDeletes(), nats.Context(ctx))
+	if err != nil {
+		return 0, fmt.Errorf("watching sessions: %w", err)
+	}
+	defer func() { _ = watcher.Stop() }()
+
+	now := time.Now()
+	deleted := 0
+	var errs []error
+	for entry := range watcher.Updates() {
+		if entry == nil {
+			break // The replay of what the bucket holds ended.
+		}
+
+		var kvRec kvRecord
+		if err := json.Unmarshal(entry.Value(), &kvRec); err != nil {
+			continue
+		}
+		var rec sessions.Record[Data]
+		if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
+			continue
+		}
+		if rec.ExpiresAt.IsZero() || now.Before(rec.ExpiresAt) {
+			continue
+		}
+
+		if err := s.kv.Delete(entry.Key()); err != nil {
+			errs = append(errs,
+				fmt.Errorf("deleting session %q: %w", entry.Key(), err))
+			continue
+		}
+		deleted++
+	}
+	return deleted, errors.Join(errs...)
 }

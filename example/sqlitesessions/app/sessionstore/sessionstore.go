@@ -237,6 +237,41 @@ func (s *Store) CloseSession(_ context.Context, token string) error {
 	return nil
 }
 
+// DeleteExpired deletes every session whose expires_at has passed and reports
+// how many rows went. A session that never expires is stored with expires_at 0
+// and is left alone.
+//
+// The tokens are read before the delete so the notifiers of each session can be fired,
+// the way [Store.CloseSession] fires them for one.
+func (s *Store) DeleteExpired(_ context.Context) (int, error) {
+	now := time.Now().Unix()
+
+	rows, err := s.db.QueryRows(
+		`SELECT token FROM sessions WHERE expires_at != 0 AND expires_at <= ?`,
+		sqinn.Bind([]any{now}),
+		[]byte{sqinn.ValString},
+	)
+	if err != nil {
+		return 0, fmt.Errorf("listing expired sessions: %w", err)
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+
+	if err := s.db.ExecParams(
+		`DELETE FROM sessions WHERE expires_at != 0 AND expires_at <= ?`,
+		1, 1,
+		sqinn.Bind([]any{now}),
+	); err != nil {
+		return 0, fmt.Errorf("deleting expired sessions: %w", err)
+	}
+
+	for _, row := range rows {
+		s.fireNotifiers(row[0].String)
+	}
+	return len(rows), nil
+}
+
 // NotifyClosed registers fn to be invoked when the session with the
 // given token is closed (via [Store.CloseSession]). It is the hook the
 // framework uses to wire per-session SSE teardown — when a user signs

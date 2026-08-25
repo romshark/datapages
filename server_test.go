@@ -251,3 +251,5 @@ func (*testSessionManager) NotifyClosed(context.Context, string, func()) error {
 }
 
 func (*testSessionManager) CloseSession(context.Context, string) error { return nil }
+
+func (*testSessionManager) DeleteExpired(context.Context) (int, error) { return 0, nil }

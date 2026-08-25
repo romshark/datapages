@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -1081,4 +1082,60 @@ func TestConcurrentUserSessions(t *testing.T) {
 			require.Equal(t, "alice", us.Record.Data.Username, "goroutine %d", i)
 		}
 	}
+}
+
+// TestDeleteExpired covers the sweep.
+// A session nobody comes back to is never read again and stays until this runs.
+func TestDeleteExpired(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		sm := inmem.New[testSession](tokGen)
+		ctx := t.Context()
+
+		past, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+			UserID: "alice", ExpiresAt: time.Now().Add(-time.Hour),
+		})
+		require.NoError(t, err)
+		future, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+			UserID: "alice", ExpiresAt: time.Now().Add(time.Hour),
+		})
+		require.NoError(t, err)
+		never, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+			UserID: "alice",
+		})
+		require.NoError(t, err)
+
+		// A stream watching the expired session has to learn it is gone.
+		// The bubble runs on a fake clock, which lets the wait cost nothing whether
+		// the notification arrives or not.
+		closed := make(chan struct{})
+		require.NoError(t, sm.NotifyClosed(ctx, past, func() { close(closed) }))
+
+		deleted, err := sm.DeleteExpired(ctx)
+		require.NoError(t, err)
+		require.Equal(t, 1, deleted, "the sweep took the wrong number of sessions")
+
+		select {
+		case <-closed:
+		case <-time.After(time.Second):
+			t.Error("the watcher of the expired session was never notified")
+		}
+
+		_, _, ok, err := sm.ReadSessionFromCookie(past)
+		require.NoError(t, err)
+		require.False(t, ok, "the expired session is still stored")
+
+		for name, token := range map[string]string{
+			"not yet expired": future,
+			"never expires":   never,
+		} {
+			_, _, ok, err := sm.ReadSessionFromCookie(token)
+			require.NoError(t, err)
+			require.True(t, ok, "the sweep took a session that %s", name)
+		}
+
+		// Nothing left to take.
+		deleted, err = sm.DeleteExpired(ctx)
+		require.NoError(t, err)
+		require.Zero(t, deleted)
+	})
 }
