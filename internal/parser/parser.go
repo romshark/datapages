@@ -531,6 +531,12 @@ func firstPassPageOrAbstractType(
 ) {
 	st, ok := ts.Type.(*ast.StructType)
 	if !ok {
+		// A defined non-struct type and an alias both claim a page name
+		// without being a page. Without this the route is simply absent.
+		if strings.HasPrefix(name, "Page") {
+			errs.ErrAt(ctx.pkg.Fset.Position(ts.Name.Pos()),
+				fmt.Errorf("%w: %s", ErrPageNotStruct, name))
+		}
 		return
 	}
 
@@ -1030,7 +1036,7 @@ func attachHTTPHandler(
 				// output validation and code generation details.
 				pg.GET = &model.HandlerGET{Handler: h}
 			} else {
-				get, getErr := buildHandlerGET(h, outputs, ctx.pkg.Fset)
+				get, getErr := buildHandlerGET(h, outputs)
 				pg.GET = get
 				if getErr != nil {
 					p := resolveErrorPos(getErr, ctx.pkg.Fset, pos)
@@ -1187,7 +1193,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				}
 				// First embedded GET wins (record embed site).
 				if getOwner == "" {
-					get, getErr := buildHandlerGET(m, ctx.handlerOutputs[m], ctx.pkg.Fset)
+					get, getErr := buildHandlerGET(m, ctx.handlerOutputs[m])
 					pg.GET = get
 					if getErr != nil {
 						fallback := ctx.pkg.Fset.Position(m.Expr.Pos())
@@ -1976,7 +1982,7 @@ func makeType(typeExpr ast.Expr, info *types.Info) model.Type {
 }
 
 func buildHandlerGET(
-	h *model.Handler, outputs []*model.Output, fset *token.FileSet,
+	h *model.Handler, outputs []*model.Output,
 ) (*model.HandlerGET, error) {
 	get := &model.HandlerGET{
 		Handler: h,

@@ -60,6 +60,9 @@ special methods:
 
 `XXX` is just a name placeholder.
 
+A page type is a struct type literal. A `Page*` name bound to anything else,
+a defined non-struct type or an alias, is rejected.
+
 A page type must declare exactly one named field, the exported `App *App`.
 Any other named field is rejected. Embedded types are the exception and are
 validated separately, see [Abstract Page Types](#abstract-page-types).
