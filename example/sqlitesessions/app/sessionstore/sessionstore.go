@@ -1,27 +1,10 @@
-// Package sessionstore is the main highlight of the sqlitesessions
-// example: a SQLite-backed implementation of the framework's
+// Package sessionstore is the main highlight of the sqlitesessions example:
+// a SQLite-backed implementation of the framework's
 // [sessions.Manager] interface for [app.Session].
 //
-// # Schema design
-//
-// The sessions table stores the bare minimum: a token, the owning
-// user id, and create/expire timestamps. Display fields like Name
-// and Email stay in the users table and are joined in on read rather
-// than copied into each session row.
-//
-// # Framework methods
-//
-// The framework requires exactly four methods
-// ([sessions.Manager]):
-//
-//   - ReadSessionFromCookie — called on every authenticated request
-//     to materialize the session from the cookie value.
-//   - CreateSession — called by the framework when a POST handler
-//     returns a non-zero Session in its `newSession` return value.
-//   - CloseSession — called when a handler returns `closeSession=true`,
-//     or when something else wants the session gone.
-//   - NotifyClosed — lets the framework subscribe to a session's
-//     closure so it can tear down any associated SSE streams.
+// The sessions table stores the bare minimum: a token, the owning user id,
+// and create/expire timestamps. Display fields like Name and Email stay in
+// the users table and are joined in on read rather than copied into each session row.
 package sessionstore
 
 import (
@@ -41,9 +24,8 @@ import (
 
 // Store implements [sessions.Manager] for [app.Session].
 //
-// DB access goes through sqdb.DB, which handles every mutex concern —
-// Store itself holds no DB lock. The only mutex it owns is notifyLock,
-// which guards the in-memory notifier map used by NotifyClosed.
+// sqdb.DB serializes the DB access, hence Store holds no DB lock.
+// notifyLock guards the notifier map alone.
 type Store struct {
 	db       sqdb.DB
 	tokenGen sessions.TokenGenerator
@@ -61,24 +43,19 @@ type notifier struct {
 	fn  func()
 }
 
-// Compile-time proof that *Store satisfies the framework interface.
-// If you add or remove a method this line will break first, pointing
-// at the contract, instead of at some random call site elsewhere.
 var _ sessions.Manager[app.SessionData] = (*Store)(nil)
 
-// New creates the sessions table if missing and returns a Store ready
-// to plug into [datapagesgen.NewServer] as the session manager
-// positional argument.
+// New creates the sessions table if missing and returns a Store to pass to
+// [github.com/romshark/datapages.WithSessionManager].
 //
-// The schema uses a foreign-key `REFERENCES users(id) ON DELETE
-// CASCADE` so deleting a user automatically invalidates every session
-// of that user — but only if the caller has enabled
-// `PRAGMA foreign_keys = ON` on the sqinn connection. The users table
-// must already exist; it is the userstore package's responsibility.
+// The schema declares `REFERENCES users(id) ON DELETE CASCADE`,
+// which drops every session of a deleted user. It takes effect only on
+// a connection with `PRAGMA foreign_keys = ON`.
+// The users table must already exist, the userstore package creates it.
 //
-// lifetime is the maximum age of a session before ReadSessionFromCookie
-// treats it as expired. Pass 0 to disable expiry entirely. log
-// defaults to [slog.Default]() when nil.
+// lifetime is the maximum age of a session before [Store.ReadSessionFromCookie]
+// treats it as expired. Pass 0 to disable expiry entirely. log defaults to
+// [slog.Default] when nil.
 func New(
 	db sqdb.DB,
 	tokenGen sessions.TokenGenerator,
@@ -113,25 +90,21 @@ func New(
 	}, nil
 }
 
-// ReadSessionFromCookie resolves a session cookie to a fully-populated
-// [app.Session] in a single round trip — a JOIN between sessions and
-// users gives us both the persisted session fields and the current
-// display fields.
+// ReadSessionFromCookie resolves a session cookie in one round trip:
+// the JOIN between sessions and users returns the persisted session fields and the
+// current display fields together.
 //
-// The return contract has three distinct "no session" shapes:
+// Three returns say "no session":
 //
-//   - (zero, "", "", false, nil) — the cookie is missing, the row is
-//     gone, or the row was expired and just got cleaned up. The
-//     framework treats the request as a guest and clears the cookie.
-//   - (zero, "", "", false, err) — the DB itself errored. The
-//     framework fails the request so transient DB outages don't
-//     silently downgrade users to guests.
-//   - (populated, token, userID, true, nil) — the happy path.
+//   - (zero, "", "", false, nil): the cookie is missing, the row is gone,
+//     or the row was expired and just got cleaned up.
+//     The request becomes a guest and the cookie is cleared.
+//   - (zero, "", "", false, err): the DB errored. The request fails,
+//     which keeps a transient DB outage from downgrading users to guests.
+//   - (populated, token, userID, true, nil): the session is valid.
 //
-// Lazy expiry: when the row is found but past expires_at, we call
-// [Store.CloseSession] synchronously to drop it, then report ok=false.
-// If the cleanup itself errors, we log it and still report ok=false —
-// the next read will try again.
+// A row past expires_at is dropped in band through [Store.CloseSession].
+// A failing cleanup is logged and still reports ok=false, the next read retries it.
 func (s *Store) ReadSessionFromCookie(cookieValue string) (
 	rec sessions.Record[app.SessionData], token string, ok bool, err error,
 ) {
@@ -158,7 +131,7 @@ func (s *Store) ReadSessionFromCookie(cookieValue string) (
 		return rec, "", false, fmt.Errorf("loading session: %w", qerr)
 	}
 	if len(rows) == 0 {
-		// Absent row — cookie is stale; treat as guest.
+		// The cookie is stale, treat the request as a guest.
 		return rec, "", false, nil
 	}
 	row := rows[0]
@@ -169,9 +142,6 @@ func (s *Store) ReadSessionFromCookie(cookieValue string) (
 	email := row[4].String
 
 	if expiresAt > 0 && time.Now().Unix() > expiresAt {
-		// Lazy expiry: drop the stale row in-band. A failing delete
-		// is logged and ignored; the request still becomes a guest
-		// and the next read will try the delete again.
 		if cerr := s.CloseSession(context.Background(), token); cerr != nil {
 			s.log.Warn("sessionstore: lazy expiry cleanup failed",
 				slog.Any("err", cerr))
@@ -191,10 +161,8 @@ func (s *Store) ReadSessionFromCookie(cookieValue string) (
 	return rec, token, true, nil
 }
 
-// CreateSession generates a new token and persists a row of
-// (token, user_id, created_at, expires_at). The [app.Session]
-// argument is ignored: Name and Email already live in the users
-// table and are joined in on read.
+// CreateSession generates a token and persists (token, user_id, created_at, expires_at).
+// rec.Data is ignored: Name and Email live in the users table and are joined in on read.
 func (s *Store) CreateSession(
 	_ context.Context, rec sessions.Record[app.SessionData],
 ) (string, error) {
@@ -221,10 +189,9 @@ func (s *Store) CreateSession(
 	return token, nil
 }
 
-// CloseSession deletes the row and then fires any notifier callbacks
-// that were registered against this token via NotifyClosed. Notifiers
-// run *after* the DELETE so observers never see a "closed" session
-// that still exists in the DB.
+// CloseSession deletes the row and fires the notifiers registered for the
+// token by [Store.NotifyClosed]. They run after the delete, which keeps an
+// observer from seeing a closed session that is still in the DB.
 func (s *Store) CloseSession(_ context.Context, token string) error {
 	if err := s.db.ExecParams(
 		`DELETE FROM sessions WHERE token = ?`,
@@ -272,23 +239,18 @@ func (s *Store) DeleteExpired(_ context.Context) (int, error) {
 	return len(rows), nil
 }
 
-// NotifyClosed registers fn to be invoked when the session with the
-// given token is closed (via [Store.CloseSession]). It is the hook the
-// framework uses to wire per-session SSE teardown — when a user signs
-// out on one tab, NotifyClosed lets the framework shut down every
-// streaming response keyed to that session.
+// NotifyClosed registers fn to run when the session of token is closed.
+// It is what tears down the SSE streams of a session: signing out on one tab
+// ends every streaming response keyed to it.
 //
-// Semantics follow the interface contract in [sessions]:
+// The contract of [sessions.CloseNotifier] resolves to three cases:
 //
-//   - If the session does not exist at call time, fn is invoked
-//     immediately and the registration is skipped. This handles the
-//     "subscribe to an already-closed session" race cleanly.
-//   - If ctx is already canceled when we get here, we do nothing at
-//     all — the caller has lost interest.
-//   - Otherwise fn is stored and will fire inside CloseSession. A
-//     background goroutine watches ctx and, on cancellation, garbage-
-//     collects the notifier from the map so the store does not leak
-//     references to abandoned subscribers.
+//   - The session no longer exists: fn runs immediately and nothing is registered,
+//     which settles the race with an already-closed session.
+//   - ctx is already canceled: nothing happens, the caller has lost interest.
+//   - Otherwise fn is stored and fires in [Store.CloseSession] or [Store.DeleteExpired].
+//     A goroutine drops it from the map once ctx is
+//     canceled, which keeps the store from holding closures of abandoned subscribers.
 func (s *Store) NotifyClosed(
 	ctx context.Context, token string, fn func(),
 ) error {
@@ -301,7 +263,7 @@ func (s *Store) NotifyClosed(
 		return fmt.Errorf("probing session: %w", err)
 	}
 	if len(rows) == 0 {
-		// Already gone — fire once and do not register.
+		// Already gone: fire once and register nothing.
 		fn()
 		return nil
 	}
@@ -313,10 +275,7 @@ func (s *Store) NotifyClosed(
 	s.notify[token] = append(s.notify[token], notifier{ctx: ctx, fn: fn})
 	s.notifyLock.Unlock()
 
-	// Lifetime goroutine: when the subscriber's context is canceled,
-	// scrub its notifier out of the map so the store does not hold a
-	// stale closure forever. If no notifiers remain for the token we
-	// also delete the map entry.
+	// The map entry outlives the subscriber unless something drops it.
 	go func() {
 		<-ctx.Done()
 		s.notifyLock.Lock()
@@ -336,10 +295,9 @@ func (s *Store) NotifyClosed(
 	return nil
 }
 
-// fireNotifiers drains the notifier list for token and invokes each
-// fn whose context is still live. Called from CloseSession after the
-// row has been deleted, so observers see the session as definitively
-// gone by the time their callback runs.
+// fireNotifiers drains the notifier list of token and runs every fn whose
+// context is still live. Callers delete the row first,
+// which is what makes the session gone by the time a callback runs.
 func (s *Store) fireNotifiers(token string) {
 	s.notifyLock.Lock()
 	ns := s.notify[token]
