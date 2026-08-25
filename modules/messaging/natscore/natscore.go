@@ -135,9 +135,7 @@ func (s *natsSub) C() <-chan messaging.Message {
 }
 
 func (s *natsSub) Close() {
-	if s.close == nil {
-		return
-	}
+	// closeAll runs under a sync.Once, which is what makes the second call a
+	// no-op and lets two goroutines call this at the same time.
 	s.close()
-	s.close = nil // Prevent double-close
 }

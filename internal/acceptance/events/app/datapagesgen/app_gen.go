@@ -36,7 +36,7 @@ const (
 	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
 
-const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
+const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
@@ -359,7 +359,7 @@ func (s *Server) handlePageIndexPOSTNote(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Text string `json:"text"`
 	}]
@@ -385,7 +385,7 @@ func (s *Server) handlePageIndexPOSTTick(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		N int `json:"n"`
 	}]
@@ -411,7 +411,7 @@ func (s *Server) handlePageIndexPOSTBoth(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		N int `json:"n"`
 	}]
@@ -439,7 +439,7 @@ func (s *Server) handlePageIndexPOSTCanceled(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		N int `json:"n"`
 	}]
@@ -702,7 +702,7 @@ func (s *Server) handlePageRoomPOSTSay(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Room string `json:"room"`
 		Text string `json:"text"`
@@ -729,7 +729,7 @@ func (s *Server) handlePageRoomPOSTBroadcast(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Rooms []string `json:"rooms"`
 		Text  string   `json:"text"`

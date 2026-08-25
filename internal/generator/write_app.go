@@ -1016,7 +1016,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 
 		// Stream endpoint.
 		if pageHasStream(p) {
-			streamPath := routeStreamPath(p.Route)
+			streamPath := routepattern.StreamPath(p.Route)
 
 			w.Line(1, "s.Mux().HandleFunc(")
 			w.Raw("\t\t\"GET ")
@@ -1353,7 +1353,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 ) {
 	// Body size limit for non-GET actions.
 	if h.InputSignals != nil {
-		w.Line(1, "r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)")
+		w.Line(1, "r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())")
 	}
 
 	// Read signals.

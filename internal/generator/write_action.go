@@ -24,6 +24,9 @@ func (w *Writer) WritePkgAction(m *model.App) {
 
 	hasActions := len(m.Actions) > 0 || nPageActions > 0
 	w.writeActionHeader(hasActions)
+	if hasActions && w.actionsNeedText(m) {
+		w.writeTextOf()
+	}
 
 	type actionEntry struct {
 		funcName   string
@@ -88,6 +91,30 @@ func (w *Writer) writeActionHeader(hasActions bool) {
 		return
 	}
 	w.Raw(actionStaticContent)
+}
+
+// actionsNeedText reports whether any action takes a value that marshals
+// itself to text, which is what [Writer.writeTextOf] renders.
+func (w *Writer) actionsNeedText(m *model.App) bool {
+	marshals := func(in *model.Input) bool {
+		if in == nil {
+			return false
+		}
+		return hasTextMarshalerFields(w.structFields(in.Type.Resolved))
+	}
+	for _, a := range m.Actions {
+		if marshals(a.InputPath) || marshals(a.InputQuery) {
+			return true
+		}
+	}
+	for _, p := range m.Pages {
+		for _, a := range p.Actions {
+			if marshals(a.InputPath) || marshals(a.InputQuery) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // writeActionRouteComment writes a doc comment line like

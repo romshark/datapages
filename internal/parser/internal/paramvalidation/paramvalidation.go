@@ -88,6 +88,44 @@ var (
 	)
 )
 
+// ErrFieldTypeUnexported is returned for a field the generated package cannot name.
+// The generator renders the type qualified by the app package,
+// and an unexported name is out of reach from anywhere else.
+var ErrFieldTypeUnexported = errors.New(
+	"struct field type must be exported",
+)
+
+// unexportedTypeName returns the name of an unexported type the generator
+// would have to write. It walks what a rendering carries: the type itself,
+// what a pointer, slice, array or map is of, and the fields of an anonymous struct.
+// A named type ends the walk, since its own fields are its business.
+func unexportedTypeName(t types.Type) (string, bool) {
+	switch t := t.(type) {
+	case *types.Named:
+		if obj := t.Obj(); obj != nil && !obj.Exported() {
+			return obj.Name(), true
+		}
+	case *types.Pointer:
+		return unexportedTypeName(t.Elem())
+	case *types.Slice:
+		return unexportedTypeName(t.Elem())
+	case *types.Array:
+		return unexportedTypeName(t.Elem())
+	case *types.Map:
+		if name, ok := unexportedTypeName(t.Key()); ok {
+			return name, true
+		}
+		return unexportedTypeName(t.Elem())
+	case *types.Struct:
+		for i := range t.NumFields() {
+			if name, ok := unexportedTypeName(t.Field(i).Type()); ok {
+				return name, true
+			}
+		}
+	}
+	return "", false
+}
+
 // fieldPosError wraps an error with the AST position of a struct field.
 type fieldPosError struct {
 	pos token.Pos
@@ -161,6 +199,12 @@ func ValidatePathStruct(
 				field.Name(), recv, method,
 			)}
 		}
+		if name, ok := unexportedTypeName(field.Type()); ok {
+			return &fieldPosError{pos: fpos, err: fmt.Errorf(
+				"%w: field %s of type %s in %s.%s",
+				ErrFieldTypeUnexported, field.Name(), name, recv, method,
+			)}
+		}
 		if !typecheck.IsInputFieldType(field.Type()) {
 			return &fieldPosError{pos: fpos, err: fmt.Errorf(
 				"%w: field %s in %s.%s",
@@ -226,6 +270,12 @@ func ValidateQueryStruct(
 				field.Name(), recv, method,
 			)}
 		}
+		if name, ok := unexportedTypeName(field.Type()); ok {
+			return &fieldPosError{pos: fpos, err: fmt.Errorf(
+				"%w: field %s of type %s in %s.%s",
+				ErrFieldTypeUnexported, field.Name(), name, recv, method,
+			)}
+		}
 		if !typecheck.IsInputFieldType(field.Type()) {
 			return &fieldPosError{pos: fpos, err: fmt.Errorf(
 				"%w: field %s in %s.%s",
@@ -289,6 +339,12 @@ func ValidateSignalsStruct(
 				"%w: field %s in %s.%s",
 				ErrSignalsFieldUnexported,
 				field.Name(), recv, method,
+			)}
+		}
+		if name, ok := unexportedTypeName(field.Type()); ok {
+			return &fieldPosError{pos: fpos, err: fmt.Errorf(
+				"%w: field %s of type %s in %s.%s",
+				ErrFieldTypeUnexported, field.Name(), name, recv, method,
 			)}
 		}
 		if !strings.Contains(tag, `json:"`) {

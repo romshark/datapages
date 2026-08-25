@@ -551,6 +551,10 @@ type EventCalcUpdated struct {
 
 `StreamOpen` and `StreamClose` run when a page's SSE stream opens and closes.
 
+The stream is served at the page route plus `_$/`, and a page mixing public and
+user-addressed events serves a second one at `_$/anon/`. `_$` is reserved:
+a page or action route claiming it is rejected.
+
 ### When to use stream hooks
 
 - **Per-tab server-side state.** Declare an exported struct and take

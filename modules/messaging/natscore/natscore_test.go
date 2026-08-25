@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -124,6 +125,27 @@ func TestPublishSubscribe(t *testing.T) {
 	require.Equal(t, "payload", string(msg.Data))
 	require.Equal(t, int64(1), m.published.Load())
 	require.Zero(t, m.dropped.Load())
+}
+
+// TestCloseIsRepeatableAndConcurrent covers what [messaging.SubscriptionCloser] promises:
+// Close is idempotent and safe for concurrent use.
+// The stream closes its subscription from the goroutine watching the disconnect,
+// and a shutdown may reach it at the same moment.
+func TestCloseIsRepeatableAndConcurrent(t *testing.T) {
+	b := natscore.New(testConn, natscore.Config{})
+	sub := subscribe(t, b, new(testMetrics), "close.one")
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			sub.Close()
+		})
+	}
+	wg.Wait()
+	sub.Close()
+
+	_, open := <-sub.C()
+	require.False(t, open, "the channel is open after Close")
 }
 
 // TestFanOut covers two pages subscribed to the same subject.

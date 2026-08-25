@@ -37,7 +37,7 @@ const (
 	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
 
-const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
+const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
@@ -460,7 +460,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	if _, _, ok := s.ReadSession(w, r); !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		User     string `json:"user"`
 		Nickname string `json:"nickname"`
@@ -499,7 +499,7 @@ func (s *Server) handlePageLoginPOSTNotify(
 	if _, _, ok := s.ReadSession(w, r); !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		User string `json:"user"`
 		Text string `json:"text"`
@@ -531,7 +531,7 @@ func (s *Server) handlePageLoginPOSTBroadcast(
 	if _, _, ok := s.ReadSession(w, r); !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Text string `json:"text"`
 	}]
@@ -561,7 +561,7 @@ func (s *Server) handlePageLoginPOSTRename(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Nickname string `json:"nickname"`
 	}]

@@ -12,7 +12,6 @@ import (
 	"unicode"
 
 	"github.com/romshark/datapages/internal/parser/model"
-	"github.com/romshark/datapages/internal/routepattern"
 	"github.com/romshark/datapages/internal/subject"
 )
 
@@ -228,14 +227,6 @@ func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool 
 		}
 	}
 	return hasPublic && hasPrivate
-}
-
-// routeStreamPath returns the SSE stream path for a page route.
-//   - "/settings/" -> "/settings/_$/"
-//   - "/post/{slug}/" -> "/post/{slug}/_$/"
-//   - "/" -> "/_$/"
-func routeStreamPath(route string) string {
-	return routepattern.WithTrailingSlash(route) + "_$/"
 }
 
 // renderType renders a Go type using types.TypeString,

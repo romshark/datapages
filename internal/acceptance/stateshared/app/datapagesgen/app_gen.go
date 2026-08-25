@@ -42,7 +42,7 @@ const (
 	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
 
-const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
+const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
@@ -652,7 +652,7 @@ func (s *Server) handlePageIndexPOSTNote(
 		return
 	}
 	stateID := s.stateRouteKey(instanceID)
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Note string `json:"note"`
 	}]

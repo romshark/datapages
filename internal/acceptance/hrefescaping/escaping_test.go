@@ -4,6 +4,7 @@
 package acceptance_test
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -134,6 +135,41 @@ func TestStreamInitCarriesNoQuote(t *testing.T) {
 				"the expression carries a tag of its own: %s", expr)
 		})
 	}
+}
+
+// TestStreamInitURLIsRouted covers the URL the data-init attribute of a page
+// with a path variable carries. The route literals end with a slash and the
+// stream suffix used to add one of its own, which left the router cleaning the
+// path and answering a redirect instead of the stream.
+func TestStreamInitURLIsRouted(t *testing.T) {
+	t.Parallel()
+	c := client.New(t, mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
+
+	resp := c.Get(t, href.PageItem("abc"))
+	require.Equal(t, http.StatusOK, resp.Status)
+
+	const attr = `data-init="@get('`
+	i := strings.Index(resp.Body, attr)
+	require.GreaterOrEqual(t, i, 0, "no data-init attribute:\n%s", resp.Body)
+	url := resp.Body[i+len(attr):]
+	url = url[:strings.Index(url, "'")]
+	require.NotContains(t, url, "//", "the stream URL carries an empty segment")
+
+	// The stream stays open until the request context ends,
+	// hence only the status of the response matters here.
+	req := c.Request(t, http.MethodGet, url, "")
+	ctx, cancel := context.WithCancel(req.Context())
+	defer cancel()
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	streamResp, err := client.Do(req.WithContext(ctx))
+	require.NoError(t, err)
+	defer func() { _ = streamResp.Body.Close() }()
+	require.Equal(t, http.StatusOK, streamResp.StatusCode,
+		"the router answered %q with a redirect to %q",
+		url, streamResp.Header.Get("Location"))
 }
 
 // TestActionURLCarriesNoQuote covers the character that ends the expression.

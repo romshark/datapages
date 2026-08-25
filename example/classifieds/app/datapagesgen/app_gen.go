@@ -54,7 +54,7 @@ func (m brokerMetrics) OnDeliveryDropped() {
 	prom.BrokerDeliveryDropped()
 }
 
-const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
+const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
@@ -764,7 +764,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`
@@ -946,7 +946,7 @@ func (s *Server) handlePageMessagesPOSTRead(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
 	}]
@@ -984,7 +984,7 @@ func (s *Server) handlePageMessagesPOSTWriting(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
 	}]
@@ -1017,7 +1017,7 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
 	}]
@@ -1050,7 +1050,7 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
 		MessageText  string `json:"messagetext"`
@@ -1209,9 +1209,9 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 		htmlattr.WritePathValue(w, path.Values.Slug)
 		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `/_$/')"`)
+			_, _ = io.WriteString(w, `_$/')"`)
 		} else {
-			_, _ = io.WriteString(w, `/_$/anon/')"`)
+			_, _ = io.WriteString(w, `_$/anon/')"`)
 		}
 	}
 
@@ -1347,7 +1347,7 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		MessageText string `json:"messagetext"`
 	}]
@@ -1534,7 +1534,7 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[app.SearchParams]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
@@ -1670,7 +1670,7 @@ func (s *Server) handlePageSettingsPOSTSave(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Username string `json:"username"`
 	}]
@@ -1795,9 +1795,9 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 		htmlattr.WritePathValue(w, path.Values.Name)
 		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `/_$/')"`)
+			_, _ = io.WriteString(w, `_$/')"`)
 		} else {
-			_, _ = io.WriteString(w, `/_$/anon/')"`)
+			_, _ = io.WriteString(w, `_$/anon/')"`)
 		}
 	}
 
