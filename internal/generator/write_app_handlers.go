@@ -540,8 +540,8 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"'`)\n")
-			w.Raw("\t\thtmlattr.WriteSignalString(w, " + varQuery + ".")
-			w.Raw(f.FieldName)
+			w.Raw("\t\thtmlattr.WriteSignalString(w, ")
+			w.writeFieldToString(varQuery, fi)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
 		} else {
@@ -783,12 +783,17 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 	}
 }
 
-// writeFieldToString emits an expression that converts a struct field to a string.
-// For string fields it emits "varName.FieldName"; for other types it wraps with
-// strconv.Format* or fmt.Sprint.
+// writeFieldToString emits an expression that renders a struct field as the
+// text it travels as in a URL or a signal.
+//
+// A type that marshals itself goes through its own MarshalText, which is what
+// the URL builders write as well. A string is itself, a number and a bool go
+// through strconv, and anything else is left to fmt.Sprint.
 func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
 	ref := varName + "." + f.Name
-	if gotypes.IsString(f.Type) {
+	if gotypes.ImplementsTextMarshaler(f.Type) {
+		w.Rawf("textOf(%s)", ref)
+	} else if gotypes.IsString(f.Type) {
 		if gotypes.IsNamedString(f.Type) {
 			w.Rawf("string(%s)", ref)
 			return
@@ -821,7 +826,7 @@ func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
 	} else if gotypes.IsBool(f.Type) {
 		w.Rawf("strconv.FormatBool(%s)", ref)
 	} else {
-		// TextUnmarshaler or other — use fmt.Sprint as fallback.
+		// A type carrying no text form of its own.
 		w.Rawf("fmt.Sprint(%s)", ref)
 	}
 }

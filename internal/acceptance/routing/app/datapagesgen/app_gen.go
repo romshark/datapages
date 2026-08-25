@@ -3,6 +3,7 @@
 package datapagesgen
 
 import (
+	"encoding"
 	"errors"
 	"fmt"
 	"io"
@@ -34,6 +35,16 @@ const (
 )
 
 const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
+
+// textOf is what v marshals to. A builder returns no error,
+// hence a failing MarshalText falls back to fmt.Sprint.
+func textOf(v encoding.TextMarshaler) string {
+	b, err := v.MarshalText()
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	return string(b)
+}
 
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
@@ -585,8 +596,9 @@ func (s *Server) handlePageQueryGET(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePageReflectGET(w http.ResponseWriter, r *http.Request) {
 
 	var query datapages.Query[struct {
-		Term string `query:"t" reflectsignal:"term"`
-		Page int    `query:"p" reflectsignal:"page"`
+		Term string   `query:"t" reflectsignal:"term"`
+		Page int      `query:"p" reflectsignal:"page"`
+		Slug app.Slug `query:"s" reflectsignal:"slug"`
 	}]
 	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "t")
 	{
@@ -597,6 +609,14 @@ func (s *Server) handlePageReflectGET(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			query.Values.Page = int(i)
+		}
+	}
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "s"); q != "" {
+			if err := query.Values.Slug.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: s", err)
+				return
+			}
 		}
 	}
 
@@ -619,6 +639,10 @@ func (s *Server) handlePageReflectGET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `data-signals:page="`)
 		htmlattr.WriteSignalValue(w, strconv.FormatInt(int64(query.Values.Page), 10))
 		_, _ = io.WriteString(w, `"`)
+
+		_, _ = io.WriteString(w, `data-signals:slug="'`)
+		htmlattr.WriteSignalString(w, textOf(query.Values.Slug))
+		_, _ = io.WriteString(w, `'"`)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
@@ -626,6 +650,7 @@ func (s *Server) handlePageReflectGET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
 			if ($term) params.set('t', $term);
 			if ($page) params.set('p', $page);
+			if ($slug) params.set('s', $slug);
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/reflect?' + query : '/reflect');
 		"`)

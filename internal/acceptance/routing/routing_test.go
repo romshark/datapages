@@ -206,12 +206,13 @@ func TestTextUnmarshaler(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 	require.Equal(t, `slug="hello" tag="news"`, resp.Element(t, "echo"))
 
-	// The builder takes the declared type and writes what it marshals to.
-	// A conversion would put "HELLO" in the URL, which the handler refuses.
+	// The builder takes the declared type and writes what it marshals to,
+	// which prefixes and lowercases. A conversion would put "HELLO" in the URL,
+	// which the handler refuses.
 	url := href.PageSlug(app.Slug("HELLO"), href.QueryPageSlug{
 		Tag: app.Slug("NEWS"),
 	})
-	require.Equal(t, "/slug/hello/?tag=news", url)
+	require.Equal(t, "/slug/s-hello/?tag=s-news", url)
 	resp = c.Get(t, url)
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 	require.Equal(t, `slug="hello" tag="news"`, resp.Element(t, "echo"))
@@ -237,12 +238,15 @@ func TestReflectedSignals(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
 
-	resp := c.Get(t, "/reflect/?t=shoes&p=3")
+	resp := c.Get(t, "/reflect/?t=shoes&p=3&s=news")
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
-	require.Equal(t, `term="shoes" page=3`, resp.Element(t, "echo"))
+	require.Equal(t, `term="shoes" page=3 slug="news"`, resp.Element(t, "echo"))
 	for _, want := range []string{
 		`data-signals:term="'shoes'"`,
 		`data-signals:page="3"`,
+		// Slug renders through its own MarshalText, which prefixes.
+		// A conversion would put "news" there.
+		`data-signals:slug="'s-news'"`,
 		"window.history.replaceState",
 		"params.set('t'",
 		"params.set('p'",

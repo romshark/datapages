@@ -33,6 +33,9 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 		w.Raw(appStaticPromContent)
 	}
 	w.Raw(appStaticContent2)
+	if w.pagesNeedText(m) {
+		w.writeTextOf()
+	}
 	if w.usage.auth && w.usage.hasSession {
 		w.writeAppCheckCSRF()
 	}
@@ -177,6 +180,26 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 }
 
 func (w *Writer) hasAssets() bool { return w.assetsURLPrefix != "" }
+
+// pagesNeedText reports whether a page renders a value that marshals itself to text,
+// which [Writer.writeTextOf] renders and [Writer.writeFieldToString] calls.
+func (w *Writer) pagesNeedText(m *model.App) bool {
+	marshals := func(in *model.Input) bool {
+		if in == nil {
+			return false
+		}
+		return hasTextMarshalerFields(w.structFields(in.Type.Resolved))
+	}
+	for _, p := range m.Pages {
+		if p.GET == nil {
+			continue
+		}
+		if marshals(p.GET.InputPath) || marshals(p.GET.InputQuery) {
+			return true
+		}
+	}
+	return false
+}
 
 // brokerMetricsType names what implements messaging.Metrics for the broker.
 // Only a Prometheus build has counters to feed, the rest count nothing.
