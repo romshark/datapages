@@ -472,6 +472,67 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Remove the second datapages.Dispatcher[EventFoo]" +
 				" parameter in PageFoo.GET",
 		},
+
+		"ErrStateTypeArgNotNamed": {
+			err: parser.ErrStateTypeArgNotNamed,
+			want: "fix: Use a struct the app package declares, not a pointer, " +
+				"an anonymous struct or a type from another package",
+		},
+		"ErrStateTypeArgNotNamed/wrapped": {
+			err: fmt.Errorf("%w in PageFoo.POSTBar",
+				parser.ErrStateTypeArgNotNamed),
+			want: "fix: Use a struct the app package declares, not a pointer, " +
+				"an anonymous struct or a type from another package",
+		},
+
+		"ErrStateParamInvalidType": {
+			err:  parser.ErrStateParamInvalidType,
+			want: "fix: Declare the state type as an exported struct at package level",
+		},
+
+		"ErrStateOnGET": {
+			err: parser.ErrStateOnGET,
+			want: "fix: Move the state parameter to an action, an OnXXX " +
+				"handler, StreamOpen or StreamClose",
+		},
+
+		"ErrStateDuplicate": {
+			err:  parser.ErrStateDuplicate,
+			want: "fix: Keep one datapages.State[T] parameter and remove the rest",
+		},
+
+		"ErrStateConflict": {
+			err: parser.ErrStateConflict,
+			want: "fix: Reference one state type from every handler of the " +
+				"page, the handlers of embedded abstract pages included",
+		},
+
+		"ErrStateAppActionUnbound": {
+			err: parser.ErrStateAppActionUnbound,
+			want: "fix: Bind the state type on a page, " +
+				"or drop the state parameter from the App action",
+		},
+
+		"ErrStateIDDuplicate": {
+			err:  parser.ErrStateIDDuplicate,
+			want: "fix: Keep one stateID parameter and remove the rest",
+		},
+
+		"ErrStateIDParamNotString": {
+			err:  parser.ErrStateIDParamNotString,
+			want: "fix: Declare the parameter as `stateID string`",
+		},
+
+		"ErrStateIDWithoutState": {
+			err:  parser.ErrStateIDWithoutState,
+			want: "fix: Add a `state datapages.State[T]` parameter, or remove stateID",
+		},
+
+		// Excluded on purpose, see the list at the end of errsuggest.go.
+		"ErrStateTypeArgPointer": {
+			err:  parser.ErrStateTypeArgPointer,
+			want: "",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, tc.want, errsuggest.Suggest(tc.err))
