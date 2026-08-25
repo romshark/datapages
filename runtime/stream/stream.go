@@ -7,7 +7,6 @@ package stream
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -148,24 +147,14 @@ func (h *Handler) Handle(
 			// The watchdog below is what usually gives those back and it does
 			// not exist yet.
 			sub.Close()
-			if onClose != nil {
-				onClose(streamID)
-			}
+			h.runCloseHook(onClose, streamID)
 			h.onErr(w, r, sse, "setting up session closure watcher", err)
 			return
 		}
 	}
 
 	go func() {
-		// Prevent a crash in case of a panic in onClose.
-		defer func() {
-			if v := recover(); v != nil {
-				h.core.Logger().Error("recovered panic while closing the stream",
-					slog.Any("panic", v),
-					slog.Uint64("stream-id", uint64(streamID)),
-					slog.String("stack", string(debug.Stack())))
-			}
-		}()
+		defer h.recoverPanic(streamID)
 
 		reason := ""
 		select {
@@ -181,17 +170,35 @@ func (h *Handler) Handle(
 			h.metrics.ConnectionDuration(start)
 		}
 		sub.Close()
-		if onClose != nil {
-			// Not the goroutine net/http recovers.
-			defer func() {
-				if rec := recover(); rec != nil {
-					h.core.LogErr("recovering panic in stream close hook",
-						fmt.Errorf("%v\n%s", rec, debug.Stack()))
-				}
-			}()
-			onClose(streamID)
-		}
+		h.runCloseHook(onClose, streamID)
 	}()
 
 	fn(streamID, sse, subC)
+}
+
+// runCloseHook calls onClose, which may be nil. Both callers are past the point
+// of reporting a panic it raises: the watchdog goroutine has no recover above it,
+// and the error path still owes the client a response.
+func (h *Handler) runCloseHook(
+	onClose func(streamID datapages.StreamID), streamID datapages.StreamID,
+) {
+	if onClose == nil {
+		return
+	}
+	defer h.recoverPanic(streamID)
+	onClose(streamID)
+}
+
+// recoverPanic swallows a panic and reports it against the stream it happened on.
+// Defer it from anything running outside the goroutine net/http recovers,
+// where a panic would otherwise take the process down.
+func (h *Handler) recoverPanic(streamID datapages.StreamID) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	h.core.Logger().Error("recovered panic while closing a stream",
+		slog.Any("panic", v),
+		slog.Uint64("stream-id", uint64(streamID)),
+		slog.String("stack", string(debug.Stack())))
 }

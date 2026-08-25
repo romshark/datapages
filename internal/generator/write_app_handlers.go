@@ -1307,7 +1307,7 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 // If the user defined StreamClose, it runs under the slot mutex.
 // In all cases the state is dropped before this returns.
 //
-// This closure runs on the watchdog goroutine, outside net/http.
+// This closure runs outside the goroutine net/http recovers on.
 // handleStreamRequest recovers a panic raised here, which leaves this one
 // responsible for unlocking the slot and releasing the instance on that path as well.
 // Both are deferred. A StreamClose that reads state still runs only
