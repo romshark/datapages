@@ -146,7 +146,7 @@ func genApp(
 	}
 	// The calls are checked against what the app package was parsed to
 	// declare, which is why this runs last.
-	return serverscan.CheckSessionOption(app, m.Session != nil)
+	return serverscan.CheckSessionData(app, m.Session != nil)
 }
 
 func parseApp(appDir string, stderr io.Writer) (*model.App, error) {

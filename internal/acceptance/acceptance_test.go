@@ -144,7 +144,7 @@ func generateInto(t *testing.T, name, dst string) []serverscan.App {
 		}
 		require.Zero(t, errs.Len())
 		require.NotNil(t, m, "parser returned nil model")
-		require.NoError(t, serverscan.CheckSessionOption(app, m.Session != nil))
+		require.NoError(t, serverscan.CheckSessionData(app, m.Session != nil))
 
 		require.NoError(t, generator.Generate(
 			filepath.Join(dst, app.GenDir), serverscan.GenSubdir,

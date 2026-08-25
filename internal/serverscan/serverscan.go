@@ -105,11 +105,6 @@ type Call struct {
 	// HasSession is false when SessionData is datapages.DisableSessions.
 	HasSession bool
 
-	// SessionOpt reports whether datapages.WithSessionManager was found,
-	// either among the arguments of the call or, when they are spread from a
-	// slice, anywhere in the package the call is written in.
-	SessionOpt bool
-
 	// Prometheus is true when Metrics is datapages.EnablePrometheus.
 	Prometheus bool
 }
@@ -309,19 +304,20 @@ func checkAgreement(moduleDir string, a *App, c Call, errs *Errors) {
 	}
 }
 
-// CheckSessionOption reports a call that names a session data type without
-// passing a session manager. hasSession is what the app package was parsed to
+// CheckSessionData reports a call whose SessionData type argument disagrees
+// with the app package. hasSession is what the app package was parsed to
 // declare, which is what the check is against.
 //
 // It runs after the app package was parsed, hence it is not part of [Scan].
-func CheckSessionOption(a App, hasSession bool) error {
+//
+// Whether the built server carries a session manager is not checked here: the
+// options may be assembled in a package the AST scan never reads. The generated
+// Init rejects a missing or unexpected datapages.WithSessionManager,
+// where the assembled options are visible.
+func CheckSessionData(a App, hasSession bool) error {
 	var errs Errors
 	for _, c := range a.Calls {
 		switch {
-		case c.HasSession && !c.SessionOpt:
-			errs.addf(c.Pos,
-				"datapages.NewServer with SessionData %s "+
-					"requires datapages.WithSessionManager", c.SessionData.Src)
 		case !c.HasSession && hasSession:
 			errs.addf(c.Pos,
 				"datapages.NewServer with SessionData datapages.%s, "+
@@ -469,7 +465,7 @@ func scanPackage(root, dir string, errs *Errors) []Call {
 		if dp == "" {
 			continue
 		}
-		found := scanFile(fset, f, files, dp, errs)
+		found := scanFile(fset, f, dp, errs)
 		for i := range found {
 			found[i].Dir = relDir
 			found[i].Main = f.Name.Name == "main"
@@ -482,10 +478,9 @@ func scanPackage(root, dir string, errs *Errors) []Call {
 	return calls
 }
 
-// scanFile reads the NewServer calls of one file. pkgFiles is every file of the
-// package, which is what a spread option list is looked up in.
+// scanFile reads the NewServer calls of one file.
 func scanFile(
-	fset *token.FileSet, f *ast.File, pkgFiles []*ast.File, dp string, errs *Errors,
+	fset *token.FileSet, f *ast.File, dp string, errs *Errors,
 ) []Call {
 	var calls []Call
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -520,7 +515,6 @@ func scanFile(
 			return true
 		}
 		c.Prometheus = c.Metrics.Name == EnablePrometheus
-		c.SessionOpt = hasOption(call, pkgFiles, dp, "WithSessionManager")
 		calls = append(calls, c)
 		return true
 	})
@@ -581,61 +575,6 @@ func typeArg(f *ast.File, e ast.Expr) TypeArg {
 		}
 	}
 	return TypeArg{Src: exprString(e)}
-}
-
-// hasOption reports whether the call passes the named option of package qual.
-//
-// The arguments of the call are read first. When they are spread from a slice
-// the package the call is written in is read instead, since options are
-// usually appended in a helper. Scoping it to that package is what keeps two
-// applications of one module from reading each other's options.
-//
-// An option built under a condition counts: the condition decides whether it
-// takes effect, the mention decides what has to exist for it to.
-func hasOption(call *ast.CallExpr, pkgFiles []*ast.File, qual, name string) bool {
-	if qual == "" {
-		return false
-	}
-	for _, a := range call.Args {
-		if mentionsOption(a, qual, name) {
-			return true
-		}
-	}
-	if call.Ellipsis == token.NoPos {
-		return false
-	}
-	for _, pf := range pkgFiles {
-		if mentionsOption(pf, qual, name) {
-			return true
-		}
-	}
-	return false
-}
-
-// mentionsOption reports whether n contains a call of qual.name.
-func mentionsOption(n ast.Node, qual, name string) bool {
-	found := false
-	ast.Inspect(n, func(n ast.Node) bool {
-		if found {
-			return false
-		}
-		var sel *ast.SelectorExpr
-		switch e := n.(type) {
-		case *ast.SelectorExpr:
-			sel = e
-		case *ast.IndexExpr: // WithSessionManager[app.SessionData]
-			sel, _ = e.X.(*ast.SelectorExpr)
-		}
-		if sel == nil || sel.Sel.Name != name {
-			return true
-		}
-		if id, ok := sel.X.(*ast.Ident); ok && id.Name == qual {
-			found = true
-			return false
-		}
-		return true
-	})
-	return found
 }
 
 // importName returns the name path is bound to in f, empty when f doesn't

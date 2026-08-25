@@ -60,7 +60,6 @@ func TestScan(t *testing.T) {
 		files      map[string]string
 		appDirs    []string
 		hasSession bool
-		sessionOpt bool
 		fallback   bool
 	}{
 		"no call falls back": {
@@ -98,17 +97,6 @@ func main() {}
 				"cmd/server/main.go": mainGo("app",
 					"app.App, app.SessionData, datapages.DisablePrometheus, gen.Server",
 					", datapages.WithSessionManager[app.SessionData](nil)"),
-			},
-			appDirs:    []string{"app"},
-			hasSession: true,
-			sessionOpt: true,
-		},
-		"session option missing": {
-			files: map[string]string{
-				"app/app.go":                  "package app\n",
-				"app/datapagesgen/app_gen.go": genPkg(true),
-				"cmd/server/main.go": mainGo("app",
-					"app.App, app.SessionData, datapages.DisablePrometheus, gen.Server", ""),
 			},
 			appDirs:    []string{"app"},
 			hasSession: true,
@@ -162,7 +150,6 @@ func main() {}
 			}
 			require.Len(t, a.Calls, 1)
 			require.Equal(t, tt.hasSession, a.Calls[0].HasSession)
-			require.Equal(t, tt.sessionOpt, a.Calls[0].SessionOpt)
 			require.True(t, a.Calls[0].Main)
 		})
 	}
@@ -204,45 +191,6 @@ func TestScanMultipleApps(t *testing.T) {
 
 	_, ok = r.Find("nothing")
 	require.False(t, ok)
-}
-
-func TestScanSpreadOptions(t *testing.T) {
-	root := write(t, map[string]string{
-		"app/app.go":                  "package app\n",
-		"app/datapagesgen/app_gen.go": genPkg(true),
-		"cmd/server/main.go": `package main
-
-import (
-	"github.com/romshark/datapages"
-	"example.com/mod/app"
-	gen "example.com/mod/app/datapagesgen"
-	"github.com/romshark/datapages/modules/messaging/inmem"
-)
-
-func main() {
-	var opts []datapages.ServerOption
-	withSessions(&opts)
-	s, err := datapages.NewServer[app.App, app.SessionData, datapages.DisablePrometheus, gen.Server](
-		new(app.App), inmem.New(8), opts...,
-	)
-	_, _ = s, err
-}
-`,
-		// The option is appended in a helper, in another file of the package.
-		"cmd/server/sessions.go": `package main
-
-import "github.com/romshark/datapages"
-
-func withSessions(opts *[]datapages.ServerOption) {
-	*opts = append(*opts, datapages.WithSessionManager[app.SessionData](nil))
-}
-`,
-	})
-	r, err := serverscan.Scan(root, modulePath)
-	require.NoError(t, err)
-	require.Len(t, r.Apps, 1)
-	require.Len(t, r.Apps[0].Calls, 1)
-	require.True(t, r.Apps[0].Calls[0].SessionOpt)
 }
 
 func TestScanErr(t *testing.T) {
@@ -438,7 +386,7 @@ func TestScanAnonymousSessionData(t *testing.T) {
 	require.Equal(t, "struct{}", r.Apps[0].SessionData.Src)
 }
 
-func TestCheckSessionOption(t *testing.T) {
+func TestCheckSessionData(t *testing.T) {
 	for name, tt := range map[string]struct {
 		call       serverscan.Call
 		hasSession bool
@@ -448,17 +396,11 @@ func TestCheckSessionOption(t *testing.T) {
 			call: serverscan.Call{},
 		},
 		"ok with sessions": {
-			call:       serverscan.Call{HasSession: true, SessionOpt: true},
-			hasSession: true,
-		},
-		"missing option": {
 			call: serverscan.Call{
 				HasSession:  true,
 				SessionData: serverscan.TypeArg{Src: "app.SessionData"},
 			},
 			hasSession: true,
-			msg: "datapages.NewServer with SessionData app.SessionData " +
-				"requires datapages.WithSessionManager",
 		},
 		"app declares a session type": {
 			call:       serverscan.Call{},
@@ -469,7 +411,6 @@ func TestCheckSessionOption(t *testing.T) {
 		"app declares no session type": {
 			call: serverscan.Call{
 				HasSession:  true,
-				SessionOpt:  true,
 				SessionData: serverscan.TypeArg{Src: "app.SessionData"},
 			},
 			msg: "but app declares no session type",
@@ -477,7 +418,7 @@ func TestCheckSessionOption(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			a := serverscan.App{Dir: "app", Calls: []serverscan.Call{tt.call}}
-			err := serverscan.CheckSessionOption(a, tt.hasSession)
+			err := serverscan.CheckSessionData(a, tt.hasSession)
 			if tt.msg == "" {
 				require.NoError(t, err)
 				return
