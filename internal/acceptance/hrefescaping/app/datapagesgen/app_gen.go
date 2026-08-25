@@ -238,7 +238,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `/item/`)
 		htmlattr.WritePathValue(w, path.Values.Name)
 		_, _ = io.WriteString(w, `/`)
-		_, _ = io.WriteString(w, `/_$/')"`)
+		_, _ = io.WriteString(w, `_$/')"`)
 	}
 
 	if err := s.writeHTML(

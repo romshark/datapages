@@ -1209,9 +1209,9 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 		htmlattr.WritePathValue(w, path.Values.Slug)
 		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `/_$/')"`)
+			_, _ = io.WriteString(w, `_$/')"`)
 		} else {
-			_, _ = io.WriteString(w, `/_$/anon/')"`)
+			_, _ = io.WriteString(w, `_$/anon/')"`)
 		}
 	}
 
@@ -1795,9 +1795,9 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 		htmlattr.WritePathValue(w, path.Values.Name)
 		_, _ = io.WriteString(w, `/`)
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `/_$/')"`)
+			_, _ = io.WriteString(w, `_$/')"`)
 		} else {
-			_, _ = io.WriteString(w, `/_$/anon/')"`)
+			_, _ = io.WriteString(w, `_$/anon/')"`)
 		}
 	}
 

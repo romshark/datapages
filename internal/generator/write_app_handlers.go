@@ -585,9 +585,9 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					w.Line(2, `if sess.UserID() != "" {`)
-					w.Line(3, "_, _ = io.WriteString(w, `/_$/')\"`)")
+					w.Line(3, "_, _ = io.WriteString(w, `_$/')\"`)")
 					w.Line(2, "} else {")
-					w.Line(3, "_, _ = io.WriteString(w, `/_$/anon/')\"`)")
+					w.Line(3, "_, _ = io.WriteString(w, `_$/anon/')\"`)")
 					w.Line(2, "}")
 				} else {
 					w.Line(0, "")
@@ -610,7 +610,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					if hasEnableBgStream {
 						w.Line(2, `if sess.UserID() != "" {`)
-						w.Line(3, "_, _ = io.WriteString(w, `/_$/'`)")
+						w.Line(3, "_, _ = io.WriteString(w, `_$/'`)")
 						w.Raw("\t\t\tif ")
 						w.Raw(outputVar(h.OutputEnableBgStream))
 						w.Raw(" {\n")
@@ -621,7 +621,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 						w.Line(2, "}")
 					} else {
 						w.Line(2, `if sess.UserID() != "" {`)
-						w.Line(3, "_, _ = io.WriteString(w, `/_$/')\"`)")
+						w.Line(3, "_, _ = io.WriteString(w, `_$/')\"`)")
 						w.Line(2, "}")
 					}
 				} else if hasEnableBgStream {
@@ -654,7 +654,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
 				w.writeStreamPathSegments(p.Route, h.InputPath)
 				if hasEnableBgStream {
-					w.Line(2, "_, _ = io.WriteString(w, `/_$/'`)")
+					w.Line(2, "_, _ = io.WriteString(w, `_$/'`)")
 					w.Raw("\t\tif ")
 					w.Raw(outputVar(h.OutputEnableBgStream))
 					w.Raw(" {\n")
@@ -663,7 +663,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Line(3, "_, _ = io.WriteString(w, `)\"`)")
 					w.Line(2, "}")
 				} else {
-					w.Line(2, "_, _ = io.WriteString(w, `/_$/')\"`)")
+					w.Line(2, "_, _ = io.WriteString(w, `_$/')\"`)")
 				}
 			} else if hasEnableBgStream {
 				w.Line(0, "")
@@ -756,6 +756,9 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 	return true
 }
 
+// writeStreamPathSegments writes the page route with its path values filled in.
+// The last literal of [routepattern.Segments] carries a trailing slash,
+// which is why the caller appends the stream suffix without one.
 func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 	// Build a map from path: tag value to field info.
 	fields := w.structFields(pathInput.Type.Resolved)
