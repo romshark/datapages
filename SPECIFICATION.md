@@ -1259,10 +1259,16 @@ header to the version it holds for the requested URL, or omits it when the URL i
 not cached. The server reads it back through `Version()` (which returns 0 when the
 header is absent).
 
-Serving works as follows:
+Serving a navigation works as follows:
 
-- Online: the worker passes the request to the network and returns the live
-  response. It never serves a cached body while online.
+- The URL holds a `SetShim` entry: the worker serves it at once, online or offline,
+  and fetches the live page in parallel. The trigger Datapages adds to
+  the shim requests the URL again, and the worker answers that request from the
+  in-flight response as a Datastar patch of `<body>`, which morphs the live page in.
+  Offline the fetch fails and the shim stays as it is,
+  which is why it must not state anything that is only true offline.
+- Online, no `SetShim` entry: the worker passes the request to the network and
+  returns the live response. A `Set` entry is never served while online.
 - Offline and the URL is cached: the worker returns the stored offline body.
 - Offline and the URL is not cached: the worker returns the `PageOffline` fallback.
   `PageOffline` declares its route by comment like any other page, and the worker
