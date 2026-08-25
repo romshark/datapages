@@ -496,6 +496,11 @@ It provides `Context`, `PatchElement`, `PatchElementAt`, `RemoveElement`,
 return sse.PatchElementAt(toast(msg), "#toaster", datapages.PatchModeAppend)
 ```
 
+Both methods refuse a selector containing `\r` or `\n` with
+`datapages.ErrSelectorLineBreak`. The selector is written on one line of the
+event, and a line break ends that line: without the check, a selector built
+from client data could add events of its own.
+
 The interface is defined in [datapages.go](datapages.go), which documents each
 method and is the source of truth. It is also rendered on
 [pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#SSE).

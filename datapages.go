@@ -277,9 +277,11 @@ type SSE interface {
 	// An empty selector targets by element id, like [SSE.PatchElement] does.
 	// The zero PatchMode morphs using [PatchModeOuter], like [SSE.PatchElement] does.
 	// Any value that is not a [PatchMode] constant is ignored.
+	// A selector containing a line break is refused with [ErrSelectorLineBreak].
 	PatchElementAt(c Component, selectorCSS string, mode PatchMode) error
 
 	// RemoveElement removes the elements matching the CSS selector from the DOM.
+	// A selector containing a line break is refused with [ErrSelectorLineBreak].
 	RemoveElement(selectorCSS string) error
 
 	// ExecuteScript runs a script on the client.
@@ -360,6 +362,13 @@ var (
 	ErrNotFound   = errors.New(http.StatusText(http.StatusNotFound))   // 404
 	ErrConflict   = errors.New(http.StatusText(http.StatusConflict))   // 409
 )
+
+// ErrSelectorLineBreak is returned by [SSE.PatchElementAt] and
+// [SSE.RemoveElement] for a CSS selector containing "\r" or "\n".
+// The selector is written on one line of the event. A line break would end that line,
+// and the browser would read the rest as further lines and events.
+// A valid CSS selector never contains one.
+var ErrSelectorLineBreak = errors.New("CSS selector contains a line break")
 
 // Subject is a subject segment of an event. Segment values are appended to the
 // event's base subject in field order at dispatch time, one publish per dispatch:
