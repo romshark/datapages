@@ -85,13 +85,26 @@ type parsedTempl struct {
 	filename string // base filename
 }
 
-// checker holds resolved state shared across all checks.
+// checker holds resolved state shared across all checks.  hrefPkg and actionPkg are
+// the matchers of the file being checked, set by [checker.forFile].
 type checker struct {
 	errFn        ErrFunc
 	constValues  map[string]string
 	importConsts map[string]map[string]string // localName -> constName -> value
+	hrefPkgs     map[string]*pkgMatcher       // .templ filename -> matcher
+	actionPkgs   map[string]*pkgMatcher
 	hrefPkg      *pkgMatcher
 	actionPkg    *pkgMatcher
+}
+
+// forFile returns a copy of c matching the imports of one .templ file.
+// Imports are per file: two files of one package may import the generated
+// package under different local names, or one of them not at all.
+func (c *checker) forFile(filename string) checker {
+	fc := *c
+	fc.hrefPkg = c.hrefPkgs[filename]
+	fc.actionPkg = c.actionPkgs[filename]
+	return fc
 }
 
 // Check validates .templ files in pkg and reports errors via errFn.
@@ -104,8 +117,8 @@ func Check(
 		errFn:        errFn,
 		constValues:  resolveConstValues(pkg),
 		importConsts: resolveImportConsts(pkg),
-		hrefPkg:      resolvePkgMatcher(pkg, "/href", "href"),
-		actionPkg:    resolvePkgMatcher(pkg, "/action", "action"),
+		hrefPkgs:     resolvePkgMatchers(pkg, "/href", "href"),
+		actionPkgs:   resolvePkgMatchers(pkg, "/action", "action"),
 	}
 	templPaths := templFilesFromPackage(pkg)
 	var parsed []parsedTempl
@@ -120,7 +133,8 @@ func Check(
 		})
 	}
 	for _, pt := range parsed {
-		c.checkParsedTemplFile(pt.filename, pt.file)
+		fc := c.forFile(pt.filename)
+		fc.checkParsedTemplFile(pt.filename, pt.file)
 	}
 	if app != nil {
 		c.checkActionOwnership(pkg, app, parsed)
@@ -206,42 +220,58 @@ func templFilesFromPackage(pkg *packages.Package) []string {
 	return paths
 }
 
-// resolvePkgMatcher scans the _templ.go files in pkg for an import whose path
-// ends with suffix and belongs to the same Go module. It returns a pkgMatcher
-// that can identify calls to that package, or nil if no such import is found.
+// resolvePkgMatchers scans the _templ.go files in pkg for an import whose path
+// ends with suffix and belongs to the same Go module. It returns one pkgMatcher
+// per .templ file that imports it, keyed by the .templ filename.
 // defaultName is the fallback when no explicit alias is present.
-func resolvePkgMatcher(pkg *packages.Package, suffix, defaultName string) *pkgMatcher {
+func resolvePkgMatchers(
+	pkg *packages.Package, suffix, defaultName string,
+) map[string]*pkgMatcher {
+	out := map[string]*pkgMatcher{}
 	for _, f := range pkg.Syntax {
 		filename := pkg.Fset.Position(f.Pos()).Filename
 		if !strings.HasSuffix(filename, "_templ.go") {
 			continue
 		}
-		for _, imp := range f.Imports {
-			importPath, _ := strconv.Unquote(imp.Path.Value)
-			if !strings.HasSuffix(importPath, suffix) {
-				continue
-			}
-			// Reject external packages by verifying the import
-			// belongs to the same module as the package being checked.
-			if pkg.Module != nil && !strings.HasPrefix(importPath, pkg.Module.Path+"/") {
-				continue
-			}
-			if imp.Name != nil {
-				switch imp.Name.Name {
-				case "_":
-					continue // blank import, no calls possible
-				case ".":
-					exports := pkgExports(pkg, importPath)
-					if len(exports) == 0 {
-						return nil
-					}
-					return &pkgMatcher{exports: exports}
-				default:
-					return &pkgMatcher{localName: imp.Name.Name}
-				}
-			}
-			return &pkgMatcher{localName: defaultName}
+		if m := fileMatcher(pkg, f, suffix, defaultName); m != nil {
+			base := filepath.Base(filename)
+			templName := strings.TrimSuffix(base, "_templ.go") + ".templ"
+			out[templName] = m
 		}
+	}
+	return out
+}
+
+// fileMatcher returns the matcher for the import of one file, nil when the
+// file imports no such package or imports it in a way that admits no call.
+func fileMatcher(
+	pkg *packages.Package, f *ast.File, suffix, defaultName string,
+) *pkgMatcher {
+	for _, imp := range f.Imports {
+		importPath, _ := strconv.Unquote(imp.Path.Value)
+		if !strings.HasSuffix(importPath, suffix) {
+			continue
+		}
+		// Reject external packages by verifying the import
+		// belongs to the same module as the package being checked.
+		if pkg.Module != nil && !strings.HasPrefix(importPath, pkg.Module.Path+"/") {
+			continue
+		}
+		if imp.Name != nil {
+			switch imp.Name.Name {
+			case "_":
+				continue // blank import, no calls possible
+			case ".":
+				exports := pkgExports(pkg, importPath)
+				if len(exports) == 0 {
+					return nil
+				}
+				return &pkgMatcher{exports: exports}
+			default:
+				return &pkgMatcher{localName: imp.Name.Name}
+			}
+		}
+		return &pkgMatcher{localName: defaultName}
 	}
 	return nil
 }
@@ -781,7 +811,8 @@ func (c *checker) checkActionOwnership(
 	// Extract function info from pre-parsed templ files.
 	funcsByName := map[string]*funcInfo{}
 	for _, pt := range parsed {
-		for _, fi := range c.extractTemplFuncInfos(pt.filename, pt.file) {
+		fc := c.forFile(pt.filename)
+		for _, fi := range fc.extractTemplFuncInfos(pt.filename, pt.file) {
 			funcsByName[fi.name] = fi
 		}
 	}

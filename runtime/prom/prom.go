@@ -110,7 +110,7 @@ var (
 			Name:      "disconnects_total",
 			Help:      "SSE disconnects by reason",
 		},
-		[]string{"reason"}, // "ttl" | "client" | "shutdown"
+		[]string{"reason"}, // [SSEDisconnect] names the values.
 	)
 
 	mSessionCreations = prometheus.NewCounterVec(
@@ -278,12 +278,35 @@ func (w *statusRW) Push(target string, opts *http.PushOptions) error {
 	return http.ErrNotSupported
 }
 
-// routeLabel is the route a request matched, or its path when it matched none.
+// LabelUnmatched is the path label of a request that matched no route.
+// The raw path is whatever the client asked for: labelling with it opens one
+// time series per distinct path, which any visitor can then multiply.
+const LabelUnmatched = "<unmatched>"
+
+// LabelOtherMethod is the method label of a method no standard one covers.
+// net/http accepts any RFC 7230 token as a method.
+const LabelOtherMethod = "<other>"
+
+// routeLabel is the pattern a request matched, which is one of the registered
+// routes and hence bounded. A route variable stays a variable: /user/{uid}
+// carries the requests of every user. A request that matched no route is
+// labelled [LabelUnmatched].
 func routeLabel(r *http.Request) string {
 	if p := r.Pattern; p != "" {
 		return p
 	}
-	return r.URL.Path
+	return LabelUnmatched
+}
+
+// methodLabel folds anything but a standard method into [LabelOtherMethod].
+func methodLabel(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut,
+		http.MethodPatch, http.MethodDelete, http.MethodConnect,
+		http.MethodOptions, http.MethodTrace:
+		return method
+	}
+	return LabelOtherMethod
 }
 
 // Middleware measures every request. It must be the outermost middleware
@@ -298,10 +321,10 @@ func Middleware(next http.Handler) http.Handler {
 		rw := &statusRW{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rw, r)
 
-		path := routeLabel(r)
+		path, method := routeLabel(r), methodLabel(r.Method)
 		mHTTPRequestsTotal.
-			WithLabelValues(r.Method, path, strconv.Itoa(rw.status)).Inc()
+			WithLabelValues(method, path, strconv.Itoa(rw.status)).Inc()
 		mHTTPRequestDuration.
-			WithLabelValues(r.Method, path).Observe(time.Since(start).Seconds())
+			WithLabelValues(method, path).Observe(time.Since(start).Seconds())
 	})
 }
