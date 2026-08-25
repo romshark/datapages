@@ -584,7 +584,10 @@ Delivery is chosen by the framework from the handler kind:
 
 - On a **`GET`** page method the queued writes are rendered and baked into the
   page's HTML; the service worker applies them on load, adding no extra request.
-- On an **action** the queued writes are delivered over the SSE stream.
+- On an **action opening an SSE stream** they are delivered over that stream.
+- On an **action returning a redirect** they are carried in its `text/javascript`
+  response and handed to the worker before the navigation runs,
+  which keeps them from being lost to the page unload.
 
 A page can lazily cache itself on visit, versioned by its own data so it
 refreshes whenever that data changes:
