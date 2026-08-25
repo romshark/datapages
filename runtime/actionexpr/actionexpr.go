@@ -241,12 +241,17 @@ func WithRequestCancellationController(expr string) Option {
 	return Option{key: "requestCancellation", value: expr}
 }
 
-// escapeJS escapes single quotes and backslashes for use in JS single-quoted strings.
-func escapeJS(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "'", "\\'")
-	return s
-}
+// jsStringEscaper escapes what a JavaScript single-quoted string cannot carry.
+// A line break ends such a string, which leaves the whole attribute unparsable.
+var jsStringEscaper = strings.NewReplacer(
+	"\\", `\\`,
+	"'", `\'`,
+	"\n", `\n`,
+	"\r", `\r`,
+)
+
+// escapeJS escapes s for a JS single-quoted string.
+func escapeJS(s string) string { return jsStringEscaper.Replace(s) }
 
 // isEntry reports whether an option belongs in the options object.
 //
