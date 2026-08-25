@@ -17,10 +17,10 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install templ
-        run: go install github.com/a-h/templ/cmd/templ@latest
+        run: go install {{.TemplCmd}}
 
       - name: Install datapages
-        run: go install github.com/romshark/datapages/cmd/datapages@latest
+        run: go install {{.DatapagesCmd}}
 
       # Ensure templ generate was run before commit
       - name: Run templ generate

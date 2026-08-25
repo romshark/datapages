@@ -116,10 +116,10 @@ jobs:
 
       # internal/cmd TestWatch starts the templier engine, which runs templ as
       # a command. mage itself only ever `go run`s it, which puts nothing on
-      # PATH. The version is free: the engine only checks that templ runs.
+      # PATH. Pinned to the version toolTempl in magefiles generates with.
       - name: Install templ
         if: matrix.project.name == 'root'
-        run: go install github.com/a-h/templ/cmd/templ@latest
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1020
 
       # Test and report coverage
       - name: Run tests with coverage
