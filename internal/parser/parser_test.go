@@ -788,6 +788,34 @@ func TestParse_ErrEmbedDuplicateEventHandler(t *testing.T) {
 	)
 }
 
+// TestParse_ErrPageNotStruct covers a page name bound to a defined non-struct
+// type and to an alias. Both produced no page and no error before.
+func TestParse_ErrPageNotStruct(t *testing.T) {
+	_, err := parse(t, "err_page_not_struct")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrPageNotStruct, parser.ErrPageNotStruct)
+
+	pos, _ := err.Entry(0)
+	requirePosEqual(t, "app.go", 19, 6, pos)
+	pos, _ = err.Entry(1)
+	requirePosEqual(t, "app.go", 26, 6, pos)
+}
+
+// TestParse_ErrTypeParams covers a page and an abstract page declared with
+// type parameters. Both were dropped without a word before.
+func TestParse_ErrTypeParams(t *testing.T) {
+	_, err := parse(t, "err_typeparams")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrTypeParams, parser.ErrTypeParams)
+
+	pos, _ := err.Entry(0)
+	requirePosEqual(t, "app.go", 22, 6, pos)
+	pos, _ = err.Entry(1)
+	requirePosEqual(t, "app.go", 28, 6, pos)
+}
+
 func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 	_, err := parse(t, "err_embed_conflicting_get")
 	require.NotZero(t, err.Error())

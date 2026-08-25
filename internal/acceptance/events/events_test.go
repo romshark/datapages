@@ -1,4 +1,4 @@
-// Drives the generated event routing of ./app.
+// Covers the generated event routing of ./app.
 
 package acceptance_test
 
@@ -40,6 +40,7 @@ func logOf(t *testing.T, c *client.Client) string {
 }
 
 func TestPublicEventReachesEveryStream(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -59,6 +60,7 @@ func TestPublicEventReachesEveryStream(t *testing.T) {
 // Both must run and both must see the same stream id.
 // An application uses that id to pair up what it allocated with what it releases.
 func TestStreamHooks(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -80,6 +82,7 @@ func TestStreamHooks(t *testing.T) {
 // TestStreamIDReachesEventHandler covers the stream id an event handler may ask for.
 // It must name the stream the handler is writing on, not some other.
 func TestStreamIDReachesEventHandler(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -99,6 +102,7 @@ func TestStreamIDReachesEventHandler(t *testing.T) {
 // TestEmbeddedHandler covers a page that declares no event handler of its own
 // and embeds one. The page receives the event through the embedded type.
 func TestEmbeddedHandler(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -114,6 +118,7 @@ func TestEmbeddedHandler(t *testing.T) {
 // Both events must reach the stream, since each dispatcher publishes on
 // its own and neither depends on the other.
 func TestTwoDispatchers(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -129,11 +134,12 @@ func TestTwoDispatchers(t *testing.T) {
 }
 
 // TestStreamCloseDispatches covers dispatching from StreamClose. The hook runs
-// while the closing stream is torn down, so its request context is already
-// done and the dispatcher must publish with that cancelation stripped.
+// while the closing stream is torn down, which leaves its request context already done.
+// The dispatcher must publish with that cancelation stripped.
 // The broker here refuses a dead context, which is what makes the difference visible:
 // a stream that stays open must receive what the closing one sent.
 func TestStreamCloseDispatches(t *testing.T) {
+	t.Parallel()
 	broker := &ctxBroker{Broker: inmem.New(messaging.DefaultBrokerChanBuffer)}
 	c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -149,6 +155,7 @@ func TestStreamCloseDispatches(t *testing.T) {
 // TestEventDecodeIsNotCarriedOver covers a field the JSON of the second event
 // leaves out. The stream must show it empty, not what the first event carried.
 func TestEventDecodeIsNotCarriedOver(t *testing.T) {
+	t.Parallel()
 	c := client.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 
@@ -168,6 +175,7 @@ func TestEventDecodeIsNotCarriedOver(t *testing.T) {
 // A broker that honors the context refuses to publish and the action fails.
 // Dispatch would use the live request context and succeed.
 func TestDispatchCtx(t *testing.T) {
+	t.Parallel()
 	broker := &ctxBroker{Broker: inmem.New(messaging.DefaultBrokerChanBuffer)}
 	c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -204,6 +212,7 @@ func (b *ctxBroker) Publish(
 // chose when it connected. Two streams of one page, two values, one dispatch:
 // only the addressed stream may see it.
 func TestSubjectScoping(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -224,6 +233,7 @@ func TestSubjectScoping(t *testing.T) {
 // which a broker that delivers per matching subscription can turn into more copies
 // than the page asked for.
 func TestOneCopyPerStream(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -233,7 +243,8 @@ func TestOneCopyPerStream(t *testing.T) {
 		require.True(t, red.Saw(`<div id="said">once</div>`),
 			"the addressed stream received nothing")
 
-		// Wait the window out, so a second copy has landed by the time it counts.
+		// Never waits the window out, which lets any second copy land before the
+		// count below.
 		require.True(t, red.Never(`<div id="said">twice</div>`))
 
 		require.Equal(t, 1, countSeen(red, `<div id="said">once</div>`),
@@ -256,6 +267,7 @@ func countSeen(s *client.Stream, sub string) int {
 // One dispatch carrying two values is published to both subjects.
 // Both streams see it and a third one does not.
 func TestSubjectFanout(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -282,6 +294,7 @@ func TestSubjectFanout(t *testing.T) {
 // rather than leave a connection open that no handler is behind,
 // and it must not run StreamClose for a stream that never opened.
 func TestStreamOpenRefuses(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -328,6 +341,7 @@ func TestStreamOpenRefuses(t *testing.T) {
 
 // TestStreamRequiresDatastar covers a stream route reached by a plain client.
 func TestStreamRequiresDatastar(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -344,6 +358,7 @@ func TestStreamRequiresDatastar(t *testing.T) {
 // its subscription is scoped by. There is nothing to subscribe to,
 // and the client is told so rather than served a stream that stays silent.
 func TestMissingSubjectSignal(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -361,30 +376,50 @@ func TestMissingSubjectSignal(t *testing.T) {
 	})
 }
 
-// TestWildcardSubjectSignalRefused covers a client that puts a NATS wildcard in
-// the signal its subscription is scoped by. Taken as given, "*" would subscribe
-// the stream to every value of that subject and hand the client events meant
-// for other instances, so the stream must be refused instead.
-func TestWildcardSubjectSignalRefused(t *testing.T) {
+// TestSubjectSignalEscaped covers the value a client puts in the signal that
+// scopes its subscription. Escaped it names one segment,
+// which keeps a client sending a wildcard subscribed to that value alone.
+func TestSubjectSignalEscaped(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
-		for _, signal := range []string{"*", ">", "red.blue", "", " "} {
-			encoded, err := json.Marshal(map[string]string{"room": signal})
-			require.NoError(t, err, "encoding signals")
+		star := c.OpenStream(t, "/room/_$/", map[string]string{"room": "*"})
+		red := c.OpenStream(t, "/room/_$/", map[string]string{"room": "red"})
 
-			req, err := http.NewRequestWithContext(context.Background(),
-				http.MethodGet,
-				c.URL()+"/room/_$/?datastar="+url.QueryEscape(string(encoded)), nil)
-			require.NoError(t, err, "building request")
-			req.Header.Set("Datastar-Request", "true")
+		postOK(t, c, "/room/say/", `{"room":"red","text":"hello red"}`)
+		require.True(t, red.Saw(`<div id="said">hello red</div>`),
+			"the addressed stream received nothing")
+		require.True(t, star.Never("hello red"),
+			"a wildcard signal widened the subscription to another room")
 
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err, "GET /room/_$/")
-			_ = resp.Body.Close()
-			require.Equal(t, http.StatusBadRequest, resp.StatusCode,
-				"signal %q was accepted as a subject token", signal)
-		}
+		postOK(t, c, "/room/say/", `{"room":"*","text":"hello star"}`)
+		require.True(t, star.Saw(`<div id="said">hello star</div>`),
+			"the stream scoped to a wildcard value received nothing")
+	})
+}
+
+// TestEmptySubjectSignalRefused covers the one value escaping cannot save.
+// An empty signal names no segment, which leaves a subject no subscription matches.
+func TestEmptySubjectSignalRefused(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+
+		encoded, err := json.Marshal(map[string]string{"room": ""})
+		require.NoError(t, err, "encoding signals")
+
+		req, err := http.NewRequestWithContext(context.Background(),
+			http.MethodGet,
+			c.URL()+"/room/_$/?datastar="+url.QueryEscape(string(encoded)), nil)
+		require.NoError(t, err, "building request")
+		req.Header.Set("Datastar-Request", "true")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err, "GET /room/_$/")
+		_ = resp.Body.Close()
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode,
+			"an empty signal was accepted")
 	})
 }
 
@@ -397,6 +432,7 @@ func TestWildcardSubjectSignalRefused(t *testing.T) {
 // before a publish to it can succeed. Nothing on the datapages side reports a
 // subject that was left out: the publish simply goes nowhere.
 func TestBrokerStreamInitialization(t *testing.T) {
+	t.Parallel()
 	broker := &initializingBroker{MessageBroker: inmem.New(messaging.DefaultBrokerChanBuffer)}
 	_ = client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -430,6 +466,7 @@ func TestBrokerStreamInitialization(t *testing.T) {
 // Starting anyway would mean a server that accepts requests and drops every
 // event it publishes.
 func TestBrokerInitFailureIsFatal(t *testing.T) {
+	t.Parallel()
 	broker := &initializingBroker{
 		MessageBroker: inmem.New(messaging.DefaultBrokerChanBuffer),
 		err:           errors.New("the stream could not be created"),
@@ -464,6 +501,7 @@ func (b *initializingBroker) InitStreams(subjects []string) error {
 // It has no stream route at all, and asking for one is a 404 rather than
 // a stream that never carries anything.
 func TestPageWithoutStream(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		c := client.New(t, mustNewServer(t, &app.App{}, broker))
 
@@ -478,5 +516,45 @@ func TestPageWithoutStream(t *testing.T) {
 		if resp.StatusCode != http.StatusNotFound {
 			t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
 		}
+	})
+}
+
+// TestStreamClosePanicDoesNotEndTheProcess covers a StreamClose that panics.
+// Unrecovered it ends the process, taking every other stream with it,
+// which the requests after the disconnect are here to catch.
+func TestStreamClosePanicDoesNotEndTheProcess(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+
+		panicking := c.OpenStream(t, "/panic-on-close/_$/", nil)
+		survivor := c.OpenStream(t, "/_$/", nil)
+
+		// Disconnecting is what runs StreamClose.
+		panicking.Close()
+
+		resp := c.Get(t, "/")
+		require.Equal(t, http.StatusOK, resp.Status,
+			"the server stopped answering after the panic")
+
+		// The streams the panic did not belong to are still delivered to.
+		postOK(t, c, "/tick/", `{"n":7}`)
+		require.True(t, survivor.Saw(`<div id="out">tick 7</div>`),
+			"an unrelated stream stopped receiving after the panic")
+	})
+}
+
+// TestStreamClosePanicIsReported covers what the recovery leaves behind.
+// A panic nothing reports is one nobody fixes. The hook has to have run.
+func TestStreamClosePanicIsReported(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+
+		s := c.OpenStream(t, "/panic-on-close/_$/", nil)
+		s.Close()
+
+		require.Contains(t, logOf(t, c), "streamclose(",
+			"StreamClose never ran")
 	})
 }

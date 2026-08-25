@@ -198,6 +198,11 @@ func (m *Manager[Data]) ReadSession(w http.ResponseWriter, r *http.Request) (
 		// Session has expired; clear the cookie and continue as unauthenticated.
 		m.sessionRead("expired")
 		m.SetSessionCookie(w, "")
+		// Nothing reads this record again; leaving it would waste store space.
+		if err := m.sessions.CloseSession(r.Context(), token); err != nil {
+			m.server.Logger().Error("closing an expired session",
+				slog.Any("err", err))
+		}
 		return datapages.Session[Data]{}, "", true
 	}
 	m.sessionRead("valid")

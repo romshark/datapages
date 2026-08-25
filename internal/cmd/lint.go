@@ -47,7 +47,7 @@ call, defaulting to ./app when the module holds none.`,
 					errs = append(errs, err)
 					continue
 				}
-				if err := serverscan.CheckSessionOption(
+				if err := serverscan.CheckSessionData(
 					a, m.Session != nil,
 				); err != nil {
 					errs = append(errs, err)

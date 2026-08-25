@@ -21,7 +21,7 @@ type testApp struct{}
 type testSessionData struct{ Name string }
 
 // testServing stands in for the HTTP server the generated code embeds.
-// The tests drive Init, nothing here ever listens.
+// The tests call Init, nothing here ever listens.
 type testServing struct{}
 
 func (testServing) ServeHTTP(http.ResponseWriter, *http.Request) {}
@@ -251,3 +251,5 @@ func (*testSessionManager) NotifyClosed(context.Context, string, func()) error {
 }
 
 func (*testSessionManager) CloseSession(context.Context, string) error { return nil }
+
+func (*testSessionManager) DeleteExpired(context.Context) (int, error) { return 0, nil }

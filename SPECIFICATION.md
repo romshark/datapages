@@ -5,6 +5,11 @@
 Generator requires a path to an application source package
 that must contain an `App` type and the `type PageIndex struct`.
 
+`App`, page, abstract page and event types are declared without type parameters.
+Generated code names them as written, hence a type parameter list
+is rejected with "type parameters are not supported".
+Any other generic type of the package is free to use them.
+
 ### App
 
 The `App` type may optionally provide a method for custom global HTML `<head>` tags:
@@ -54,6 +59,9 @@ special methods:
 - `OnXXX`: subscribes to events in the SSE listener.
 
 `XXX` is just a name placeholder.
+
+A page type is a struct type literal. A `Page*` name bound to anything else,
+a defined non-struct type or an alias, is rejected.
 
 A page type must declare exactly one named field, the exported `App *App`.
 Any other named field is rejected. Embedded types are the exception and are
@@ -502,6 +510,11 @@ It provides `Context`, `PatchElement`, `PatchElementAt`, `RemoveElement`,
 ```go
 return sse.PatchElementAt(toast(msg), "#toaster", datapages.PatchModeAppend)
 ```
+
+Both methods refuse a selector containing `\r` or `\n` with
+`datapages.ErrSelectorLineBreak`. The selector is written on one line of the
+event, and a line break ends that line: without the check, a selector built
+from client data could add events of its own.
 
 The interface is defined in [datapages.go](datapages.go), which documents each
 method and is the source of truth. It is also rendered on

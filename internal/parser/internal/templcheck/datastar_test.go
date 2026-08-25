@@ -1,13 +1,17 @@
 package templcheck
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestIsDatastarActionAttr(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input string
 		want  bool
 	}{
-		// data-on:<event> — DOM events
+		// data-on:<event>, the DOM events
 		"data-on:click":          {input: "data-on:click", want: true},
 		"data-on:submit":         {input: "data-on:submit", want: true},
 		"data-on:load":           {input: "data-on:load", want: true},
@@ -83,10 +87,8 @@ func TestIsDatastarActionAttr(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := isDatastarActionAttr(tc.input)
-			if got != tc.want {
-				t.Errorf("isDatastarActionAttr(%q) = %v, want %v", tc.input, got, tc.want)
-			}
+			require.Equal(t, tc.want, isDatastarActionAttr(tc.input),
+				"isDatastarActionAttr(%q)", tc.input)
 		})
 	}
 }

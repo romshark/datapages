@@ -211,6 +211,29 @@ func (p PageLog) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo(p.App.entries()), nil
 }
 
+// PagePanicOnClose is /panic-on-close
+//
+// StreamClose panics on purpose. A client disconnecting runs it in a goroutine
+// net/http cannot recover, which the stream handler has to catch itself.
+type PagePanicOnClose struct{ App *App }
+
+func (p PagePanicOnClose) GET(_ *http.Request) (body datapages.Component, err error) {
+	return echo("panic-on-close"), nil
+}
+
+func (p PagePanicOnClose) StreamOpen(_ *http.Request, _ datapages.StreamID) error {
+	return nil
+}
+
+func (p PagePanicOnClose) StreamClose(_ *http.Request, id datapages.StreamID) error {
+	p.App.record("streamclose(%d)", id)
+	panic("StreamClose of the application panicked")
+}
+
+func (p PagePanicOnClose) OnTick(event EventTick, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(`<div id="ticked">%d</div>`, event.N)))
+}
+
 // Notifier is an abstract type: a handler written once and embedded by the
 // pages that want it. It is not a page and has no route.
 type Notifier struct{ App *App }

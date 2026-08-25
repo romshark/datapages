@@ -45,5 +45,8 @@ func PageLog() string { return "/log/" }
 // PageOther references /other/{$}
 func PageOther() string { return "/other/" }
 
+// PagePanicOnClose references /panic-on-close/{$}
+func PagePanicOnClose() string { return "/panic-on-close/" }
+
 // PageRoom references /room/{$}
 func PageRoom() string { return "/room/" }

@@ -12,7 +12,7 @@ import (
 
 const modulePath = "example.com/mod"
 
-// write lays out a module from a path→content map and returns its root.
+// write lays out a module from a path -> content map and returns its root.
 func write(t *testing.T, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -60,11 +60,23 @@ func TestScan(t *testing.T) {
 		files      map[string]string
 		appDirs    []string
 		hasSession bool
-		sessionOpt bool
 		fallback   bool
 	}{
 		"no call falls back": {
 			files:    map[string]string{"app/app.go": "package app\n"},
+			appDirs:  []string{"app"},
+			fallback: true,
+		},
+		"blank import falls back": {
+			files: map[string]string{
+				"app/app.go": "package app\n",
+				"cmd/server/main.go": `package main
+
+import _ "github.com/romshark/datapages"
+
+func main() {}
+`,
+			},
 			appDirs:  []string{"app"},
 			fallback: true,
 		},
@@ -85,17 +97,6 @@ func TestScan(t *testing.T) {
 				"cmd/server/main.go": mainGo("app",
 					"app.App, app.SessionData, datapages.DisablePrometheus, gen.Server",
 					", datapages.WithSessionManager[app.SessionData](nil)"),
-			},
-			appDirs:    []string{"app"},
-			hasSession: true,
-			sessionOpt: true,
-		},
-		"session option missing": {
-			files: map[string]string{
-				"app/app.go":                  "package app\n",
-				"app/datapagesgen/app_gen.go": genPkg(true),
-				"cmd/server/main.go": mainGo("app",
-					"app.App, app.SessionData, datapages.DisablePrometheus, gen.Server", ""),
 			},
 			appDirs:    []string{"app"},
 			hasSession: true,
@@ -149,7 +150,6 @@ func TestScan(t *testing.T) {
 			}
 			require.Len(t, a.Calls, 1)
 			require.Equal(t, tt.hasSession, a.Calls[0].HasSession)
-			require.Equal(t, tt.sessionOpt, a.Calls[0].SessionOpt)
 			require.True(t, a.Calls[0].Main)
 		})
 	}
@@ -191,45 +191,6 @@ func TestScanMultipleApps(t *testing.T) {
 
 	_, ok = r.Find("nothing")
 	require.False(t, ok)
-}
-
-func TestScanSpreadOptions(t *testing.T) {
-	root := write(t, map[string]string{
-		"app/app.go":                  "package app\n",
-		"app/datapagesgen/app_gen.go": genPkg(true),
-		"cmd/server/main.go": `package main
-
-import (
-	"github.com/romshark/datapages"
-	"example.com/mod/app"
-	gen "example.com/mod/app/datapagesgen"
-	"github.com/romshark/datapages/modules/messaging/inmem"
-)
-
-func main() {
-	var opts []datapages.ServerOption
-	withSessions(&opts)
-	s, err := datapages.NewServer[app.App, app.SessionData, datapages.DisablePrometheus, gen.Server](
-		new(app.App), inmem.New(8), opts...,
-	)
-	_, _ = s, err
-}
-`,
-		// The option is appended in a helper, in another file of the package.
-		"cmd/server/sessions.go": `package main
-
-import "github.com/romshark/datapages"
-
-func withSessions(opts *[]datapages.ServerOption) {
-	*opts = append(*opts, datapages.WithSessionManager[app.SessionData](nil))
-}
-`,
-	})
-	r, err := serverscan.Scan(root, modulePath)
-	require.NoError(t, err)
-	require.Len(t, r.Apps, 1)
-	require.Len(t, r.Apps[0].Calls, 1)
-	require.True(t, r.Apps[0].Calls[0].SessionOpt)
 }
 
 func TestScanErr(t *testing.T) {
@@ -349,6 +310,40 @@ func main() {
 			},
 			msg: "lives in a generated package",
 		},
+		"dot import": {
+			files: map[string]string{
+				"app/app.go":                  "package app\n",
+				"app/datapagesgen/app_gen.go": genPkg(true),
+				"cmd/server/main.go": `package main
+
+import (
+	. "github.com/romshark/datapages"
+	"example.com/mod/app"
+	gen "example.com/mod/app/datapagesgen"
+)
+
+func main() {
+	s, err := NewServer[app.App, DisableSessions, DisablePrometheus, gen.Server](nil, nil)
+	_, _ = s, err
+}
+`,
+			},
+			msg: "the datapages package must not be dot-imported",
+		},
+		"dot import without a call": {
+			files: map[string]string{
+				"app/app.go": "package app\n",
+				"cmd/server/main.go": `package main
+
+import . "github.com/romshark/datapages"
+
+var _ Component
+
+func main() {}
+`,
+			},
+			msg: "the datapages package must not be dot-imported",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := write(t, tt.files)
@@ -360,8 +355,8 @@ func main() {
 }
 
 // TestScanStubDestination covers a destination a failed run left as stubs.
-// A stub carries the generated header, so the next run generates over it
-// instead of reading it as a package datapages did not write.
+// A stub carries the generated header, which makes the next run generate over
+// it instead of reading it as a package datapages did not write.
 func TestScanStubDestination(t *testing.T) {
 	root := write(t, map[string]string{
 		"app/app.go": "package app\n",
@@ -391,7 +386,7 @@ func TestScanAnonymousSessionData(t *testing.T) {
 	require.Equal(t, "struct{}", r.Apps[0].SessionData.Src)
 }
 
-func TestCheckSessionOption(t *testing.T) {
+func TestCheckSessionData(t *testing.T) {
 	for name, tt := range map[string]struct {
 		call       serverscan.Call
 		hasSession bool
@@ -401,17 +396,11 @@ func TestCheckSessionOption(t *testing.T) {
 			call: serverscan.Call{},
 		},
 		"ok with sessions": {
-			call:       serverscan.Call{HasSession: true, SessionOpt: true},
-			hasSession: true,
-		},
-		"missing option": {
 			call: serverscan.Call{
 				HasSession:  true,
 				SessionData: serverscan.TypeArg{Src: "app.SessionData"},
 			},
 			hasSession: true,
-			msg: "datapages.NewServer with SessionData app.SessionData " +
-				"requires datapages.WithSessionManager",
 		},
 		"app declares a session type": {
 			call:       serverscan.Call{},
@@ -422,7 +411,6 @@ func TestCheckSessionOption(t *testing.T) {
 		"app declares no session type": {
 			call: serverscan.Call{
 				HasSession:  true,
-				SessionOpt:  true,
 				SessionData: serverscan.TypeArg{Src: "app.SessionData"},
 			},
 			msg: "but app declares no session type",
@@ -430,7 +418,7 @@ func TestCheckSessionOption(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			a := serverscan.App{Dir: "app", Calls: []serverscan.Call{tt.call}}
-			err := serverscan.CheckSessionOption(a, tt.hasSession)
+			err := serverscan.CheckSessionData(a, tt.hasSession)
 			if tt.msg == "" {
 				require.NoError(t, err)
 				return
@@ -530,4 +518,59 @@ func TestScanPrometheusPerApp(t *testing.T) {
 	require.True(t, ok)
 	require.False(t, front.Prometheus)
 	require.Equal(t, "datapages.DisablePrometheus", front.Metrics.Src)
+}
+
+// TestScanAliasedTypeArgs covers two calls naming one app package under
+// different import names.
+//
+// A file importing two packages of the same name has to alias one of them.
+// Comparing type arguments as written would then read one session type as two
+// and refuse the module.
+func TestScanAliasedTypeArgs(t *testing.T) {
+	root := write(t, map[string]string{
+		"app/app.go":                  "package app\n",
+		"app/datapagesgen/app_gen.go": genPkg(true),
+		"cmd/server/main.go": mainGo("app",
+			"app.App, app.SessionData, datapages.DisablePrometheus, gen.Server",
+			", datapages.WithSessionManager[app.SessionData](nil)"),
+		"serve/serve.go": `package serve
+
+import (
+	dp "github.com/romshark/datapages"
+	appalias "example.com/mod/app"
+	genalias "example.com/mod/app/datapagesgen"
+)
+
+func New() {
+	s, err := dp.NewServer[
+		appalias.App, appalias.SessionData, dp.DisablePrometheus, genalias.Server,
+	](nil, nil, dp.WithSessionManager[appalias.SessionData](nil))
+	_, _ = s, err
+}
+`,
+	})
+	r, err := serverscan.Scan(root, modulePath)
+	require.NoError(t, err)
+	require.Len(t, r.Apps, 1)
+	require.Len(t, r.Apps[0].Calls, 2)
+	require.True(t, r.Apps[0].HasSession)
+}
+
+// TestScanLocalTypeArgsDisagree covers two calls naming session types that
+// resolve to no import. There is no import path to compare them by,
+// hence they are compared as written.
+func TestScanLocalTypeArgsDisagree(t *testing.T) {
+	root := write(t, map[string]string{
+		"app/app.go":                  "package app\n",
+		"app/datapagesgen/app_gen.go": genPkg(true),
+		"cmd/a/main.go": mainGo("app",
+			"app.App, struct{}, datapages.DisablePrometheus, gen.Server",
+			", datapages.WithSessionManager[struct{}](nil)"),
+		"cmd/b/main.go": mainGo("app",
+			"app.App, struct{ N int }, datapages.DisablePrometheus, gen.Server",
+			", datapages.WithSessionManager[struct{ N int }](nil)"),
+	})
+	_, err := serverscan.Scan(root, modulePath)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "names SessionData")
 }

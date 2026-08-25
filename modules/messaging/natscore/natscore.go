@@ -1,10 +1,11 @@
-// Package natscore provides a core NATS backed message broker
+// Package natscore provides a message broker backed by core NATS
 // with fan-out delivery semantics.
 //
 // Delivery is at-most-once: a message reaches only the subscribers that are
-// connected when it's published and there's no replay. Datapages events drive
-// live UI updates, a lost one means a stale UI until the next render, which is
-// why the durability and the ack round trip of JetStream buy nothing here.
+// connected when it's published and there's no replay. Datapages events carry
+// live UI updates. A lost event means a stale UI until the next render,
+// which is why the durability and the ack round trip of JetStream are not worth
+// their cost here.
 package natscore
 
 import (

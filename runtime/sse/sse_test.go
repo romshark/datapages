@@ -96,6 +96,43 @@ func TestPatchElement(t *testing.T) {
 	}
 }
 
+// TestSelectorLineBreak covers the selector that would end the data line it goes on.
+// What follows one reaches the browser as events of its own.
+func TestSelectorLineBreak(t *testing.T) {
+	t.Parallel()
+
+	const injection = "#a\n\nevent: datastar-execute-script\ndata: script alert(1)"
+	for name, tc := range map[string]struct {
+		call func(s datapages.SSE) error
+	}{
+		"remove newline": {
+			call: func(s datapages.SSE) error { return s.RemoveElement(injection) },
+		},
+		"remove carriage return": {
+			call: func(s datapages.SSE) error { return s.RemoveElement("#a\rfoo") },
+		},
+		"patch at newline": {
+			call: func(s datapages.SSE) error {
+				return s.PatchElementAt(element, injection, datapages.PatchModeInner)
+			},
+		},
+		"patch at carriage return": {
+			call: func(s datapages.SSE) error {
+				return s.PatchElementAt(element, "#a\rfoo", "")
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			w := &recorder{h: make(http.Header)}
+			req := httptest.NewRequest(http.MethodGet, "/_$/", nil)
+			err := tc.call(sse.New(datastar.NewSSE(w, req)))
+			require.ErrorIs(t, err, datapages.ErrSelectorLineBreak)
+			require.Empty(t, w.buf.String(), "the event reached the wire")
+		})
+	}
+}
+
 // TestRemoveElementMatchesDatastar covers the removal event the wrapper writes.
 // Its bytes must be the ones datastar.RemoveElement writes.
 func TestRemoveElementMatchesDatastar(t *testing.T) {

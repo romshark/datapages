@@ -23,35 +23,24 @@ jobs:
         project:
           - path: "."
             name: "root"
-            has_templ: false
           - path: "example/counter"
             name: "counter"
-            has_templ: true
-            has_templ: true
           - path: "example/classifieds"
             name: "classifieds"
-            has_templ: true
           - path: "example/tailwindcss"
             name: "tailwindcss"
-            has_templ: true
           - path: "example/webcomponents"
             name: "webcomponents"
-            has_templ: true
           - path: "example/sqlitesessions"
             name: "sqlitesessions"
-            has_templ: true
           - path: "example/calculator"
             name: "calculator"
-            has_templ: true
           - path: "example/todolist"
             name: "todolist"
-            has_templ: true
           - path: "example/offline-cache"
             name: "offline-cache"
-            has_templ: true
           - path: "example/fast-shim"
             name: "fast-shim"
-            has_templ: false
         deps: [locked, latest]
         exclude:
           # Only run latest-deps for the root module.
@@ -99,6 +88,13 @@ jobs:
         if: matrix.deps == 'locked'
         run: mage checkMod
 
+      # Runs every generator and fails if a file changes: templ everywhere,
+      # the datapages code of every example and acceptance case, docs/style.css.
+      # Needs a clean tree, hence it runs before the tests write coverage.out.
+      - name: Check generated code is current
+        if: matrix.project.name == 'root' && matrix.deps == 'locked'
+        run: mage checkGen
+
       - name: Update to latest deps
         if: matrix.deps == 'latest'
         working-directory: ${{ matrix.project.path }}
@@ -112,15 +108,18 @@ jobs:
         if: matrix.project.name == 'root' && matrix.deps == 'latest'
         run: mage modTidy
 
-      - name: Install templ
-        if: matrix.project.name == 'root'
-        run: go install github.com/a-h/templ/cmd/templ@v0.3.1020
-
       - name: Install Wails system dependencies
         if: matrix.project.name == 'calculator'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
+      # internal/cmd TestWatch starts the templier engine, which runs templ as
+      # a command. mage itself only ever `go run`s it, which puts nothing on
+      # PATH. The version is free: the engine only checks that templ runs.
+      - name: Install templ
+        if: matrix.project.name == 'root'
+        run: go install github.com/a-h/templ/cmd/templ@latest
 
       # Test and report coverage
       - name: Run tests with coverage
@@ -135,24 +134,6 @@ jobs:
           file: ${{ matrix.project.path }}/coverage.out
           flag-name: ${{ matrix.project.name }}
           parallel: true
-
-      # Make sure templ generate was executed before commit (only for examples)
-      - name: Generate templates
-        if: matrix.project.has_templ && matrix.deps == 'locked'
-        working-directory: ${{ matrix.project.path }}
-        run: go run github.com/a-h/templ/cmd/templ@v0.3.1020 generate
-      - name: Check file changes after templ generate
-        if: matrix.project.has_templ && matrix.deps == 'locked'
-        working-directory: ${{ matrix.project.path }}
-        run: |
-          git diff --exit-code
-        id: diff_files_after_templ_generate
-        continue-on-error: true
-      - name: Fail if changes are detected
-        if: matrix.project.has_templ && matrix.deps == 'locked' && steps.diff_files_after_templ_generate.outcome == 'failure'
-        run: |
-          echo "Detected uncommitted changes after running templ generate." \
-          "Please regenerate .templ templates and commit changes." && exit 1
 
       - name: Lint datapages examples
         if: matrix.project.name == 'root' && matrix.deps == 'locked'

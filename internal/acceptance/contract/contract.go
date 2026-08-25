@@ -140,16 +140,20 @@ var optionKeys = []string{
 	"retryMaxCount", "requestCancellation",
 }
 
-// Run drives the whole suite against one case.
+// Run applies the whole suite to c.
 func Run(t *testing.T, c Case) {
 	t.Helper()
+	// testExternalHref sets the package-level logger of the generated href
+	// package. It runs before the parallel tests, which the testing package
+	// holds until this function returns, hence alone.
+	t.Run("ExternalHref", c.testExternalHref)
+
 	for name, run := range map[string]func(*testing.T){
 		"ActionOptions":              c.testActionOptions,
 		"ClientGoesAway":             c.testClientGoesAway,
 		"Compression":                c.testCompression,
 		"DatastarJS":                 c.testDatastarJS,
 		"DispatchReachesTheStream":   c.testDispatchReachesTheStream,
-		"ExternalHref":               c.testExternalHref,
 		"GeneratedActionsAreRouted":  c.testGeneratedActionsAreRouted,
 		"GeneratedLinksAreRouted":    c.testGeneratedLinksAreRouted,
 		"HTTPServerOption":           c.testHTTPServerOption,
@@ -165,7 +169,10 @@ func Run(t *testing.T, c Case) {
 		"TrailingSlash":              c.testTrailingSlash,
 		"UnknownRoute":               c.testUnknownRoute,
 	} {
-		t.Run(name, run)
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			run(t)
+		})
 	}
 }
 

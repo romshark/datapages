@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/starfederation/datastar-go/datastar"
 
@@ -34,6 +35,9 @@ func (s wrapper) PatchElement(c datapages.Component) error {
 func (s wrapper) PatchElementAt(
 	c datapages.Component, selectorCSS string, mode datapages.PatchMode,
 ) error {
+	if err := checkSelector(selectorCSS); err != nil {
+		return err
+	}
 	switch mode {
 	case datapages.PatchModeOuter, datapages.PatchModeInner,
 		datapages.PatchModeReplace, datapages.PatchModePrepend,
@@ -57,11 +61,24 @@ func (s wrapper) PatchElementAt(
 		datastar.WithMode(datastar.ElementPatchMode(mode)))
 }
 
+// checkSelector rejects a selector that would end the event line it goes on.
+// datastar writes the selector as given, while it splits the elements on "\n"
+// and quotes the redirect URL.
+func checkSelector(selectorCSS string) error {
+	if strings.ContainsAny(selectorCSS, "\r\n") {
+		return fmt.Errorf("%w: %q", datapages.ErrSelectorLineBreak, selectorCSS)
+	}
+	return nil
+}
+
 // removeElementModeDataline is the mode line of a removal event.
 const removeElementModeDataline = datastar.ModeDatalineLiteral +
 	string(datastar.ElementPatchModeRemove)
 
 func (s wrapper) RemoveElement(selectorCSS string) error {
+	if err := checkSelector(selectorCSS); err != nil {
+		return err
+	}
 	return s.g.Send(datastar.EventTypePatchElements, []string{
 		datastar.SelectorDatalineLiteral + selectorCSS,
 		removeElementModeDataline,

@@ -334,7 +334,7 @@ func (s *Server) Init(
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[struct{}],
 ) error {
-	if cfg.MetricsServer != nil {
+	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
 		// hence there is no instrumentation for the metrics to count.
 		return errors.New("unexpected option WithPrometheus: " +
@@ -350,7 +350,10 @@ func (s *Server) Init(
 	}
 	cfg.AssetsFS = assetsFS
 
-	s.Core = httpserve.NewCore(cfg, assets.URLPrefix)
+	s.Core, err = httpserve.NewCore(cfg, assets.URLPrefix)
+	if err != nil {
+		return err
+	}
 	s.app = app
 	s.messageBroker = messageBroker
 	s.messageBrokerMetrics = messaging.NoopMetrics{}
@@ -624,6 +627,7 @@ func (s *Server) handlePageIndexPOSTSearch(
 	if _, _, ok := s.ReadSession(w, r); !ok {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
 	var signals datapages.Signals[app.SearchParams]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)

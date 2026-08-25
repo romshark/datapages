@@ -42,9 +42,7 @@ func (c csrfScript) WriteCSRFScript(w io.Writer, userID, token string) error {
 
 func builtCore(t *testing.T) *httpserve.Core {
 	t.Helper()
-	c := httpserve.NewCore(datapages.ServerConfig{
-		DatastarJS: "/ds.js",
-	}, "")
+	c := mustCore(t, datapages.ServerConfig{DatastarJS: "/ds.js"}, "")
 	c.Build()
 	return c
 }

@@ -1,4 +1,4 @@
-// Drives the generated session handling of ./app.
+// Covers the generated session handling of ./app.
 
 package acceptance_test
 
@@ -242,6 +242,7 @@ func echoed(t *testing.T, body string) string {
 // TestAnonymous covers a visitor with no session.
 // Every handler that asks for one gets the zero value rather than an error.
 func TestAnonymous(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -269,6 +270,7 @@ func TestAnonymous(t *testing.T) {
 // reader must read the way net/http.Request.Cookie reads them.
 // The expectation comes from that method, not from a hand written table.
 func TestCookieHeaderVariants(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 		c := srv.client(t)
@@ -319,6 +321,7 @@ func TestCookieHeaderVariants(t *testing.T) {
 }
 
 func TestSignInAndOut(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -374,6 +377,7 @@ func TestSignInAndOut(t *testing.T) {
 // TestSessionToken covers the handler parameter that asks for the token
 // instead of the session.
 func TestSessionToken(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -401,6 +405,7 @@ func TestSessionToken(t *testing.T) {
 // The visitor continues as anonymous and the cookie is cleared,
 // rather than being refused on every later request.
 func TestStaleCookie(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -442,6 +447,7 @@ func TestStaleCookie(t *testing.T) {
 // TestErrorSentinel covers the status an action or
 // page takes from the sentinel it returns.
 func TestErrorSentinel(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -470,6 +476,7 @@ func TestErrorSentinel(t *testing.T) {
 // visitor has a session.
 // Without a session there is nothing to forge and an anonymous request is let through.
 func TestCSRF(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -522,6 +529,7 @@ func TestCSRF(t *testing.T) {
 // TestPrivateEvent covers an event addressed to a user. Two visitors,
 // two streams, one dispatch: the user it names sees it and the other does not.
 func TestPrivateEvent(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -555,6 +563,7 @@ func TestPrivateEvent(t *testing.T) {
 // which is what keeps a client signing in as "*" or ">" subscribed to itself
 // and to nobody else.
 func TestSignInAcceptsAnyUserID(t *testing.T) {
+	t.Parallel()
 	users := map[string]string{
 		"email":     "alice@example.com",
 		"separator": "a.b",
@@ -601,43 +610,46 @@ func TestSignInAcceptsAnyUserID(t *testing.T) {
 	})
 }
 
-// TestStreamRefusesUnsafeUserID covers a session that carries such an ID
-// regardless, which a store filled before the check existed still holds.
-// The stream reads the ID into its subscription subject, so it refuses to open
-// rather than subscribe to every user.
-func TestStreamRefusesUnsafeUserID(t *testing.T) {
+// TestStreamOpensForAnyUserID covers a session whose user ID cannot stand in
+// a subject as it is, created straight in the store the way a manager of an
+// application's own would. The stream subscribes by the escaped ID,
+// so it opens for one a sign-in never went through.
+func TestStreamOpensForAnyUserID(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
-		srv := newServer(t, broker)
+		for name, userID := range map[string]string{
+			"star":      "*",
+			"gt":        ">",
+			"separator": "a.b",
+			"email":     "alice@example.com",
+		} {
+			t.Run(name, func(t *testing.T) {
+				srv := newServer(t, broker)
 
-		token, err := srv.sessions.CreateSession(context.Background(),
-			sessions.Record[app.SessionData]{
-				UserID:    "*",
-				IssuedAt:  time.Now(),
-				ExpiresAt: time.Now().Add(time.Hour),
+				token, err := srv.sessions.CreateSession(context.Background(),
+					sessions.Record[app.SessionData]{
+						UserID:    userID,
+						IssuedAt:  time.Now(),
+						ExpiresAt: time.Now().Add(time.Hour),
+					})
+				require.NoError(t, err, "creating the session")
+
+				c := srv.client(t)
+				c.setSessionCookie(t, token)
+
+				req, err := http.NewRequestWithContext(
+					context.Background(), http.MethodGet, srv.URL+"/_$/", nil,
+				)
+				require.NoError(t, err, "building stream request")
+				req.Header.Set("Datastar-Request", "true")
+
+				resp, err := c.http.Do(req)
+				require.NoError(t, err, "opening stream")
+				defer func() { _ = resp.Body.Close() }()
+
+				require.Equal(t, http.StatusOK, resp.StatusCode,
+					"the stream refused user ID %q", userID)
 			})
-		if err != nil {
-			t.Fatalf("creating the session: %v", err)
-		}
-
-		c := srv.client(t)
-		c.setSessionCookie(t, token)
-
-		req, err := http.NewRequestWithContext(
-			context.Background(), http.MethodGet, srv.URL+"/_$/", nil,
-		)
-		if err != nil {
-			t.Fatalf("building stream request: %v", err)
-		}
-		req.Header.Set("Datastar-Request", "true")
-
-		resp, err := c.http.Do(req)
-		if err != nil {
-			t.Fatalf("opening stream: %v", err)
-		}
-		defer func() { _ = resp.Body.Close() }()
-
-		if resp.StatusCode != http.StatusInternalServerError {
-			t.Errorf("opening the stream: status = %d, want 500", resp.StatusCode)
 		}
 	})
 }
@@ -650,6 +662,7 @@ func TestStreamRefusesUnsafeUserID(t *testing.T) {
 // The private event is addressed to a user, and a connection with no user must
 // never be given it: that is one visitor reading another's messages.
 func TestAnonymousStream(t *testing.T) {
+	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
 		srv := newServer(t, broker)
 
@@ -690,8 +703,6 @@ func TestAnonymousStream(t *testing.T) {
 		}
 	})
 }
-
-// --- helpers ---------------------------------------------------------------
 
 type stream struct {
 	t      *testing.T

@@ -768,6 +768,8 @@ manager against what the app declares.
 
 `datapages gen` reads these type arguments to find the app package and the
 package to generate into, so keep the call in the module.
+Import `datapages` under a name, aliases included. The scan matches the call by its
+qualifier and rejects a dot import, which leaves it no qualifier to match.
 
 ### Message Broker
 

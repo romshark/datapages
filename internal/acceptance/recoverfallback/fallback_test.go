@@ -24,6 +24,7 @@ func newClient(t *testing.T) *client.Client {
 // RecoverError could not turn into a patch. The stream ends and carries no status text;
 // the response was committed before the failure.
 func TestRecoverFallbackWritesNothingIntoTheStream(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Action(t, http.MethodPost, "/bad/", "")
@@ -39,6 +40,7 @@ func TestRecoverFallbackWritesNothingIntoTheStream(t *testing.T) {
 // TestPageLoadStillGetsAStatus covers the same failure on a page load,
 // where nothing is committed yet and the status is the server's to send.
 func TestPageLoadStillGetsAStatus(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, "/bad/")

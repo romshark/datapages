@@ -11,7 +11,7 @@ Three tests cover this package. Each answers a different question.
 A fourth question is what the generated code does when it runs. That one is
 answered outside this package, by the acceptance cases under
 [../acceptance](../acceptance). Each is an application with its generated code
-committed next to it, driven over HTTP.
+committed next to it, tested over HTTP.
 
 Only `TestExamplesAreUpToDate` reads generated source. Every other assertion is
 a request, a response, a call to a generated function, or a value the
@@ -49,5 +49,5 @@ much of the code it writes the acceptance cases run.
 
 ```
 generator (./internal/generator/...):  92.6% of statements
-code it generates:           77.6% of statements (run by the acceptance cases)
+code it generates:           78.4% of statements (run by the acceptance cases)
 ```

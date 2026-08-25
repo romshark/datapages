@@ -1,4 +1,4 @@
-// Drives the generated error handling of ./app.
+// Covers the generated error handling of ./app.
 
 package acceptance_test
 
@@ -24,6 +24,7 @@ func newClient(t *testing.T) *client.Client {
 // TestNotFoundPage covers the page an app supplies for URLs nothing claims,
 // reached both ways: by such a URL and by its own route.
 func TestNotFoundPage(t *testing.T) {
+	t.Parallel()
 	tests := map[string]string{
 		"unknown url":                "/no-such-page/",
 		"the error page's own route": "/not-found/",
@@ -42,6 +43,7 @@ func TestNotFoundPage(t *testing.T) {
 // which is served like any other page. The error500page case covers what a
 // failed page load is answered with.
 func TestServerErrorPageRoute(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, "/server-error/")
@@ -53,6 +55,7 @@ func TestServerErrorPageRoute(t *testing.T) {
 // Whatever the visitor is given, it cannot be the error the handler produced:
 // that text is written for the operator's log.
 func TestFailedPageLoad(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, "/boom/")
@@ -65,6 +68,7 @@ func TestFailedPageLoad(t *testing.T) {
 // The sentinels are the only way an application chooses it,
 // and each one must arrive as itself.
 func TestActionErrorStatus(t *testing.T) {
+	t.Parallel()
 	tests := map[string]struct {
 		path string
 		want int
@@ -93,6 +97,7 @@ func TestActionErrorStatus(t *testing.T) {
 // TestFailedPageLoadIsNotCached covers the response of a failed page load.
 // A cached 500 outlives the failure that caused it.
 func TestFailedPageLoadIsNotCached(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, "/boom/")

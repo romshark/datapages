@@ -1,4 +1,4 @@
-// Drives a page GET that reads signals and one that issues a session.
+// Covers a page GET that reads signals and one that issues a session.
 
 package acceptance_test
 
@@ -58,6 +58,7 @@ func signalsQuery(json string) string {
 
 // TestGETReadsSignals covers a page load carrying signals.
 func TestGETReadsSignals(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, signalsQuery(`{"term":"shoes","page":3}`))
@@ -69,6 +70,7 @@ func TestGETReadsSignals(t *testing.T) {
 // TestGETWithoutSignals covers the ordinary page load:
 // a visitor who typed the URL sends no signals and the handler is given the zero value.
 func TestGETWithoutSignals(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, "/")
@@ -80,6 +82,7 @@ func TestGETWithoutSignals(t *testing.T) {
 // TestGETWithMalformedSignals covers a datastar parameter that is not signals.
 // The request is refused rather than served a page built from nothing.
 func TestGETWithMalformedSignals(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, signalsQuery(`{"term":`))
@@ -90,6 +93,7 @@ func TestGETWithMalformedSignals(t *testing.T) {
 // TestGETIssuesASession covers a page load that returns newSession:
 // the cookie is set on that same response, and the next page load reads the session.
 func TestGETIssuesASession(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	enter := c.Get(t, "/enter/")
@@ -107,6 +111,7 @@ func TestGETIssuesASession(t *testing.T) {
 // TestActionClosesTheSession covers the other end: an action that reads only
 // the session token ends the session, and the page stops seeing it.
 func TestActionClosesTheSession(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	enter := c.Get(t, "/enter/")

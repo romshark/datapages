@@ -17,6 +17,7 @@
 - Generate templ files: `mage genTempl`
 - Generate datapages code: `mage genDatapages`
 - Generate all (templ + datapages + docs): `mage gen`
+- Check that all generated code is current: `mage checkGen`
 - Run go fix on all modules: `mage goFix`
 - Run everything: `mage all`
 
@@ -227,11 +228,13 @@ Avoid:
 - Counting the items instead of naming them. "Two things: X and Y" is "X and Y".
   A teaser count with no items after it ("three things jumped out at me") is
   worse.
-- Figurative verbs where a plain one fits: "buys", "unlocks", "wins", "kills",
-  "shines". Write "a value receiver prevents mutation",
+- Figurative verbs where a plain one fits: "buys", "drives", "unlocks",
+  "wins", "kills", "shines". Write "a value receiver prevents mutation",
   not "a value receiver buys us immutability".
   Write "the pointer saves no allocation here",
   not "the pointer buys nothing here".
+  Write "the tests that send it requests over HTTP",
+  not "the tests that drive it over HTTP".
 - Rhetorical questions as headings: "So what does this mean?".
 - Filler transitions: "let's dive in", "at the end of the day", "it's worth
   noting that", "as we can see".

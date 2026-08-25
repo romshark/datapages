@@ -174,7 +174,7 @@ func TestCheck_ErrActionWrongPage(t *testing.T) {
 	errs := check(t, "err_templ_action_not_on_page", app)
 
 	// settingsPage() calls @settingsActions() which uses
-	// action.POSTPageProfileSave() — that action belongs to PageProfile,
+	// action.POSTPageProfileSave(), which belongs to PageProfile,
 	// not PageSettings.
 	// action.POSTPageSettingsUpdate() in settingsPage is OK (own page).
 	// action.POSTAppGlobal() in settingsActions is OK (app-level).

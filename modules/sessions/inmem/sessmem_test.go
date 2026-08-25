@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -337,27 +338,37 @@ func TestNotifyClosedSessionExists(t *testing.T) {
 	require.Equal(t, int32(1), called.Load())
 }
 
+// TestNotifyClosedContextCancellation covers a watcher whose context ends
+// before the session does. The session stays alive and the callback must not run.
+//
+// [inmem.SessionManager.NotifyClosed] leaves a goroutine waiting on the
+// context to unregister the watcher, and until it gets there
+// [inmem.SessionManager.CloseSession] suppresses the callback by re-checking
+// the context itself. Either path reaches the same outcome, and outside a
+// synctest bubble which one the assertion runs against is luck.
+// [synctest.Wait] returns once every other goroutine is durably blocked,
+// hence once the watcher is off the map.
 func TestNotifyClosedContextCancellation(t *testing.T) {
-	sm := newManager(t)
-	ctx := context.Background()
+	synctest.Test(t, func(t *testing.T) {
+		sm := newManager(t)
+		ctx := context.Background()
 
-	token, err := sm.CreateSession(ctx, "carol", testSession{})
-	require.NoError(t, err)
+		token, err := sm.CreateSession(ctx, "carol", testSession{})
+		require.NoError(t, err)
 
-	watchCtx, cancel := context.WithCancel(ctx)
+		watchCtx, cancel := context.WithCancel(ctx)
 
-	var called atomic.Int32
-	err = sm.NotifyClosed(watchCtx, token, func() { called.Add(1) })
-	require.NoError(t, err)
+		var called atomic.Int32
+		err = sm.NotifyClosed(watchCtx, token, func() { called.Add(1) })
+		require.NoError(t, err)
 
-	// Cancel the watcher context and wait for the cleanup goroutine
-	// to remove it from the watchers map (session stays alive).
-	cancel()
-	require.Eventually(t, func() bool {
-		// Close the session after cleanup has run — fn must NOT be called.
-		_ = sm.CloseSession(ctx, token)
-		return called.Load() == 0
-	}, 2*time.Second, 10*time.Millisecond)
+		cancel()
+		synctest.Wait()
+
+		require.NoError(t, sm.CloseSession(ctx, token))
+		require.Zero(t, called.Load(),
+			"a watcher whose context ended was still notified")
+	})
 }
 
 func TestNotifyClosedAlreadyCanceledContext(t *testing.T) {
@@ -928,7 +939,7 @@ func TestConcurrentReadDuringClose(t *testing.T) {
 		// If we read before close, session must be intact.
 		require.Equal(t, "bob", readSess.Username)
 	}
-	// If we read after close, ok is false — both are valid outcomes.
+	// A read after the close reports ok false. Both outcomes are valid.
 }
 
 func TestConcurrentNotifyAndClose(t *testing.T) {
@@ -1081,4 +1092,60 @@ func TestConcurrentUserSessions(t *testing.T) {
 			require.Equal(t, "alice", us.Record.Data.Username, "goroutine %d", i)
 		}
 	}
+}
+
+// TestDeleteExpired covers the sweep.
+// A session nobody comes back to is never read again and stays until this runs.
+func TestDeleteExpired(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		sm := inmem.New[testSession](tokGen)
+		ctx := t.Context()
+
+		past, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+			UserID: "alice", ExpiresAt: time.Now().Add(-time.Hour),
+		})
+		require.NoError(t, err)
+		future, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+			UserID: "alice", ExpiresAt: time.Now().Add(time.Hour),
+		})
+		require.NoError(t, err)
+		never, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+			UserID: "alice",
+		})
+		require.NoError(t, err)
+
+		// A stream watching the expired session has to learn it is gone.
+		// The bubble runs on a fake clock, which lets the wait cost nothing whether
+		// the notification arrives or not.
+		closed := make(chan struct{})
+		require.NoError(t, sm.NotifyClosed(ctx, past, func() { close(closed) }))
+
+		deleted, err := sm.DeleteExpired(ctx)
+		require.NoError(t, err)
+		require.Equal(t, 1, deleted, "the sweep took the wrong number of sessions")
+
+		select {
+		case <-closed:
+		case <-time.After(time.Second):
+			t.Error("the watcher of the expired session was never notified")
+		}
+
+		_, _, ok, err := sm.ReadSessionFromCookie(past)
+		require.NoError(t, err)
+		require.False(t, ok, "the expired session is still stored")
+
+		for name, token := range map[string]string{
+			"not yet expired": future,
+			"never expires":   never,
+		} {
+			_, _, ok, err := sm.ReadSessionFromCookie(token)
+			require.NoError(t, err)
+			require.True(t, ok, "the sweep took a session that %s", name)
+		}
+
+		// Nothing left to take.
+		deleted, err = sm.DeleteExpired(ctx)
+		require.NoError(t, err)
+		require.Zero(t, deleted)
+	})
 }

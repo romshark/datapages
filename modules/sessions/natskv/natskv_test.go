@@ -3,6 +3,7 @@ package natskv_test
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"maps"
 	"sync/atomic"
 	"testing"
@@ -730,7 +731,7 @@ func TestNotifyClosed(t *testing.T) {
 		err = sm.NotifyClosed(ctx, token, called.Inc)
 		require.NoError(t, err)
 
-		// Session still exists — fn must not have been called.
+		// The session still exists: fn must not have been called.
 		m := maps.Collect(sm.UserSessions(ctx, userID))
 		require.Len(t, m, 1)
 		for _, rec := range m {
@@ -825,4 +826,128 @@ func TestDecryptShortCiphertext(t *testing.T) {
 
 	err = sm.CloseSession(ctx, shortToken)
 	require.ErrorIs(t, err, natskv.ErrCiphertextTooShort)
+}
+
+// unsafeGen returns session IDs carrying the NATS KV syntax,
+// which [natskv.SessionTokenGenerator] allows an application to return.
+type unsafeGen struct {
+	prefix string
+	n      int
+}
+
+func (g *unsafeGen) Generate() (string, error) {
+	g.n++
+	return fmt.Sprintf("%s%d", g.prefix, g.n), nil
+}
+
+// TestUnsafeSessionIDIsRevocable covers a session ID carrying the syntax the
+// KV key is built from. A revocation watches "{user}.*", which matches one
+// token, and an unencoded separator would hide the session from it.
+func TestUnsafeSessionIDIsRevocable(t *testing.T) {
+	conn := setupNATS(t)
+	ctx := context.Background()
+
+	for name, prefix := range map[string]string{
+		"separator": "a.b.",
+		"star":      "*",
+		"gt":        ">",
+		"plain":     "plain",
+	} {
+		t.Run(name, func(t *testing.T) {
+			sm, err := natskv.New[testSession](conn, &unsafeGen{prefix: prefix},
+				natskv.Config{
+					EncryptionKey: validKey(),
+					KVConfig:      nats.KeyValueConfig{Bucket: "UNSAFE" + name},
+				})
+			require.NoError(t, err)
+
+			const count = 3
+			cookies := make([]string, 0, count)
+			for range count {
+				c, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+					UserID: "alice",
+				})
+				require.NoError(t, err)
+				cookies = append(cookies, c)
+			}
+
+			closed, err := sm.CloseAllUserSessions(ctx, []string{}, "alice")
+			require.NoError(t, err)
+			require.Len(t, closed, count,
+				"closing every session of the user reached %d of %d",
+				len(closed), count)
+
+			for _, c := range cookies {
+				_, _, ok, err := sm.ReadSessionFromCookie(c)
+				require.NoError(t, err)
+				require.False(t, ok, "a closed session still authenticates")
+			}
+		})
+	}
+}
+
+// TestEmptySessionIDRefused covers the one session ID encoding cannot save.
+// An empty ID names no key.
+func TestEmptySessionIDRefused(t *testing.T) {
+	conn := setupNATS(t)
+	sm, err := natskv.New[testSession](conn, &emptyGen{}, natskv.Config{
+		EncryptionKey: validKey(),
+		KVConfig:      nats.KeyValueConfig{Bucket: "EMPTYSID"},
+	})
+	require.NoError(t, err)
+
+	_, err = sm.CreateSession(context.Background(),
+		sessions.Record[testSession]{UserID: "alice"})
+	require.ErrorIs(t, err, natskv.ErrEmptySessionID)
+}
+
+// emptyGen returns no session ID at all.
+type emptyGen struct{}
+
+func (emptyGen) Generate() (string, error) { return "", nil }
+
+// TestDeleteExpired covers the sweep. NATS expires keys at one age for the
+// whole bucket, which is not the ExpiresAt a session carries.
+func TestDeleteExpired(t *testing.T) {
+	conn := setupNATS(t)
+	sm, err := natskv.New[testSession](conn, tokGen, natskv.Config{
+		EncryptionKey: validKey(),
+		KVConfig:      nats.KeyValueConfig{Bucket: "DELETEEXPIRED"},
+	})
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	past, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+		UserID: "alice", ExpiresAt: time.Now().Add(-time.Hour),
+	})
+	require.NoError(t, err)
+	future, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+		UserID: "bob", ExpiresAt: time.Now().Add(time.Hour),
+	})
+	require.NoError(t, err)
+	never, err := sm.CreateSession(ctx, sessions.Record[testSession]{
+		UserID: "carol",
+	})
+	require.NoError(t, err)
+
+	deleted, err := sm.DeleteExpired(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, deleted, "the sweep took the wrong number of sessions")
+
+	_, _, ok, err := sm.ReadSessionFromCookie(past)
+	require.NoError(t, err)
+	require.False(t, ok, "the expired session is still stored")
+
+	for name, token := range map[string]string{
+		"not yet expired": future,
+		"never expires":   never,
+	} {
+		_, _, ok, err := sm.ReadSessionFromCookie(token)
+		require.NoError(t, err)
+		require.True(t, ok, "the sweep took a session that %s", name)
+	}
+
+	deleted, err = sm.DeleteExpired(ctx)
+	require.NoError(t, err)
+	require.Zero(t, deleted)
 }

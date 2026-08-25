@@ -23,6 +23,7 @@ func newClient(t *testing.T) *client.Client {
 // TestError500PageIsRendered covers a failed page load in an app that supplies
 // PageError500 and defines no RecoverError.
 func TestError500PageIsRendered(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	// The page renders on its own route, which rules the page itself out as

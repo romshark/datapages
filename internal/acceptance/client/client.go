@@ -1,4 +1,4 @@
-// Package client drives a generated server over HTTP the way the Datastar
+// Package client speaks to a generated server over HTTP the way the Datastar
 // runtime in a browser does.
 //
 // It holds what every acceptance case does the same way — the headers a

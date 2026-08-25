@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -15,9 +16,7 @@ func TestResolvePkgMatcher_DotImport(t *testing.T) {
 		`package app
 import . "example.com/myapp/datapagesgen/href"
 `, goparser.ImportsOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	pkg := &packages.Package{
 		Fset:   fset,
@@ -26,10 +25,7 @@ import . "example.com/myapp/datapagesgen/href"
 	}
 
 	// Dot-import without type info available returns nil (no exports to resolve).
-	got := resolvePkgMatcher(pkg, "/href", "href")
-	if got != nil {
-		t.Errorf("resolvePkgMatcher returned non-nil for dot-import without type info")
-	}
+	require.Nil(t, resolvePkgMatcher(pkg, "/href", "href"))
 }
 
 func TestResolvePkgMatcher_BlankImport(t *testing.T) {
@@ -38,9 +34,7 @@ func TestResolvePkgMatcher_BlankImport(t *testing.T) {
 		`package app
 import _ "example.com/myapp/datapagesgen/href"
 `, goparser.ImportsOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	pkg := &packages.Package{
 		Fset:   fset,
@@ -48,11 +42,8 @@ import _ "example.com/myapp/datapagesgen/href"
 		Module: &packages.Module{Path: "example.com/myapp"},
 	}
 
-	// Blank import should be skipped — "_" means side-effects only, no calls.
-	got := resolvePkgMatcher(pkg, "/href", "href")
-	if got != nil {
-		t.Errorf("resolvePkgMatcher returned non-nil for blank import")
-	}
+	// A blank import is skipped: "_" means side effects only, no calls.
+	require.Nil(t, resolvePkgMatcher(pkg, "/href", "href"))
 }
 
 func TestResolvePkgMatcher_Alias(t *testing.T) {
@@ -61,9 +52,7 @@ func TestResolvePkgMatcher_Alias(t *testing.T) {
 		`package app
 import myhref "example.com/myapp/datapagesgen/href"
 `, goparser.ImportsOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	pkg := &packages.Package{
 		Fset:   fset,
@@ -72,16 +61,9 @@ import myhref "example.com/myapp/datapagesgen/href"
 	}
 
 	got := resolvePkgMatcher(pkg, "/href", "href")
-	if got == nil {
-		t.Fatal("resolvePkgMatcher returned nil for aliased import")
-		return
-	}
-	if got.localName != "myhref" {
-		t.Errorf("localName = %q, want %q", got.localName, "myhref")
-	}
-	if got.exports != nil {
-		t.Errorf("exports should be nil for non-dot import")
-	}
+	require.NotNil(t, got, "aliased import")
+	require.Equal(t, "myhref", got.localName)
+	require.Nil(t, got.exports, "exports are only resolved for a dot import")
 }
 
 func TestResolvePkgMatcher_Default(t *testing.T) {
@@ -90,9 +72,7 @@ func TestResolvePkgMatcher_Default(t *testing.T) {
 		`package app
 import "example.com/myapp/datapagesgen/href"
 `, goparser.ImportsOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	pkg := &packages.Package{
 		Fset:   fset,
@@ -101,13 +81,8 @@ import "example.com/myapp/datapagesgen/href"
 	}
 
 	got := resolvePkgMatcher(pkg, "/href", "href")
-	if got == nil {
-		t.Fatal("resolvePkgMatcher returned nil for default import")
-		return
-	}
-	if got.localName != "href" {
-		t.Errorf("localName = %q, want %q", got.localName, "href")
-	}
+	require.NotNil(t, got, "default import")
+	require.Equal(t, "href", got.localName)
 }
 
 func TestResolvePkgMatcher_NonTemplFile(t *testing.T) {
@@ -116,9 +91,7 @@ func TestResolvePkgMatcher_NonTemplFile(t *testing.T) {
 		`package app
 import "example.com/myapp/datapagesgen/href"
 `, goparser.ImportsOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	pkg := &packages.Package{
 		Fset:   fset,
@@ -127,8 +100,5 @@ import "example.com/myapp/datapagesgen/href"
 	}
 
 	// Imports in non-_templ.go files should be ignored.
-	got := resolvePkgMatcher(pkg, "/href", "href")
-	if got != nil {
-		t.Errorf("resolvePkgMatcher should return nil for non-_templ.go files")
-	}
+	require.Nil(t, resolvePkgMatcher(pkg, "/href", "href"))
 }

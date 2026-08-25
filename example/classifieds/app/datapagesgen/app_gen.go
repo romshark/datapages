@@ -125,7 +125,7 @@ func (s *Server) Init(
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[struct{}],
 ) error {
-	if cfg.MetricsServer == nil {
+	if cfg.Prometheus == nil {
 		// This server is generated with datapages.EnablePrometheus,
 		// hence the metrics it counts must be served.
 		return errors.New("missing option WithPrometheus")
@@ -140,7 +140,10 @@ func (s *Server) Init(
 	}
 	cfg.AssetsFS = assetsFS
 
-	s.Core = httpserve.NewCore(cfg, assets.URLPrefix)
+	s.Core, err = httpserve.NewCore(cfg, assets.URLPrefix)
+	if err != nil {
+		return err
+	}
 	s.app = app
 	s.messageBroker = messageBroker
 	s.messageBrokerMetrics = brokerMetrics{}
@@ -1344,6 +1347,7 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	if !ok {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
 	var signals datapages.Signals[struct {
 		MessageText string `json:"messagetext"`
 	}]
@@ -1530,6 +1534,7 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	if !ok {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
 	var signals datapages.Signals[app.SearchParams]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
@@ -1665,6 +1670,7 @@ func (s *Server) handlePageSettingsPOSTSave(
 	if !ok {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
 	var signals datapages.Signals[struct {
 		Username string `json:"username"`
 	}]
