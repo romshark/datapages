@@ -2,6 +2,7 @@ package inmem_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +17,30 @@ type noMetrics struct{}
 
 func (noMetrics) OnPublish(string)   {}
 func (noMetrics) OnDeliveryDropped() {}
+
+// TestCloseIsRepeatableAndConcurrent covers what [messaging.SubscriptionCloser] promises:
+// Close is idempotent and safe for concurrent use.
+// The stream closes its subscription from the goroutine watching the disconnect,
+// and a shutdown may reach it at the same moment.
+func TestCloseIsRepeatableAndConcurrent(t *testing.T) {
+	b := inmem.New(8)
+	t.Cleanup(func() { require.NoError(t, b.Close()) })
+
+	sub, err := b.Subscribe(context.Background(), noMetrics{}, "close.one")
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			sub.Close()
+		})
+	}
+	wg.Wait()
+	sub.Close()
+
+	_, open := <-sub.C()
+	require.False(t, open, "the channel is open after Close")
+}
 
 func TestMatches(t *testing.T) {
 	tests := map[string]struct {
