@@ -1706,7 +1706,59 @@ func TestParse_ErrStateTypeArgStructLiteral(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrStateTypeArgNotNamed)
 }
 
-// TestParse_StateActionOnly covers a stateful page whose only handler is an action.
+// TestParse_ErrStateTypeArgQualified covers datapages.State[time.Time]:
+// a named type, but not one of the app package.
+func TestParse_ErrStateTypeArgQualified(t *testing.T) {
+	_, err := parse(t, "err_state_type_arg_qualified")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateTypeArgNotNamed)
+}
+
+// TestParse_ErrStateTypeArgPointer covers Base[*StateA] at an embed site.
+// An abstract page takes its state as datapages.State[S]. A pointer type
+// argument would ask for datapages.State[*T]. The type parameters on Base are
+// rejected on their own, which is why two errors are expected.
+func TestParse_ErrStateTypeArgPointer(t *testing.T) {
+	_, err := parse(t, "err_state_type_arg_pointer")
+	requireParseErrors(t, err,
+		parser.ErrTypeParams, parser.ErrStateTypeArgPointer)
+}
+
+// TestParse_ErrStateParamInvalidType covers a type argument naming a type the
+// app package declares as something other than a struct.
+func TestParse_ErrStateParamInvalidType(t *testing.T) {
+	_, err := parse(t, "err_state_param_invalid_type")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateParamInvalidType)
+}
+
+// TestParse_ErrStateDuplicate covers a handler taking two state parameters.
+func TestParse_ErrStateDuplicate(t *testing.T) {
+	_, err := parse(t, "err_state_duplicate")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateDuplicate)
+}
+
+// TestParse_ErrStateIDParamNotString covers a stateID parameter
+// of another type.
+func TestParse_ErrStateIDParamNotString(t *testing.T) {
+	_, err := parse(t, "err_state_id_not_string")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateIDParamNotString)
+}
+
+// TestParse_ErrStateIDWithoutState covers stateID on a handler that takes
+// no state.
+// The parameter names the tab whose state the handler acts on,
+// and without one there is no tab to name.
+func TestParse_ErrStateIDWithoutState(t *testing.T) {
+	_, err := parse(t, "err_state_id_without_state")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateIDWithoutState)
+}
+
+// TestParse_StateActionOnly covers a stateful page whose only handler is
+// an action.
 // State alone anchors the lifecycle: the page needs no StreamOpen,
 // StreamClose or OnXXX handler of its own.
 func TestParse_StateActionOnly(t *testing.T) {

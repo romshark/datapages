@@ -179,6 +179,21 @@ func TestShortHMACKey(t *testing.T) {
 		"the refusal does not name what is wrong")
 }
 
+// TestMissingStateConfig covers a stateful app built without WithStateConfig.
+// The state runtime has no key to sign an instance id with,
+// which the server says at construction rather than on the first page load.
+func TestMissingStateConfig(t *testing.T) {
+	_, err := datapages.NewServer[
+		app.App,
+		datapages.DisableSessions,
+		datapages.DisablePrometheus,
+		datapagesgen.Server,
+	](&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer))
+	require.Error(t, err, "a stateful app was built without a state config")
+	require.Contains(t, err.Error(), "WithStateConfig",
+		"the refusal does not name the option that is missing")
+}
+
 // TestForgedInstanceID covers an id the server never signed.
 func TestForgedInstanceID(t *testing.T) {
 	c := newClient(t)

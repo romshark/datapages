@@ -8,6 +8,9 @@ import (
 
 type App struct{}
 
+// StateIndex is named like a state type but is not a struct.
+type StateIndex int
+
 // PageIndex is /
 type PageIndex struct{ App *App }
 
@@ -18,11 +21,7 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 // POSTBad is /bad
 func (PageIndex) POSTBad(
 	r *http.Request,
-	// The type argument must be a named type, unlike the anonymous structs
-	// datapages.Query, Signals and Path accept: the generator derives the
-	// slot and instance-store symbols from the name.
-	state datapages.State[struct{ Filter string }],
+	state datapages.State[StateIndex],
 ) error {
-	state.Values.Filter = "all"
 	return nil
 }

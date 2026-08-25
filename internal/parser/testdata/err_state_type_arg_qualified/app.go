@@ -2,6 +2,7 @@ package app
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/romshark/datapages"
 )
@@ -18,11 +19,9 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 // POSTBad is /bad
 func (PageIndex) POSTBad(
 	r *http.Request,
-	// The type argument must be a named type, unlike the anonymous structs
-	// datapages.Query, Signals and Path accept: the generator derives the
-	// slot and instance-store symbols from the name.
-	state datapages.State[struct{ Filter string }],
+	// The type argument must name a type of the app package.
+	// A qualified name from another package is not one.
+	state datapages.State[time.Time],
 ) error {
-	state.Values.Filter = "all"
 	return nil
 }
