@@ -515,6 +515,19 @@ func TestParse_ErrRouteDuplicateAction(t *testing.T) {
 	)
 }
 
+// TestParse_ErrFieldTypeUnexported covers a path, query and signals field of
+// an unexported type. The generated package renders the type qualified by the
+// app package, where an unexported name is out of reach.
+func TestParse_ErrFieldTypeUnexported(t *testing.T) {
+	_, err := parse(t, "err_unexported_type")
+
+	requireParseErrors(t, err,
+		parser.ErrFieldTypeUnexported,
+		parser.ErrFieldTypeUnexported,
+		parser.ErrFieldTypeUnexported,
+	)
+}
+
 // TestParse_ErrAppUnsupportedMethod covers the page methods declared on App,
 // where the framework calls none of them.
 // An ordinary method of the application is left alone.

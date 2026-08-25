@@ -472,6 +472,7 @@ func Suggest(err error) string {
 //   - ErrEvHandDuplicateEmbed         — message identifies the conflicting embeds
 //   - ErrEventFieldUnexported         — fix is obvious: capitalize the field name
 //   - ErrEventFieldDuplicateTag       — message names the duplicate value
+//   - ErrFieldTypeUnexported          — fix is obvious: export the type
 //   - ErrPathParamNotStruct           — type constraint is clear from message
 //   - ErrPathFieldUnexported          — fix is obvious: capitalize the field name
 //   - ErrPathFieldDuplicateTag        — message names the duplicate value
