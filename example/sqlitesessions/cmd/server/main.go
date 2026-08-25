@@ -75,6 +75,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	go collectExpiredSessions(ctx, sessionStore)
+
 	a := app.NewApp(userStore)
 	s, err := datapages.NewServer[
 		app.App,
@@ -84,7 +86,7 @@ func main() {
 	](
 		a,
 		inmem.New(0),
-		datapages.WithSessionManager[app.SessionData](sessionStore),
+		datapages.WithSessionManager(sessionStore),
 		datapages.WithSessions(datapages.SessionsConfig{}),
 		datapages.WithMiddleware(accessLog()),
 	)
@@ -102,8 +104,30 @@ func main() {
 	}
 }
 
-// resolveSqinnPath honors SQINN_PATH, otherwise uses the prebuilt
-// binary shipped with sqinn-go v2.
+// collectExpiredSessions deletes expired sessions every hour until ctx is canceled.
+// The framework never does it: reading a session reclaims only the
+// ones a client comes back to, an abandoned one is never read again.
+// The interval, and which process runs this at all, is the application's call.
+func collectExpiredSessions(ctx context.Context, store *sessionstore.Store) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			n, err := store.DeleteExpired(ctx)
+			if err != nil {
+				slog.Error("deleting expired sessions", slog.Any("err", err))
+				continue
+			}
+			slog.Info("deleted expired sessions", slog.Int("count", n))
+		}
+	}
+}
+
+// resolveSqinnPath honors SQINN_PATH,
+// otherwise uses the prebuilt binary shipped with sqinn-go v2.
 func resolveSqinnPath() string {
 	if p := os.Getenv("SQINN_PATH"); p != "" {
 		return p

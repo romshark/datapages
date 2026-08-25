@@ -793,6 +793,27 @@ import "github.com/romshark/datapages/modules/sessions/natskv"
 
 An in-memory session manager (`github.com/romshark/datapages/modules/sessions/inmem`) exists but should only be used in single-instance setups where losing sessions on restart is acceptable. Prefer NATS KV in most cases.
 
+Schedule `DeleteExpired` yourself. Reading a session reclaims only the ones a
+client comes back to, an abandoned one is never read again and stays in the store.
+The framework never calls it:
+
+```go
+go func() {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if _, err := sessionManager.DeleteExpired(ctx); err != nil {
+				slog.Error("deleting expired sessions", slog.Any("err", err))
+			}
+		}
+	}
+}()
+```
+
 ### Server Options
 
 Pass options to `NewServer` to configure middleware, CSRF protection, static files, TLS, etc.:
@@ -815,7 +836,9 @@ opts = append(opts, datapages.WithCSRFProtection(datapages.CSRFConfig{
 	Tokens: myTokens,
 }))
 
-// Authentication (required when Session type is defined)
+// Authentication (required when Session type is defined).
+// The session cookie carries Secure. Set DisableSecureCookie only for a
+// deployment that is plain HTTP without TLS end to end, where the browser would drop it.
 opts = append(opts, datapages.WithSessions(datapages.SessionsConfig{}))
 
 // Custom logger (consider slog.LevelDebug when datapages.IsDevMode() is true)

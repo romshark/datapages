@@ -18,7 +18,6 @@ import (
 type testServer struct{}
 
 func (testServer) Logger() *slog.Logger { return slog.Default() }
-func (testServer) TLSEnabled() bool     { return false }
 
 func newManager(t *testing.T) (
 	*auth.Manager[struct{}], *inmem.SessionManager[struct{}],
@@ -39,6 +38,34 @@ func get(m *auth.Manager[struct{}], token string) (
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.AddCookie(&http.Cookie{Name: m.CookieName(), Value: token})
 	return httptest.NewRecorder(), r
+}
+
+// TestSecureCookie covers the Secure flag of the session cookie, which is set
+// however this process is reached: TLS is as likely to end at a proxy in front of it.
+func TestSecureCookie(t *testing.T) {
+	for name, disable := range map[string]bool{
+		"default":  false,
+		"disabled": true,
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := inmem.New[struct{}](sessions.DefaultTokenGenerator{
+				Length: sessions.DefaultTokenLen,
+			})
+			m := auth.NewManager(testServer{}, store,
+				datapages.ServerConfig{
+					Sessions: datapages.SessionsConfig{
+						DisableSecureCookie: disable,
+					},
+				}, nil)
+
+			w := httptest.NewRecorder()
+			m.SetSessionCookie(w, "tok")
+
+			cookies := w.Result().Cookies()
+			require.Len(t, cookies, 1)
+			require.Equal(t, !disable, cookies[0].Secure)
+		})
+	}
 }
 
 // TestReadSessionDropsAnExpiredSession covers what reading an expired session

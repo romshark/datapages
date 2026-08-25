@@ -467,6 +467,28 @@ and is the source of truth. It is also rendered on
 A client whose `ExpiresAt()` has passed is treated as unauthenticated and its
 session cookie is removed, the zero value never expires.
 
+Expiry that way reclaims only the sessions a client comes back to: the read is
+what notices one and drops it. An abandoned session is never read again.
+Every session manager implements `DeleteExpired`, which the Datapages never calls.
+The application developer decides when and how often to garbage collect.
+
+```go
+go func() {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if _, err := sessionManager.DeleteExpired(ctx); err != nil {
+				slog.Error("deleting expired sessions", slog.Any("err", err))
+			}
+		}
+	}
+}()
+```
+
 All handlers of an application must use the same `Data` type, since the server
 holds a single session manager. Declaring an alias keeps the signatures short:
 

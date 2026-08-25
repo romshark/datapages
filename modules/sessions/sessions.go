@@ -75,6 +75,9 @@ type CloseNotifier interface {
 type ExpiredDeleter interface {
 	// DeleteExpired deletes every session whose ExpiresAt has passed and
 	// returns how many it deleted. One that never expires is left alone.
+	//
+	// The server never calls it. When to collect, how often and which
+	// replica does it is the application's to schedule.
 	DeleteExpired(ctx context.Context) (deleted int, err error)
 }
 

@@ -31,8 +31,6 @@ type Metrics interface {
 // Server is what the manager needs of the server it belongs to.
 type Server interface {
 	Logger() *slog.Logger
-	// TLSEnabled reports whether the session cookie may carry the Secure flag.
-	TLSEnabled() bool
 }
 
 // Manager reads and writes the session of a request.
@@ -246,7 +244,7 @@ func (m *Manager[Data]) SetSessionCookie(w http.ResponseWriter, value string) {
 		Path:     "/",
 		Domain:   m.conf.Cookie.Domain,
 		HttpOnly: !m.conf.DisableHTTPOnly,
-		Secure:   m.server.TLSEnabled(),
+		Secure:   !m.conf.DisableSecureCookie,
 		SameSite: http.SameSiteLaxMode,
 	}
 	if value == "" {
