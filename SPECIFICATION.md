@@ -506,10 +506,12 @@ from one weak passphrase pass the same check. Datapages tags each value it
 derives from the key, which keeps its own two derivations apart. It cannot do
 that for a subsystem that shares the key.
 
-`MaxConcurrentInstances` caps how many instances exist at the same time,
-across all state types. A page load plus an SSE connect creates one, which
-anyone who reaches the server can ask for. One client holds no more of them
-than it holds open streams. Size the cap by the memory one state value costs.
+`MaxConcurrentInstances` caps how many instances the server holds at the same
+time, across all state types. The budget belongs to the server it is configured
+on: two servers built in one process count and cap their instances independently.
+A page load plus an SSE connect creates one, which anyone who reaches
+the server can ask for. One client holds no more of them than it holds open streams.
+Size the cap by the memory one state value costs.
 Zero selects `DefaultMaxConcurrentInstances`. A negative value removes the cap,
 which leaves what per-tab state may take bounded by nothing this server knows
 about: bound it elsewhere, by capping the connections one client may hold.

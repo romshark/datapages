@@ -6,7 +6,7 @@ import (
 
 // stateSuffix is the suffix used to form per-page state symbol names.
 // Since state types may carry any exported name, the full type name is
-// used verbatim — e.g. "StateIndex" gives "allocateStateIndex" and
+// used verbatim: "StateIndex" gives "allocateStateIndex" and
 // "TabContext" gives "allocateTabContext".
 func stateSuffix(st *model.StateType) string {
 	return st.TypeName
@@ -119,9 +119,9 @@ func (w *Writer) writeVerifyInstanceIDHeader() {
 // The stream request commits its status line before the open hook runs,
 // which leaves this as the last point where a full server can say so.
 // An id that already names a live instance skips the check.
-// stateReserveInstance is what holds the bound in every case.
+// Core.ReserveStateInstance is what holds the bound in every case.
 func (w *Writer) writeStateCapacityCheck(st *model.StateType) {
-	w.Linef(1, "if _, live := s.lookup%s(instanceID); !live && !s.stateHasCapacity() {",
+	w.Linef(1, "if _, live := s.lookup%s(instanceID); !live && !s.HasStateCapacity() {",
 		stateSuffix(st))
 	w.Line(2, `w.Header().Set("Retry-After", "5")`)
 	w.Line(2, "http.Error(w,")
@@ -187,6 +187,12 @@ func stateMapName(st *model.StateType) string {
 	return "stateInstances" + st.TypeName
 }
 
+// stateStoreTypeRef returns the instantiated store type held by the Server field
+// that stateMapName names.
+func stateStoreTypeRef(st *model.StateType) string {
+	return "stateStore[" + stateSlotTypeName(st) + "]"
+}
+
 // pageStateSlotTypeName returns the slot type name for the page's bound state.
 // The page must have State != nil.
 func pageStateSlotTypeName(p *model.Page) string {
@@ -221,10 +227,13 @@ func boundStateTypes(m *model.App) []*model.StateType {
 
 // writeStateRuntime emits the server-side state runtime:
 //
-//   - The sharded instance store, shared by all state types
-//   - Per state type: slot type + store of live instances
+//   - The sharded instance store type, instantiated per state type
+//   - Per state type: slot type + allocate/lookup/release methods
 //   - HMAC sign/verify helpers for Datapages-Instance header
 //   - Mint/lookup/release/reconnect helpers
+//
+// The stores themselves and the live-instance counter are fields on Server,
+// written by writeAppServerStruct.
 //
 // This runtime is only emitted when at least one page declares a state type.
 func (w *Writer) writeStateRuntime(m *model.App, appPkg string) {
@@ -245,8 +254,8 @@ func (w *Writer) writeStateRuntime(m *model.App, appPkg string) {
 func (w *Writer) writeStateStoreType() {
 	w.Raw(`
 // stateStoreShards is how many independent maps a stateStore spreads its keys over.
-// Instance ids are random, so they distribute evenly,
-// and each shard carries its own lock.
+// Instance ids are random, which distributes them evenly.
+// Each shard carries its own lock.
 const stateStoreShards = 32
 
 // stateStoreSeed randomizes shard selection per process.
@@ -391,52 +400,11 @@ func (s *Server) stateRouteKey(id string) string {
 	mac.Write([]byte(id))
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)[:16])
 }
-
-// stateLiveInstances counts the instances of every state type.
-// Memory is shared between them,
-// and so is the budget in datapages.StateConfig.MaxConcurrentInstances.
-var stateLiveInstances atomic.Int64
-
-// stateNoInstanceLimit is what a negative MaxConcurrentInstances means:
-// no budget at all. The counter is still kept, since releases decrement it
-// unconditionally and a configuration is free to change between processes.
-func (s *Server) stateNoInstanceLimit() bool {
-	return s.stateConf.MaxConcurrentInstances < 0
-}
-
-// stateReserveInstance takes one slot out of the budget. It reports false
-// when the server is full, which fails the stream open that asked for it.
-// An unlimited server serves every caller.
-func (s *Server) stateReserveInstance() bool {
-	n := stateLiveInstances.Add(1)
-	if s.stateNoInstanceLimit() {
-		return true
-	}
-	if n > int64(s.stateConf.MaxConcurrentInstances) {
-		stateLiveInstances.Add(-1)
-		return false
-	}
-	return true
-}
-
-// stateHasCapacity reports whether the budget has room right now.
-// It is a look, not a claim, and callers use it before a stream commits its status line.
-// stateReserveInstance is what actually holds the bound.
-func (s *Server) stateHasCapacity() bool {
-	if s.stateNoInstanceLimit() {
-		return true
-	}
-	return stateLiveInstances.Load() < int64(s.stateConf.MaxConcurrentInstances)
-}
-
-// errStateAtCapacity fails a stream open that finds no free instance.
-var errStateAtCapacity = errors.New("state instance limit reached")
 `)
 }
 
 func (w *Writer) writeStateSlot(st *model.StateType, appPkg string) {
 	slot := stateSlotTypeName(st)
-	instances := stateMapName(st)
 	stateType := st.TypeName
 
 	w.Raw("\n")
@@ -449,10 +417,6 @@ func (w *Writer) writeStateSlot(st *model.StateType, appPkg string) {
 	w.Line(1, "mu    sync.Mutex // serializes all stateful handler calls on this instance")
 	w.Line(1, "dead  bool       // true once the stream closed and the state was dropped")
 	w.Line(0, "}")
-
-	w.Raw("\n")
-	w.Linef(0, "// %s maps a verified Datapages-Instance id to the live slot.", instances)
-	w.Linef(0, "var %s stateStore[%s]", instances, slot)
 
 	w.writeStateMethods(st, appPkg)
 }
@@ -475,11 +439,11 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	w.Line(0, "// Returns the slot so callers (StreamOpen) can pass the state to the user,")
 	w.Line(0, "// or nil when the server holds as many instances as it may.")
 	w.Linef(0, "func (s *Server) allocate%s(id string) *%s {", suffix, slot)
-	w.Line(1, "if !s.stateReserveInstance() {")
+	w.Line(1, "if !s.ReserveStateInstance() {")
 	w.Line(2, "return nil")
 	w.Line(1, "}")
 	w.Linef(1, "slot := &%s{state: new(%s.%s)}", slot, appPkg, stateType)
-	w.Linef(1, "%s.Store(id, slot)", instances)
+	w.Linef(1, "s.%s.Store(id, slot)", instances)
 	w.Line(1, "return slot")
 	w.Line(0, "}")
 
@@ -488,7 +452,7 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	w.Line(0, "// when no live instance matches. The id is not HMAC-verified here;")
 	w.Line(0, "// call verifyStateInstanceID first.")
 	w.Linef(0, "func (s *Server) lookup%s(id string) (*%s, bool) {", suffix, slot)
-	w.Linef(1, "return %s.Load(id)", instances)
+	w.Linef(1, "return s.%s.Load(id)", instances)
 	w.Line(0, "}")
 
 	w.Raw("\n")
@@ -513,7 +477,7 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	w.Line(1, "slot.mu.Unlock()")
 	w.Line(1, "// A stream can allocate a fresh slot under this id while this")
 	w.Line(1, "// one is on its way out. Drop only the slot this call owns.")
-	w.Linef(1, "%s.CompareAndDelete(id, slot)", instances)
-	w.Line(1, "stateLiveInstances.Add(-1)")
+	w.Linef(1, "s.%s.CompareAndDelete(id, slot)", instances)
+	w.Line(1, "s.ReleaseStateInstance()")
 	w.Line(0, "}")
 }

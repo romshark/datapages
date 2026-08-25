@@ -351,9 +351,12 @@ type StateConfig struct {
 	// across subsystems makes the security of each of them the security of all.
 	HMACKey []byte
 
-	// MaxConcurrentInstances caps how many instances exist at the same time,
+	// MaxConcurrentInstances caps how many instances this server holds at the same time,
 	// across all state types. An instance lives exactly as long as its stream.
 	// A stream open beyond the cap is answered 503 with Retry-After.
+	//
+	// The budget belongs to the server it is configured on.
+	// Two servers built in one process count and cap their instances independently.
 	//
 	// Zero selects [DefaultMaxConcurrentInstances]. A negative value removes the cap.
 	MaxConcurrentInstances int
@@ -374,7 +377,8 @@ func WithStateConfig(conf StateConfig) ServerOption {
 		if len(conf.HMACKey) < StateHMACKeyMinLen {
 			return fmt.Errorf(
 				"WithStateConfig: HMACKey must be at least %d bytes, got %d",
-				StateHMACKeyMinLen, len(conf.HMACKey))
+				StateHMACKeyMinLen, len(conf.HMACKey),
+			)
 		}
 		if conf.MaxConcurrentInstances == 0 {
 			conf.MaxConcurrentInstances = DefaultMaxConcurrentInstances

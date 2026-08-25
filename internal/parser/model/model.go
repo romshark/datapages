@@ -124,9 +124,7 @@ type AbstractPage struct {
 	Embeds        []*AbstractPage
 
 	// State is the state type referenced by any stateful handler on
-	// this abstract page. Nullable. Not meaningful when the handler's
-	// state parameter references a type parameter — the concrete
-	// binding is resolved at each embed site during flattening.
+	// this abstract page. Nullable.
 	State *StateType
 }
 
@@ -328,9 +326,9 @@ func (e *Event) HasSubjectUser() bool {
 
 // HasSubjectStateID reports whether the event has a datapages.SubjectStateID
 // subject field. Like SubjectUser, SubjectStateID is resolved on the server
-// side at stream connect — it uses the HMAC-validated Datapages-Instance
-// header of the connecting tab, so only the tab whose state-id matches the
-// dispatched value receives the event.
+// side at stream connect from the HMAC-validated Datapages-Instance header
+// of the connecting tab. Only the tab whose state-id matches the dispatched
+// value receives the event.
 func (e *Event) HasSubjectStateID() bool {
 	for _, sf := range e.SubjectFields {
 		if sf.Kind.IsStateID() {
@@ -364,6 +362,6 @@ func (e *Event) IsSignalScoped() bool { return e.HasSignalSubjectFields() }
 // IsStateIDScoped reports whether the event uses state-id-based
 // subject routing (has a SubjectStateID field). At stream connect
 // the server uses the validated Datapages-Instance header as the
-// subject segment, so the event is delivered only to the tab whose
+// subject segment, which delivers the event only to the tab whose
 // state-id matches the dispatched value.
 func (e *Event) IsStateIDScoped() bool { return e.HasSubjectStateID() }

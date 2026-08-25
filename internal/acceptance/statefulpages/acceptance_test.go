@@ -201,100 +201,131 @@ func TestForgedInstanceID(t *testing.T) {
 	require.Equal(t, http.StatusConflict, postUpdate(t, c, "AAAA~BBBB", "x").Status)
 }
 
+// capServer starts a server whose state budget is cap.
+func capServer(t *testing.T, cap int) *httptest.Server {
+	t.Helper()
+	key := sha256.Sum256([]byte("acceptance"))
+	srv := httptest.NewServer(mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithStateConfig(datapages.StateConfig{
+			HMACKey:                key[:],
+			MaxConcurrentInstances: cap,
+		})))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// openInstance loads the page of srv and opens the stream of the id it mints.
+// The stream stays open until ctx is cancelled, which is what holds the
+// instance the caller is counting.
+func openInstance(t *testing.T, ctx context.Context, srv *httptest.Server) int {
+	t.Helper()
+
+	page, err := srv.Client().Get(srv.URL + "/")
+	require.NoError(t, err, "GET /")
+	_ = page.Body.Close()
+	id := page.Header.Get("Datapages-Instance")
+	require.NotEmpty(t, id, "GET / mints no instance id")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+pathStream, nil)
+	require.NoError(t, err, "building stream request")
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Datapages-Instance", id)
+
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err, "opening stream")
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		require.NotEmpty(t, resp.Header.Get("Retry-After"),
+			"a refused stream does not say when to come back")
+	}
+	return resp.StatusCode
+}
+
 // TestInstanceCap covers MaxConcurrentInstances: a stream opened past the cap
 // is refused with a status and a Retry-After the client can act on.
 //
-// The count is process-wide, so the test opens streams until one is refused
-// rather than predicting which one that is.
+// The count belongs to the server, which is what makes the refusal fall on a
+// stream the test can name rather than on whichever one crosses a shared total.
 func TestInstanceCap(t *testing.T) {
-	const capacity = 40
+	const capacity = 3
 
-	key := sha256.Sum256([]byte("acceptance"))
-	srv := httptest.NewServer(mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithStateConfig(datapages.StateConfig{
-			HMACKey:                key[:],
-			MaxConcurrentInstances: capacity,
-		})))
-	t.Cleanup(srv.Close)
+	srv := capServer(t, capacity)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	for i := range capacity {
+		require.Equal(t, http.StatusOK, openInstance(t, ctx, srv),
+			"stream %d of %d the server may hold", i, capacity)
+	}
+	require.Equal(t, http.StatusServiceUnavailable, openInstance(t, ctx, srv),
+		"the stream past the cap was served instead of refused")
+}
+
+// TestInstanceCapIsPerServer covers two servers built from one generated
+// package in one process. Each holds its own counter and its own instance store,
+// which is what keeps one server's budget and state its own.
+//
+// Both are given the same HMACKey, the case where an id minted by one is
+// well-formed to the other. Sharing a counter would let a full server A refuse
+// every stream of an empty server B; sharing a store would let B serve A's tab.
+func TestInstanceCapIsPerServer(t *testing.T) {
+	a, b := capServer(t, 1), capServer(t, 1)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	var refused *http.Response
-	for i := 0; i < capacity+5 && refused == nil; i++ {
-		resp, err := srv.Client().Get(srv.URL + "/")
-		require.NoError(t, err, "GET /")
-		_ = resp.Body.Close()
-		id := resp.Header.Get("Datapages-Instance")
-		require.NotEmpty(t, id, "GET / mints no instance id")
+	require.Equal(t, http.StatusOK, openInstance(t, ctx, a),
+		"the only instance server A may hold")
+	require.Equal(t, http.StatusServiceUnavailable, openInstance(t, ctx, a),
+		"a second instance on a server that may hold one")
 
-		req, err := http.NewRequestWithContext(
-			ctx, http.MethodGet, srv.URL+pathStream, nil,
-		)
-		require.NoError(t, err, "building stream request")
-		req.Header.Set("Datastar-Request", "true")
-		req.Header.Set("Datapages-Instance", id)
+	require.Equal(t, http.StatusOK, openInstance(t, ctx, b),
+		"server B refuses its first stream while server A is full")
+}
 
-		streamResp, err := srv.Client().Do(req)
-		require.NoError(t, err, "opening stream %d", i)
-		switch streamResp.StatusCode {
-		case http.StatusOK:
-			t.Cleanup(func() { _ = streamResp.Body.Close() })
-		case http.StatusServiceUnavailable:
-			refused = streamResp
-		default:
-			_ = streamResp.Body.Close()
-			t.Fatalf("opening stream %d: status %d", i, streamResp.StatusCode)
-		}
-	}
+// TestInstanceIDIsNotSharedBetweenServers covers an id minted by one server and
+// presented to another built from the same package with the same HMACKey.
+//
+// The signature verifies on both, since the key is what it is checked against.
+// The instance behind it belongs to the server that minted it,
+// and the other answers the reconnect it answers any id it holds no state for.
+func TestInstanceIDIsNotSharedBetweenServers(t *testing.T) {
+	key := sha256.Sum256([]byte("acceptance"))
+	conf := datapages.WithStateConfig(datapages.StateConfig{HMACKey: key[:]})
+	broker := func() messaging.Broker { return inmem.New(messaging.DefaultBrokerChanBuffer) }
 
-	require.NotNil(t, refused, "streams past the cap were served instead of refused")
-	defer func() { _ = refused.Body.Close() }()
-	require.NotEmpty(t, refused.Header.Get("Retry-After"),
-		"a refused stream does not say when to come back")
+	a := client.New(t, mustNewServer(t, &app.App{}, broker(), conf))
+	b := client.New(t, mustNewServer(t, &app.App{}, broker(), conf))
+
+	tab := a.OpenTab(t, "/", pathStream)
+	require.Equal(t, http.StatusOK, update(t, tab, "on-a").Status,
+		"the action on the server that minted the id")
+
+	resp := postUpdate(t, b, tab.InstanceID(), "on-b")
+	require.Equal(t, http.StatusConflict, resp.Status,
+		"the other server served a tab it never opened")
+	require.Equal(t, "reconnect", resp.Retry())
+
+	require.True(t, tab.Never("filter:on-b"),
+		"the action sent to the other server reached this tab's state")
 }
 
 // TestInstanceCapDisabled covers a negative MaxConcurrentInstances,
 // which removes the cap.
 //
-// The count of live instances is process-wide and this server ignores it.
-// The check the cap performs compares that count against the configured one,
-// which a negative value inverts: read literally, a server that may hold fewer
-// than zero instances refuses the first stream and every stream after it.
-// Opening more streams than the smallest cap would allow is what tells the two
-// apart, since a cap of any size would have refused one of them by now.
+// The check the cap performs compares the live count against the configured one,
+// which a negative value inverts: read literally, a server that may hold
+// fewer than zero instances refuses the first stream and every stream after it.
 func TestInstanceCapDisabled(t *testing.T) {
 	const streams = 8
 
-	key := sha256.Sum256([]byte("acceptance"))
-	srv := httptest.NewServer(mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithStateConfig(datapages.StateConfig{
-			HMACKey:                key[:],
-			MaxConcurrentInstances: -1,
-		})))
-	t.Cleanup(srv.Close)
-
+	srv := capServer(t, -1)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
 	for i := range streams {
-		resp, err := srv.Client().Get(srv.URL + "/")
-		require.NoError(t, err, "GET /")
-		_ = resp.Body.Close()
-		id := resp.Header.Get("Datapages-Instance")
-		require.NotEmpty(t, id, "GET / mints no instance id")
-
-		req, err := http.NewRequestWithContext(
-			ctx, http.MethodGet, srv.URL+pathStream, nil,
-		)
-		require.NoError(t, err, "building stream request")
-		req.Header.Set("Datastar-Request", "true")
-		req.Header.Set("Datapages-Instance", id)
-
-		streamResp, err := srv.Client().Do(req)
-		require.NoError(t, err, "opening stream %d", i)
-		t.Cleanup(func() { _ = streamResp.Body.Close() })
-		require.Equal(t, http.StatusOK, streamResp.StatusCode,
+		require.Equal(t, http.StatusOK, openInstance(t, ctx, srv),
 			"stream %d of a server configured to hold as many as it is asked for", i)
 	}
 }
@@ -304,18 +335,17 @@ func TestInstanceCapDisabled(t *testing.T) {
 //
 // The close hook that gives an instance back is wired up only once the open
 // hook has succeeded, which leaves an open that fails to release what it took
-// by itself. An instance it kept instead would be held for the life of the
-// process, and enough of those leave no tab of any stateful page able to open
-// a stream again.
-// The instance count is process-wide, which leaves the capacity of a single
-// server no way to observe one instance. What a released instance does show is this:
-// the id that named it stops being answered. The count drops in the same place the
-// id is dropped. An id the server still answers is an instance it still holds.
+// by itself. An instance it kept instead would be held for the life of the process,
+// and enough of those leave no tab of any stateful page able to open a stream again.
+// The server holds a budget of one, which is what makes the release observable:
+// a second stream is served only if the first gave its instance back.
+// The id that named it stops being answered in the same place, and both are asserted.
 func TestFailedOpenReleasesInstance(t *testing.T) {
 	key := sha256.Sum256([]byte("acceptance"))
 	c := client.New(t, mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
 		datapages.WithStateConfig(datapages.StateConfig{
-			HMACKey: key[:],
+			HMACKey:                key[:],
+			MaxConcurrentInstances: 1,
 		})))
 
 	page := c.Get(t, pathFailOpen)
@@ -340,8 +370,9 @@ func TestFailedOpenReleasesInstance(t *testing.T) {
 		"the close hook that gives one back is wired up only for an open that "+
 		"succeeded, and nothing else releases it")
 
-	// Nothing else was disturbed:
-	// a page whose open succeeds still opens and still holds state.
+	// Nothing else was disturbed: a page whose open succeeds still opens and
+	// still holds state. It is also the only instance this server may hold,
+	// which a failed open that kept its own would have spent.
 	tab := c.OpenTab(t, "/", pathStream)
 	require.Equal(t, http.StatusOK, update(t, tab, "after-failure").Status)
 	require.True(t, tab.Saw("deliveries:1 filter:after-failure"),

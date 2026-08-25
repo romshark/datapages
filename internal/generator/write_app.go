@@ -41,7 +41,7 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	if w.usage.stream {
 		w.writeAppHandleStreamRequest()
 	}
-	w.writeAppServerStruct(appPkg)
+	w.writeAppServerStruct(m, appPkg)
 	w.writeAppInit(appPkg)
 	w.writeEventSubjectConsts(m.Events)
 	w.writeMessageBrokerStreamSubjects(m.Events)
@@ -131,7 +131,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"strconv"`)
 	w.Line(1, `"strings"`)
 	w.Line(1, `"sync"`)
-	if w.usage.stream {
+	if w.usage.stream || w.usage.stateRuntime {
 		w.Line(1, `"sync/atomic"`)
 	}
 	w.Line(1, `"time"`)
@@ -290,7 +290,7 @@ func (s *Server) handleStreamRequest(
 `)
 }
 
-func (w *Writer) writeAppServerStruct(appPkg string) {
+func (w *Writer) writeAppServerStruct(m *model.App, appPkg string) {
 	w.Raw(`
 type Server struct {
 	*httpserve.Core
@@ -314,7 +314,15 @@ type Server struct {
 	}
 	if w.usage.stateRuntime {
 		w.Raw(`
-	stateConf             *datapages.StateConfig`)
+	stateConf             *datapages.StateConfig
+`)
+		for _, st := range boundStateTypes(m) {
+			w.Raw("\n")
+			w.Linef(1,
+				"// %s maps a verified Datapages-Instance id to the live slot.",
+				stateMapName(st))
+			w.Linef(1, "%s %s", stateMapName(st), stateStoreTypeRef(st))
+		}
 	}
 	w.Raw(`
 }
@@ -600,7 +608,7 @@ func (w *Writer) writeEvSubjPageFuncs(pages []*model.Page) {
 		signalFields := pageSignalSubjectFields(p, w.eventMap)
 
 		// State-id-scoped events cannot mix with private/signal-scoped
-		// (enforced by the parser), so a simple dedicated builder suffices.
+		// (enforced by the parser), which a dedicated builder is enough for.
 		if hasStateIDScoped {
 			w.writeEvSubjStateIDFunc(p, name, hasPublic)
 			continue
@@ -1244,7 +1252,7 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	w.Line(0, "")
 
 	// Call GET.
-	w.writeGETCall(p, m, appPkg, "render404")
+	w.writeGETCall(p, m, "render404")
 
 	w.Line(0, "}")
 }
@@ -1694,9 +1702,7 @@ func actionOwnerName(p *model.Page, isAppLevel bool) string {
 }
 
 // writeGETCall generates the GET method call and HTML rendering for a page.
-func (w *Writer) writeGETCall(
-	p *model.Page, m *model.App, appPkg string, context string,
-) {
+func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	if p.GET == nil || p.GET.OutputBody == nil {
 		return
 	}

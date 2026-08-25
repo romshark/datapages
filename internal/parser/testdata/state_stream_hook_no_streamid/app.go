@@ -2,7 +2,7 @@
 //
 // A stream hook needs a handle on the stream it is about.
 // datapages.StreamID names the stream and datapages.State[T] is the value
-// that belongs to it, so either one on its own is enough.
+// that belongs to it. Either one on its own is enough.
 package app
 
 import (

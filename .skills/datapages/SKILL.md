@@ -722,9 +722,11 @@ opts = append(opts, datapages.WithStateConfig(datapages.StateConfig{
 ```
 
 `NewServer` returns an error without this option. `MaxConcurrentInstances` caps how
-many instances exist at the same time. A stream connect past the cap gets
-`503` and Datastar retries it. Zero selects
+many instances the server holds at the same time. A stream connect past the cap
+gets `503` and Datastar retries it. Zero selects
 `DefaultMaxConcurrentInstances` and a negative value removes the cap.
+Each server counts and caps its own instances, so two servers in one process
+share neither the budget nor the state behind it.
 
 **Multi-server deployments**. State lives in process memory, so the load
 balancer must route each client consistently to the same backend (cookie

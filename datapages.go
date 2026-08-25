@@ -460,9 +460,8 @@ type SubjectUser string
 
 // SubjectStateID is a subject segment carrying the state ID of the tab
 // the event is addressed to. It is resolved on the server side at stream
-// connect from the HMAC-validated Datapages-Instance header of the
-// connecting tab, so only the tab whose state ID matches the dispatched
-// value receives the event.
+// connect from the HMAC-validated Datapages-Instance header of the connecting tab.
+// Only the tab whose state ID matches the dispatched value receives the event.
 //
 //	// EventFiltersUpdated is "filters.updated"
 //	type EventFiltersUpdated struct {

@@ -207,3 +207,63 @@ func mustCore(
 	require.NoError(t, err)
 	return c
 }
+
+// TestStateBudget covers the per-instance budget the state runtime reserves against.
+// The counter lives on the core,
+// which leaves two servers in one process holding one each.
+func TestStateBudget(t *testing.T) {
+	for name, tc := range map[string]struct {
+		max int
+	}{
+		"one":  {max: 1},
+		"few":  {max: 3},
+		"many": {max: 64},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := mustCore(t, datapages.ServerConfig{
+				State: &datapages.StateConfig{MaxConcurrentInstances: tc.max},
+			}, "")
+
+			for i := range tc.max {
+				require.True(t, c.HasStateCapacity(), "no room reported at %d", i)
+				require.True(t, c.ReserveStateInstance(), "refused at %d", i)
+			}
+
+			require.False(t, c.HasStateCapacity(), "room reported at the cap")
+			require.False(t, c.ReserveStateInstance(), "served past the cap")
+
+			// A refused reservation must not consume budget of its own.
+			c.ReleaseStateInstance()
+			require.True(t, c.HasStateCapacity(), "one release freed nothing")
+			require.True(t, c.ReserveStateInstance(), "refused after a release")
+		})
+	}
+}
+
+// TestStateBudgetUnlimited covers a negative MaxConcurrentInstances,
+// which removes the cap.
+func TestStateBudgetUnlimited(t *testing.T) {
+	c := mustCore(t, datapages.ServerConfig{
+		State: &datapages.StateConfig{MaxConcurrentInstances: -1},
+	}, "")
+	for i := range 1000 {
+		require.True(t, c.HasStateCapacity(), "no room reported at %d", i)
+		require.True(t, c.ReserveStateInstance(), "refused at %d", i)
+	}
+}
+
+// TestStateBudgetIsPerCore covers two servers in one process.
+// Each holds its own budget, which a package-level counter would not give them.
+func TestStateBudgetIsPerCore(t *testing.T) {
+	cfg := datapages.ServerConfig{
+		State: &datapages.StateConfig{MaxConcurrentInstances: 1},
+	}
+	a, b := mustCore(t, cfg, ""), mustCore(t, cfg, "")
+
+	require.True(t, a.ReserveStateInstance(),
+		"the first core refused its only instance")
+	require.False(t, a.ReserveStateInstance(),
+		"the first core served past its cap")
+	require.True(t, b.ReserveStateInstance(),
+		"the second core was spent by the first")
+}

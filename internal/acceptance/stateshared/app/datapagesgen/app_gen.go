@@ -16,7 +16,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
@@ -137,6 +136,9 @@ type Server struct {
 	app                  *app.App
 
 	stateConf *datapages.StateConfig
+
+	// stateInstancesTabContext maps a verified Datapages-Instance id to the live slot.
+	stateInstancesTabContext stateStore[stateSlotTabContext]
 }
 
 // Init wires the server. It is called by datapages.NewServer,
@@ -315,49 +317,9 @@ func (s *Server) stateRouteKey(id string) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)[:16])
 }
 
-// stateLiveInstances counts the instances of every state type.
-// Memory is shared between them,
-// and so is the budget in datapages.StateConfig.MaxConcurrentInstances.
-var stateLiveInstances atomic.Int64
-
-// stateNoInstanceLimit is what a negative MaxConcurrentInstances means:
-// no budget at all. The counter is still kept, since releases decrement it
-// unconditionally and a configuration is free to change between processes.
-func (s *Server) stateNoInstanceLimit() bool {
-	return s.stateConf.MaxConcurrentInstances < 0
-}
-
-// stateReserveInstance takes one slot out of the budget. It reports false
-// when the server is full, which fails the stream open that asked for it.
-// An unlimited server serves every caller.
-func (s *Server) stateReserveInstance() bool {
-	n := stateLiveInstances.Add(1)
-	if s.stateNoInstanceLimit() {
-		return true
-	}
-	if n > int64(s.stateConf.MaxConcurrentInstances) {
-		stateLiveInstances.Add(-1)
-		return false
-	}
-	return true
-}
-
-// stateHasCapacity reports whether the budget has room right now.
-// It is a look, not a claim, and callers use it before a stream commits its status line.
-// stateReserveInstance is what actually holds the bound.
-func (s *Server) stateHasCapacity() bool {
-	if s.stateNoInstanceLimit() {
-		return true
-	}
-	return stateLiveInstances.Load() < int64(s.stateConf.MaxConcurrentInstances)
-}
-
-// errStateAtCapacity fails a stream open that finds no free instance.
-var errStateAtCapacity = errors.New("state instance limit reached")
-
 // stateStoreShards is how many independent maps a stateStore spreads its keys over.
-// Instance ids are random, so they distribute evenly,
-// and each shard carries its own lock.
+// Instance ids are random, which distributes them evenly.
+// Each shard carries its own lock.
 const stateStoreShards = 32
 
 // stateStoreSeed randomizes shard selection per process.
@@ -429,19 +391,16 @@ type stateSlotTabContext struct {
 	dead  bool       // true once the stream closed and the state was dropped
 }
 
-// stateInstancesTabContext maps a verified Datapages-Instance id to the live slot.
-var stateInstancesTabContext stateStore[stateSlotTabContext]
-
 // allocateTabContext allocates a zeroed state value, registers it under id
 // and hands it to the SSE stream that asked for it.
 // Returns the slot so callers (StreamOpen) can pass the state to the user,
 // or nil when the server holds as many instances as it may.
 func (s *Server) allocateTabContext(id string) *stateSlotTabContext {
-	if !s.stateReserveInstance() {
+	if !s.ReserveStateInstance() {
 		return nil
 	}
 	slot := &stateSlotTabContext{state: new(app.TabContext)}
-	stateInstancesTabContext.Store(id, slot)
+	s.stateInstancesTabContext.Store(id, slot)
 	return slot
 }
 
@@ -449,7 +408,7 @@ func (s *Server) allocateTabContext(id string) *stateSlotTabContext {
 // when no live instance matches. The id is not HMAC-verified here;
 // call verifyStateInstanceID first.
 func (s *Server) lookupTabContext(id string) (*stateSlotTabContext, bool) {
-	return stateInstancesTabContext.Load(id)
+	return s.stateInstancesTabContext.Load(id)
 }
 
 // releaseTabContext drops the slot's state the moment its stream closes.
@@ -473,8 +432,8 @@ func (s *Server) releaseTabContext(id string, slot *stateSlotTabContext) {
 	slot.mu.Unlock()
 	// A stream can allocate a fresh slot under this id while this
 	// one is on its way out. Drop only the slot this call owns.
-	stateInstancesTabContext.CompareAndDelete(id, slot)
-	stateLiveInstances.Add(-1)
+	s.stateInstancesTabContext.CompareAndDelete(id, slot)
+	s.ReleaseStateInstance()
 }
 
 func setupHandlers(s *Server) {
@@ -599,7 +558,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
-	if _, live := s.lookupTabContext(instanceID); !live && !s.stateHasCapacity() {
+	if _, live := s.lookupTabContext(instanceID); !live && !s.HasStateCapacity() {
 		w.Header().Set("Retry-After", "5")
 		http.Error(w,
 			http.StatusText(http.StatusServiceUnavailable),
@@ -625,7 +584,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			// close hook run only once this hook has returned nil,
 			// which is why neither of them checks again.
 			if slot == nil {
-				return errStateAtCapacity
+				return httpserve.ErrStateAtCapacity
 			}
 			// The close hook is wired up only once this one has returned nil.
 			// An open that ends any other way gives the instance back here,
@@ -778,7 +737,7 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
-	if _, live := s.lookupTabContext(instanceID); !live && !s.stateHasCapacity() {
+	if _, live := s.lookupTabContext(instanceID); !live && !s.HasStateCapacity() {
 		w.Header().Set("Retry-After", "5")
 		http.Error(w,
 			http.StatusText(http.StatusServiceUnavailable),
@@ -804,7 +763,7 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 			// close hook run only once this hook has returned nil,
 			// which is why neither of them checks again.
 			if slot == nil {
-				return errStateAtCapacity
+				return httpserve.ErrStateAtCapacity
 			}
 			// The close hook is wired up only once this one has returned nil.
 			// An open that ends any other way gives the instance back here,

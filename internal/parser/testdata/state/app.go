@@ -31,9 +31,9 @@ type StateIndex struct {
 
 // TabContext is the per-instance state for Base.
 //
-// Note: the type name deliberately does not start with "State" — the
-// parser identifies state types by how they are used (parameter name
-// and pointer-to-struct shape), not by naming convention.
+// The type name deliberately does not start with "State": the parser
+// identifies a state type by the datapages.State[T] parameter that names it,
+// not by a naming convention.
 type TabContext struct {
 	Started bool
 }

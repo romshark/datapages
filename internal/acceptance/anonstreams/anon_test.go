@@ -91,7 +91,7 @@ func TestAnonStreamHoldsPerTabState(t *testing.T) {
 				a.Act(t, http.MethodPost, "/tabs/bump/", "").Status, "bumping")
 		}
 
-		// The event is public, so both tabs render — each from its own state.
+		// The event is public. Both tabs render, each from its own state.
 		require.True(t, a.Saw(`<div id="count">count 2</div>`),
 			"the tab that acted does not hold its own count")
 		require.True(t, b.Saw(`<div id="count">count 0</div>`),

@@ -103,8 +103,8 @@ func (PagePlain) GET(_ *http.Request) (body datapages.Component, err error) {
 // It works from a tab of any page that uses TabContext.
 //
 // The parameter is named tab rather than state: datapages.State[T] is matched
-// by its type, the way Query, Signals and Path are, so the name is the
-// application's to choose.
+// by its type, the way Query, Signals and Path are.
+// The name is the application's to choose.
 func (a *App) POSTBump(
 	_ *http.Request,
 	tab datapages.State[TabContext],

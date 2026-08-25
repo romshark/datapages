@@ -350,7 +350,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	w.Byte('\n')
 
 	// Call GET.
-	w.writeGETMethodCall(p, m, appPkg)
+	w.writeGETMethodCall(p, m)
 
 	w.Line(0, "}")
 }
@@ -392,7 +392,7 @@ func (w *Writer) writeSubjectSignalsRead(signalFields []model.SubjectField) {
 	}
 }
 
-func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) {
+func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 	h := p.GET.Handler
 
 	// Build output list in user-defined order.
@@ -1222,7 +1222,7 @@ func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 	w.Line(2, "// close hook run only once this hook has returned nil,")
 	w.Line(2, "// which is why neither of them checks again.")
 	w.Line(2, "if slot == nil {")
-	w.Line(3, "return errStateAtCapacity")
+	w.Line(3, "return httpserve.ErrStateAtCapacity")
 	w.Line(2, "}")
 	if p.StreamOpen == nil {
 		// Nothing between the allocation and the return can fail,
@@ -1441,9 +1441,9 @@ func (w *Writer) writePageGETStreamAnonHandler(
 		w.Byte('\n')
 	}
 
-	// evSubj call. The client holds no session, so the user id is empty and
-	// only public subjects come back — but a page that scopes by signals
-	// still subscribes by their values.
+	// evSubj call. The client holds no session. The user id is empty and only
+	// public subjects come back, though a page that scopes by signals still
+	// subscribes by their values.
 	w.Raw("\ts.handleStreamRequest(w, r, sessToken, sess, evSubj")
 	w.Raw(p.TypeName)
 	w.Raw("(sess.UserID()")

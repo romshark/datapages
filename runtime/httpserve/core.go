@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -59,6 +60,16 @@ type Core struct {
 	htmlHead      string
 	htmlDatastar  string
 	enabledTLS    bool
+
+	// stateConf is nil for an application whose handlers take no
+	// datapages.State[T]. The budget below is then never consulted.
+	stateConf *datapages.StateConfig
+
+	// stateLiveInstances counts the live per-page-instance states of every state type.
+	// They share the memory and the budget in
+	// datapages.StateConfig.MaxConcurrentInstances. The counter belongs to the Core,
+	// which leaves two servers in one process holding one each.
+	stateLiveInstances atomic.Int64
 }
 
 // NewCore returns a core configured by cfg, serving static files under
@@ -75,6 +86,7 @@ func NewCore(
 		assetsFS:        cfg.AssetsFS,
 		datastarJSSrc:   cfg.DatastarJS,
 		logger:          cfg.Logger,
+		stateConf:       cfg.State,
 		httpServer:      cfg.HTTPServer,
 	}
 	if c.httpServer == nil {
@@ -207,6 +219,47 @@ func (c *Core) HTMLHead() string { return c.htmlHead }
 // HTMLDatastarScript is the Datastar script tag [Core.HTMLHead] stops short of.
 // Writing the two in order produces [Core.HTMLPrefix].
 func (c *Core) HTMLDatastarScript() string { return c.htmlDatastar }
+
+// noStateInstanceLimit reports what a negative MaxConcurrentInstances means:
+// no budget at all. The counter is still kept, since releases decrement it
+// unconditionally and the two must stay balanced.
+func (c *Core) noStateInstanceLimit() bool {
+	return c.stateConf.MaxConcurrentInstances < 0
+}
+
+// ReserveStateInstance takes one instance out of the budget. It reports false
+// when the server is full, which fails the stream open that asked for it.
+// An unlimited server serves every caller.
+//
+// Generated code calls this when a stream allocates its state.
+func (c *Core) ReserveStateInstance() bool {
+	n := c.stateLiveInstances.Add(1)
+	if c.noStateInstanceLimit() {
+		return true
+	}
+	if n > int64(c.stateConf.MaxConcurrentInstances) {
+		c.stateLiveInstances.Add(-1)
+		return false
+	}
+	return true
+}
+
+// ReleaseStateInstance gives one instance back to the budget.
+// Generated code calls this when a stream drops its state.
+func (c *Core) ReleaseStateInstance() { c.stateLiveInstances.Add(-1) }
+
+// HasStateCapacity reports whether the budget has room right now. It is a look,
+// not a claim, and callers use it before a stream commits its status line.
+// [Core.ReserveStateInstance] is what actually holds the bound.
+func (c *Core) HasStateCapacity() bool {
+	if c.noStateInstanceLimit() {
+		return true
+	}
+	return c.stateLiveInstances.Load() < int64(c.stateConf.MaxConcurrentInstances)
+}
+
+// ErrStateAtCapacity fails a stream open that finds no free instance.
+var ErrStateAtCapacity = errors.New("state instance limit reached")
 
 // AssetsFS is the file system static files are served from, nil when unset.
 func (c *Core) AssetsFS() http.FileSystem { return c.assetsFS }
