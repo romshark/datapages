@@ -27,6 +27,10 @@ const (
 	DefaultHTTPIdleTimeout       = 60 * time.Second
 	DefaultHTTPMaxHeaderBytes    = 1 << 20 // 1 MB
 
+	// DefaultBodySizeLimit is how much of an action's request body is read
+	// before the request is refused. Signals travel in that body.
+	DefaultBodySizeLimit int64 = 1 << 20 // 1 MiB
+
 	// DefaultDatastarJSSrc is the default URL for the Datastar JavaScript bundle.
 	DefaultDatastarJSSrc = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.2/bundles/datastar.js"
 )
@@ -57,6 +61,7 @@ type Core struct {
 	datastarJSSrc string
 	htmlPrefix    string
 	enabledTLS    bool
+	bodySizeLimit int64
 }
 
 // NewCore returns a core configured by cfg, serving static files under
@@ -74,6 +79,10 @@ func NewCore(
 		datastarJSSrc:   cfg.DatastarJS,
 		logger:          cfg.Logger,
 		httpServer:      cfg.HTTPServer,
+		bodySizeLimit:   cfg.BodySizeLimit,
+	}
+	if c.bodySizeLimit <= 0 {
+		c.bodySizeLimit = DefaultBodySizeLimit
 	}
 	if c.httpServer == nil {
 		c.httpServer = &http.Server{
@@ -199,6 +208,9 @@ func (c *Core) AssetsFS() http.FileSystem { return c.assetsFS }
 
 // MetricsEnabled reports whether a metrics server is configured.
 func (c *Core) MetricsEnabled() bool { return c.metricsServer != nil }
+
+// BodySizeLimit is how much of an action's request body a handler reads.
+func (c *Core) BodySizeLimit() int64 { return c.bodySizeLimit }
 
 // TLSEnabled reports whether the server listens for HTTPS connections.
 func (c *Core) TLSEnabled() bool { return c.enabledTLS }

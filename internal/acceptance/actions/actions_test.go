@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/actions/app"
 	"github.com/romshark/datapages/internal/acceptance/actions/app/datapagesgen/action"
 	"github.com/romshark/datapages/modules/messaging"
@@ -175,6 +176,28 @@ func TestBodySizeLimit(t *testing.T) {
 			require.Empty(t, srv.logOf(t), "the handler ran on an oversized body")
 		})
 	}
+}
+
+// TestBodySizeLimitOption covers datapages.WithBodySizeLimit, which is what an
+// application raises when its signals carry more than the default allows.
+func TestBodySizeLimitOption(t *testing.T) {
+	t.Parallel()
+	const limit = 4096
+	srv := server{httptest.NewServer(mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithBodySizeLimit(limit)))}
+	t.Cleanup(srv.Close)
+
+	pad := func(n int) string {
+		return `{"count":1,"pad":"` + strings.Repeat("a", n) + `"}`
+	}
+	url := urlOf(t, action.POSTPageFormSubmit())
+
+	status, _ := srv.call(t, http.MethodPost, url, pad(limit/2))
+	require.Equal(t, http.StatusOK, status, "a body under the limit")
+
+	status, _ = srv.call(t, http.MethodPost, url, pad(2*limit))
+	require.Equal(t, http.StatusBadRequest, status, "a body over the limit")
 }
 
 // TestBodyOutput covers an action that answers with a document.

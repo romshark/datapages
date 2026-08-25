@@ -33,7 +33,7 @@ const (
 	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
 
-const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
+const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
 func (s *Server) writeHTML(
 	w http.ResponseWriter,

@@ -1325,7 +1325,7 @@ func (w *Writer) writePageActionHandler(
 
 	// Body size limit.
 	if h.InputSignals != nil {
-		w.Line(1, "r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)")
+		w.Line(1, "r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())")
 	}
 
 	// Read signals.

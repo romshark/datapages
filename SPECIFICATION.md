@@ -363,6 +363,10 @@ or as a single object `data-signals="{form: {name: '', email: ''}}"`.
 The Go handler receives the nested values as `signals.Values.Form.Name` and
 `signals.Values.Form.Email`.
 
+Signals travel in the request body of an action, which is read up to 1 MiB.
+A request carrying more is answered with 400. `datapages.WithBodySizeLimit`
+raises or lowers that cap for the whole server.
+
 #### Parameter: `datapages.Path[struct {...}]`
 
 ```go
