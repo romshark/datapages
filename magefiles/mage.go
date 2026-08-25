@@ -227,6 +227,7 @@ func CheckGen() error {
 		{"mage genTempl", GenTempl},
 		{"mage genDatapages", GenDatapages},
 		{"mage genDocs", GenDocs},
+		{"mage genOfflineWorker", GenOfflineWorker},
 	}
 
 	// A file one generator changed stays changed for the rest of the run.
@@ -377,7 +378,7 @@ func GoFixExamples() error {
 	return nil
 }
 
-// Gen runs all code generation (templ, datapages, docs).
+// Gen runs all code generation (templ, datapages, docs, offline worker).
 func Gen() error {
 	if err := GenTempl(); err != nil {
 		return err
@@ -385,7 +386,10 @@ func Gen() error {
 	if err := GenDatapages(); err != nil {
 		return err
 	}
-	return GenDocs()
+	if err := GenDocs(); err != nil {
+		return err
+	}
+	return GenOfflineWorker()
 }
 
 // GenDatapages builds the datapages CLI from source and runs "datapages gen"
@@ -464,6 +468,17 @@ func GenDocs() error {
 	}
 	fmt.Println("==> minify internal/docs-src/style.css -> docs/style.css")
 	return goRun(toolMinify, "-o", "docs/style.css", "internal/docs-src/style.css")
+}
+
+// GenOfflineWorker minifies the service worker the offline module embeds.
+//
+// Minifying at serve time would put a minifier in the import graph of
+// modules/offline and from there into every application's go.mod.
+// The minified file is committed because "go build" cannot run this target.
+func GenOfflineWorker() error {
+	const src, dst = "modules/offline/sw.js", "modules/offline/sw.min.js"
+	fmt.Println("==> minify", src, "->", dst)
+	return goRun(toolMinify, "-o", dst, src)
 }
 
 // All runs test, vulncheck, fmt, mod-tidy, gen-templ, and gen-docs.

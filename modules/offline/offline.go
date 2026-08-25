@@ -26,7 +26,9 @@ import (
 	"github.com/romshark/datapages"
 )
 
-//go:embed sw.js
+// sw.min.js is written from sw.js by "mage genOfflineWorker". Edit sw.js.
+//
+//go:embed sw.min.js
 var serviceWorkerTemplate string
 
 //go:embed register.js

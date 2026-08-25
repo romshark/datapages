@@ -16,7 +16,8 @@
 - Build CLI and examples: `mage build`
 - Generate templ files: `mage genTempl`
 - Generate datapages code: `mage genDatapages`
-- Generate all (templ + datapages + docs): `mage gen`
+- Minify the offline service worker: `mage genOfflineWorker`
+- Generate all (templ + datapages + docs + worker): `mage gen`
 - Check that all generated code is current: `mage checkGen`
 - Run go fix on all modules: `mage goFix`
 - Run everything: `mage all`
@@ -164,7 +165,10 @@ Generated output is committed, and tests fail when it goes stale.
   runs `datapages gen` in every example and acceptance module.
 - `docs/index.html`: written by `internal/tools/render-pages` from
   `internal/docs-src/`. `mage genDocs`.
-- `mage gen` runs all three.
+- `modules/offline/sw.min.js`: minified from `sw.js` next to it.
+  `mage genOfflineWorker`. The module embeds the minified file,
+  which is why it is committed: `go build` cannot run the target.
+- `mage gen` runs all four.
 
 Any change to the generator requires `mage genDatapages` in the same commit.
 `TestExamplesAreUpToDate` (`internal/generator/generator_test.go:45`) and the
