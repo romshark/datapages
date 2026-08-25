@@ -820,7 +820,9 @@ opts = append(opts, datapages.WithCSRFProtection(datapages.CSRFConfig{
 	Tokens: myTokens,
 }))
 
-// Authentication (required when Session type is defined)
+// Authentication (required when Session type is defined).
+// The session cookie carries Secure. Set DisableSecureCookie only for a
+// deployment that is plain HTTP without TLS end to end, where the browser would drop it.
 opts = append(opts, datapages.WithSessions(datapages.SessionsConfig{}))
 
 // Custom logger (consider slog.LevelDebug when datapages.IsDevMode() is true)

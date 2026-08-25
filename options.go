@@ -86,6 +86,17 @@ type SessionsConfig struct {
 	// Cookie is the cookie the token travels in.
 	Cookie AuthCookieConfig
 
+	// DisableSecureCookie writes the session cookie without the Secure flag.
+	//
+	// Optional. By default, secure cookies are forced, which keeps the browser from
+	// sending the token over plain HTTP. It remains forced even when this process
+	// serves HTTP, because TLS usually gets terminated at a proxy in front of it.
+	//
+	// Set this only when the whole deployment runs on plain HTTP.
+	// A browser refuses a Secure cookie that arrives over plain HTTP and
+	// stores no session, which would leave the visitor stuck on the sign-in page.
+	DisableSecureCookie bool
+
 	// DisableHTTPOnly exposes the session cookie to client-side JavaScript.
 	//
 	// Optional. The cookie is HttpOnly by default, which keeps injected
@@ -98,8 +109,8 @@ type SessionsConfig struct {
 // AuthCookieConfig configures the cookie the session token is kept in.
 //
 // Only what an application has reason to change is here. The rest is fixed:
-// the path is always "/", SameSite is always Lax, and Secure follows whether
-// the server is serving TLS.
+// the path is always "/" and SameSite is always Lax.
+// Secure is set unless [SessionsConfig.DisableSecureCookie] clears it.
 type AuthCookieConfig struct {
 	// Name is what the browser sends the token back under.
 	//
