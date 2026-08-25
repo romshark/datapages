@@ -359,7 +359,7 @@ type appUsage struct {
 	// (needs the datapages import and the generated sseWrapper).
 	datapagesSSE bool
 	// stateRuntime: whether any page (including via embedded abstract pages)
-	// takes state *T; enables the per-page-instance state runtime.
+	// takes datapages.State[T]; enables the per-page-instance state runtime.
 	stateRuntime bool
 	// signalSubjects: subject.Encode is called by any page that builds
 	// a subscription subject from a client-provided signal.

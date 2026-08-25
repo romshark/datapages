@@ -1,4 +1,4 @@
-module datapagestest/fixture/err_state_not_pointer
+module datapagestest/fixture/err_state_type_arg_not_named
 
 go 1.27.0
 

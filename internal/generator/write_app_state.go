@@ -118,7 +118,8 @@ func (w *Writer) writeVerifyInstanceIDHeader() {
 // writeStateCapacityCheck emits the capacity check of a stateful stream handler.
 // The stream request commits its status line before the open hook runs,
 // which leaves this as the last point where a full server can say so.
-// A reconnect reuses its instance and passes.
+// An id that already names a live instance skips the check.
+// stateReserveInstance is what holds the bound in every case.
 func (w *Writer) writeStateCapacityCheck(st *model.StateType) {
 	w.Linef(1, "if _, live := s.lookup%s(instanceID); !live && !s.stateHasCapacity() {",
 		stateSuffix(st))
@@ -175,7 +176,8 @@ func (w *Writer) writeLockSlotOrReject() {
 // State runtime symbols are derived from the state type's full Go name.
 // The runtime belongs to the state type. Pages that share a state type share
 // its slot type and instance map. App-level action handlers,
-// which belong to no page, resolve the same symbols from their `state *T` parameter.
+// which belong to no page, resolve the same symbols from their
+// datapages.State[T] parameter.
 
 func stateSlotTypeName(st *model.StateType) string {
 	return "stateSlot" + st.TypeName

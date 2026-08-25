@@ -185,7 +185,7 @@ func firstPassTypes(ctx *parseCtx, errs *Errors) {
 
 		// Pages / abstracts are structs only.
 		// State types are detected usage-driven on the first handler that
-		// accepts `state *SomeType`, not by name.
+		// accepts datapages.State[SomeType], not by name.
 		firstPassPageOrAbstractType(ctx, errs, name, ts)
 	}
 }
@@ -2479,7 +2479,7 @@ func registerStateType(ctx *parseCtx, name string) error {
 
 // bindStateTypeArg records the state type of a handler inherited from a
 // generic abstract page. The type comes from the embed site,
-// not from a `state *T` parameter, and is otherwise unknown to the app model.
+// not from a datapages.State[T] parameter, and is otherwise unknown to the app model.
 // Already registered types are kept as they are.
 func bindStateTypeArg(
 	ctx *parseCtx, errs *Errors, is *model.InputState, embedPos token.Pos,
