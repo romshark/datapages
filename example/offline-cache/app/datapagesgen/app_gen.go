@@ -814,21 +814,21 @@ func (s *Server) handlePagePurchasePOSTConfirm(
 		Slug string `path:"nameslug"`
 	}]
 	path.Values.Slug = r.PathValue("nameslug")
-
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
-	pageCache := newPageCache(s, r, sse)
+	pageCache := newPageCache(s, r, nil)
 	p := app.PagePurchase{
 		App: s.app,
 		Base: app.Base{
 			App: s.app,
 		},
 	}
-	err := p.POSTConfirm(r, dpsse.New(sse), pageCache, sess, path)
+	redirect, err := p.POSTConfirm(r, pageCache, sess, path)
 	if err != nil {
-		s.httpErrIntern(w, r, sse, "handling action PagePurchase.Confirm", err)
+		s.httpErrIntern(w, r, nil, "handling action PagePurchase.Confirm", err)
 		return
 	}
-	_ = pageCache.flush()
+	if httpRedirectOffline(w, r, redirect, pageCache) {
+		return
+	}
 }
 
 func (s *Server) handlePageShowGET(w http.ResponseWriter, r *http.Request) {

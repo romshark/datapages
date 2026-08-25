@@ -2,7 +2,6 @@ package app
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 
@@ -56,36 +55,40 @@ func (p PagePurchase) GET(
 }
 
 // POSTConfirm is /shows/{nameslug}/purchase/confirm
+//
+// The handler returns a redirect rather than navigating over an SSE stream:
+// the redirect response carries the queued cache writes to the service worker and
+// runs the navigation only once they are posted. A navigation written to the stream
+// would race the page unload against the writes flushed after this handler returns.
 func (p PagePurchase) POSTConfirm(
 	r *http.Request,
-	sse datapages.SSE,
 	pageCache datapages.PageCacheWriter,
 	session Session,
 	path datapages.Path[struct {
 		Slug string `path:"nameslug"`
 	}],
-) error {
+) (redirect datapages.Redirect, err error) {
 	if session.IsGuest() {
-		return navigate(sse, href.PageLogin(href.QueryPageLogin{
+		return datapages.Redirect{URL: href.PageLogin(href.QueryPageLogin{
 			Next: href.PagePurchase(path.Values.Slug),
-		}))
+		})}, nil
 	}
 
-	_, err := p.App.repo.BuyTicket(r.Context(), session.UserID(), path.Values.Slug)
+	_, err = p.App.repo.BuyTicket(r.Context(), session.UserID(), path.Values.Slug)
 	switch {
 	case err == nil, errors.Is(err, domain.ErrTicketExists):
 		// Refresh the offline cache so the new ticket and the updated tickets
 		// list are viewable offline right away, then navigate to the ticket.
 		if err := p.refreshOfflineCache(r, pageCache, session, path.Values.Slug); err != nil {
-			return err
+			return datapages.Redirect{}, err
 		}
-		return navigate(sse, href.PageTicket(path.Values.Slug))
+		return datapages.Redirect{URL: href.PageTicket(path.Values.Slug)}, nil
 	case errors.Is(err, domain.ErrShowNotFound):
-		return datapages.ErrNotFound
+		return datapages.Redirect{}, datapages.ErrNotFound
 	case errors.Is(err, domain.ErrShowSoldOut):
-		return datapages.ErrBadRequest
+		return datapages.Redirect{}, datapages.ErrBadRequest
 	default:
-		return err
+		return datapages.Redirect{}, err
 	}
 }
 
@@ -139,9 +142,4 @@ func (p PagePurchase) refreshOfflineCache(
 		)
 	}
 	return nil
-}
-
-// navigate performs a client-side redirect over the SSE stream.
-func navigate(sse datapages.SSE, url string) error {
-	return sse.ExecuteScript(fmt.Sprintf("window.location=%q", url))
 }
