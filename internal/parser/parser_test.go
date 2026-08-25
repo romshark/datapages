@@ -409,8 +409,8 @@ func TestParse_ErrStreamHooks(t *testing.T) {
 	requireParseErrors(
 		t, err,
 		parser.ErrSignatureMissingReq,
-		parser.ErrSignatureMissingStreamID,
-		parser.ErrSignatureMissingStreamID,  // StreamOpen with streamID string
+		parser.ErrStreamHookMissingHandle,
+		parser.ErrStreamHookMissingHandle,   // StreamOpen with streamID string
 		parser.ErrSignatureUnsupportedInput, // StreamClose with signals
 		parser.ErrSignatureStreamHookReturnMustBeError,
 		parser.ErrSignatureUnsupportedInput, // StreamClose with sse
@@ -419,7 +419,7 @@ func TestParse_ErrStreamHooks(t *testing.T) {
 		parser.ErrSignatureUnsupportedInput, // StreamOpen with query
 		parser.ErrSignatureUnsupportedInput, // StreamClose with query
 		parser.ErrSignatureUnsupportedInput, // action handler with streamID
-		parser.ErrSignatureMissingStreamID,  // StreamOpen with streamID int
+		parser.ErrStreamHookMissingHandle,   // StreamOpen with streamID int
 		parser.ErrSignatureUnsupportedInput, // StreamOpen with an untyped dispatcher
 		parser.ErrDispatchDuplicate,         // StreamClose with two of one type
 	)
@@ -1806,16 +1806,35 @@ func TestParse_ErrStateConflict(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrStateConflict)
 }
 
-func TestParse_ErrStateNotPointer(t *testing.T) {
-	_, err := parse(t, "err_state_not_pointer")
+func TestParse_ErrStateTypeArgNotNamed(t *testing.T) {
+	_, err := parse(t, "err_state_type_arg_not_named")
 	require.NotZero(t, err.Error())
-	requireParseErrors(t, err, parser.ErrStateParamNotPointer)
+	requireParseErrors(t, err, parser.ErrStateTypeArgNotNamed)
 }
 
-func TestParse_ErrStateWithoutStream(t *testing.T) {
-	_, err := parse(t, "err_state_without_stream")
+// TestParse_ErrStateTypeArgStructLiteral covers datapages.State[struct{...}],
+// the anonymous struct that datapages.Query, Signals and Path would accept.
+func TestParse_ErrStateTypeArgStructLiteral(t *testing.T) {
+	_, err := parse(t, "err_state_type_arg_struct_literal")
 	require.NotZero(t, err.Error())
-	requireParseErrors(t, err, parser.ErrStateWithoutStream)
+	requireParseErrors(t, err, parser.ErrStateTypeArgNotNamed)
+}
+
+// TestParse_StateActionOnly covers a stateful page whose only handler is an action.
+// State alone anchors the lifecycle: the page needs no StreamOpen,
+// StreamClose or OnXXX handler of its own.
+func TestParse_StateActionOnly(t *testing.T) {
+	app, err := parse(t, "state_action_only")
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(t, app)
+
+	require.Len(t, app.Pages, 1)
+	pg := app.Pages[0]
+	require.NotNil(t, pg.State)
+	require.Equal(t, "StateIndex", pg.State.TypeName)
+	require.Nil(t, pg.StreamOpen)
+	require.Nil(t, pg.StreamClose)
+	require.Empty(t, pg.EventHandlers)
 }
 
 // TestParse_ErrStateAppActionUnbound covers an app-level action that takes a

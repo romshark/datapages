@@ -555,8 +555,8 @@ type EventCalcUpdated struct {
 
 - **Per-tab server-side state.** Declare an exported struct and take
   `state *T` in `StreamOpen`, actions, and `OnXXX` handlers.
-	The generator allocates one state per tab from a pool, serializes handler calls
-  with a per-instance mutex, and returns state to the pool on `StreamClose`.
+	The generator allocates one zeroed state per tab, serializes handler calls
+  with a per-instance mutex, and drops the state on `StreamClose`.
 	No manual tab-id signing or map bookkeeping. See Step 10.
 - **CQRS read-model binding.** In a CQRS architecture, actions (commands)
   dispatch events and event handlers (queries) render the updated UI. The
@@ -669,9 +669,10 @@ func (PageIndex) OnItemsChanged(
 - A page (including any embedded abstract types) may reference at most one
   state type. Conflicts are generator errors.
 - `GET` handlers cannot take `state` (no instance exists at render time).
-- A page that takes `state` must declare at least one of `StreamOpen`,
-  `StreamClose`, or an `OnXXX` handler. The SSE stream anchors the state
-  lifecycle; without a stream there is nothing to bind the slot to.
+- A page that takes `state` gets an SSE stream whether or not it declares
+  `StreamOpen`, `StreamClose`, or an `OnXXX` handler. The stream is what bounds
+  the instance's lifetime: it allocates the slot on connect and releases it on
+  disconnect.
 - Global `*App` actions can take `state *T`, but they only succeed when the
   calling tab is bound to a page that uses that same `T` — otherwise the
   runtime returns `409 Conflict`. App actions intended to work from every
@@ -697,7 +698,7 @@ func (PageIndex) OnItemsChanged(
 
 **What the generator does for you**:
 
-- Pools state values, zeroing each one before it is handed out.
+- Allocates one zeroed state per tab, never reused by another tab.
 - Signs an instance identifier on `GET` and threads it through the browser
   via a `Datapages-Instance` header (no cookies, no storage — in-memory only
   so other tabs on the same origin cannot impersonate).

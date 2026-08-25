@@ -11,9 +11,18 @@ import (
 	"github.com/romshark/datapages/internal/structtag"
 )
 
+// stateArgExpr returns the expression a stateful handler receives its state as.
+// The slot holds the checked-out *T, the handler takes datapages.State[T].
+// The wrapper is that same pointer: nothing is copied.
+func stateArgExpr(appPkgQual, stateTypeName string) string {
+	return "datapages.State[" + appPkgQual + "." + stateTypeName +
+		"]{Values: slot.state}"
+}
+
 // handlerArgVar maps an InputKind constant to the local variable name
 // used in generated code. skipSSE causes SSE to be omitted (for app-level actions).
-func handlerArgVar(kind string, skipSSE bool) string {
+// stateExpr is what a state input is passed as, built by stateArgExpr.
+func handlerArgVar(kind string, skipSSE bool, stateExpr string) string {
 	switch kind {
 	case model.InputKindRequest:
 		return "r"
@@ -38,9 +47,8 @@ func handlerArgVar(kind string, skipSSE bool) string {
 	case model.InputKindEvent:
 		return "e"
 	case model.InputKindState:
-		// The generated handler wrapper exposes the checked-out
-		// *T as `slot.state`.
-		return "slot.state"
+		// The generated wrapper holds the checked-out *T as slot.state.
+		return stateExpr
 	case model.InputKindStateID:
 		// The derived routing key of the tab, not the instance id.
 		// See writeStateRouteKeyVar.
@@ -152,8 +160,12 @@ func handlerOutputVars(h *model.Handler) []string {
 // in the order defined by h.OrderedInputs. dispatchPrefix names the dispatch
 // closures the call passes, see dispatchVarName.
 func handlerInputArgs(
-	h *model.Handler, skipSSE bool, dispatchPrefix string,
+	h *model.Handler, skipSSE bool, dispatchPrefix, appPkgQual string,
 ) []string {
+	stateExpr := ""
+	if h.InputState != nil {
+		stateExpr = stateArgExpr(appPkgQual, h.InputState.StateTypeName)
+	}
 	if len(h.OrderedInputs) > 0 {
 		args := make([]string, 0, len(h.OrderedInputs))
 		for _, inp := range h.OrderedInputs {
@@ -161,7 +173,7 @@ func handlerInputArgs(
 				args = append(args, dispatchArgVar(h, inp, dispatchPrefix))
 				continue
 			}
-			if v := handlerArgVar(inp.Kind, skipSSE); v != "" {
+			if v := handlerArgVar(inp.Kind, skipSSE, stateExpr); v != "" {
 				args = append(args, v)
 			}
 		}
@@ -208,11 +220,17 @@ func dispatchArgVar(h *model.Handler, inp *model.Input, prefix string) string {
 
 // eventHandlerInputArgs builds the argument list for an event handler call
 // in the order defined by eh.OrderedInputs.
-func eventHandlerInputArgs(eh *model.EventHandler, eventVar string) []string {
+func eventHandlerInputArgs(
+	eh *model.EventHandler, eventVar, appPkgQual string,
+) []string {
+	stateExpr := ""
+	if eh.InputState != nil {
+		stateExpr = stateArgExpr(appPkgQual, eh.InputState.StateTypeName)
+	}
 	if len(eh.OrderedInputs) > 0 {
 		args := make([]string, 0, len(eh.OrderedInputs))
 		for _, inp := range eh.OrderedInputs {
-			v := handlerArgVar(inp.Kind, false)
+			v := handlerArgVar(inp.Kind, false, stateExpr)
 			if inp.Kind == model.InputKindEvent {
 				v = eventVar
 			}
@@ -394,7 +412,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, appPkg string) 
 	}
 
 	// Build input args in user-defined order.
-	args := handlerInputArgs(h, false, "dispatch")
+	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
 
 	w.Byte('\t')
 	w.writeCommaSep(outs)
@@ -962,9 +980,11 @@ func (w *Writer) writePageGETStreamHandler(
 	}
 
 	// Page constructor.
-	w.Raw("\n\tp := ")
-	w.writePageConstructor(p, appPkg)
-	w.Byte('\n')
+	if pageStreamCallsPage(p) {
+		w.Raw("\n\tp := ")
+		w.writePageConstructor(p, appPkg)
+		w.Byte('\n')
+	}
 
 	// evSubj call.
 	evSubjName := "evSubj" + p.TypeName
@@ -1112,13 +1132,13 @@ func (w *Writer) writeEventHandlerCall(
 	ownerLabel string, eh *model.EventHandler, receiver, eventVar string,
 ) {
 	// Build args in user-defined order.
-	args := eventHandlerInputArgs(eh, eventVar)
+	args := eventHandlerInputArgs(eh, eventVar, w.appPkgQual)
 
 	methodName := "On" + eh.Name
 
 	// Stateful event handlers run under the per-slot mutex to serialize with
 	// concurrent action calls and with StreamOpen / StreamClose.
-	// The loop can outlive the close that returns the state to the pool,
+	// The loop can outlive the close that drops the state,
 	// which is what the liveness check guards against.
 	stateful := eh.InputState != nil
 	if stateful {
@@ -1172,7 +1192,7 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 	}
 	w.writeCallExpr(
 		"p", "StreamOpen",
-		handlerInputArgs(p.StreamOpen, false, "dispatchOpen"),
+		handlerInputArgs(p.StreamOpen, false, "dispatchOpen", w.appPkgQual),
 	)
 	w.Byte('\n')
 	if p.StreamOpen.OutputErr == nil {
@@ -1182,7 +1202,7 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 }
 
 // writeStatefulStreamOpenHook emits the onOpen closure for a stateful page.
-// The closure allocates a fresh slot from the pool, stashes it in the outer
+// The closure allocates a fresh slot, stashes it in the outer
 // `slot` variable, and, if the user defined StreamOpen, calls it under the slot mutex.
 //
 // Every stream gets its own instance. A client that reconnects under an id it
@@ -1235,7 +1255,7 @@ func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 	}
 	w.writeCallExpr(
 		"p", "StreamOpen",
-		handlerInputArgs(p.StreamOpen, false, "dispatchOpen"),
+		handlerInputArgs(p.StreamOpen, false, "dispatchOpen", w.appPkgQual),
 	)
 	if p.StreamOpen.OutputErr != nil {
 		w.Raw("; err != nil {\n")
@@ -1265,7 +1285,7 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 		w.Raw("\t\tif err := ")
 		w.writeCallExpr(
 			"p", "StreamClose",
-			handlerInputArgs(p.StreamClose, false, "dispatchClosed"),
+			handlerInputArgs(p.StreamClose, false, "dispatchClosed", w.appPkgQual),
 		)
 		w.Raw("; err != nil {\n")
 		w.Raw("\t\t\ts.LogErr(\"handling ")
@@ -1276,7 +1296,7 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 		w.Raw("\t\t")
 		w.writeCallExpr(
 			"p", "StreamClose",
-			handlerInputArgs(p.StreamClose, false, "dispatchClosed"),
+			handlerInputArgs(p.StreamClose, false, "dispatchClosed", w.appPkgQual),
 		)
 		w.Byte('\n')
 	}
@@ -1285,7 +1305,7 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 
 // writeStatefulStreamCloseHook emits the onClose closure for a stateful page.
 // If the user defined StreamClose, it runs under the slot mutex.
-// In all cases the state goes back to the pool before this returns.
+// In all cases the state is dropped before this returns.
 //
 // This closure runs on the watchdog goroutine, outside net/http.
 // handleStreamRequest recovers a panic raised here, which leaves this one
@@ -1325,7 +1345,7 @@ func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 			w.Raw("if err := ")
 			w.writeCallExpr(
 				"p", "StreamClose",
-				handlerInputArgs(p.StreamClose, false, "dispatchClosed"),
+				handlerInputArgs(p.StreamClose, false, "dispatchClosed", w.appPkgQual),
 			)
 			w.Raw("; err != nil {\n")
 			w.Raw(tabs)
@@ -1337,7 +1357,7 @@ func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
 			w.Raw(tabs)
 			w.writeCallExpr(
 				"p", "StreamClose",
-				handlerInputArgs(p.StreamClose, false, "dispatchClosed"),
+				handlerInputArgs(p.StreamClose, false, "dispatchClosed", w.appPkgQual),
 			)
 			w.Byte('\n')
 		}
@@ -1415,9 +1435,11 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	}
 
 	// Page constructor.
-	w.Raw("\n\tp := ")
-	w.writePageConstructor(p, appPkg)
-	w.Byte('\n')
+	if pageStreamCallsPage(p) {
+		w.Raw("\n\tp := ")
+		w.writePageConstructor(p, appPkg)
+		w.Byte('\n')
+	}
 
 	// evSubj call. The client holds no session, so the user id is empty and
 	// only public subjects come back — but a page that scopes by signals
@@ -1585,7 +1607,7 @@ func (w *Writer) writeActionMethodCall(
 	outs := handlerOutputVars(h)
 
 	// Build input args in user-defined order.
-	args := handlerInputArgs(h, false, "dispatch")
+	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
 
 	methodName := h.HTTPMethod + h.Name
 

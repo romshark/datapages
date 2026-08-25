@@ -52,15 +52,14 @@ type StatePointer struct {
 }
 
 // Base is a generic abstract page.
-// Every page that embeds Base[T] gets these handlers with state *T.
+// Every page that embeds Base[T] gets these handlers with datapages.State[T].
 type Base[S any] struct{ App *App }
 
 func (b Base[S]) StreamOpen(
 	r *http.Request,
-	streamID datapages.StreamID,
-	state *S,
+	state datapages.State[S],
 ) error {
-	_, _, _ = r, streamID, state
+	_, _ = r, state
 	b.App.allocations.Add(1)
 	return nil
 }
@@ -68,11 +67,11 @@ func (b Base[S]) StreamOpen(
 func (b Base[S]) OnPing(
 	event EventPing,
 	sse datapages.SSE,
-	state *S,
+	state datapages.State[S],
 ) error {
 	_ = event
 	return sse.PatchElement(templ.Raw(
-		fmt.Sprintf(`<div id="state">%+v</div>`, *state),
+		fmt.Sprintf(`<div id="state">%+v</div>`, *state.Values),
 	))
 }
 
@@ -89,11 +88,11 @@ func (PageCount) GET(_ *http.Request) (body datapages.Component, err error) {
 // POSTBump is /count/bump
 func (PageCount) POSTBump(
 	_ *http.Request,
-	state *StateCounter,
+	state datapages.State[StateCounter],
 	stateID string,
 	dispatch datapages.Dispatcher[EventPing],
 ) error {
-	state.N++
+	state.Values.N++
 	return dispatch.Dispatch(EventPing{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
@@ -112,14 +111,14 @@ func (PageLabel) GET(_ *http.Request) (body datapages.Component, err error) {
 // POSTSet is /label/set
 func (PageLabel) POSTSet(
 	_ *http.Request,
-	state *StateLabel,
+	state datapages.State[StateLabel],
 	stateID string,
 	signals datapages.Signals[struct {
 		Text string `json:"text"`
 	}],
 	dispatch datapages.Dispatcher[EventPing],
 ) error {
-	state.Text = signals.Values.Text
+	state.Values.Text = signals.Values.Text
 	return dispatch.Dispatch(EventPing{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
@@ -161,11 +160,11 @@ func (PageNested) GET(_ *http.Request) (body datapages.Component, err error) {
 // POSTBump is /nested/bump
 func (PageNested) POSTBump(
 	_ *http.Request,
-	state *StateNested,
+	state datapages.State[StateNested],
 	stateID string,
 	dispatch datapages.Dispatcher[EventPing],
 ) error {
-	state.N++
+	state.Values.N++
 	return dispatch.Dispatch(EventPing{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
@@ -187,11 +186,11 @@ func (PagePointer) GET(_ *http.Request) (body datapages.Component, err error) {
 // POSTBump is /pointer/bump
 func (PagePointer) POSTBump(
 	_ *http.Request,
-	state *StatePointer,
+	state datapages.State[StatePointer],
 	stateID string,
 	dispatch datapages.Dispatcher[EventPing],
 ) error {
-	state.N++
+	state.Values.N++
 	return dispatch.Dispatch(EventPing{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})

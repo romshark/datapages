@@ -353,6 +353,12 @@ func SignalsValuesType(expr ast.Expr, info *types.Info) (types.Type, bool) {
 	return namedTypeArg(expr, info, "Signals")
 }
 
+// StateValuesType returns the Values type argument of datapages.State[Values].
+// ok is false if expr isn't an instantiation of datapages.State.
+func StateValuesType(expr ast.Expr, info *types.Info) (types.Type, bool) {
+	return namedTypeArg(expr, info, "State")
+}
+
 // TypeArgExpr returns the type argument expression of a generic type
 // instantiation such as datapages.Path[struct{...}].
 // It returns expr unchanged if expr isn't an instantiation.

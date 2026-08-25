@@ -160,7 +160,7 @@ type Handler struct {
 	InputPath     *Input
 	InputQuery    *Input
 	InputSignals  *Input
-	InputState    *InputState // state *T; nullable.
+	InputState    *InputState // datapages.State[T]; nullable.
 	InputStateID  *Input      // stateID string; nullable.
 	// InputDispatches are the datapages.Dispatcher[EventXXX] parameters,
 	// in user-defined order. One dispatcher publishes one event type.
@@ -204,7 +204,7 @@ type EventHandler struct {
 	InputSSE      *Input
 	InputStreamID *Input
 	InputSession  *Input
-	InputState    *InputState // state *T; nullable.
+	InputState    *InputState // datapages.State[T]; nullable.
 	InputStateID  *Input      // stateID string; nullable.
 	OrderedInputs []*Input    // Inputs in user-defined order.
 

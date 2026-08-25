@@ -23,7 +23,7 @@ type Base struct{ App *App }
 func (Base) StreamOpen(
 	r *http.Request,
 	streamID datapages.StreamID,
-	state *TabContext,
+	state datapages.State[TabContext],
 ) error {
 	return nil
 }
@@ -31,7 +31,7 @@ func (Base) StreamOpen(
 func (Base) OnPing(
 	event EventPing,
 	sse datapages.SSE,
-	state *TabContext,
+	state datapages.State[TabContext],
 ) error {
 	return nil
 }

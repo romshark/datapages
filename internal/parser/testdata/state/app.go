@@ -15,7 +15,7 @@ type App struct{}
 // not bound to StateIndex are rejected with 409.
 func (*App) PUTAppLevel(
 	r *http.Request,
-	state *StateIndex,
+	state datapages.State[StateIndex],
 ) error {
 	_ = state
 	return nil
@@ -43,7 +43,7 @@ type Base struct{ App *App }
 func (Base) StreamOpen(
 	r *http.Request,
 	streamID datapages.StreamID,
-	state *TabContext,
+	state datapages.State[TabContext],
 ) error {
 	return nil
 }
@@ -59,7 +59,7 @@ func (PageIndex) StreamOpen(
 	r *http.Request,
 	streamID datapages.StreamID,
 	sse datapages.SSE,
-	state *StateIndex,
+	state datapages.State[StateIndex],
 ) error {
 	return nil
 }
@@ -67,7 +67,7 @@ func (PageIndex) StreamOpen(
 func (PageIndex) StreamClose(
 	r *http.Request,
 	streamID datapages.StreamID,
-	state *StateIndex,
+	state datapages.State[StateIndex],
 ) error {
 	return nil
 }
@@ -75,7 +75,7 @@ func (PageIndex) StreamClose(
 // POSTIncrement is /inc
 func (PageIndex) POSTIncrement(
 	r *http.Request,
-	state *StateIndex,
+	state datapages.State[StateIndex],
 	dispatch datapages.Dispatcher[EventPing],
 ) error {
 	return nil
@@ -84,7 +84,7 @@ func (PageIndex) POSTIncrement(
 func (PageIndex) OnPing(
 	event EventPing,
 	sse datapages.SSE,
-	state *StateIndex,
+	state datapages.State[StateIndex],
 ) error {
 	return nil
 }

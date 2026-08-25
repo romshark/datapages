@@ -22,7 +22,7 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 // POSTA is /a
 func (PageIndex) POSTA(
 	r *http.Request,
-	state *StateA,
+	state datapages.State[StateA],
 ) error {
 	return nil
 }
@@ -30,13 +30,7 @@ func (PageIndex) POSTA(
 // POSTB is /b
 func (PageIndex) POSTB(
 	r *http.Request,
-	state *StateB, // conflicts with StateA on the same page
+	state datapages.State[StateB], // conflicts with StateA on the same page
 ) error {
-	return nil
-}
-
-// StreamOpen anchors the state lifecycle so the fixture isolates the
-// ErrStateConflict error without also tripping ErrStateWithoutStream.
-func (PageIndex) StreamOpen(r *http.Request, streamID datapages.StreamID) error {
 	return nil
 }

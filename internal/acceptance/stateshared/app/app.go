@@ -34,21 +34,20 @@ type Base struct{ App *App }
 
 func (Base) StreamOpen(
 	r *http.Request,
-	streamID datapages.StreamID,
-	state *TabContext,
+	state datapages.State[TabContext],
 ) error {
-	_, _, _ = r, streamID, state
+	_, _ = r, state
 	return nil
 }
 
 func (Base) OnChanged(
 	event EventChanged,
 	sse datapages.SSE,
-	state *TabContext,
+	state datapages.State[TabContext],
 ) error {
 	_ = event
 	return sse.PatchElement(templ.Raw(
-		fmt.Sprintf(`<div id="state">%+v</div>`, *state),
+		fmt.Sprintf(`<div id="state">%+v</div>`, *state.Values),
 	))
 }
 
@@ -65,14 +64,14 @@ func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 // POSTNote is /note
 func (PageIndex) POSTNote(
 	_ *http.Request,
-	state *TabContext,
+	state datapages.State[TabContext],
 	stateID string,
 	signals datapages.Signals[struct {
 		Note string `json:"note"`
 	}],
 	dispatch datapages.Dispatcher[EventChanged],
 ) error {
-	state.Note = signals.Values.Note
+	state.Values.Note = signals.Values.Note
 	return dispatch.Dispatch(EventChanged{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
@@ -102,13 +101,17 @@ func (PagePlain) GET(_ *http.Request) (body datapages.Component, err error) {
 //
 // An app-level action bound to the shared state type.
 // It works from a tab of any page that uses TabContext.
+//
+// The parameter is named tab rather than state: datapages.State[T] is matched
+// by its type, the way Query, Signals and Path are, so the name is the
+// application's to choose.
 func (a *App) POSTBump(
 	_ *http.Request,
-	state *TabContext,
+	tab datapages.State[TabContext],
 	stateID string,
 	dispatch datapages.Dispatcher[EventChanged],
 ) error {
-	state.Counter++
+	tab.Values.Counter++
 	return dispatch.Dispatch(EventChanged{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})

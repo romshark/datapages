@@ -1398,7 +1398,7 @@ func (w *Writer) writeMethodCall(
 	outs := handlerOutputVars(h)
 
 	// Build input args in user-defined order.
-	args := handlerInputArgs(h, isAppLevel, "dispatch")
+	args := handlerInputArgs(h, isAppLevel, "dispatch", w.appPkgQual)
 
 	// Build the call expression.
 	receiver := "p"
@@ -1722,7 +1722,7 @@ func (w *Writer) writeGETCall(
 	}
 
 	// Build input args in user-defined order.
-	args := handlerInputArgs(h, false, "dispatch")
+	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
 
 	w.Byte('\t')
 	w.writeCommaSep(outs)

@@ -995,7 +995,7 @@ func validateAndAttachEventHandler(
 			case typecheck.IsSSEParam(f.Type, ctx.pkg.TypesInfo):
 			case paramvalidation.IsSessionParam(f, ctx.pkg.TypesInfo):
 			case typecheck.IsStreamIDType(f.Type, ctx.pkg.TypesInfo):
-			case paramvalidation.IsStateParam(f):
+			case paramvalidation.IsStateParam(f, ctx.pkg.TypesInfo):
 				// Delegated to parseEventHandler which resolves the
 				// pointer element type against the declared state types.
 			case paramvalidation.IsStateIDParam(f):
@@ -1191,7 +1191,7 @@ func attachHTTPHandler(
 				// but skip output validation and code generation details.
 				pg.GET = &model.HandlerGET{Handler: h}
 			} else {
-				get, getErr := buildHandlerGET(h, outputs, ctx.pkg.Fset)
+				get, getErr := buildHandlerGET(h, outputs)
 				pg.GET = get
 				if getErr != nil {
 					p := resolveErrorPos(getErr, ctx.pkg.Fset, pos)
@@ -1379,7 +1379,7 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				}
 				// First embedded GET wins (record embed site).
 				if getOwner == "" {
-					get, getErr := buildHandlerGET(m, ctx.handlerOutputs[m], ctx.pkg.Fset)
+					get, getErr := buildHandlerGET(m, ctx.handlerOutputs[m])
 					pg.GET = get
 					if getErr != nil {
 						fallback := ctx.pkg.Fset.Position(m.Expr.Pos())
@@ -1590,13 +1590,6 @@ func finalizeStates(ctx *parseCtx, errs *Errors) {
 		for n := range names {
 			pg.State = ctx.app.States[n]
 		}
-		// State lifecycle is anchored to the SSE stream: allocation
-		// happens in StreamOpen, release on StreamClose + grace.
-		// A page with state therefore needs at least one stream-level handler.
-		if pg.State != nil && !pageHasStreamLifecycle(pg) {
-			pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
-			errs.ErrAt(pos, fmt.Errorf("%w: %s", ErrStateWithoutStream, pg.TypeName))
-		}
 		// A page handling a state-id-scoped event needs state itself
 		// (the runtime reads the validated instance-id header,
 		// which is only available on stateful pages).
@@ -1672,14 +1665,6 @@ func checkAppActionStates(ctx *parseCtx, errs *Errors) {
 			fmt.Errorf("%w: App.%s takes %s",
 				ErrStateAppActionUnbound, h.Name, h.InputState.StateTypeName))
 	}
-}
-
-// pageHasStreamLifecycle reports whether a page has at least one
-// stream-lifecycle handler — a `StreamOpen`, `StreamClose`, or any
-// `OnXXX` event handler — so that per-tab state can be allocated,
-// observed, and released along with the SSE stream.
-func pageHasStreamLifecycle(pg *model.Page) bool {
-	return pg.StreamOpen != nil || pg.StreamClose != nil || len(pg.EventHandlers) > 0
 }
 
 func collectAbstractStateNames(ap *model.AbstractPage) map[string]struct{} {
@@ -1830,7 +1815,7 @@ func parseEventHandler(
 			h.InputSession = parseInput(f, f.Type, info)
 			h.InputSession.Kind = model.InputKindSession
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
-		case paramvalidation.IsStateParam(f):
+		case paramvalidation.IsStateParam(f, ctx.pkg.TypesInfo):
 			if h.InputState != nil {
 				// Reported the way the other handler parsers report it:
 				// a second state parameter is a mistake, not a value to ignore.
@@ -2007,7 +1992,7 @@ func parseStreamHook(
 			})
 			h.OrderedInputs = append(h.OrderedInputs, inp)
 
-		case paramvalidation.IsStateParam(f):
+		case paramvalidation.IsStateParam(f, ctx.pkg.TypesInfo):
 			if h.InputState != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(fmt.Errorf("%w in %s.%s",
@@ -2053,9 +2038,13 @@ func parseStreamHook(
 		return h, fmt.Errorf("%w in %s.%s",
 			ErrStateIDWithoutState, recv, fd.Name.Name)
 	}
-	if !foundStreamID {
+	// A stream hook needs a handle on the stream it is about. StreamID names
+	// the stream, State holds the value that belongs to it.
+	// Either one identifies the tab. A hook with neither can only act on
+	// the whole application, which no stream hook is for.
+	if !foundStreamID && h.InputState == nil {
 		return h, fmt.Errorf("%w in %s.%s",
-			ErrSignatureMissingStreamID, recv, fd.Name.Name)
+			ErrStreamHookMissingHandle, recv, fd.Name.Name)
 	}
 	if len(unsupErrs) > 0 {
 		return h, errors.Join(unsupErrs...)
@@ -2382,11 +2371,11 @@ func isStructType(t types.Type) bool {
 	return ok
 }
 
-// parseStateParam attempts to match f as a `state *T` parameter.
+// parseStateParam attempts to match f as a datapages.State[T] parameter.
 // Returns (nil, nil) when the field is not a state parameter at all.
 // Returns (inputState, nil) on success.
-// Returns (nil, error) when the field is a state parameter but the
-// pointer element type is missing or unknown.
+// Returns (nil, error) when the field is a state parameter but its type
+// argument is not a named type of the app package.
 func parseStateParam(
 	f *ast.Field,
 	info *types.Info,
@@ -2394,13 +2383,13 @@ func parseStateParam(
 	typeParams []string,
 	recv, method string,
 ) (*model.InputState, error) {
-	if !paramvalidation.IsStateParam(f) {
+	if !paramvalidation.IsStateParam(f, info) {
 		return nil, nil
 	}
 	elemName := paramvalidation.StateParamElementName(f)
 	if elemName == "" {
 		return nil, fmt.Errorf("%w in %s.%s",
-			ErrStateParamNotPointer, recv, method)
+			ErrStateTypeArgNotNamed, recv, method)
 	}
 
 	// Type parameter of the enclosing abstract page — accept as a placeholder;
@@ -2467,8 +2456,8 @@ func bindStateTypeArg(
 	if is == nil || is.IsTypeParam {
 		return
 	}
-	// The abstract page's handlers take state *S. A pointer type argument
-	// would make that **T, which no state runtime can serve.
+	// The abstract page's handlers take datapages.State[S]. A pointer type
+	// argument would make that State[*T], which no state runtime can serve.
 	if name, ok := strings.CutPrefix(is.StateTypeName, "*"); ok {
 		if !ctx.reportedPtrTypeArg[embedPos] {
 			if ctx.reportedPtrTypeArg == nil {
@@ -2517,7 +2506,7 @@ func makeType(typeExpr ast.Expr, info *types.Info) model.Type {
 }
 
 func buildHandlerGET(
-	h *model.Handler, outputs []*model.Output, fset *token.FileSet,
+	h *model.Handler, outputs []*model.Output,
 ) (*model.HandlerGET, error) {
 	get := &model.HandlerGET{
 		Handler: h,
@@ -2696,7 +2685,7 @@ func parseHandler(
 			})
 			h.OrderedInputs = append(h.OrderedInputs, inp)
 
-		case paramvalidation.IsStateParam(f):
+		case paramvalidation.IsStateParam(f, ctx.pkg.TypesInfo):
 			if h.InputState != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(fmt.Errorf("%w in %s.%s",

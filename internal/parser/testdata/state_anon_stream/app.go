@@ -39,7 +39,7 @@ func (PageIndex) GET(r *http.Request, session Session) (
 func (PageIndex) StreamOpen(
 	r *http.Request,
 	streamID datapages.StreamID,
-	state *TabState,
+	state datapages.State[TabState],
 ) error {
 	return nil
 }
@@ -47,7 +47,7 @@ func (PageIndex) StreamOpen(
 func (PageIndex) OnPostArchived(
 	event EventPostArchived,
 	sse datapages.SSE,
-	state *TabState,
+	state datapages.State[TabState],
 ) error {
 	return nil
 }
@@ -55,7 +55,7 @@ func (PageIndex) OnPostArchived(
 func (PageIndex) OnMessageSent(
 	event EventMessageSent,
 	sse datapages.SSE,
-	state *TabState,
+	state datapages.State[TabState],
 ) error {
 	return nil
 }

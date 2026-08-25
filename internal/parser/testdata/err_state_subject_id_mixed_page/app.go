@@ -40,7 +40,7 @@ func (PageIndex) GET(r *http.Request, session Session) (
 func (PageIndex) StreamOpen(
 	r *http.Request,
 	streamID datapages.StreamID,
-	state *TabState,
+	state datapages.State[TabState],
 ) error {
 	return nil
 }
@@ -48,7 +48,7 @@ func (PageIndex) StreamOpen(
 func (PageIndex) OnFiltersUpdated(
 	event EventFiltersUpdated,
 	sse datapages.SSE,
-	state *TabState,
+	state datapages.State[TabState],
 ) error {
 	return nil
 }
@@ -56,7 +56,7 @@ func (PageIndex) OnFiltersUpdated(
 func (PageIndex) OnMessageSent(
 	event EventMessageSent,
 	sse datapages.SSE,
-	state *TabState,
+	state datapages.State[TabState],
 ) error {
 	return nil
 }

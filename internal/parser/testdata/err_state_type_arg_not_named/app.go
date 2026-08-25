@@ -20,7 +20,9 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 // POSTBad is /bad
 func (PageIndex) POSTBad(
 	r *http.Request,
-	state StateIndex, // must be *StateIndex (pointer)
+	// The type argument names the state type itself,
+	// never a pointer to it: datapages.State[StateIndex].
+	state datapages.State[*StateIndex],
 ) error {
 	return nil
 }

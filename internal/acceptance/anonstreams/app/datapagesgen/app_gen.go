@@ -444,36 +444,27 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 }
 
 // stateSlotStateTab holds one instance of StateTab.
-// It is checked out of statePoolStateTab on StreamOpen and returned on StreamClose.
-// An instance lives exactly as long as the stream that created it:
-// a client that reconnects gets a zeroed one.
+// It is allocated on StreamOpen and dropped on StreamClose.
+// An instance lives exactly as long as the stream that created it and
+// is never reused: a client that reconnects gets a new one.
 type stateSlotStateTab struct {
 	state *app.StateTab
 	mu    sync.Mutex // serializes all stateful handler calls on this instance
-	dead  bool       // true once the state went back to the pool
-}
-
-// statePoolStateTab pools StateTab values across instance checkouts.
-// Every value is zeroed before it is handed out, so nothing of the
-// previous tab reaches the next one.
-var statePoolStateTab = sync.Pool{
-	New: func() any { return new(app.StateTab) },
+	dead  bool       // true once the stream closed and the state was dropped
 }
 
 // stateInstancesStateTab maps a verified Datapages-Instance id to the live slot.
 var stateInstancesStateTab stateStore[stateSlotStateTab]
 
-// allocateStateTab checks a state value out of statePoolStateTab,
-// zeroes it, registers it under id, and hands it to the SSE stream that asked for it.
+// allocateStateTab allocates a zeroed state value, registers it under id
+// and hands it to the SSE stream that asked for it.
 // Returns the slot so callers (StreamOpen) can pass the state to the user,
 // or nil when the server holds as many instances as it may.
 func (s *Server) allocateStateTab(id string) *stateSlotStateTab {
 	if !s.stateReserveInstance() {
 		return nil
 	}
-	st := statePoolStateTab.Get().(*app.StateTab)
-	*st = app.StateTab{} // nothing of the previous tab survives
-	slot := &stateSlotStateTab{state: st}
+	slot := &stateSlotStateTab{state: new(app.StateTab)}
 	stateInstancesStateTab.Store(id, slot)
 	return slot
 }
@@ -485,9 +476,9 @@ func (s *Server) lookupStateTab(id string) (*stateSlotStateTab, bool) {
 	return stateInstancesStateTab.Load(id)
 }
 
-// releaseStateTab returns the slot's state to the pool the moment its stream closes.
+// releaseStateTab drops the slot's state the moment its stream closes.
 // Nothing of the instance outlives the stream: a client that
-// reconnects opens a new stream and gets a zeroed state.
+// reconnects opens a new stream and gets a freshly allocated state.
 //
 // The caller passes the slot it allocated rather than the id alone.
 // A tab can hold two streams at once while the server still tears the
@@ -502,16 +493,12 @@ func (s *Server) releaseStateTab(id string, slot *stateSlotStateTab) {
 		return
 	}
 	slot.dead = true
-	st := slot.state
 	slot.state = nil
 	slot.mu.Unlock()
 	// A stream can allocate a fresh slot under this id while this
 	// one is on its way out. Drop only the slot this call owns.
 	stateInstancesStateTab.CompareAndDelete(id, slot)
 	stateLiveInstances.Add(-1)
-	if st != nil {
-		statePoolStateTab.Put(st)
-	}
 }
 
 func setupHandlers(s *Server) {
@@ -904,7 +891,7 @@ func (s *Server) handlePageTabsGETStream(w http.ResponseWriter, r *http.Request)
 			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+			if err := p.StreamOpen(r, streamID, datapages.State[app.StateTab]{Values: slot.state}); err != nil {
 				return err
 			}
 			opened = true
@@ -932,7 +919,7 @@ func (s *Server) handlePageTabsGETStream(w http.ResponseWriter, r *http.Request)
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnTicked(eventTicked, dpsse.New(sse), slot.state); err != nil {
+					if err := p.OnTicked(eventTicked, dpsse.New(sse), datapages.State[app.StateTab]{Values: slot.state}); err != nil {
 						s.LogErr("handling PageTabs.OnTicked", err)
 					}
 					slot.mu.Unlock()
@@ -947,7 +934,7 @@ func (s *Server) handlePageTabsGETStream(w http.ResponseWriter, r *http.Request)
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnNoticed(eventNoticed, dpsse.New(sse), slot.state); err != nil {
+					if err := p.OnNoticed(eventNoticed, dpsse.New(sse), datapages.State[app.StateTab]{Values: slot.state}); err != nil {
 						s.LogErr("handling PageTabs.OnNoticed", err)
 					}
 					slot.mu.Unlock()
@@ -1011,7 +998,7 @@ func (s *Server) handlePageTabsGETStreamAnon(w http.ResponseWriter, r *http.Requ
 			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+			if err := p.StreamOpen(r, streamID, datapages.State[app.StateTab]{Values: slot.state}); err != nil {
 				return err
 			}
 			opened = true
@@ -1038,7 +1025,7 @@ func (s *Server) handlePageTabsGETStreamAnon(w http.ResponseWriter, r *http.Requ
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnTicked(eventTicked, dpsse.New(sse), slot.state); err != nil {
+					if err := p.OnTicked(eventTicked, dpsse.New(sse), datapages.State[app.StateTab]{Values: slot.state}); err != nil {
 						s.LogErr("handling PageTabs.OnTicked", err)
 					}
 					slot.mu.Unlock()
@@ -1079,7 +1066,7 @@ func (s *Server) handlePageTabsPOSTBump(
 	p := app.PageTabs{
 		App: s.app,
 	}
-	err := p.POSTBump(r, slot.state, dispatchTicked)
+	err := p.POSTBump(r, datapages.State[app.StateTab]{Values: slot.state}, dispatchTicked)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageTabs.Bump", err)
 		return

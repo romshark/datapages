@@ -25,13 +25,12 @@ func (p PageItem) GET(
 
 func (p PageItem) StreamOpen(
 	r *http.Request,
-	streamID datapages.StreamID,
-	state *StateItem,
+	state datapages.State[StateItem],
 	signals datapages.Signals[struct {
 		ItemID string `json:"itemId"`
 	}],
 ) error {
-	state.ItemID = signals.Values.ItemID
+	state.Values.ItemID = signals.Values.ItemID
 	return nil
 }
 
@@ -55,12 +54,12 @@ func (p PageItem) DELETEItem(
 func (p PageItem) OnTodoUpdated(
 	event EventTodoUpdated,
 	sse datapages.SSE,
-	state *StateItem,
+	state datapages.State[StateItem],
 ) error {
-	if state.ItemID == "" {
+	if state.Values.ItemID == "" {
 		return nil
 	}
-	todo, ok := p.App.list.GetItem(state.ItemID)
+	todo, ok := p.App.list.GetItem(state.Values.ItemID)
 	if !ok {
 		return sse.Redirect("/")
 	}

@@ -26,14 +26,14 @@ type StateB struct {
 }
 
 // Base is a generic abstract page parameterized by its concrete state
-// type. Its handlers accept `state *S`; every concrete page that embeds
-// `Base[StateX]` gets those handlers instantiated with `state *StateX`.
+// type. Its handlers accept `datapages.State[S]`; every concrete page that embeds
+// `Base[StateX]` gets those handlers instantiated with `datapages.State[StateX]`.
 type Base[S any] struct{ App *App }
 
 func (Base[S]) StreamOpen(
 	r *http.Request,
 	streamID datapages.StreamID,
-	state *S,
+	state datapages.State[S],
 ) error {
 	return nil
 }
@@ -41,7 +41,7 @@ func (Base[S]) StreamOpen(
 func (Base[S]) OnPing(
 	event EventPing,
 	sse datapages.SSE,
-	state *S,
+	state datapages.State[S],
 ) error {
 	return nil
 }
@@ -59,9 +59,9 @@ func (PageA) GET(r *http.Request) (body datapages.Component, err error) {
 // POSTExtend is /a/extend
 func (PageA) POSTExtend(
 	r *http.Request,
-	state *StateA,
+	state datapages.State[StateA],
 ) error {
-	state.Extra = "set-by-pagea"
+	state.Values.Extra = "set-by-pagea"
 	return nil
 }
 
@@ -78,9 +78,9 @@ func (PageB) GET(r *http.Request) (body datapages.Component, err error) {
 // POSTBump is /b/bump
 func (PageB) POSTBump(
 	r *http.Request,
-	state *StateB,
+	state datapages.State[StateB],
 ) error {
-	state.Other++
+	state.Values.Other++
 	return nil
 }
 

@@ -86,6 +86,56 @@ type Path[Values any] struct{ Values Values }
 // The tag value must match a json tag in the signals struct.
 type Query[Values any] struct{ Values Values }
 
+// State carries the per-page-instance server-side state of one browser tab.
+// It may be received as a parameter by:
+//
+//   - StreamOpen
+//   - StreamClose
+//   - event handlers (OnXXX)
+//   - action handlers (POST/PUT/PATCH/DELETE)
+//
+// GET handlers may not: the instance a page load mints holds no state until
+// its stream opens.
+//
+// Values is any exported struct the application package declares.
+// Unlike [Query], [Signals] and [Path] it carries a pointer pointing to a struct
+// that is shared across handlers:
+//
+//	type StateIndex struct{ Filter string }
+//
+//	func (p PageIndex) StreamOpen(
+//		r *http.Request,
+//		state datapages.State[StateIndex],
+//	) error {
+//		state.Values.Filter = "all"
+//		return nil
+//	}
+//
+// The state lives as long as the tab's SSE stream. It is allocated when the stream opens.
+// When the stream closes the server drops its reference, and the garbage collector
+// reclaims the value once nothing else holds it. A tab that reconnects gets a new one.
+// No instance is ever reused by another tab.
+//
+// Datapages serializes the handlers of one tab that take State,
+// which is why the fields need no explicit synchronization (like a mutex lock).
+// Handlers without a State parameter (like GET) are not serialized,
+// and neither are the handlers of other tabs.
+//
+// WARNING: Values must not outlive the handler that received it. The serialization
+// described above covers handlers, not, for example, a goroutine one of them started.
+// A goroutine that keeps the pointer to the state value races with the tab's handlers.
+// An alias stored in the application or held by a [Component] that renders
+// later also keeps the state alive long after the tab is gone.
+// Copy the fields out instead:
+//
+//	filter := state.Values.Filter
+//	go p.App.refresh(filter)
+//
+// A page whose handlers take State gets an SSE stream whether or not it
+// declares StreamOpen, StreamClose or an OnXXX handler: the stream is what
+// bounds the instance's lifetime. The server needs [WithStateConfig].
+type State[Values any] struct{ Values *Values }
+
 // StreamID identifies one SSE stream instance within the process.
 // StreamOpen and StreamClose must receive it, event (OnXXX) handlers may:
 //
@@ -413,7 +463,7 @@ type SubjectUser string
 //	}
 //
 // A handler dispatching such an event takes stateID string alongside
-// state *T, and a page handling it must be stateful.
+// datapages.State[T], and a page handling it must be stateful.
 // Since the segment is bound to the connecting tab, the field must not
 // carry a signal:"<name>" tag, and it must be the event's only subject field.
 type SubjectStateID string

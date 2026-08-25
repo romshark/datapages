@@ -103,9 +103,11 @@ func IsSessionParam(f *ast.Field, info *types.Info) bool {
 	return typecheck.IsSessionType(f.Type, info)
 }
 
-// IsStateParam reports whether the AST field is named "state".
-func IsStateParam(f *ast.Field) bool {
-	return len(f.Names) > 0 && f.Names[0].Name == "state"
+// IsStateParam reports whether the AST field is typed datapages.State[Values].
+// The type is what makes it a state parameter. The name may be anything.
+func IsStateParam(f *ast.Field, info *types.Info) bool {
+	_, ok := typecheck.StateValuesType(f.Type, info)
+	return ok
 }
 
 // IsStateIDParam reports whether the AST field is named "stateID".
@@ -113,15 +115,12 @@ func IsStateIDParam(f *ast.Field) bool {
 	return len(f.Names) > 0 && f.Names[0].Name == "stateID"
 }
 
-// StateParamElementName returns the state type name referenced by
-// a `state *T` parameter. Returns "" when the field's type is
-// not a plain pointer to an identifier.
+// StateParamElementName returns the state type name referenced by a
+// datapages.State[T] parameter. Returns "" when the type argument is not a
+// plain identifier, which is what a pointer, an anonymous struct or a
+// qualified type gives.
 func StateParamElementName(f *ast.Field) string {
-	star, ok := f.Type.(*ast.StarExpr)
-	if !ok {
-		return ""
-	}
-	id, ok := star.X.(*ast.Ident)
+	id, ok := typecheck.TypeArgExpr(f.Type).(*ast.Ident)
 	if !ok {
 		return ""
 	}

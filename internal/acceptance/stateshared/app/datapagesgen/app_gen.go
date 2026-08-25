@@ -417,36 +417,27 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 }
 
 // stateSlotTabContext holds one instance of TabContext.
-// It is checked out of statePoolTabContext on StreamOpen and returned on StreamClose.
-// An instance lives exactly as long as the stream that created it:
-// a client that reconnects gets a zeroed one.
+// It is allocated on StreamOpen and dropped on StreamClose.
+// An instance lives exactly as long as the stream that created it and
+// is never reused: a client that reconnects gets a new one.
 type stateSlotTabContext struct {
 	state *app.TabContext
 	mu    sync.Mutex // serializes all stateful handler calls on this instance
-	dead  bool       // true once the state went back to the pool
-}
-
-// statePoolTabContext pools TabContext values across instance checkouts.
-// Every value is zeroed before it is handed out, so nothing of the
-// previous tab reaches the next one.
-var statePoolTabContext = sync.Pool{
-	New: func() any { return new(app.TabContext) },
+	dead  bool       // true once the stream closed and the state was dropped
 }
 
 // stateInstancesTabContext maps a verified Datapages-Instance id to the live slot.
 var stateInstancesTabContext stateStore[stateSlotTabContext]
 
-// allocateTabContext checks a state value out of statePoolTabContext,
-// zeroes it, registers it under id, and hands it to the SSE stream that asked for it.
+// allocateTabContext allocates a zeroed state value, registers it under id
+// and hands it to the SSE stream that asked for it.
 // Returns the slot so callers (StreamOpen) can pass the state to the user,
 // or nil when the server holds as many instances as it may.
 func (s *Server) allocateTabContext(id string) *stateSlotTabContext {
 	if !s.stateReserveInstance() {
 		return nil
 	}
-	st := statePoolTabContext.Get().(*app.TabContext)
-	*st = app.TabContext{} // nothing of the previous tab survives
-	slot := &stateSlotTabContext{state: st}
+	slot := &stateSlotTabContext{state: new(app.TabContext)}
 	stateInstancesTabContext.Store(id, slot)
 	return slot
 }
@@ -458,9 +449,9 @@ func (s *Server) lookupTabContext(id string) (*stateSlotTabContext, bool) {
 	return stateInstancesTabContext.Load(id)
 }
 
-// releaseTabContext returns the slot's state to the pool the moment its stream closes.
+// releaseTabContext drops the slot's state the moment its stream closes.
 // Nothing of the instance outlives the stream: a client that
-// reconnects opens a new stream and gets a zeroed state.
+// reconnects opens a new stream and gets a freshly allocated state.
 //
 // The caller passes the slot it allocated rather than the id alone.
 // A tab can hold two streams at once while the server still tears the
@@ -475,16 +466,12 @@ func (s *Server) releaseTabContext(id string, slot *stateSlotTabContext) {
 		return
 	}
 	slot.dead = true
-	st := slot.state
 	slot.state = nil
 	slot.mu.Unlock()
 	// A stream can allocate a fresh slot under this id while this
 	// one is on its way out. Drop only the slot this call owns.
 	stateInstancesTabContext.CompareAndDelete(id, slot)
 	stateLiveInstances.Add(-1)
-	if st != nil {
-		statePoolTabContext.Put(st)
-	}
 }
 
 func setupHandlers(s *Server) {
@@ -543,7 +530,7 @@ func (s *Server) handlePOSTBump(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dispatchChanged := dispatcherEventChanged{s: s, ctx: r.Context()}
-	err := s.app.POSTBump(r, slot.state, stateID, dispatchChanged)
+	err := s.app.POSTBump(r, datapages.State[app.TabContext]{Values: slot.state}, stateID, dispatchChanged)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Bump", err)
 		return
@@ -648,7 +635,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+			if err := p.StreamOpen(r, datapages.State[app.TabContext]{Values: slot.state}); err != nil {
 				return err
 			}
 			opened = true
@@ -675,7 +662,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnChanged(eventChanged, dpsse.New(sse), slot.state); err != nil {
+					if err := p.OnChanged(eventChanged, dpsse.New(sse), datapages.State[app.TabContext]{Values: slot.state}); err != nil {
 						s.LogErr("handling PageIndex.OnChanged", err)
 					}
 					slot.mu.Unlock()
@@ -726,7 +713,7 @@ func (s *Server) handlePageIndexPOSTNote(
 			App: s.app,
 		},
 	}
-	err := p.POSTNote(r, slot.state, stateID, signals, dispatchChanged)
+	err := p.POSTNote(r, datapages.State[app.TabContext]{Values: slot.state}, stateID, signals, dispatchChanged)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Note", err)
 		return
@@ -827,7 +814,7 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+			if err := p.StreamOpen(r, datapages.State[app.TabContext]{Values: slot.state}); err != nil {
 				return err
 			}
 			opened = true
@@ -854,7 +841,7 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnChanged(eventChanged, dpsse.New(sse), slot.state); err != nil {
+					if err := p.OnChanged(eventChanged, dpsse.New(sse), datapages.State[app.TabContext]{Values: slot.state}); err != nil {
 						s.LogErr("handling PageOther.OnChanged", err)
 					}
 					slot.mu.Unlock()

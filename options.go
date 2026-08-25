@@ -58,7 +58,7 @@ type ServerConfig struct {
 
 	// State configures the per-page-instance state runtime.
 	// A nil value leaves it unconfigured, which an application whose handlers
-	// take state *T is rejected for.
+	// take datapages.State[T] is rejected for.
 	State *StateConfig
 
 	// sessionManager is what [WithSessionManager] carries.
@@ -347,7 +347,7 @@ const StateHMACKeyMinLen = 32
 const DefaultMaxConcurrentInstances = 10_000
 
 // StateConfig configures the per-page-instance server-side state runtime.
-// Pass it via [WithStateConfig] when at least one handler takes state *T.
+// Pass it via [WithStateConfig] when at least one handler takes datapages.State[T].
 type StateConfig struct {
 	// HMACKey signs the Datapages-Instance identifier that rides on
 	// request/response headers. Required; 32 bytes or more.
@@ -368,7 +368,7 @@ type StateConfig struct {
 }
 
 // WithStateConfig enables the per-page-instance server-side state runtime.
-// Required when at least one handler takes state *T.
+// Required when at least one handler takes datapages.State[T].
 //
 // On multi-server deployments the load balancer MUST route requests for a
 // given client consistently to the same backend (sticky sessions),

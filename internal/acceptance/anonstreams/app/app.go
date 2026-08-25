@@ -139,7 +139,7 @@ func (PageTabs) GET(_ *http.Request) (body datapages.Component, err error) {
 }
 
 func (PageTabs) StreamOpen(
-	_ *http.Request, streamID datapages.StreamID, state *StateTab,
+	_ *http.Request, streamID datapages.StreamID, state datapages.State[StateTab],
 ) error {
 	return nil
 }
@@ -147,17 +147,17 @@ func (PageTabs) StreamOpen(
 func (p PageTabs) OnTicked(
 	event EventTicked,
 	sse datapages.SSE,
-	state *StateTab,
+	state datapages.State[StateTab],
 ) error {
 	return sse.PatchElement(templ.Raw(fmt.Sprintf(
-		`<div id="count">count %d</div>`, state.Count,
+		`<div id="count">count %d</div>`, state.Values.Count,
 	)))
 }
 
 func (p PageTabs) OnNoticed(
 	event EventNoticed,
 	sse datapages.SSE,
-	state *StateTab,
+	state datapages.State[StateTab],
 ) error {
 	return sse.PatchElement(templ.Raw(fmt.Sprintf(
 		`<div id="count">notice %s</div>`, templ.EscapeString(event.Text),
@@ -170,9 +170,9 @@ func (p PageTabs) OnNoticed(
 // which makes every tab render its own count.
 func (p PageTabs) POSTBump(
 	_ *http.Request,
-	state *StateTab,
+	state datapages.State[StateTab],
 	ticked datapages.Dispatcher[EventTicked],
 ) error {
-	state.Count++
-	return ticked.Dispatch(EventTicked{N: state.Count})
+	state.Values.Count++
+	return ticked.Dispatch(EventTicked{N: state.Values.Count})
 }

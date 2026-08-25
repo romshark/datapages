@@ -1,4 +1,4 @@
-module datapagestest/fixture/err_state_without_stream
+module datapagestest/fixture/state_stream_hook_no_streamid
 
 go 1.27.0
 

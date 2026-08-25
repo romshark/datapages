@@ -413,36 +413,27 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 }
 
 // stateSlotStateIndex holds one instance of StateIndex.
-// It is checked out of statePoolStateIndex on StreamOpen and returned on StreamClose.
-// An instance lives exactly as long as the stream that created it:
-// a client that reconnects gets a zeroed one.
+// It is allocated on StreamOpen and dropped on StreamClose.
+// An instance lives exactly as long as the stream that created it and
+// is never reused: a client that reconnects gets a new one.
 type stateSlotStateIndex struct {
 	state *app.StateIndex
 	mu    sync.Mutex // serializes all stateful handler calls on this instance
-	dead  bool       // true once the state went back to the pool
-}
-
-// statePoolStateIndex pools StateIndex values across instance checkouts.
-// Every value is zeroed before it is handed out, so nothing of the
-// previous tab reaches the next one.
-var statePoolStateIndex = sync.Pool{
-	New: func() any { return new(app.StateIndex) },
+	dead  bool       // true once the stream closed and the state was dropped
 }
 
 // stateInstancesStateIndex maps a verified Datapages-Instance id to the live slot.
 var stateInstancesStateIndex stateStore[stateSlotStateIndex]
 
-// allocateStateIndex checks a state value out of statePoolStateIndex,
-// zeroes it, registers it under id, and hands it to the SSE stream that asked for it.
+// allocateStateIndex allocates a zeroed state value, registers it under id
+// and hands it to the SSE stream that asked for it.
 // Returns the slot so callers (StreamOpen) can pass the state to the user,
 // or nil when the server holds as many instances as it may.
 func (s *Server) allocateStateIndex(id string) *stateSlotStateIndex {
 	if !s.stateReserveInstance() {
 		return nil
 	}
-	st := statePoolStateIndex.Get().(*app.StateIndex)
-	*st = app.StateIndex{} // nothing of the previous tab survives
-	slot := &stateSlotStateIndex{state: st}
+	slot := &stateSlotStateIndex{state: new(app.StateIndex)}
 	stateInstancesStateIndex.Store(id, slot)
 	return slot
 }
@@ -454,9 +445,9 @@ func (s *Server) lookupStateIndex(id string) (*stateSlotStateIndex, bool) {
 	return stateInstancesStateIndex.Load(id)
 }
 
-// releaseStateIndex returns the slot's state to the pool the moment its stream closes.
+// releaseStateIndex drops the slot's state the moment its stream closes.
 // Nothing of the instance outlives the stream: a client that
-// reconnects opens a new stream and gets a zeroed state.
+// reconnects opens a new stream and gets a freshly allocated state.
 //
 // The caller passes the slot it allocated rather than the id alone.
 // A tab can hold two streams at once while the server still tears the
@@ -471,49 +462,36 @@ func (s *Server) releaseStateIndex(id string, slot *stateSlotStateIndex) {
 		return
 	}
 	slot.dead = true
-	st := slot.state
 	slot.state = nil
 	slot.mu.Unlock()
 	// A stream can allocate a fresh slot under this id while this
 	// one is on its way out. Drop only the slot this call owns.
 	stateInstancesStateIndex.CompareAndDelete(id, slot)
 	stateLiveInstances.Add(-1)
-	if st != nil {
-		statePoolStateIndex.Put(st)
-	}
 }
 
 // stateSlotStateItem holds one instance of StateItem.
-// It is checked out of statePoolStateItem on StreamOpen and returned on StreamClose.
-// An instance lives exactly as long as the stream that created it:
-// a client that reconnects gets a zeroed one.
+// It is allocated on StreamOpen and dropped on StreamClose.
+// An instance lives exactly as long as the stream that created it and
+// is never reused: a client that reconnects gets a new one.
 type stateSlotStateItem struct {
 	state *app.StateItem
 	mu    sync.Mutex // serializes all stateful handler calls on this instance
-	dead  bool       // true once the state went back to the pool
-}
-
-// statePoolStateItem pools StateItem values across instance checkouts.
-// Every value is zeroed before it is handed out, so nothing of the
-// previous tab reaches the next one.
-var statePoolStateItem = sync.Pool{
-	New: func() any { return new(app.StateItem) },
+	dead  bool       // true once the stream closed and the state was dropped
 }
 
 // stateInstancesStateItem maps a verified Datapages-Instance id to the live slot.
 var stateInstancesStateItem stateStore[stateSlotStateItem]
 
-// allocateStateItem checks a state value out of statePoolStateItem,
-// zeroes it, registers it under id, and hands it to the SSE stream that asked for it.
+// allocateStateItem allocates a zeroed state value, registers it under id
+// and hands it to the SSE stream that asked for it.
 // Returns the slot so callers (StreamOpen) can pass the state to the user,
 // or nil when the server holds as many instances as it may.
 func (s *Server) allocateStateItem(id string) *stateSlotStateItem {
 	if !s.stateReserveInstance() {
 		return nil
 	}
-	st := statePoolStateItem.Get().(*app.StateItem)
-	*st = app.StateItem{} // nothing of the previous tab survives
-	slot := &stateSlotStateItem{state: st}
+	slot := &stateSlotStateItem{state: new(app.StateItem)}
 	stateInstancesStateItem.Store(id, slot)
 	return slot
 }
@@ -525,9 +503,9 @@ func (s *Server) lookupStateItem(id string) (*stateSlotStateItem, bool) {
 	return stateInstancesStateItem.Load(id)
 }
 
-// releaseStateItem returns the slot's state to the pool the moment its stream closes.
+// releaseStateItem drops the slot's state the moment its stream closes.
 // Nothing of the instance outlives the stream: a client that
-// reconnects opens a new stream and gets a zeroed state.
+// reconnects opens a new stream and gets a freshly allocated state.
 //
 // The caller passes the slot it allocated rather than the id alone.
 // A tab can hold two streams at once while the server still tears the
@@ -542,16 +520,12 @@ func (s *Server) releaseStateItem(id string, slot *stateSlotStateItem) {
 		return
 	}
 	slot.dead = true
-	st := slot.state
 	slot.state = nil
 	slot.mu.Unlock()
 	// A stream can allocate a fresh slot under this id while this
 	// one is on its way out. Drop only the slot this call owns.
 	stateInstancesStateItem.CompareAndDelete(id, slot)
 	stateLiveInstances.Add(-1)
-	if st != nil {
-		statePoolStateItem.Put(st)
-	}
 }
 
 func setupHandlers(s *Server) {
@@ -816,7 +790,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, streamID, slot.state, signals); err != nil {
+			if err := p.StreamOpen(r, datapages.State[app.StateIndex]{Values: slot.state}, signals); err != nil {
 				return err
 			}
 			opened = true
@@ -843,7 +817,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnTodoUpdated(eventTodoUpdated, dpsse.New(sse), slot.state); err != nil {
+					if err := p.OnTodoUpdated(eventTodoUpdated, dpsse.New(sse), datapages.State[app.StateIndex]{Values: slot.state}); err != nil {
 						s.LogErr("handling PageIndex.OnTodoUpdated", err)
 					}
 					slot.mu.Unlock()
@@ -919,7 +893,7 @@ func (s *Server) handlePageIndexPOSTFilter(
 	p := app.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTFilter(r, dpsse.New(sse), slot.state, signals)
+	err := p.POSTFilter(r, dpsse.New(sse), datapages.State[app.StateIndex]{Values: slot.state}, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Filter", err)
 		return
@@ -1034,7 +1008,7 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, streamID, slot.state, signals); err != nil {
+			if err := p.StreamOpen(r, datapages.State[app.StateItem]{Values: slot.state}, signals); err != nil {
 				return err
 			}
 			opened = true
@@ -1061,7 +1035,7 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnTodoUpdated(eventTodoUpdated, dpsse.New(sse), slot.state); err != nil {
+					if err := p.OnTodoUpdated(eventTodoUpdated, dpsse.New(sse), datapages.State[app.StateItem]{Values: slot.state}); err != nil {
 						s.LogErr("handling PageItem.OnTodoUpdated", err)
 					}
 					slot.mu.Unlock()

@@ -97,8 +97,20 @@ func stripPagePrefix(typeName string) string {
 	return strings.TrimPrefix(typeName, "Page")
 }
 
-// pageHasStream returns true if the page has event handlers and needs a stream.
+// pageHasStream returns true if the page needs an SSE stream.
+// State counts on its own: the stream is what allocates the instance on
+// connect and releases it on disconnect, so a stateful page needs one even
+// when it declares no hook and handles no event.
 func pageHasStream(p *model.Page) bool {
+	return len(p.EventHandlers) > 0 || p.StreamOpen != nil ||
+		p.StreamClose != nil || p.State != nil
+}
+
+// pageStreamCallsPage returns true if the page's stream handler calls a method
+// on the page value. A stateful page with no hook and no event handler gets a
+// stream purely to bound its instance lifetime and never touches the page,
+// which would leave the constructed value unused.
+func pageStreamCallsPage(p *model.Page) bool {
 	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil
 }
 

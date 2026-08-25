@@ -60,8 +60,9 @@ func Suggest(err error) string {
 	case errors.Is(err, parser.ErrSignatureMissingReq):
 		return "fix: Add `r *http.Request` parameter"
 
-	case errors.Is(err, parser.ErrSignatureMissingStreamID):
-		return "fix: Add `streamID datapages.StreamID` parameter"
+	case errors.Is(err, parser.ErrStreamHookMissingHandle):
+		return "fix: Add `streamID datapages.StreamID` or " +
+			"`state datapages.State[T]` parameter"
 
 	case errors.Is(err, parser.ErrSignatureGETMissingBody):
 		return "fix: Add `body templ.Component` to return values"

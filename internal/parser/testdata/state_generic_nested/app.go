@@ -27,7 +27,7 @@ type Base[S any] struct{ App *App }
 func (Base[S]) StreamOpen(
 	r *http.Request,
 	streamID datapages.StreamID,
-	state *S,
+	state datapages.State[S],
 ) error {
 	return nil
 }
@@ -35,7 +35,7 @@ func (Base[S]) StreamOpen(
 func (Base[S]) OnPing(
 	event EventPing,
 	sse datapages.SSE,
-	state *S,
+	state datapages.State[S],
 ) error {
 	return nil
 }
@@ -62,9 +62,9 @@ func (PageA) GET(r *http.Request) (body datapages.Component, err error) {
 // POSTSet is /a/set
 func (PageA) POSTSet(
 	r *http.Request,
-	state *StateA,
+	state datapages.State[StateA],
 ) error {
-	state.Shared = "set"
+	state.Values.Shared = "set"
 	return nil
 }
 
@@ -84,9 +84,9 @@ func (PageB) GET(r *http.Request) (body datapages.Component, err error) {
 // POSTBump is /b/bump
 func (PageB) POSTBump(
 	r *http.Request,
-	state *StateB,
+	state datapages.State[StateB],
 ) error {
-	state.Other++
+	state.Values.Other++
 	return nil
 }
 

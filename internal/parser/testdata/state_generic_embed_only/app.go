@@ -25,7 +25,7 @@ type Base[S any] struct{ App *App }
 func (Base[S]) StreamOpen(
 	r *http.Request,
 	streamID datapages.StreamID,
-	state *S,
+	state datapages.State[S],
 ) error {
 	return nil
 }
@@ -33,7 +33,7 @@ func (Base[S]) StreamOpen(
 func (Base[S]) OnPing(
 	event EventPing,
 	sse datapages.SSE,
-	state *S,
+	state datapages.State[S],
 ) error {
 	return nil
 }

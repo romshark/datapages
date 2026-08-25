@@ -12,14 +12,14 @@ type TabContext struct{ Count int }
 
 // PUTBump is /bump
 //
-// App-level action that takes per-tab state. The runtime resolves the slot
+// App-level action that takes per-tab state.Values. The runtime resolves the slot
 // from the calling tab, which must sit on a page bound to TabContext.
 // No page uses that type, which makes the action unreachable. The parser rejects this.
 func (*App) PUTBump(
 	r *http.Request,
-	state *TabContext,
+	state datapages.State[TabContext],
 ) error {
-	state.Count++
+	state.Values.Count++
 	return nil
 }
 

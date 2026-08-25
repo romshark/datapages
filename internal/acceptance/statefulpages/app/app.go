@@ -42,7 +42,7 @@ func (p PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 func (p PageIndex) StreamOpen(
 	r *http.Request,
 	streamID datapages.StreamID,
-	state *StateFilters,
+	state datapages.State[StateFilters],
 ) error {
 	return nil
 }
@@ -53,14 +53,14 @@ func (p PageIndex) StreamOpen(
 // Only the event handler can change what a tab shows, which makes delivery observable.
 func (p PageIndex) POSTUpdate(
 	r *http.Request,
-	state *StateFilters,
+	state datapages.State[StateFilters],
 	stateID string,
 	signals datapages.Signals[struct {
 		Filter string `json:"filter"`
 	}],
 	dispatch datapages.Dispatcher[EventFiltersUpdated],
 ) error {
-	state.Filter = signals.Values.Filter
+	state.Values.Filter = signals.Values.Filter
 	return dispatch.Dispatch(EventFiltersUpdated{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
@@ -69,10 +69,10 @@ func (p PageIndex) POSTUpdate(
 func (p PageIndex) OnFiltersUpdated(
 	event EventFiltersUpdated,
 	sse datapages.SSE,
-	state *StateFilters,
+	state datapages.State[StateFilters],
 ) error {
-	state.Deliveries++
-	return sse.PatchElement(templ.Raw(status(state)))
+	state.Values.Deliveries++
+	return sse.PatchElement(templ.Raw(status(state.Values)))
 }
 
 // ErrStreamOpen is what PageFailOpen.StreamOpen answers with, every time.
@@ -92,7 +92,7 @@ func (p PageFailOpen) GET(r *http.Request) (body datapages.Component, err error)
 func (p PageFailOpen) StreamOpen(
 	r *http.Request,
 	streamID datapages.StreamID,
-	state *StateFilters,
+	state datapages.State[StateFilters],
 ) error {
 	return ErrStreamOpen
 }
@@ -113,7 +113,7 @@ func (p PagePanicOnClose) GET(r *http.Request) (body datapages.Component, err er
 func (p PagePanicOnClose) StreamClose(
 	r *http.Request,
 	streamID datapages.StreamID,
-	state *StateFilters,
+	state datapages.State[StateFilters],
 ) error {
 	panic(ErrStreamClose)
 }

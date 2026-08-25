@@ -17,10 +17,12 @@ import (
 )
 
 var (
-	ErrAppMissingTypeApp         = errors.New(`missing required type "App"`)
-	ErrAppMissingPageIndex       = errors.New(`missing required page type "PageIndex"`)
-	ErrSignatureMissingReq       = errors.New(`missing the *http.Request parameter`)
-	ErrSignatureMissingStreamID  = errors.New(`missing the datapages.StreamID parameter`)
+	ErrAppMissingTypeApp       = errors.New(`missing required type "App"`)
+	ErrAppMissingPageIndex     = errors.New(`missing required page type "PageIndex"`)
+	ErrSignatureMissingReq     = errors.New(`missing the *http.Request parameter`)
+	ErrStreamHookMissingHandle = errors.New(
+		"stream hook must take datapages.StreamID, datapages.State[T], or both",
+	)
 	ErrSignatureMultiErrRet      = errors.New(`multiple error return values`)
 	ErrSignatureUnsupportedInput = errors.New(`unsupported input parameter`)
 	ErrSignatureEvHandMissingSSE = errors.New(
@@ -185,8 +187,9 @@ var (
 		"invalid signal tag value",
 	)
 
-	ErrStateParamNotPointer = errors.New(
-		"state parameter must be a pointer to a named type",
+	ErrStateTypeArgNotNamed = errors.New(
+		"type argument of datapages.State must be a named type " +
+			"declared in the app package",
 	)
 	ErrStateParamInvalidType = errors.New(
 		"state parameter has invalid type",
@@ -199,17 +202,13 @@ var (
 	)
 	ErrStateTypeArgPointer = errors.New(
 		"type argument of an embedded abstract page must not be a pointer; " +
-			"an abstract page takes its state as state *S",
+			"an abstract page takes its state as datapages.State[S]",
 	)
 	ErrStateIDDuplicate = errors.New(
 		"handler has multiple stateID parameters",
 	)
 	ErrStateConflict = errors.New(
 		"page references multiple state types via its handlers and embeds",
-	)
-	ErrStateWithoutStream = errors.New(
-		"page takes state but has no StreamOpen, StreamClose, or OnXXX handler " +
-			"to anchor its lifecycle",
 	)
 	ErrStateAppActionUnbound = errors.New(
 		"app-level action takes a state type that no page binds",
@@ -218,7 +217,7 @@ var (
 		"stateID parameter must be of type string",
 	)
 	ErrStateIDWithoutState = errors.New(
-		"stateID parameter requires the handler to also take state *T",
+		"stateID parameter requires the handler to also take datapages.State[T]",
 	)
 	ErrSubjectStateIDWithSignal = errors.New(
 		"SubjectStateID must not have a signal tag",

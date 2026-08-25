@@ -40,8 +40,7 @@ func (p PageIndex) GET(
 
 func (p PageIndex) StreamOpen(
 	r *http.Request,
-	streamID datapages.StreamID,
-	state *StateIndex,
+	state datapages.State[StateIndex],
 	signals datapages.Signals[struct {
 		Search string `json:"search"`
 		Filter string `json:"filter"`
@@ -56,7 +55,7 @@ func (p PageIndex) StreamOpen(
 	if sortMode == "" {
 		sortMode = "created"
 	}
-	state.ViewParameters = list.ViewParameters{
+	state.Values.ViewParameters = list.ViewParameters{
 		Search: signals.Values.Search,
 		Filter: filter,
 		Sort:   sortMode,
@@ -94,26 +93,26 @@ func (p PageIndex) POSTCreate(
 func (p PageIndex) POSTFilter(
 	r *http.Request,
 	sse datapages.SSE,
-	state *StateIndex,
+	state datapages.State[StateIndex],
 	signals datapages.Signals[struct {
 		Search string `json:"search"`
 		Filter string `json:"filter"`
 		Sort   string `json:"sort"`
 	}],
 ) error {
-	state.Search = signals.Values.Search
-	state.Filter = signals.Values.Filter
-	state.Sort = signals.Values.Sort
+	state.Values.Search = signals.Values.Search
+	state.Values.Filter = signals.Values.Filter
+	state.Values.Sort = signals.Values.Sort
 
-	todos := p.App.list.GetItems(state.ViewParameters)
+	todos := p.App.list.GetItems(state.Values.ViewParameters)
 	return sse.PatchElement(todoList(todos))
 }
 
 func (p PageIndex) OnTodoUpdated(
 	event EventTodoUpdated,
 	sse datapages.SSE,
-	state *StateIndex,
+	state datapages.State[StateIndex],
 ) error {
-	todos := p.App.list.GetItems(state.ViewParameters)
+	todos := p.App.list.GetItems(state.Values.ViewParameters)
 	return sse.PatchElement(todoList(todos))
 }

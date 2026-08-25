@@ -15,7 +15,7 @@ type PageIndex struct{ App *App }
 
 func (PageIndex) GET(
 	r *http.Request,
-	state *StateIndex, // not allowed on GET
+	state datapages.State[StateIndex], // not allowed on GET
 ) (body datapages.Component, err error) {
 	return nil, nil
 }
@@ -23,13 +23,7 @@ func (PageIndex) GET(
 // POSTDummy is /dummy
 func (PageIndex) POSTDummy(
 	r *http.Request,
-	state *StateIndex,
+	state datapages.State[StateIndex],
 ) error {
-	return nil
-}
-
-// StreamOpen anchors the state lifecycle so the fixture isolates the
-// ErrStateOnGET error without also tripping ErrStateWithoutStream.
-func (PageIndex) StreamOpen(r *http.Request, streamID datapages.StreamID) error {
 	return nil
 }

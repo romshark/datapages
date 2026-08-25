@@ -416,36 +416,27 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 }
 
 // stateSlotStateFilters holds one instance of StateFilters.
-// It is checked out of statePoolStateFilters on StreamOpen and returned on StreamClose.
-// An instance lives exactly as long as the stream that created it:
-// a client that reconnects gets a zeroed one.
+// It is allocated on StreamOpen and dropped on StreamClose.
+// An instance lives exactly as long as the stream that created it and
+// is never reused: a client that reconnects gets a new one.
 type stateSlotStateFilters struct {
 	state *app.StateFilters
 	mu    sync.Mutex // serializes all stateful handler calls on this instance
-	dead  bool       // true once the state went back to the pool
-}
-
-// statePoolStateFilters pools StateFilters values across instance checkouts.
-// Every value is zeroed before it is handed out, so nothing of the
-// previous tab reaches the next one.
-var statePoolStateFilters = sync.Pool{
-	New: func() any { return new(app.StateFilters) },
+	dead  bool       // true once the stream closed and the state was dropped
 }
 
 // stateInstancesStateFilters maps a verified Datapages-Instance id to the live slot.
 var stateInstancesStateFilters stateStore[stateSlotStateFilters]
 
-// allocateStateFilters checks a state value out of statePoolStateFilters,
-// zeroes it, registers it under id, and hands it to the SSE stream that asked for it.
+// allocateStateFilters allocates a zeroed state value, registers it under id
+// and hands it to the SSE stream that asked for it.
 // Returns the slot so callers (StreamOpen) can pass the state to the user,
 // or nil when the server holds as many instances as it may.
 func (s *Server) allocateStateFilters(id string) *stateSlotStateFilters {
 	if !s.stateReserveInstance() {
 		return nil
 	}
-	st := statePoolStateFilters.Get().(*app.StateFilters)
-	*st = app.StateFilters{} // nothing of the previous tab survives
-	slot := &stateSlotStateFilters{state: st}
+	slot := &stateSlotStateFilters{state: new(app.StateFilters)}
 	stateInstancesStateFilters.Store(id, slot)
 	return slot
 }
@@ -457,9 +448,9 @@ func (s *Server) lookupStateFilters(id string) (*stateSlotStateFilters, bool) {
 	return stateInstancesStateFilters.Load(id)
 }
 
-// releaseStateFilters returns the slot's state to the pool the moment its stream closes.
+// releaseStateFilters drops the slot's state the moment its stream closes.
 // Nothing of the instance outlives the stream: a client that
-// reconnects opens a new stream and gets a zeroed state.
+// reconnects opens a new stream and gets a freshly allocated state.
 //
 // The caller passes the slot it allocated rather than the id alone.
 // A tab can hold two streams at once while the server still tears the
@@ -474,16 +465,12 @@ func (s *Server) releaseStateFilters(id string, slot *stateSlotStateFilters) {
 		return
 	}
 	slot.dead = true
-	st := slot.state
 	slot.state = nil
 	slot.mu.Unlock()
 	// A stream can allocate a fresh slot under this id while this
 	// one is on its way out. Drop only the slot this call owns.
 	stateInstancesStateFilters.CompareAndDelete(id, slot)
 	stateLiveInstances.Add(-1)
-	if st != nil {
-		statePoolStateFilters.Put(st)
-	}
 }
 
 func setupHandlers(s *Server) {
@@ -607,7 +594,7 @@ func (s *Server) handlePageFailOpenGETStream(w http.ResponseWriter, r *http.Requ
 			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+			if err := p.StreamOpen(r, streamID, datapages.State[app.StateFilters]{Values: slot.state}); err != nil {
 				return err
 			}
 			opened = true
@@ -718,7 +705,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, streamID, slot.state); err != nil {
+			if err := p.StreamOpen(r, streamID, datapages.State[app.StateFilters]{Values: slot.state}); err != nil {
 				return err
 			}
 			opened = true
@@ -745,7 +732,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnFiltersUpdated(eventFiltersUpdated, dpsse.New(sse), slot.state); err != nil {
+					if err := p.OnFiltersUpdated(eventFiltersUpdated, dpsse.New(sse), datapages.State[app.StateFilters]{Values: slot.state}); err != nil {
 						s.LogErr("handling PageIndex.OnFiltersUpdated", err)
 					}
 					slot.mu.Unlock()
@@ -793,7 +780,7 @@ func (s *Server) handlePageIndexPOSTUpdate(
 	p := app.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTUpdate(r, slot.state, stateID, signals, dispatchFiltersUpdated)
+	err := p.POSTUpdate(r, datapages.State[app.StateFilters]{Values: slot.state}, stateID, signals, dispatchFiltersUpdated)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Update", err)
 		return
@@ -889,7 +876,7 @@ func (s *Server) handlePagePanicOnCloseGETStream(w http.ResponseWriter, r *http.
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
 			if !slot.dead {
-				if err := p.StreamClose(r, streamID, slot.state); err != nil {
+				if err := p.StreamClose(r, streamID, datapages.State[app.StateFilters]{Values: slot.state}); err != nil {
 					s.LogErr("handling PagePanicOnClose.StreamClose", err)
 				}
 			}

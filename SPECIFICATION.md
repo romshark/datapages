@@ -54,8 +54,8 @@ special methods:
 - `OnXXX`: subscribes to events in the SSE listener.
 
 Any action method, `OnXXX`, `StreamOpen`, or `StreamClose` may also take
-`state *T` to opt the page into per-tab server-side state — see
-[Parameter: `state *T`](#parameter-state-t).
+`datapages.State[T]` to opt the page into per-tab server-side state — see
+[Parameter: `datapages.State[T]`](#parameter-datapagesstatet).
 
 `XXX` is just a name placeholder.
 
@@ -196,10 +196,18 @@ Use it to correlate `StreamOpen` and `StreamClose` for the same stream.
 It's intended for internal server-side bookkeeping only and
 should not be exposed to clients.
 
+A stream hook must take `datapages.StreamID`, `datapages.State[T]`, or both.
+Either one is a handle on the stream the hook is about: `StreamID` names the
+stream, `State[T]` is the value that belongs to it. A hook that takes neither
+can only act on the application as a whole and is a generator error. A hook
+that holds per-tab state through `State[T]` therefore needs no `streamID` of
+its own.
+
 ```go
 func (PageIndex) StreamOpen(
 	r *http.Request,
-	streamID datapages.StreamID,
+	streamID datapages.StreamID, // Optional when state is declared
+	state datapages.State[T], // Optional when streamID is declared
 	sse datapages.SSE, // Optional
 	session datapages.Session[Data], // Optional
 	signals datapages.Signals[struct{...}], // Optional
@@ -217,7 +225,8 @@ If it returns an error, datapages logs the error server-side.
 ```go
 func (PageIndex) StreamClose(
 	r *http.Request,
-	streamID datapages.StreamID,
+	streamID datapages.StreamID, // Optional when state is declared
+	state datapages.State[T], // Optional when streamID is declared
 	session datapages.Session[Data], // Optional
 	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
@@ -325,24 +334,46 @@ func (p PageExample) OnSomethingHappened(
 
 </details>
 
-#### Parameter: `state *T`
+#### Parameter: `datapages.State[T]`
 
 ```go
-state *T
+state datapages.State[T]
 ```
 
 Provides per-page-instance server-side state. A **page instance** corresponds to
-an open browser tab: two tabs on the same page receive independent `*T`
-values. State is held in server memory. Handlers on the same instance are
+an open browser tab: two tabs on the same page receive independent `T`
+values. The value is reached through the `Values` field, which is a `*T`:
+unlike `Query`, `Signals` and `Path`, which carry a copy of what the request
+said, a handler writes through `State` and the next handler of the same tab
+reads it back. State is held in server memory. Handlers on the same instance are
 serialized by a per-instance mutex, so fields may be read and written without
 additional synchronization inside a handler.
 
 An instance belongs to a tab, not to a user. It is bound to no session and
-survives a sign-out. Treat `*T` as scratch space for the tab.
+survives a sign-out. Treat `State.Values` as scratch space for the tab.
+
+**`State.Values` must not outlive the handler that received it.** The mutex
+serializes handlers, not a goroutine one of them started: a goroutine that
+keeps the pointer races with the tab's later handlers. An alias stored in the
+application or held by a `datapages.Component` that renders later also keeps
+the state alive long after the tab is gone. Copy the fields out instead:
+
+```go
+// Wrong: the tab's value outlives the handler.
+p.App.current = state.Values
+go p.App.refresh(state.Values)
+
+// Right: copy, don't alias.
+filter := state.Values.Filter
+go p.App.refresh(filter)
+```
+
+The serialization guarantee has the same boundary: it covers the handlers of
+one instance, not a goroutine one of them started.
 
 A page opts into state by declaring an exported struct and referencing it via
-`state *T` on one or more action methods, `OnXXX` handlers, `StreamOpen`,
-or `StreamClose`. The type may carry any exported name — `StateIndex` and
+`datapages.State[T]` on one or more action methods, `OnXXX` handlers,
+`StreamOpen`, or `StreamClose`. The type may carry any exported name — `StateIndex` and
 `TabContext` are both accepted:
 
 ```go
@@ -353,49 +384,52 @@ type StateIndex struct {
 
 func (PageIndex) StreamOpen(
     r *http.Request,
-    streamID datapages.StreamID,
-    state *StateIndex,
+    state datapages.State[StateIndex],
 ) error { /* ... */ }
 
 func (PageIndex) POSTIncrement(
     r *http.Request,
-    state *StateIndex,
+    state datapages.State[StateIndex],
 ) error {
-    state.Count++
+    state.Values.Count++
     return nil
 }
 
 func (PageIndex) OnSomething(
     event EventSomething,
     sse datapages.SSE,
-    state *StateIndex,
-) error { /* read state.Count, etc. */ }
+    state datapages.State[StateIndex],
+) error { /* read state.Values.Count, etc. */ }
 ```
 
 **Declaration rules**:
 
 - The state type is an exported struct declared at the source package level.
   Its name is free; the generator derives its runtime symbols from it.
-- The parameter name is `state` and the type is a pointer to a named
-  struct. A value-type parameter is a generator error.
+- The parameter is typed `datapages.State[T]`, where `T` names the struct
+  directly. The type is what makes it a state parameter, as it is for
+  `Query`, `Signals` and `Path`, so the parameter name is free.
+  A type argument that is not a named type of the app package
+  (a pointer, a struct literal, a type from another package)
+  is a generator error.
 - All handlers on a page, including those inherited from embedded abstract
   pages, must reference the same state type.
 - Abstract (embedded) page types may reference a state type on their own
   handlers; the binding flows into every concrete page that embeds them.
-- Global `*App` actions may take `state *T`. The runtime resolves the slot
+- Global `*App` actions may take `datapages.State[T]`. The runtime resolves the slot
   using the calling tab's `Datapages-Instance` header against the map for
   `T`; an App action succeeds only when the calling tab is bound to a page
   that uses the same `T`, and otherwise receives `409 Conflict` with
   `Datapages-Retry: reconnect`. An App action that must be callable from
   every page must remain stateless.
 - `GET` handlers must not take `state`: no instance exists at render time.
-- A page that takes `state` must declare at least one of `StreamOpen`,
-  `StreamClose`, or an `OnXXX` event handler. The SSE stream anchors the
-  state lifecycle — without a stream there is nothing to bind the slot to,
-  and actions would be rejected indefinitely with `409 Conflict`.
+- A page that takes `state` gets an SSE stream whether or not it declares
+  `StreamOpen`, `StreamClose`, or an `OnXXX` event handler. The stream is what
+  bounds the instance's lifetime: it allocates the slot on connect and releases
+  it on disconnect.
 
-**Generic abstract pages**. A generic abstract may declare `state *S` on
-its handlers where `S` is one of its type parameters. Each concrete page
+**Generic abstract pages**. A generic abstract may declare
+`datapages.State[S]` on its handlers where `S` is one of its type parameters. Each concrete page
 then embeds the abstract with a concrete type argument
 (e.g. `Base[UserContext]`); the parser substitutes `S` with that argument
 at the embed site. This lets a single shared abstract layer cooperate with
@@ -406,14 +440,14 @@ A generic abstract may embed another one and pass its own type parameter down
 (`type Mid[S any] struct{ Base[S] }`); a page embedding `Mid[UserContext]`
 binds `Base[UserContext]`. An abstract page may be embedded by pointer
 (`*Base[UserContext]`). The type argument itself must not be a pointer:
-handlers take `state *S`, so `Base[*UserContext]` would ask for `**UserContext`
-and is a parser error.
+handlers take `datapages.State[S]`, so `Base[*UserContext]` would ask for
+`datapages.State[*UserContext]` and is a parser error.
 
 **Parameter: `stateID string`**. A stateful handler may take `stateID
-string` alongside `state *T`. The parameter names the calling tab in message
+string` alongside `datapages.State[T]`. The parameter names the calling tab in message
 broker subjects and is used to dispatch events targeted at that tab (see
 `datapages.SubjectStateID`). `stateID` requires the handler to also take
-`state *T`.
+`datapages.State[T]`.
 
 The value is derived from the `Datapages-Instance` id with the server's HMAC
 key and is stable for the tab's lifetime. It is not the id itself.
@@ -439,17 +473,19 @@ state-id matches the dispatched value receives the event. Rules:
    embeds it in the HTML so the client echoes it on subsequent requests.
 2. The generated client shim attaches `Datapages-Instance` to every
    subsequent Datastar action request and to the SSE stream connect.
-3. On `StreamOpen`, the server checks a `*T` (the page's bound state type)
-   out of a `sync.Pool`, zero-resets it, and registers the `id -> slot`
-   mapping. When `StreamOpen` declares `state`, the freshly zeroed pointer
-   is passed to it.
+3. On `StreamOpen`, the server allocates a zeroed `*T` (the page's bound
+   state type) and registers the `id -> slot` mapping. When `StreamOpen`
+   declares `state`, that pointer is passed to it.
 4. For stateful action and `OnXXX` calls, the server verifies the header,
    looks up the slot, acquires its mutex, and invokes the user handler with
    `state`. A missing slot (for example, an action fired before `StreamOpen`
    completes) yields `409 Conflict` with `Datapages-Retry: reconnect`.
-5. On `StreamClose`, the state is returned to the pool at once.
-   A reconnect with the same id opens a new stream and takes a freshly zeroed `*T`.
-   An instance lives exactly as long as the stream that created it.
+5. On `StreamClose`, the slot drops its reference to the state at once and the
+   instance leaves the map. The garbage collector reclaims the value once
+   nothing else holds it.
+   A reconnect with the same id opens a new stream and allocates a new `*T`.
+   An instance lives exactly as long as the stream that created it and is
+   never reused by another stream.
 
 **Configuration**. `datapages.WithStateConfig` is required on
 `datapages.NewServer` when any handler takes `state`:
