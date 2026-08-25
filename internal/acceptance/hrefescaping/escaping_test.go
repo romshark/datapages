@@ -21,6 +21,7 @@ import (
 // TestHrefEscaping hands a value with a URL separator in it to a generated
 // builder and asks the server what it received.
 func TestHrefEscaping(t *testing.T) {
+	t.Parallel()
 	c := client.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 
@@ -86,6 +87,7 @@ func TestHrefEscaping(t *testing.T) {
 // TestActionURLEscaping covers the same round trip through an action expression,
 // which carries its URL the same way a link does.
 func TestActionURLEscaping(t *testing.T) {
+	t.Parallel()
 	c := client.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 
@@ -107,6 +109,7 @@ func TestActionURLEscaping(t *testing.T) {
 // TestStreamInitCarriesNoQuote covers the same character in the data-init
 // attribute a stream page renders, which carries the path value it was reached by.
 func TestStreamInitCarriesNoQuote(t *testing.T) {
+	t.Parallel()
 	c := client.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 
@@ -140,6 +143,7 @@ func TestStreamInitCarriesNoQuote(t *testing.T) {
 // A quote reaching the expression closes the string around the URL and
 // leaves what follows to run as JavaScript.
 func TestActionURLCarriesNoQuote(t *testing.T) {
+	t.Parallel()
 	for name, expr := range map[string]string{
 		"path value": action.POSTPageItemRename(`a'b`,
 			action.QueryPOSTPageItemRename{To: "x"}),

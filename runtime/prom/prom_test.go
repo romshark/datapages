@@ -14,19 +14,16 @@ import (
 	"github.com/romshark/datapages/runtime/prom"
 )
 
-// registry is shared. The metrics are package-level and register once,
-// which a second registry would come up empty for.
+// registry is shared by the assertions below, which read what the metrics of
+// this package recorded. Registering on one of its own is covered by
+// register_test.go.
 var registry = func() *prometheus.Registry {
 	r := prometheus.NewRegistry()
-	prom.Register(r)
+	if err := prom.Register(r); err != nil {
+		panic(err)
+	}
 	return r
 }()
-
-func TestRegisterOnce(t *testing.T) {
-	// A second call must not panic on a duplicate collector.
-	prom.Register(prometheus.NewRegistry())
-	prom.Register(registry)
-}
 
 func gather(t *testing.T, name string) string {
 	t.Helper()

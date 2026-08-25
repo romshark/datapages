@@ -20,6 +20,8 @@ import (
 	sessinmem "github.com/romshark/datapages/modules/sessions/inmem"
 )
 
+// TestContract must not use t.Parallel() because the generated Init sets the
+// package-level logger of the href package, which contract.Run's ExternalHref test reads.
 func TestContract(t *testing.T) {
 	contract.Run(t, contract.Case{
 		NewServer: func(t *testing.T, opts ...any) contract.Server {

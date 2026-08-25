@@ -788,6 +788,34 @@ func TestParse_ErrEmbedDuplicateEventHandler(t *testing.T) {
 	)
 }
 
+// TestParse_ErrPageNotStruct covers a page name bound to a defined non-struct
+// type and to an alias. Both produced no page and no error before.
+func TestParse_ErrPageNotStruct(t *testing.T) {
+	_, err := parse(t, "err_page_not_struct")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrPageNotStruct, parser.ErrPageNotStruct)
+
+	pos, _ := err.Entry(0)
+	requirePosEqual(t, "app.go", 19, 6, pos)
+	pos, _ = err.Entry(1)
+	requirePosEqual(t, "app.go", 26, 6, pos)
+}
+
+// TestParse_ErrTypeParams covers a page and an abstract page declared with
+// type parameters. Both were dropped without a word before.
+func TestParse_ErrTypeParams(t *testing.T) {
+	_, err := parse(t, "err_typeparams")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrTypeParams, parser.ErrTypeParams)
+
+	pos, _ := err.Entry(0)
+	requirePosEqual(t, "app.go", 22, 6, pos)
+	pos, _ = err.Entry(1)
+	requirePosEqual(t, "app.go", 28, 6, pos)
+}
+
 func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 	_, err := parse(t, "err_embed_conflicting_get")
 	require.NotZero(t, err.Error())
@@ -1607,148 +1635,6 @@ func TestParse_State(t *testing.T) {
 	require.Equal("AppLevel", appAct.Name)
 	require.NotNil(appAct.InputState)
 	require.Equal("StateIndex", appAct.InputState.StateTypeName)
-}
-
-func TestParse_StateGenericAbstract(t *testing.T) {
-	app, err := parse(t, "state_generic_abstract")
-	require := require.New(t)
-	requireParseErrors(t, err /*none*/)
-	require.NotNil(app)
-
-	// Two distinct state types, both referenced via the same generic
-	// abstract instantiated with different type arguments.
-	require.Len(app.States, 2)
-	require.Contains(app.States, "StateA")
-	require.Contains(app.States, "StateB")
-
-	// PageA: embeds Base[StateA]; inherits StreamOpen + OnPing with
-	// their `state *S` parameter substituted to `*StateA`.
-	pa := findPage(app, "PageA")
-	require.NotNil(pa)
-	require.NotNil(pa.State)
-	require.Equal("StateA", pa.State.TypeName)
-
-	require.NotNil(pa.StreamOpen)
-	require.NotNil(pa.StreamOpen.InputState)
-	require.Equal("StateA", pa.StreamOpen.InputState.StateTypeName)
-	require.False(pa.StreamOpen.InputState.IsTypeParam,
-		"type parameter must be substituted away at the embed site")
-
-	require.Len(pa.EventHandlers, 1)
-	require.Equal("Ping", pa.EventHandlers[0].Name)
-	require.NotNil(pa.EventHandlers[0].InputState)
-	require.Equal("StateA", pa.EventHandlers[0].InputState.StateTypeName)
-	require.False(pa.EventHandlers[0].InputState.IsTypeParam)
-
-	require.Len(pa.Actions, 1)
-	require.Equal("Extend", pa.Actions[0].Name)
-	require.NotNil(pa.Actions[0].InputState)
-	require.Equal("StateA", pa.Actions[0].InputState.StateTypeName)
-
-	// PageB: same generic abstract, different instantiation. Verifies
-	// that the flattening clones the inherited handlers per embed site
-	// rather than sharing a single model.Handler.
-	pb := findPage(app, "PageB")
-	require.NotNil(pb)
-	require.NotNil(pb.State)
-	require.Equal("StateB", pb.State.TypeName)
-
-	require.NotNil(pb.StreamOpen)
-	require.NotNil(pb.StreamOpen.InputState)
-	require.Equal("StateB", pb.StreamOpen.InputState.StateTypeName)
-
-	require.Len(pb.EventHandlers, 1)
-	require.Equal("StateB", pb.EventHandlers[0].InputState.StateTypeName)
-
-	// The same Base.StreamOpen pointer must NOT appear on both pages —
-	// the substitute helper clones per embed site.
-	require.NotSame(pa.StreamOpen, pb.StreamOpen)
-	require.NotSame(pa.EventHandlers[0], pb.EventHandlers[0])
-
-	// Abstract itself records "S" as the unsubstituted type parameter.
-	// (Probe via the model: find Base by walking Pages' Embeds.)
-	var base *model.AbstractPage
-	for _, e := range pa.Embeds {
-		if e.TypeName == "Base" {
-			base = e
-			break
-		}
-	}
-	require.NotNil(base)
-	require.Equal([]string{"S"}, base.TypeParams)
-	require.NotNil(base.StreamOpen.InputState)
-	require.True(base.StreamOpen.InputState.IsTypeParam,
-		"abstract's StreamOpen must retain the type-parameter marker")
-	require.Equal("S", base.StreamOpen.InputState.StateTypeName)
-}
-
-// TestParse_StateGenericEmbedOnly covers a page whose only reference to a
-// state type is the type argument of an embedded generic abstract page.
-// The type argument alone must bind the page to that state type.
-func TestParse_StateGenericEmbedOnly(t *testing.T) {
-	app, err := parse(t, "state_generic_embed_only")
-	require := require.New(t)
-	requireParseErrors(t, err /*none*/)
-	require.NotNil(app)
-
-	require.Contains(app.States, "TabState")
-
-	pi := app.PageIndex
-	require.NotNil(pi)
-	require.NotNil(pi.State, "page must be stateful")
-	require.Equal("TabState", pi.State.TypeName)
-
-	require.NotNil(pi.StreamOpen)
-	require.NotNil(pi.StreamOpen.InputState)
-	require.Equal("TabState", pi.StreamOpen.InputState.StateTypeName)
-	require.False(pi.StreamOpen.InputState.IsTypeParam)
-
-	require.Len(pi.EventHandlers, 1)
-	require.NotNil(pi.EventHandlers[0].InputState)
-	require.Equal("TabState", pi.EventHandlers[0].InputState.StateTypeName)
-}
-
-// TestParse_StateGenericNested covers the two embed shapes Go allows next to
-// a plain generic embed: a chain of generic abstract pages passing the type
-// parameter down, and an abstract page embedded by pointer.
-func TestParse_StateGenericNested(t *testing.T) {
-	app, err := parse(t, "state_generic_nested")
-	require := require.New(t)
-	requireParseErrors(t, err /*none*/)
-	require.NotNil(app)
-
-	require.Len(app.States, 2)
-	require.Contains(app.States, "StateA")
-	require.Contains(app.States, "StateB")
-
-	byName := map[string]*model.Page{}
-	for _, pg := range app.Pages {
-		byName[pg.TypeName] = pg
-	}
-
-	// PageA reaches StateA through Mid[StateA] embedding Base[S].
-	pa := byName["PageA"]
-	require.NotNil(pa)
-	require.NotNil(pa.State, "the page two levels down from its state is stateless")
-	require.Equal("StateA", pa.State.TypeName)
-	require.NotNil(pa.StreamOpen)
-	require.Equal("StateA", pa.StreamOpen.InputState.StateTypeName)
-	require.False(pa.StreamOpen.InputState.IsTypeParam)
-
-	// PageB reaches StateB through *Base[StateB].
-	pb := byName["PageB"]
-	require.NotNil(pb)
-	require.NotNil(pb.State, "a pointer embed did not bind the state type")
-	require.Equal("StateB", pb.State.TypeName)
-	require.NotNil(pb.StreamOpen)
-	require.Equal("StateB", pb.StreamOpen.InputState.StateTypeName)
-}
-
-// TestParse_ErrStateTypeArgPointer covers Base[*StateA]. An abstract page
-// takes its state as state *S, so a pointer type argument would ask for **T.
-func TestParse_ErrStateTypeArgPointer(t *testing.T) {
-	_, err := parse(t, "err_state_type_arg_pointer")
-	requireParseErrors(t, err, parser.ErrStateTypeArgPointer)
 }
 
 func TestParse_StateSubjectID(t *testing.T) {

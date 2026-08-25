@@ -24,6 +24,7 @@ func newClient(t *testing.T) *client.Client {
 // TestActionHeadIsRendered covers an action that returns a head of its own:
 // it reaches the document, next to the app-wide head and before the body.
 func TestActionHeadIsRendered(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Action(t, http.MethodPost, "/render/", "")
@@ -46,6 +47,7 @@ func TestActionHeadIsRendered(t *testing.T) {
 // TestPageLoadCarriesTheGlobalHeadOnly covers a plain page load of the same app,
 // which has no head of its own to add.
 func TestPageLoadCarriesTheGlobalHeadOnly(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, "/")

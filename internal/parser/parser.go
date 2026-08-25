@@ -175,6 +175,7 @@ func initApp(ctx *parseCtx, errs *Errors) {
 func firstPassTypes(ctx *parseCtx, errs *Errors) {
 	for _, name := range slices.Sorted(maps.Keys(ctx.typeSpecByName)) {
 		ts := ctx.typeSpecByName[name]
+		checkTypeParams(ctx, errs, name, ts)
 
 		// Only treat valid EventXXX as event types.
 		if err := validate.EventTypeName(name); err == nil {
@@ -522,11 +523,41 @@ func eventCommInvalidPos(
 	return pos
 }
 
+// checkTypeParams reports a type parameter list on a type datapages generates for.
+// Generated code names such a type without type arguments, which doesn't compile.
+// Any other generic type of the app package is left alone.
+func checkTypeParams(ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSpec) {
+	if ts.TypeParams == nil || len(ts.TypeParams.List) == 0 {
+		return
+	}
+	generated := name == "App" || strings.HasPrefix(name, "Page") ||
+		validate.EventTypeName(name) == nil
+	if !generated {
+		st, ok := ts.Type.(*ast.StructType)
+		if !ok {
+			return
+		}
+		// An abstract page is a struct carrying App *App.
+		generated = structinspect.HasRequiredAppField(st, ctx.pkg.TypesInfo)
+	}
+	if !generated {
+		return
+	}
+	errs.ErrAt(ctx.pkg.Fset.Position(ts.Name.Pos()),
+		fmt.Errorf("%w: %s", ErrTypeParams, name))
+}
+
 func firstPassPageOrAbstractType(
 	ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSpec,
 ) {
 	st, ok := ts.Type.(*ast.StructType)
 	if !ok {
+		// A defined non-struct type and an alias both claim a page name
+		// without being a page. Without this the route is simply absent.
+		if strings.HasPrefix(name, "Page") {
+			errs.ErrAt(ctx.pkg.Fset.Position(ts.Name.Pos()),
+				fmt.Errorf("%w: %s", ErrPageNotStruct, name))
+		}
 		return
 	}
 

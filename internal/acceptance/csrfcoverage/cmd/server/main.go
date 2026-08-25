@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -69,6 +70,9 @@ func envOr(key, fallback string) string {
 func loadEnvFile(path string) {
 	f, err := os.Open(path)
 	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			_, _ = fmt.Fprintf(os.Stderr, "opening %s: %v\n", path, err)
+		}
 		return
 	}
 	defer func() { _ = f.Close() }()

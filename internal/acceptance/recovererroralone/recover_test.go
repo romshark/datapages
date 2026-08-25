@@ -23,6 +23,7 @@ func newClient(t *testing.T) *client.Client {
 // TestRecoverErrorIsCalled covers a failed action in an app that defines
 // RecoverError and supplies no PageError500.
 func TestRecoverErrorIsCalled(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Action(t, http.MethodPost, "/fail/", "")
@@ -37,6 +38,7 @@ func TestRecoverErrorIsCalled(t *testing.T) {
 // with no page to render, the built-in response carries the status and
 // nothing about the error.
 func TestPageLoadWithoutAn500Page(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, "/fail/")

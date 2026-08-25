@@ -3,7 +3,7 @@ package validate
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAssetsURLPrefix(t *testing.T) {
@@ -38,9 +38,9 @@ func TestAssetsURLPrefix(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			err := AssetsURLPrefix(tc.input)
 			if tc.wantErr != nil {
-				assert.ErrorIs(t, err, tc.wantErr)
+				require.ErrorIs(t, err, tc.wantErr)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 		})
 	}

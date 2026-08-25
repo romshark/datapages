@@ -15,68 +15,44 @@ import (
 	"github.com/romshark/datapages/internal/parser/validate"
 )
 
-// ReceiverTypeName extracts the type name from a method
-// receiver expression, handling T, *T, and generic instantiations
-// T[X], *T[X, Y], etc. Returns "" for anything that isn't rooted
-// at a plain identifier.
-func ReceiverTypeName(expr ast.Expr) string {
-	if id := embeddedBaseIdent(expr); id != nil {
-		return id.Name
-	}
-	return ""
-}
-
-// typeArgName is the name of a type argument written at an embed site.
-//
-// A pointer keeps its star: "Base[*StateA]" is not "Base[StateA]", and the
-// caller has to be able to tell them apart to reject the one it cannot serve.
-func typeArgName(expr ast.Expr) string {
-	if star, ok := expr.(*ast.StarExpr); ok {
-		if id := embeddedBaseIdent(star.X); id != nil {
-			return "*" + id.Name
+// baseIdent unwraps a type expression to the identifier naming its type:
+// T, *T, T[A] and *T[A, B] all yield T. A qualified name yields nil,
+// the passes key on names declared in the app package.
+func baseIdent(expr ast.Expr) *ast.Ident {
+	for {
+		switch t := expr.(type) {
+		case *ast.Ident:
+			return t
+		case *ast.StarExpr:
+			expr = t.X
+		case *ast.IndexExpr:
+			expr = t.X
+		case *ast.IndexListExpr:
+			expr = t.X
+		default:
+			return nil
 		}
-		return ""
 	}
-	if id := embeddedBaseIdent(expr); id != nil {
+}
+
+// ReceiverTypeName extracts the type name from a method
+// receiver expression, handling the T, *T and generic forms.
+func ReceiverTypeName(expr ast.Expr) string {
+	if id := baseIdent(expr); id != nil {
 		return id.Name
 	}
 	return ""
-}
-
-// embeddedBaseIdent returns the base *ast.Ident of an embedded field
-// type, unwrapping pointer and generic-instantiation syntax. It handles:
-//
-//	T           -> T
-//	*T          -> T
-//	T[A]        -> T
-//	T[A, B]     -> T
-//
-// Returns nil when the field is not a plain embedded type (e.g. a
-// qualified identifier from another package, unsupported here).
-func embeddedBaseIdent(expr ast.Expr) *ast.Ident {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t
-	case *ast.StarExpr:
-		return embeddedBaseIdent(t.X)
-	case *ast.IndexExpr:
-		return embeddedBaseIdent(t.X)
-	case *ast.IndexListExpr:
-		return embeddedBaseIdent(t.X)
-	}
-	return nil
 }
 
 // EmbeddedTypeNames returns the names of all embedded types
-// in a struct. Generic instantiations (e.g. Base[TabState]) are
-// collapsed to their base type name (Base).
+// in a struct.
 func EmbeddedTypeNames(st *ast.StructType) []string {
 	var out []string
 	for _, f := range st.Fields.List {
 		if len(f.Names) != 0 {
 			continue
 		}
-		if id := embeddedBaseIdent(f.Type); id != nil {
+		if id := baseIdent(f.Type); id != nil {
 			out = append(out, id.Name)
 		}
 	}
@@ -96,11 +72,28 @@ func EmbeddedFieldPosMap(
 		if len(f.Names) != 0 {
 			continue
 		}
-		if id := embeddedBaseIdent(f.Type); id != nil {
+		if id := baseIdent(f.Type); id != nil {
 			out[id.Name] = id.Pos()
 		}
 	}
 	return out
+}
+
+// typeArgName is the name of a type argument written at an embed site.
+//
+// A pointer keeps its star: "Base[*StateA]" is not "Base[StateA]", and the
+// caller has to be able to tell them apart to reject the one it cannot serve.
+func typeArgName(expr ast.Expr) string {
+	if star, ok := expr.(*ast.StarExpr); ok {
+		if id := baseIdent(star.X); id != nil {
+			return "*" + id.Name
+		}
+		return ""
+	}
+	if id := baseIdent(expr); id != nil {
+		return id.Name
+	}
+	return ""
 }
 
 // EmbeddedFieldTypeExprs returns a map from embedded type name to the
@@ -115,7 +108,7 @@ func EmbeddedFieldTypeExprs(st *ast.StructType) map[string]ast.Expr {
 		if len(f.Names) != 0 {
 			continue
 		}
-		if id := embeddedBaseIdent(f.Type); id != nil {
+		if id := baseIdent(f.Type); id != nil {
 			out[id.Name] = f.Type
 		}
 	}
@@ -139,7 +132,7 @@ func EmbeddedTypeArgNames(st *ast.StructType) map[string][]string {
 		if len(f.Names) != 0 {
 			continue
 		}
-		base := embeddedBaseIdent(f.Type)
+		base := baseIdent(f.Type)
 		if base == nil {
 			continue
 		}

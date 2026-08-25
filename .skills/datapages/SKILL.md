@@ -678,14 +678,6 @@ func (PageIndex) OnItemsChanged(
   runtime returns `409 Conflict`. App actions intended to work from every
   page should remain stateless.
 - Always a pointer: `state *T`, never `state T`.
-- A generic abstract page may declare `state *S` on its handlers where
-  `S` is a type parameter; concrete pages then embed `Base[ConcreteState]`
-  and the parser substitutes `S` at the embed site, letting one shared
-  abstract layer compose with different per-page state shapes. A generic
-  abstract may embed another one and pass its parameter down
-  (`type Mid[S any] struct{ Base[S] }`), and either may be embedded by
-  pointer (`*Base[ConcreteState]`). The type argument itself must not be a
-  pointer: handlers take `state *S`, so `Base[*ConcreteState]` is an error.
 - A stateful handler may take `stateID string` alongside `state *T`.
   It names the calling tab in message broker subjects. The value is derived
   from the instance id and grants nothing on its own, which keeps the id
@@ -867,6 +859,8 @@ manager against what the app declares.
 
 `datapages gen` reads these type arguments to find the app package and the
 package to generate into, so keep the call in the module.
+Import `datapages` under a name, aliases included. The scan matches the call by its
+qualifier and rejects a dot import, which leaves it no qualifier to match.
 
 ### Message Broker
 

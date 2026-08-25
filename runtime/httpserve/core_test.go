@@ -33,7 +33,7 @@ func serve(t *testing.T, c *httpserve.Core, path string) *httptest.ResponseRecor
 func TestServeHTTPNormalizesPath(t *testing.T) {
 	t.Parallel()
 
-	c := httpserve.NewCore(datapages.ServerConfig{}, "")
+	c := mustCore(t, datapages.ServerConfig{}, "")
 	c.Mux().HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(r.URL.Path))
 	})
@@ -58,7 +58,7 @@ func TestServeHTTPNormalizesPath(t *testing.T) {
 func TestServeHTTPKeepsAssetPaths(t *testing.T) {
 	t.Parallel()
 
-	c := httpserve.NewCore(datapages.ServerConfig{}, "/static/")
+	c := mustCore(t, datapages.ServerConfig{}, "/static/")
 	c.Mux().HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(r.URL.Path))
 	})
@@ -83,7 +83,7 @@ func TestMiddlewareOrder(t *testing.T) {
 		}
 	}
 
-	c := httpserve.NewCore(datapages.ServerConfig{
+	c := mustCore(t, datapages.ServerConfig{
 		Middleware: []func(http.Handler) http.Handler{
 			tag("first"), tag("second"),
 		},
@@ -101,7 +101,7 @@ func TestMiddlewareOrder(t *testing.T) {
 func TestBuildDefaults(t *testing.T) {
 	t.Parallel()
 
-	c := httpserve.NewCore(datapages.ServerConfig{}, "")
+	c := mustCore(t, datapages.ServerConfig{}, "")
 	c.Build()
 
 	require.NotNil(t, c.Logger())
@@ -115,7 +115,7 @@ func TestBuildDefaults(t *testing.T) {
 func TestDatastarJSOption(t *testing.T) {
 	t.Parallel()
 
-	c := httpserve.NewCore(datapages.ServerConfig{
+	c := mustCore(t, datapages.ServerConfig{
 		DatastarJS: "/static/ds.js",
 	}, "")
 	c.Build()
@@ -128,7 +128,7 @@ func TestDatastarJSOption(t *testing.T) {
 func TestShutdownEndsListenAndServe(t *testing.T) {
 	t.Parallel()
 
-	c := httpserve.NewCore(datapages.ServerConfig{}, "")
+	c := mustCore(t, datapages.ServerConfig{}, "")
 	c.Mux().Handle("/", echoPath())
 	c.Build()
 
@@ -155,7 +155,7 @@ func TestShutdownEndsListenAndServe(t *testing.T) {
 func TestBuildServesAssets(t *testing.T) {
 	t.Parallel()
 
-	c := httpserve.NewCore(datapages.ServerConfig{
+	c := mustCore(t, datapages.ServerConfig{
 		AssetsFS: http.Dir("testdata/static"),
 	}, "/static/")
 	c.Build()
@@ -168,7 +168,7 @@ func TestBuildServesAssets(t *testing.T) {
 func TestBuildWithoutAssetsPrefix(t *testing.T) {
 	t.Parallel()
 
-	c := httpserve.NewCore(datapages.ServerConfig{
+	c := mustCore(t, datapages.ServerConfig{
 		AssetsFS: http.Dir("testdata/static"),
 	}, "")
 	c.Build()
@@ -195,4 +195,15 @@ func TestWildcardPathValue(t *testing.T) {
 			require.Equal(t, tt.want, httpserve.WildcardPathValue(r, "rest"))
 		})
 	}
+}
+
+// mustCore builds a core and fails the test on a configuration error,
+// which no assertion can carry on from.
+func mustCore(
+	t *testing.T, cfg datapages.ServerConfig, assetsURLPrefix string,
+) *httpserve.Core {
+	t.Helper()
+	c, err := httpserve.NewCore(cfg, assetsURLPrefix)
+	require.NoError(t, err)
+	return c
 }

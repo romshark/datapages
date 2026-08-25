@@ -194,7 +194,7 @@ func setupProject(t *testing.T, appGoFile string) string {
 		filepath.Join(dir, "app", "app.go"),
 		filepath.Join("testdata", "app", appGoFile))
 
-	// findModuleDir uses os.Getwd, so we must chdir.
+	// findModuleDir reads os.Getwd, which this has to chdir for.
 	origDir, err := os.Getwd()
 	require.NoError(t, err)
 
@@ -732,7 +732,7 @@ func chdirTemp(t *testing.T, dir string) {
 }
 
 // repoRootDir returns the absolute path of this repository's root.
-// Tests run in internal/cmd, so the root is two levels up.
+// Tests run in internal/cmd. The root is two levels up.
 func repoRootDir(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
@@ -743,10 +743,11 @@ func repoRootDir(t *testing.T) string {
 
 // writeLocalWorkspace puts a go.work in dir that resolves the datapages module
 // to repoRoot. The skeleton init scaffolds is written against the API in this checkout,
-// which is ahead of the latest published release, so a scaffolded project would otherwise
-// fail to type-check against whatever "go mod tidy" pulls from the module proxy.
+// which is ahead of the latest published release. Without the workspace a
+// scaffolded project fails to type-check against whatever "go mod tidy" pulls
+// from the module proxy.
 //
-// The workspace only affects the build list, so "go mod tidy" still records the
+// The workspace only affects the build list. "go mod tidy" still records the
 // published version in go.mod, which is what the assertions look at.
 //
 // dir may not exist yet, and go.work may reference a module that init has yet to create:

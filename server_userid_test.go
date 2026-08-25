@@ -10,8 +10,8 @@ import (
 )
 
 // TestValidateUserID covers what a user ID has to be. Any byte is accepted:
-// one that cannot stand in a subject is escaped on the way in, so only an
-// empty ID and one too long to fit a subject are refused.
+// one that cannot stand in a subject is escaped on the way in,
+// which leaves only an empty ID and one too long to fit a subject to be refused.
 func TestValidateUserID(t *testing.T) {
 	for name, tt := range map[string]struct {
 		userID string
@@ -20,7 +20,7 @@ func TestValidateUserID(t *testing.T) {
 		"plain":        {"alice", nil},
 		"email":        {"alice@example.com", nil},
 		"dotted":       {"first.last@example.com", nil},
-		"unicode":      {"josé", nil},
+		"unicode":      {"жosé🔥", nil},
 		"wildcard":     {"*", nil},
 		"gt":           {">", nil},
 		"space":        {"a b", nil},

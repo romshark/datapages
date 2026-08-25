@@ -25,6 +25,7 @@ func newClient(t *testing.T) *client.Client {
 // TestBuilderNameIsFree covers a path variable named after the URL writer's
 // strings.Builder: the URL it builds addresses the route.
 func TestBuilderNameIsFree(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	resp := c.Get(t, href.PageItem(true))
@@ -35,6 +36,7 @@ func TestBuilderNameIsFree(t *testing.T) {
 // TestEveryLocalNameIsFree covers the writer's other locals at once:
 // the length, the counter, the flag and a query field's conversion variable.
 func TestEveryLocalNameIsFree(t *testing.T) {
+	t.Parallel()
 	c := newClient(t)
 
 	url := href.PageMix(1, 2, "three", href.QueryPageMix{AnyQuery: "yes", Page: 4})

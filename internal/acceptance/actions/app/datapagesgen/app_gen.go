@@ -79,7 +79,7 @@ func (s *Server) Init(
 	if sessionManager != nil {
 		return errors.New("unexpected option WithSessionManager: package app declares no session type")
 	}
-	if cfg.MetricsServer != nil {
+	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
 		// hence there is no instrumentation for the metrics to count.
 		return errors.New("unexpected option WithPrometheus: " +
@@ -92,7 +92,10 @@ func (s *Server) Init(
 	}
 	cfg.AssetsFS = assetsFS
 
-	s.Core = httpserve.NewCore(cfg, "")
+	s.Core, err = httpserve.NewCore(cfg, "")
+	if err != nil {
+		return err
+	}
 	s.app = app
 	s.messageBroker = messageBroker
 	s.messageBrokerMetrics = messaging.NoopMetrics{}
@@ -372,6 +375,7 @@ func (s *Server) handlePageFormPOSTPatch(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
 	var signals datapages.Signals[struct {
 		Count int `json:"count"`
 	}]
@@ -397,6 +401,7 @@ func (s *Server) handlePageFormPOSTPatchAt(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
 	var signals datapages.Signals[struct {
 		Selector string `json:"selector"`
 		Mode     string `json:"mode"`

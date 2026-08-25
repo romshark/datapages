@@ -8,7 +8,6 @@ import (
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/sessions"
@@ -34,8 +33,9 @@ type ServerConfig struct {
 	// HTTPServer serves the application. Its Addr and Handler are always overwritten.
 	HTTPServer *http.Server
 
-	// MetricsServer serves the metrics endpoint.
-	MetricsServer *http.Server
+	// Prometheus is what [WithPrometheus] recorded, nil when it was not given.
+	// The metrics endpoint is built from it when the server is.
+	Prometheus *PrometheusConfig
 
 	// DatastarJS is the URL of the Datastar bundle the page shell loads.
 	DatastarJS string
@@ -302,37 +302,13 @@ func WithPrometheus(conf PrometheusConfig) ServerOption {
 		if conf.Host == "" {
 			return errors.New("prometheus host address must not be empty")
 		}
-
-		// Defaults
 		if conf.Registerer == nil {
 			conf.Registerer = prometheus.DefaultRegisterer
 		}
 		if conf.Gatherer == nil {
 			conf.Gatherer = prometheus.DefaultGatherer
 		}
-
-		// Register built-in metrics on the configured registerer exactly once.
-		prom.Register(conf.Registerer)
-
-		// Register user-defined collectors.
-		for _, collector := range conf.Collectors {
-			conf.Registerer.MustRegister(collector)
-		}
-
-		var h http.Handler
-		if conf.Handler != nil {
-			h = conf.Handler
-		} else {
-			h = promhttp.HandlerFor(conf.Gatherer, promhttp.HandlerOpts{})
-		}
-
-		mux := http.NewServeMux()
-		mux.Handle("/metrics", h)
-
-		c.MetricsServer = &http.Server{
-			Addr:    conf.Host,
-			Handler: mux,
-		}
+		c.Prometheus = &conf
 		c.OutermostMiddleware = prom.Middleware
 		return nil
 	}

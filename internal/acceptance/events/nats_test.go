@@ -1,7 +1,7 @@
 // Runs this case against every broker datapages ships.
 //
-// The table lives in internal/acceptance/brokers, so every test that drives the
-// generated code runs twice, once per implementation.
+// The table lives in internal/acceptance/brokers, hence every test that reaches
+// the generated code runs twice, once per implementation.
 // What stays here is the one assertion only a real server can make.
 
 package acceptance_test
@@ -22,6 +22,7 @@ func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
 // A subject NATS refuses is a page that never receives,
 // and the in-memory broker accepts anything a string can hold.
 func TestNATSStreamSubjectsAreValid(t *testing.T) {
+	t.Parallel()
 	conn := brokers.Conn(t)
 
 	subjects := datapagesgen.MessageBrokerStreamSubjects()

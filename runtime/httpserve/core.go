@@ -13,9 +13,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/runtime/prom"
 )
 
 const (
@@ -61,14 +63,15 @@ type Core struct {
 
 // NewCore returns a core configured by cfg, serving static files under
 // assetsURLPrefix. An empty prefix serves none.
-func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) *Core {
+func NewCore(
+	cfg datapages.ServerConfig, assetsURLPrefix string,
+) (*Core, error) {
 	c := &Core{
 		assetsURLPrefix: assetsURLPrefix,
 		shutdownCh:      make(chan struct{}),
 		mux:             http.NewServeMux(),
 		middleware:      cfg.Middleware,
 		outermost:       cfg.OutermostMiddleware,
-		metricsServer:   cfg.MetricsServer,
 		assetsFS:        cfg.AssetsFS,
 		datastarJSSrc:   cfg.DatastarJS,
 		logger:          cfg.Logger,
@@ -87,7 +90,25 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) *Core {
 			MaxHeaderBytes: DefaultHTTPMaxHeaderBytes,
 		}
 	}
-	return c
+	if p := cfg.Prometheus; p != nil {
+		// The registering happens here rather than in [datapages.WithPrometheus]
+		// so a rejected configuration leaves the registerer as it found it.
+		if err := prom.Register(p.Registerer, p.Collectors...); err != nil {
+			return nil, fmt.Errorf("registering prometheus metrics: %w", err)
+		}
+		h := p.Handler
+		if h == nil {
+			h = promhttp.HandlerFor(p.Gatherer, promhttp.HandlerOpts{})
+		}
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", h)
+		c.metricsServer = &http.Server{
+			Addr:              p.Host,
+			Handler:           mux,
+			ReadHeaderTimeout: DefaultHTTPReadHeaderTimeout,
+		}
+	}
+	return c, nil
 }
 
 // Build applies the defaults and composes the handler.

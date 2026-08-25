@@ -27,7 +27,7 @@ import (
 //
 // The app package sits in a directory named "pages" while the package itself
 // is named "app". The directory is whatever the datapages.NewServer call points
-// at and the package name is whatever the source declares, so the two need not match.
+// at and the package name is whatever the source declares. The two need not match.
 // A generator that assumes they match compiles only in the examples.
 func TestCompileFixtures(t *testing.T) {
 	if testing.Short() {

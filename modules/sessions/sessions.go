@@ -68,10 +68,21 @@ type CloseNotifier interface {
 	NotifyClosed(ctx context.Context, token string, fn func()) error
 }
 
+// ExpiredDeleter deletes the sessions that have expired.
+//
+// Reading a session reclaims only the ones a client comes back to.
+// An abandoned session is never read again and needs to be garbage collected.
+type ExpiredDeleter interface {
+	// DeleteExpired deletes every session whose ExpiresAt has passed and
+	// returns how many it deleted. One that never expires is left alone.
+	DeleteExpired(ctx context.Context) (deleted int, err error)
+}
+
 // Manager stores and restores sessions.
 type Manager[Data any] interface {
 	Reader[Data]
 	Creator[Data]
 	Closer
 	CloseNotifier
+	ExpiredDeleter
 }

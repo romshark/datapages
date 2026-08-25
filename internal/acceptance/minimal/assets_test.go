@@ -17,6 +17,7 @@ import (
 // declares no assets. The option has to say so instead of quietly serving
 // nothing, which is what a missing stylesheet would look like at runtime.
 func TestAssetsRefused(t *testing.T) {
+	t.Parallel()
 	s, err := datapages.NewServer[
 		app.App,
 		datapages.DisableSessions,

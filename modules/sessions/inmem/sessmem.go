@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/romshark/datapages/modules/sessions"
 )
@@ -240,4 +241,33 @@ func (m *SessionManager[Data]) UserSessions(
 		}
 	}
 	return result
+}
+
+// DeleteExpired deletes every session whose ExpiresAt has passed.
+func (m *SessionManager[Data]) DeleteExpired(_ context.Context) (int, error) {
+	now := time.Now()
+
+	m.lock.Lock()
+	var closed []watcher
+	deleted := 0
+	for token, e := range m.sessions {
+		if e.rec.ExpiresAt.IsZero() || now.Before(e.rec.ExpiresAt) {
+			continue
+		}
+		delete(m.sessions, token)
+		for _, w := range m.watchers[token] {
+			closed = append(closed, w)
+		}
+		delete(m.watchers, token)
+		deleted++
+	}
+	m.lock.Unlock()
+
+	// Outside the lock: a watcher runs whatever the stream gave it.
+	for _, w := range closed {
+		if w.ctx.Err() == nil {
+			w.fn()
+		}
+	}
+	return deleted, nil
 }
