@@ -77,6 +77,11 @@ Page types `PageError500` and `PageError404` are optional special error pages fo
 response codes `500` and `404` respectively.
 Otherwise datapages will use its own defaults.
 
+The path segment `_$` is reserved. A page that opens an SSE stream is served
+one at its own route plus `_$/`, and a page mixing public and user-addressed
+events is served a second one at `_$/anon/` for its signed-out visitors.
+A page or action route that claims either is rejected as a route conflict.
+
 Handler method parameters and return values are defined and enforced by datapages.
 Parameters and return values may be in any order. Using unsupported parameter or
 return value names and types will result in generator errors.
