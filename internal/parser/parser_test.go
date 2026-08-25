@@ -788,6 +788,18 @@ func TestParse_ErrEmbedDuplicateEventHandler(t *testing.T) {
 	)
 }
 
+// TestParse_ErrTypeCheck covers an app package that does not compile.
+// The model rules all read types, which the compiler could not resolve,
+// hence the parse stops at what the compiler reports.
+func TestParse_ErrTypeCheck(t *testing.T) {
+	_, err := parse(t, "err_typecheck")
+	require.Equal(t, 1, err.Len(), err.Error())
+
+	pos, e := err.Entry(0)
+	requirePosEqual(t, "app.go", 17, 9, pos)
+	require.Contains(t, e.Error(), "undefined: undefinedHelper")
+}
+
 // TestParse_ErrPageNotStruct covers a page name bound to a defined non-struct
 // type and to an alias. Both produced no page and no error before.
 func TestParse_ErrPageNotStruct(t *testing.T) {

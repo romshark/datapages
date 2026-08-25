@@ -38,13 +38,22 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 		return nil, errs
 	}
 
+	// A package that does not compile has no model to validate.
+	// Every rule below reads a type, and a type the compiler could not
+	// resolve turns into framework errors that name the wrong thing:
+	// a project whose *_templ.go files were never written reports an
+	// invalid datapages.Component as a wrong GET signature.
+	for _, pe := range pkg.Errors {
+		// Only the message: the position is reported separately and
+		// packages.Error prints it as part of its own text.
+		errs.ErrAt(posFromPackagesError(pe), errors.New(pe.Msg))
+	}
 	if pkg.Types == nil || pkg.TypesInfo == nil {
-		// Without type information the package errors are all there is to report.
-		for _, pe := range pkg.Errors {
-			errs.ErrAt(posFromPackagesError(pe), pe)
-		}
 		errs.ErrAt(earliestPkgPos(pkg),
 			errors.New("missing source package type information"))
+		return nil, errs
+	}
+	if len(pkg.Errors) > 0 {
 		return nil, errs
 	}
 
