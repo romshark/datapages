@@ -462,6 +462,7 @@ func Suggest(err error) string {
 //   - ErrPageHasExtraFields           — message states to remove the fields
 //   - ErrPageConflictingGETEmbed      — message names the conflicting embedded types
 //   - ErrPageNameInvalid              — naming rule is clear from valid examples
+//   - ErrAppUnsupportedMethod        — message names what App takes
 //   - ErrPageNotStruct                — message names the required type form
 //   - ErrTypeParams                   — message names the type and what it may not have
 //   - ErrActionNameMissing            — message states a name is required

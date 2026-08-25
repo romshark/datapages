@@ -719,6 +719,14 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 					}
 				default:
 					kind, suffix := methodkind.Classify(fd.Name.Name)
+					if kind != 0 && !kind.IsAction() {
+						// A name the framework reserves on a page means nothing on App.
+						// Silence would leave the method compiled,
+						// never called and never mentioned.
+						errs.ErrAt(ctx.pkg.Fset.Position(fd.Name.Pos()),
+							fmt.Errorf("%w: App.%s",
+								ErrAppUnsupportedMethod, fd.Name.Name))
+					}
 					if kind.IsAction() {
 						pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 						if suffix == "" {

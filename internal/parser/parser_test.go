@@ -515,6 +515,20 @@ func TestParse_ErrRouteDuplicateAction(t *testing.T) {
 	)
 }
 
+// TestParse_ErrAppUnsupportedMethod covers the page methods declared on App,
+// where the framework calls none of them.
+// An ordinary method of the application is left alone.
+func TestParse_ErrAppUnsupportedMethod(t *testing.T) {
+	_, err := parse(t, "err_app_method")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrAppUnsupportedMethod,
+		parser.ErrAppUnsupportedMethod,
+		parser.ErrAppUnsupportedMethod,
+	)
+}
+
 // TestParse_ErrRouteAssetsConflict covers a page served under the URL prefix
 // the assets are served under. The core registers that prefix,
 // which no page route may claim.
