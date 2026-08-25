@@ -292,6 +292,11 @@ type PrometheusConfig struct {
 //
 // Required by a server built with [EnablePrometheus],
 // rejected by one built with [DisablePrometheus].
+//
+// The HTTP metrics are labelled with the route pattern, not the request path:
+// /user/{uid} carries the requests of every user. A request that matched no route,
+// and a method no route registers, each carry one label of their own,
+// which is what keeps a visitor from opening time series at will.
 func WithPrometheus(conf PrometheusConfig) ServerOption {
 	return func(c *ServerConfig) error {
 		if conf.Host == "" {
