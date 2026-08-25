@@ -104,6 +104,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
 
+      # internal/cmd TestWatch starts the templier engine, which runs templ as
+      # a command. mage itself only ever `go run`s it, which puts nothing on
+      # PATH. The version is free: the engine only checks that templ runs.
+      - name: Install templ
+        if: matrix.project.name == 'root'
+        run: go install github.com/a-h/templ/cmd/templ@latest
+
       # Test and report coverage
       - name: Run tests with coverage
         working-directory: ${{ matrix.project.path }}
