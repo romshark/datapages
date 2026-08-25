@@ -156,6 +156,11 @@ func runInit(
 		return err
 	}
 
+	ciWorkflow, err := skeleton.CIWorkflow()
+	if err != nil {
+		return err
+	}
+
 	// Step 7: Write the remaining project files if missing.
 	for _, f := range []struct {
 		rel     string
@@ -164,7 +169,7 @@ func runInit(
 		{"compose.yaml", skeleton.ComposeYAML},
 		{"Makefile", skeleton.Makefile},
 		{".vscode/extensions.json", skeleton.VSCodeExtensions},
-		{".github/workflows/ci.yml", skeleton.CIWorkflow},
+		{".github/workflows/ci.yml", ciWorkflow},
 	} {
 		if _, err := writeIfMissing(
 			projectDir, f.rel, []byte(f.content), out,
@@ -386,7 +391,7 @@ func goModInit(dir, modulePath string) error {
 
 func templGenerate(dir string) error {
 	return runIn(dir, "templ generate",
-		"go", "run", "github.com/a-h/templ/cmd/templ@latest", "generate", "./app/")
+		"go", "run", skeleton.TemplCmd, "generate", "./app/")
 }
 
 func goModTidy(dir string) error { return runIn(dir, "go mod tidy", "go", "mod", "tidy") }
