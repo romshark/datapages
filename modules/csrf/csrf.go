@@ -11,6 +11,11 @@ type TokenWriter interface {
 	//
 	// The token is handed to the client, hence it must not be possible to
 	// recover sessionToken from it.
+	//
+	// WARNING: It's written into a JavaScript string literal of the page as it is,
+	// quoted with '. Nothing escapes it! Write only characters that cannot
+	// end that string, which rules out ', \ and a line break.
+	// See the default implementation [Tokens] for reference.
 	WriteToken(w io.Writer, sessionToken string) (n int, err error)
 }
 

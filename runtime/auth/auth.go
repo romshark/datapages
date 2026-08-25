@@ -137,6 +137,9 @@ const (
 // WriteCSRFScript writes the script that adds the X-CSRF-Token header to every
 // state-changing Datastar fetch of the page. It writes nothing for a guest
 // (empty userID) and when CSRF protection is off.
+//
+// The token goes into a JavaScript string literal unescaped.
+// It must not contain ', \ or a line break.
 func (m *Manager[Data]) WriteCSRFScript(
 	w io.Writer, userID, sessionToken string,
 ) error {

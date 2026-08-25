@@ -48,6 +48,17 @@ func TestWriteOptions(t *testing.T) {
 			[]actionexpr.Option{actionexpr.WithSelector(`#a'b\c`)},
 			`, {selector: '#a\'b\\c'}`,
 		},
+		// A raw line break ends the JS string and the attribute with it.
+		"selector escapes line breaks": {
+			[]actionexpr.Option{actionexpr.WithSelector("#a\nb\rc")},
+			`, {selector: '#a\nb\rc'}`,
+		},
+		"headers escape line breaks": {
+			[]actionexpr.Option{
+				actionexpr.WithHeaders(map[string]string{"X-A": "1\n2"}),
+			},
+			`, {headers: {'X-A': '1\n2'}}`,
+		},
 		"filter signals": {
 			[]actionexpr.Option{actionexpr.WithFilterSignals("foo", "bar")},
 			", {filterSignals: {include: /foo/, exclude: /bar/}}",

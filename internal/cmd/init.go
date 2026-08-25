@@ -18,7 +18,7 @@ import (
 	"github.com/romshark/datapages/internal/generator/skeleton"
 )
 
-func newInitCmd(stderr io.Writer) *cobra.Command {
+func newInitCmd(stderr io.Writer, version string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Args:  cobra.NoArgs,
@@ -50,7 +50,7 @@ go mod tidy resolves all dependencies.`,
 			in = c.InOrStdin()
 		}
 		return runInit(c.Context(), in, c.OutOrStdout(), stderr, *nonInteractive,
-			*name, *module, *prometheus)
+			*name, *module, *prometheus, version)
 	}
 	return cmd
 }
@@ -77,7 +77,8 @@ func runField(f huh.Field, in io.Reader, out io.Writer) error {
 }
 
 func runInit(
-	ctx context.Context, in io.Reader, out, stderr io.Writer, nonInteractive bool, dir, module string, prometheus bool,
+	ctx context.Context, in io.Reader, out, stderr io.Writer, nonInteractive bool,
+	dir, module string, prometheus bool, version string,
 ) error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -126,9 +127,7 @@ func runInit(
 	}
 
 	// Step 3: Write datapages.yaml if missing.
-	if wrote, err := writeDefaultConfigIfMissing(
-		projectDir, prometheus, out,
-	); err != nil {
+	if wrote, err := writeDefaultConfigIfMissing(projectDir, out); err != nil {
 		return err
 	} else if wrote {
 		created = true
@@ -156,6 +155,11 @@ func runInit(
 		return err
 	}
 
+	ciWorkflow, err := skeleton.CIWorkflow(version)
+	if err != nil {
+		return err
+	}
+
 	// Step 7: Write the remaining project files if missing.
 	for _, f := range []struct {
 		rel     string
@@ -164,7 +168,7 @@ func runInit(
 		{"compose.yaml", skeleton.ComposeYAML},
 		{"Makefile", skeleton.Makefile},
 		{".vscode/extensions.json", skeleton.VSCodeExtensions},
-		{".github/workflows/ci.yml", skeleton.CIWorkflow},
+		{".github/workflows/ci.yml", ciWorkflow},
 	} {
 		if _, err := writeIfMissing(
 			projectDir, f.rel, []byte(f.content), out,
@@ -386,14 +390,12 @@ func goModInit(dir, modulePath string) error {
 
 func templGenerate(dir string) error {
 	return runIn(dir, "templ generate",
-		"go", "run", "github.com/a-h/templ/cmd/templ@latest", "generate", "./app/")
+		"go", "run", skeleton.TemplCmd, "generate", "./app/")
 }
 
 func goModTidy(dir string) error { return runIn(dir, "go mod tidy", "go", "mod", "tidy") }
 
-func writeDefaultConfigIfMissing(
-	projectDir string, prometheus bool, w io.Writer,
-) (bool, error) {
+func writeDefaultConfigIfMissing(projectDir string, w io.Writer) (bool, error) {
 	for _, name := range []string{"datapages.yml", "datapages.yaml"} {
 		if _, err := os.Stat(filepath.Join(projectDir, name)); err == nil {
 			return false, nil

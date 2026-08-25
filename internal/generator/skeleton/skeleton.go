@@ -28,7 +28,41 @@ var Makefile string
 var VSCodeExtensions string
 
 //go:embed ci.yml.tmpl
-var CIWorkflow string
+var ciWorkflowTmpl string
+
+// TemplVersion is the templ release the scaffold generates with.
+// Pinning it keeps two runs of `datapages init` a month apart on the same generator,
+// and keeps the CI of a scaffolded project on the version its committed
+// *_templ.go files were written by. Move it together with toolTempl in magefiles,
+// which is the version this repository generates with.
+const TemplVersion = "v0.3.1020"
+
+// TemplCmd is the templ command with its version, for `go run` and `go install`.
+const TemplCmd = "github.com/a-h/templ/cmd/templ@" + TemplVersion
+
+var ciWorkflow = template.Must(template.New("ci.yml").Parse(ciWorkflowTmpl))
+
+// datapagesModule is the module the CLI is installed from.
+const datapagesModule = "github.com/romshark/datapages/cmd/datapages"
+
+// CIWorkflow renders the GitHub Actions workflow of a scaffolded project.
+//
+// version is the release of the CLI doing the scaffolding, without the leading "v".
+// The workflow installs that release, since the generator version decides
+// what the committed datapagesgen holds and the workflow fails the build on a difference.
+// A build from source carries no version and falls back to latest.
+func CIWorkflow(version string) (string, error) {
+	datapagesCmd := datapagesModule + "@latest"
+	if version != "" {
+		datapagesCmd = datapagesModule + "@v" + version
+	}
+	data := struct{ TemplCmd, DatapagesCmd string }{TemplCmd, datapagesCmd}
+	var buf bytes.Buffer
+	if err := ciWorkflow.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("executing ci.yml template: %w", err)
+	}
+	return buf.String(), nil
+}
 
 var (
 	tmpl       = template.Must(template.New("main.go").Parse(mainGoTmpl))
