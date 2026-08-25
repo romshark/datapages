@@ -56,6 +56,10 @@ type ServerConfig struct {
 	// A nil value leaves it on with the built-in defaults.
 	CSRF *CSRFConfig
 
+	// BodySizeLimit is what [WithBodySizeLimit] carries.
+	// Zero selects httpserve.DefaultBodySizeLimit.
+	BodySizeLimit int64
+
 	// sessionManager is what [WithSessionManager] carries.
 	// ServerConfig is not generic, hence the manager travels as any and
 	// [NewServer] asserts it once to the type the application declares.
@@ -220,6 +224,25 @@ func WithSessions(o SessionsConfig) ServerOption {
 			)
 		}
 		c.Sessions = o
+		return nil
+	}
+}
+
+// WithBodySizeLimit caps how much of an action's request body is read.
+// Signals travel in that body, which makes the cap what a page may send.
+//
+// Optional.
+// Defaults to [github.com/romshark/datapages/runtime/httpserve.DefaultBodySizeLimit].
+//
+// A client sending more receives 400 with the body "reading signals" and the
+// handler does not run. The cause is logged at debug level.
+// The client is not told what the limit is.
+func WithBodySizeLimit(bytes int64) ServerOption {
+	return func(c *ServerConfig) error {
+		if bytes <= 0 {
+			return errors.New("WithBodySizeLimit: limit must be greater than zero")
+		}
+		c.BodySizeLimit = bytes
 		return nil
 	}
 }

@@ -3,7 +3,9 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +15,36 @@ import (
 	"github.com/romshark/datapages/internal/cmd/config"
 	"github.com/romshark/datapages/internal/serverscan"
 )
+
+// TestGenWatcherCmd covers the shell line the gen watcher runs.
+// Templier looks the first word up on PATH and hands the line to `sh -c`,
+// hence a path carrying a space, a quote or a "$" has to survive both.
+func TestGenWatcherCmd(t *testing.T) {
+	dir := t.TempDir()
+	for name, exeName := range map[string]string{
+		"plain":  "datapages",
+		"space":  "data pages",
+		"quote":  "data'pages",
+		"dollar": "data$pages",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// A script standing in for the CLI, which echoes what it was given.
+			exe := filepath.Join(dir, exeName)
+			require.NoError(t, os.WriteFile(
+				exe, []byte("#!/bin/sh\necho \"ran $1\"\n"), 0o755,
+			))
+
+			cmd := genWatcherCmd(exe)
+			first, _, _ := strings.Cut(cmd, " ")
+			_, err := exec.LookPath(first)
+			require.NoError(t, err, "templier looks up %q", first)
+
+			out, err := exec.Command("sh", "-c", cmd).CombinedOutput()
+			require.NoError(t, err, "%s", out)
+			require.Equal(t, "ran gen\n", string(out))
+		})
+	}
+}
 
 func TestSplitFlags(t *testing.T) {
 	for name, tc := range map[string]struct {

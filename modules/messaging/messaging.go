@@ -71,6 +71,8 @@ type SubscriptionReader interface {
 // SubscriptionCloser closes an active subscription.
 type SubscriptionCloser interface {
 	// Close closes and removes the subscription.
+	// It is idempotent and safe for concurrent use.
+	// The channel of [SubscriptionReader] is closed by the time the first call returns.
 	Close()
 }
 

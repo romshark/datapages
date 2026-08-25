@@ -85,6 +85,11 @@ Each declares its route by comment like any other page. `PageError500` and
 has already failed, and the latter is precached once by the service worker and
 served to every visitor, so neither may depend on who is signed in.
 
+The path segment `_$` is reserved. A page that opens an SSE stream is served
+one at its own route plus `_$/`, and a page mixing public and user-addressed
+events is served a second one at `_$/anon/` for its signed-out visitors.
+A page or action route that claims either is rejected as a route conflict.
+
 Handler method parameters and return values are defined and enforced by datapages.
 Parameters and return values may be in any order. Using unsupported parameter or
 return value names and types will result in generator errors.
@@ -371,6 +376,10 @@ or as a single object `data-signals="{form: {name: '', email: ''}}"`.
 The Go handler receives the nested values as `signals.Values.Form.Name` and
 `signals.Values.Form.Email`.
 
+Signals travel in the request body of an action, which is read up to 1 MiB.
+A request carrying more is answered with 400. `datapages.WithBodySizeLimit`
+raises or lowers that cap for the whole server.
+
 #### Parameter: `datapages.Path[struct {...}]`
 
 ```go
@@ -409,6 +418,13 @@ or any type implementing `encoding.TextUnmarshaler`.
 Values are parsed from their string representation in the URL.
 If a value cannot be parsed into the target type, the request
 returns HTTP 400 Bad Request.
+
+The generated `href` and `action` builders write the same values back into a URL.
+A type implementing `encoding.TextMarshaler` is taken as that interface
+and written as what it marshals to, which is what makes the round trip the
+type's own business. Every other type is taken as its basic kind,
+a named string included: the builders live in packages the app package imports,
+hence they cannot name a type the app package declares.
 
 #### Parameter: `datapages.Query[struct {...}]`
 

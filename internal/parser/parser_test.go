@@ -515,6 +515,48 @@ func TestParse_ErrRouteDuplicateAction(t *testing.T) {
 	)
 }
 
+// TestParse_ErrFieldTypeUnexported covers a path, query and signals field of
+// an unexported type. The generated package renders the type qualified by the
+// app package, where an unexported name is out of reach.
+func TestParse_ErrFieldTypeUnexported(t *testing.T) {
+	_, err := parse(t, "err_unexported_type")
+
+	requireParseErrors(t, err,
+		parser.ErrFieldTypeUnexported,
+		parser.ErrFieldTypeUnexported,
+		parser.ErrFieldTypeUnexported,
+	)
+}
+
+// TestParse_ErrAppUnsupportedMethod covers the page methods declared on App,
+// where the framework calls none of them.
+// An ordinary method of the application is left alone.
+func TestParse_ErrAppUnsupportedMethod(t *testing.T) {
+	_, err := parse(t, "err_app_method")
+
+	requireParseErrors(
+		t, err,
+		parser.ErrAppUnsupportedMethod,
+		parser.ErrAppUnsupportedMethod,
+		parser.ErrAppUnsupportedMethod,
+	)
+}
+
+// TestParse_ErrRouteAssetsConflict covers a page served under the URL prefix
+// the assets are served under. The core registers that prefix,
+// which no page route may claim.
+func TestParse_ErrRouteAssetsConflict(t *testing.T) {
+	_, err := parse(t, "err_route_assets_conflict")
+	requireParseErrors(t, err, parser.ErrRouteConflict)
+}
+
+// TestParse_ErrRouteStreamConflict covers a page at the URL another page's SSE
+// stream is served under.
+func TestParse_ErrRouteStreamConflict(t *testing.T) {
+	_, err := parse(t, "err_route_stream_conflict")
+	requireParseErrors(t, err, parser.ErrRouteConflict)
+}
+
 func TestParse_ErrRouteWildcardStream(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_route_wildcard_stream")
@@ -786,6 +828,21 @@ func TestParse_ErrEmbedDuplicateEventHandler(t *testing.T) {
 		t, err,
 		parser.ErrEvHandDuplicateEmbed,
 	)
+}
+
+// TestParse_ErrTypeCheck covers an app package that does not compile.
+// The model rules all read types, which the compiler could not resolve,
+// hence the parse stops at what the compiler reports.
+func TestParse_ErrTypeCheck(t *testing.T) {
+	_, err := parse(t, "err_typecheck")
+	require.Equal(t, 1, err.Len(), err.Error())
+
+	// The line is not asserted: it moves with the header comment of the fixture,
+	// which says nothing about the parse.
+	pos, e := err.Entry(0)
+	require.Equal(t, "app.go", filepath.Base(pos.Filename))
+	require.NotZero(t, pos.Line)
+	require.Contains(t, e.Error(), "undefined: undefinedHelper")
 }
 
 // TestParse_ErrPageNotStruct covers a page name bound to a defined non-struct

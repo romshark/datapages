@@ -10,6 +10,7 @@ package app
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/a-h/templ"
 
@@ -178,4 +179,41 @@ func (PageFiles) GET(
 	}],
 ) (body datapages.Component, err error) {
 	return echo("rest=%q", path.Values.Rest), nil
+}
+
+// Slug parses through its own UnmarshalText and renders through its own
+// MarshalText. Only lowercase is valid, and MarshalText lowercases: a URL
+// built from Slug("HELLO") is one the handler accepts, a URL built by
+// converting the same value is one it answers with 400.
+type Slug string
+
+func (s Slug) MarshalText() ([]byte, error) {
+	return []byte(strings.ToLower(string(s))), nil
+}
+
+func (s *Slug) UnmarshalText(b []byte) error {
+	v := string(b)
+	if v != strings.ToLower(v) {
+		return fmt.Errorf("slug must be lowercase, received %q", v)
+	}
+	*s = Slug(v)
+	return nil
+}
+
+// PageSlug is /slug/{slug}
+//
+// A named string in a path and in a query, both carrying an UnmarshalText. A generator
+// that converts instead of parsing hands the handler a value the type refuses.
+type PageSlug struct{ App *App }
+
+func (PageSlug) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Slug Slug `path:"slug"`
+	}],
+	query datapages.Query[struct {
+		Tag Slug `query:"tag"`
+	}],
+) (body datapages.Component, err error) {
+	return echo("slug=%q tag=%q", path.Values.Slug, query.Values.Tag), nil
 }

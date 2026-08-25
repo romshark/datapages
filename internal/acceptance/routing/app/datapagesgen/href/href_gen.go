@@ -5,6 +5,8 @@
 package href
 
 import (
+	"encoding"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"strconv"
@@ -13,6 +15,16 @@ import (
 
 	"github.com/romshark/datapages/runtime/hrefcheck"
 )
+
+// textOf is what v marshals to. A builder returns no error,
+// hence a failing MarshalText falls back to fmt.Sprint.
+func textOf(v encoding.TextMarshaler) string {
+	b, err := v.MarshalText()
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	return string(b)
+}
 
 var logger atomic.Pointer[slog.Logger]
 
@@ -503,6 +515,66 @@ func PageReflect(query QueryPageReflect) string {
 type QueryPageReflect struct {
 	Term string `query:"t"`
 	Page int    `query:"p"`
+}
+
+// PageSlug references /slug/{slug}/{$}
+func PageSlug(slug encoding.TextMarshaler, query QueryPageSlug) string {
+	s_slug := url.PathEscape(textOf(slug))
+	var (
+		tagStr string
+	)
+
+	if query.Tag != nil {
+		tagStr = url.QueryEscape(textOf(query.Tag))
+	}
+
+	anyQuery := query.Tag != nil
+
+	var b strings.Builder
+	l := len("/slug/") +
+		len(s_slug) +
+		len("/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.Tag != nil {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("tag=") + len(tagStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/slug/")
+	b.WriteString(s_slug)
+	b.WriteString("/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.Tag != nil {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("tag=")
+		b.WriteString(tagStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageSlug is the query parameters for PageSlug
+type QueryPageSlug struct {
+	Tag encoding.TextMarshaler `query:"tag"`
 }
 
 // PageTitled references /titled/{name}/{$}

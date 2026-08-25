@@ -67,6 +67,12 @@ var (
 	ErrPageInvalidPathComm     = errors.New("page has invalid path comment")
 	ErrPageIndexPathMustBeRoot = errors.New(`PageIndex path must be "/"`)
 
+	ErrAppUnsupportedMethod = errors.New(
+		"unsupported method on App; App takes Head, RecoverError and " +
+			"POST*/PUT*/PATCH*/DELETE* (actions). " +
+			"GET, On* and StreamOpen/StreamClose belong on a page",
+	)
+
 	ErrUnsupportedMethod = errors.New(
 		"unsupported public method on page type; " +
 			"use GET, POST*/PUT*/PATCH*/DELETE* (actions), " +
@@ -109,6 +115,8 @@ var (
 	ErrQueryFieldUnsupportedType = paramvalidation.ErrQueryFieldUnsupportedType
 
 	ErrQueryReflectSignalNotInSignals = paramvalidation.ErrQueryReflectSignalNotInSignals
+
+	ErrFieldTypeUnexported = paramvalidation.ErrFieldTypeUnexported
 
 	ErrSignalsParamNotStruct    = paramvalidation.ErrSignalsParamNotStruct
 	ErrSignalsFieldUnexported   = paramvalidation.ErrSignalsFieldUnexported

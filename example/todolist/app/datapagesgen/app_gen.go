@@ -38,7 +38,7 @@ const (
 	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
 
-const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
+const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
@@ -235,7 +235,7 @@ func (s *Server) handlePUTEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		TabID       string `json:"tab_id"`
 		Title       string `json:"title"`
@@ -414,7 +414,7 @@ func (s *Server) handlePageIndexPOSTCreate(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		TabID    string `json:"tab_id"`
 		NewTitle string `json:"newTitle"`
@@ -443,7 +443,7 @@ func (s *Server) handlePageIndexPOSTFilter(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		TabID  string `json:"tab_id"`
 		Search string `json:"search"`
@@ -496,7 +496,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `/item/`)
 		htmlattr.WritePathValue(w, path.Values.ID)
 		_, _ = io.WriteString(w, `/`)
-		_, _ = io.WriteString(w, `/_$/')"`)
+		_, _ = io.WriteString(w, `_$/')"`)
 	}
 
 	if err := s.writeHTML(
@@ -560,7 +560,7 @@ func (s *Server) handlePageItemDELETEItem(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		TabID string `json:"tab_id"`
 	}]

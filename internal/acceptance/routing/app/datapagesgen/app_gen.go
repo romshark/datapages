@@ -33,7 +33,7 @@ const (
 	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
 
-const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
+const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
@@ -150,6 +150,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /reflect/{$}",
 		s.handlePageReflectGET)
+	s.Mux().HandleFunc(
+		"GET /slug/{slug}/{$}",
+		s.handlePageSlugGET)
 	s.Mux().HandleFunc(
 		"GET /titled/{name}/{$}",
 		s.handlePageTitledGET)
@@ -632,6 +635,52 @@ func (s *Server) handlePageReflectGET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageReflect", err)
+		return
+	}
+}
+
+func (s *Server) handlePageSlugGET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		Tag app.Slug `query:"tag"`
+	}]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "tag"); q != "" {
+			if err := query.Values.Tag.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: tag", err)
+				return
+			}
+		}
+	}
+
+	var path datapages.Path[struct {
+		Slug app.Slug `path:"slug"`
+	}]
+	{
+		v := r.PathValue("slug")
+		if err := path.Values.Slug.UnmarshalText([]byte(v)); err != nil {
+			s.HTTPErrBad(w, "unexpected value for path parameter: slug", err)
+			return
+		}
+	}
+
+	p := app.PageSlug{
+		App: s.app,
+	}
+	body, err := p.GET(r, path, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageSlug.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageSlug", err)
 		return
 	}
 }

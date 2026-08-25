@@ -36,7 +36,7 @@ const (
 	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
 
-const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
+const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
@@ -374,7 +374,7 @@ func (s *Server) handlePageFeedPOSTTick(
 	if _, _, ok := s.ReadSession(w, r); !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		N int `json:"n"`
 	}]
@@ -588,7 +588,7 @@ func (s *Server) handlePageRoomsPOSTPost(
 	if _, _, ok := s.ReadSession(w, r); !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Room string `json:"room"`
 		Text string `json:"text"`
@@ -620,7 +620,7 @@ func (s *Server) handlePageRoomsPOSTNotice(
 	if _, _, ok := s.ReadSession(w, r); !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		User string `json:"user"`
 		Text string `json:"text"`

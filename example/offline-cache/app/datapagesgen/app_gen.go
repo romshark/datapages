@@ -48,7 +48,7 @@ func WithOffline(conf offline.Config) datapages.ServerOption {
 	return datapages.WithMiddleware(offline.Middleware("/offline/", conf))
 }
 
-const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
+const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
 func httpRedirectOffline(
 	w http.ResponseWriter, r *http.Request,
@@ -627,7 +627,7 @@ func (s *Server) handlePageIndexPOSTSearch(
 	if _, _, ok := s.ReadSession(w, r); !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[app.SearchParams]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
@@ -698,7 +698,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)
+	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`

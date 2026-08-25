@@ -38,13 +38,22 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 		return nil, errs
 	}
 
+	// A package that does not compile has no model to validate.
+	// Every rule below reads a type, and a type the compiler could not
+	// resolve turns into framework errors that name the wrong thing:
+	// a project whose *_templ.go files were never written reports an
+	// invalid datapages.Component as a wrong GET signature.
+	for _, pe := range pkg.Errors {
+		// Only the message: the position is reported separately and
+		// packages.Error prints it as part of its own text.
+		errs.ErrAt(posFromPackagesError(pe), errors.New(pe.Msg))
+	}
 	if pkg.Types == nil || pkg.TypesInfo == nil {
-		// Without type information the package errors are all there is to report.
-		for _, pe := range pkg.Errors {
-			errs.ErrAt(posFromPackagesError(pe), pe)
-		}
 		errs.ErrAt(earliestPkgPos(pkg),
 			errors.New("missing source package type information"))
+		return nil, errs
+	}
+	if len(pkg.Errors) > 0 {
 		return nil, errs
 	}
 
@@ -710,6 +719,14 @@ func thirdPassMethods(ctx *parseCtx, errs *Errors) {
 					}
 				default:
 					kind, suffix := methodkind.Classify(fd.Name.Name)
+					if kind != 0 && !kind.IsAction() {
+						// A name the framework reserves on a page means nothing on App.
+						// Silence would leave the method compiled,
+						// never called and never mentioned.
+						errs.ErrAt(ctx.pkg.Fset.Position(fd.Name.Pos()),
+							fmt.Errorf("%w: App.%s",
+								ErrAppUnsupportedMethod, fd.Name.Name))
+					}
 					if kind.IsAction() {
 						pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 						if suffix == "" {
@@ -1388,21 +1405,88 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 		}
 	}
 
+	// The core registers the assets prefix on the same mux. Claiming it first
+	// makes the page that wants the same requests the one reported,
+	// which is the one the user can move.
+	if prefix := ctx.app.Assets.URLPrefix; prefix != "" {
+		_ = registerRoute(mux, http.MethodGet+" "+prefix)
+	}
+
+	events := map[string]*model.Event{}
+	for _, e := range ctx.app.Events {
+		events[e.TypeName] = e
+	}
+
 	for _, p := range ctx.app.Pages {
 		if p.GET != nil && p.GET.Handler != nil {
-			claim(http.MethodGet, p.Route, p.Expr, p.TypeName)
+			claim(http.MethodGet, pageRoutePattern(p), p.Expr, p.TypeName)
 		}
-		if routepattern.EndsInWildcard(p.Route) && pageHasStream(p) {
+		switch {
+		case !pageHasStream(p):
+		case routepattern.EndsInWildcard(p.Route):
+			// The stream path of such a route parses nowhere,
+			// which is what this reports. Claiming it would report it a second time.
 			errs.ErrAt(ctx.pkg.Fset.Position(p.Expr.Pos()),
 				&ErrorRouteWildcardStream{TypeName: p.TypeName, Route: p.Route})
+		default:
+			stream := routepattern.StreamPath(p.Route)
+			claim(http.MethodGet, stream+"{$}", p.Expr, p.TypeName+" stream")
+			if pageHasAnonStream(p, events) {
+				claim(http.MethodGet, stream+"anon/{$}", p.Expr,
+					p.TypeName+" anonymous stream")
+			}
 		}
 		for _, h := range p.Actions {
-			claim(h.HTTPMethod, h.Route, h.Expr, p.TypeName+"."+h.Name)
+			claim(h.HTTPMethod, actionRoutePattern(h.Route), h.Expr,
+				p.TypeName+"."+h.Name)
 		}
 	}
 	for _, h := range ctx.app.Actions {
-		claim(h.HTTPMethod, h.Route, h.Expr, "App."+h.Name)
+		claim(h.HTTPMethod, actionRoutePattern(h.Route), h.Expr, "App."+h.Name)
 	}
+}
+
+// pageRoutePattern is the pattern the generated setupHandlers registers the page under.
+// A route that is not a path is left alone, [claim] drops it.
+func pageRoutePattern(p *model.Page) string {
+	switch {
+	case p.PageSpecialization == model.PageTypeIndex:
+		return "/"
+	case !strings.HasPrefix(p.Route, "/"):
+		return p.Route
+	case routepattern.EndsInWildcard(p.Route):
+		// A wildcard runs to the end of the path. Marking the end after it
+		// puts the wildcard in the middle, which net/http will not parse.
+		return p.Route
+	}
+	return routepattern.WithTrailingSlash(p.Route) + "{$}"
+}
+
+// actionRoutePattern is the pattern the generated setupHandlers registers an
+// action under.
+func actionRoutePattern(route string) string {
+	if !strings.HasPrefix(route, "/") {
+		return route
+	}
+	return routepattern.WithTrailingSlash(route) + "{$}"
+}
+
+// pageHasAnonStream reports whether the page is served a second, anonymous stream.
+// A page mixing public and private events gets one.
+func pageHasAnonStream(p *model.Page, events map[string]*model.Event) bool {
+	hasPublic, hasPrivate := false, false
+	for _, eh := range p.EventHandlers {
+		e, ok := events[eh.EventTypeName]
+		if !ok {
+			continue
+		}
+		if e.IsPrivate() {
+			hasPrivate = true
+		} else {
+			hasPublic = true
+		}
+	}
+	return hasPublic && hasPrivate
 }
 
 // pageHasStream reports whether the page is served an SSE stream of its own.

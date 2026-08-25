@@ -590,7 +590,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 	// Fun fact: this is a writer writing a writer writing an attribute.
 	if hasStream {
 		hasPrivate := pageHasPrivateEvent(p, w.eventMap)
-		streamPath := routeStreamPath(p.Route)
+		streamPath := routepattern.StreamPath(p.Route)
 		if hasPrivate && h.InputSession != nil {
 			if hasAnonStream {
 				// Mixed: authenticated -> "/_$/"; anonymous -> "/_$/anon/"
@@ -601,9 +601,9 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					w.Line(2, `if sess.UserID() != "" {`)
-					w.Line(3, "_, _ = io.WriteString(w, `/_$/')\"`)")
+					w.Line(3, "_, _ = io.WriteString(w, `_$/')\"`)")
 					w.Line(2, "} else {")
-					w.Line(3, "_, _ = io.WriteString(w, `/_$/anon/')\"`)")
+					w.Line(3, "_, _ = io.WriteString(w, `_$/anon/')\"`)")
 					w.Line(2, "}")
 				} else {
 					w.Line(0, "")
@@ -626,7 +626,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					if hasEnableBgStream {
 						w.Line(2, `if sess.UserID() != "" {`)
-						w.Line(3, "_, _ = io.WriteString(w, `/_$/'`)")
+						w.Line(3, "_, _ = io.WriteString(w, `_$/'`)")
 						w.Raw("\t\t\tif ")
 						w.Raw(outputVar(h.OutputEnableBgStream))
 						w.Raw(" {\n")
@@ -637,7 +637,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 						w.Line(2, "}")
 					} else {
 						w.Line(2, `if sess.UserID() != "" {`)
-						w.Line(3, "_, _ = io.WriteString(w, `/_$/')\"`)")
+						w.Line(3, "_, _ = io.WriteString(w, `_$/')\"`)")
 						w.Line(2, "}")
 					}
 				} else if hasEnableBgStream {
@@ -670,7 +670,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
 				w.writeStreamPathSegments(p.Route, h.InputPath)
 				if hasEnableBgStream {
-					w.Line(2, "_, _ = io.WriteString(w, `/_$/'`)")
+					w.Line(2, "_, _ = io.WriteString(w, `_$/'`)")
 					w.Raw("\t\tif ")
 					w.Raw(outputVar(h.OutputEnableBgStream))
 					w.Raw(" {\n")
@@ -679,7 +679,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Line(3, "_, _ = io.WriteString(w, `)\"`)")
 					w.Line(2, "}")
 				} else {
-					w.Line(2, "_, _ = io.WriteString(w, `/_$/')\"`)")
+					w.Line(2, "_, _ = io.WriteString(w, `_$/')\"`)")
 				}
 			} else if hasEnableBgStream {
 				w.Line(0, "")
@@ -772,6 +772,9 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 	return true
 }
 
+// writeStreamPathSegments writes the page route with its path values filled in.
+// The last literal of [routepattern.Segments] carries a trailing slash,
+// which is why the caller appends the stream suffix without one.
 func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 	// Build a map from path: tag value to field info.
 	fields := w.structFields(pathInput.Type.Resolved)
@@ -1338,7 +1341,7 @@ func (w *Writer) writePageActionHandler(
 
 	// Body size limit.
 	if h.InputSignals != nil {
-		w.Line(1, "r.Body = http.MaxBytesReader(w, r.Body, DefaultBodySizeLimit)")
+		w.Line(1, "r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())")
 	}
 
 	// Read signals.
@@ -1545,7 +1548,7 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		if gotypes.IsString(f.Type) {
+		if isPlainString(f.Type) {
 			w.Raw("\t" + varQuery + ".")
 			w.Raw(f.Name)
 			w.Raw(" = ")
@@ -1585,7 +1588,7 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App, route string) {
 			w.writeQuoted(tag)
 			w.Raw(")")
 		}
-		if gotypes.IsString(f.Type) {
+		if isPlainString(f.Type) {
 			w.Raw("\t" + varPath + ".")
 			w.Raw(f.Name)
 			w.Raw(" = ")
@@ -1632,6 +1635,21 @@ func (w *Writer) writeParseField(
 		}
 	}
 
+	// UnmarshalText comes first: a type that declares one parses through it,
+	// however its underlying kind reads.
+	if gotypes.ImplementsTextUnmarshaler(f.Type) {
+		tabs(indent)
+		w.Rawf("if err := %s.%s.UnmarshalText([]byte(%s)); err != nil {\n",
+			varName, f.Name, raw)
+		tabs(indent + 1)
+		w.Rawf("s.HTTPErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
+		tabs(indent + 1)
+		w.Raw("return\n")
+		tabs(indent)
+		w.Raw("}\n")
+		return
+	}
+
 	if gotypes.IsInt(f.Type) {
 		bits, unsigned := gotypes.IntParseInfo(f.Type)
 		typeName := gotypes.IntTypeName(f.Type)
@@ -1656,17 +1674,9 @@ func (w *Writer) writeParseField(
 		w.Raw(f.Name)
 		w.Raw(" = ")
 		if unsigned {
-			if typeName != "uint64" {
-				w.Raw(typeName + "(u)")
-			} else {
-				w.Raw("u")
-			}
+			w.writeConv(convTypeName(f.Type, typeName), "uint64", "u")
 		} else {
-			if typeName != "int64" {
-				w.Raw(typeName + "(i)")
-			} else {
-				w.Raw("i")
-			}
+			w.writeConv(convTypeName(f.Type, typeName), "int64", "i")
 		}
 		w.Byte('\n')
 	} else if gotypes.IsFloat(f.Type) {
@@ -1687,11 +1697,7 @@ func (w *Writer) writeParseField(
 		w.Byte('.')
 		w.Raw(f.Name)
 		w.Raw(" = ")
-		if typeName != "float64" {
-			w.Raw("float32(f)")
-		} else {
-			w.Raw("f")
-		}
+		w.writeConv(convTypeName(f.Type, typeName), "float64", "f")
 		w.Byte('\n')
 	} else if gotypes.IsBool(f.Type) {
 		tabs(indent)
@@ -1708,17 +1714,9 @@ func (w *Writer) writeParseField(
 		w.Raw(varName)
 		w.Byte('.')
 		w.Raw(f.Name)
-		w.Raw(" = b\n")
-	} else if gotypes.ImplementsTextUnmarshaler(f.Type) {
-		tabs(indent)
-		w.Rawf("if err := %s.%s.UnmarshalText([]byte(%s)); err != nil {\n",
-			varName, f.Name, raw)
-		tabs(indent + 1)
-		w.Rawf("s.HTTPErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
-		tabs(indent + 1)
-		w.Raw("return\n")
-		tabs(indent)
-		w.Raw("}\n")
+		w.Raw(" = ")
+		w.writeConv(convTypeName(f.Type, "bool"), "bool", "b")
+		w.Byte('\n')
 	}
 }
 
@@ -1727,6 +1725,32 @@ type reflectSignalField struct {
 	FieldName  string
 	Type       types.Type
 	QueryTag   string
+}
+
+// isPlainString reports a string field that parses by conversion alone.
+// One that declares an UnmarshalText parses through it instead.
+func isPlainString(t types.Type) bool {
+	return gotypes.IsString(t) && !gotypes.ImplementsTextUnmarshaler(t)
+}
+
+// convTypeName is the type a parsed value is assigned as: the declared type
+// when the field names one, the basic type otherwise.
+// strconv returns a basic value, which a named field cannot take without a conversion.
+func convTypeName(t types.Type, basic string) string {
+	if _, isBasic := t.(*types.Basic); isBasic {
+		return basic
+	}
+	return gotypes.QualifiedTypeName(t)
+}
+
+// writeConv writes expr converted to typeName, or expr alone when strconv
+// already returns that type. parsed is what strconv hands back.
+func (w *Writer) writeConv(typeName, parsed, expr string) {
+	if typeName == parsed {
+		w.Raw(expr)
+		return
+	}
+	w.Raw(typeName + "(" + expr + ")")
 }
 
 // writeStringConv writes inner, converted to t when t is

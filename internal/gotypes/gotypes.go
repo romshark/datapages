@@ -155,6 +155,30 @@ var textUnmarshaler = func() *types.Interface {
 	).Complete()
 }()
 
+// textMarshaler is the method set of encoding.TextMarshaler.
+var textMarshaler = func() *types.Interface {
+	sig := types.NewSignatureType(
+		nil, nil, nil,
+		types.NewTuple(),
+		types.NewTuple(
+			types.NewVar(0, nil, "text", types.NewSlice(types.Typ[types.Byte])),
+			types.NewVar(0, nil, "", types.Universe.Lookup("error").Type()),
+		),
+		false,
+	)
+	return types.NewInterfaceType(
+		[]*types.Func{types.NewFunc(0, nil, "MarshalText", sig)},
+		nil,
+	).Complete()
+}()
+
+// ImplementsTextMarshaler reports whether t implements encoding.TextMarshaler.
+// The pointer is not consulted: a URL builder takes the value,
+// and a method on the pointer is not in the method set of the value.
+func ImplementsTextMarshaler(t types.Type) bool {
+	return t != nil && types.Implements(t, textMarshaler)
+}
+
 // ImplementsTextUnmarshaler reports whether t or *t implements encoding.TextUnmarshaler.
 func ImplementsTextUnmarshaler(t types.Type) bool {
 	if t == nil {

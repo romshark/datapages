@@ -44,7 +44,7 @@ func WithOffline(conf offline.Config) datapages.ServerOption {
 	return datapages.WithMiddleware(offline.Middleware("/offline/", conf))
 }
 
-const DefaultBodySizeLimit = 1024 * 1024 // 1 MiB
+const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 
 func httpRedirectOffline(
 	w http.ResponseWriter, r *http.Request,
