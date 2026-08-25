@@ -181,9 +181,15 @@ func (PageFiles) GET(
 	return echo("rest=%q", path.Values.Rest), nil
 }
 
-// Slug is a string that parses through its own UnmarshalText. Only lowercase
-// values are valid, which is what tells the conversion apart from the parse.
+// Slug parses through its own UnmarshalText and renders through its own
+// MarshalText. Only lowercase is valid, and MarshalText lowercases: a URL
+// built from Slug("HELLO") is one the handler accepts, a URL built by
+// converting the same value is one it answers with 400.
 type Slug string
+
+func (s Slug) MarshalText() ([]byte, error) {
+	return []byte(strings.ToLower(string(s))), nil
+}
 
 func (s *Slug) UnmarshalText(b []byte) error {
 	v := string(b)

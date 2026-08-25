@@ -402,6 +402,13 @@ Values are parsed from their string representation in the URL.
 If a value cannot be parsed into the target type, the request
 returns HTTP 400 Bad Request.
 
+The generated `href` and `action` builders write the same values back into a URL.
+A type implementing `encoding.TextMarshaler` is taken as that interface
+and written as what it marshals to, which is what makes the round trip the
+type's own business. Every other type is taken as its basic kind,
+a named string included: the builders live in packages the app package imports,
+hence they cannot name a type the app package declares.
+
 #### Parameter: `datapages.Query[struct {...}]`
 
 ```go

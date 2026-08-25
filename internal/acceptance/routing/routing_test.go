@@ -206,6 +206,16 @@ func TestTextUnmarshaler(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 	require.Equal(t, `slug="hello" tag="news"`, resp.Element(t, "echo"))
 
+	// The builder takes the declared type and writes what it marshals to.
+	// A conversion would put "HELLO" in the URL, which the handler refuses.
+	url := href.PageSlug(app.Slug("HELLO"), href.QueryPageSlug{
+		Tag: app.Slug("NEWS"),
+	})
+	require.Equal(t, "/slug/hello/?tag=news", url)
+	resp = c.Get(t, url)
+	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+	require.Equal(t, `slug="hello" tag="news"`, resp.Element(t, "echo"))
+
 	for name, url := range map[string]string{
 		"path":  "/slug/HELLO/",
 		"query": "/slug/hello/?tag=NEWS",

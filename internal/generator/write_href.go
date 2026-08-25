@@ -13,7 +13,7 @@ import (
 
 // WritePkgHref generates code for the datapagesgen/href package and appends it to buffer.
 func (w *Writer) WritePkgHref(m *model.App) {
-	needsStrconv, needsStrings := false, false
+	needsStrconv, needsStrings, needsText := false, false, false
 	for _, p := range m.Pages {
 		if p.PageSpecialization == model.PageTypeError500 {
 			continue
@@ -26,20 +26,31 @@ func (w *Writer) WritePkgHref(m *model.App) {
 			needsStrings = true
 			// Check for non-string path fields.
 			if p.GET.Handler != nil && p.GET.InputPath != nil {
-				if hasNonStringFields(w.structFields(p.GET.InputPath.Type.Resolved)) {
+				fields := w.structFields(p.GET.InputPath.Type.Resolved)
+				if hasNonStringFields(fields) {
 					needsStrconv = true
+				}
+				if hasTextMarshalerFields(fields) {
+					needsText = true
 				}
 			}
 		}
 		if p.GET.Handler != nil && p.GET.InputQuery != nil {
 			needsStrings = true
-			if hasNonStringFields(w.structFields(p.GET.InputQuery.Type.Resolved)) {
+			fields := w.structFields(p.GET.InputQuery.Type.Resolved)
+			if hasNonStringFields(fields) {
 				needsStrconv = true
+			}
+			if hasTextMarshalerFields(fields) {
+				needsText = true
 			}
 		}
 	}
 
 	w.writeHrefHeader(needsStrconv, needsStrings)
+	if needsText {
+		w.writeTextOf()
+	}
 	w.writeHrefExternal()
 	w.writeHrefAsset()
 
@@ -81,6 +92,23 @@ func (w *Writer) writeHrefHeader(needsStrconv, needsStrings bool) {
 	w.Line(0, "")
 	w.Line(1, `"github.com/romshark/datapages/runtime/hrefcheck"`)
 	w.Line(0, ")")
+}
+
+// writeTextOf writes the helper that renders a value that marshals itself.
+//
+// It is generated per package rather than imported from the runtime,
+// since the action package imports nothing that could hold it.
+func (w *Writer) writeTextOf() {
+	w.Line(0, "")
+	w.Line(0, "// textOf is what v marshals to. A builder returns no error,")
+	w.Line(0, "// hence a failing MarshalText falls back to fmt.Sprint.")
+	w.Line(0, "func textOf(v encoding.TextMarshaler) string {")
+	w.Line(1, "b, err := v.MarshalText()")
+	w.Line(1, "if err != nil {")
+	w.Line(2, "return fmt.Sprint(v)")
+	w.Line(1, "}")
+	w.Line(1, "return string(b)")
+	w.Line(0, "}")
 }
 
 func (w *Writer) writeHrefExternal() {
@@ -571,11 +599,7 @@ func (w *Writer) writeTypedParams(params []pathParamInfo) {
 		}
 		w.Raw(p.Name)
 		w.Byte(' ')
-		if p.Type == nil || gotypes.IsString(p.Type) {
-			w.Raw("string")
-		} else {
-			w.Raw(fieldTypeName(p.Type))
-		}
+		w.Raw(fieldTypeName(p.Type))
 	}
 }
 
@@ -590,9 +614,12 @@ func (w *Writer) writePathPreConvert(params []pathParamInfo) {
 		w.Byte('\t')
 		w.Raw(p.StrVar)
 		w.Raw(" := ")
-		if p.Type == nil || !isFormattedType(p.Type) {
+		switch {
+		case gotypes.ImplementsTextMarshaler(p.Type):
+			w.Rawf("url.PathEscape(textOf(%s))", p.Name)
+		case p.Type == nil || !isFormattedType(p.Type):
 			w.Rawf("url.PathEscape(%s)", p.Name)
-		} else {
+		default:
 			// A formatted number or bool carries nothing to escape.
 			w.writeFormatExpr(p.Name, p.Type)
 		}
@@ -641,6 +668,11 @@ func (w *Writer) writeFormatExpr(varName string, t types.Type) {
 // writeZeroCheck writes the zero-value check expression for a field to the buffer.
 func (w *Writer) writeZeroCheck(expr string, t types.Type) {
 	w.Raw(expr)
+	if gotypes.ImplementsTextMarshaler(t) {
+		// The value travels as an interface, whose zero value is nil.
+		w.Raw(" != nil")
+		return
+	}
 	if gotypes.IsBool(t) {
 		// bool: the expression itself is the condition
 		return
@@ -663,9 +695,22 @@ func (w *Writer) writeIfZeroCheck(indent int, expr string, t types.Type) {
 	w.Raw(" {\n")
 }
 
-// fieldTypeName returns the Go type name for a field type.
-// For types not directly representable (e.g. TextUnmarshaler), returns "string".
+// fieldTypeName returns the Go type name a builder takes the value as.
+//
+// A type of the app package cannot be named here: the app package imports the
+// generated href and action packages, which makes the import back a cycle.
+// A type that marshals itself is taken as the interface instead, which names no package.
+// Everything else reaches a URL as the text the caller passes.
 func fieldTypeName(t types.Type) string {
+	if t == nil {
+		return "string"
+	}
+	if gotypes.ImplementsTextMarshaler(t) {
+		return "encoding.TextMarshaler"
+	}
+	if gotypes.IsString(t) {
+		return "string"
+	}
 	if gotypes.IsInt(t) {
 		return gotypes.IntTypeName(t)
 	}
@@ -699,15 +744,28 @@ func (w *Writer) writeQueryPreConvert(lo hrefLocals, fields []structFieldInfo) {
 		w.writeZeroCheck("query."+f.Name, f.Type)
 		w.Raw(" {\n")
 		w.Rawf("\t\t%s = ", lo.queryStr[tag])
-		if !isFormattedType(f.Type) {
+		switch {
+		case gotypes.ImplementsTextMarshaler(f.Type):
+			w.Rawf("url.QueryEscape(textOf(query.%s))", f.Name)
+		case !isFormattedType(f.Type):
 			w.Rawf("url.QueryEscape(query.%s)", f.Name)
-		} else {
+		default:
 			w.writeFormatExpr("query."+f.Name, f.Type)
 		}
 		w.Byte('\n')
 		w.Line(1, "}")
 	}
 	w.Line(0, "")
+}
+
+// hasTextMarshalerFields reports whether any field marshals itself to text.
+func hasTextMarshalerFields(fields []structFieldInfo) bool {
+	for _, f := range fields {
+		if gotypes.ImplementsTextMarshaler(f.Type) {
+			return true
+		}
+	}
+	return false
 }
 
 // hasNonStringFields reports whether any field has a non-string type.
