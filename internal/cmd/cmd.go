@@ -44,7 +44,7 @@ and type-safe href/action helpers, and provides a live-reloading dev server.`,
 
 	root.AddCommand(
 		newGenCmd(stderr, version),
-		newInitCmd(stderr),
+		newInitCmd(stderr, version),
 		newLintCmd(stderr, version),
 		newVersionCmd(stdout, version, commit, buildDate),
 		newWatchCmd(stderr, version),

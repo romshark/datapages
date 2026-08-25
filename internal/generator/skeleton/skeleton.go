@@ -42,10 +42,23 @@ const TemplCmd = "github.com/a-h/templ/cmd/templ@" + TemplVersion
 
 var ciWorkflow = template.Must(template.New("ci.yml").Parse(ciWorkflowTmpl))
 
+// datapagesModule is the module the CLI is installed from.
+const datapagesModule = "github.com/romshark/datapages/cmd/datapages"
+
 // CIWorkflow renders the GitHub Actions workflow of a scaffolded project.
-func CIWorkflow() (string, error) {
+//
+// version is the release of the CLI doing the scaffolding, without the leading "v".
+// The workflow installs that release, since the generator version decides
+// what the committed datapagesgen holds and the workflow fails the build on a difference.
+// A build from source carries no version and falls back to latest.
+func CIWorkflow(version string) (string, error) {
+	datapagesCmd := datapagesModule + "@latest"
+	if version != "" {
+		datapagesCmd = datapagesModule + "@v" + version
+	}
+	data := struct{ TemplCmd, DatapagesCmd string }{TemplCmd, datapagesCmd}
 	var buf bytes.Buffer
-	if err := ciWorkflow.Execute(&buf, struct{ TemplCmd string }{TemplCmd}); err != nil {
+	if err := ciWorkflow.Execute(&buf, data); err != nil {
 		return "", fmt.Errorf("executing ci.yml template: %w", err)
 	}
 	return buf.String(), nil
