@@ -110,7 +110,7 @@ var (
 			Name:      "disconnects_total",
 			Help:      "SSE disconnects by reason",
 		},
-		[]string{"reason"}, // "ttl" | "client" | "shutdown"
+		[]string{"reason"}, // [SSEDisconnect] names the values.
 	)
 
 	mSessionCreations = prometheus.NewCounterVec(
