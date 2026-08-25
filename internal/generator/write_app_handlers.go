@@ -1491,7 +1491,7 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		if gotypes.IsString(f.Type) {
+		if isPlainString(f.Type) {
 			w.Raw("\t" + varQuery + ".")
 			w.Raw(f.Name)
 			w.Raw(" = ")
@@ -1531,7 +1531,7 @@ func (w *Writer) writeReadPath(input *model.Input, m *model.App, route string) {
 			w.writeQuoted(tag)
 			w.Raw(")")
 		}
-		if gotypes.IsString(f.Type) {
+		if isPlainString(f.Type) {
 			w.Raw("\t" + varPath + ".")
 			w.Raw(f.Name)
 			w.Raw(" = ")
@@ -1576,6 +1576,21 @@ func (w *Writer) writeParseField(
 		for range n {
 			w.Byte('\t')
 		}
+	}
+
+	// UnmarshalText comes first: a type that declares one parses through it,
+	// however its underlying kind reads.
+	if gotypes.ImplementsTextUnmarshaler(f.Type) {
+		tabs(indent)
+		w.Rawf("if err := %s.%s.UnmarshalText([]byte(%s)); err != nil {\n",
+			varName, f.Name, raw)
+		tabs(indent + 1)
+		w.Rawf("s.HTTPErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
+		tabs(indent + 1)
+		w.Raw("return\n")
+		tabs(indent)
+		w.Raw("}\n")
+		return
 	}
 
 	if gotypes.IsInt(f.Type) {
@@ -1645,16 +1660,6 @@ func (w *Writer) writeParseField(
 		w.Raw(" = ")
 		w.writeConv(convTypeName(f.Type, "bool"), "bool", "b")
 		w.Byte('\n')
-	} else if gotypes.ImplementsTextUnmarshaler(f.Type) {
-		tabs(indent)
-		w.Rawf("if err := %s.%s.UnmarshalText([]byte(%s)); err != nil {\n",
-			varName, f.Name, raw)
-		tabs(indent + 1)
-		w.Rawf("s.HTTPErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
-		tabs(indent + 1)
-		w.Raw("return\n")
-		tabs(indent)
-		w.Raw("}\n")
 	}
 }
 
@@ -1663,6 +1668,12 @@ type reflectSignalField struct {
 	FieldName  string
 	Type       types.Type
 	QueryTag   string
+}
+
+// isPlainString reports a string field that parses by conversion alone.
+// One that declares an UnmarshalText parses through it instead.
+func isPlainString(t types.Type) bool {
+	return gotypes.IsString(t) && !gotypes.ImplementsTextUnmarshaler(t)
 }
 
 // convTypeName is the type a parsed value is assigned as: the declared type

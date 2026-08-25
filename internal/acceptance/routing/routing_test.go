@@ -195,6 +195,28 @@ func TestPageHead(t *testing.T) {
 		"the page's head was rendered after <body>:\n%s", resp.Body)
 }
 
+// TestTextUnmarshaler covers a named string that carries an UnmarshalText.
+// Converting the raw value instead of parsing it hands the handler a value the
+// type refuses, and the validation the application wrote never runs.
+func TestTextUnmarshaler(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	resp := c.Get(t, "/slug/hello/?tag=news")
+	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+	require.Equal(t, `slug="hello" tag="news"`, resp.Element(t, "echo"))
+
+	for name, url := range map[string]string{
+		"path":  "/slug/HELLO/",
+		"query": "/slug/hello/?tag=NEWS",
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := c.Get(t, url)
+			require.Equal(t, http.StatusBadRequest, resp.Status, resp.Body)
+		})
+	}
+}
+
 // TestReflectedSignals covers a query parameter bound to a signal.
 //
 // The binding is what the page carries rather than anything the handler returns:
