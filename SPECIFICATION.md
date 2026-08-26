@@ -1024,6 +1024,20 @@ Datapages relies on the
 [`visibilitychange`](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event)
 event to perform the automatic refresh.
 
+## Dev Mode
+
+Dev mode is on when `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` holds anything.
+`datapages watch` runs the application under templier, which sets the latter.
+Setting `DATAPAGES_DEV_MODE` also sets `TEMPL_DEV_MODE` for the process,
+so templ sees the same mode.
+
+In dev mode the static assets are read from the source tree rather than the embedded FS,
+and every asset response carries `Cache-Control: no-store`.
+A production process that inherits either variable serves its assets from a
+directory it does not have. The server logs a warning at startup when dev mode is on.
+
+`datapages.IsDevMode` reports the mode to application code.
+
 ## Linting
 
 `datapages lint` parses the application model and reports all errors without generating

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path"
 	"strings"
 	"testing"
@@ -152,6 +153,40 @@ func TestAssetsEscapeTheirDirectory(t *testing.T) {
 				"GET %s served a file outside the assets directory", url)
 		})
 	}
+}
+
+// TestDatapagesDevModeServesFromDisk covers the variable datapages owns.
+// It turns dev mode on the same way and hands templ the mode as well,
+// which reads its own variable and nothing else.
+//
+// TestDatapagesDevModeServesFromDisk must not use t.Parallel() because
+// [testing.T.Setenv] forbids it.
+func TestDatapagesDevModeServesFromDisk(t *testing.T) {
+	t.Setenv("TEMPL_DEV_MODE", "")
+	t.Setenv(datapages.EnvVarDevMode, "true")
+	require.True(t, datapages.IsDevMode(), "the server does not consider this dev mode")
+
+	srv := httptest.NewServer(mustNewServer(
+		t,
+		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithAssets(app.StaticFS),
+		datapages.WithPrometheus(datapages.PrometheusConfig{
+			Host:       "127.0.0.1:0",
+			Registerer: registry,
+			Gatherer:   registry,
+		}),
+	))
+	t.Cleanup(srv.Close)
+
+	require.NotEmpty(t, os.Getenv("TEMPL_DEV_MODE"),
+		"templ was left out of the dev mode datapages was told about")
+
+	resp := get(t, srv, href.Asset("style.css"))
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "reading the stylesheet")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Contains(t, string(b), "rebeccapurple", "the file on disk was not served")
 }
 
 // TestDevModeServesFromDisk covers what WithAssets does in development.

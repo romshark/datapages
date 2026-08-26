@@ -12,11 +12,31 @@ import (
 	"github.com/romshark/datapages/modules/sessions"
 )
 
-// IsDevMode returns true when in the development environment.
-// Returns false for production environments.
+// EnvVarDevMode turns dev mode on when it holds anything.
+const EnvVarDevMode = "DATAPAGES_DEV_MODE"
+
+// templEnvVarDevMode is what templier sets and templ reads.
+// "datapages watch" runs the application under templier.
+const templEnvVarDevMode = "TEMPL_DEV_MODE"
+
+// IsDevMode reports whether the process runs in the development environment.
+// Either [EnvVarDevMode] or TEMPL_DEV_MODE turns it on.
 //
-// Only templier sets the variable, which is what "datapages watch" runs the app under.
-func IsDevMode() bool { return os.Getenv("TEMPL_DEV_MODE") != "" }
+// In dev mode the assets are read from the source tree instead of the embedded
+// FS and every asset response carries no-store. A production process that
+// inherits either variable therefore serves its assets from a directory it
+// does not have.
+func IsDevMode() bool {
+	return os.Getenv(EnvVarDevMode) != "" || os.Getenv(templEnvVarDevMode) != ""
+}
+
+// syncDevMode gives templ the dev mode datapages was told about,
+// since templ reads its own variable and nothing else.
+func syncDevMode() {
+	if os.Getenv(EnvVarDevMode) != "" && os.Getenv(templEnvVarDevMode) == "" {
+		_ = os.Setenv(templEnvVarDevMode, "true")
+	}
+}
 
 // DisableSessions disables session-based authentication code generation and
 // hence makes [NewServer] reject [WithSessionManager]. To enable it, use either
@@ -96,6 +116,7 @@ func NewServer[App, SessionData any, Metrics MetricsMode, S any, PS interface {
 	if broker == nil {
 		return nil, errors.New("nil message broker")
 	}
+	syncDevMode()
 	var cfg ServerConfig
 	for i, opt := range opts {
 		if opt == nil {

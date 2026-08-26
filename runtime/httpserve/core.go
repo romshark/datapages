@@ -318,6 +318,12 @@ func (c *Core) ListenAndServeTLS(
 func (c *Core) listenAndServe(
 	ctx context.Context, listenAndServe func() error,
 ) error {
+	if datapages.IsDevMode() {
+		// Assets come from the source tree here,
+		// which a deployment that inherited the variable does not have.
+		c.logger.Warn("dev mode is on",
+			slog.String("env", datapages.EnvVarDevMode+"/TEMPL_DEV_MODE"))
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	c.runCancel = cancel
 
