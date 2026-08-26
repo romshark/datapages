@@ -1062,3 +1062,82 @@ func TestInit(t *testing.T) {
 		})
 	}
 }
+
+func TestVisualize(t *testing.T) {
+	dir := setupProject(t, "valid.go")
+
+	run := func(t *testing.T, args ...string) (int, string, string) {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		code := cmd.Run(
+			context.Background(), append([]string{"datapages"}, args...),
+			nil, &stdout, &stderr,
+			"0.0.0", "xxxxxxx", "2026-2-23",
+		)
+		return code, stdout.String(), stderr.String()
+	}
+
+	t.Run("dot to stdout", func(t *testing.T) {
+		before := hashDir(t, dir)
+		code, stdout, stderr := run(t, "visualize")
+		require.Zero(t, code, "stderr: %s", stderr)
+		require.Contains(t, stdout, `digraph "app" {`)
+		require.Contains(t, stdout, "rankdir=TB;")
+		require.Contains(t, stdout, "<B>PageIndex</B>")
+		require.Contains(t, stdout, "<B>PageError404</B>")
+		require.Equal(t, before, hashDir(t, dir),
+			"visualize must not modify the project directory")
+	})
+
+	t.Run("output file", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "graph.dot")
+		code, stdout, stderr := run(t, "visualize", "-o", out)
+		require.Zero(t, code, "stderr: %s", stderr)
+		require.Empty(t, stdout)
+		require.Contains(t, stderr, "wrote "+out)
+		data, err := os.ReadFile(out)
+		require.NoError(t, err)
+		require.Contains(t, string(data), `digraph "app" {`)
+	})
+
+	t.Run("svg", func(t *testing.T) {
+		if _, err := exec.LookPath("dot"); err != nil {
+			t.Skip("graphviz not installed")
+		}
+		code, stdout, stderr := run(t, "visualize", "--format", "svg")
+		require.Zero(t, code, "stderr: %s", stderr)
+		require.Contains(t, stdout, "<svg ")
+	})
+
+	t.Run("html", func(t *testing.T) {
+		if _, err := exec.LookPath("dot"); err != nil {
+			t.Skip("graphviz not installed")
+		}
+		out := filepath.Join(t.TempDir(), "graph.html")
+		code, _, stderr := run(t, "visualize", "-o", out)
+		require.Zero(t, code, "stderr: %s", stderr)
+		page, err := os.ReadFile(out)
+		require.NoError(t, err)
+		require.Contains(t, string(page), "<!doctype html>")
+		require.Contains(t, string(page), `id="graph-data"`)
+		require.Contains(t, string(page), `id="n_page_PageIndex"`)
+	})
+
+	t.Run("unsupported rankdir", func(t *testing.T) {
+		code, _, stderr := run(t, "visualize", "--rankdir", "sideways")
+		require.Equal(t, 1, code)
+		require.Contains(t, stderr, `unsupported rankdir "sideways"`)
+	})
+
+	t.Run("unsupported format", func(t *testing.T) {
+		code, _, stderr := run(t, "visualize", "--format", "png")
+		require.Equal(t, 1, code)
+		require.Contains(t, stderr, `unsupported format "png"`)
+	})
+
+	t.Run("unknown app", func(t *testing.T) {
+		code, _, stderr := run(t, "visualize", "--app", "nonexistent")
+		require.Equal(t, 1, code)
+		require.Contains(t, stderr, `no app package "nonexistent"`)
+	})
+}

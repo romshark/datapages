@@ -915,6 +915,7 @@ CLI reference:
 ```sh
 datapages gen             # parse and generate code
 datapages lint            # validate without generating
+datapages visualize       # render the app model as a DOT, SVG or HTML graph
 datapages watch           # live reload dev server (for humans, not AI)
 datapages version         # show version info
 datapages help            # show help for all commands and flags

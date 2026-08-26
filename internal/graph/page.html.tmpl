@@ -1,0 +1,1340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<script>
+  // Before first paint, so a dark page never flashes light. No class is the
+  // kit's "follow the system" state.
+  try {
+    var stored = localStorage.getItem("datapages-theme");
+    if (stored === "light" || stored === "dark") {
+      document.documentElement.classList.add(stored);
+    }
+    var motion = localStorage.getItem("datapages-motion");
+    if (motion === "reduced") {
+      document.documentElement.setAttribute("data-pref-reduced-motion", "");
+    } else if (motion === "full") {
+      document.documentElement.setAttribute("data-pref-motion", "full");
+    }
+  } catch (e) { /* file:// can refuse storage; the system settings then win. */ }
+</script>
+<style>{{.MorpheusCSS}}</style>
+<style>{{.ThemeCSS}}</style>
+<style>{{.DiagramCSS}}</style>
+<style>
+/* The kit ships these as literal light colors and expects a theme to override
+   them; theme-default only carries the generic ones, so they are mapped here
+   and follow both themes. */
+:root {
+  --neo-button-bg: var(--btn-bg);
+  --neo-button-color: var(--btn-fg);
+  --neo-button-border-color: var(--btn-border);
+  --neo-button-hover-bg: var(--btn-hover-bg);
+  --neo-button-active-bg: var(--btn-hover-bg);
+  --neo-button-ghost-hover-bg: var(--btn-hover-bg);
+  --neo-button-ghost-active-bg: var(--btn-hover-bg);
+  --neo-button-secondary-bg: var(--btn-hover-bg);
+  --neo-button-primary-bg: var(--link);
+  --neo-button-primary-hover-bg: var(--link-hover);
+  --neo-button-primary-color: #ffffff;
+  --neo-popover-bg: var(--page-bg);
+  --neo-popover-color: var(--page-fg);
+  --neo-popover-border-color: var(--btn-border);
+}
+/* "Full" overrides the system's reduced-motion preference for this page; the
+   kit reads these two off :root under its own media query. */
+:root[data-pref-motion="full"] {
+  --neo-duration-scale: 1;
+  --neo-button-hover-lift: -1px;
+  --neo-button-active-lift: 1px;
+}
+html, body { height: 100%; margin: 0; }
+body {
+  display: flex; flex-direction: column;
+  font-family: var(--page-font-family);
+  color: var(--page-fg); background: var(--page-bg);
+}
+header {
+  display: flex; align-items: center; gap: 1rem;
+  padding: .5rem .75rem; border-bottom: 1px solid var(--btn-border);
+}
+header h1 {
+  margin: 0; font: 600 .8rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+header .spacer { flex: 1; }
+main { flex: 1; display: flex; min-height: 0; }
+neo-sidebar { border-right: 1px solid var(--btn-border); }
+/* Both panels fill the box their handle sizes; see the note on #details. */
+#nav-resize, #details-resize {
+  flex: 0 0 auto; height: 100%; overflow: hidden;
+  transition: width var(--neo-sidebar-transition-duration, .2s) var(--neo-easing, ease);
+}
+/* A drag must follow the pointer, not animate towards it. The kit marks the
+   drag with this state and silences the panel's own transition the same way. */
+neo-resizable:state(resizing) { transition: none !important; }
+#nav { --neo-sidebar-width: 100%; }
+#nav[open] { width: 100% !important; max-width: 100% !important; }
+/* The kit's own collapse rule is outranked by the id rule above, so the
+   closed state is stated here too; the transition on the host still runs. */
+#nav:not([open]) { width: 0 !important; max-width: 0 !important; }
+#nav-resize > [data-neo-resizable-handle="right"] svg { width: .9rem; height: .9rem; }
+/* The box collapses with the panel; its own min-width would hold it open. */
+body[data-nav="closed"] #nav-resize { width: 0 !important; min-width: 0 !important; }
+#nav-resize:has(> neo-sidebar:state(overlay)) { display: contents; }
+#nav-resize:has(> neo-sidebar:state(overlay)) > [data-neo-resizable-handle] { display: none; }
+/* The kit lays the header out as a row; the filter and the two buttons want
+   to stack. */
+neo-sidebar [data-neo-sidebar-header] {
+  display: flex; flex-direction: column; align-items: stretch; gap: .4rem;
+}
+#filter-group { width: 100%; }
+#filter { flex: 1 1 auto; width: 100%; }
+.addon-icon { display: inline-flex; color: var(--muted); }
+.addon-icon svg { width: .9rem; height: .9rem; display: block; }
+.tree-tools { display: flex; gap: .3rem; justify-content: flex-end; }
+
+/* Lucide draws at 24px; these are toolbar buttons. */
+.icon-btn svg { width: 1.05rem; height: 1.05rem; display: block; }
+/* The popover's own panel is padded already. */
+.settings-panel { display: grid; gap: .4rem; min-width: 9rem; }
+.settings-panel label { display: flex; align-items: center; gap: .45rem; cursor: pointer; }
+.settings-row { padding-top: .1rem; }
+.settings-label {
+  font: 600 .68rem/1 -apple-system, sans-serif; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--muted);
+}
+.icon-btn span { display: inline-flex; }
+body[data-nav="open"] #toggle-nav .when-closed { display: none; }
+body[data-nav="closed"] #toggle-nav .when-open { display: none; }
+
+/* Tree ------------------------------------------------------------------ */
+
+#tree {
+  /* The padding sits on the label, so the selection tint carries it too. */
+  --neo-tree-row-padding: 0;
+  --neo-tree-row-gap: .55rem;
+  --neo-tree-indent: 0;
+  display: block;
+}
+.section-label { font-weight: 600; }
+.dot { width: .55rem; height: .55rem; border-radius: 2px; flex: 0 0 auto; }
+#tree-empty {
+  margin: .5rem .25rem; color: var(--muted); font-size: .78rem; line-height: 1.5;
+}
+#tree-empty[hidden] { display: none; }
+.verb {
+  flex: 0 0 auto; margin-right: .25rem; color: var(--muted);
+  font: .68rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+/* The verb and the name are different sizes; centering their boxes leaves the
+   text looking off, so the two sit on a shared baseline instead. */
+[data-neo-tree-label] > .verb,
+[data-neo-tree-label] > [data-neo-tree-text] { align-self: baseline; }
+.tree-icon { display: inline-flex; flex: 0 0 auto; color: var(--muted); }
+.tree-icon svg { width: .8rem; height: .8rem; display: block; }
+[data-neo-tree-label] neo-badge {
+  --neo-badge-padding-y: 0; --neo-badge-padding-x: .3rem;
+  flex: 0 0 auto; font-size: .65rem; line-height: 1.4;
+}
+.sub {
+  font: .68rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* Shrinks far ahead of the name it annotates. */
+  flex: 0 100 auto;
+}
+/* A page's route, an event's subject: a line of its own under the name. */
+/* The kit's own rule for this element is more specific than a bare attribute
+   selector, hence the child combinator. */
+neo-tree-item > [data-neo-tree-label] { padding: .25rem; gap: .2rem; }
+[data-neo-tree-label].stacked { flex-wrap: wrap; }
+/* Basis 0, or a long name is wide enough to wrap onto its own line and leave
+   the color dot alone on the first one. */
+[data-neo-tree-label].stacked > [data-neo-tree-text] { flex: 1 1 0; }
+[data-neo-tree-label].stacked > .sub { flex: 0 0 100%; }
+
+/* The kit's chevron is a <neo-icon>, which fetches its SVG; this page has
+   nowhere to fetch from, so every branch carries its own. */
+/* The chevron belongs next to the first line of a two-line row, not halfway
+   down it; the row is a shadow part, so this is where it can be reached. */
+neo-tree-item::part(row) { align-items: flex-start; }
+[slot="icon"] {
+  display: inline-flex; color: var(--muted); align-self: flex-start;
+  /* Negative margin keeps the row height while widening the hit area: the
+     chevron is the only thing that expands a branch. */
+  padding: .3rem; margin: -.3rem; margin-top: .17rem;
+  border-radius: var(--page-radius, .25rem);
+  transition: transform var(--neo-tree-duration, 200ms) var(--neo-easing, ease);
+}
+[slot="icon"]:hover { background: color-mix(in oklab, var(--link) 12%, transparent); }
+neo-tree-item[expanded] > [slot="icon"] { transform: rotate(90deg); }
+neo-tree-item[hidden] { display: none; }
+/* Air between rows, including between a branch and its first child. */
+neo-tree-item + neo-tree-item,
+[data-neo-tree-label] + neo-tree-item { margin-top: .25rem; }
+
+/* A guide line down the children of an open item, and a rule between the
+   top-level sections. */
+/* The guide marks a page's handlers, not the sections: only an item that is
+   itself nested draws one. */
+neo-tree-item neo-tree-item::part(children) {
+  border-left: 2px solid color-mix(in oklab, var(--link) 55%, transparent);
+  padding-left: .4rem;
+}
+#tree > neo-tree-item + neo-tree-item {
+  margin-top: .5rem; padding-top: .5rem;
+  border-top: 1px solid var(--btn-border);
+}
+
+/* Three states: the one selected thing, what it connects to, the rest. The
+   tree marks the first two and leaves the rest alone, since a tree is read as
+   a list. --accent is near-black in the default theme, so the tint comes from
+   --link, which is the theme's blue. */
+[data-neo-tree-label] {
+  border-radius: var(--page-radius, .25rem);
+  /* A double click expands the item; without this it also selects the text. */
+  user-select: none; -webkit-user-select: none;
+}
+/* The kit rings the row inside its shadow; the label carries the padding, so
+   the keyboard focus is shown on it instead. */
+neo-tree-item:focus-visible > [data-neo-tree-label] {
+  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--link) 60%, transparent);
+}
+#tree [data-neo-tree-label].is-related {
+  background: color-mix(in oklab, var(--link) 8%, transparent);
+}
+#tree [data-neo-tree-label].is-selected {
+  background: color-mix(in oklab, var(--link) 16%, transparent);
+  /* An inset ring rather than an outline: an outline is drawn outside the
+     box, where the sidebar's scroll container and the item's own children
+     wrapper both clip it. */
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--link) 45%, transparent);
+}
+
+/* Details ----------------------------------------------------------------- */
+
+/* The panel fills the resizable, which is what the drag handle sizes. */
+#details {
+  /* The children of a sidebar take this, which makes them fill the panel. */
+  --neo-sidebar-width: 100%;
+  border-left: 1px solid var(--btn-border); border-right: 0;
+}
+/* The panel fills the box the handle sizes. The kit pins the host's own width
+   past what an id rule can override, hence !important; only while open, so
+   the kit's collapse to zero still runs on close. */
+#details[open] { width: 100% !important; max-width: 100% !important; }
+#details:not([open]) { width: 0 !important; max-width: 0 !important; }
+#details-resize > [data-neo-resizable-handle="left"] svg { width: .9rem; height: .9rem; }
+/* Closed, the panel collapses to nothing and the box holding it collapses
+   with it, on the same transition, so the close still animates. Hiding the
+   box outright would cut the animation off at its first frame.
+   In overlay mode the panel leaves the flow, and so does the box. */
+body[data-details="closed"] #details-resize { width: 0 !important; min-width: 0 !important; }
+#details-resize:has(> neo-sidebar:state(overlay)) { display: contents; }
+#details-resize:has(> neo-sidebar:state(overlay)) > [data-neo-resizable-handle] { display: none; }
+#details-crumbs { font-size: .72rem; margin-bottom: .3rem; }
+#details-crumbs a { cursor: pointer; }
+#details-crumbs [data-neo-breadcrumb-sep] svg { width: .75rem; height: .75rem; display: block; }
+#details-crumbs:empty { display: none; }
+#details-body { display: flex; flex-direction: column; gap: .35rem; }
+/* Flex children shrink by default, and a card that shrinks clips its last
+   rows behind its own overflow: hidden. */
+#details-body > * { flex: 0 0 auto; }
+#details-title { font-weight: 600; overflow-wrap: anywhere; }
+#details-sub { color: var(--muted); font-size: .75rem; }
+#details h3 {
+  display: flex; align-items: center; gap: .4rem;
+  font: 600 .68rem/1 -apple-system, sans-serif; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--muted); margin: .75rem 0 0;
+}
+#details h3 neo-badge {
+  --neo-badge-padding-y: 0; --neo-badge-padding-x: .3rem;
+  font-size: .65rem; letter-spacing: 0; line-height: 1.4;
+}
+#details h3:first-child { margin-top: 0; }
+/* Every list in the panel reads as one card, one row per item. */
+.card {
+  border: 1px solid var(--btn-border);
+  border-radius: var(--neo-textarea-radius, .5rem);
+  overflow: hidden;
+}
+.card > * + * { border-top: 1px solid var(--btn-border); }
+.card > .field-row { border: 0; border-radius: 0; }
+.card > .field-row + .field-row { border-top: 1px solid var(--btn-border); }
+.card > .link, .card > .param, .card > .field { border-radius: 0; }
+.field-row {
+  width: 100%;
+  /* The kit tints the addons of an input group; a read-only field reads
+     better flat. */
+  --neo-input-group-addon-bg: transparent;
+  /* The group floors at 12rem, which a narrowed panel would overflow instead
+     of trimming the value. */
+  --neo-input-min-width: 0;
+}
+/* <neo-clipcopy> is not one of the children the group knows, so it neither
+   stretches nor centers on its own. */
+.field-row > neo-clipcopy {
+  display: inline-flex; align-items: center; align-self: center;
+  padding-inline: .25rem .4rem;
+}
+/* Icon and label are one addon: the group pads it once. */
+.field-row .field-label {
+  display: inline-flex; align-items: center; gap: .35rem;
+  color: var(--muted); font-size: .72rem; white-space: nowrap;
+}
+.field-row .field-label svg { width: .85rem; height: .85rem; display: block; }
+/* One rule for both the span and the link the source row carries: the kit
+   styles a span in a group and leaves an <a> alone.
+   The display is the point. The kit makes the span a flex container, where
+   the text is an anonymous item that text-overflow cannot trim, and a block
+   in a group stretched to full height would ride at the top. */
+.field-row > .field-value {
+  flex: 1 1 auto; min-width: 0;
+  display: block; align-self: center;
+  /* The kit pads a span in a group; the label addon in front of the value is
+     padded already. */
+  padding: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: .72rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* The kit makes every span in a group unselectable; a value is worth
+     selecting. */
+  user-select: text; -webkit-user-select: text;
+}
+.field-row > a.field-value { color: var(--link); text-decoration: none; }
+.field-row > a.field-value:hover { text-decoration: underline; }
+.field-row neo-clipcopy svg { width: .85rem; height: .85rem; display: block; }
+neo-clipcopy [data-neo-clipcopy-copied] { color: var(--n-event, #1a7f37); }
+.kv { display: flex; gap: .5rem; padding: .15rem 0; align-items: baseline; }
+.kv > .k { color: var(--muted); font-size: .72rem; flex: 0 0 5.5rem; }
+.kv > .v, .mono {
+  font: .72rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+.param { padding: .3rem .5rem; }
+.param > .head { display: flex; gap: .4rem; align-items: baseline; flex-wrap: wrap; }
+.param > .type { margin-left: .5rem; color: var(--page-fg); }
+.param .kind {
+  font: 600 .62rem/1.6 -apple-system, sans-serif; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--muted);
+  background: color-mix(in oklab, var(--muted) 12%, transparent);
+  border-radius: 99px; padding: 0 .4rem; flex: 0 0 auto;
+}
+.fields { margin: .2rem 0 .1rem .5rem; }
+.field { display: flex; flex-wrap: wrap; gap: .4rem; align-items: baseline; padding: .25rem .5rem; }
+.fields > .field { padding: .1rem 0; }
+.field .wire { color: var(--link); }
+.field .note { color: var(--muted); font-size: .68rem; }
+.link {
+  display: flex; align-items: baseline; gap: .4rem;
+  padding: .3rem .5rem; border-radius: var(--page-radius, .25rem);
+  cursor: pointer; overflow-wrap: anywhere;
+}
+.link:hover { background: color-mix(in oklab, var(--link) 10%, transparent); }
+.link > span { flex: 1 1 auto; min-width: 0; }
+/* Says the row goes somewhere; it only shows up where the eye is already. */
+.link svg {
+  width: .8rem; height: .8rem; flex: 0 0 auto; color: var(--muted);
+  opacity: .5; align-self: center;
+}
+.link:hover svg { opacity: 1; color: var(--link); }
+.empty { color: var(--muted); font-size: .75rem; padding: .5rem 0; }
+
+/* Graph ------------------------------------------------------------------ */
+
+#pane {
+  flex: 1; overflow: auto; background: var(--page-bg); position: relative;
+  /* Dragging the graph pans it; without this the drag selects the labels. */
+  user-select: none; -webkit-user-select: none;
+}
+/* The wrapper carries the margin: padding on the scroll container itself is
+   dropped at the end edges by some engines. */
+#canvas { width: max-content; padding: 2rem; }
+#canvas svg { display: block; }
+/* Enough to push the rest back, not so much that it stops being readable. */
+#pane.has-selection g.node, #pane.has-selection g.edge { opacity: .35; }
+#pane.has-selection g.node.is-related, #pane.has-selection g.edge.is-related { opacity: 1; }
+#pane.has-selection g.node.is-selected { opacity: 1; }
+g.node.is-selected { filter: drop-shadow(0 0 4px color-mix(in oklab, var(--link) 75%, transparent)); }
+g.row.is-selected > a > polygon { fill: var(--dp-mark); }
+#pane g.node, #pane svg a { cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <neo-button id="toggle-nav" class="icon-btn" variant="ghost" size="sm"
+    role="button" tabindex="0" aria-label="Toggle the tree" title="Toggle the tree">
+    <span class="when-open">{{index .Icons "panel-right-open"}}</span>
+    <span class="when-closed">{{index .Icons "panel-right-close"}}</span>
+  </neo-button>
+  <h1>{{.Title}}</h1>
+  <div class="spacer"></div>
+  <neo-buttongroup>
+    <neo-button id="zoom-out" size="sm" role="button" tabindex="0" aria-label="Zoom out">-</neo-button>
+    <neo-button id="zoom-reset" size="sm" role="button" tabindex="0" aria-label="Zoom to 100%">100%</neo-button>
+    <neo-button id="zoom-in" size="sm" role="button" tabindex="0" aria-label="Zoom in">+</neo-button>
+  </neo-buttongroup>
+  <neo-button id="fit" size="sm" role="button" tabindex="0">Fit</neo-button>
+  <neo-popover placement="bottom-end">
+    <neo-button id="settings" class="icon-btn" variant="ghost" size="sm"
+      role="button" tabindex="0" aria-label="Settings" title="Settings"
+      data-neo-popover-trigger>
+      {{index .Icons "settings"}}
+    </neo-button>
+    <div data-neo-popover-content class="settings-panel">
+      <div class="settings-label">Theme</div>
+      <neo-buttongroup id="theme" value="auto" aria-label="Theme">
+        <neo-button value="auto" size="sm" role="button" tabindex="0">Auto</neo-button>
+        <neo-button value="light" size="sm" role="button" tabindex="0">Light</neo-button>
+        <neo-button value="dark" size="sm" role="button" tabindex="0">Dark</neo-button>
+      </neo-buttongroup>
+      <div class="settings-label">Motion</div>
+      <neo-buttongroup id="motion" value="auto" aria-label="Motion">
+        <neo-button value="auto" size="sm" role="button" tabindex="0">Auto</neo-button>
+        <neo-button value="reduced" size="sm" role="button" tabindex="0">Reduced</neo-button>
+        <neo-button value="full" size="sm" role="button" tabindex="0">Full</neo-button>
+      </neo-buttongroup>
+    </div>
+  </neo-popover>
+  <neo-button id="toggle-details" class="icon-btn" variant="ghost" size="sm"
+    role="button" tabindex="0" aria-label="Toggle the details" title="Toggle the details">
+    {{index .Icons "info"}}
+  </neo-button>
+</header>
+<main>
+  <neo-resizable id="nav-resize" handles="right"
+    width="24rem" min-width="14rem" max-width="42rem">
+    <neo-sidebar id="nav" open side="left" aria-label="Application model">
+    <div data-neo-sidebar-header>
+      <neo-input-group id="filter-group">
+        <span class="addon-icon">{{index .Icons "search"}}</span>
+        <neo-textinput id="filter" type="search" placeholder="Filter" clearable></neo-textinput>
+      </neo-input-group>
+      <div class="tree-tools">
+        <neo-button id="expand-all" class="icon-btn" variant="ghost" size="sm"
+          role="button" tabindex="0" aria-label="Expand all" title="Expand all">
+          {{index .Icons "list-chevrons-up-down"}}
+        </neo-button>
+        <neo-button id="collapse-all" class="icon-btn" variant="ghost" size="sm"
+          role="button" tabindex="0" aria-label="Collapse all" title="Collapse all">
+          {{index .Icons "list-chevrons-down-up"}}
+        </neo-button>
+      </div>
+    </div>
+    <nav data-neo-sidebar-content>
+      <neo-tree id="tree" role="tree"></neo-tree>
+      <p id="tree-empty" hidden></p>
+    </nav>
+    </neo-sidebar>
+    <span data-neo-resizable-handle="right">{{index .Icons "grip-vertical"}}</span>
+  </neo-resizable>
+  <section id="pane">
+    <div id="canvas">{{.SVG}}</div>
+  </section>
+  <neo-resizable id="details-resize" handles="left"
+    width="24rem" min-width="16rem" max-width="46rem">
+    <neo-sidebar id="details" open side="right" aria-label="Selection details">
+      <div data-neo-sidebar-header>
+        <neo-breadcrumb id="details-crumbs" aria-label="Path to the selection"></neo-breadcrumb>
+        <div id="details-title">Nothing selected</div>
+        <div id="details-sub"></div>
+      </div>
+      <div data-neo-sidebar-content id="details-body"></div>
+    </neo-sidebar>
+    <span data-neo-resizable-handle="left">{{index .Icons "grip-vertical"}}</span>
+  </neo-resizable>
+</main>
+
+<template id="tpl-icons"><span data-icon="more-horizontal">{{index .Icons "ellipsis"}}</span></template>
+<template id="tpl-field-icons"
+  ><span data-icon="route">{{index .Icons "link"}}</span
+  ><span data-icon="subject">{{index .Icons "radio-tower"}}</span
+  ><span data-icon="private">{{index .Icons "lock"}}</span
+  ><span data-icon="public">{{index .Icons "lock-open"}}</span
+  ><span data-icon="signal-scoped">{{index .Icons "signal"}}</span
+  ><span data-icon="role">{{index .Icons "flag"}}</span
+  ><span data-icon="section-page">{{index .Icons "file-box"}}</span
+  ><span data-icon="section-event">{{index .Icons "message-square-text"}}</span
+  ><span data-icon="section-abstract">{{index .Icons "layers-2"}}</span
+  ><span data-icon="section-app">{{index .Icons "square-function"}}</span
+  ><span data-icon="row-get">{{index .Icons "file"}}</span
+  ><span data-icon="row-action">{{index .Icons "square-function"}}</span
+  ><span data-icon="row-stream">{{index .Icons "plug"}}</span
+  ><span data-icon="row-handler">{{index .Icons "inbox"}}</span
+  ><span data-icon="source">{{index .Icons "file"}}</span
+  ><span data-icon="copy">{{index .Icons "copy"}}</span
+  ><span data-icon="copied">{{index .Icons "check"}}</span
+></template>
+<template id="tpl-link-arrow">{{index .Icons "arrow-right"}}</template>
+<template id="tpl-crumb-sep"><span data-neo-breadcrumb-sep aria-hidden="true">{{index .Icons "chevron-right"}}</span></template>
+
+<script type="application/json" id="graph-data">{{.Data}}</script>
+<script type="module">{{.MorpheusJS}}</script>
+<script type="module">
+"use strict";
+const DATA = JSON.parse(document.getElementById("graph-data").textContent);
+const nodeByID = new Map(DATA.nodes.map(n => [n.id, n]));
+const pane = document.getElementById("pane");
+const svg = document.querySelector("#canvas svg");
+const tree = document.getElementById("tree");
+
+// Graphviz prefixes the element it generates for a table cell with "a_".
+function rowEl(dom) {
+  return document.getElementById("a_" + dom) || document.getElementById(dom);
+}
+function nodeEl(id) {
+  const n = nodeByID.get(id);
+  return n ? document.getElementById(n.dom) : null;
+}
+function key(id, port) { return id + "#" + (port || ""); }
+
+// Graphviz only wraps a cell in an <a> so that it gets an id; the link goes
+// nowhere and must not be a tab stop between the tree and the details panel.
+for (const anchor of document.querySelectorAll("#canvas svg a")) {
+  anchor.setAttribute("tabindex", "-1");
+}
+
+// The row groups Graphviz generates carry no class, which the CSS needs.
+for (const n of DATA.nodes) {
+  for (const r of n.rows || []) {
+    const el = rowEl(r.dom);
+    if (el) el.classList.add("row");
+  }
+}
+
+/* Tree ------------------------------------------------------------------- */
+
+// Every entry: the label element, what it points at and its parent item.
+const entries = [];
+
+function item(opts) {
+  const el = document.createElement("neo-tree-item");
+  el.setAttribute("role", "treeitem");
+  el.tabIndex = -1;
+  if (opts.expanded) el.setAttribute("expanded", "");
+
+  const label = document.createElement("div");
+  label.setAttribute("data-neo-tree-label", "");
+  if (opts.color) {
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.style.background = opts.color;
+    label.append(dot);
+  } else if (opts.icon) {
+    const box = document.createElement("span");
+    box.className = "tree-icon";
+    box.append(inlineIcon(opts.icon));
+    label.append(box);
+  }
+  if (opts.prefix) {
+    const verb = document.createElement("span");
+    verb.className = "verb";
+    verb.textContent = opts.prefix;
+    label.append(verb);
+  }
+  const text = document.createElement("span");
+  text.setAttribute("data-neo-tree-text", "");
+  if (opts.section) text.classList.add("section-label");
+  text.textContent = opts.name;
+  label.append(text);
+  if (opts.sub) {
+    const sub = document.createElement("span");
+    sub.className = "sub";
+    sub.textContent = opts.sub;
+    label.append(sub);
+  }
+  if (opts.count !== undefined) {
+    const badge = document.createElement("neo-badge");
+    badge.setAttribute("variant", "outline");
+    badge.textContent = String(opts.count);
+    label.append(badge);
+  }
+  if (opts.stacked) label.classList.add("stacked");
+  label.title = opts.name + (opts.sub ? "  " + opts.sub : "");
+  el.append(label);
+
+  const entry = {
+    el, label, parent: opts.parent || null,
+    target: opts.target || null,
+    // The full type name stays searchable even where the tree trims it.
+    text: (opts.name + " " + (opts.search || "") + " " + (opts.sub || "")).toLowerCase(),
+  };
+  entries.push(entry);
+  if (opts.target) {
+    label.addEventListener("click", ev => {
+      // <neo-tree-item> toggles on any row click it has not been told to
+      // leave alone, and it reads defaultPrevented as being told.
+      ev.preventDefault();
+      select(opts.target.node, opts.target.port, entry);
+    });
+  }
+  // A single click selects, so expanding is the double click (and the
+  // chevron). setExpanded is the component's own API for it.
+  label.addEventListener("dblclick", ev => {
+    ev.preventDefault();
+    if (!el.querySelector(":scope > neo-tree-item")) return;
+    el.setExpanded(!el.hasAttribute("expanded"));
+  });
+  // Enter selects the focused row. <neo-keys> binds the chord on its parent,
+  // the item, and clicks what `for` names, so no key handler is written here.
+  if (opts.target) {
+    label.id = "tl" + entries.length;
+    const keys = document.createElement("neo-keys");
+    keys.setAttribute("keys", "Enter");
+    keys.setAttribute("for", label.id);
+    // A row sits inside its page, which sits inside its section, and each
+    // binding listens on its own item: without this the key would keep
+    // bubbling and the outermost row would win.
+    keys.setAttribute("stop", "");
+    el.append(keys);
+  }
+  (opts.parent ? opts.parent.el : tree).append(el);
+  // The kit's default chevron sits in the item's shadow root as a <neo-icon>,
+  // which fetches its SVG over HTTP even when an icon is slotted over it.
+  // This page has nowhere to fetch from, so it goes.
+  el.shadowRoot?.querySelector("neo-icon")?.remove();
+  return entry;
+}
+
+function rowHint(row) {
+  if (row.handles) return "<- " + row.handles;
+  if (row.dispatches && row.dispatches.length) return "-> " + row.dispatches.join(", ");
+  return "";
+}
+
+function byKind(kind) { return DATA.nodes.filter(n => n.kind === kind); }
+
+// The tree groups by kind already, so the type-name prefix its own section
+// repeats is dropped: PageMessages reads as Messages under Pages. Everything
+// else, the details panel included, keeps the Go type name.
+const PREFIX_OF = { page: "Page", event: "Event" };
+function shortLabel(node) {
+  const prefix = PREFIX_OF[node.kind];
+  if (!prefix || !node.name.startsWith(prefix)) return node.name;
+  const rest = node.name.slice(prefix.length);
+  return rest === "" ? node.name : rest;
+}
+
+function structureItems(parent, n) {
+  const node = item({
+    parent, name: shortLabel(n) + (n.badge ? " (" + n.badge + ")" : ""),
+    search: n.name, sub: n.sub, color: n.color, stacked: true,
+    target: { node: n.id },
+  });
+  for (const r of n.rows || []) {
+    // The tree names a handler the way the Go source does, the route is in
+    // the details panel. The parser already keeps the verb out of the name,
+    // so an action shows it set apart in front.
+    item({
+      parent: node,
+      name: r.name || r.text,
+      prefix: rowVerb(r),
+      sub: rowHint(r), icon: "row-" + r.kind,
+      search: r.text, target: { node: n.id, port: r.port },
+    });
+  }
+}
+
+function eventItems(parent, n) {
+  const node = item({
+    parent, name: shortLabel(n), search: n.name, sub: n.sub, color: n.color,
+    stacked: true, target: { node: n.id },
+  });
+  for (const e of DATA.edges) {
+    if (e.kind === "dispatch" && e.to === n.id) {
+      item({
+        parent: node, name: shortLabel(nodeByID.get(e.from)),
+        search: nodeByID.get(e.from).name, sub: "dispatches",
+        target: { node: e.from, port: e.fromPort },
+      });
+    }
+    if (e.kind === "subscribe" && e.from === n.id) {
+      item({
+        parent: node, name: shortLabel(nodeByID.get(e.to)),
+        search: nodeByID.get(e.to).name, sub: "subscribes",
+        target: { node: e.to, port: e.toPort },
+      });
+    }
+  }
+}
+
+for (const [title, kind, render] of [
+  ["Pages", "page", structureItems],
+  ["Abstract Pages", "abstract", structureItems],
+  ["Events", "event", eventItems],
+  ["App Actions", "app", structureItems],
+]) {
+  const nodes = byKind(kind);
+  if (!nodes.length) continue;
+  const section = item({
+    name: title, count: nodes.length, section: true, expanded: true,
+    icon: "section-" + kind,
+  });
+  for (const n of nodes) render(section, n);
+}
+
+// The tab stop stays where the kit puts it, on a top-level item. Chromium
+// leaves imperatively slot-assigned nodes out of the sequential focus order,
+// and <neo-tree-item> assigns its children that way, so a nested row cannot
+// hold the tab stop: it would drop the whole tree out of the tab order.
+// Nested rows are reached with the arrow keys, as a tree expects.
+
+// A branch is any item that ended up with nested items.
+const CHEVRON = '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">' +
+  '<path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+for (const e of entries) {
+  if (!e.el.querySelector(":scope > neo-tree-item")) continue;
+  const icon = document.createElement("span");
+  icon.slot = "icon";
+  icon.innerHTML = CHEVRON;
+  e.el.prepend(icon);
+}
+
+function setExpandedAll(value) {
+  for (const e of entries) {
+    if (!e.el.querySelector(":scope > neo-tree-item")) continue;
+    if (typeof e.el.setExpanded === "function") e.el.setExpanded(value);
+    else e.el.toggleAttribute("expanded", value);
+  }
+}
+document.getElementById("expand-all").addEventListener("click", () => setExpandedAll(true));
+document.getElementById("collapse-all").addEventListener("click", () => setExpandedAll(false));
+
+/* Details ----------------------------------------------------------------- */
+
+const details = {
+  crumbs: document.getElementById("details-crumbs"),
+  title: document.getElementById("details-title"),
+  sub: document.getElementById("details-sub"),
+  body: document.getElementById("details-body"),
+};
+
+const SECTION_OF = {
+  page: "Pages", abstract: "Abstract Pages", event: "Events", app: "App Actions",
+};
+
+// A kit component can put a <neo-icon> in the DOM itself, and neo-icon fetches
+// its SVG over HTTP; the breadcrumb does it for the overflow menu. This page
+// has nowhere to fetch from, so any that appears is swapped for the icon of
+// the same name inlined in the page.
+function inlineIcons(root) {
+  const inlined = document.getElementById("tpl-icons").content;
+  for (const icon of root.querySelectorAll("neo-icon")) {
+    const src = inlined.querySelector('[data-icon="' + icon.getAttribute("name") + '"]');
+    if (src) icon.replaceWith(src.firstElementChild.cloneNode(true));
+    else icon.remove();
+  }
+}
+new MutationObserver(() => inlineIcons(details.crumbs))
+  .observe(details.crumbs, { childList: true, subtree: true });
+
+// A crumb without a target is the selection itself; the rest select what they
+// name. The separator comes from a template so the icon stays inline markup.
+function breadcrumb(items) {
+  const sep = document.getElementById("tpl-crumb-sep").content.firstElementChild;
+  details.crumbs.replaceChildren();
+  items.forEach((it, i) => {
+    let crumb;
+    if (it.target) {
+      crumb = el("a", null, it.label);
+      crumb.href = "#";
+      crumb.addEventListener("click", ev => {
+        ev.preventDefault();
+        select(it.target.node, it.target.port, null);
+      });
+    } else {
+      crumb = el("span", null, it.label);
+      crumb.setAttribute("aria-current", "page");
+    }
+    details.crumbs.append(crumb);
+    if (i < items.length - 1) details.crumbs.append(sep.cloneNode(true));
+  });
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+// A section heading carries the number of items under it.
+function heading(text, count) {
+  const h = el("h3");
+  h.append(el("span", null, text));
+  if (count !== undefined) {
+    const badge = document.createElement("neo-badge");
+    badge.setAttribute("variant", "outline");
+    badge.textContent = String(count);
+    h.append(badge);
+  }
+  return h;
+}
+
+function inlineIcon(name) {
+  const src = document.getElementById("tpl-field-icons").content
+    .querySelector('[data-icon="' + name + '"]');
+  return src ? src.firstElementChild.cloneNode(true) : null;
+}
+
+// One labelled value: an icon saying what kind of value it is, the label, the
+// value, and a copy control where the value is worth copying.
+function fieldRow(opts) {
+  const row = document.createElement("neo-input-group");
+  row.className = "field-row";
+
+  const label = el("span", "field-label");
+  const icon = inlineIcon(opts.icon);
+  if (icon) label.append(icon);
+  label.append(el("span", null, opts.label));
+  row.append(label);
+
+  const value = el(opts.href ? "a" : "span", "field-value", opts.value || "");
+  value.title = opts.value || "";
+  if (opts.href) {
+    value.href = opts.href;
+    value.rel = "noreferrer";
+  }
+  row.append(value);
+
+  const copyValue = opts.copyValue || opts.value;
+  if (opts.copy && copyValue) {
+    const clip = document.createElement("neo-clipcopy");
+    clip.setAttribute("value", copyValue);
+    const button = document.createElement("neo-button");
+    for (const [k, v] of [["variant", "ghost"], ["size", "sm"], ["role", "button"],
+      ["tabindex", "0"], ["aria-label", "Copy " + opts.label]]) {
+      button.setAttribute(k, v);
+    }
+    const idle = el("span");
+    idle.setAttribute("data-neo-clipcopy-idle", "");
+    idle.append(inlineIcon("copy"));
+    const copied = el("span");
+    copied.setAttribute("data-neo-clipcopy-copied", "");
+    copied.append(inlineIcon("copied"));
+    button.append(idle, copied);
+    clip.append(button);
+    row.append(clip);
+  }
+  return row;
+}
+
+// A Windows path needs the separators and the leading slash a file URL wants.
+function fileURL(path) {
+  const p = path.replace(/\\/g, "/");
+  return "file://" + encodeURI(p.startsWith("/") ? p : "/" + p);
+}
+
+// Where the application package declares the thing. The page prints the file
+// name, the link opens the file and the copy button hands over the absolute
+// path with the position, which is what an editor and a shell take.
+function sourceRow(src) {
+  if (!src) return null;
+  const at = ":" + src.line + ":" + src.col;
+  return fieldRow({
+    icon: "source", label: "Source", value: src.file + at,
+    href: fileURL(src.path), copyValue: src.path + at, copy: true,
+  });
+}
+
+function card(rows) {
+  const box = el("div", "card");
+  box.append(...rows);
+  return box;
+}
+
+// The kinds a note comes in, and how the panel says them. What the drawing
+// prints under a page name is not repeated here: "no-stream" is what the
+// handler list of the page says by holding no stream hook.
+const NOTE_FIELD = {
+  private: { icon: "private", label: "Private", value: "requires a session" },
+  public: { icon: "public", label: "Public", value: "no session required" },
+  "signal-scoped": { icon: "signal-scoped", label: "Signal-scoped", value: "routed by a client signal" },
+  "no-stream": null,
+};
+function noteRow(note) {
+  const f = NOTE_FIELD[note.kind];
+  if (f === null) return null;
+  return f ? fieldRow(f) : fieldRow({ icon: "private", label: note.text });
+}
+function pushNotes(fields, notes) {
+  for (const note of notes || []) {
+    const row = noteRow(note);
+    if (row) fields.push(row);
+  }
+}
+function kv(k, v) {
+  const row = el("div", "kv");
+  row.append(el("span", "k", k), el("span", "v", v));
+  return row;
+}
+// A link selects what it names, which is how the panel is walked. The arrow
+// says so.
+function link(text, id, port) {
+  const a = el("div", "link mono");
+  a.append(el("span", null, text),
+    document.getElementById("tpl-link-arrow").content.firstElementChild.cloneNode(true));
+  a.addEventListener("click", () => select(id, port, null));
+  return a;
+}
+function rowOf(node, port) { return (node.rows || []).find(r => r.port === port); }
+// The word in front of a handler's name: the HTTP method of an action, ON for
+// an event handler, matching the Go method names POSTSend and OnEventSent.
+function rowVerb(row) {
+  if (row.kind === "action") return row.method || "";
+  if (row.kind === "handler") return "ON";
+  return "";
+}
+// The Go method name with that word in front: what the tree says.
+function rowName(row) {
+  const name = row.name || row.text;
+  const verb = rowVerb(row);
+  return verb ? verb + " " + name : name;
+}
+function rowLabel(node, row) { return shortLabel(node) + "." + rowName(row); }
+
+function fieldItems(fields) {
+  return fields.map(f => {
+    const row = el("div", "field");
+    row.append(el("span", "mono", f.name), el("span", "mono", f.type));
+    if (f.wire) row.append(el("span", "mono wire", f.wire));
+    if (f.note) row.append(el("span", "note", f.note));
+    return row;
+  });
+}
+
+// Nested under a parameter, the fields stay a plain list: the card is the
+// parameter itself.
+function fieldList(fields) {
+  const box = el("div", "fields");
+  box.append(...fieldItems(fields));
+  return box;
+}
+
+function paramItems(params) {
+  const out = [];
+  for (const p of params) {
+    const item = el("div", "param");
+    const head = el("div", "head");
+    head.append(el("span", "kind", p.kind));
+    if (p.name) head.append(el("span", "mono", p.name));
+    item.append(head);
+    // The type goes on its own line: a generic instantiation is long enough
+    // to be broken mid-word when it shares a row.
+    if (p.type) item.append(el("div", "mono type", p.type));
+    if (p.event) item.append(link(p.event, "event:" + p.event));
+    if (p.fields && p.fields.length) item.append(fieldList(p.fields));
+    out.push(item);
+  }
+  return out;
+}
+
+function edgesOf(kind, test) { return DATA.edges.filter(e => e.kind === kind && test(e)); }
+
+function detailsForRow(node, row) {
+  breadcrumb([
+    { label: SECTION_OF[node.kind] },
+    { label: shortLabel(node), target: { node: node.id } },
+    { label: rowName(row) },
+  ]);
+  details.title.textContent = row.text;
+  details.sub.textContent = row.kind;
+  const out = [];
+  const fields = [];
+  if (row.method) {
+    fields.push(fieldRow({
+      icon: "route", label: "Route",
+      value: row.method + " " + (row.route || ""), copy: true,
+    }));
+  }
+  const src = sourceRow(row.source);
+  if (src) fields.push(src);
+  if (fields.length) out.push(card(fields));
+  if (row.inputs && row.inputs.length) {
+    out.push(heading("Inputs", row.inputs.length), card(paramItems(row.inputs)));
+  }
+  if (row.outputs && row.outputs.length) {
+    out.push(heading("Outputs", row.outputs.length), card(paramItems(row.outputs)));
+  }
+  if (row.dispatches && row.dispatches.length) {
+    out.push(heading("Dispatches", row.dispatches.length));
+    out.push(card(row.dispatches.map(ev => link(ev, "event:" + ev))));
+  }
+  if (row.handles) {
+    out.push(heading("Subscribes to"),
+      card([link(row.handles, "event:" + row.handles)]));
+  }
+  return out;
+}
+
+function detailsForStructure(node) {
+  breadcrumb([{ label: SECTION_OF[node.kind] }, { label: shortLabel(node) }]);
+  details.title.textContent = node.name;
+  details.sub.textContent = node.kind === "app" ? "app-level actions" : node.kind;
+  const out = [];
+  const fields = [];
+  if (node.kind === "page") {
+    fields.push(fieldRow({
+      icon: "route", label: "Route", value: node.sub || "/", copy: true,
+    }));
+    if (node.badge) {
+      fields.push(fieldRow({
+        icon: "role", label: "Role", value: node.badge + " page",
+      }));
+    }
+  }
+  pushNotes(fields, node.notes);
+  const src = sourceRow(node.source);
+  if (src) fields.push(src);
+  if (fields.length) out.push(card(fields));
+
+  const embeds = edgesOf("embed", e => e.to === node.id);
+  if (embeds.length) {
+    out.push(heading("Embeds", embeds.length));
+    out.push(card(embeds.map(e => link(nodeByID.get(e.from).name, e.from))));
+  }
+  const embedded = edgesOf("embed", e => e.from === node.id);
+  if (embedded.length) {
+    out.push(heading("Embedded by", embedded.length));
+    out.push(card(embedded.map(e => link(nodeByID.get(e.to).name, e.to))));
+  }
+  if ((node.rows || []).length) {
+    out.push(heading("Handlers", node.rows.length));
+    out.push(card(node.rows.map(r => link(rowName(r), node.id, r.port))));
+  }
+  return out;
+}
+
+function detailsForEvent(node) {
+  breadcrumb([{ label: SECTION_OF[node.kind] }, { label: shortLabel(node) }]);
+  details.title.textContent = node.name;
+  details.sub.textContent = "event";
+  const fields = [fieldRow({
+    icon: "subject", label: "Subject", value: node.sub, copy: true,
+  })];
+  pushNotes(fields, node.notes);
+  const src = sourceRow(node.source);
+  if (src) fields.push(src);
+  const out = [card(fields)];
+  if ((node.fields || []).length) {
+    out.push(heading("Payload", node.fields.length), card(fieldItems(node.fields)));
+  }
+  const from = edgesOf("dispatch", e => e.to === node.id);
+  if (from.length) {
+    out.push(heading("Dispatched by", from.length));
+    out.push(card(from.map(e => {
+      const n = nodeByID.get(e.from);
+      const r = rowOf(n, e.fromPort);
+      return link(r ? rowLabel(n, r) : n.name, e.from, e.fromPort);
+    })));
+  }
+  const to = edgesOf("subscribe", e => e.from === node.id);
+  if (to.length) {
+    out.push(heading("Subscribed by", to.length));
+    out.push(card(to.map(e => {
+      const n = nodeByID.get(e.to);
+      const r = rowOf(n, e.toPort);
+      return link(r ? rowLabel(n, r) : n.name, e.to, e.toPort);
+    })));
+  }
+  return out;
+}
+
+function renderDetails(id, port) {
+  details.body.replaceChildren();
+  if (!id) {
+    details.crumbs.replaceChildren();
+    details.title.textContent = "Nothing selected";
+    details.sub.textContent = "";
+    details.body.append(el("div", "empty", "Pick a page, a handler or an event."));
+    return;
+  }
+  const node = nodeByID.get(id);
+  const row = port ? rowOf(node, port) : null;
+  const parts = row ? detailsForRow(node, row)
+    : node.kind === "event" ? detailsForEvent(node)
+    : detailsForStructure(node);
+  details.body.append(...parts);
+}
+
+/* Selection --------------------------------------------------------------- */
+
+// One thing is selected. What it connects to is related. The rest fades.
+let selection = null;
+
+function relatedEdges(id, port) {
+  return DATA.edges.filter(e => port
+    ? (e.from === id && e.fromPort === port) || (e.to === id && e.toPort === port)
+    : e.from === id || e.to === id);
+}
+
+function clearSelection() {
+  selection = null;
+  renderDetails(null);
+  pane.classList.remove("has-selection");
+  tree.classList.remove("has-selection");
+  for (const el of pane.querySelectorAll(".is-selected, .is-related")) {
+    el.classList.remove("is-selected", "is-related");
+  }
+  for (const e of entries) e.label.classList.remove("is-selected", "is-related");
+}
+
+// entry is the tree row that was clicked, if the click came from the tree.
+// Only that one row is selected; its twins elsewhere in the tree are related.
+function select(id, port, entry) {
+  const node = nodeByID.get(id);
+  if (!node) return;
+  clearSelection();
+  selection = { id, port };
+
+  renderDetails(id, port);
+
+  const edges = relatedEdges(id, port);
+  const related = new Set([key(id, port)]);
+  for (const e of edges) {
+    related.add(key(e.from, "")).add(key(e.from, e.fromPort));
+    related.add(key(e.to, "")).add(key(e.to, e.toPort));
+  }
+
+  for (const e of edges) {
+    for (const el of [document.getElementById(e.dom), nodeEl(e.from), nodeEl(e.to)]) {
+      if (el) el.classList.add("is-related");
+    }
+    const endpoint = e.from === id && e.fromPort === port ? [e.to, e.toPort] : [e.from, e.fromPort];
+    const row = (nodeByID.get(endpoint[0])?.rows || []).find(r => r.port === endpoint[1]);
+    const rel = row && rowEl(row.dom);
+    if (rel) rel.classList.add("is-related");
+  }
+
+  const target = nodeEl(id);
+  if (target) target.classList.add("is-related");
+  let focusEl = target;
+  if (port) {
+    const row = (node.rows || []).find(r => r.port === port);
+    const el = row && rowEl(row.dom);
+    if (el) { el.classList.add("is-selected"); focusEl = el; }
+  } else if (target) {
+    target.classList.add("is-selected");
+  }
+  pane.classList.add("has-selection");
+  tree.classList.add("has-selection");
+
+  for (const e of entries) {
+    if (!e.target) continue;
+    if (e === entry) { e.label.classList.add("is-selected"); continue; }
+    if (related.has(key(e.target.node, e.target.port))) e.label.classList.add("is-related");
+  }
+  // A selection made in the graph has no tree row to keep still, so its row
+  // is opened and scrolled to. One made in the tree leaves the tree alone.
+  if (!entry) {
+    const match = entries.find(e => e.target && key(e.target.node, e.target.port) === key(id, port));
+    if (match) {
+      match.label.classList.remove("is-related");
+      match.label.classList.add("is-selected");
+      for (let p = match.parent; p; p = p.parent) p.el.setAttribute("expanded", "");
+      match.el.scrollIntoView({ block: "nearest" });
+    }
+  }
+  if (focusEl) {
+    focusEl.scrollIntoView({
+      block: "center", inline: "center",
+      behavior: motionReduced() ? "auto" : "smooth",
+    });
+  }
+}
+
+pane.addEventListener("click", ev => {
+  const link = ev.target.closest("a");
+  if (link) ev.preventDefault();
+  const nodeGroup = ev.target.closest("g.node");
+  if (!nodeGroup) {
+    // Empty canvas clears, the same as the toolbar button. An edge is thin
+    // enough to hit by accident, so it does nothing; a pan is not a click.
+    if (!dragged && !ev.target.closest("g.edge")) clearSelection();
+    return;
+  }
+  const node = DATA.nodes.find(n => n.dom === nodeGroup.id);
+  if (!node) return;
+  const rowGroup = ev.target.closest("g.row");
+  const row = rowGroup && (node.rows || []).find(
+    r => rowGroup.id === "a_" + r.dom || rowGroup.id === r.dom);
+  select(node.id, row ? row.port : undefined, null);
+});
+
+
+// A sidebar can also be closed by its own dismiss gesture, so both the
+// toggle's icon and the box holding the details panel read the sidebar state
+// rather than counting clicks.
+for (const [button, id, flag] of [
+  ["toggle-nav", "nav", "nav"],
+  ["toggle-details", "details", "details"],
+]) {
+  const sidebar = document.getElementById(id);
+  document.getElementById(button).addEventListener("click", () => sidebar.toggle());
+  const reflect = () => {
+    document.body.dataset[flag] = sidebar.hasAttribute("open") ? "open" : "closed";
+  };
+  for (const type of ["neo-sidebar-open", "neo-sidebar-close"]) {
+    sidebar.addEventListener(type, reflect);
+  }
+  reflect();
+}
+document.addEventListener("keydown", ev => {
+  if (ev.key === "Escape") clearSelection();
+});
+
+renderDetails(null);
+
+/* Theme ------------------------------------------------------------------- */
+
+// Both settings are three-way, and "auto" is the absent state: no class and
+// no attribute, which is how the kit follows the system.
+function setting(id, key, apply) {
+  const group = document.getElementById(id);
+  let stored = "auto";
+  try {
+    stored = localStorage.getItem(key) || "auto";
+  } catch (e) { /* Storage can be refused; the choice then lasts the session. */ }
+  apply(stored);
+  group.setAttribute("value", stored);
+  group.addEventListener("neo-buttongroup-change", () => {
+    const value = group.value || "auto";
+    apply(value);
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) { /* ignored */ }
+  });
+}
+
+setting("theme", "datapages-theme", theme => {
+  document.documentElement.classList.toggle("light", theme === "light");
+  document.documentElement.classList.toggle("dark", theme === "dark");
+});
+
+// Reduced motion zeroes --neo-duration-scale, which every transition on this
+// page is written in terms of; "full" overrides a system preference for it.
+setting("motion", "datapages-motion", motion => {
+  const root = document.documentElement;
+  root.toggleAttribute("data-pref-reduced-motion", motion === "reduced");
+  if (motion === "full") root.setAttribute("data-pref-motion", "full");
+  else root.removeAttribute("data-pref-motion");
+});
+
+function motionReduced() {
+  const root = document.documentElement;
+  if (root.hasAttribute("data-pref-reduced-motion")) return true;
+  if (root.getAttribute("data-pref-motion") === "full") return false;
+  return matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/* Zoom -------------------------------------------------------------------- */
+
+// The CSS zoom property, not a transform: it resizes the layout box, so the
+// scrollbars, the hit testing and scrollIntoView all keep working on the
+// zoomed drawing. Trackpad pinch arrives as a wheel event with ctrlKey set,
+// which is how the platform reports it; ctrl/cmd +- stays the browser's own
+// page zoom.
+const PAD = 32 * 2; // #canvas padding, both sides.
+const natural = { w: svg.getBoundingClientRect().width, h: svg.getBoundingClientRect().height };
+let zoom = 1;
+
+function setZoom(next) {
+  zoom = Math.min(8, Math.max(0.1, next));
+  svg.style.zoom = zoom;
+  document.getElementById("zoom-reset").textContent = Math.round(zoom * 100) + "%";
+}
+
+// Keeps the point under (cx, cy) where it is while the scale changes.
+function zoomAt(cx, cy, factor) {
+  const box = pane.getBoundingClientRect();
+  const x = pane.scrollLeft + (cx - box.left);
+  const y = pane.scrollTop + (cy - box.top);
+  const before = zoom;
+  setZoom(zoom * factor);
+  const k = zoom / before;
+  pane.scrollLeft = x * k - (cx - box.left);
+  pane.scrollTop = y * k - (cy - box.top);
+}
+
+function zoomCenter(factor) {
+  const box = pane.getBoundingClientRect();
+  zoomAt(box.left + box.width / 2, box.top + box.height / 2, factor);
+}
+
+function fit() {
+  setZoom(Math.min(
+    1,
+    (pane.clientWidth - PAD) / natural.w,
+    (pane.clientHeight - PAD) / natural.h,
+  ));
+  pane.scrollTo({ left: 0, top: 0 });
+}
+
+document.getElementById("zoom-in").addEventListener("click", () => zoomCenter(1.25));
+document.getElementById("zoom-out").addEventListener("click", () => zoomCenter(1 / 1.25));
+document.getElementById("zoom-reset").addEventListener("click", () => setZoom(1));
+document.getElementById("fit").addEventListener("click", fit);
+
+pane.addEventListener("wheel", ev => {
+  if (!ev.ctrlKey && !ev.metaKey) return; // Plain scrolling pans.
+  ev.preventDefault();
+  zoomAt(ev.clientX, ev.clientY, Math.exp(-ev.deltaY / 180));
+}, { passive: false });
+
+// A drawing wider than the pane opens fitted, a small one at its own size.
+fit();
+
+/* Pan --------------------------------------------------------------------- */
+
+// Two-finger scrolling pans, and so does dragging the background.
+let panning = null;
+// A pan ends in a click on the canvas, which must not be read as one.
+let dragged = false;
+pane.addEventListener("pointerdown", ev => {
+  if (ev.button !== 0 || ev.target.closest("g.node")) return;
+  ev.preventDefault();
+  dragged = false;
+  panning = { x: ev.clientX, y: ev.clientY, left: pane.scrollLeft, top: pane.scrollTop };
+  pane.setPointerCapture(ev.pointerId);
+});
+pane.addEventListener("pointermove", ev => {
+  if (!panning) return;
+  const dx = ev.clientX - panning.x;
+  const dy = ev.clientY - panning.y;
+  if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragged = true;
+  pane.scrollLeft = panning.left - dx;
+  pane.scrollTop = panning.top - dy;
+});
+for (const type of ["pointerup", "pointercancel"]) {
+  pane.addEventListener(type, () => { panning = null; });
+}
+
+/* Filter ------------------------------------------------------------------ */
+
+// A match brings along what it sits under and everything under it, so a
+// matched page keeps its handlers and a matched event keeps its dispatchers.
+document.getElementById("filter").addEventListener("input", ev => {
+  const q = (ev.target.value || "").trim().toLowerCase();
+  const hit = new Set(q ? entries.filter(e => e.text.includes(q)) : []);
+  const shown = new Set();
+  for (const e of hit) {
+    for (let x = e; x; x = x.parent) shown.add(x);
+  }
+  for (const e of entries) {
+    for (let x = e.parent; x; x = x.parent) {
+      if (hit.has(x)) { shown.add(e); break; }
+    }
+  }
+  for (const e of entries) {
+    e.el.hidden = q !== "" && !shown.has(e);
+    if (q && shown.has(e)) e.el.setAttribute("expanded", "");
+  }
+  // An empty tree says nothing about why it is empty.
+  const empty = document.getElementById("tree-empty");
+  empty.hidden = q === "" || shown.size > 0;
+  empty.textContent = "Nothing matches " + JSON.stringify(q) + ".";
+});
+</script>
+</body>
+</html>

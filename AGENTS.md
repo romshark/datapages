@@ -39,6 +39,10 @@ Internal, used by the CLI and build tooling:
   generated code and tests asserting behaviour over HTTP.
   `internal/acceptance/README.md` explains how they run and how to record a
   defect the framework has not fixed yet.
+- `internal/graph/` - renders the parsed model as a Graphviz DOT graph and as
+  the self-contained HTML page built around the SVG Graphviz lays out from it
+  (`page.html.tmpl`). `morpheus/` and `icons/` hold the vendored Morpheus release
+  and the Lucide icons the page inlines, see the READMEs next to them.
 - `internal/gotypes/` - go/types predicates and renderings that know nothing
   about Datapages. Shared by the parser and the generator.
 - `internal/routepattern/` - net/http ServeMux route pattern parsing.

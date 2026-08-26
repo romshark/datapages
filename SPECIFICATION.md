@@ -1118,6 +1118,110 @@ It suppresses all attribute-level lint errors (hardcoded href, unverifiable href
 form action, action/href context mismatch) — it does **not** suppress
 cross-page action ownership errors.
 
+## Visualization
+
+`datapages visualize` renders the application model as a graph: one node per page,
+per abstract page and per event, plus one for the app-level actions. Handler rows
+carry the edges.
+
+```sh
+datapages visualize                  # DOT source on stdout
+datapages visualize -o app.html      # page with a tree view next to the graph
+datapages visualize -o app.svg       # SVG, format taken from the extension
+datapages visualize --format svg     # SVG on stdout
+datapages visualize | dot -Tpng -o app.png
+```
+
+The HTML page holds the graph as inline SVG between two sidebars, built from
+[Morpheus](https://github.com/romshark/morpheus) web components: a tree of
+every page, handler and event on the left, and the details of the selected item
+on the right. The tree drops the type-name prefix its own section already says,
+so PageMessages reads as Messages under Pages, and puts the route of a page or
+the subject of an event on a line under the name. An icon button at either end of the toolbar collapses either of them, and the
+details panel is resized by dragging its left edge. The settings button holds
+the theme: automatic, which follows the system, light or dark. The choice is
+remembered per browser, and the drawing follows: Graphviz bakes the colors into
+the SVG, so the page selects on the value baked in and swaps every one of them,
+node fills, header ink, cell backgrounds, borders and the three kinds of edge.
+
+The details panel names the path to what is selected in a breadcrumb, the
+section then the page then the handler, each crumb selecting what it names. It
+reads the model, not the drawing. A handler shows its route
+and every parameter it takes, with the path, query and signals structs expanded
+into their fields and the name each one carries on the wire; then what it
+returns, and the events it dispatches or subscribes to. An event shows its
+subject, copyable and with the route of a handler in the same form, whether it
+is private or public and whether it is signal-scoped, its payload with the
+subject segments marked, and every handler that dispatches or subscribes to it.
+A page shows its route, what it embeds and its handlers. Everything named in
+the panel is a link that selects it, marked with a trailing arrow.
+
+Every page, abstract page, event and handler carries a `Source` field: the file
+and `line:column` where the app package declares it. The value links to the
+file and the copy button hands over the absolute path with the position, which
+is what an editor and a shell take (`code -g`, `vim +12`). The link is a
+`file://` URL, so it opens only in a browser that is allowed to read the disk,
+which is the case for the page opened from disk itself.
+
+One thing is selected at a time: what it connects to is highlighted and
+everything else fades, in the tree and in the graph alike.
+Clicking a node or a handler row in the graph selects it in the tree; a
+selection made in the tree leaves the tree scrolled where it is. In the tree a
+row click only selects: a double click expands and collapses it, so does the
+chevron, and `Expand all` / `Collapse all` do it for the whole tree. The filter box narrows the tree, `Esc`
+clears the selection and dragging pans the graph.
+
+The toolbar zooms the drawing (`-`, `100%`, `+`, `Fit`) and so does a trackpad
+pinch over it, which the platform reports as a ctrl-wheel event. Zoom is the
+CSS `zoom` property rather than a transform, so the drawing keeps a real layout
+box and the scrollbars, the clicking and the scrolling to a selection stay
+exact. The page opens fitted to the pane.
+
+Everything is in the one file, the component kit included: no script, style,
+font or image is loaded from the network, which costs around 550KB per page.
+
+HTML and SVG output shell out to Graphviz and fail with an install hint when
+`dot` is not in `PATH`. DOT output needs no external tool. A shell redirect
+always writes DOT, whatever the file is named: only `-o` and `--format` select
+another format.
+
+One graph shows one application. A module that builds more than one needs
+`--app` to name the app package, as `datapages watch` does.
+
+The layout runs top to bottom: abstract pages on top, pages below them, events
+pinned to the last rank. Every dispatch points down and every subscription up.
+`--rankdir LR` lays the same graph out left to right.
+
+Color names the kind of a thing: pages are blue, abstract pages purple, events
+green, the app-level actions gray, and each of the three kinds of edge has one
+of its own. The drawing carries no legend; the page names the kinds in its
+tree.
+
+What the graph draws:
+
+- Every page with its route, its `GET`, its `StreamOpen` and `StreamClose`, its
+  actions with method and path, and its event handlers. The index page and the
+  two error pages are marked. A page with no stream hook and no event handler
+  is marked as having no SSE stream.
+- Every abstract page with the handlers it declares, and a gray dashed edge to
+  each page embedding it. The parser promotes those handlers onto every
+  embedding page; drawing them per page turns one subscription of an abstract
+  page into one edge per page that embeds it, which is what makes the graph
+  unreadable. A page node therefore holds only what the page type itself
+  declares.
+- Every event with the subject it publishes to, one placeholder per subject
+  field: `{user}` for `datapages.SubjectUser`, `{signal:NAME}` for a
+  signal-scoped field, `{FieldName}` otherwise. Events addressed to a user are
+  marked as requiring a session. A public event carries no such line: the
+  drawing marks what departs from the default, the details panel names both.
+- A dashed edge from a handler to every event its `datapages.Dispatcher`
+  parameters publish, a solid edge from an event to every handler subscribing
+  to it.
+
+What it does not draw: redirect targets and links between pages. A redirect
+target is a runtime value and links live in `.templ` files, neither is part of
+the model.
+
 ## Technical Limitations
 
 - For now, an application that declares a session type cannot use plain HTML forms.

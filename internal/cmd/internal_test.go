@@ -422,3 +422,31 @@ func TestSelectApp(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveGraphFormat(t *testing.T) {
+	for name, tc := range map[string]struct {
+		format, output string
+		want           string
+		wantErr        string
+	}{
+		"default is dot":       {want: "dot"},
+		"explicit dot":         {format: "dot", want: "dot"},
+		"explicit svg":         {format: "svg", want: "svg"},
+		"from svg extension":   {output: "graph.svg", want: "svg"},
+		"from SVG extension":   {output: "GRAPH.SVG", want: "svg"},
+		"from dot extension":   {output: "graph.dot", want: "dot"},
+		"unknown extension":    {output: "graph.txt", want: "dot"},
+		"flag beats extension": {format: "dot", output: "graph.svg", want: "dot"},
+		"unsupported format":   {format: "png", wantErr: `unsupported format "png"`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := resolveGraphFormat(tc.format, tc.output)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}

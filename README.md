@@ -71,6 +71,7 @@ datapages init
 | `datapages gen`     | Parse the app model and generate the datapages package.      |
 | `datapages watch`   | Start the live-reloading development server.                 |
 | `datapages lint`    | Validate the app model without generating code.              |
+| `datapages visualize` | Render the app model as an interactive HTML graph, SVG or DOT. |
 | `datapages version` | Print CLI version information.                               |
 
 ## Configuration
