@@ -45,3 +45,9 @@ func PageBoom() string { return "/boom/" }
 
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
+
+// PagePanic references /panic-page/{$}
+func PagePanic() string { return "/panic-page/" }
+
+// PageRenderPanic references /render-panic/{$}
+func PageRenderPanic() string { return "/render-panic/" }

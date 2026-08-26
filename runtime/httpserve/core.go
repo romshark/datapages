@@ -1,6 +1,7 @@
 package httpserve
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -215,6 +216,48 @@ func (c *Core) BodySizeLimit() int64 { return c.bodySizeLimit }
 // TLSEnabled reports whether the server listens for HTTPS connections.
 func (c *Core) TLSEnabled() bool { return c.enabledTLS }
 
+// tracked records whether any of the response body went out. A body cannot be
+// taken back: an error page appended to a half-written page is two documents.
+//
+// The status alone does not count. A handler that wrote one and nothing else
+// still has a body to write, which is what the error path writes into.
+type tracked struct {
+	http.ResponseWriter
+	wroteBody bool
+}
+
+func (t *tracked) Write(b []byte) (int, error) {
+	t.wroteBody = true
+	return t.ResponseWriter.Write(b)
+}
+
+func (t *tracked) Flush() {
+	if f, ok := t.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (t *tracked) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := t.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, errors.New("http.Hijacker not supported")
+}
+
+func (t *tracked) Push(target string, opts *http.PushOptions) error {
+	if p, ok := t.ResponseWriter.(http.Pusher); ok {
+		return p.Push(target, opts)
+	}
+	return http.ErrNotSupported
+}
+
+// ResponseBodyWritten reports whether any of the response body was written.
+// A handler that failed past this point can be logged and nothing more.
+func ResponseBodyWritten(w http.ResponseWriter) bool {
+	t, ok := w.(*tracked)
+	return ok && t.wroteBody
+}
+
 func (c *Core) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Normalize trailing slashes: ensure all paths end with /
 	// except for static file paths.
@@ -227,7 +270,7 @@ func (c *Core) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	c.handler.ServeHTTP(w, r)
+	c.handler.ServeHTTP(&tracked{ResponseWriter: w}, r)
 }
 
 // WildcardPathValue reads the value of a {name...} route wildcard.

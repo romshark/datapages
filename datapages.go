@@ -3,6 +3,7 @@ package datapages
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -259,6 +260,26 @@ type Redirect struct {
 	// because they can't follow an HTTP redirect.
 	// Those navigate client-side by assigning window.location instead.
 	Status int
+}
+
+// PanicError is the error a recovered panic is reported as.
+// A handler that panics reaches RecoverError and the error page through it,
+// the way a handler that returns an error does.
+type PanicError struct {
+	// Value is what the panic carried.
+	Value any
+
+	// Stack is where the panic was taken.
+	// It's logged no matter what the application does with the error.
+	Stack []byte
+}
+
+func (e PanicError) Error() string { return fmt.Sprintf("panic: %v", e.Value) }
+
+// Unwrap returns the panic value when it is an error.
+func (e PanicError) Unwrap() error {
+	err, _ := e.Value.(error)
+	return err
 }
 
 // SSE is the server-sent-event handle passed to action (POST/PUT/PATCH/DELETE)

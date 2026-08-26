@@ -7,7 +7,9 @@
 package app
 
 import (
+	"context"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/a-h/templ"
@@ -23,7 +25,10 @@ func (a *App) RecoverError(
 	sse datapages.SSE,
 ) error {
 	kind := "unknown"
+	var panicErr datapages.PanicError
 	switch {
+	case errors.As(err, &panicErr):
+		kind = "panic"
 	case errors.Is(err, datapages.ErrBadRequest):
 		kind = "bad request"
 	case errors.Is(err, datapages.ErrNotFound):
@@ -72,6 +77,27 @@ func (PageIndex) POSTPlain(_ *http.Request) error {
 // POSTUnrecoverable is /unrecoverable
 func (PageIndex) POSTUnrecoverable(_ *http.Request) error {
 	return errUnrecoverable
+}
+
+// POSTPanic is /panic
+func (PageIndex) POSTPanic(_ *http.Request) error {
+	panic("the action panicked")
+}
+
+// PagePanic is /panic-page
+type PagePanic struct{ App *App }
+
+func (PagePanic) GET(_ *http.Request) (body datapages.Component, err error) {
+	panic("the page panicked")
+}
+
+// PageRenderPanic is /render-panic
+type PageRenderPanic struct{ App *App }
+
+func (PageRenderPanic) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.ComponentFunc(func(context.Context, io.Writer) error {
+		panic("the component panicked")
+	}), nil
 }
 
 // PageBoom is /boom

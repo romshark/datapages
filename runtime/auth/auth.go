@@ -215,8 +215,21 @@ func (m *Manager[Data]) ReadSession(w http.ResponseWriter, r *http.Request) (
 	return sess, token, true
 }
 
-// CheckCSRF answers r and returns false when the request carries no valid
-// CSRF token. A read method, a guest and disabled protection all pass.
+// CheckCSRFOnly is [Manager.CheckCSRF] against the session cookie,
+// without reading the store. A handler that takes no session runs it.
+//
+// The cookie of a closed or expired session passes:
+// only the store read of [Manager.ReadSession] tells that apart.
+func (m *Manager[Data]) CheckCSRFOnly(w http.ResponseWriter, r *http.Request) bool {
+	cookieVal, found := httpread.CookieValue(r, m.conf.Cookie.Name)
+	if !found {
+		return true
+	}
+	return m.CheckCSRF(w, r, cookieVal)
+}
+
+// CheckCSRF answers r and returns false when the request carries no valid CSRF token.
+// A read method, a guest and disabled protection all pass.
 func (m *Manager[Data]) CheckCSRF(
 	w http.ResponseWriter, r *http.Request, sessionToken string,
 ) (ok bool) {

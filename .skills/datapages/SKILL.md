@@ -699,6 +699,11 @@ Both parameters are matched by their type, the names and order are free.
 
 When a handler returns an error during a Datastar SSE request, a plain HTTP error is invisible to the user - there is no visible feedback, only a console log that normal users never see. `RecoverError` lets you handle this gracefully by patching in an error UI (e.g. a toast notification) over SSE instead. All action handler errors (including the datapages sentinels) are routed through `RecoverError` when defined. Use `errors.Is(err, datapages.ErrBadRequest)` etc. inside `RecoverError` to distinguish error types.
 
+A panic in a handler reaches `RecoverError` as a `datapages.PanicError`
+carrying the value and the stack. Read it with
+`errors.As(err, &datapages.PanicError{})`. The stack is logged whatever the hook does,
+and the request ends there: a panic is a bug to fix, not a control flow to build on.
+
 ```go
 func (*App) RecoverError(
 	err error,

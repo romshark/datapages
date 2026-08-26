@@ -5,7 +5,9 @@ package datapagesgen
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 
 	"github.com/romshark/datapages"
@@ -49,6 +51,24 @@ func (s *Server) writeHTML(
 	})
 }
 
+// recoverPanic turns a panicking handler into an error and hands it to the error path.
+func (s *Server) recoverPanic(
+	w http.ResponseWriter, r *http.Request,
+	sse *datastar.ServerSentEventGenerator, handler string,
+) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -59,7 +79,9 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](app, broker, opts...)
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//		app, broker, opts...,
+//	)
 //
 // Supported options:
 //
@@ -140,6 +162,10 @@ func (s *Server) httpErrIntern(
 	_ *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		// A status written now only appends its text to the body.
+		return
+	}
 	const code = http.StatusInternalServerError
 	http.Error(w, http.StatusText(code), code)
 }
@@ -153,6 +179,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageIndex{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -189,6 +216,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageItem{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageItem.GET")
 	body, err := p.GET(r, path)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageItem.GET", err)
@@ -253,6 +281,7 @@ func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageMix{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageMix.GET")
 	body, err := p.GET(r, path, query)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageMix.GET", err)

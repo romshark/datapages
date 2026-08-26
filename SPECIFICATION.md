@@ -26,11 +26,19 @@ func (*App) Head(
 Both parameters are recognized by their type, so their names and order
 are up to the application.
 
-The `RecoverError` method allows you to recover from handler errors to improve UX by
-giving better feedback over SSE. All action handler errors (including the datapages sentinels)
-are routed through `RecoverError` when it is defined and the request is
-a Datastar request. If `RecoverError` returns an error, the server falls back to
-an HTTP error response using the appropriate status code.
+`RecoverError` is called when a handler fails during a Datastar request,
+if the application defines it. It receives the error, including the datapages sentinels,
+and writes feedback over SSE. If it returns an error,
+the server sends the HTTP error response for the original error instead.
+
+A panic in a `GET`, an action or an `OnXXX` handler is recovered and passed to
+`RecoverError` as a `datapages.PanicError`, which holds the panic value and the stack.
+The stack is always logged.
+
+A response that has started cannot be replaced. A panic while the page is
+being written, in a component for example, is logged, and the visitor receives
+the truncated page with the status it already carries. A stream that panics is closed.
+`StreamClose` runs on its own goroutine and is recovered there.
 
 ```go
 func (*App) RecoverError(
@@ -474,6 +482,11 @@ and is the source of truth. It is also rendered on
 
 A client whose `ExpiresAt()` has passed is treated as unauthenticated and its
 session cookie is removed, the zero value never expires.
+
+An action that declares no session is CSRF-checked against the session cookie
+alone. The session store is not read for it, hence the cookie of a session that
+was closed or expired passes that check. An action that declares a session is
+checked after the store read, which rejects it.
 
 Expiry that way reclaims only the sessions a client comes back to: the read is
 what notices one and drops it. An abandoned session is never read again.

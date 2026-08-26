@@ -43,6 +43,7 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	if w.usage.stream {
 		w.writeAppHandleStreamRequest()
 	}
+	w.writeRecoverPanic()
 	w.writeAppServerStruct(appPkg)
 	w.writeAppInit(appPkg)
 	w.writeEventSubjectConsts(m.Events)
@@ -337,7 +338,9 @@ func (w *Writer) writeAppInit(appPkg string) {
 	} else {
 		w.Raw(`datapages.DisablePrometheus`)
 	}
-	w.Raw(`, Server](app, broker, opts...)
+	w.Raw(`, Server](
+//		app, broker, opts...,
+//	)
 //
 // Supported options:
 //
@@ -1005,6 +1008,11 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 }
 
 func (w *Writer) writeHTTPErrFallback() {
+	w.Raw(`	if httpserve.ResponseBodyWritten(w) {
+		// A status written now only appends its text to the body.
+		return
+	}
+`)
 	if !w.usage.errSentinels {
 		w.Raw(`	const code = http.StatusInternalServerError
 	http.Error(w, http.StatusText(code), code)
@@ -1033,12 +1041,11 @@ func needsCSRFOnly(h *model.Handler, m *model.App) bool {
 	return true
 }
 
-// writeCSRFOnlyCheck emits the session lookup a handler runs for its CSRF token.
-// The session itself is not passed on; the handler did not ask for it.
+// writeCSRFOnlyCheck emits the CSRF check a handler runs when it takes no
+// session. It reads the cookie alone, which the session store never sees.
 func (w *Writer) writeCSRFOnlyCheck() {
-	w.Line(1, "// CSRF protection covers every state-changing action, including")
-	w.Line(1, "// the ones that read nothing of the session.")
-	w.Line(1, "if _, _, ok := s.ReadSession(w, r); !ok {")
+	w.Line(1, "// The CSRF token comes from the cookie, hence no store read here.")
+	w.Line(1, "if !s.CheckCSRFOnly(w, r) {")
 	w.Line(2, "return")
 	w.Line(1, "}")
 }
@@ -1084,9 +1091,11 @@ func (s *Server) httpErrIntern(
 `)
 	if hasPage {
 		w.Raw(`	if !httpserve.IsDatastarRequest(r) {
-		// A page load gets the app's own 500 page, with the status that
-		// says what happened. The page's own route serves 200;
-		// this is the other way in.
+		if httpserve.ResponseBodyWritten(w) {
+			// An error page after a half-written one sends two documents.
+			return
+		}
+		// The page serves 200 on its own route. Reached from here it carries 500.
 		w.WriteHeader(http.StatusInternalServerError)
 		s.handlePageError500GET(w, r)
 		return
@@ -1094,8 +1103,7 @@ func (s *Server) httpErrIntern(
 `)
 	}
 	if hasRecover {
-		w.Raw(`	// The response of a Datastar request is an event stream. Once one is
-	// open the status line is gone, which is what committed reports.
+		w.Raw(`	// committed reports that the stream is open, hence no status is left to send.
 	committed := sse != nil
 	if sse == nil {
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
@@ -1134,8 +1142,7 @@ func (s *Server) httpErrIntern(
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
 	if committed {
-		// http.Error would write a status the client already received,
-		// and append its text to the event stream the client is reading.
+		// A status written now only appends its text to the stream.
 		return
 	}
 `)
@@ -1145,14 +1152,36 @@ func (s *Server) httpErrIntern(
 `)
 }
 
+// writeRecoverPanic writes the deferred helper every handler registers.
+// A panic reaches the same path an error takes, which is what RecoverError and
+// the error page answer. The stack is logged whatever they do with it.
+func (w *Writer) writeRecoverPanic() {
+	w.Raw(`
+// recoverPanic turns a panicking handler into an error and hands it to the error path.
+func (s *Server) recoverPanic(
+	w http.ResponseWriter, r *http.Request,
+	sse *datastar.ServerSentEventGenerator, handler string,
+) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+`)
+}
+
 func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	p := m.PageError404
 
 	w.Line(0, "")
 	w.Line(0, "func (s *Server) render404(w http.ResponseWriter, r *http.Request) {")
-	w.Line(1, "// The URL is claimed by no page. Whatever the app renders for it,")
-	w.Line(1, "// the response says so: a cache that stores it and a crawler that")
-	w.Line(1, "// reads it both go by the status.")
 	w.Line(1, "w.WriteHeader(http.StatusNotFound)")
 
 	h404 := p.GET.Handler
@@ -1287,6 +1316,10 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	if h.InputSSE != nil && !isAppLevel {
 		w.Line(0, "")
 		w.Line(1, "sse := datastar.NewSSE(w, r, datastar.WithCompression())")
+	}
+
+	if isAppLevel {
+		w.writeDeferRecover(false, "App."+h.Name)
 	}
 
 	// Page constructor (for page actions).
@@ -1628,6 +1661,8 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false, "dispatch")
+
+	w.writeDeferRecover(false, p.TypeName+".GET")
 
 	w.Byte('\t')
 	w.writeCommaSep(outs)

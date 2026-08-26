@@ -38,6 +38,10 @@ type Reader[Data any] interface {
 	// or the session no longer exists; the caller should remove the cookie.
 	// Returns (ok=false,err!=nil) on transient backend failures,
 	// in which case the caller should keep the cookie and fail the request.
+	//
+	// The token returned must be cookieValue itself.
+	// The CSRF token is derived from it, and an action that takes
+	// no session is checked against the cookie without reading the store.
 	ReadSessionFromCookie(cookieValue string) (
 		rec Record[Data], token string, ok bool, err error,
 	)

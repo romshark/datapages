@@ -80,6 +80,10 @@ func NewHandler(
 //
 // sessionKey names the session the stream belongs to.
 // It is watched only when userID is non-empty and the handler was given a session store.
+//
+// A panic in onClose is recovered here, since it runs on a goroutine of its
+// own where nothing else would. A panic in fn is the caller's,
+// and generated code defers a recover of its own there.
 func (h *Handler) Handle(
 	w http.ResponseWriter, r *http.Request,
 	sessionKey, userID string,

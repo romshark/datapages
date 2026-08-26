@@ -344,6 +344,8 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false, "dispatch")
 
+	w.writeDeferRecover(false, p.TypeName+".GET")
+
 	w.Byte('\t')
 	w.writeCommaSep(outs)
 	w.Raw(" := ")
@@ -783,6 +785,17 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 	}
 }
 
+// writeDeferRecover registers the deferred recover of one handler. hasSSE
+// selects the open stream, which is what a recovered panic patches into when
+// the application renders one.
+func (w *Writer) writeDeferRecover(hasSSE bool, handler string) {
+	sse := "nil"
+	if hasSSE {
+		sse = "sse"
+	}
+	w.Linef(1, "defer s.recoverPanic(w, r, %s, %q)", sse, handler)
+}
+
 // writeFieldToString emits an expression that renders a struct field as the
 // text it travels as in a URL or a signal.
 //
@@ -976,6 +989,12 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,")
 	w.Line(1, ") {")
+	if len(p.EventHandlers) > 0 {
+		// A panic here would reach net/http through the stream. Recovering it
+		// ends this stream, which the client reopens, and leaves the rest
+		// running.
+		w.Linef(2, "defer s.recoverPanic(w, r, sse, %q)", p.TypeName+" stream")
+	}
 	if len(p.EventHandlers) == 0 {
 		w.Line(2, "for range ch {")
 		w.Line(2, "}")
@@ -1362,6 +1381,8 @@ func (w *Writer) writePageActionHandler(
 		w.Line(0, "")
 		w.Line(1, "sse := datastar.NewSSE(w, r, datastar.WithCompression())")
 	}
+
+	w.writeDeferRecover(h.InputSSE != nil, p.TypeName+"."+h.Name)
 
 	// Page constructor.
 	w.Raw("\tp := ")
