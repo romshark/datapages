@@ -371,13 +371,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 	w.writeSessionOutputs(h)
 
 	// Redirect.
-	if h.OutputRedirect != nil {
-		w.Raw("\tif httpserve.Redirect(w, r, ")
-		w.Raw(outputVar(h.OutputRedirect))
-		w.Raw(") {\n")
-		w.Line(2, "return")
-		w.Line(1, "}")
-	}
+	w.writeRedirect(h)
 
 	// Generic head.
 	if gh := m.GlobalHeadGenerator; gh != nil {
@@ -1445,13 +1439,7 @@ func (w *Writer) writeActionMethodCall(
 	w.writeSessionOutputs(h)
 
 	// Redirect.
-	if h.OutputRedirect != nil {
-		w.Raw("\tif httpserve.Redirect(w, r, ")
-		w.Raw(outputVar(h.OutputRedirect))
-		w.Raw(") {\n")
-		w.Line(2, "return")
-		w.Line(1, "}")
-	}
+	w.writeRedirect(h)
 
 	// Render body (if action returns templ.Component).
 	if h.OutputBody != nil {

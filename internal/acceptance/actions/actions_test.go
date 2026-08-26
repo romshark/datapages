@@ -246,6 +246,21 @@ func TestRedirect(t *testing.T) {
 		require.Equal(t, `window.location = "/log/";`, string(b))
 	})
 
+	// An action holding the stream of its own request has no response head
+	// left to redirect with, hence the navigation is an event of the stream.
+	t.Run("stream request navigates through the stream", func(t *testing.T) {
+		srv := newServer(t)
+		resp := srv.do(t, http.MethodPost, "/form/go-stream/", "")
+		defer func() { _ = resp.Body.Close() }()
+
+		requireContentType(t, resp, "text/event-stream")
+		b, err := io.ReadAll(resp.Body)
+		require.NoError(t, err, "reading stream")
+		stream := string(b)
+		require.Contains(t, stream, "event: datastar-patch-elements")
+		require.Contains(t, stream, `window.location.href = "/log/"`)
+	})
+
 	// An action that needs neither signals nor an SSE connection is reachable
 	// by a plain form post, and that client can only be moved by a real redirect.
 	// The status the handler asked for is the status it must send.

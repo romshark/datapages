@@ -1743,7 +1743,10 @@ func (s *Server) handlePageSettingsPOSTSave(
 		s.httpErrIntern(w, r, sse, "handling action PageSettings.Save", err)
 		return
 	}
-	if httpserve.Redirect(w, r, redirect) {
+	if redirect.URL != "" {
+		if err := dpsse.New(sse).Redirect(redirect.URL); err != nil {
+			s.httpErrIntern(w, r, sse, "redirecting", err)
+		}
 		return
 	}
 }

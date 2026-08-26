@@ -185,6 +185,9 @@ func setupHandlers(s *Server) {
 		"POST /form/go/{$}",
 		s.handlePageFormPOSTGo)
 	s.Mux().HandleFunc(
+		"POST /form/go-stream/{$}",
+		s.handlePageFormPOSTGoStream)
+	s.Mux().HandleFunc(
 		"POST /form/patch/{$}",
 		s.handlePageFormPOSTPatch)
 	s.Mux().HandleFunc(
@@ -401,6 +404,31 @@ func (s *Server) handlePageFormPOSTGo(
 		return
 	}
 	if httpserve.Redirect(w, r, redirect) {
+		return
+	}
+}
+
+func (s *Server) handlePageFormPOSTGoStream(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageForm.GoStream")
+	p := app.PageForm{
+		App: s.app,
+	}
+	redirect, err := p.POSTGoStream(r, dpsse.New(sse))
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageForm.GoStream", err)
+		return
+	}
+	if redirect.URL != "" {
+		if err := dpsse.New(sse).Redirect(redirect.URL); err != nil {
+			s.httpErrIntern(w, r, sse, "redirecting", err)
+		}
 		return
 	}
 }

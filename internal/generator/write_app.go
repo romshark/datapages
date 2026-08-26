@@ -1152,6 +1152,29 @@ func (s *Server) httpErrIntern(
 `)
 }
 
+// writeRedirect emits the redirect of a handler. A handler holding an open
+// stream navigates through it, since the response head is long gone.
+func (w *Writer) writeRedirect(h *model.Handler) {
+	if h.OutputRedirect == nil {
+		return
+	}
+	ref := outputVar(h.OutputRedirect)
+	if h.InputSSE == nil {
+		w.Raw("\tif httpserve.Redirect(w, r, ")
+		w.Raw(ref)
+		w.Raw(") {\n")
+		w.Line(2, "return")
+		w.Line(1, "}")
+		return
+	}
+	w.Linef(1, "if %s.URL != \"\" {", ref)
+	w.Linef(2, "if err := dpsse.New(sse).Redirect(%s.URL); err != nil {", ref)
+	w.Line(3, `s.httpErrIntern(w, r, sse, "redirecting", err)`)
+	w.Line(2, "}")
+	w.Line(2, "return")
+	w.Line(1, "}")
+}
+
 // writeRecoverPanic writes the deferred helper every handler registers.
 // A panic reaches the same path an error takes, which is what RecoverError and
 // the error page answer. The stack is logged whatever they do with it.
@@ -1420,13 +1443,7 @@ func (w *Writer) writeMethodCall(
 	}
 
 	// Redirect.
-	if h.OutputRedirect != nil {
-		w.Raw("\tif httpserve.Redirect(w, r, ")
-		w.Raw(outputVar(h.OutputRedirect))
-		w.Raw(") {\n")
-		w.Line(2, "return")
-		w.Line(1, "}")
-	}
+	w.writeRedirect(h)
 
 	// Render body (if action returns templ.Component).
 	if h.OutputBody != nil {

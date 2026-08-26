@@ -133,6 +133,17 @@ func (p PageForm) POSTGo(_ *http.Request) (
 	return datapages.Redirect{URL: "/log/", Status: http.StatusSeeOther}, nil
 }
 
+// POSTGoStream is /form/go-stream
+//
+// An action that holds the stream of its own request and redirects.
+// The response head is gone by then, hence the navigation travels through the stream.
+func (p PageForm) POSTGoStream(_ *http.Request, sse datapages.SSE) (
+	redirect datapages.Redirect, err error,
+) {
+	p.App.record("go-stream")
+	return datapages.Redirect{URL: "/log/"}, nil
+}
+
 // POSTPatch is /form/patch
 //
 // An action that writes on the SSE connection of the request itself.

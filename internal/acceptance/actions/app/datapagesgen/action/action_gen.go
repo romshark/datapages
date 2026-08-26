@@ -305,6 +305,22 @@ func POSTPageFormGo(options ...option) string {
 	return b.String()
 }
 
+// POSTPageFormGoStream references /form/go-stream/
+func POSTPageFormGoStream(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/form/go-stream/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/form/go-stream/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/form/go-stream/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
 // POSTPageFormPatch references /form/patch/
 func POSTPageFormPatch(options ...option) string {
 	if len(options) == 0 {

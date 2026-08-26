@@ -159,7 +159,8 @@ return HTML, and set or remove sessions.
 **Session mutation and SSE are mutually exclusive in action handlers.**
 When the `sse` parameter is present, the handler opens a long-lived SSE stream —
 HTTP headers (including session cookies) have already been sent, so `newSession`
-and `closeSession` return values cannot be used.
+and `closeSession` return values cannot be used. A `redirect` return value works:
+it navigates through the stream, the way `sse.Redirect` does.
 
 ```go
 // POSTActionName is <path>

@@ -147,6 +147,22 @@ func TestRemoveElementMatchesDatastar(t *testing.T) {
 	require.Equal(t, want, got)
 }
 
+// TestRedirectCarriesNoTag covers a redirect target that would end the script element
+// it travels in. What follows such a target would reach the DOM as markup of its own.
+func TestRedirectCarriesNoTag(t *testing.T) {
+	t.Parallel()
+
+	got := frame(t, func(g *datastar.ServerSentEventGenerator) error {
+		return sse.New(g).Redirect(`/x</script><img src=x onerror=alert(1)>`)
+	})
+
+	require.NotContains(t, got, "</script><img",
+		"the target ended the script element:\n%s", got)
+	require.Contains(t, got, `\u003c/script\u003e`,
+		"the target is not encoded:\n%s", got)
+	require.Contains(t, got, "window.location.href")
+}
+
 func TestPatchSignals(t *testing.T) {
 	t.Parallel()
 

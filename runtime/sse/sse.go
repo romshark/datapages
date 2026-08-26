@@ -121,7 +121,17 @@ func marshalSignals(v any) ([]byte, error) {
 }
 
 func (s wrapper) Redirect(target string) error {
-	return s.g.Redirect(target)
+	// The redirect travels as a <script> element. A "</script>" in the target
+	// would end that element and leave the rest of it in the DOM as markup,
+	// which is why the target goes in JSON-encoded: encoding/json writes
+	// "<" as \u003c, and JavaScript reads it back as "<".
+	enc, err := json.Marshal(target)
+	if err != nil {
+		return fmt.Errorf("encoding redirect target: %w", err)
+	}
+	return s.g.ExecuteScript(
+		"setTimeout(() => window.location.href = " + string(enc) + ")",
+	)
 }
 
 func (s wrapper) Prefetch(urls ...string) error {
