@@ -260,7 +260,10 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.LogErr("unmarshaling EventAnnounced JSON", err)
 						continue
 					}
-					if err := p.OnAnnounced(eventAnnounced, dpsse.New(sse)); err != nil {
+					if err := p.OnAnnounced(
+						eventAnnounced,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnAnnounced", err)
 					}
 				}

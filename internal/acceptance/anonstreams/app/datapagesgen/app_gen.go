@@ -617,7 +617,10 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 						s.LogErr("unmarshaling EventRoomPosted JSON", err)
 						continue
 					}
-					if err := p.OnRoomPosted(eventRoomPosted, dpsse.New(sse)); err != nil {
+					if err := p.OnRoomPosted(
+						eventRoomPosted,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageRooms.OnRoomPosted", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvSubjPrefNoticed):
@@ -626,7 +629,10 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 						s.LogErr("unmarshaling EventNoticed JSON", err)
 						continue
 					}
-					if err := p.OnNoticed(eventNoticed, dpsse.New(sse)); err != nil {
+					if err := p.OnNoticed(
+						eventNoticed,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageRooms.OnNoticed", err)
 					}
 				}
@@ -680,7 +686,10 @@ func (s *Server) handlePageRoomsGETStreamAnon(w http.ResponseWriter, r *http.Req
 						s.LogErr("unmarshaling EventRoomPosted JSON", err)
 						continue
 					}
-					if err := p.OnRoomPosted(eventRoomPosted, dpsse.New(sse)); err != nil {
+					if err := p.OnRoomPosted(
+						eventRoomPosted,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageRooms.OnRoomPosted", err)
 					}
 				}
@@ -881,10 +890,16 @@ func (s *Server) handlePageTabsGETStream(w http.ResponseWriter, r *http.Request)
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnTicked(eventTicked, dpsse.New(sse), datapages.State[app.StateTab]{Values: slot.state}); err != nil {
-						s.LogErr("handling PageTabs.OnTicked", err)
-					}
-					slot.mu.Unlock()
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnTicked(
+							eventTicked,
+							dpsse.New(sse),
+							datapages.State[app.StateTab]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PageTabs.OnTicked", err)
+						}
+					}()
 				case strings.HasPrefix(msg.Subject, EvSubjPrefNoticed):
 					eventNoticed = app.EventNoticed{}
 					if err := json.Unmarshal(msg.Data, &eventNoticed); err != nil {
@@ -896,10 +911,16 @@ func (s *Server) handlePageTabsGETStream(w http.ResponseWriter, r *http.Request)
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnNoticed(eventNoticed, dpsse.New(sse), datapages.State[app.StateTab]{Values: slot.state}); err != nil {
-						s.LogErr("handling PageTabs.OnNoticed", err)
-					}
-					slot.mu.Unlock()
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnNoticed(
+							eventNoticed,
+							dpsse.New(sse),
+							datapages.State[app.StateTab]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PageTabs.OnNoticed", err)
+						}
+					}()
 				}
 			}
 		})
@@ -987,10 +1008,16 @@ func (s *Server) handlePageTabsGETStreamAnon(w http.ResponseWriter, r *http.Requ
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnTicked(eventTicked, dpsse.New(sse), datapages.State[app.StateTab]{Values: slot.state}); err != nil {
-						s.LogErr("handling PageTabs.OnTicked", err)
-					}
-					slot.mu.Unlock()
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnTicked(
+							eventTicked,
+							dpsse.New(sse),
+							datapages.State[app.StateTab]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PageTabs.OnTicked", err)
+						}
+					}()
 				}
 			}
 		})

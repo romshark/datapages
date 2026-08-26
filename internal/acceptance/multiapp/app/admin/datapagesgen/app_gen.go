@@ -256,7 +256,10 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.LogErr("unmarshaling EventReport JSON", err)
 						continue
 					}
-					if err := p.OnReport(eventReport, dpsse.New(sse)); err != nil {
+					if err := p.OnReport(
+						eventReport,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnReport", err)
 					}
 				}

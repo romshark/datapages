@@ -379,6 +379,40 @@ func TestFailedOpenReleasesInstance(t *testing.T) {
 		"a tab opened after a failed open holds no state")
 }
 
+// TestPanicInEventHandlerReleasesInstance covers an OnXXX handler that panics
+// while it holds the slot mutex. The event stream ends, and its close path must
+// acquire that mutex before it can release the state and its capacity slot.
+func TestPanicInEventHandlerReleasesInstance(t *testing.T) {
+	key := sha256.Sum256([]byte("acceptance"))
+	// net/http also recovers this panic, but logs its stack.
+	// Recover at the test boundary to keep an expected panic out of the test output.
+	containPanic := datapages.WithMiddleware(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() { _ = recover() }()
+			next.ServeHTTP(w, r)
+		})
+	})
+	c := client.New(t, mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer), containPanic,
+		datapages.WithStateConfig(datapages.StateConfig{
+			HMACKey:                key[:],
+			MaxConcurrentInstances: 1,
+		})))
+
+	tab := c.OpenTab(t, "/", pathStream)
+	require.Equal(t, http.StatusOK,
+		tab.Act(t, http.MethodPost, pathAction, `{"panic":true}`).Status,
+		"dispatching the event that panics")
+
+	page := c.Get(t, "/")
+	id := page.Instance()
+	require.NotEmpty(t, id, "GET / mints no replacement instance id")
+	require.True(t, client.WaitFor(func() bool {
+		return openStream(t, c, id) == http.StatusOK
+	}, time.Second), "the panicking event handler kept its mutex locked and "+
+		"the instance capacity slot was never released")
+}
+
 // TestPanicInStreamCloseIsContained covers a StreamClose that panics.
 //
 // The hook runs on the watchdog goroutine, which is not one net/http recovers,
@@ -436,4 +470,19 @@ func postUpdate(
 	req := c.Request(t, http.MethodPost, pathAction, `{"filter":"`+filter+`"}`)
 	req.Header.Set("Datapages-Instance", instanceID)
 	return c.Do(t, req)
+}
+
+// openStream connects a stream under instanceID and closes it after its status
+// arrives. A refused stream returns immediately; an accepted SSE stream ends
+// when cancel closes its request context.
+func openStream(t *testing.T, c *client.Client, instanceID string) int {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := c.Request(t, http.MethodGet, pathStream, "").WithContext(ctx)
+	req.Header.Set("Datapages-Instance", instanceID)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err, "opening replacement stream")
+	_ = resp.Body.Close()
+	return resp.StatusCode
 }

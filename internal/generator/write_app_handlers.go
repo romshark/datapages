@@ -1150,26 +1150,35 @@ func (w *Writer) writeEventHandlerCall(
 		w.Line(5, "slot.mu.Unlock()")
 		w.Line(5, "continue")
 		w.Line(4, "}")
+		w.Line(4, "func() {")
+		w.Line(5, "defer slot.mu.Unlock()")
 	}
+	ind := 4
+	if stateful {
+		ind = 5
+	}
+	tabs := strings.Repeat("\t", ind)
 
 	if eh.OutputErr != nil {
-		w.Raw("\t\t\t\tif err := ")
-		w.writeCallExpr(receiver, methodName, args)
+		w.Raw(tabs)
+		w.Raw("if err := ")
+		w.writeMultilineCallExpr(receiver, methodName, args, ind)
 		w.Raw("; err != nil {\n")
-		w.Raw("\t\t\t\t\ts.LogErr(\"handling ")
+		w.Raw(tabs)
+		w.Raw("\ts.LogErr(\"handling ")
 		w.Raw(ownerLabel)
 		w.Byte('.')
 		w.Raw(methodName)
 		w.Raw("\", err)\n")
-		w.Line(4, "}")
+		w.Line(ind, "}")
 	} else {
-		w.Raw("\t\t\t\t")
-		w.writeCallExpr(receiver, methodName, args)
+		w.Raw(tabs)
+		w.writeMultilineCallExpr(receiver, methodName, args, ind)
 		w.Byte('\n')
 	}
 
 	if stateful {
-		w.Line(4, "slot.mu.Unlock()")
+		w.Line(4, "}()")
 	}
 }
 

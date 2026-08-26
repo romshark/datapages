@@ -233,7 +233,10 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.LogErr("unmarshaling EventTick JSON", err)
 						continue
 					}
-					if err := p.OnTick(eventTick, dpsse.New(sse)); err != nil {
+					if err := p.OnTick(
+						eventTick,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnTick", err)
 					}
 				}

@@ -779,10 +779,16 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnTodoUpdated(eventTodoUpdated, dpsse.New(sse), datapages.State[app.StateIndex]{Values: slot.state}); err != nil {
-						s.LogErr("handling PageIndex.OnTodoUpdated", err)
-					}
-					slot.mu.Unlock()
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnTodoUpdated(
+							eventTodoUpdated,
+							dpsse.New(sse),
+							datapages.State[app.StateIndex]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PageIndex.OnTodoUpdated", err)
+						}
+					}()
 				}
 			}
 		})
@@ -998,10 +1004,16 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnTodoUpdated(eventTodoUpdated, dpsse.New(sse), datapages.State[app.StateItem]{Values: slot.state}); err != nil {
-						s.LogErr("handling PageItem.OnTodoUpdated", err)
-					}
-					slot.mu.Unlock()
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnTodoUpdated(
+							eventTodoUpdated,
+							dpsse.New(sse),
+							datapages.State[app.StateItem]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PageItem.OnTodoUpdated", err)
+						}
+					}()
 				}
 			}
 		})

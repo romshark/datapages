@@ -19,6 +19,7 @@ type App struct{}
 type StateFilters struct {
 	Filter     string
 	Deliveries int
+	Panic      bool
 }
 
 // EventFiltersUpdated is "filters.updated"
@@ -57,20 +58,28 @@ func (p PageIndex) POSTUpdate(
 	stateID string,
 	signals datapages.Signals[struct {
 		Filter string `json:"filter"`
+		Panic  bool   `json:"panic"`
 	}],
 	dispatch datapages.Dispatcher[EventFiltersUpdated],
 ) error {
 	state.Values.Filter = signals.Values.Filter
+	state.Values.Panic = signals.Values.Panic
 	return dispatch.Dispatch(EventFiltersUpdated{
 		SubjectStateID: datapages.SubjectStateID(stateID),
 	})
 }
+
+// ErrEventHandler is what PageIndex.OnFiltersUpdated panics with.
+var ErrEventHandler = errors.New("this event handler does not return quietly")
 
 func (p PageIndex) OnFiltersUpdated(
 	event EventFiltersUpdated,
 	sse datapages.SSE,
 	state datapages.State[StateFilters],
 ) error {
+	if state.Values.Panic {
+		panic(ErrEventHandler)
+	}
 	state.Values.Deliveries++
 	return sse.PatchElement(templ.Raw(status(state.Values)))
 }

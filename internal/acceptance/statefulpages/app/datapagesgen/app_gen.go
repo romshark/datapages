@@ -694,10 +694,16 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnFiltersUpdated(eventFiltersUpdated, dpsse.New(sse), datapages.State[app.StateFilters]{Values: slot.state}); err != nil {
-						s.LogErr("handling PageIndex.OnFiltersUpdated", err)
-					}
-					slot.mu.Unlock()
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnFiltersUpdated(
+							eventFiltersUpdated,
+							dpsse.New(sse),
+							datapages.State[app.StateFilters]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PageIndex.OnFiltersUpdated", err)
+						}
+					}()
 				}
 			}
 		})
@@ -725,6 +731,7 @@ func (s *Server) handlePageIndexPOSTUpdate(
 	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Filter string `json:"filter"`
+		Panic  bool   `json:"panic"`
 	}]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)

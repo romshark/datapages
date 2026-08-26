@@ -261,7 +261,10 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.LogErr("unmarshaling EventCalcUpdated JSON", err)
 						continue
 					}
-					if err := p.OnCalcUpdated(eventCalcUpdated, dpsse.New(sse)); err != nil {
+					if err := p.OnCalcUpdated(
+						eventCalcUpdated,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnCalcUpdated", err)
 					}
 				}

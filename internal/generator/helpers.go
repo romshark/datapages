@@ -730,6 +730,25 @@ func (w *Writer) writeCallExpr(receiver, method string, args []string) {
 	w.Byte(')')
 }
 
+// writeMultilineCallExpr writes one argument per line. ind is the indentation
+// of the call expression; arguments are indented one level further.
+func (w *Writer) writeMultilineCallExpr(
+	receiver, method string, args []string, ind int,
+) {
+	w.Raw(receiver)
+	w.Byte('.')
+	w.Raw(method)
+	w.Raw("(\n")
+	argTabs := strings.Repeat("\t", ind+1)
+	for _, arg := range args {
+		w.Raw(argTabs)
+		w.Raw(arg)
+		w.Raw(",\n")
+	}
+	w.Raw(strings.Repeat("\t", ind))
+	w.Byte(')')
+}
+
 // writeQuoted writes a Go double-quoted string literal to the buffer.
 // Only safe for values that don't contain special characters (backslash, quote, newline).
 func (w *Writer) writeQuoted(s string) {

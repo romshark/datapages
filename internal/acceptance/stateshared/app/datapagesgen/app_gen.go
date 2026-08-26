@@ -624,10 +624,16 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnChanged(eventChanged, dpsse.New(sse), datapages.State[app.TabContext]{Values: slot.state}); err != nil {
-						s.LogErr("handling PageIndex.OnChanged", err)
-					}
-					slot.mu.Unlock()
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnChanged(
+							eventChanged,
+							dpsse.New(sse),
+							datapages.State[app.TabContext]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PageIndex.OnChanged", err)
+						}
+					}()
 				}
 			}
 		})
@@ -803,10 +809,16 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 						slot.mu.Unlock()
 						continue
 					}
-					if err := p.OnChanged(eventChanged, dpsse.New(sse), datapages.State[app.TabContext]{Values: slot.state}); err != nil {
-						s.LogErr("handling PageOther.OnChanged", err)
-					}
-					slot.mu.Unlock()
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnChanged(
+							eventChanged,
+							dpsse.New(sse),
+							datapages.State[app.TabContext]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PageOther.OnChanged", err)
+						}
+					}()
 				}
 			}
 		})
