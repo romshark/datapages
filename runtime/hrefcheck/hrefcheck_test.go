@@ -48,6 +48,32 @@ func TestIsAllowedNonRelativeHref(t *testing.T) {
 	}
 }
 
+// TestIsRenderedAsWritten covers the schemes the templ sanitizer keeps.
+// A URL it drops renders as about:invalid, which is a link that goes nowhere.
+func TestIsRenderedAsWritten(t *testing.T) {
+	for name, tc := range map[string]struct {
+		url  string
+		want bool
+	}{
+		"https":             {"https://example.com", true},
+		"mailto":            {"mailto:a@b.c", true},
+		"tel":               {"tel:+15550100", true},
+		"ftps":              {"ftps://files.example.com", true},
+		"fragment":          {"#section", true},
+		"protocol relative": {"//cdn.example.com", true},
+		"path":              {"/login", true},
+		"uppercase scheme":  {"HTTPS://example.com", true},
+
+		"sms":        {"sms:+15550100", false},
+		"data":       {"data:text/plain,hi", false},
+		"javascript": {"javascript:alert(1)", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.want, hrefcheck.IsRenderedAsWritten(tc.url))
+		})
+	}
+}
+
 func TestAssetPath(t *testing.T) {
 	t.Parallel()
 

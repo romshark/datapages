@@ -42,11 +42,15 @@ func SetLogger(l *slog.Logger) {
 func getLogger() *slog.Logger { return logger.Load() }
 
 // External returns url as-is for use in href attributes.
-// It logs a warning at runtime if the URL is not an allowed
-// non-relative href (e.g. app-internal paths, javascript:, relative URLs).
+// It warns about a URL that belongs in a generated builder,
+// and about one the templ sanitizer drops.
 func External(url string) string {
-	if !hrefcheck.IsAllowedNonRelativeHref(url) {
+	switch {
+	case !hrefcheck.IsAllowedNonRelativeHref(url):
 		getLogger().Warn("href.External called with app-internal URL", "url", url)
+	case !hrefcheck.IsRenderedAsWritten(url):
+		getLogger().Warn("href.External called with a URL the templ sanitizer drops, "+
+			"which renders it as about:invalid", "url", url)
 	}
 	return url
 }

@@ -815,6 +815,17 @@ func (c Case) testExternalHref(t *testing.T) {
 	if logged := buf.String(); !strings.Contains(logged, internal) {
 		t.Errorf("an app-internal URL was not warned about:\n%s", logged)
 	}
+
+	// The templ sanitizer keeps six schemes and rewrites the rest to
+	// about:invalid, which is a link the visitor cannot follow.
+	buf.Reset()
+	const dropped = "sms:+15550100"
+	if got := c.HrefExternal(dropped); got != dropped {
+		t.Errorf("External(%q) = %q, want it unchanged", dropped, got)
+	}
+	if logged := buf.String(); !strings.Contains(logged, "about:invalid") {
+		t.Errorf("a URL the sanitizer drops was not warned about:\n%s", logged)
+	}
 }
 
 // testClientGoesAway covers a page load whose client disappears while
@@ -1179,4 +1190,10 @@ func (b *buffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
+}
+
+func (b *buffer) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Reset()
 }
