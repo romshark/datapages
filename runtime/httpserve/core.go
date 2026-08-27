@@ -33,7 +33,7 @@ const (
 	DefaultBodySizeLimit int64 = 1 << 20 // 1 MiB
 
 	// DefaultDatastarJSSrc is the default URL for the Datastar JavaScript bundle.
-	DefaultDatastarJSSrc = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.2/bundles/datastar.js"
+	DefaultDatastarJSSrc = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.3/bundles/datastar.js"
 )
 
 // Core is the HTTP server a generated server is built on.
