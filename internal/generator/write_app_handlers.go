@@ -270,7 +270,8 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 
 	// Auth.
 	needsSession := h.InputSession != nil ||
-		(m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession)
+		(m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession) ||
+		pageHasPrivateEvent(p, w.eventMap)
 	if needsSession {
 		hasBody = true
 		w.Line(1, "sess, _, ok := s.ReadSession(w, r)")
@@ -350,7 +351,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	w.Byte('\n')
 
 	// Call GET.
-	w.writeGETMethodCall(p, m)
+	w.writeGETMethodCall(p, m, needsSession)
 
 	w.Line(0, "}")
 }
@@ -392,7 +393,7 @@ func (w *Writer) writeSubjectSignalsRead(signalFields []model.SubjectField) {
 	}
 }
 
-func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
+func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	h := p.GET.Handler
 
 	// Build output list in user-defined order.
@@ -449,12 +450,11 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 
 	// Generic head.
 	if gh := m.GlobalHeadGenerator; gh != nil {
-		hasSess := h.InputSession != nil || gh.InputSession
 		w.writeGenericHeadCall(gh, hasSess)
 	}
 
 	// Body attrs and suffix.
-	hasBodySuffix := w.writeGETBodyAttrs(p)
+	hasBodySuffix := w.writeGETBodyAttrs(p, hasSess)
 
 	headArg := "nil"
 	if p.GET.OutputHead != nil {
@@ -471,10 +471,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 	w.Raw("\t\tw, r, ")
 	if m.Session != nil {
 		sessArg := "sess"
-		headNeedsSession := m.GlobalHeadGenerator != nil &&
-			m.GlobalHeadGenerator.InputSession
-		if p.PageSpecialization == model.PageTypeError500 ||
-			(!hasSessionInput(h) && !headNeedsSession) {
+		if p.PageSpecialization == model.PageTypeError500 || !hasSess {
 			sessArg = w.sessionType + "{}"
 		}
 		w.Raw(sessArg)
@@ -556,7 +553,7 @@ func (w *Writer) writeGenericHeadCall(gh *model.GlobalHead, hasSess bool) {
 	w.Raw(")\n")
 }
 
-func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
+func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix bool) {
 	h := p.GET.Handler
 
 	hasDisableRefresh := h.OutputDisableRefresh != nil
@@ -645,7 +642,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 	if hasStream {
 		hasPrivate := pageHasPrivateEvent(p, w.eventMap)
 		streamPath := routepattern.StreamPath(p.Route)
-		if hasPrivate && h.InputSession != nil {
+		if hasPrivate && hasSess {
 			if hasAnonStream {
 				// Mixed: authenticated -> "/_$/"; anonymous -> "/_$/anon/"
 				// Need to handle path variables.

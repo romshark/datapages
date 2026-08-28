@@ -539,6 +539,11 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePageRoomsGET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
 	p := app.PageRooms{
 		App: s.app,
 	}
@@ -554,10 +559,17 @@ func (s *Server) handlePageRoomsGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('`)
+		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, `/rooms/_$/')"`)
+		} else {
+			_, _ = io.WriteString(w, `/rooms/_$/anon/')"`)
+		}
 	}
 
 	if err := s.writeHTML(
-		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageRooms", err)
 		return
@@ -762,6 +774,10 @@ func (s *Server) handlePageRoomsPOSTNotice(
 }
 
 func (s *Server) handlePageTabsGET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
 
 	// Mint the per-instance identifier for this page load.
 	// The client echoes this value on action requests and on the SSE
@@ -791,10 +807,17 @@ func (s *Server) handlePageTabsGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('`)
+		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, `/tabs/_$/')"`)
+		} else {
+			_, _ = io.WriteString(w, `/tabs/_$/anon/')"`)
+		}
 	}
 
 	if err := s.writeHTML(
-		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageTabs", err)
 		return

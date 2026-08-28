@@ -73,6 +73,21 @@ func TestAnonStreamCarriesNoPrivateEvent(t *testing.T) {
 	})
 }
 
+// TestStatefulPageRendersAnonStreamInit covers a page whose GET handler does
+// not take Session. The generated HTTP handler still needs the session to
+// select the anonymous stream that allocates the page's state.
+func TestStatefulPageRendersAnonStreamInit(t *testing.T) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := newClient(t, broker)
+
+		page := c.Get(t, "/tabs/")
+		require.Equal(t, http.StatusOK, page.Status)
+		require.Contains(t, page.Body,
+			`data-init="@get('/tabs/_$/anon/')"`,
+			"the rendered page does not start its anonymous state stream")
+	})
+}
+
 // TestAnonStreamHoldsPerTabState covers a stateful page reached without a session:
 // the tab gets an instance of its own, and its handlers are given the
 // value that belongs to it.
