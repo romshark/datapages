@@ -11,7 +11,7 @@ require (
 	github.com/shopspring/decimal v1.4.0
 	github.com/starfederation/datastar-go v1.2.2
 	github.com/stretchr/testify v1.12.1
-	github.com/wailsapp/wails/v3 v3.0.0-beta.13
+	github.com/wailsapp/wails/v3 v3.0.0-beta.14
 )
 
 require (
