@@ -117,8 +117,8 @@ func unexportedTypeName(t types.Type) (string, bool) {
 		}
 		return unexportedTypeName(t.Elem())
 	case *types.Struct:
-		for i := range t.NumFields() {
-			if name, ok := unexportedTypeName(t.Field(i).Type()); ok {
+		for field := range t.Fields() {
+			if name, ok := unexportedTypeName(field.Type()); ok {
 				return name, true
 			}
 		}

@@ -1,12 +1,12 @@
 module github.com/romshark/datapages/example/sqlitesessions
 
-go 1.27.0
+go 1.27.1
 
 replace github.com/romshark/datapages => ../../
 
 require (
 	github.com/a-h/templ v0.3.1020
-	github.com/cvilsmeier/sqinn-go/v2 v2.1.5
+	github.com/cvilsmeier/sqinn-go/v2 v2.1.6
 	github.com/romshark/datapages v0.9.4
 	github.com/starfederation/datastar-go v1.2.2
 	golang.org/x/crypto v0.55.0
@@ -14,15 +14,15 @@ require (
 
 require (
 	github.com/CAFxX/httpcompression v0.0.9 // indirect
-	github.com/andybalholm/brotli v1.2.2 // indirect
+	github.com/andybalholm/brotli v1.2.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/prometheus/client_golang v1.24.1 // indirect
-	github.com/prometheus/client_model v0.6.2 // indirect
-	github.com/prometheus/common v0.70.1 // indirect
-	github.com/prometheus/procfs v0.21.1 // indirect
+	github.com/prometheus/client_model v0.6.3 // indirect
+	github.com/prometheus/common v0.71.0 // indirect
+	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
