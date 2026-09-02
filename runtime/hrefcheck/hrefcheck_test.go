@@ -8,6 +8,10 @@ import (
 	"github.com/romshark/datapages/runtime/hrefcheck"
 )
 
+// TestIsAllowedNonRelativeHref tests which hrefs bypass the generated href helpers.
+// A relative URL has to go through them and is refused here; an absolute one,
+// a fragment and a protocol-relative URL leave the application and are allowed.
+// The scheme alone decides, which is why a malformed rest of the URL still passes.
 func TestIsAllowedNonRelativeHref(t *testing.T) {
 	tests := map[string]struct {
 		input string
@@ -48,7 +52,7 @@ func TestIsAllowedNonRelativeHref(t *testing.T) {
 	}
 }
 
-// TestIsRenderedAsWritten covers the schemes the templ sanitizer keeps.
+// TestIsRenderedAsWritten tests the schemes the templ sanitizer keeps.
 // A URL it drops renders as about:invalid, which is a link that goes nowhere.
 func TestIsRenderedAsWritten(t *testing.T) {
 	for name, tc := range map[string]struct {
@@ -74,6 +78,9 @@ func TestIsRenderedAsWritten(t *testing.T) {
 	}
 }
 
+// TestAssetPath tests the asset URL the generated code builds from a prefix and a path.
+// It normalizes but does not confine: a path with ".." escapes the prefix,
+// which the caller has to prevent.
 func TestAssetPath(t *testing.T) {
 	t.Parallel()
 

@@ -82,6 +82,9 @@ func (failingServer) Init(
 	return errInit
 }
 
+// TestNewServer tests the happy path of the constructor: Init runs once,
+// the app and the broker reach the generated server unchanged,
+// and an option lands in the config it reads.
 func TestNewServer(t *testing.T) {
 	app, broker := new(testApp), inmem.New(1)
 	s, err := datapages.NewServer[
@@ -102,6 +105,8 @@ func TestNewServer(t *testing.T) {
 	require.Equal(t, "/ds.js", srv.cfg.DatastarJS)
 }
 
+// TestNewServerSessions tests an app that declares a session data type.
+// The manager WithSessionManager carries has to reach the generated server.
 func TestNewServerSessions(t *testing.T) {
 	m := new(testSessionManager)
 	s, err := datapages.NewServer[
@@ -118,6 +123,9 @@ func TestNewServerSessions(t *testing.T) {
 	require.Same(t, m, srv.sessions)
 }
 
+// TestNewServerErr tests every way the constructor refuses to build a server,
+// and the message each refusal carries. The message is what the developer sees
+// at startup, which is why it is asserted verbatim.
 func TestNewServerErr(t *testing.T) {
 	app, broker := new(testApp), inmem.New(1)
 	for name, tt := range map[string]struct {
@@ -198,6 +206,8 @@ func TestNewServerErr(t *testing.T) {
 	}
 }
 
+// TestWithSessionManagerErr tests the option's own refusals:
+// a nil manager and a second manager, which would silently discard the first.
 func TestWithSessionManagerErr(t *testing.T) {
 	for name, tt := range map[string]struct {
 		opts []datapages.ServerOption

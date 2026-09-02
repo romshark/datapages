@@ -84,6 +84,9 @@ func (g fixedTokGen) Generate() (string, error) {
 	return g.token, nil
 }
 
+// TestReadSessionFromCookie tests the read every request makes: an empty cookie
+// and an unknown token are misses, a live token returns the user ID,
+// the token and the session payload.
 func TestReadSessionFromCookie(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -129,6 +132,8 @@ func TestReadSessionFromCookie(t *testing.T) {
 	}
 }
 
+// TestReadSessionFromCookieStale tests a cookie whose session was closed.
+// The browser keeps sending it, and the read has to report a miss.
 func TestReadSessionFromCookieStale(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -142,6 +147,8 @@ func TestReadSessionFromCookieStale(t *testing.T) {
 	require.False(t, ok)
 }
 
+// TestCreateSession tests that a created session is readable back under the
+// token it returned, a zero payload included.
 func TestCreateSession(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -177,6 +184,8 @@ func TestCreateSession(t *testing.T) {
 	}
 }
 
+// TestCreateSessionEmptyUserID tests the refusal of an anonymous session.
+// An empty user ID would make every such session belong to the same user.
 func TestCreateSessionEmptyUserID(t *testing.T) {
 	sm := newManager(t)
 
@@ -184,6 +193,8 @@ func TestCreateSessionEmptyUserID(t *testing.T) {
 	require.ErrorIs(t, err, inmem.ErrEmptyUserID)
 }
 
+// TestCreateSessionUniqueTokens tests that the default generator does not repeat
+// itself over a run of creations for one user.
 func TestCreateSessionUniqueTokens(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -197,6 +208,8 @@ func TestCreateSessionUniqueTokens(t *testing.T) {
 	}
 }
 
+// TestCreateSessionErrTokenGenerator tests a token generator that fails.
+// The error reaches the caller rather than producing a session with an empty token.
 func TestCreateSessionErrTokenGenerator(t *testing.T) {
 	sm := payloadManager{inmem.New[testSession](failingTokGen{})}
 
@@ -232,6 +245,9 @@ func TestCreateSessionTokenCollisionOverwrites(t *testing.T) {
 	require.Equal(t, testSession{Username: "bob", Role: "user"}, sess)
 }
 
+// TestCloseSession tests that the session is gone afterwards, and that closing
+// an already closed or never existing token is a no-op rather than an error:
+// a sign-out may arrive twice.
 func TestCloseSession(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -275,6 +291,8 @@ func TestCloseSession(t *testing.T) {
 	}
 }
 
+// TestCloseSessionNotifiesWatchers tests that every watcher of a session is called
+// exactly once when it closes. That callback is how an open SSE stream learns to end.
 func TestCloseSessionNotifiesWatchers(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -292,6 +310,9 @@ func TestCloseSessionNotifiesWatchers(t *testing.T) {
 	require.Equal(t, int32(1), called2.Load())
 }
 
+// TestNotifyClosedSessionDoesNotExist tests watching a session that closed
+// before the watcher registered. The callback runs at once, since waiting for a
+// close that already happened would hang the stream forever.
 func TestNotifyClosedSessionDoesNotExist(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -308,6 +329,8 @@ func TestNotifyClosedSessionDoesNotExist(t *testing.T) {
 	require.Equal(t, int32(1), called.Load())
 }
 
+// TestNotifyClosedSessionDoesNotExistNeverCreated tests the same immediate
+// callback for a token that never existed.
 func TestNotifyClosedSessionDoesNotExistNeverCreated(t *testing.T) {
 	sm := newManager(t)
 
@@ -319,6 +342,8 @@ func TestNotifyClosedSessionDoesNotExistNeverCreated(t *testing.T) {
 	require.Equal(t, int32(1), called.Load())
 }
 
+// TestNotifyClosedSessionExists tests the ordinary case: nothing runs while the
+// session is alive, and the close calls the callback once.
 func TestNotifyClosedSessionExists(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -338,7 +363,7 @@ func TestNotifyClosedSessionExists(t *testing.T) {
 	require.Equal(t, int32(1), called.Load())
 }
 
-// TestNotifyClosedContextCancellation covers a watcher whose context ends
+// TestNotifyClosedContextCancellation tests a watcher whose context ends
 // before the session does. The session stays alive and the callback must not run.
 //
 // [inmem.SessionManager.NotifyClosed] leaves a goroutine waiting on the
@@ -371,6 +396,9 @@ func TestNotifyClosedContextCancellation(t *testing.T) {
 	})
 }
 
+// TestNotifyClosedAlreadyCanceledContext tests registering with a context that
+// is already done. No watcher is registered, which leaves neither the
+// registration nor a later close calling back.
 func TestNotifyClosedAlreadyCanceledContext(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -393,6 +421,8 @@ func TestNotifyClosedAlreadyCanceledContext(t *testing.T) {
 	require.Zero(t, called.Load())
 }
 
+// TestNotifyClosedMultipleWatchersDifferentContexts tests two watchers of one
+// session where only one context ended. Cancelling one must not unregister the other.
 func TestNotifyClosedMultipleWatchersDifferentContexts(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -420,6 +450,8 @@ func TestNotifyClosedMultipleWatchersDifferentContexts(t *testing.T) {
 	require.Equal(t, int32(1), activeCalled.Load())
 }
 
+// TestNotifyClosedMultipleWatchers tests a session watched by many streams at once:
+// each callback runs exactly once.
 func TestNotifyClosedMultipleWatchers(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -445,6 +477,9 @@ func TestNotifyClosedMultipleWatchers(t *testing.T) {
 
 // SaveSession tests.
 
+// TestRecordRoundTrip tests the record API the rest of these tests go through
+// [payloadManager] to reach: what CreateSession is given, including the issue and
+// expiry times, is what ReadSessionFromCookie returns.
 func TestRecordRoundTrip(t *testing.T) {
 	sm := inmem.New[testSession](tokGen)
 	ctx := context.Background()
@@ -468,6 +503,7 @@ func TestRecordRoundTrip(t *testing.T) {
 	require.Equal(t, want, got)
 }
 
+// TestSaveSession tests that an updated payload is what the next read returns.
 func TestSaveSession(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -484,6 +520,8 @@ func TestSaveSession(t *testing.T) {
 	require.Equal(t, updated, got)
 }
 
+// TestSaveSessionNoOpIfNotFound tests a save against an unknown token.
+// It is a no-op rather than an error, and it must not create the session either.
 func TestSaveSessionNoOpIfNotFound(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -495,6 +533,8 @@ func TestSaveSessionNoOpIfNotFound(t *testing.T) {
 	require.ErrorIs(t, err, inmem.ErrSessionNotFound)
 }
 
+// TestSaveSessionAfterClose tests a save that races a sign-out. The session
+// stays gone: resurrecting it would hand the closed cookie a live session again.
 func TestSaveSessionAfterClose(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -510,6 +550,8 @@ func TestSaveSessionAfterClose(t *testing.T) {
 	require.ErrorIs(t, err, inmem.ErrSessionNotFound)
 }
 
+// TestSaveSessionPreservesUserID tests that saving the payload leaves the owner alone.
+// The user ID is not part of the payload and only CreateSession sets it.
 func TestSaveSessionPreservesUserID(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -527,6 +569,8 @@ func TestSaveSessionPreservesUserID(t *testing.T) {
 
 // Session tests.
 
+// TestSession tests the payload read by token,
+// and the sentinel an unknown token produces.
 func TestSession(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -560,6 +604,7 @@ func TestSession(t *testing.T) {
 	}
 }
 
+// TestSessionAfterClose tests that a closed token reads as not found.
 func TestSessionAfterClose(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -574,6 +619,9 @@ func TestSessionAfterClose(t *testing.T) {
 
 // CloseAllUserSessions tests.
 
+// TestCloseAllUserSessions tests signing a user out everywhere: all of that
+// user's sessions go, other users' stay, and the closed tokens are appended to
+// the caller's buffer. A nil buffer means the caller wants only the effect.
 func TestCloseAllUserSessions(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -637,6 +685,8 @@ func TestCloseAllUserSessions(t *testing.T) {
 	}
 }
 
+// TestCloseAllUserSessionsEmptyUserID tests the refusal of an empty user ID,
+// which would otherwise be a request to close nothing or everything.
 func TestCloseAllUserSessionsEmptyUserID(t *testing.T) {
 	sm := newManager(t)
 
@@ -644,6 +694,8 @@ func TestCloseAllUserSessionsEmptyUserID(t *testing.T) {
 	require.ErrorIs(t, err, inmem.ErrEmptyUserID)
 }
 
+// TestCloseAllUserSessionsNotifiesWatchers tests that the bulk close notifies
+// every watcher, the same as closing each session by hand.
 func TestCloseAllUserSessionsNotifiesWatchers(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -664,6 +716,8 @@ func TestCloseAllUserSessionsNotifiesWatchers(t *testing.T) {
 
 // UserSessions tests.
 
+// TestUserSessions tests the listing a settings page reads: one entry per live session
+// of the user, each carrying a token, and nothing for an unknown or empty user ID.
 func TestUserSessions(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -707,6 +761,8 @@ func TestUserSessions(t *testing.T) {
 	}
 }
 
+// TestUserSessionsDoesNotIncludeOtherUsers tests the isolation between users,
+// since the listing goes on a page one of them can see.
 func TestUserSessionsDoesNotIncludeOtherUsers(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -721,6 +777,8 @@ func TestUserSessionsDoesNotIncludeOtherUsers(t *testing.T) {
 	require.Equal(t, "alice", sessions[0].Record.Data.Username)
 }
 
+// TestUserSessionsTokenUsableWithSessionAndClose tests that a token from the listing
+// works with the rest of the API: reading the payload and closing that one session.
 func TestUserSessionsTokenUsableWithSessionAndClose(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -746,6 +804,8 @@ func TestUserSessionsTokenUsableWithSessionAndClose(t *testing.T) {
 // All assertions happen in the main test goroutine after wg.Wait()
 // to avoid calling require (which uses t.FailNow) from non-test goroutines.
 
+// TestConcurrentCreateAndRead tests many requests signing in at once and then
+// reading their own session back. Every token has to name a session of its own.
 func TestConcurrentCreateAndRead(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -796,6 +856,8 @@ func TestConcurrentCreateAndRead(t *testing.T) {
 	}
 }
 
+// TestConcurrentCreateAndClose tests a batch of sign-outs running at once,
+// and that none of the sessions survives it.
 func TestConcurrentCreateAndClose(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -833,6 +895,8 @@ func TestConcurrentCreateAndClose(t *testing.T) {
 	}
 }
 
+// TestConcurrentCloseWithNotify tests each session being closed while a watcher is
+// registered on it. Every callback runs exactly once, never twice and never not at all.
 func TestConcurrentCloseWithNotify(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -870,6 +934,8 @@ func TestConcurrentCloseWithNotify(t *testing.T) {
 	}
 }
 
+// TestConcurrentDoubleClose tests two goroutines closing one session, which is what
+// a sign-out in two tabs looks like. The watcher must still be called only once.
 func TestConcurrentDoubleClose(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -901,6 +967,9 @@ func TestConcurrentDoubleClose(t *testing.T) {
 	require.Equal(t, int32(1), called.Load())
 }
 
+// TestConcurrentReadDuringClose tests a request reading a session while it is
+// being closed. Either outcome is correct, and neither may return an error or a
+// half-written payload.
 func TestConcurrentReadDuringClose(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -942,6 +1011,11 @@ func TestConcurrentReadDuringClose(t *testing.T) {
 	// A read after the close reports ok false. Both outcomes are valid.
 }
 
+// TestConcurrentNotifyAndClose tests watchers registering while the session is
+// being closed. How many callbacks run depends on the scheduling: a watcher
+// registered before the close is notified by it, one registered after is called
+// by NotifyClosed itself. What is asserted is that no watcher is lost entirely
+// and that nothing panics or races.
 func TestConcurrentNotifyAndClose(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -983,6 +1057,8 @@ func TestConcurrentNotifyAndClose(t *testing.T) {
 	require.GreaterOrEqual(t, totalCalls.Load(), int32(1))
 }
 
+// TestConcurrentSaveSession tests many saves to one session at once.
+// The last writer wins and the session stays readable.
 func TestConcurrentSaveSession(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -1010,6 +1086,8 @@ func TestConcurrentSaveSession(t *testing.T) {
 	require.Equal(t, "alice", sess.Username)
 }
 
+// TestConcurrentSessionRead tests concurrent reads of one session all returning
+// the same payload.
 func TestConcurrentSessionRead(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -1038,6 +1116,8 @@ func TestConcurrentSessionRead(t *testing.T) {
 	}
 }
 
+// TestConcurrentCloseAllUserSessions tests two bulk closes racing over the same user,
+// which is a settings page clicked twice.
 func TestConcurrentCloseAllUserSessions(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -1065,6 +1145,8 @@ func TestConcurrentCloseAllUserSessions(t *testing.T) {
 	require.Empty(t, sm.UserSessions(ctx, "alice"))
 }
 
+// TestConcurrentUserSessions tests concurrent listings of one user's sessions:
+// each returns the full set, never a partially built one.
 func TestConcurrentUserSessions(t *testing.T) {
 	sm := newManager(t)
 	ctx := context.Background()
@@ -1094,7 +1176,7 @@ func TestConcurrentUserSessions(t *testing.T) {
 	}
 }
 
-// TestDeleteExpired covers the sweep.
+// TestDeleteExpired tests the sweep.
 // A session nobody comes back to is never read again and stays until this runs.
 func TestDeleteExpired(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {

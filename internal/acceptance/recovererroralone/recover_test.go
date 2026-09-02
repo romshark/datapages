@@ -20,7 +20,7 @@ func newClient(t *testing.T) *client.Client {
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
-// TestRecoverErrorIsCalled covers a failed action in an app that defines
+// TestRecoverErrorIsCalled tests a failed action in an app that defines
 // RecoverError and supplies no PageError500.
 func TestRecoverErrorIsCalled(t *testing.T) {
 	t.Parallel()
@@ -34,7 +34,7 @@ func TestRecoverErrorIsCalled(t *testing.T) {
 		"the error message reached the client")
 }
 
-// TestPageLoadWithoutAn500Page covers a failed page load in the same app:
+// TestPageLoadWithoutAn500Page tests a failed page load in the same app:
 // with no page to render, the built-in response carries the status and
 // nothing about the error.
 func TestPageLoadWithoutAn500Page(t *testing.T) {

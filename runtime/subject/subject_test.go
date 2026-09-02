@@ -9,6 +9,10 @@ import (
 	"github.com/romshark/datapages/runtime/subject"
 )
 
+// TestEncode tests which bytes survive a value's trip into a subject.
+// What NATS reads as structure or a separator is percent-escaped, the escape character
+// itself included; the rest, Unicode included, is left alone. Every case also asserts
+// that EncodedLen agrees and that the result is one token.
 func TestEncode(t *testing.T) {
 	for name, tt := range map[string]struct{ in, want string }{
 		"plain":           {"alice", "alice"},
@@ -43,7 +47,7 @@ func TestEncode(t *testing.T) {
 	}
 }
 
-// TestEncodeIsInjective covers values that differ only in what gets escaped.
+// TestEncodeIsInjective tests values that differ only in what gets escaped.
 // Two of them must not collide, or one user would read another's events.
 func TestEncodeIsInjective(t *testing.T) {
 	values := []string{
@@ -59,7 +63,7 @@ func TestEncodeIsInjective(t *testing.T) {
 	}
 }
 
-// TestEncodeUnescapedDoesNotAllocate covers the common case:
+// TestEncodeUnescapedDoesNotAllocate tests the common case:
 // an ID that needs no escaping is returned as it is.
 func TestEncodeUnescapedDoesNotAllocate(t *testing.T) {
 	n := testing.AllocsPerRun(100, func() {
@@ -68,6 +72,8 @@ func TestEncodeUnescapedDoesNotAllocate(t *testing.T) {
 	require.Zero(t, n, "Encode allocated for a value that needs no escaping")
 }
 
+// FuzzEncode tests the two invariants over arbitrary input: EncodedLen predicts the
+// length Encode produces, and a non-empty value always encodes to a single subject token.
 func FuzzEncode(f *testing.F) {
 	for _, seed := range []string{
 		"", "a", "a.b", "alice@example.com", "*", ">", "%", "100%",

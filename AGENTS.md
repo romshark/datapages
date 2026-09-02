@@ -305,6 +305,10 @@ Form:
   short notes on struct fields, enum values and table-test rows.
 - Reference other code with Go doc links in square brackets: `[Scan]`,
   `[Parser.Parse]`, `[github.com/romshark/datapages.Subject]`.
+- A doc comment on a symbol says what the symbol does:
+  `// Close ends the open requests and is safe to call repeatedly.`
+- A doc comment on a test explains what scenario is tested:
+  `// TestCloseIdempotent tests that repeated Close calls all return nil.`
 
 Bad:
 

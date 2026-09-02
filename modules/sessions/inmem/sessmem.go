@@ -34,7 +34,8 @@ type watcher struct {
 	fn  func()
 }
 
-// SessionManager is an in-memory session manager.
+// SessionManager implements [sessions.Manager] over a map guarded by one lock.
+// It is safe for concurrent use.
 type SessionManager[Data any] struct {
 	lock     sync.Mutex
 	sessions map[string]entry[Data]        // token -> entry

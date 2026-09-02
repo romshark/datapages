@@ -6,6 +6,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestIsDatastarActionAttr tests which attributes the templ linter reads as
+// carrying a Datastar action expression. Missing one lets a hardcoded action URL
+// through unchecked; matching one too many rejects valid markup.
 func TestIsDatastarActionAttr(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input string

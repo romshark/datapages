@@ -15,7 +15,7 @@ import (
 	"github.com/romshark/datapages/runtime/prom"
 )
 
-// DefaultSessionCookieName is the name of the session cookie.
+// DefaultSessionCookieName is what [AuthCookieConfig.Name] falls back to.
 const DefaultSessionCookieName = "sessiontoken"
 
 // ServerConfig is what a generated server is configured with.

@@ -1,4 +1,4 @@
-// Covers the streams a page serves to a visitor with no session.
+// Tests the streams a page serves to a visitor with no session.
 
 package acceptance_test
 
@@ -27,7 +27,7 @@ func newClient(t *testing.T, broker messaging.Broker) *client.Client {
 	return client.New(t, mustNewServer(t, &app.App{}, broker, sessions))
 }
 
-// TestAnonStreamSubscribesBySignal covers a visitor with no session on a page
+// TestAnonStreamSubscribesBySignal tests a visitor with no session on a page
 // that scopes its events by a signal: the stream receives what is published
 // for the value it connected with, and nothing published for another.
 func TestAnonStreamSubscribesBySignal(t *testing.T) {
@@ -49,7 +49,7 @@ func TestAnonStreamSubscribesBySignal(t *testing.T) {
 	})
 }
 
-// TestAnonStreamCarriesNoPrivateEvent covers the reason the route exists:
+// TestAnonStreamCarriesNoPrivateEvent tests the reason the route exists:
 // a visitor with no session is nobody, which leaves a private event no way to reach them.
 func TestAnonStreamCarriesNoPrivateEvent(t *testing.T) {
 	t.Parallel()

@@ -35,7 +35,7 @@ func (c *countingSessions) ReadSessionFromCookie(cookieValue string) (
 	return c.Manager.ReadSessionFromCookie(cookieValue)
 }
 
-// TestCSRFOnlyActionReadsNoSession covers the check an action runs when it
+// TestCSRFOnlyActionReadsNoSession tests the check an action runs when it
 // takes no session. The CSRF token is derived from the cookie, hence the store
 // stays out of the request.
 func TestCSRFOnlyActionReadsNoSession(t *testing.T) {
@@ -80,7 +80,7 @@ func TestCSRFOnlyActionReadsNoSession(t *testing.T) {
 		"the store was read for an action that takes no session")
 }
 
-// TestCSRFCoversEveryAction covers a state-changing action that declares
+// TestCSRFCoversEveryAction tests a state-changing action that declares
 // neither session nor sessionToken.
 //
 // A visitor with a session sends it without a CSRF token,

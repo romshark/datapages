@@ -15,6 +15,9 @@ func writeOptions(options []actionexpr.Option) string {
 	return b.String()
 }
 
+// TestWriteOptions tests the JavaScript options object the action expression carries.
+// An option that produces no entry writes nothing at all, not an empty object,
+// and a value that could end the JS string or the attribute it sits in is escaped.
 func TestWriteOptions(t *testing.T) {
 	t.Parallel()
 
@@ -123,6 +126,8 @@ func TestLenMatchesWrite(t *testing.T) {
 	}
 }
 
+// TestBeforeAfterOrder tests that before and after snippets run in the order
+// they were passed, whichever order the options themselves came in.
 func TestBeforeAfterOrder(t *testing.T) {
 	t.Parallel()
 
@@ -141,6 +146,8 @@ func TestBeforeAfterOrder(t *testing.T) {
 	require.Equal(t, "; c(); d()", after.String())
 }
 
+// TestWithOption tests the escape hatch for an option this package does not know.
+// An empty key writes nothing, since it would produce invalid JavaScript.
 func TestWithOption(t *testing.T) {
 	t.Parallel()
 

@@ -19,7 +19,8 @@ import (
 
 var _ messaging.Broker = (*MessageBroker)(nil)
 
-// MessageBroker is an in-memory message broker.
+// MessageBroker implements [messaging.Broker] by delivering to the
+// subscribers of this process. It is safe for concurrent use.
 type MessageBroker struct {
 	chanBuffer int
 	lock       sync.RWMutex

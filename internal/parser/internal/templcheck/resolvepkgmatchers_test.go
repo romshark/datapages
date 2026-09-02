@@ -27,6 +27,10 @@ func parseFiles(t *testing.T, src map[string]string) *packages.Package {
 	}
 }
 
+// TestResolvePkgMatchers tests the local name the generated href and action
+// packages are called under, resolved per file rather than per package:
+// two files  of one package may import it under different aliases,
+// and a blank import means no calls at all.
 func TestResolvePkgMatchers(t *testing.T) {
 	t.Parallel()
 

@@ -1,4 +1,4 @@
-// Covers the servers the three constructors of this module build.
+// Tests the servers the three constructors of this module build.
 //
 // A module may build one application from any number of packages.
 // The app package is parsed once and generated once,
@@ -50,7 +50,7 @@ var constructors = map[string]func(*testing.T) datapages.Server{
 	},
 }
 
-// TestEveryConstructorServesTheSameApp covers a page, an action and the event
+// TestEveryConstructorServesTheSameApp tests a page, an action and the event
 // it dispatches against a server from each constructor.
 func TestEveryConstructorServesTheSameApp(t *testing.T) {
 	t.Parallel()
@@ -71,7 +71,7 @@ func TestEveryConstructorServesTheSameApp(t *testing.T) {
 	}
 }
 
-// TestActionsAreOneSetOfRoutes covers the generated action expressions against
+// TestActionsAreOneSetOfRoutes tests the generated action expressions against
 // each server. One app package is generated once, hence the routes a caller
 // reaches do not depend on which call built the server.
 func TestActionsAreOneSetOfRoutes(t *testing.T) {

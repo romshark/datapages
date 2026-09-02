@@ -176,7 +176,7 @@ func Run(t *testing.T, c Case) {
 	}
 }
 
-// testActionOptions covers the expression a template carries when it passes
+// testActionOptions tests the expression a template carries when it passes
 // options to an action.
 //
 // The expression is a string with no runtime behind it. Nothing on the server
@@ -297,7 +297,7 @@ func get(t *testing.T, srv *httptest.Server, path string) (*http.Response, strin
 	return resp, string(b)
 }
 
-// testPageShell covers what the server wraps every page body in.
+// testPageShell tests what the server wraps every page body in.
 // Nothing else assembles the document.
 // Every page that renders at all renders inside this.
 func (c Case) testPageShell(t *testing.T) {
@@ -320,7 +320,7 @@ func (c Case) testPageShell(t *testing.T) {
 	}
 }
 
-// testCompression covers the response a browser actually asks for.
+// testCompression tests the response a browser actually asks for.
 // Compression is on by default.
 // A page that renders only uncompressed reaches no browser.
 func (c Case) testCompression(t *testing.T) {
@@ -359,7 +359,7 @@ func (c Case) testCompression(t *testing.T) {
 	}
 }
 
-// testUnknownRoute covers a URL no page claims.
+// testUnknownRoute tests a URL no page claims.
 // Whatever the app supplies for it, the router must not serve it something else.
 func (c Case) testUnknownRoute(t *testing.T) {
 	srv := c.server(t)
@@ -374,7 +374,7 @@ func (c Case) testUnknownRoute(t *testing.T) {
 	}
 }
 
-// testGeneratedLinksAreRouted covers every URL the generated href package builds.
+// testGeneratedLinksAreRouted tests every URL the generated href package builds.
 //
 // The builder and the router are written from one model and form the two
 // halves of every link in the application. If they disagree the link is dead.
@@ -430,7 +430,7 @@ func unroutedBody(t *testing.T, srv *httptest.Server, method string) string {
 	return string(b)
 }
 
-// testGeneratedActionsAreRouted covers every expression the generated action
+// testGeneratedActionsAreRouted tests every expression the generated action
 // package builds, in the same way and for the same reason.
 func (c Case) testGeneratedActionsAreRouted(t *testing.T) {
 	if len(c.Actions) == 0 {
@@ -463,7 +463,7 @@ func (c Case) testGeneratedActionsAreRouted(t *testing.T) {
 	}
 }
 
-// testMalformedSignals covers the actions that read signals,
+// testMalformedSignals tests the actions that read signals,
 // sent a body that is not signals. The server must refuse such a request.
 // Refusing it must not take the server down.
 func (c Case) testMalformedSignals(t *testing.T) {
@@ -561,7 +561,7 @@ func sendAs(
 	return resp
 }
 
-// testStream covers the SSE connection of a page with events or stream hooks.
+// testStream tests the SSE connection of a page with events or stream hooks.
 //
 // The stream is the one long-lived resource a generated server holds, and a
 // test that only sends requests never touches it.
@@ -602,7 +602,7 @@ func (c Case) testStream(t *testing.T) {
 	}
 }
 
-// testTrailingSlash covers a URL typed without its trailing slash.
+// testTrailingSlash tests a URL typed without its trailing slash.
 //
 // Every route the generator writes ends in one and every link it builds carries it.
 // A visitor who types the URL, or a service that trims it, does not.
@@ -639,7 +639,7 @@ func (c Case) testTrailingSlash(t *testing.T) {
 	}
 }
 
-// testShutdownClosesStreams covers what happens to an open stream when the
+// testShutdownClosesStreams tests what happens to an open stream when the
 // server is told to stop. A shutdown that waits for connections the client will not
 // close never finishes. The deployment then has to kill the process to roll forward.
 func (c Case) testShutdownClosesStreams(t *testing.T) {
@@ -670,7 +670,7 @@ func (c Case) testShutdownClosesStreams(t *testing.T) {
 	}
 }
 
-// testStreamRequiresDatastar covers the stream route reached by a client that
+// testStreamRequiresDatastar tests the stream route reached by a client that
 // is not the Datastar runtime. A plain browser navigating there would hang on
 // a response it cannot read.
 func (c Case) testStreamRequiresDatastar(t *testing.T) {
@@ -741,7 +741,7 @@ func (c Case) openStream(
 	}
 }
 
-// testDispatchReachesTheStream covers the central path of the framework.
+// testDispatchReachesTheStream tests the central path of the framework.
 // An action dispatches an event and the page that handles it sees the result on
 // the connection it already holds.
 //
@@ -788,7 +788,7 @@ func (c Case) testDispatchReachesTheStream(t *testing.T) {
 	}
 }
 
-// testExternalHref covers href.External. A template uses it for a URL this
+// testExternalHref tests href.External. A template uses it for a URL this
 // application does not own. It hands the URL back unchanged and warns when it
 // is given one the application does own. Such a URL belongs in a generated builder,
 // which keeps up with the routes.
@@ -828,7 +828,7 @@ func (c Case) testExternalHref(t *testing.T) {
 	}
 }
 
-// testClientGoesAway covers a page load whose client disappears while
+// testClientGoesAway tests a page load whose client disappears while
 // the page is being written.
 //
 // Every write of the page shell can fail from that point on and the generated code
@@ -893,7 +893,7 @@ func (w *failingWriter) Write(p []byte) (int, error) {
 // Flush is required by the compression middleware and by SSE.
 func (w *failingWriter) Flush() {}
 
-// testMiddleware covers WithMiddleware: several are applied in the order they
+// testMiddleware tests WithMiddleware: several are applied in the order they
 // were given, and one of them can answer instead of passing the request on.
 func (c Case) testMiddleware(t *testing.T) {
 	if c.WithMiddleware == nil {
@@ -937,7 +937,7 @@ func (c Case) testMiddleware(t *testing.T) {
 	}
 }
 
-// testDatastarJS covers WithDatastarJS. The page shell loads the client script
+// testDatastarJS tests WithDatastarJS. The page shell loads the client script
 // from the source the operator chose. A deployment uses this to serve the
 // script from its own origin instead of a CDN.
 func (c Case) testDatastarJS(t *testing.T) {
@@ -952,7 +952,7 @@ func (c Case) testDatastarJS(t *testing.T) {
 	}
 }
 
-// testHTTPServerOption covers WithHTTPServer.
+// testHTTPServerOption tests WithHTTPServer.
 // A deployment uses it to set its own timeouts.
 func (c Case) testHTTPServerOption(t *testing.T) {
 	if c.WithHTTPServer == nil {
@@ -967,7 +967,7 @@ func (c Case) testHTTPServerOption(t *testing.T) {
 	}
 }
 
-// testMessageBrokerStreamSubjects covers what the server exports for an
+// testMessageBrokerStreamSubjects tests what the server exports for an
 // operator to create streams with before it starts. An empty subject,
 // or one listed twice, cannot be turned into a stream.
 func (c Case) testMessageBrokerStreamSubjects(t *testing.T) {
@@ -986,7 +986,7 @@ func (c Case) testMessageBrokerStreamSubjects(t *testing.T) {
 	}
 }
 
-// testListenAndServe covers the lifecycle a main.go runs.
+// testListenAndServe tests the lifecycle a main.go runs.
 // The server listens on a port, serves, and stops when it is told to.
 //
 // It runs with WithLogger. The lifecycle is where every server logs something
@@ -1041,7 +1041,7 @@ func (c Case) testListenAndServe(t *testing.T) {
 	}
 }
 
-// testListenAndServeTLS covers the same over TLS.
+// testListenAndServeTLS tests the same over TLS.
 // The server runs this way when nothing terminates HTTPS in front of it.
 func (c Case) testListenAndServeTLS(t *testing.T) {
 	s := c.NewServer(t)

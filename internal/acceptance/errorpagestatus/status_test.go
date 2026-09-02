@@ -20,7 +20,7 @@ func newClient(t *testing.T) *client.Client {
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
-// TestErrorPageStatus covers a URL no page claims in an app that supplies a 404 page:
+// TestErrorPageStatus tests a URL no page claims in an app that supplies a 404 page:
 // the visitor gets that page and the response carries 404.
 func TestErrorPageStatus(t *testing.T) {
 	t.Parallel()
@@ -35,7 +35,7 @@ func TestErrorPageStatus(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, resp.Status)
 }
 
-// TestRoutedPageIsUnaffected covers a URL a page does claim.
+// TestRoutedPageIsUnaffected tests a URL a page does claim.
 func TestRoutedPageIsUnaffected(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)

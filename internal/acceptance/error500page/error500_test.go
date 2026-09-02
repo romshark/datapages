@@ -20,7 +20,7 @@ func newClient(t *testing.T) *client.Client {
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
-// TestError500PageIsRendered covers a failed page load in an app that supplies
+// TestError500PageIsRendered tests a failed page load in an app that supplies
 // PageError500 and defines no RecoverError.
 func TestError500PageIsRendered(t *testing.T) {
 	t.Parallel()

@@ -44,6 +44,9 @@ type caseOptions struct {
 	NoRace bool `json:"no_race"`
 }
 
+// TestAcceptance runs every case module: it regenerates the case,
+// diffs the result against the committed output and runs the case's own tests over HTTP.
+// One subtest per directory holding a go.mod.
 func TestAcceptance(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs a module per case")
@@ -371,6 +374,9 @@ func (c *coverageSet) writeMerged(dst string) error {
 	return os.WriteFile(dst, []byte(b.String()), 0o644)
 }
 
+// TestMain runs the cases and then reports the coverage they reached over the
+// generated code, merged across every case, optionally writing it to the profile
+// -coverout names.
 func TestMain(m *testing.M) {
 	flag.Parse()
 	code := m.Run()

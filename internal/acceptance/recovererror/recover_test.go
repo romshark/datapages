@@ -1,4 +1,4 @@
-// Covers the generated error recovery of ./app.
+// Tests the generated error recovery of ./app.
 
 package acceptance_test
 
@@ -41,7 +41,7 @@ func post(t *testing.T, srv *httptest.Server, path string) (int, string) {
 	return resp.StatusCode, string(b)
 }
 
-// TestRecoveredActionErrors covers a failed action of a Datastar request.
+// TestRecoveredActionErrors tests a failed action of a Datastar request.
 // The visitor is shown what RecoverError rendered and the request itself succeeds.
 // Nothing navigates to a status page here, and nothing would read a status.
 func TestRecoveredActionErrors(t *testing.T) {
@@ -62,7 +62,7 @@ func TestRecoveredActionErrors(t *testing.T) {
 	}
 }
 
-// TestRecoveredPanics covers a handler that panics rather than returning an error.
+// TestRecoveredPanics tests a handler that panics rather than returning an error.
 // It reaches RecoverError as a datapages.PanicError, which keeps a bug
 // in one handler from dropping the visitor's connection without a word.
 func TestRecoveredPanics(t *testing.T) {
@@ -110,7 +110,7 @@ func TestRecoveredPanics(t *testing.T) {
 	})
 }
 
-// TestUnrecoveredActionErrorStillAnswers covers the case RecoverError itself
+// TestUnrecoveredActionErrorStillAnswers tests the case RecoverError itself
 // cannot handle. The request must still be answered rather than left hanging,
 // and what it is answered with must say nothing about the error.
 //
@@ -132,7 +132,7 @@ func TestUnrecoveredActionErrorStillAnswers(t *testing.T) {
 	}
 }
 
-// TestFailedPageLoadRendersTheErrorPage covers an ordinary page load that fails.
+// TestFailedPageLoadRendersTheErrorPage tests an ordinary page load that fails.
 // It is not a Datastar request. There is a browser to navigate,
 // and it navigates to the app's own 500 page.
 func TestFailedPageLoadRendersTheErrorPage(t *testing.T) {

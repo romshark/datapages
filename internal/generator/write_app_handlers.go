@@ -231,7 +231,8 @@ func eventHandlerInputArgs(eh *model.EventHandler, eventVar string) []string {
 	return args
 }
 
-// writePageGETHandler generates the GET handler for a page.
+// writePageGETHandler writes the handler a page's route resolves to:
+// the one that renders the whole HTML document, as opposed to the stream handler.
 func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string) {
 	w.Line(0, "")
 	w.Raw("func (s *Server) handle")
@@ -838,7 +839,8 @@ func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
 	}
 }
 
-// writePageGETStreamHandler generates the stream handler for a page.
+// writePageGETStreamHandler writes the handler behind a page's SSE endpoint,
+// which the page opens once its document is loaded.
 func (w *Writer) writePageGETStreamHandler(
 	p *model.Page, m *model.App, appPkg string,
 ) {

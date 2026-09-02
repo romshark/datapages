@@ -6,6 +6,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestEvaluate tests the expression grammar the calculator accepts: the four operators
+// including their Unicode spellings, precedence, parentheses and unary minus.
+// Anything it cannot parse, and division by zero, yield "Error" rather than a Go error,
+// since the result goes straight into the display.
 func TestEvaluate(t *testing.T) {
 	for name, tt := range map[string]struct {
 		expr string
@@ -43,6 +47,9 @@ func TestEvaluate(t *testing.T) {
 	}
 }
 
+// TestFormatDisplay tests the thousands separators the display adds.
+// They go into the integer part only, on both sides of an operator,
+// and never into the fractional part.
 func TestFormatDisplay(t *testing.T) {
 	for name, tt := range map[string]struct {
 		input string

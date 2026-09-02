@@ -1,4 +1,4 @@
-// Covers the return values of a GET handler other than its body.
+// Tests the return values of a GET handler other than its body.
 
 package acceptance_test
 
@@ -49,7 +49,7 @@ func get(t *testing.T, srv *httptest.Server, path string) (*http.Response, strin
 	return resp, string(b)
 }
 
-// TestRedirectFromPageLoad covers a GET that returns a redirect.
+// TestRedirectFromPageLoad tests a GET that returns a redirect.
 // The visitor is sent elsewhere and the body the handler also returned is not rendered.
 func TestRedirectFromPageLoad(t *testing.T) {
 	t.Parallel()
@@ -63,7 +63,7 @@ func TestRedirectFromPageLoad(t *testing.T) {
 		"the body was rendered alongside the redirect")
 }
 
-// TestRedirectStatusFromPageLoad covers a handler that chooses the status,
+// TestRedirectStatusFromPageLoad tests a handler that chooses the status,
 // and the same handler when it decides not to redirect at all.
 func TestRedirectStatusFromPageLoad(t *testing.T) {
 	t.Parallel()
@@ -84,7 +84,7 @@ func TestRedirectStatusFromPageLoad(t *testing.T) {
 	})
 }
 
-// TestVisibilityReload covers the two flags that decide whether a hidden tab
+// TestVisibilityReload tests the two flags that decide whether a hidden tab
 // reloads the page when it comes back.
 //
 // Both suppress the same body attribute. A page that keeps its stream running

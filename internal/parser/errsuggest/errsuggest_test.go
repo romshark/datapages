@@ -12,6 +12,9 @@ import (
 	"github.com/romshark/datapages/internal/parser/internal/paramvalidation"
 )
 
+// TestSuggest tests the "fix:" line appended to a parser error. Each sentinel maps to
+// the code the developer has to write, a wrapped sentinel is matched the same,
+// and an error with no suggestion produces an empty string rather than a guess.
 func TestSuggest(t *testing.T) {
 	for name, tc := range map[string]struct {
 		err  error

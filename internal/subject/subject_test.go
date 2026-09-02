@@ -8,6 +8,8 @@ import (
 	"github.com/romshark/datapages/internal/subject"
 )
 
+// TestIsToken tests what may stand as one subject token: anything without a separator,
+// a wildcard or whitespace, Unicode included. An empty value is no token either.
 func TestIsToken(t *testing.T) {
 	t.Parallel()
 	for name, td := range map[string]struct {
@@ -33,11 +35,18 @@ func TestIsToken(t *testing.T) {
 	}
 }
 
+// TestPrefix tests the separator the prefix ends in,
+// which is what keeps "a.b" from matching "a.bc".
 func TestPrefix(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, "messaging.sent.", subject.Prefix("messaging.sent"))
 }
 
+// TestClaimOverlaps tests which two event declarations claim the same subjects.
+// A claim with subject fields stands for every subject under its prefix,
+// which makes it overlap anything nested below it, while two plain claims overlap only
+// when equal. A shared textual prefix without a separator between them is no overlap.
+// Every case is asserted both ways round, since the relation is symmetric.
 func TestClaimOverlaps(t *testing.T) {
 	t.Parallel()
 	fields := func(s string) subject.Claim {

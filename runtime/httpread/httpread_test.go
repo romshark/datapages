@@ -21,6 +21,9 @@ func cookieOracle(t *testing.T, header, name string) (string, bool) {
 	return c.Value, true
 }
 
+// TestCookieValue tests the header shapes the allocation-free reader must agree
+// with net/http on. The expectation comes from [net/http.Request.Cookie] rather
+// than a hand written table, since agreeing with that method is the whole point.
 func TestCookieValue(t *testing.T) {
 	t.Parallel()
 
@@ -55,7 +58,7 @@ func TestCookieValue(t *testing.T) {
 	}
 }
 
-// TestCookieValueManyPairs covers the handover to net/http,
+// TestCookieValueManyPairs tests the handover to net/http,
 // which applies a limit of its own to the number of cookies.
 func TestCookieValueManyPairs(t *testing.T) {
 	t.Parallel()
@@ -74,7 +77,7 @@ func TestCookieValueManyPairs(t *testing.T) {
 	require.Equal(t, wantValue, value)
 }
 
-// TestCookieValueSeveralLines covers a request carrying more than one
+// TestCookieValueSeveralLines tests a request carrying more than one
 // Cookie header, which net/http reads as one sequence of pairs.
 func TestCookieValueSeveralLines(t *testing.T) {
 	t.Parallel()
@@ -88,6 +91,8 @@ func TestCookieValueSeveralLines(t *testing.T) {
 	require.Equal(t, "abc", value)
 }
 
+// TestIsCookieName tests which names the reader accepts. A name net/http would
+// never match is refused up front, which is what lets the fuzz target skip it.
 func TestIsCookieName(t *testing.T) {
 	t.Parallel()
 
@@ -107,6 +112,8 @@ func TestIsCookieName(t *testing.T) {
 	}
 }
 
+// FuzzCookieValue tests arbitrary Cookie headers against
+// [net/http.Request.Cookie] as the oracle.
 func FuzzCookieValue(f *testing.F) {
 	for _, seed := range []string{
 		"sessiontoken=abc", `sessiontoken="abc"`, "a=b; sessiontoken=abc",
@@ -131,6 +138,9 @@ func FuzzCookieValue(f *testing.F) {
 	})
 }
 
+// TestQueryValue tests the query shapes the reader must agree with net/url on:
+// plus as a space, percent escapes, a malformed escape, repeated keys and keys
+// without a value. [net/url.ParseQuery] is the oracle.
 func TestQueryValue(t *testing.T) {
 	t.Parallel()
 
@@ -159,6 +169,8 @@ func TestQueryValue(t *testing.T) {
 	}
 }
 
+// FuzzQueryValue tests arbitrary query strings and keys against
+// [net/url.ParseQuery] as the oracle.
 func FuzzQueryValue(f *testing.F) {
 	for _, seed := range []string{
 		"term=x", "term=a+b", "te%72m=x", "term=1&term=2", "term=a;b",

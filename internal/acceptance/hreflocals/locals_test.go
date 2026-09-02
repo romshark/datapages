@@ -22,7 +22,7 @@ func newClient(t *testing.T) *client.Client {
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
-// TestBuilderNameIsFree covers a path variable named after the URL writer's
+// TestBuilderNameIsFree tests a path variable named after the URL writer's
 // strings.Builder: the URL it builds addresses the route.
 func TestBuilderNameIsFree(t *testing.T) {
 	t.Parallel()
@@ -33,7 +33,7 @@ func TestBuilderNameIsFree(t *testing.T) {
 	require.Equal(t, "b=true", resp.Element(t, "echo"))
 }
 
-// TestEveryLocalNameIsFree covers the writer's other locals at once:
+// TestEveryLocalNameIsFree tests the writer's other locals at once:
 // the length, the counter, the flag and a query field's conversion variable.
 func TestEveryLocalNameIsFree(t *testing.T) {
 	t.Parallel()

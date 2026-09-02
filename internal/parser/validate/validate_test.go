@@ -9,6 +9,10 @@ import (
 	"github.com/romshark/datapages/internal/parser/validate"
 )
 
+// TestPageTypeName tests the naming convention a page type has to follow:
+// the "Page" prefix plus an upper-case ASCII letter and alphanumerics after it.
+// The name becomes an identifier in generated code and a URL path, which is why
+// nothing outside that alphabet is accepted.
 func TestPageTypeName(t *testing.T) {
 	f := func(expect error, input string) {
 		t.Helper()
@@ -50,6 +54,8 @@ func TestPageTypeName(t *testing.T) {
 	f(validate.ErrPageTypeNameInvalid, "PageA💥")
 }
 
+// TestActionMethodName tests the same convention for an action method,
+// whose prefix is the HTTP method it answers.
 func TestActionMethodName(t *testing.T) {
 	f := func(expect error, input string) {
 		t.Helper()
@@ -94,6 +100,7 @@ func TestActionMethodName(t *testing.T) {
 	f(validate.ErrActionMethodNameInvalid, "PUTA💥")
 }
 
+// TestEventTypeName tests the same convention for an event type.
 func TestEventTypeName(t *testing.T) {
 	f := func(expect error, input string) {
 		t.Helper()
@@ -135,6 +142,9 @@ func TestEventTypeName(t *testing.T) {
 	f(validate.ErrEventTypeNameInvalid, "EventA💥")
 }
 
+// TestEventSubjectCommentSubject tests the quoted subject in an event's doc comment.
+// Only double quotes delimit it, since the value is read out of the
+// comment textually rather than parsed as a Go literal.
 func TestEventSubjectCommentSubject(t *testing.T) {
 	f := func(expect error, input string) {
 		t.Helper()
@@ -171,6 +181,10 @@ func TestEventSubjectCommentSubject(t *testing.T) {
 	f(validate.ErrEventSubjectInvalid, "`foo\"")
 }
 
+// TestEventSubjectComment tests the doc comment an event type has to carry:
+// its first line names the type, the word "is" and the quoted subject.
+// A missing comment, a first line that says something else and an
+// unparseable subject are reported apart, since each names a different fix.
 func TestEventSubjectComment(t *testing.T) {
 	f := func(expect error, typeName string, doc *ast.CommentGroup) {
 		t.Helper()
@@ -226,6 +240,8 @@ func TestEventSubjectComment(t *testing.T) {
 		cg("EventFoo is `foo.bar`"))
 }
 
+// TestEventHandlerMethodName tests the same convention for an event handler,
+// whose prefix is "On".
 func TestEventHandlerMethodName(t *testing.T) {
 	f := func(expect error, input string) {
 		t.Helper()
@@ -264,6 +280,9 @@ func TestEventHandlerMethodName(t *testing.T) {
 	f(validate.ErrEventHandlerNameInvalid, "OnA💥")
 }
 
+// TestSignalTagName tests the signal names a struct tag may declare. They travel
+// into Datastar expressions as identifiers, dotted paths included, which rules out
+// upper case, a leading digit or underscore, and anything that could end the attribute.
 func TestSignalTagName(t *testing.T) {
 	f := func(expect error, input string) {
 		t.Helper()

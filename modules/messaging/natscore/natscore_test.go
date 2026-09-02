@@ -20,6 +20,8 @@ import (
 // testConn is shared by all tests.
 var testConn *nats.Conn
 
+// TestMain starts one NATS container for the whole package and tears it down after.
+// Every test in this file shares [testConn].
 func TestMain(m *testing.M) { os.Exit(runSuite(m)) }
 
 func runSuite(m *testing.M) int {
@@ -111,7 +113,7 @@ func receive(
 	}
 }
 
-// TestPublishSubscribe covers the delivery path against a server that has no
+// TestPublishSubscribe tests the delivery path against a server that has no
 // JetStream enabled at all.
 func TestPublishSubscribe(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{})
@@ -127,7 +129,7 @@ func TestPublishSubscribe(t *testing.T) {
 	require.Zero(t, m.dropped.Load())
 }
 
-// TestCloseIsRepeatableAndConcurrent covers what [messaging.SubscriptionCloser] promises:
+// TestCloseIsRepeatableAndConcurrent tests what [messaging.SubscriptionCloser] promises:
 // Close is idempotent and safe for concurrent use.
 // The stream closes its subscription from the goroutine watching the disconnect,
 // and a shutdown may reach it at the same moment.
@@ -148,7 +150,7 @@ func TestCloseIsRepeatableAndConcurrent(t *testing.T) {
 	require.False(t, open, "the channel is open after Close")
 }
 
-// TestFanOut covers two pages subscribed to the same subject.
+// TestFanOut tests two pages subscribed to the same subject.
 // Both receive, which is what the SSE fan-out relies on.
 func TestFanOut(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{})
@@ -163,7 +165,7 @@ func TestFanOut(t *testing.T) {
 	}
 }
 
-// TestWildcardDelivery covers what the generated code expects of a broker:
+// TestWildcardDelivery tests what the generated code expects of a broker:
 // an event with a subject field and no signal to fill it in subscribes to
 // "topic.*" and has to receive every value of it.
 func TestWildcardDelivery(t *testing.T) {
@@ -178,7 +180,7 @@ func TestWildcardDelivery(t *testing.T) {
 	require.Equal(t, "payload", string(msg.Data))
 }
 
-// TestMultipleSubjects covers a page streaming more than one event type.
+// TestMultipleSubjects tests a page streaming more than one event type.
 // One subscription carries all of them.
 func TestMultipleSubjects(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{})
@@ -192,7 +194,7 @@ func TestMultipleSubjects(t *testing.T) {
 	require.Equal(t, "multi.two", receive(t, sub).Subject)
 }
 
-// TestUnrelatedSubjectIsNotDelivered covers the negative case next to it.
+// TestUnrelatedSubjectIsNotDelivered tests the negative case next to it.
 func TestUnrelatedSubjectIsNotDelivered(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{})
 	m := new(testMetrics)
@@ -204,7 +206,7 @@ func TestUnrelatedSubjectIsNotDelivered(t *testing.T) {
 	require.Equal(t, "unrelated.one", receive(t, sub).Subject)
 }
 
-// TestDefaultBrokerChanBuffer covers a broker created without a buffer size.
+// TestDefaultBrokerChanBuffer tests a broker created without a buffer size.
 // Its subscriptions must buffer all the same.
 func TestDefaultBrokerChanBuffer(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{})
@@ -229,7 +231,7 @@ func TestDefaultBrokerChanBuffer(t *testing.T) {
 	}
 }
 
-// TestSlowSubscriberDrops covers the bound on the buffer.
+// TestSlowSubscriberDrops tests the bound on the buffer.
 // A subscription that is not read must drop instead of backpressuring the publisher.
 func TestSlowSubscriberDrops(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{ChanBuffer: 1})
@@ -248,7 +250,7 @@ func TestSlowSubscriberDrops(t *testing.T) {
 		"a slow subscriber blocked the publisher")
 }
 
-// TestNoStreamIsCreated covers what separates this broker from a JetStream one:
+// TestNoStreamIsCreated tests what separates this broker from a JetStream one:
 // it publishes and delivers without a stream backing the subject.
 // The container has JetStream enabled. An accidental dependency on it passes
 // every other test in this file and fails only on a deployment without it.
@@ -267,7 +269,7 @@ func TestNoStreamIsCreated(t *testing.T) {
 	}
 }
 
-// TestCloseIsIdempotent covers the cleanup path.
+// TestCloseIsIdempotent tests the cleanup path.
 // Close closes the channel and a second call is a no-op.
 func TestCloseIsIdempotent(t *testing.T) {
 	b := natscore.New(testConn, natscore.Config{})

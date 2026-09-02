@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCompositeKeyRoundTrip covers the key a session is stored under and the
+// TestCompositeKeyRoundTrip tests the key a session is stored under and the
 // token that carries it. CreateSession keeps the key it built,
 // SaveSession recovers it from the token, and both must name one session.
 func TestCompositeKeyRoundTrip(t *testing.T) {

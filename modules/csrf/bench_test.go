@@ -13,6 +13,8 @@ var (
 	GB bool
 )
 
+// BenchmarkWriteToken measures the token every rendered page pays for,
+// with and without a session.
 func BenchmarkWriteToken(b *testing.B) {
 	var tokens csrf.Tokens
 
@@ -28,6 +30,9 @@ func BenchmarkWriteToken(b *testing.B) {
 	})
 }
 
+// BenchmarkValidateToken measures the check every action request pays for,
+// on a valid token and on each way one can be invalid: the early exits must not
+// be the only fast paths.
 func BenchmarkValidateToken(b *testing.B) {
 	var tokens csrf.Tokens
 	valid := generateBench(b)

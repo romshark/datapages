@@ -13,7 +13,7 @@ import (
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-// TestAssetsRefused covers datapages.WithAssets against an app package that
+// TestAssetsRefused tests datapages.WithAssets against an app package that
 // declares no assets. The option has to say so instead of quietly serving
 // nothing, which is what a missing stylesheet would look like at runtime.
 func TestAssetsRefused(t *testing.T) {

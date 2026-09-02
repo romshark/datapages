@@ -21,7 +21,7 @@ func newClient(t *testing.T) *client.Client {
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
-// TestActionHeadIsRendered covers an action that returns a head of its own:
+// TestActionHeadIsRendered tests an action that returns a head of its own:
 // it reaches the document, next to the app-wide head and before the body.
 func TestActionHeadIsRendered(t *testing.T) {
 	t.Parallel()
@@ -44,7 +44,7 @@ func TestActionHeadIsRendered(t *testing.T) {
 		"the action's head was written after the body opened")
 }
 
-// TestPageLoadCarriesTheGlobalHeadOnly covers a plain page load of the same app,
+// TestPageLoadCarriesTheGlobalHeadOnly tests a plain page load of the same app,
 // which has no head of its own to add.
 func TestPageLoadCarriesTheGlobalHeadOnly(t *testing.T) {
 	t.Parallel()

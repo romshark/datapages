@@ -9,7 +9,7 @@ import (
 	"github.com/romshark/datapages/internal/generator/skeleton"
 )
 
-// TestCIWorkflowInstallsPinnedTools covers what the scaffolded workflow installs.
+// TestCIWorkflowInstallsPinnedTools tests what the scaffolded workflow installs.
 // An unpinned CLI regenerates with whatever released last,
 // and the workflow fails the build when that differs from the committed code.
 func TestCIWorkflowInstallsPinnedTools(t *testing.T) {

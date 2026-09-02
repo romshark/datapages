@@ -15,6 +15,10 @@ func named(name string, underlying types.Type) types.Type {
 	return types.NewNamed(obj, underlying, nil)
 }
 
+// TestPredicates tests the type predicates the parser decides parameter handling by.
+// A named type resolves to its underlying kind, since an application's own
+// `type UserID string` has to bind like a string. uintptr is deliberately not an
+// integer here: it is no request value.
 func TestPredicates(t *testing.T) {
 	t.Parallel()
 	for name, td := range map[string]struct {
@@ -55,6 +59,9 @@ func TestPredicates(t *testing.T) {
 	}
 }
 
+// TestIntTypeName tests the type name and the strconv arguments the generator
+// writes for an integer parameter. The bit size is 0 for int and uint,
+// which is what strconv wants for the platform width.
 func TestIntTypeName(t *testing.T) {
 	t.Parallel()
 	for name, td := range map[string]struct {
@@ -95,6 +102,8 @@ func TestIntTypeName(t *testing.T) {
 	}
 }
 
+// TestFloat tests the same for floats: the type name and the bit size,
+// through a named type as well.
 func TestFloat(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, "float32", gotypes.FloatTypeName(types.Typ[types.Float32]))
@@ -104,6 +113,8 @@ func TestFloat(t *testing.T) {
 	require.Equal(t, 32, gotypes.FloatBits(named("Ratio", types.Typ[types.Float32])))
 }
 
+// TestQualifiedTypeName tests the rendering that goes into generated code and
+// into error messages: a basic type unqualified, a named one with its package name.
 func TestQualifiedTypeName(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, "string", gotypes.QualifiedTypeName(types.Typ[types.String]))
@@ -111,6 +122,9 @@ func TestQualifiedTypeName(t *testing.T) {
 		gotypes.QualifiedTypeName(named("UserID", types.Typ[types.String])))
 }
 
+// TestImplementsTextUnmarshaler tests the interface check that lets a parameter
+// type parse itself. Only the pointer receiver implements it,
+// which is why the generated code takes the address of the value.
 func TestImplementsTextUnmarshaler(t *testing.T) {
 	t.Parallel()
 

@@ -114,6 +114,9 @@ func compositeKey(userID, sessionID string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(userID)) + "." + sessionID
 }
 
+// TestNew tests the constructor against a live NATS server: the default bucket,
+// a custom one and one that already exists all work, and an encryption key of the
+// wrong length is refused up front rather than at the first write.
 func TestNew(t *testing.T) {
 	conn := setupNATS(t)
 
@@ -165,6 +168,8 @@ func TestNew(t *testing.T) {
 	})
 }
 
+// TestSaveSession tests that an updated payload is re-encrypted and stored,
+// and that the next read returns it.
 func TestSaveSession(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
@@ -185,6 +190,9 @@ func TestSaveSession(t *testing.T) {
 	require.Equal(t, updated, got)
 }
 
+// TestSaveSessionInvalidToken tests a token that does not decrypt.
+// Unlike the in-memory manager this reports an error, since the token itself is
+// malformed rather than merely unknown.
 func TestSaveSessionInvalidToken(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
@@ -196,6 +204,8 @@ func TestSaveSessionInvalidToken(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestCreateSession tests that a created session is readable back under its token,
+// and that an empty user ID is refused.
 func TestCreateSession(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
@@ -220,6 +230,8 @@ func TestCreateSession(t *testing.T) {
 	})
 }
 
+// TestCreateSessionErrTokenGenerator tests a failing token generator:
+// the error reaches the caller and nothing is written to the bucket.
 func TestCreateSessionErrTokenGenerator(t *testing.T) {
 	conn := setupNATS(t)
 	sm, err := natskv.New[testSession](conn, failingTokGen{}, natskv.Config{
@@ -246,6 +258,8 @@ type fakeError struct{}
 
 func (*fakeError) Error() string { return "fake error" }
 
+// TestSession tests the payload read by token: a live session, a closed one
+// reported as not found, and a token that does not decrypt at all.
 func TestSession(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
@@ -298,6 +312,8 @@ func TestSession(t *testing.T) {
 	}
 }
 
+// TestSessionBadJSON tests a KV entry corrupted behind the manager's back.
+// The read fails instead of returning a zero payload as though it were the session.
 func TestSessionBadJSON(t *testing.T) {
 	conn := setupNATS(t)
 	bucket := "SESS_BADJSON"
@@ -322,6 +338,10 @@ func TestSessionBadJSON(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestReadSessionFromCookie tests every cookie the browser can send: empty, not base64,
+// encrypted under a key this manager does not hold, naming a closed session, and valid.
+// Only the last is a hit, and none of the others is an error:
+// a bad cookie is a visitor without a session.
 func TestReadSessionFromCookie(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
@@ -377,6 +397,8 @@ func TestReadSessionFromCookie(t *testing.T) {
 	}
 }
 
+// TestReadSessionFromCookieBadJSON tests a corrupted KV entry on the request path.
+// The request continues as a visitor without a session rather than failing.
 func TestReadSessionFromCookieBadJSON(t *testing.T) {
 	conn := setupNATS(t)
 	bucket := "READ_BADJSON"
@@ -402,6 +424,8 @@ func TestReadSessionFromCookieBadJSON(t *testing.T) {
 	require.False(t, ok)
 }
 
+// TestCloseSession tests that a closed session is gone from the bucket,
+// and how the manager answers a token that is already closed or malformed.
 func TestCloseSession(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
@@ -468,6 +492,9 @@ func TestCloseSession(t *testing.T) {
 	}
 }
 
+// TestCloseAllUserSessions tests signing a user out everywhere. The closed
+// tokens land in the caller's buffer, a nil buffer means the caller wants only
+// the effect, and an empty user ID is refused.
 func TestCloseAllUserSessions(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
@@ -535,6 +562,8 @@ func TestCloseAllUserSessions(t *testing.T) {
 	}
 }
 
+// TestUserSessions tests the iterator a settings page reads: one entry per live
+// session of the user, and nothing for an unknown or empty user ID.
 func TestUserSessions(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
@@ -584,6 +613,8 @@ func TestUserSessions(t *testing.T) {
 	}
 }
 
+// TestIterateAndCloseSessions tests that a token the iterator yields works with
+// the rest of the API. Closing a session while iterating must leave nothing behind.
 func TestIterateAndCloseSessions(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
@@ -612,6 +643,8 @@ func TestIterateAndCloseSessions(t *testing.T) {
 	require.Len(t, m, 0)
 }
 
+// TestUserSessionsBreakEarly tests a caller that stops after the first entry.
+// The iterator has to return rather than keep pulling from the KV watcher.
 func TestUserSessionsBreakEarly(t *testing.T) {
 	conn := setupNATS(t)
 	sm := newManager(t, conn, natskv.Config{
@@ -633,6 +666,9 @@ func TestUserSessionsBreakEarly(t *testing.T) {
 	require.Equal(t, 1, count)
 }
 
+// TestUserSessionsBadJSON tests a corrupted entry among a user's sessions.
+// The iterator skips it and yields the rest: one bad key must not hide the whole
+// listing from the settings page.
 func TestUserSessionsBadJSON(t *testing.T) {
 	conn := setupNATS(t)
 	bucket := "USERSESS_BADJSON"
@@ -660,6 +696,9 @@ type callCounter struct{ atomic.Int32 }
 
 func (c *callCounter) Inc() { c.Add(1) }
 
+// TestKeyRotation tests a deployment that changed its encryption key. A session written
+// under the old key still reads, since the old key is kept in PreviousEncryptionKeys,
+// which is what lets the key rotate without signing everyone out.
 func TestKeyRotation(t *testing.T) {
 	conn := setupNATS(t)
 	veryOldKey := []byte("veryoldkey012345")
@@ -694,6 +733,10 @@ func TestKeyRotation(t *testing.T) {
 	require.Equal(t, "admin", sess.Role)
 }
 
+// TestNotifyClosed tests the callback an open SSE stream waits on.
+// A session already gone calls back at once, a live one does not, a close reaches the
+// watcher through the KV watch, a cancelled context stops the watcher,
+// and a malformed token is an error rather than a watcher that never fires.
 func TestNotifyClosed(t *testing.T) {
 	conn := setupNATS(t)
 
@@ -840,9 +883,9 @@ func (g *unsafeGen) Generate() (string, error) {
 	return fmt.Sprintf("%s%d", g.prefix, g.n), nil
 }
 
-// TestUnsafeSessionIDIsRevocable covers a session ID carrying the syntax the
-// KV key is built from. A revocation watches "{user}.*", which matches one
-// token, and an unencoded separator would hide the session from it.
+// TestUnsafeSessionIDIsRevocable tests a session ID carrying the syntax the
+// KV key is built from. A revocation watches "{user}.*", which matches one token,
+// and an unencoded separator would hide the session from it.
 func TestUnsafeSessionIDIsRevocable(t *testing.T) {
 	conn := setupNATS(t)
 	ctx := context.Background()
@@ -886,7 +929,7 @@ func TestUnsafeSessionIDIsRevocable(t *testing.T) {
 	}
 }
 
-// TestEmptySessionIDRefused covers the one session ID encoding cannot save.
+// TestEmptySessionIDRefused tests the one session ID encoding cannot save.
 // An empty ID names no key.
 func TestEmptySessionIDRefused(t *testing.T) {
 	conn := setupNATS(t)
@@ -906,8 +949,8 @@ type emptyGen struct{}
 
 func (emptyGen) Generate() (string, error) { return "", nil }
 
-// TestDeleteExpired covers the sweep. NATS expires keys at one age for the
-// whole bucket, which is not the ExpiresAt a session carries.
+// TestDeleteExpired tests the sweep. NATS expires keys at one age for the whole bucket,
+// which is not the ExpiresAt a session carries.
 func TestDeleteExpired(t *testing.T) {
 	conn := setupNATS(t)
 	sm, err := natskv.New[testSession](conn, tokGen, natskv.Config{

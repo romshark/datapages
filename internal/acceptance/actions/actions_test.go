@@ -1,4 +1,4 @@
-// Covers the generated action handlers of ./app.
+// Tests the generated action handlers of ./app.
 
 package acceptance_test
 
@@ -84,7 +84,7 @@ func echoed(t *testing.T, body string) string {
 	return before
 }
 
-// TestMethods covers one action per HTTP method, page-level and app-level.
+// TestMethods tests one action per HTTP method, page-level and app-level.
 // The action package builds the URL the template would use. The routing of an
 // action is therefore asserted through the same expression a page carries.
 func TestMethods(t *testing.T) {
@@ -134,7 +134,7 @@ func TestMethods(t *testing.T) {
 	}
 }
 
-// TestParameters covers path variables and query parameters on an action.
+// TestParameters tests path variables and query parameters on an action.
 func TestParameters(t *testing.T) {
 	t.Parallel()
 	srv := newServer(t)
@@ -145,7 +145,7 @@ func TestParameters(t *testing.T) {
 	require.Equal(t, "bump id=7 by=3", srv.logOf(t))
 }
 
-// TestSignalsAreRequired covers a request whose body is not the signals the
+// TestSignalsAreRequired tests a request whose body is not the signals the
 // handler declares.
 func TestSignalsAreRequired(t *testing.T) {
 	t.Parallel()
@@ -157,7 +157,7 @@ func TestSignalsAreRequired(t *testing.T) {
 	require.Empty(t, srv.logOf(t), "the handler ran on a body it could not read")
 }
 
-// TestBodySizeLimit covers the limit on a signals body, on an action that
+// TestBodySizeLimit tests the limit on a signals body, on an action that
 // opens an SSE on its own request as well as on one that does not.
 // Both read the signals before anything else, hence the limit costs the SSE nothing.
 func TestBodySizeLimit(t *testing.T) {
@@ -178,7 +178,7 @@ func TestBodySizeLimit(t *testing.T) {
 	}
 }
 
-// TestBodySizeLimitOption covers datapages.WithBodySizeLimit, which is what an
+// TestBodySizeLimitOption tests datapages.WithBodySizeLimit, which is what an
 // application raises when its signals carry more than the default allows.
 func TestBodySizeLimitOption(t *testing.T) {
 	t.Parallel()
@@ -200,7 +200,7 @@ func TestBodySizeLimitOption(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, status, "a body over the limit")
 }
 
-// TestBodyOutput covers an action that answers with a document.
+// TestBodyOutput tests an action that answers with a document.
 func TestBodyOutput(t *testing.T) {
 	t.Parallel()
 	srv := newServer(t)
@@ -210,7 +210,7 @@ func TestBodyOutput(t *testing.T) {
 	require.Equal(t, "rendered by an action", echoed(t, body))
 }
 
-// TestGlobalHead covers the head the app declares once for everything it renders,
+// TestGlobalHead tests the head the app declares once for everything it renders,
 // on a page load and on a rendering action alike.
 func TestGlobalHead(t *testing.T) {
 	t.Parallel()
@@ -229,10 +229,9 @@ func TestGlobalHead(t *testing.T) {
 	}
 }
 
-// TestRedirect covers the script a Datastar request is sent and
-// the 303 a plain one is sent.
-// A Datastar request cannot follow a 303: the browser would replace the fragment,
-// not the page. It gets a script instead.
+// TestRedirect tests the script a Datastar request is sent and
+// the 303 a plain one is sent.  A Datastar request cannot follow a 303:
+// the browser would replace the fragment, not the page. It gets a script instead.
 func TestRedirect(t *testing.T) {
 	t.Parallel()
 	t.Run("datastar request navigates by script", func(t *testing.T) {
@@ -282,7 +281,7 @@ func TestRedirect(t *testing.T) {
 	})
 }
 
-// TestDatastarOnlyActions covers the actions that cannot serve a plain request:
+// TestDatastarOnlyActions tests the actions that cannot serve a plain request:
 // reading signals and answering on an SSE connection both require the Datastar client.
 func TestDatastarOnlyActions(t *testing.T) {
 	t.Parallel()
@@ -305,7 +304,7 @@ func TestDatastarOnlyActions(t *testing.T) {
 	}
 }
 
-// TestSSEOutput covers an action that writes on the connection of its own request.
+// TestSSEOutput tests an action that writes on the connection of its own request.
 // The client sent one request and reads elements and signals back from it.
 func TestSSEOutput(t *testing.T) {
 	t.Parallel()
@@ -329,7 +328,7 @@ func TestSSEOutput(t *testing.T) {
 	require.Equal(t, "patch count=41", srv.logOf(t))
 }
 
-// TestSSEOutputPatchElementAt covers every shape the generated SSE wrapper
+// TestSSEOutputPatchElementAt tests every shape the generated SSE wrapper
 // translates PatchElementAt into: a target, a mode, both, and neither.
 func TestSSEOutputPatchElementAt(t *testing.T) {
 	t.Parallel()
@@ -381,7 +380,7 @@ func TestSSEOutputPatchElementAt(t *testing.T) {
 	}
 }
 
-// TestSSEOutputRemoveElement covers the removal event.
+// TestSSEOutputRemoveElement tests the removal event.
 func TestSSEOutputRemoveElement(t *testing.T) {
 	t.Parallel()
 	srv := newServer(t)
@@ -396,7 +395,7 @@ func TestSSEOutputRemoveElement(t *testing.T) {
 	require.Equal(t, "remove", srv.logOf(t))
 }
 
-// TestSSEOutputSignals covers the signal patches of the SSE wrapper:
+// TestSSEOutputSignals tests the signal patches of the SSE wrapper:
 // JSON given as json.RawMessage, the if-missing variant,
 // and a value that does not marshal.
 func TestSSEOutputSignals(t *testing.T) {
@@ -453,7 +452,7 @@ func TestSSEOutputSignals(t *testing.T) {
 	}
 }
 
-// TestSSEOutputCompressed covers the same action as a client that accepts compression,
+// TestSSEOutputCompressed tests the same action as a client that accepts compression,
 // which every browser does. The events must survive the encoding.
 //
 // The compressed body ends without its gzip footer, because the response ends
@@ -482,7 +481,7 @@ func TestSSEOutputCompressed(t *testing.T) {
 		"the compressed stream lost the patched element")
 }
 
-// TestWrongMethod covers a route reached with a method no action claims.
+// TestWrongMethod tests a route reached with a method no action claims.
 func TestWrongMethod(t *testing.T) {
 	t.Parallel()
 	srv := newServer(t)
@@ -494,8 +493,8 @@ func TestWrongMethod(t *testing.T) {
 		"an action ran for a method it does not serve")
 }
 
-// TestActionExpressions covers the expressions themselves. They go into
-// templates as Datastar attribute values. Their exact text is the contract.
+// TestActionExpressions tests the expressions themselves.
+// They go into templates as Datastar attribute values. Their exact text is the contract.
 func TestActionExpressions(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct{ got, want string }{

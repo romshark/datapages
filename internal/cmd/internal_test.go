@@ -16,7 +16,7 @@ import (
 	"github.com/romshark/datapages/internal/serverscan"
 )
 
-// TestGenWatcherCmd covers the shell line the gen watcher runs.
+// TestGenWatcherCmd tests the shell line the gen watcher runs.
 // Templier looks the first word up on PATH and hands the line to `sh -c`,
 // hence a path carrying a space, a quote or a "$" has to survive both.
 func TestGenWatcherCmd(t *testing.T) {
@@ -46,6 +46,9 @@ func TestGenWatcherCmd(t *testing.T) {
 	}
 }
 
+// TestSplitFlags tests splitting a flags string from the config into argv.
+// Runs of whitespace collapse and an empty string yields no arguments,
+// not one empty one, which the go tool would reject.
 func TestSplitFlags(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input string
@@ -65,6 +68,9 @@ func TestSplitFlags(t *testing.T) {
 	}
 }
 
+// TestBuildCompilerConfig tests translating the config's compiler section into
+// the go build flags templier passes on. A nil section stays nil rather than
+// becoming an empty config, and a field left unset contributes no flag.
 func TestBuildCompilerConfig(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input *config.WatchCompiler
@@ -117,6 +123,7 @@ func TestBuildCompilerConfig(t *testing.T) {
 	}
 }
 
+// TestMapLogLevel tests the mapping from the config's log level to templier's.
 func TestMapLogLevel(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input config.LogLevel
@@ -132,6 +139,7 @@ func TestMapLogLevel(t *testing.T) {
 	}
 }
 
+// TestMapLogClear tests the mapping from the config's log-clearing setting to templier's.
 func TestMapLogClear(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input config.LogClear
@@ -147,6 +155,8 @@ func TestMapLogClear(t *testing.T) {
 	}
 }
 
+// TestMapWatcherRequires tests the mapping from what a custom watcher requires
+// to the action templier takes.
 func TestMapWatcherRequires(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input config.WatcherRequires
@@ -163,6 +173,9 @@ func TestMapWatcherRequires(t *testing.T) {
 	}
 }
 
+// TestMapCustomWatchers tests translating the configured custom watchers.
+// An empty list becomes nil rather than an empty slice, which is what templier
+// reads as no watchers.
 func TestMapCustomWatchers(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input []config.WatchCustomWatcher
@@ -197,6 +210,8 @@ func TestMapCustomWatchers(t *testing.T) {
 	}
 }
 
+// TestCheckCmdPackage tests the check on the entry point directory before the
+// watch command builds it: whether it exists and whether it is a main package.
 func TestCheckCmdPackage(t *testing.T) {
 	for name, tc := range map[string]struct {
 		setup     func(t *testing.T) string
@@ -263,6 +278,9 @@ func TestCheckCmdPackage(t *testing.T) {
 	}
 }
 
+// TestUpgradeGoMod tests raising the datapages requirement in a user's go.mod to
+// the version of the CLI doing the generating. A generator and a runtime that
+// disagree produce code that does not compile.
 func TestUpgradeGoMod(t *testing.T) {
 	const goModTemplate = `module example.com/myapp
 
@@ -336,6 +354,8 @@ require (
 	}
 }
 
+// TestRemoteURLToModulePath tests the module path init suggests from the git remote,
+// for both URL forms git uses. An empty remote yields an empty path rather than a guess.
 func TestRemoteURLToModulePath(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input string
@@ -372,6 +392,8 @@ func TestRemoteURLToModulePath(t *testing.T) {
 	}
 }
 
+// TestSelectApp tests picking the application to act on. One application needs
+// no --app flag, several do, and the error names them so the developer can pick.
 func TestSelectApp(t *testing.T) {
 	one := serverscan.Result{Apps: []serverscan.App{
 		{Name: "app", Dir: "app"},

@@ -21,6 +21,8 @@ func generate(t *testing.T, sessionToken string) string {
 	return b.String()
 }
 
+// TestGenerateValidate tests the round trip:
+// a token written for a session validates against that session.
 func TestGenerateValidate(t *testing.T) {
 	var tokens csrf.Tokens
 
@@ -29,6 +31,9 @@ func TestGenerateValidate(t *testing.T) {
 	require.True(t, tokens.ValidateToken(sessionToken, token))
 }
 
+// TestGenerateMasksEveryToken tests the per-render mask. Two tokens for one
+// session differ on the wire and both validate, which is what keeps a BREACH
+// attacker from learning the token from compressed responses.
 func TestGenerateMasksEveryToken(t *testing.T) {
 	var tokens csrf.Tokens
 
@@ -40,15 +45,21 @@ func TestGenerateMasksEveryToken(t *testing.T) {
 	require.True(t, tokens.ValidateToken(sessionToken, second))
 }
 
+// TestGenerateNeverLeaksTheSessionToken tests that the token the page carries
+// reveals nothing of the session token it is derived from.
 func TestGenerateNeverLeaksTheSessionToken(t *testing.T) {
 	require.NotContains(t, generate(t, sessionToken), sessionToken)
 }
 
+// TestGenerateGuest tests a request without a session. There is nothing to
+// derive from: nothing is written and the page carries no token.
 func TestGenerateGuest(t *testing.T) {
 	require.Empty(t, generate(t, ""),
 		"a guest has no session token to derive from")
 }
 
+// TestValidate tests every token validation must refuse: one from another session,
+// one for a guest, and one damaged in length, alphabet or a single byte.
 func TestValidate(t *testing.T) {
 	var tokens csrf.Tokens
 	valid := generate(t, sessionToken)

@@ -30,6 +30,9 @@ func serve(t *testing.T, c *httpserve.Core, path string) *httptest.ResponseRecor
 	return w
 }
 
+// TestServeHTTPNormalizesPath tests the trailing slash every page path gets
+// before the router sees it. One canonical form per page keeps the route
+// patterns and the generated href helpers from having to agree on two.
 func TestServeHTTPNormalizesPath(t *testing.T) {
 	t.Parallel()
 
@@ -53,7 +56,7 @@ func TestServeHTTPNormalizesPath(t *testing.T) {
 	}
 }
 
-// TestServeHTTPKeepsAssetPaths covers the exception: a static file path keeps
+// TestServeHTTPKeepsAssetPaths tests the exception: a static file path keeps
 // the name it has on disk.
 func TestServeHTTPKeepsAssetPaths(t *testing.T) {
 	t.Parallel()
@@ -68,7 +71,7 @@ func TestServeHTTPKeepsAssetPaths(t *testing.T) {
 	require.Equal(t, "/page/", serve(t, c, "/page").Body.String())
 }
 
-// TestMiddlewareOrder covers that middleware runs in the order it was added,
+// TestMiddlewareOrder tests that middleware runs in the order it was added,
 // and that the outermost one wraps all of them.
 func TestMiddlewareOrder(t *testing.T) {
 	t.Parallel()
@@ -98,6 +101,9 @@ func TestMiddlewareOrder(t *testing.T) {
 	require.Equal(t, []string{"outermost", "first", "second", "handler"}, order)
 }
 
+// TestBuildDefaults tests what a core built from an empty config carries: a logger,
+// the bundled Datastar script in the HTML prefix, and no TLS, metrics or
+// assets until an option asks for them.
 func TestBuildDefaults(t *testing.T) {
 	t.Parallel()
 
@@ -112,6 +118,8 @@ func TestBuildDefaults(t *testing.T) {
 	require.Nil(t, c.AssetsFS())
 }
 
+// TestDatastarJSOption tests that a custom script URL replaces the bundled one
+// in the HTML prefix, which is where every page picks it up.
 func TestDatastarJSOption(t *testing.T) {
 	t.Parallel()
 
@@ -123,7 +131,7 @@ func TestDatastarJSOption(t *testing.T) {
 	require.Contains(t, c.HTMLPrefix(), `src="/static/ds.js"`)
 }
 
-// TestShutdownEndsListenAndServe covers that the context ends the server
+// TestShutdownEndsListenAndServe tests that the context ends the server
 // and that ShutdownCh reports it.
 func TestShutdownEndsListenAndServe(t *testing.T) {
 	t.Parallel()
@@ -152,6 +160,8 @@ func TestShutdownEndsListenAndServe(t *testing.T) {
 	<-c.ShutdownCh()
 }
 
+// TestBuildServesAssets tests that an assets file system plus a URL prefix
+// reach the router as a file server.
 func TestBuildServesAssets(t *testing.T) {
 	t.Parallel()
 
@@ -165,6 +175,9 @@ func TestBuildServesAssets(t *testing.T) {
 	require.Equal(t, "hello", strings.TrimSpace(w.Body.String()))
 }
 
+// TestBuildWithoutAssetsPrefix tests an assets file system given without a URL prefix.
+// Nothing is routed to it: serving it under a guessed prefix would expose
+// files the application never asked to publish.
 func TestBuildWithoutAssetsPrefix(t *testing.T) {
 	t.Parallel()
 
@@ -176,7 +189,7 @@ func TestBuildWithoutAssetsPrefix(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, serve(t, c, "/static/hello.txt").Code)
 }
 
-// TestWildcardPathValue covers the value a {name...} route wildcard hands a
+// TestWildcardPathValue tests the value a {name...} route wildcard hands a
 // handler after [httpserve.Core.ServeHTTP] normalized the path.
 func TestWildcardPathValue(t *testing.T) {
 	for name, tt := range map[string]struct{ raw, want string }{

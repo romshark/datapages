@@ -1,4 +1,4 @@
-// Covers the generated asset serving and metrics of ./app.
+// Tests the generated asset serving and metrics of ./app.
 
 package acceptance_test
 
@@ -58,7 +58,7 @@ func get(t *testing.T, srv *httptest.Server, path string) *http.Response {
 	return resp
 }
 
-// TestAssetPath covers the asset URL builders against path.Join,
+// TestAssetPath tests the asset URL builders against path.Join,
 // which is what they fall back to.
 func TestAssetPath(t *testing.T) {
 	t.Parallel()
@@ -73,7 +73,7 @@ func TestAssetPath(t *testing.T) {
 	}
 }
 
-// TestAssetsAreServed covers the files the app embeds. The prefix comes from
+// TestAssetsAreServed tests the files the app embeds. The prefix comes from
 // the configuration and reaches both the URL builder and the route.
 // The two must agree on it.
 func TestAssetsAreServed(t *testing.T) {
@@ -124,7 +124,7 @@ func TestAssetsAreServed(t *testing.T) {
 	}
 }
 
-// TestAssetURLs covers the two generated ways to name an asset.
+// TestAssetURLs tests the two generated ways to name an asset.
 // Both are used in templates and both must produce the configured prefix.
 func TestAssetURLs(t *testing.T) {
 	t.Parallel()
@@ -133,7 +133,7 @@ func TestAssetURLs(t *testing.T) {
 	require.Equal(t, "/static/style.css", href.Asset("style.css"))
 }
 
-// TestAssetsEscapeTheirDirectory covers a path that climbs out of the embedded directory.
+// TestAssetsEscapeTheirDirectory tests a path that climbs out of the embedded directory.
 func TestAssetsEscapeTheirDirectory(t *testing.T) {
 	t.Parallel()
 	srv := newServer(t)
@@ -155,7 +155,7 @@ func TestAssetsEscapeTheirDirectory(t *testing.T) {
 	}
 }
 
-// TestDatapagesDevModeServesFromDisk covers the variable datapages owns.
+// TestDatapagesDevModeServesFromDisk tests the variable datapages owns.
 // It turns dev mode on the same way and hands templ the mode as well,
 // which reads its own variable and nothing else.
 //
@@ -189,7 +189,7 @@ func TestDatapagesDevModeServesFromDisk(t *testing.T) {
 	require.Contains(t, string(b), "rebeccapurple", "the file on disk was not served")
 }
 
-// TestDevModeServesFromDisk covers what WithAssets does in development.
+// TestDevModeServesFromDisk tests what WithAssets does in development.
 //
 // In dev mode the files come from the directory on disk rather than from the binary.
 // An edit to a stylesheet then shows up without a rebuild.
@@ -230,7 +230,7 @@ func TestDevModeServesFromDisk(t *testing.T) {
 		"caching is not forbidden in dev mode")
 }
 
-// TestMetrics covers the instrumentation the Prometheus option adds.
+// TestMetrics tests the instrumentation the Prometheus option adds.
 // The counters are read from the registry the server was given,
 // the same registry a scrape reads.
 func TestMetrics(t *testing.T) {
@@ -269,7 +269,7 @@ func TestMetrics(t *testing.T) {
 		"the request duration histogram was not registered")
 }
 
-// TestBrokerMetrics covers the counters the generated code hands the message broker.
+// TestBrokerMetrics tests the counters the generated code hands the message broker.
 // They are what an operator watches to see events flowing,
 // and they only move if the generated dispatch passes them along.
 func TestBrokerMetrics(t *testing.T) {
@@ -325,7 +325,7 @@ func counterTotal(t *testing.T, name string) float64 {
 	return total
 }
 
-// TestMetricsWithoutOption covers a server generated with
+// TestMetricsWithoutOption tests a server generated with
 // datapages.EnablePrometheus and built without datapages.WithPrometheus.
 // The metrics it counts have nowhere to go.
 func TestMetricsWithoutOption(t *testing.T) {

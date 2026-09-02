@@ -23,6 +23,9 @@ import (
 	"github.com/romshark/datapages/internal/cmd"
 )
 
+// TestRun tests the CLI's top-level dispatch: which exit code and which stream
+// each invocation writes to. No command lists the commands and exits 0,
+// an unknown one is an error on stderr.
 func TestRun(t *testing.T) {
 	for name, tc := range map[string]struct {
 		args       []string
@@ -79,6 +82,8 @@ func TestRun(t *testing.T) {
 	}
 }
 
+// TestVersion tests the version command in both forms, and what it prints for a
+// dev build where the ldflags set nothing.
 func TestVersion(t *testing.T) {
 	for name, tc := range map[string]struct {
 		args                  []string
@@ -222,6 +227,8 @@ func setupProject(t *testing.T, appGoFile string) string {
 	return dir
 }
 
+// TestWatch tests the watch command over a scaffolded module: it refuses a
+// directory with no go.mod, and it shuts the engine down when its context ends.
 func TestWatch(t *testing.T) {
 	t.Run("no module", func(t *testing.T) {
 		dir := t.TempDir()
@@ -352,6 +359,9 @@ func TestWatch(t *testing.T) {
 	})
 }
 
+// TestLintGen tests that lint accepts the code gen just wrote, over the fixture
+// apps in testdata. Generated code that trips the project's own linters would
+// fail every user's build.
 func TestLintGen(t *testing.T) {
 	// checkGenPackage checks only the generated package files (no cmd entry point).
 	checkGenPackage := func(t *testing.T, dir string) {
@@ -506,6 +516,9 @@ func setDatapagesVersion(t *testing.T, dir, version string) {
 	require.NoError(t, os.WriteFile(goModPath, replaced, 0o644))
 }
 
+// TestLintGoModVersion tests the version check lint runs: a go.mod requiring a
+// datapages version other than the CLI's is reported, since the generated code
+// and the runtime have to match.
 func TestLintGoModVersion(t *testing.T) {
 	for name, tc := range map[string]struct {
 		goModVersion string
@@ -558,6 +571,8 @@ func TestLintGoModVersion(t *testing.T) {
 	}
 }
 
+// TestGenGoModUpgrade tests gen raising the datapages requirement in go.mod to
+// its own version, and leaving it alone when it already matches.
 func TestGenGoModUpgrade(t *testing.T) {
 	for name, tc := range map[string]struct {
 		goModVersion string // datapages version to inject into go.mod
@@ -676,6 +691,9 @@ func main() {
 		"go run ./probe: %s", out)
 }
 
+// TestGenBuild tests that a generated application compiles and runs: gen,
+// then go build against this checkout through a replace directive. A generator change
+// that produces uncompilable code passes every unit test in this package.
 func TestGenBuild(t *testing.T) {
 	// Resolve the datapages module root before setupProject changes cwd.
 	datapagesRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -774,6 +792,8 @@ func workspaceGoVersion(t *testing.T, repoRoot string) string {
 	return version
 }
 
+// TestInit tests scaffolding a new project: what init writes, what it asks for on stdin,
+// and which directories it refuses to scaffold into.
 func TestInit(t *testing.T) {
 	repoRoot := repoRootDir(t)
 	for name, tc := range map[string]struct {

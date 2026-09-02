@@ -1,4 +1,4 @@
-// Covers the generated error handling of ./app.
+// Tests the generated error handling of ./app.
 
 package acceptance_test
 
@@ -21,7 +21,7 @@ func newClient(t *testing.T) *client.Client {
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
-// TestNotFoundPage covers the page an app supplies for URLs nothing claims,
+// TestNotFoundPage tests the page an app supplies for URLs nothing claims,
 // reached both ways: by such a URL and by its own route.
 func TestNotFoundPage(t *testing.T) {
 	t.Parallel()
@@ -39,8 +39,8 @@ func TestNotFoundPage(t *testing.T) {
 	}
 }
 
-// TestServerErrorPageRoute covers the 500 page reached by its own route,
-// which is served like any other page. The error500page case covers what a
+// TestServerErrorPageRoute tests the 500 page reached by its own route,
+// which is served like any other page. The error500page case tests what a
 // failed page load is answered with.
 func TestServerErrorPageRoute(t *testing.T) {
 	t.Parallel()
@@ -51,7 +51,7 @@ func TestServerErrorPageRoute(t *testing.T) {
 	require.Equal(t, "server error", resp.Element(t, "echo"))
 }
 
-// TestFailedPageLoad covers a page load whose handler fails.
+// TestFailedPageLoad tests a page load whose handler fails.
 // Whatever the visitor is given, it cannot be the error the handler produced:
 // that text is written for the operator's log.
 func TestFailedPageLoad(t *testing.T) {
@@ -64,7 +64,7 @@ func TestFailedPageLoad(t *testing.T) {
 		"the error message reached the visitor")
 }
 
-// TestActionErrorStatus covers the status an action's error becomes.
+// TestActionErrorStatus tests the status an action's error becomes.
 // The sentinels are the only way an application chooses it,
 // and each one must arrive as itself.
 func TestActionErrorStatus(t *testing.T) {
@@ -94,7 +94,7 @@ func TestActionErrorStatus(t *testing.T) {
 	}
 }
 
-// TestFailedPageLoadIsNotCached covers the response of a failed page load.
+// TestFailedPageLoadIsNotCached tests the response of a failed page load.
 // A cached 500 outlives the failure that caused it.
 func TestFailedPageLoadIsNotCached(t *testing.T) {
 	t.Parallel()

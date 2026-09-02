@@ -37,6 +37,9 @@ func frame(t *testing.T, fn func(g *datastar.ServerSentEventGenerator) error) st
 
 var element = templ.Raw(`<div id="out">x</div>`)
 
+// TestPatchElement tests the element patch event the wrapper writes. An empty selector,
+// an empty mode and a mode Datastar does not know are all left out of the event
+// rather than written empty, which would make the client patch the wrong place.
 func TestPatchElement(t *testing.T) {
 	t.Parallel()
 
@@ -96,7 +99,7 @@ func TestPatchElement(t *testing.T) {
 	}
 }
 
-// TestSelectorLineBreak covers the selector that would end the data line it goes on.
+// TestSelectorLineBreak tests the selector that would end the data line it goes on.
 // What follows one reaches the browser as events of its own.
 func TestSelectorLineBreak(t *testing.T) {
 	t.Parallel()
@@ -133,7 +136,7 @@ func TestSelectorLineBreak(t *testing.T) {
 	}
 }
 
-// TestRemoveElementMatchesDatastar covers the removal event the wrapper writes.
+// TestRemoveElementMatchesDatastar tests the removal event the wrapper writes.
 // Its bytes must be the ones datastar.RemoveElement writes.
 func TestRemoveElementMatchesDatastar(t *testing.T) {
 	t.Parallel()
@@ -147,7 +150,7 @@ func TestRemoveElementMatchesDatastar(t *testing.T) {
 	require.Equal(t, want, got)
 }
 
-// TestRedirectCarriesNoTag covers a redirect target that would end the script element
+// TestRedirectCarriesNoTag tests a redirect target that would end the script element
 // it travels in. What follows such a target would reach the DOM as markup of its own.
 func TestRedirectCarriesNoTag(t *testing.T) {
 	t.Parallel()
@@ -163,6 +166,9 @@ func TestRedirectCarriesNoTag(t *testing.T) {
 	require.Contains(t, got, "window.location.href")
 }
 
+// TestPatchSignals tests the signal patch event for a struct, for raw JSON and
+// for the if-missing variant. A value that fails to marshal returns the error and
+// writes nothing: a half-written event would leave the stream unparseable.
 func TestPatchSignals(t *testing.T) {
 	t.Parallel()
 
@@ -217,6 +223,8 @@ func TestPatchSignals(t *testing.T) {
 	})
 }
 
+// TestScriptAndRedirect tests the three events that carry a payload straight to
+// the browser: a script, a redirect target and prefetch hints.
 func TestScriptAndRedirect(t *testing.T) {
 	t.Parallel()
 

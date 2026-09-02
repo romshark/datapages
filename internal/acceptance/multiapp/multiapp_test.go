@@ -1,4 +1,4 @@
-// Covers the two servers this module builds.
+// Tests the two servers this module builds.
 //
 // The module names one app package with sessions and no metrics, and another
 // with metrics and no sessions. Each app package is generated for what its own
@@ -31,7 +31,7 @@ func broker() messaging.Broker {
 	return inmem.New(messaging.DefaultBrokerChanBuffer)
 }
 
-// TestFrontendCarriesSessions covers the session handling generated for the
+// TestFrontendCarriesSessions tests the session handling generated for the
 // app package that declares a session type. The other app package declares
 // none and is generated in the same run.
 func TestFrontendCarriesSessions(t *testing.T) {
@@ -47,7 +47,7 @@ func TestFrontendCarriesSessions(t *testing.T) {
 	require.Equal(t, "user=alice nickname=al", c.Get(t, "/").Element(t, "echo"))
 }
 
-// TestFrontendCarriesNoMetrics covers the frontend server against the option
+// TestFrontendCarriesNoMetrics tests the frontend server against the option
 // its type arguments do not ask for. The generated code refuses it,
 // which is how a caller finds out that this app package has no instrumentation.
 func TestFrontendCarriesNoMetrics(t *testing.T) {
@@ -64,7 +64,7 @@ func TestFrontendCarriesNoMetrics(t *testing.T) {
 	require.ErrorContains(t, err, "unexpected option WithPrometheus")
 }
 
-// TestAdminCarriesMetrics covers the instrumentation generated for the app
+// TestAdminCarriesMetrics tests the instrumentation generated for the app
 // package whose calls name datapages.EnablePrometheus. The counters are read
 // from the registry the server was given, the same registry a scrape reads.
 func TestAdminCarriesMetrics(t *testing.T) {
@@ -102,7 +102,7 @@ func requestsTotal(t *testing.T) float64 {
 	return total
 }
 
-// TestAdminCarriesNoSessions covers the admin server against the option its
+// TestAdminCarriesNoSessions tests the admin server against the option its
 // type arguments do not ask for. The generated Init rejects a session manager
 // by name, which only an app package declaring no session type is given.
 func TestAdminCarriesNoSessions(t *testing.T) {
@@ -124,7 +124,7 @@ func TestAdminCarriesNoSessions(t *testing.T) {
 	require.ErrorContains(t, err, "declares no session type")
 }
 
-// TestAdminRequiresItsPrometheusConfig covers the admin server without the
+// TestAdminRequiresItsPrometheusConfig tests the admin server without the
 // option its metrics mode requires.
 //
 // The frontend counterpart cannot be written: the scan refuses a call naming a
@@ -142,7 +142,7 @@ func TestAdminRequiresItsPrometheusConfig(t *testing.T) {
 	require.ErrorContains(t, err, "missing option WithPrometheus")
 }
 
-// TestBothServersRunTogether covers the two applications running side by side.
+// TestBothServersRunTogether tests the two applications running side by side.
 // Each serves its own routes and neither serves the other's.
 func TestBothServersRunTogether(t *testing.T) {
 	t.Parallel()

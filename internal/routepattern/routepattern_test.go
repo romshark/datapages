@@ -7,6 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestVars tests the variable names read out of a route pattern,
+// wildcards included. "{$}" is no variable, and a malformed pattern
+// yields none rather than a partial name.
 func TestVars(t *testing.T) {
 	tests := map[string]struct {
 		route string
@@ -35,6 +38,8 @@ func TestVars(t *testing.T) {
 	}
 }
 
+// TestVarsEarlyBreak tests a caller that stops after the first name,
+// which is the iterator's early-return path.
 func TestVarsEarlyBreak(t *testing.T) {
 	// Stop consuming after the first variable to cover
 	// the !yield(name) early-return branch.
@@ -46,6 +51,8 @@ func TestVarsEarlyBreak(t *testing.T) {
 	require.Equal(t, "x", got)
 }
 
+// TestEndsInWildcard tests the pattern shape that makes a route match a whole subtree.
+// It has to be the last segment: a "{path...}" anywhere else is not one.
 func TestEndsInWildcard(t *testing.T) {
 	tests := map[string]struct {
 		route string
@@ -66,6 +73,8 @@ func TestEndsInWildcard(t *testing.T) {
 	}
 }
 
+// TestWithTrailingSlash tests the canonical form every page route is registered under.
+// "{$}" is dropped rather than kept, since the trailing slash already says what it said.
 func TestWithTrailingSlash(t *testing.T) {
 	tests := map[string]struct {
 		route string
@@ -87,6 +96,10 @@ func TestWithTrailingSlash(t *testing.T) {
 	}
 }
 
+// TestSegments tests the split the generated href helpers are built from:
+// the literal pieces they concatenate and the variable names that go between them.
+// There is always one more literal than variable, which lets a helper write
+// literal, value, literal.
 func TestSegments(t *testing.T) {
 	tests := map[string]struct {
 		route        string
