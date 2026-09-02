@@ -40,8 +40,8 @@ const (
 // It holds the parts that carry nothing of the application:
 // the listener, the routes, the middleware chain, the logger and the shutdown.
 //
-// A generated server embeds it, registers its routes on [Core.Mux] and
-// calls [Core.Build].
+// A generated server embeds it, registers its routes on
+// [Core.Mux] and calls [Core.Build].
 type Core struct {
 	// assetsURLPrefix is the path static files are served under.
 	// Empty when the application serves none.
@@ -61,15 +61,17 @@ type Core struct {
 	assetsFS      http.FileSystem
 	datastarJSSrc string
 	htmlPrefix    string
-	enabledTLS    bool
 	bodySizeLimit int64
+
+	// lockListen guards the fields [Core.listenAndServe] sets once it binds.
+	lockListen sync.Mutex
+	addr       string
+	enabledTLS bool
 }
 
-// NewCore returns a core configured by cfg, serving static files under
-// assetsURLPrefix. An empty prefix serves none.
-func NewCore(
-	cfg datapages.ServerConfig, assetsURLPrefix string,
-) (*Core, error) {
+// NewCore returns a core configured by cfg, serving static files under assetsURLPrefix.
+// An empty prefix serves none.
+func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) {
 	c := &Core{
 		assetsURLPrefix: assetsURLPrefix,
 		shutdownCh:      make(chan struct{}),
@@ -183,9 +185,7 @@ func (c *Core) HTTPErrBad(w http.ResponseWriter, msg string, err error) {
 // CheckDatastarRequest reports whether r was issued by the Datastar client.
 // It answers r with 406 when it was not, in which case the handler must
 // write nothing more.
-func (c *Core) CheckDatastarRequest(
-	w http.ResponseWriter, r *http.Request,
-) (ok bool) {
+func (c *Core) CheckDatastarRequest(w http.ResponseWriter, r *http.Request) (ok bool) {
 	if !IsDatastarRequest(r) {
 		c.logger.Debug("not a datastar request",
 			slog.Any("method", r.Method),
@@ -214,7 +214,20 @@ func (c *Core) MetricsEnabled() bool { return c.metricsServer != nil }
 func (c *Core) BodySizeLimit() int64 { return c.bodySizeLimit }
 
 // TLSEnabled reports whether the server listens for HTTPS connections.
-func (c *Core) TLSEnabled() bool { return c.enabledTLS }
+func (c *Core) TLSEnabled() bool {
+	c.lockListen.Lock()
+	defer c.lockListen.Unlock()
+	return c.enabledTLS
+}
+
+// Addr is the address the server bound,
+// which is what a caller that passed port 0 needs to reach it.
+// Empty until [Core.ListenAndServe] or [Core.ListenAndServeTLS] bound one.
+func (c *Core) Addr() string {
+	c.lockListen.Lock()
+	defer c.lockListen.Unlock()
+	return c.addr
+}
 
 // tracked records whether any of the response body went out. A body cannot be
 // taken back: an error page appended to a half-written page is two documents.
@@ -275,11 +288,11 @@ func (c *Core) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // WildcardPathValue reads the value of a {name...} route wildcard.
 //
-// [Core.ServeHTTP] appends a slash to a path that carries none. A wildcard
-// runs to the end of the path, so that slash lands inside its value instead of
-// after it, and every request reaches the handler with one, however the client
-// wrote the URL. Trimming it is what makes the value the handler reads the
-// value the caller built the URL with.
+// [Core.ServeHTTP] appends a slash to a path that carries none.
+// A wildcard runs to the end of the path, so that slash lands inside its
+// value instead of after it, and every request reaches the handler with one,
+// however the client wrote the URL. Trimming it is what makes the value
+// the handler reads the value the caller built the URL with.
 //
 // A value that ends in a slash of its own cannot be told apart from one the
 // normalization added and loses it too.
@@ -291,11 +304,9 @@ func WildcardPathValue(r *http.Request, name string) string {
 //
 // The provided context controls graceful shutdown.
 func (c *Core) ListenAndServe(ctx context.Context, addr string) error {
-	c.httpServer.Addr = addr
-	c.enabledTLS = false
-	return c.listenAndServe(ctx, func() error {
-		c.logger.Info("listening HTTP", slog.String("addr", addr))
-		return c.httpServer.ListenAndServe()
+	return c.listenAndServe(ctx, addr, false, func(ln net.Listener) error {
+		c.logger.Info("listening HTTP", slog.String("addr", c.Addr()))
+		return c.httpServer.Serve(ln)
 	})
 }
 
@@ -304,19 +315,17 @@ func (c *Core) ListenAndServe(ctx context.Context, addr string) error {
 func (c *Core) ListenAndServeTLS(
 	ctx context.Context, addr, certFile, keyFile string,
 ) error {
-	c.httpServer.Addr = addr
-	c.enabledTLS = true
-	return c.listenAndServe(ctx, func() error {
+	return c.listenAndServe(ctx, addr, true, func(ln net.Listener) error {
 		c.logger.Info("listening HTTP",
-			slog.String("addr", addr),
+			slog.String("addr", c.Addr()),
 			slog.String("tls.cert", certFile),
 			slog.String("tls.key", keyFile))
-		return c.httpServer.ListenAndServeTLS(certFile, keyFile)
+		return c.httpServer.ServeTLS(ln, certFile, keyFile)
 	})
 }
 
 func (c *Core) listenAndServe(
-	ctx context.Context, listenAndServe func() error,
+	ctx context.Context, addr string, tls bool, serve func(net.Listener) error,
 ) error {
 	if datapages.IsDevMode() {
 		// Assets come from the source tree here,
@@ -324,6 +333,19 @@ func (c *Core) listenAndServe(
 		c.logger.Warn("dev mode is on",
 			slog.String("env", datapages.EnvVarDevMode+"/TEMPL_DEV_MODE"))
 	}
+	c.httpServer.Addr = addr
+	// Bind here rather than in [http.Server.ListenAndServe] so that the port
+	// is known before anything serves. A caller that passed port 0 reads the
+	// one the kernel chose from [Core.Addr].
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listening on %s: %w", addr, err)
+	}
+	boundAddr := ln.Addr().String()
+	c.lockListen.Lock()
+	c.addr, c.enabledTLS = boundAddr, tls
+	c.lockListen.Unlock()
+
 	ctx, cancel := context.WithCancel(ctx)
 	c.runCancel = cancel
 
@@ -333,7 +355,7 @@ func (c *Core) listenAndServe(
 
 	// Main frontend server
 	g.Go(func() error {
-		if err := listenAndServe(); err != nil &&
+		if err := serve(ln); err != nil &&
 			!errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
@@ -363,7 +385,11 @@ func (c *Core) listenAndServe(
 		)
 		defer cancel()
 
-		_ = c.Shutdown(shutdownCtx)
+		// An SSE stream open when the grace period ends is routine here.
+		// Returning the error would mark every such shutdown a failed run.
+		if err := c.Shutdown(shutdownCtx); err != nil {
+			c.LogErr("shutting down", err)
+		}
 		return nil
 	})
 

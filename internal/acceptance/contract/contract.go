@@ -18,24 +18,13 @@ package contract
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"math/big"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -43,6 +32,9 @@ import (
 )
 
 // Server is the generated *Server, named by what the suite calls on it.
+// ListenAndServe and ListenAndServeTLS are here so that every generated
+// server is asserted to expose them. What they do is asserted in
+// runtime/httpserve, which holds the code behind them.
 type Server interface {
 	http.Handler
 	ListenAndServe(ctx context.Context, addr string) error
@@ -157,8 +149,7 @@ func Run(t *testing.T, c Case) {
 		"GeneratedActionsAreRouted":  c.testGeneratedActionsAreRouted,
 		"GeneratedLinksAreRouted":    c.testGeneratedLinksAreRouted,
 		"HTTPServerOption":           c.testHTTPServerOption,
-		"ListenAndServe":             c.testListenAndServe,
-		"ListenAndServeTLS":          c.testListenAndServeTLS,
+		"LoggerOption":               c.testLoggerOption,
 		"MalformedSignals":           c.testMalformedSignals,
 		"MessageBrokerStreamSubject": c.testMessageBrokerStreamSubjects,
 		"Middleware":                 c.testMiddleware,
@@ -986,13 +977,13 @@ func (c Case) testMessageBrokerStreamSubjects(t *testing.T) {
 	}
 }
 
-// testListenAndServe tests the lifecycle a main.go runs.
-// The server listens on a port, serves, and stops when it is told to.
+// testLoggerOption tests that the logger the option carries is the one the
+// generated server logs to. The shutdown line is what every server logs
+// without serving a request.
 //
-// It runs with WithLogger. The lifecycle is where every server logs something
-// of its own. A configured logger that receives none of it leaves the
-// deployment without a record of its server starting.
-func (c Case) testListenAndServe(t *testing.T) {
+// The lifecycle behind [Server.ListenAndServe] belongs to the runtime,
+// which tests it once instead of once per case.
+func (c Case) testLoggerOption(t *testing.T) {
 	if c.WithLogger == nil {
 		t.Skip("the case wires no WithLogger")
 	}
@@ -1002,175 +993,15 @@ func (c Case) testListenAndServe(t *testing.T) {
 			Level: slog.LevelDebug,
 		})),
 	))
-	addr := freeAddr(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
-	done := make(chan error, 1)
-	go func() { done <- s.ListenAndServe(ctx, addr) }()
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	c.awaitPage(t, client, "http://"+addr+c.index())
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(
-		context.Background(), 10*time.Second,
-	)
-	defer shutdownCancel()
-	if err := s.Shutdown(shutdownCtx); err != nil {
+	if err := s.Shutdown(ctx); err != nil {
 		t.Errorf("Shutdown: %v", err)
 	}
 
-	select {
-	case err := <-done:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			t.Errorf("ListenAndServe returned %v", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Error("ListenAndServe did not return after Shutdown")
-	}
-
-	logged := buf.String()
-	for _, want := range []string{"listening", "shutdown"} {
-		if !strings.Contains(logged, want) {
-			t.Errorf("the configured logger received no %q line:\n%s", want, logged)
-		}
-	}
-	if !strings.Contains(logged, addr) {
-		t.Errorf("the server did not log the address it listens on:\n%s", logged)
-	}
-}
-
-// testListenAndServeTLS tests the same over TLS.
-// The server runs this way when nothing terminates HTTPS in front of it.
-func (c Case) testListenAndServeTLS(t *testing.T) {
-	s := c.NewServer(t)
-	certFile, keyFile := selfSignedCert(t)
-	addr := freeAddr(t)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	done := make(chan error, 1)
-	go func() { done <- s.ListenAndServeTLS(ctx, addr, certFile, keyFile) }()
-
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-	}
-	c.awaitPage(t, client, "https://"+addr+c.index())
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(
-		context.Background(), 10*time.Second,
-	)
-	defer shutdownCancel()
-	if err := s.Shutdown(shutdownCtx); err != nil {
-		t.Errorf("Shutdown: %v", err)
-	}
-
-	select {
-	case err := <-done:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			t.Errorf("ListenAndServeTLS returned %v", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Error("ListenAndServeTLS did not return after Shutdown")
-	}
-}
-
-// awaitPage waits for the server to accept connections and
-// asserts that what it serves is the page.
-func (c Case) awaitPage(t *testing.T, client *http.Client, target string) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		req, err := http.NewRequestWithContext(
-			context.Background(), http.MethodGet, target, nil,
-		)
-		if err != nil {
-			t.Fatalf("building GET %s: %v", target, err)
-		}
-		req.Header.Set("Accept-Encoding", "identity")
-		resp, err := client.Do(req)
-		if err == nil {
-			b, readErr := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
-			if readErr != nil {
-				t.Fatalf("reading %s: %v", target, readErr)
-			}
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("GET %s: status = %d", target, resp.StatusCode)
-			}
-			if !strings.Contains(string(b), "<!DOCTYPE html>") {
-				t.Errorf("the listening server did not serve a page:\n%s", b)
-			}
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the server never accepted a connection: %v", err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-// freeAddr reserves a port and releases it.
-// That is the closest a test can get to an address it knows is free.
-func freeAddr(t *testing.T) string {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserving a port: %v", err)
-	}
-	addr := ln.Addr().String()
-	if err := ln.Close(); err != nil {
-		t.Fatalf("releasing the port: %v", err)
-	}
-	return addr
-}
-
-// selfSignedCert writes a certificate and key for 127.0.0.1.
-func selfSignedCert(t *testing.T) (certFile, keyFile string) {
-	t.Helper()
-
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatalf("generating a key: %v", err)
-	}
-	tmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "127.0.0.1"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(time.Hour),
-		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		IsCA:                  true,
-		BasicConstraintsValid: true,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		t.Fatalf("creating a certificate: %v", err)
-	}
-	keyDER, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		t.Fatalf("encoding the key: %v", err)
-	}
-
-	dir := t.TempDir()
-	certFile = filepath.Join(dir, "cert.pem")
-	keyFile = filepath.Join(dir, "key.pem")
-	writePEM(t, certFile, "CERTIFICATE", der)
-	writePEM(t, keyFile, "EC PRIVATE KEY", keyDER)
-	return certFile, keyFile
-}
-
-func writePEM(t *testing.T, path, kind string, der []byte) {
-	t.Helper()
-	b := pem.EncodeToMemory(&pem.Block{Type: kind, Bytes: der})
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		t.Fatalf("writing %s: %v", path, err)
+	if logged := buf.String(); !strings.Contains(logged, "shutdown") {
+		t.Errorf("the configured logger received no shutdown line:\n%s", logged)
 	}
 }
 
