@@ -193,6 +193,32 @@ func TestSaveSession(t *testing.T) {
 	require.Equal(t, updated, got)
 }
 
+// TestSaveSessionUserIDMismatch tests a record naming a different user than
+// the key it would be stored under. Accepting it made ReadSessionFromCookie,
+// Session and UserSessions report three different answers about who is signed in.
+func TestSaveSessionUserIDMismatch(t *testing.T) {
+	conn := setupNATS(t)
+	sm := newManager(t, conn, natskv.Config{
+		EncryptionKey: validKey(),
+		KVConfig:      nats.KeyValueConfig{Bucket: "SAVE_MISMATCH"},
+	})
+	ctx := context.Background()
+
+	token, err := sm.CreateSession(ctx, "alice", testSession{Username: "alice"})
+	require.NoError(t, err)
+
+	err = sm.SessionManager.SaveSession(ctx, token, sessions.Record[testSession]{
+		UserID: "bob",
+		Data:   testSession{Username: "bob"},
+	})
+	require.ErrorIs(t, err, natskv.ErrUserIDMismatch)
+
+	rec, _, _, ok, err := sm.ReadSessionFromCookie(token)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, testSession{Username: "alice"}, rec)
+}
+
 // TestSaveSessionInvalidToken tests a token that does not decrypt.
 // Unlike the in-memory manager this reports an error, since the token itself is
 // malformed rather than merely unknown.

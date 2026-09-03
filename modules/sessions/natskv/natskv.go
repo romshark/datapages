@@ -50,6 +50,10 @@ var (
 	ErrSessionNotFound = errors.New("session not found")
 
 	ErrAllDecryptionKeysFailed = errors.New("all keys failed")
+
+	// ErrUserIDMismatch is returned when a saved record names another user
+	// than the key it is stored under, which decides who a session belongs to.
+	ErrUserIDMismatch = errors.New("record user ID contradicts the session key")
 )
 
 // New creates a new NATS Key-Value store backed session manager.
@@ -244,12 +248,20 @@ func (s *SessionManager[Data]) NotifyClosed(
 }
 
 // SaveSession overwrites the session data for an existing token.
+// The record must name the user the token belongs to.
 func (s *SessionManager[Data]) SaveSession(
 	_ context.Context, token string, rec sessions.Record[Data],
 ) error {
 	kvKey, err := decrypt(s.aeads, token)
 	if err != nil {
 		return fmt.Errorf("decrypting token: %w", err)
+	}
+	uid, err := parseCompositeKeyUserID(kvKey)
+	if err != nil {
+		return fmt.Errorf("parsing composite key: %w", err)
+	}
+	if rec.UserID != uid {
+		return fmt.Errorf("%w: %q under %q", ErrUserIDMismatch, rec.UserID, uid)
 	}
 	return s.putSession(kvKey, rec)
 }
@@ -374,6 +386,10 @@ func (s *SessionManager[Data]) Session(
 	if err != nil {
 		return rec, fmt.Errorf("decrypting session token: %w", err)
 	}
+	uid, err := parseCompositeKeyUserID(kvKey)
+	if err != nil {
+		return rec, fmt.Errorf("parsing composite key: %w", err)
+	}
 
 	entry, err := s.kv.Get(kvKey)
 	if err != nil {
@@ -390,6 +406,9 @@ func (s *SessionManager[Data]) Session(
 	if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
 		return rec, fmt.Errorf("unmarshaling session data: %w", err)
 	}
+	// The user id in the key is authoritative,
+	// the same way ReadSessionFromCookie reads it.
+	rec.UserID = uid
 
 	return rec, nil
 }
@@ -426,6 +445,9 @@ func (s *SessionManager[Data]) UserSessions(
 			if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
 				continue
 			}
+			// The prefix this scan runs over is the user, so the payload
+			// cannot name another one without the list contradicting itself.
+			rec.UserID = userID
 
 			// A fresh nonce per call gives a different ciphertext that
 			// decrypts back to the same key, which is all a token is.
