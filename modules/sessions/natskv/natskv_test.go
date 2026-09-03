@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"iter"
 	"maps"
 	"runtime"
 	"slices"
@@ -91,6 +92,19 @@ func (m payloadManager) SaveSession(
 	}
 	rec.Data = s
 	return m.SessionManager.SaveSession(ctx, token, rec)
+}
+
+// UserSessions drops the error result the manager now returns, which keeps the
+// tests written against the iterator alone. The error path has a test of its
+// own, TestUserSessionsReportsStoreFailure.
+func (m payloadManager) UserSessions(
+	ctx context.Context, userID string,
+) iter.Seq2[string, sessions.Record[testSession]] {
+	seq, err := m.SessionManager.UserSessions(ctx, userID)
+	if err != nil {
+		return func(func(string, sessions.Record[testSession]) bool) {}
+	}
+	return seq
 }
 
 func (m payloadManager) Session(
@@ -647,6 +661,26 @@ func TestUserSessions(t *testing.T) {
 			require.Equal(t, tc.wantN, count)
 		})
 	}
+}
+
+// TestUserSessionsReportsStoreFailure tests the store being unreachable.
+// Yielding nothing makes it indistinguishable from "this user has no sessions",
+// which is what a settings page then renders while the user is signed in elsewhere.
+func TestUserSessionsReportsStoreFailure(t *testing.T) {
+	conn := setupNATS(t)
+	sm := newManager(t, conn, natskv.Config{
+		EncryptionKey: validKey(),
+		KVConfig:      nats.KeyValueConfig{Bucket: "USERSESS_ERR"},
+	})
+	ctx := context.Background()
+
+	_, err := sm.CreateSession(ctx, "alice", testSession{Username: "alice"})
+	require.NoError(t, err)
+
+	conn.Close()
+
+	_, err = sm.SessionManager.UserSessions(ctx, "alice")
+	require.Error(t, err)
 }
 
 // TestIterateAndCloseSessions tests that a token the iterator yields works with

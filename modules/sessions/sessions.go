@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"context"
+	"iter"
 	"time"
 )
 
@@ -61,6 +62,37 @@ type Closer interface {
 	// CloseSession closes a session identified by token.
 	// No-op and no error if that session doesn't exist.
 	CloseSession(ctx context.Context, token string) error
+}
+
+// UserSessionIterator iterates the live sessions of one user.
+//
+// Optional: a store need not implement it, and an application that lists
+// sessions needs it. It's declared here so that the built-in stores agree on the API,
+// which lets an application swap one for another seamlessly.
+type UserSessionIterator[Data any] interface {
+	// UserSessions iterates the live sessions of userID as (token, record) pairs,
+	// a snapshot rather than a stream. The token is the one CloseSession, Session and
+	// NotifyClosed take. An empty userID yields nothing.
+	//
+	// The error reports that the store could not be read. It exists so that
+	// an unreachable store is not the same answer as a user with no sessions.
+	UserSessions(
+		ctx context.Context, userID string,
+	) (iter.Seq2[string, Record[Data]], error)
+}
+
+// UserSessionCloser closes every live session of one user.
+//
+// Optional in the same way as [UserSessionIterator]:
+// a store that cannot look sessions up by user cannot implement it.
+// It is declared here so that the built-in stores agree on the API.
+type UserSessionCloser interface {
+	// CloseAllUserSessions closes the sessions of userID that exist at
+	// call time and, if buffer is non-nil, appends their tokens to it.
+	// An empty userID is an error; which error to return is up to the store.
+	CloseAllUserSessions(
+		ctx context.Context, buffer []string, userID string,
+	) ([]string, error)
 }
 
 // CloseNotifier reports session closure to interested listeners.

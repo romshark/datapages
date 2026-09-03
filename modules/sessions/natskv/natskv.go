@@ -30,6 +30,11 @@ import (
 	"github.com/romshark/datapages/modules/sessions"
 )
 
+var (
+	_ sessions.UserSessionIterator[struct{}] = (*SessionManager[struct{}])(nil)
+	_ sessions.UserSessionCloser             = (*SessionManager[struct{}])(nil)
+)
+
 // DefaultBucket is the default bucket name for the NATS KV Store based session manager.
 const DefaultBucket = "SESSIONS"
 
@@ -417,18 +422,22 @@ func (s *SessionManager[Data]) Session(
 // sessions for a given user (snapshot, not streaming).
 // Yields (token, session) pairs where token is the encrypted
 // session token usable with CloseSession, Session, and NotifyClosed.
+//
+// The watch is set up before the iterator so that an unreachable store is an
+// error rather than a user with no sessions.
 func (s *SessionManager[Data]) UserSessions(
 	ctx context.Context, userID string,
-) iter.Seq2[string, sessions.Record[Data]] {
+) (iter.Seq2[string, sessions.Record[Data]], error) {
+	if userID == "" {
+		return func(func(string, sessions.Record[Data]) bool) {}, nil
+	}
+	prefix := userKeyPattern(userID)
+	watcher, err := s.kv.Watch(prefix, nats.IgnoreDeletes(), nats.Context(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("watching user sessions: %w", err)
+	}
+
 	return func(yield func(string, sessions.Record[Data]) bool) {
-		if userID == "" {
-			return
-		}
-		prefix := userKeyPattern(userID)
-		watcher, err := s.kv.Watch(prefix, nats.IgnoreDeletes(), nats.Context(ctx))
-		if err != nil {
-			return
-		}
 		defer func() { _ = watcher.Stop() }()
 
 		for entry := range watcher.Updates() {
@@ -460,7 +469,7 @@ func (s *SessionManager[Data]) UserSessions(
 				return
 			}
 		}
-	}
+	}, nil
 }
 
 // keyEncoding has no '.', '*' or '>' in its alphabet. A '.' in either half of

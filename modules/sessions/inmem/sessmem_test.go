@@ -2,6 +2,7 @@ package inmem_test
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -24,6 +25,16 @@ var tokGen = sessions.DefaultTokenGenerator{}
 func newManager(t *testing.T) payloadManager {
 	t.Helper()
 	return payloadManager{inmem.New[testSession](tokGen)}
+}
+
+// userSessions collects the listing into the map every assertion here reads.
+func userSessions(
+	t *testing.T, sm payloadManager, userID string,
+) map[string]sessions.Record[testSession] {
+	t.Helper()
+	seq, err := sm.UserSessions(context.Background(), userID)
+	require.NoError(t, err)
+	return maps.Collect(seq)
 }
 
 // payloadManager adapts the record-based manager API to the payload-shaped calls
@@ -680,7 +691,7 @@ func TestCloseAllUserSessions(t *testing.T) {
 				require.ElementsMatch(t, wantTokens, result)
 			}
 			// Verify all sessions for the user are gone.
-			require.Empty(t, sm.UserSessions(ctx, tc.userID))
+			require.Empty(t, userSessions(t, sm, tc.userID))
 		})
 	}
 }
@@ -752,10 +763,10 @@ func TestUserSessions(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			tc.setup(t)
-			sessions := sm.UserSessions(ctx, tc.userID)
-			require.Len(t, sessions, tc.wantN)
-			for _, us := range sessions {
-				require.NotEmpty(t, us.Token)
+			listed := userSessions(t, sm, tc.userID)
+			require.Len(t, listed, tc.wantN)
+			for tok := range listed {
+				require.NotEmpty(t, tok)
 			}
 		})
 	}
@@ -772,9 +783,11 @@ func TestUserSessionsDoesNotIncludeOtherUsers(t *testing.T) {
 	_, err = sm.CreateSession(ctx, "bob", testSession{Username: "bob"})
 	require.NoError(t, err)
 
-	sessions := sm.UserSessions(ctx, "alice")
-	require.Len(t, sessions, 1)
-	require.Equal(t, "alice", sessions[0].Record.Data.Username)
+	listed := userSessions(t, sm, "alice")
+	require.Len(t, listed, 1)
+	for _, rec := range listed {
+		require.Equal(t, "alice", rec.Data.Username)
+	}
 }
 
 // TestUserSessionsTokenUsableWithSessionAndClose tests that a token from the listing
@@ -787,16 +800,18 @@ func TestUserSessionsTokenUsableWithSessionAndClose(t *testing.T) {
 	_, err := sm.CreateSession(ctx, "alice", want)
 	require.NoError(t, err)
 
-	sessions := sm.UserSessions(ctx, "alice")
-	require.Len(t, sessions, 1)
-	require.Equal(t, want, sessions[0].Record.Data)
+	listed := userSessions(t, sm, "alice")
+	require.Len(t, listed, 1)
+	for tok, rec := range listed {
+		require.Equal(t, want, rec.Data)
 
-	got, err := sm.Session(ctx, sessions[0].Token)
-	require.NoError(t, err)
-	require.Equal(t, want, got)
+		got, err := sm.Session(ctx, tok)
+		require.NoError(t, err)
+		require.Equal(t, want, got)
 
-	require.NoError(t, sm.CloseSession(ctx, sessions[0].Token))
-	require.Empty(t, sm.UserSessions(ctx, "alice"))
+		require.NoError(t, sm.CloseSession(ctx, tok))
+	}
+	require.Empty(t, userSessions(t, sm, "alice"))
 }
 
 // Concurrency tests.
@@ -1142,7 +1157,7 @@ func TestConcurrentCloseAllUserSessions(t *testing.T) {
 	for i, err := range closeErrs {
 		require.NoError(t, err, "goroutine %d", i)
 	}
-	require.Empty(t, sm.UserSessions(ctx, "alice"))
+	require.Empty(t, userSessions(t, sm, "alice"))
 }
 
 // TestConcurrentUserSessions tests concurrent listings of one user's sessions:
@@ -1157,21 +1172,28 @@ func TestConcurrentUserSessions(t *testing.T) {
 	}
 
 	const goroutines = 20
-	results := make([][]inmem.UserSession[testSession], goroutines)
+	results := make([]map[string]sessions.Record[testSession], goroutines)
+	errs := make([]error, goroutines)
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
 	for i := range goroutines {
 		go func(i int) {
 			defer wg.Done()
-			results[i] = sm.UserSessions(ctx, "alice")
+			seq, err := sm.UserSessions(ctx, "alice")
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			results[i] = maps.Collect(seq)
 		}(i)
 	}
 	wg.Wait()
 
 	for i := range goroutines {
+		require.NoError(t, errs[i], "goroutine %d", i)
 		require.Len(t, results[i], 5, "goroutine %d", i)
-		for _, us := range results[i] {
-			require.Equal(t, "alice", us.Record.Data.Username, "goroutine %d", i)
+		for _, rec := range results[i] {
+			require.Equal(t, "alice", rec.Data.Username, "goroutine %d", i)
 		}
 	}
 }

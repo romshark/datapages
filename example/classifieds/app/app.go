@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"iter"
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,14 +25,13 @@ type Metrics struct {
 type SessionRecord = sessions.Record[struct{}]
 
 type SessionManager interface {
+	// Declared by modules/sessions, so either built-in store satisfies them:
+	// inmem in development, natskv in production, no source change between.
+	sessions.Closer
+	sessions.UserSessionCloser
+	sessions.UserSessionIterator[struct{}]
+
 	Session(ctx context.Context, token string) (SessionRecord, error)
-	CloseSession(ctx context.Context, token string) error
-	CloseAllUserSessions(
-		ctx context.Context, buffer []string, userID string,
-	) ([]string, error)
-	UserSessions(
-		ctx context.Context, userID string,
-	) iter.Seq2[string, SessionRecord]
 }
 
 type App struct {

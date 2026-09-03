@@ -9,6 +9,7 @@ package inmem
 import (
 	"context"
 	"errors"
+	"iter"
 	"sync"
 	"time"
 
@@ -23,7 +24,11 @@ var (
 	ErrEmptyUserID = errors.New("userID must not be empty")
 )
 
-var _ sessions.Manager[struct{}] = (*SessionManager[struct{}])(nil)
+var (
+	_ sessions.Manager[struct{}]             = (*SessionManager[struct{}])(nil)
+	_ sessions.UserSessionIterator[struct{}] = (*SessionManager[struct{}])(nil)
+	_ sessions.UserSessionCloser             = (*SessionManager[struct{}])(nil)
+)
 
 type entry[Data any] struct {
 	rec sessions.Record[Data]
@@ -219,29 +224,32 @@ func (m *SessionManager[Data]) CloseAllUserSessions(
 	return buffer, nil
 }
 
-// UserSession is a token and record pair.
-type UserSession[Data any] struct {
-	Token  string
-	Record sessions.Record[Data]
-}
-
-// UserSessions returns all current sessions for a user.
+// UserSessions implements [sessions.UserSessionIterator].
+// The error is always nil: the store is the process itself.
 func (m *SessionManager[Data]) UserSessions(
 	_ context.Context, userID string,
-) []UserSession[Data] {
-	if userID == "" {
-		return nil
-	}
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	var result []UserSession[Data]
-	for tok, e := range m.sessions {
-		if e.rec.UserID == userID {
-			result = append(result, UserSession[Data]{Token: tok, Record: e.rec})
+) (iter.Seq2[string, sessions.Record[Data]], error) {
+	// A snapshot, not a live view: yielding under the lock would run
+	// application code with the store held.
+	var tokens []string
+	var recs []sessions.Record[Data]
+	if userID != "" {
+		m.lock.Lock()
+		for tok, e := range m.sessions {
+			if e.rec.UserID == userID {
+				tokens = append(tokens, tok)
+				recs = append(recs, e.rec)
+			}
 		}
+		m.lock.Unlock()
 	}
-	return result
+	return func(yield func(string, sessions.Record[Data]) bool) {
+		for i, tok := range tokens {
+			if !yield(tok, recs[i]) {
+				return
+			}
+		}
+	}, nil
 }
 
 // DeleteExpired deletes every session whose ExpiresAt has passed.
