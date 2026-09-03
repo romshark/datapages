@@ -480,8 +480,10 @@ func TestCloseSession(t *testing.T) {
 	ctx := context.Background()
 
 	tests := map[string]struct {
-		setup   func(t *testing.T) string
-		wantErr bool
+		setup func(t *testing.T) string
+		// undecryptable marks a token that names no session at all,
+		// which CloseSession answers with nil and nothing to read back.
+		undecryptable bool
 	}{
 		"ok": {
 			setup: func(t *testing.T) string {
@@ -514,16 +516,19 @@ func TestCloseSession(t *testing.T) {
 			},
 		},
 		"invalid token": {
-			setup:   func(*testing.T) string { return "!!!bad!!!" },
-			wantErr: true,
+			setup:         func(*testing.T) string { return "!!!bad!!!" },
+			undecryptable: true,
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			token := tc.setup(t)
 			err := sm.CloseSession(ctx, token)
-			if tc.wantErr {
-				require.Error(t, err)
+			if tc.undecryptable {
+				// sessions.Closer: no-op and no error for a token naming no session,
+				// which is what a guest POST to a sign-out action and a cookie from
+				// a rotated key both look like.
+				require.NoError(t, err)
 			} else {
 				require.NoError(t, err)
 				// Verify session is gone.
@@ -907,13 +912,16 @@ func TestNotifyClosed(t *testing.T) {
 		require.Zero(t, called.Load())
 	})
 
+	// A token naming no session is a session that is closed, which is what
+	// inmem answers and what a stream setup needs to keep working.
 	t.Run("invalid token", func(t *testing.T) {
 		sm := newManager(t, conn, natskv.Config{
 			EncryptionKey: validKey(),
 			KVConfig:      nats.KeyValueConfig{Bucket: "NOTIFY_BAD"},
 		})
-		err := sm.NotifyClosed(context.Background(), "!!!bad!!!", func() {})
-		require.Error(t, err)
+		var calls callCounter
+		require.NoError(t, sm.NotifyClosed(context.Background(), "!!!bad!!!", calls.Inc))
+		require.Equal(t, int32(1), calls.Load())
 	})
 }
 
@@ -1002,13 +1010,13 @@ func TestDecryptShortCiphertext(t *testing.T) {
 	_, err := sm.Session(ctx, shortToken)
 	require.ErrorIs(t, err, natskv.ErrCiphertextTooShort)
 
+	// CloseSession and NotifyClosed take a token that does not decrypt as a
+	// session that no longer exists, the no-op sessions.Closer documents.
 	var calls callCounter
-	err = sm.NotifyClosed(ctx, shortToken, calls.Inc)
-	require.ErrorIs(t, err, natskv.ErrCiphertextTooShort)
-	require.Zero(t, calls.Load())
+	require.NoError(t, sm.NotifyClosed(ctx, shortToken, calls.Inc))
+	require.Equal(t, int32(1), calls.Load())
 
-	err = sm.CloseSession(ctx, shortToken)
-	require.ErrorIs(t, err, natskv.ErrCiphertextTooShort)
+	require.NoError(t, sm.CloseSession(ctx, shortToken))
 }
 
 // unsafeGen returns session IDs carrying the NATS KV syntax,

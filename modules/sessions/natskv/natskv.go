@@ -45,15 +45,13 @@ type SessionTokenGenerator interface {
 }
 
 var (
-	ErrEncryptionKeyLen      = errors.New("encryption key must be exactly 16 bytes")
-	ErrEmptyUserID           = errors.New("userID must not be empty")
-	ErrEmptySessionID        = errors.New("uniqueSessionID must not be empty")
-	ErrCiphertextTooShort    = errors.New("ciphertext too short")
-	ErrMalformedCompositeKey = errors.New("malformed composite key")
+	ErrEmptyUserID     = sessions.ErrEmptyUserID
+	ErrEmptySessionID  = sessions.ErrEmptyToken
+	ErrSessionNotFound = sessions.ErrSessionNotFound
 
-	// ErrSessionNotFound is returned when a session is not found in the KV store.
-	ErrSessionNotFound = errors.New("session not found")
-
+	ErrEncryptionKeyLen        = errors.New("encryption key must be exactly 16 bytes")
+	ErrCiphertextTooShort      = errors.New("ciphertext too short")
+	ErrMalformedCompositeKey   = errors.New("malformed composite key")
 	ErrAllDecryptionKeysFailed = errors.New("all keys failed")
 
 	// ErrUserIDMismatch is returned when a saved record names another user
@@ -202,7 +200,12 @@ func (s *SessionManager[Data]) NotifyClosed(
 ) error {
 	kvKey, err := decrypt(s.aeads, token)
 	if err != nil {
-		return fmt.Errorf("decrypting token: %w", err)
+		// A token that doesn't decrypt names no session, so that session is
+		// closed as far as the caller is concerned. inmem answers the same,
+		// and a stream whose token no longer decrypts otherwise fails to open
+		// here where it opens there.
+		fn()
+		return nil
 	}
 
 	// Already deleted: notify immediately. Fall through to Watch on other errors.
@@ -327,7 +330,11 @@ func (s *SessionManager[Data]) CloseSession(
 ) error {
 	kvKey, err := decrypt(s.aeads, token)
 	if err != nil {
-		return fmt.Errorf("decrypting session token: %w", err)
+		// A token that doesn't decrypt names no session, which is the no-op case
+		// [github.com/romshark/datapages/modules/sessions.Closer] documents.
+		// Reporting it answers 500 to a guest POST to a sign-out action and to
+		// a cookie left over from a rotated key.
+		return nil
 	}
 	// Delete publishes a tombstone and never returns ErrKeyNotFound,
 	// so this is inherently a no-op for non-existent keys.

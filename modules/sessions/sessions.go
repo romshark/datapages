@@ -2,8 +2,24 @@ package sessions
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"time"
+)
+
+var (
+	// ErrSessionNotFound reports that no session exists for a token.
+	// It is declared here rather than per store so that one errors.Is check
+	// works against every implementation.
+	ErrSessionNotFound = errors.New("session not found")
+
+	// ErrEmptyUserID reports a record with no user.
+	ErrEmptyUserID = errors.New("userID must not be empty")
+
+	// ErrEmptyToken reports that [TokenGenerator.Generate] returned "".
+	// Every store refuses it: an empty token names no session,
+	// and the cookie carrying it cannot be told apart from no cookie at all.
+	ErrEmptyToken = errors.New("token must not be empty")
 )
 
 // TokenGenerator generates cryptographically random unique session identifiers.

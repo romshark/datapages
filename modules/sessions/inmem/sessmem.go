@@ -8,7 +8,6 @@ package inmem
 
 import (
 	"context"
-	"errors"
 	"iter"
 	"sync"
 	"time"
@@ -17,11 +16,9 @@ import (
 )
 
 var (
-	// ErrSessionNotFound is returned when a session is not found.
-	ErrSessionNotFound = errors.New("session not found")
-
-	// ErrEmptyUserID is returned when a userID is empty.
-	ErrEmptyUserID = errors.New("userID must not be empty")
+	ErrSessionNotFound = sessions.ErrSessionNotFound
+	ErrEmptyUserID     = sessions.ErrEmptyUserID
+	ErrEmptyToken      = sessions.ErrEmptyToken
 )
 
 var (
@@ -88,6 +85,11 @@ func (m *SessionManager[Data]) CreateSession(
 	token, err := m.tokenGen.Generate()
 	if err != nil {
 		return "", err
+	}
+	if token == "" {
+		// ReadSessionFromCookie takes an empty cookie for a miss, so a session stored
+		// under "" could never be read back, and the next one would overwrite it.
+		return "", ErrEmptyToken
 	}
 
 	m.lock.Lock()

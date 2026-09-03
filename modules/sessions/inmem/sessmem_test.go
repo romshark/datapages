@@ -228,6 +228,15 @@ func TestCreateSessionErrTokenGenerator(t *testing.T) {
 	require.ErrorIs(t, err, errFake)
 }
 
+// TestCreateSessionEmptyToken tests a generator returning "". A session stored
+// under it could never be read back, since an empty cookie is a miss.
+func TestCreateSessionEmptyToken(t *testing.T) {
+	sm := payloadManager{inmem.New[testSession](fixedTokGen{token: ""})}
+
+	_, err := sm.CreateSession(context.Background(), "bob", testSession{})
+	require.ErrorIs(t, err, sessions.ErrEmptyToken)
+}
+
 // TestCreateSessionTokenCollisionOverwrites documents the current behavior:
 // if the token generator produces a duplicate, the new session silently
 // overwrites the old one. With a properly configured generator (256-bit random tokens)
