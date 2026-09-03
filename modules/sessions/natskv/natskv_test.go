@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -556,7 +557,12 @@ func TestCloseAllUserSessions(t *testing.T) {
 			}
 			require.NoError(t, err)
 			if tc.buffer != nil {
-				require.ElementsMatch(t, wantTokens, result)
+				// The tokens are rebuilt from the keys, not read back from the bucket,
+				// so they carry a fresh nonce and are not the bytes
+				// CreateSession returned. What has to match is the count.
+				require.Len(t, result, len(wantTokens))
+				require.Len(t, slices.Compact(slices.Sorted(slices.Values(result))),
+					len(wantTokens), "duplicate tokens")
 			}
 			if tc.userID != "" {
 				m := maps.Collect(sm.UserSessions(ctx, tc.userID))
@@ -628,12 +634,14 @@ func TestIterateAndCloseSessions(t *testing.T) {
 	ctx := context.Background()
 
 	want := testSession{Username: "alice", Role: "admin"}
-	_, err := sm.CreateSession(ctx, "alice", want)
+	created, err := sm.CreateSession(ctx, "alice", want)
 	require.NoError(t, err)
 
 	// Token from UserSessions must be usable with Session and CloseSession.
 	for tok, rec := range sm.UserSessions(ctx, "alice") {
 		require.Equal(t, want, rec.Data)
+		require.NotEqual(t, created, tok,
+			"the bucket handed back the cookie the client carries")
 
 		got, err := sm.Session(ctx, tok)
 		require.NoError(t, err)
