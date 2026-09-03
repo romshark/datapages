@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"maps"
+	"runtime"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -215,7 +217,9 @@ func TestCreateSession(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("ok", func(t *testing.T) {
-		token, err := sm.CreateSession(ctx, "bob", testSession{Username: "bob", Role: "user"})
+		token, err := sm.CreateSession(ctx, "bob", testSession{
+			Username: "bob", Role: "user",
+		})
 		require.NoError(t, err)
 		require.NotEmpty(t, token)
 
@@ -843,6 +847,74 @@ func TestNotifyClosed(t *testing.T) {
 		err := sm.NotifyClosed(context.Background(), "!!!bad!!!", func() {})
 		require.Error(t, err)
 	})
+}
+
+// TestNotifyClosedConnectionLost tests that the watcher goroutine ends when the
+// NATS connection goes away, rather than spinning on the closed updates channel
+// for as long as the context lives.
+func TestNotifyClosedConnectionLost(t *testing.T) {
+	conn := setupNATS(t)
+	sm := newManager(t, conn, natskv.Config{
+		EncryptionKey: validKey(),
+		KVConfig:      nats.KeyValueConfig{Bucket: "NOTIFY_CONN_LOST"},
+	})
+	ctx := t.Context()
+
+	token, err := sm.CreateSession(ctx, "alice", testSession{})
+	require.NoError(t, err)
+
+	var called callCounter
+	require.NoError(t, sm.NotifyClosed(ctx, token, called.Inc))
+
+	// Barrier: wait for the watcher goroutine to finish initial replay.
+	_ = maps.Collect(sm.UserSessions(ctx, "alice"))
+
+	conn.Close()
+
+	// Everything after conn.Close() is in-process: the subscription loop ends,
+	// the updates channel closes and the goroutine returns.
+	// A second is scheduling headroom, not a round trip to NATS.
+	require.Eventually(t, func() bool {
+		return !goroutineRunning(".NotifyClosed")
+	}, time.Second, 10*time.Millisecond, "watcher goroutine still running")
+	require.Zero(t, called.Load())
+}
+
+// goroutineRunning reports whether any goroutine has
+// a frame whose function name contains fn.
+//
+// [runtime.GoroutineProfile], [runtime.StackRecord], [runtime.CallersFrames] and
+// [runtime.Frame.Function] are all covered by the Go 1 compatibility promise,
+// https://go.dev/doc/go1compat. The spelling of the name a closure gets is not:
+// only the enclosing method name is worth passing, since the ".funcN" suffix and
+// the "[...]" a generic receiver renders as are compiler conventions.
+//
+// [runtime.GoroutineProfile] is used over [runtime.Stack] because a buffer too
+// small for the text dump truncates it silently, which would report a spinning
+// goroutine as gone.
+func goroutineRunning(fn string) bool {
+	recs := make([]runtime.StackRecord, runtime.NumGoroutine()+8)
+	for {
+		n, ok := runtime.GoroutineProfile(recs)
+		if ok {
+			recs = recs[:n]
+			break
+		}
+		recs = make([]runtime.StackRecord, n+8)
+	}
+	for i := range recs {
+		frames := runtime.CallersFrames(recs[i].Stack())
+		for {
+			f, more := frames.Next()
+			if strings.Contains(f.Function, fn) {
+				return true
+			}
+			if !more {
+				break
+			}
+		}
+	}
+	return false
 }
 
 // TestDecryptShortCiphertext verifies that tokens whose base64-decoded

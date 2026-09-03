@@ -202,11 +202,18 @@ func (s *SessionManager[Data]) NotifyClosed(
 	go func() {
 		defer func() { _ = watcher.Stop() }()
 
+		updates := watcher.Updates()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case entry := <-watcher.Updates():
+			case entry, open := <-updates:
+				if !open {
+					// The subscription ended, which happens when the NATS
+					// connection is lost. No delete event can arrive anymore and
+					// whether the session still exists is unknowable from here.
+					return
+				}
 				if entry == nil {
 					// Initial replay ended without a delete event. Re-check in case
 					// the key was deleted between our Get and Watch setup.
