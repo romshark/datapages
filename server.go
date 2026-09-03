@@ -66,6 +66,11 @@ type Server interface {
 	// ListenAndServeTLS serves TLS until ctx is canceled.
 	ListenAndServeTLS(ctx context.Context, addr, certFile, keyFile string) error
 
+	// Addr is the address the server bound.
+	// A caller that passed port 0 reads the chosen port here.
+	// Empty until it listens.
+	Addr() string
+
 	// Shutdown stops the server, waiting for the open requests.
 	Shutdown(ctx context.Context) error
 }

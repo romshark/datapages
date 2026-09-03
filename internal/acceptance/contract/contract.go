@@ -32,7 +32,7 @@ import (
 )
 
 // Server is the generated *Server, named by what the suite calls on it.
-// ListenAndServe and ListenAndServeTLS are here so that every generated
+// ListenAndServe, ListenAndServeTLS and Addr are here so that every generated
 // server is asserted to expose them. What they do is asserted in
 // runtime/httpserve, which holds the code behind them.
 type Server interface {
@@ -40,6 +40,7 @@ type Server interface {
 	ListenAndServe(ctx context.Context, addr string) error
 	ListenAndServeTLS(ctx context.Context, addr, certFile, keyFile string) error
 	Shutdown(ctx context.Context) error
+	Addr() string
 }
 
 // Case is what a case tells the shared suite about itself.

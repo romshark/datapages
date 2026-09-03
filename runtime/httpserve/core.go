@@ -220,9 +220,8 @@ func (c *Core) TLSEnabled() bool {
 	return c.enabledTLS
 }
 
-// Addr is the address the server bound,
-// which is what a caller that passed port 0 needs to reach it.
-// Empty until [Core.ListenAndServe] or [Core.ListenAndServeTLS] bound one.
+// Addr is the address the server bound. A caller that passed port 0
+// reads the chosen port here. Empty until it listens.
 func (c *Core) Addr() string {
 	c.lockListen.Lock()
 	defer c.lockListen.Unlock()

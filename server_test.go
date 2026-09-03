@@ -34,6 +34,8 @@ func (testServing) ListenAndServeTLS(context.Context, string, string, string) er
 
 func (testServing) Shutdown(context.Context) error { return nil }
 
+func (testServing) Addr() string { return "" }
+
 // testServer stands in for a generated Server without sessions.
 type testServer struct {
 	testServing
