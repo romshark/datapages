@@ -31,8 +31,9 @@ if the application defines it. It receives the error, including the datapages se
 and writes feedback over SSE. If it returns an error,
 the server sends the HTTP error response for the original error instead.
 
-A panic in a `GET`, an action or an `OnXXX` handler is recovered and passed to
-`RecoverError` as a `datapages.PanicError`, which holds the panic value and the stack.
+A panic in a `GET`, an action, a `StreamOpen` or an `OnXXX` handler is recovered
+and passed to `RecoverError` as a `datapages.PanicError`, which holds the panic
+value and the stack.
 The stack is always logged.
 
 A response that has started cannot be replaced. A panic while the page is

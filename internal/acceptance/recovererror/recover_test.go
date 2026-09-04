@@ -95,6 +95,25 @@ func TestRecoveredPanics(t *testing.T) {
 		require.NotContains(t, body, "the component panicked")
 	})
 
+	// A panic in StreamOpen reaches RecoverError instead of aborting the  connection.
+	t.Run("stream open", func(t *testing.T) {
+		srv := newServer(t)
+		req, err := http.NewRequestWithContext(context.Background(),
+			http.MethodGet, srv.URL+"/stream-panic/_$/", nil)
+		require.NoError(t, err, "building the stream request")
+		req.Header.Set("Datastar-Request", "true")
+		req.Header.Set("Accept-Encoding", "identity")
+		resp, err := srv.Client().Do(req)
+		require.NoError(t, err, "GET the stream")
+		defer func() { _ = resp.Body.Close() }()
+		b, err := io.ReadAll(resp.Body)
+		require.NoError(t, err, "reading the stream")
+
+		require.Contains(t, string(b), `<div id="toast">panic</div>`)
+		require.NotContains(t, string(b), "the stream open hook panicked",
+			"the panic value reached the client")
+	})
+
 	t.Run("page load", func(t *testing.T) {
 		srv := newServer(t)
 		resp, err := srv.Client().Get(srv.URL + "/panic-page/")

@@ -51,3 +51,6 @@ func PagePanic() string { return "/panic-page/" }
 
 // PageRenderPanic references /render-panic/{$}
 func PageRenderPanic() string { return "/render-panic/" }
+
+// PageStreamPanic references /stream-panic/{$}
+func PageStreamPanic() string { return "/stream-panic/" }

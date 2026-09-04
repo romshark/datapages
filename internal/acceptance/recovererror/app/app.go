@@ -106,3 +106,21 @@ type PageBoom struct{ App *App }
 func (PageBoom) GET(_ *http.Request) (body datapages.Component, err error) {
 	return nil, errors.New("the page could not be built")
 }
+
+// EventPinged is "pinged"
+type EventPinged struct {
+	Text string `json:"text"`
+}
+
+// PageStreamPanic is /stream-panic
+type PageStreamPanic struct{ App *App }
+
+func (PageStreamPanic) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<pre id="echo">stream panic</pre>`), nil
+}
+
+func (PageStreamPanic) StreamOpen(_ *http.Request, _ datapages.StreamID) error {
+	panic("the stream open hook panicked")
+}
+
+func (PageStreamPanic) OnPinged(_ EventPinged, _ datapages.SSE) error { return nil }

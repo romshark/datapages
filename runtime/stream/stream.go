@@ -116,6 +116,15 @@ func (h *Handler) Handle(
 		return
 	}
 
+	// Own the subscription until the watcher goroutine takes it over.
+	// A panic below would otherwise leave it in the broker forever.
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			sub.Close()
+		}
+	}()
+
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
 	var start time.Time
@@ -127,8 +136,7 @@ func (h *Handler) Handle(
 
 	subC := sub.C()
 	if onOpen != nil {
-		if err := onOpen(streamID, sse); err != nil {
-			sub.Close()
+		if err := callOnOpen(onOpen, streamID, sse); err != nil {
 			h.onErr(w, r, sse, "handling stream open hook", err)
 			return
 		}
@@ -146,12 +154,12 @@ func (h *Handler) Handle(
 		if err := h.sessions.NotifyClosed(ctx, sessionKey, func() {
 			once.Do(func() { close(sessionClosed) })
 		}); err != nil {
-			sub.Close()
 			h.onErr(w, r, sse, "setting up session closure watcher", err)
 			return
 		}
 	}
 
+	handedOff = true
 	go func() {
 		// Prevent a crash in case of a panic in onClose.
 		defer func() {
@@ -183,4 +191,19 @@ func (h *Handler) Handle(
 	}()
 
 	fn(streamID, sse, subC)
+}
+
+// callOnOpen runs the stream open hook and turns a panic in it into a
+// [github.com/romshark/datapages.PanicError] for the error handler.
+func callOnOpen(
+	onOpen func(datapages.StreamID, *datastar.ServerSentEventGenerator) error,
+	streamID datapages.StreamID,
+	sse *datastar.ServerSentEventGenerator,
+) (err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			err = datapages.PanicError{Value: v, Stack: debug.Stack()}
+		}
+	}()
+	return onOpen(streamID, sse)
 }
