@@ -49,7 +49,10 @@ type Core struct {
 
 	shutdownCh   chan struct{} // Closed when shutting down.
 	shutdownOnce sync.Once
-	runCancel    context.CancelFunc
+	// lockRun guards runCancel against a signal goroutine
+	// calling Shutdown while ListenAndServe runs.
+	lockRun   sync.Mutex
+	runCancel context.CancelFunc
 
 	httpServer    *http.Server
 	metricsServer *http.Server
@@ -347,7 +350,15 @@ func (c *Core) listenAndServe(
 	c.lockListen.Unlock()
 
 	ctx, cancel := context.WithCancel(ctx)
+	c.lockRun.Lock()
 	c.runCancel = cancel
+	c.lockRun.Unlock()
+	// Shutdown may have closed shutdownCh before runCancel existed.
+	select {
+	case <-c.shutdownCh:
+		cancel()
+	default:
+	}
 
 	g, gctx := errgroup.WithContext(ctx)
 
@@ -382,7 +393,11 @@ func (c *Core) listenAndServe(
 
 	// Coordinated shutdown
 	g.Go(func() error {
-		<-gctx.Done()
+		select {
+		case <-gctx.Done():
+		case <-c.shutdownCh:
+			// Nothing cancels gctx when Shutdown ran before runCancel existed.
+		}
 
 		shutdownCtx, cancel := context.WithTimeout(
 			context.Background(), 10*time.Second,
@@ -404,9 +419,13 @@ func (c *Core) listenAndServe(
 func (c *Core) Shutdown(ctx context.Context) error {
 	c.shutdownOnce.Do(func() {
 		c.logger.Info("server shutdown initiated")
-		if c.runCancel != nil {
-			c.runCancel()
+		c.lockRun.Lock()
+		cancel := c.runCancel
+		c.lockRun.Unlock()
+		if cancel != nil {
+			cancel()
 		}
+		// Closed even when runCancel is nil. listenAndServe checks it.
 		close(c.shutdownCh)
 	})
 	var errs []error

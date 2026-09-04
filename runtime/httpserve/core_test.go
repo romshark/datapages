@@ -174,6 +174,28 @@ func TestShutdownEndsListenAndServe(t *testing.T) {
 	<-c.ShutdownCh()
 }
 
+// TestShutdownBeforeListenAndServe tests a shutdown during process start,
+// before ListenAndServe stores its cancel func.
+func TestShutdownBeforeListenAndServe(t *testing.T) {
+	t.Parallel()
+
+	c := mustCore(t, datapages.ServerConfig{}, "")
+	c.Mux().Handle("/", echoPath())
+	c.Build()
+
+	require.NoError(t, c.Shutdown(context.Background()))
+
+	done := make(chan error, 1)
+	go func() { done <- c.ListenAndServe(context.Background(), "127.0.0.1:0") }()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("ListenAndServe did not return")
+	}
+}
+
 // TestShutdownDrainsInFlightRequest tests the request context during a
 // graceful shutdown. Shutdown waits for the handler instead of cancelling it.
 func TestShutdownDrainsInFlightRequest(t *testing.T) {
