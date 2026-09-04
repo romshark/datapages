@@ -349,9 +349,13 @@ func (c *Core) listenAndServe(
 	ctx, cancel := context.WithCancel(ctx)
 	c.runCancel = cancel
 
-	g, ctx := errgroup.WithContext(ctx)
+	g, gctx := errgroup.WithContext(ctx)
 
-	c.httpServer.BaseContext = func(net.Listener) context.Context { return ctx }
+	// Not gctx. Cancelling BaseContext ends r.Context() for every request in flight,
+	// which aborts a handler at t=0 instead of letting [http.Server.Shutdown] drain it.
+	// SSE streams watch ShutdownCh instead.
+	baseCtx := context.WithoutCancel(gctx)
+	c.httpServer.BaseContext = func(net.Listener) context.Context { return baseCtx }
 
 	// Main frontend server
 	g.Go(func() error {
@@ -365,7 +369,7 @@ func (c *Core) listenAndServe(
 	// Metrics server
 	if c.metricsServer != nil {
 		c.metricsServer.BaseContext = func(net.Listener) context.Context {
-			return ctx
+			return baseCtx
 		}
 		g.Go(func() error {
 			err := c.metricsServer.ListenAndServe()
@@ -378,7 +382,7 @@ func (c *Core) listenAndServe(
 
 	// Coordinated shutdown
 	g.Go(func() error {
-		<-ctx.Done()
+		<-gctx.Done()
 
 		shutdownCtx, cancel := context.WithTimeout(
 			context.Background(), 10*time.Second,

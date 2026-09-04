@@ -3,6 +3,7 @@ package httpserve_test
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -171,6 +172,82 @@ func TestShutdownEndsListenAndServe(t *testing.T) {
 		t.Fatal("ListenAndServe did not return")
 	}
 	<-c.ShutdownCh()
+}
+
+// TestShutdownDrainsInFlightRequest tests the request context during a
+// graceful shutdown. Shutdown waits for the handler instead of cancelling it.
+func TestShutdownDrainsInFlightRequest(t *testing.T) {
+	t.Parallel()
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	cancelled := make(chan error, 1)
+
+	c := mustCore(t, datapages.ServerConfig{}, "")
+	// Simulate a slow handler: report that the request arrived, then hold it until the
+	// test releases it. Report a cancellation instead if the request context ends first,
+	// which is what a handler doing a database call or an outbound request sees.
+	c.Mux().HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		select {
+		case <-r.Context().Done():
+			cancelled <- r.Context().Err()
+		case <-release:
+		}
+		_, _ = w.Write([]byte("done"))
+	})
+	c.Build()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	served := make(chan error, 1)
+	go func() { served <- c.ListenAndServe(ctx, "127.0.0.1:0") }()
+
+	// The listener is open once Addr reports the port the kernel chose.
+	require.Eventually(t, func() bool { return c.Addr() != "" },
+		5*time.Second, time.Millisecond)
+
+	type response struct {
+		body string
+		err  error
+	}
+	got := make(chan response, 1)
+	go func() {
+		resp, err := http.Get("http://" + c.Addr() + "/")
+		if err != nil {
+			got <- response{err: err}
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, err := io.ReadAll(resp.Body)
+		got <- response{body: string(b), err: err}
+	}()
+
+	<-entered
+	// Simulate a signal handler cancelling the context while
+	// the request is still in the handler.
+	cancel()
+
+	// The client must get no answer while the handler still holds the request.
+	select {
+	case <-time.After(time.Second):
+	case r := <-got:
+		t.Fatalf("the request ended before it was released: %q, %v", r.body, r.err)
+	}
+	// The request context must stay alive.
+	// A handler that reads it would give up its own work.
+	select {
+	case err := <-cancelled:
+		t.Fatalf("the request context was cancelled: %v", err)
+	default:
+	}
+
+	// The handler answers, and ListenAndServe returns once Shutdown has drained it.
+	close(release)
+	r := <-got
+	require.NoError(t, r.err)
+	require.Equal(t, "done", r.body)
+	require.NoError(t, <-served)
 }
 
 // TestBuildServesAssets tests that an assets file system plus a URL prefix
