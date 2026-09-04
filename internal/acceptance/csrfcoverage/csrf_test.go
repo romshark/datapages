@@ -15,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/app"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
@@ -35,6 +36,29 @@ func (c *countingSessions) ReadSessionFromCookie(cookieValue string) (
 	return c.Manager.ReadSessionFromCookie(cookieValue)
 }
 
+// newPost returns a function that sends a Datastar POST and returns the status code.
+// An empty token sends no CSRF header.
+func newPost(
+	t *testing.T, srv *httptest.Server, client *http.Client,
+) func(path, body, token string) int {
+	return func(path, body, token string) int {
+		t.Helper()
+		req, err := http.NewRequestWithContext(context.Background(),
+			http.MethodPost, srv.URL+path, strings.NewReader(body))
+		require.NoError(t, err, "building POST %s", path)
+		req.Header.Set("Datastar-Request", "true")
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("X-CSRF-Token", token)
+		}
+		resp, err := client.Do(req)
+		require.NoError(t, err, "POST %s", path)
+		defer func() { _ = resp.Body.Close() }()
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return resp.StatusCode
+	}
+}
+
 // TestCSRFOnlyActionReadsNoSession tests the check an action runs when it
 // takes no session. The CSRF token is derived from the cookie, hence the store
 // stays out of the request.
@@ -53,21 +77,7 @@ func TestCSRFOnlyActionReadsNoSession(t *testing.T) {
 	require.NoError(t, err, "building cookie jar")
 	client := &http.Client{Jar: jar}
 
-	post := func(path, body, token string) int {
-		req, err := http.NewRequestWithContext(context.Background(),
-			http.MethodPost, srv.URL+path, strings.NewReader(body))
-		require.NoError(t, err, "building POST %s", path)
-		req.Header.Set("Datastar-Request", "true")
-		req.Header.Set("Content-Type", "application/json")
-		if token != "" {
-			req.Header.Set("X-CSRF-Token", token)
-		}
-		resp, err := client.Do(req)
-		require.NoError(t, err, "POST %s", path)
-		defer func() { _ = resp.Body.Close() }()
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return resp.StatusCode
-	}
+	post := newPost(t, srv, client)
 
 	require.Equal(t, http.StatusOK,
 		post("/sign-in/", `{"user":"alice"}`, ""), "signing in")
@@ -102,21 +112,7 @@ func TestCSRFCoversEveryAction(t *testing.T) {
 	require.NoError(t, err, "building cookie jar")
 	client := &http.Client{Jar: jar}
 
-	post := func(path, body, token string) int {
-		req, err := http.NewRequestWithContext(context.Background(),
-			http.MethodPost, srv.URL+path, strings.NewReader(body))
-		require.NoError(t, err, "building POST %s", path)
-		req.Header.Set("Datastar-Request", "true")
-		req.Header.Set("Content-Type", "application/json")
-		if token != "" {
-			req.Header.Set("X-CSRF-Token", token)
-		}
-		resp, err := client.Do(req)
-		require.NoError(t, err, "POST %s", path)
-		defer func() { _ = resp.Body.Close() }()
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return resp.StatusCode
-	}
+	post := newPost(t, srv, client)
 
 	require.Equal(t, http.StatusOK,
 		post("/sign-in/", `{"user":"alice"}`, ""), "signing in")
@@ -136,4 +132,41 @@ func TestCSRFCoversEveryAction(t *testing.T) {
 	b, err := io.ReadAll(resp.Body)
 	require.NoError(t, err, "reading /")
 	require.NotContains(t, string(b), "deleted=1", "the refused action took effect")
+}
+
+// TestCSRFDisabledServesWithoutLogger tests a server with CSRF protection off
+// and no WithLogger. It starts, and it serves the action the check refuses.
+func TestCSRFDisabledServesWithoutLogger(t *testing.T) {
+	t.Parallel()
+	store := sessinmem.New[struct{}](
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
+	)
+
+	srv := httptest.NewServer(mustNewServer(
+		t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), store,
+		datapages.WithCSRFProtection(datapages.CSRFConfig{Disabled: true}),
+	))
+	t.Cleanup(srv.Close)
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err, "building cookie jar")
+	client := &http.Client{Jar: jar}
+	post := newPost(t, srv, client)
+
+	require.Equal(t, http.StatusOK,
+		post("/sign-in/", `{"user":"alice"}`, ""), "signing in")
+	require.Equal(t, http.StatusOK,
+		post("/delete/", `{"confirm":true}`, ""),
+		"an action was refused with CSRF protection disabled")
+
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, srv.URL+"/", nil,
+	)
+	require.NoError(t, err, "building GET /")
+	resp, err := client.Do(req)
+	require.NoError(t, err, "GET /")
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "reading /")
+	require.Contains(t, string(b), "deleted=1", "the action did not take effect")
 }

@@ -87,6 +87,14 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 	if c.bodySizeLimit <= 0 {
 		c.bodySizeLimit = DefaultBodySizeLimit
 	}
+	if c.logger == nil {
+		// Not in Build: the generated Init logs in between.
+		opt := &slog.HandlerOptions{Level: slog.LevelInfo}
+		if datapages.IsDevMode() {
+			opt.Level = slog.LevelDebug
+		}
+		c.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
+	}
 	if c.httpServer == nil {
 		c.httpServer = &http.Server{
 			// Time to read request headers + body
@@ -133,13 +141,6 @@ func (c *Core) Build() {
 	c.htmlPrefix = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
 		<script type="module" src="` + c.datastarJSSrc + `"></script>`
 
-	if c.logger == nil {
-		opt := &slog.HandlerOptions{Level: slog.LevelInfo}
-		if datapages.IsDevMode() {
-			opt.Level = slog.LevelDebug
-		}
-		c.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
-	}
 	if c.httpServer.ErrorLog == nil {
 		c.httpServer.ErrorLog = slog.NewLogLogger(
 			slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}),

@@ -2,6 +2,7 @@ package httpserve_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -99,6 +100,18 @@ func TestMiddlewareOrder(t *testing.T) {
 
 	serve(t, c, "/")
 	require.Equal(t, []string{"outermost", "first", "second", "handler"}, order)
+}
+
+// TestLoggerBeforeBuild tests that a Core logs as soon as NewCore returns,
+// since a caller may log before it calls Build.
+func TestLoggerBeforeBuild(t *testing.T) {
+	t.Parallel()
+
+	c := mustCore(t, datapages.ServerConfig{}, "")
+	require.NotNil(t, c.Logger())
+	require.NotPanics(t, func() {
+		c.LogErr("before build", errors.New("x"))
+	})
 }
 
 // TestBuildDefaults tests what a core built from an empty config carries: a logger,
