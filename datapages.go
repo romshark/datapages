@@ -306,6 +306,10 @@ type SSE interface {
 	RemoveElement(selectorCSS string) error
 
 	// ExecuteScript runs a script on the client.
+	// The script is delivered as a <script> element and must not contain "</script>".
+	// The HTML parser ends the element there and reads the rest as markup.
+	// Encode any value the caller did not build itself,
+	// for example with [encoding/json.Marshal], which writes "<" as \u003c.
 	ExecuteScript(script string) error
 
 	// PatchSignals updates client-side signals from v, which is marshaled to JSON.
@@ -321,9 +325,16 @@ type SSE interface {
 
 	// Redirect navigates the client to url by assigning window.location.href,
 	// which pushes a new browser history entry.
-	// To replace the current entry instead, navigate with [SSE.ExecuteScript]:
+	// To replace the current entry instead, navigate with [SSE.ExecuteScript].
+	// The target must be JSON-encoded rather than %q-formatted.
+	// %q escapes for Go source and leaves "</script>" intact,
+	// which ends the script element the call travels in.
 	//
-	//	sse.ExecuteScript(fmt.Sprintf("window.location.replace(%q)", url))
+	//	enc, err := json.Marshal(url)
+	//	if err != nil {
+	//		return err
+	//	}
+	//	sse.ExecuteScript("window.location.replace(" + string(enc) + ")")
 	Redirect(url string) error
 
 	// Prefetch asks the browser to prefetch urls through the speculation rules API.
