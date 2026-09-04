@@ -153,7 +153,6 @@ func TestEventSubjectCommentSubject(t *testing.T) {
 
 	f(nil, `"foo"`)
 	f(nil, `"foo.bar"`)
-	f(nil, `" foo "`) // non-empty payload allowed
 
 	// empty
 	f(validate.ErrEventSubjectInvalid, ``)
@@ -179,6 +178,25 @@ func TestEventSubjectCommentSubject(t *testing.T) {
 	f(validate.ErrEventSubjectInvalid, "`foo")
 	// backticks not supported
 	f(validate.ErrEventSubjectInvalid, "`foo\"")
+
+	// A token the broker rules refuse makes the generated subscription illegal,
+	// which the NATS server answers by closing the connection.
+	// space around a token
+	f(validate.ErrEventSubjectInvalid, `" foo "`)
+	// space in a token
+	f(validate.ErrEventSubjectInvalid, `"foo bar"`)
+	// tail wildcard
+	f(validate.ErrEventSubjectInvalid, `"noted.>"`)
+	// token wildcard
+	f(validate.ErrEventSubjectInvalid, `"noted.*"`)
+	// empty leading token
+	f(validate.ErrEventSubjectInvalid, `".foo"`)
+	// empty trailing token
+	f(validate.ErrEventSubjectInvalid, `"foo."`)
+	// empty inner token
+	f(validate.ErrEventSubjectInvalid, `"foo..bar"`)
+	// line break in a token
+	f(validate.ErrEventSubjectInvalid, "\"foo\nbar\"")
 }
 
 // TestEventSubjectComment tests the doc comment an event type has to carry:

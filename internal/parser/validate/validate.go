@@ -4,6 +4,8 @@ import (
 	"errors"
 	"go/ast"
 	"strings"
+
+	"github.com/romshark/datapages/internal/subject"
 )
 
 var (
@@ -114,7 +116,8 @@ func EventTypeName(name string) error {
 
 // EventSubjectCommentSubject validates the raw subject comment payload for an event.
 // Accepts: `"foo.bar"`.
-// Rejects: missing quotes, empty, or unterminated.
+// Rejects: missing quotes, empty, unterminated,
+// or any token the broker subject rules refuse.
 func EventSubjectCommentSubject(s string) error {
 	s = strings.TrimSpace(s)
 	if len(s) < 2 {
@@ -126,8 +129,18 @@ func EventSubjectCommentSubject(s string) error {
 	if s[len(s)-1] != '"' {
 		return ErrEventSubjectInvalid
 	}
-	if len(s[1:len(s)-1]) == 0 {
+	payload := s[1 : len(s)-1]
+	if len(payload) == 0 {
 		return ErrEventSubjectInvalid
+	}
+	// The generator concatenates the declared subject into the subscription
+	// and the publish path unchanged. A wildcard, a space or an empty token in
+	// it is only rejected by the NATS server, which answers an illegal SUB by
+	// closing the connection the whole process shares.
+	for token := range strings.SplitSeq(payload, subject.Separator) {
+		if !subject.IsToken(token) {
+			return ErrEventSubjectInvalid
+		}
 	}
 	return nil
 }

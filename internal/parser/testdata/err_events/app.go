@@ -184,3 +184,12 @@ type EventJSONExcluded struct {
 type EventSameModuleSubpkg struct {
 	Bad subpkg.BadFields `json:"bad"`
 }
+
+/* ErrEventSubjectInvalid: a NATS wildcard in the declared subject.
+   The generator concatenates it into the subscription, where only the server
+   rejects it, by closing the connection the whole process shares. */
+
+// EventTailWildcard is "noted.>"
+type EventTailWildcard struct {
+	Text string `json:"text"`
+}

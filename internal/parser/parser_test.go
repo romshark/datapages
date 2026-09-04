@@ -680,6 +680,7 @@ func TestParse_ErrEvents(t *testing.T) {
 		parser.ErrEventSubjectInvalid,
 		parser.ErrEventSubjectInvalid,
 		parser.ErrEventFieldEmptyTag,   // EventEmptyJSONTag: json:"" should be rejected
+		parser.ErrEventSubjectInvalid,  // EventTailWildcard: "noted.>"
 		parser.ErrEventFieldUnexported, // same-module subpkg.BadFields
 	)
 }
@@ -1687,6 +1688,7 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrEventSubjectInvalid, "app.go", 150, 23},
 			{parser.ErrEventSubjectInvalid, "app.go", 157, 24},
 			{parser.ErrEventFieldEmptyTag, "app.go", 168, 2},
+			{parser.ErrEventSubjectInvalid, "app.go", 192, 25},
 			{parser.ErrEventFieldUnexported, "subpkg.go", 7, 2},
 		},
 		"err_path": {
