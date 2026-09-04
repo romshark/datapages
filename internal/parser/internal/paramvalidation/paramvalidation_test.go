@@ -520,6 +520,33 @@ func f(signals struct {
 	})
 }
 
+// TestValidatePathAgainstRouteIsDeterministic tests the order the missing
+// route variables are reported in. Their positions are identical, so nothing
+// downstream can sort them and `datapages lint` reshuffles its own output.
+func TestValidatePathAgainstRouteIsDeterministic(t *testing.T) {
+	t.Parallel()
+
+	for name, h := range map[string]*model.Handler{
+		"no path struct": {Route: "/thing/{a}/{b}/{c}/{d}"},
+		"partial path struct": {
+			Route: "/thing/{a}/{b}/{c}/{d}",
+			InputPath: &model.Input{Type: model.Type{Resolved: namedType(t, `package test
+type P struct {
+	A string `+"`"+`path:"a"`+"`"+`
+}`)}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			want := ValidatePathAgainstRoute(h, "PageThing", "GET").Error()
+			for range 20 {
+				got := ValidatePathAgainstRoute(h, "PageThing", "GET").Error()
+				require.Equal(t, want, got)
+			}
+		})
+	}
+}
+
 // TestValidatePathAgainstRoute tests the agreement between a route pattern and
 // the path struct. Every route variable needs a field and every field needs a variable:
 // a field with no variable would never be filled, and a variable with no
