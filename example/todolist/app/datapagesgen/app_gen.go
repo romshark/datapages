@@ -259,7 +259,7 @@ func (s *Server) handlePUTEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		TabID       string `json:"tab_id"`
 		Title       string `json:"title"`
@@ -442,7 +442,7 @@ func (s *Server) handlePageIndexPOSTCreate(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		TabID    string `json:"tab_id"`
 		NewTitle string `json:"newTitle"`
@@ -472,7 +472,7 @@ func (s *Server) handlePageIndexPOSTFilter(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		TabID  string `json:"tab_id"`
 		Search string `json:"search"`
@@ -592,7 +592,7 @@ func (s *Server) handlePageItemDELETEItem(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		TabID string `json:"tab_id"`
 	}]

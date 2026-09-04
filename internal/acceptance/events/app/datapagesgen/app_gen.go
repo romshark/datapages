@@ -387,7 +387,7 @@ func (s *Server) handlePageIndexPOSTNote(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Text string `json:"text"`
 	}]
@@ -414,7 +414,7 @@ func (s *Server) handlePageIndexPOSTTick(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		N int `json:"n"`
 	}]
@@ -441,7 +441,7 @@ func (s *Server) handlePageIndexPOSTBoth(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		N int `json:"n"`
 	}]
@@ -470,7 +470,7 @@ func (s *Server) handlePageIndexPOSTCanceled(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		N int `json:"n"`
 	}]
@@ -741,7 +741,7 @@ func (s *Server) handlePageRoomPOSTSay(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Room string `json:"room"`
 		Text string `json:"text"`
@@ -769,7 +769,7 @@ func (s *Server) handlePageRoomPOSTBroadcast(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Rooms []string `json:"rooms"`
 		Text  string   `json:"text"`

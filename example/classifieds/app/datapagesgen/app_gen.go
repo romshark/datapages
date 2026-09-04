@@ -798,7 +798,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`
@@ -983,7 +983,7 @@ func (s *Server) handlePageMessagesPOSTRead(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
 	}]
@@ -1022,7 +1022,7 @@ func (s *Server) handlePageMessagesPOSTWriting(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
 	}]
@@ -1056,7 +1056,7 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
 	}]
@@ -1090,7 +1090,7 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
 		MessageText  string `json:"messagetext"`
@@ -1392,7 +1392,7 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		MessageText string `json:"messagetext"`
 	}]
@@ -1582,7 +1582,7 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[app.SearchParams]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
@@ -1721,7 +1721,7 @@ func (s *Server) handlePageSettingsPOSTSave(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Username string `json:"username"`
 	}]

@@ -389,7 +389,7 @@ func (s *Server) handlePageLoginPOSTValidate(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -426,7 +426,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -504,7 +504,7 @@ func (s *Server) handlePageRegisterPOSTValidate(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Name     string `json:"name"`
 		Email    string `json:"email"`
@@ -542,7 +542,7 @@ func (s *Server) handlePageRegisterPOSTSubmit(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Name     string `json:"name"`
 		Email    string `json:"email"`

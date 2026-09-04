@@ -490,7 +490,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		User     string `json:"user"`
 		Nickname string `json:"nickname"`
@@ -529,7 +529,7 @@ func (s *Server) handlePageLoginPOSTNotify(
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		User string `json:"user"`
 		Text string `json:"text"`
@@ -561,7 +561,7 @@ func (s *Server) handlePageLoginPOSTBroadcast(
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Text string `json:"text"`
 	}]
@@ -592,7 +592,7 @@ func (s *Server) handlePageLoginPOSTRename(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Nickname string `json:"nickname"`
 	}]

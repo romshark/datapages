@@ -220,7 +220,7 @@ func (s *Server) handlePageIndexPOSTSignIn(
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		User string `json:"user"`
 	}]
@@ -255,7 +255,7 @@ func (s *Server) handlePageIndexPOSTDelete(
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Confirm bool `json:"confirm"`
 	}]

@@ -408,7 +408,7 @@ func (s *Server) handlePageFeedPOSTTick(
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		N int `json:"n"`
 	}]
@@ -635,7 +635,7 @@ func (s *Server) handlePageRoomsPOSTPost(
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Room string `json:"room"`
 		Text string `json:"text"`
@@ -667,7 +667,7 @@ func (s *Server) handlePageRoomsPOSTNotice(
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		User string `json:"user"`
 		Text string `json:"text"`
@@ -699,7 +699,7 @@ func (s *Server) handlePageRoomsPOSTDM(
 	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		To   string `json:"to"`
 		Cc   string `json:"cc"`

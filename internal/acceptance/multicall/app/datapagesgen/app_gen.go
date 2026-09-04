@@ -275,7 +275,7 @@ func (s *Server) handlePageIndexPOSTTick(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		N int `json:"n"`
 	}]

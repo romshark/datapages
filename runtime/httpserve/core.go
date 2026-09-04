@@ -253,6 +253,26 @@ func (t *tracked) Flush() {
 	}
 }
 
+// FlushError is what [http.ResponseController.Flush] prefers over Flush,
+// and the only one of the two that can report a failed flush.
+func (t *tracked) FlushError() error {
+	if f, ok := t.ResponseWriter.(interface{ FlushError() error }); ok {
+		return f.FlushError()
+	}
+	if f, ok := t.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+		return nil
+	}
+	return http.ErrNotSupported
+}
+
+// Unwrap returns the writer this one wraps.
+//
+// [http.ResponseController] walks Unwrap and nothing else:
+// without it SetWriteDeadline, SetReadDeadline and EnableFullDuplex return
+// ErrNotSupported for every handler and every middleware below Core.ServeHTTP.
+func (t *tracked) Unwrap() http.ResponseWriter { return t.ResponseWriter }
+
 func (t *tracked) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if h, ok := t.ResponseWriter.(http.Hijacker); ok {
 		return h.Hijack()
@@ -265,6 +285,29 @@ func (t *tracked) Push(target string, opts *http.PushOptions) error {
 		return p.Push(target, opts)
 	}
 	return http.ErrNotSupported
+}
+
+// LimitRequestBody caps how much of r's body is read, answering 413 past the limit.
+//
+// It hands [http.MaxBytesReader] the writer underneath w rather than w itself.
+// MaxBytesReader marks the connection for close through an unexported method
+// on *http.response, which it finds by type assertion and which no wrapper can
+// implement: given a wrapper it silently skips the marking, and net/http then
+// drains up to 256 KiB of the oversized body and reuses the connection.
+func LimitRequestBody(w http.ResponseWriter, r *http.Request, limit int64) {
+	r.Body = http.MaxBytesReader(unwrapWriter(w), r.Body, limit)
+}
+
+// unwrapWriter walks the Unwrap chain down to the writer net/http handed the handler.
+// A wrapper without an Unwrap method ends the walk.
+func unwrapWriter(w http.ResponseWriter) http.ResponseWriter {
+	for {
+		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return w
+		}
+		w = u.Unwrap()
+	}
 }
 
 // ResponseBodyWritten reports whether any of the response body was written.

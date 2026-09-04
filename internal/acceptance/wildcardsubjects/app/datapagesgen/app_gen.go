@@ -281,7 +281,7 @@ func (s *Server) handlePageIndexPOSTNote(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Topic string `json:"topic"`
 		Text  string `json:"text"`

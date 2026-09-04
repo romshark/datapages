@@ -118,6 +118,71 @@ func TestLoggerBeforeBuild(t *testing.T) {
 // TestBuildDefaults tests what a core built from an empty config carries: a logger,
 // the bundled Datastar script in the HTML prefix, and no TLS, metrics or
 // assets until an option asks for them.
+// TestResponseControllerReachesTheRealWriter tests the deadline controls of
+// [http.ResponseController], which walk Unwrap and nothing else.
+// Core.ServeHTTP wraps every response.
+func TestResponseControllerReachesTheRealWriter(t *testing.T) {
+	t.Parallel()
+
+	type deadlines struct{ write, read error }
+	got := make(chan deadlines, 1)
+
+	c := mustCore(t, datapages.ServerConfig{}, "")
+	c.Mux().HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		rc := http.NewResponseController(w)
+		got <- deadlines{
+			write: rc.SetWriteDeadline(time.Now().Add(time.Minute)),
+			read:  rc.SetReadDeadline(time.Now().Add(time.Minute)),
+		}
+		_, _ = w.Write([]byte("ok"))
+	})
+	c.Build()
+
+	srv := httptest.NewServer(c)
+	t.Cleanup(srv.Close)
+
+	resp, err := srv.Client().Get(srv.URL + "/")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.ReadAll(resp.Body)
+
+	d := <-got
+	require.NoError(t, d.write, "SetWriteDeadline")
+	require.NoError(t, d.read, "SetReadDeadline")
+}
+
+// TestLimitRequestBodyClosesTheConnection tests an oversized body.
+// [http.MaxBytesReader] marks the connection for close through the writer
+// net/http handed the handler, which it finds by type assertion.
+// Given a wrapper it skips the marking, and net/http drains up to
+// 256 KiB and keeps the connection for the next request.
+func TestLimitRequestBodyClosesTheConnection(t *testing.T) {
+	t.Parallel()
+
+	c := mustCore(t, datapages.ServerConfig{}, "")
+	c.Mux().HandleFunc("POST /limited/", func(w http.ResponseWriter, r *http.Request) {
+		httpserve.LimitRequestBody(w, r, 100)
+		if _, err := io.ReadAll(r.Body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	})
+	c.Build()
+
+	srv := httptest.NewServer(c)
+	t.Cleanup(srv.Close)
+
+	resp, err := srv.Client().Post(srv.URL+"/limited/", "text/plain",
+		strings.NewReader(strings.Repeat("x", 1000)))
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.ReadAll(resp.Body)
+
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.True(t, resp.Close, "the connection was kept for the next request")
+}
+
 func TestBuildDefaults(t *testing.T) {
 	t.Parallel()
 

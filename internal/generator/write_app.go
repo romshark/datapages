@@ -1308,7 +1308,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 ) {
 	// Body size limit for non-GET actions.
 	if h.InputSignals != nil {
-		w.Line(1, "r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())")
+		w.Line(1, "httpserve.LimitRequestBody(w, r, s.BodySizeLimit())")
 	}
 
 	// Read signals.

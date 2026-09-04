@@ -264,6 +264,22 @@ func (w *statusRW) Flush() {
 	}
 }
 
+// FlushError is what [http.ResponseController.Flush] prefers over Flush.
+func (w *statusRW) FlushError() error {
+	if f, ok := w.ResponseWriter.(interface{ FlushError() error }); ok {
+		return f.FlushError()
+	}
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+		return nil
+	}
+	return http.ErrNotSupported
+}
+
+// Unwrap returns the writer this one wraps,
+// which is what [http.ResponseController] walks.
+func (w *statusRW) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (w *statusRW) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if h, ok := w.ResponseWriter.(http.Hijacker); ok {
 		return h.Hijack()
