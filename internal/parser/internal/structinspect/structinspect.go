@@ -182,24 +182,11 @@ func SubjectFields(
 
 	seenPayload := false
 	for _, f := range st.Fields.List {
-		if len(f.Names) != 1 {
+		// An embedded field carries no name and cannot be a subject segment.
+		if len(f.Names) == 0 {
 			continue
 		}
-		name := f.Names[0].Name
 		kind := typecheck.SubjectKindOf(info.TypeOf(f.Type))
-		if !kind.IsSubject() {
-			// Not a subject field, it's a payload field.
-			if f.Names[0].IsExported() {
-				seenPayload = true
-				if strings.HasPrefix(name, "Subject") {
-					result.Prefixed = append(result.Prefixed, SubjectField{
-						FieldName: name,
-						Pos:       f.Names[0].Pos(),
-					})
-				}
-			}
-			continue
-		}
 
 		// Extract optional signal:"xxx" tag for signal-scoped subject fields.
 		var signalName string
@@ -209,38 +196,59 @@ func SubjectFields(
 			}
 		}
 
-		sf := SubjectField{
-			FieldName:  name,
-			Kind:       kind,
-			SignalName: signalName,
-			Pos:        f.Names[0].Pos(),
-		}
+		// Names declared together share one type and one tag.
+		// Each is a field of its own: skipping the line would drop the
+		// subject silently and publish the event to the bare subject.
+		for _, ident := range f.Names {
+			name := ident.Name
+			if !kind.IsSubject() {
+				// Not a subject field, it's a payload field.
+				if ident.IsExported() {
+					seenPayload = true
+					if strings.HasPrefix(name, "Subject") {
+						result.Prefixed = append(result.Prefixed, SubjectField{
+							FieldName: name,
+							Pos:       ident.Pos(),
+						})
+					}
+				}
+				continue
+			}
 
-		if !f.Names[0].IsExported() {
-			result.Unexported = append(result.Unexported, sf)
-			continue
-		}
+			sf := SubjectField{
+				FieldName:  name,
+				Kind:       kind,
+				SignalName: signalName,
+				Pos:        ident.Pos(),
+			}
 
-		if seenPayload && result.AfterPayload == nil {
-			result.AfterPayload = &sf
-		}
-		if kind.IsUser() && signalName != "" && result.UserWithSignal == nil {
-			result.UserWithSignal = &sf
-		}
-		if signalName != "" && validate.SignalTagName(signalName) != nil && result.InvalidSignal == nil {
-			result.InvalidSignal = &sf
-		}
-		if signalName != "" && result.DuplicateSignal == nil {
-			for _, prev := range result.Fields {
-				if prev.SignalName == signalName {
-					result.DuplicateSignal = &sf
-					result.DuplicateSignalFirst = prev.FieldName
-					break
+			if !ident.IsExported() {
+				result.Unexported = append(result.Unexported, sf)
+				continue
+			}
+
+			if seenPayload && result.AfterPayload == nil {
+				result.AfterPayload = &sf
+			}
+			if kind.IsUser() && signalName != "" && result.UserWithSignal == nil {
+				result.UserWithSignal = &sf
+			}
+			if signalName != "" && validate.SignalTagName(signalName) != nil &&
+				result.InvalidSignal == nil {
+				result.InvalidSignal = &sf
+			}
+			if signalName != "" && result.DuplicateSignal == nil {
+				for _, prev := range result.Fields {
+					if prev.SignalName == signalName {
+						result.DuplicateSignal = &sf
+						result.DuplicateSignalFirst = prev.FieldName
+						break
+					}
 				}
 			}
-		}
 
-		result.Fields = append(result.Fields, sf)
+			result.Fields = append(result.Fields, sf)
+		}
 	}
 
 	return result

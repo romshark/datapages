@@ -184,6 +184,22 @@ func POSTPageFeedTick(options ...option) string {
 	return b.String()
 }
 
+// POSTPageRoomsDM references /rooms/dm/
+func POSTPageRoomsDM(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/rooms/dm/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/rooms/dm/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/rooms/dm/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
 // POSTPageRoomsNotice references /rooms/notice/
 func POSTPageRoomsNotice(options ...option) string {
 	if len(options) == 0 {

@@ -822,7 +822,7 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 	requireParseErrors(t, errs)
 	require.NotNil(app)
 
-	require.Len(app.Events, 5)
+	require.Len(app.Events, 6)
 	events := map[string]*model.Event{}
 	for _, e := range app.Events {
 		events[e.TypeName] = e
@@ -866,6 +866,17 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 			},
 			isPrivate:      true,
 			isSignalScoped: true,
+		},
+		// Two names on one declaration line are two subject fields.
+		// Reading only the first drops the rest and publishes to the bare subject.
+		"EventMultiUser": {
+			subject: "multi",
+			subjectFields: []model.SubjectField{
+				{FieldName: "To", Kind: model.SubjectKindUser},
+				{FieldName: "Cc", Kind: model.SubjectKindUser},
+			},
+			isPrivate:      true,
+			isSignalScoped: false,
 		},
 		"EventThreeField": {
 			subject: "three",
