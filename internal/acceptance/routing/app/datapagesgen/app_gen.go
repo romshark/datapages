@@ -166,6 +166,9 @@ func setupHandlers(s *Server) {
 		"GET /files/{rest...}",
 		s.handlePageFilesGET)
 	s.Mux().HandleFunc(
+		"GET /files-embedded/{rest...}",
+		s.handlePageFilesEmbeddedGET)
+	s.Mux().HandleFunc(
 		"GET /",
 		s.handlePageIndexGET)
 	s.Mux().HandleFunc(
@@ -278,6 +281,38 @@ func (s *Server) handlePageFilesGET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageFiles", err)
+		return
+	}
+}
+
+func (s *Server) handlePageFilesEmbeddedGET(w http.ResponseWriter, r *http.Request) {
+
+	var path datapages.Path[struct {
+		Rest string `path:"rest"`
+	}]
+	path.Values.Rest = httpserve.WildcardPathValue(r, "rest")
+
+	p := app.PageFilesEmbedded{
+		App: s.app,
+		FilesBase: app.FilesBase{
+			App: s.app,
+		},
+	}
+	defer s.recoverPanic(w, r, nil, "PageFilesEmbedded.GET")
+	body, err := p.GET(r, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageFilesEmbedded.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageFilesEmbedded", err)
 		return
 	}
 }

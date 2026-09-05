@@ -1213,12 +1213,30 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				// First embedded GET wins (record embed site).
 				if getOwner == "" {
 					get, getErr := buildHandlerGET(m, ctx.handlerOutputs[m])
+					// An abstract page carries no route of its own,
+					// so the handler is only complete once a page adopts it.
+					// The handler is copied first: pages with different routes may
+					// embed the same abstract, and the generator reads the
+					// route back to pick the path accessors.
+					hc := *get.Handler
+					hc.Route = pg.Route
+					get.Handler = &hc
 					pg.GET = get
 					if getErr != nil {
 						fallback := ctx.pkg.Fset.Position(m.Expr.Pos())
 						p := resolveErrorPos(getErr, ctx.pkg.Fset, fallback)
 						errs.ErrAt(p, fmt.Errorf("%w in %s.%s",
 							unwrapPositioned(getErr), ap.TypeName, m.Name))
+					} else if hc.Route != "" {
+						if err := paramvalidation.ValidatePathAgainstRoute(
+							&hc, ap.TypeName, "GET",
+						); err != nil {
+							p := ctx.pkg.Fset.Position(m.Expr.Pos())
+							if hc.InputPath != nil {
+								p = ctx.pkg.Fset.Position(hc.InputPath.Expr.Pos())
+							}
+							reportErrorsWithFset(errs, ctx.pkg.Fset, p, err)
+						}
 					}
 					getOwner = ap.TypeName
 					getOwnerPos = it.embedPos

@@ -318,6 +318,11 @@ func TestTrailingWildcard(t *testing.T) {
 		// Values that have to survive belong in a segment of their own,
 		// where {name} keeps them apart.
 		"encoded separator": {"/files/a%2Fb/", `rest="a/b"`},
+		// The same GET inherited from an abstract page,
+		// which carries no route of its own.
+		"embedded":                  {"/files-embedded/a/", `rest="a"`},
+		"embedded no slash":         {"/files-embedded/a", `rest="a"`},
+		"embedded several segments": {"/files-embedded/a/b/c", `rest="a/b/c"`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			resp := c.Get(t, tt.url)

@@ -95,6 +95,21 @@ func PageFiles(rest string) string {
 	return b.String()
 }
 
+// PageFilesEmbedded references /files-embedded/{rest...}/{$}
+func PageFilesEmbedded(rest string) string {
+	s_rest := url.PathEscape(rest)
+	var b strings.Builder
+	b.Grow(
+		len("/files-embedded/") +
+			len(s_rest) +
+			len("/"),
+	)
+	b.WriteString("/files-embedded/")
+	b.WriteString(s_rest)
+	b.WriteString("/")
+	return b.String()
+}
+
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
 

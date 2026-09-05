@@ -966,6 +966,18 @@ func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 	requirePosEqual(t, "app.go", 15, 2, pos)
 }
 
+// TestParse_ErrEmbedGETPath tests the path struct of a GET inherited from an
+// abstract page, which is only checkable once a page's route is known.
+func TestParse_ErrEmbedGETPath(t *testing.T) {
+	_, err := parse(t, "err_embed_get_path")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err,
+		parser.ErrPathMissingRouteVar,
+		parser.ErrPathFieldNotInRoute,
+	)
+}
+
 // TestParse_Path tests the path parameter: the struct's fields,
 // their tags and the route variables they bind to.
 func TestParse_Path(t *testing.T) {
@@ -1709,6 +1721,10 @@ func TestParse_ErrorPositions(t *testing.T) {
 		},
 		"err_event_subj_unexported": {
 			{parser.ErrEventFieldUnexported, "app.go", 25, 2},
+		},
+		"err_embed_get_path": {
+			{parser.ErrPathMissingRouteVar, "app.go", 17, 2},
+			{parser.ErrPathFieldNotInRoute, "app.go", 18, 3},
 		},
 		"err_events": {
 			{parser.ErrEventCommMissing, "app.go", 30, 6},
