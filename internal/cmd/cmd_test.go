@@ -607,6 +607,13 @@ func TestGenGoModUpgrade(t *testing.T) {
 			wantVersion:  "v0.7.0",
 			wantCode:     0,
 		},
+		// A local build reports a pseudo-version, which names no release.
+		"pseudo-version skips upgrade": {
+			goModVersion: "v0.7.0",
+			runVersion:   "v0.9.5-0.20260905214613-771c3042f83a+dirty",
+			wantVersion:  "v0.7.0",
+			wantCode:     0,
+		},
 		// go install hands the CLI a version with the "v", goreleaser one without.
 		"upgrades older version, v-prefixed": {
 			goModVersion: "v0.7.0",

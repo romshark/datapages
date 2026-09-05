@@ -14,6 +14,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 )
 
@@ -29,6 +30,15 @@ func Run(
 	// Every consumer below adds the prefix itself, and a doubled one is no valid semver,
 	// which turns the go.mod guard and the bump into no-ops.
 	version = strings.TrimPrefix(version, "v")
+
+	// Only a released tag names something to compare go.mod against or to
+	// pin in a workflow. A local build reports a pseudo-version instead.
+	// The version command still prints what the build carries.
+	release := version
+	if v := "v" + release; release != "" && (!semver.IsValid(v) ||
+		module.IsPseudoVersion(v) || semver.Build(v) != "") {
+		release = ""
+	}
 
 	root := &cobra.Command{
 		Use:   "datapages",
@@ -48,11 +58,11 @@ and type-safe href/action helpers, and provides a live-reloading dev server.`,
 	root.CompletionOptions.DisableDefaultCmd = true
 
 	root.AddCommand(
-		newGenCmd(stderr, version),
-		newInitCmd(stderr, version),
-		newLintCmd(stderr, version),
+		newGenCmd(stderr, release),
+		newInitCmd(stderr, release),
+		newLintCmd(stderr, release),
 		newVersionCmd(stdout, version, commit, buildDate),
-		newWatchCmd(stderr, version),
+		newWatchCmd(stderr, release),
 	)
 
 	if err := root.Execute(); err != nil {
