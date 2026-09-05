@@ -233,6 +233,15 @@ func main() {
 			msg: "generates into gen.Server, but app generates into " +
 				filepath.Join("app", "datapagesgen"),
 		},
+		"file that does not parse": {
+			files: map[string]string{
+				"app/app.go": "package app\n",
+				"cmd/server/main.go": mainGo("app",
+					"app.App, datapages.DisableSessions, datapages.DisablePrometheus, gen.Server",
+					"") + "func broken( {\n",
+			},
+			msg: "parsing Go file",
+		},
 		"too few type arguments": {
 			files: map[string]string{
 				"app/app.go": "package app\n",
