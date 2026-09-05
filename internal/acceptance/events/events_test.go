@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -79,6 +80,37 @@ func TestStreamHooks(t *testing.T) {
 		if got, want := logOf(t, c), "open("+id+") close("+id+")"; got != want {
 			t.Errorf(" got: %s\nwant: %s", got, want)
 		}
+	})
+}
+
+// TestStreamCloseRunsAfterTheEventHandlers tests a disconnect with events still queued.
+// StreamClose may free what those handlers read.
+func TestStreamCloseRunsAfterTheEventHandlers(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+
+		s := c.OpenStream(t, "/_$/", nil)
+		opened := logOf(t, c)
+		id := strings.TrimSuffix(strings.TrimPrefix(opened, "open("), ")")
+
+		// Hold the first tick in its handler and queue three behind it.
+		// Unheld, the stream drains each tick before the next arrives.
+		postOK(t, c, "/hold/", `{}`)
+		for n := range 4 {
+			postOK(t, c, "/tick/", fmt.Sprintf(`{"n":%d}`, n))
+		}
+		time.Sleep(client.Settle)
+		s.Close()
+		time.Sleep(client.Settle)
+		postOK(t, c, "/release/", `{}`)
+		time.Sleep(client.Settle)
+
+		got := logOf(t, c)
+		closed := "close(" + id + ")"
+		require.Contains(t, got, closed, "StreamClose did not run")
+		require.Equal(t, closed, got[strings.LastIndex(got, " ")+1:],
+			"a handler of the stream ran after StreamClose:\n%s", got)
 	})
 }
 

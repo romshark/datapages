@@ -249,6 +249,12 @@ func setupHandlers(s *Server) {
 		"POST /tick/{$}",
 		s.handlePageIndexPOSTTick)
 	s.Mux().HandleFunc(
+		"POST /hold/{$}",
+		s.handlePageIndexPOSTHold)
+	s.Mux().HandleFunc(
+		"POST /release/{$}",
+		s.handlePageIndexPOSTRelease)
+	s.Mux().HandleFunc(
 		"POST /both/{$}",
 		s.handlePageIndexPOSTBoth)
 	s.Mux().HandleFunc(
@@ -431,6 +437,34 @@ func (s *Server) handlePageIndexPOSTTick(
 	err := p.POSTTick(r, signals, dispatchTick)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Tick", err)
+		return
+	}
+}
+
+func (s *Server) handlePageIndexPOSTHold(
+	w http.ResponseWriter, r *http.Request,
+) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Hold")
+	p := app.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTHold(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Hold", err)
+		return
+	}
+}
+
+func (s *Server) handlePageIndexPOSTRelease(
+	w http.ResponseWriter, r *http.Request,
+) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Release")
+	p := app.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTRelease(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Release", err)
 		return
 	}
 }
