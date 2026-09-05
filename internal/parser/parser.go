@@ -66,9 +66,11 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	secondPassEmbeds(&ctx, &errs)
 	thirdPassMethods(&ctx, &errs)
 	collectAssets(&ctx, &errs)
+	// Both run after flattenPages: a session-carrying handler declared on an
+	// abstract page is only reachable from ctx.pages once it has been adopted.
+	flattenPages(&ctx, &errs)
 	collectSessionType(&ctx, &errs)
 	validateEventsNeedSession(&ctx, &errs)
-	flattenPages(&ctx, &errs)
 	validateRequiredHandlers(&ctx, &errs)
 	finalizePages(&ctx)
 	assignSpecialPages(&ctx, &errs)

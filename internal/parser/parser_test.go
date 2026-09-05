@@ -1181,6 +1181,48 @@ func TestParse_ErrDispatch(t *testing.T) {
 	)
 }
 
+// TestParse_SessionOnAbstractPage tests a session-carrying GET declared only on
+// an abstract page. The session type is reachable once the abstract page's
+// handlers have been adopted, and the generated code calls ReadSession.
+func TestParse_SessionOnAbstractPage(t *testing.T) {
+	app, errs := parse(t, "session_abstract")
+	require := require.New(t)
+	requireParseErrors(t, errs /*none*/)
+	require.NotNil(app)
+	require.NotNil(app.Session)
+	require.Equal("datapagestest/fixture/session_abstract.SessionData",
+		app.Session.Data.Resolved.String())
+
+	pages := map[string]*model.Page{}
+	for _, p := range app.Pages {
+		pages[p.TypeName] = p
+	}
+
+	// Every session-carrying shape collectSessionType reads, adopted from an
+	// abstract page.
+	index := pages["PageIndex"]
+	require.NotNil(index)
+	require.NotNil(index.GET)
+	require.NotNil(index.GET.InputSession)
+	require.NotNil(index.StreamOpen)
+	require.NotNil(index.StreamOpen.InputSession)
+	require.NotNil(index.StreamClose)
+	require.NotNil(index.StreamClose.InputSession)
+	require.Len(index.EventHandlers, 1)
+	require.NotNil(index.EventHandlers[0].InputSession)
+
+	auth := pages["PageAuth"]
+	require.NotNil(auth)
+	actions := map[string]*model.Handler{}
+	for _, a := range auth.Actions {
+		actions[a.Name] = a
+	}
+	require.NotNil(actions["SignIn"])
+	require.NotNil(actions["SignIn"].OutputNewSession)
+	require.NotNil(actions["SignOut"])
+	require.NotNil(actions["SignOut"].OutputCloseSession)
+}
+
 // TestParse_Session tests the session parameter and the session data type the
 // application declares.
 func TestParse_Session(t *testing.T) {
