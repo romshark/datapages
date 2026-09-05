@@ -607,6 +607,20 @@ func TestGenGoModUpgrade(t *testing.T) {
 			wantVersion:  "v0.7.0",
 			wantCode:     0,
 		},
+		// go install hands the CLI a version with the "v", goreleaser one without.
+		"upgrades older version, v-prefixed": {
+			goModVersion: "v0.7.0",
+			runVersion:   "v0.8.0",
+			wantVersion:  "v0.8.0",
+			wantCode:     0,
+		},
+		"error when go.mod is newer, v-prefixed": {
+			goModVersion: "v0.8.0",
+			runVersion:   "v0.7.0",
+			wantVersion:  "v0.8.0",
+			wantCode:     1,
+			wantStderr:   "go install github.com/romshark/datapages@v0.8.0",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := setupProject(t, "valid.go")
@@ -1082,4 +1096,32 @@ func TestInit(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestInitPinsTheCLIInCI tests the install line of the scaffolded workflow.
+// go install hands the CLI a v-prefixed version and the line adds its own "v".
+func TestInitPinsTheCLIInCI(t *testing.T) {
+	t.Setenv("GOFLAGS", "-e")
+
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "pinned")
+	writeLocalWorkspace(t, projectDir, repoRootDir(t))
+	chdirTemp(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := cmd.Run(
+		context.Background(),
+		[]string{
+			"datapages", "init", "-n",
+			"--name", "pinned", "--module", "example.com/pinned",
+		},
+		nil, &stdout, &stderr,
+		"v1.2.3", "xxxxxxx", "2026-2-23",
+	)
+	require.Equal(t, 0, code, "stdout: %s\nstderr: %s", stdout.String(), stderr.String())
+
+	data, err := os.ReadFile(filepath.Join(projectDir, ".github", "workflows", "ci.yml"))
+	require.NoError(t, err, "reading the scaffolded workflow")
+	require.Contains(t, string(data),
+		"go install github.com/romshark/datapages/cmd/datapages@v1.2.3")
 }
