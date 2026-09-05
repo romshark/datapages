@@ -210,7 +210,6 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotFound)
 	p := app.PageError404{
 		App: s.app,
 	}
@@ -225,6 +224,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	bodyAttrs := func(w http.ResponseWriter) {
 		httpserve.WriteReloadOnVisibility(w)
 	}
+	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {

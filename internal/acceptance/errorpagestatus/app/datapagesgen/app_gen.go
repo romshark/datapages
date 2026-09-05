@@ -166,21 +166,24 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotFound)
 	p := app.PageError404{
 		App: s.app,
 	}
 
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
-	body, err := p.GET(r)
+	body, redirect, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		return
+	}
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
 		httpserve.WriteReloadOnVisibility(w)
 	}
+	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
@@ -194,9 +197,12 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
-	body, err := p.GET(r)
+	body, redirect, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		return
+	}
+	if httpserve.Redirect(w, r, redirect) {
 		return
 	}
 

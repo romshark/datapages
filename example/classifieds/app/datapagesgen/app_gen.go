@@ -468,7 +468,6 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotFound)
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -492,6 +491,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	bodyAttrs := func(w http.ResponseWriter) {
 		httpserve.WriteReloadOnVisibility(w)
 	}
+	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
 		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, nil,
 	); err != nil {

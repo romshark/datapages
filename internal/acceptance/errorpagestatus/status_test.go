@@ -3,6 +3,8 @@
 package acceptance_test
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"testing"
 
@@ -33,6 +35,30 @@ func TestErrorPageStatus(t *testing.T) {
 	require.Contains(t, resp.Body, `<p id="msg">no such page</p>`,
 		"the custom 404 page was not rendered")
 	require.Equal(t, http.StatusNotFound, resp.Status)
+}
+
+// TestErrorPage404Redirects tests a 404 page that returns a redirect instead of a body.
+// The response carries the redirect's own status and Location,
+// not the 404 the route would otherwise write.
+func TestErrorPage404Redirects(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	// The default client follows the redirect, which hides the status.
+	hc := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	req, err := http.NewRequestWithContext(context.Background(),
+		http.MethodGet, c.URL()+"/go-home/", nil)
+	require.NoError(t, err, "building GET /go-home/")
+	resp, err := hc.Do(req)
+	require.NoError(t, err, "GET /go-home/")
+	defer func() { _ = resp.Body.Close() }()
+	_, err = io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	require.Equal(t, http.StatusFound, resp.StatusCode)
+	require.Equal(t, "/", resp.Header.Get("Location"))
 }
 
 // TestRoutedPageIsUnaffected tests a URL a page does claim.

@@ -1205,7 +1205,6 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 
 	w.Line(0, "")
 	w.Line(0, "func (s *Server) render404(w http.ResponseWriter, r *http.Request) {")
-	w.Line(1, "w.WriteHeader(http.StatusNotFound)")
 
 	h404 := p.GET.Handler
 	headNeedsSess := m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession
@@ -1719,6 +1718,13 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	headArg := "nil"
 	if p.GET.OutputHead != nil {
 		headArg = outputVar(p.GET.OutputHead.Output)
+	}
+
+	if context == "render404" {
+		// Write the status here, not when render404 starts. The branches
+		// above send a status of their own, 302 for a redirect and 500 for
+		// an error or a panic, and ReadSession may still clear the cookie.
+		w.Line(1, "w.WriteHeader(http.StatusNotFound)")
 	}
 
 	w.Line(1, "if err := s.writeHTML(")
