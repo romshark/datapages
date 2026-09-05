@@ -230,6 +230,31 @@ func TestDevModeServesFromDisk(t *testing.T) {
 		"caching is not forbidden in dev mode")
 }
 
+// TestHalfWrittenBodyGetsNoErrorStatus tests an action that fails after
+// writing over SSE. The response head is already out, so an error status
+// writes its text into the body the client is reading.
+// prom.Middleware replaces the response writer with its own,
+// which httpserve.ResponseBodyWritten has to see through.
+func TestHalfWrittenBodyGetsNoErrorStatus(t *testing.T) {
+	srv := newServer(t)
+
+	req, err := http.NewRequestWithContext(context.Background(),
+		http.MethodPost, srv.URL+"/half-written/", nil)
+	require.NoError(t, err, "building POST /half-written/")
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "identity")
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err, "POST /half-written/")
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "reading /half-written/")
+
+	body := string(b)
+	require.Contains(t, body, `<pre id="echo">half</pre>`)
+	require.NotContains(t, body, http.StatusText(http.StatusInternalServerError),
+		"the error status was appended to what the client already received")
+}
+
 // TestMetrics tests the instrumentation the Prometheus option adds.
 // The counters are read from the registry the server was given,
 // the same registry a scrape reads.

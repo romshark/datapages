@@ -3,6 +3,7 @@
 package app
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/a-h/templ"
@@ -29,7 +30,8 @@ func (PageIndex) OnAnnounced(
 	sse datapages.SSE,
 ) error {
 	return sse.PatchElement(
-		templ.Raw(`<div id="out">` + event.Text + `</div>`))
+		templ.Raw(`<div id="out">` + event.Text + `</div>`),
+	)
 }
 
 // POSTAnnounce is /announce
@@ -50,4 +52,15 @@ func (PageIndex) POSTAnnounce(
 // Errors are counted. One is needed here to count.
 func (PageIndex) POSTFail(_ *http.Request) error {
 	return datapages.ErrBadRequest
+}
+
+// POSTHalfWritten is /half-written
+//
+// The action writes over SSE and then fails.
+// The error path must write no status onto the body the client already received.
+func (PageIndex) POSTHalfWritten(_ *http.Request, sse datapages.SSE) error {
+	if err := sse.PatchElement(templ.Raw(`<pre id="echo">half</pre>`)); err != nil {
+		return err
+	}
+	return errors.New("the action failed after writing")
 }

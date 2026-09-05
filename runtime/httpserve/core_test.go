@@ -115,9 +115,72 @@ func TestLoggerBeforeBuild(t *testing.T) {
 	})
 }
 
-// TestBuildDefaults tests what a core built from an empty config carries: a logger,
-// the bundled Datastar script in the HTML prefix, and no TLS, metrics or
-// assets until an option asks for them.
+// unwrapRW is a middleware writer of the shape net/http documents.
+// It wraps and exposes what it wraps through Unwrap.
+type unwrapRW struct{ http.ResponseWriter }
+
+func (w unwrapRW) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// opaqueRW wraps without an Unwrap method, which hides everything below it.
+type opaqueRW struct{ http.ResponseWriter }
+
+// TestResponseBodyWrittenThroughMiddleware tests the writer a handler holds
+// when a middleware wrapped it, which is the shape prom.Middleware installs.
+func TestResponseBodyWrittenThroughMiddleware(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		wrap func(http.ResponseWriter) http.ResponseWriter
+		want bool
+	}{
+		"direct": {
+			wrap: func(w http.ResponseWriter) http.ResponseWriter { return w },
+			want: true,
+		},
+		"unwrap": {
+			wrap: func(w http.ResponseWriter) http.ResponseWriter {
+				return unwrapRW{w}
+			},
+			want: true,
+		},
+		"nested": {
+			wrap: func(w http.ResponseWriter) http.ResponseWriter {
+				return unwrapRW{unwrapRW{w}}
+			},
+			want: true,
+		},
+		"opaque": {
+			wrap: func(w http.ResponseWriter) http.ResponseWriter {
+				return opaqueRW{w}
+			},
+			want: false,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var got, before bool
+			c := mustCore(t, datapages.ServerConfig{
+				OutermostMiddleware: func(next http.Handler) http.Handler {
+					return http.HandlerFunc(
+						func(w http.ResponseWriter, r *http.Request) {
+							next.ServeHTTP(tc.wrap(w), r)
+						},
+					)
+				},
+			}, "")
+			c.Mux().HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				before = httpserve.ResponseBodyWritten(w)
+				_, _ = w.Write([]byte("half a page"))
+				got = httpserve.ResponseBodyWritten(w)
+			})
+			c.Build()
+
+			serve(t, c, "/")
+			require.False(t, before, "reported written before the write")
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 // TestResponseControllerReachesTheRealWriter tests the deadline controls of
 // [http.ResponseController], which walk Unwrap and nothing else.
 // Core.ServeHTTP wraps every response.
@@ -183,6 +246,9 @@ func TestLimitRequestBodyClosesTheConnection(t *testing.T) {
 	require.True(t, resp.Close, "the connection was kept for the next request")
 }
 
+// TestBuildDefaults tests what a core built from an empty config carries:
+// a logger, the bundled Datastar script in the HTML prefix, and no TLS,
+// metrics or assets until an option asks for them.
 func TestBuildDefaults(t *testing.T) {
 	t.Parallel()
 

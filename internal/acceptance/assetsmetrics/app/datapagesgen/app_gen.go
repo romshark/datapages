@@ -216,6 +216,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /fail/{$}",
 		s.handlePageIndexPOSTFail)
+	s.Mux().HandleFunc(
+		"POST /half-written/{$}",
+		s.handlePageIndexPOSTHalfWritten)
 }
 
 func (s *Server) httpErrIntern(
@@ -333,6 +336,25 @@ func (s *Server) handlePageIndexPOSTFail(
 	err := p.POSTFail(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Fail", err)
+		return
+	}
+}
+
+func (s *Server) handlePageIndexPOSTHalfWritten(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageIndex.HalfWritten")
+	p := app.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTHalfWritten(r, dpsse.New(sse))
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageIndex.HalfWritten", err)
 		return
 	}
 }
