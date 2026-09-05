@@ -146,7 +146,8 @@ func TestAssetsEscapeTheirDirectory(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			resp := get(t, srv, url)
 			defer func() { _ = resp.Body.Close() }()
-			b, _ := io.ReadAll(resp.Body)
+			b, err := io.ReadAll(resp.Body)
+			require.NoError(t, err, "reading %s", url)
 			require.False(t,
 				resp.StatusCode == http.StatusOK &&
 					strings.Contains(string(b), "package app"),

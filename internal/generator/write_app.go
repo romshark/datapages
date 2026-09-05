@@ -1257,8 +1257,8 @@ func (w *Writer) writeEmbedInitStmt(ap *model.AbstractPage, appPkg string, inden
 	w.Line(indent, "},")
 }
 
-// App-level action handler generation kept here; methodized.
-
+// writeAppActionHandler generates an app-level action handler, the counterpart
+// of [Writer.writePageActionHandler] for a handler declared on App itself.
 func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg string) {
 	w.Line(0, "")
 	w.Raw("func (s *Server) handle")

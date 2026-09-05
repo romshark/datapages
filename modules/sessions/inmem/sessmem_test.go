@@ -1091,18 +1091,23 @@ func TestConcurrentSaveSession(t *testing.T) {
 	require.NoError(t, err)
 
 	const goroutines = 50
+	saveErrs := make([]error, goroutines)
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for range goroutines {
-		go func() {
+	for i := range goroutines {
+		go func(i int) {
 			defer wg.Done()
-			_ = sm.SaveSession(ctx, token, testSession{
+			saveErrs[i] = sm.SaveSession(ctx, token, testSession{
 				Username: "alice",
 				Role:     "role",
 			})
-		}()
+		}(i)
 	}
 	wg.Wait()
+
+	for i, err := range saveErrs {
+		require.NoError(t, err, "goroutine %d", i)
+	}
 
 	// Session must still be readable.
 	sess, err := sm.Session(ctx, token)

@@ -145,10 +145,7 @@ func removeExistingFile(t *testing.T, path string) {
 	require.NoError(t, os.Remove(path))
 }
 
-// setupProject creates a temporary Go module with a datapages app package.
-// It copies the given app source file from testdata into a temporary directory,
-// changes the working directory to the project root and returns
-// the project directory path.
+// copyTestdata copies src to dst, creating dst's parent directories.
 func copyTestdata(t *testing.T, dst, src string) {
 	t.Helper()
 	data, err := os.ReadFile(src)
@@ -192,6 +189,10 @@ func hashDir(t *testing.T, dir string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
+// setupProject creates a temporary Go module with a datapages app package.
+// It copies the given app source file from testdata into a temporary directory,
+// changes the working directory to the project root and returns
+// the project directory path.
 func setupProject(t *testing.T, appGoFile string) string {
 	t.Helper()
 
@@ -219,7 +220,7 @@ func setupProject(t *testing.T, appGoFile string) string {
 		"\nreplace github.com/romshark/datapages => %s\n", repoRoot,
 	))
 	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	t.Cleanup(func() { require.NoError(t, os.Chdir(origDir)) })
 
 	out, err := exec.Command("go", "mod", "tidy").CombinedOutput()
 	require.NoError(t, err, "go mod tidy: %s", out)
@@ -235,7 +236,7 @@ func TestWatch(t *testing.T) {
 		origDir, err := os.Getwd()
 		require.NoError(t, err)
 		require.NoError(t, os.Chdir(dir))
-		t.Cleanup(func() { _ = os.Chdir(origDir) })
+		t.Cleanup(func() { require.NoError(t, os.Chdir(origDir)) })
 
 		var stdout, stderr bytes.Buffer
 		code := cmd.Run(
@@ -731,7 +732,7 @@ func chdirTemp(t *testing.T, dir string) {
 	origDir, err := os.Getwd()
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	t.Cleanup(func() { require.NoError(t, os.Chdir(origDir)) })
 }
 
 // repoRootDir returns the absolute path of this repository's root.

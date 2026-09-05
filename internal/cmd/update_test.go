@@ -67,10 +67,12 @@ func TestStartUpdateCheck(t *testing.T) {
 			t.Cleanup(srv.Close)
 
 			// Redirect all requests to the test server.
+			srvURL, err := url.Parse(srv.URL)
+			require.NoError(t, err)
 			client := &http.Client{
 				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 					req = req.Clone(req.Context())
-					req.URL, _ = url.Parse(srv.URL)
+					req.URL = srvURL
 					return http.DefaultTransport.RoundTrip(req)
 				}),
 			}

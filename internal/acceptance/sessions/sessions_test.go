@@ -195,7 +195,6 @@ func (c *client) issuedAt(t *testing.T) time.Time {
 	return rec.IssuedAt
 }
 
-// cookie returns the session cookie the server set, if any.
 // setSessionCookie puts a session token into the visitor's jar,
 // which is what a returning visitor's request carries.
 func (c *client) setSessionCookie(t *testing.T, token string) {
@@ -207,6 +206,7 @@ func (c *client) setSessionCookie(t *testing.T, token string) {
 	c.http.Jar.SetCookies(u, []*http.Cookie{{Name: cookieName, Value: token}})
 }
 
+// cookie returns the session cookie the server set, if any.
 func (c *client) cookie(t *testing.T) *http.Cookie {
 	t.Helper()
 	u := c.srv.Server.URL

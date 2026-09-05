@@ -72,9 +72,9 @@ func (s *testSessionServer) Init(
 	return nil
 }
 
-// failingServer stands in for a generated Server rejecting its configuration.
 var errInit = errors.New("init failed")
 
+// failingServer stands in for a generated Server rejecting its configuration.
 type failingServer struct{ testServing }
 
 func (failingServer) Init(
