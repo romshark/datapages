@@ -7,6 +7,7 @@
 package actionexpr
 
 import (
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -108,29 +109,29 @@ func WithHeaders(headers map[string]string) Option {
 	if len(headers) == 0 {
 		return Option{}
 	}
+	// Sorted, not in map order. Map order is random,
+	// and Datastar re-applies an attribute whose text changed.
+	keys := slices.Sorted(maps.Keys(headers))
+
 	// Pre-calculate size assuming no escaping needed (lower bound).
 	n := 2 // {}
-	i := 0
-	for k, v := range headers {
+	for i, k := range keys {
 		if i > 0 {
 			n += 2 // ", "
 		}
-		i++
-		n += len(k) + len(v) + 6 // 'k': 'v'
+		n += len(k) + len(headers[k]) + 6 // 'k': 'v'
 	}
 	var b strings.Builder
 	b.Grow(n)
 	b.WriteByte('{')
-	first := true
-	for k, v := range headers {
-		if !first {
+	for i, k := range keys {
+		if i > 0 {
 			b.WriteString(", ")
 		}
-		first = false
 		b.WriteString("'")
 		b.WriteString(escapeJS(k))
 		b.WriteString("': '")
-		b.WriteString(escapeJS(v))
+		b.WriteString(escapeJS(headers[k]))
 		b.WriteString("'")
 	}
 	b.WriteByte('}')

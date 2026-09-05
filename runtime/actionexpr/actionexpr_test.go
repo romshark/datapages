@@ -15,6 +15,20 @@ func writeOptions(options []actionexpr.Option) string {
 	return b.String()
 }
 
+// TestWithHeadersIsStable tests that one call renders one string.
+// Go randomizes map iteration, and a single render matches
+// sorted order often enough to pass by chance.
+func TestWithHeadersIsStable(t *testing.T) {
+	t.Parallel()
+
+	headers := map[string]string{"X-C": "3", "X-A": "1", "X-B": "2"}
+	want := writeOptions([]actionexpr.Option{actionexpr.WithHeaders(headers)})
+	for range 100 {
+		require.Equal(t, want,
+			writeOptions([]actionexpr.Option{actionexpr.WithHeaders(headers)}))
+	}
+}
+
 // TestWriteOptions tests the JavaScript options object the action expression carries.
 // An option that produces no entry writes nothing at all, not an empty object,
 // and a value that could end the JS string or the attribute it sits in is escaped.
@@ -39,6 +53,12 @@ func TestWriteOptions(t *testing.T) {
 		"one": {
 			[]actionexpr.Option{actionexpr.WithRetry(actionexpr.RetryNever)},
 			", {retry: 'never'}",
+		},
+		"headers are ordered": {
+			[]actionexpr.Option{actionexpr.WithHeaders(map[string]string{
+				"X-C": "3", "X-A": "1", "X-B": "2",
+			})},
+			", {headers: {'X-A': '1', 'X-B': '2', 'X-C': '3'}}",
 		},
 		"two": {
 			[]actionexpr.Option{
