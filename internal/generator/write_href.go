@@ -240,6 +240,14 @@ func (w *Writer) writeHrefFuncPathOnly(funcName, route string, params []pathPara
 	w.writePathPreConvert(params)
 
 	literals, _ := routepattern.Segments(route)
+	// The model may be partial: cmd/gen hands the generator what parsed so an
+	// IDE can still resolve the import, and a route the parser rejected can
+	// still reach here. Indexing params[i-1] below would panic on it.
+	if len(literals) != len(params)+1 {
+		w.Line(1, `return ""`)
+		w.Line(0, "}")
+		return
+	}
 	lo := newHrefLocals(params, nil)
 
 	// Builder.
@@ -361,6 +369,13 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	w.Raw(") string {\n")
 
 	literals, _ := routepattern.Segments(route)
+	if len(literals) != len(params)+1 {
+		// Same guard as writeHrefFuncPathOnly: a rejected route must fail with
+		// a diagnostic, not a stack trace.
+		w.Line(1, `return ""`)
+		w.Line(0, "}")
+		return
+	}
 	lo := newHrefLocals(params, fields)
 
 	// Pre-convert non-string path params.

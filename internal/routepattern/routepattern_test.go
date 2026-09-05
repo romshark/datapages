@@ -124,9 +124,21 @@ func TestSegments(t *testing.T) {
 		"wildcard": {
 			"/files/{path...}", []string{"/files/", "/"}, []string{"path"},
 		},
-		"empty braces":   {"/{}", []string{"/", "/"}, nil},
+		"empty braces":   {"/{}", []string{"//"}, nil},
 		"unclosed brace": {"/items/{id", []string{"/items/"}, nil},
 		"empty string":   {"", []string{"/"}, nil},
+		// A nameless wildcard away from the end contributes no variable,
+		// so it must not start a literal of its own: the callers reconstruct
+		// the URL as literals[0] + vars[0] + ... and index params[i-1].
+		"exact match not at end": {
+			"/item/{id}/{$}/b", []string{"/item/", "//b/"}, []string{"id"},
+		},
+		"empty braces not at end": {
+			"/item/{id}/{}/b", []string{"/item/", "//b/"}, []string{"id"},
+		},
+		"exact match first": {
+			"/{$}/item/{id}", []string{"//item/", "/"}, []string{"id"},
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
