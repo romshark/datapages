@@ -283,14 +283,14 @@ func (w *Writer) writeHrefFuncPathOnly(funcName, route string, params []pathPara
 func (w *Writer) writeHrefFuncQueryOnly(
 	funcName, route string, fields []structFieldInfo,
 ) {
-	w.Linef(0, "func %s(query Query%s) string {", funcName, funcName)
 	lo := newHrefLocals(nil, fields)
+	w.Linef(0, "func %s(%s Query%s) string {", funcName, lo.query, funcName)
 
 	// Pre-convert non-string fields to strings.
 	w.writeQueryPreConvert(lo, fields)
 
 	// anyQuery check.
-	w.writeAnyCheck(lo.anyQuery, fields)
+	w.writeAnyCheck(lo.anyQuery, lo.query, fields)
 	w.Line(0, "")
 
 	// Length calculation.
@@ -310,7 +310,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 
 	for _, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
+		w.writeIfZeroCheck(1, lo.query+"."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `l += len("&")`)
 		w.Line(2, "}")
@@ -339,7 +339,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 
 	for i, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
+		w.writeIfZeroCheck(1, lo.query+"."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `b.WriteString("&")`)
 		w.Line(2, "}")
@@ -361,12 +361,16 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	funcName, route string,
 	params []pathParamInfo, fields []structFieldInfo,
 ) {
+	lo := newHrefLocals(params, fields)
+
 	// Function signature with path params + query struct.
 	w.Raw("func ")
 	w.Raw(funcName)
 	w.Byte('(')
 	w.writeTypedParams(params)
-	w.Raw(", query Query")
+	w.Raw(", ")
+	w.Raw(lo.query)
+	w.Raw(" Query")
 	w.Raw(funcName)
 	w.Raw(") string {\n")
 
@@ -378,7 +382,6 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 		w.Line(0, "}")
 		return
 	}
-	lo := newHrefLocals(params, fields)
 
 	// Pre-convert non-string path params.
 	w.writePathPreConvert(params)
@@ -387,7 +390,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	w.writeQueryPreConvert(lo, fields)
 
 	// anyQuery check.
-	w.writeAnyCheck(lo.anyQuery, fields)
+	w.writeAnyCheck(lo.anyQuery, lo.query, fields)
 	w.Line(0, "")
 
 	// Length calculation.
@@ -424,7 +427,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 
 	for _, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
+		w.writeIfZeroCheck(1, lo.query+"."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s += len(\"&\")", lo.length)
 		w.Line(2, "}")
@@ -456,7 +459,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 
 	for i, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
+		w.writeIfZeroCheck(1, lo.query+"."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s.WriteString(\"&\")", lo.builder)
 		w.Line(2, "}")
@@ -580,11 +583,14 @@ type hrefLocals struct {
 	// queryStr maps a query tag to the local holding its string form.
 	// Only non-string fields need one.
 	queryStr map[string]string
+	// query and options name the generated parameters,
+	// which a route wildcard may be called too.
+	query   string
+	options string
 }
 
 func newHrefLocals(params []pathParamInfo, fields []structFieldInfo) hrefLocals {
 	taken := make(map[string]bool, len(params)*2+len(fields)+4)
-	taken["query"] = true // the query struct parameter
 	for _, p := range params {
 		taken[p.Name] = true
 		taken[p.StrVar] = true
@@ -598,6 +604,10 @@ func newHrefLocals(params []pathParamInfo, fields []structFieldInfo) hrefLocals 
 		return name
 	}
 	lo := hrefLocals{
+		// Picked like the locals: the path parameters are written first and
+		// one of them may already hold the name.
+		query:     pick("query"),
+		options:   pick("options"),
 		builder:   pick("b"),
 		length:    pick("l"),
 		count:     pick("n"),
@@ -765,16 +775,16 @@ func (w *Writer) writeQueryPreConvert(lo hrefLocals, fields []structFieldInfo) {
 	for _, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
 		w.Raw("\tif ")
-		w.writeZeroCheck("query."+f.Name, f.Type)
+		w.writeZeroCheck(lo.query+"."+f.Name, f.Type)
 		w.Raw(" {\n")
 		w.Rawf("\t\t%s = ", lo.queryStr[tag])
 		switch {
 		case gotypes.ImplementsTextMarshaler(f.Type):
-			w.Rawf("url.QueryEscape(textOf(query.%s))", f.Name)
+			w.Rawf("url.QueryEscape(textOf(%s.%s))", lo.query, f.Name)
 		case !isFormattedType(f.Type):
-			w.Rawf("url.QueryEscape(query.%s)", f.Name)
+			w.Rawf("url.QueryEscape(%s.%s)", lo.query, f.Name)
 		default:
-			w.writeFormatExpr("query."+f.Name, f.Type)
+			w.writeFormatExpr(lo.query+"."+f.Name, f.Type)
 		}
 		w.Byte('\n')
 		w.Line(1, "}")

@@ -81,3 +81,32 @@ func TestNonIdentifierQueryTagAction(t *testing.T) {
 	require.Equal(t, http.StatusOK, c.Action(t, http.MethodPost, url, "").Status,
 		"page-size did not reach the handler")
 }
+
+// TestParameterNamesAreFree tests a route wildcard named after a parameter the writer
+// adds itself: the query struct of an href, the option variadic of an action helper.
+func TestParameterNamesAreFree(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	url := href.PageParams("a", "b", href.QueryPageParams{Term: "x"})
+	resp := c.Get(t, url)
+
+	require.Equal(t, http.StatusOK, resp.Status, url)
+	require.Equal(t, "query=a options=b t=x", resp.Element(t, "echo"))
+}
+
+// TestActionLocalNamesAreFree tests path variables named after
+// every local the action writer declares for itself.
+func TestActionLocalNamesAreFree(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	url := href.PageLocals("1", "2", "3", "4", "5")
+	resp := c.Get(t, url)
+
+	require.Equal(t, http.StatusOK, resp.Status, url)
+	require.Equal(t, "b=1 l=2 n=3 bl=4 al=5", resp.Element(t, "echo"))
+
+	expr := action.POSTPageLocalsSave("1", "2", "3", "4", "5")
+	require.Equal(t, "@post('/locals/1/2/3/4/5/save/')", expr)
+}

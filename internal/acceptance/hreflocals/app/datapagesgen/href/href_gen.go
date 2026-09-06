@@ -61,6 +61,41 @@ func PageItem(b bool) string {
 	return b_.String()
 }
 
+// PageLocals references /locals/{b}/{l}/{n}/{bl}/{al}/{$}
+func PageLocals(b string, l string, n string, bl string, al string) string {
+	s_b := url.PathEscape(b)
+	s_l := url.PathEscape(l)
+	s_n := url.PathEscape(n)
+	s_bl := url.PathEscape(bl)
+	s_al := url.PathEscape(al)
+	var b_ strings.Builder
+	b_.Grow(
+		len("/locals/") +
+			len(s_b) +
+			len("/") +
+			len(s_l) +
+			len("/") +
+			len(s_n) +
+			len("/") +
+			len(s_bl) +
+			len("/") +
+			len(s_al) +
+			len("/"),
+	)
+	b_.WriteString("/locals/")
+	b_.WriteString(s_b)
+	b_.WriteString("/")
+	b_.WriteString(s_l)
+	b_.WriteString("/")
+	b_.WriteString(s_n)
+	b_.WriteString("/")
+	b_.WriteString(s_bl)
+	b_.WriteString("/")
+	b_.WriteString(s_al)
+	b_.WriteString("/")
+	return b_.String()
+}
+
 // PageMix references /mix/{l}/{n}/{pageStr}/{$}
 func PageMix(l int, n int, pageStr string, query QueryPageMix) string {
 	s_l := strconv.FormatInt(int64(l), 10)
@@ -150,6 +185,71 @@ func PageMix(l int, n int, pageStr string, query QueryPageMix) string {
 type QueryPageMix struct {
 	AnyQuery string `query:"anyQuery"`
 	Page     int    `query:"page"`
+}
+
+// PageParams references /params/{query}/{options}/{$}
+func PageParams(query string, options string, query_ QueryPageParams) string {
+	s_query := url.PathEscape(query)
+	s_options := url.PathEscape(options)
+	var (
+		termStr string
+	)
+
+	if query_.Term != "" {
+		termStr = url.QueryEscape(query_.Term)
+	}
+
+	anyQuery := query_.Term != ""
+
+	var b strings.Builder
+	l := len("/params/") +
+		len(s_query) +
+		len("/") +
+		len(s_options) +
+		len("/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query_.Term != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("t=") + len(termStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/params/")
+	b.WriteString(s_query)
+	b.WriteString("/")
+	b.WriteString(s_options)
+	b.WriteString("/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query_.Term != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("t=")
+		b.WriteString(termStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageParams is the query parameters for PageParams
+type QueryPageParams struct {
+	Term string `query:"t"`
 }
 
 // PageTags references /tags/{$}

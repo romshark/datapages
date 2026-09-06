@@ -156,11 +156,23 @@ func setupHandlers(s *Server) {
 		"GET /item/{b}/{$}",
 		s.handlePageItemGET)
 	s.Mux().HandleFunc(
+		"GET /locals/{b}/{l}/{n}/{bl}/{al}/{$}",
+		s.handlePageLocalsGET)
+	s.Mux().HandleFunc(
 		"GET /mix/{l}/{n}/{pageStr}/{$}",
 		s.handlePageMixGET)
 	s.Mux().HandleFunc(
+		"GET /params/{query}/{options}/{$}",
+		s.handlePageParamsGET)
+	s.Mux().HandleFunc(
 		"GET /tags/{$}",
 		s.handlePageTagsGET)
+	s.Mux().HandleFunc(
+		"POST /locals/{b}/{l}/{n}/{bl}/{al}/save/{$}",
+		s.handlePageLocalsPOSTSave)
+	s.Mux().HandleFunc(
+		"POST /params/{query}/{options}/save/{$}",
+		s.handlePageParamsPOSTSave)
 	s.Mux().HandleFunc(
 		"POST /tags/select/{$}",
 		s.handlePageTagsPOSTSelect)
@@ -243,6 +255,70 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handlePageLocalsGET(w http.ResponseWriter, r *http.Request) {
+
+	var path datapages.Path[struct {
+		B  string `path:"b"`
+		L  string `path:"l"`
+		N  string `path:"n"`
+		BL string `path:"bl"`
+		AL string `path:"al"`
+	}]
+	path.Values.B = r.PathValue("b")
+	path.Values.L = r.PathValue("l")
+	path.Values.N = r.PathValue("n")
+	path.Values.BL = r.PathValue("bl")
+	path.Values.AL = r.PathValue("al")
+
+	p := app.PageLocals{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageLocals.GET")
+	body, err := p.GET(r, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageLocals.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageLocals", err)
+		return
+	}
+}
+
+func (s *Server) handlePageLocalsPOSTSave(
+	w http.ResponseWriter, r *http.Request,
+) {
+
+	var path datapages.Path[struct {
+		B  string `path:"b"`
+		L  string `path:"l"`
+		N  string `path:"n"`
+		BL string `path:"bl"`
+		AL string `path:"al"`
+	}]
+	path.Values.B = r.PathValue("b")
+	path.Values.L = r.PathValue("l")
+	path.Values.N = r.PathValue("n")
+	path.Values.BL = r.PathValue("bl")
+	path.Values.AL = r.PathValue("al")
+	defer s.recoverPanic(w, r, nil, "PageLocals.Save")
+	p := app.PageLocals{
+		App: s.app,
+	}
+	err := p.POSTSave(r, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageLocals.Save", err)
+		return
+	}
+}
+
 func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
 
 	var query datapages.Query[struct {
@@ -304,6 +380,63 @@ func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageMix", err)
+		return
+	}
+}
+
+func (s *Server) handlePageParamsGET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		Term string `query:"t"`
+	}]
+	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "t")
+
+	var path datapages.Path[struct {
+		Query   string `path:"query"`
+		Options string `path:"options"`
+	}]
+	path.Values.Query = r.PathValue("query")
+	path.Values.Options = r.PathValue("options")
+
+	p := app.PageParams{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageParams.GET")
+	body, err := p.GET(r, path, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageParams.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageParams", err)
+		return
+	}
+}
+
+func (s *Server) handlePageParamsPOSTSave(
+	w http.ResponseWriter, r *http.Request,
+) {
+
+	var path datapages.Path[struct {
+		Query   string `path:"query"`
+		Options string `path:"options"`
+	}]
+	path.Values.Query = r.PathValue("query")
+	path.Values.Options = r.PathValue("options")
+	defer s.recoverPanic(w, r, nil, "PageParams.Save")
+	p := app.PageParams{
+		App: s.app,
+	}
+	err := p.POSTSave(r, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageParams.Save", err)
 		return
 	}
 }
