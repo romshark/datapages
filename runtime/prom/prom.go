@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -305,6 +306,16 @@ func (w *statusRW) WriteHeader(code int) {
 func (w *statusRW) Write(b []byte) (int, error) {
 	w.wroteHeader = true
 	return w.ResponseWriter.Write(b)
+}
+
+// ReadFrom forwards to the writer underneath, keeping http.ServeContent on
+// net/http's pooled copy buffer and the kernel sendfile path.
+func (w *statusRW) ReadFrom(src io.Reader) (int64, error) {
+	w.wroteHeader = true
+	if rf, ok := w.ResponseWriter.(io.ReaderFrom); ok {
+		return rf.ReadFrom(src)
+	}
+	return io.Copy(w.ResponseWriter, src)
 }
 
 func (w *statusRW) Flush() {
