@@ -51,6 +51,15 @@ func TestGenWatcherCmd(t *testing.T) {
 // TestSplitFlags tests splitting a flags string from the config into argv.
 // Runs of whitespace collapse and an empty string yields no arguments,
 // not one empty one, which the go tool would reject.
+// TestRunInReportsTheCause tests a program that cannot be started.
+// The combined output is empty then, and the exec error is the whole report.
+func TestRunInReportsTheCause(t *testing.T) {
+	err := runIn(t.TempDir(), "git init", "definitely-not-a-program-xyz")
+	require.Error(t, err)
+	require.ErrorContains(t, err, "git init")
+	require.ErrorContains(t, err, "definitely-not-a-program-xyz")
+}
+
 func TestSplitFlags(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input string
