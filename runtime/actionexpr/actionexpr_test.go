@@ -205,6 +205,26 @@ func TestWriteOptions(t *testing.T) {
 			[]actionexpr.Option{actionexpr.WithRetry(actionexpr.RetryNever)},
 			", {retry: 'never'}",
 		},
+		// An empty value would write "{key: }", which disables the attribute.
+		"empty payload": {
+			[]actionexpr.Option{actionexpr.WithPayload("")},
+			"",
+		},
+		"empty free-form option": {
+			[]actionexpr.Option{actionexpr.WithOption("payload", "")},
+			"",
+		},
+		"empty cancellation controller": {
+			[]actionexpr.Option{actionexpr.WithRequestCancellationController("")},
+			"",
+		},
+		"empty value beside a real one": {
+			[]actionexpr.Option{
+				actionexpr.WithPayload(""),
+				actionexpr.WithRetryInterval(500),
+			},
+			", {retryInterval: 500}",
+		},
 		// "+Inf" is no JavaScript number literal and Inf no identifier, so the
 		// expression would throw and send no request at all.
 		"positive infinite retry scaler": {
