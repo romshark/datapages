@@ -96,6 +96,27 @@ func (PageTags) POSTSelect(
 	return nil
 }
 
+// POSTStore is /mix/{l}/{n}/{pageStr}/store
+//
+// A path and a query in one action:
+// the writer names its builder and lengths beside the path parameters.
+func (PageMix) POSTStore(
+	_ *http.Request,
+	path datapages.Path[struct {
+		L       int    `path:"l"`
+		N       int    `path:"n"`
+		PageStr string `path:"pageStr"`
+	}],
+	query datapages.Query[struct {
+		AnyQuery string `query:"anyQuery"`
+	}],
+) error {
+	if path.Values.L != 1 || query.Values.AnyQuery != "yes" {
+		return datapages.ErrBadRequest
+	}
+	return nil
+}
+
 // PageParams is /params/{query}/{options}
 //
 // The href and action writers add a parameter of each name after the path parameters.

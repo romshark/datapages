@@ -110,3 +110,19 @@ func TestActionLocalNamesAreFree(t *testing.T) {
 	expr := action.POSTPageLocalsSave("1", "2", "3", "4", "5")
 	require.Equal(t, "@post('/locals/1/2/3/4/5/save/')", expr)
 }
+
+// TestActionLocalNamesAreFreeWithQuery tests the same names in an action that
+// carries a path and a query, which is the writer that declares the most.
+func TestActionLocalNamesAreFreeWithQuery(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	expr := action.POSTPageMixStore(1, 2, "three",
+		action.QueryPOSTPageMixStore{AnyQuery: "yes"})
+	require.Equal(t, "@post('/mix/1/2/three/store/?anyQuery=yes')", expr)
+
+	url := strings.TrimSuffix(strings.TrimPrefix(expr, "@post('"), "')")
+	require.Equal(t, http.StatusOK,
+		c.Action(t, http.MethodPost, url, "").Status,
+		"the values did not survive the action URL")
+}

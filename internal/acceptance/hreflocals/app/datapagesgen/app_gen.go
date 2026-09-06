@@ -171,6 +171,9 @@ func setupHandlers(s *Server) {
 		"POST /locals/{b}/{l}/{n}/{bl}/{al}/save/{$}",
 		s.handlePageLocalsPOSTSave)
 	s.Mux().HandleFunc(
+		"POST /mix/{l}/{n}/{pageStr}/store/{$}",
+		s.handlePageMixPOSTStore)
+	s.Mux().HandleFunc(
 		"POST /params/{query}/{options}/save/{$}",
 		s.handlePageParamsPOSTSave)
 	s.Mux().HandleFunc(
@@ -380,6 +383,50 @@ func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageMix", err)
+		return
+	}
+}
+
+func (s *Server) handlePageMixPOSTStore(
+	w http.ResponseWriter, r *http.Request,
+) {
+
+	var query datapages.Query[struct {
+		AnyQuery string `query:"anyQuery"`
+	}]
+	query.Values.AnyQuery = httpread.QueryValue(r.URL.RawQuery, "anyQuery")
+
+	var path datapages.Path[struct {
+		L       int    `path:"l"`
+		N       int    `path:"n"`
+		PageStr string `path:"pageStr"`
+	}]
+	{
+		v := r.PathValue("l")
+		i, err := strconv.ParseInt(v, 10, 0)
+		if err != nil {
+			s.HTTPErrBad(w, "unexpected value for path parameter: l", err)
+			return
+		}
+		path.Values.L = int(i)
+	}
+	{
+		v := r.PathValue("n")
+		i, err := strconv.ParseInt(v, 10, 0)
+		if err != nil {
+			s.HTTPErrBad(w, "unexpected value for path parameter: n", err)
+			return
+		}
+		path.Values.N = int(i)
+	}
+	path.Values.PageStr = r.PathValue("pageStr")
+	defer s.recoverPanic(w, r, nil, "PageMix.Store")
+	p := app.PageMix{
+		App: s.app,
+	}
+	err := p.POSTStore(r, path, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageMix.Store", err)
 		return
 	}
 }

@@ -198,6 +198,68 @@ func POSTPageLocalsSave(b string, l string, n string, bl string, al string, opti
 	return b_.String()
 }
 
+// POSTPageMixStore references /mix/{l}/{n}/{pageStr}/store/
+func POSTPageMixStore(l int, n int, pageStr string, query QueryPOSTPageMixStore, options ...option) string {
+	s_l := strconv.FormatInt(int64(l), 10)
+	s_n := strconv.FormatInt(int64(n), 10)
+	s_pageStr := url.PathEscape(pageStr)
+	var (
+		anyQueryStr string
+	)
+
+	if query.AnyQuery != "" {
+		anyQueryStr = url.QueryEscape(query.AnyQuery)
+	}
+
+	anyQuery := query.AnyQuery != ""
+
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	l_ := bl + len("@post('/mix/") + len(s_l) + len("/") + len(s_n) + len("/") + len(s_pageStr) + len("/store/") + len("'") + actionexpr.OptionsLen(options) + len(")") + al
+	if anyQuery {
+		l_ += len("?")
+	}
+	n_ := 0
+	if query.AnyQuery != "" {
+		if n_ > 0 {
+			l_ += len("&")
+		}
+		l_ += len("anyQuery=") + len(anyQueryStr)
+	}
+
+	b.Grow(l_)
+
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/mix/")
+	b.WriteString(s_l)
+	b.WriteString("/")
+	b.WriteString(s_n)
+	b.WriteString("/")
+	b.WriteString(s_pageStr)
+	b.WriteString("/store/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+	n_ = 0
+	if query.AnyQuery != "" {
+		if n_ > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("anyQuery=")
+		b.WriteString(anyQueryStr)
+	}
+	b.WriteString("'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+
+	return b.String()
+}
+
+type QueryPOSTPageMixStore struct {
+	AnyQuery string `query:"anyQuery"`
+}
+
 // POSTPageParamsSave references /params/{query}/{options}/save/
 func POSTPageParamsSave(query string, options string, options_ ...option) string {
 	s_query := url.PathEscape(query)
