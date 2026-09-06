@@ -5,6 +5,10 @@
 // ({encodedUserID}.{encodedSessionID}) to enable efficient per-user prefix lookups.
 // The cookie value is the composite key encrypted with AES-128-GCM,
 // such that the userID is never exposed to the client.
+//
+// The bucket holds the session data and nothing the client sends:
+// a token is rebuilt from the key when one is asked for,
+// so read access to the bucket does not yield a working cookie.
 package natskv
 
 import (
@@ -26,6 +30,11 @@ import (
 	"github.com/romshark/datapages/modules/sessions"
 )
 
+var (
+	_ sessions.UserSessionIterator[struct{}] = (*SessionManager[struct{}])(nil)
+	_ sessions.UserSessionCloser             = (*SessionManager[struct{}])(nil)
+)
+
 // DefaultBucket is the default bucket name for the NATS KV Store based session manager.
 const DefaultBucket = "SESSIONS"
 
@@ -36,16 +45,18 @@ type SessionTokenGenerator interface {
 }
 
 var (
-	ErrEncryptionKeyLen      = errors.New("encryption key must be exactly 16 bytes")
-	ErrEmptyUserID           = errors.New("userID must not be empty")
-	ErrEmptySessionID        = errors.New("uniqueSessionID must not be empty")
-	ErrCiphertextTooShort    = errors.New("ciphertext too short")
-	ErrMalformedCompositeKey = errors.New("malformed composite key")
+	ErrEmptyUserID     = sessions.ErrEmptyUserID
+	ErrEmptySessionID  = sessions.ErrEmptyToken
+	ErrSessionNotFound = sessions.ErrSessionNotFound
 
-	// ErrSessionNotFound is returned when a session is not found in the KV store.
-	ErrSessionNotFound = errors.New("session not found")
-
+	ErrEncryptionKeyLen        = errors.New("encryption key must be exactly 16 bytes")
+	ErrCiphertextTooShort      = errors.New("ciphertext too short")
+	ErrMalformedCompositeKey   = errors.New("malformed composite key")
 	ErrAllDecryptionKeysFailed = errors.New("all keys failed")
+
+	// ErrUserIDMismatch is returned when a saved record names another user
+	// than the key it is stored under, which decides who a session belongs to.
+	ErrUserIDMismatch = errors.New("record user ID contradicts the session key")
 )
 
 // New creates a new NATS Key-Value store backed session manager.
@@ -127,10 +138,14 @@ type SessionManager[Data any] struct {
 	sessionTokenGenerator SessionTokenGenerator
 }
 
-// kvRecord wraps session data with its encrypted token for storage.
+// kvRecord wraps session data for storage.
+//
+// It deliberately holds no token: the token is the client's credential, and
+// the encrypted key it is built from can be rebuilt from the key the record is
+// stored under. Keeping it here would make read access to the bucket enough to
+// impersonate every live session.
 type kvRecord struct {
-	Token string          `json:"token"`
-	Data  json.RawMessage `json:"data"`
+	Data json.RawMessage `json:"data"`
 }
 
 // ReadSessionFromCookie decrypts the cookie value to
@@ -185,7 +200,12 @@ func (s *SessionManager[Data]) NotifyClosed(
 ) error {
 	kvKey, err := decrypt(s.aeads, token)
 	if err != nil {
-		return fmt.Errorf("decrypting token: %w", err)
+		// A token that doesn't decrypt names no session, so that session is
+		// closed as far as the caller is concerned. inmem answers the same,
+		// and a stream whose token no longer decrypts otherwise fails to open
+		// here where it opens there.
+		fn()
+		return nil
 	}
 
 	// Already deleted: notify immediately. Fall through to Watch on other errors.
@@ -202,11 +222,18 @@ func (s *SessionManager[Data]) NotifyClosed(
 	go func() {
 		defer func() { _ = watcher.Stop() }()
 
+		updates := watcher.Updates()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case entry := <-watcher.Updates():
+			case entry, open := <-updates:
+				if !open {
+					// The subscription ended, which happens when the NATS
+					// connection is lost. No delete event can arrive anymore and
+					// whether the session still exists is unknowable from here.
+					return
+				}
 				if entry == nil {
 					// Initial replay ended without a delete event. Re-check in case
 					// the key was deleted between our Get and Watch setup.
@@ -229,6 +256,7 @@ func (s *SessionManager[Data]) NotifyClosed(
 }
 
 // SaveSession overwrites the session data for an existing token.
+// The record must name the user the token belongs to.
 func (s *SessionManager[Data]) SaveSession(
 	_ context.Context, token string, rec sessions.Record[Data],
 ) error {
@@ -236,22 +264,26 @@ func (s *SessionManager[Data]) SaveSession(
 	if err != nil {
 		return fmt.Errorf("decrypting token: %w", err)
 	}
-	return s.putSession(kvKey, token, rec)
+	uid, err := parseCompositeKeyUserID(kvKey)
+	if err != nil {
+		return fmt.Errorf("parsing composite key: %w", err)
+	}
+	if rec.UserID != uid {
+		return fmt.Errorf("%w: %q under %q", ErrUserIDMismatch, rec.UserID, uid)
+	}
+	return s.putSession(kvKey, rec)
 }
 
 // putSession stores rec under kvKey.
-//
-// The token is stored beside the record rather than derived from it: it is what the
-// client carries, and what a caller holding only a token decrypts back into kvKey.
 func (s *SessionManager[Data]) putSession(
-	kvKey, token string, rec sessions.Record[Data],
+	kvKey string, rec sessions.Record[Data],
 ) error {
 	data, err := json.Marshal(rec)
 	if err != nil {
 		return fmt.Errorf("marshaling session data: %w", err)
 	}
 
-	kvRec, err := json.Marshal(kvRecord{Token: token, Data: data})
+	kvRec, err := json.Marshal(kvRecord{Data: data})
 	if err != nil {
 		return fmt.Errorf("marshaling KV record: %w", err)
 	}
@@ -285,7 +317,7 @@ func (s *SessionManager[Data]) CreateSession(
 		return "", fmt.Errorf("encrypting session token: %w", err)
 	}
 
-	if err := s.putSession(string(kvKey), token, rec); err != nil {
+	if err := s.putSession(string(kvKey), rec); err != nil {
 		return "", err
 	}
 	return token, nil
@@ -298,7 +330,11 @@ func (s *SessionManager[Data]) CloseSession(
 ) error {
 	kvKey, err := decrypt(s.aeads, token)
 	if err != nil {
-		return fmt.Errorf("decrypting session token: %w", err)
+		// A token that doesn't decrypt names no session, which is the no-op case
+		// [github.com/romshark/datapages/modules/sessions.Closer] documents.
+		// Reporting it answers 500 to a guest POST to a sign-out action and to
+		// a cookie left over from a rotated key.
+		return nil
 	}
 	// Delete publishes a tombstone and never returns ErrKeyNotFound,
 	// so this is inherently a no-op for non-existent keys.
@@ -319,9 +355,9 @@ func (s *SessionManager[Data]) CloseAllUserSessions(
 		return buffer, ErrEmptyUserID
 	}
 	prefix := userKeyPattern(userID)
-	opts := []nats.WatchOpt{nats.IgnoreDeletes(), nats.Context(ctx)}
-	if buffer == nil {
-		opts = append(opts, nats.MetaOnly())
+	// The token is rebuilt from the key, so the payload is never read here.
+	opts := []nats.WatchOpt{
+		nats.IgnoreDeletes(), nats.Context(ctx), nats.MetaOnly(),
 	}
 	watcher, err := s.kv.Watch(prefix, opts...)
 	if err != nil {
@@ -340,10 +376,14 @@ func (s *SessionManager[Data]) CloseAllUserSessions(
 			continue
 		}
 		if buffer != nil {
-			var rec kvRecord
-			if err := json.Unmarshal(entry.Value(), &rec); err == nil {
-				buffer = append(buffer, rec.Token)
+			token, err := encrypt(s.aeads[0], []byte(kvKey))
+			if err != nil {
+				errs = append(errs, fmt.Errorf(
+					"encrypting token for session %q: %w", kvKey, err,
+				))
+				continue
 			}
+			buffer = append(buffer, token)
 		}
 	}
 
@@ -357,6 +397,10 @@ func (s *SessionManager[Data]) Session(
 	kvKey, err := decrypt(s.aeads, token)
 	if err != nil {
 		return rec, fmt.Errorf("decrypting session token: %w", err)
+	}
+	uid, err := parseCompositeKeyUserID(kvKey)
+	if err != nil {
+		return rec, fmt.Errorf("parsing composite key: %w", err)
 	}
 
 	entry, err := s.kv.Get(kvKey)
@@ -374,6 +418,9 @@ func (s *SessionManager[Data]) Session(
 	if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
 		return rec, fmt.Errorf("unmarshaling session data: %w", err)
 	}
+	// The user id in the key is authoritative,
+	// the same way ReadSessionFromCookie reads it.
+	rec.UserID = uid
 
 	return rec, nil
 }
@@ -382,18 +429,22 @@ func (s *SessionManager[Data]) Session(
 // sessions for a given user (snapshot, not streaming).
 // Yields (token, session) pairs where token is the encrypted
 // session token usable with CloseSession, Session, and NotifyClosed.
+//
+// The watch is set up before the iterator so that an unreachable store is an
+// error rather than a user with no sessions.
 func (s *SessionManager[Data]) UserSessions(
 	ctx context.Context, userID string,
-) iter.Seq2[string, sessions.Record[Data]] {
+) (iter.Seq2[string, sessions.Record[Data]], error) {
+	if userID == "" {
+		return func(func(string, sessions.Record[Data]) bool) {}, nil
+	}
+	prefix := userKeyPattern(userID)
+	watcher, err := s.kv.Watch(prefix, nats.IgnoreDeletes(), nats.Context(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("watching user sessions: %w", err)
+	}
+
 	return func(yield func(string, sessions.Record[Data]) bool) {
-		if userID == "" {
-			return
-		}
-		prefix := userKeyPattern(userID)
-		watcher, err := s.kv.Watch(prefix, nats.IgnoreDeletes(), nats.Context(ctx))
-		if err != nil {
-			return
-		}
 		defer func() { _ = watcher.Stop() }()
 
 		for entry := range watcher.Updates() {
@@ -410,12 +461,22 @@ func (s *SessionManager[Data]) UserSessions(
 			if err := json.Unmarshal(kvRec.Data, &rec); err != nil {
 				continue
 			}
+			// The prefix this scan runs over is the user, so the payload
+			// cannot name another one without the list contradicting itself.
+			rec.UserID = userID
 
-			if !yield(kvRec.Token, rec) {
+			// A fresh nonce per call gives a different ciphertext that
+			// decrypts back to the same key, which is all a token is.
+			token, err := encrypt(s.aeads[0], []byte(entry.Key()))
+			if err != nil {
+				continue
+			}
+
+			if !yield(token, rec) {
 				return
 			}
 		}
-	}
+	}, nil
 }
 
 // keyEncoding has no '.', '*' or '>' in its alphabet. A '.' in either half of

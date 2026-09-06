@@ -42,11 +42,15 @@ func SetLogger(l *slog.Logger) {
 func getLogger() *slog.Logger { return logger.Load() }
 
 // External returns url as-is for use in href attributes.
-// It logs a warning at runtime if the URL is not an allowed
-// non-relative href (e.g. app-internal paths, javascript:, relative URLs).
+// It warns about a URL that belongs in a generated builder,
+// and about one the templ sanitizer drops.
 func External(url string) string {
-	if !hrefcheck.IsAllowedNonRelativeHref(url) {
+	switch {
+	case !hrefcheck.IsAllowedNonRelativeHref(url):
 		getLogger().Warn("href.External called with app-internal URL", "url", url)
+	case !hrefcheck.IsRenderedAsWritten(url):
+		getLogger().Warn("href.External called with a URL the templ sanitizer drops, "+
+			"which renders it as about:invalid", "url", url)
 	}
 	return url
 }
@@ -86,6 +90,21 @@ func PageFiles(rest string) string {
 			len("/"),
 	)
 	b.WriteString("/files/")
+	b.WriteString(s_rest)
+	b.WriteString("/")
+	return b.String()
+}
+
+// PageFilesEmbedded references /files-embedded/{rest...}/{$}
+func PageFilesEmbedded(rest string) string {
+	s_rest := url.PathEscape(rest)
+	var b strings.Builder
+	b.Grow(
+		len("/files-embedded/") +
+			len(s_rest) +
+			len("/"),
+	)
+	b.WriteString("/files-embedded/")
 	b.WriteString(s_rest)
 	b.WriteString("/")
 	return b.String()
@@ -444,19 +463,24 @@ type QueryPageQuery struct {
 // PageReflect references /reflect/{$}
 func PageReflect(query QueryPageReflect) string {
 	var (
-		tStr string
-		pStr string
+		termStr string
+		pageStr string
+		slugStr string
 	)
 
 	if query.Term != "" {
-		tStr = url.QueryEscape(query.Term)
+		termStr = url.QueryEscape(query.Term)
 	}
 	if query.Page != 0 {
-		pStr = strconv.FormatInt(int64(query.Page), 10)
+		pageStr = strconv.FormatInt(int64(query.Page), 10)
+	}
+	if query.Slug != nil {
+		slugStr = url.QueryEscape(textOf(query.Slug))
 	}
 
 	anyQuery := query.Term != "" ||
-		query.Page != 0
+		query.Page != 0 ||
+		query.Slug != nil
 
 	var b strings.Builder
 	l := len("/reflect/")
@@ -472,14 +496,21 @@ func PageReflect(query QueryPageReflect) string {
 			l += len("&")
 		}
 		n++
-		l += len("t=") + len(tStr)
+		l += len("t=") + len(termStr)
 	}
 	if query.Page != 0 {
 		if n > 0 {
 			l += len("&")
 		}
 		n++
-		l += len("p=") + len(pStr)
+		l += len("p=") + len(pageStr)
+	}
+	if query.Slug != nil {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("s=") + len(slugStr)
 	}
 	_ = n
 
@@ -498,14 +529,22 @@ func PageReflect(query QueryPageReflect) string {
 		}
 		n++
 		b.WriteString("t=")
-		b.WriteString(tStr)
+		b.WriteString(termStr)
 	}
 	if query.Page != 0 {
 		if n > 0 {
 			b.WriteString("&")
 		}
+		n++
 		b.WriteString("p=")
-		b.WriteString(pStr)
+		b.WriteString(pageStr)
+	}
+	if query.Slug != nil {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("s=")
+		b.WriteString(slugStr)
 	}
 
 	return b.String()
@@ -513,8 +552,9 @@ func PageReflect(query QueryPageReflect) string {
 
 // QueryPageReflect is the query parameters for PageReflect
 type QueryPageReflect struct {
-	Term string `query:"t"`
-	Page int    `query:"p"`
+	Term string                 `query:"t"`
+	Page int                    `query:"p"`
+	Slug encoding.TextMarshaler `query:"s"`
 }
 
 // PageSlug references /slug/{slug}/{$}

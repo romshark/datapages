@@ -4,6 +4,8 @@ import (
 	"go/types"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
@@ -129,15 +131,20 @@ func (w *Writer) writeHrefExternal() {
 	w.Line(0, "func getLogger() *slog.Logger { return logger.Load() }")
 	w.Line(0, "")
 	w.Line(0, "// External returns url as-is for use in href attributes.")
-	w.Line(0, "// It logs a warning at runtime if the URL is not an allowed")
-	w.Line(0, "// non-relative href (e.g. app-internal paths, javascript:, relative URLs).")
+	w.Line(0, "// It warns about a URL that belongs in a generated builder,")
+	w.Line(0, "// and about one the templ sanitizer drops.")
 	w.Linef(0, "func External(url string) string {")
 	if w.assetsURLPrefix != "" {
-		w.Linef(1, `if !hrefcheck.IsAllowedNonRelativeHref(url) && !strings.HasPrefix(url, %q) {`, w.assetsURLPrefix)
+		w.Linef(1, `switch {`)
+		w.Linef(1, `case !hrefcheck.IsAllowedNonRelativeHref(url) && !strings.HasPrefix(url, %q):`, w.assetsURLPrefix)
 	} else {
-		w.Line(1, `if !hrefcheck.IsAllowedNonRelativeHref(url) {`)
+		w.Line(1, `switch {`)
+		w.Line(1, `case !hrefcheck.IsAllowedNonRelativeHref(url):`)
 	}
 	w.Line(2, `getLogger().Warn("href.External called with app-internal URL", "url", url)`)
+	w.Line(1, `case !hrefcheck.IsRenderedAsWritten(url):`)
+	w.Line(2, `getLogger().Warn("href.External called with a URL the templ sanitizer drops, "+`)
+	w.Line(3, `"which renders it as about:invalid", "url", url)`)
 	w.Line(1, "}")
 	w.Line(1, "return url")
 	w.Line(0, "}")
@@ -235,6 +242,14 @@ func (w *Writer) writeHrefFuncPathOnly(funcName, route string, params []pathPara
 	w.writePathPreConvert(params)
 
 	literals, _ := routepattern.Segments(route)
+	// The model may be partial: cmd/gen hands the generator what parsed so an
+	// IDE can still resolve the import, and a route the parser rejected can
+	// still reach here. Indexing params[i-1] below would panic on it.
+	if len(literals) != len(params)+1 {
+		w.Line(1, `return ""`)
+		w.Line(0, "}")
+		return
+	}
 	lo := newHrefLocals(params, nil)
 
 	// Builder.
@@ -356,6 +371,13 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	w.Raw(") string {\n")
 
 	literals, _ := routepattern.Segments(route)
+	if len(literals) != len(params)+1 {
+		// Same guard as writeHrefFuncPathOnly: a rejected route must fail with
+		// a diagnostic, not a stack trace.
+		w.Line(1, `return ""`)
+		w.Line(0, "}")
+		return
+	}
 	lo := newHrefLocals(params, fields)
 
 	// Pre-convert non-string path params.
@@ -586,7 +608,9 @@ func newHrefLocals(params []pathParamInfo, fields []structFieldInfo) hrefLocals 
 	}
 	for _, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		lo.queryStr[tag] = pick(tag + "Str")
+		// Named from the field: a tag is a URL parameter name and needn't be
+		// a Go identifier, "page-size" and "q.term" included.
+		lo.queryStr[tag] = pick(lowerFirst(f.Name) + "Str")
 	}
 	return lo
 }
@@ -776,4 +800,14 @@ func hasNonStringFields(fields []structFieldInfo) bool {
 		}
 	}
 	return false
+}
+
+// lowerFirst lowercases the first rune of s,
+// which turns an exported field name into an unexported local.
+func lowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	r, n := utf8.DecodeRuneInString(s)
+	return string(unicode.ToLower(r)) + s[n:]
 }

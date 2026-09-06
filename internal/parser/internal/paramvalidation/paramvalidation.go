@@ -117,8 +117,8 @@ func unexportedTypeName(t types.Type) (string, bool) {
 		}
 		return unexportedTypeName(t.Elem())
 	case *types.Struct:
-		for i := range t.NumFields() {
-			if name, ok := unexportedTypeName(t.Field(i).Type()); ok {
+		for field := range t.Fields() {
+			if name, ok := unexportedTypeName(field.Type()); ok {
 				return name, true
 			}
 		}
@@ -585,20 +585,22 @@ func ValidateDispatch(
 func ValidatePathAgainstRoute(
 	h *model.Handler, recv, method string,
 ) error {
-	varSet := make(map[string]bool)
-	for v := range routepattern.Vars(h.Route) {
-		varSet[v] = true
-	}
-
 	if h.InputPath == nil {
 		var errs []error
-		for v := range varSet {
+		// Route order, not map order. The positions are identical,
+		// so nothing downstream can restore an order a map lost.
+		for v := range routepattern.Vars(h.Route) {
 			errs = append(errs, fmt.Errorf(
 				"%w: {%s} in %s.%s",
 				ErrPathMissingRouteVar, v, recv, method,
 			))
 		}
 		return errors.Join(errs...)
+	}
+
+	varSet := make(map[string]struct{})
+	for v := range routepattern.Vars(h.Route) {
+		varSet[v] = struct{}{}
 	}
 
 	st, ok := h.InputPath.Type.Resolved.Underlying().(*types.Struct)
@@ -612,7 +614,7 @@ func ValidatePathAgainstRoute(
 		if tagVal == "" {
 			continue
 		}
-		if !varSet[tagVal] {
+		if _, ok := varSet[tagVal]; !ok {
 			errs = append(errs, &fieldPosError{
 				pos: st.Field(i).Pos(),
 				err: fmt.Errorf(
@@ -625,7 +627,11 @@ func ValidatePathAgainstRoute(
 			delete(varSet, tagVal)
 		}
 	}
-	for v := range varSet {
+	// Route order again, over what the path struct did not cover.
+	for v := range routepattern.Vars(h.Route) {
+		if _, ok := varSet[v]; !ok {
+			continue
+		}
 		errs = append(errs, fmt.Errorf(
 			"%w: {%s} in %s.%s",
 			ErrPathMissingRouteVar, v, recv, method,

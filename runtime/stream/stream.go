@@ -80,6 +80,9 @@ func NewHandler(
 //
 // sessionKey names the session the stream belongs to.
 // It is watched only when userID is non-empty and the handler was given a session store.
+//
+// A panic in onClose is recovered here, since nothing else would.
+// A panic in fn is the caller's, and generated code defers a recover of its own there.
 func (h *Handler) Handle(
 	w http.ResponseWriter, r *http.Request,
 	sessionKey, userID string,
@@ -112,6 +115,15 @@ func (h *Handler) Handle(
 		return
 	}
 
+	// Own the subscription until the watcher goroutine takes it over.
+	// A panic below would otherwise leave it in the broker forever.
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			sub.Close()
+		}
+	}()
+
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
 	var start time.Time
@@ -123,8 +135,7 @@ func (h *Handler) Handle(
 
 	subC := sub.C()
 	if onOpen != nil {
-		if err := onOpen(streamID, sse); err != nil {
-			sub.Close()
+		if err := callOnOpen(onOpen, streamID, sse); err != nil {
 			h.onErr(w, r, sse, "handling stream open hook", err)
 			return
 		}
@@ -143,19 +154,15 @@ func (h *Handler) Handle(
 			once.Do(func() { close(sessionClosed) })
 		}); err != nil {
 			// The open hook already ran. This stream holds whatever it took:
-			// a subscription, and on a stateful page an instance.
-			// The watchdog below is what usually gives those back and it does
-			// not exist yet.
-			sub.Close()
+			// on a stateful page an instance, which only onClose gives back.
 			h.runCloseHook(onClose, streamID)
 			h.onErr(w, r, sse, "setting up session closure watcher", err)
 			return
 		}
 	}
 
+	handedOff = true
 	go func() {
-		defer h.recoverPanic(streamID)
-
 		reason := ""
 		select {
 		case <-sessionClosed:
@@ -170,15 +177,34 @@ func (h *Handler) Handle(
 			h.metrics.ConnectionDuration(start)
 		}
 		sub.Close()
-		h.runCloseHook(onClose, streamID)
 	}()
 
 	fn(streamID, sse, subC)
+
+	// After fn, not beside sub.Close. fn still delivers what the channel buffered,
+	// and onClose may free what those handlers read.
+	// Here it also makes http.Server.Shutdown wait for the hook.
+	h.runCloseHook(onClose, streamID)
 }
 
-// runCloseHook calls onClose, which may be nil. Both callers are past the point
-// of reporting a panic it raises: the watchdog goroutine has no recover above it,
-// and the error path still owes the client a response.
+// callOnOpen runs the stream open hook and turns a panic in it into a
+// [github.com/romshark/datapages.PanicError] for the error handler.
+func callOnOpen(
+	onOpen func(datapages.StreamID, *datastar.ServerSentEventGenerator) error,
+	streamID datapages.StreamID,
+	sse *datastar.ServerSentEventGenerator,
+) (err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			err = datapages.PanicError{Value: v, Stack: debug.Stack()}
+		}
+	}()
+	return onOpen(streamID, sse)
+}
+
+// runCloseHook calls onClose, which may be nil. A panic in it is recovered and
+// logged: neither caller can report it, the error path still owes the client a
+// response and the normal path has already written one.
 func (h *Handler) runCloseHook(
 	onClose func(streamID datapages.StreamID), streamID datapages.StreamID,
 ) {
@@ -190,8 +216,6 @@ func (h *Handler) runCloseHook(
 }
 
 // recoverPanic swallows a panic and reports it against the stream it happened on.
-// Defer it from anything running outside the goroutine net/http recovers,
-// where a panic would otherwise take the process down.
 func (h *Handler) recoverPanic(streamID datapages.StreamID) {
 	v := recover()
 	if v == nil {

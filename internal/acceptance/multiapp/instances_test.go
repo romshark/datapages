@@ -1,4 +1,4 @@
-// Covers two instances of each application running in one process.
+// Tests two instances of each application running in one process.
 //
 // A generated package is imported once and built any number of times. State
 // kept in a package variable would be shared by every server built from it:
@@ -33,7 +33,7 @@ func instances(t *testing.T) map[string]*client.Client {
 	}
 }
 
-// TestFourInstancesServeTheirOwnApp covers all four answering at once. Two
+// TestFourInstancesServeTheirOwnApp tests all four answering at once. Two
 // servers of one app must not collide over a route, a subject or a collector.
 func TestFourInstancesServeTheirOwnApp(t *testing.T) {
 	t.Parallel()
@@ -61,7 +61,7 @@ func TestFourInstancesServeTheirOwnApp(t *testing.T) {
 	}
 }
 
-// TestOneInstanceDoesNotReachAnother covers an event and a session against the
+// TestOneInstanceDoesNotReachAnother tests an event and a session against the
 // second instance of the same app. Neither may cross: the brokers and the
 // session managers are per instance, and nothing generated may hold either.
 func TestOneInstanceDoesNotReachAnother(t *testing.T) {
@@ -89,7 +89,7 @@ func TestOneInstanceDoesNotReachAnother(t *testing.T) {
 		"a session issued by one instance showed up in the other")
 }
 
-// TestBothMeteredInstancesCount covers the collectors the two admin servers
+// TestBothMeteredInstancesCount tests the collectors the two admin servers
 // register on one registry. A second registration that failed or that replaced
 // the first would leave the counter standing still.
 func TestBothMeteredInstancesCount(t *testing.T) {

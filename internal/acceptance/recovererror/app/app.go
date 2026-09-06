@@ -7,7 +7,9 @@
 package app
 
 import (
+	"context"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/a-h/templ"
@@ -23,7 +25,10 @@ func (a *App) RecoverError(
 	sse datapages.SSE,
 ) error {
 	kind := "unknown"
+	var panicErr datapages.PanicError
 	switch {
+	case errors.As(err, &panicErr):
+		kind = "panic"
 	case errors.Is(err, datapages.ErrBadRequest):
 		kind = "bad request"
 	case errors.Is(err, datapages.ErrNotFound):
@@ -74,9 +79,48 @@ func (PageIndex) POSTUnrecoverable(_ *http.Request) error {
 	return errUnrecoverable
 }
 
+// POSTPanic is /panic
+func (PageIndex) POSTPanic(_ *http.Request) error {
+	panic("the action panicked")
+}
+
+// PagePanic is /panic-page
+type PagePanic struct{ App *App }
+
+func (PagePanic) GET(_ *http.Request) (body datapages.Component, err error) {
+	panic("the page panicked")
+}
+
+// PageRenderPanic is /render-panic
+type PageRenderPanic struct{ App *App }
+
+func (PageRenderPanic) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.ComponentFunc(func(context.Context, io.Writer) error {
+		panic("the component panicked")
+	}), nil
+}
+
 // PageBoom is /boom
 type PageBoom struct{ App *App }
 
 func (PageBoom) GET(_ *http.Request) (body datapages.Component, err error) {
 	return nil, errors.New("the page could not be built")
 }
+
+// EventPinged is "pinged"
+type EventPinged struct {
+	Text string `json:"text"`
+}
+
+// PageStreamPanic is /stream-panic
+type PageStreamPanic struct{ App *App }
+
+func (PageStreamPanic) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<pre id="echo">stream panic</pre>`), nil
+}
+
+func (PageStreamPanic) StreamOpen(_ *http.Request, _ datapages.StreamID) error {
+	panic("the stream open hook panicked")
+}
+
+func (PageStreamPanic) OnPinged(_ EventPinged, _ datapages.SSE) error { return nil }

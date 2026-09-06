@@ -20,7 +20,7 @@ func newClient(t *testing.T) *client.Client {
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
-// TestFailingError500PageStillAnswers covers a page load that fails and an
+// TestFailingError500PageStillAnswers tests a page load that fails and an
 // error page that fails reporting it.
 //
 // The error page reports through the handler that renders the error page.
@@ -39,7 +39,7 @@ func TestFailingError500PageStillAnswers(t *testing.T) {
 		"an error message reached the visitor")
 }
 
-// TestFailingError500PageOnItsOwnRoute covers the same page requested
+// TestFailingError500PageOnItsOwnRoute tests the same page requested
 // directly, where nothing failed before it.
 func TestFailingError500PageOnItsOwnRoute(t *testing.T) {
 	t.Parallel()

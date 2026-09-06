@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -749,12 +750,10 @@ func (w *Writer) writeMultilineCallExpr(
 	w.Byte(')')
 }
 
-// writeQuoted writes a Go double-quoted string literal to the buffer.
-// Only safe for values that don't contain special characters (backslash, quote, newline).
+// writeQuoted writes s as a Go double-quoted string literal,
+// escaping whatever would end the literal.
 func (w *Writer) writeQuoted(s string) {
-	w.Byte('"')
-	w.Raw(s)
-	w.Byte('"')
+	w.Raw(strconv.Quote(s))
 }
 
 // writeAnyCheck writes a boolean variable assignment that OR-combines

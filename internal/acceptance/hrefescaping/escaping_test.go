@@ -85,7 +85,7 @@ func TestHrefEscaping(t *testing.T) {
 	}
 }
 
-// TestActionURLEscaping covers the same round trip through an action expression,
+// TestActionURLEscaping tests the same round trip through an action expression,
 // which carries its URL the same way a link does.
 func TestActionURLEscaping(t *testing.T) {
 	t.Parallel()
@@ -107,7 +107,7 @@ func TestActionURLEscaping(t *testing.T) {
 		"the values did not survive the action URL")
 }
 
-// TestStreamInitCarriesNoQuote covers the same character in the data-init
+// TestStreamInitCarriesNoQuote tests the same character in the data-init
 // attribute a stream page renders, which carries the path value it was reached by.
 func TestStreamInitCarriesNoQuote(t *testing.T) {
 	t.Parallel()
@@ -137,7 +137,7 @@ func TestStreamInitCarriesNoQuote(t *testing.T) {
 	}
 }
 
-// TestStreamInitURLIsRouted covers the URL the data-init attribute of a page
+// TestStreamInitURLIsRouted tests the URL the data-init attribute of a page
 // with a path variable carries. The route literals end with a slash and the
 // stream suffix used to add one of its own, which left the router cleaning the
 // path and answering a redirect instead of the stream.
@@ -172,7 +172,7 @@ func TestStreamInitURLIsRouted(t *testing.T) {
 		url, streamResp.Header.Get("Location"))
 }
 
-// TestActionURLCarriesNoQuote covers the character that ends the expression.
+// TestActionURLCarriesNoQuote tests the character that ends the expression.
 //
 // A template holds the expression as an HTML attribute. The browser decodes the
 // attribute before Datastar evaluates it, which turns an escaped quote back into one.

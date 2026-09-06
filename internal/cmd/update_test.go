@@ -13,6 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestStartUpdateCheck tests the notice the CLI prints against a stubbed
+// releases endpoint. Only a newer release produces output; the same or an older one,
+// and a dev build with no version at all, print nothing.
 func TestStartUpdateCheck(t *testing.T) {
 	prev := color.NoColor
 	color.NoColor = true
@@ -64,10 +67,12 @@ func TestStartUpdateCheck(t *testing.T) {
 			t.Cleanup(srv.Close)
 
 			// Redirect all requests to the test server.
+			srvURL, err := url.Parse(srv.URL)
+			require.NoError(t, err)
 			client := &http.Client{
 				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 					req = req.Clone(req.Context())
-					req.URL, _ = url.Parse(srv.URL)
+					req.URL = srvURL
 					return http.DefaultTransport.RoundTrip(req)
 				}),
 			}
@@ -85,6 +90,9 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+// TestIsNewerVersion tests the comparison the notice is gated on. A prerelease
+// or build suffix is ignored, and an empty version on either side is never newer:
+// a dev build must not be told it is out of date.
 func TestIsNewerVersion(t *testing.T) {
 	for name, tc := range map[string]struct {
 		latest  string
@@ -110,6 +118,8 @@ func TestIsNewerVersion(t *testing.T) {
 	}
 }
 
+// TestPrintUpdateNotice tests the exact text of the notice, the install command
+// it names included, since that is what the user copies.
 func TestPrintUpdateNotice(t *testing.T) {
 	prev := color.NoColor
 	color.NoColor = true
@@ -126,6 +136,8 @@ func TestPrintUpdateNotice(t *testing.T) {
 	)
 }
 
+// TestParseSemver tests the version parsing behind the comparison: an optional
+// "v", missing components filled with zero, and a prerelease or build suffix cut off.
 func TestParseSemver(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input string

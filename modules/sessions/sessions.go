@@ -2,7 +2,24 @@ package sessions
 
 import (
 	"context"
+	"errors"
+	"iter"
 	"time"
+)
+
+var (
+	// ErrSessionNotFound reports that no session exists for a token.
+	// It is declared here rather than per store so that one errors.Is check
+	// works against every implementation.
+	ErrSessionNotFound = errors.New("session not found")
+
+	// ErrEmptyUserID reports a record with no user.
+	ErrEmptyUserID = errors.New("userID must not be empty")
+
+	// ErrEmptyToken reports that [TokenGenerator.Generate] returned "".
+	// Every store refuses it: an empty token names no session,
+	// and the cookie carrying it cannot be told apart from no cookie at all.
+	ErrEmptyToken = errors.New("token must not be empty")
 )
 
 // TokenGenerator generates cryptographically random unique session identifiers.
@@ -38,6 +55,10 @@ type Reader[Data any] interface {
 	// or the session no longer exists; the caller should remove the cookie.
 	// Returns (ok=false,err!=nil) on transient backend failures,
 	// in which case the caller should keep the cookie and fail the request.
+	//
+	// The token returned must be cookieValue itself.
+	// The CSRF token is derived from it, and an action that takes
+	// no session is checked against the cookie without reading the store.
 	ReadSessionFromCookie(cookieValue string) (
 		rec Record[Data], token string, ok bool, err error,
 	)
@@ -57,6 +78,37 @@ type Closer interface {
 	// CloseSession closes a session identified by token.
 	// No-op and no error if that session doesn't exist.
 	CloseSession(ctx context.Context, token string) error
+}
+
+// UserSessionIterator iterates the live sessions of one user.
+//
+// Optional: a store need not implement it, and an application that lists
+// sessions needs it. It's declared here so that the built-in stores agree on the API,
+// which lets an application swap one for another seamlessly.
+type UserSessionIterator[Data any] interface {
+	// UserSessions iterates the live sessions of userID as (token, record) pairs,
+	// a snapshot rather than a stream. The token is the one CloseSession, Session and
+	// NotifyClosed take. An empty userID yields nothing.
+	//
+	// The error reports that the store could not be read. It exists so that
+	// an unreachable store is not the same answer as a user with no sessions.
+	UserSessions(
+		ctx context.Context, userID string,
+	) (iter.Seq2[string, Record[Data]], error)
+}
+
+// UserSessionCloser closes every live session of one user.
+//
+// Optional in the same way as [UserSessionIterator]:
+// a store that cannot look sessions up by user cannot implement it.
+// It is declared here so that the built-in stores agree on the API.
+type UserSessionCloser interface {
+	// CloseAllUserSessions closes the sessions of userID that exist at
+	// call time and, if buffer is non-nil, appends their tokens to it.
+	// An empty userID is an error; which error to return is up to the store.
+	CloseAllUserSessions(
+		ctx context.Context, buffer []string, userID string,
+	) ([]string, error)
 }
 
 // CloseNotifier reports session closure to interested listeners.

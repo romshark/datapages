@@ -24,6 +24,30 @@ func AssetPath(prefix, p string) string {
 	return prefix + p
 }
 
+// templURLSchemes are the schemes the templ sanitizer keeps.
+// It rewrites every other scheme to "about:invalid#TemplFailedSanitizationURL",
+// which is what a URL written through an attribute expression goes through.
+// A literal attribute is written as it stands and reaches no sanitizer.
+var templURLSchemes = []string{"http", "https", "mailto", "tel", "ftp", "ftps"}
+
+// IsRenderedAsWritten reports whether s survives the templ sanitizer,
+// which every URL written as an attribute expression passes through.
+// A URL it drops renders as "about:invalid#TemplFailedSanitizationURL" and links nowhere.
+func IsRenderedAsWritten(s string) bool {
+	scheme, ok := scheme(strings.TrimSpace(s))
+	if !ok {
+		// No scheme of its own: a fragment, a path or a protocol-relative URL,
+		// all of which the sanitizer keeps.
+		return true
+	}
+	for _, allowed := range templURLSchemes {
+		if strings.EqualFold(scheme, allowed) {
+			return true
+		}
+	}
+	return false
+}
+
 // IsAllowedNonRelativeHref returns false for:
 //   - empty/whitespace
 //   - query-only URLs like ?tab=settings
@@ -35,6 +59,10 @@ func AssetPath(prefix, p string) string {
 //   - fragment-only hrefs like #section
 //   - protocol-relative URLs like //cdn.example.com
 //   - absolute/schemed URLs like https:, mailto:, tel:, sms:, ftp:, data:
+//
+// It reports what belongs in an href, not what a browser receives:
+// a URL written as an attribute expression also passes the templ sanitizer,
+// which keeps fewer schemes. See [IsRenderedAsWritten].
 //
 // Limitation: cannot detect absolute links to the same domain
 // (e.g. https://mydomain.com/login).

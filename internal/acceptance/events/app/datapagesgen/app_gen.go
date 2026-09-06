@@ -8,12 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strings"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
+	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"github.com/romshark/datapages/runtime/stream"
@@ -71,6 +74,24 @@ func (s *Server) handleStreamRequest(
 	s.streams.Handle(w, r, "", "", subjects, onOpen, onClose, fn)
 }
 
+// recoverPanic turns a panicking handler into an error and hands it to the error path.
+func (s *Server) recoverPanic(
+	w http.ResponseWriter, r *http.Request,
+	sse *datastar.ServerSentEventGenerator, handler string,
+) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -82,11 +103,14 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](app, broker, opts...)
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//		app, broker, opts...,
+//	)
 //
 // Supported options:
 //
 //   - datapages.WithLogger
+//   - datapages.WithLogSampling
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
@@ -136,7 +160,8 @@ func (s *Server) Init(
 	setupHandlers(s)
 
 	s.Build()
-	href.SetLogger(s.Logger())
+	href.SetLogger(s.SampledLogger())
+	actionexpr.SetLogger(s.SampledLogger())
 
 	return nil
 }
@@ -227,6 +252,12 @@ func setupHandlers(s *Server) {
 		"POST /tick/{$}",
 		s.handlePageIndexPOSTTick)
 	s.Mux().HandleFunc(
+		"POST /hold/{$}",
+		s.handlePageIndexPOSTHold)
+	s.Mux().HandleFunc(
+		"POST /release/{$}",
+		s.handlePageIndexPOSTRelease)
+	s.Mux().HandleFunc(
 		"POST /both/{$}",
 		s.handlePageIndexPOSTBoth)
 	s.Mux().HandleFunc(
@@ -245,6 +276,10 @@ func (s *Server) httpErrIntern(
 	_ *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		// A status written now only appends its text to the body.
+		return
+	}
 	httpserve.WriteErrStatus(w, err)
 }
 
@@ -257,6 +292,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageIndex{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -306,6 +342,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageIndex stream")
 			var eventStreamGone app.EventStreamGone
 			var eventPong app.EventPong
 			var eventTick app.EventTick
@@ -372,7 +409,7 @@ func (s *Server) handlePageIndexPOSTNote(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Text string `json:"text"`
 	}]
@@ -382,6 +419,7 @@ func (s *Server) handlePageIndexPOSTNote(
 	}
 
 	dispatchNote := dispatcherEventNote{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageIndex.Note")
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -398,7 +436,7 @@ func (s *Server) handlePageIndexPOSTTick(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		N int `json:"n"`
 	}]
@@ -408,6 +446,7 @@ func (s *Server) handlePageIndexPOSTTick(
 	}
 
 	dispatchTick := dispatcherEventTick{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageIndex.Tick")
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -418,13 +457,41 @@ func (s *Server) handlePageIndexPOSTTick(
 	}
 }
 
+func (s *Server) handlePageIndexPOSTHold(
+	w http.ResponseWriter, r *http.Request,
+) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Hold")
+	p := app.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTHold(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Hold", err)
+		return
+	}
+}
+
+func (s *Server) handlePageIndexPOSTRelease(
+	w http.ResponseWriter, r *http.Request,
+) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Release")
+	p := app.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTRelease(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Release", err)
+		return
+	}
+}
+
 func (s *Server) handlePageIndexPOSTBoth(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		N int `json:"n"`
 	}]
@@ -436,6 +503,7 @@ func (s *Server) handlePageIndexPOSTBoth(
 	dispatchTick := dispatcherEventTick{s: s, ctx: r.Context()}
 
 	dispatchPong := dispatcherEventPong{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageIndex.Both")
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -452,7 +520,7 @@ func (s *Server) handlePageIndexPOSTCanceled(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		N int `json:"n"`
 	}]
@@ -462,6 +530,7 @@ func (s *Server) handlePageIndexPOSTCanceled(
 	}
 
 	dispatchTick := dispatcherEventTick{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageIndex.Canceled")
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -476,6 +545,7 @@ func (s *Server) handlePageLogGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageLog{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageLog.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLog.GET", err)
@@ -501,6 +571,7 @@ func (s *Server) handlePageOtherGET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
+	defer s.recoverPanic(w, r, nil, "PageOther.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageOther.GET", err)
@@ -542,6 +613,7 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageOther stream")
 			var eventTick app.EventTick
 			for msg := range ch {
 				switch msg.Subject {
@@ -566,6 +638,7 @@ func (s *Server) handlePagePanicOnCloseGET(w http.ResponseWriter, r *http.Reques
 	p := app.PagePanicOnClose{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PagePanicOnClose.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PagePanicOnClose.GET", err)
@@ -613,6 +686,7 @@ func (s *Server) handlePagePanicOnCloseGETStream(w http.ResponseWriter, r *http.
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PagePanicOnClose stream")
 			var eventTick app.EventTick
 			for msg := range ch {
 				switch msg.Subject {
@@ -637,6 +711,7 @@ func (s *Server) handlePageRoomGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageRoom{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageRoom.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageRoom.GET", err)
@@ -688,6 +763,7 @@ func (s *Server) handlePageRoomGETStream(w http.ResponseWriter, r *http.Request)
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageRoom stream")
 			var eventRoomSaid app.EventRoomSaid
 			var eventRoomBroadcast app.EventRoomBroadcast
 			for msg := range ch {
@@ -727,7 +803,7 @@ func (s *Server) handlePageRoomPOSTSay(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Room string `json:"room"`
 		Text string `json:"text"`
@@ -738,6 +814,7 @@ func (s *Server) handlePageRoomPOSTSay(
 	}
 
 	dispatchRoomSaid := dispatcherEventRoomSaid{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageRoom.Say")
 	p := app.PageRoom{
 		App: s.app,
 	}
@@ -754,7 +831,7 @@ func (s *Server) handlePageRoomPOSTBroadcast(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Rooms []string `json:"rooms"`
 		Text  string   `json:"text"`
@@ -765,6 +842,7 @@ func (s *Server) handlePageRoomPOSTBroadcast(
 	}
 
 	dispatchRoomBroadcast := dispatcherEventRoomBroadcast{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageRoom.Broadcast")
 	p := app.PageRoom{
 		App: s.app,
 	}

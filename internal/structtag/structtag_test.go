@@ -8,6 +8,10 @@ import (
 	"github.com/romshark/datapages/internal/structtag"
 )
 
+// TestJSONTagValue tests the field name the signal reader takes from a json tag,
+// and the exclusion "-" marks. Reading the tag by hand rather than through
+// reflect means the encoding/json rules have to be reproduced here, the "-,"
+// spelling of a field actually named "-" included.
 func TestJSONTagValue(t *testing.T) {
 	t.Parallel()
 	for name, td := range map[string]struct {
@@ -36,6 +40,9 @@ func TestJSONTagValue(t *testing.T) {
 	}
 }
 
+// TestTagValues tests the three tags the parser reads off a struct field.
+// A tag key must match whole: "xpath" is not "path", which a suffix match would
+// accept and then bind the wrong request value to the field.
 func TestTagValues(t *testing.T) {
 	t.Parallel()
 	for name, td := range map[string]struct {

@@ -40,7 +40,7 @@ func get(m *auth.Manager[struct{}], token string) (
 	return httptest.NewRecorder(), r
 }
 
-// TestSecureCookie covers the Secure flag of the session cookie, which is set
+// TestSecureCookie tests the Secure flag of the session cookie, which is set
 // however this process is reached: TLS is as likely to end at a proxy in front of it.
 func TestSecureCookie(t *testing.T) {
 	for name, disable := range map[string]bool{
@@ -68,7 +68,7 @@ func TestSecureCookie(t *testing.T) {
 	}
 }
 
-// TestReadSessionDropsAnExpiredSession covers what reading an expired session
+// TestReadSessionDropsAnExpiredSession tests what reading an expired session
 // leaves behind. The client is signed out either way, and the record it named
 // is of no use to anyone from that point on.
 func TestReadSessionDropsAnExpiredSession(t *testing.T) {
@@ -91,7 +91,7 @@ func TestReadSessionDropsAnExpiredSession(t *testing.T) {
 	require.False(t, found, "the expired session is still in the store")
 }
 
-// TestReadSessionKeepsALiveSession covers the session the drop must not touch.
+// TestReadSessionKeepsALiveSession tests the session the drop must not touch.
 func TestReadSessionKeepsALiveSession(t *testing.T) {
 	m, store := newManager(t)
 

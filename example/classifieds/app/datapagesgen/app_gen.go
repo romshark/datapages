@@ -10,12 +10,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 	"strings"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
+	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/auth"
 	"github.com/romshark/datapages/runtime/htmlattr"
 	"github.com/romshark/datapages/runtime/httpread"
@@ -94,6 +96,24 @@ func (s *Server) handleStreamRequest(
 	s.streams.Handle(w, r, sessKey, sess.UserID(), subjects, onOpen, onClose, fn)
 }
 
+// recoverPanic turns a panicking handler into an error and hands it to the error path.
+func (s *Server) recoverPanic(
+	w http.ResponseWriter, r *http.Request,
+	sse *datastar.ServerSentEventGenerator, handler string,
+) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -106,11 +126,14 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, struct{}, datapages.EnablePrometheus, Server](app, broker, opts...)
+//	s, err := datapages.NewServer[app.App, struct{}, datapages.EnablePrometheus, Server](
+//		app, broker, opts...,
+//	)
 //
 // Supported options:
 //
 //   - datapages.WithLogger
+//   - datapages.WithLogSampling
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
@@ -164,7 +187,9 @@ func (s *Server) Init(
 	setupHandlers(s)
 
 	s.Build()
-	href.SetLogger(s.Logger())
+	href.SetLogger(s.SampledLogger())
+	actionexpr.SetLogger(s.SampledLogger())
+	actionexpr.SetMetrics(prom.ActionMetrics{})
 
 	return nil
 }
@@ -396,6 +421,10 @@ func setupHandlers(s *Server) {
 // The PageError500 handler uses it so it can't render itself.
 func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		// A status written now only appends its text to the body.
+		return
+	}
 	httpserve.WriteErrStatus(w, err)
 }
 
@@ -405,15 +434,16 @@ func (s *Server) httpErrIntern(
 ) {
 	s.LogErr(msg, err)
 	if !httpserve.IsDatastarRequest(r) {
-		// A page load gets the app's own 500 page, with the status that
-		// says what happened. The page's own route serves 200;
-		// this is the other way in.
+		if httpserve.ResponseBodyWritten(w) {
+			// An error page after a half-written one sends two documents.
+			return
+		}
+		// The page serves 200 on its own route. Reached from here it carries 500.
 		w.WriteHeader(http.StatusInternalServerError)
 		s.handlePageError500GET(w, r)
 		return
 	}
-	// The response of a Datastar request is an event stream. Once one is
-	// open the status line is gone, which is what committed reports.
+	// committed reports that the stream is open, hence no status is left to send.
 	committed := sse != nil
 	if sse == nil {
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
@@ -431,18 +461,17 @@ func (s *Server) httpErrIntern(
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
 	if committed {
-		// http.Error would write a status the client already received,
-		// and append its text to the event stream the client is reading.
+		// A status written now only appends its text to the stream.
+		return
+	}
+	if httpserve.ResponseBodyWritten(w) {
+		// A status written now only appends its text to the body.
 		return
 	}
 	httpserve.WriteErrStatus(w, err)
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
-	// The URL is claimed by no page. Whatever the app renders for it,
-	// the response says so: a cache that stores it and a crawler that
-	// reads it both go by the status.
-	w.WriteHeader(http.StatusNotFound)
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -455,6 +484,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
@@ -465,6 +495,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	bodyAttrs := func(w http.ResponseWriter) {
 		httpserve.WriteReloadOnVisibility(w)
 	}
+	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
 		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, nil,
 	); err != nil {
@@ -478,13 +509,14 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	defer s.recoverPanic(w, r, nil, "App.SignOut")
 	closeSession, redirect, err := s.app.POSTSignOut(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.SignOut", err)
 		return
 	}
 	if closeSession {
-		if err := s.CloseSession(w, r, sessToken); err != nil {
+		if _, err := s.CloseSession(w, r, sessToken); err != nil {
 			s.httpErrIntern(w, r, nil, "removing session", err)
 			return
 		}
@@ -495,11 +527,11 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePOSTCause500(w http.ResponseWriter, r *http.Request) {
-	// CSRF protection covers every state-changing action, including
-	// the ones that read nothing of the session.
-	if _, _, ok := s.ReadSession(w, r); !ok {
+	// The CSRF token comes from the cookie, hence no store read here.
+	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
+	defer s.recoverPanic(w, r, nil, "App.Cause500")
 	err := s.app.POSTCause500(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Cause500", err)
@@ -519,6 +551,7 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
 	body, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
@@ -572,6 +605,7 @@ func (s *Server) handlePageError404GETStream(w http.ResponseWriter, r *http.Requ
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageError404 stream")
 			var eventMessagingSent app.EventMessagingSent
 			var eventMessagingRead app.EventMessagingRead
 			for msg := range ch {
@@ -611,6 +645,7 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageError500{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageError500.GET")
 	body, disableRefreshAfterHidden, err := p.GET(r)
 	if err != nil {
 		s.httpErrFinal(w, "handling PageError500.GET", err)
@@ -649,6 +684,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -702,6 +738,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageIndex stream")
 			var eventMessagingSent app.EventMessagingSent
 			var eventMessagingRead app.EventMessagingRead
 			for msg := range ch {
@@ -746,6 +783,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageLogin{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageLogin.GET")
 	body, redirect, disableRefreshAfterHidden, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
@@ -780,7 +818,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		EmailOrUsername string `json:"emailorusername"`
 		Password        string `json:"password"`
@@ -789,6 +827,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
+	defer s.recoverPanic(w, r, nil, "PageLogin.Submit")
 	p := app.PageLogin{
 		App: s.app,
 	}
@@ -798,10 +837,12 @@ func (s *Server) handlePageLoginPOSTSubmit(
 		return
 	}
 	if j := newSession; j.UserID != "" {
-		if err := s.CreateSession(w, r, newSession); err != nil {
+		created, err := s.CreateSession(w, r, newSession)
+		if err != nil {
 			s.httpErrIntern(w, r, nil, "creating session", err)
 			return
 		}
+		sess = created
 	}
 	if httpserve.Redirect(w, r, redirect) {
 		return
@@ -832,6 +873,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
+	defer s.recoverPanic(w, r, nil, "PageMessages.GET")
 	body, redirect, enableBackgroundStreaming, err := p.GET(r, sess, query)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageMessages.GET", err)
@@ -905,6 +947,7 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageMessages stream")
 			var eventMessagingRead app.EventMessagingRead
 			var eventMessagingWriting app.EventMessagingWriting
 			var eventMessagingWritingStopped app.EventMessagingWritingStopped
@@ -978,7 +1021,7 @@ func (s *Server) handlePageMessagesPOSTRead(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
 	}]
@@ -993,6 +1036,7 @@ func (s *Server) handlePageMessagesPOSTRead(
 	query.Values.MessageID = httpread.QueryValue(r.URL.RawQuery, "msgid")
 
 	dispatchMessagingRead := dispatcherEventMessagingRead{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageMessages.Read")
 	p := app.PageMessages{
 		App: s.app,
 		Base: app.Base{
@@ -1016,7 +1060,7 @@ func (s *Server) handlePageMessagesPOSTWriting(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
 	}]
@@ -1026,6 +1070,7 @@ func (s *Server) handlePageMessagesPOSTWriting(
 	}
 
 	dispatchMessagingWriting := dispatcherEventMessagingWriting{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageMessages.Writing")
 	p := app.PageMessages{
 		App: s.app,
 		Base: app.Base{
@@ -1049,7 +1094,7 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
 	}]
@@ -1059,6 +1104,7 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 	}
 
 	dispatchMessagingWritingStopped := dispatcherEventMessagingWritingStopped{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageMessages.WritingStopped")
 	p := app.PageMessages{
 		App: s.app,
 		Base: app.Base{
@@ -1082,7 +1128,7 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
 		MessageText  string `json:"messagetext"`
@@ -1095,6 +1141,7 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 	dispatchMessagingWritingStopped := dispatcherEventMessagingWritingStopped{s: s, ctx: r.Context()}
 
 	dispatchMessagingSent := dispatcherEventMessagingSent{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageMessages.SendMessage")
 	p := app.PageMessages{
 		App: s.app,
 		Base: app.Base{
@@ -1120,6 +1167,7 @@ func (s *Server) handlePageMyPostsGET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
+	defer s.recoverPanic(w, r, nil, "PageMyPosts.GET")
 	body, head, redirect, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageMyPosts.GET", err)
@@ -1176,6 +1224,7 @@ func (s *Server) handlePageMyPostsGETStream(w http.ResponseWriter, r *http.Reque
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageMyPosts stream")
 			var eventMessagingSent app.EventMessagingSent
 			var eventMessagingRead app.EventMessagingRead
 			for msg := range ch {
@@ -1228,6 +1277,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
+	defer s.recoverPanic(w, r, nil, "PagePost.GET")
 	body, head, redirect, err := p.GET(r, sess, path)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PagePost.GET", err)
@@ -1296,6 +1346,7 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PagePost stream")
 			var eventPostArchived app.EventPostArchived
 			var eventMessagingSent app.EventMessagingSent
 			var eventMessagingRead app.EventMessagingRead
@@ -1403,7 +1454,7 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		MessageText string `json:"messagetext"`
 	}]
@@ -1420,6 +1471,7 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	dispatchMessagingSent := dispatcherEventMessagingSent{s: s, ctx: r.Context()}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PagePost.SendMessage")
 	p := app.PagePost{
 		App: s.app,
 		Base: app.Base{
@@ -1470,6 +1522,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
+	defer s.recoverPanic(w, r, nil, "PageSearch.GET")
 	body, err := p.GET(r, sess, query)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageSearch.GET", err)
@@ -1553,6 +1606,7 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageSearch stream")
 			var eventMessagingSent app.EventMessagingSent
 			var eventMessagingRead app.EventMessagingRead
 			for msg := range ch {
@@ -1598,7 +1652,7 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[app.SearchParams]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
@@ -1606,6 +1660,7 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageSearch.ParamChange")
 	p := app.PageSearch{
 		App: s.app,
 		Base: app.Base{
@@ -1631,6 +1686,7 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
+	defer s.recoverPanic(w, r, nil, "PageSettings.GET")
 	body, redirect, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageSettings.GET", err)
@@ -1687,6 +1743,7 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageSettings stream")
 			var eventSessionClosed app.EventSessionClosed
 			var eventMessagingSent app.EventMessagingSent
 			var eventMessagingRead app.EventMessagingRead
@@ -1746,7 +1803,7 @@ func (s *Server) handlePageSettingsPOSTSave(
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Username string `json:"username"`
 	}]
@@ -1756,6 +1813,7 @@ func (s *Server) handlePageSettingsPOSTSave(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageSettings.Save")
 	p := app.PageSettings{
 		App: s.app,
 		Base: app.Base{
@@ -1767,7 +1825,10 @@ func (s *Server) handlePageSettingsPOSTSave(
 		s.httpErrIntern(w, r, sse, "handling action PageSettings.Save", err)
 		return
 	}
-	if httpserve.Redirect(w, r, redirect) {
+	if redirect.URL != "" {
+		if err := dpsse.New(sse).Redirect(redirect.URL); err != nil {
+			s.httpErrIntern(w, r, sse, "redirecting", err)
+		}
 		return
 	}
 }
@@ -1786,6 +1847,7 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 	path.Values.Token = r.PathValue("token")
 
 	dispatchSessionClosed := dispatcherEventSessionClosed{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageSettings.CloseSession")
 	p := app.PageSettings{
 		App: s.app,
 		Base: app.Base{
@@ -1798,7 +1860,7 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 		return
 	}
 	if closeSession {
-		if err := s.CloseSession(w, r, sessToken); err != nil {
+		if _, err := s.CloseSession(w, r, sessToken); err != nil {
 			s.httpErrIntern(w, r, nil, "removing session", err)
 			return
 		}
@@ -1817,6 +1879,7 @@ func (s *Server) handlePageSettingsPOSTCloseAllSessions(
 	}
 
 	dispatchSessionClosed := dispatcherEventSessionClosed{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageSettings.CloseAllSessions")
 	p := app.PageSettings{
 		App: s.app,
 		Base: app.Base{
@@ -1850,6 +1913,7 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 			App: s.app,
 		},
 	}
+	defer s.recoverPanic(w, r, nil, "PageUser.GET")
 	body, head, redirect, err := p.GET(r, sess, path)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageUser.GET", err)
@@ -1918,6 +1982,7 @@ func (s *Server) handlePageUserGETStream(w http.ResponseWriter, r *http.Request)
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageUser stream")
 			var eventPostArchived app.EventPostArchived
 			var eventMessagingSent app.EventMessagingSent
 			var eventMessagingRead app.EventMessagingRead

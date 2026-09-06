@@ -1,4 +1,4 @@
-// Covers a page GET that reads signals and one that issues a session.
+// Tests a page GET that reads signals and one that issues a session.
 
 package acceptance_test
 
@@ -56,7 +56,7 @@ func signalsQuery(json string) string {
 	return "/?datastar=" + url.QueryEscape(json)
 }
 
-// TestGETReadsSignals covers a page load carrying signals.
+// TestGETReadsSignals tests a page load carrying signals.
 func TestGETReadsSignals(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
@@ -67,7 +67,7 @@ func TestGETReadsSignals(t *testing.T) {
 	require.Equal(t, "term=shoes page=3 user=", resp.Element(t, "echo"))
 }
 
-// TestGETWithoutSignals covers the ordinary page load:
+// TestGETWithoutSignals tests the ordinary page load:
 // a visitor who typed the URL sends no signals and the handler is given the zero value.
 func TestGETWithoutSignals(t *testing.T) {
 	t.Parallel()
@@ -79,7 +79,7 @@ func TestGETWithoutSignals(t *testing.T) {
 	require.Equal(t, "term= page=0 user=", resp.Element(t, "echo"))
 }
 
-// TestGETWithMalformedSignals covers a datastar parameter that is not signals.
+// TestGETWithMalformedSignals tests a datastar parameter that is not signals.
 // The request is refused rather than served a page built from nothing.
 func TestGETWithMalformedSignals(t *testing.T) {
 	t.Parallel()
@@ -90,7 +90,7 @@ func TestGETWithMalformedSignals(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, resp.Status)
 }
 
-// TestGETIssuesASession covers a page load that returns newSession:
+// TestGETIssuesASession tests a page load that returns newSession:
 // the cookie is set on that same response, and the next page load reads the session.
 func TestGETIssuesASession(t *testing.T) {
 	t.Parallel()
@@ -108,7 +108,7 @@ func TestGETIssuesASession(t *testing.T) {
 		"the session issued by a page load does not reach the next one")
 }
 
-// TestActionClosesTheSession covers the other end: an action that reads only
+// TestActionClosesTheSession tests the other end: an action that reads only
 // the session token ends the session, and the page stops seeing it.
 func TestActionClosesTheSession(t *testing.T) {
 	t.Parallel()

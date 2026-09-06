@@ -22,6 +22,9 @@ import (
 	"github.com/romshark/datapages/internal/cmd"
 )
 
+// TestRun tests the CLI's top-level dispatch: which exit code and which stream
+// each invocation writes to. No command lists the commands and exits 0,
+// an unknown one is an error on stderr.
 func TestRun(t *testing.T) {
 	for name, tc := range map[string]struct {
 		args       []string
@@ -78,6 +81,8 @@ func TestRun(t *testing.T) {
 	}
 }
 
+// TestVersion tests the version command in both forms, and what it prints for a
+// dev build where the ldflags set nothing.
 func TestVersion(t *testing.T) {
 	for name, tc := range map[string]struct {
 		args                  []string
@@ -139,10 +144,7 @@ func removeExistingFile(t *testing.T, path string) {
 	require.NoError(t, os.Remove(path))
 }
 
-// setupProject creates a temporary Go module with a datapages app package.
-// It copies the given app source file from testdata into a temporary directory,
-// changes the working directory to the project root and returns
-// the project directory path.
+// copyTestdata copies src to dst, creating dst's parent directories.
 func copyTestdata(t *testing.T, dst, src string) {
 	t.Helper()
 	data, err := os.ReadFile(src)
@@ -179,6 +181,10 @@ func hashDir(t *testing.T, dir string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
+// setupProject creates a temporary Go module with a datapages app package.
+// It copies the given app source file from testdata into a temporary directory,
+// changes the working directory to the project root and returns
+// the project directory path.
 func setupProject(t *testing.T, appGoFile string) string {
 	t.Helper()
 
@@ -206,7 +212,7 @@ func setupProject(t *testing.T, appGoFile string) string {
 		"\nreplace github.com/romshark/datapages => %s\n", repoRoot,
 	))
 	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	t.Cleanup(func() { require.NoError(t, os.Chdir(origDir)) })
 
 	out, err := exec.Command("go", "mod", "tidy").CombinedOutput()
 	require.NoError(t, err, "go mod tidy: %s", out)
@@ -214,13 +220,15 @@ func setupProject(t *testing.T, appGoFile string) string {
 	return dir
 }
 
+// TestWatch tests the watch command over a scaffolded module: it refuses a
+// directory with no go.mod, and it shuts the engine down when its context ends.
 func TestWatch(t *testing.T) {
 	t.Run("no module", func(t *testing.T) {
 		dir := t.TempDir()
 		origDir, err := os.Getwd()
 		require.NoError(t, err)
 		require.NoError(t, os.Chdir(dir))
-		t.Cleanup(func() { _ = os.Chdir(origDir) })
+		t.Cleanup(func() { require.NoError(t, os.Chdir(origDir)) })
 
 		var stdout, stderr bytes.Buffer
 		code := cmd.Run(
@@ -344,6 +352,9 @@ func TestWatch(t *testing.T) {
 	})
 }
 
+// TestLintGen tests that lint accepts the code gen just wrote, over the fixture
+// apps in testdata. Generated code that trips the project's own linters would
+// fail every user's build.
 func TestLintGen(t *testing.T) {
 	// checkGenPackage checks only the generated package files (no cmd entry point).
 	checkGenPackage := func(t *testing.T, dir string) {
@@ -500,6 +511,9 @@ func setDatapagesVersion(t *testing.T, dir, version string) {
 	require.NoError(t, os.WriteFile(goModPath, replaced, 0o644))
 }
 
+// TestLintGoModVersion tests the version check lint runs: a go.mod requiring a
+// datapages version other than the CLI's is reported, since the generated code
+// and the runtime have to match.
 func TestLintGoModVersion(t *testing.T) {
 	for name, tc := range map[string]struct {
 		goModVersion string
@@ -552,6 +566,8 @@ func TestLintGoModVersion(t *testing.T) {
 	}
 }
 
+// TestGenGoModUpgrade tests gen raising the datapages requirement in go.mod to
+// its own version, and leaving it alone when it already matches.
 func TestGenGoModUpgrade(t *testing.T) {
 	for name, tc := range map[string]struct {
 		goModVersion string // datapages version to inject into go.mod
@@ -584,6 +600,27 @@ func TestGenGoModUpgrade(t *testing.T) {
 			runVersion:   "",
 			wantVersion:  "v0.7.0",
 			wantCode:     0,
+		},
+		// A local build reports a pseudo-version, which names no release.
+		"pseudo-version skips upgrade": {
+			goModVersion: "v0.7.0",
+			runVersion:   "v0.9.5-0.20260905214613-771c3042f83a+dirty",
+			wantVersion:  "v0.7.0",
+			wantCode:     0,
+		},
+		// go install hands the CLI a version with the "v", goreleaser one without.
+		"upgrades older version, v-prefixed": {
+			goModVersion: "v0.7.0",
+			runVersion:   "v0.8.0",
+			wantVersion:  "v0.8.0",
+			wantCode:     0,
+		},
+		"error when go.mod is newer, v-prefixed": {
+			goModVersion: "v0.8.0",
+			runVersion:   "v0.7.0",
+			wantVersion:  "v0.8.0",
+			wantCode:     1,
+			wantStderr:   "go install github.com/romshark/datapages@v0.8.0",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -695,6 +732,9 @@ func TestGenFailureWritesStubsWhenNothingGenerated(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(dir, "cmd", "server", "main.go"))
 }
 
+// TestGenBuild tests that a generated application compiles and runs: gen,
+// then go build against this checkout through a replace directive. A generator change
+// that produces uncompilable code passes every unit test in this package.
 func TestGenBuild(t *testing.T) {
 	// Resolve the datapages module root before setupProject changes cwd.
 	datapagesRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -732,7 +772,7 @@ func chdirTemp(t *testing.T, dir string) {
 	origDir, err := os.Getwd()
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	t.Cleanup(func() { require.NoError(t, os.Chdir(origDir)) })
 }
 
 // repoRootDir returns the absolute path of this repository's root.
@@ -793,6 +833,8 @@ func workspaceGoVersion(t *testing.T, repoRoot string) string {
 	return version
 }
 
+// TestInit tests scaffolding a new project: what init writes, what it asks for on stdin,
+// and which directories it refuses to scaffold into.
 func TestInit(t *testing.T) {
 	repoRoot := repoRootDir(t)
 	for name, tc := range map[string]struct {
@@ -1080,4 +1122,32 @@ func TestInit(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestInitPinsTheCLIInCI tests the install line of the scaffolded workflow.
+// go install hands the CLI a v-prefixed version and the line adds its own "v".
+func TestInitPinsTheCLIInCI(t *testing.T) {
+	t.Setenv("GOFLAGS", "-e")
+
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "pinned")
+	writeLocalWorkspace(t, projectDir, repoRootDir(t))
+	chdirTemp(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := cmd.Run(
+		context.Background(),
+		[]string{
+			"datapages", "init", "-n",
+			"--name", "pinned", "--module", "example.com/pinned",
+		},
+		nil, &stdout, &stderr,
+		"v1.2.3", "xxxxxxx", "2026-2-23",
+	)
+	require.Equal(t, 0, code, "stdout: %s\nstderr: %s", stdout.String(), stderr.String())
+
+	data, err := os.ReadFile(filepath.Join(projectDir, ".github", "workflows", "ci.yml"))
+	require.NoError(t, err, "reading the scaffolded workflow")
+	require.Contains(t, string(data),
+		"go install github.com/romshark/datapages/cmd/datapages@v1.2.3")
 }

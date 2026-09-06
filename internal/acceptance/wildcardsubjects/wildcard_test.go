@@ -19,7 +19,7 @@ import (
 
 func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
 
-// TestWildcardSubjectDelivery covers a page subscribed to every value of a subject:
+// TestWildcardSubjectDelivery tests a page subscribed to every value of a subject:
 // the event reaches it whatever value it was dispatched with.
 func TestWildcardSubjectDelivery(t *testing.T) {
 	t.Parallel()
@@ -37,7 +37,7 @@ func TestWildcardSubjectDelivery(t *testing.T) {
 	})
 }
 
-// TestSecondValueReachesTheSameStream covers a second value of the same
+// TestSecondValueReachesTheSameStream tests a second value of the same
 // subject reaching the same stream.
 func TestSecondValueReachesTheSameStream(t *testing.T) {
 	t.Parallel()
@@ -57,11 +57,7 @@ func TestSecondValueReachesTheSameStream(t *testing.T) {
 	})
 }
 
-// TestSubjectValueMustBeOneToken covers the publish side of the guard the
-// subscribe side already carries. A dispatched value that is not one subject
-// token produces a subject of a different shape, which no subscription matches
-// and which therefore loses the event in silence.
-// TestSubjectValueIsEscaped covers a subject field value that cannot stand in
+// TestSubjectValueIsEscaped tests a subject field value that cannot stand in
 // a subject as it is. Escaped it names one segment, which the subscription
 // this page opens over every value of the field matches like any other.
 func TestSubjectValueIsEscaped(t *testing.T) {
@@ -94,7 +90,7 @@ func TestSubjectValueIsEscaped(t *testing.T) {
 	})
 }
 
-// TestSubjectValueMustNotBeEmpty covers the one value escaping cannot save. An empty
+// TestSubjectValueMustNotBeEmpty tests the one value escaping cannot save. An empty
 // value names no segment, which leaves a subject of a shape no subscription matches.
 func TestSubjectValueMustNotBeEmpty(t *testing.T) {
 	t.Parallel()

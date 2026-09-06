@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestUnmarshalLogLevel tests the config values the flag accepts. An empty value
+// is the default rather than an error, since an absent key unmarshals as one.
 func TestUnmarshalLogLevel(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input   string
@@ -33,6 +35,7 @@ func TestUnmarshalLogLevel(t *testing.T) {
 	}
 }
 
+// TestUnmarshalLogClear tests the same for the log-clearing setting.
 func TestUnmarshalLogClear(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input   string
@@ -57,6 +60,8 @@ func TestUnmarshalLogClear(t *testing.T) {
 	}
 }
 
+// TestUnmarshalWatcherRequires tests the same for what a custom watcher asks the
+// watch command to do.
 func TestUnmarshalWatcherRequires(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input   string
@@ -82,6 +87,9 @@ func TestUnmarshalWatcherRequires(t *testing.T) {
 	}
 }
 
+// TestLoad tests finding the config file next to the module: either extension is
+// accepted, both at once is refused rather than one silently winning,
+// and an unknown key is an error rather than a setting that quietly does nothing.
 func TestLoad(t *testing.T) {
 	for name, tc := range map[string]struct {
 		setup     func(t *testing.T) string

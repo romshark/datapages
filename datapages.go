@@ -3,6 +3,7 @@ package datapages
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -311,6 +312,26 @@ type Redirect struct {
 	Status int
 }
 
+// PanicError is the error a recovered panic is reported as.
+// A handler that panics reaches RecoverError and the error page through it,
+// the way a handler that returns an error does.
+type PanicError struct {
+	// Value is what the panic carried.
+	Value any
+
+	// Stack is where the panic was taken.
+	// It's logged no matter what the application does with the error.
+	Stack []byte
+}
+
+func (e PanicError) Error() string { return fmt.Sprintf("panic: %v", e.Value) }
+
+// Unwrap returns the panic value when it is an error.
+func (e PanicError) Unwrap() error {
+	err, _ := e.Value.(error)
+	return err
+}
+
 // SSE is the server-sent-event handle passed to action (POST/PUT/PATCH/DELETE)
 // and event (OnXXX) handlers.
 type SSE interface {
@@ -335,6 +356,10 @@ type SSE interface {
 	RemoveElement(selectorCSS string) error
 
 	// ExecuteScript runs a script on the client.
+	// The script is delivered as a <script> element and must not contain "</script>".
+	// The HTML parser ends the element there and reads the rest as markup.
+	// Encode any value the caller did not build itself,
+	// for example with [encoding/json.Marshal], which writes "<" as \u003c.
 	ExecuteScript(script string) error
 
 	// PatchSignals updates client-side signals from v, which is marshaled to JSON.
@@ -350,9 +375,16 @@ type SSE interface {
 
 	// Redirect navigates the client to url by assigning window.location.href,
 	// which pushes a new browser history entry.
-	// To replace the current entry instead, navigate with [SSE.ExecuteScript]:
+	// To replace the current entry instead, navigate with [SSE.ExecuteScript].
+	// The target must be JSON-encoded rather than %q-formatted.
+	// %q escapes for Go source and leaves "</script>" intact,
+	// which ends the script element the call travels in.
 	//
-	//	sse.ExecuteScript(fmt.Sprintf("window.location.replace(%q)", url))
+	//	enc, err := json.Marshal(url)
+	//	if err != nil {
+	//		return err
+	//	}
+	//	sse.ExecuteScript("window.location.replace(" + string(enc) + ")")
 	Redirect(url string) error
 
 	// Prefetch asks the browser to prefetch urls through the speculation rules API.

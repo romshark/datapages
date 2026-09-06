@@ -56,6 +56,13 @@ type EventThreeField struct {
 	Payload string `json:"payload"`
 }
 
+// EventMultiUser is "multi"
+type EventMultiUser struct {
+	To, Cc datapages.SubjectUser
+
+	Text string `json:"text"`
+}
+
 func (PageIndex) OnSingular(
 	sse datapages.SSE,
 	event EventSingular,
@@ -90,6 +97,14 @@ func (PageIndex) OnMixed(
 func (PageIndex) OnThreeField(
 	sse datapages.SSE,
 	event EventThreeField,
+	session Session,
+) error {
+	return nil
+}
+
+func (PageIndex) OnMultiUser(
+	sse datapages.SSE,
+	event EventMultiUser,
 	session Session,
 ) error {
 	return nil

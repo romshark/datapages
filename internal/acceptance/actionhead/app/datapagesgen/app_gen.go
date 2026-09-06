@@ -5,11 +5,14 @@ package datapagesgen
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"runtime/debug"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
+	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpserve"
 
 	"github.com/romshark/datapages/internal/acceptance/actionhead/app"
@@ -48,6 +51,24 @@ func (s *Server) writeHTML(
 	})
 }
 
+// recoverPanic turns a panicking handler into an error and hands it to the error path.
+func (s *Server) recoverPanic(
+	w http.ResponseWriter, r *http.Request,
+	sse *datastar.ServerSentEventGenerator, handler string,
+) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -58,11 +79,14 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](app, broker, opts...)
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//		app, broker, opts...,
+//	)
 //
 // Supported options:
 //
 //   - datapages.WithLogger
+//   - datapages.WithLogSampling
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
@@ -106,7 +130,8 @@ func (s *Server) Init(
 	setupHandlers(s)
 
 	s.Build()
-	href.SetLogger(s.Logger())
+	href.SetLogger(s.SampledLogger())
+	actionexpr.SetLogger(s.SampledLogger())
 
 	return nil
 }
@@ -136,6 +161,10 @@ func (s *Server) httpErrIntern(
 	_ *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		// A status written now only appends its text to the body.
+		return
+	}
 	httpserve.WriteErrStatus(w, err)
 }
 
@@ -148,6 +177,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageIndex{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -170,6 +200,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePageIndexPOSTRender(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Render")
 	p := app.PageIndex{
 		App: s.app,
 	}

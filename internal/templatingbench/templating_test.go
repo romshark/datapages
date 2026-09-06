@@ -35,6 +35,8 @@ func helloGomponents(name string) g.Node {
 	)
 }
 
+// BenchmarkTemplatingStd measures html/template, the baseline the others in this
+// file are compared against in FAQ.md.
 func BenchmarkTemplatingStd(b *testing.B) {
 	data := struct{ Name string }{Name: "World"}
 	for b.Loop() {
@@ -44,6 +46,7 @@ func BenchmarkTemplatingStd(b *testing.B) {
 	}
 }
 
+// BenchmarkTemplatingTempl measures a-h/templ, which is what Datapages renders with.
 func BenchmarkTemplatingTempl(b *testing.B) {
 	ctx := context.Background()
 	c := Hello("World")
@@ -54,12 +57,14 @@ func BenchmarkTemplatingTempl(b *testing.B) {
 	}
 }
 
+// BenchmarkTemplatingQuicktemplate measures valyala/quicktemplate.
 func BenchmarkTemplatingQuicktemplate(b *testing.B) {
 	for b.Loop() {
 		WriteHelloQT(io.Discard, "World")
 	}
 }
 
+// BenchmarkTemplatingGomponents measures maragu.dev/gomponents.
 func BenchmarkTemplatingGomponents(b *testing.B) {
 	c := helloGomponents("World")
 	for b.Loop() {
@@ -69,6 +74,7 @@ func BenchmarkTemplatingGomponents(b *testing.B) {
 	}
 }
 
+// BenchmarkTemplatingJet measures CloudyKit/jet.
 func BenchmarkTemplatingJet(b *testing.B) {
 	vars := make(jet.VarMap)
 	vars.Set("name", "World")
@@ -79,6 +85,8 @@ func BenchmarkTemplatingJet(b *testing.B) {
 	}
 }
 
+// TestTemplating tests that every engine benchmarked here renders the same markup.
+// A benchmark of a template that produces something else would compare nothing.
 func TestTemplating(t *testing.T) {
 	var bufStd, buf2 bytes.Buffer
 

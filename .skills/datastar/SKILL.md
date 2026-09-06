@@ -10,11 +10,11 @@ description: >-
 # Datastar HTML Attribute and Action Reference
 
 Datastar adds frontend reactivity via HTML `data-*` attributes and SSE.
-Docs: https://data-star.dev
-For the full Datastar API reference, fetch from: https://data-star.dev/reference/plugins_core
+Datapages serves Datastar v1.0.3, which this reference documents.
+Docs: https://data-star.dev/docs.md
 
 This skill covers the HTML template side only. Server-side SSE wiring is handled by Datapages. See [datapages/SKILL.md](../datapages/SKILL.md).
-Templates are written in Templ. Docs: https://templ.guide/developer-tools/llm/
+Templates are written in Templ. Docs: https://templ.guide/llms.md
 
 ### IMPORTANT: Datapages Rules (ALWAYS follow these)
 
@@ -613,7 +613,7 @@ A practical use-case of nested signals is when you have repetition of state on a
 
 ## Backend Actions 
 
-We’re not limited to sending just `GET` requests. Datastar provides [backend actions](https://data-star.dev/reference/actions#backend-actions) for each of the methods available: `@get()`, `@post()`, `@put()` and `@delete()`.
+We’re not limited to sending just `GET` requests. Datastar provides [backend actions](https://data-star.dev/reference/actions#backend-actions) for each of the methods available: `@get()`, `@post()`, `@put()`, `@patch()` and `@delete()`.
 
 Here’s how we can send an answer to the server for processing, using a `POST` request.
 
@@ -715,7 +715,7 @@ When using [CQRS](#cqrs), it is generally better to manually show a loading indi
 
 ## Optimistic Updates 
 
-Optimistic updates (also known as optimistic UI) are when the UI updates immediately as if an operation succeeded, before the backend actually confirms it. It is a strategy used to makes web apps feel snappier, when it in fact deceives the user. Imagine seeing a confirmation message that an action succeeded, only to be shown a second later that it actually failed. Rather than deceive the user, use [loading indicators](#loading-indicators) to show the user that the action is in progress, and only confirm success from the backend.
+Optimistic updates (also known as optimistic UI) are when the UI updates immediately as if an operation succeeded, before the backend actually confirms it. It is a strategy used to makes web apps feel snappier, when it in fact deceives the user. Imagine seeing a confirmation message that an action succeeded, only to be shown a second later that it actually failed. Rather than deceive the user, use [loading indicators](#loading-indicators) to show the user that the action is in progress, and only confirm success from the backend (see [this example](https://data-star.dev/examples/rocket_flow)).
 
 ## Accessibility 
 
@@ -754,9 +754,11 @@ The `data-attr` attribute can also be used to set the values of multiple attribu
 
 ### `data-bind` 
 
-Creates a signal (if one doesn’t already exist) and sets up two-way data binding between it and an element’s value. This means that the value of the element is updated when the signal changes, and the signal value is updated when the value of the element changes.
+Creates a signal (if one doesn’t already exist) and sets up two-way data binding between it and an element’s current bound state. When the signal changes, Datastar writes that value to the element. When one of the bind events fires, Datastar reads the element’s current bound property/value and writes that back to the signal.
 
-The `data-bind` attribute can be placed on any HTML element on which data can be input or choices selected (`input`, `select`, `textarea` elements, and web components). Event listeners are added for `change` and `input` events.
+The `data-bind` attribute can be placed on any HTML element on which data can be input or choices selected (`input`, `select`, `textarea` elements, and web components). Native elements use their built-in bind semantics automatically. Generic custom elements default to binding through `value` and listening on `change`.
+
+`data-bind` does **not** inspect the event payload. It only uses the configured event as a signal to re-read the element’s current bound property/value. If you need to pull data from `event` itself, use `data-on:*` instead.
 
 ```
 <input data-bind:foo />
@@ -835,9 +837,17 @@ Modifiers allow you to modify behavior when binding signals using a key.
   - `.kebab` – Kebab case: `my-signal`
   - `.snake` – Snake case: `my_signal`
   - `.pascal` – Pascal case: `MySignal`
+- `__prop` – Binds to a specific property instead of the default binding. Must *not* be a read-only property.
+  
+  - Example: `data-bind:is-checked__prop.checked`
+- `__event` – Defines which events sync the element property back to the signal.
+  
+  - Example: `data-bind:query__event.input.change`
+
+Native form controls use their built-in binding semantics automatically. Generic custom elements default to `value` and `change`. Use `__prop` and `__event` when a custom element’s live state is stored somewhere else.
 
 ```
-<input data-bind:my-signal__case.kebab />
+<my-toggle data-bind:is-checked__prop.checked__event.change></my-toggle>
 ```
 
 ### `data-class` 
@@ -848,7 +858,7 @@ Adds or removes a class to or from an element based on an expression.
 <div data-class:font-bold="$foo == 'strong'"></div>
 ```
 
-If the expression evaluates to `true`, the `hidden` class is added to the element; otherwise, it is removed.
+If the expression evaluates to `true`, the `font-bold` class is added to the element; otherwise, it is removed.
 
 The `data-class` attribute can also be used to add or remove multiple classes from an element using a set of key-value pairs, where the keys represent class names and the values represent expressions.
 
@@ -1092,6 +1102,7 @@ Modifiers allow you to modify behavior when events are triggered. Some modifiers
   - `.trailing` – Throttle with trailing edge (must come after timing).
 - `__viewtransition` – Wraps the expression in `document.startViewTransition()` when the View Transition API is available.
 - `__window` – Attaches the event listener to the `window` element.
+- `__document` – Attaches the event listener to the `document` element. Useful for events that are only available on `document` and that do not bubble.
 - `__outside` – Triggers when the event is outside the element.
 - `__prevent` – Calls `preventDefault` on the event listener.
 - `__stop` – Calls `stopPropagation` on the event listener.
@@ -1516,7 +1527,7 @@ Toggles the boolean value of all matching signals (or all signals if no filter i
 
 > `@get(uri: string, options={ })`
 
-Sends a `GET` request to the backend using the [Fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API). The URI can be any valid endpoint and the response must contain zero or more [Datastar SSE events](https://data-star.dev/reference/sse_events).
+Sends a `GET` request to the backend using the [Fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API). The URI can be any valid endpoint, and the response type any of the allowed [response types](#response-handling), or a `204 No Content` response if the response body is empty.
 
 ```
 <button data-on:click="@get('/endpoint')"></button>
@@ -1543,7 +1554,7 @@ It’s also possible to send requests using `multipart/form-data` encoding by sp
 ```
 <form enctype="multipart/form-data">
     <input type="file" name="file" />
-    <button data-on:click="@get('/endpoint', {contentType: 'form'})"></button>
+    <button data-on:click="@post('/endpoint', {contentType: 'form'})"></button>
 </form>
 ```
 
@@ -1601,9 +1612,9 @@ All of the actions above take a second argument of options.
 - `retry` – Determines when to retry requests. Can be `'auto'` (default, retries on network errors only), `'error'` (retries on `4xx` and `5xx` responses), `'always'` (retries on all non-`204` responses except redirects), or `'never'` (disables retries). Defaults to `'auto'`.
 - `retryInterval` – The retry interval in milliseconds. Defaults to `1000` (one second).
 - `retryScaler` – A numeric multiplier applied to scale retry wait times. Defaults to `2`.
-- `retryMaxWaitMs` – The maximum allowable wait time in milliseconds between retries. Defaults to `30000` (30 seconds).
+- `retryMaxWait` – The maximum allowable wait time in milliseconds between retries. Defaults to `30000` (30 seconds).
 - `retryMaxCount` – The maximum number of retry attempts. Defaults to `10`.
-- `requestCancellation` – Controls request cancellation behavior. Can be `'auto'` (default, cancels existing requests on the same element), `'cleanup'` (cancels existing requests on the same element and on element or attribute cleanup), `'disabled'` (allows concurrent requests), or an `AbortController` instance for custom control. Defaults to `'auto'`.
+- `requestCancellation` – Controls request cancellation behavior. Can be `'auto'` (default, cancels in-flight requests to the same URL using the same HTTP method), `'cleanup'` (cancels requests on element or attribute cleanup, and cancels in-flight requests to the same URL using the same HTTP method), `'disabled'` (allows concurrent requests), or an `AbortController` instance for custom control. Defaults to `'auto'`.
 
 ```
 <button data-on:click="@get('/endpoint', {
@@ -1615,7 +1626,7 @@ All of the actions above take a second argument of options.
 
 ### Request Cancellation 
 
-By default, when a new fetch request is initiated on an element, any existing request on that same element is automatically cancelled. This prevents multiple concurrent requests from conflicting with each other and ensures clean state management.
+By default, when a new fetch request is initiated (regardless of the element that initiated it), any in-flight request to the same URL using the same HTTP method is automatically cancelled. This prevents multiple concurrent requests to the same resource from conflicting with each other and encourages clean state management.
 
 For example, if a user rapidly clicks a button that triggers a backend action, only the most recent request will be processed:
 
@@ -1639,6 +1650,35 @@ You can control this behavior using the [`requestCancellation`](#requestCancella
 </div>
 ```
 
+### Response Handling 
+
+Backend actions automatically handle different response content types:
+
+- `text/event-stream` – Standard SSE responses with [Datastar SSE events](https://data-star.dev/reference/sse_events).
+- `text/html` – HTML elements to patch into the DOM.
+- `application/json` – JSON encoded signals to patch.
+- `text/javascript` – JavaScript code to execute in the browser.
+
+#### `text/html`
+
+When returning HTML (`text/html`), the server can optionally include the following response headers:
+
+- `datastar-selector` – A CSS selector for the target elements to patch
+- `datastar-mode` – How to patch the elements (`outer`, `inner`, `remove`, `replace`, `prepend`, `append`, `before`, `after`). Defaults to `outer`.
+- `datastar-use-view-transition` – Whether to use the [View Transition API](https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API) when patching elements.
+
+#### `application/json`
+
+When returning JSON (`application/json`), the server can optionally include the following response header:
+
+- `datastar-only-if-missing` – If set to `true`, only patch signals that don’t already exist.
+
+#### `text/javascript`
+
+When returning JavaScript (`text/javascript`), the server can optionally include the following response header:
+
+- `datastar-script-attributes` – Sets the script element’s attributes using a JSON encoded string.
+
 ### Events 
 
 All of the actions above trigger `datastar-fetch` events during the fetch request lifecycle. The event type determines the stage of the request.
@@ -1657,6 +1697,8 @@ All of the actions above trigger `datastar-fetch` events during the fetch reques
 
 ### Security
 
+[Datastar expressions](https://data-star.dev/guide/datastar_expressions) are strings that are evaluated in a sandboxed context. This means you can use JavaScript in Datastar expressions.
+
 ## Escape User Input 
 
 Never trust user input. This is especially true when using Datastar expressions, which can execute arbitrary JavaScript. When using Datastar expressions, you should always escape user input. This helps prevent, among other issues, Cross-Site Scripting (XSS) attacks.
@@ -1671,10 +1713,44 @@ If, for some reason, you cannot escape unsafe user input, you should ignore it u
 
 ## Content Security Policy 
 
-When using a [Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP) (CSP), `unsafe-eval` must be allowed for scripts, since Datastar evaluates expressions using a [`Function()` constructor](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function/Function).
+By default, Datastar uses the [`Function()` constructor](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function/Function) to evaluate expressions. The [Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP) (CSP) for this mode must include `unsafe-eval`.
 
 ```
-<meta http-equiv="Content-Security-Policy" 
-    content="script-src 'self' 'unsafe-eval';"
+<meta http-equiv="Content-Security-Policy"
+    content="script-src 'self' 'unsafe-eval'"
 >
 ```
+
+### CSP Mode 
+
+To enable CSP mode, add a `data-nonce` attribute to the `html` element. Its value must match the nonce in your CSP’s `script-src` directive. Generate a new cryptographically secure random nonce on the server for every full-page response.
+
+```
+<html data-nonce="{page-nonce}">
+    <head>
+        <meta http-equiv="Content-Security-Policy"
+            content="script-src 'self' 'nonce-{page-nonce}';"
+        >
+        <script type="module" src="/datastar.js"></script>
+    </head>
+    <body>
+        <button data-on:click="$count++">Increment</button>
+    </body>
+</html>
+```
+
+Datastar reads the nonce and removes the `data-nonce` attribute. It applies the nonce when compiling expressions and when executing scripts received in element patches or JavaScript responses. Element patch responses do not need to include the nonce.
+
+CSP mode does not make Datastar expressions safe to use with untrusted content. Datastar does not examine or sanitize expressions in Datastar attributes. Untrusted content inserted into an attribute can therefore execute JavaScript.
+
+Use the context-appropriate escaping and serialization tools provided by your server language and template system. If you intentionally allow user-provided HTML, sanitize it with a suitable HTML sanitizer. Pass user values through signals instead of interpolating them into Datastar expressions, and keep the expressions static.
+
+In browsers that support Trusted Types, Datastar creates a policy named `datastar` for HTML and script content. This policy allows Datastar to work with `require-trusted-types-for 'script'`. It does not sanitize the content.
+
+```
+<meta http-equiv="Content-Security-Policy"
+    content="script-src 'self' 'nonce-{page-nonce}'; trusted-types datastar; require-trusted-types-for 'script';"
+>
+```
+
+Learn more about [Trusted Type policies](https://developer.mozilla.org/en-US/docs/Web/API/TrustedTypePolicy).

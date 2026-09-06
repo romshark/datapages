@@ -1,4 +1,4 @@
-// Covers the streams a page serves to a visitor with no session.
+// Tests the streams a page serves to a visitor with no session.
 
 package acceptance_test
 
@@ -33,7 +33,7 @@ func newClient(t *testing.T, broker messaging.Broker) *client.Client {
 		})))
 }
 
-// TestAnonStreamSubscribesBySignal covers a visitor with no session on a page
+// TestAnonStreamSubscribesBySignal tests a visitor with no session on a page
 // that scopes its events by a signal: the stream receives what is published
 // for the value it connected with, and nothing published for another.
 func TestAnonStreamSubscribesBySignal(t *testing.T) {
@@ -55,7 +55,26 @@ func TestAnonStreamSubscribesBySignal(t *testing.T) {
 	})
 }
 
-// TestAnonStreamCarriesNoPrivateEvent covers the reason the route exists:
+// TestAnonStreamCarriesNoMultiFieldPrivateEvent tests an event whose two
+// subject fields share one declaration line. Reading only the first name
+// leaves the event public and delivers it to a visitor with no session.
+func TestAnonStreamCarriesNoMultiFieldPrivateEvent(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := newClient(t, broker)
+
+		s := c.OpenStream(t, "/rooms/_$/", map[string]string{"room": "one"})
+
+		resp := c.Action(t, http.MethodPost, "/rooms/dm/",
+			`{"to":"alice","cc":"bob","text":"for alice and bob"}`)
+		require.Equal(t, http.StatusOK, resp.Status)
+
+		require.True(t, s.Never("for alice and bob"),
+			"a private event reached a stream of a visitor with no session")
+	})
+}
+
+// TestAnonStreamCarriesNoPrivateEvent tests the reason the route exists:
 // a visitor with no session is nobody, which leaves a private event no way to reach them.
 func TestAnonStreamCarriesNoPrivateEvent(t *testing.T) {
 	t.Parallel()

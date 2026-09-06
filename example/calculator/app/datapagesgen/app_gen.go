@@ -8,13 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 	"strings"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
+	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
@@ -75,6 +78,24 @@ func (s *Server) handleStreamRequest(
 	s.streams.Handle(w, r, "", "", subjects, onOpen, onClose, fn)
 }
 
+// recoverPanic turns a panicking handler into an error and hands it to the error path.
+func (s *Server) recoverPanic(
+	w http.ResponseWriter, r *http.Request,
+	sse *datastar.ServerSentEventGenerator, handler string,
+) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -86,11 +107,14 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](app, broker, opts...)
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//		app, broker, opts...,
+//	)
 //
 // Supported options:
 //
 //   - datapages.WithLogger
+//   - datapages.WithLogSampling
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
@@ -140,7 +164,8 @@ func (s *Server) Init(
 	setupHandlers(s)
 
 	s.Build()
-	href.SetLogger(s.Logger())
+	href.SetLogger(s.SampledLogger())
+	actionexpr.SetLogger(s.SampledLogger())
 
 	return nil
 }
@@ -186,6 +211,10 @@ func (s *Server) httpErrIntern(
 	_ *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		// A status written now only appends its text to the body.
+		return
+	}
 	httpserve.WriteErrStatus(w, err)
 }
 
@@ -198,6 +227,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageIndex{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, disableRefreshAfterHidden, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -252,6 +282,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageIndex stream")
 			var eventCalcUpdated app.EventCalcUpdated
 			for msg := range ch {
 				switch {
@@ -278,7 +309,7 @@ func (s *Server) handlePageIndexPOSTInput(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		InstanceID string `json:"instance_id"`
 		Input      string `json:"input"`
@@ -306,6 +337,7 @@ func (s *Server) handlePageIndexPOSTInput(
 	query.Values.Num = httpread.QueryValue(r.URL.RawQuery, "num")
 
 	dispatchCalcUpdated := dispatcherEventCalcUpdated{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageIndex.Input")
 	p := app.PageIndex{
 		App: s.app,
 	}

@@ -18,7 +18,7 @@ import (
 
 func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
 
-// TestNATSStreamSubjectsAreValid covers every subject the generator exports.
+// TestNATSStreamSubjectsAreValid tests every subject the generator exports.
 // A subject NATS refuses is a page that never receives,
 // and the in-memory broker accepts anything a string can hold.
 func TestNATSStreamSubjectsAreValid(t *testing.T) {

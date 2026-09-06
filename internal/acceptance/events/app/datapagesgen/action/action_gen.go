@@ -200,6 +200,22 @@ func POSTPageIndexCanceled(options ...option) string {
 	return b.String()
 }
 
+// POSTPageIndexHold references /hold/
+func POSTPageIndexHold(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/hold/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/hold/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/hold/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
 // POSTPageIndexNote references /note/
 func POSTPageIndexNote(options ...option) string {
 	if len(options) == 0 {
@@ -210,6 +226,22 @@ func POSTPageIndexNote(options ...option) string {
 	b.Grow(bl + len("@post('/note/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/note/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+// POSTPageIndexRelease references /release/
+func POSTPageIndexRelease(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/release/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/release/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/release/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)

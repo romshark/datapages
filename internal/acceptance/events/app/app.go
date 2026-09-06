@@ -19,19 +19,46 @@ import (
 )
 
 type App struct {
-	mu  sync.Mutex
-	log []string
+	lock sync.Mutex
+	log  []string
+	hold chan struct{}
+}
+
+// holdTicks blocks every OnTick until releaseTicks.
+// It fixes the order of a disconnect and the events queued behind it.
+func (a *App) holdTicks() {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	a.hold = make(chan struct{})
+}
+
+func (a *App) releaseTicks() {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	if a.hold != nil {
+		close(a.hold)
+		a.hold = nil
+	}
+}
+
+func (a *App) waitTicks() {
+	a.lock.Lock()
+	ch := a.hold
+	a.lock.Unlock()
+	if ch != nil {
+		<-ch
+	}
 }
 
 func (a *App) record(format string, args ...any) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.lock.Lock()
+	defer a.lock.Unlock()
 	a.log = append(a.log, fmt.Sprintf(format, args...))
 }
 
 func (a *App) entries() string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.lock.Lock()
+	defer a.lock.Unlock()
 	return strings.Join(a.log, " ")
 }
 
@@ -136,6 +163,7 @@ func (p PageIndex) OnTick(
 	sse datapages.SSE,
 	streamID datapages.StreamID,
 ) error {
+	p.App.waitTicks()
 	p.App.record("tick(%d,%d)", streamID, event.N)
 	return sse.PatchElement(
 		templ.Raw(fmt.Sprintf(`<div id="out">tick %d</div>`, event.N)),
@@ -168,6 +196,18 @@ func (p PageIndex) POSTTick(
 	tick datapages.Dispatcher[EventTick],
 ) error {
 	return tick.Dispatch(EventTick{N: signals.Values.N})
+}
+
+// POSTHold is /hold
+func (p PageIndex) POSTHold(_ *http.Request) error {
+	p.App.holdTicks()
+	return nil
+}
+
+// POSTRelease is /release
+func (p PageIndex) POSTRelease(_ *http.Request) error {
+	p.App.releaseTicks()
+	return nil
 }
 
 // POSTBoth is /both

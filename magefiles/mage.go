@@ -364,10 +364,20 @@ func GoFixCLI() error {
 	return run("go", "fix", "./...")
 }
 
+// goFixSkip lists modules go fix cannot process because they hold code that
+// deliberately doesn't type check.
+var goFixSkip = map[string]struct{}{
+	filepath.Join("internal", "parser", "testdata", "err_typecheck"): {},
+}
+
 // GoFixExamples runs go fix on all example and parser testdata modules.
 func GoFixExamples() error {
 	for _, root := range submoduleRoots {
 		if err := forEachModule(root, func(dir string) error {
+			if _, ok := goFixSkip[filepath.Clean(dir)]; ok {
+				fmt.Println("==> skipping go fix in", dir)
+				return nil
+			}
 			fmt.Println("==> go fix ./... in", dir)
 			return runIn(dir, "go", "fix", "./...")
 		}); err != nil {

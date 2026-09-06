@@ -11,7 +11,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/actionoptions/app/datapagesgen/action"
 )
 
-// TestEmptyOptionIsSkipped covers an option helper given nothing to say,
+// TestEmptyOptionIsSkipped tests an option helper given nothing to say,
 // such as WithHeaders of an empty map: the expression carries no options object.
 func TestEmptyOptionIsSkipped(t *testing.T) {
 	t.Parallel()
@@ -30,7 +30,7 @@ func TestEmptyOptionIsSkipped(t *testing.T) {
 	}
 }
 
-// TestOptionsAreWritten covers an empty option next to real ones:
+// TestOptionsAreWritten tests an empty option next to real ones:
 // only the empty one is dropped.
 func TestOptionsAreWritten(t *testing.T) {
 	t.Parallel()

@@ -1,4 +1,4 @@
-// Covers the generated router of ./app over HTTP.
+// Tests the generated router of ./app over HTTP.
 
 package acceptance_test
 
@@ -24,7 +24,7 @@ func newClient(t *testing.T) *client.Client {
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
-// TestRoundTrip covers the pair the generator writes for every page:
+// TestRoundTrip tests the pair the generator writes for every page:
 // the function that builds the URL and the handler that takes it apart.
 // They are generated from one model and are asserted here against each other.
 // A change of order, name or number format in one of them cannot pass unnoticed.
@@ -86,7 +86,7 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
-// TestQueryDefaults covers a query string that leaves everything out.
+// TestQueryDefaults tests a query string that leaves everything out.
 // Absent parameters are the common case on a first page load and must not be an error.
 func TestQueryDefaults(t *testing.T) {
 	t.Parallel()
@@ -98,7 +98,7 @@ func TestQueryDefaults(t *testing.T) {
 	require.Equal(t, want, resp.Element(t, "echo"))
 }
 
-// TestRawQuery covers query strings the generated reader must
+// TestRawQuery tests query strings the generated reader must
 // read the way url.URL.Query does.
 func TestRawQuery(t *testing.T) {
 	t.Parallel()
@@ -135,7 +135,7 @@ func TestRawQuery(t *testing.T) {
 	}
 }
 
-// TestUnparsableValues covers URLs whose values do not fit the declared type.
+// TestUnparsableValues tests URLs whose values do not fit the declared type.
 // The handler must not run, and the client must learn that it sent the bad
 // request rather than that the server broke.
 func TestUnparsableValues(t *testing.T) {
@@ -174,7 +174,7 @@ func TestUnparsableValues(t *testing.T) {
 	}
 }
 
-// TestPageHead covers a page that returns its own head.
+// TestPageHead tests a page that returns its own head.
 //
 // The head is where a page carries its title and its meta tags.
 // The shell renders it rather than the page.
@@ -195,7 +195,7 @@ func TestPageHead(t *testing.T) {
 		"the page's head was rendered after <body>:\n%s", resp.Body)
 }
 
-// TestTextUnmarshaler covers a named string that carries an UnmarshalText.
+// TestTextUnmarshaler tests a named string that carries an UnmarshalText.
 // Converting the raw value instead of parsing it hands the handler a value the
 // type refuses, and the validation the application wrote never runs.
 func TestTextUnmarshaler(t *testing.T) {
@@ -206,12 +206,13 @@ func TestTextUnmarshaler(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 	require.Equal(t, `slug="hello" tag="news"`, resp.Element(t, "echo"))
 
-	// The builder takes the declared type and writes what it marshals to.
-	// A conversion would put "HELLO" in the URL, which the handler refuses.
+	// The builder takes the declared type and writes what it marshals to,
+	// which prefixes and lowercases. A conversion would put "HELLO" in the URL,
+	// which the handler refuses.
 	url := href.PageSlug(app.Slug("HELLO"), href.QueryPageSlug{
 		Tag: app.Slug("NEWS"),
 	})
-	require.Equal(t, "/slug/hello/?tag=news", url)
+	require.Equal(t, "/slug/s-hello/?tag=s-news", url)
 	resp = c.Get(t, url)
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
 	require.Equal(t, `slug="hello" tag="news"`, resp.Element(t, "echo"))
@@ -227,7 +228,7 @@ func TestTextUnmarshaler(t *testing.T) {
 	}
 }
 
-// TestReflectedSignals covers a query parameter bound to a signal.
+// TestReflectedSignals tests a query parameter bound to a signal.
 //
 // The binding is what the page carries rather than anything the handler returns:
 // the signal's initial value, taken from the URL, and the code that writes it back
@@ -237,12 +238,15 @@ func TestReflectedSignals(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
 
-	resp := c.Get(t, "/reflect/?t=shoes&p=3")
+	resp := c.Get(t, "/reflect/?t=shoes&p=3&s=news")
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
-	require.Equal(t, `term="shoes" page=3`, resp.Element(t, "echo"))
+	require.Equal(t, `term="shoes" page=3 slug="news"`, resp.Element(t, "echo"))
 	for _, want := range []string{
 		`data-signals:term="'shoes'"`,
 		`data-signals:page="3"`,
+		// Slug renders through its own MarshalText, which prefixes.
+		// A conversion would put "news" there.
+		`data-signals:slug="'s-news'"`,
 		"window.history.replaceState",
 		"params.set('t'",
 		"params.set('p'",
@@ -251,7 +255,7 @@ func TestReflectedSignals(t *testing.T) {
 	}
 }
 
-// TestReflectedSignalEscapesMarkup covers a reflected query value carrying markup.
+// TestReflectedSignalEscapesMarkup tests a reflected query value carrying markup.
 // The server writes it into an attribute of the body tag, where a quote ends the
 // attribute and an angle bracket opens an element of its own.
 func TestReflectedSignalEscapesMarkup(t *testing.T) {
@@ -289,7 +293,7 @@ func TestReflectedSignalEscapesMarkup(t *testing.T) {
 	}
 }
 
-// TestTrailingWildcard covers a route whose last segment matches the rest of the path,
+// TestTrailingWildcard tests a route whose last segment matches the rest of the path,
 // however many segments that is.
 //
 // The router takes no end-of-path marker after such a wildcard.
@@ -314,6 +318,11 @@ func TestTrailingWildcard(t *testing.T) {
 		// Values that have to survive belong in a segment of their own,
 		// where {name} keeps them apart.
 		"encoded separator": {"/files/a%2Fb/", `rest="a/b"`},
+		// The same GET inherited from an abstract page,
+		// which carries no route of its own.
+		"embedded":                  {"/files-embedded/a/", `rest="a"`},
+		"embedded no slash":         {"/files-embedded/a", `rest="a"`},
+		"embedded several segments": {"/files-embedded/a/b/c", `rest="a/b/c"`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			resp := c.Get(t, tt.url)
@@ -354,7 +363,7 @@ func TestTrailingWildcardHrefRoundTrip(t *testing.T) {
 	}
 }
 
-// TestEncodedPathSegments covers values that had to be
+// TestEncodedPathSegments tests values that had to be
 // percent-encoded to fit in a URL at all.
 //
 // The server rewrites a path that does not end in a slash before routing it.
@@ -401,7 +410,7 @@ func TestEncodedPathSegments(t *testing.T) {
 	}
 }
 
-// TestUnknownRoutes covers paths no page claims.
+// TestUnknownRoutes tests paths no page claims.
 func TestUnknownRoutes(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
@@ -420,7 +429,7 @@ func TestUnknownRoutes(t *testing.T) {
 	}
 }
 
-// TestHrefLiterals covers the URLs themselves. The round trip above proves the
+// TestHrefLiterals tests the URLs themselves. The round trip above proves the
 // two generated halves agree; these assertions pin down what they agree on,
 // because a self-consistent pair can still address the wrong thing.
 func TestHrefLiterals(t *testing.T) {

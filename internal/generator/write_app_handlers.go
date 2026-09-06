@@ -257,7 +257,8 @@ func eventHandlerInputArgs(
 	return args
 }
 
-// writePageGETHandler generates the GET handler for a page.
+// writePageGETHandler writes the handler a page's route resolves to:
+// the one that renders the whole HTML document, as opposed to the stream handler.
 func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string) {
 	w.Line(0, "")
 	w.Raw("func (s *Server) handle")
@@ -415,6 +416,8 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
 
+	w.writeDeferRecover(false, p.TypeName+".GET")
+
 	w.Byte('\t')
 	w.writeCommaSep(outs)
 	w.Raw(" := ")
@@ -437,16 +440,15 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 
 	// Close and create session, before anything is written: both set a cookie,
 	// and a cookie set after the body has started is dropped.
-	w.writeSessionOutputs(h)
+	getHeadNeedsSession := m.GlobalHeadGenerator != nil &&
+		m.GlobalHeadGenerator.InputSession
+	getRendersBody := p.PageSpecialization != model.PageTypeError500
+	getSessArg, getSessRebind := w.renderSessionVar(h, m, getRendersBody,
+		hasSessionInput(h) || getHeadNeedsSession)
+	w.writeSessionOutputs(h, getSessRebind)
 
 	// Redirect.
-	if h.OutputRedirect != nil {
-		w.Raw("\tif httpserve.Redirect(w, r, ")
-		w.Raw(outputVar(h.OutputRedirect))
-		w.Raw(") {\n")
-		w.Line(2, "return")
-		w.Line(1, "}")
-	}
+	w.writeRedirect(h)
 
 	// Generic head.
 	if gh := m.GlobalHeadGenerator; gh != nil {
@@ -470,11 +472,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	w.Line(1, "if err := s.writeHTML(")
 	w.Raw("\t\tw, r, ")
 	if m.Session != nil {
-		sessArg := "sess"
-		if p.PageSpecialization == model.PageTypeError500 || !hasSess {
-			sessArg = w.sessionType + "{}"
-		}
-		w.Raw(sessArg)
+		w.Raw(getSessArg)
 		w.Raw(", ")
 	}
 	if m.GlobalHeadGenerator != nil {
@@ -506,29 +504,71 @@ func hasSessionInput(h *model.Handler) bool {
 //
 // A handler that returns a session and never has it acted on leaves the value unused,
 // which is a generated package that does not compile.
-func (w *Writer) writeSessionOutputs(h *model.Handler) {
+//
+// sessVar, when non-empty, names the variable the document is rendered from
+// and is rebound here: rendered from the session read before, the document
+// carries no CSRF script the response's own Set-Cookie already demands.
+func (w *Writer) writeSessionOutputs(h *model.Handler, sessVar string) {
 	if h.OutputCloseSession != nil {
 		w.Raw("\tif ")
 		w.Raw(outputVar(h.OutputCloseSession))
 		w.Raw(" {\n")
-		w.Line(2, "if err := s.CloseSession(w, r, sessToken); err != nil {")
+		if sessVar != "" {
+			w.Line(2, "closed, err := s.CloseSession(w, r, sessToken)")
+			w.Line(2, "if err != nil {")
+		} else {
+			w.Line(2, "if _, err := s.CloseSession(w, r, sessToken); err != nil {")
+		}
 		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
 		w.Line(3, "return")
 		w.Line(2, "}")
+		if sessVar != "" {
+			w.Linef(2, "%s = closed", sessVar)
+		}
 		w.Line(1, "}")
 	}
 	if h.OutputNewSession != nil {
 		w.Raw("\tif j := ")
 		w.Raw(outputVar(h.OutputNewSession))
 		w.Raw("; j.UserID != \"\" {\n")
-		w.Raw("\t\tif err := s.CreateSession(w, r, ")
-		w.Raw(outputVar(h.OutputNewSession))
-		w.Raw("); err != nil {\n")
+		if sessVar != "" {
+			w.Raw("\t\tcreated, err := s.CreateSession(w, r, ")
+			w.Raw(outputVar(h.OutputNewSession))
+			w.Raw(")\n")
+			w.Line(2, "if err != nil {")
+		} else {
+			w.Raw("\t\tif _, err := s.CreateSession(w, r, ")
+			w.Raw(outputVar(h.OutputNewSession))
+			w.Raw("); err != nil {\n")
+		}
 		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
 		w.Line(3, "return")
 		w.Line(2, "}")
+		if sessVar != "" {
+			w.Linef(2, "%s = created", sessVar)
+		}
 		w.Line(1, "}")
 	}
+}
+
+// renderSessionVar returns the session expression writeHTML takes and the
+// variable writeSessionOutputs rebinds, empty when nothing is rendered.
+// It declares one where the handler acts on a session but reads none.
+func (w *Writer) renderSessionVar(
+	h *model.Handler, m *model.App, rendersBody, hasSess bool,
+) (arg, rebind string) {
+	if m.Session == nil || !rendersBody {
+		return w.sessionType + "{}", ""
+	}
+	if hasSess {
+		return "sess", "sess"
+	}
+	if h.OutputNewSession == nil && h.OutputCloseSession == nil {
+		return w.sessionType + "{}", ""
+	}
+	// A name of its own: "sess" may hold the read for the CSRF check.
+	w.Linef(1, "renderSess := %s{}", w.sessionType)
+	return "renderSess", "renderSess"
 }
 
 // writeGenericHeadCall emits: genericHead := s.app.Head(r[, sess])
@@ -607,8 +647,8 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"'`)\n")
-			w.Raw("\t\thtmlattr.WriteSignalString(w, " + varQuery + ".")
-			w.Raw(f.FieldName)
+			w.Raw("\t\thtmlattr.WriteSignalString(w, ")
+			w.writeFieldToString(varQuery, fi)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
 		} else {
@@ -850,12 +890,28 @@ func (w *Writer) writeStreamPathSegments(route string, pathInput *model.Input) {
 	}
 }
 
-// writeFieldToString emits an expression that converts a struct field to a string.
-// For string fields it emits "varName.FieldName"; for other types it wraps with
-// strconv.Format* or fmt.Sprint.
+// writeDeferRecover registers the deferred recover of one handler. hasSSE
+// selects the open stream, which is what a recovered panic patches into when
+// the application renders one.
+func (w *Writer) writeDeferRecover(hasSSE bool, handler string) {
+	sse := "nil"
+	if hasSSE {
+		sse = "sse"
+	}
+	w.Linef(1, "defer s.recoverPanic(w, r, %s, %q)", sse, handler)
+}
+
+// writeFieldToString emits an expression that renders a struct field as the
+// text it travels as in a URL or a signal.
+//
+// A type that marshals itself goes through its own MarshalText, which is what
+// the URL builders write as well. A string is itself, a number and a bool go
+// through strconv, and anything else is left to fmt.Sprint.
 func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
 	ref := varName + "." + f.Name
-	if gotypes.IsString(f.Type) {
+	if gotypes.ImplementsTextMarshaler(f.Type) {
+		w.Rawf("textOf(%s)", ref)
+	} else if gotypes.IsString(f.Type) {
 		if gotypes.IsNamedString(f.Type) {
 			w.Rawf("string(%s)", ref)
 			return
@@ -888,12 +944,13 @@ func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
 	} else if gotypes.IsBool(f.Type) {
 		w.Rawf("strconv.FormatBool(%s)", ref)
 	} else {
-		// TextUnmarshaler or other — use fmt.Sprint as fallback.
+		// A type carrying no text form of its own.
 		w.Rawf("fmt.Sprint(%s)", ref)
 	}
 }
 
-// writePageGETStreamHandler generates the stream handler for a page.
+// writePageGETStreamHandler writes the handler behind a page's SSE endpoint,
+// which the page opens once its document is loaded.
 func (w *Writer) writePageGETStreamHandler(
 	p *model.Page, m *model.App, appPkg string,
 ) {
@@ -1029,6 +1086,12 @@ func (w *Writer) writePageGETStreamHandler(
 	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,")
 	w.Line(1, ") {")
+	if len(p.EventHandlers) > 0 {
+		// A panic here would reach net/http through the stream. Recovering it
+		// ends this stream, which the client reopens, and leaves the rest
+		// running.
+		w.Linef(2, "defer s.recoverPanic(w, r, sse, %q)", p.TypeName+" stream")
+	}
 	if len(p.EventHandlers) == 0 {
 		w.Line(2, "for range ch {")
 		w.Line(2, "}")
@@ -1558,7 +1621,7 @@ func (w *Writer) writePageActionHandler(
 
 	// Body size limit.
 	if h.InputSignals != nil {
-		w.Line(1, "r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())")
+		w.Line(1, "httpserve.LimitRequestBody(w, r, s.BodySizeLimit())")
 	}
 
 	// Read signals.
@@ -1597,6 +1660,8 @@ func (w *Writer) writePageActionHandler(
 		w.Line(0, "")
 		w.Line(1, "sse := datastar.NewSSE(w, r, datastar.WithCompression())")
 	}
+
+	w.writeDeferRecover(h.InputSSE != nil, p.TypeName+"."+h.Name)
 
 	// Page constructor.
 	w.Raw("\tp := ")
@@ -1656,16 +1721,14 @@ func (w *Writer) writeActionMethodCall(
 	}
 
 	// Close and create session.
-	w.writeSessionOutputs(h)
+	actHeadNeedsSession := m.GlobalHeadGenerator != nil &&
+		m.GlobalHeadGenerator.InputSession
+	actSessArg, actSessRebind := w.renderSessionVar(h, m, h.OutputBody != nil,
+		hasSessionInput(h) || actHeadNeedsSession)
+	w.writeSessionOutputs(h, actSessRebind)
 
 	// Redirect.
-	if h.OutputRedirect != nil {
-		w.Raw("\tif httpserve.Redirect(w, r, ")
-		w.Raw(outputVar(h.OutputRedirect))
-		w.Raw(") {\n")
-		w.Line(2, "return")
-		w.Line(1, "}")
-	}
+	w.writeRedirect(h)
 
 	// Render body (if action returns templ.Component).
 	if h.OutputBody != nil {
@@ -1675,13 +1738,7 @@ func (w *Writer) writeActionMethodCall(
 		w.Line(1, "if err := s.writeHTML(")
 		w.Raw("\t\tw, r, ")
 		if m.Session != nil {
-			sessArg := "sess"
-			headNeedsSession := m.GlobalHeadGenerator != nil &&
-				m.GlobalHeadGenerator.InputSession
-			if !hasSessionInput(h) && !headNeedsSession {
-				sessArg = w.sessionType + "{}"
-			}
-			w.Raw(sessArg)
+			w.Raw(actSessArg)
 			w.Raw(", ")
 		}
 		if m.GlobalHeadGenerator != nil {

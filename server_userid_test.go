@@ -9,7 +9,7 @@ import (
 	"github.com/romshark/datapages"
 )
 
-// TestValidateUserID covers what a user ID has to be. Any byte is accepted:
+// TestValidateUserID tests what a user ID has to be. Any byte is accepted:
 // one that cannot stand in a subject is escaped on the way in,
 // which leaves only an empty ID and one too long to fit a subject to be refused.
 func TestValidateUserID(t *testing.T) {
@@ -48,7 +48,7 @@ func TestValidateUserID(t *testing.T) {
 	}
 }
 
-// TestValidateUserIDDoesNotAllocate covers the cost of calling it per request.
+// TestValidateUserIDDoesNotAllocate tests the cost of calling it per request.
 func TestValidateUserIDDoesNotAllocate(t *testing.T) {
 	n := testing.AllocsPerRun(100, func() {
 		_ = datapages.ValidateUserID("first.last@example.com")

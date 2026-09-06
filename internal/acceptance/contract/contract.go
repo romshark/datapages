@@ -18,24 +18,13 @@ package contract
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"math/big"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -43,11 +32,15 @@ import (
 )
 
 // Server is the generated *Server, named by what the suite calls on it.
+// ListenAndServe, ListenAndServeTLS and Addr are here so that every generated
+// server is asserted to expose them. What they do is asserted in
+// runtime/httpserve, which holds the code behind them.
 type Server interface {
 	http.Handler
 	ListenAndServe(ctx context.Context, addr string) error
 	ListenAndServeTLS(ctx context.Context, addr, certFile, keyFile string) error
 	Shutdown(ctx context.Context) error
+	Addr() string
 }
 
 // Case is what a case tells the shared suite about itself.
@@ -163,8 +156,7 @@ func Run(t *testing.T, c Case) {
 		"GeneratedActionsAreRouted":  c.testGeneratedActionsAreRouted,
 		"GeneratedLinksAreRouted":    c.testGeneratedLinksAreRouted,
 		"HTTPServerOption":           c.testHTTPServerOption,
-		"ListenAndServe":             c.testListenAndServe,
-		"ListenAndServeTLS":          c.testListenAndServeTLS,
+		"LoggerOption":               c.testLoggerOption,
 		"MalformedSignals":           c.testMalformedSignals,
 		"MessageBrokerStreamSubject": c.testMessageBrokerStreamSubjects,
 		"Middleware":                 c.testMiddleware,
@@ -183,7 +175,7 @@ func Run(t *testing.T, c Case) {
 	}
 }
 
-// testActionOptions covers the expression a template carries when it passes
+// testActionOptions tests the expression a template carries when it passes
 // options to an action.
 //
 // The expression is a string with no runtime behind it. Nothing on the server
@@ -304,7 +296,7 @@ func get(t *testing.T, srv *httptest.Server, path string) (*http.Response, strin
 	return resp, string(b)
 }
 
-// testPageShell covers what the server wraps every page body in.
+// testPageShell tests what the server wraps every page body in.
 // Nothing else assembles the document.
 // Every page that renders at all renders inside this.
 func (c Case) testPageShell(t *testing.T) {
@@ -327,7 +319,7 @@ func (c Case) testPageShell(t *testing.T) {
 	}
 }
 
-// testCompression covers the response a browser actually asks for.
+// testCompression tests the response a browser actually asks for.
 // Compression is on by default.
 // A page that renders only uncompressed reaches no browser.
 func (c Case) testCompression(t *testing.T) {
@@ -366,7 +358,7 @@ func (c Case) testCompression(t *testing.T) {
 	}
 }
 
-// testUnknownRoute covers a URL no page claims.
+// testUnknownRoute tests a URL no page claims.
 // Whatever the app supplies for it, the router must not serve it something else.
 func (c Case) testUnknownRoute(t *testing.T) {
 	srv := c.server(t)
@@ -381,7 +373,7 @@ func (c Case) testUnknownRoute(t *testing.T) {
 	}
 }
 
-// testGeneratedLinksAreRouted covers every URL the generated href package builds.
+// testGeneratedLinksAreRouted tests every URL the generated href package builds.
 //
 // The builder and the router are written from one model and form the two
 // halves of every link in the application. If they disagree the link is dead.
@@ -437,7 +429,7 @@ func unroutedBody(t *testing.T, srv *httptest.Server, method string) string {
 	return string(b)
 }
 
-// testGeneratedActionsAreRouted covers every expression the generated action
+// testGeneratedActionsAreRouted tests every expression the generated action
 // package builds, in the same way and for the same reason.
 func (c Case) testGeneratedActionsAreRouted(t *testing.T) {
 	if len(c.Actions) == 0 {
@@ -470,7 +462,7 @@ func (c Case) testGeneratedActionsAreRouted(t *testing.T) {
 	}
 }
 
-// testMalformedSignals covers the actions that read signals,
+// testMalformedSignals tests the actions that read signals,
 // sent a body that is not signals. The server must refuse such a request.
 // Refusing it must not take the server down.
 func (c Case) testMalformedSignals(t *testing.T) {
@@ -568,7 +560,7 @@ func sendAs(
 	return resp
 }
 
-// testStream covers the SSE connection of a page with events or stream hooks.
+// testStream tests the SSE connection of a page with events or stream hooks.
 //
 // The stream is the one long-lived resource a generated server holds, and a
 // test that only sends requests never touches it.
@@ -609,7 +601,7 @@ func (c Case) testStream(t *testing.T) {
 	}
 }
 
-// testTrailingSlash covers a URL typed without its trailing slash.
+// testTrailingSlash tests a URL typed without its trailing slash.
 //
 // Every route the generator writes ends in one and every link it builds carries it.
 // A visitor who types the URL, or a service that trims it, does not.
@@ -636,9 +628,11 @@ func (c Case) testTrailingSlash(t *testing.T) {
 		t.Errorf("GET %s: status = %d with a trailing slash and %d without",
 			target, withSlash.StatusCode, without.StatusCode)
 	}
-	if withSlash.Header.Get("Datapages-Instance") != "" {
-		// A stateful page mints an id per load. Two loads of it differ by
-		// design and only the status can be compared.
+	if withSlash.Header.Get("Datapages-Instance") != "" ||
+		withSlash.Header.Get("Set-Cookie") != "" {
+		// A stateful page mints an id per load, a page that issues a session
+		// mints a token the CSRF script carries. Two loads of either differ
+		// by design and only the status can be compared.
 		return
 	}
 	if plainBody != slashBody {
@@ -646,7 +640,7 @@ func (c Case) testTrailingSlash(t *testing.T) {
 	}
 }
 
-// testShutdownClosesStreams covers what happens to an open stream when the
+// testShutdownClosesStreams tests what happens to an open stream when the
 // server is told to stop. A shutdown that waits for connections the client will not
 // close never finishes. The deployment then has to kill the process to roll forward.
 func (c Case) testShutdownClosesStreams(t *testing.T) {
@@ -677,7 +671,7 @@ func (c Case) testShutdownClosesStreams(t *testing.T) {
 	}
 }
 
-// testStreamRequiresDatastar covers the stream route reached by a client that
+// testStreamRequiresDatastar tests the stream route reached by a client that
 // is not the Datastar runtime. A plain browser navigating there would hang on
 // a response it cannot read.
 func (c Case) testStreamRequiresDatastar(t *testing.T) {
@@ -748,7 +742,7 @@ func (c Case) openStream(
 	}
 }
 
-// testDispatchReachesTheStream covers the central path of the framework.
+// testDispatchReachesTheStream tests the central path of the framework.
 // An action dispatches an event and the page that handles it sees the result on
 // the connection it already holds.
 //
@@ -845,7 +839,7 @@ func (c Case) testStateIsReleased(t *testing.T) {
 	}
 }
 
-// testExternalHref covers href.External. A template uses it for a URL this
+// testExternalHref tests href.External. A template uses it for a URL this
 // application does not own. It hands the URL back unchanged and warns when it
 // is given one the application does own. Such a URL belongs in a generated builder,
 // which keeps up with the routes.
@@ -872,9 +866,20 @@ func (c Case) testExternalHref(t *testing.T) {
 	if logged := buf.String(); !strings.Contains(logged, internal) {
 		t.Errorf("an app-internal URL was not warned about:\n%s", logged)
 	}
+
+	// The templ sanitizer keeps six schemes and rewrites the rest to
+	// about:invalid, which is a link the visitor cannot follow.
+	buf.Reset()
+	const dropped = "sms:+15550100"
+	if got := c.HrefExternal(dropped); got != dropped {
+		t.Errorf("External(%q) = %q, want it unchanged", dropped, got)
+	}
+	if logged := buf.String(); !strings.Contains(logged, "about:invalid") {
+		t.Errorf("a URL the sanitizer drops was not warned about:\n%s", logged)
+	}
 }
 
-// testClientGoesAway covers a page load whose client disappears while
+// testClientGoesAway tests a page load whose client disappears while
 // the page is being written.
 //
 // Every write of the page shell can fail from that point on and the generated code
@@ -939,7 +944,7 @@ func (w *failingWriter) Write(p []byte) (int, error) {
 // Flush is required by the compression middleware and by SSE.
 func (w *failingWriter) Flush() {}
 
-// testMiddleware covers WithMiddleware: several are applied in the order they
+// testMiddleware tests WithMiddleware: several are applied in the order they
 // were given, and one of them can answer instead of passing the request on.
 func (c Case) testMiddleware(t *testing.T) {
 	if c.WithMiddleware == nil {
@@ -983,7 +988,7 @@ func (c Case) testMiddleware(t *testing.T) {
 	}
 }
 
-// testDatastarJS covers WithDatastarJS. The page shell loads the client script
+// testDatastarJS tests WithDatastarJS. The page shell loads the client script
 // from the source the operator chose. A deployment uses this to serve the
 // script from its own origin instead of a CDN.
 func (c Case) testDatastarJS(t *testing.T) {
@@ -998,7 +1003,7 @@ func (c Case) testDatastarJS(t *testing.T) {
 	}
 }
 
-// testHTTPServerOption covers WithHTTPServer.
+// testHTTPServerOption tests WithHTTPServer.
 // A deployment uses it to set its own timeouts.
 func (c Case) testHTTPServerOption(t *testing.T) {
 	if c.WithHTTPServer == nil {
@@ -1013,7 +1018,7 @@ func (c Case) testHTTPServerOption(t *testing.T) {
 	}
 }
 
-// testMessageBrokerStreamSubjects covers what the server exports for an
+// testMessageBrokerStreamSubjects tests what the server exports for an
 // operator to create streams with before it starts. An empty subject,
 // or one listed twice, cannot be turned into a stream.
 func (c Case) testMessageBrokerStreamSubjects(t *testing.T) {
@@ -1032,13 +1037,13 @@ func (c Case) testMessageBrokerStreamSubjects(t *testing.T) {
 	}
 }
 
-// testListenAndServe covers the lifecycle a main.go runs.
-// The server listens on a port, serves, and stops when it is told to.
+// testLoggerOption tests that the logger the option carries is the one the
+// generated server logs to. The shutdown line is what every server logs
+// without serving a request.
 //
-// It runs with WithLogger. The lifecycle is where every server logs something
-// of its own. A configured logger that receives none of it leaves the
-// deployment without a record of its server starting.
-func (c Case) testListenAndServe(t *testing.T) {
+// The lifecycle behind [Server.ListenAndServe] belongs to the runtime,
+// which tests it once instead of once per case.
+func (c Case) testLoggerOption(t *testing.T) {
 	if c.WithLogger == nil {
 		t.Skip("the case wires no WithLogger")
 	}
@@ -1048,175 +1053,15 @@ func (c Case) testListenAndServe(t *testing.T) {
 			Level: slog.LevelDebug,
 		})),
 	))
-	addr := freeAddr(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
-	done := make(chan error, 1)
-	go func() { done <- s.ListenAndServe(ctx, addr) }()
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	c.awaitPage(t, client, "http://"+addr+c.index())
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(
-		context.Background(), 10*time.Second,
-	)
-	defer shutdownCancel()
-	if err := s.Shutdown(shutdownCtx); err != nil {
+	if err := s.Shutdown(ctx); err != nil {
 		t.Errorf("Shutdown: %v", err)
 	}
 
-	select {
-	case err := <-done:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			t.Errorf("ListenAndServe returned %v", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Error("ListenAndServe did not return after Shutdown")
-	}
-
-	logged := buf.String()
-	for _, want := range []string{"listening", "shutdown"} {
-		if !strings.Contains(logged, want) {
-			t.Errorf("the configured logger received no %q line:\n%s", want, logged)
-		}
-	}
-	if !strings.Contains(logged, addr) {
-		t.Errorf("the server did not log the address it listens on:\n%s", logged)
-	}
-}
-
-// testListenAndServeTLS covers the same over TLS.
-// The server runs this way when nothing terminates HTTPS in front of it.
-func (c Case) testListenAndServeTLS(t *testing.T) {
-	s := c.NewServer(t)
-	certFile, keyFile := selfSignedCert(t)
-	addr := freeAddr(t)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	done := make(chan error, 1)
-	go func() { done <- s.ListenAndServeTLS(ctx, addr, certFile, keyFile) }()
-
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-	}
-	c.awaitPage(t, client, "https://"+addr+c.index())
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(
-		context.Background(), 10*time.Second,
-	)
-	defer shutdownCancel()
-	if err := s.Shutdown(shutdownCtx); err != nil {
-		t.Errorf("Shutdown: %v", err)
-	}
-
-	select {
-	case err := <-done:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			t.Errorf("ListenAndServeTLS returned %v", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Error("ListenAndServeTLS did not return after Shutdown")
-	}
-}
-
-// awaitPage waits for the server to accept connections and
-// asserts that what it serves is the page.
-func (c Case) awaitPage(t *testing.T, client *http.Client, target string) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		req, err := http.NewRequestWithContext(
-			context.Background(), http.MethodGet, target, nil,
-		)
-		if err != nil {
-			t.Fatalf("building GET %s: %v", target, err)
-		}
-		req.Header.Set("Accept-Encoding", "identity")
-		resp, err := client.Do(req)
-		if err == nil {
-			b, readErr := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
-			if readErr != nil {
-				t.Fatalf("reading %s: %v", target, readErr)
-			}
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("GET %s: status = %d", target, resp.StatusCode)
-			}
-			if !strings.Contains(string(b), "<!DOCTYPE html>") {
-				t.Errorf("the listening server did not serve a page:\n%s", b)
-			}
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the server never accepted a connection: %v", err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-// freeAddr reserves a port and releases it.
-// That is the closest a test can get to an address it knows is free.
-func freeAddr(t *testing.T) string {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserving a port: %v", err)
-	}
-	addr := ln.Addr().String()
-	if err := ln.Close(); err != nil {
-		t.Fatalf("releasing the port: %v", err)
-	}
-	return addr
-}
-
-// selfSignedCert writes a certificate and key for 127.0.0.1.
-func selfSignedCert(t *testing.T) (certFile, keyFile string) {
-	t.Helper()
-
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatalf("generating a key: %v", err)
-	}
-	tmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "127.0.0.1"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(time.Hour),
-		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		IsCA:                  true,
-		BasicConstraintsValid: true,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		t.Fatalf("creating a certificate: %v", err)
-	}
-	keyDER, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		t.Fatalf("encoding the key: %v", err)
-	}
-
-	dir := t.TempDir()
-	certFile = filepath.Join(dir, "cert.pem")
-	keyFile = filepath.Join(dir, "key.pem")
-	writePEM(t, certFile, "CERTIFICATE", der)
-	writePEM(t, keyFile, "EC PRIVATE KEY", keyDER)
-	return certFile, keyFile
-}
-
-func writePEM(t *testing.T, path, kind string, der []byte) {
-	t.Helper()
-	b := pem.EncodeToMemory(&pem.Block{Type: kind, Bytes: der})
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		t.Fatalf("writing %s: %v", path, err)
+	if logged := buf.String(); !strings.Contains(logged, "shutdown") {
+		t.Errorf("the configured logger received no shutdown line:\n%s", logged)
 	}
 }
 
@@ -1236,4 +1081,10 @@ func (b *buffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
+}
+
+func (b *buffer) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Reset()
 }

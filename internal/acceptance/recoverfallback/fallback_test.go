@@ -20,7 +20,7 @@ func newClient(t *testing.T) *client.Client {
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
-// TestRecoverFallbackWritesNothingIntoTheStream covers an action whose error
+// TestRecoverFallbackWritesNothingIntoTheStream tests an action whose error
 // RecoverError could not turn into a patch. The stream ends and carries no status text;
 // the response was committed before the failure.
 func TestRecoverFallbackWritesNothingIntoTheStream(t *testing.T) {
@@ -37,7 +37,7 @@ func TestRecoverFallbackWritesNothingIntoTheStream(t *testing.T) {
 		"a status text was written into the event stream")
 }
 
-// TestPageLoadStillGetsAStatus covers the same failure on a page load,
+// TestPageLoadStillGetsAStatus tests the same failure on a page load,
 // where nothing is committed yet and the status is the server's to send.
 func TestPageLoadStillGetsAStatus(t *testing.T) {
 	t.Parallel()

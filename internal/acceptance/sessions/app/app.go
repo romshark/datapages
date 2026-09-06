@@ -162,6 +162,29 @@ func (p PageLogin) POSTSubmit(
 	}, datapages.Redirect{URL: "/"}, nil
 }
 
+// POSTSubmitInline is /login/submit-inline
+//
+// Signs the visitor in and answers with a document instead of navigating.
+// Rendered from the session read before the sign-in, it carries no CSRF
+// script and every later action of the page is 403.
+func (p PageLogin) POSTSubmitInline(
+	_ *http.Request,
+	signals datapages.Signals[struct {
+		User string `json:"user"`
+	}],
+) (
+	body datapages.Component,
+	newSession datapages.NewSession[SessionData],
+	err error,
+) {
+	if signals.Values.User == "" {
+		return nil, newSession, datapages.ErrBadRequest
+	}
+	return echo("inline login"), datapages.NewSession[SessionData]{
+		UserID: signals.Values.User,
+	}, nil
+}
+
 // POSTNotify is /login/notify
 //
 // Dispatches a private event to one user.

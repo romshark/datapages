@@ -1,6 +1,7 @@
 package httpserve
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/logsample"
 	"github.com/romshark/datapages/runtime/prom"
 )
 
@@ -33,15 +35,15 @@ const (
 	DefaultBodySizeLimit int64 = 1 << 20 // 1 MiB
 
 	// DefaultDatastarJSSrc is the default URL for the Datastar JavaScript bundle.
-	DefaultDatastarJSSrc = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.2/bundles/datastar.js"
+	DefaultDatastarJSSrc = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.3/bundles/datastar.js"
 )
 
 // Core is the HTTP server a generated server is built on.
 // It holds the parts that carry nothing of the application:
 // the listener, the routes, the middleware chain, the logger and the shutdown.
 //
-// A generated server embeds it, registers its routes on [Core.Mux] and
-// calls [Core.Build].
+// A generated server embeds it, registers its routes on
+// [Core.Mux] and calls [Core.Build].
 type Core struct {
 	// assetsURLPrefix is the path static files are served under.
 	// Empty when the application serves none.
@@ -49,13 +51,17 @@ type Core struct {
 
 	shutdownCh   chan struct{} // Closed when shutting down.
 	shutdownOnce sync.Once
-	runCancel    context.CancelFunc
+	// lockRun guards runCancel against a signal goroutine
+	// calling Shutdown while ListenAndServe runs.
+	lockRun   sync.Mutex
+	runCancel context.CancelFunc
 
 	httpServer    *http.Server
 	metricsServer *http.Server
 	mux           *http.ServeMux
 	handler       http.Handler
 	logger        *slog.Logger
+	sampledLogger *slog.Logger
 	middleware    []func(http.Handler) http.Handler
 	outermost     func(http.Handler) http.Handler
 	assetsFS      http.FileSystem
@@ -63,8 +69,12 @@ type Core struct {
 	htmlPrefix    string
 	htmlHead      string
 	htmlDatastar  string
-	enabledTLS    bool
 	bodySizeLimit int64
+
+	// lockListen guards the fields [Core.listenAndServe] sets once it binds.
+	lockListen sync.Mutex
+	addr       string
+	enabledTLS bool
 
 	// stateConf is nil for an application whose handlers take no
 	// datapages.State[T]. The budget below is then never consulted.
@@ -77,11 +87,9 @@ type Core struct {
 	stateLiveInstances atomic.Int64
 }
 
-// NewCore returns a core configured by cfg, serving static files under
-// assetsURLPrefix. An empty prefix serves none.
-func NewCore(
-	cfg datapages.ServerConfig, assetsURLPrefix string,
-) (*Core, error) {
+// NewCore returns a core configured by cfg, serving static files under assetsURLPrefix.
+// An empty prefix serves none.
+func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) {
 	c := &Core{
 		assetsURLPrefix: assetsURLPrefix,
 		shutdownCh:      make(chan struct{}),
@@ -97,6 +105,25 @@ func NewCore(
 	}
 	if c.bodySizeLimit <= 0 {
 		c.bodySizeLimit = DefaultBodySizeLimit
+	}
+	if c.logger == nil {
+		// Not in Build: the generated Init logs in between.
+		opt := &slog.HandlerOptions{Level: slog.LevelInfo}
+		if datapages.IsDevMode() {
+			opt.Level = slog.LevelDebug
+		}
+		c.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
+	}
+	c.sampledLogger = c.logger
+	if cfg.LogSampling == nil || !cfg.LogSampling.Disabled {
+		var limit int
+		var interval time.Duration
+		if cfg.LogSampling != nil {
+			limit, interval = cfg.LogSampling.Limit, cfg.LogSampling.Interval
+		}
+		c.sampledLogger = slog.New(
+			logsample.New(c.logger.Handler(), limit, interval),
+		)
 	}
 	if c.httpServer == nil {
 		c.httpServer = &http.Server{
@@ -148,13 +175,6 @@ func (c *Core) Build() {
 		c.datastarJSSrc + `"></script>`
 	c.htmlPrefix = c.htmlHead + c.htmlDatastar
 
-	if c.logger == nil {
-		opt := &slog.HandlerOptions{Level: slog.LevelInfo}
-		if datapages.IsDevMode() {
-			opt.Level = slog.LevelDebug
-		}
-		c.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
-	}
 	if c.httpServer.ErrorLog == nil {
 		c.httpServer.ErrorLog = slog.NewLogLogger(
 			slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{}),
@@ -186,6 +206,12 @@ func (c *Core) Mux() *http.ServeMux { return c.mux }
 // Logger is the logger the server writes to.
 func (c *Core) Logger() *slog.Logger { return c.logger }
 
+// SampledLogger is the logger for a warning the framework emits on every render.
+// It writes one record of each kind per interval and counts what it throttles,
+// which [github.com/romshark/datapages.WithLogSampling] configures.
+// Application code writes to [Core.Logger] instead.
+func (c *Core) SampledLogger() *slog.Logger { return c.sampledLogger }
+
 // LogErr logs err under msg.
 func (c *Core) LogErr(msg string, err error) {
 	c.logger.Error(msg, slog.Any("err", err))
@@ -200,9 +226,7 @@ func (c *Core) HTTPErrBad(w http.ResponseWriter, msg string, err error) {
 // CheckDatastarRequest reports whether r was issued by the Datastar client.
 // It answers r with 406 when it was not, in which case the handler must
 // write nothing more.
-func (c *Core) CheckDatastarRequest(
-	w http.ResponseWriter, r *http.Request,
-) (ok bool) {
+func (c *Core) CheckDatastarRequest(w http.ResponseWriter, r *http.Request) (ok bool) {
 	if !IsDatastarRequest(r) {
 		c.logger.Debug("not a datastar request",
 			slog.Any("method", r.Method),
@@ -280,7 +304,114 @@ func (c *Core) MetricsEnabled() bool { return c.metricsServer != nil }
 func (c *Core) BodySizeLimit() int64 { return c.bodySizeLimit }
 
 // TLSEnabled reports whether the server listens for HTTPS connections.
-func (c *Core) TLSEnabled() bool { return c.enabledTLS }
+func (c *Core) TLSEnabled() bool {
+	c.lockListen.Lock()
+	defer c.lockListen.Unlock()
+	return c.enabledTLS
+}
+
+// Addr is the address the server bound. A caller that passed port 0
+// reads the chosen port here. Empty until it listens.
+func (c *Core) Addr() string {
+	c.lockListen.Lock()
+	defer c.lockListen.Unlock()
+	return c.addr
+}
+
+// tracked records whether any of the response body went out. A body cannot be
+// taken back: an error page appended to a half-written page is two documents.
+//
+// The status alone does not count. A handler that wrote one and nothing else
+// still has a body to write, which is what the error path writes into.
+type tracked struct {
+	http.ResponseWriter
+	wroteBody bool
+}
+
+func (t *tracked) Write(b []byte) (int, error) {
+	t.wroteBody = true
+	return t.ResponseWriter.Write(b)
+}
+
+func (t *tracked) Flush() {
+	if f, ok := t.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// FlushError is what [http.ResponseController.Flush] prefers over Flush,
+// and the only one of the two that can report a failed flush.
+func (t *tracked) FlushError() error {
+	if f, ok := t.ResponseWriter.(interface{ FlushError() error }); ok {
+		return f.FlushError()
+	}
+	if f, ok := t.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+		return nil
+	}
+	return http.ErrNotSupported
+}
+
+// Unwrap returns the writer this one wraps.
+//
+// [http.ResponseController] walks Unwrap and nothing else:
+// without it SetWriteDeadline, SetReadDeadline and EnableFullDuplex return
+// ErrNotSupported for every handler and every middleware below Core.ServeHTTP.
+func (t *tracked) Unwrap() http.ResponseWriter { return t.ResponseWriter }
+
+func (t *tracked) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := t.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, errors.New("http.Hijacker not supported")
+}
+
+func (t *tracked) Push(target string, opts *http.PushOptions) error {
+	if p, ok := t.ResponseWriter.(http.Pusher); ok {
+		return p.Push(target, opts)
+	}
+	return http.ErrNotSupported
+}
+
+// LimitRequestBody caps how much of r's body is read, answering 413 past the limit.
+//
+// It hands [http.MaxBytesReader] the writer underneath w rather than w itself.
+// MaxBytesReader marks the connection for close through an unexported method
+// on *http.response, which it finds by type assertion and which no wrapper can
+// implement: given a wrapper it silently skips the marking, and net/http then
+// drains up to 256 KiB of the oversized body and reuses the connection.
+func LimitRequestBody(w http.ResponseWriter, r *http.Request, limit int64) {
+	r.Body = http.MaxBytesReader(unwrapWriter(w), r.Body, limit)
+}
+
+// unwrapWriter walks the Unwrap chain down to the writer net/http handed the handler.
+// A wrapper without an Unwrap method ends the walk.
+func unwrapWriter(w http.ResponseWriter) http.ResponseWriter {
+	for {
+		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return w
+		}
+		w = u.Unwrap()
+	}
+}
+
+// ResponseBodyWritten reports whether any of the response body was written.
+// A handler that failed past this point can be logged and nothing more.
+//
+// Reports false when a middleware wraps the writer without an Unwrap method.
+func ResponseBodyWritten(w http.ResponseWriter) bool {
+	for {
+		if t, ok := w.(*tracked); ok {
+			return t.wroteBody
+		}
+		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return false
+		}
+		w = u.Unwrap()
+	}
+}
 
 func (c *Core) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Normalize trailing slashes: ensure all paths end with /
@@ -294,16 +425,16 @@ func (c *Core) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	c.handler.ServeHTTP(w, r)
+	c.handler.ServeHTTP(&tracked{ResponseWriter: w}, r)
 }
 
 // WildcardPathValue reads the value of a {name...} route wildcard.
 //
-// [Core.ServeHTTP] appends a slash to a path that carries none. A wildcard
-// runs to the end of the path, so that slash lands inside its value instead of
-// after it, and every request reaches the handler with one, however the client
-// wrote the URL. Trimming it is what makes the value the handler reads the
-// value the caller built the URL with.
+// [Core.ServeHTTP] appends a slash to a path that carries none.
+// A wildcard runs to the end of the path, so that slash lands inside its
+// value instead of after it, and every request reaches the handler with one,
+// however the client wrote the URL. Trimming it is what makes the value
+// the handler reads the value the caller built the URL with.
 //
 // A value that ends in a slash of its own cannot be told apart from one the
 // normalization added and loses it too.
@@ -315,11 +446,9 @@ func WildcardPathValue(r *http.Request, name string) string {
 //
 // The provided context controls graceful shutdown.
 func (c *Core) ListenAndServe(ctx context.Context, addr string) error {
-	c.httpServer.Addr = addr
-	c.enabledTLS = false
-	return c.listenAndServe(ctx, func() error {
-		c.logger.Info("listening HTTP", slog.String("addr", addr))
-		return c.httpServer.ListenAndServe()
+	return c.listenAndServe(ctx, addr, false, func(ln net.Listener) error {
+		c.logger.Info("listening HTTP", slog.String("addr", c.Addr()))
+		return c.httpServer.Serve(ln)
 	})
 }
 
@@ -328,30 +457,59 @@ func (c *Core) ListenAndServe(ctx context.Context, addr string) error {
 func (c *Core) ListenAndServeTLS(
 	ctx context.Context, addr, certFile, keyFile string,
 ) error {
-	c.httpServer.Addr = addr
-	c.enabledTLS = true
-	return c.listenAndServe(ctx, func() error {
+	return c.listenAndServe(ctx, addr, true, func(ln net.Listener) error {
 		c.logger.Info("listening HTTP",
-			slog.String("addr", addr),
+			slog.String("addr", c.Addr()),
 			slog.String("tls.cert", certFile),
 			slog.String("tls.key", keyFile))
-		return c.httpServer.ListenAndServeTLS(certFile, keyFile)
+		return c.httpServer.ServeTLS(ln, certFile, keyFile)
 	})
 }
 
 func (c *Core) listenAndServe(
-	ctx context.Context, listenAndServe func() error,
+	ctx context.Context, addr string, tls bool, serve func(net.Listener) error,
 ) error {
+	if datapages.IsDevMode() {
+		// Assets come from the source tree here,
+		// which a deployment that inherited the variable does not have.
+		c.logger.Warn("dev mode is on",
+			slog.String("env", datapages.EnvVarDevMode+"/TEMPL_DEV_MODE"))
+	}
+	c.httpServer.Addr = addr
+	// Bind here rather than in [http.Server.ListenAndServe] so that the port
+	// is known before anything serves. A caller that passed port 0 reads the
+	// one the kernel chose from [Core.Addr].
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listening on %s: %w", addr, err)
+	}
+	boundAddr := ln.Addr().String()
+	c.lockListen.Lock()
+	c.addr, c.enabledTLS = boundAddr, tls
+	c.lockListen.Unlock()
+
 	ctx, cancel := context.WithCancel(ctx)
+	c.lockRun.Lock()
 	c.runCancel = cancel
+	c.lockRun.Unlock()
+	// Shutdown may have closed shutdownCh before runCancel existed.
+	select {
+	case <-c.shutdownCh:
+		cancel()
+	default:
+	}
 
-	g, ctx := errgroup.WithContext(ctx)
+	g, gctx := errgroup.WithContext(ctx)
 
-	c.httpServer.BaseContext = func(net.Listener) context.Context { return ctx }
+	// Not gctx. Cancelling BaseContext ends r.Context() for every request in flight,
+	// which aborts a handler at t=0 instead of letting [http.Server.Shutdown] drain it.
+	// SSE streams watch ShutdownCh instead.
+	baseCtx := context.WithoutCancel(gctx)
+	c.httpServer.BaseContext = func(net.Listener) context.Context { return baseCtx }
 
 	// Main frontend server
 	g.Go(func() error {
-		if err := listenAndServe(); err != nil &&
+		if err := serve(ln); err != nil &&
 			!errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
@@ -361,7 +519,7 @@ func (c *Core) listenAndServe(
 	// Metrics server
 	if c.metricsServer != nil {
 		c.metricsServer.BaseContext = func(net.Listener) context.Context {
-			return ctx
+			return baseCtx
 		}
 		g.Go(func() error {
 			err := c.metricsServer.ListenAndServe()
@@ -374,14 +532,22 @@ func (c *Core) listenAndServe(
 
 	// Coordinated shutdown
 	g.Go(func() error {
-		<-ctx.Done()
+		select {
+		case <-gctx.Done():
+		case <-c.shutdownCh:
+			// Nothing cancels gctx when Shutdown ran before runCancel existed.
+		}
 
 		shutdownCtx, cancel := context.WithTimeout(
 			context.Background(), 10*time.Second,
 		)
 		defer cancel()
 
-		_ = c.Shutdown(shutdownCtx)
+		// An SSE stream open when the grace period ends is routine here.
+		// Returning the error would mark every such shutdown a failed run.
+		if err := c.Shutdown(shutdownCtx); err != nil {
+			c.LogErr("shutting down", err)
+		}
 		return nil
 	})
 
@@ -392,9 +558,13 @@ func (c *Core) listenAndServe(
 func (c *Core) Shutdown(ctx context.Context) error {
 	c.shutdownOnce.Do(func() {
 		c.logger.Info("server shutdown initiated")
-		if c.runCancel != nil {
-			c.runCancel()
+		c.lockRun.Lock()
+		cancel := c.runCancel
+		c.lockRun.Unlock()
+		if cancel != nil {
+			cancel()
 		}
+		// Closed even when runCancel is nil. listenAndServe checks it.
 		close(c.shutdownCh)
 	})
 	var errs []error

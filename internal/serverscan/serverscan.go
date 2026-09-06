@@ -8,10 +8,12 @@
 package serverscan
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/printer"
+	"go/scanner"
 	"go/token"
 	"io/fs"
 	"os"
@@ -440,10 +442,18 @@ func scanPackage(root, dir string, errs *Errors) []Call {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
 			continue
 		}
-		f, err := parser.ParseFile(fset, filepath.Join(dir, e.Name()), nil, 0)
+		name := filepath.Join(dir, e.Name())
+		f, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
-			// A file that does not parse holds no call worth reading.
-			// The compiler reports it, the scan stays quiet.
+			// Without this a file that does not parse looks like one holding no call.
+			// Scan then reports Fallback and gen rewrites
+			// datapagesgen from the default settings.
+			pos := token.Position{Filename: name}
+			var el scanner.ErrorList
+			if errors.As(err, &el) && len(el) > 0 {
+				pos = el[0].Pos
+			}
+			errs.addf(relTo(root, pos), "parsing Go file: %s", err)
 			continue
 		}
 		files = append(files, f)

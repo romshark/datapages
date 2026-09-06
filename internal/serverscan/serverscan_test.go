@@ -16,7 +16,7 @@ const modulePath = "example.com/mod"
 func write(t *testing.T, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
-	files["go.mod"] = "module " + modulePath + "\n\ngo 1.27.0\n"
+	files["go.mod"] = "module " + modulePath + "\n\ngo 1.27.1\n"
 	for name, content := range files {
 		p := filepath.Join(root, filepath.FromSlash(name))
 		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
@@ -55,6 +55,9 @@ func genPkg(header bool) string {
 	return h + "package datapagesgen\n\ntype Server struct{}\n"
 }
 
+// TestScan tests finding the app package and the generated package from the
+// datapages.NewServer calls in a module, and the fallback for a module that has
+// no such call yet, which is what the first run sees.
 func TestScan(t *testing.T) {
 	for name, tt := range map[string]struct {
 		files      map[string]string
@@ -121,7 +124,7 @@ func main() {}
 		"nested module is skipped": {
 			files: map[string]string{
 				"app/app.go":      "package app\n",
-				"sub/go.mod":      "module example.com/other\n\ngo 1.27.0\n",
+				"sub/go.mod":      "module example.com/other\n\ngo 1.27.1\n",
 				"sub/cmd/main.go": mainGo("app", "app.App, datapages.DisableSessions, datapages.DisablePrometheus, gen.Server", ""),
 			},
 			appDirs:  []string{"app"},
@@ -155,7 +158,7 @@ func main() {}
 	}
 }
 
-// TestScanMultipleApps covers a module that builds more than one application.
+// TestScanMultipleApps tests a module that builds more than one application.
 func TestScanMultipleApps(t *testing.T) {
 	root := write(t, map[string]string{
 		"app/admin/app.go":                     "package admin\n",
@@ -193,6 +196,8 @@ func TestScanMultipleApps(t *testing.T) {
 	require.False(t, ok)
 }
 
+// TestScanErr tests what the scan refuses: a destination package datapages did not write,
+// and one outside the app package. Overwriting either would destroy hand-written code.
 func TestScanErr(t *testing.T) {
 	for name, tt := range map[string]struct {
 		files map[string]string
@@ -227,6 +232,15 @@ func main() {
 			},
 			msg: "generates into gen.Server, but app generates into " +
 				filepath.Join("app", "datapagesgen"),
+		},
+		"file that does not parse": {
+			files: map[string]string{
+				"app/app.go": "package app\n",
+				"cmd/server/main.go": mainGo("app",
+					"app.App, datapages.DisableSessions, datapages.DisablePrometheus, gen.Server",
+					"") + "func broken( {\n",
+			},
+			msg: "parsing Go file",
 		},
 		"too few type arguments": {
 			files: map[string]string{
@@ -354,7 +368,7 @@ func main() {}
 	}
 }
 
-// TestScanStubDestination covers a destination a failed run left as stubs.
+// TestScanStubDestination tests a destination a failed run left as stubs.
 // A stub carries the generated header, which makes the next run generate over
 // it instead of reading it as a package datapages did not write.
 func TestScanStubDestination(t *testing.T) {
@@ -370,8 +384,8 @@ func TestScanStubDestination(t *testing.T) {
 	require.Equal(t, filepath.Join("app", "datapagesgen"), r.Apps[0].GenDir)
 }
 
-// TestScanAnonymousSessionData covers an app whose session carries no data of
-// its own, which names struct{} as the SessionData type argument.
+// TestScanAnonymousSessionData tests an app whose session carries no data of its own,
+// which names struct{} as the SessionData type argument.
 func TestScanAnonymousSessionData(t *testing.T) {
 	root := write(t, map[string]string{
 		"app/app.go":                  "package app\n",
@@ -386,6 +400,9 @@ func TestScanAnonymousSessionData(t *testing.T) {
 	require.Equal(t, "struct{}", r.Apps[0].SessionData.Src)
 }
 
+// TestCheckSessionData tests the session type argument of a NewServer call
+// against the app package: whether the app declares sessions has to match what
+// the call asks for.
 func TestCheckSessionData(t *testing.T) {
 	for name, tt := range map[string]struct {
 		call       serverscan.Call
@@ -429,8 +446,8 @@ func TestCheckSessionData(t *testing.T) {
 	}
 }
 
-// TestScanPrometheus covers the Metrics type argument, which decides the metrics
-// instrumentation, and the option, which does not.
+// TestScanPrometheus tests the Metrics type argument,
+// which decides the metrics instrumentation, and the option, which does not.
 func TestScanPrometheus(t *testing.T) {
 	for name, tt := range map[string]struct {
 		main string
@@ -492,8 +509,8 @@ func main() {
 	}
 }
 
-// TestScanPrometheusPerApp covers two applications in one module, only one of
-// which uses metrics.
+// TestScanPrometheusPerApp tests two applications in one module,
+// only one of which uses metrics.
 func TestScanPrometheusPerApp(t *testing.T) {
 	root := write(t, map[string]string{
 		"app/admin/app.go":                     "package admin\n",
@@ -520,7 +537,7 @@ func TestScanPrometheusPerApp(t *testing.T) {
 	require.Equal(t, "datapages.DisablePrometheus", front.Metrics.Src)
 }
 
-// TestScanAliasedTypeArgs covers two calls naming one app package under
+// TestScanAliasedTypeArgs tests two calls naming one app package under
 // different import names.
 //
 // A file importing two packages of the same name has to alias one of them.
@@ -556,7 +573,7 @@ func New() {
 	require.True(t, r.Apps[0].HasSession)
 }
 
-// TestScanLocalTypeArgsDisagree covers two calls naming session types that
+// TestScanLocalTypeArgsDisagree tests two calls naming session types that
 // resolve to no import. There is no import path to compare them by,
 // hence they are compared as written.
 func TestScanLocalTypeArgsDisagree(t *testing.T) {

@@ -56,6 +56,9 @@ func writeHTML(
 	return w.Body.String(), err
 }
 
+// TestWriteHTML tests the order the document parts are written in: the shared
+// head before the page head, the CSRF script after both, and the body suffix
+// inside a template element. The generated handlers rely on that order.
 func TestWriteHTML(t *testing.T) {
 	t.Parallel()
 
@@ -116,6 +119,8 @@ func TestWriteHTML(t *testing.T) {
 	}
 }
 
+// TestWriteHTMLError tests a part that fails to render. Whichever part it is,
+// the error reaches the caller instead of being swallowed into a half-written document.
 func TestWriteHTMLError(t *testing.T) {
 	t.Parallel()
 
@@ -136,6 +141,9 @@ func TestWriteHTMLError(t *testing.T) {
 	}
 }
 
+// TestCheckDatastarRequest tests the guard on the action endpoints. A request without
+// the Datastar-Request header is answered 406 and the handler is skipped:
+// those endpoints only ever produce SSE.
 func TestCheckDatastarRequest(t *testing.T) {
 	t.Parallel()
 
@@ -159,6 +167,8 @@ func TestCheckDatastarRequest(t *testing.T) {
 	})
 }
 
+// TestHTTPErrBad tests what a 400 tells the client. The body carries the
+// operation only, never the underlying error, which goes to the log.
 func TestHTTPErrBad(t *testing.T) {
 	t.Parallel()
 
