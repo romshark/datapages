@@ -669,11 +669,13 @@ func TestCloseAllUserSessions(t *testing.T) {
 			userID: "nobody",
 			buffer: []string{},
 		},
+		// A nil buffer is what a caller with no slice to reuse passes.
+		// The tokens come back through it all the same.
 		"nil buffer": {
 			setup: func(t *testing.T) []string {
-				_, err := sm.CreateSession(ctx, "nilbuf", testSession{})
+				tok, err := sm.CreateSession(ctx, "nilbuf", testSession{})
 				require.NoError(t, err)
-				return nil
+				return []string{tok}
 			},
 			userID: "nilbuf",
 			buffer: nil,
@@ -696,9 +698,7 @@ func TestCloseAllUserSessions(t *testing.T) {
 			wantTokens := tc.setup(t)
 			result, err := sm.CloseAllUserSessions(ctx, tc.buffer, tc.userID)
 			require.NoError(t, err)
-			if tc.buffer != nil {
-				require.ElementsMatch(t, wantTokens, result)
-			}
+			require.ElementsMatch(t, wantTokens, result)
 			// Verify all sessions for the user are gone.
 			require.Empty(t, userSessions(t, sm, tc.userID))
 		})

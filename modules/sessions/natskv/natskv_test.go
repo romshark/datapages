@@ -577,11 +577,13 @@ func TestCloseAllUserSessions(t *testing.T) {
 			userID: "nobody",
 			buffer: []string{},
 		},
+		// A nil buffer is what a caller with no slice to reuse passes.
+		// The tokens come back through it all the same.
 		"nil buffer": {
 			setup: func(t *testing.T) []string {
-				_, err := sm.CreateSession(ctx, "nilbuf", testSession{})
+				tok, err := sm.CreateSession(ctx, "nilbuf", testSession{})
 				require.NoError(t, err)
-				return nil
+				return []string{tok}
 			},
 			userID: "nilbuf",
 			buffer: nil,
@@ -601,14 +603,12 @@ func TestCloseAllUserSessions(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			if tc.buffer != nil {
-				// The tokens are rebuilt from the keys, not read back from the bucket,
-				// so they carry a fresh nonce and are not the bytes
-				// CreateSession returned. What has to match is the count.
-				require.Len(t, result, len(wantTokens))
-				require.Len(t, slices.Compact(slices.Sorted(slices.Values(result))),
-					len(wantTokens), "duplicate tokens")
-			}
+			// The tokens are rebuilt from the keys, not read back from the bucket,
+			// so they carry a fresh nonce and are not the bytes
+			// CreateSession returned. What has to match is the count.
+			require.Len(t, result, len(wantTokens))
+			require.Len(t, slices.Compact(slices.Sorted(slices.Values(result))),
+				len(wantTokens), "duplicate tokens")
 			if tc.userID != "" {
 				m := maps.Collect(sm.UserSessions(ctx, tc.userID))
 				require.Len(t, m, 0)
