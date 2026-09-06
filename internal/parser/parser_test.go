@@ -966,13 +966,23 @@ func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 	requirePosEqual(t, "app.go", 15, 2, pos)
 }
 
+// TestParse_ErrAppMethodSSE tests the sse parameter on an App method,
+// which SPECIFICATION.md restricts to page methods and the generator cannot emit.
+func TestParse_ErrAppMethodSSE(t *testing.T) {
+	_, err := parse(t, "err_app_sse")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrSSEOnAppMethod)
+}
+
 // TestParse_ErrEmbedGETPath tests the path struct of a GET inherited from an
 // abstract page, which is only checkable once a page's route is known.
 func TestParse_ErrEmbedGETPath(t *testing.T) {
 	_, err := parse(t, "err_embed_get_path")
 	require.NotZero(t, err.Error())
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrPathMissingRouteVar,
 		parser.ErrPathFieldNotInRoute,
 	)

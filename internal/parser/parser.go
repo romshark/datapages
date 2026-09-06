@@ -1109,6 +1109,17 @@ func attachAppAction(
 		}
 	}
 
+	// An App method has no page stream to patch into: the generator emits
+	// neither the argument nor the variable a redirect block names.
+	if h.InputSSE != nil {
+		p := pos
+		if h.InputSSE.Expr != nil {
+			p = ctx.pkg.Fset.Position(h.InputSSE.Expr.Pos())
+		}
+		errs.ErrAt(p, fmt.Errorf("%w in App.%s",
+			ErrSSEOnAppMethod, fd.Name.Name))
+	}
+
 	ctx.app.Actions = append(ctx.app.Actions, h)
 }
 

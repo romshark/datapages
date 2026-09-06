@@ -136,6 +136,9 @@ var (
 	ErrCloseSessionWithSSE = errors.New(
 		"closeSession cannot be used together with sse parameter",
 	)
+	ErrSSEOnAppMethod = errors.New(
+		"the sse parameter is only allowed on page methods",
+	)
 
 	ErrEnableBgStreamNotGET = errors.New(
 		"enableBackgroundStreaming can only be used in GET handlers",
