@@ -12,6 +12,7 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
+	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpserve"
 
 	"github.com/romshark/datapages/example/tailwindcss/app"
@@ -130,6 +131,7 @@ func (s *Server) Init(
 
 	s.Build()
 	href.SetLogger(s.Logger())
+	actionexpr.SetLogger(s.Logger())
 
 	return nil
 }

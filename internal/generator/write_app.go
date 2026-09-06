@@ -139,6 +139,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	// Always needed: writeHTML renders datapages.Component values.
 	w.Line(1, `"github.com/romshark/datapages"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/csrf"`)
+	w.Line(1, `"github.com/romshark/datapages/runtime/actionexpr"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/messaging"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/sessions"`)
 	w.Line(1, `"github.com/romshark/datapages/runtime/auth"`)
@@ -478,6 +479,7 @@ func (s *Server) Init(
 	w.Raw(`
 	s.Build()
 	href.SetLogger(s.Logger())
+	actionexpr.SetLogger(s.Logger())
 
 	return nil
 }

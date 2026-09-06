@@ -16,6 +16,7 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
+	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/auth"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
@@ -170,6 +171,7 @@ func (s *Server) Init(
 
 	s.Build()
 	href.SetLogger(s.Logger())
+	actionexpr.SetLogger(s.Logger())
 
 	return nil
 }

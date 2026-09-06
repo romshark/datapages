@@ -1,6 +1,9 @@
 package actionexpr_test
 
 import (
+	"bytes"
+	"log/slog"
+	"math"
 	"strings"
 	"testing"
 
@@ -13,6 +16,120 @@ func writeOptions(options []actionexpr.Option) string {
 	var b strings.Builder
 	actionexpr.WriteOptions(&b, options)
 	return b.String()
+}
+
+// TestInvalidOptionsAreDroppedAndLogged tests every option that can be handed
+// a value the expression cannot carry. Writing it would throw in the browser
+// and take the whole action call with it, so the option is left out and the
+// action runs on the Datastar default. Silence would leave nothing to look at.
+func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
+	// The option is built inside the subtest: a value built with the table
+	// would log before the subtest installs its own logger.
+	for name, tc := range map[string]struct {
+		option func() actionexpr.Option
+		want   string // rendered expression, "" when the option is dropped
+		logged string // substring of the warning, "" when nothing is logged
+	}{
+		"retry scaler positive infinity": {
+			option: func() actionexpr.Option { return actionexpr.WithRetryScaler(math.Inf(1)) },
+			logged: "value=+Inf",
+		},
+		"retry scaler negative infinity": {
+			option: func() actionexpr.Option { return actionexpr.WithRetryScaler(math.Inf(-1)) },
+			logged: "value=-Inf",
+		},
+		"retry scaler not a number": {
+			option: func() actionexpr.Option { return actionexpr.WithRetryScaler(math.NaN()) },
+			logged: "value=NaN",
+		},
+		"retry scaler finite": {
+			option: func() actionexpr.Option { return actionexpr.WithRetryScaler(1.5) },
+			want:   ", {retryScaler: 1.5}",
+		},
+		"retry unknown": {
+			option: func() actionexpr.Option { return actionexpr.WithRetry(actionexpr.Retry("bogus")) },
+			logged: "WithRetry",
+		},
+		"retry known": {
+			option: func() actionexpr.Option { return actionexpr.WithRetry(actionexpr.RetryNever) },
+			want:   ", {retry: 'never'}",
+		},
+		"content type unknown": {
+			option: func() actionexpr.Option { return actionexpr.WithContentType(actionexpr.ContentType("xml")) },
+			logged: "WithContentType",
+		},
+		"content type known": {
+			option: func() actionexpr.Option { return actionexpr.WithContentType(actionexpr.ContentTypeForm) },
+			want:   ", {contentType: 'form'}",
+		},
+		"request cancellation unknown": {
+			option: func() actionexpr.Option {
+				return actionexpr.WithRequestCancellation(
+					actionexpr.RequestCancellation("later"))
+			},
+			logged: "WithRequestCancellation",
+		},
+		"request cancellation known": {
+			option: func() actionexpr.Option {
+				return actionexpr.WithRequestCancellation(
+					actionexpr.RequestCancellationDisabled)
+			},
+			want: ", {requestCancellation: 'disabled'}",
+		},
+		"retry interval negative": {
+			option: func() actionexpr.Option { return actionexpr.WithRetryInterval(-5) },
+			logged: "value=-5",
+		},
+		"retry interval zero": {
+			option: func() actionexpr.Option { return actionexpr.WithRetryInterval(0) },
+			want:   ", {retryInterval: 0}",
+		},
+		"retry max wait negative": {
+			option: func() actionexpr.Option { return actionexpr.WithRetryMaxWaitMs(-1) },
+			logged: "WithRetryMaxWaitMs",
+		},
+		"retry max count negative": {
+			option: func() actionexpr.Option { return actionexpr.WithRetryMaxCount(-1) },
+			logged: "WithRetryMaxCount",
+		},
+		"retry max count zero": {
+			option: func() actionexpr.Option { return actionexpr.WithRetryMaxCount(0) },
+			want:   ", {retryMaxCount: 0}",
+		},
+		// A line terminator ends the regex literal the pattern goes into,
+		// and no escape puts it back.
+		"filter signals line terminator": {
+			option: func() actionexpr.Option { return actionexpr.WithFilterSignals("a\nb", "") },
+			logged: "WithFilterSignals",
+		},
+		// A "/" ends the literal too, but escaping keeps the pattern.
+		"filter signals slash": {
+			option: func() actionexpr.Option { return actionexpr.WithFilterSignals("a/b", "") },
+			want:   `, {filterSignals: {include: /a\/b/}}`,
+		},
+		"filter signals escaped slash stays": {
+			option: func() actionexpr.Option { return actionexpr.WithFilterSignals(`a\/b`, "") },
+			want:   `, {filterSignals: {include: /a\/b/}}`,
+		},
+		"filter signals plain": {
+			option: func() actionexpr.Option { return actionexpr.WithFilterSignals("^x", "^_") },
+			want:   ", {filterSignals: {include: /^x/, exclude: /^_/}}",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			actionexpr.SetLogger(slog.New(slog.NewTextHandler(&buf, nil)))
+			t.Cleanup(func() { actionexpr.SetLogger(nil) })
+
+			require.Equal(t, tc.want,
+				writeOptions([]actionexpr.Option{tc.option()}))
+			if tc.logged == "" {
+				require.Empty(t, buf.String(), "a valid value was logged")
+				return
+			}
+			require.Contains(t, buf.String(), tc.logged)
+		})
+	}
 }
 
 // TestWithHeadersIsStable tests that one call renders one string.
@@ -53,6 +170,24 @@ func TestWriteOptions(t *testing.T) {
 		"one": {
 			[]actionexpr.Option{actionexpr.WithRetry(actionexpr.RetryNever)},
 			", {retry: 'never'}",
+		},
+		// "+Inf" is no JavaScript number literal and Inf no identifier, so the
+		// expression would throw and send no request at all.
+		"positive infinite retry scaler": {
+			[]actionexpr.Option{actionexpr.WithRetryScaler(math.Inf(1))},
+			"",
+		},
+		"negative infinite retry scaler": {
+			[]actionexpr.Option{actionexpr.WithRetryScaler(math.Inf(-1))},
+			"",
+		},
+		"not a number retry scaler": {
+			[]actionexpr.Option{actionexpr.WithRetryScaler(math.NaN())},
+			"",
+		},
+		"finite retry scaler": {
+			[]actionexpr.Option{actionexpr.WithRetryScaler(1.5)},
+			", {retryScaler: 1.5}",
 		},
 		"headers are ordered": {
 			[]actionexpr.Option{actionexpr.WithHeaders(map[string]string{
