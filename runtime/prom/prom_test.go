@@ -56,6 +56,41 @@ func TestMiddleware(t *testing.T) {
 	require.Contains(t, gather(t, "datapages_http_requests_total"), "GET /thing/")
 }
 
+// TestMarkStreamLeavesRequestLatency tests a request the stream handler marked:
+// it leaves the latency histogram and the in-flight gauge, and stays counted.
+func TestMarkStreamLeavesRequestLatency(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /stream/{$}", func(w http.ResponseWriter, r *http.Request) {
+		prom.MarkStream(w)
+		requireInFlight(t, "0")
+	})
+	mux.HandleFunc("GET /page/{$}", func(w http.ResponseWriter, r *http.Request) {
+		requireInFlight(t, "1")
+	})
+	h := prom.Middleware(mux)
+
+	h.ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodGet, "/stream/", nil))
+	h.ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodGet, "/page/", nil))
+
+	got := gather(t, "datapages_http_request_duration_seconds")
+	require.NotContains(t, got, "GET /stream/{$}",
+		"the stream was observed as a request latency:\n%s", got)
+	require.Contains(t, got, "GET /page/{$}", "the page was not observed")
+
+	total := gather(t, "datapages_http_requests_total")
+	require.Contains(t, total, "GET /stream/{$}", "the stream was not counted")
+	requireInFlight(t, "0")
+}
+
+// requireInFlight requires the in-flight gauge to read want.
+func requireInFlight(t *testing.T, want string) {
+	t.Helper()
+	got := gather(t, "datapages_http_in_flight_requests")
+	require.Contains(t, got, "value:"+want, "in-flight gauge:\n%s", got)
+}
+
 // TestMiddlewareLabelsAreBounded tests the cardinality of the HTTP metrics.
 // Both labels come from a closed set: the routes the router registers,
 // plus one label for everything else.

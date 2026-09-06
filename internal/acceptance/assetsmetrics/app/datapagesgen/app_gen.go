@@ -279,7 +279,12 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageIndex,
-		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator,
+		) error {
+			return p.StreamOpen(r, streamID)
+		},
 		nil,
 		func(
 			streamID datapages.StreamID,

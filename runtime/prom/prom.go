@@ -22,7 +22,7 @@ var (
 			Namespace: "datapages",
 			Subsystem: "http",
 			Name:      "requests_total",
-			Help:      "Total HTTP requests",
+			Help:      "Total HTTP requests, SSE streams included",
 		},
 		[]string{"method", "path", "status"},
 	)
@@ -31,8 +31,9 @@ var (
 			Namespace: "datapages",
 			Subsystem: "http",
 			Name:      "request_duration_seconds",
-			Help:      "HTTP request latency",
-			Buckets:   prometheus.DefBuckets,
+			Help: "HTTP request latency, excluding SSE streams, " +
+				"whose lifetime is in sse_connection_duration_seconds",
+			Buckets: prometheus.DefBuckets,
 		},
 		[]string{"method", "path"},
 	)
@@ -56,7 +57,8 @@ var (
 			Namespace: "datapages",
 			Subsystem: "http",
 			Name:      "in_flight_requests",
-			Help:      "Current in-flight HTTP requests",
+			Help: "Current in-flight HTTP requests, excluding SSE streams, " +
+				"which are counted in sse_connections",
 		},
 	)
 
@@ -260,7 +262,11 @@ func (ActionMetrics) OptionDropped(option string) { ActionOptionDropped(option) 
 // It implements stream.Metrics.
 type StreamMetrics struct{}
 
-func (StreamMetrics) ConnectionOpened()              { SSEConnectionOpened() }
+func (StreamMetrics) ConnectionOpened(w http.ResponseWriter) {
+	MarkStream(w)
+	SSEConnectionOpened()
+}
+
 func (StreamMetrics) ConnectionClosed()              { SSEConnectionClosed() }
 func (StreamMetrics) Disconnect(reason string)       { SSEDisconnect(reason) }
 func (StreamMetrics) ConnectionDuration(t time.Time) { SSEConnectionDuration(t) }
@@ -277,6 +283,9 @@ func BrokerDeliveryDropped() { mBrokerDeliveriesDropped.Inc() }
 type statusRW struct {
 	http.ResponseWriter
 	status int
+	// isStream is set by [MarkStream] on the request goroutine,
+	// between the middleware's two halves.
+	isStream bool
 }
 
 func (w *statusRW) WriteHeader(code int) {
@@ -351,21 +360,56 @@ func methodLabel(method string) string {
 	return LabelOtherMethod
 }
 
+// MarkStream takes the request writing to w out of
+// datapages_http_request_duration_seconds and datapages_http_in_flight_requests.
+// A stream lives as long as the browser holds the page: observed as a request,
+// an hour-long one lands above the top bucket and the gauge reads the number of
+// connected browsers. Its count and lifetime are in
+// datapages_http_sse_connections and datapages_sse_connection_duration_seconds.
+//
+// The mark rides on the writer rather than the request context, which would
+// cost every request an allocation. It is a no-op unless w unwraps to the
+// writer [Middleware] installed, the way [http.ResponseController] walks.
+func MarkStream(w http.ResponseWriter) {
+	for {
+		if rw, ok := w.(*statusRW); ok {
+			if !rw.isStream {
+				rw.isStream = true
+				mInFlightRequests.Dec()
+			}
+			return
+		}
+		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return
+		}
+		w = u.Unwrap()
+	}
+}
+
 // Middleware measures every request. It must be the outermost middleware
 // of the chain, otherwise it misses the work of the ones before it.
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		mInFlightRequests.Inc()
-		defer mInFlightRequests.Dec()
-
 		rw := &statusRW{ResponseWriter: w, status: http.StatusOK}
+
+		mInFlightRequests.Inc()
+		defer func() {
+			if !rw.isStream {
+				mInFlightRequests.Dec()
+			}
+		}()
+
 		next.ServeHTTP(rw, r)
 
 		path, method := routeLabel(r), methodLabel(r.Method)
 		mHTTPRequestsTotal.
 			WithLabelValues(method, path, strconv.Itoa(rw.status)).Inc()
+		if rw.isStream {
+			return
+		}
 		mHTTPRequestDuration.
 			WithLabelValues(method, path).Observe(time.Since(start).Seconds())
 	})

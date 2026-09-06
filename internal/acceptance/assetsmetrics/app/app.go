@@ -47,6 +47,15 @@ func (PageIndex) POSTAnnounce(
 	return announced.Dispatch(EventAnnounced{Text: signals.Values.Text})
 }
 
+// StreamOpen refuses the stream when the URL carries "refuse".
+// A stream that never opens is an ordinary request, metrics included.
+func (PageIndex) StreamOpen(r *http.Request, _ datapages.StreamID) error {
+	if r.URL.Query().Get("refuse") != "" {
+		return datapages.ErrForbidden
+	}
+	return nil
+}
+
 // POSTFail is /fail
 //
 // Errors are counted. One is needed here to count.

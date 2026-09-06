@@ -295,6 +295,111 @@ func TestMetrics(t *testing.T) {
 		"the request duration histogram was not registered")
 }
 
+// TestStreamStaysOutOfRequestLatency tests the request metrics a stream leaves behind.
+// It lives as long as the browser holds the page: observed as a request,
+// an hour-long one lands above the histogram's top bucket.
+func TestStreamStaysOutOfRequestLatency(t *testing.T) {
+	t.Parallel()
+	srv := newServer(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/_$/", nil)
+	require.NoError(t, err, "building stream request")
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "identity")
+	stream, err := srv.Client().Do(req)
+	require.NoError(t, err, "opening stream")
+	require.Equal(t, http.StatusOK, stream.StatusCode, "opening stream")
+	time.Sleep(200 * time.Millisecond)
+
+	// The request counter is written when the handler returns,
+	// the histogram is the one the stream must stay out of.
+	_ = stream.Body.Close()
+	cancel()
+	time.Sleep(200 * time.Millisecond)
+
+	families, err := registry.Gather()
+	require.NoError(t, err, "gathering metrics")
+	byName := map[string]*dto.MetricFamily{}
+	for _, f := range families {
+		byName[f.GetName()] = f
+	}
+
+	require.Contains(t, byName["datapages_http_requests_total"].String(),
+		"GET /_$/{$}", "the stream was not counted as a request")
+
+	// Not the absence of the label: a request to the stream route that never
+	// becomes a stream, one without the Datastar header, belongs in the histogram.
+	// The stream above was held far longer than any of those.
+	for _, m := range byName["datapages_http_request_duration_seconds"].GetMetric() {
+		if !hasLabel(m, "path", "GET /_$/{$}") {
+			continue
+		}
+		h := m.GetHistogram()
+		for _, b := range h.GetBucket() {
+			if b.GetUpperBound() != 0.1 {
+				continue
+			}
+			require.Equal(t, h.GetSampleCount(), b.GetCumulativeCount(),
+				"a stream was observed as a request latency: %s", h.String())
+		}
+	}
+}
+
+// TestRefusedStreamStaysARequest tests a stream StreamOpen refuses.
+// It never reaches the message loop, which leaves it an ordinary request:
+// counted, in-flight while it runs and observed in the latency histogram.
+func TestRefusedStreamStaysARequest(t *testing.T) {
+	t.Parallel()
+	srv := newServer(t)
+
+	before := histogramCount(t, "GET /_$/{$}")
+
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, srv.URL+"/_$/?refuse=1", nil,
+	)
+	require.NoError(t, err, "building stream request")
+	req.Header.Set("Datastar-Request", "true")
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err, "opening stream")
+	_ = resp.Body.Close()
+	// 200: datastar.NewSSE writes the head before StreamOpen runs,
+	// which is why the refusal travels as an SSE error rather than a status.
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	require.Greater(t, histogramCount(t, "GET /_$/{$}"), before,
+		"the refused stream was not observed as a request")
+}
+
+// histogramCount is how many requests the latency histogram observed for path.
+func histogramCount(t *testing.T, path string) uint64 {
+	t.Helper()
+	families, err := registry.Gather()
+	require.NoError(t, err, "gathering metrics")
+	for _, f := range families {
+		if f.GetName() != "datapages_http_request_duration_seconds" {
+			continue
+		}
+		for _, m := range f.GetMetric() {
+			if hasLabel(m, "path", path) {
+				return m.GetHistogram().GetSampleCount()
+			}
+		}
+	}
+	return 0
+}
+
+// hasLabel reports whether m carries the label name=value.
+func hasLabel(m *dto.Metric, name, value string) bool {
+	for _, l := range m.GetLabel() {
+		if l.GetName() == name && l.GetValue() == value {
+			return true
+		}
+	}
+	return false
+}
+
 // TestBrokerMetrics tests the counters the generated code hands the message broker.
 // They are what an operator watches to see events flowing,
 // and they only move if the generated dispatch passes them along.
