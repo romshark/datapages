@@ -497,7 +497,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
-		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return

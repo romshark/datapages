@@ -158,6 +158,15 @@ func MessageBrokerStreamSubjects() []string {
 func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
+		"GET /boom/{$}",
+		s.handlePageBoomGET)
+	s.Mux().HandleFunc(
+		"GET /not-found/{$}",
+		s.handlePageError404GET)
+	s.Mux().HandleFunc(
+		"GET /server-error/{$}",
+		s.handlePageError500GET)
+	s.Mux().HandleFunc(
 		"GET /",
 		s.handlePageIndexGET)
 	s.Mux().HandleFunc(
@@ -168,16 +177,145 @@ func setupHandlers(s *Server) {
 		s.handlePageIndexPOSTDelete)
 }
 
-func (s *Server) httpErrIntern(
-	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
-) {
+// httpErrFinal writes the error response without rendering PageError500.
+// The PageError500 handler uses it so it can't render itself.
+func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 	s.LogErr(msg, err)
 	if httpserve.ResponseBodyWritten(w) {
 		// A status written now only appends its text to the body.
 		return
 	}
 	httpserve.WriteErrStatus(w, err)
+}
+
+func (s *Server) httpErrIntern(
+	w http.ResponseWriter, r *http.Request,
+	sse *datastar.ServerSentEventGenerator, msg string, err error,
+) {
+	s.LogErr(msg, err)
+	if !httpserve.IsDatastarRequest(r) {
+		if httpserve.ResponseBodyWritten(w) {
+			// An error page after a half-written one sends two documents.
+			return
+		}
+		// The page serves 200 on its own route. Reached from here it carries 500.
+		w.WriteHeader(http.StatusInternalServerError)
+		s.handlePageError500GET(w, r)
+		return
+	}
+	if httpserve.ResponseBodyWritten(w) {
+		// A status written now only appends its text to the body.
+		return
+	}
+	httpserve.WriteErrStatus(w, err)
+}
+
+func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	p := app.PageError404{
+		App: s.app,
+	}
+
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
+	body, err := p.GET(r, sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+	w.WriteHeader(http.StatusNotFound)
+	if err := s.writeHTML(
+		w, r, sess, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageError404", err)
+		return
+	}
+}
+
+func (s *Server) handlePageBoomGET(w http.ResponseWriter, r *http.Request) {
+	p := app.PageBoom{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageBoom.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageBoom.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, datapages.Session[struct{}]{}, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageBoom", err)
+		return
+	}
+}
+
+func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	p := app.PageError404{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
+	body, err := p.GET(r, sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageError404", err)
+		return
+	}
+}
+
+func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	p := app.PageError500{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageError500.GET")
+	body, err := p.GET(r, sess)
+	if err != nil {
+		s.httpErrFinal(w, "handling PageError500.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageError500", err)
+		return
+	}
 }
 
 func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
@@ -187,7 +325,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.URL.Path != "/" {
-		http.NotFound(w, r)
+		s.render404(w, r)
 		return
 	}
 

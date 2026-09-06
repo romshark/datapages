@@ -371,8 +371,8 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 	// and a cookie set after the body has started is dropped.
 	getHeadNeedsSession := m.GlobalHeadGenerator != nil &&
 		m.GlobalHeadGenerator.InputSession
-	getRendersBody := p.PageSpecialization != model.PageTypeError500
-	getSessArg, getSessRebind := w.renderSessionVar(h, m, getRendersBody,
+	// The 500 page renders from its session like any other page.
+	getSessArg, getSessRebind := w.renderSessionVar(h, m, true,
 		hasSessionInput(h) || getHeadNeedsSession)
 	w.writeSessionOutputs(h, getSessRebind)
 

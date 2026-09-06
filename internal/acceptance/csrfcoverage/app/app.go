@@ -3,6 +3,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -61,3 +62,41 @@ func (p PageIndex) POSTDelete(
 	p.App.deleted++
 	return nil
 }
+
+// PageError404 is /not-found
+//
+// The 404 page reads the session: its document has to carry the CSRF script,
+// or an action reachable from it is refused.
+type PageError404 struct{ App *App }
+
+func (PageError404) GET(_ *http.Request, session Session) (
+	body datapages.Component, err error,
+) {
+	return templ.Raw(fmt.Sprintf(
+		`<pre id="echo">404 user=%s</pre>`, session.UserID(),
+	)), nil
+}
+
+// PageError500 is /server-error
+//
+// The 500 page reads the session for the same reason.
+type PageError500 struct{ App *App }
+
+func (PageError500) GET(_ *http.Request, session Session) (
+	body datapages.Component, err error,
+) {
+	return templ.Raw(fmt.Sprintf(
+		`<pre id="echo">500 user=%s</pre>`, session.UserID(),
+	)), nil
+}
+
+// PageBoom is /boom
+//
+// GET fails, which is what the 500 page is rendered for.
+type PageBoom struct{ App *App }
+
+func (PageBoom) GET(_ *http.Request) (body datapages.Component, err error) {
+	return nil, errBoom
+}
+
+var errBoom = errors.New("boom")
