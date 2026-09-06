@@ -33,15 +33,21 @@ var templURLSchemes = []string{"http", "https", "mailto", "tel", "ftp", "ftps"}
 // IsRenderedAsWritten reports whether s survives the templ sanitizer,
 // which every URL written as an attribute expression passes through.
 // A URL it drops renders as "about:invalid#TemplFailedSanitizationURL" and links nowhere.
+//
+// It mirrors templ.URL rather than parsing a scheme of its own: templ takes
+// everything before the first ':' as the protocol whenever no '/' precedes it,
+// whatever bytes are in it. "foo bar:baz", "1abc:x" and "java\tscript:" are
+// protocols to templ and are all dropped, where an RFC 3986 scheme parser
+// reads them as having no scheme at all and reports them as kept.
 func IsRenderedAsWritten(s string) bool {
-	scheme, ok := scheme(strings.TrimSpace(s))
-	if !ok {
-		// No scheme of its own: a fragment, a path or a protocol-relative URL,
-		// all of which the sanitizer keeps.
+	i := strings.IndexByte(s, ':')
+	if i < 0 || strings.ContainsRune(s[:i], '/') {
+		// No protocol of its own: a fragment, a path or a protocol-relative
+		// URL, all of which the sanitizer keeps.
 		return true
 	}
 	for _, allowed := range templURLSchemes {
-		if strings.EqualFold(scheme, allowed) {
+		if strings.EqualFold(s[:i], allowed) {
 			return true
 		}
 	}
