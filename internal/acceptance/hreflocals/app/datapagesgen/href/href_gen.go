@@ -151,3 +151,79 @@ type QueryPageMix struct {
 	AnyQuery string `query:"anyQuery"`
 	Page     int    `query:"page"`
 }
+
+// PageTags references /tags/{$}
+func PageTags(query QueryPageTags) string {
+	var (
+		pageSizeStr string
+		termStr     string
+	)
+
+	if query.PageSize != 0 {
+		pageSizeStr = strconv.FormatInt(int64(query.PageSize), 10)
+	}
+	if query.Term != "" {
+		termStr = url.QueryEscape(query.Term)
+	}
+
+	anyQuery := query.PageSize != 0 ||
+		query.Term != ""
+
+	var b strings.Builder
+	l := len("/tags/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.PageSize != 0 {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("page-size=") + len(pageSizeStr)
+	}
+	if query.Term != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("q.term=") + len(termStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/tags/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.PageSize != 0 {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("page-size=")
+		b.WriteString(pageSizeStr)
+	}
+	if query.Term != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("q.term=")
+		b.WriteString(termStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageTags is the query parameters for PageTags
+type QueryPageTags struct {
+	PageSize int    `query:"page-size"`
+	Term     string `query:"q.term"`
+}

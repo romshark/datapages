@@ -4,6 +4,8 @@ import (
 	"go/types"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
@@ -606,7 +608,9 @@ func newHrefLocals(params []pathParamInfo, fields []structFieldInfo) hrefLocals 
 	}
 	for _, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		lo.queryStr[tag] = pick(tag + "Str")
+		// Named from the field: a tag is a URL parameter name and needn't be
+		// a Go identifier, "page-size" and "q.term" included.
+		lo.queryStr[tag] = pick(lowerFirst(f.Name) + "Str")
 	}
 	return lo
 }
@@ -796,4 +800,14 @@ func hasNonStringFields(fields []structFieldInfo) bool {
 		}
 	}
 	return false
+}
+
+// lowerFirst lowercases the first rune of s,
+// which turns an exported field name into an unexported local.
+func lowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	r, n := utf8.DecodeRuneInString(s)
+	return string(unicode.ToLower(r)) + s[n:]
 }

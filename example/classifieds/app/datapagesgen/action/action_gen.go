@@ -220,11 +220,11 @@ func POSTPageLoginSubmit(options ...option) string {
 // POSTPageMessagesRead references /messages/read/
 func POSTPageMessagesRead(query QueryPOSTPageMessagesRead, options ...option) string {
 	var (
-		msgidStr string
+		messageIDStr string
 	)
 
 	if query.MessageID != "" {
-		msgidStr = url.QueryEscape(query.MessageID)
+		messageIDStr = url.QueryEscape(query.MessageID)
 	}
 
 	anyQuery := query.MessageID != ""
@@ -240,7 +240,7 @@ func POSTPageMessagesRead(query QueryPOSTPageMessagesRead, options ...option) st
 		if n > 0 {
 			l += len("&")
 		}
-		l += len("msgid=") + len(msgidStr)
+		l += len("msgid=") + len(messageIDStr)
 	}
 
 	b.Grow(l)
@@ -256,7 +256,7 @@ func POSTPageMessagesRead(query QueryPOSTPageMessagesRead, options ...option) st
 			b.WriteString("&")
 		}
 		b.WriteString("msgid=")
-		b.WriteString(msgidStr)
+		b.WriteString(messageIDStr)
 	}
 	b.WriteString("'")
 	actionexpr.WriteOptions(&b, options)

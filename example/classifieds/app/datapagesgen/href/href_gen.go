@@ -134,27 +134,27 @@ func PagePost(slug string) string {
 // PageSearch references /search/{$}
 func PageSearch(query QueryPageSearch) string {
 	var (
-		tStr    string
-		cStr    string
-		pminStr string
-		pmaxStr string
-		lStr    string
+		termStr     string
+		categoryStr string
+		priceMinStr string
+		priceMaxStr string
+		locationStr string
 	)
 
 	if query.Term != "" {
-		tStr = url.QueryEscape(query.Term)
+		termStr = url.QueryEscape(query.Term)
 	}
 	if query.Category != "" {
-		cStr = url.QueryEscape(query.Category)
+		categoryStr = url.QueryEscape(query.Category)
 	}
 	if query.PriceMin != 0 {
-		pminStr = strconv.FormatInt(query.PriceMin, 10)
+		priceMinStr = strconv.FormatInt(query.PriceMin, 10)
 	}
 	if query.PriceMax != 0 {
-		pmaxStr = strconv.FormatInt(query.PriceMax, 10)
+		priceMaxStr = strconv.FormatInt(query.PriceMax, 10)
 	}
 	if query.Location != "" {
-		lStr = url.QueryEscape(query.Location)
+		locationStr = url.QueryEscape(query.Location)
 	}
 
 	anyQuery := query.Term != "" ||
@@ -177,35 +177,35 @@ func PageSearch(query QueryPageSearch) string {
 			l += len("&")
 		}
 		n++
-		l += len("t=") + len(tStr)
+		l += len("t=") + len(termStr)
 	}
 	if query.Category != "" {
 		if n > 0 {
 			l += len("&")
 		}
 		n++
-		l += len("c=") + len(cStr)
+		l += len("c=") + len(categoryStr)
 	}
 	if query.PriceMin != 0 {
 		if n > 0 {
 			l += len("&")
 		}
 		n++
-		l += len("pmin=") + len(pminStr)
+		l += len("pmin=") + len(priceMinStr)
 	}
 	if query.PriceMax != 0 {
 		if n > 0 {
 			l += len("&")
 		}
 		n++
-		l += len("pmax=") + len(pmaxStr)
+		l += len("pmax=") + len(priceMaxStr)
 	}
 	if query.Location != "" {
 		if n > 0 {
 			l += len("&")
 		}
 		n++
-		l += len("l=") + len(lStr)
+		l += len("l=") + len(locationStr)
 	}
 	_ = n
 
@@ -224,7 +224,7 @@ func PageSearch(query QueryPageSearch) string {
 		}
 		n++
 		b.WriteString("t=")
-		b.WriteString(tStr)
+		b.WriteString(termStr)
 	}
 	if query.Category != "" {
 		if n > 0 {
@@ -232,7 +232,7 @@ func PageSearch(query QueryPageSearch) string {
 		}
 		n++
 		b.WriteString("c=")
-		b.WriteString(cStr)
+		b.WriteString(categoryStr)
 	}
 	if query.PriceMin != 0 {
 		if n > 0 {
@@ -240,7 +240,7 @@ func PageSearch(query QueryPageSearch) string {
 		}
 		n++
 		b.WriteString("pmin=")
-		b.WriteString(pminStr)
+		b.WriteString(priceMinStr)
 	}
 	if query.PriceMax != 0 {
 		if n > 0 {
@@ -248,14 +248,14 @@ func PageSearch(query QueryPageSearch) string {
 		}
 		n++
 		b.WriteString("pmax=")
-		b.WriteString(pmaxStr)
+		b.WriteString(priceMaxStr)
 	}
 	if query.Location != "" {
 		if n > 0 {
 			b.WriteString("&")
 		}
 		b.WriteString("l=")
-		b.WriteString(lStr)
+		b.WriteString(locationStr)
 	}
 
 	return b.String()

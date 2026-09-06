@@ -158,6 +158,12 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /mix/{l}/{n}/{pageStr}/{$}",
 		s.handlePageMixGET)
+	s.Mux().HandleFunc(
+		"GET /tags/{$}",
+		s.handlePageTagsGET)
+	s.Mux().HandleFunc(
+		"POST /tags/select/{$}",
+		s.handlePageTagsPOSTSelect)
 }
 
 func (s *Server) httpErrIntern(
@@ -169,8 +175,7 @@ func (s *Server) httpErrIntern(
 		// A status written now only appends its text to the body.
 		return
 	}
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
+	httpserve.WriteErrStatus(w, err)
 }
 
 func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
@@ -299,6 +304,74 @@ func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageMix", err)
+		return
+	}
+}
+
+func (s *Server) handlePageTagsGET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		PageSize int    `query:"page-size"`
+		Term     string `query:"q.term"`
+	}]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "page-size"); q != "" {
+			i, err := strconv.ParseInt(q, 10, 0)
+			if err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: page-size", err)
+				return
+			}
+			query.Values.PageSize = int(i)
+		}
+	}
+	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "q.term")
+
+	p := app.PageTags{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageTags.GET")
+	body, err := p.GET(r, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageTags.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageTags", err)
+		return
+	}
+}
+
+func (s *Server) handlePageTagsPOSTSelect(
+	w http.ResponseWriter, r *http.Request,
+) {
+
+	var query datapages.Query[struct {
+		PageSize int `query:"page-size"`
+	}]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "page-size"); q != "" {
+			i, err := strconv.ParseInt(q, 10, 0)
+			if err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: page-size", err)
+				return
+			}
+			query.Values.PageSize = int(i)
+		}
+	}
+	defer s.recoverPanic(w, r, nil, "PageTags.Select")
+	p := app.PageTags{
+		App: s.app,
+	}
+	err := p.POSTSelect(r, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageTags.Select", err)
 		return
 	}
 }

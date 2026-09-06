@@ -1,5 +1,6 @@
 // Package app exercises path and query variables named after the locals the URL writer
 // declares for itself: b, l, n, anyQuery, and the conversion variable of a query field.
+// It also carries query tags that are no Go identifier.
 package app
 
 import (
@@ -57,4 +58,39 @@ func (PageMix) GET(
 		path.Values.L, path.Values.N, templ.EscapeString(path.Values.PageStr),
 		templ.EscapeString(query.Values.AnyQuery), query.Values.Page,
 	)), nil
+}
+
+// PageTags is /tags
+//
+// The query tags are URL parameter names and no Go identifier:
+// the locals the writer declares for them are named after the fields.
+type PageTags struct{ App *App }
+
+func (PageTags) GET(
+	_ *http.Request,
+	query datapages.Query[struct {
+		PageSize int    `query:"page-size"`
+		Term     string `query:"q.term"`
+	}],
+) (body datapages.Component, err error) {
+	return templ.Raw(fmt.Sprintf(
+		`<pre id="echo">page-size=%d q.term=%s</pre>`,
+		query.Values.PageSize, templ.EscapeString(query.Values.Term),
+	)), nil
+}
+
+// POSTSelect is /tags/select/{$}
+//
+// It answers 400 unless page-size arrived as 7,
+// which is how the test reads the value the action URL carried.
+func (PageTags) POSTSelect(
+	_ *http.Request,
+	query datapages.Query[struct {
+		PageSize int `query:"page-size"`
+	}],
+) error {
+	if query.Values.PageSize != 7 {
+		return datapages.ErrBadRequest
+	}
+	return nil
 }

@@ -54,13 +54,13 @@ func PageError404() string { return "/not-found/" }
 // PageIndex references /{$}
 func PageIndex(query QueryPageIndex) string {
 	var (
-		qStr      string
+		searchStr string
 		filterStr string
 		sortStr   string
 	)
 
 	if query.Search != "" {
-		qStr = url.QueryEscape(query.Search)
+		searchStr = url.QueryEscape(query.Search)
 	}
 	if query.Filter != "" {
 		filterStr = url.QueryEscape(query.Filter)
@@ -87,7 +87,7 @@ func PageIndex(query QueryPageIndex) string {
 			l += len("&")
 		}
 		n++
-		l += len("q=") + len(qStr)
+		l += len("q=") + len(searchStr)
 	}
 	if query.Filter != "" {
 		if n > 0 {
@@ -120,7 +120,7 @@ func PageIndex(query QueryPageIndex) string {
 		}
 		n++
 		b.WriteString("q=")
-		b.WriteString(qStr)
+		b.WriteString(searchStr)
 	}
 	if query.Filter != "" {
 		if n > 0 {
