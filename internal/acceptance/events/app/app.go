@@ -19,9 +19,10 @@ import (
 )
 
 type App struct {
-	lock sync.Mutex
-	log  []string
-	hold chan struct{}
+	lock      sync.Mutex
+	log       []string
+	hold      chan struct{}
+	holdClose chan struct{}
 }
 
 // holdTicks blocks every OnTick until releaseTicks.
@@ -49,6 +50,36 @@ func (a *App) waitTicks() {
 		<-ch
 	}
 }
+
+// HoldStreamClose blocks every StreamClose until [App.ReleaseStreamClose].
+// A test measuring what waits for the hook needs it to still be running.
+func (a *App) HoldStreamClose() {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	a.holdClose = make(chan struct{})
+}
+
+// ReleaseStreamClose lets a held StreamClose finish.
+func (a *App) ReleaseStreamClose() {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	if a.holdClose != nil {
+		close(a.holdClose)
+		a.holdClose = nil
+	}
+}
+
+func (a *App) waitClose() {
+	a.lock.Lock()
+	ch := a.holdClose
+	a.lock.Unlock()
+	if ch != nil {
+		<-ch
+	}
+}
+
+// Entries is what the application recorded, for a test that cannot reach /log/.
+func (a *App) Entries() string { return a.entries() }
 
 func (a *App) record(format string, args ...any) {
 	a.lock.Lock()
@@ -142,6 +173,7 @@ func (p PageIndex) StreamClose(
 	streamID datapages.StreamID,
 	streamGone datapages.Dispatcher[EventStreamGone],
 ) error {
+	p.App.waitClose()
 	p.App.record("close(%d)", streamID)
 	return streamGone.Dispatch(EventStreamGone{StreamID: uint64(streamID)})
 }
