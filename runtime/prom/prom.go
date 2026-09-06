@@ -286,11 +286,25 @@ type statusRW struct {
 	// isStream is set by [MarkStream] on the request goroutine,
 	// between the middleware's two halves.
 	isStream bool
+	// wroteHeader records that the status is out and every later one is dropped.
+	wroteHeader bool
 }
 
+// WriteHeader records the first status, which is the one net/http sends.
+// http.Error after a partial body write sets 500 on a response the client
+// received as 200: the last status labels a request nobody was served.
 func (w *statusRW) WriteHeader(code int) {
-	w.status = code
+	if !w.wroteHeader {
+		w.status = code
+		w.wroteHeader = true
+	}
 	w.ResponseWriter.WriteHeader(code)
+}
+
+// Write records the implicit 200 the first body byte sends.
+func (w *statusRW) Write(b []byte) (int, error) {
+	w.wroteHeader = true
+	return w.ResponseWriter.Write(b)
 }
 
 func (w *statusRW) Flush() {

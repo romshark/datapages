@@ -56,6 +56,30 @@ func TestMiddleware(t *testing.T) {
 	require.Contains(t, gather(t, "datapages_http_requests_total"), "GET /thing/")
 }
 
+// TestMiddlewareLabelsTheSentStatus tests a handler that writes a status after
+// the body has gone out. net/http sends the first one and drops the second,
+// so labelling with the last counts a 5xx no client ever saw.
+func TestMiddlewareLabelsTheSentStatus(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /late/{$}", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("half a page"))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	})
+	h := prom.Middleware(mux)
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/late/", nil))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	const metric = "datapages_http_requests_total"
+	require.Equal(t, 1, series(t, metric, map[string]string{
+		"path": "GET /late/{$}", "status": "200",
+	}), "the status the client received was not counted")
+	require.Zero(t, series(t, metric, map[string]string{
+		"path": "GET /late/{$}", "status": "500",
+	}), "a status net/http never sent was counted")
+}
+
 // TestMarkStreamLeavesRequestLatency tests a request the stream handler marked:
 // it leaves the latency histogram and the in-flight gauge, and stays counted.
 func TestMarkStreamLeavesRequestLatency(t *testing.T) {
