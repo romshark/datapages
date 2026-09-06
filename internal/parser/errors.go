@@ -130,6 +130,10 @@ var (
 		"all handlers must use the same datapages.Session[Data] instantiation",
 	)
 
+	ErrGeneratedNameConflict = errors.New(
+		"conflicting generated identifier",
+	)
+
 	ErrNewSessionWithSSE = errors.New(
 		"newSession cannot be used together with sse parameter",
 	)
@@ -246,7 +250,7 @@ func earliestPkgPos(pkg *packages.Package) token.Position {
 	return best
 }
 
-// posFromPackagesError reads the "file:line:col" of a packages.Error.
+// posFromPackagesError reads the "file:line:col" of a [packages.Error].
 // A field it cannot read stays zero.
 //
 // The parse cuts from the right, hence a Windows drive letter in
@@ -379,7 +383,7 @@ func sortErrors(e *Errors) {
 	})
 }
 
-// ErrorPageMissingFieldApp is ErrPageMissingFieldApp with suggestion context.
+// ErrorPageMissingFieldApp is [ErrPageMissingFieldApp] with suggestion context.
 type ErrorPageMissingFieldApp struct {
 	TypeName string // e.g. "PageProfile"
 }
@@ -390,7 +394,7 @@ func (e *ErrorPageMissingFieldApp) Error() string {
 
 func (e *ErrorPageMissingFieldApp) Unwrap() error { return ErrPageMissingFieldApp }
 
-// ErrorActionPathNotUnderPage is ErrActionPathNotUnderPage with suggestion context.
+// ErrorActionPathNotUnderPage is [ErrActionPathNotUnderPage] with suggestion context.
 type ErrorActionPathNotUnderPage struct {
 	PagePath   string // e.g. "/profile/"
 	Recv       string // e.g. "PageProfile"
@@ -403,7 +407,7 @@ func (e *ErrorActionPathNotUnderPage) Error() string {
 
 func (e *ErrorActionPathNotUnderPage) Unwrap() error { return ErrActionPathNotUnderPage }
 
-// ErrorPageMissingPathComm is ErrPageMissingPathComm with suggestion context.
+// ErrorPageMissingPathComm is [ErrPageMissingPathComm] with suggestion context.
 type ErrorPageMissingPathComm struct {
 	TypeName string // e.g. "PageProfile"
 }
@@ -414,7 +418,7 @@ func (e *ErrorPageMissingPathComm) Error() string {
 
 func (e *ErrorPageMissingPathComm) Unwrap() error { return ErrPageMissingPathComm }
 
-// ErrorActionMissingPathComm is ErrActionMissingPathComm with suggestion context.
+// ErrorActionMissingPathComm is [ErrActionMissingPathComm] with suggestion context.
 type ErrorActionMissingPathComm struct {
 	PagePath   string // e.g. "/profile/" (empty for App-level actions)
 	Recv       string // e.g. "PageProfile" or "App"
@@ -427,7 +431,7 @@ func (e *ErrorActionMissingPathComm) Error() string {
 
 func (e *ErrorActionMissingPathComm) Unwrap() error { return ErrActionMissingPathComm }
 
-// ErrorPageMissingGET is ErrPageMissingGET with suggestion context.
+// ErrorPageMissingGET is [ErrPageMissingGET] with suggestion context.
 type ErrorPageMissingGET struct {
 	TypeName string // e.g. "PageProfile"
 }
@@ -438,7 +442,7 @@ func (e *ErrorPageMissingGET) Error() string {
 
 func (e *ErrorPageMissingGET) Unwrap() error { return ErrPageMissingGET }
 
-// ErrorPageInvalidPathComm is ErrPageInvalidPathComm with suggestion context.
+// ErrorPageInvalidPathComm is [ErrPageInvalidPathComm] with suggestion context.
 type ErrorPageInvalidPathComm struct {
 	TypeName string // e.g. "PageProfile"
 }
@@ -449,7 +453,7 @@ func (e *ErrorPageInvalidPathComm) Error() string {
 
 func (e *ErrorPageInvalidPathComm) Unwrap() error { return ErrPageInvalidPathComm }
 
-// ErrorPageIndexPathMustBeRoot is ErrPageIndexPathMustBeRoot with suggestion context.
+// ErrorPageIndexPathMustBeRoot is [ErrPageIndexPathMustBeRoot] with suggestion context.
 type ErrorPageIndexPathMustBeRoot struct {
 	Route string // the invalid route, e.g. "/home"
 }
@@ -460,7 +464,7 @@ func (e *ErrorPageIndexPathMustBeRoot) Error() string {
 
 func (e *ErrorPageIndexPathMustBeRoot) Unwrap() error { return ErrPageIndexPathMustBeRoot }
 
-// ErrorActionInvalidPathComm is ErrActionInvalidPathComm with suggestion context.
+// ErrorActionInvalidPathComm is [ErrActionInvalidPathComm] with suggestion context.
 type ErrorActionInvalidPathComm struct {
 	Recv       string // e.g. "PageProfile" or "App"
 	MethodName string // e.g. "POSTFoo"
@@ -472,7 +476,7 @@ func (e *ErrorActionInvalidPathComm) Error() string {
 
 func (e *ErrorActionInvalidPathComm) Unwrap() error { return ErrActionInvalidPathComm }
 
-// ErrorEventCommMissing is ErrEventCommMissing with suggestion context.
+// ErrorEventCommMissing is [ErrEventCommMissing] with suggestion context.
 type ErrorEventCommMissing struct {
 	TypeName string // e.g. "EventFoo"
 }
@@ -483,7 +487,7 @@ func (e *ErrorEventCommMissing) Error() string {
 
 func (e *ErrorEventCommMissing) Unwrap() error { return ErrEventCommMissing }
 
-// ErrorEventCommInvalid is ErrEventCommInvalid with suggestion context.
+// ErrorEventCommInvalid is [ErrEventCommInvalid] with suggestion context.
 type ErrorEventCommInvalid struct {
 	TypeName string // e.g. "EventFoo"
 }
@@ -494,7 +498,7 @@ func (e *ErrorEventCommInvalid) Error() string {
 
 func (e *ErrorEventCommInvalid) Unwrap() error { return ErrEventCommInvalid }
 
-// ErrorEventFieldMissingTag is ErrEventFieldMissingTag with suggestion context.
+// ErrorEventFieldMissingTag is [ErrEventFieldMissingTag] with suggestion context.
 type ErrorEventFieldMissingTag struct {
 	FieldName string // e.g. "UserID"
 	TypeName  string // e.g. "EventFoo"
@@ -506,7 +510,7 @@ func (e *ErrorEventFieldMissingTag) Error() string {
 
 func (e *ErrorEventFieldMissingTag) Unwrap() error { return ErrEventFieldMissingTag }
 
-// ErrorEventFieldEmptyTag is ErrEventFieldEmptyTag with suggestion context.
+// ErrorEventFieldEmptyTag is [ErrEventFieldEmptyTag] with suggestion context.
 type ErrorEventFieldEmptyTag struct {
 	FieldName string // e.g. "UserID"
 	TypeName  string // e.g. "EventFoo"
@@ -518,7 +522,7 @@ func (e *ErrorEventFieldEmptyTag) Error() string {
 
 func (e *ErrorEventFieldEmptyTag) Unwrap() error { return ErrEventFieldEmptyTag }
 
-// ErrorEventFieldDuplicateTag is ErrEventFieldDuplicateTag with suggestion context.
+// ErrorEventFieldDuplicateTag is [ErrEventFieldDuplicateTag] with suggestion context.
 type ErrorEventFieldDuplicateTag struct {
 	FieldName string // e.g. "UserID"
 	TagValue  string // e.g. "user_id"
@@ -532,7 +536,7 @@ func (e *ErrorEventFieldDuplicateTag) Error() string {
 
 func (e *ErrorEventFieldDuplicateTag) Unwrap() error { return ErrEventFieldDuplicateTag }
 
-// ErrorEventSubjectUserNoSession is ErrEventSubjectUserNoSession
+// ErrorEventSubjectUserNoSession is [ErrEventSubjectUserNoSession]
 // with suggestion context.
 type ErrorEventSubjectUserNoSession struct {
 	TypeName string // e.g. "EventFoo"
@@ -547,7 +551,7 @@ func (e *ErrorEventSubjectUserNoSession) Unwrap() error {
 	return ErrEventSubjectUserNoSession
 }
 
-// ErrorEventSubjectAfterPayload is ErrEventSubjectAfterPayload
+// ErrorEventSubjectAfterPayload is [ErrEventSubjectAfterPayload]
 // with suggestion context.
 type ErrorEventSubjectAfterPayload struct {
 	FieldName string // e.g. "SubjectUser"
@@ -563,7 +567,7 @@ func (e *ErrorEventSubjectAfterPayload) Unwrap() error {
 	return ErrEventSubjectAfterPayload
 }
 
-// ErrorRouteConflict is ErrRouteConflict with the pattern that could not be
+// ErrorRouteConflict is [ErrRouteConflict] with the pattern that could not be
 // registered and what the router said about it.
 type ErrorRouteConflict struct {
 	Pattern string
@@ -578,7 +582,25 @@ func (e *ErrorRouteConflict) Error() string {
 
 func (e *ErrorRouteConflict) Unwrap() error { return ErrRouteConflict }
 
-// ErrorRouteWildcardStream is ErrRouteWildcardStream with the page.
+// ErrorGeneratedNameConflict is [ErrGeneratedNameConflict] with both methods.
+// Page name and action name are spelled with nothing between them:
+// two distinct methods can produce one identifier.
+type ErrorGeneratedNameConflict struct {
+	Name  string
+	Owner string
+	First string
+}
+
+func (e *ErrorGeneratedNameConflict) Error() string {
+	return fmt.Sprintf("%v: %s and %s both generate %s",
+		ErrGeneratedNameConflict, e.Owner, e.First, e.Name)
+}
+
+func (e *ErrorGeneratedNameConflict) Unwrap() error {
+	return ErrGeneratedNameConflict
+}
+
+// ErrorRouteWildcardStream is [ErrRouteWildcardStream] with the page.
 // The stream endpoint sits under the page route. A {name...} wildcard matches
 // the rest of the path, which leaves nothing for the endpoint to sit in.
 type ErrorRouteWildcardStream struct {
@@ -592,7 +614,7 @@ func (e *ErrorRouteWildcardStream) Error() string {
 
 func (e *ErrorRouteWildcardStream) Unwrap() error { return ErrRouteWildcardStream }
 
-// ErrorEventSubjectDuplicate is ErrEventSubjectDuplicate with the two types
+// ErrorEventSubjectDuplicate is [ErrEventSubjectDuplicate] with the two types
 // that share the subject. A subject is the case an inbound event is matched by,
 // which two events cannot share.
 type ErrorEventSubjectDuplicate struct {
@@ -608,7 +630,7 @@ func (e *ErrorEventSubjectDuplicate) Error() string {
 
 func (e *ErrorEventSubjectDuplicate) Unwrap() error { return ErrEventSubjectDuplicate }
 
-// ErrorEventSubjectOverlap is ErrEventSubjectOverlap with the two types whose
+// ErrorEventSubjectOverlap is [ErrEventSubjectOverlap] with the two types whose
 // subjects cover a common subject. An event with subject fields occupies
 // everything below its own, which leaves no subject there for another event.
 type ErrorEventSubjectOverlap struct {
@@ -626,7 +648,7 @@ func (e *ErrorEventSubjectOverlap) Error() string {
 
 func (e *ErrorEventSubjectOverlap) Unwrap() error { return ErrEventSubjectOverlap }
 
-// ErrorEventSubjectDuplicateSignal is ErrEventSubjectDuplicateSignal
+// ErrorEventSubjectDuplicateSignal is [ErrEventSubjectDuplicateSignal]
 // with suggestion context.
 type ErrorEventSubjectDuplicateSignal struct {
 	FieldName      string // e.g. "SubjectFoo" (second occurrence)
@@ -644,7 +666,7 @@ func (e *ErrorEventSubjectDuplicateSignal) Unwrap() error {
 	return ErrEventSubjectDuplicateSignal
 }
 
-// ErrorEventSubjectUserSignal is ErrEventSubjectUserSignal
+// ErrorEventSubjectUserSignal is [ErrEventSubjectUserSignal]
 // with suggestion context.
 type ErrorEventSubjectUserSignal struct {
 	TypeName string // e.g. "EventChat"
@@ -658,7 +680,7 @@ func (e *ErrorEventSubjectUserSignal) Unwrap() error {
 	return ErrEventSubjectUserSignal
 }
 
-// ErrorDispatchDuplicate is ErrDispatchDuplicate with the handler context.
+// ErrorDispatchDuplicate is [ErrDispatchDuplicate] with the handler context.
 type ErrorDispatchDuplicate struct {
 	Recv          string
 	MethodName    string
@@ -672,7 +694,7 @@ func (e *ErrorDispatchDuplicate) Error() string {
 
 func (e *ErrorDispatchDuplicate) Unwrap() error { return ErrDispatchDuplicate }
 
-// ErrorEventSubjectPrefixedField is ErrEventSubjectPrefixedField
+// ErrorEventSubjectPrefixedField is [ErrEventSubjectPrefixedField]
 // with the field and type context.
 type ErrorEventSubjectPrefixedField struct {
 	FieldName string
@@ -688,7 +710,7 @@ func (e *ErrorEventSubjectPrefixedField) Unwrap() error {
 	return ErrEventSubjectPrefixedField
 }
 
-// ErrorEventSubjectSignalInvalid is ErrEventSubjectSignalInvalid
+// ErrorEventSubjectSignalInvalid is [ErrEventSubjectSignalInvalid]
 // with suggestion context.
 type ErrorEventSubjectSignalInvalid struct {
 	FieldName  string // e.g. "SubjectInstance"
@@ -720,7 +742,7 @@ type (
 	ErrorTemplHrefExternalIsRelative       = templcheck.ErrorHrefExternalIsRelative
 )
 
-// ErrorSignatureUnsupportedInput is ErrSignatureUnsupportedInput with context.
+// ErrorSignatureUnsupportedInput is [ErrSignatureUnsupportedInput] with context.
 type ErrorSignatureUnsupportedInput struct {
 	ParamName  string // e.g. "b"
 	ParamType  string // e.g. "*http.Request"
