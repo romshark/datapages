@@ -516,7 +516,7 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if closeSession {
-		if err := s.CloseSession(w, r, sessToken); err != nil {
+		if _, err := s.CloseSession(w, r, sessToken); err != nil {
 			s.httpErrIntern(w, r, nil, "removing session", err)
 			return
 		}
@@ -821,10 +821,12 @@ func (s *Server) handlePageLoginPOSTSubmit(
 		return
 	}
 	if j := newSession; j.UserID != "" {
-		if err := s.CreateSession(w, r, newSession); err != nil {
+		created, err := s.CreateSession(w, r, newSession)
+		if err != nil {
 			s.httpErrIntern(w, r, nil, "creating session", err)
 			return
 		}
+		sess = created
 	}
 	if httpserve.Redirect(w, r, redirect) {
 		return
@@ -1782,7 +1784,7 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 		return
 	}
 	if closeSession {
-		if err := s.CloseSession(w, r, sessToken); err != nil {
+		if _, err := s.CloseSession(w, r, sessToken); err != nil {
 			s.httpErrIntern(w, r, nil, "removing session", err)
 			return
 		}

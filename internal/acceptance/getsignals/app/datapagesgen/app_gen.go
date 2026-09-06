@@ -191,11 +191,14 @@ func (s *Server) handlePageEnterGET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageEnter.GET", err)
 		return
 	}
+	renderSess := datapages.Session[struct{}]{}
 	if j := newSession; j.UserID != "" {
-		if err := s.CreateSession(w, r, newSession); err != nil {
+		created, err := s.CreateSession(w, r, newSession)
+		if err != nil {
 			s.httpErrIntern(w, r, nil, "creating session", err)
 			return
 		}
+		renderSess = created
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
@@ -203,7 +206,7 @@ func (s *Server) handlePageEnterGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, datapages.Session[struct{}]{}, nil, body, bodyAttrs, nil,
+		w, r, renderSess, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageEnter", err)
 		return
@@ -271,7 +274,7 @@ func (s *Server) handlePageIndexPOSTLeave(
 		return
 	}
 	if closeSession {
-		if err := s.CloseSession(w, r, sessToken); err != nil {
+		if _, err := s.CloseSession(w, r, sessToken); err != nil {
 			s.httpErrIntern(w, r, nil, "removing session", err)
 			return
 		}

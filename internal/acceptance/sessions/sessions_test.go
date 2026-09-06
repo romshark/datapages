@@ -472,6 +472,29 @@ func TestErrorSentinel(t *testing.T) {
 	})
 }
 
+// TestInlineSignInCarriesCSRFScript tests a sign-in answering with a document
+// instead of a navigation. Its Set-Cookie makes the CSRF token mandatory for
+// every later action of the page, which sends what the script carries.
+func TestInlineSignInCarriesCSRFScript(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+		c := srv.client(t)
+
+		status, body := c.postWithToken(t, "/login/submit-inline/",
+			`{"user":"alice"}`, "")
+		require.Equal(t, http.StatusOK, status, "%s", body)
+		require.NotNil(t, c.setCookie(), "the response signed nobody in")
+		require.Contains(t, body, "X-CSRF-Token",
+			"the document carries no CSRF script:\n%s", body)
+
+		// The token the script carries is what a later action sends.
+		c.token = csrfToken(t, srv.csrf, c.sessionToken(t))
+		status, body = c.post(t, "/login/rename/", `{"nickname":"al"}`)
+		require.Equal(t, http.StatusOK, status, "%s", body)
+	})
+}
+
 // TestCSRF tests the token a state-changing request must carry once the
 // visitor has a session.
 // Without a session there is nothing to forge and an anonymous request is let through.

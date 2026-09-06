@@ -621,9 +621,11 @@ func (c Case) testTrailingSlash(t *testing.T) {
 		t.Errorf("GET %s: status = %d with a trailing slash and %d without",
 			target, withSlash.StatusCode, without.StatusCode)
 	}
-	if withSlash.Header.Get("Datapages-Instance") != "" {
-		// A stateful page mints an id per load. Two loads of it differ by
-		// design and only the status can be compared.
+	if withSlash.Header.Get("Datapages-Instance") != "" ||
+		withSlash.Header.Get("Set-Cookie") != "" {
+		// A stateful page mints an id per load, a page that issues a session
+		// mints a token the CSRF script carries. Two loads of either differ
+		// by design and only the status can be compared.
 		return
 	}
 	if plainBody != slashBody {

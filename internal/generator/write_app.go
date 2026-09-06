@@ -1423,30 +1423,13 @@ func (w *Writer) writeMethodCall(
 		w.Line(1, "}")
 	}
 
-	// Close session.
-	if h.OutputCloseSession != nil {
-		w.Raw("\tif ")
-		w.Raw(outputVar(h.OutputCloseSession))
-		w.Raw(" {\n")
-		w.Line(2, "if err := s.CloseSession(w, r, sessToken); err != nil {")
-		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
-		w.Line(3, "return")
-		w.Line(2, "}")
-		w.Line(1, "}")
-	}
-
-	// New session.
-	if h.OutputNewSession != nil {
-		w.Raw("\tif j := ")
-		w.Raw(outputVar(h.OutputNewSession))
-		w.Raw("; j.UserID != \"\" {\n")
-		w.Raw("\t\tif err := s.CreateSession(w, r, ")
-		w.Raw(outputVar(h.OutputNewSession))
-		w.Raw("); err != nil {\n")
-		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
-		w.Line(2, "}")
-		w.Line(1, "}")
-	}
+	// Close and create session: a document rendered below is written from what
+	// they produce, not from the session read before.
+	actHeadNeedsSession := m.GlobalHeadGenerator != nil &&
+		m.GlobalHeadGenerator.InputSession
+	actSessArg, actSessRebind := w.renderSessionVar(h, m, h.OutputBody != nil,
+		hasSessionInput(h) || actHeadNeedsSession)
+	w.writeSessionOutputs(h, actSessRebind)
 
 	// Redirect.
 	w.writeRedirect(h)
@@ -1462,13 +1445,7 @@ func (w *Writer) writeMethodCall(
 		w.Line(1, "if err := s.writeHTML(")
 		w.Raw("\t\tw, r, ")
 		if m.Session != nil {
-			sessArg := "sess"
-			headNeedsSession := m.GlobalHeadGenerator != nil &&
-				m.GlobalHeadGenerator.InputSession
-			if !hasSessionInput(h) && !headNeedsSession {
-				sessArg = w.sessionType + "{}"
-			}
-			w.Raw(sessArg)
+			w.Raw(actSessArg)
 			w.Raw(", ")
 		}
 		if m.GlobalHeadGenerator != nil {

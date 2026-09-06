@@ -238,6 +238,9 @@ func setupHandlers(s *Server) {
 		"POST /login/submit/{$}",
 		s.handlePageLoginPOSTSubmit)
 	s.Mux().HandleFunc(
+		"POST /login/submit-inline/{$}",
+		s.handlePageLoginPOSTSubmitInline)
+	s.Mux().HandleFunc(
 		"POST /login/notify/{$}",
 		s.handlePageLoginPOSTNotify)
 	s.Mux().HandleFunc(
@@ -272,7 +275,7 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if closeSession {
-		if err := s.CloseSession(w, r, sessToken); err != nil {
+		if _, err := s.CloseSession(w, r, sessToken); err != nil {
 			s.httpErrIntern(w, r, nil, "removing session", err)
 			return
 		}
@@ -512,12 +515,56 @@ func (s *Server) handlePageLoginPOSTSubmit(
 		return
 	}
 	if j := newSession; j.UserID != "" {
-		if err := s.CreateSession(w, r, newSession); err != nil {
+		if _, err := s.CreateSession(w, r, newSession); err != nil {
 			s.httpErrIntern(w, r, nil, "creating session", err)
 			return
 		}
 	}
 	if httpserve.Redirect(w, r, redirect) {
+		return
+	}
+}
+
+func (s *Server) handlePageLoginPOSTSubmitInline(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
+	var signals datapages.Signals[struct {
+		User string `json:"user"`
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "PageLogin.SubmitInline")
+	p := app.PageLogin{
+		App: s.app,
+	}
+	body, newSession, err := p.POSTSubmitInline(r, signals)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageLogin.SubmitInline", err)
+		return
+	}
+	if j := newSession; j.UserID != "" {
+		created, err := s.CreateSession(w, r, newSession)
+		if err != nil {
+			s.httpErrIntern(w, r, nil, "creating session", err)
+			return
+		}
+		sess = created
+	}
+	genericHead := s.app.Head(datapages.Session[app.SessionData]{}, r)
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering response of PageLogin.POSTSubmitInline", err)
 		return
 	}
 }

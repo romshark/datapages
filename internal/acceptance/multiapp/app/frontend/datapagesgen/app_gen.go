@@ -319,7 +319,7 @@ func (s *Server) handlePageIndexPOSTSignIn(
 		return
 	}
 	if j := newSession; j.UserID != "" {
-		if err := s.CreateSession(w, r, newSession); err != nil {
+		if _, err := s.CreateSession(w, r, newSession); err != nil {
 			s.httpErrIntern(w, r, nil, "creating session", err)
 			return
 		}

@@ -369,7 +369,12 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 
 	// Close and create session, before anything is written: both set a cookie,
 	// and a cookie set after the body has started is dropped.
-	w.writeSessionOutputs(h)
+	getHeadNeedsSession := m.GlobalHeadGenerator != nil &&
+		m.GlobalHeadGenerator.InputSession
+	getRendersBody := p.PageSpecialization != model.PageTypeError500
+	getSessArg, getSessRebind := w.renderSessionVar(h, m, getRendersBody,
+		hasSessionInput(h) || getHeadNeedsSession)
+	w.writeSessionOutputs(h, getSessRebind)
 
 	// Redirect.
 	w.writeRedirect(h)
@@ -397,14 +402,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 	w.Line(1, "if err := s.writeHTML(")
 	w.Raw("\t\tw, r, ")
 	if m.Session != nil {
-		sessArg := "sess"
-		headNeedsSession := m.GlobalHeadGenerator != nil &&
-			m.GlobalHeadGenerator.InputSession
-		if p.PageSpecialization == model.PageTypeError500 ||
-			(!hasSessionInput(h) && !headNeedsSession) {
-			sessArg = w.sessionType + "{}"
-		}
-		w.Raw(sessArg)
+		w.Raw(getSessArg)
 		w.Raw(", ")
 	}
 	if m.GlobalHeadGenerator != nil {
@@ -436,29 +434,71 @@ func hasSessionInput(h *model.Handler) bool {
 //
 // A handler that returns a session and never has it acted on leaves the value unused,
 // which is a generated package that does not compile.
-func (w *Writer) writeSessionOutputs(h *model.Handler) {
+//
+// sessVar, when non-empty, names the variable the document is rendered from
+// and is rebound here: rendered from the session read before, the document
+// carries no CSRF script the response's own Set-Cookie already demands.
+func (w *Writer) writeSessionOutputs(h *model.Handler, sessVar string) {
 	if h.OutputCloseSession != nil {
 		w.Raw("\tif ")
 		w.Raw(outputVar(h.OutputCloseSession))
 		w.Raw(" {\n")
-		w.Line(2, "if err := s.CloseSession(w, r, sessToken); err != nil {")
+		if sessVar != "" {
+			w.Line(2, "closed, err := s.CloseSession(w, r, sessToken)")
+			w.Line(2, "if err != nil {")
+		} else {
+			w.Line(2, "if _, err := s.CloseSession(w, r, sessToken); err != nil {")
+		}
 		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
 		w.Line(3, "return")
 		w.Line(2, "}")
+		if sessVar != "" {
+			w.Linef(2, "%s = closed", sessVar)
+		}
 		w.Line(1, "}")
 	}
 	if h.OutputNewSession != nil {
 		w.Raw("\tif j := ")
 		w.Raw(outputVar(h.OutputNewSession))
 		w.Raw("; j.UserID != \"\" {\n")
-		w.Raw("\t\tif err := s.CreateSession(w, r, ")
-		w.Raw(outputVar(h.OutputNewSession))
-		w.Raw("); err != nil {\n")
+		if sessVar != "" {
+			w.Raw("\t\tcreated, err := s.CreateSession(w, r, ")
+			w.Raw(outputVar(h.OutputNewSession))
+			w.Raw(")\n")
+			w.Line(2, "if err != nil {")
+		} else {
+			w.Raw("\t\tif _, err := s.CreateSession(w, r, ")
+			w.Raw(outputVar(h.OutputNewSession))
+			w.Raw("); err != nil {\n")
+		}
 		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
 		w.Line(3, "return")
 		w.Line(2, "}")
+		if sessVar != "" {
+			w.Linef(2, "%s = created", sessVar)
+		}
 		w.Line(1, "}")
 	}
+}
+
+// renderSessionVar returns the session expression writeHTML takes and the
+// variable writeSessionOutputs rebinds, empty when nothing is rendered.
+// It declares one where the handler acts on a session but reads none.
+func (w *Writer) renderSessionVar(
+	h *model.Handler, m *model.App, rendersBody, hasSess bool,
+) (arg, rebind string) {
+	if m.Session == nil || !rendersBody {
+		return w.sessionType + "{}", ""
+	}
+	if hasSess {
+		return "sess", "sess"
+	}
+	if h.OutputNewSession == nil && h.OutputCloseSession == nil {
+		return w.sessionType + "{}", ""
+	}
+	// A name of its own: "sess" may hold the read for the CSRF check.
+	w.Linef(1, "renderSess := %s{}", w.sessionType)
+	return "renderSess", "renderSess"
 }
 
 // writeGenericHeadCall emits: genericHead := s.app.Head(r[, sess])
@@ -1438,7 +1478,11 @@ func (w *Writer) writeActionMethodCall(
 	}
 
 	// Close and create session.
-	w.writeSessionOutputs(h)
+	actHeadNeedsSession := m.GlobalHeadGenerator != nil &&
+		m.GlobalHeadGenerator.InputSession
+	actSessArg, actSessRebind := w.renderSessionVar(h, m, h.OutputBody != nil,
+		hasSessionInput(h) || actHeadNeedsSession)
+	w.writeSessionOutputs(h, actSessRebind)
 
 	// Redirect.
 	w.writeRedirect(h)
@@ -1451,13 +1495,7 @@ func (w *Writer) writeActionMethodCall(
 		w.Line(1, "if err := s.writeHTML(")
 		w.Raw("\t\tw, r, ")
 		if m.Session != nil {
-			sessArg := "sess"
-			headNeedsSession := m.GlobalHeadGenerator != nil &&
-				m.GlobalHeadGenerator.InputSession
-			if !hasSessionInput(h) && !headNeedsSession {
-				sessArg = w.sessionType + "{}"
-			}
-			w.Raw(sessArg)
+			w.Raw(actSessArg)
 			w.Raw(", ")
 		}
 		if m.GlobalHeadGenerator != nil {

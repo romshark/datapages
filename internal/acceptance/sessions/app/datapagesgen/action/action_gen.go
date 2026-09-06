@@ -247,3 +247,19 @@ func POSTPageLoginSubmit(options ...option) string {
 	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
+
+// POSTPageLoginSubmitInline references /login/submit-inline/
+func POSTPageLoginSubmitInline(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/login/submit-inline/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/login/submit-inline/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/login/submit-inline/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
