@@ -6,6 +6,8 @@ package href
 
 import (
 	"log/slog"
+	"net/url"
+	"strings"
 	"sync/atomic"
 
 	"github.com/romshark/datapages/runtime/hrefcheck"
@@ -45,6 +47,21 @@ func PageFeed() string { return "/feed/" }
 
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
+
+// PagePost references /post/{slug}/{$}
+func PagePost(slug string) string {
+	s_slug := url.PathEscape(slug)
+	var b strings.Builder
+	b.Grow(
+		len("/post/") +
+			len(s_slug) +
+			len("/"),
+	)
+	b.WriteString("/post/")
+	b.WriteString(s_slug)
+	b.WriteString("/")
+	return b.String()
+}
 
 // PageRooms references /rooms/{$}
 func PageRooms() string { return "/rooms/" }

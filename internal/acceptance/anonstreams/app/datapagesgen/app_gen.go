@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -17,6 +18,7 @@ import (
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/auth"
+	"github.com/romshark/datapages/runtime/htmlattr"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"github.com/romshark/datapages/runtime/stream"
@@ -213,6 +215,18 @@ func evSubjPageFeed(userID string) []string {
 	}
 }
 
+func evSubjPagePost(userID string) []string {
+	if userID == "" {
+		return []string{
+			EvSubjTicked,
+		}
+	}
+	return []string{
+		EvSubjTicked,
+		"noticed." + subject.Encode(userID),
+	}
+}
+
 func evSubjPageRooms(userID string, subjRoom string) []string {
 	if userID == "" {
 		return []string{
@@ -240,6 +254,15 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /",
 		s.handlePageIndexGET)
+	s.Mux().HandleFunc(
+		"GET /post/{slug}/{$}",
+		s.handlePagePostGET)
+	s.Mux().HandleFunc(
+		"GET /post/{slug}/_$/{$}",
+		s.handlePagePostGETStream)
+	s.Mux().HandleFunc(
+		"GET /post/{slug}/_$/anon/{$}",
+		s.handlePagePostGETStreamAnon)
 	s.Mux().HandleFunc(
 		"GET /rooms/{$}",
 		s.handlePageRoomsGET)
@@ -314,7 +337,9 @@ func (s *Server) handlePageFeedGETStream(w http.ResponseWriter, r *http.Request)
 	if sess.UserID() == "" {
 		// The query carries the signals a stream subscribes by,
 		// which the anonymous route needs as much as this one.
-		target := r.URL.Path + "/anon"
+		// EscapedPath, not the decoded Path: a value carrying "?" or "#" re-parses
+		// in the Location header as a query or a fragment.
+		target := r.URL.EscapedPath() + "anon/"
 		if r.URL.RawQuery != "" {
 			target += "?" + r.URL.RawQuery
 		}
@@ -466,6 +491,154 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	var path datapages.Path[struct {
+		Slug string `path:"slug"`
+	}]
+	path.Values.Slug = r.PathValue("slug")
+
+	p := app.PagePost{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PagePost.GET")
+	body, err := p.GET(r, path, sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PagePost.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, `/post/`)
+		htmlattr.WritePathValue(w, path.Values.Slug)
+		_, _ = io.WriteString(w, `/`)
+		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, `_$/')"`)
+		} else {
+			_, _ = io.WriteString(w, `_$/anon/')"`)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PagePost", err)
+		return
+	}
+}
+
+func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() == "" {
+		// The query carries the signals a stream subscribes by,
+		// which the anonymous route needs as much as this one.
+		// EscapedPath, not the decoded Path: a value carrying "?" or "#" re-parses
+		// in the Location header as a query or a fragment.
+		target := r.URL.EscapedPath() + "anon/"
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
+		return
+	}
+
+	p := app.PagePost{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID()),
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PagePost stream")
+			var eventTicked app.EventTicked
+			var eventNoticed app.EventNoticed
+			for msg := range ch {
+				switch {
+				case msg.Subject == EvSubjTicked:
+					eventTicked = app.EventTicked{}
+					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
+						s.LogErr("unmarshaling EventTicked JSON", err)
+						continue
+					}
+					if err := p.OnTicked(eventTicked, dpsse.New(sse)); err != nil {
+						s.LogErr("handling PagePost.OnTicked", err)
+					}
+				case strings.HasPrefix(msg.Subject, EvSubjPrefNoticed):
+					eventNoticed = app.EventNoticed{}
+					if err := json.Unmarshal(msg.Data, &eventNoticed); err != nil {
+						s.LogErr("unmarshaling EventNoticed JSON", err)
+						continue
+					}
+					if err := p.OnNoticed(eventNoticed, dpsse.New(sse)); err != nil {
+						s.LogErr("handling PagePost.OnNoticed", err)
+					}
+				}
+			}
+		})
+}
+
+func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() != "" {
+		s.HTTPErrBad(w, "authenticated client on anonymous stream", nil)
+		return
+	}
+
+	p := app.PagePost{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID()),
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			var eventTicked app.EventTicked
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjTicked:
+					eventTicked = app.EventTicked{}
+					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
+						s.LogErr("unmarshaling EventTicked JSON", err)
+						continue
+					}
+					if err := p.OnTicked(eventTicked, dpsse.New(sse)); err != nil {
+						s.LogErr("handling PagePost.OnTicked", err)
+					}
+				}
+			}
+		})
+}
+
 func (s *Server) handlePageRoomsGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageRooms{
 		App: s.app,
@@ -505,7 +678,9 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 	if sess.UserID() == "" {
 		// The query carries the signals a stream subscribes by,
 		// which the anonymous route needs as much as this one.
-		target := r.URL.Path + "/anon"
+		// EscapedPath, not the decoded Path: a value carrying "?" or "#" re-parses
+		// in the Location header as a query or a fragment.
+		target := r.URL.EscapedPath() + "anon/"
 		if r.URL.RawQuery != "" {
 			target += "?" + r.URL.RawQuery
 		}

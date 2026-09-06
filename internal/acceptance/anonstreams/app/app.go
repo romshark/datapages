@@ -194,3 +194,33 @@ func (p PageFeed) POSTTick(
 ) error {
 	return ticked.Dispatch(EventTicked{N: signals.Values.N})
 }
+
+// PagePost is /post/{slug}
+//
+// The redirect to its anonymous stream is built from the request path,
+// which arrives decoded: a slug carrying "?" or "#" has to survive it.
+type PagePost struct{ App *App }
+
+func (PagePost) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Slug string `path:"slug"`
+	}],
+	session Session,
+) (body datapages.Component, err error) {
+	_ = session
+	return templ.Raw(`<div id="out">post ` +
+		templ.EscapeString(path.Values.Slug) + `</div>`), nil
+}
+
+func (p PagePost) OnTicked(event EventTicked, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
+		`<div id="out">tick %d</div>`, event.N,
+	)))
+}
+
+func (p PagePost) OnNoticed(event EventNoticed, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
+		`<div id="out">notice: %s</div>`, templ.EscapeString(event.Text),
+	)))
+}
