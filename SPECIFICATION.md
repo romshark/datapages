@@ -1158,3 +1158,8 @@ cross-page action ownership errors.
   (e.g. `href="https://mydomain.com/login"`). These bypass the linter because they
   have an explicit URL scheme, which the linter treats as external.
   Use the generated `href.PageXxx()` builders instead.
+
+- The app package must hold no build-constrained file. Pages, actions and events
+  are read from the package as the host builds it, so a page in a `//go:build windows`
+  file or in `page_windows.go` is generated on Windows and is missing everywhere else,
+  with no error. The `datapages.NewServer` calls are read differently, from every file except those under `//go:build ignore`, and may live in a platform-specific command.

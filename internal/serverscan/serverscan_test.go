@@ -3,6 +3,7 @@ package serverscan_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -156,6 +157,73 @@ func main() {}
 			require.True(t, a.Calls[0].Main)
 		})
 	}
+}
+
+// TestScanSkipsExcludedFiles tests a file no build configuration compiles.
+// A //go:build ignore program with a conflicting NewServer call stops generation
+// for the whole module.
+func TestScanSkipsExcludedFiles(t *testing.T) {
+	root := write(t, map[string]string{
+		"app/app.go":                  "package app\n",
+		"app/datapagesgen/app_gen.go": genPkg(true),
+		"cmd/server/main.go": mainGo("app",
+			"app.App, datapages.DisableSessions, datapages.DisablePrometheus, gen.Server",
+			""),
+		"tools/gen.go": "//go:build ignore\n\n" + mainGo("app",
+			"app.App, datapages.DisableSessions, datapages.EnablePrometheus, gen.Server",
+			""),
+	})
+
+	res, err := serverscan.Scan(root, "example.com/mod")
+	require.NoError(t, err)
+	require.False(t, res.Fallback)
+	require.Len(t, res.Apps, 1)
+	require.False(t, res.Apps[0].Prometheus)
+}
+
+// TestScanKeepsGOOSSpecificFiles tests a call in a file this host
+// excludes but another compiles. Skipping it would make what the scan reads,
+// and with it what gen writes, depend on the platform it runs on.
+func TestScanKeepsGOOSSpecificFiles(t *testing.T) {
+	for _, name := range []string{"main_windows.go", "main_linux.go", "main_js.go"} {
+		t.Run(name, func(t *testing.T) {
+			root := write(t, map[string]string{
+				"app/app.go":                  "package app\n",
+				"app/datapagesgen/app_gen.go": genPkg(true),
+				"cmd/server/" + name: mainGo("app",
+					"app.App, datapages.DisableSessions, datapages.EnablePrometheus, gen.Server",
+					""),
+			})
+
+			res, err := serverscan.Scan(root, modulePath)
+			require.NoError(t, err)
+			require.False(t, res.Fallback, "the call was skipped")
+			require.Len(t, res.Apps, 1)
+			require.True(t, res.Apps[0].Prometheus)
+		})
+	}
+}
+
+// TestScanKeepsTestFiles tests a module whose only NewServer call is written in
+// a _test.go, which the acceptance cases are: the build excludes such a file
+// from a plain build, the scan reads it.
+func TestScanKeepsTestFiles(t *testing.T) {
+	root := write(t, map[string]string{
+		"app/app.go":                  "package app\n",
+		"app/datapagesgen/app_gen.go": genPkg(true),
+		"app/newserver_test.go": strings.Replace(
+			mainGo("app",
+				"app.App, datapages.DisableSessions, datapages.EnablePrometheus, gen.Server",
+				""),
+			"package main", "package app_test", 1,
+		),
+	})
+
+	res, err := serverscan.Scan(root, modulePath)
+	require.NoError(t, err)
+	require.False(t, res.Fallback)
+	require.Len(t, res.Apps, 1)
+	require.True(t, res.Apps[0].Prometheus)
 }
 
 // TestScanMultipleApps tests a module that builds more than one application.
