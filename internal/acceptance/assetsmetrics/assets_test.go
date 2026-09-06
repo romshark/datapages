@@ -304,14 +304,17 @@ func TestStreamStaysOutOfRequestLatency(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/_$/", nil)
+	// PageQuiet's route, which no other test sends anything to:
+	// what the histogram holds for it is this stream and nothing else.
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodGet, srv.URL+"/quiet/_$/", nil,
+	)
 	require.NoError(t, err, "building stream request")
 	req.Header.Set("Datastar-Request", "true")
 	req.Header.Set("Accept-Encoding", "identity")
 	stream, err := srv.Client().Do(req)
 	require.NoError(t, err, "opening stream")
 	require.Equal(t, http.StatusOK, stream.StatusCode, "opening stream")
-	time.Sleep(200 * time.Millisecond)
 
 	// The request counter is written when the handler returns,
 	// the histogram is the one the stream must stay out of.
@@ -327,24 +330,9 @@ func TestStreamStaysOutOfRequestLatency(t *testing.T) {
 	}
 
 	require.Contains(t, byName["datapages_http_requests_total"].String(),
-		"GET /_$/{$}", "the stream was not counted as a request")
-
-	// Not the absence of the label: a request to the stream route that never
-	// becomes a stream, one without the Datastar header, belongs in the histogram.
-	// The stream above was held far longer than any of those.
-	for _, m := range byName["datapages_http_request_duration_seconds"].GetMetric() {
-		if !hasLabel(m, "path", "GET /_$/{$}") {
-			continue
-		}
-		h := m.GetHistogram()
-		for _, b := range h.GetBucket() {
-			if b.GetUpperBound() != 0.1 {
-				continue
-			}
-			require.Equal(t, h.GetSampleCount(), b.GetCumulativeCount(),
-				"a stream was observed as a request latency: %s", h.String())
-		}
-	}
+		"GET /quiet/_$/{$}", "the stream was not counted as a request")
+	require.NotContains(t, byName["datapages_http_request_duration_seconds"].String(),
+		"GET /quiet/_$/{$}", "the stream was observed as a request latency")
 }
 
 // TestRefusedStreamStaysARequest tests a stream StreamOpen refuses.

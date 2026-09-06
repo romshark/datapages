@@ -185,18 +185,10 @@ func runWatch(
 		if exe, exeErr := os.Executable(); exeErr == nil {
 			genExe = exe
 		}
-		engineConf.CustomWatchers = append([]engine.CustomWatcherConfig{
-			{
-				Name:    "datapages gen",
-				Include: watchInclude(scan),
-				// The generated packages sit under the app packages they
-				// belong to. Without this a run of gen would trigger gen.
-				Exclude:   watchExclude(scan),
-				Cmd:       genExe + " gen",
-				FailOnErr: true,
-				Requires:  engine.ActionRebuild,
-			},
-		}, engineConf.CustomWatchers...)
+		engineConf.CustomWatchers = append(
+			[]engine.CustomWatcherConfig{genWatcher(genExe, scan)},
+			engineConf.CustomWatchers...,
+		)
 	}
 
 	e, err := engine.New(engineConf, engine.Options{})
@@ -212,6 +204,22 @@ func runWatch(
 			host)
 	}
 	return err
+}
+
+// genWatcher is the custom watcher that re-runs gen on a file change.
+func genWatcher(
+	genExe string, scan serverscan.Result,
+) engine.CustomWatcherConfig {
+	return engine.CustomWatcherConfig{
+		Name:    "datapages gen",
+		Include: watchInclude(scan),
+		// The generated packages sit under the app packages they belong to.
+		// Without this a run of gen would trigger gen.
+		Exclude:   watchExclude(scan),
+		Cmd:       genWatcherCmd(genExe),
+		FailOnErr: true,
+		Requires:  engine.ActionRebuild,
+	}
 }
 
 // genWatcherCmd is the shell line that re-runs gen on a file change.

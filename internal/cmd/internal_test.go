@@ -34,7 +34,9 @@ func TestGenWatcherCmd(t *testing.T) {
 				exe, []byte("#!/bin/sh\necho \"ran $1\"\n"), 0o755,
 			))
 
-			cmd := genWatcherCmd(exe)
+			// The config the watch command builds, not the helper alone:
+			// nothing else ties the quoting to what runs.
+			cmd := genWatcher(exe, serverscan.Result{}).Cmd
 			first, _, _ := strings.Cut(cmd, " ")
 			_, err := exec.LookPath(first)
 			require.NoError(t, err, "templier looks up %q", first)

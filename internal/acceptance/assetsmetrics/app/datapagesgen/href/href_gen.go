@@ -49,3 +49,6 @@ func Asset(p string) string {
 
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
+
+// PageQuiet references /quiet/{$}
+func PageQuiet() string { return "/quiet/" }

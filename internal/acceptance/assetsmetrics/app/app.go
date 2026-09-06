@@ -47,6 +47,20 @@ func (PageIndex) POSTAnnounce(
 	return announced.Dispatch(EventAnnounced{Text: signals.Values.Text})
 }
 
+// PageQuiet is /quiet
+//
+// A stream route of its own. The request metrics of a stream are asserted on its label,
+// which stays free of what the other tests send.
+type PageQuiet struct{ App *App }
+
+func (PageQuiet) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<pre id="echo">quiet</pre>`), nil
+}
+
+func (PageQuiet) StreamOpen(_ *http.Request, _ datapages.StreamID) error {
+	return nil
+}
+
 // StreamOpen refuses the stream when the URL carries "refuse".
 // A stream that never opens is an ordinary request, metrics included.
 func (PageIndex) StreamOpen(r *http.Request, _ datapages.StreamID) error {
