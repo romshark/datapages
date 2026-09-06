@@ -113,6 +113,19 @@ var (
 		[]string{"reason"}, // [SSEDisconnect] names the values.
 	)
 
+	// Action options the expression writer refused. The label is the helper
+	// that built the option, never the value, which can come from a request
+	// and would then open one time series per visitor.
+	mActionOptionsDropped = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "datapages",
+			Subsystem: "action",
+			Name:      "options_dropped_total",
+			Help:      "Action options dropped for a value the expression cannot carry",
+		},
+		[]string{"option"},
+	)
+
 	mSessionCreations = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "datapages",
@@ -157,6 +170,7 @@ func Register(r prometheus.Registerer, extra ...prometheus.Collector) error {
 		mSSEDisconnects,
 		mBrokerEventPublishes,
 		mBrokerDeliveriesDropped,
+		mActionOptionsDropped,
 		mSessionCreations,
 		mSessionClosures,
 		mSessionReads,
@@ -216,6 +230,12 @@ func SessionClosed(outcome string) {
 	mSessionClosures.WithLabelValues(outcome).Inc()
 }
 
+// ActionOptionDropped counts an action option left out of the expression.
+// option is the name of the helper that built it, such as "WithRetryScaler".
+func ActionOptionDropped(option string) {
+	mActionOptionsDropped.WithLabelValues(option).Inc()
+}
+
 // InternalErrorRecovered counts an error the application answered itself.
 func InternalErrorRecovered() { mInternalErrorsRecovered.Inc() }
 
@@ -229,6 +249,12 @@ type AuthMetrics struct{}
 func (AuthMetrics) SessionRead(outcome string)    { SessionRead(outcome) }
 func (AuthMetrics) SessionCreated(outcome string) { SessionCreated(outcome) }
 func (AuthMetrics) SessionClosed(outcome string)  { SessionClosed(outcome) }
+
+// ActionMetrics counts what the action expression writer refuses.
+// It implements actionexpr.Metrics.
+type ActionMetrics struct{}
+
+func (ActionMetrics) OptionDropped(option string) { ActionOptionDropped(option) }
 
 // StreamMetrics counts what the stream handler does.
 // It implements stream.Metrics.

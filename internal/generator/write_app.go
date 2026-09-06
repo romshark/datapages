@@ -346,6 +346,7 @@ func (w *Writer) writeAppInit(appPkg string) {
 // Supported options:
 //
 //   - datapages.WithLogger
+//   - datapages.WithLogSampling
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
@@ -478,9 +479,13 @@ func (s *Server) Init(
 `)
 	w.Raw(`
 	s.Build()
-	href.SetLogger(s.Logger())
-	actionexpr.SetLogger(s.Logger())
-
+	href.SetLogger(s.SampledLogger())
+	actionexpr.SetLogger(s.SampledLogger())
+`)
+	if w.prometheus {
+		w.Raw("\tactionexpr.SetMetrics(prom.ActionMetrics{})\n")
+	}
+	w.Raw(`
 	return nil
 }
 `)

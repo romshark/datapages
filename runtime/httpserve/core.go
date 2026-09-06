@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/logsample"
 	"github.com/romshark/datapages/runtime/prom"
 )
 
@@ -59,6 +60,7 @@ type Core struct {
 	mux           *http.ServeMux
 	handler       http.Handler
 	logger        *slog.Logger
+	sampledLogger *slog.Logger
 	middleware    []func(http.Handler) http.Handler
 	outermost     func(http.Handler) http.Handler
 	assetsFS      http.FileSystem
@@ -97,6 +99,17 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 			opt.Level = slog.LevelDebug
 		}
 		c.logger = slog.New(slog.NewJSONHandler(os.Stderr, opt))
+	}
+	c.sampledLogger = c.logger
+	if cfg.LogSampling == nil || !cfg.LogSampling.Disabled {
+		var limit int
+		var interval time.Duration
+		if cfg.LogSampling != nil {
+			limit, interval = cfg.LogSampling.Limit, cfg.LogSampling.Interval
+		}
+		c.sampledLogger = slog.New(
+			logsample.New(c.logger.Handler(), limit, interval),
+		)
 	}
 	if c.httpServer == nil {
 		c.httpServer = &http.Server{
@@ -174,6 +187,12 @@ func (c *Core) Mux() *http.ServeMux { return c.mux }
 
 // Logger is the logger the server writes to.
 func (c *Core) Logger() *slog.Logger { return c.logger }
+
+// SampledLogger is the logger for a warning the framework emits on every render.
+// It writes one record of each kind per interval and counts what it throttles,
+// which [github.com/romshark/datapages.WithLogSampling] configures.
+// Application code writes to [Core.Logger] instead.
+func (c *Core) SampledLogger() *slog.Logger { return c.sampledLogger }
 
 // LogErr logs err under msg.
 func (c *Core) LogErr(msg string, err error) {

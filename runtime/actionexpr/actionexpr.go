@@ -31,6 +31,30 @@ func SetLogger(l *slog.Logger) {
 
 func getLogger() *slog.Logger { return logger.Load() }
 
+// Metrics counts what this package refuses. A nil Metrics counts nothing.
+type Metrics interface {
+	// OptionDropped counts an option left out of the expression.
+	// option is the name of the helper that built it.
+	OptionDropped(option string)
+}
+
+// metricsHolder carries the interface, which atomic.Pointer cannot.
+type metricsHolder struct{ m Metrics }
+
+var metrics atomic.Pointer[metricsHolder]
+
+// SetMetrics sets what counts a dropped option.
+// The server installs it when it is built with Prometheus.
+// It's safe for concurrent use.
+func SetMetrics(m Metrics) { metrics.Store(&metricsHolder{m: m}) }
+
+func getMetrics() Metrics {
+	if h := metrics.Load(); h != nil {
+		return h.m
+	}
+	return nil
+}
+
 // Option is one entry of an action expression. It is either an option of
 // the call or JavaScript that runs before or after it.
 type Option struct {
@@ -327,7 +351,13 @@ var jsStringEscaper = strings.NewReplacer(
 
 // warnDropped reports an option value the expression cannot carry.
 // The option is left out, which runs the action on the Datastar default.
+//
+// An option is built on every render, so the logger the server installs
+// throttles the warning to one per interval.
 func warnDropped(fn, value string) {
+	if m := getMetrics(); m != nil {
+		m.OptionDropped(fn)
+	}
 	getLogger().Warn("dropping an action option with an invalid value",
 		slog.String("option", fn),
 		slog.String("value", value))

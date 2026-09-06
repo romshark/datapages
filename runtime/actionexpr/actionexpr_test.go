@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"math"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -65,14 +66,16 @@ func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
 		"request cancellation unknown": {
 			option: func() actionexpr.Option {
 				return actionexpr.WithRequestCancellation(
-					actionexpr.RequestCancellation("later"))
+					actionexpr.RequestCancellation("later"),
+				)
 			},
 			logged: "WithRequestCancellation",
 		},
 		"request cancellation known": {
 			option: func() actionexpr.Option {
 				return actionexpr.WithRequestCancellation(
-					actionexpr.RequestCancellationDisabled)
+					actionexpr.RequestCancellationDisabled,
+				)
 			},
 			want: ", {requestCancellation: 'disabled'}",
 		},
@@ -130,6 +133,37 @@ func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
 			require.Contains(t, buf.String(), tc.logged)
 		})
 	}
+}
+
+// countingMetrics records what the expression writer refuses.
+type countingMetrics struct {
+	lock    sync.Mutex
+	dropped []string
+}
+
+func (c *countingMetrics) OptionDropped(option string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.dropped = append(c.dropped, option)
+}
+
+// TestDroppedOptionIsCounted tests the counter behind a dropped option.
+// The log is throttled, so the count is what says how often it still happens.
+func TestDroppedOptionIsCounted(t *testing.T) {
+	var m countingMetrics
+	actionexpr.SetMetrics(&m)
+	t.Cleanup(func() { actionexpr.SetMetrics(nil) })
+
+	for range 3 {
+		actionexpr.WithRetryScaler(math.Inf(1))
+	}
+	actionexpr.WithRetryInterval(-1)
+	actionexpr.WithRetryInterval(1000)
+
+	require.Equal(t, []string{
+		"WithRetryScaler", "WithRetryScaler", "WithRetryScaler",
+		"WithRetryInterval",
+	}, m.dropped)
 }
 
 // TestWithHeadersIsStable tests that one call renders one string.

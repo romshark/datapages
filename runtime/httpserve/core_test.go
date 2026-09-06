@@ -1,9 +1,11 @@
 package httpserve_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -244,6 +246,76 @@ func TestLimitRequestBodyClosesTheConnection(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	require.True(t, resp.Close, "the connection was kept for the next request")
+}
+
+// TestSampledLogger tests the logger the framework's own repeated warnings go to.
+// They are written where a page renders, so one bad value in the
+// application would otherwise write a line per element per request.
+func TestSampledLogger(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		conf *datapages.LogSamplingConfig
+		want int // lines for 10 warnings of one kind, then 10 of another
+	}{
+		"default": {want: 2},
+		"disabled": {
+			conf: &datapages.LogSamplingConfig{Disabled: true},
+			want: 20,
+		},
+		"limit of one": {
+			conf: &datapages.LogSamplingConfig{Limit: 1},
+			want: 1,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			c := mustCore(t, datapages.ServerConfig{
+				Logger:      slog.New(slog.NewTextHandler(&buf, nil)),
+				LogSampling: tc.conf,
+			}, "")
+
+			for range 10 {
+				c.SampledLogger().Warn("dropped", slog.String("value", "a"))
+			}
+			for range 10 {
+				c.SampledLogger().Warn("dropped", slog.String("value", "b"))
+			}
+			require.Equal(t, tc.want, strings.Count(buf.String(), "dropped"))
+
+			// What the application logs is never sampled.
+			for range 3 {
+				c.Logger().Warn("app")
+			}
+			require.Equal(t, 3, strings.Count(buf.String(), "app"))
+		})
+	}
+}
+
+// TestSampledLoggerInterval tests that the configured interval reaches the handler.
+// A warning is written again once it has passed,
+// which is what says the mistake is still there.
+func TestSampledLoggerInterval(t *testing.T) {
+	t.Parallel()
+
+	const interval = 10 * time.Millisecond
+	var buf bytes.Buffer
+	c := mustCore(t, datapages.ServerConfig{
+		Logger:      slog.New(slog.NewTextHandler(&buf, nil)),
+		LogSampling: &datapages.LogSamplingConfig{Interval: interval},
+	}, "")
+
+	for range 5 {
+		c.SampledLogger().Warn("dropped")
+	}
+	require.Equal(t, 1, strings.Count(buf.String(), "dropped"))
+
+	time.Sleep(2 * interval)
+	c.SampledLogger().Warn("dropped")
+	require.Equal(t, 2, strings.Count(buf.String(), "dropped"))
+	require.Contains(t, buf.String(), "suppressed=4")
 }
 
 // TestBuildDefaults tests what a core built from an empty config carries:
