@@ -316,23 +316,31 @@ func TestStreamStaysOutOfRequestLatency(t *testing.T) {
 	require.NoError(t, err, "opening stream")
 	require.Equal(t, http.StatusOK, stream.StatusCode, "opening stream")
 
-	// The request counter is written when the handler returns,
-	// the histogram is the one the stream must stay out of.
 	_ = stream.Body.Close()
 	cancel()
-	time.Sleep(200 * time.Millisecond)
 
+	// The counter is written when the handler returns,
+	// which the client cannot observe on a stream it cancelled.
+	require.Eventually(t, func() bool {
+		return strings.Contains(family(t, "datapages_http_requests_total"),
+			"GET /quiet/_$/{$}")
+	}, 5*time.Second, 10*time.Millisecond, "the stream was never counted")
+
+	require.NotContains(t, family(t, "datapages_http_request_duration_seconds"),
+		"GET /quiet/_$/{$}", "the stream was observed as a request latency")
+}
+
+// family renders the metric family name as the registry holds it.
+func family(t *testing.T, name string) string {
+	t.Helper()
 	families, err := registry.Gather()
 	require.NoError(t, err, "gathering metrics")
-	byName := map[string]*dto.MetricFamily{}
 	for _, f := range families {
-		byName[f.GetName()] = f
+		if f.GetName() == name {
+			return f.String()
+		}
 	}
-
-	require.Contains(t, byName["datapages_http_requests_total"].String(),
-		"GET /quiet/_$/{$}", "the stream was not counted as a request")
-	require.NotContains(t, byName["datapages_http_request_duration_seconds"].String(),
-		"GET /quiet/_$/{$}", "the stream was observed as a request latency")
+	return ""
 }
 
 // TestRefusedStreamStaysARequest tests a stream StreamOpen refuses.
@@ -349,12 +357,18 @@ func TestRefusedStreamStaysARequest(t *testing.T) {
 	)
 	require.NoError(t, err, "building stream request")
 	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := srv.Client().Do(req)
 	require.NoError(t, err, "opening stream")
-	_ = resp.Body.Close()
 	// 200: datastar.NewSSE writes the head before StreamOpen runs,
 	// which is why the refusal travels as an SSE error rather than a status.
 	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// To EOF, not just Close: the middleware records after the handler returns,
+	// and the response ends with it.
+	_, err = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err, "reading the refusal")
+	_ = resp.Body.Close()
 
 	require.Greater(t, histogramCount(t, "GET /_$/{$}"), before,
 		"the refused stream was not observed as a request")
