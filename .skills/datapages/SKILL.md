@@ -842,7 +842,8 @@ opts = append(opts, datapages.WithHTTPServer(&http.Server{
 	ReadHeaderTimeout: 10 * time.Second,
 }))
 
-// Custom Datastar JS bundle URL (defaults to CDN)
+// Custom Datastar JS bundle URL (defaults to CDN).
+// An http/https URL or a relative one, valid per RFC 3986.
 opts = append(opts, datapages.WithDatastarJS("https://cdn.example.com/datastar.js"))
 
 // Prometheus metrics on a dedicated HTTP server.

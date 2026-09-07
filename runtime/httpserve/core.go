@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net"
@@ -156,7 +157,7 @@ func (c *Core) Build() {
 		c.datastarJSSrc = DefaultDatastarJSSrc
 	}
 	c.htmlPrefix = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="` + c.datastarJSSrc + `"></script>`
+		<script type="module" src="` + html.EscapeString(c.datastarJSSrc) + `"></script>`
 
 	if c.httpServer.ErrorLog == nil {
 		c.httpServer.ErrorLog = slog.NewLogLogger(
