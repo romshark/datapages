@@ -855,7 +855,31 @@ func TestInit(t *testing.T) {
 				require.FileExists(t, filepath.Join(projectDir, ".env"))
 				require.FileExists(t, filepath.Join(projectDir, "compose.yaml"))
 				require.FileExists(t, filepath.Join(projectDir, "Makefile"))
+				require.FileExists(t, filepath.Join(projectDir, "AGENTS.md"))
+				require.FileExists(t, filepath.Join(projectDir, "CLAUDE.md"))
+				require.FileExists(t, filepath.Join(projectDir,
+					".claude", "skills", "datapages", "SKILL.md"))
 				require.Contains(t, stdout, "Project initialized successfully.")
+			},
+		},
+		"non-interactive without ai skills": {
+			setup: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			projectDir: "myapp",
+			args: []string{
+				"datapages", "init",
+				"-n",
+				"--name", "myapp",
+				"--module", "example.com/myapp",
+				"--no-ai-skills",
+			},
+			wantCode: 0,
+			check: func(t *testing.T, startDir string, stdout string) {
+				projectDir := filepath.Join(startDir, "myapp")
+				require.NoFileExists(t, filepath.Join(projectDir, "AGENTS.md"))
+				require.NoFileExists(t, filepath.Join(projectDir, "CLAUDE.md"))
+				require.NoDirExists(t, filepath.Join(projectDir, ".claude"))
 			},
 		},
 		"non-interactive missing name": {
@@ -1103,6 +1127,61 @@ func TestInit(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestInitInInitializedProject tests that init in a project that is already
+// set up succeeds, writes the agent instructions it was asked for, and keeps
+// what it replaces.
+func TestInitInInitializedProject(t *testing.T) {
+	t.Setenv("GOFLAGS", "-e")
+	repoRoot := repoRootDir(t)
+
+	dir := t.TempDir()
+	out, err := exec.Command("git", "init", dir).CombinedOutput()
+	require.NoError(t, err, "git init: %s", out)
+	writeLocalWorkspace(t, dir, repoRoot)
+	chdirTemp(t, dir)
+
+	run := func(args ...string) string {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		code := cmd.Run(
+			context.Background(),
+			append([]string{
+				"datapages", "init", "-n", "--module", "example.com/initialized",
+			}, args...),
+			nil, &stdout, &stderr,
+			"0.0.0", "xxxxxxx", "2026-2-23",
+		)
+		require.Zero(t, code,
+			"stdout: %s\nstderr: %s", stdout.String(), stderr.String())
+		return stdout.String()
+	}
+
+	run("--no-ai-skills")
+	require.NoFileExists(t, filepath.Join(dir, "AGENTS.md"))
+
+	stdout := run()
+	require.Contains(t, stdout, "Project already initialized.")
+	require.Contains(t, stdout, "Wrote AGENTS.md")
+	require.FileExists(t, filepath.Join(dir, "CLAUDE.md"))
+	require.FileExists(t, filepath.Join(dir,
+		".claude", "skills", "datastar", "SKILL.md"))
+
+	const mine = "# My own instructions\n"
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "AGENTS.md"), []byte(mine), 0o644))
+
+	stdout = run()
+	require.Contains(t, stdout, "Kept the previous AGENTS.md as AGENTS.md.bak")
+	backup, err := os.ReadFile(filepath.Join(dir, "AGENTS.md.bak"))
+	require.NoError(t, err)
+	require.Equal(t, mine, string(backup))
+
+	// Nothing changed since the last run, so nothing is written again.
+	stdout = run()
+	require.NotContains(t, stdout, "Wrote")
+	require.NotContains(t, stdout, "Kept the previous")
 }
 
 // TestInitPinsTheCLIInCI tests the install line of the scaffolded workflow.

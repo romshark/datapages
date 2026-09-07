@@ -1,0 +1,90 @@
+---
+name: datapages-sessions
+description: >-
+  Datapages authentication: the Session type, reading it in handlers,
+  opening and closing sessions, CSRF protection and choosing a session manager.
+---
+
+# Sessions
+
+Declare the payload and the alias once in the app package. Skip all of this if
+the app needs no authentication.
+
+```go
+type SessionData struct{ Name string }
+
+type Session = datapages.Session[SessionData]
+```
+
+Use `struct{}` when there is no payload. Every handler must use the same `Data`
+type, which is why the alias is declared once and used everywhere.
+
+## Read
+
+Take `session Session` in any page, action, event handler or stream hook. It is
+read-only: `UserID()`, `IsGuest()`, `Token()`, `IssuedAt()`, `ExpiresAt()`,
+`Data()`. An expired client counts as unauthenticated and loses its cookie.
+
+Declare it in every action that must not run for a stale session: an action
+without it is checked against the session cookie alone and never reads the
+store, so the cookie of a closed or expired session passes.
+
+## Open and close
+
+Return values, from a `GET` or an action:
+
+```go
+// POSTSignIn is /sign-in
+func (*App) POSTSignIn(
+	r *http.Request,
+	signals datapages.Signals[struct {
+		Name string `json:"name"`
+	}],
+) (
+	newSession datapages.NewSession[SessionData],
+	redirect datapages.Redirect,
+	err error,
+) {
+	name := signals.Values.Name
+	if err := datapages.ValidateUserID(name); err != nil {
+		return datapages.NewSession[SessionData]{},
+			datapages.Redirect{}, datapages.ErrBadRequest
+	}
+	return datapages.NewSession[SessionData]{
+		UserID: name,
+		Data:   SessionData{Name: name},
+	}, datapages.Redirect{URL: "/"}, nil
+}
+```
+
+`NewSession` carries `UserID`, `Data` and an optional `ExpiresAt`; Datapages
+mints the token and stamps the issue time. A zero `UserID` creates nothing.
+Sign out by returning `closeSession datapages.CloseSession` as `true`.
+
+Neither works next to a `datapages.SSE` parameter: the headers the cookie
+travels in are already out. Sign in or out without `sse` and use `redirect`.
+
+## CSRF
+
+On for every app with a session type, needs no option, and is derived from the
+session token. Never set a CSRF header in a template. It covers Datastar
+actions only, which is why a plain `<form>` submit does not work. Configure it
+only to replace the token source or to switch the protection off:
+`datapages.WithCSRFProtection(datapages.CSRFConfig{...})`.
+
+## Manager
+
+The store is a server option, see `datapages-server`:
+
+```go
+opts = append(opts, datapages.WithSessionManager[app.SessionData](mgr))
+```
+
+Name the data type at the call: it is not inferred, and naming it is what makes
+the compiler check the manager against what the app declares.
+
+Use `modules/sessions/natskv`. `modules/sessions/inmem` is for a single
+instance that may lose its sessions on restart.
+
+The framework never collects expired records: reading a session only reclaims
+the ones a client returns to. Call `mgr.DeleteExpired(ctx)` on a ticker.

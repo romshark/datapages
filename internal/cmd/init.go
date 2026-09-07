@@ -15,7 +15,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/romshark/datapages/internal/cmd/config"
+	"github.com/romshark/datapages/internal/generator/agentdocs"
 	"github.com/romshark/datapages/internal/generator/skeleton"
+	"github.com/romshark/datapages/internal/serverscan"
 )
 
 func newInitCmd(stderr io.Writer, version string) *cobra.Command {
@@ -32,7 +34,15 @@ that would normally be prompted for, pass it via --name or --module.
 If not inside a git repository, a new one is created. If not inside
 a Go module, a new one is initialized. Missing datapages.yaml and
 app/app.go files are generated. Code generation is run, and finally
-go mod tidy resolves all dependencies.`,
+go mod tidy resolves all dependencies.
+
+AGENTS.md, CLAUDE.md and the task skills under .claude/skills are written
+for AI coding agents. They are yours to edit afterwards: a later run keeps
+your version as a .bak file next to it. Pass --no-ai-skills to skip them.
+
+An already initialized project is not an error: init writes what is missing,
+reports that, and leaves the rest alone. Running it in one is how an existing
+project gets the instructions.`,
 	}
 	nonInteractive := cmd.Flags().BoolP("non-interactive", "n", false,
 		"Disable interactive prompts (requires --name/--module when applicable)")
@@ -42,6 +52,8 @@ go mod tidy resolves all dependencies.`,
 		"Go module path")
 	prometheus := cmd.Flags().Bool("prometheus", true,
 		"Enable Prometheus metrics generation")
+	noAISkills := cmd.Flags().Bool("no-ai-skills", false,
+		"Skip AGENTS.md, CLAUDE.md and .claude/skills for AI coding agents")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		// Use accessible mode for non-terminal input (tests, piped input).
 		// When stdin is a real terminal, pass nil so huh uses its TUI.
@@ -50,7 +62,7 @@ go mod tidy resolves all dependencies.`,
 			in = c.InOrStdin()
 		}
 		return runInit(c.Context(), in, c.OutOrStdout(), stderr, *nonInteractive,
-			*name, *module, *prometheus, version)
+			*name, *module, *prometheus, !*noAISkills, version)
 	}
 	return cmd
 }
@@ -78,7 +90,7 @@ func runField(f huh.Field, in io.Reader, out io.Writer) error {
 
 func runInit(
 	ctx context.Context, in io.Reader, out, stderr io.Writer, nonInteractive bool,
-	dir, module string, prometheus bool, version string,
+	dir, module string, prometheus, aiSkills bool, version string,
 ) error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -140,17 +152,26 @@ func runInit(
 		created = true
 	}
 
+	// Step 5: Write the instructions for AI coding agents. It runs before the
+	// check below, since running init in an initialized project is how that
+	// project gets them.
+	if aiSkills {
+		if err := writeAgentDocs(projectDir, out, version); err != nil {
+			return err
+		}
+	}
+
 	if !created {
 		_, _ = fmt.Fprintln(out, "Project already initialized.")
 		return nil
 	}
 
-	// Step 5: Write .env with random secrets if missing.
+	// Step 6: Write .env with random secrets if missing.
 	if _, err := writeEnvIfMissing(projectDir, out); err != nil {
 		return err
 	}
 
-	// Step 6: Append .env to .gitignore.
+	// Step 7: Append .env to .gitignore.
 	if err := gitignoreEnv(projectDir); err != nil {
 		return err
 	}
@@ -160,7 +181,7 @@ func runInit(
 		return err
 	}
 
-	// Step 7: Write the remaining project files if missing.
+	// Step 8: Write the remaining project files if missing.
 	for _, f := range []struct {
 		rel     string
 		content string
@@ -177,19 +198,19 @@ func runInit(
 		}
 	}
 
-	// Step 8: Run go mod tidy to resolve app package dependencies
+	// Step 9: Run go mod tidy to resolve app package dependencies
 	// (e.g. templ) so the parser can type-check before code generation.
 	if err := goModTidy(projectDir); err != nil {
 		return err
 	}
 
-	// Step 9: Run templ generate to produce _templ.go files from .templ
+	// Step 10: Run templ generate to produce _templ.go files from .templ
 	// sources so the parser can type-check before code generation.
 	if err := templGenerate(projectDir); err != nil {
 		return err
 	}
 
-	// Step 10: Run code generation so all imports exist for the final tidy.
+	// Step 11: Run code generation so all imports exist for the final tidy.
 	conf, _, err := config.Load(projectDir)
 	if err != nil {
 		return err
@@ -198,7 +219,7 @@ func runInit(
 		return err
 	}
 
-	// Step 11: Run go mod tidy again to resolve generated code dependencies.
+	// Step 12: Run go mod tidy again to resolve generated code dependencies.
 	if err := goModTidy(projectDir); err != nil {
 		return err
 	}
@@ -415,6 +436,55 @@ func writeDefaultConfigIfMissing(projectDir string, w io.Writer) (bool, error) {
 	}
 	_, _ = fmt.Fprintln(w, "Created datapages.yaml")
 	return true, nil
+}
+
+// writeAgentDocs writes the instructions AI coding agents read. They describe
+// the layout of the module, which is why they are written before generation
+// and whatever the app package parses to.
+func writeAgentDocs(projectDir string, w io.Writer, version string) error {
+	modulePath, err := readModulePath(projectDir)
+	if err != nil {
+		return err
+	}
+	scan, err := serverscan.Scan(projectDir, modulePath)
+	if err != nil {
+		return err
+	}
+	cfg, _, err := config.Load(projectDir)
+	if err != nil {
+		return err
+	}
+	apps := make([]agentdocs.App, len(scan.Apps))
+	for i, a := range scan.Apps {
+		apps[i] = agentdocs.App{Dir: a.Dir, GenDir: a.GenDir}
+	}
+	res, err := agentdocs.Write(projectDir, agentdocs.Project{
+		Cmd:     cfg.Cmd,
+		Apps:    apps,
+		Version: version,
+	}, 0o644)
+	if err != nil {
+		return fmt.Errorf("writing agent instructions: %w", err)
+	}
+
+	// One line per skill would bury the rest of the output, so the skills are
+	// reported as the directory they land in.
+	skillsDir := filepath.FromSlash(agentdocs.SkillsDir)
+	var skills int
+	for _, rel := range res.Written {
+		if strings.HasPrefix(rel, skillsDir) {
+			skills++
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "Wrote %s\n", rel)
+	}
+	if skills > 0 {
+		_, _ = fmt.Fprintf(w, "Wrote %d skills in %s\n", skills, skillsDir)
+	}
+	for _, b := range res.BackedUp {
+		_, _ = fmt.Fprintf(w, "Kept the previous %s as %s\n", b.Path, b.To)
+	}
+	return nil
 }
 
 // writeIfMissing writes content to rel under projectDir unless rel exists.

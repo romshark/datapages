@@ -16,7 +16,8 @@
 - Build CLI and examples: `mage build`
 - Generate templ files: `mage genTempl`
 - Generate datapages code: `mage genDatapages`
-- Generate all (templ + datapages + docs): `mage gen`
+- Generate the AI agent instructions of `example/classifieds`: `mage genAISkills`
+- Generate all (templ + datapages + AI skills + docs): `mage gen`
 - Check that all generated code is current: `mage checkGen`
 - Run go fix on all modules: `mage goFix`
 - Run everything: `mage all`
@@ -154,9 +155,14 @@ Generated output is committed, and tests fail when it goes stale.
 - `*/datapagesgen/**` in examples and acceptance cases: written by the CLI from
   the app package. `mage genDatapages` builds `cmd/datapages` from source and
   runs `datapages gen` in every example and acceptance module.
+- `example/classifieds/{AGENTS.md,CLAUDE.md,.claude/skills/**}`: written by
+  `datapages init` from `internal/generator/agentdocs/data`. `mage genAISkills`
+  runs it in that one example, which is what catches a drift between the CLI
+  and what a project holds. The example is initialized already, so the run
+  writes the instructions and changes nothing else.
 - `docs/index.html`: written by `internal/tools/render-pages` from
   `internal/docs-src/`. `mage genDocs`.
-- `mage gen` runs all three.
+- `mage gen` runs all four.
 
 Any change to the generator requires `mage genDatapages` in the same commit.
 `TestExamplesAreUpToDate` (`internal/generator/generator_test.go:45`) and the

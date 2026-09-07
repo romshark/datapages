@@ -1,0 +1,45 @@
+<!-- Scaffolded by `datapages init`. Yours to edit: another run keeps your
+     version as a .bak file next to it. -->
+
+# AGENTS.md
+
+This module is a [Datapages](https://github.com/romshark/datapages) application.
+You write Go handlers and Templ templates. `datapages gen` writes the server.
+
+| path | what |
+| ---- | ---- |
+{{- range .Apps}}
+| `{{.Dir}}/` | app package: pages, actions, events, templates. Edit this. |
+| `{{.GenDir}}/` | generated. Never edit. |
+{{- end}}
+| `{{.Cmd}}/` | entry point. Generated once, then yours. |
+| `datapages.yaml` | CLI and dev server settings. |
+
+Build loop: `templ generate` after a `.templ` change, `datapages gen` after an
+app package change, then `go build ./...`. `datapages lint` checks without
+generating.
+
+Hard rules:
+
+- Never edit a `_gen.go` file, anything under `datapagesgen/`, or a file with a
+  `DO NOT EDIT` header. Change the source and regenerate.
+- Never hardcode an app-internal URL. Use the generated `href` package for
+  links and the generated `action` package for Datastar actions.
+- Never write JavaScript for application logic, open an SSE stream by hand, set
+  a CSRF header, add the Datastar script, or submit a plain HTML `<form>`.
+
+Task instructions are in `{{.SkillsDir}}/<name>/SKILL.md`. Read the one that
+matches the task:
+
+| skill | read it when |
+| ----- | ------------ |
+| `datapages` | any Datapages work: rules, workflow, naming |
+| `datapages-pages` | pages, routes, path and query parameters, error pages, `<head>` |
+| `datapages-actions` | POST/PUT/PATCH/DELETE handlers, signals, SSE, errors |
+| `datapages-events` | events, subjects, dispatchers, `On` handlers, stream hooks |
+| `datapages-sessions` | authentication, session data, CSRF |
+| `datapages-server` | `{{.Cmd}}/main.go`, server options, broker, static assets |
+| `datapages-templates` | `.templ` files, `href` and `action` helpers, Templ pitfalls |
+| `datastar` | `data-*` attributes and `@get`/`@post` actions |
+
+Full reference: {{.SpecURL}}

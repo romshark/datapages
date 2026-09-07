@@ -63,6 +63,24 @@ go install github.com/romshark/datapages/cmd/datapages@latest
 datapages init
 ```
 
+### AI Coding Agent Instructions
+
+`datapages init` also writes the instructions AI coding agents read:
+
+| path | read by |
+| ---- | ------- |
+| `AGENTS.md` | any agent that follows the [AGENTS.md](https://agents.md) convention |
+| `CLAUDE.md` | Claude Code, which it points at `AGENTS.md` |
+| `.claude/skills/*/SKILL.md` | one skill per task: pages, actions, events, sessions, the server entry point, templates, Datastar |
+
+The files are yours to edit once written. Another `datapages init` keeps your
+version as a `.bak` file next to it, so running it in an existing project is how
+that project gets the instructions, and how it picks up the ones a newer CLI ships.
+Pass `--no-ai-skills` to skip them.
+
+An already initialized project is not an error: `datapages init` writes what is missing,
+reports that, and leaves the rest alone.
+
 ## CLI Commands
 
 | Command             | Description                                                  |

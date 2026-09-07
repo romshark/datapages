@@ -45,14 +45,24 @@ Run this:
 datapages init --non-interactive --name myapp --module github.com/user/myapp
 ```
 
-Prometheus metrics generation is enabled by default.
-Use `--prometheus=false` to disable it.
+`--prometheus` decides what the scaffolded `cmd/server/main.go` names as the
+`Metrics` type argument, `datapages.EnablePrometheus` by default.
+It applies to the run that writes that file and to no other:
+from then on the type argument in it is the only switch.
 
 It creates `app/app.go`, `app/app.templ`, `datapages.yaml`, `.env`, `compose.yaml`,
 `Makefile`, `.vscode/extensions.json` and `.github/workflows/ci.yml`, appends `.env`
 to `.gitignore`, and runs `datapages gen`, which writes `cmd/server/main.go`.
 
-If the project already has `datapages.yaml`, skip this step.
+It also writes `AGENTS.md`, `CLAUDE.md` and the per-task skills in
+`.claude/skills/` for AI coding agents. They belong to the project afterwards:
+another run keeps the current version as a `.bak` file next to it, which is how
+an existing project gets them and how it picks up the ones a newer CLI ships.
+Pass `--no-ai-skills` to skip them.
+
+If the project already has `datapages.yaml`, skip this step. Running init in an
+initialized project is not an error either: it writes what is missing, reports that,
+and leaves the rest alone.
 
 ### Where Configuration Lives
 
