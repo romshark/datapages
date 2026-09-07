@@ -442,8 +442,8 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	// and a cookie set after the body has started is dropped.
 	getHeadNeedsSession := m.GlobalHeadGenerator != nil &&
 		m.GlobalHeadGenerator.InputSession
-	getRendersBody := p.PageSpecialization != model.PageTypeError500
-	getSessArg, getSessRebind := w.renderSessionVar(h, m, getRendersBody,
+	// The 500 page renders from its session like any other page.
+	getSessArg, getSessRebind := w.renderSessionVar(h, m, true,
 		hasSessionInput(h) || getHeadNeedsSession)
 	w.writeSessionOutputs(h, getSessRebind)
 
@@ -981,7 +981,9 @@ func (w *Writer) writePageGETStreamHandler(
 			w.Line(1, `if sess.UserID() == "" {`)
 			w.Line(2, "// The query carries the signals a stream subscribes by,")
 			w.Line(2, "// which the anonymous route needs as much as this one.")
-			w.Line(2, `target := r.URL.Path + "/anon"`)
+			w.Line(2, "// EscapedPath, not the decoded Path: a value carrying \"?\" or \"#\" re-parses")
+			w.Line(2, "// in the Location header as a query or a fragment.")
+			w.Line(2, `target := r.URL.EscapedPath() + "anon/"`)
 			w.Line(2, `if r.URL.RawQuery != "" {`)
 			w.Line(3, `target += "?" + r.URL.RawQuery`)
 			w.Line(2, "}")

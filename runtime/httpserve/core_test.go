@@ -6,8 +6,11 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -594,4 +597,35 @@ func TestStateBudgetIsPerCore(t *testing.T) {
 		"the first core served past its cap")
 	require.True(t, b.ReserveStateInstance(),
 		"the second core was spent by the first")
+}
+
+// BenchmarkServeAsset measures the asset route, which http.FileServer serves
+// through the response wrapper Core.ServeHTTP installs.
+func BenchmarkServeAsset(b *testing.B) {
+	dir := b.TempDir()
+	require.NoError(b, os.WriteFile(
+		filepath.Join(dir, "big.bin"), make([]byte, 1<<20), 0o644,
+	))
+
+	c, err := httpserve.NewCore(datapages.ServerConfig{
+		AssetsFS: http.Dir(dir),
+		Logger:   slog.New(slog.DiscardHandler),
+	}, "/static/")
+	require.NoError(b, err)
+	c.Build()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(b, err)
+	srv := &http.Server{Handler: c}
+	go func() { _ = srv.Serve(ln) }()
+	b.Cleanup(func() { _ = srv.Close() })
+	url := "http://" + ln.Addr().String() + "/static/big.bin"
+
+	b.ReportAllocs()
+	for b.Loop() {
+		resp, err := http.Get(url)
+		require.NoError(b, err)
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}
 }

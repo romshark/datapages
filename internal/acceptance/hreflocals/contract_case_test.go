@@ -35,6 +35,8 @@ func TestContract(t *testing.T) {
 			href.PageItem(true),
 			href.PageMix(1, 2, "three", href.QueryPageMix{AnyQuery: "yes", Page: 4}),
 			href.PageTags(href.QueryPageTags{PageSize: 25, Term: "go"}),
+			href.PageParams("a", "b", href.QueryPageParams{Term: "x"}),
+			href.PageLocals("1", "2", "3", "4", "5"),
 		},
 	})
 }

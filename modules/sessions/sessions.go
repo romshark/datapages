@@ -103,8 +103,8 @@ type UserSessionIterator[Data any] interface {
 // a store that cannot look sessions up by user cannot implement it.
 // It is declared here so that the built-in stores agree on the API.
 type UserSessionCloser interface {
-	// CloseAllUserSessions closes the sessions of userID that exist at
-	// call time and, if buffer is non-nil, appends their tokens to it.
+	// CloseAllUserSessions closes the sessions of userID that exist at call
+	// time and appends their tokens to buffer, which may be nil.
 	// An empty userID is an error; which error to return is up to the store.
 	CloseAllUserSessions(
 		ctx context.Context, buffer []string, userID string,

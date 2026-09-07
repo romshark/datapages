@@ -5,6 +5,7 @@
 package action
 
 import (
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -167,6 +168,115 @@ func WithRequestCancellation(rc RequestCancellation) option {
 // See https://data-star.dev/reference/actions#request-cancellation
 func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
+}
+
+// POSTPageLocalsSave references /locals/{b}/{l}/{n}/{bl}/{al}/save/
+func POSTPageLocalsSave(b string, l string, n string, bl string, al string, options ...option) string {
+	s_b := url.PathEscape(b)
+	s_l := url.PathEscape(l)
+	s_n := url.PathEscape(n)
+	s_bl := url.PathEscape(bl)
+	s_al := url.PathEscape(al)
+	var b_ strings.Builder
+	bl_, al_ := actionexpr.BeforeAfterLen(options)
+	b_.Grow(bl_ + len("@post('/locals/") + len(s_b) + len("/") + len(s_l) + len("/") + len(s_n) + len("/") + len(s_bl) + len("/") + len(s_al) + len("/save/'") + actionexpr.OptionsLen(options) + len(")") + al_)
+	actionexpr.WriteBefore(&b_, options)
+	b_.WriteString("@post('/locals/")
+	b_.WriteString(s_b)
+	b_.WriteString("/")
+	b_.WriteString(s_l)
+	b_.WriteString("/")
+	b_.WriteString(s_n)
+	b_.WriteString("/")
+	b_.WriteString(s_bl)
+	b_.WriteString("/")
+	b_.WriteString(s_al)
+	b_.WriteString("/save/'")
+	actionexpr.WriteOptions(&b_, options)
+	b_.WriteByte(')')
+	actionexpr.WriteAfter(&b_, options)
+	return b_.String()
+}
+
+// POSTPageMixStore references /mix/{l}/{n}/{pageStr}/store/
+func POSTPageMixStore(l int, n int, pageStr string, query QueryPOSTPageMixStore, options ...option) string {
+	s_l := strconv.FormatInt(int64(l), 10)
+	s_n := strconv.FormatInt(int64(n), 10)
+	s_pageStr := url.PathEscape(pageStr)
+	var (
+		anyQueryStr string
+	)
+
+	if query.AnyQuery != "" {
+		anyQueryStr = url.QueryEscape(query.AnyQuery)
+	}
+
+	anyQuery := query.AnyQuery != ""
+
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	l_ := bl + len("@post('/mix/") + len(s_l) + len("/") + len(s_n) + len("/") + len(s_pageStr) + len("/store/") + len("'") + actionexpr.OptionsLen(options) + len(")") + al
+	if anyQuery {
+		l_ += len("?")
+	}
+	n_ := 0
+	if query.AnyQuery != "" {
+		if n_ > 0 {
+			l_ += len("&")
+		}
+		l_ += len("anyQuery=") + len(anyQueryStr)
+	}
+
+	b.Grow(l_)
+
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/mix/")
+	b.WriteString(s_l)
+	b.WriteString("/")
+	b.WriteString(s_n)
+	b.WriteString("/")
+	b.WriteString(s_pageStr)
+	b.WriteString("/store/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+	n_ = 0
+	if query.AnyQuery != "" {
+		if n_ > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("anyQuery=")
+		b.WriteString(anyQueryStr)
+	}
+	b.WriteString("'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+
+	return b.String()
+}
+
+type QueryPOSTPageMixStore struct {
+	AnyQuery string `query:"anyQuery"`
+}
+
+// POSTPageParamsSave references /params/{query}/{options}/save/
+func POSTPageParamsSave(query string, options string, options_ ...option) string {
+	s_query := url.PathEscape(query)
+	s_options := url.PathEscape(options)
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options_)
+	b.Grow(bl + len("@post('/params/") + len(s_query) + len("/") + len(s_options) + len("/save/'") + actionexpr.OptionsLen(options_) + len(")") + al)
+	actionexpr.WriteBefore(&b, options_)
+	b.WriteString("@post('/params/")
+	b.WriteString(s_query)
+	b.WriteString("/")
+	b.WriteString(s_options)
+	b.WriteString("/save/'")
+	actionexpr.WriteOptions(&b, options_)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options_)
+	return b.String()
 }
 
 // POSTPageTagsSelect references /tags/select/

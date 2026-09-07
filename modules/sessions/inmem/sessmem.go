@@ -190,8 +190,8 @@ func (m *SessionManager[Data]) Session(
 	return e.rec, nil
 }
 
-// CloseAllUserSessions closes all sessions for a user.
-// If buffer is non-nil, appends tokens of closed sessions to it.
+// CloseAllUserSessions closes all sessions for a user and appends the tokens
+// of the closed ones to buffer, which may be nil.
 func (m *SessionManager[Data]) CloseAllUserSessions(
 	_ context.Context, buffer []string, userID string,
 ) ([]string, error) {
@@ -212,9 +212,7 @@ func (m *SessionManager[Data]) CloseAllUserSessions(
 			allWs = append(allWs, w)
 		}
 		delete(m.watchers, tok)
-		if buffer != nil {
-			buffer = append(buffer, tok)
-		}
+		buffer = append(buffer, tok)
 	}
 	m.lock.Unlock()
 

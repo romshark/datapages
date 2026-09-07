@@ -45,6 +45,49 @@ func toSnakeCase(s string) string {
 
 // Suggest returns an optional fix hint for a parser error, or "" if none is available.
 // The hint is formatted as a short "fix: ..." line meant to be printed after the error.
+//
+// Errors intentionally excluded, either because the message already states the
+// fix or because there is no context for a useful hint:
+//
+//   - ErrSignatureMultiErrRet: message states to remove the duplicate
+//   - ErrSignatureEvHandReturnMustBeError: message names the required return type
+//   - ErrPageHasExtraFields: message states to remove the fields
+//   - ErrPageConflictingGETEmbed: message names the conflicting embedded types
+//   - ErrGeneratedNameConflict: message names both methods and the identifier
+//   - ErrPageNameInvalid: naming rule is clear from valid examples
+//   - ErrAppUnsupportedMethod: message names what App takes
+//   - ErrPageNotStruct: message names the required type form
+//   - ErrTypeParams: message names the type and what it may not have
+//   - ErrActionNameMissing: message states a name is required
+//   - ErrActionNameInvalid: naming rule is clear from valid examples
+//   - ErrEventSubjectInvalid: message states subject must be a quoted string
+//   - ErrEvHandDuplicate: message identifies the duplicate handler
+//   - ErrEvHandDuplicateEmbed: message identifies the conflicting embeds
+//   - ErrEventFieldUnexported: fix is obvious: capitalize the field name
+//   - ErrEventFieldDuplicateTag: message names the duplicate value
+//   - ErrFieldTypeUnexported: fix is obvious: export the type
+//   - ErrPathParamNotStruct: type constraint is clear from message
+//   - ErrPathFieldUnexported: fix is obvious: capitalize the field name
+//   - ErrPathFieldDuplicateTag: message names the duplicate value
+//   - ErrPathFieldNotInRoute: message names the tag value missing from route
+//   - ErrPathMissingRouteVar: message names the route variable without a field
+//   - ErrQueryParamNotStruct: type constraint is clear from message
+//   - ErrQueryFieldUnexported: fix is obvious: capitalize the field name
+//   - ErrQueryFieldDuplicateTag: message names the duplicate value
+//   - ErrQueryReflectSignalNotInSignals: message names the missing signal
+//   - ErrSignalsParamNotStruct: type constraint is clear from message
+//   - ErrSignalsFieldUnexported: fix is obvious: capitalize the field name
+//   - ErrSignalsFieldDuplicateTag: message names the duplicate value
+//   - ErrDispatchParamNotEvent: constraint is clear from message
+//   - ErrSessionParamNotSessionType: constraint is clear from message
+//   - ErrSessionTypeConflict: the message names both instantiations
+//   - ErrNewSessionWithSSE: message states the mutual exclusion
+//   - ErrCloseSessionWithSSE: message states the mutual exclusion
+//   - ErrSSEOnAppMethod: message states where sse is allowed
+//   - ErrEnableBgStreamNotGET: message states it must be in a GET handler
+//   - ErrDisableRefreshNotGET: message states it must be in a GET handler
+//   - ErrEventSubjectUserNoSession: has a dedicated suggestion
+//   - ErrEventSubjectAfterPayload: has a dedicated suggestion
 func Suggest(err error) string {
 	switch {
 	case errors.Is(err, parser.ErrAppMissingTypeApp):
@@ -485,47 +528,6 @@ func Suggest(err error) string {
 	}
 	return ""
 }
-
-// Errors intentionally excluded from Suggest — the error message already states
-// the fix, or there is no specific context available to produce a useful hint:
-//
-//   - ErrSignatureMultiErrRet         — message states to remove the duplicate
-//   - ErrSignatureEvHandReturnMustBeError — message names the required return type
-//   - ErrPageHasExtraFields           — message states to remove the fields
-//   - ErrPageConflictingGETEmbed      — message names the conflicting embedded types
-//   - ErrPageNameInvalid              — naming rule is clear from valid examples
-//   - ErrAppUnsupportedMethod        — message names what App takes
-//   - ErrPageNotStruct                — message names the required type form
-//   - ErrTypeParams                   — message names the type and what it may not have
-//   - ErrActionNameMissing            — message states a name is required
-//   - ErrActionNameInvalid            — naming rule is clear from valid examples
-//   - ErrEventSubjectInvalid          — message states subject must be a quoted string
-//   - ErrEvHandDuplicate              — message identifies the duplicate handler
-//   - ErrEvHandDuplicateEmbed         — message identifies the conflicting embeds
-//   - ErrEventFieldUnexported         — fix is obvious: capitalize the field name
-//   - ErrEventFieldDuplicateTag       — message names the duplicate value
-//   - ErrFieldTypeUnexported          — fix is obvious: export the type
-//   - ErrPathParamNotStruct           — type constraint is clear from message
-//   - ErrPathFieldUnexported          — fix is obvious: capitalize the field name
-//   - ErrPathFieldDuplicateTag        — message names the duplicate value
-//   - ErrPathFieldNotInRoute          — message names the tag value missing from route
-//   - ErrPathMissingRouteVar          — message names the route variable without a field
-//   - ErrQueryParamNotStruct          — type constraint is clear from message
-//   - ErrQueryFieldUnexported         — fix is obvious: capitalize the field name
-//   - ErrQueryFieldDuplicateTag       — message names the duplicate value
-//   - ErrQueryReflectSignalNotInSignals — message names the missing signal
-//   - ErrSignalsParamNotStruct        — type constraint is clear from message
-//   - ErrSignalsFieldUnexported       — fix is obvious: capitalize the field name
-//   - ErrSignalsFieldDuplicateTag     — message names the duplicate value
-//   - ErrDispatchParamNotEvent        — constraint is clear from message
-//   - ErrSessionParamNotSessionType   — constraint is clear from message
-//   - ErrSessionTypeConflict          — the message names both instantiations
-//   - ErrNewSessionWithSSE            — message states the mutual exclusion
-//   - ErrCloseSessionWithSSE          — message states the mutual exclusion
-//   - ErrEnableBgStreamNotGET         — message states it must be in a GET handler
-//   - ErrDisableRefreshNotGET         — message states it must be in a GET handler
-//   - ErrEventSubjectUserNoSession  — has dedicated suggestion above
-//   - ErrEventSubjectAfterPayload   — has dedicated suggestion above
 
 // pageTypePath derives a suggested route path from a page type name.
 // "PageIndex" -> "/", "PageProfile" -> "/profile/", "PageFooBar" -> "/foobar/".

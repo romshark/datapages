@@ -212,13 +212,14 @@ func (w *Writer) writeActionFuncPathOnly(
 	w.Raw(funcName)
 	w.Byte('(')
 	w.writeTypedParams(params)
-	w.Raw(", options ...option) string {\n")
+	w.Rawf(", %s ...option) string {\n", lo.options)
 
 	// Pre-convert non-string params to strings.
 	w.writePathPreConvert(params)
 
 	w.Linef(1, "var %s strings.Builder", lo.builder)
-	w.Linef(1, "%s, %s := actionexpr.BeforeAfterLen(options)", lo.beforeLen, lo.afterLen)
+	w.Linef(1, "%s, %s := actionexpr.BeforeAfterLen(%s)",
+		lo.beforeLen, lo.afterLen, lo.options)
 
 	// b.Grow(bl + len("@method('lit0") +
 	//  len(v0) + ... + len("litN'") + optionsLen + len(")") + al)
@@ -237,18 +238,18 @@ func (w *Writer) writeActionFuncPathOnly(
 		}
 		w.Raw("\")")
 	}
-	w.Raw(" + actionexpr.OptionsLen(options) + len(\")\") + al")
+	w.Rawf(" + actionexpr.OptionsLen(%s) + len(\")\") + %s", lo.options, lo.afterLen)
 	w.Raw(")\n")
 
 	// writeBefore + b.WriteString("@method('lit0")
-	w.Linef(1, "actionexpr.WriteBefore(&%s, options)", lo.builder)
+	w.Linef(1, "actionexpr.WriteBefore(&%s, %s)", lo.builder, lo.options)
 	w.Rawf("\t%s.WriteString(\"@", lo.builder)
 	w.Raw(method)
 	w.Raw("('")
 	w.Raw(literals[0])
 	w.Raw("\")\n")
 	for i, p := range params {
-		w.Raw("\tb.WriteString(")
+		w.Rawf("\t%s.WriteString(", lo.builder)
 		w.Raw(pathVarStrExpr(p))
 		w.Raw(")\n")
 		w.Rawf("\t%s.WriteString(\"", lo.builder)
@@ -259,9 +260,9 @@ func (w *Writer) writeActionFuncPathOnly(
 		w.Raw("\")\n")
 	}
 
-	w.Linef(1, "actionexpr.WriteOptions(&%s, options)", lo.builder)
-	w.Line(1, "b.WriteByte(')')")
-	w.Linef(1, "actionexpr.WriteAfter(&%s, options)", lo.builder)
+	w.Linef(1, "actionexpr.WriteOptions(&%s, %s)", lo.builder, lo.options)
+	w.Linef(1, "%s.WriteByte(')')", lo.builder)
+	w.Linef(1, "actionexpr.WriteAfter(&%s, %s)", lo.builder, lo.options)
 	w.Linef(1, "return %s.String()", lo.builder)
 	w.Line(0, "}")
 }
@@ -276,25 +277,29 @@ func (w *Writer) writeActionFuncQueryOnly(
 	// func FuncName(query QueryFuncName, options ...option) string {
 	w.Raw("func ")
 	w.Raw(funcName)
-	w.Raw("(query Query")
+	w.Raw("(")
+	w.Raw(lo.query)
+	w.Raw(" Query")
 	w.Raw(funcName)
-	w.Raw(", options ...option) string {\n")
+	w.Rawf(", %s ...option) string {\n", lo.options)
 
 	// Pre-convert non-string fields to strings.
 	w.writeQueryPreConvert(lo, fields)
 
 	// anyQuery check.
-	w.writeAnyCheck(lo.anyQuery, fields)
+	w.writeAnyCheck(lo.anyQuery, lo.query, fields)
 	w.Line(0, "")
 
 	// Builder and length calculation.
 	w.Linef(1, "var %s strings.Builder", lo.builder)
-	w.Linef(1, "%s, %s := actionexpr.BeforeAfterLen(options)", lo.beforeLen, lo.afterLen)
-	w.Raw("\tl := bl + len(\"@")
+	w.Linef(1, "%s, %s := actionexpr.BeforeAfterLen(%s)",
+		lo.beforeLen, lo.afterLen, lo.options)
+	w.Rawf("\t%s := %s + len(\"@", lo.length, lo.beforeLen)
 	w.Raw(method)
 	w.Raw("('")
 	w.Raw(routepattern.WithTrailingSlash(route))
-	w.Raw("'\") + actionexpr.OptionsLen(options) + len(\")\") + al\n")
+	w.Rawf("'\") + actionexpr.OptionsLen(%s) + len(\")\") + %s\n",
+		lo.options, lo.afterLen)
 	w.Linef(1, "if %s {", lo.anyQuery)
 	w.Linef(2, "%s += len(\"?\")", lo.length)
 	w.Line(1, "}")
@@ -303,7 +308,7 @@ func (w *Writer) writeActionFuncQueryOnly(
 	w.Linef(1, "%s := 0", lo.count)
 	for i, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
+		w.writeIfZeroCheck(1, lo.query+"."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s += len(\"&\")", lo.length)
 		w.Line(2, "}")
@@ -318,7 +323,7 @@ func (w *Writer) writeActionFuncQueryOnly(
 	// Grow and write.
 	w.Linef(1, "%s.Grow(%s)", lo.builder, lo.length)
 	w.Line(0, "")
-	w.Linef(1, "actionexpr.WriteBefore(&%s, options)", lo.builder)
+	w.Linef(1, "actionexpr.WriteBefore(&%s, %s)", lo.builder, lo.options)
 	w.Rawf("\t%s.WriteString(\"@", lo.builder)
 	w.Raw(method)
 	w.Raw("('")
@@ -332,7 +337,7 @@ func (w *Writer) writeActionFuncQueryOnly(
 	w.Linef(1, "%s = 0", lo.count)
 	for i, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
+		w.writeIfZeroCheck(1, lo.query+"."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s.WriteString(\"&\")", lo.builder)
 		w.Line(2, "}")
@@ -344,10 +349,10 @@ func (w *Writer) writeActionFuncQueryOnly(
 		w.Line(1, "}")
 	}
 
-	w.Line(1, `b.WriteString("'")`)
-	w.Linef(1, "actionexpr.WriteOptions(&%s, options)", lo.builder)
-	w.Line(1, "b.WriteByte(')')")
-	w.Linef(1, "actionexpr.WriteAfter(&%s, options)", lo.builder)
+	w.Linef(1, `%s.WriteString("'")`, lo.builder)
+	w.Linef(1, "actionexpr.WriteOptions(&%s, %s)", lo.builder, lo.options)
+	w.Linef(1, "%s.WriteByte(')')", lo.builder)
+	w.Linef(1, "actionexpr.WriteAfter(&%s, %s)", lo.builder, lo.options)
 	w.Line(0, "")
 	w.Linef(1, "return %s.String()", lo.builder)
 	w.Line(0, "}")
@@ -368,9 +373,11 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	w.Raw(funcName)
 	w.Byte('(')
 	w.writeTypedParams(params)
-	w.Raw(", query Query")
+	w.Raw(", ")
+	w.Raw(lo.query)
+	w.Raw(" Query")
 	w.Raw(funcName)
-	w.Raw(", options ...option) string {\n")
+	w.Rawf(", %s ...option) string {\n", lo.options)
 
 	// Pre-convert non-string path params.
 	w.writePathPreConvert(params)
@@ -379,15 +386,16 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	w.writeQueryPreConvert(lo, fields)
 
 	// anyQuery check.
-	w.writeAnyCheck(lo.anyQuery, fields)
+	w.writeAnyCheck(lo.anyQuery, lo.query, fields)
 	w.Line(0, "")
 
 	// Builder and length calculation.
 	w.Linef(1, "var %s strings.Builder", lo.builder)
-	w.Linef(1, "%s, %s := actionexpr.BeforeAfterLen(options)", lo.beforeLen, lo.afterLen)
+	w.Linef(1, "%s, %s := actionexpr.BeforeAfterLen(%s)",
+		lo.beforeLen, lo.afterLen, lo.options)
 
 	// l := bl + len("@method('lit0") + len(v0) + len("lit1") + ... + len("')")
-	w.Raw("\tl := bl + len(\"@")
+	w.Rawf("\t%s := %s + len(\"@", lo.length, lo.beforeLen)
 	w.Raw(method)
 	w.Raw("('")
 	w.Raw(literals[0])
@@ -399,7 +407,8 @@ func (w *Writer) writeActionFuncPathAndQuery(
 		w.Raw(literals[i+1])
 		w.Raw("\")")
 	}
-	w.Raw(" + len(\"'\") + actionexpr.OptionsLen(options) + len(\")\") + al\n")
+	w.Rawf(" + len(\"'\") + actionexpr.OptionsLen(%s) + len(\")\") + %s\n",
+		lo.options, lo.afterLen)
 
 	w.Linef(1, "if %s {", lo.anyQuery)
 	w.Linef(2, "%s += len(\"?\")", lo.length)
@@ -409,7 +418,7 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	w.Linef(1, "%s := 0", lo.count)
 	for i, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
+		w.writeIfZeroCheck(1, lo.query+"."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s += len(\"&\")", lo.length)
 		w.Line(2, "}")
@@ -424,14 +433,14 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	// Grow and write path segments.
 	w.Linef(1, "%s.Grow(%s)", lo.builder, lo.length)
 	w.Line(0, "")
-	w.Linef(1, "actionexpr.WriteBefore(&%s, options)", lo.builder)
+	w.Linef(1, "actionexpr.WriteBefore(&%s, %s)", lo.builder, lo.options)
 	w.Rawf("\t%s.WriteString(\"@", lo.builder)
 	w.Raw(method)
 	w.Raw("('")
 	w.Raw(literals[0])
 	w.Raw("\")\n")
 	for i, p := range params {
-		w.Raw("\tb.WriteString(")
+		w.Rawf("\t%s.WriteString(", lo.builder)
 		w.Raw(pathVarStrExpr(p))
 		w.Raw(")\n")
 		w.Rawf("\t%s.WriteString(\"", lo.builder)
@@ -447,7 +456,7 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	w.Linef(1, "%s = 0", lo.count)
 	for i, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
+		w.writeIfZeroCheck(1, lo.query+"."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s.WriteString(\"&\")", lo.builder)
 		w.Line(2, "}")
@@ -459,10 +468,10 @@ func (w *Writer) writeActionFuncPathAndQuery(
 		w.Line(1, "}")
 	}
 
-	w.Line(1, `b.WriteString("'")`)
-	w.Linef(1, "actionexpr.WriteOptions(&%s, options)", lo.builder)
-	w.Line(1, "b.WriteByte(')')")
-	w.Linef(1, "actionexpr.WriteAfter(&%s, options)", lo.builder)
+	w.Linef(1, `%s.WriteString("'")`, lo.builder)
+	w.Linef(1, "actionexpr.WriteOptions(&%s, %s)", lo.builder, lo.options)
+	w.Linef(1, "%s.WriteByte(')')", lo.builder)
+	w.Linef(1, "actionexpr.WriteAfter(&%s, %s)", lo.builder, lo.options)
 	w.Line(0, "")
 	w.Linef(1, "return %s.String()", lo.builder)
 	w.Line(0, "}")

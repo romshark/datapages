@@ -1841,13 +1841,12 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	w.Line(1, "if err := s.writeHTML(")
 	w.Raw("\t\tw, r, ")
 	if m.Session != nil {
-		sessArg := "sess"
+		// The zero session only where none was read: it carries no CSRF script.
 		headNeedsSession := m.GlobalHeadGenerator != nil &&
 			m.GlobalHeadGenerator.InputSession
-		if p.PageSpecialization == model.PageTypeError500 ||
-			(p.PageSpecialization == model.PageTypeError404 &&
-				context == "render404" && !headNeedsSession) {
-			sessArg = w.sessionType + "{}"
+		sessArg := w.sessionType + "{}"
+		if h.InputSession != nil || headNeedsSession {
+			sessArg = "sess"
 		}
 		w.Raw(sessArg)
 		w.Raw(", ")

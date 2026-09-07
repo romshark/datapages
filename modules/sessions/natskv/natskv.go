@@ -344,10 +344,10 @@ func (s *SessionManager[Data]) CloseSession(
 	return nil
 }
 
-// CloseAllUserSessions closes all sessions for a user.
+// CloseAllUserSessions closes all sessions for a user and appends the encrypted
+// tokens of the closed ones to buffer, which may be nil.
 // Only sees sessions that exist at call time;
 // sessions created during iteration are not closed.
-// If buffer is non-nil, appends encrypted tokens of closed sessions to it.
 func (s *SessionManager[Data]) CloseAllUserSessions(
 	ctx context.Context, buffer []string, userID string,
 ) ([]string, error) {
@@ -375,16 +375,14 @@ func (s *SessionManager[Data]) CloseAllUserSessions(
 			errs = append(errs, fmt.Errorf("deleting session %q: %w", kvKey, err))
 			continue
 		}
-		if buffer != nil {
-			token, err := encrypt(s.aeads[0], []byte(kvKey))
-			if err != nil {
-				errs = append(errs, fmt.Errorf(
-					"encrypting token for session %q: %w", kvKey, err,
-				))
-				continue
-			}
-			buffer = append(buffer, token)
+		token, err := encrypt(s.aeads[0], []byte(kvKey))
+		if err != nil {
+			errs = append(errs, fmt.Errorf(
+				"encrypting token for session %q: %w", kvKey, err,
+			))
+			continue
 		}
+		buffer = append(buffer, token)
 	}
 
 	return buffer, errors.Join(errs...)

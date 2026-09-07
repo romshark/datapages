@@ -25,7 +25,9 @@ import (
 // Metrics counts what the handler does. A nil Metrics counts nothing.
 type Metrics interface {
 	// ConnectionOpened counts a stream the server just accepted.
-	ConnectionOpened()
+	// w lets an implementation mark the request as a stream rather than a
+	// request being served.
+	ConnectionOpened(w http.ResponseWriter)
 	// ConnectionClosed counts down the stream the server just let go.
 	ConnectionClosed()
 	// Disconnect counts why a stream ended.
@@ -126,13 +128,6 @@ func (h *Handler) Handle(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
-	var start time.Time
-	if h.metrics != nil {
-		h.metrics.ConnectionOpened()
-		defer h.metrics.ConnectionClosed()
-		start = time.Now()
-	}
-
 	subC := sub.C()
 	if onOpen != nil {
 		if err := callOnOpen(onOpen, streamID, sse); err != nil {
@@ -159,6 +154,15 @@ func (h *Handler) Handle(
 			h.onErr(w, r, sse, "setting up session closure watcher", err)
 			return
 		}
+	}
+
+	// Counted here, not before the hooks above: until the loop runs this is an
+	// ordinary request, and one refused by StreamOpen stays one.
+	var start time.Time
+	if h.metrics != nil {
+		h.metrics.ConnectionOpened(w)
+		defer h.metrics.ConnectionClosed()
+		start = time.Now()
 	}
 
 	handedOff = true

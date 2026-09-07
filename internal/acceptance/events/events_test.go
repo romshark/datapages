@@ -168,6 +168,72 @@ func TestTwoDispatchers(t *testing.T) {
 	})
 }
 
+// TestShutdownWaitsForStreamClose tests a shutdown while a StreamClose is still running.
+// The hook releases leases, presence rows and remote subscriptions:
+// a process exiting with it half-done leaves them held.
+//
+// It serves over ListenAndServe rather than httptest:
+// only the server's own http.Server tracks the request the hook belongs to.
+func TestShutdownWaitsForStreamClose(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		a := &app.App{}
+		srv := mustNewServer(t, a, broker)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		served := make(chan error, 1)
+		go func() { served <- srv.ListenAndServe(ctx, "127.0.0.1:0") }()
+
+		addr := waitForAddr(t, srv)
+		body := openStream(t, "http://"+addr+"/_$/")
+		defer func() { _ = body.Close() }()
+
+		a.HoldStreamClose()
+
+		done := make(chan error, 1)
+		go func() { done <- srv.Shutdown(context.Background()) }()
+
+		select {
+		case err := <-done:
+			t.Fatalf("Shutdown returned while StreamClose was running: %v", err)
+		case <-time.After(client.Settle):
+		}
+
+		a.ReleaseStreamClose()
+		require.NoError(t, <-done)
+		require.Contains(t, a.Entries(), "close(", "StreamClose never finished")
+		require.NoError(t, <-served)
+	})
+}
+
+// waitForAddr blocks until the server bound its port.
+func waitForAddr(t *testing.T, srv datapages.Server) string {
+	t.Helper()
+	for range 100 {
+		if addr := srv.Addr(); addr != "" {
+			return addr
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the server never bound a port")
+	return ""
+}
+
+// openStream opens an SSE stream the way the Datastar runtime does.
+func openStream(t *testing.T, url string) io.ReadCloser {
+	t.Helper()
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, url, nil,
+	)
+	require.NoError(t, err)
+	req.Header.Set("Datastar-Request", "true")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	return resp.Body
+}
+
 // TestStreamCloseDispatches tests dispatching from StreamClose. The hook runs
 // while the closing stream is torn down, which leaves its request context already done.
 // The dispatcher must publish with that cancelation stripped.

@@ -5,6 +5,7 @@ package acceptance_test
 import (
 	"crypto/sha256"
 	"net/http"
+	"net/url"
 	"os"
 	"testing"
 
@@ -52,6 +53,37 @@ func TestAnonStreamSubscribesBySignal(t *testing.T) {
 			"the anonymous stream received nothing for the room it connected with")
 		require.True(t, two.Never("hello"),
 			"the anonymous stream received what was published for another room")
+	})
+}
+
+// TestAnonStreamRedirectKeepsThePathValue tests the redirect that sends a
+// signed-out visitor from a page's private stream route to its anonymous one.
+// The request path arrives decoded: a slug carrying "?" or "#" re-parses in the
+// Location header as a query or a fragment and the reconnect lands on the
+// page's HTML route.
+func TestAnonStreamRedirectKeepsThePathValue(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		for name, slug := range map[string]string{
+			"plain":    "plain",
+			"question": "a?b",
+			"fragment": "a#b",
+			"space":    "a b",
+		} {
+			t.Run(name, func(t *testing.T) {
+				c := newClient(t, broker)
+				path := "/post/" + url.PathEscape(slug) + "/_$/"
+
+				// OpenStream requires 200: reaching it at all is the claim.
+				s := c.OpenStream(t, path, nil)
+
+				resp := c.Action(t, http.MethodPost, "/rooms/post/",
+					`{"room":"one","text":"x"}`)
+				require.Equal(t, http.StatusOK, resp.Status)
+				require.True(t, s.Never("<!DOCTYPE html>"),
+					"the reconnect landed on the page's HTML route")
+			})
+		}
 	})
 }
 

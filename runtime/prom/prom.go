@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -22,7 +23,7 @@ var (
 			Namespace: "datapages",
 			Subsystem: "http",
 			Name:      "requests_total",
-			Help:      "Total HTTP requests",
+			Help:      "Total HTTP requests, SSE streams included",
 		},
 		[]string{"method", "path", "status"},
 	)
@@ -31,8 +32,9 @@ var (
 			Namespace: "datapages",
 			Subsystem: "http",
 			Name:      "request_duration_seconds",
-			Help:      "HTTP request latency",
-			Buckets:   prometheus.DefBuckets,
+			Help: "HTTP request latency, excluding SSE streams, " +
+				"whose lifetime is in sse_connection_duration_seconds",
+			Buckets: prometheus.DefBuckets,
 		},
 		[]string{"method", "path"},
 	)
@@ -56,7 +58,8 @@ var (
 			Namespace: "datapages",
 			Subsystem: "http",
 			Name:      "in_flight_requests",
-			Help:      "Current in-flight HTTP requests",
+			Help: "Current in-flight HTTP requests, excluding SSE streams, " +
+				"which are counted in sse_connections",
 		},
 	)
 
@@ -260,7 +263,11 @@ func (ActionMetrics) OptionDropped(option string) { ActionOptionDropped(option) 
 // It implements stream.Metrics.
 type StreamMetrics struct{}
 
-func (StreamMetrics) ConnectionOpened()              { SSEConnectionOpened() }
+func (StreamMetrics) ConnectionOpened(w http.ResponseWriter) {
+	MarkStream(w)
+	SSEConnectionOpened()
+}
+
 func (StreamMetrics) ConnectionClosed()              { SSEConnectionClosed() }
 func (StreamMetrics) Disconnect(reason string)       { SSEDisconnect(reason) }
 func (StreamMetrics) ConnectionDuration(t time.Time) { SSEConnectionDuration(t) }
@@ -277,11 +284,38 @@ func BrokerDeliveryDropped() { mBrokerDeliveriesDropped.Inc() }
 type statusRW struct {
 	http.ResponseWriter
 	status int
+	// isStream is set by [MarkStream] on the request goroutine,
+	// between the middleware's two halves.
+	isStream bool
+	// wroteHeader records that the status is out and every later one is dropped.
+	wroteHeader bool
 }
 
+// WriteHeader records the first status, which is the one net/http sends.
+// http.Error after a partial body write sets 500 on a response the client
+// received as 200: the last status labels a request nobody was served.
 func (w *statusRW) WriteHeader(code int) {
-	w.status = code
+	if !w.wroteHeader {
+		w.status = code
+		w.wroteHeader = true
+	}
 	w.ResponseWriter.WriteHeader(code)
+}
+
+// Write records the implicit 200 the first body byte sends.
+func (w *statusRW) Write(b []byte) (int, error) {
+	w.wroteHeader = true
+	return w.ResponseWriter.Write(b)
+}
+
+// ReadFrom forwards to the writer underneath, keeping http.ServeContent on
+// net/http's pooled copy buffer and the kernel sendfile path.
+func (w *statusRW) ReadFrom(src io.Reader) (int64, error) {
+	w.wroteHeader = true
+	if rf, ok := w.ResponseWriter.(io.ReaderFrom); ok {
+		return rf.ReadFrom(src)
+	}
+	return io.Copy(w.ResponseWriter, src)
 }
 
 func (w *statusRW) Flush() {
@@ -351,21 +385,56 @@ func methodLabel(method string) string {
 	return LabelOtherMethod
 }
 
+// MarkStream takes the request writing to w out of
+// datapages_http_request_duration_seconds and datapages_http_in_flight_requests.
+// A stream lives as long as the browser holds the page: observed as a request,
+// an hour-long one lands above the top bucket and the gauge reads the number of
+// connected browsers. Its count and lifetime are in
+// datapages_http_sse_connections and datapages_sse_connection_duration_seconds.
+//
+// The mark rides on the writer rather than the request context, which would
+// cost every request an allocation. It is a no-op unless w unwraps to the
+// writer [Middleware] installed, the way [http.ResponseController] walks.
+func MarkStream(w http.ResponseWriter) {
+	for {
+		if rw, ok := w.(*statusRW); ok {
+			if !rw.isStream {
+				rw.isStream = true
+				mInFlightRequests.Dec()
+			}
+			return
+		}
+		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return
+		}
+		w = u.Unwrap()
+	}
+}
+
 // Middleware measures every request. It must be the outermost middleware
 // of the chain, otherwise it misses the work of the ones before it.
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		mInFlightRequests.Inc()
-		defer mInFlightRequests.Dec()
-
 		rw := &statusRW{ResponseWriter: w, status: http.StatusOK}
+
+		mInFlightRequests.Inc()
+		defer func() {
+			if !rw.isStream {
+				mInFlightRequests.Dec()
+			}
+		}()
+
 		next.ServeHTTP(rw, r)
 
 		path, method := routeLabel(r), methodLabel(r.Method)
 		mHTTPRequestsTotal.
 			WithLabelValues(method, path, strconv.Itoa(rw.status)).Inc()
+		if rw.isStream {
+			return
+		}
 		mHTTPRequestDuration.
 			WithLabelValues(method, path).Observe(time.Since(start).Seconds())
 	})

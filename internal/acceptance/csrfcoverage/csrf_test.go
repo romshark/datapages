@@ -134,6 +134,63 @@ func TestCSRFCoversEveryAction(t *testing.T) {
 	require.NotContains(t, string(b), "deleted=1", "the refused action took effect")
 }
 
+// TestErrorPagesCarryTheCSRFScript tests the documents the 404 and the 500
+// page write for a signed-in visitor. Written from the zero session,
+// WriteCSRFScript writes nothing and every action reachable from them answers 403.
+func TestErrorPagesCarryTheCSRFScript(t *testing.T) {
+	t.Parallel()
+	store := sessinmem.New[struct{}](
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
+	)
+
+	srv := httptest.NewServer(mustNewServer(
+		t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), store,
+	))
+	t.Cleanup(srv.Close)
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err, "building cookie jar")
+	client := &http.Client{Jar: jar}
+
+	require.Equal(t, http.StatusOK,
+		newPost(t, srv, client)("/sign-in/", `{"user":"alice"}`, ""), "signing in")
+
+	get := func(path string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequestWithContext(
+			context.Background(), http.MethodGet, srv.URL+path, nil,
+		)
+		require.NoError(t, err, "building GET %s", path)
+		resp, err := client.Do(req)
+		require.NoError(t, err, "GET %s", path)
+		defer func() { _ = resp.Body.Close() }()
+		b, err := io.ReadAll(resp.Body)
+		require.NoError(t, err, "reading %s", path)
+		return resp.StatusCode, string(b)
+	}
+
+	status, page := get("/")
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, page, "X-CSRF-Token", "the page carries no CSRF script")
+
+	for name, tt := range map[string]struct {
+		path   string
+		status int
+		echo   string
+	}{
+		"404": {"/no-such-path/", http.StatusNotFound, "404 user=alice"},
+		"500": {"/boom/", http.StatusInternalServerError, "500 user=alice"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			status, body := get(tt.path)
+			require.Equal(t, tt.status, status)
+			require.Contains(t, body, tt.echo, "the page did not see the session")
+			require.Contains(t, body, "X-CSRF-Token",
+				"the document carries no CSRF script:\n%s", body)
+		})
+	}
+}
+
 // TestCSRFDisabledServesWithoutLogger tests a server with CSRF protection off
 // and no WithLogger. It starts, and it serves the action the check refuses.
 func TestCSRFDisabledServesWithoutLogger(t *testing.T) {

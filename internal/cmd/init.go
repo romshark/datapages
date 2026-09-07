@@ -377,9 +377,18 @@ func runIn(dir, label, name string, args ...string) error {
 	c := exec.Command(name, args...)
 	c.Dir = dir
 	if out, err := c.CombinedOutput(); err != nil {
-		return fmt.Errorf("%s: %s", label, strings.TrimSpace(string(out)))
+		return execErr(label, err, out)
 	}
 	return nil
+}
+
+// execErr reports why a command failed. The output is empty when the program
+// is missing or cannot start, and err is then the only account of it.
+func execErr(label string, err error, out []byte) error {
+	if s := strings.TrimSpace(string(out)); s != "" {
+		return fmt.Errorf("%s: %w: %s", label, err, s)
+	}
+	return fmt.Errorf("%s: %w", label, err)
 }
 
 func gitInit(dir string) error { return runIn(dir, "git init", "git", "init") }

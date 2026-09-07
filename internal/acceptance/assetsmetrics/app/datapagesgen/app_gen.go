@@ -195,6 +195,8 @@ var evSubjPageIndex = []string{
 	EvSubjAnnounced,
 }
 
+var evSubjPageQuiet = []string{}
+
 // brokerSubjectKind folds subjects that carry a user or a tab back into the event name.
 // A metric labelled with the raw subject would carry one value per user or per tab.
 func brokerSubjectKind(subject string) string {
@@ -214,6 +216,12 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /_$/{$}",
 		s.handlePageIndexGETStream)
+	s.Mux().HandleFunc(
+		"GET /quiet/{$}",
+		s.handlePageQuietGET)
+	s.Mux().HandleFunc(
+		"GET /quiet/_$/{$}",
+		s.handlePageQuietGETStream)
 	s.Mux().HandleFunc(
 		"POST /announce/{$}",
 		s.handlePageIndexPOSTAnnounce)
@@ -279,7 +287,12 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageIndex,
-		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator,
+		) error {
+			return p.StreamOpen(r, streamID)
+		},
 		nil,
 		func(
 			streamID datapages.StreamID,
@@ -364,6 +377,59 @@ func (s *Server) handlePageIndexPOSTHalfWritten(
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.HalfWritten", err)
 		return
 	}
+}
+
+func (s *Server) handlePageQuietGET(w http.ResponseWriter, r *http.Request) {
+	p := app.PageQuiet{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageQuiet.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageQuiet.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('/quiet/_$/')"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageQuiet", err)
+		return
+	}
+}
+
+func (s *Server) handlePageQuietGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	p := app.PageQuiet{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPageQuiet,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator,
+		) error {
+			return p.StreamOpen(r, streamID)
+		},
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			for range ch {
+			}
+		})
 }
 
 type dispatcherEventAnnounced struct {

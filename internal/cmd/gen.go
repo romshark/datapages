@@ -95,7 +95,7 @@ func runGen(
 	tidy := exec.Command("go", "mod", "tidy")
 	tidy.Dir = moduleDir
 	if out, err := tidy.CombinedOutput(); err != nil {
-		errs = append(errs, fmt.Errorf("go mod tidy: %s", out))
+		errs = append(errs, execErr("go mod tidy", err, out))
 	}
 	return errors.Join(errs...)
 }

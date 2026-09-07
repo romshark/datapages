@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -331,6 +332,20 @@ type tracked struct {
 func (t *tracked) Write(b []byte) (int, error) {
 	t.wroteBody = true
 	return t.ResponseWriter.Write(b)
+}
+
+// ReadFrom forwards to the writer underneath, which is what
+// http.ServeContent reaches for. Without it io.Copy allocates a copy buffer
+// per response instead of net/http's pooled one, and sendfile is out of reach.
+//
+// wroteBody is set before the copy: zero bytes for an empty file is
+// the same case as Write(nil), which sets it too.
+func (t *tracked) ReadFrom(src io.Reader) (int64, error) {
+	t.wroteBody = true
+	if rf, ok := t.ResponseWriter.(io.ReaderFrom); ok {
+		return rf.ReadFrom(src)
+	}
+	return io.Copy(t.ResponseWriter, src)
 }
 
 func (t *tracked) Flush() {

@@ -497,7 +497,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
-		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -1325,7 +1325,9 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 	if sess.UserID() == "" {
 		// The query carries the signals a stream subscribes by,
 		// which the anonymous route needs as much as this one.
-		target := r.URL.Path + "/anon"
+		// EscapedPath, not the decoded Path: a value carrying "?" or "#" re-parses
+		// in the Location header as a query or a fragment.
+		target := r.URL.EscapedPath() + "anon/"
 		if r.URL.RawQuery != "" {
 			target += "?" + r.URL.RawQuery
 		}
@@ -1961,7 +1963,9 @@ func (s *Server) handlePageUserGETStream(w http.ResponseWriter, r *http.Request)
 	if sess.UserID() == "" {
 		// The query carries the signals a stream subscribes by,
 		// which the anonymous route needs as much as this one.
-		target := r.URL.Path + "/anon"
+		// EscapedPath, not the decoded Path: a value carrying "?" or "#" re-parses
+		// in the Location header as a query or a fragment.
+		target := r.URL.EscapedPath() + "anon/"
 		if r.URL.RawQuery != "" {
 			target += "?" + r.URL.RawQuery
 		}

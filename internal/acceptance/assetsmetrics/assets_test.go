@@ -295,6 +295,113 @@ func TestMetrics(t *testing.T) {
 		"the request duration histogram was not registered")
 }
 
+// TestStreamStaysOutOfRequestLatency tests the request metrics a stream leaves behind.
+// It lives as long as the browser holds the page: observed as a request,
+// an hour-long one lands above the histogram's top bucket.
+func TestStreamStaysOutOfRequestLatency(t *testing.T) {
+	t.Parallel()
+	srv := newServer(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	// PageQuiet's route, which no other test sends anything to:
+	// what the histogram holds for it is this stream and nothing else.
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodGet, srv.URL+"/quiet/_$/", nil,
+	)
+	require.NoError(t, err, "building stream request")
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "identity")
+	stream, err := srv.Client().Do(req)
+	require.NoError(t, err, "opening stream")
+	require.Equal(t, http.StatusOK, stream.StatusCode, "opening stream")
+
+	_ = stream.Body.Close()
+	cancel()
+
+	// The counter is written when the handler returns,
+	// which the client cannot observe on a stream it cancelled.
+	require.Eventually(t, func() bool {
+		return strings.Contains(family(t, "datapages_http_requests_total"),
+			"GET /quiet/_$/{$}")
+	}, 5*time.Second, 10*time.Millisecond, "the stream was never counted")
+
+	require.NotContains(t, family(t, "datapages_http_request_duration_seconds"),
+		"GET /quiet/_$/{$}", "the stream was observed as a request latency")
+}
+
+// family renders the metric family name as the registry holds it.
+func family(t *testing.T, name string) string {
+	t.Helper()
+	families, err := registry.Gather()
+	require.NoError(t, err, "gathering metrics")
+	for _, f := range families {
+		if f.GetName() == name {
+			return f.String()
+		}
+	}
+	return ""
+}
+
+// TestRefusedStreamStaysARequest tests a stream StreamOpen refuses.
+// It never reaches the message loop, which leaves it an ordinary request:
+// counted, in-flight while it runs and observed in the latency histogram.
+func TestRefusedStreamStaysARequest(t *testing.T) {
+	t.Parallel()
+	srv := newServer(t)
+
+	before := histogramCount(t, "GET /_$/{$}")
+
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, srv.URL+"/_$/?refuse=1", nil,
+	)
+	require.NoError(t, err, "building stream request")
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "identity")
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err, "opening stream")
+	// 200: datastar.NewSSE writes the head before StreamOpen runs,
+	// which is why the refusal travels as an SSE error rather than a status.
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// To EOF, not just Close: the middleware records after the handler returns,
+	// and the response ends with it.
+	_, err = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err, "reading the refusal")
+	_ = resp.Body.Close()
+
+	require.Greater(t, histogramCount(t, "GET /_$/{$}"), before,
+		"the refused stream was not observed as a request")
+}
+
+// histogramCount is how many requests the latency histogram observed for path.
+func histogramCount(t *testing.T, path string) uint64 {
+	t.Helper()
+	families, err := registry.Gather()
+	require.NoError(t, err, "gathering metrics")
+	for _, f := range families {
+		if f.GetName() != "datapages_http_request_duration_seconds" {
+			continue
+		}
+		for _, m := range f.GetMetric() {
+			if hasLabel(m, "path", path) {
+				return m.GetHistogram().GetSampleCount()
+			}
+		}
+	}
+	return 0
+}
+
+// hasLabel reports whether m carries the label name=value.
+func hasLabel(m *dto.Metric, name, value string) bool {
+	for _, l := range m.GetLabel() {
+		if l.GetName() == name && l.GetValue() == value {
+			return true
+		}
+	}
+	return false
+}
+
 // TestBrokerMetrics tests the counters the generated code hands the message broker.
 // They are what an operator watches to see events flowing,
 // and they only move if the generated dispatch passes them along.

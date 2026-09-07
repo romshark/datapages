@@ -396,8 +396,10 @@ func escapeJS(s string) string { return jsStringEscaper.Replace(s) }
 //
 // A helper with nothing to say returns the zero option, WithHeaders of an
 // empty map among them. Writing one would put "{: }" in the expression.
+// An empty value is dropped for the same reason: an expression that came out
+// empty would write "{key: }", which disables the whole attribute.
 func isEntry(o Option) bool {
-	return o.kind == 0 && o.key != ""
+	return o.kind == 0 && o.key != "" && o.value != ""
 }
 
 // WriteOptions writes the options object of an action call to b.
