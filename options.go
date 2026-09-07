@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -212,11 +213,44 @@ func WithHTTPServer(server *http.Server) ServerOption {
 // WithDatastarJS sets a custom URL for the Datastar JavaScript bundle.
 // Without it the page shell loads
 // [github.com/romshark/datapages/runtime/httpserve.DefaultDatastarJSSrc].
+//
+// src stands unescaped in a src attribute, hence it must be an http/https or
+// relative URL, valid per RFC 3986.
 func WithDatastarJS(src string) ServerOption {
 	return func(c *ServerConfig) error {
+		if err := validateDatastarJS(src); err != nil {
+			return fmt.Errorf("WithDatastarJS: %w", err)
+		}
 		c.DatastarJS = src
 		return nil
 	}
+}
+
+// validateDatastarJS holds src to what may stand unescaped in a src attribute.
+// net/url takes characters RFC 3986 has no place for, a quote and a space among them,
+// hence the check of its own.
+func validateDatastarJS(src string) error {
+	if src == "" {
+		return errors.New("empty URL")
+	}
+	for _, r := range src {
+		switch {
+		case r == '"' || r == '\'' || r == '<' || r == '>' || r == '&':
+			return fmt.Errorf("URL contains %q", r)
+		case r <= 0x20 || r == 0x7f:
+			return fmt.Errorf("URL contains the control character %q", r)
+		}
+	}
+	u, err := url.Parse(src)
+	if err != nil {
+		return fmt.Errorf("parsing URL: %w", err)
+	}
+	// A URL with no scheme is relative, which is the app's own asset route.
+	switch u.Scheme {
+	case "", "http", "https":
+		return nil
+	}
+	return fmt.Errorf("URL scheme %q is neither http nor https", u.Scheme)
 }
 
 // WithAssetsFS serves static files from fsys, overriding [WithAssets].

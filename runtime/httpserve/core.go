@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net"
@@ -173,7 +174,7 @@ func (c *Core) Build() {
 	// of its own before Datastar loads writes them around it.
 	c.htmlHead = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>`
 	c.htmlDatastar = "\n\t\t" + `<script type="module" src="` +
-		c.datastarJSSrc + `"></script>`
+		html.EscapeString(c.datastarJSSrc) + `"></script>`
 	c.htmlPrefix = c.htmlHead + c.htmlDatastar
 
 	if c.httpServer.ErrorLog == nil {
