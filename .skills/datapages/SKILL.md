@@ -487,6 +487,8 @@ func (PageChat) OnMessageSent(
 
 A field typed as one of the two datapages subject types is a subject field.
 Its name is free. Subject fields must appear before any payload field.
+A field must name the subject type itself: a type declared from one,
+`type UserID datapages.SubjectUser`, is rejected.
 
 | type | segment |
 | ---- | ------- |

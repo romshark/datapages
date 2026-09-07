@@ -4,7 +4,10 @@ package typecheck
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
+
+	"golang.org/x/tools/go/packages"
 
 	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
@@ -364,4 +367,80 @@ func TypeArgExpr(expr ast.Expr) ast.Expr {
 		}
 	}
 	return expr
+}
+
+// maxSubjectDeriveDepth caps the declaration chain [DerivedSubjectKindOf] follows.
+// Go rejects a cycle among type declarations:
+// the cap only guards against an unexpected type graph.
+const maxSubjectDeriveDepth = 16
+
+// DerivedSubjectKindOf reports which datapages subject segment type t is declared from,
+// e.g. [model.SubjectKindUser] for `type UserID datapages.SubjectUser`.
+// It returns [model.SubjectKindNone] for the two framework types themselves,
+// which [SubjectKindOf] reports, and for every other type.
+//
+// pkg is the package t is written in. Both framework types are strings
+// and a declaration from either keeps that underlying type, which erases the
+// derivation from go/types: the declaration is read from the syntax of pkg and
+// of its imports instead.
+func DerivedSubjectKindOf(t types.Type, pkg *packages.Package) model.SubjectKind {
+	if t == nil || pkg == nil || SubjectKindOf(t).IsSubject() {
+		return model.SubjectKindNone
+	}
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok || !gotypes.IsString(named.Underlying()) {
+		return model.SubjectKindNone
+	}
+	for range maxSubjectDeriveDepth {
+		obj := named.Obj()
+		if obj == nil || obj.Pkg() == nil {
+			return model.SubjectKindNone
+		}
+		declPkg := packageByPath(pkg, obj.Pkg().Path())
+		if declPkg == nil || declPkg.TypesInfo == nil {
+			return model.SubjectKindNone
+		}
+		rhs := typeSpecRHS(declPkg, obj.Pos())
+		if rhs == nil {
+			return model.SubjectKindNone
+		}
+		next, ok := types.Unalias(declPkg.TypesInfo.TypeOf(rhs)).(*types.Named)
+		if !ok {
+			return model.SubjectKindNone
+		}
+		if kind := SubjectKindOf(next); kind.IsSubject() {
+			return kind
+		}
+		named, pkg = next, declPkg
+	}
+	return model.SubjectKindNone
+}
+
+// packageByPath returns pkg itself or the import of pkg with the given path,
+// nil if neither matches.
+func packageByPath(pkg *packages.Package, path string) *packages.Package {
+	if pkg.PkgPath == path {
+		return pkg
+	}
+	return pkg.Imports[path]
+}
+
+// typeSpecRHS returns the right-hand side of the package-level type
+// declaration whose name identifier sits at pos, nil if pkg declares none.
+func typeSpecRHS(pkg *packages.Package, pos token.Pos) ast.Expr {
+	for _, file := range pkg.Syntax {
+		for _, decl := range file.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if ok && ts.Name.Pos() == pos {
+					return ts.Type
+				}
+			}
+		}
+	}
+	return nil
 }

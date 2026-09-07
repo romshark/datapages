@@ -802,6 +802,22 @@ func TestParse_ErrEventSubjectPrefixedField(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEventSubjectDerivedType tests an event field typed as a type
+// declared from datapages.Subject or datapages.SubjectUser, which go/types
+// renders as a plain string and which would therefore drop the segment from
+// the subject and broadcast a per-user event.
+func TestParse_ErrEventSubjectDerivedType(t *testing.T) {
+	_, err := parse(t, "err_event_subj_derived")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectDerivedType,
+		parser.ErrEventSubjectDerivedType,
+		parser.ErrEventSubjectDerivedType,
+	)
+}
+
 // TestParse_ErrEventSubjectFieldUnexported tests an unexported subject field,
 // which the generated dispatcher in another package cannot set.
 func TestParse_ErrEventSubjectFieldUnexported(t *testing.T) {
@@ -1741,6 +1757,11 @@ func TestParse_ErrorPositions(t *testing.T) {
 		},
 		"err_event_subj_unexported": {
 			{parser.ErrEventFieldUnexported, "app.go", 25, 2},
+		},
+		"err_event_subj_derived": {
+			{parser.ErrEventSubjectDerivedType, "app.go", 43, 2},
+			{parser.ErrEventSubjectDerivedType, "app.go", 53, 2},
+			{parser.ErrEventSubjectDerivedType, "app.go", 62, 2},
 		},
 		"err_embed_get_path": {
 			{parser.ErrPathMissingRouteVar, "app.go", 17, 2},

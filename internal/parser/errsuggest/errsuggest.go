@@ -333,6 +333,16 @@ func Suggest(err error) string {
 			d.FieldName, d.TypeName,
 		)
 
+	case errors.Is(err, parser.ErrEventSubjectDerivedType):
+		var d *parser.ErrorEventSubjectDerivedType
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Type %s in %s as %s instead of %s",
+			d.FieldName, d.TypeName, d.SubjectTypeName, d.DeclTypeName,
+		)
+
 	case errors.Is(err, parser.ErrEventSubjectSignalInvalid):
 		var d *parser.ErrorEventSubjectSignalInvalid
 		if !errors.As(err, &d) {

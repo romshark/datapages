@@ -310,7 +310,7 @@ func firstPassEventType(
 		return
 	}
 
-	sfResult := structinspect.SubjectFields(ts, ctx.pkg.TypesInfo)
+	sfResult := structinspect.SubjectFields(ts, ctx.pkg)
 	if sfResult.AfterPayload != nil {
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(sfResult.AfterPayload.Pos),
@@ -361,6 +361,17 @@ func firstPassEventType(
 			&ErrorEventSubjectPrefixedField{
 				FieldName: sf.FieldName,
 				TypeName:  name,
+			},
+		)
+	}
+	for _, sf := range sfResult.Derived {
+		errs.ErrAt(
+			ctx.pkg.Fset.Position(sf.Pos),
+			&ErrorEventSubjectDerivedType{
+				FieldName:       sf.FieldName,
+				TypeName:        name,
+				DeclTypeName:    sf.DeclTypeName,
+				SubjectTypeName: sf.SubjectTypeName,
 			},
 		)
 	}

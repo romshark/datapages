@@ -203,6 +203,10 @@ var (
 		"invalid signal tag value",
 	)
 
+	ErrEventSubjectDerivedType = errors.New(
+		"event subject field must name datapages.Subject or datapages.SubjectUser",
+	)
+
 	ErrTemplHrefRelative                 = templcheck.ErrHrefRelative
 	ErrTemplActionHardcoded              = templcheck.ErrActionHardcoded
 	ErrTemplFormAction                   = templcheck.ErrFormAction
@@ -708,6 +712,25 @@ func (e *ErrorEventSubjectPrefixedField) Error() string {
 
 func (e *ErrorEventSubjectPrefixedField) Unwrap() error {
 	return ErrEventSubjectPrefixedField
+}
+
+// ErrorEventSubjectDerivedType is [ErrEventSubjectDerivedType] with the field,
+// the type it names and the segment type that type is declared from.
+type ErrorEventSubjectDerivedType struct {
+	FieldName       string // e.g. "To"
+	TypeName        string // e.g. "EventDirect"
+	DeclTypeName    string // e.g. "UserID"
+	SubjectTypeName string // e.g. "datapages.SubjectUser"
+}
+
+func (e *ErrorEventSubjectDerivedType) Error() string {
+	return fmt.Sprintf("%v: field %s in %s names %s, declared from %s",
+		ErrEventSubjectDerivedType,
+		e.FieldName, e.TypeName, e.DeclTypeName, e.SubjectTypeName)
+}
+
+func (e *ErrorEventSubjectDerivedType) Unwrap() error {
+	return ErrEventSubjectDerivedType
 }
 
 // ErrorEventSubjectSignalInvalid is [ErrEventSubjectSignalInvalid]

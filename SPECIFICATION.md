@@ -766,6 +766,18 @@ type EventInvalid2 struct {
 }
 ```
 
+A field must name the subject type itself.
+A type declared from one is rejected, since it would silently become payload:
+
+```go
+type UserID datapages.SubjectUser
+
+// EventInvalid3 is "invalid3"
+type EventInvalid3 struct {
+	Recipient UserID `json:"recipient"` // ERROR: declared from datapages.SubjectUser
+}
+```
+
 One dispatcher publishes one event type. A handler that publishes several
 declares one parameter per type, and it must not declare two for the same type:
 

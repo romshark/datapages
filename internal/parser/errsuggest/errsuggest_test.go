@@ -305,6 +305,16 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Use a unique signal tag for SubjectBar in EventCalc (signal \"instance_id\" is already used by SubjectFoo)",
 		},
 
+		"ErrEventSubjectDerivedType": {
+			err: &parser.ErrorEventSubjectDerivedType{
+				FieldName:       "To",
+				TypeName:        "EventDirect",
+				DeclTypeName:    "UserID",
+				SubjectTypeName: "datapages.SubjectUser",
+			},
+			want: "fix: Type To in EventDirect as datapages.SubjectUser instead of UserID",
+		},
+
 		"ErrEventSubjectSignalInvalid": {
 			err: &parser.ErrorEventSubjectSignalInvalid{
 				FieldName:  "SubjectInstance",
