@@ -110,6 +110,8 @@ func f(
 	sess Session[struct{}],
 ) {}`
 
+// TestIsSessionParam tests recognizing the session wrapper on a parameter,
+// and not recognizing a parameter of another type.
 func TestIsSessionParam(t *testing.T) {
 	t.Parallel()
 	f, info := typeCheckSrc(t, wrapperSrc)
@@ -117,6 +119,8 @@ func TestIsSessionParam(t *testing.T) {
 	require.False(t, IsSessionParam(firstFuncParam(t, f, 3), info))
 }
 
+// TestIsPathParam tests the same for the path wrapper, including that it does not
+// match the query wrapper, whose shape is identical.
 func TestIsPathParam(t *testing.T) {
 	t.Parallel()
 	f, info := typeCheckSrc(t, wrapperSrc)
@@ -125,6 +129,7 @@ func TestIsPathParam(t *testing.T) {
 	require.False(t, IsPathParam(firstFuncParam(t, f, 3), info))
 }
 
+// TestIsQueryParam tests the same for the query wrapper.
 func TestIsQueryParam(t *testing.T) {
 	t.Parallel()
 	f, info := typeCheckSrc(t, wrapperSrc)
@@ -133,6 +138,7 @@ func TestIsQueryParam(t *testing.T) {
 	require.False(t, IsQueryParam(firstFuncParam(t, f, 3), info))
 }
 
+// TestIsSignalsParam tests the same for the signals wrapper.
 func TestIsSignalsParam(t *testing.T) {
 	t.Parallel()
 	f, info := typeCheckSrc(t, wrapperSrc)
@@ -141,6 +147,9 @@ func TestIsSignalsParam(t *testing.T) {
 	require.False(t, IsSignalsParam(firstFuncParam(t, f, 3), info))
 }
 
+// TestValidatePathStruct tests which struct may stand as a handler's path parameter:
+// which field types can be parsed out of a URL segment, a type that unmarshals
+// itself included, and every way a field can be unusable.
 func TestValidatePathStruct(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct {
@@ -289,6 +298,7 @@ func f(path struct {
 	})
 }
 
+// TestValidateQueryStruct tests the same for a query parameter struct.
 func TestValidateQueryStruct(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct {
@@ -421,6 +431,9 @@ func f(query struct {
 	})
 }
 
+// TestValidateSignalsStruct tests which struct may stand as a handler's
+// signals parameter. It is decoded from JSON rather than from the URL,
+// which is why the rules differ from path and query.
 func TestValidateSignalsStruct(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct {
@@ -507,6 +520,37 @@ func f(signals struct {
 	})
 }
 
+// TestValidatePathAgainstRouteIsDeterministic tests the order the missing
+// route variables are reported in. Their positions are identical, so nothing
+// downstream can sort them and `datapages lint` reshuffles its own output.
+func TestValidatePathAgainstRouteIsDeterministic(t *testing.T) {
+	t.Parallel()
+
+	for name, h := range map[string]*model.Handler{
+		"no path struct": {Route: "/thing/{a}/{b}/{c}/{d}"},
+		"partial path struct": {
+			Route: "/thing/{a}/{b}/{c}/{d}",
+			InputPath: &model.Input{Type: model.Type{Resolved: namedType(t, `package test
+type P struct {
+	A string `+"`"+`path:"a"`+"`"+`
+}`)}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			want := ValidatePathAgainstRoute(h, "PageThing", "GET").Error()
+			for range 20 {
+				got := ValidatePathAgainstRoute(h, "PageThing", "GET").Error()
+				require.Equal(t, want, got)
+			}
+		})
+	}
+}
+
+// TestValidatePathAgainstRoute tests the agreement between a route pattern and
+// the path struct. Every route variable needs a field and every field needs a variable:
+// a field with no variable would never be filled, and a variable with no
+// field would be silently dropped.
 func TestValidatePathAgainstRoute(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct {
@@ -667,6 +711,8 @@ type importerFunc func(path string) (*types.Package, error)
 
 func (f importerFunc) Import(path string) (*types.Package, error) { return f(path) }
 
+// TestIsDispatchParam tests recognizing a dispatcher parameter,
+// which is what tells the parser the handler publishes an event.
 func TestIsDispatchParam(t *testing.T) {
 	t.Parallel()
 	src := `package test
@@ -678,6 +724,9 @@ func f(d datapages.Dispatcher[EventFoo], notDispatch string) {}`
 	require.False(t, IsDispatchParam(firstFuncParam(t, f, 1), info))
 }
 
+// TestValidateDispatch tests the event type a dispatcher parameter names,
+// read through an alias as well, and the refusal of a type argument that is
+// not one of the app's event types.
 func TestValidateDispatch(t *testing.T) {
 	t.Parallel()
 	eventTypes := map[string]struct{}{
@@ -749,6 +798,9 @@ func f(d string) {}`,
 	}
 }
 
+// TestValidateReflectSignal tests the reflectsignal tag, which binds a query
+// field to a signal. Both structs have to be there and the named signal has to exist,
+// since a tag naming nothing would generate an expression the browser cannot evaluate.
 func TestValidateReflectSignal(t *testing.T) {
 	sigType := namedType(t, "package test\n"+
 		"type P struct {\n"+

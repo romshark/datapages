@@ -215,8 +215,21 @@ func (m *Manager[Data]) ReadSession(w http.ResponseWriter, r *http.Request) (
 	return sess, token, true
 }
 
-// CheckCSRF answers r and returns false when the request carries no valid
-// CSRF token. A read method, a guest and disabled protection all pass.
+// CheckCSRFOnly is [Manager.CheckCSRF] against the session cookie,
+// without reading the store. A handler that takes no session runs it.
+//
+// The cookie of a closed or expired session passes:
+// only the store read of [Manager.ReadSession] tells that apart.
+func (m *Manager[Data]) CheckCSRFOnly(w http.ResponseWriter, r *http.Request) bool {
+	cookieVal, found := httpread.CookieValue(r, m.conf.Cookie.Name)
+	if !found {
+		return true
+	}
+	return m.CheckCSRF(w, r, cookieVal)
+}
+
+// CheckCSRF answers r and returns false when the request carries no valid CSRF token.
+// A read method, a guest and disabled protection all pass.
 func (m *Manager[Data]) CheckCSRF(
 	w http.ResponseWriter, r *http.Request, sessionToken string,
 ) (ok bool) {
@@ -258,15 +271,21 @@ func (m *Manager[Data]) SetSessionCookie(w http.ResponseWriter, value string) {
 }
 
 // CreateSession stores a new session and puts its token into the cookie.
+//
+// It returns the session it created. A document rendered in the same response
+// has to be written from it, or it carries no CSRF script while
+// [Manager.CheckCSRF] already demands the token.
 func (m *Manager[Data]) CreateSession(
 	w http.ResponseWriter, r *http.Request, session datapages.NewSession[Data],
-) error {
+) (datapages.Session[Data], error) {
 	if err := datapages.ValidateUserID(session.UserID); err != nil {
-		return fmt.Errorf("user ID %q: %w", session.UserID, err)
+		return datapages.Session[Data]{},
+			fmt.Errorf("user ID %q: %w", session.UserID, err)
 	}
+	issuedAt := time.Now()
 	token, err := m.sessions.CreateSession(r.Context(), sessions.Record[Data]{
 		UserID:    session.UserID,
-		IssuedAt:  time.Now(),
+		IssuedAt:  issuedAt,
 		ExpiresAt: session.ExpiresAt,
 		Data:      session.Data,
 	})
@@ -274,28 +293,33 @@ func (m *Manager[Data]) CreateSession(
 		if m.metrics != nil {
 			m.metrics.SessionCreated("error")
 		}
-		return err
+		return datapages.Session[Data]{}, err
 	}
 	if m.metrics != nil {
 		m.metrics.SessionCreated("success")
 	}
 	m.SetSessionCookie(w, token)
-	return nil
+	return datapages.MakeSession(
+		session.UserID, token, issuedAt, session.ExpiresAt, session.Data,
+	), nil
 }
 
 // CloseSession removes the session named by token and clears the cookie.
+//
+// It returns the zero session: the visitor is a guest by the time a document
+// rendered in the same response goes out.
 func (m *Manager[Data]) CloseSession(
 	w http.ResponseWriter, r *http.Request, token string,
-) error {
+) (datapages.Session[Data], error) {
 	if err := m.sessions.CloseSession(r.Context(), token); err != nil {
 		if m.metrics != nil {
 			m.metrics.SessionClosed("error")
 		}
-		return err
+		return datapages.Session[Data]{}, err
 	}
 	if m.metrics != nil {
 		m.metrics.SessionClosed("success")
 	}
 	m.SetSessionCookie(w, "")
-	return nil
+	return datapages.Session[Data]{}, nil
 }

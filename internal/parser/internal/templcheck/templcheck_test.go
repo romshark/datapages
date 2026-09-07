@@ -102,6 +102,11 @@ func check(t *testing.T, fixtureName string, app *model.App) []posErr {
 	return errs
 }
 
+// TestCheck_ErrHref tests every href the linter refuses in the
+// err_templ_href fixture: a relative URL written by hand instead of through the
+// generated href package, an expression it cannot verify, and an external href
+// handed a relative URL. Positions are asserted, since the position is what
+// sends the developer to the line.
 func TestCheck_ErrHref(t *testing.T) {
 	errs := check(t, "err_templ_href", nil)
 
@@ -142,6 +147,9 @@ func TestCheck_ErrHref(t *testing.T) {
 	require.Equal(t, expect, toPosErrors(errs))
 }
 
+// TestCheck_ErrActionWrongPage tests an action used in a template of a page that
+// does not own it, which would post to a route that page's URL cannot produce.
+// Ownership is checked even where a nolint suppresses the element-level checks.
 func TestCheck_ErrActionWrongPage(t *testing.T) {
 	// Build a minimal model.App that mirrors the fixture:
 	// PageProfile owns POSTSave, PageSettings owns POSTUpdate, App owns POSTGlobal.
@@ -202,6 +210,10 @@ func TestCheck_ErrActionWrongPage(t *testing.T) {
 	require.ElementsMatch(t, expect, toPosErrors(errs))
 }
 
+// TestCheck_ErrContext tests an action or href used in the wrong attribute: an
+// action in href, an href in a data-on expression. It also tests an action expression
+// concatenated with something else, which is reported apart by whether the extra part
+// is a prefix, a suffix or neither, since only the first two can be suggested a fix.
 func TestCheck_ErrContext(t *testing.T) {
 	errs := check(t, "err_templ_context", nil)
 
@@ -255,6 +267,8 @@ func TestCheck_ErrContext(t *testing.T) {
 	require.Equal(t, expect, toPosErrors(errs))
 }
 
+// TestCheck_ErrFormAction tests a form action attribute, which Datapages has no
+// route for: an action is reached through a Datastar expression, never a form submit.
 func TestCheck_ErrFormAction(t *testing.T) {
 	errs := check(t, "err_templ_form_action", nil)
 
@@ -267,6 +281,9 @@ func TestCheck_ErrFormAction(t *testing.T) {
 	require.Equal(t, expect, toPosErrors(errs))
 }
 
+// TestCheck_ErrActionHardcoded tests an action URL written by hand into a
+// Datastar attribute rather than taken from the generated action package,
+// across every attribute that carries one.
 func TestCheck_ErrActionHardcoded(t *testing.T) {
 	errs := check(t, "err_templ_hardcoded_action", nil)
 
@@ -298,21 +315,28 @@ func TestCheck_ErrActionHardcoded(t *testing.T) {
 	require.Equal(t, expect, toPosErrors(errs))
 }
 
+// TestCheck_OKHref tests the fixture that uses the generated href package
+// correctly throughout: the linter must report nothing.
 func TestCheck_OKHref(t *testing.T) {
 	errs := check(t, "ok_templ_href", nil)
 	requireNoErrs(t, errs)
 }
 
+// TestCheck_OKHrefAlias tests the same through an import alias.
 func TestCheck_OKHrefAlias(t *testing.T) {
 	errs := check(t, "ok_templ_href_alias", nil)
 	requireNoErrs(t, errs)
 }
 
+// TestCheck_OKHrefDot tests the same for a template package in a subdirectory of
+// the app package.
 func TestCheck_OKHrefDot(t *testing.T) {
 	errs := check(t, "ok_templ_href_dot/template", nil)
 	requireNoErrs(t, errs)
 }
 
+// BenchmarkCheck_ErrHref measures the linter on a package where every href is a finding,
+// which is its worst case.
 func BenchmarkCheck_ErrHref(b *testing.B) {
 	pkg := loadPkg(b, "err_templ_href")
 	noop := func(token.Position, error) {}
@@ -322,6 +346,8 @@ func BenchmarkCheck_ErrHref(b *testing.B) {
 	}
 }
 
+// BenchmarkCheck_OKHref measures the linter on a clean package,
+// which is what every build pays.
 func BenchmarkCheck_OKHref(b *testing.B) {
 	pkg := loadPkg(b, "ok_templ_href")
 	noop := func(token.Position, error) {}

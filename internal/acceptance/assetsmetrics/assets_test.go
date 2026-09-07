@@ -1,4 +1,4 @@
-// Covers the generated asset serving and metrics of ./app.
+// Tests the generated asset serving and metrics of ./app.
 
 package acceptance_test
 
@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path"
 	"strings"
 	"testing"
@@ -57,7 +58,7 @@ func get(t *testing.T, srv *httptest.Server, path string) *http.Response {
 	return resp
 }
 
-// TestAssetPath covers the asset URL builders against path.Join,
+// TestAssetPath tests the asset URL builders against path.Join,
 // which is what they fall back to.
 func TestAssetPath(t *testing.T) {
 	t.Parallel()
@@ -72,7 +73,7 @@ func TestAssetPath(t *testing.T) {
 	}
 }
 
-// TestAssetsAreServed covers the files the app embeds. The prefix comes from
+// TestAssetsAreServed tests the files the app embeds. The prefix comes from
 // the configuration and reaches both the URL builder and the route.
 // The two must agree on it.
 func TestAssetsAreServed(t *testing.T) {
@@ -123,7 +124,7 @@ func TestAssetsAreServed(t *testing.T) {
 	}
 }
 
-// TestAssetURLs covers the two generated ways to name an asset.
+// TestAssetURLs tests the two generated ways to name an asset.
 // Both are used in templates and both must produce the configured prefix.
 func TestAssetURLs(t *testing.T) {
 	t.Parallel()
@@ -132,7 +133,7 @@ func TestAssetURLs(t *testing.T) {
 	require.Equal(t, "/static/style.css", href.Asset("style.css"))
 }
 
-// TestAssetsEscapeTheirDirectory covers a path that climbs out of the embedded directory.
+// TestAssetsEscapeTheirDirectory tests a path that climbs out of the embedded directory.
 func TestAssetsEscapeTheirDirectory(t *testing.T) {
 	t.Parallel()
 	srv := newServer(t)
@@ -145,7 +146,8 @@ func TestAssetsEscapeTheirDirectory(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			resp := get(t, srv, url)
 			defer func() { _ = resp.Body.Close() }()
-			b, _ := io.ReadAll(resp.Body)
+			b, err := io.ReadAll(resp.Body)
+			require.NoError(t, err, "reading %s", url)
 			require.False(t,
 				resp.StatusCode == http.StatusOK &&
 					strings.Contains(string(b), "package app"),
@@ -154,7 +156,41 @@ func TestAssetsEscapeTheirDirectory(t *testing.T) {
 	}
 }
 
-// TestDevModeServesFromDisk covers what WithAssets does in development.
+// TestDatapagesDevModeServesFromDisk tests the variable datapages owns.
+// It turns dev mode on the same way and hands templ the mode as well,
+// which reads its own variable and nothing else.
+//
+// TestDatapagesDevModeServesFromDisk must not use t.Parallel() because
+// [testing.T.Setenv] forbids it.
+func TestDatapagesDevModeServesFromDisk(t *testing.T) {
+	t.Setenv("TEMPL_DEV_MODE", "")
+	t.Setenv(datapages.EnvVarDevMode, "true")
+	require.True(t, datapages.IsDevMode(), "the server does not consider this dev mode")
+
+	srv := httptest.NewServer(mustNewServer(
+		t,
+		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithAssets(app.StaticFS),
+		datapages.WithPrometheus(datapages.PrometheusConfig{
+			Host:       "127.0.0.1:0",
+			Registerer: registry,
+			Gatherer:   registry,
+		}),
+	))
+	t.Cleanup(srv.Close)
+
+	require.NotEmpty(t, os.Getenv("TEMPL_DEV_MODE"),
+		"templ was left out of the dev mode datapages was told about")
+
+	resp := get(t, srv, href.Asset("style.css"))
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "reading the stylesheet")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Contains(t, string(b), "rebeccapurple", "the file on disk was not served")
+}
+
+// TestDevModeServesFromDisk tests what WithAssets does in development.
 //
 // In dev mode the files come from the directory on disk rather than from the binary.
 // An edit to a stylesheet then shows up without a rebuild.
@@ -195,7 +231,32 @@ func TestDevModeServesFromDisk(t *testing.T) {
 		"caching is not forbidden in dev mode")
 }
 
-// TestMetrics covers the instrumentation the Prometheus option adds.
+// TestHalfWrittenBodyGetsNoErrorStatus tests an action that fails after
+// writing over SSE. The response head is already out, so an error status
+// writes its text into the body the client is reading.
+// prom.Middleware replaces the response writer with its own,
+// which httpserve.ResponseBodyWritten has to see through.
+func TestHalfWrittenBodyGetsNoErrorStatus(t *testing.T) {
+	srv := newServer(t)
+
+	req, err := http.NewRequestWithContext(context.Background(),
+		http.MethodPost, srv.URL+"/half-written/", nil)
+	require.NoError(t, err, "building POST /half-written/")
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "identity")
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err, "POST /half-written/")
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "reading /half-written/")
+
+	body := string(b)
+	require.Contains(t, body, `<pre id="echo">half</pre>`)
+	require.NotContains(t, body, http.StatusText(http.StatusInternalServerError),
+		"the error status was appended to what the client already received")
+}
+
+// TestMetrics tests the instrumentation the Prometheus option adds.
 // The counters are read from the registry the server was given,
 // the same registry a scrape reads.
 func TestMetrics(t *testing.T) {
@@ -234,7 +295,114 @@ func TestMetrics(t *testing.T) {
 		"the request duration histogram was not registered")
 }
 
-// TestBrokerMetrics covers the counters the generated code hands the message broker.
+// TestStreamStaysOutOfRequestLatency tests the request metrics a stream leaves behind.
+// It lives as long as the browser holds the page: observed as a request,
+// an hour-long one lands above the histogram's top bucket.
+func TestStreamStaysOutOfRequestLatency(t *testing.T) {
+	t.Parallel()
+	srv := newServer(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	// PageQuiet's route, which no other test sends anything to:
+	// what the histogram holds for it is this stream and nothing else.
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodGet, srv.URL+"/quiet/_$/", nil,
+	)
+	require.NoError(t, err, "building stream request")
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "identity")
+	stream, err := srv.Client().Do(req)
+	require.NoError(t, err, "opening stream")
+	require.Equal(t, http.StatusOK, stream.StatusCode, "opening stream")
+
+	_ = stream.Body.Close()
+	cancel()
+
+	// The counter is written when the handler returns,
+	// which the client cannot observe on a stream it cancelled.
+	require.Eventually(t, func() bool {
+		return strings.Contains(family(t, "datapages_http_requests_total"),
+			"GET /quiet/_$/{$}")
+	}, 5*time.Second, 10*time.Millisecond, "the stream was never counted")
+
+	require.NotContains(t, family(t, "datapages_http_request_duration_seconds"),
+		"GET /quiet/_$/{$}", "the stream was observed as a request latency")
+}
+
+// family renders the metric family name as the registry holds it.
+func family(t *testing.T, name string) string {
+	t.Helper()
+	families, err := registry.Gather()
+	require.NoError(t, err, "gathering metrics")
+	for _, f := range families {
+		if f.GetName() == name {
+			return f.String()
+		}
+	}
+	return ""
+}
+
+// TestRefusedStreamStaysARequest tests a stream StreamOpen refuses.
+// It never reaches the message loop, which leaves it an ordinary request:
+// counted, in-flight while it runs and observed in the latency histogram.
+func TestRefusedStreamStaysARequest(t *testing.T) {
+	t.Parallel()
+	srv := newServer(t)
+
+	before := histogramCount(t, "GET /_$/{$}")
+
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, srv.URL+"/_$/?refuse=1", nil,
+	)
+	require.NoError(t, err, "building stream request")
+	req.Header.Set("Datastar-Request", "true")
+	req.Header.Set("Accept-Encoding", "identity")
+	resp, err := srv.Client().Do(req)
+	require.NoError(t, err, "opening stream")
+	// 200: datastar.NewSSE writes the head before StreamOpen runs,
+	// which is why the refusal travels as an SSE error rather than a status.
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// To EOF, not just Close: the middleware records after the handler returns,
+	// and the response ends with it.
+	_, err = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err, "reading the refusal")
+	_ = resp.Body.Close()
+
+	require.Greater(t, histogramCount(t, "GET /_$/{$}"), before,
+		"the refused stream was not observed as a request")
+}
+
+// histogramCount is how many requests the latency histogram observed for path.
+func histogramCount(t *testing.T, path string) uint64 {
+	t.Helper()
+	families, err := registry.Gather()
+	require.NoError(t, err, "gathering metrics")
+	for _, f := range families {
+		if f.GetName() != "datapages_http_request_duration_seconds" {
+			continue
+		}
+		for _, m := range f.GetMetric() {
+			if hasLabel(m, "path", path) {
+				return m.GetHistogram().GetSampleCount()
+			}
+		}
+	}
+	return 0
+}
+
+// hasLabel reports whether m carries the label name=value.
+func hasLabel(m *dto.Metric, name, value string) bool {
+	for _, l := range m.GetLabel() {
+		if l.GetName() == name && l.GetValue() == value {
+			return true
+		}
+	}
+	return false
+}
+
+// TestBrokerMetrics tests the counters the generated code hands the message broker.
 // They are what an operator watches to see events flowing,
 // and they only move if the generated dispatch passes them along.
 func TestBrokerMetrics(t *testing.T) {
@@ -290,7 +458,7 @@ func counterTotal(t *testing.T, name string) float64 {
 	return total
 }
 
-// TestMetricsWithoutOption covers a server generated with
+// TestMetricsWithoutOption tests a server generated with
 // datapages.EnablePrometheus and built without datapages.WithPrometheus.
 // The metrics it counts have nowhere to go.
 func TestMetricsWithoutOption(t *testing.T) {

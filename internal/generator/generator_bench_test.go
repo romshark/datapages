@@ -24,6 +24,10 @@ var emptyApp = &model.App{
 	Fset:    token.NewFileSet(),
 }
 
+// BenchmarkWriteApp measures writing the dispatchers and handlers, against an
+// empty model and against example/classifieds as the largest one in this repo.
+// The buffer is preallocated, which leaves the codegen itself in the numbers
+// rather than the growth of the buffer.
 func BenchmarkWriteApp(b *testing.B) {
 	b.Run("empty", func(b *testing.B) {
 		w := generator.Writer{Buf: make([]byte, 2*1024*1024)} // 2 MiB
@@ -42,6 +46,7 @@ func BenchmarkWriteApp(b *testing.B) {
 	})
 }
 
+// BenchmarkWritePkgAction measures writing the action package.
 func BenchmarkWritePkgAction(b *testing.B) {
 	b.Run("empty", func(b *testing.B) {
 		w := generator.Writer{Buf: make([]byte, 2*1024*1024)} // 2 MiB
@@ -61,6 +66,7 @@ func BenchmarkWritePkgAction(b *testing.B) {
 	})
 }
 
+// BenchmarkWritePkgHref measures writing the href package.
 func BenchmarkWritePkgHref(b *testing.B) {
 	b.Run("empty", func(b *testing.B) {
 		w := generator.Writer{Buf: make([]byte, 2*1024*1024)} // 2 MiB

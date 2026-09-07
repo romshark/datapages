@@ -50,6 +50,7 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	if w.usage.stream {
 		w.writeAppHandleStreamRequest()
 	}
+	w.writeRecoverPanic()
 	w.writeAppServerStruct(appPkg)
 	w.writeAppInit(appPkg)
 	w.writeEventSubjectConsts(m.Events)
@@ -148,6 +149,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 		w.Line(1, `"github.com/romshark/datapages/modules/offline"`)
 	}
 	w.Line(1, `"github.com/romshark/datapages/modules/csrf"`)
+	w.Line(1, `"github.com/romshark/datapages/runtime/actionexpr"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/messaging"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/sessions"`)
 	w.Line(1, `"github.com/romshark/datapages/runtime/auth"`)
@@ -632,11 +634,14 @@ func (w *Writer) writeAppInit(appPkg string) {
 	} else {
 		w.Raw(`datapages.DisablePrometheus`)
 	}
-	w.Raw(`, Server](app, broker, opts...)
+	w.Raw(`, Server](
+//		app, broker, opts...,
+//	)
 //
 // Supported options:
 //
 //   - datapages.WithLogger
+//   - datapages.WithLogSampling
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
@@ -769,8 +774,13 @@ func (s *Server) Init(
 `)
 	w.Raw(`
 	s.Build()
-	href.SetLogger(s.Logger())
-
+	href.SetLogger(s.SampledLogger())
+	actionexpr.SetLogger(s.SampledLogger())
+`)
+	if w.prometheus {
+		w.Raw("\tactionexpr.SetMetrics(prom.ActionMetrics{})\n")
+	}
+	w.Raw(`
 	return nil
 }
 `)
@@ -1300,6 +1310,11 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 }
 
 func (w *Writer) writeHTTPErrFallback() {
+	w.Raw(`	if httpserve.ResponseBodyWritten(w) {
+		// A status written now only appends its text to the body.
+		return
+	}
+`)
 	if !w.usage.errSentinels {
 		w.Raw(`	const code = http.StatusInternalServerError
 	http.Error(w, http.StatusText(code), code)
@@ -1328,12 +1343,11 @@ func needsCSRFOnly(h *model.Handler, m *model.App) bool {
 	return true
 }
 
-// writeCSRFOnlyCheck emits the session lookup a handler runs for its CSRF token.
-// The session itself is not passed on; the handler did not ask for it.
+// writeCSRFOnlyCheck emits the CSRF check a handler runs when it takes no
+// session. It reads the cookie alone, which the session store never sees.
 func (w *Writer) writeCSRFOnlyCheck() {
-	w.Line(1, "// CSRF protection covers every state-changing action, including")
-	w.Line(1, "// the ones that read nothing of the session.")
-	w.Line(1, "if _, _, ok := s.ReadSession(w, r); !ok {")
+	w.Line(1, "// The CSRF token comes from the cookie, hence no store read here.")
+	w.Line(1, "if !s.CheckCSRFOnly(w, r) {")
 	w.Line(2, "return")
 	w.Line(1, "}")
 }
@@ -1379,9 +1393,11 @@ func (s *Server) httpErrIntern(
 `)
 	if hasPage {
 		w.Raw(`	if !httpserve.IsDatastarRequest(r) {
-		// A page load gets the app's own 500 page, with the status that
-		// says what happened. The page's own route serves 200;
-		// this is the other way in.
+		if httpserve.ResponseBodyWritten(w) {
+			// An error page after a half-written one sends two documents.
+			return
+		}
+		// The page serves 200 on its own route. Reached from here it carries 500.
 		w.WriteHeader(http.StatusInternalServerError)
 		s.handlePageError500GET(w, r)
 		return
@@ -1389,8 +1405,7 @@ func (s *Server) httpErrIntern(
 `)
 	}
 	if hasRecover {
-		w.Raw(`	// The response of a Datastar request is an event stream. Once one is
-	// open the status line is gone, which is what committed reports.
+		w.Raw(`	// committed reports that the stream is open, hence no status is left to send.
 	committed := sse != nil
 	if sse == nil {
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
@@ -1429,8 +1444,7 @@ func (s *Server) httpErrIntern(
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
 	if committed {
-		// http.Error would write a status the client already received,
-		// and append its text to the event stream the client is reading.
+		// A status written now only appends its text to the stream.
 		return
 	}
 `)
@@ -1440,15 +1454,68 @@ func (s *Server) httpErrIntern(
 `)
 }
 
+// writeRedirect emits the redirect of a handler. A handler holding an open
+// stream navigates through it, since the response head is long gone.
+// viaPageCache carries the handler's queued page cache writes in the redirect
+// response, which is how an action without a stream reaches the worker before
+// the navigation unloads the page.
+func (w *Writer) writeRedirect(h *model.Handler, viaPageCache bool) {
+	if h.OutputRedirect == nil {
+		return
+	}
+	ref := outputVar(h.OutputRedirect)
+	if h.InputSSE == nil {
+		if viaPageCache {
+			w.Raw("\tif httpRedirectOffline(w, r, ")
+			w.Raw(ref)
+			w.Raw(", pageCache) {\n")
+		} else {
+			w.Raw("\tif httpserve.Redirect(w, r, ")
+			w.Raw(ref)
+			w.Raw(") {\n")
+		}
+		w.Line(2, "return")
+		w.Line(1, "}")
+		return
+	}
+	w.Linef(1, "if %s.URL != \"\" {", ref)
+	w.Linef(2, "if err := dpsse.New(sse).Redirect(%s.URL); err != nil {", ref)
+	w.Line(3, `s.httpErrIntern(w, r, sse, "redirecting", err)`)
+	w.Line(2, "}")
+	w.Line(2, "return")
+	w.Line(1, "}")
+}
+
+// writeRecoverPanic writes the deferred helper every handler registers.
+// A panic reaches the same path an error takes, which is what RecoverError and
+// the error page answer. The stack is logged whatever they do with it.
+func (w *Writer) writeRecoverPanic() {
+	w.Raw(`
+// recoverPanic turns a panicking handler into an error and hands it to the error path.
+func (s *Server) recoverPanic(
+	w http.ResponseWriter, r *http.Request,
+	sse *datastar.ServerSentEventGenerator, handler string,
+) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+`)
+}
+
 func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	p := m.PageError404
 
 	w.Line(0, "")
 	w.Line(0, "func (s *Server) render404(w http.ResponseWriter, r *http.Request) {")
-	w.Line(1, "// The URL is claimed by no page. Whatever the app renders for it,")
-	w.Line(1, "// the response says so: a cache that stores it and a crawler that")
-	w.Line(1, "// reads it both go by the status.")
-	w.Line(1, "w.WriteHeader(http.StatusNotFound)")
 
 	h404 := p.GET.Handler
 	headNeedsSess := m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession
@@ -1511,8 +1578,8 @@ func (w *Writer) writeEmbedInitStmt(ap *model.AbstractPage, appPkg string, inden
 	w.Line(indent, "},")
 }
 
-// App-level action handler generation kept here; methodized.
-
+// writeAppActionHandler generates an app-level action handler, the counterpart
+// of [Writer.writePageActionHandler] for a handler declared on App itself.
 func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg string) {
 	w.Line(0, "")
 	w.Raw("func (s *Server) handle")
@@ -1561,7 +1628,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 ) {
 	// Body size limit for non-GET actions.
 	if h.InputSignals != nil {
-		w.Line(1, "r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())")
+		w.Line(1, "httpserve.LimitRequestBody(w, r, s.BodySizeLimit())")
 	}
 
 	// Read signals.
@@ -1592,6 +1659,10 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	if h.InputSSE != nil && !isAppLevel {
 		w.Line(0, "")
 		w.Line(1, "sse := datastar.NewSSE(w, r, datastar.WithCompression())")
+	}
+
+	if isAppLevel {
+		w.writeDeferRecover(false, "App."+h.Name)
 	}
 
 	// Page cache handle. App-level actions have no SSE stream. They deliver
@@ -1672,46 +1743,16 @@ func (w *Writer) writeMethodCall(
 		w.Line(1, "}")
 	}
 
-	// Close session.
-	if h.OutputCloseSession != nil {
-		w.Raw("\tif ")
-		w.Raw(outputVar(h.OutputCloseSession))
-		w.Raw(" {\n")
-		w.Line(2, "if err := s.CloseSession(w, r, sessToken); err != nil {")
-		w.Line(3, `s.httpErrIntern(w, r, nil, "removing session", err)`)
-		w.Line(3, "return")
-		w.Line(2, "}")
-		w.Line(1, "}")
-	}
+	// Close and create session: a document rendered below is written from what
+	// they produce, not from the session read before.
+	actHeadNeedsSession := m.GlobalHeadGenerator != nil &&
+		m.GlobalHeadGenerator.InputSession
+	actSessArg, actSessRebind := w.renderSessionVar(h, m, h.OutputBody != nil,
+		hasSessionInput(h) || actHeadNeedsSession)
+	w.writeSessionOutputs(h, actSessRebind)
 
-	// New session.
-	if h.OutputNewSession != nil {
-		w.Raw("\tif j := ")
-		w.Raw(outputVar(h.OutputNewSession))
-		w.Raw("; j.UserID != \"\" {\n")
-		w.Raw("\t\tif err := s.CreateSession(w, r, ")
-		w.Raw(outputVar(h.OutputNewSession))
-		w.Raw("); err != nil {\n")
-		w.Line(3, `s.httpErrIntern(w, r, nil, "creating session", err)`)
-		w.Line(2, "}")
-		w.Line(1, "}")
-	}
-
-	// Redirect. A redirect-returning action that also writes the page cache
-	// delivers its queued writes as JS in the redirect response, then navigates.
-	if h.OutputRedirect != nil {
-		if pageCacheViaRedirect(h) {
-			w.Raw("\tif httpRedirectOffline(w, r, ")
-			w.Raw(outputVar(h.OutputRedirect))
-			w.Raw(", pageCache) {\n")
-		} else {
-			w.Raw("\tif httpserve.Redirect(w, r, ")
-			w.Raw(outputVar(h.OutputRedirect))
-			w.Raw(") {\n")
-		}
-		w.Line(2, "return")
-		w.Line(1, "}")
-	}
+	// Redirect.
+	w.writeRedirect(h, pageCacheViaRedirect(h))
 
 	// Render body (if action returns templ.Component).
 	if h.OutputBody != nil {
@@ -1724,13 +1765,7 @@ func (w *Writer) writeMethodCall(
 		w.Line(1, "if err := s.writeHTML(")
 		w.Raw("\t\tw, r, ")
 		if m.Session != nil {
-			sessArg := "sess"
-			headNeedsSession := m.GlobalHeadGenerator != nil &&
-				m.GlobalHeadGenerator.InputSession
-			if !hasSessionInput(h) && !headNeedsSession {
-				sessArg = w.sessionType + "{}"
-			}
-			w.Raw(sessArg)
+			w.Raw(actSessArg)
 			w.Raw(", ")
 		}
 		if m.GlobalHeadGenerator != nil {
@@ -1947,6 +1982,8 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false, "dispatch")
 
+	w.writeDeferRecover(false, p.TypeName+".GET")
+
 	w.Byte('\t')
 	w.writeCommaSep(outs)
 	w.Raw(" := ")
@@ -1987,17 +2024,25 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 		headArg = outputVar(p.GET.OutputHead.Output)
 	}
 
+	if context == "render404" {
+		// Write the status here, not when render404 starts. The branches
+		// above send a status of their own, 302 for a redirect and 500 for
+		// an error or a panic, and ReadSession may still clear the cookie.
+		w.Line(1, "w.WriteHeader(http.StatusNotFound)")
+	}
+
 	w.Line(1, "if err := s.writeHTML(")
 	w.Raw("\t\tw, r, ")
 	if m.Session != nil {
-		sessArg := "sess"
+		// The zero session only where none was read: it carries no CSRF script.
 		headNeedsSession := m.GlobalHeadGenerator != nil &&
 			m.GlobalHeadGenerator.InputSession
-		if p.PageSpecialization == model.PageTypeError500 ||
-			p.PageSpecialization == model.PageTypeOffline ||
-			(p.PageSpecialization == model.PageTypeError404 &&
-				context == "render404" && !headNeedsSession) {
-			sessArg = w.sessionType + "{}"
+		// PageOffline keeps the zero one whatever its handler read: the worker
+		// precaches a single copy and serves it to every visitor.
+		sessArg := w.sessionType + "{}"
+		if p.PageSpecialization != model.PageTypeOffline &&
+			(h.InputSession != nil || headNeedsSession) {
+			sessArg = "sess"
 		}
 		w.Raw(sessArg)
 		w.Raw(", ")

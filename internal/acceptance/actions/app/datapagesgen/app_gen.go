@@ -5,12 +5,15 @@ package datapagesgen
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
+	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
@@ -51,6 +54,24 @@ func (s *Server) writeHTML(
 	})
 }
 
+// recoverPanic turns a panicking handler into an error and hands it to the error path.
+func (s *Server) recoverPanic(
+	w http.ResponseWriter, r *http.Request,
+	sse *datastar.ServerSentEventGenerator, handler string,
+) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -61,11 +82,14 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](app, broker, opts...)
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//		app, broker, opts...,
+//	)
 //
 // Supported options:
 //
 //   - datapages.WithLogger
+//   - datapages.WithLogSampling
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
@@ -109,7 +133,8 @@ func (s *Server) Init(
 	setupHandlers(s)
 
 	s.Build()
-	href.SetLogger(s.Logger())
+	href.SetLogger(s.SampledLogger())
+	actionexpr.SetLogger(s.SampledLogger())
 
 	return nil
 }
@@ -163,6 +188,9 @@ func setupHandlers(s *Server) {
 		"POST /form/go/{$}",
 		s.handlePageFormPOSTGo)
 	s.Mux().HandleFunc(
+		"POST /form/go-stream/{$}",
+		s.handlePageFormPOSTGoStream)
+	s.Mux().HandleFunc(
 		"POST /form/patch/{$}",
 		s.handlePageFormPOSTPatch)
 	s.Mux().HandleFunc(
@@ -187,10 +215,15 @@ func (s *Server) httpErrIntern(
 	_ *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		// A status written now only appends its text to the body.
+		return
+	}
 	httpserve.WriteErrStatus(w, err)
 }
 
 func (s *Server) handlePOSTPing(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.Ping")
 	err := s.app.POSTPing(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Ping", err)
@@ -199,6 +232,7 @@ func (s *Server) handlePOSTPing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDELETEAll(w http.ResponseWriter, r *http.Request) {
+	defer s.recoverPanic(w, r, nil, "App.All")
 	err := s.app.DELETEAll(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.All", err)
@@ -210,6 +244,7 @@ func (s *Server) handlePageFormGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageForm{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageForm.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageForm.GET", err)
@@ -235,7 +270,7 @@ func (s *Server) handlePageFormPOSTSubmit(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Name string `json:"name"`
 		Age  int    `json:"age"`
@@ -244,6 +279,7 @@ func (s *Server) handlePageFormPOSTSubmit(
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
+	defer s.recoverPanic(w, r, nil, "PageForm.Submit")
 	p := app.PageForm{
 		App: s.app,
 	}
@@ -257,6 +293,7 @@ func (s *Server) handlePageFormPOSTSubmit(
 func (s *Server) handlePageFormPUTReplace(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Replace")
 	p := app.PageForm{
 		App: s.app,
 	}
@@ -270,6 +307,7 @@ func (s *Server) handlePageFormPUTReplace(
 func (s *Server) handlePageFormPATCHTouch(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Touch")
 	p := app.PageForm{
 		App: s.app,
 	}
@@ -283,6 +321,7 @@ func (s *Server) handlePageFormPATCHTouch(
 func (s *Server) handlePageFormDELETERemove(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Remove")
 	p := app.PageForm{
 		App: s.app,
 	}
@@ -323,6 +362,7 @@ func (s *Server) handlePageFormPOSTBump(
 		}
 		path.Values.ID = int(i)
 	}
+	defer s.recoverPanic(w, r, nil, "PageForm.Bump")
 	p := app.PageForm{
 		App: s.app,
 	}
@@ -336,6 +376,7 @@ func (s *Server) handlePageFormPOSTBump(
 func (s *Server) handlePageFormPOSTRender(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Render")
 	p := app.PageForm{
 		App: s.app,
 	}
@@ -356,6 +397,7 @@ func (s *Server) handlePageFormPOSTRender(
 func (s *Server) handlePageFormPOSTGo(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageForm.Go")
 	p := app.PageForm{
 		App: s.app,
 	}
@@ -369,13 +411,38 @@ func (s *Server) handlePageFormPOSTGo(
 	}
 }
 
+func (s *Server) handlePageFormPOSTGoStream(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageForm.GoStream")
+	p := app.PageForm{
+		App: s.app,
+	}
+	redirect, err := p.POSTGoStream(r, dpsse.New(sse))
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageForm.GoStream", err)
+		return
+	}
+	if redirect.URL != "" {
+		if err := dpsse.New(sse).Redirect(redirect.URL); err != nil {
+			s.httpErrIntern(w, r, sse, "redirecting", err)
+		}
+		return
+	}
+}
+
 func (s *Server) handlePageFormPOSTPatch(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Count int `json:"count"`
 	}]
@@ -385,6 +452,7 @@ func (s *Server) handlePageFormPOSTPatch(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageForm.Patch")
 	p := app.PageForm{
 		App: s.app,
 	}
@@ -401,7 +469,7 @@ func (s *Server) handlePageFormPOSTPatchAt(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Selector string `json:"selector"`
 		Mode     string `json:"mode"`
@@ -412,6 +480,7 @@ func (s *Server) handlePageFormPOSTPatchAt(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageForm.PatchAt")
 	p := app.PageForm{
 		App: s.app,
 	}
@@ -430,6 +499,7 @@ func (s *Server) handlePageFormPOSTSignalsRaw(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageForm.SignalsRaw")
 	p := app.PageForm{
 		App: s.app,
 	}
@@ -448,6 +518,7 @@ func (s *Server) handlePageFormPOSTSignalsMissing(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageForm.SignalsMissing")
 	p := app.PageForm{
 		App: s.app,
 	}
@@ -466,6 +537,7 @@ func (s *Server) handlePageFormPOSTSignalsBad(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageForm.SignalsBad")
 	p := app.PageForm{
 		App: s.app,
 	}
@@ -484,6 +556,7 @@ func (s *Server) handlePageFormPOSTRemove(
 	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageForm.Remove")
 	p := app.PageForm{
 		App: s.app,
 	}
@@ -503,6 +576,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageIndex{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -526,6 +600,7 @@ func (s *Server) handlePageLogGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageLog{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageLog.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLog.GET", err)

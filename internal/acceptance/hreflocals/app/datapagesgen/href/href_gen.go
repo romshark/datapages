@@ -30,11 +30,15 @@ func SetLogger(l *slog.Logger) {
 func getLogger() *slog.Logger { return logger.Load() }
 
 // External returns url as-is for use in href attributes.
-// It logs a warning at runtime if the URL is not an allowed
-// non-relative href (e.g. app-internal paths, javascript:, relative URLs).
+// It warns about a URL that belongs in a generated builder,
+// and about one the templ sanitizer drops.
 func External(url string) string {
-	if !hrefcheck.IsAllowedNonRelativeHref(url) {
+	switch {
+	case !hrefcheck.IsAllowedNonRelativeHref(url):
 		getLogger().Warn("href.External called with app-internal URL", "url", url)
+	case !hrefcheck.IsRenderedAsWritten(url):
+		getLogger().Warn("href.External called with a URL the templ sanitizer drops, "+
+			"which renders it as about:invalid", "url", url)
 	}
 	return url
 }
@@ -53,6 +57,41 @@ func PageItem(b bool) string {
 	)
 	b_.WriteString("/item/")
 	b_.WriteString(s_b)
+	b_.WriteString("/")
+	return b_.String()
+}
+
+// PageLocals references /locals/{b}/{l}/{n}/{bl}/{al}/{$}
+func PageLocals(b string, l string, n string, bl string, al string) string {
+	s_b := url.PathEscape(b)
+	s_l := url.PathEscape(l)
+	s_n := url.PathEscape(n)
+	s_bl := url.PathEscape(bl)
+	s_al := url.PathEscape(al)
+	var b_ strings.Builder
+	b_.Grow(
+		len("/locals/") +
+			len(s_b) +
+			len("/") +
+			len(s_l) +
+			len("/") +
+			len(s_n) +
+			len("/") +
+			len(s_bl) +
+			len("/") +
+			len(s_al) +
+			len("/"),
+	)
+	b_.WriteString("/locals/")
+	b_.WriteString(s_b)
+	b_.WriteString("/")
+	b_.WriteString(s_l)
+	b_.WriteString("/")
+	b_.WriteString(s_n)
+	b_.WriteString("/")
+	b_.WriteString(s_bl)
+	b_.WriteString("/")
+	b_.WriteString(s_al)
 	b_.WriteString("/")
 	return b_.String()
 }
@@ -146,4 +185,145 @@ func PageMix(l int, n int, pageStr string, query QueryPageMix) string {
 type QueryPageMix struct {
 	AnyQuery string `query:"anyQuery"`
 	Page     int    `query:"page"`
+}
+
+// PageParams references /params/{query}/{options}/{$}
+func PageParams(query string, options string, query_ QueryPageParams) string {
+	s_query := url.PathEscape(query)
+	s_options := url.PathEscape(options)
+	var (
+		termStr string
+	)
+
+	if query_.Term != "" {
+		termStr = url.QueryEscape(query_.Term)
+	}
+
+	anyQuery := query_.Term != ""
+
+	var b strings.Builder
+	l := len("/params/") +
+		len(s_query) +
+		len("/") +
+		len(s_options) +
+		len("/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query_.Term != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("t=") + len(termStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/params/")
+	b.WriteString(s_query)
+	b.WriteString("/")
+	b.WriteString(s_options)
+	b.WriteString("/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query_.Term != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("t=")
+		b.WriteString(termStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageParams is the query parameters for PageParams
+type QueryPageParams struct {
+	Term string `query:"t"`
+}
+
+// PageTags references /tags/{$}
+func PageTags(query QueryPageTags) string {
+	var (
+		pageSizeStr string
+		termStr     string
+	)
+
+	if query.PageSize != 0 {
+		pageSizeStr = strconv.FormatInt(int64(query.PageSize), 10)
+	}
+	if query.Term != "" {
+		termStr = url.QueryEscape(query.Term)
+	}
+
+	anyQuery := query.PageSize != 0 ||
+		query.Term != ""
+
+	var b strings.Builder
+	l := len("/tags/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.PageSize != 0 {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("page-size=") + len(pageSizeStr)
+	}
+	if query.Term != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("q.term=") + len(termStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/tags/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.PageSize != 0 {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("page-size=")
+		b.WriteString(pageSizeStr)
+	}
+	if query.Term != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("q.term=")
+		b.WriteString(termStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageTags is the query parameters for PageTags
+type QueryPageTags struct {
+	PageSize int    `query:"page-size"`
+	Term     string `query:"q.term"`
 }

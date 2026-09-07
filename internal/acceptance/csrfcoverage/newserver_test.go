@@ -28,7 +28,7 @@ func mustNewServer(
 	](
 		a, broker,
 		append([]datapages.ServerOption{
-			datapages.WithSessionManager[struct{}](sessions),
+			datapages.WithSessionManager(sessions),
 		}, opts...)...,
 	)
 	require.NoError(t, err)

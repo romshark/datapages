@@ -34,6 +34,16 @@ type EventNoticed struct {
 	Text string `json:"text"`
 }
 
+// EventDMed is "dmed"
+//
+// Two subject fields on one declaration line. Each names a segment,
+// which keeps the event private and out of every anonymous stream.
+type EventDMed struct {
+	To, Cc datapages.SubjectUser
+
+	Text string `json:"text"`
+}
+
 // EventRoomPosted is "room.posted"
 //
 // One subject field bound to a signal. A stream supplies the value when it
@@ -93,6 +103,12 @@ func (p PageRooms) OnNoticed(
 	)))
 }
 
+func (p PageRooms) OnDMed(event EventDMed, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
+		`<div id="out">dm: %s</div>`, templ.EscapeString(event.Text),
+	)))
+}
+
 // POSTPost is /rooms/post
 func (p PageRooms) POSTPost(
 	_ *http.Request,
@@ -120,6 +136,23 @@ func (p PageRooms) POSTNotice(
 	return noticed.Dispatch(EventNoticed{
 		Recipient: datapages.SubjectUser(signals.Values.User),
 		Text:      signals.Values.Text,
+	})
+}
+
+// POSTDM is /rooms/dm
+func (p PageRooms) POSTDM(
+	_ *http.Request,
+	signals datapages.Signals[struct {
+		To   string `json:"to"`
+		Cc   string `json:"cc"`
+		Text string `json:"text"`
+	}],
+	dmed datapages.Dispatcher[EventDMed],
+) error {
+	return dmed.Dispatch(EventDMed{
+		To:   datapages.SubjectUser(signals.Values.To),
+		Cc:   datapages.SubjectUser(signals.Values.Cc),
+		Text: signals.Values.Text,
 	})
 }
 
@@ -160,4 +193,34 @@ func (p PageFeed) POSTTick(
 	ticked datapages.Dispatcher[EventTicked],
 ) error {
 	return ticked.Dispatch(EventTicked{N: signals.Values.N})
+}
+
+// PagePost is /post/{slug}
+//
+// The redirect to its anonymous stream is built from the request path,
+// which arrives decoded: a slug carrying "?" or "#" has to survive it.
+type PagePost struct{ App *App }
+
+func (PagePost) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Slug string `path:"slug"`
+	}],
+	session Session,
+) (body datapages.Component, err error) {
+	_ = session
+	return templ.Raw(`<div id="out">post ` +
+		templ.EscapeString(path.Values.Slug) + `</div>`), nil
+}
+
+func (p PagePost) OnTicked(event EventTicked, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
+		`<div id="out">tick %d</div>`, event.N,
+	)))
+}
+
+func (p PagePost) OnNoticed(event EventNoticed, sse datapages.SSE) error {
+	return sse.PatchElement(templ.Raw(fmt.Sprintf(
+		`<div id="out">notice: %s</div>`, templ.EscapeString(event.Text),
+	)))
 }

@@ -1,9 +1,10 @@
-// Covers the streams a page serves to a visitor with no session.
+// Tests the streams a page serves to a visitor with no session.
 
 package acceptance_test
 
 import (
 	"net/http"
+	"net/url"
 	"os"
 	"testing"
 
@@ -27,7 +28,7 @@ func newClient(t *testing.T, broker messaging.Broker) *client.Client {
 	return client.New(t, mustNewServer(t, &app.App{}, broker, sessions))
 }
 
-// TestAnonStreamSubscribesBySignal covers a visitor with no session on a page
+// TestAnonStreamSubscribesBySignal tests a visitor with no session on a page
 // that scopes its events by a signal: the stream receives what is published
 // for the value it connected with, and nothing published for another.
 func TestAnonStreamSubscribesBySignal(t *testing.T) {
@@ -49,7 +50,57 @@ func TestAnonStreamSubscribesBySignal(t *testing.T) {
 	})
 }
 
-// TestAnonStreamCarriesNoPrivateEvent covers the reason the route exists:
+// TestAnonStreamRedirectKeepsThePathValue tests the redirect that sends a
+// signed-out visitor from a page's private stream route to its anonymous one.
+// The request path arrives decoded: a slug carrying "?" or "#" re-parses in the
+// Location header as a query or a fragment and the reconnect lands on the
+// page's HTML route.
+func TestAnonStreamRedirectKeepsThePathValue(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		for name, slug := range map[string]string{
+			"plain":    "plain",
+			"question": "a?b",
+			"fragment": "a#b",
+			"space":    "a b",
+		} {
+			t.Run(name, func(t *testing.T) {
+				c := newClient(t, broker)
+				path := "/post/" + url.PathEscape(slug) + "/_$/"
+
+				// OpenStream requires 200: reaching it at all is the claim.
+				s := c.OpenStream(t, path, nil)
+
+				resp := c.Action(t, http.MethodPost, "/rooms/post/",
+					`{"room":"one","text":"x"}`)
+				require.Equal(t, http.StatusOK, resp.Status)
+				require.True(t, s.Never("<!DOCTYPE html>"),
+					"the reconnect landed on the page's HTML route")
+			})
+		}
+	})
+}
+
+// TestAnonStreamCarriesNoMultiFieldPrivateEvent tests an event whose two
+// subject fields share one declaration line. Reading only the first name
+// leaves the event public and delivers it to a visitor with no session.
+func TestAnonStreamCarriesNoMultiFieldPrivateEvent(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := newClient(t, broker)
+
+		s := c.OpenStream(t, "/rooms/_$/", map[string]string{"room": "one"})
+
+		resp := c.Action(t, http.MethodPost, "/rooms/dm/",
+			`{"to":"alice","cc":"bob","text":"for alice and bob"}`)
+		require.Equal(t, http.StatusOK, resp.Status)
+
+		require.True(t, s.Never("for alice and bob"),
+			"a private event reached a stream of a visitor with no session")
+	})
+}
+
+// TestAnonStreamCarriesNoPrivateEvent tests the reason the route exists:
 // a visitor with no session is nobody, which leaves a private event no way to reach them.
 func TestAnonStreamCarriesNoPrivateEvent(t *testing.T) {
 	t.Parallel()

@@ -8,11 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"runtime/debug"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
+	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"github.com/romshark/datapages/runtime/stream"
@@ -82,6 +85,24 @@ func (s *Server) handleStreamRequest(
 	s.streams.Handle(w, r, "", "", subjects, onOpen, onClose, fn)
 }
 
+// recoverPanic turns a panicking handler into an error and hands it to the error path.
+func (s *Server) recoverPanic(
+	w http.ResponseWriter, r *http.Request,
+	sse *datastar.ServerSentEventGenerator, handler string,
+) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -93,11 +114,14 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.EnablePrometheus, Server](app, broker, opts...)
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.EnablePrometheus, Server](
+//		app, broker, opts...,
+//	)
 //
 // Supported options:
 //
 //   - datapages.WithLogger
+//   - datapages.WithLogSampling
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
@@ -147,7 +171,9 @@ func (s *Server) Init(
 	setupHandlers(s)
 
 	s.Build()
-	href.SetLogger(s.Logger())
+	href.SetLogger(s.SampledLogger())
+	actionexpr.SetLogger(s.SampledLogger())
+	actionexpr.SetMetrics(prom.ActionMetrics{})
 
 	return nil
 }
@@ -169,6 +195,8 @@ var evSubjPageIndex = []string{
 	EvSubjAnnounced,
 }
 
+var evSubjPageQuiet = []string{}
+
 // brokerSubjectKind folds subjects that carry a value back into the event name.
 // A metric labelled with the raw subject would carry one value per subject value.
 func brokerSubjectKind(subject string) string {
@@ -189,11 +217,20 @@ func setupHandlers(s *Server) {
 		"GET /_$/{$}",
 		s.handlePageIndexGETStream)
 	s.Mux().HandleFunc(
+		"GET /quiet/{$}",
+		s.handlePageQuietGET)
+	s.Mux().HandleFunc(
+		"GET /quiet/_$/{$}",
+		s.handlePageQuietGETStream)
+	s.Mux().HandleFunc(
 		"POST /announce/{$}",
 		s.handlePageIndexPOSTAnnounce)
 	s.Mux().HandleFunc(
 		"POST /fail/{$}",
 		s.handlePageIndexPOSTFail)
+	s.Mux().HandleFunc(
+		"POST /half-written/{$}",
+		s.handlePageIndexPOSTHalfWritten)
 }
 
 func (s *Server) httpErrIntern(
@@ -201,6 +238,10 @@ func (s *Server) httpErrIntern(
 	_ *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		// A status written now only appends its text to the body.
+		return
+	}
 	httpserve.WriteErrStatus(w, err)
 }
 
@@ -213,6 +254,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageIndex{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -245,12 +287,18 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageIndex,
-		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator,
+		) error {
+			return p.StreamOpen(r, streamID)
+		},
 		nil,
 		func(
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageIndex stream")
 			var eventAnnounced app.EventAnnounced
 			for msg := range ch {
 				switch msg.Subject {
@@ -274,7 +322,7 @@ func (s *Server) handlePageIndexPOSTAnnounce(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Text string `json:"text"`
 	}]
@@ -284,6 +332,7 @@ func (s *Server) handlePageIndexPOSTAnnounce(
 	}
 
 	dispatchAnnounced := dispatcherEventAnnounced{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageIndex.Announce")
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -297,6 +346,7 @@ func (s *Server) handlePageIndexPOSTAnnounce(
 func (s *Server) handlePageIndexPOSTFail(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	defer s.recoverPanic(w, r, nil, "PageIndex.Fail")
 	p := app.PageIndex{
 		App: s.app,
 	}
@@ -305,6 +355,78 @@ func (s *Server) handlePageIndexPOSTFail(
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Fail", err)
 		return
 	}
+}
+
+func (s *Server) handlePageIndexPOSTHalfWritten(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageIndex.HalfWritten")
+	p := app.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTHalfWritten(r, dpsse.New(sse))
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageIndex.HalfWritten", err)
+		return
+	}
+}
+
+func (s *Server) handlePageQuietGET(w http.ResponseWriter, r *http.Request) {
+	p := app.PageQuiet{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageQuiet.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageQuiet.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('/quiet/_$/')"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageQuiet", err)
+		return
+	}
+}
+
+func (s *Server) handlePageQuietGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	p := app.PageQuiet{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPageQuiet,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator,
+		) error {
+			return p.StreamOpen(r, streamID)
+		},
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			for range ch {
+			}
+		})
 }
 
 type dispatcherEventAnnounced struct {

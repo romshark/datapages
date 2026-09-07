@@ -6,17 +6,26 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/romshark/datapages/internal/logsample"
 	"github.com/romshark/datapages/modules/csrf"
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/prom"
 )
 
-// DefaultSessionCookieName is the name of the session cookie.
+// DefaultSessionCookieName is what [AuthCookieConfig.Name] falls back to.
 const DefaultSessionCookieName = "sessiontoken"
+
+// DefaultLogSamplingLimit is what [LogSamplingConfig.Limit] falls back to.
+const DefaultLogSamplingLimit = logsample.DefaultLimit
+
+// DefaultLogSamplingInterval is what [LogSamplingConfig.Interval] falls back to.
+const DefaultLogSamplingInterval = logsample.DefaultInterval
 
 // ServerConfig is what a generated server is configured with.
 // [ServerOption] values fill it, the generated NewServer reads it.
@@ -55,6 +64,10 @@ type ServerConfig struct {
 	// CSRF configures the CSRF protection.
 	// A nil value leaves it on with the built-in defaults.
 	CSRF *CSRFConfig
+
+	// LogSampling is what [WithLogSampling] carries.
+	// A nil value samples with the built-in default.
+	LogSampling *LogSamplingConfig
 
 	// BodySizeLimit is what [WithBodySizeLimit] carries.
 	// Zero selects httpserve.DefaultBodySizeLimit.
@@ -118,7 +131,7 @@ type SessionsConfig struct {
 type AuthCookieConfig struct {
 	// Name is what the browser sends the token back under.
 	//
-	// Optional. Defaults to DefaultSessionCookieName. Change it when
+	// Optional. Defaults to [DefaultSessionCookieName]. Change it when
 	// another application on the same domain already uses that name, since
 	// two applications sharing a cookie name overwrite each other.
 	Name string
@@ -195,11 +208,44 @@ func WithHTTPServer(server *http.Server) ServerOption {
 // WithDatastarJS sets a custom URL for the Datastar JavaScript bundle.
 // Without it the page shell loads
 // [github.com/romshark/datapages/runtime/httpserve.DefaultDatastarJSSrc].
+//
+// src stands unescaped in a src attribute, hence it must be an http/https or
+// relative URL, valid per RFC 3986.
 func WithDatastarJS(src string) ServerOption {
 	return func(c *ServerConfig) error {
+		if err := validateDatastarJS(src); err != nil {
+			return fmt.Errorf("WithDatastarJS: %w", err)
+		}
 		c.DatastarJS = src
 		return nil
 	}
+}
+
+// validateDatastarJS holds src to what may stand unescaped in a src attribute.
+// net/url takes characters RFC 3986 has no place for, a quote and a space among them,
+// hence the check of its own.
+func validateDatastarJS(src string) error {
+	if src == "" {
+		return errors.New("empty URL")
+	}
+	for _, r := range src {
+		switch {
+		case r == '"' || r == '\'' || r == '<' || r == '>' || r == '&':
+			return fmt.Errorf("URL contains %q", r)
+		case r <= 0x20 || r == 0x7f:
+			return fmt.Errorf("URL contains the control character %q", r)
+		}
+	}
+	u, err := url.Parse(src)
+	if err != nil {
+		return fmt.Errorf("parsing URL: %w", err)
+	}
+	// A URL with no scheme is relative, which is the app's own asset route.
+	switch u.Scheme {
+	case "", "http", "https":
+		return nil
+	}
+	return fmt.Errorf("URL scheme %q is neither http nor https", u.Scheme)
 }
 
 // WithAssetsFS serves static files from fsys, overriding [WithAssets].
@@ -224,6 +270,53 @@ func WithSessions(o SessionsConfig) ServerOption {
 			)
 		}
 		c.Sessions = o
+		return nil
+	}
+}
+
+// LogSamplingConfig is what [WithLogSampling] applies.
+type LogSamplingConfig struct {
+	// Disabled reports every occurrence.
+	//
+	// WARNING: One bad value then writes a line per element per request.
+	// Disable only when a shorter Interval won't do.
+	Disabled bool
+
+	// Interval is how long a warning is throttled for after it was reported.
+	// The next one carries what the throttling swallowed as "suppressed".
+	//
+	// Zero selects [DefaultLogSamplingInterval].
+	Interval time.Duration
+
+	// Limit is how many distinct warnings are tracked at once.
+	// Zero selects [DefaultLogSamplingLimit]. A full set first drops what has
+	// gone quiet, so a mistake found later is still reported.
+	Limit int
+}
+
+// WithLogSampling configures how the framework's own warnings are reported:
+//
+//   - an action option [github.com/romshark/datapages/runtime/actionexpr]
+//     drops for an invalid value
+//   - a URL the generated href.External cannot use
+//
+// Since such warnings are written per page render, one bad value may spike log volume.
+// This applies to the warnings named above and to nothing else,
+// neither to what the application logs nor to the rest of the built-in ones.
+//
+// Optional. By default one warning of each kind is reported per minute,
+// carrying how many were held back since the last one.
+func WithLogSampling(conf LogSamplingConfig) ServerOption {
+	return func(c *ServerConfig) error {
+		if conf.Limit < 0 {
+			return fmt.Errorf("log sampling limit must not be negative: %d",
+				conf.Limit)
+		}
+		if conf.Interval < 0 {
+			return fmt.Errorf("log sampling interval must not be negative: %s",
+				conf.Interval)
+		}
+		c.LogSampling = &conf
 		return nil
 	}
 }

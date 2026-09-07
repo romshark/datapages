@@ -3,6 +3,7 @@
 package app
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/a-h/templ"
@@ -29,7 +30,8 @@ func (PageIndex) OnAnnounced(
 	sse datapages.SSE,
 ) error {
 	return sse.PatchElement(
-		templ.Raw(`<div id="out">` + event.Text + `</div>`))
+		templ.Raw(`<div id="out">` + event.Text + `</div>`),
+	)
 }
 
 // POSTAnnounce is /announce
@@ -45,9 +47,43 @@ func (PageIndex) POSTAnnounce(
 	return announced.Dispatch(EventAnnounced{Text: signals.Values.Text})
 }
 
+// PageQuiet is /quiet
+//
+// A stream route of its own. The request metrics of a stream are asserted on its label,
+// which stays free of what the other tests send.
+type PageQuiet struct{ App *App }
+
+func (PageQuiet) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<pre id="echo">quiet</pre>`), nil
+}
+
+func (PageQuiet) StreamOpen(_ *http.Request, _ datapages.StreamID) error {
+	return nil
+}
+
+// StreamOpen refuses the stream when the URL carries "refuse".
+// A stream that never opens is an ordinary request, metrics included.
+func (PageIndex) StreamOpen(r *http.Request, _ datapages.StreamID) error {
+	if r.URL.Query().Get("refuse") != "" {
+		return datapages.ErrForbidden
+	}
+	return nil
+}
+
 // POSTFail is /fail
 //
 // Errors are counted. One is needed here to count.
 func (PageIndex) POSTFail(_ *http.Request) error {
 	return datapages.ErrBadRequest
+}
+
+// POSTHalfWritten is /half-written
+//
+// The action writes over SSE and then fails.
+// The error path must write no status onto the body the client already received.
+func (PageIndex) POSTHalfWritten(_ *http.Request, sse datapages.SSE) error {
+	if err := sse.PatchElement(templ.Raw(`<pre id="echo">half</pre>`)); err != nil {
+		return err
+	}
+	return errors.New("the action failed after writing")
 }

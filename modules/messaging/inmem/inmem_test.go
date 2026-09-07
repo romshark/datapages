@@ -18,7 +18,7 @@ type noMetrics struct{}
 func (noMetrics) OnPublish(string)   {}
 func (noMetrics) OnDeliveryDropped() {}
 
-// TestCloseIsRepeatableAndConcurrent covers what [messaging.SubscriptionCloser] promises:
+// TestCloseIsRepeatableAndConcurrent tests what [messaging.SubscriptionCloser] promises:
 // Close is idempotent and safe for concurrent use.
 // The stream closes its subscription from the goroutine watching the disconnect,
 // and a shutdown may reach it at the same moment.
@@ -42,6 +42,9 @@ func TestCloseIsRepeatableAndConcurrent(t *testing.T) {
 	require.False(t, open, "the channel is open after Close")
 }
 
+// TestMatches tests the wildcard rules this broker reimplements: "*" stands for
+// exactly one token and ">" for one or more. Getting either wrong makes a page
+// receive events it never subscribed to, or miss the ones it did.
 func TestMatches(t *testing.T) {
 	tests := map[string]struct {
 		pattern string
@@ -76,7 +79,7 @@ type countingMetrics struct{ published, dropped int }
 func (m *countingMetrics) OnPublish(string)   { m.published++ }
 func (m *countingMetrics) OnDeliveryDropped() { m.dropped++ }
 
-// TestPublishIsCountedWithoutSubscribers covers parity with natscore, which
+// TestPublishIsCountedWithoutSubscribers tests parity with natscore, which
 // counts every publish: core NATS knows nothing about subscribers.
 func TestPublishIsCountedWithoutSubscribers(t *testing.T) {
 	ctx := context.Background()
@@ -107,7 +110,7 @@ func TestPublishIsCountedWithoutSubscribers(t *testing.T) {
 	}
 }
 
-// TestPublishIsCountedOnce covers a publish that reaches subscribers:
+// TestPublishIsCountedOnce tests a publish that reaches subscribers:
 // it is one publish however many of them there are.
 func TestPublishIsCountedOnce(t *testing.T) {
 	ctx := context.Background()
@@ -127,7 +130,7 @@ func TestPublishIsCountedOnce(t *testing.T) {
 	require.Zero(t, metrics.dropped)
 }
 
-// TestDefaultBrokerChanBuffer covers a broker created without a buffer size.
+// TestDefaultBrokerChanBuffer tests a broker created without a buffer size.
 // Its subscriptions must buffer all the same.
 func TestDefaultBrokerChanBuffer(t *testing.T) {
 	b := inmem.New(0)
@@ -156,8 +159,8 @@ func TestDefaultBrokerChanBuffer(t *testing.T) {
 	}
 }
 
-// TestWildcardDelivery covers what the generated code expects of a broker: an
-// event with a subject field and no signal to fill it in subscribes to
+// TestWildcardDelivery tests what the generated code expects of a broker:
+// an event with a subject field and no signal to fill it in subscribes to
 // "topic.*" and has to receive every value of it.
 func TestWildcardDelivery(t *testing.T) {
 	b := inmem.New(messaging.DefaultBrokerChanBuffer)
@@ -180,7 +183,7 @@ func TestWildcardDelivery(t *testing.T) {
 	}
 }
 
-// TestLiteralSubscriptionIsUnaffected covers the common case next to it.
+// TestLiteralSubscriptionIsUnaffected tests the common case next to it.
 func TestLiteralSubscriptionIsUnaffected(t *testing.T) {
 	b := inmem.New(messaging.DefaultBrokerChanBuffer)
 	t.Cleanup(func() { require.NoError(t, b.Close()) })
@@ -203,7 +206,7 @@ func TestLiteralSubscriptionIsUnaffected(t *testing.T) {
 	}
 }
 
-// TestOneMessagePerSubscription covers a subscription whose patterns overlap.
+// TestOneMessagePerSubscription tests a subscription whose patterns overlap.
 // Two matches are still one message.
 func TestOneMessagePerSubscription(t *testing.T) {
 	b := inmem.New(messaging.DefaultBrokerChanBuffer)

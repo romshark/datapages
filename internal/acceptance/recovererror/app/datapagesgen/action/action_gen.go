@@ -200,6 +200,22 @@ func POSTPageIndexMissing(options ...option) string {
 	return b.String()
 }
 
+// POSTPageIndexPanic references /panic/
+func POSTPageIndexPanic(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/panic/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/panic/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/panic/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
 // POSTPageIndexPlain references /plain/
 func POSTPageIndexPlain(options ...option) string {
 	if len(options) == 0 {

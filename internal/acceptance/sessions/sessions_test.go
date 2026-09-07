@@ -1,4 +1,4 @@
-// Covers the generated session handling of ./app.
+// Tests the generated session handling of ./app.
 
 package acceptance_test
 
@@ -36,12 +36,12 @@ type server struct {
 	sessions *sessinmem.SessionManager[app.SessionData]
 }
 
+func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
+
 // newServer starts the generated server.
 //
 // An app that declares a Session type is CSRF protected without being given
 // anything: the token is derived from the session token.
-func TestMain(m *testing.M) { os.Exit(brokers.Main(m)) }
-
 func newServer(t *testing.T, broker messaging.Broker) server {
 	t.Helper()
 
@@ -195,7 +195,6 @@ func (c *client) issuedAt(t *testing.T) time.Time {
 	return rec.IssuedAt
 }
 
-// cookie returns the session cookie the server set, if any.
 // setSessionCookie puts a session token into the visitor's jar,
 // which is what a returning visitor's request carries.
 func (c *client) setSessionCookie(t *testing.T, token string) {
@@ -207,6 +206,7 @@ func (c *client) setSessionCookie(t *testing.T, token string) {
 	c.http.Jar.SetCookies(u, []*http.Cookie{{Name: cookieName, Value: token}})
 }
 
+// cookie returns the session cookie the server set, if any.
 func (c *client) cookie(t *testing.T) *http.Cookie {
 	t.Helper()
 	u := c.srv.Server.URL
@@ -239,7 +239,7 @@ func echoed(t *testing.T, body string) string {
 	return before
 }
 
-// TestAnonymous covers a visitor with no session.
+// TestAnonymous tests a visitor with no session.
 // Every handler that asks for one gets the zero value rather than an error.
 func TestAnonymous(t *testing.T) {
 	t.Parallel()
@@ -264,9 +264,7 @@ func TestAnonymous(t *testing.T) {
 	})
 }
 
-// TestSignInAndOut covers the whole life of a session: an action creates it,
-// later requests carry it, and an action ends it.
-// TestCookieHeaderVariants covers the Cookie header shapes the generated
+// TestCookieHeaderVariants tests the Cookie header shapes the generated
 // reader must read the way net/http.Request.Cookie reads them.
 // The expectation comes from that method, not from a hand written table.
 func TestCookieHeaderVariants(t *testing.T) {
@@ -320,6 +318,8 @@ func TestCookieHeaderVariants(t *testing.T) {
 	})
 }
 
+// TestSignInAndOut tests the whole life of a session: an action creates it,
+// later requests carry it, and an action ends it.
 func TestSignInAndOut(t *testing.T) {
 	t.Parallel()
 	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
@@ -374,7 +374,7 @@ func TestSignInAndOut(t *testing.T) {
 	})
 }
 
-// TestSessionToken covers the handler parameter that asks for the token
+// TestSessionToken tests the handler parameter that asks for the token
 // instead of the session.
 func TestSessionToken(t *testing.T) {
 	t.Parallel()
@@ -401,7 +401,7 @@ func TestSessionToken(t *testing.T) {
 	})
 }
 
-// TestStaleCookie covers a cookie the session manager does not know.
+// TestStaleCookie tests a cookie the session manager does not know.
 // The visitor continues as anonymous and the cookie is cleared,
 // rather than being refused on every later request.
 func TestStaleCookie(t *testing.T) {
@@ -444,7 +444,7 @@ func TestStaleCookie(t *testing.T) {
 	})
 }
 
-// TestErrorSentinel covers the status an action or
+// TestErrorSentinel tests the status an action or
 // page takes from the sentinel it returns.
 func TestErrorSentinel(t *testing.T) {
 	t.Parallel()
@@ -472,7 +472,30 @@ func TestErrorSentinel(t *testing.T) {
 	})
 }
 
-// TestCSRF covers the token a state-changing request must carry once the
+// TestInlineSignInCarriesCSRFScript tests a sign-in answering with a document
+// instead of a navigation. Its Set-Cookie makes the CSRF token mandatory for
+// every later action of the page, which sends what the script carries.
+func TestInlineSignInCarriesCSRFScript(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+		c := srv.client(t)
+
+		status, body := c.postWithToken(t, "/login/submit-inline/",
+			`{"user":"alice"}`, "")
+		require.Equal(t, http.StatusOK, status, "%s", body)
+		require.NotNil(t, c.setCookie(), "the response signed nobody in")
+		require.Contains(t, body, "X-CSRF-Token",
+			"the document carries no CSRF script:\n%s", body)
+
+		// The token the script carries is what a later action sends.
+		c.token = csrfToken(t, srv.csrf, c.sessionToken(t))
+		status, body = c.post(t, "/login/rename/", `{"nickname":"al"}`)
+		require.Equal(t, http.StatusOK, status, "%s", body)
+	})
+}
+
+// TestCSRF tests the token a state-changing request must carry once the
 // visitor has a session.
 // Without a session there is nothing to forge and an anonymous request is let through.
 func TestCSRF(t *testing.T) {
@@ -526,7 +549,7 @@ func TestCSRF(t *testing.T) {
 	})
 }
 
-// TestPrivateEvent covers an event addressed to a user. Two visitors,
+// TestPrivateEvent tests an event addressed to a user. Two visitors,
 // two streams, one dispatch: the user it names sees it and the other does not.
 func TestPrivateEvent(t *testing.T) {
 	t.Parallel()
@@ -555,7 +578,7 @@ func TestPrivateEvent(t *testing.T) {
 	})
 }
 
-// TestSignInAcceptsAnyUserID covers a user ID that cannot stand in a subject as it is.
+// TestSignInAcceptsAnyUserID tests a user ID that cannot stand in a subject as it is.
 // The ID names the subject every event addressed to that user is published to and
 // subscribed by, and both sides escape it the same way.
 //
@@ -610,7 +633,7 @@ func TestSignInAcceptsAnyUserID(t *testing.T) {
 	})
 }
 
-// TestStreamOpensForAnyUserID covers a session whose user ID cannot stand in
+// TestStreamOpensForAnyUserID tests a session whose user ID cannot stand in
 // a subject as it is, created straight in the store the way a manager of an
 // application's own would. The stream subscribes by the escaped ID,
 // so it opens for one a sign-in never went through.
@@ -654,7 +677,7 @@ func TestStreamOpensForAnyUserID(t *testing.T) {
 	})
 }
 
-// TestAnonymousStream covers the stream a page serves to a visitor with no session,
+// TestAnonymousStream tests the stream a page serves to a visitor with no session,
 // on a page that handles a public event and a private one.
 //
 // The server generates a second stream handler for that page.

@@ -25,7 +25,9 @@ import (
 // Metrics counts what the handler does. A nil Metrics counts nothing.
 type Metrics interface {
 	// ConnectionOpened counts a stream the server just accepted.
-	ConnectionOpened()
+	// w lets an implementation mark the request as a stream rather than a
+	// request being served.
+	ConnectionOpened(w http.ResponseWriter)
 	// ConnectionClosed counts down the stream the server just let go.
 	ConnectionClosed()
 	// Disconnect counts why a stream ended.
@@ -80,6 +82,9 @@ func NewHandler(
 //
 // sessionKey names the session the stream belongs to.
 // It is watched only when userID is non-empty and the handler was given a session store.
+//
+// A panic in onClose is recovered here, since nothing else would.
+// A panic in fn is the caller's, and generated code defers a recover of its own there.
 func (h *Handler) Handle(
 	w http.ResponseWriter, r *http.Request,
 	sessionKey, userID string,
@@ -112,19 +117,20 @@ func (h *Handler) Handle(
 		return
 	}
 
-	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	// Own the subscription until the watcher goroutine takes it over.
+	// A panic below would otherwise leave it in the broker forever.
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			sub.Close()
+		}
+	}()
 
-	var start time.Time
-	if h.metrics != nil {
-		h.metrics.ConnectionOpened()
-		defer h.metrics.ConnectionClosed()
-		start = time.Now()
-	}
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 
 	subC := sub.C()
 	if onOpen != nil {
-		if err := onOpen(streamID, sse); err != nil {
-			sub.Close()
+		if err := callOnOpen(onOpen, streamID, sse); err != nil {
 			h.onErr(w, r, sse, "handling stream open hook", err)
 			return
 		}
@@ -142,23 +148,22 @@ func (h *Handler) Handle(
 		if err := h.sessions.NotifyClosed(ctx, sessionKey, func() {
 			once.Do(func() { close(sessionClosed) })
 		}); err != nil {
-			sub.Close()
 			h.onErr(w, r, sse, "setting up session closure watcher", err)
 			return
 		}
 	}
 
-	go func() {
-		// Prevent a crash in case of a panic in onClose.
-		defer func() {
-			if v := recover(); v != nil {
-				h.core.Logger().Error("recovered panic while closing the stream",
-					slog.Any("panic", v),
-					slog.Uint64("stream-id", uint64(streamID)),
-					slog.String("stack", string(debug.Stack())))
-			}
-		}()
+	// Counted here, not before the hooks above: until the loop runs this is an
+	// ordinary request, and one refused by StreamOpen stays one.
+	var start time.Time
+	if h.metrics != nil {
+		h.metrics.ConnectionOpened(w)
+		defer h.metrics.ConnectionClosed()
+		start = time.Now()
+	}
 
+	handedOff = true
+	go func() {
 		reason := ""
 		select {
 		case <-sessionClosed:
@@ -173,10 +178,39 @@ func (h *Handler) Handle(
 			h.metrics.ConnectionDuration(start)
 		}
 		sub.Close()
-		if onClose != nil {
-			onClose(streamID)
-		}
 	}()
 
 	fn(streamID, sse, subC)
+
+	// After fn, not beside sub.Close. fn still delivers what the channel buffered,
+	// and onClose may free what those handlers read.
+	// Here it also makes http.Server.Shutdown wait for the hook.
+	if onClose != nil {
+		func() {
+			defer func() {
+				if v := recover(); v != nil {
+					h.core.Logger().Error("recovered panic while closing the stream",
+						slog.Any("panic", v),
+						slog.Uint64("stream-id", uint64(streamID)),
+						slog.String("stack", string(debug.Stack())))
+				}
+			}()
+			onClose(streamID)
+		}()
+	}
+}
+
+// callOnOpen runs the stream open hook and turns a panic in it into a
+// [github.com/romshark/datapages.PanicError] for the error handler.
+func callOnOpen(
+	onOpen func(datapages.StreamID, *datastar.ServerSentEventGenerator) error,
+	streamID datapages.StreamID,
+	sse *datastar.ServerSentEventGenerator,
+) (err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			err = datapages.PanicError{Value: v, Stack: debug.Stack()}
+		}
+	}()
+	return onOpen(streamID, sse)
 }

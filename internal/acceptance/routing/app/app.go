@@ -183,6 +183,26 @@ func (PageFiles) GET(
 	return echo("rest=%q", path.Values.Rest), nil
 }
 
+// FilesBase carries the same wildcard GET for a page to inherit.
+// An abstract page has no route, so the route of the page adopting it decides
+// how the value is read.
+type FilesBase struct{ App *App }
+
+func (FilesBase) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Rest string `path:"rest"`
+	}],
+) (body datapages.Component, err error) {
+	return echo("rest=%q", path.Values.Rest), nil
+}
+
+// PageFilesEmbedded is /files-embedded/{rest...}
+type PageFilesEmbedded struct {
+	App *App
+	FilesBase
+}
+
 // Slug renders through its own MarshalText and parses through its own UnmarshalText.
 // MarshalText prefixes and lowercases, UnmarshalText strips the prefix and
 // refuses uppercase. The prefix is what tells a marshal apart from a conversion,

@@ -4,6 +4,8 @@ import (
 	"go/types"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
@@ -129,15 +131,20 @@ func (w *Writer) writeHrefExternal() {
 	w.Line(0, "func getLogger() *slog.Logger { return logger.Load() }")
 	w.Line(0, "")
 	w.Line(0, "// External returns url as-is for use in href attributes.")
-	w.Line(0, "// It logs a warning at runtime if the URL is not an allowed")
-	w.Line(0, "// non-relative href (e.g. app-internal paths, javascript:, relative URLs).")
+	w.Line(0, "// It warns about a URL that belongs in a generated builder,")
+	w.Line(0, "// and about one the templ sanitizer drops.")
 	w.Linef(0, "func External(url string) string {")
 	if w.assetsURLPrefix != "" {
-		w.Linef(1, `if !hrefcheck.IsAllowedNonRelativeHref(url) && !strings.HasPrefix(url, %q) {`, w.assetsURLPrefix)
+		w.Linef(1, `switch {`)
+		w.Linef(1, `case !hrefcheck.IsAllowedNonRelativeHref(url) && !strings.HasPrefix(url, %q):`, w.assetsURLPrefix)
 	} else {
-		w.Line(1, `if !hrefcheck.IsAllowedNonRelativeHref(url) {`)
+		w.Line(1, `switch {`)
+		w.Line(1, `case !hrefcheck.IsAllowedNonRelativeHref(url):`)
 	}
 	w.Line(2, `getLogger().Warn("href.External called with app-internal URL", "url", url)`)
+	w.Line(1, `case !hrefcheck.IsRenderedAsWritten(url):`)
+	w.Line(2, `getLogger().Warn("href.External called with a URL the templ sanitizer drops, "+`)
+	w.Line(3, `"which renders it as about:invalid", "url", url)`)
 	w.Line(1, "}")
 	w.Line(1, "return url")
 	w.Line(0, "}")
@@ -235,6 +242,14 @@ func (w *Writer) writeHrefFuncPathOnly(funcName, route string, params []pathPara
 	w.writePathPreConvert(params)
 
 	literals, _ := routepattern.Segments(route)
+	// The model may be partial: cmd/gen hands the generator what parsed so an
+	// IDE can still resolve the import, and a route the parser rejected can
+	// still reach here. Indexing params[i-1] below would panic on it.
+	if len(literals) != len(params)+1 {
+		w.Line(1, `return ""`)
+		w.Line(0, "}")
+		return
+	}
 	lo := newHrefLocals(params, nil)
 
 	// Builder.
@@ -268,14 +283,14 @@ func (w *Writer) writeHrefFuncPathOnly(funcName, route string, params []pathPara
 func (w *Writer) writeHrefFuncQueryOnly(
 	funcName, route string, fields []structFieldInfo,
 ) {
-	w.Linef(0, "func %s(query Query%s) string {", funcName, funcName)
 	lo := newHrefLocals(nil, fields)
+	w.Linef(0, "func %s(%s Query%s) string {", funcName, lo.query, funcName)
 
 	// Pre-convert non-string fields to strings.
 	w.writeQueryPreConvert(lo, fields)
 
 	// anyQuery check.
-	w.writeAnyCheck(lo.anyQuery, fields)
+	w.writeAnyCheck(lo.anyQuery, lo.query, fields)
 	w.Line(0, "")
 
 	// Length calculation.
@@ -295,7 +310,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 
 	for _, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
+		w.writeIfZeroCheck(1, lo.query+"."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `l += len("&")`)
 		w.Line(2, "}")
@@ -324,7 +339,7 @@ func (w *Writer) writeHrefFuncQueryOnly(
 
 	for i, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
+		w.writeIfZeroCheck(1, lo.query+"."+f.Name, f.Type)
 		w.Line(2, "if n > 0 {")
 		w.Line(3, `b.WriteString("&")`)
 		w.Line(2, "}")
@@ -346,17 +361,27 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	funcName, route string,
 	params []pathParamInfo, fields []structFieldInfo,
 ) {
+	lo := newHrefLocals(params, fields)
+
 	// Function signature with path params + query struct.
 	w.Raw("func ")
 	w.Raw(funcName)
 	w.Byte('(')
 	w.writeTypedParams(params)
-	w.Raw(", query Query")
+	w.Raw(", ")
+	w.Raw(lo.query)
+	w.Raw(" Query")
 	w.Raw(funcName)
 	w.Raw(") string {\n")
 
 	literals, _ := routepattern.Segments(route)
-	lo := newHrefLocals(params, fields)
+	if len(literals) != len(params)+1 {
+		// Same guard as writeHrefFuncPathOnly: a rejected route must fail with
+		// a diagnostic, not a stack trace.
+		w.Line(1, `return ""`)
+		w.Line(0, "}")
+		return
+	}
 
 	// Pre-convert non-string path params.
 	w.writePathPreConvert(params)
@@ -365,7 +390,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	w.writeQueryPreConvert(lo, fields)
 
 	// anyQuery check.
-	w.writeAnyCheck(lo.anyQuery, fields)
+	w.writeAnyCheck(lo.anyQuery, lo.query, fields)
 	w.Line(0, "")
 
 	// Length calculation.
@@ -402,7 +427,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 
 	for _, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
+		w.writeIfZeroCheck(1, lo.query+"."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s += len(\"&\")", lo.length)
 		w.Line(2, "}")
@@ -434,7 +459,7 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 
 	for i, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		w.writeIfZeroCheck(1, "query."+f.Name, f.Type)
+		w.writeIfZeroCheck(1, lo.query+"."+f.Name, f.Type)
 		w.Linef(2, "if %s > 0 {", lo.count)
 		w.Linef(3, "%s.WriteString(\"&\")", lo.builder)
 		w.Line(2, "}")
@@ -558,11 +583,14 @@ type hrefLocals struct {
 	// queryStr maps a query tag to the local holding its string form.
 	// Only non-string fields need one.
 	queryStr map[string]string
+	// query and options name the generated parameters,
+	// which a route wildcard may be called too.
+	query   string
+	options string
 }
 
 func newHrefLocals(params []pathParamInfo, fields []structFieldInfo) hrefLocals {
 	taken := make(map[string]bool, len(params)*2+len(fields)+4)
-	taken["query"] = true // the query struct parameter
 	for _, p := range params {
 		taken[p.Name] = true
 		taken[p.StrVar] = true
@@ -576,6 +604,10 @@ func newHrefLocals(params []pathParamInfo, fields []structFieldInfo) hrefLocals 
 		return name
 	}
 	lo := hrefLocals{
+		// Picked like the locals: the path parameters are written first and
+		// one of them may already hold the name.
+		query:     pick("query"),
+		options:   pick("options"),
 		builder:   pick("b"),
 		length:    pick("l"),
 		count:     pick("n"),
@@ -586,7 +618,9 @@ func newHrefLocals(params []pathParamInfo, fields []structFieldInfo) hrefLocals 
 	}
 	for _, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
-		lo.queryStr[tag] = pick(tag + "Str")
+		// Named from the field: a tag is a URL parameter name and needn't be
+		// a Go identifier, "page-size" and "q.term" included.
+		lo.queryStr[tag] = pick(lowerFirst(f.Name) + "Str")
 	}
 	return lo
 }
@@ -741,16 +775,16 @@ func (w *Writer) writeQueryPreConvert(lo hrefLocals, fields []structFieldInfo) {
 	for _, f := range fields {
 		tag := structtag.QueryTagValue(f.Tag)
 		w.Raw("\tif ")
-		w.writeZeroCheck("query."+f.Name, f.Type)
+		w.writeZeroCheck(lo.query+"."+f.Name, f.Type)
 		w.Raw(" {\n")
 		w.Rawf("\t\t%s = ", lo.queryStr[tag])
 		switch {
 		case gotypes.ImplementsTextMarshaler(f.Type):
-			w.Rawf("url.QueryEscape(textOf(query.%s))", f.Name)
+			w.Rawf("url.QueryEscape(textOf(%s.%s))", lo.query, f.Name)
 		case !isFormattedType(f.Type):
-			w.Rawf("url.QueryEscape(query.%s)", f.Name)
+			w.Rawf("url.QueryEscape(%s.%s)", lo.query, f.Name)
 		default:
-			w.writeFormatExpr("query."+f.Name, f.Type)
+			w.writeFormatExpr(lo.query+"."+f.Name, f.Type)
 		}
 		w.Byte('\n')
 		w.Line(1, "}")
@@ -776,4 +810,14 @@ func hasNonStringFields(fields []structFieldInfo) bool {
 		}
 	}
 	return false
+}
+
+// lowerFirst lowercases the first rune of s,
+// which turns an exported field name into an unexported local.
+func lowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	r, n := utf8.DecodeRuneInString(s)
+	return string(unicode.ToLower(r)) + s[n:]
 }

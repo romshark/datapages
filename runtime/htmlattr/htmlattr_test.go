@@ -36,6 +36,10 @@ func attrSafe(t *testing.T, s string) {
 	}
 }
 
+// TestWritePathValue tests a path segment written into a Datastar attribute.
+// It must neither end the attribute nor the JavaScript string inside it, and it has to
+// survive the round trip a browser makes of it: HTML unescape, then path unescape,
+// back to the value it started as.
 func TestWritePathValue(t *testing.T) {
 	t.Parallel()
 
@@ -64,6 +68,9 @@ func TestWritePathValue(t *testing.T) {
 	}
 }
 
+// TestWriteSignalString tests a string written into a Datastar signal literal.
+// Unlike a path value it is not round-tripped, only checked for anything that
+// could end the attribute or the JavaScript string it sits in.
 func TestWriteSignalString(t *testing.T) {
 	t.Parallel()
 
@@ -85,6 +92,7 @@ func TestWriteSignalString(t *testing.T) {
 	}
 }
 
+// FuzzWritePathValue tests the attribute safety and the round trip over arbitrary input.
 func FuzzWritePathValue(f *testing.F) {
 	for _, seed := range []string{"alice", "o'brien", `a"b`, "<script>", "a&b", "ä"} {
 		f.Add(seed)
@@ -100,6 +108,7 @@ func FuzzWritePathValue(f *testing.F) {
 	})
 }
 
+// FuzzWriteSignalString tests the attribute safety over arbitrary input.
 func FuzzWriteSignalString(f *testing.F) {
 	for _, seed := range []string{"shoes", "o'brien", `a\b`, "a\nb", "<script>"} {
 		f.Add(seed)

@@ -3,11 +3,16 @@ package hrefcheck_test
 import (
 	"testing"
 
+	"github.com/a-h/templ"
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages/runtime/hrefcheck"
 )
 
+// TestIsAllowedNonRelativeHref tests which hrefs bypass the generated href helpers.
+// A relative URL has to go through them and is refused here; an absolute one,
+// a fragment and a protocol-relative URL leave the application and are allowed.
+// The scheme alone decides, which is why a malformed rest of the URL still passes.
 func TestIsAllowedNonRelativeHref(t *testing.T) {
 	tests := map[string]struct {
 		input string
@@ -48,6 +53,76 @@ func TestIsAllowedNonRelativeHref(t *testing.T) {
 	}
 }
 
+// TestIsRenderedAsWritten tests the schemes the templ sanitizer keeps.
+// A URL it drops renders as about:invalid, which is a link that goes nowhere.
+func TestIsRenderedAsWritten(t *testing.T) {
+	for name, tc := range map[string]struct {
+		url  string
+		want bool
+	}{
+		"https":             {"https://example.com", true},
+		"mailto":            {"mailto:a@b.c", true},
+		"tel":               {"tel:+15550100", true},
+		"ftps":              {"ftps://files.example.com", true},
+		"fragment":          {"#section", true},
+		"protocol relative": {"//cdn.example.com", true},
+		"path":              {"/login", true},
+		"uppercase scheme":  {"HTTPS://example.com", true},
+
+		"sms":        {"sms:+15550100", false},
+		"data":       {"data:text/plain,hi", false},
+		"javascript": {"javascript:alert(1)", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.want, hrefcheck.IsRenderedAsWritten(tc.url))
+		})
+	}
+}
+
+// TestIsRenderedAsWrittenMatchesTempl holds the check to the sanitizer it
+// exists to predict. The two rules drifted once: an RFC 3986 scheme parser
+// reads "foo bar:baz" and "1abc:x" as having no scheme, where templ takes
+// everything before the first ':' as the protocol and drops them.
+func TestIsRenderedAsWrittenMatchesTempl(t *testing.T) {
+	t.Parallel()
+
+	for _, u := range []string{
+		"https://example.com", "HTTPS://example.com", "http://example.com",
+		"mailto:a@b.c", "tel:+15550100", "ftp://x", "ftps://files.example.com",
+		"sms:+15550100", "data:text/plain,hi", "javascript:alert(1)",
+		"#section", "//cdn.example.com", "/login", "", "a/b:c", "./x", "x",
+		" https://example.com", "https://example.com ", "\thttps://example.com",
+		"java\tscript:alert(1)", "java\nscript:alert(1)", "java\rscript:alert(1)",
+		"java script:alert(1)", "jav\x00ascript:alert(1)",
+		"foo bar:baz", "1abc:x", "+abc:x", "-abc:x", ".abc:x",
+		"http\t://x", "HtTpS://example.com", "https:",
+	} {
+		t.Run(u, func(t *testing.T) {
+			kept := templ.URL(u) != templ.FailedSanitizationURL
+			require.Equal(t, kept, hrefcheck.IsRenderedAsWritten(u),
+				"templ keeps %q: %v", u, kept)
+		})
+	}
+}
+
+// FuzzIsRenderedAsWrittenMatchesTempl holds the check to the sanitizer over
+// arbitrary input. A table lists the shapes someone thought of.
+func FuzzIsRenderedAsWrittenMatchesTempl(f *testing.F) {
+	for _, seed := range []string{
+		"https://example.com", "foo bar:baz", "1abc:x", "java\tscript:alert(1)",
+		"#section", "//cdn.example.com", "/login", "", "a/b:c", "https:", ":",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, u string) {
+		kept := templ.URL(u) != templ.FailedSanitizationURL
+		require.Equal(t, kept, hrefcheck.IsRenderedAsWritten(u))
+	})
+}
+
+// TestAssetPath tests the asset URL the generated code builds from a prefix and a path.
+// It normalizes but does not confine: a path with ".." escapes the prefix,
+// which the caller has to prevent.
 func TestAssetPath(t *testing.T) {
 	t.Parallel()
 

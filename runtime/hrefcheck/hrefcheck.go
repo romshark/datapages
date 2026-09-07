@@ -24,6 +24,36 @@ func AssetPath(prefix, p string) string {
 	return prefix + p
 }
 
+// templURLSchemes are the schemes the templ sanitizer keeps.
+// It rewrites every other scheme to "about:invalid#TemplFailedSanitizationURL",
+// which is what a URL written through an attribute expression goes through.
+// A literal attribute is written as it stands and reaches no sanitizer.
+var templURLSchemes = []string{"http", "https", "mailto", "tel", "ftp", "ftps"}
+
+// IsRenderedAsWritten reports whether s survives the templ sanitizer,
+// which every URL written as an attribute expression passes through.
+// A URL it drops renders as "about:invalid#TemplFailedSanitizationURL" and links nowhere.
+//
+// It mirrors templ.URL rather than parsing a scheme of its own: templ takes
+// everything before the first ':' as the protocol whenever no '/' precedes it,
+// whatever bytes are in it. "foo bar:baz", "1abc:x" and "java\tscript:" are
+// protocols to templ and are all dropped, where an RFC 3986 scheme parser
+// reads them as having no scheme at all and reports them as kept.
+func IsRenderedAsWritten(s string) bool {
+	i := strings.IndexByte(s, ':')
+	if i < 0 || strings.ContainsRune(s[:i], '/') {
+		// No protocol of its own: a fragment, a path or a protocol-relative
+		// URL, all of which the sanitizer keeps.
+		return true
+	}
+	for _, allowed := range templURLSchemes {
+		if strings.EqualFold(s[:i], allowed) {
+			return true
+		}
+	}
+	return false
+}
+
 // IsAllowedNonRelativeHref returns false for:
 //   - empty/whitespace
 //   - query-only URLs like ?tab=settings
@@ -35,6 +65,10 @@ func AssetPath(prefix, p string) string {
 //   - fragment-only hrefs like #section
 //   - protocol-relative URLs like //cdn.example.com
 //   - absolute/schemed URLs like https:, mailto:, tel:, sms:, ftp:, data:
+//
+// It reports what belongs in an href, not what a browser receives:
+// a URL written as an attribute expression also passes the templ sanitizer,
+// which keeps fewer schemes. See [IsRenderedAsWritten].
 //
 // Limitation: cannot detect absolute links to the same domain
 // (e.g. https://mydomain.com/login).

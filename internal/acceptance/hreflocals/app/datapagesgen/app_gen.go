@@ -5,12 +5,15 @@ package datapagesgen
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
+	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
 
@@ -49,6 +52,24 @@ func (s *Server) writeHTML(
 	})
 }
 
+// recoverPanic turns a panicking handler into an error and hands it to the error path.
+func (s *Server) recoverPanic(
+	w http.ResponseWriter, r *http.Request,
+	sse *datastar.ServerSentEventGenerator, handler string,
+) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -59,11 +80,14 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](app, broker, opts...)
+//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//		app, broker, opts...,
+//	)
 //
 // Supported options:
 //
 //   - datapages.WithLogger
+//   - datapages.WithLogSampling
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
@@ -107,7 +131,8 @@ func (s *Server) Init(
 	setupHandlers(s)
 
 	s.Build()
-	href.SetLogger(s.Logger())
+	href.SetLogger(s.SampledLogger())
+	actionexpr.SetLogger(s.SampledLogger())
 
 	return nil
 }
@@ -131,8 +156,29 @@ func setupHandlers(s *Server) {
 		"GET /item/{b}/{$}",
 		s.handlePageItemGET)
 	s.Mux().HandleFunc(
+		"GET /locals/{b}/{l}/{n}/{bl}/{al}/{$}",
+		s.handlePageLocalsGET)
+	s.Mux().HandleFunc(
 		"GET /mix/{l}/{n}/{pageStr}/{$}",
 		s.handlePageMixGET)
+	s.Mux().HandleFunc(
+		"GET /params/{query}/{options}/{$}",
+		s.handlePageParamsGET)
+	s.Mux().HandleFunc(
+		"GET /tags/{$}",
+		s.handlePageTagsGET)
+	s.Mux().HandleFunc(
+		"POST /locals/{b}/{l}/{n}/{bl}/{al}/save/{$}",
+		s.handlePageLocalsPOSTSave)
+	s.Mux().HandleFunc(
+		"POST /mix/{l}/{n}/{pageStr}/store/{$}",
+		s.handlePageMixPOSTStore)
+	s.Mux().HandleFunc(
+		"POST /params/{query}/{options}/save/{$}",
+		s.handlePageParamsPOSTSave)
+	s.Mux().HandleFunc(
+		"POST /tags/select/{$}",
+		s.handlePageTagsPOSTSelect)
 }
 
 func (s *Server) httpErrIntern(
@@ -140,8 +186,11 @@ func (s *Server) httpErrIntern(
 	_ *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
+	if httpserve.ResponseBodyWritten(w) {
+		// A status written now only appends its text to the body.
+		return
+	}
+	httpserve.WriteErrStatus(w, err)
 }
 
 func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
@@ -153,6 +202,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageIndex{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -189,6 +239,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageItem{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageItem.GET")
 	body, err := p.GET(r, path)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageItem.GET", err)
@@ -203,6 +254,70 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageItem", err)
+		return
+	}
+}
+
+func (s *Server) handlePageLocalsGET(w http.ResponseWriter, r *http.Request) {
+
+	var path datapages.Path[struct {
+		B  string `path:"b"`
+		L  string `path:"l"`
+		N  string `path:"n"`
+		BL string `path:"bl"`
+		AL string `path:"al"`
+	}]
+	path.Values.B = r.PathValue("b")
+	path.Values.L = r.PathValue("l")
+	path.Values.N = r.PathValue("n")
+	path.Values.BL = r.PathValue("bl")
+	path.Values.AL = r.PathValue("al")
+
+	p := app.PageLocals{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageLocals.GET")
+	body, err := p.GET(r, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageLocals.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageLocals", err)
+		return
+	}
+}
+
+func (s *Server) handlePageLocalsPOSTSave(
+	w http.ResponseWriter, r *http.Request,
+) {
+
+	var path datapages.Path[struct {
+		B  string `path:"b"`
+		L  string `path:"l"`
+		N  string `path:"n"`
+		BL string `path:"bl"`
+		AL string `path:"al"`
+	}]
+	path.Values.B = r.PathValue("b")
+	path.Values.L = r.PathValue("l")
+	path.Values.N = r.PathValue("n")
+	path.Values.BL = r.PathValue("bl")
+	path.Values.AL = r.PathValue("al")
+	defer s.recoverPanic(w, r, nil, "PageLocals.Save")
+	p := app.PageLocals{
+		App: s.app,
+	}
+	err := p.POSTSave(r, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageLocals.Save", err)
 		return
 	}
 }
@@ -253,6 +368,7 @@ func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageMix{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageMix.GET")
 	body, err := p.GET(r, path, query)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageMix.GET", err)
@@ -267,6 +383,175 @@ func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageMix", err)
+		return
+	}
+}
+
+func (s *Server) handlePageMixPOSTStore(
+	w http.ResponseWriter, r *http.Request,
+) {
+
+	var query datapages.Query[struct {
+		AnyQuery string `query:"anyQuery"`
+	}]
+	query.Values.AnyQuery = httpread.QueryValue(r.URL.RawQuery, "anyQuery")
+
+	var path datapages.Path[struct {
+		L       int    `path:"l"`
+		N       int    `path:"n"`
+		PageStr string `path:"pageStr"`
+	}]
+	{
+		v := r.PathValue("l")
+		i, err := strconv.ParseInt(v, 10, 0)
+		if err != nil {
+			s.HTTPErrBad(w, "unexpected value for path parameter: l", err)
+			return
+		}
+		path.Values.L = int(i)
+	}
+	{
+		v := r.PathValue("n")
+		i, err := strconv.ParseInt(v, 10, 0)
+		if err != nil {
+			s.HTTPErrBad(w, "unexpected value for path parameter: n", err)
+			return
+		}
+		path.Values.N = int(i)
+	}
+	path.Values.PageStr = r.PathValue("pageStr")
+	defer s.recoverPanic(w, r, nil, "PageMix.Store")
+	p := app.PageMix{
+		App: s.app,
+	}
+	err := p.POSTStore(r, path, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageMix.Store", err)
+		return
+	}
+}
+
+func (s *Server) handlePageParamsGET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		Term string `query:"t"`
+	}]
+	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "t")
+
+	var path datapages.Path[struct {
+		Query   string `path:"query"`
+		Options string `path:"options"`
+	}]
+	path.Values.Query = r.PathValue("query")
+	path.Values.Options = r.PathValue("options")
+
+	p := app.PageParams{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageParams.GET")
+	body, err := p.GET(r, path, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageParams.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageParams", err)
+		return
+	}
+}
+
+func (s *Server) handlePageParamsPOSTSave(
+	w http.ResponseWriter, r *http.Request,
+) {
+
+	var path datapages.Path[struct {
+		Query   string `path:"query"`
+		Options string `path:"options"`
+	}]
+	path.Values.Query = r.PathValue("query")
+	path.Values.Options = r.PathValue("options")
+	defer s.recoverPanic(w, r, nil, "PageParams.Save")
+	p := app.PageParams{
+		App: s.app,
+	}
+	err := p.POSTSave(r, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageParams.Save", err)
+		return
+	}
+}
+
+func (s *Server) handlePageTagsGET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		PageSize int    `query:"page-size"`
+		Term     string `query:"q.term"`
+	}]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "page-size"); q != "" {
+			i, err := strconv.ParseInt(q, 10, 0)
+			if err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: page-size", err)
+				return
+			}
+			query.Values.PageSize = int(i)
+		}
+	}
+	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "q.term")
+
+	p := app.PageTags{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageTags.GET")
+	body, err := p.GET(r, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageTags.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageTags", err)
+		return
+	}
+}
+
+func (s *Server) handlePageTagsPOSTSelect(
+	w http.ResponseWriter, r *http.Request,
+) {
+
+	var query datapages.Query[struct {
+		PageSize int `query:"page-size"`
+	}]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "page-size"); q != "" {
+			i, err := strconv.ParseInt(q, 10, 0)
+			if err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: page-size", err)
+				return
+			}
+			query.Values.PageSize = int(i)
+		}
+	}
+	defer s.recoverPanic(w, r, nil, "PageTags.Select")
+	p := app.PageTags{
+		App: s.app,
+	}
+	err := p.POSTSelect(r, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageTags.Select", err)
 		return
 	}
 }

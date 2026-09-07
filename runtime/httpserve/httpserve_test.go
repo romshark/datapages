@@ -16,6 +16,8 @@ import (
 	"github.com/romshark/datapages/runtime/httpserve"
 )
 
+// TestIsDatastarRequest tests the header match, which is exact:
+// Datastar sends the lowercase "true" and nothing else counts.
 func TestIsDatastarRequest(t *testing.T) {
 	t.Parallel()
 
@@ -36,6 +38,10 @@ func TestIsDatastarRequest(t *testing.T) {
 	}
 }
 
+// TestRedirect tests what a redirect turns into. A plain request gets a Location
+// header and a 3xx, with a non-redirect status corrected to 302. A Datastar
+// request instead gets JavaScript that navigates, since the browser would follow
+// a 3xx inside the fetch and hand the page to the SSE reader.
 func TestRedirect(t *testing.T) {
 	t.Parallel()
 
@@ -92,13 +98,16 @@ func TestRedirect(t *testing.T) {
 	}
 }
 
+// TestDevNoCache tests the headers dev mode adds so an edited page is reloaded rather
+// than served from the browser cache, and that they do not disturb the response body.
 func TestDevNoCache(t *testing.T) {
 	t.Parallel()
 
 	h := httpserve.DevNoCache(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("body"))
-		}))
+		},
+	))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
 
@@ -108,6 +117,8 @@ func TestDevNoCache(t *testing.T) {
 	require.Equal(t, "body", w.Body.String())
 }
 
+// TestWriteReloadOnVisibility tests the dev-mode attribute that reloads a tab once it
+// becomes visible again, which is how a tab left in the background picks up a restart.
 func TestWriteReloadOnVisibility(t *testing.T) {
 	t.Parallel()
 
@@ -119,6 +130,8 @@ func TestWriteReloadOnVisibility(t *testing.T) {
 		b.String())
 }
 
+// TestWriteErrStatus tests the mapping from the error sentinels to status codes,
+// including a wrapped sentinel. Anything else, nil included, is a 500.
 func TestWriteErrStatus(t *testing.T) {
 	t.Parallel()
 
@@ -151,6 +164,9 @@ func TestWriteErrStatus(t *testing.T) {
 //go:embed testdata/static/hello.txt
 var testAssets embed.FS
 
+// TestAssetsFileSystem tests which of the assets options wins: an explicit file
+// system beats an embedded one, an embedded one is opened at the subdirectory the
+// generated code names, and no option at all serves nothing.
 func TestAssetsFileSystem(t *testing.T) {
 	t.Parallel()
 
@@ -168,7 +184,8 @@ func TestAssetsFileSystem(t *testing.T) {
 	t.Run("no option", func(t *testing.T) {
 		t.Parallel()
 		got, err := httpserve.AssetsFileSystem(
-			datapages.ServerConfig{}, "app/static", "static")
+			datapages.ServerConfig{}, "app/static", "static",
+		)
 		require.NoError(t, err)
 		require.Nil(t, got)
 	})
@@ -176,7 +193,8 @@ func TestAssetsFileSystem(t *testing.T) {
 	t.Run("app declares none", func(t *testing.T) {
 		t.Parallel()
 		_, err := httpserve.AssetsFileSystem(
-			datapages.ServerConfig{AssetsEmbed: &testAssets}, "", "")
+			datapages.ServerConfig{AssetsEmbed: &testAssets}, "", "",
+		)
 		require.ErrorContains(t, err, "the app package declares no assets")
 	})
 
@@ -184,7 +202,8 @@ func TestAssetsFileSystem(t *testing.T) {
 		t.Parallel()
 		fsys, err := httpserve.AssetsFileSystem(
 			datapages.ServerConfig{AssetsEmbed: &testAssets},
-			"testdata/static", "testdata/static")
+			"testdata/static", "testdata/static",
+		)
 		require.NoError(t, err)
 		f, err := fsys.Open("hello.txt")
 		require.NoError(t, err)

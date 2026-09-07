@@ -6,6 +6,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestAssetsURLPrefix tests the prefix an application may serve assets under.
+// It has to be one absolute directory path, and everything that could make the
+// file server resolve outside it is refused at parse time: dot segments,
+// a backslash, and their percent-encoded spellings, which the router decodes
+// before the path is matched.
 func TestAssetsURLPrefix(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input   string

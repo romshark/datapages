@@ -7,13 +7,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strings"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
+	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/auth"
+	"github.com/romshark/datapages/runtime/htmlattr"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"github.com/romshark/datapages/runtime/stream"
@@ -76,6 +81,24 @@ func (s *Server) handleStreamRequest(
 	s.streams.Handle(w, r, sessKey, sess.UserID(), subjects, onOpen, onClose, fn)
 }
 
+// recoverPanic turns a panicking handler into an error and hands it to the error path.
+func (s *Server) recoverPanic(
+	w http.ResponseWriter, r *http.Request,
+	sse *datastar.ServerSentEventGenerator, handler string,
+) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -88,11 +111,14 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, struct{}, datapages.DisablePrometheus, Server](app, broker, opts...)
+//	s, err := datapages.NewServer[app.App, struct{}, datapages.DisablePrometheus, Server](
+//		app, broker, opts...,
+//	)
 //
 // Supported options:
 //
 //   - datapages.WithLogger
+//   - datapages.WithLogSampling
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
@@ -146,12 +172,14 @@ func (s *Server) Init(
 	setupHandlers(s)
 
 	s.Build()
-	href.SetLogger(s.Logger())
+	href.SetLogger(s.SampledLogger())
+	actionexpr.SetLogger(s.SampledLogger())
 
 	return nil
 }
 
 const (
+	EvSubjDMed    = "dmed.*.*"
 	EvSubjNoticed = "noticed.*"
 
 	// Public events:
@@ -161,12 +189,14 @@ const (
 )
 
 const (
+	EvSubjPrefDMed       = "dmed."
 	EvSubjPrefNoticed    = "noticed."
 	EvSubjPrefRoomPosted = "room.posted."
 )
 
 func MessageBrokerStreamSubjects() []string {
 	return []string{
+		EvSubjDMed,
 		EvSubjNoticed,
 		EvSubjRoomPosted,
 		EvSubjTicked,
@@ -174,6 +204,18 @@ func MessageBrokerStreamSubjects() []string {
 }
 
 func evSubjPageFeed(userID string) []string {
+	if userID == "" {
+		return []string{
+			EvSubjTicked,
+		}
+	}
+	return []string{
+		EvSubjTicked,
+		"noticed." + subject.Encode(userID),
+	}
+}
+
+func evSubjPagePost(userID string) []string {
 	if userID == "" {
 		return []string{
 			EvSubjTicked,
@@ -193,6 +235,7 @@ func evSubjPageRooms(userID string, subjRoom string) []string {
 	}
 	return []string{
 		"noticed." + subject.Encode(userID),
+		"dmed." + subject.Encode(userID) + ".*",
 		"room.posted." + subject.Encode(subjRoom),
 	}
 }
@@ -212,6 +255,15 @@ func setupHandlers(s *Server) {
 		"GET /",
 		s.handlePageIndexGET)
 	s.Mux().HandleFunc(
+		"GET /post/{slug}/{$}",
+		s.handlePagePostGET)
+	s.Mux().HandleFunc(
+		"GET /post/{slug}/_$/{$}",
+		s.handlePagePostGETStream)
+	s.Mux().HandleFunc(
+		"GET /post/{slug}/_$/anon/{$}",
+		s.handlePagePostGETStreamAnon)
+	s.Mux().HandleFunc(
 		"GET /rooms/{$}",
 		s.handlePageRoomsGET)
 	s.Mux().HandleFunc(
@@ -229,6 +281,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /rooms/notice/{$}",
 		s.handlePageRoomsPOSTNotice)
+	s.Mux().HandleFunc(
+		"POST /rooms/dm/{$}",
+		s.handlePageRoomsPOSTDM)
 }
 
 func (s *Server) httpErrIntern(
@@ -236,6 +291,10 @@ func (s *Server) httpErrIntern(
 	_ *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if httpserve.ResponseBodyWritten(w) {
+		// A status written now only appends its text to the body.
+		return
+	}
 	httpserve.WriteErrStatus(w, err)
 }
 
@@ -243,6 +302,7 @@ func (s *Server) handlePageFeedGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageFeed{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageFeed.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageFeed.GET", err)
@@ -277,7 +337,9 @@ func (s *Server) handlePageFeedGETStream(w http.ResponseWriter, r *http.Request)
 	if sess.UserID() == "" {
 		// The query carries the signals a stream subscribes by,
 		// which the anonymous route needs as much as this one.
-		target := r.URL.Path + "/anon"
+		// EscapedPath, not the decoded Path: a value carrying "?" or "#" re-parses
+		// in the Location header as a query or a fragment.
+		target := r.URL.EscapedPath() + "anon/"
 		if r.URL.RawQuery != "" {
 			target += "?" + r.URL.RawQuery
 		}
@@ -295,6 +357,7 @@ func (s *Server) handlePageFeedGETStream(w http.ResponseWriter, r *http.Request)
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageFeed stream")
 			var eventTicked app.EventTicked
 			var eventNoticed app.EventNoticed
 			for msg := range ch {
@@ -369,12 +432,11 @@ func (s *Server) handlePageFeedPOSTTick(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	// CSRF protection covers every state-changing action, including
-	// the ones that read nothing of the session.
-	if _, _, ok := s.ReadSession(w, r); !ok {
+	// The CSRF token comes from the cookie, hence no store read here.
+	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		N int `json:"n"`
 	}]
@@ -384,6 +446,7 @@ func (s *Server) handlePageFeedPOSTTick(
 	}
 
 	dispatchTicked := dispatcherEventTicked{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageFeed.Tick")
 	p := app.PageFeed{
 		App: s.app,
 	}
@@ -408,6 +471,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageIndex{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
 	body, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageIndex.GET", err)
@@ -427,10 +491,159 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	var path datapages.Path[struct {
+		Slug string `path:"slug"`
+	}]
+	path.Values.Slug = r.PathValue("slug")
+
+	p := app.PagePost{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PagePost.GET")
+	body, err := p.GET(r, path, sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PagePost.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, `/post/`)
+		htmlattr.WritePathValue(w, path.Values.Slug)
+		_, _ = io.WriteString(w, `/`)
+		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, `_$/')"`)
+		} else {
+			_, _ = io.WriteString(w, `_$/anon/')"`)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PagePost", err)
+		return
+	}
+}
+
+func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() == "" {
+		// The query carries the signals a stream subscribes by,
+		// which the anonymous route needs as much as this one.
+		// EscapedPath, not the decoded Path: a value carrying "?" or "#" re-parses
+		// in the Location header as a query or a fragment.
+		target := r.URL.EscapedPath() + "anon/"
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
+		return
+	}
+
+	p := app.PagePost{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID()),
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PagePost stream")
+			var eventTicked app.EventTicked
+			var eventNoticed app.EventNoticed
+			for msg := range ch {
+				switch {
+				case msg.Subject == EvSubjTicked:
+					eventTicked = app.EventTicked{}
+					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
+						s.LogErr("unmarshaling EventTicked JSON", err)
+						continue
+					}
+					if err := p.OnTicked(eventTicked, dpsse.New(sse)); err != nil {
+						s.LogErr("handling PagePost.OnTicked", err)
+					}
+				case strings.HasPrefix(msg.Subject, EvSubjPrefNoticed):
+					eventNoticed = app.EventNoticed{}
+					if err := json.Unmarshal(msg.Data, &eventNoticed); err != nil {
+						s.LogErr("unmarshaling EventNoticed JSON", err)
+						continue
+					}
+					if err := p.OnNoticed(eventNoticed, dpsse.New(sse)); err != nil {
+						s.LogErr("handling PagePost.OnNoticed", err)
+					}
+				}
+			}
+		})
+}
+
+func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() != "" {
+		s.HTTPErrBad(w, "authenticated client on anonymous stream", nil)
+		return
+	}
+
+	p := app.PagePost{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID()),
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			var eventTicked app.EventTicked
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjTicked:
+					eventTicked = app.EventTicked{}
+					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
+						s.LogErr("unmarshaling EventTicked JSON", err)
+						continue
+					}
+					if err := p.OnTicked(eventTicked, dpsse.New(sse)); err != nil {
+						s.LogErr("handling PagePost.OnTicked", err)
+					}
+				}
+			}
+		})
+}
+
 func (s *Server) handlePageRoomsGET(w http.ResponseWriter, r *http.Request) {
 	p := app.PageRooms{
 		App: s.app,
 	}
+	defer s.recoverPanic(w, r, nil, "PageRooms.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageRooms.GET", err)
@@ -465,7 +678,9 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 	if sess.UserID() == "" {
 		// The query carries the signals a stream subscribes by,
 		// which the anonymous route needs as much as this one.
-		target := r.URL.Path + "/anon"
+		// EscapedPath, not the decoded Path: a value carrying "?" or "#" re-parses
+		// in the Location header as a query or a fragment.
+		target := r.URL.EscapedPath() + "anon/"
 		if r.URL.RawQuery != "" {
 			target += "?" + r.URL.RawQuery
 		}
@@ -496,8 +711,10 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
+			defer s.recoverPanic(w, r, sse, "PageRooms stream")
 			var eventRoomPosted app.EventRoomPosted
 			var eventNoticed app.EventNoticed
+			var eventDMed app.EventDMed
 			for msg := range ch {
 				switch {
 				case strings.HasPrefix(msg.Subject, EvSubjPrefRoomPosted):
@@ -517,6 +734,15 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 					}
 					if err := p.OnNoticed(eventNoticed, dpsse.New(sse)); err != nil {
 						s.LogErr("handling PageRooms.OnNoticed", err)
+					}
+				case strings.HasPrefix(msg.Subject, EvSubjPrefDMed):
+					eventDMed = app.EventDMed{}
+					if err := json.Unmarshal(msg.Data, &eventDMed); err != nil {
+						s.LogErr("unmarshaling EventDMed JSON", err)
+						continue
+					}
+					if err := p.OnDMed(eventDMed, dpsse.New(sse)); err != nil {
+						s.LogErr("handling PageRooms.OnDMed", err)
 					}
 				}
 			}
@@ -583,12 +809,11 @@ func (s *Server) handlePageRoomsPOSTPost(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	// CSRF protection covers every state-changing action, including
-	// the ones that read nothing of the session.
-	if _, _, ok := s.ReadSession(w, r); !ok {
+	// The CSRF token comes from the cookie, hence no store read here.
+	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		Room string `json:"room"`
 		Text string `json:"text"`
@@ -599,6 +824,7 @@ func (s *Server) handlePageRoomsPOSTPost(
 	}
 
 	dispatchRoomPosted := dispatcherEventRoomPosted{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageRooms.Post")
 	p := app.PageRooms{
 		App: s.app,
 	}
@@ -615,12 +841,11 @@ func (s *Server) handlePageRoomsPOSTNotice(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
-	// CSRF protection covers every state-changing action, including
-	// the ones that read nothing of the session.
-	if _, _, ok := s.ReadSession(w, r); !ok {
+	// The CSRF token comes from the cookie, hence no store read here.
+	if !s.CheckCSRFOnly(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.BodySizeLimit())
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
 		User string `json:"user"`
 		Text string `json:"text"`
@@ -631,12 +856,46 @@ func (s *Server) handlePageRoomsPOSTNotice(
 	}
 
 	dispatchNoticed := dispatcherEventNoticed{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageRooms.Notice")
 	p := app.PageRooms{
 		App: s.app,
 	}
 	err := p.POSTNotice(r, signals, dispatchNoticed)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageRooms.Notice", err)
+		return
+	}
+}
+
+func (s *Server) handlePageRoomsPOSTDM(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	// The CSRF token comes from the cookie, hence no store read here.
+	if !s.CheckCSRFOnly(w, r) {
+		return
+	}
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
+	var signals datapages.Signals[struct {
+		To   string `json:"to"`
+		Cc   string `json:"cc"`
+		Text string `json:"text"`
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+
+	dispatchDMed := dispatcherEventDMed{s: s, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageRooms.DM")
+	p := app.PageRooms{
+		App: s.app,
+	}
+	err := p.POSTDM(r, signals, dispatchDMed)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageRooms.DM", err)
 		return
 	}
 }
@@ -711,6 +970,36 @@ func (d dispatcherEventNoticed) DispatchCtx(
 		return fmt.Errorf("marshaling EventNoticed JSON: %w", err)
 	}
 	subj := "noticed." + subject.Encode(string(e.Recipient))
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
+}
+
+type dispatcherEventDMed struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventDMed) Dispatch(e app.EventDMed) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventDMed) DispatchCtx(
+	ctx context.Context, e app.EventDMed,
+) error {
+	if e.To == "" {
+		return errors.New("EventDMed.To must not be empty")
+	}
+	if e.Cc == "" {
+		return errors.New("EventDMed.Cc must not be empty")
+	}
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventDMed JSON: %w", err)
+	}
+	subj := "dmed." + subject.Encode(string(e.To)) + "." + subject.Encode(string(e.Cc))
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)

@@ -26,11 +26,20 @@ func (*App) Head(
 Both parameters are recognized by their type, so their names and order
 are up to the application.
 
-The `RecoverError` method allows you to recover from handler errors to improve UX by
-giving better feedback over SSE. All action handler errors (including the datapages sentinels)
-are routed through `RecoverError` when it is defined and the request is
-a Datastar request. If `RecoverError` returns an error, the server falls back to
-an HTTP error response using the appropriate status code.
+`RecoverError` is called when a handler fails during a Datastar request,
+if the application defines it. It receives the error, including the datapages sentinels,
+and writes feedback over SSE. If it returns an error,
+the server sends the HTTP error response for the original error instead.
+
+A panic in a `GET`, an action, a `StreamOpen` or an `OnXXX` handler is recovered
+and passed to `RecoverError` as a `datapages.PanicError`, which holds the panic
+value and the stack.
+The stack is always logged.
+
+A response that has started cannot be replaced. A panic while the page is
+being written, in a component for example, is logged, and the visitor receives
+the truncated page with the status it already carries. A stream that panics is closed.
+`StreamClose` runs on its own goroutine and is recovered there.
 
 ```go
 func (*App) RecoverError(
@@ -159,7 +168,8 @@ return HTML, and set or remove sessions.
 **Session mutation and SSE are mutually exclusive in action handlers.**
 When the `sse` parameter is present, the handler opens a long-lived SSE stream —
 HTTP headers (including session cookies) have already been sent, so `newSession`
-and `closeSession` return values cannot be used.
+and `closeSession` return values cannot be used. A `redirect` return value works:
+it navigates through the stream, the way `sse.Redirect` does.
 
 ```go
 // POSTActionName is <path>
@@ -482,6 +492,11 @@ and is the source of truth. It is also rendered on
 
 A client whose `ExpiresAt()` has passed is treated as unauthenticated and its
 session cookie is removed, the zero value never expires.
+
+An action that declares no session is CSRF-checked against the session cookie
+alone. The session store is not read for it, hence the cookie of a session that
+was closed or expired passes that check. An action that declares a session is
+checked after the store read, which rejects it.
 
 Expiry that way reclaims only the sessions a client comes back to: the read is
 what notices one and drops it. An abandoned session is never read again.
@@ -1134,6 +1149,20 @@ Datapages relies on the
 [`visibilitychange`](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event)
 event to perform the automatic refresh.
 
+## Dev Mode
+
+Dev mode is on when `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` holds anything.
+`datapages watch` runs the application under templier, which sets the latter.
+Setting `DATAPAGES_DEV_MODE` also sets `TEMPL_DEV_MODE` for the process,
+so templ sees the same mode.
+
+In dev mode the static assets are read from the source tree rather than the embedded FS,
+and every asset response carries `Cache-Control: no-store`.
+A production process that inherits either variable serves its assets from a
+directory it does not have. The server logs a warning at startup when dev mode is on.
+
+`datapages.IsDevMode` reports the mode to application code.
+
 ## Linting
 
 `datapages lint` parses the application model and reports all errors without generating
@@ -1252,6 +1281,11 @@ cross-page action ownership errors.
   (e.g. `href="https://mydomain.com/login"`). These bypass the linter because they
   have an explicit URL scheme, which the linter treats as external.
   Use the generated `href.PageXxx()` builders instead.
+
+- The app package must hold no build-constrained file. Pages, actions and events
+  are read from the package as the host builds it, so a page in a `//go:build windows`
+  file or in `page_windows.go` is generated on Windows and is missing everywhere else,
+  with no error. The `datapages.NewServer` calls are read differently, from every file except those under `//go:build ignore`, and may live in a platform-specific command.
 
 ## Service Worker
 

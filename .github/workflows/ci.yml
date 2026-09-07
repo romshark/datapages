@@ -69,10 +69,10 @@ jobs:
               name: "fast-shim"
             deps: latest
     steps:
-      - name: Install Go 1.27.0
+      - name: Install Go 1.27.1
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.1"
           check-latest: true
       - name: Checkout repository
         uses: actions/checkout@v7

@@ -21,6 +21,8 @@ var benchValues = map[string]string{
 	"escaped max": strings.Repeat(".", datapages.MaxUserIDEncodedLen/3),
 }
 
+// BenchmarkEncode measures the escaping every dispatched subject value pays for,
+// from a value that needs none to one that escapes every byte.
 func BenchmarkEncode(b *testing.B) {
 	for name, v := range benchValues {
 		b.Run(name, func(b *testing.B) {
@@ -32,6 +34,8 @@ func BenchmarkEncode(b *testing.B) {
 	}
 }
 
+// BenchmarkEncodedLen measures the sizing pass the callers run before Encode to
+// allocate the subject buffer once.
 func BenchmarkEncodedLen(b *testing.B) {
 	for name, v := range benchValues {
 		b.Run(name, func(b *testing.B) {

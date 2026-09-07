@@ -143,7 +143,9 @@ require (
 			case 1:
 				params.WriteString("sse *datastar.ServerSentEventGenerator")
 			default:
-				params.WriteString("param" + string(rune('A'+i-2)) + " int")
+				params.WriteString("param")
+				params.WriteString(string(rune('A' + i - 2)))
+				params.WriteString(" int")
 			}
 		}
 
@@ -239,7 +241,9 @@ require (
 			case 4:
 				params.WriteString("signals struct{ S string `json:\"s\"` }")
 			default:
-				params.WriteString("param" + string(rune('A'+i-5)) + " int")
+				params.WriteString("param")
+				params.WriteString(string(rune('A' + i - 5)))
+				params.WriteString(" int")
 			}
 		}
 

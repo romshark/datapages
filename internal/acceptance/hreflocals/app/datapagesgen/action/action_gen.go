@@ -4,5 +4,330 @@
 // Use these in templates instead of hardcoding action URLs.
 package action
 
-// This package is empty because the application defines no actions.
-// Define action handlers in your app package to generate action helpers.
+import (
+	"net/url"
+	"strconv"
+	"strings"
+
+	"github.com/romshark/datapages/runtime/actionexpr"
+)
+
+// The generated helpers take the options of runtime/actionexpr.
+// Aliases keep them nameable from a template that imports only this package.
+type (
+	option              = actionexpr.Option
+	ContentType         = actionexpr.ContentType
+	Retry               = actionexpr.Retry
+	RequestCancellation = actionexpr.RequestCancellation
+)
+
+const (
+	// ContentTypeJSON sends all signals in a JSON request (default).
+	ContentTypeJSON = actionexpr.ContentTypeJSON
+	// ContentTypeForm looks for the closest form to the element,
+	// performs validation on form elements, and sends them as a form request.
+	// No signals are sent. Use WithSelector to target a specific form.
+	ContentTypeForm = actionexpr.ContentTypeForm
+
+	// RetryAuto retries on network errors only (default).
+	RetryAuto = actionexpr.RetryAuto
+	// RetryError retries on 4xx and 5xx responses.
+	RetryError = actionexpr.RetryError
+	// RetryAlways retries on all non-204 responses except redirects.
+	RetryAlways = actionexpr.RetryAlways
+	// RetryNever disables retries.
+	RetryNever = actionexpr.RetryNever
+
+	// RequestCancellationAuto cancels existing requests on the same element (default).
+	RequestCancellationAuto = actionexpr.RequestCancellationAuto
+	// RequestCancellationCleanup cancels existing requests on the same element
+	// and on element or attribute cleanup.
+	RequestCancellationCleanup = actionexpr.RequestCancellationCleanup
+	// RequestCancellationDisabled allows concurrent requests.
+	RequestCancellationDisabled = actionexpr.RequestCancellationDisabled
+)
+
+// WithOption creates an action option key-value pair.
+// The key is an option name and the value is a raw JavaScript expression.
+//
+// WARNING: Use WithOption only when no typed helper is available.
+// Typed helpers provide compile-time safety:
+//   - WithContentType
+//   - WithFilterSignals
+//   - WithHeaders
+//   - WithOpenWhenHidden
+//   - WithPayload
+//   - WithSelector
+//   - WithRetry
+//   - WithRetryInterval
+//   - WithRetryScaler
+//   - WithRetryMaxWaitMs
+//   - WithRetryMaxCount
+//   - WithRequestCancellation
+//   - WithRequestCancellationController
+//
+// See https://data-star.dev/reference/actions#options
+func WithOption(key, value string) option {
+	return actionexpr.WithOption(key, value)
+}
+
+// WithBefore prepends a JavaScript expression before the action call.
+// Multiple before expressions are joined with "; " separators.
+func WithBefore(expr string) option { return actionexpr.WithBefore(expr) }
+
+// WithAfter appends a JavaScript expression after the action call.
+// Multiple after expressions are joined with "; " separators.
+func WithAfter(expr string) option { return actionexpr.WithAfter(expr) }
+
+// WithContentType creates an action option that controls the content type:
+//   - ContentTypeJSON (default)
+//   - ContentTypeForm
+func WithContentType(ct ContentType) option {
+	return actionexpr.WithContentType(ct)
+}
+
+// WithFilterSignals creates an action option with a regex pattern to match
+// signal paths to include. If exclude is non-empty, it specifies a regex
+// pattern to exclude. Defaults to include all (/.*/), exclude signals
+// with a _ prefix (/(^_|\._).*/).
+//
+// See https://data-star.dev/reference/actions#options
+func WithFilterSignals(include, exclude string) option {
+	return actionexpr.WithFilterSignals(include, exclude)
+}
+
+// WithHeaders creates an action option with HTTP headers to send with the request.
+func WithHeaders(headers map[string]string) option {
+	return actionexpr.WithHeaders(headers)
+}
+
+// WithOpenWhenHidden creates an action option that controls whether to keep
+// the connection open when the page is hidden. Useful for dashboards but can
+// cause a drain on battery life. Defaults to false for get requests,
+// and true for all other HTTP methods.
+func WithOpenWhenHidden(open bool) option {
+	return actionexpr.WithOpenWhenHidden(open)
+}
+
+// WithPayload creates an action option with a JavaScript expression
+// for the request payload.
+func WithPayload(expr string) option { return actionexpr.WithPayload(expr) }
+
+// WithSelector creates an action option that specifies a CSS selector for
+// the form to send when ContentType is ContentTypeForm.
+// If not specified, the closest form to the element is used.
+func WithSelector(selector string) option {
+	return actionexpr.WithSelector(selector)
+}
+
+// WithRetry creates an action option that determines when to retry requests:
+//   - RetryAuto (default)
+//   - RetryError
+//   - RetryAlways
+//   - RetryNever
+func WithRetry(r Retry) option { return actionexpr.WithRetry(r) }
+
+// WithRetryInterval creates an action option for the retry interval in milliseconds.
+// Defaults to 1000 (one second).
+func WithRetryInterval(ms int) option {
+	return actionexpr.WithRetryInterval(ms)
+}
+
+// WithRetryScaler creates an action option for the numeric multiplier
+// applied to scale retry wait times. Defaults to 2.
+func WithRetryScaler(multiplier float64) option {
+	return actionexpr.WithRetryScaler(multiplier)
+}
+
+// WithRetryMaxWaitMs creates an action option for the maximum allowable wait time
+// in milliseconds between retries. Defaults to 30000 (30 seconds).
+func WithRetryMaxWaitMs(ms int) option {
+	return actionexpr.WithRetryMaxWaitMs(ms)
+}
+
+// WithRetryMaxCount creates an action option for the maximum number
+// of retry attempts. Defaults to 10.
+func WithRetryMaxCount(count int) option {
+	return actionexpr.WithRetryMaxCount(count)
+}
+
+// WithRequestCancellation creates an action option that controls
+// request cancellation behavior:
+//   - RequestCancellationAuto (default)
+//   - RequestCancellationCleanup
+//   - RequestCancellationDisabled
+func WithRequestCancellation(rc RequestCancellation) option {
+	return actionexpr.WithRequestCancellation(rc)
+}
+
+// WithRequestCancellationController creates an action option that uses
+// a JavaScript AbortController expression for custom request cancellation.
+// The expression should reference a signal holding an AbortController instance,
+// for example "$controller".
+//
+// See https://data-star.dev/reference/actions#request-cancellation
+func WithRequestCancellationController(expr string) option {
+	return actionexpr.WithRequestCancellationController(expr)
+}
+
+// POSTPageLocalsSave references /locals/{b}/{l}/{n}/{bl}/{al}/save/
+func POSTPageLocalsSave(b string, l string, n string, bl string, al string, options ...option) string {
+	s_b := url.PathEscape(b)
+	s_l := url.PathEscape(l)
+	s_n := url.PathEscape(n)
+	s_bl := url.PathEscape(bl)
+	s_al := url.PathEscape(al)
+	var b_ strings.Builder
+	bl_, al_ := actionexpr.BeforeAfterLen(options)
+	b_.Grow(bl_ + len("@post('/locals/") + len(s_b) + len("/") + len(s_l) + len("/") + len(s_n) + len("/") + len(s_bl) + len("/") + len(s_al) + len("/save/'") + actionexpr.OptionsLen(options) + len(")") + al_)
+	actionexpr.WriteBefore(&b_, options)
+	b_.WriteString("@post('/locals/")
+	b_.WriteString(s_b)
+	b_.WriteString("/")
+	b_.WriteString(s_l)
+	b_.WriteString("/")
+	b_.WriteString(s_n)
+	b_.WriteString("/")
+	b_.WriteString(s_bl)
+	b_.WriteString("/")
+	b_.WriteString(s_al)
+	b_.WriteString("/save/'")
+	actionexpr.WriteOptions(&b_, options)
+	b_.WriteByte(')')
+	actionexpr.WriteAfter(&b_, options)
+	return b_.String()
+}
+
+// POSTPageMixStore references /mix/{l}/{n}/{pageStr}/store/
+func POSTPageMixStore(l int, n int, pageStr string, query QueryPOSTPageMixStore, options ...option) string {
+	s_l := strconv.FormatInt(int64(l), 10)
+	s_n := strconv.FormatInt(int64(n), 10)
+	s_pageStr := url.PathEscape(pageStr)
+	var (
+		anyQueryStr string
+	)
+
+	if query.AnyQuery != "" {
+		anyQueryStr = url.QueryEscape(query.AnyQuery)
+	}
+
+	anyQuery := query.AnyQuery != ""
+
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	l_ := bl + len("@post('/mix/") + len(s_l) + len("/") + len(s_n) + len("/") + len(s_pageStr) + len("/store/") + len("'") + actionexpr.OptionsLen(options) + len(")") + al
+	if anyQuery {
+		l_ += len("?")
+	}
+	n_ := 0
+	if query.AnyQuery != "" {
+		if n_ > 0 {
+			l_ += len("&")
+		}
+		l_ += len("anyQuery=") + len(anyQueryStr)
+	}
+
+	b.Grow(l_)
+
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/mix/")
+	b.WriteString(s_l)
+	b.WriteString("/")
+	b.WriteString(s_n)
+	b.WriteString("/")
+	b.WriteString(s_pageStr)
+	b.WriteString("/store/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+	n_ = 0
+	if query.AnyQuery != "" {
+		if n_ > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("anyQuery=")
+		b.WriteString(anyQueryStr)
+	}
+	b.WriteString("'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+
+	return b.String()
+}
+
+type QueryPOSTPageMixStore struct {
+	AnyQuery string `query:"anyQuery"`
+}
+
+// POSTPageParamsSave references /params/{query}/{options}/save/
+func POSTPageParamsSave(query string, options string, options_ ...option) string {
+	s_query := url.PathEscape(query)
+	s_options := url.PathEscape(options)
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options_)
+	b.Grow(bl + len("@post('/params/") + len(s_query) + len("/") + len(s_options) + len("/save/'") + actionexpr.OptionsLen(options_) + len(")") + al)
+	actionexpr.WriteBefore(&b, options_)
+	b.WriteString("@post('/params/")
+	b.WriteString(s_query)
+	b.WriteString("/")
+	b.WriteString(s_options)
+	b.WriteString("/save/'")
+	actionexpr.WriteOptions(&b, options_)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options_)
+	return b.String()
+}
+
+// POSTPageTagsSelect references /tags/select/
+func POSTPageTagsSelect(query QueryPOSTPageTagsSelect, options ...option) string {
+	var (
+		pageSizeStr string
+	)
+
+	if query.PageSize != 0 {
+		pageSizeStr = strconv.FormatInt(int64(query.PageSize), 10)
+	}
+
+	anyQuery := query.PageSize != 0
+
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	l := bl + len("@post('/tags/select/'") + actionexpr.OptionsLen(options) + len(")") + al
+	if anyQuery {
+		l += len("?")
+	}
+	n := 0
+	if query.PageSize != 0 {
+		if n > 0 {
+			l += len("&")
+		}
+		l += len("page-size=") + len(pageSizeStr)
+	}
+
+	b.Grow(l)
+
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/tags/select/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+	n = 0
+	if query.PageSize != 0 {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("page-size=")
+		b.WriteString(pageSizeStr)
+	}
+	b.WriteString("'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+
+	return b.String()
+}
+
+type QueryPOSTPageTagsSelect struct {
+	PageSize int `query:"page-size"`
+}

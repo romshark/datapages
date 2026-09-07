@@ -67,27 +67,36 @@ func Segments(route string) (literals []string, vars []string) {
 	r := strings.TrimSuffix(route, "{$}")
 	r = strings.TrimSuffix(r, "/")
 
+	// pending holds the literal a nameless wildcard did not get to close.
+	// It contributes no variable, so a literal of its own would break the
+	// invariant above and the callers index params[i-1] off the end.
+	pending := ""
 	for {
 		i := strings.IndexByte(r, '{')
 		if i < 0 {
-			if r == "" {
+			if pending+r == "" {
 				literals = append(literals, "/")
 			} else {
-				literals = append(literals, r+"/")
+				literals = append(literals, pending+r+"/")
 			}
 			return literals, vars
 		}
-		literals = append(literals, r[:i])
+		lit := pending + r[:i]
 		r = r[i+1:]
 
 		j := strings.IndexByte(r, '}')
 		if j < 0 {
+			literals = append(literals, lit)
 			return literals, vars
 		}
 		name := strings.TrimSuffix(r[:j], "...")
-		if name != "$" && name != "" {
-			vars = append(vars, name)
-		}
 		r = r[j+1:]
+		if name == "$" || name == "" {
+			pending = lit
+			continue
+		}
+		literals = append(literals, lit)
+		vars = append(vars, name)
+		pending = ""
 	}
 }

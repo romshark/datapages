@@ -2,15 +2,58 @@
 // action helper writes into an attribute. It holds the option vocabulary
 // and the JavaScript that runs before and after the call.
 //
-// Application code must not import this package. It calls the generated
-// action package, which forwards here.
+// Application code must not import this package.
+// It calls the generated action package, which forwards here.
 package actionexpr
 
 import (
+	"log/slog"
+	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 )
+
+var logger atomic.Pointer[slog.Logger]
+
+func init() { logger.Store(slog.Default()) }
+
+// SetLogger sets the logger used to report an invalid option value.
+// Passing nil resets to the default logger. It is safe for concurrent use.
+func SetLogger(l *slog.Logger) {
+	if l == nil {
+		l = slog.Default()
+	}
+	logger.Store(l)
+}
+
+func getLogger() *slog.Logger { return logger.Load() }
+
+// Metrics counts what this package refuses. A nil Metrics counts nothing.
+type Metrics interface {
+	// OptionDropped counts an option left out of the expression.
+	// option is the name of the helper that built it.
+	OptionDropped(option string)
+}
+
+// metricsHolder carries the interface, which atomic.Pointer cannot.
+type metricsHolder struct{ m Metrics }
+
+var metrics atomic.Pointer[metricsHolder]
+
+// SetMetrics sets what counts a dropped option.
+// The server installs it when it is built with Prometheus.
+// It's safe for concurrent use.
+func SetMetrics(m Metrics) { metrics.Store(&metricsHolder{m: m}) }
+
+func getMetrics() Metrics {
+	if h := metrics.Load(); h != nil {
+		return h.m
+	}
+	return nil
+}
 
 // Option is one entry of an action expression. It is either an option of
 // the call or JavaScript that runs before or after it.
@@ -73,7 +116,16 @@ const (
 // WithContentType creates an action option that controls the content type:
 //   - ContentTypeJSON (default)
 //   - ContentTypeForm
+//
+// Any other value is dropped and warn-logged. The constants carry their own quotes,
+// so a value converted by hand renders as a bare identifier and throws.
 func WithContentType(ct ContentType) Option {
+	switch ct {
+	case ContentTypeJSON, ContentTypeForm:
+	default:
+		warnDropped("WithContentType", string(ct))
+		return Option{}
+	}
 	return Option{key: "contentType", value: string(ct)}
 }
 
@@ -82,11 +134,20 @@ func WithContentType(ct ContentType) Option {
 // pattern to exclude. Defaults to include all (/.*/),
 // exclude signals with a _ prefix (/(^_|\._).*/).
 //
+// A pattern carrying a line terminator is dropped and warn-logged,
+// since no regex literal can hold one. An unescaped "/" is escaped.
+//
 // See https://data-star.dev/reference/actions#options
 func WithFilterSignals(include, exclude string) Option {
+	if hasLineTerminator(include) || hasLineTerminator(exclude) {
+		warnDropped("WithFilterSignals", include+" "+exclude)
+		return Option{}
+	}
 	if include == "" {
 		include = ".*"
 	}
+	// A "/" ends the regex literal the pattern goes into.
+	include, exclude = escapeRegexSlash(include), escapeRegexSlash(exclude)
 	n := len("{include: /") + len(include) + len("/}")
 	if exclude != "" {
 		n += len(", exclude: /") + len(exclude) + len("/") // before closing }
@@ -108,29 +169,29 @@ func WithHeaders(headers map[string]string) Option {
 	if len(headers) == 0 {
 		return Option{}
 	}
+	// Sorted, not in map order. Map order is random,
+	// and Datastar re-applies an attribute whose text changed.
+	keys := slices.Sorted(maps.Keys(headers))
+
 	// Pre-calculate size assuming no escaping needed (lower bound).
 	n := 2 // {}
-	i := 0
-	for k, v := range headers {
+	for i, k := range keys {
 		if i > 0 {
 			n += 2 // ", "
 		}
-		i++
-		n += len(k) + len(v) + 6 // 'k': 'v'
+		n += len(k) + len(headers[k]) + 6 // 'k': 'v'
 	}
 	var b strings.Builder
 	b.Grow(n)
 	b.WriteByte('{')
-	first := true
-	for k, v := range headers {
-		if !first {
+	for i, k := range keys {
+		if i > 0 {
 			b.WriteString(", ")
 		}
-		first = false
 		b.WriteString("'")
 		b.WriteString(escapeJS(k))
 		b.WriteString("': '")
-		b.WriteString(escapeJS(v))
+		b.WriteString(escapeJS(headers[k]))
 		b.WriteString("'")
 	}
 	b.WriteByte('}')
@@ -180,30 +241,60 @@ const (
 //   - RetryAlways
 //   - RetryNever
 func WithRetry(r Retry) Option {
+	switch r {
+	case RetryAuto, RetryError, RetryAlways, RetryNever:
+	default:
+		warnDropped("WithRetry", string(r))
+		return Option{}
+	}
 	return Option{key: "retry", value: string(r)}
 }
 
 // WithRetryInterval creates an action option for the retry interval in milliseconds.
-// Defaults to 1000 (one second).
+// Defaults to 1000 (one second). A negative interval is dropped and warn-logged.
 func WithRetryInterval(ms int) Option {
+	if ms < 0 {
+		warnDropped("WithRetryInterval", strconv.Itoa(ms))
+		return Option{}
+	}
 	return Option{key: "retryInterval", value: strconv.Itoa(ms)}
 }
 
 // WithRetryScaler creates an action option for the numeric multiplier
 // applied to scale retry wait times. Defaults to 2.
+//
+// An infinite or NaN multiplier is dropped and warn-logged.
+// JavaScript has no Inf, and the whole expression throws.
 func WithRetryScaler(multiplier float64) Option {
-	return Option{key: "retryScaler", value: strconv.FormatFloat(multiplier, 'f', -1, 64)}
+	if math.IsInf(multiplier, 0) || math.IsNaN(multiplier) {
+		warnDropped("WithRetryScaler",
+			strconv.FormatFloat(multiplier, 'f', -1, 64))
+		return Option{}
+	}
+	return Option{
+		key:   "retryScaler",
+		value: strconv.FormatFloat(multiplier, 'f', -1, 64),
+	}
 }
 
 // WithRetryMaxWaitMs creates an action option for the maximum allowable wait time
 // in milliseconds between retries. Defaults to 30000 (30 seconds).
+// A negative wait is dropped and warn-logged.
 func WithRetryMaxWaitMs(ms int) Option {
+	if ms < 0 {
+		warnDropped("WithRetryMaxWaitMs", strconv.Itoa(ms))
+		return Option{}
+	}
 	return Option{key: "retryMaxWaitMs", value: strconv.Itoa(ms)}
 }
 
-// WithRetryMaxCount creates an action option for the maximum number
-// of retry attempts. Defaults to 10.
+// WithRetryMaxCount creates an action option for the maximum number of retry attempts.
+// Defaults to 10. A negative count is dropped and warn-logged.
 func WithRetryMaxCount(count int) Option {
+	if count < 0 {
+		warnDropped("WithRetryMaxCount", strconv.Itoa(count))
+		return Option{}
+	}
 	return Option{key: "retryMaxCount", value: strconv.Itoa(count)}
 }
 
@@ -228,6 +319,14 @@ const (
 //   - RequestCancellationCleanup
 //   - RequestCancellationDisabled
 func WithRequestCancellation(rc RequestCancellation) Option {
+	switch rc {
+	case RequestCancellationAuto,
+		RequestCancellationCleanup,
+		RequestCancellationDisabled:
+	default:
+		warnDropped("WithRequestCancellation", string(rc))
+		return Option{}
+	}
 	return Option{key: "requestCancellation", value: string(rc)}
 }
 
@@ -250,17 +349,57 @@ var jsStringEscaper = strings.NewReplacer(
 	"\r", `\r`,
 )
 
+// warnDropped reports an option value the expression cannot carry.
+// The option is left out, which runs the action on the Datastar default.
+//
+// An option is built on every render, so the logger the server installs
+// throttles the warning to one per interval.
+func warnDropped(fn, value string) {
+	if m := getMetrics(); m != nil {
+		m.OptionDropped(fn)
+	}
+	getLogger().Warn("dropping an action option with an invalid value",
+		slog.String("option", fn),
+		slog.String("value", value))
+}
+
+// hasLineTerminator reports whether s carries a character no JavaScript regex
+// literal and no single-quoted string can hold.
+func hasLineTerminator(s string) bool {
+	return strings.ContainsAny(s, "\n\r\u2028\u2029")
+}
+
+// escapeRegexSlash escapes every "/" that is not escaped already,
+// which would otherwise end the regex literal the pattern goes into.
+func escapeRegexSlash(s string) string {
+	if !strings.Contains(s, "/") {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 4)
+	escaped := false
+	for _, r := range s {
+		if r == '/' && !escaped {
+			b.WriteString(`\/`)
+		} else {
+			b.WriteRune(r)
+		}
+		escaped = r == '\\' && !escaped
+	}
+	return b.String()
+}
+
 // escapeJS escapes s for a JS single-quoted string.
 func escapeJS(s string) string { return jsStringEscaper.Replace(s) }
 
 // isEntry reports whether an option belongs in the options object.
 //
-// A helper given nothing to say returns the zero option.
-// WithHeaders of an empty map is one, which is what a template computing its
-// headers produces whenever the map comes out empty.
-// Writing it would put "{: }" in the expression, which no browser can parse.
+// A helper with nothing to say returns the zero option, WithHeaders of an
+// empty map among them. Writing one would put "{: }" in the expression.
+// An empty value is dropped for the same reason: an expression that came out
+// empty would write "{key: }", which disables the whole attribute.
 func isEntry(o Option) bool {
-	return o.kind == 0 && o.key != ""
+	return o.kind == 0 && o.key != "" && o.value != ""
 }
 
 // WriteOptions writes the options object of an action call to b.

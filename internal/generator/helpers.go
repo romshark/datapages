@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -634,12 +635,10 @@ func (w *Writer) writeCallExpr(receiver, method string, args []string) {
 	w.Byte(')')
 }
 
-// writeQuoted writes a Go double-quoted string literal to the buffer.
-// Only safe for values that don't contain special characters (backslash, quote, newline).
+// writeQuoted writes s as a Go double-quoted string literal,
+// escaping whatever would end the literal.
 func (w *Writer) writeQuoted(s string) {
-	w.Byte('"')
-	w.Raw(s)
-	w.Byte('"')
+	w.Raw(strconv.Quote(s))
 }
 
 // writeAnyCheck writes a boolean variable assignment that OR-combines
@@ -647,7 +646,7 @@ func (w *Writer) writeQuoted(s string) {
 //
 //	anyQuery := query.Foo != "" ||
 //		query.Bar != 0
-func (w *Writer) writeAnyCheck(varName string, fields []structFieldInfo) {
+func (w *Writer) writeAnyCheck(varName, queryVar string, fields []structFieldInfo) {
 	if len(fields) == 0 {
 		w.Raw("\t")
 		w.Raw(varName)
@@ -657,7 +656,7 @@ func (w *Writer) writeAnyCheck(varName string, fields []structFieldInfo) {
 	w.Raw("\t")
 	w.Raw(varName)
 	w.Raw(" := ")
-	w.writeZeroCheck("query."+fields[0].Name, fields[0].Type)
+	w.writeZeroCheck(queryVar+"."+fields[0].Name, fields[0].Type)
 	if len(fields) == 1 {
 		w.Byte('\n')
 		return
@@ -665,7 +664,7 @@ func (w *Writer) writeAnyCheck(varName string, fields []structFieldInfo) {
 	w.Raw(" ||\n")
 	for i := 1; i < len(fields); i++ {
 		w.Raw("\t\t")
-		w.writeZeroCheck("query."+fields[i].Name, fields[i].Type)
+		w.writeZeroCheck(queryVar+"."+fields[i].Name, fields[i].Type)
 		if i < len(fields)-1 {
 			w.Raw(" ||\n")
 		} else {

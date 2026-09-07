@@ -27,6 +27,10 @@ func (PageSearch) GET(
 		PriceMin int64   `query:"pmin"`
 		MaxPrice float64 `query:"pmax"`
 		InStock  bool    `query:"instock"`
+		// A tag value is a URL parameter name and needn't be a Go identifier
+		// nor free of what ends a Go string literal.
+		PageSize int    `query:"page-size"`
+		Quoted   string `query:"q\"uote"`
 	}],
 ) (body datapages.Component, err error) {
 	_ = query

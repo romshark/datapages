@@ -31,8 +31,12 @@ func (p PageSettings) render(
 		return nil, err
 	}
 
+	userSessions, err := p.App.sessions.UserSessions(ctx, session.UserID())
+	if err != nil {
+		return nil, err
+	}
 	sessions := make(map[string]SessionRecord)
-	maps.Insert(sessions, p.App.sessions.UserSessions(ctx, session.UserID()))
+	maps.Insert(sessions, userSessions)
 
 	return pageSettings(session, sessions, u, baseData), nil
 }
@@ -45,8 +49,6 @@ func (p PageSettings) GET(
 		return nil, datapages.Redirect{URL: href.PageLogin()}, nil
 	}
 
-	sessions := make(map[string]SessionRecord)
-	maps.Insert(sessions, p.App.sessions.UserSessions(r.Context(), session.UserID()))
 	body, err = p.render(r.Context(), session)
 	return body, redirect, err
 }

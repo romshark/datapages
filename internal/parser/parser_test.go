@@ -19,6 +19,8 @@ import (
 
 const TypeNameComponent = "github.com/romshark/datapages.Component"
 
+// TestParse_Minimal tests the smallest application that parses: an App type and
+// a PageIndex with a GET. Everything optional has to come out nil or empty.
 func TestParse_Minimal(t *testing.T) {
 	app, err := parse(t, "minimal")
 	require := require.New(t)
@@ -46,6 +48,9 @@ func TestParse_Minimal(t *testing.T) {
 	require.Nil(app.GlobalHeadGenerator)
 }
 
+// TestParse_Basic tests a model with one of each declaration: pages, actions,
+// events, event handlers, the error pages and the global head. Positions are
+// asserted alongside the values, since the parser errors are reported at them.
 func TestParse_Basic(t *testing.T) {
 	app, err := parse(t, "basic")
 	require := require.New(t)
@@ -172,6 +177,8 @@ func TestParse_Basic(t *testing.T) {
 	}
 }
 
+// TestParse_Embed tests a page embedding a struct: the embedded GET, actions and
+// event handlers become the page's own.
 func TestParse_Embed(t *testing.T) {
 	app, err := parse(t, "embed")
 	require := require.New(t)
@@ -244,6 +251,8 @@ func TestParse_Embed(t *testing.T) {
 	}
 }
 
+// TestParse_ActionHandlerSSE tests an action taking a datapages.SSE parameter,
+// which is what lets it patch the page rather than only answer the request.
 func TestParse_ActionHandlerSSE(t *testing.T) {
 	app, err := parse(t, "action_handler")
 	require := require.New(t)
@@ -311,6 +320,8 @@ func TestParse_ActionHandlerSSE(t *testing.T) {
 	}
 }
 
+// TestParse_StreamHooks tests StreamOpen and StreamClose:
+// which parameters they accept and the stream id both receive.
 func TestParse_StreamHooks(t *testing.T) {
 	app, err := parse(t, "stream_hooks")
 	require := require.New(t)
@@ -402,6 +413,9 @@ func TestParse_StreamHooks(t *testing.T) {
 	}
 }
 
+// TestParse_ErrStreamHooks tests every refused stream hook signature: a missing request
+// or stream id, a stream id of the wrong type, a parameter only a request handler
+// may take, a return value other than error, and two dispatchers of one event type.
 func TestParse_ErrStreamHooks(t *testing.T) {
 	_, err := parse(t, "err_stream_hooks")
 	require.NotZero(t, err.Error())
@@ -425,6 +439,9 @@ func TestParse_ErrStreamHooks(t *testing.T) {
 	)
 }
 
+// TestParse_ErrUnsupportedMethod tests a method on a page that is neither a
+// handler nor a hook. It is an error rather than ignored, since a typo in a
+// handler name would otherwise silently produce no route.
 func TestParse_ErrUnsupportedMethod(t *testing.T) {
 	_, err := parse(t, "err_unsupported_method")
 	require.NotZero(t, err.Error())
@@ -436,6 +453,8 @@ func TestParse_ErrUnsupportedMethod(t *testing.T) {
 	)
 }
 
+// TestParse_ErrActionHandlerNoName tests an action method named after the HTTP
+// method alone. The suffix is what the route is built from, and there is none.
 func TestParse_ErrActionHandlerNoName(t *testing.T) {
 	_, err := parse(t, "err_action_handler_no_name")
 	require.NotZero(t, err.Error())
@@ -449,6 +468,9 @@ func TestParse_ErrActionHandlerNoName(t *testing.T) {
 	)
 }
 
+// TestParse_SyntaxErr tests a package that does not compile. The Go errors are
+// reported as they are rather than turned into parser errors,
+// since a model cannot be built from unparseable source.
 func TestParse_SyntaxErr(t *testing.T) {
 	require := require.New(t)
 
@@ -472,6 +494,8 @@ func TestParse_SyntaxErr(t *testing.T) {
 	require.GreaterOrEqual(errs.Len(), 1)
 }
 
+// TestParse_ErrMissingPageIndex tests a package with neither an App type nor a PageIndex.
+// Both are reported, not just the first.
 func TestParse_ErrMissingPageIndex(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_missing_essentials")
@@ -482,6 +506,7 @@ func TestParse_ErrMissingPageIndex(t *testing.T) {
 		parser.ErrAppMissingPageIndex)
 }
 
+// TestParse_ErrPageIndexPath tests a PageIndex declaring a path other than "/".
 func TestParse_ErrPageIndexPath(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_page_index_path")
@@ -493,6 +518,8 @@ func TestParse_ErrPageIndexPath(t *testing.T) {
 	)
 }
 
+// TestParse_ErrRouteDuplicatePage tests two pages declaring one path,
+// which the router would refuse at startup.
 func TestParse_ErrRouteDuplicatePage(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_route_duplicate_page")
@@ -504,6 +531,7 @@ func TestParse_ErrRouteDuplicatePage(t *testing.T) {
 	)
 }
 
+// TestParse_ErrRouteDuplicateAction tests two actions declaring one path.
 func TestParse_ErrRouteDuplicateAction(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_route_duplicate_action")
@@ -515,20 +543,21 @@ func TestParse_ErrRouteDuplicateAction(t *testing.T) {
 	)
 }
 
-// TestParse_ErrFieldTypeUnexported covers a path, query and signals field of
+// TestParse_ErrFieldTypeUnexported tests a path, query and signals field of
 // an unexported type. The generated package renders the type qualified by the
 // app package, where an unexported name is out of reach.
 func TestParse_ErrFieldTypeUnexported(t *testing.T) {
 	_, err := parse(t, "err_unexported_type")
 
-	requireParseErrors(t, err,
+	requireParseErrors(
+		t, err,
 		parser.ErrFieldTypeUnexported,
 		parser.ErrFieldTypeUnexported,
 		parser.ErrFieldTypeUnexported,
 	)
 }
 
-// TestParse_ErrAppUnsupportedMethod covers the page methods declared on App,
+// TestParse_ErrAppUnsupportedMethod tests the page methods declared on App,
 // where the framework calls none of them.
 // An ordinary method of the application is left alone.
 func TestParse_ErrAppUnsupportedMethod(t *testing.T) {
@@ -542,7 +571,7 @@ func TestParse_ErrAppUnsupportedMethod(t *testing.T) {
 	)
 }
 
-// TestParse_ErrRouteAssetsConflict covers a page served under the URL prefix
+// TestParse_ErrRouteAssetsConflict tests a page served under the URL prefix
 // the assets are served under. The core registers that prefix,
 // which no page route may claim.
 func TestParse_ErrRouteAssetsConflict(t *testing.T) {
@@ -550,13 +579,16 @@ func TestParse_ErrRouteAssetsConflict(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrRouteConflict)
 }
 
-// TestParse_ErrRouteStreamConflict covers a page at the URL another page's SSE
+// TestParse_ErrRouteStreamConflict tests a page at the URL another page's SSE
 // stream is served under.
 func TestParse_ErrRouteStreamConflict(t *testing.T) {
 	_, err := parse(t, "err_route_stream_conflict")
 	requireParseErrors(t, err, parser.ErrRouteConflict)
 }
 
+// TestParse_ErrRouteWildcardStream tests a page whose path ends in a wildcard
+// and which also opens a stream. The stream endpoint sits under the page path,
+// where a wildcard would swallow it.
 func TestParse_ErrRouteWildcardStream(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_route_wildcard_stream")
@@ -568,6 +600,9 @@ func TestParse_ErrRouteWildcardStream(t *testing.T) {
 	)
 }
 
+// TestParse_ErrPages tests every way a page declaration can be wrong:
+// the missing App field, extra fields, no GET, a name off the convention,
+// and a path comment that is missing, unparseable or names a path outside the page.
 func TestParse_ErrPages(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_pages")
@@ -594,6 +629,9 @@ func TestParse_ErrPages(t *testing.T) {
 	)
 }
 
+// TestParse_ErrGET tests every refused GET signature: a missing request,
+// two error returns, a parameter of an unsupported type,
+// a missing body return and a duplicated output.
 func TestParse_ErrGET(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_get")
@@ -613,6 +651,10 @@ func TestParse_ErrGET(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEvents tests every way an event declaration or an event handler
+// can be wrong: the doc comment and its subject, the field tags,
+// a handler without an SSE or an event parameter, one with two events,
+// and a duplicate handler for one event.
 func TestParse_ErrEvents(t *testing.T) {
 	_, err := parse(t, "err_events")
 	require.NotZero(t, err.Error())
@@ -638,10 +680,14 @@ func TestParse_ErrEvents(t *testing.T) {
 		parser.ErrEventSubjectInvalid,
 		parser.ErrEventSubjectInvalid,
 		parser.ErrEventFieldEmptyTag,   // EventEmptyJSONTag: json:"" should be rejected
+		parser.ErrEventSubjectInvalid,  // EventTailWildcard: "noted.>"
 		parser.ErrEventFieldUnexported, // same-module subpkg.BadFields
 	)
 }
 
+// TestParse_ErrEventHandler tests the handler signatures apart from
+// the event declarations: a missing SSE parameter, an unsupported one,
+// and a return value other than error.
 func TestParse_ErrEventHandler(t *testing.T) {
 	_, err := parse(t, "err_event_handler")
 	require.NotZero(t, err.Error())
@@ -659,6 +705,8 @@ func TestParse_ErrEventHandler(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEventSubjectUserNoSession tests a user-scoped event subject in an
+// application that declares no session. There is no user to scope it to.
 func TestParse_ErrEventSubjectUserNoSession(t *testing.T) {
 	_, err := parse(t, "err_event_target_no_session")
 	require.NotZero(t, err.Error())
@@ -669,6 +717,9 @@ func TestParse_ErrEventSubjectUserNoSession(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEventSubjectAfterPayload tests a subject field declared after a
+// payload field. The subject is built from a prefix of the struct,
+// which a payload field in between would break.
 func TestParse_ErrEventSubjectAfterPayload(t *testing.T) {
 	_, err := parse(t, "err_event_subj_after_payload")
 	require.NotZero(t, err.Error())
@@ -679,6 +730,8 @@ func TestParse_ErrEventSubjectAfterPayload(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEventSubjectOverlap tests two events whose subjects claim the same ground.
+// A page subscribed to one would receive the other.
 func TestParse_ErrEventSubjectOverlap(t *testing.T) {
 	_, err := parse(t, "err_event_subject_overlap")
 	require.NotZero(t, err.Error())
@@ -689,6 +742,7 @@ func TestParse_ErrEventSubjectOverlap(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEventSubjectDuplicate tests two events declaring one subject.
 func TestParse_ErrEventSubjectDuplicate(t *testing.T) {
 	_, err := parse(t, "err_event_subject_duplicate")
 	require.NotZero(t, err.Error())
@@ -699,6 +753,8 @@ func TestParse_ErrEventSubjectDuplicate(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEventSubjectDuplicateSignal tests two subject fields bound to one signal,
+// which leaves no way to tell which value fills which field.
 func TestParse_ErrEventSubjectDuplicateSignal(t *testing.T) {
 	_, err := parse(t, "err_event_subj_duplicate_signal")
 	require.NotZero(t, err.Error())
@@ -709,6 +765,8 @@ func TestParse_ErrEventSubjectDuplicateSignal(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEventSubjectSignalInvalid tests a subject field bound to a signal
+// name the convention refuses.
 func TestParse_ErrEventSubjectSignalInvalid(t *testing.T) {
 	_, err := parse(t, "err_event_subj_signal_invalid")
 	require.NotZero(t, err.Error())
@@ -719,6 +777,9 @@ func TestParse_ErrEventSubjectSignalInvalid(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEventSubjectUserSignal tests a user-scoped subject field bound to
+// a signal. The user comes from the session, never from the client, which could
+// otherwise subscribe to another user's events.
 func TestParse_ErrEventSubjectUserSignal(t *testing.T) {
 	_, err := parse(t, "err_event_subj_user_signal")
 	require.NotZero(t, err.Error())
@@ -729,6 +790,8 @@ func TestParse_ErrEventSubjectUserSignal(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEventSubjectPrefixedField tests a subject field whose value would
+// carry the subject prefix itself.
 func TestParse_ErrEventSubjectPrefixedField(t *testing.T) {
 	_, err := parse(t, "err_event_subj_prefixed")
 	require.NotZero(t, err.Error())
@@ -739,6 +802,8 @@ func TestParse_ErrEventSubjectPrefixedField(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEventSubjectFieldUnexported tests an unexported subject field,
+// which the generated dispatcher in another package cannot set.
 func TestParse_ErrEventSubjectFieldUnexported(t *testing.T) {
 	_, err := parse(t, "err_event_subj_unexported")
 	require.NotZero(t, err.Error())
@@ -749,13 +814,16 @@ func TestParse_ErrEventSubjectFieldUnexported(t *testing.T) {
 	)
 }
 
+// TestParse_SignalSubjectFields tests subject fields filled from signals:
+// the subscription a page opens is built from what the client sends,
+// one wildcard per field left unbound.
 func TestParse_SignalSubjectFields(t *testing.T) {
 	app, errs := parse(t, "signal_subject")
 	require := require.New(t)
 	requireParseErrors(t, errs)
 	require.NotNil(app)
 
-	require.Len(app.Events, 5)
+	require.Len(app.Events, 6)
 	events := map[string]*model.Event{}
 	for _, e := range app.Events {
 		events[e.TypeName] = e
@@ -800,6 +868,17 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 			isPrivate:      true,
 			isSignalScoped: true,
 		},
+		// Two names on one declaration line are two subject fields.
+		// Reading only the first drops the rest and publishes to the bare subject.
+		"EventMultiUser": {
+			subject: "multi",
+			subjectFields: []model.SubjectField{
+				{FieldName: "To", Kind: model.SubjectKindUser},
+				{FieldName: "Cc", Kind: model.SubjectKindUser},
+			},
+			isPrivate:      true,
+			isSignalScoped: false,
+		},
 		"EventThreeField": {
 			subject: "three",
 			subjectFields: []model.SubjectField{
@@ -820,6 +899,8 @@ func TestParse_SignalSubjectFields(t *testing.T) {
 	}
 }
 
+// TestParse_ErrEmbedDuplicateEventHandler tests a page that inherits one event
+// handler through two embedded structs, which leaves no single handler to call.
 func TestParse_ErrEmbedDuplicateEventHandler(t *testing.T) {
 	_, err := parse(t, "err_embed_duplicate_event_handler")
 	require.NotZero(t, err.Error())
@@ -830,7 +911,7 @@ func TestParse_ErrEmbedDuplicateEventHandler(t *testing.T) {
 	)
 }
 
-// TestParse_ErrTypeCheck covers an app package that does not compile.
+// TestParse_ErrTypeCheck tests an app package that does not compile.
 // The model rules all read types, which the compiler could not resolve,
 // hence the parse stops at what the compiler reports.
 func TestParse_ErrTypeCheck(t *testing.T) {
@@ -845,7 +926,7 @@ func TestParse_ErrTypeCheck(t *testing.T) {
 	require.Contains(t, e.Error(), "undefined: undefinedHelper")
 }
 
-// TestParse_ErrPageNotStruct covers a page name bound to a defined non-struct
+// TestParse_ErrPageNotStruct tests a page name bound to a defined non-struct
 // type and to an alias. Both produced no page and no error before.
 func TestParse_ErrPageNotStruct(t *testing.T) {
 	_, err := parse(t, "err_page_not_struct")
@@ -859,7 +940,7 @@ func TestParse_ErrPageNotStruct(t *testing.T) {
 	requirePosEqual(t, "app.go", 26, 6, pos)
 }
 
-// TestParse_ErrTypeParams covers a page and an abstract page declared with
+// TestParse_ErrTypeParams tests a page and an abstract page declared with
 // type parameters. Both were dropped without a word before.
 func TestParse_ErrTypeParams(t *testing.T) {
 	_, err := parse(t, "err_typeparams")
@@ -873,6 +954,8 @@ func TestParse_ErrTypeParams(t *testing.T) {
 	requirePosEqual(t, "app.go", 28, 6, pos)
 }
 
+// TestParse_ErrEmbedConflictingGET tests a page inheriting
+// a GET from two embedded structs.
 func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 	_, err := parse(t, "err_embed_conflicting_get")
 	require.NotZero(t, err.Error())
@@ -883,6 +966,40 @@ func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 	requirePosEqual(t, "app.go", 15, 2, pos)
 }
 
+// TestParse_ErrGeneratedNameConflict tests two actions the generator would
+// spell as one identifier, which surfaces as a redeclaration in a generated
+// file the user must not edit.
+func TestParse_ErrGeneratedNameConflict(t *testing.T) {
+	_, err := parse(t, "err_generated_name_conflict")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrGeneratedNameConflict)
+}
+
+// TestParse_ErrAppMethodSSE tests the sse parameter on an App method,
+// which SPECIFICATION.md restricts to page methods and the generator cannot emit.
+func TestParse_ErrAppMethodSSE(t *testing.T) {
+	_, err := parse(t, "err_app_sse")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrSSEOnAppMethod)
+}
+
+// TestParse_ErrEmbedGETPath tests the path struct of a GET inherited from an
+// abstract page, which is only checkable once a page's route is known.
+func TestParse_ErrEmbedGETPath(t *testing.T) {
+	_, err := parse(t, "err_embed_get_path")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrPathMissingRouteVar,
+		parser.ErrPathFieldNotInRoute,
+	)
+}
+
+// TestParse_Path tests the path parameter: the struct's fields,
+// their tags and the route variables they bind to.
 func TestParse_Path(t *testing.T) {
 	app, err := parse(t, "path")
 	require := require.New(t)
@@ -925,6 +1042,9 @@ func TestParse_Path(t *testing.T) {
 	}
 }
 
+// TestParse_ErrPath tests every refused path parameter: not a struct,
+// an unexported field, a type that cannot be parsed from a URL segment, a missing or
+// duplicated tag, and a field or route variable the other side has no match for.
 func TestParse_ErrPath(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_path")
@@ -942,6 +1062,7 @@ func TestParse_ErrPath(t *testing.T) {
 	)
 }
 
+// TestParse_Query tests the query parameter: the struct's fields and their tags.
 func TestParse_Query(t *testing.T) {
 	app, err := parse(t, "query")
 	require := require.New(t)
@@ -972,6 +1093,8 @@ func TestParse_Query(t *testing.T) {
 	}
 }
 
+// TestParse_ErrQuery tests every refused query parameter: not a struct,
+// an unexported field, an unsupported field type, and a missing or duplicated tag.
 func TestParse_ErrQuery(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_query")
@@ -987,6 +1110,8 @@ func TestParse_ErrQuery(t *testing.T) {
 	)
 }
 
+// TestParse_Signals tests the signals parameter: the struct's fields and the
+// JSON names the client sends them under.
 func TestParse_Signals(t *testing.T) {
 	app, err := parse(t, "signals")
 	require := require.New(t)
@@ -1027,6 +1152,8 @@ func TestParse_Signals(t *testing.T) {
 	}
 }
 
+// TestParse_Dispatch tests the dispatcher parameters a handler takes and the
+// event type each names, which is how the parser knows what a handler publishes.
 func TestParse_Dispatch(t *testing.T) {
 	app, err := parse(t, "dispatch")
 	require := require.New(t)
@@ -1070,6 +1197,8 @@ func TestParse_Dispatch(t *testing.T) {
 	}
 }
 
+// TestParse_ErrDispatch tests a dispatcher of a type that is no event type,
+// a bare func parameter mistaken for one, and two dispatchers of one event.
 func TestParse_ErrDispatch(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_dispatch")
@@ -1084,6 +1213,50 @@ func TestParse_ErrDispatch(t *testing.T) {
 	)
 }
 
+// TestParse_SessionOnAbstractPage tests a session-carrying GET declared only on
+// an abstract page. The session type is reachable once the abstract page's
+// handlers have been adopted, and the generated code calls ReadSession.
+func TestParse_SessionOnAbstractPage(t *testing.T) {
+	app, errs := parse(t, "session_abstract")
+	require := require.New(t)
+	requireParseErrors(t, errs /*none*/)
+	require.NotNil(app)
+	require.NotNil(app.Session)
+	require.Equal("datapagestest/fixture/session_abstract.SessionData",
+		app.Session.Data.Resolved.String())
+
+	pages := map[string]*model.Page{}
+	for _, p := range app.Pages {
+		pages[p.TypeName] = p
+	}
+
+	// Every session-carrying shape collectSessionType reads, adopted from an
+	// abstract page.
+	index := pages["PageIndex"]
+	require.NotNil(index)
+	require.NotNil(index.GET)
+	require.NotNil(index.GET.InputSession)
+	require.NotNil(index.StreamOpen)
+	require.NotNil(index.StreamOpen.InputSession)
+	require.NotNil(index.StreamClose)
+	require.NotNil(index.StreamClose.InputSession)
+	require.Len(index.EventHandlers, 1)
+	require.NotNil(index.EventHandlers[0].InputSession)
+
+	auth := pages["PageAuth"]
+	require.NotNil(auth)
+	actions := map[string]*model.Handler{}
+	for _, a := range auth.Actions {
+		actions[a.Name] = a
+	}
+	require.NotNil(actions["SignIn"])
+	require.NotNil(actions["SignIn"].OutputNewSession)
+	require.NotNil(actions["SignOut"])
+	require.NotNil(actions["SignOut"].OutputCloseSession)
+}
+
+// TestParse_Session tests the session parameter and the session data type the
+// application declares.
 func TestParse_Session(t *testing.T) {
 	app, err := parse(t, "session")
 	require := require.New(t)
@@ -1154,6 +1327,8 @@ func TestParse_Session(t *testing.T) {
 	}
 }
 
+// TestParse_ErrSession tests a session parameter in an application that declares
+// no session data type.
 func TestParse_ErrSession(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_session")
@@ -1165,6 +1340,8 @@ func TestParse_ErrSession(t *testing.T) {
 	)
 }
 
+// TestParse_SessionCloseOnly tests an application that only ends sessions and
+// never creates one, which still needs the session data type.
 func TestParse_SessionCloseOnly(t *testing.T) {
 	app, err := parse(t, "session_close_only")
 	require := require.New(t)
@@ -1176,6 +1353,8 @@ func TestParse_SessionCloseOnly(t *testing.T) {
 	require.Equal("struct{}", app.Session.Data.Resolved.String())
 }
 
+// TestParse_ErrSessionTypeConflict tests two handlers naming
+// different session data types. One application has one.
 func TestParse_ErrSessionTypeConflict(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_session_conflict")
@@ -1187,6 +1366,8 @@ func TestParse_ErrSessionTypeConflict(t *testing.T) {
 	)
 }
 
+// TestParse_Redirect tests a handler returning datapages.Redirect,
+// and which handler kinds may.
 func TestParse_Redirect(t *testing.T) {
 	app, err := parse(t, "redirect")
 	require := require.New(t)
@@ -1216,6 +1397,8 @@ func TestParse_Redirect(t *testing.T) {
 	}
 }
 
+// TestParse_ErrRedirect tests a redirect returned where
+// the handler kind cannot carry one.
 func TestParse_ErrRedirect(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_redirect")
@@ -1228,6 +1411,7 @@ func TestParse_ErrRedirect(t *testing.T) {
 	)
 }
 
+// TestParse_ErrUnsupportedOutput tests a return value of a type no handler kind accepts.
 func TestParse_ErrUnsupportedOutput(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_unsupported_output")
@@ -1240,6 +1424,8 @@ func TestParse_ErrUnsupportedOutput(t *testing.T) {
 	)
 }
 
+// TestParse_SessionOutput tests the session outputs: creating a session and
+// closing one, both of which set the cookie on the response.
 func TestParse_SessionOutput(t *testing.T) {
 	app, err := parse(t, "session_output")
 	require := require.New(t)
@@ -1281,6 +1467,9 @@ func TestParse_SessionOutput(t *testing.T) {
 	}
 }
 
+// TestParse_ErrSessionOutput tests a session output on a handler that also takes an SSE.
+// The cookie travels in the response headers, which are already sent by
+// the time the stream writes.
 func TestParse_ErrSessionOutput(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_session_output")
@@ -1295,6 +1484,7 @@ func TestParse_ErrSessionOutput(t *testing.T) {
 	)
 }
 
+// TestParse_GETOptions tests the per-page GET options and where each is allowed.
 func TestParse_GETOptions(t *testing.T) {
 	app, err := parse(t, "get_options")
 	require := require.New(t)
@@ -1330,6 +1520,8 @@ func TestParse_GETOptions(t *testing.T) {
 	}
 }
 
+// TestParse_ErrGETOptions tests a GET option declared on a handler that is no GET,
+// and an option returned as an output.
 func TestParse_ErrGETOptions(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_get_options")
@@ -1344,6 +1536,8 @@ func TestParse_ErrGETOptions(t *testing.T) {
 	)
 }
 
+// TestParse_ErrSignals tests every refused signals parameter,
+// plus a reflectsignal tag on a query field naming a signal that does not exist.
 func TestParse_ErrSignals(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_signals")
@@ -1359,6 +1553,8 @@ func TestParse_ErrSignals(t *testing.T) {
 	)
 }
 
+// TestParse_ParamOrder tests that a handler's parameters are recognized in any order,
+// since the generated call site reads them by type rather than position.
 func TestParse_ParamOrder(t *testing.T) {
 	app, err := parse(t, "param_order")
 	require := require.New(t)
@@ -1494,6 +1690,9 @@ func TestParse_ParamOrder(t *testing.T) {
 	}
 }
 
+// TestParse_ErrorPositions tests the file, line and column each error is reported at,
+// over every err_ fixture. The position is what the developer's editor jumps to,
+// and a wrong one sends them to unrelated code.
 func TestParse_ErrorPositions(t *testing.T) {
 	type wantPos struct {
 		err       error
@@ -1543,6 +1742,10 @@ func TestParse_ErrorPositions(t *testing.T) {
 		"err_event_subj_unexported": {
 			{parser.ErrEventFieldUnexported, "app.go", 25, 2},
 		},
+		"err_embed_get_path": {
+			{parser.ErrPathMissingRouteVar, "app.go", 17, 2},
+			{parser.ErrPathFieldNotInRoute, "app.go", 18, 3},
+		},
 		"err_events": {
 			{parser.ErrEventCommMissing, "app.go", 30, 6},
 			{parser.ErrEventSubjectInvalid, "app.go", 36, 24},
@@ -1563,6 +1766,7 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrEventSubjectInvalid, "app.go", 150, 23},
 			{parser.ErrEventSubjectInvalid, "app.go", 157, 24},
 			{parser.ErrEventFieldEmptyTag, "app.go", 168, 2},
+			{parser.ErrEventSubjectInvalid, "app.go", 192, 25},
 			{parser.ErrEventFieldUnexported, "subpkg.go", 7, 2},
 		},
 		"err_path": {
@@ -1775,6 +1979,9 @@ func outputKinds(outputs []*model.Output) []string {
 	return kinds
 }
 
+// TestParse_ExampleClassifieds tests the parser against the largest application
+// in this repo, which exercises the declarations in combination rather than one
+// fixture at a time.
 func TestParse_ExampleClassifieds(t *testing.T) {
 	app, errs := parser.Parse(
 		filepath.Join("..", "..", "example", "classifieds", "app"),
@@ -2090,6 +2297,8 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 	}
 }
 
+// TestParse_Assets tests the assets declaration:
+// the URL prefix and the directory it serves from.
 func TestParse_Assets(t *testing.T) {
 	app, errs := parse(t, "assets")
 	requireParseErrors(t, errs /*none*/)
@@ -2098,6 +2307,8 @@ func TestParse_Assets(t *testing.T) {
 		model.Assets{URLPrefix: "/static/", Dir: "static"}, app.Assets)
 }
 
+// TestParse_AssetsMissing tests an application declaring no assets,
+// which leaves the zero value rather than a default prefix.
 func TestParse_AssetsMissing(t *testing.T) {
 	app, errs := parse(t, "minimal")
 	requireParseErrors(t, errs /*none*/)
@@ -2105,6 +2316,7 @@ func TestParse_AssetsMissing(t *testing.T) {
 	require.Zero(t, app.Assets)
 }
 
+// TestParse_ErrAssets tests an assets URL prefix the validation refuses.
 func TestParse_ErrAssets(t *testing.T) {
 	_, errs := parse(t, "err_assets")
 	requireParseErrors(t, errs, validate.ErrAssetsURLPrefixNoTrailingSlash)

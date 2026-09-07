@@ -48,6 +48,11 @@ Two rules a new test has to keep:
   `contract.Run` runs its `ExternalHref` test before it starts the parallel ones,
   and the `TestContract` of a case therefore does not call `t.Parallel`.
 
+`minimal` carries `tools/gen.go`, a `//go:build ignore` command whose
+`NewServer` call contradicts the real one. The scan skips what no build compiles,
+or generating the module fails before any test runs.
+A GOOS-specific file is not that and stays in the scan.
+
 `anonstreams`, `events`, `sessions` and `wildcardsubjects` assert against both
 brokers datapages ships. Their `TestMain` runs `brokers.Main`, which starts a
 real NATS server in a container and needs a running Docker daemon.
