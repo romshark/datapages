@@ -139,6 +139,22 @@ func TestSegments(t *testing.T) {
 		"exact match first": {
 			"/{$}/item/{id}", []string{"//item/", "/"}, []string{"id"},
 		},
+		"stray closing brace": {"/items/}id", []string{"/items/}id/"}, nil},
+		"double opening brace": {
+			"/items/{{id}", []string{"/items/", "/"}, []string{"{id"},
+		},
+		"double closing brace": {
+			"/items/{id}}", []string{"/items/", "}/"}, []string{"id"},
+		},
+		"adjacent vars": {
+			"/items/{a}{b}", []string{"/items/", "", "/"}, []string{"a", "b"},
+		},
+		"nameless wildcard":  {"/items/{...}", []string{"/items//"}, nil},
+		"opening brace only": {"{", []string{""}, nil},
+		"closing brace only": {"}", []string{"}/"}, nil},
+		// The "{$}" suffix is trimmed before the scan,
+		// which leaves an unterminated brace. [Vars] reads "{$" as a name here.
+		"exact match marker inside a brace": {"{{$}", []string{""}, nil},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -147,4 +163,29 @@ func TestSegments(t *testing.T) {
 			require.Equal(t, tt.wantVars, vars)
 		})
 	}
+}
+
+// FuzzSegments tests the invariant both generator writers rely on:
+// [Segments] returns one literal more than it returns variables, whatever the route.
+// They index vars[i] against literals[i], and a route reaches them straight
+// from a doc comment, since the generator runs on a model the parser rejected.
+//
+// Agreement with [Vars] is not an invariant. Segments trims a "{$}" suffix
+// before it scans and Vars does not, which the two read differently when that
+// text is the tail of an unterminated brace: "{{$}" is one variable to Vars
+// and none to Segments. Every well-formed route reads the same through both.
+func FuzzSegments(f *testing.F) {
+	for _, seed := range []string{
+		"/", "", "/items/{id}", "/items/{id", "/items/}id", "/items/{{id}",
+		"/items/{a}{b}", "/items/{...}", "/items/{id}/{$}/b", "{", "}", "{}{}",
+		"{{$}", "/files/{path...}",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, route string) {
+		literals, vars := Segments(route)
+		if len(literals) != len(vars)+1 {
+			t.Fatalf("route %q: %d literals, %d vars", route, len(literals), len(vars))
+		}
+	})
 }

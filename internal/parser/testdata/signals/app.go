@@ -67,3 +67,26 @@ func (PageSearch) POSTFilter(
 	_ = signals
 	return nil
 }
+
+// PageItem is /item/{id}/{kind}
+//
+// A path parameter next to a reflectsignal query field.
+// The URL the data-effect attribute writes back carries both.
+type PageItem struct{ App *App }
+
+func (PageItem) GET(
+	r *http.Request,
+	path datapages.Path[struct {
+		ID   string `path:"id"`
+		Kind string `path:"kind"`
+	}],
+	query datapages.Query[struct {
+		Term string `query:"t" reflectsignal:"term"`
+	}],
+	signals datapages.Signals[struct {
+		Term string `json:"term"`
+	}],
+) (body datapages.Component, err error) {
+	_, _, _ = path, query, signals
+	return body, err
+}

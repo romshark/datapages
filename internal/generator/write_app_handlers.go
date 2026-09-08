@@ -756,21 +756,22 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			// template.HTMLEscape calls. It assumes we are mid-backtick
 			// in an io.WriteString and leaves us mid-backtick.
 			writeRoute := func(r string) {
-				for {
-					i := strings.IndexByte(r, '{')
-					if i < 0 {
-						w.Raw(r)
-						return
+				literals, vars := routepattern.Segments(r)
+				for i, lit := range literals {
+					if i == len(literals)-1 {
+						// Segments closes the last literal with a slash.
+						// route carries none: the caller trimmed it.
+						lit = strings.TrimSuffix(lit, "/")
 					}
-					j := strings.IndexByte(r[i:], '}')
-					w.Raw(r[:i])
+					w.Raw(lit)
+					if i >= len(vars) {
+						continue
+					}
 					w.Raw("`)\n")
-					f := tagToField[r[i+1:i+j]]
 					w.Raw("\t\ttemplate.HTMLEscape(w, []byte(")
-					w.writeFieldToString(varPath, f)
+					w.writeFieldToString(varPath, tagToField[vars[i]])
 					w.Raw("))\n")
 					w.Raw("\t\t_, _ = io.WriteString(w, `")
-					r = r[i+j+1:]
 				}
 			}
 			w.Raw("\t\t\twindow.history.replaceState(null, '', query ? '")
