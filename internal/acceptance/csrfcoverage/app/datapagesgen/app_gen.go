@@ -203,6 +203,10 @@ func (s *Server) httpErrIntern(
 		s.handlePageError500GET(w, r)
 		return
 	}
+	if sse != nil {
+		// The stream is open, hence no status is left to send.
+		return
+	}
 	if httpserve.ResponseBodyWritten(w) {
 		// A status written now only appends its text to the body.
 		return

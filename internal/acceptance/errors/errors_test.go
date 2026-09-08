@@ -108,3 +108,30 @@ func TestFailedPageLoadIsNotCached(t *testing.T) {
 			"Cache-Control = %q on a failed page load", cc)
 	}
 }
+
+// TestOpenStreamGetsNoStatus tests an action holding an open event stream in an
+// app that defines no RecoverError. The response went out as 200 text/event-stream
+// before the handler ran, which leaves no status to send. A status written anyway
+// lands in the stream as text and makes net/http log a superfluous WriteHeader call.
+func TestOpenStreamGetsNoStatus(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{
+		"error": "/stream-fail/",
+		"panic": "/stream-panic/",
+	}
+
+	for name, path := range tests {
+		t.Run(name, func(t *testing.T) {
+			c := newClient(t)
+			resp := c.Action(t, http.MethodPost, path, "")
+
+			require.Equal(t, http.StatusOK, resp.Status, "%s", resp.Body)
+			require.Equal(t, "text/event-stream",
+				strings.Split(resp.Header.Get("Content-Type"), ";")[0])
+			require.NotContains(t, resp.Body, "Internal Server Error",
+				"a status text was written into the event stream")
+			require.NotContains(t, resp.Body, "the action failed with the stream open")
+			require.NotContains(t, resp.Body, "the action panicked with the stream open")
+		})
+	}
+}

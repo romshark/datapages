@@ -69,3 +69,18 @@ func TestRoutedPageIsUnaffected(t *testing.T) {
 	resp := c.Get(t, "/")
 	require.Equal(t, http.StatusOK, resp.Status)
 }
+
+// TestOpenStreamGetsNoStatus tests the same contract as the errors case,
+// on an app that defines neither PageError500 nor RecoverError:
+// with nothing left to answer with, the stream must end carrying no status text.
+func TestOpenStreamGetsNoStatus(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	resp := c.Action(t, http.MethodPost, "/stream-fail/", "")
+
+	require.Equal(t, http.StatusOK, resp.Status, "%s", resp.Body)
+	require.NotContains(t, resp.Body, "Internal Server Error",
+		"a status text was written into the event stream")
+	require.NotContains(t, resp.Body, "the action failed with the stream open")
+}

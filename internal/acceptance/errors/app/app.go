@@ -83,3 +83,17 @@ func (PageBoom) POSTConflict(_ *http.Request) error {
 func (PageBoom) POSTWrapped(_ *http.Request) error {
 	return fmt.Errorf("%w: %w", datapages.ErrNotFound, errors.New("no such item"))
 }
+
+// POSTStreamFail is /stream-fail
+//
+// The response is committed as an event stream before the action runs.
+// Its error therefore has no status left to send, and the app defines no
+// RecoverError to answer on the stream instead.
+func (PageIndex) POSTStreamFail(_ *http.Request, _ datapages.SSE) error {
+	return errors.New("the action failed with the stream open")
+}
+
+// POSTStreamPanic is /stream-panic
+func (PageIndex) POSTStreamPanic(_ *http.Request, _ datapages.SSE) error {
+	panic("the action panicked with the stream open")
+}

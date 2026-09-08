@@ -14,6 +14,7 @@ import (
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpserve"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 
 	"github.com/romshark/datapages/internal/acceptance/errors/app"
 	"github.com/romshark/datapages/internal/acceptance/errors/app/datapagesgen/href"
@@ -177,6 +178,12 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /boom/wrapped/{$}",
 		s.handlePageBoomPOSTWrapped)
+	s.Mux().HandleFunc(
+		"POST /stream-fail/{$}",
+		s.handlePageIndexPOSTStreamFail)
+	s.Mux().HandleFunc(
+		"POST /stream-panic/{$}",
+		s.handlePageIndexPOSTStreamPanic)
 }
 
 // httpErrFinal writes the error response without rendering PageError500.
@@ -203,6 +210,10 @@ func (s *Server) httpErrIntern(
 		// The page serves 200 on its own route. Reached from here it carries 500.
 		w.WriteHeader(http.StatusInternalServerError)
 		s.handlePageError500GET(w, r)
+		return
+	}
+	if sse != nil {
+		// The stream is open, hence no status is left to send.
 		return
 	}
 	if httpserve.ResponseBodyWritten(w) {
@@ -413,6 +424,44 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
+		return
+	}
+}
+
+func (s *Server) handlePageIndexPOSTStreamFail(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageIndex.StreamFail")
+	p := app.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTStreamFail(r, dpsse.New(sse))
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageIndex.StreamFail", err)
+		return
+	}
+}
+
+func (s *Server) handlePageIndexPOSTStreamPanic(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageIndex.StreamPanic")
+	p := app.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTStreamPanic(r, dpsse.New(sse))
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageIndex.StreamPanic", err)
 		return
 	}
 }

@@ -263,3 +263,35 @@ func POSTPageBoomWrapped(options ...option) string {
 	actionexpr.WriteAfter(&b, options)
 	return b.String()
 }
+
+// POSTPageIndexStreamFail references /stream-fail/
+func POSTPageIndexStreamFail(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/stream-fail/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/stream-fail/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/stream-fail/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+// POSTPageIndexStreamPanic references /stream-panic/
+func POSTPageIndexStreamPanic(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/stream-panic/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/stream-panic/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/stream-panic/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpserve"
+	dpsse "github.com/romshark/datapages/runtime/sse"
 
 	"github.com/romshark/datapages/internal/acceptance/errorpagestatus/app"
 	"github.com/romshark/datapages/internal/acceptance/errorpagestatus/app/datapagesgen/href"
@@ -153,19 +154,25 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /",
 		s.handlePageIndexGET)
+	s.Mux().HandleFunc(
+		"POST /stream-fail/{$}",
+		s.handlePageIndexPOSTStreamFail)
 }
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if sse != nil {
+		// The stream is open, hence no status is left to send.
+		return
+	}
 	if httpserve.ResponseBodyWritten(w) {
 		// A status written now only appends its text to the body.
 		return
 	}
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
+	httpserve.WriteErrStatus(w, err)
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
@@ -245,6 +252,25 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
+		return
+	}
+}
+
+func (s *Server) handlePageIndexPOSTStreamFail(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageIndex.StreamFail")
+	p := app.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTStreamFail(r, dpsse.New(sse))
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageIndex.StreamFail", err)
 		return
 	}
 }

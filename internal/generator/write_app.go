@@ -1061,20 +1061,6 @@ func (w *Writer) writeAppErrHelpers(m *model.App, appPkg string) {
 	hasPage := m.PageError500 != nil
 	hasRecover := m.RecoverError != nil
 
-	if !hasPage && !hasRecover {
-		w.Raw(`
-func (s *Server) httpErrIntern(
-	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
-) {
-	s.LogErr(msg, err)
-`)
-		w.writeHTTPErrFallback()
-		w.Raw(`}
-`)
-		return
-	}
-
 	if hasPage {
 		// httpErrIntern answers a page load by rendering PageError500.
 		// The handler of that page therefore can't report through it.
@@ -1089,13 +1075,18 @@ func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 `)
 	}
 
-	w.Raw(`
+	// r is read by the page branch and by the stream RecoverError answers on.
+	reqParam := "_ *http.Request"
+	if hasPage || hasRecover {
+		reqParam = "r *http.Request"
+	}
+	w.Rawf(`
 func (s *Server) httpErrIntern(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, %s,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
-`)
+`, reqParam)
 	if hasPage {
 		w.Raw(`	if !httpserve.IsDatastarRequest(r) {
 		if httpserve.ResponseBodyWritten(w) {
@@ -1150,6 +1141,14 @@ func (s *Server) httpErrIntern(
 		slog.Any("err", errRecover))
 	if committed {
 		// A status written now only appends its text to the stream.
+		return
+	}
+`)
+	} else {
+		// datastar.NewSSE sent the 200 and the headers without a body byte,
+		// which ResponseBodyWritten cannot see.
+		w.Raw(`	if sse != nil {
+		// The stream is open, hence no status is left to send.
 		return
 	}
 `)
