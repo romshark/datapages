@@ -2483,6 +2483,13 @@ func parseHandler(
 				}
 			}
 		}
+		// Only the response an action renders carries a head. Without a body
+		// there is no response to put it in, and the generated handler would
+		// leave the returned value unread.
+		if h.OutputHead != nil && h.OutputBody == nil {
+			return h, outputs, fmt.Errorf("%w in %s.%s",
+				ErrSignatureActionHeadWithoutBody, recv, fd.Name.Name)
+		}
 	}
 
 	return h, outputs, nil

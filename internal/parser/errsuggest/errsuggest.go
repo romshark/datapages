@@ -109,6 +109,9 @@ func Suggest(err error) string {
 	case errors.Is(err, parser.ErrSignatureGETMissingBody):
 		return "fix: Add `body templ.Component` to return values"
 
+	case errors.Is(err, parser.ErrSignatureActionHeadWithoutBody):
+		return "fix: Add `body templ.Component` to return values, or drop the head"
+
 	case errors.Is(err, parser.ErrSignatureEvHandMissingSSE):
 		return "fix: Add `sse datapages.SSE` parameter"
 

@@ -802,6 +802,19 @@ func TestParse_ErrEventSubjectPrefixedField(t *testing.T) {
 	)
 }
 
+// TestParse_ErrActionHeadWithoutBody tests an action returning a head and no body.
+// The head travels in the response the action renders, and without a
+// body the generated handler never reads the value.
+func TestParse_ErrActionHeadWithoutBody(t *testing.T) {
+	_, err := parse(t, "err_action_head_no_body")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrSignatureActionHeadWithoutBody,
+	)
+}
+
 // TestParse_ErrEventSubjectDerivedType tests an event field typed as a type
 // declared from datapages.Subject or datapages.SubjectUser, which go/types
 // renders as a plain string and which would therefore drop the segment from
@@ -1733,6 +1746,9 @@ func TestParse_ErrorPositions(t *testing.T) {
 		},
 		"err_head_return": {
 			{parser.ErrAppHeadMustReturnHead, "app.go", 20, 13},
+		},
+		"err_action_head_no_body": {
+			{parser.ErrSignatureActionHeadWithoutBody, "app.go", 22, 18},
 		},
 		"err_head_unsupported": {
 			{parser.ErrAppHeadUnsupportedInput, "app.go", 20, 13},

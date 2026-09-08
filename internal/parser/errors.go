@@ -38,6 +38,9 @@ var (
 	ErrSignatureGETMissingBody = errors.New(
 		"GET handler must return body datapages.Component",
 	)
+	ErrSignatureActionHeadWithoutBody = errors.New(
+		"action returning a head must return body datapages.Component",
+	)
 	ErrSignatureDuplicateOutput = errors.New(
 		"duplicate return value",
 	)

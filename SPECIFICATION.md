@@ -175,7 +175,7 @@ func (PageIndex) POSTActionName(
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) (
 	body datapages.Component, // Optional
-	head datapages.Head, // Optional
+	head datapages.Head, // Optional, requires body
 	redirect datapages.Redirect, // Optional
 	newSession datapages.NewSession[Data], // Optional
 	closeSession datapages.CloseSession, // Optional
@@ -888,6 +888,9 @@ Specifies the [Templ](https://templ.guide/) template to use for `<head>` tag of 
 `datapages.Head` is `datapages.Component` under another name, which is what
 tells the head apart from the body.
 Return values are recognized by their type, their names are up to the application.
+
+An action returning a `head` must also return a `body`. The head travels in the
+response the action renders, and without a body there is no response to put it in.
 
 #### Return Value: `redirect datapages.Redirect`
 

@@ -56,6 +56,11 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add `body templ.Component` to return values",
 		},
 
+		"ErrSignatureActionHeadWithoutBody": {
+			err:  parser.ErrSignatureActionHeadWithoutBody,
+			want: "fix: Add `body templ.Component` to return values, or drop the head",
+		},
+
 		"ErrSignatureEvHandMissingSSE": {
 			err:  parser.ErrSignatureEvHandMissingSSE,
 			want: "fix: Add `sse datapages.SSE` parameter",

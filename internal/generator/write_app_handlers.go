@@ -1504,8 +1504,9 @@ func (w *Writer) writeActionMethodCall(
 			w.Raw("genericHead, ")
 		}
 		// An action may return a head of its own, which the response it
-		// renders has to carry. Anything else leaves the value the handler
-		// returned unused, which is also a package that does not compile.
+		// renders has to carry. A head without a body never reaches here:
+		// [github.com/romshark/datapages/internal/parser.ErrSignatureActionHeadWithoutBody]
+		// refuses it.
 		if h.OutputHead != nil {
 			w.Raw(outputVar(h.OutputHead.Output))
 		} else {
