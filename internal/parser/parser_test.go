@@ -1806,6 +1806,10 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrEventSubjectInvalid, "app.go", 192, 25},
 			{parser.ErrEventFieldUnexported, "subpkg.go", 7, 2},
 		},
+		"err_path_tag_no_route_var": {
+			{parser.ErrPathMissingRouteVar, "app.go", 33, 2},
+			{parser.ErrPathFieldNotInRoute, "app.go", 34, 3},
+		},
 		"err_path": {
 			{parser.ErrPathParamNotStruct, "app.go", 26, 24},
 			{parser.ErrPathFieldUnexported, "app.go", 40, 3},

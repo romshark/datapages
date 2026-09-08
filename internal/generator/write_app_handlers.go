@@ -838,6 +838,13 @@ func (w *Writer) writeDeferRecover(hasSSE bool, handler string) {
 // the URL builders write as well. A string is itself, a number and a bool go
 // through strconv, and anything else is left to fmt.Sprint.
 func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
+	if f.Type == nil {
+		// The field is the zero value of a missed lookup by path tag,
+		// which the parser has already reported. Generation runs on the rejected
+		// model anyway, and its output only has to stay parseable.
+		w.Raw(`""`)
+		return
+	}
 	ref := varName + "." + f.Name
 	if gotypes.ImplementsTextMarshaler(f.Type) {
 		w.Rawf("textOf(%s)", ref)
