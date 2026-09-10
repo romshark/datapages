@@ -178,7 +178,11 @@ type pageItem struct {
 type pageItem_Rename struct{}
 
 // POST references /item/{name}/rename/
-func (pageItem_Rename) POST(name string, query pageItem_Rename_POSTQuery, options ...option) string {
+func (pageItem_Rename) POST(
+	name string,
+	query pageItem_Rename_POSTQuery,
+	options ...option,
+) string {
 	s_name := url.PathEscape(name)
 	var (
 		toStr string

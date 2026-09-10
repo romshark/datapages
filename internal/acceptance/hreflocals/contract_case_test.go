@@ -9,6 +9,7 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/contract"
 	"github.com/romshark/datapages/internal/acceptance/hreflocals/app"
 	"github.com/romshark/datapages/internal/acceptance/hreflocals/app/datapagesgen"
+	"github.com/romshark/datapages/internal/acceptance/hreflocals/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/hreflocals/app/datapagesgen/href"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
@@ -37,6 +38,20 @@ func TestContract(t *testing.T) {
 			href.PageTags(href.QueryPageTags{PageSize: 25, Term: "go"}),
 			href.PageParams("a", "b", href.QueryPageParams{Term: "x"}),
 			href.PageLocals("1", "2", "3", "4", "5"),
+			href.PageImports("one", "two", 3, app.Slug("FOUR")),
+			href.PageExpr("seven"),
+		},
+		// Every action of the case: the assertion requests each and fails on
+		// one the router does not serve by that method.
+		Actions: []string{
+			action.PageTags.Select.POST(action.PageTags.Select.POSTQuery(7)),
+			action.PageMix.Store.POST(1, 2, "three",
+				action.PageMix.Store.POSTQuery("yes")),
+			action.PageParams.Save.POST("a", "b"),
+			action.PageLocals.Save.POST("1", "2", "3", "4", "5"),
+			action.PageImports.Save.POST("one", "two", 3, app.Slug("FOUR"),
+				action.PageImports.Save.POSTQuery("x")),
+			action.PageExpr.Run.POST("seven"),
 		},
 	})
 }

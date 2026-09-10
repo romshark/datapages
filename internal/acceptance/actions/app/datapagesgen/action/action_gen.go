@@ -233,7 +233,11 @@ type pageForm struct {
 type pageForm_Bump struct{}
 
 // POST references /form/{id}/bump/
-func (pageForm_Bump) POST(id int, query pageForm_Bump_POSTQuery, options ...option) string {
+func (pageForm_Bump) POST(
+	id int,
+	query pageForm_Bump_POSTQuery,
+	options ...option,
+) string {
 	s_id := strconv.FormatInt(int64(id), 10)
 	var (
 		byStr string

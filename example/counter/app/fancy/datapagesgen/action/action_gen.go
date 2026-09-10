@@ -179,7 +179,10 @@ type pageIndex struct {
 type pageIndex_Add struct{}
 
 // POST references /add/
-func (pageIndex_Add) POST(query pageIndex_Add_POSTQuery, options ...option) string {
+func (pageIndex_Add) POST(
+	query pageIndex_Add_POSTQuery,
+	options ...option,
+) string {
 	var (
 		deltaStr string
 	)
@@ -240,7 +243,10 @@ func (pageIndex_Add) POSTQuery(vDelta int32) pageIndex_Add_POSTQuery {
 type pageIndex_Set struct{}
 
 // POST references /set/{value}/
-func (pageIndex_Set) POST(value int32, options ...option) string {
+func (pageIndex_Set) POST(
+	value int32,
+	options ...option,
+) string {
 	s_value := strconv.FormatInt(int64(value), 10)
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)

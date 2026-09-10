@@ -5,6 +5,8 @@
 package href
 
 import (
+	"encoding"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"strconv"
@@ -13,6 +15,16 @@ import (
 
 	"github.com/romshark/datapages/runtime/hrefcheck"
 )
+
+// textOf is what v marshals to. A builder returns no error,
+// hence a failing MarshalText falls back to fmt.Sprint.
+func textOf(v encoding.TextMarshaler) string {
+	b, err := v.MarshalText()
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	return string(b)
+}
 
 var logger atomic.Pointer[slog.Logger]
 
@@ -43,6 +55,56 @@ func External(url string) string {
 	return url
 }
 
+// PageExpr references /expr/{actionexpr}/{$}
+func PageExpr(pActionexpr string) string {
+	s_pActionexpr := url.PathEscape(pActionexpr)
+	var b strings.Builder
+	b.Grow(
+		len("/expr/") +
+			len(s_pActionexpr) +
+			len("/"),
+	)
+	b.WriteString("/expr/")
+	b.WriteString(s_pActionexpr)
+	b.WriteString("/")
+	return b.String()
+}
+
+// PageImports references /imports/{url}/{strings}/{strconv}/{textOf}/{$}
+func PageImports(
+	pUrl string,
+	pStrings string,
+	pStrconv int,
+	pTextOf encoding.TextMarshaler,
+) string {
+	s_pUrl := url.PathEscape(pUrl)
+	s_pStrings := url.PathEscape(pStrings)
+	s_pStrconv := strconv.FormatInt(int64(pStrconv), 10)
+	s_pTextOf := url.PathEscape(textOf(pTextOf))
+	var b strings.Builder
+	b.Grow(
+		len("/imports/") +
+			len(s_pUrl) +
+			len("/") +
+			len(s_pStrings) +
+			len("/") +
+			len(s_pStrconv) +
+			len("/") +
+			len(s_pTextOf) +
+			len("/"),
+	)
+	b.WriteString("/imports/")
+	b.WriteString(s_pUrl)
+	b.WriteString("/")
+	b.WriteString(s_pStrings)
+	b.WriteString("/")
+	b.WriteString(s_pStrconv)
+	b.WriteString("/")
+	b.WriteString(s_pTextOf)
+	b.WriteString("/")
+	return b.String()
+}
+
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
 
@@ -62,7 +124,13 @@ func PageItem(b bool) string {
 }
 
 // PageLocals references /locals/{b}/{l}/{n}/{bl}/{al}/{$}
-func PageLocals(b string, l string, n string, bl string, al string) string {
+func PageLocals(
+	b string,
+	l string,
+	n string,
+	bl string,
+	al string,
+) string {
 	s_b := url.PathEscape(b)
 	s_l := url.PathEscape(l)
 	s_n := url.PathEscape(n)
@@ -97,7 +165,12 @@ func PageLocals(b string, l string, n string, bl string, al string) string {
 }
 
 // PageMix references /mix/{l}/{n}/{pageStr}/{$}
-func PageMix(l int, n int, pageStr string, query QueryPageMix) string {
+func PageMix(
+	l int,
+	n int,
+	pageStr string,
+	query QueryPageMix,
+) string {
 	s_l := strconv.FormatInt(int64(l), 10)
 	s_n := strconv.FormatInt(int64(n), 10)
 	s_pageStr := url.PathEscape(pageStr)
@@ -188,7 +261,11 @@ type QueryPageMix struct {
 }
 
 // PageParams references /params/{query}/{options}/{$}
-func PageParams(query string, options string, query_ QueryPageParams) string {
+func PageParams(
+	query string,
+	options string,
+	query_ QueryPageParams,
+) string {
 	s_query := url.PathEscape(query)
 	s_options := url.PathEscape(options)
 	var (

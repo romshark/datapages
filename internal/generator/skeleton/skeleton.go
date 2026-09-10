@@ -115,6 +115,26 @@ func MainGoImportIdents() map[string]string {
 	return maps.Clone(mainGoImports)
 }
 
+// MainGoTaken is every identifier main.go binds before the session data type
+// brings a package of its own along. A package of that name needs an alias,
+// or one identifier would name two packages.
+func MainGoTaken(appPkgName, genPkgName string) map[string]bool {
+	taken := make(map[string]bool, len(mainGoImports)+3)
+	for _, id := range mainGoImports {
+		taken[id] = true
+	}
+	taken[genPkgName] = true
+	appPkg, _ := mainGoAppPkg(appPkgName, genPkgName)
+	taken[appPkg] = true
+	return taken
+}
+
+// MainGoAppPkg reports the identifier main.go refers to the app package by
+// and whether the import carries it as an alias.
+func MainGoAppPkg(appPkgName, genPkgName string) (name string, aliased bool) {
+	return mainGoAppPkg(appPkgName, genPkgName)
+}
+
 // mainGoAppPkg reports the identifier main.go refers to
 // the app package by and whether the import carries it as an alias.
 //
@@ -141,6 +161,14 @@ func mainGoAppPkg(appPkgName, genPkgName string) (name string, aliased bool) {
 	}
 }
 
+// Import is a package main.go imports for the session data type,
+// under the identifier that file qualifies it by.
+type Import struct {
+	Path    string
+	Ident   string
+	Aliased bool
+}
+
 type mainGoData struct {
 	AppImport  string
 	AppPkg     string
@@ -153,6 +181,8 @@ type mainGoData struct {
 	// SessionData is the rendered session Data type the session manager is
 	// instantiated with, for example "struct{}" or "app.SessionData".
 	SessionData string
+	// ExtraImports are the packages SessionData names beyond the app package.
+	ExtraImports []Import
 }
 
 // MainGo renders the cmd/server/main.go template with the given import paths
@@ -160,22 +190,25 @@ type mainGoData struct {
 // declares, which need not match the last element of its import path.
 //
 // sessionData is the rendered session Data type,
-// empty for an application without sessions.
+// empty for an application without sessions. extraImports are the packages it
+// names beyond the app package, which the caller renders it against:
+// [MainGoTaken] is the set they have to keep out of the way of.
 func MainGo(
 	appImportPath, appPkgName, genImportPath, genPkgName string,
-	prometheus bool, sessionData string,
+	prometheus bool, sessionData string, extraImports []Import,
 ) ([]byte, error) {
 	var buf bytes.Buffer
 	appPkg, aliased := mainGoAppPkg(appPkgName, genPkgName)
 	if err := tmpl.Execute(&buf, mainGoData{
-		AppImport:   appImportPath,
-		AppPkg:      appPkg,
-		AppAliased:  aliased,
-		GenImport:   genImportPath,
-		Gen:         genPkgName,
-		Prometheus:  prometheus,
-		HasSession:  sessionData != "",
-		SessionData: sessionData,
+		AppImport:    appImportPath,
+		AppPkg:       appPkg,
+		AppAliased:   aliased,
+		GenImport:    genImportPath,
+		Gen:          genPkgName,
+		Prometheus:   prometheus,
+		HasSession:   sessionData != "",
+		SessionData:  sessionData,
+		ExtraImports: extraImports,
 	}); err != nil {
 		return nil, fmt.Errorf("executing main.go template: %w", err)
 	}

@@ -178,7 +178,10 @@ type pageIndex struct {
 type pageIndex_Add struct{}
 
 // POST references /add/
-func (pageIndex_Add) POST(query pageIndex_Add_POSTQuery, options ...option) string {
+func (pageIndex_Add) POST(
+	query pageIndex_Add_POSTQuery,
+	options ...option,
+) string {
 	var (
 		deltaStr string
 	)

@@ -14,6 +14,7 @@ import (
 
 	"github.com/romshark/datapages/internal/parser/internal/paramvalidation"
 	"github.com/romshark/datapages/internal/parser/internal/templcheck"
+	"github.com/romshark/datapages/internal/parser/validate"
 )
 
 var (
@@ -173,6 +174,8 @@ var (
 	ErrRouteWildcardStream = errors.New(
 		"page route ending in a wildcard cannot have a stream",
 	)
+
+	ErrRouteVarNameInvalid = validate.ErrRouteVarNameInvalid
 
 	ErrEventSubjectDuplicate = errors.New(
 		"duplicate event subject",
@@ -598,6 +601,22 @@ func (e *ErrorRouteWildcardStream) Error() string {
 }
 
 func (e *ErrorRouteWildcardStream) Unwrap() error { return ErrRouteWildcardStream }
+
+// ErrorRouteVarNameInvalid is [ErrRouteVarNameInvalid] with the wildcard,
+// the route it sits in and what claims that route.
+// See [validate.RouteVarName] for the rule.
+type ErrorRouteVarNameInvalid struct {
+	Owner string // "PageFoo", "PageFoo.POSTBar" or "App.POSTBar"
+	Route string
+	Var   string
+}
+
+func (e *ErrorRouteVarNameInvalid) Error() string {
+	return fmt.Sprintf("%v: {%s} in %s route %q",
+		ErrRouteVarNameInvalid, e.Var, e.Owner, e.Route)
+}
+
+func (e *ErrorRouteVarNameInvalid) Unwrap() error { return ErrRouteVarNameInvalid }
 
 // ErrorEventSubjectDuplicate is [ErrEventSubjectDuplicate] with the two types
 // that share the subject. A subject is the case an inbound event is matched by,

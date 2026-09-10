@@ -291,7 +291,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		hasBody = true
 		w.Line(0, "")
 		w.Raw("\tvar signals ")
-		w.Raw(renderSignalsType(h.InputSignals, m))
+		w.Raw(w.renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, `if httpread.QueryHas(r.URL.RawQuery, "datastar") {`)
 		w.Line(2, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
@@ -971,7 +971,7 @@ func (w *Writer) writePageGETStreamHandler(
 	if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
 		w.Line(0, "")
 		w.Raw("\tvar signals ")
-		w.Raw(renderSignalsType(p.StreamOpen.InputSignals, m))
+		w.Raw(w.renderSignalsType(p.StreamOpen.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
@@ -1275,7 +1275,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
 		w.Line(0, "")
 		w.Raw("\tvar signals ")
-		w.Raw(renderSignalsType(p.StreamOpen.InputSignals, m))
+		w.Raw(w.renderSignalsType(p.StreamOpen.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
@@ -1393,7 +1393,7 @@ func (w *Writer) writePageActionHandler(
 	// Read signals.
 	if h.InputSignals != nil {
 		w.Raw("\tvar signals ")
-		w.Raw(renderSignalsType(h.InputSignals, m))
+		w.Raw(w.renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
@@ -1546,7 +1546,7 @@ func (w *Writer) writeActionErrCheck(
 func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 	w.Line(0, "")
 	w.Raw("\tvar query ")
-	w.Raw(renderQueryType(input, m))
+	w.Raw(w.renderQueryType(input, m))
 	w.Byte('\n')
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
@@ -1576,7 +1576,7 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 func (w *Writer) writeReadPath(input *model.Input, m *model.App, route string) {
 	w.Line(0, "")
 	w.Raw("\tvar path ")
-	w.Raw(renderPathType(input, m))
+	w.Raw(w.renderPathType(input, m))
 	w.Byte('\n')
 	wildcard := wildcardVar(route)
 	fields := w.structFields(input.Type.Resolved)
@@ -1677,9 +1677,9 @@ func (w *Writer) writeParseField(
 		w.Raw(f.Name)
 		w.Raw(" = ")
 		if unsigned {
-			w.writeConv(convTypeName(w.appPkgPath, f.Type, typeName), "uint64", "u")
+			w.writeConv(w.convTypeName(f.Type, typeName), "uint64", "u")
 		} else {
-			w.writeConv(convTypeName(w.appPkgPath, f.Type, typeName), "int64", "i")
+			w.writeConv(w.convTypeName(f.Type, typeName), "int64", "i")
 		}
 		w.Byte('\n')
 	} else if gotypes.IsFloat(f.Type) {
@@ -1700,7 +1700,7 @@ func (w *Writer) writeParseField(
 		w.Byte('.')
 		w.Raw(f.Name)
 		w.Raw(" = ")
-		w.writeConv(convTypeName(w.appPkgPath, f.Type, typeName), "float64", "f")
+		w.writeConv(w.convTypeName(f.Type, typeName), "float64", "f")
 		w.Byte('\n')
 	} else if gotypes.IsBool(f.Type) {
 		tabs(indent)
@@ -1718,7 +1718,7 @@ func (w *Writer) writeParseField(
 		w.Byte('.')
 		w.Raw(f.Name)
 		w.Raw(" = ")
-		w.writeConv(convTypeName(w.appPkgPath, f.Type, "bool"), "bool", "b")
+		w.writeConv(w.convTypeName(f.Type, "bool"), "bool", "b")
 		w.Byte('\n')
 	}
 }
@@ -1739,11 +1739,11 @@ func isPlainString(t types.Type) bool {
 // convTypeName is the type a parsed value is assigned as:
 // the declared type when the field names one, the basic type otherwise.
 // strconv returns a basic value, which a named field cannot take without a conversion.
-func convTypeName(appPkgPath string, t types.Type, basic string) string {
+func (w *Writer) convTypeName(t types.Type, basic string) string {
 	if _, isBasic := t.(*types.Basic); isBasic {
 		return basic
 	}
-	return gotypes.QualifiedTypeNameWith(t, appQualifier(appPkgPath))
+	return gotypes.QualifiedTypeNameWith(t, w.imports.Qualifier())
 }
 
 // writeConv writes expr converted to typeName, or expr alone when strconv
@@ -1763,7 +1763,7 @@ func (w *Writer) writeStringConv(t types.Type, inner func()) {
 		inner()
 		return
 	}
-	w.Raw(gotypes.QualifiedTypeNameWith(t, appQualifier(w.appPkgPath)))
+	w.Raw(gotypes.QualifiedTypeNameWith(t, w.imports.Qualifier()))
 	w.Byte('(')
 	inner()
 	w.Byte(')')

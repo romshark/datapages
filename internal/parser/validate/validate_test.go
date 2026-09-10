@@ -333,3 +333,37 @@ func TestSignalTagName(t *testing.T) {
 	// contains quotes
 	f(validate.ErrSignalTagNameInvalid, `foo"bar`)
 }
+
+// TestRouteVarName tests which wildcard names generated code can give a
+// function parameter. net/http rejects less than Go does, hence the cases
+// that matter are the ones it lets through.
+func TestRouteVarName(t *testing.T) {
+	f := func(expect error, input string) {
+		t.Helper()
+		require.ErrorIs(t, validate.RouteVarName(input), expect)
+	}
+
+	f(nil, "id")
+	f(nil, "ID")
+	f(nil, "userID")
+	f(nil, "user_id")
+	f(nil, "_id")
+	f(nil, "a1")
+	// A name the URL writers already resolve is renamed, not refused.
+	f(nil, "url")
+	f(nil, "strings")
+
+	// The blank identifier: no expression can read the parameter.
+	f(validate.ErrRouteVarNameInvalid, "_")
+	// Keywords.
+	f(validate.ErrRouteVarNameInvalid, "type")
+	f(validate.ErrRouteVarNameInvalid, "func")
+	f(validate.ErrRouteVarNameInvalid, "range")
+	f(validate.ErrRouteVarNameInvalid, "map")
+	// Not identifiers.
+	f(validate.ErrRouteVarNameInvalid, "")
+	f(validate.ErrRouteVarNameInvalid, "1id")
+	f(validate.ErrRouteVarNameInvalid, "my-var")
+	f(validate.ErrRouteVarNameInvalid, "my var")
+	f(validate.ErrRouteVarNameInvalid, "a.b")
+}

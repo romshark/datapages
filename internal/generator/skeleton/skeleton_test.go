@@ -82,7 +82,7 @@ func TestMainGoAppImportAlias(t *testing.T) {
 			src, err := skeleton.MainGo(
 				"example.com/m/app", tt.appPkg,
 				"example.com/m/app/datapagesgen", "datapagesgen",
-				false, "struct{}",
+				false, "struct{}", nil,
 			)
 			require.NoError(t, err)
 			require.Contains(t, string(src), tt.wantLine)
@@ -110,7 +110,7 @@ func TestMainGoImportsAreKnown(t *testing.T) {
 			src, err := skeleton.MainGo(
 				"example.com/m/app", "app",
 				"example.com/m/app/datapagesgen", "datapagesgen",
-				true, sessionData,
+				true, sessionData, nil,
 			)
 			require.NoError(t, err)
 

@@ -1,12 +1,15 @@
-// Package app exercises path and query variables named after what the URL writer
-// declares for itself: the locals b, l, n, anyQuery, the conversion variable of
-// a query field, and the query and options parameters of the helpers.
-// It also carries query tags that are no Go identifier.
+// Package app exercises path and query variables named after what the URL
+// writer declares for itself: the locals b, l, n, anyQuery, the conversion
+// variable of a query field, and the query and options parameters of the helpers.
+// It also carries variables named after what the writer resolves at package scope,
+// which is a shadow rather than a redeclaration,
+// and query tags that are no Go identifier.
 package app
 
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/a-h/templ"
 
@@ -14,6 +17,19 @@ import (
 )
 
 type App struct{}
+
+// Slug marshals itself, which is what routes a path value through the textOf
+// helper the URL writers generate.
+type Slug string
+
+func (s Slug) MarshalText() ([]byte, error) {
+	return []byte(strings.ToLower(string(s))), nil
+}
+
+func (s *Slug) UnmarshalText(b []byte) error {
+	*s = Slug(b)
+	return nil
+}
 
 // PageIndex is /
 type PageIndex struct{ App *App }
@@ -187,5 +203,81 @@ func (PageLocals) POSTSave(
 	}],
 ) error {
 	_ = path
+	return nil
+}
+
+// PageImports is /imports/{url}/{strings}/{strconv}/{textOf}
+//
+// Every wildcard is named after something the URL writers resolve at package scope:
+// the net/url, strings and strconv packages, and the textOf helper. A parameter of
+// that name hides the reference for the whole function body,
+// which leaves url.PathEscape reading a string.
+//
+// The int reaches strconv and the Slug reaches textOf, which puts every one of
+// those names under the parameter that would hide it.
+type PageImports struct{ App *App }
+
+func (PageImports) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		URL     string `path:"url"`
+		Strings string `path:"strings"`
+		Strconv int    `path:"strconv"`
+		TextOf  Slug   `path:"textOf"`
+	}],
+) (body datapages.Component, err error) {
+	return templ.Raw(fmt.Sprintf(
+		`<pre id="echo">url=%s strings=%s strconv=%d textOf=%s</pre>`,
+		templ.EscapeString(path.Values.URL),
+		templ.EscapeString(path.Values.Strings),
+		path.Values.Strconv, templ.EscapeString(string(path.Values.TextOf)),
+	)), nil
+}
+
+// POSTSave is /imports/{url}/{strings}/{strconv}/{textOf}/save
+func (PageImports) POSTSave(
+	_ *http.Request,
+	path datapages.Path[struct {
+		URL     string `path:"url"`
+		Strings string `path:"strings"`
+		Strconv int    `path:"strconv"`
+		TextOf  Slug   `path:"textOf"`
+	}],
+	query datapages.Query[struct {
+		Term string `query:"t"`
+	}],
+) error {
+	if path.Values.Strconv != 3 || query.Values.Term != "x" {
+		return datapages.ErrBadRequest
+	}
+	return nil
+}
+
+// PageExpr is /expr/{actionexpr}
+//
+// actionexpr is resolved by the action writers only:
+// they call it around every expression they build, next to the path parameter.
+type PageExpr struct{ App *App }
+
+func (PageExpr) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Actionexpr string `path:"actionexpr"`
+	}],
+) (body datapages.Component, err error) {
+	return templ.Raw(fmt.Sprintf(`<pre id="echo">actionexpr=%s</pre>`,
+		templ.EscapeString(path.Values.Actionexpr))), nil
+}
+
+// POSTRun is /expr/{actionexpr}/run
+func (PageExpr) POSTRun(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Actionexpr string `path:"actionexpr"`
+	}],
+) error {
+	if path.Values.Actionexpr != "seven" {
+		return datapages.ErrBadRequest
+	}
 	return nil
 }

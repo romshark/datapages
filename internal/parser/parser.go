@@ -75,6 +75,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	finalizePages(&ctx)
 	assignSpecialPages(&ctx, &errs)
 	validateRouteConflicts(&ctx, &errs)
+	validateRouteVarNames(&ctx, &errs)
 	checkTemplFiles(&ctx, &errs)
 
 	if !ctx.appTypeFound {
@@ -1423,6 +1424,38 @@ func validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
 func finalizePages(ctx *parseCtx) {
 	for _, name := range slices.Sorted(maps.Keys(ctx.pages)) {
 		ctx.app.Pages = append(ctx.app.Pages, ctx.pages[name])
+	}
+}
+
+// validateRouteVarNames reports a route wildcard whose name generated code
+// cannot give a function parameter. See [validate.RouteVarName].
+//
+// net/http rejects some of these itself, which [validateRouteConflicts] reports.
+// It accepts a Go keyword and the blank identifier,
+// and both leave a generated href and action package the user's build refuses.
+// The report names the route, which is the one line the user edits.
+func validateRouteVarNames(ctx *parseCtx, errs *Errors) {
+	check := func(route string, expr ast.Expr, owner string) {
+		if !strings.HasPrefix(route, "/") {
+			// Reported where the route is read.
+			return
+		}
+		for v := range routepattern.Vars(route) {
+			if validate.RouteVarName(v) == nil {
+				continue
+			}
+			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()),
+				&ErrorRouteVarNameInvalid{Owner: owner, Route: route, Var: v})
+		}
+	}
+	for _, p := range ctx.app.Pages {
+		check(p.Route, p.Expr, p.TypeName)
+		for _, h := range p.Actions {
+			check(h.Route, h.Expr, p.TypeName+"."+h.Name)
+		}
+	}
+	for _, h := range ctx.app.Actions {
+		check(h.Route, h.Expr, "App."+h.Name)
 	}
 }
 

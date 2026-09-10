@@ -5,6 +5,8 @@
 package action
 
 import (
+	"encoding"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -170,6 +172,129 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
+// textOf is what v marshals to. A builder returns no error,
+// hence a failing MarshalText falls back to fmt.Sprint.
+func textOf(v encoding.TextMarshaler) string {
+	b, err := v.MarshalText()
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	return string(b)
+}
+
+var PageExpr pageExpr
+
+type pageExpr struct {
+	Run pageExpr_Run
+}
+
+type pageExpr_Run struct{}
+
+// POST references /expr/{actionexpr}/run/
+func (pageExpr_Run) POST(
+	pActionexpr string,
+	options ...option,
+) string {
+	s_pActionexpr := url.PathEscape(pActionexpr)
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/expr/") + len(s_pActionexpr) + len("/run/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/expr/")
+	b.WriteString(s_pActionexpr)
+	b.WriteString("/run/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+var PageImports pageImports
+
+type pageImports struct {
+	Save pageImports_Save
+}
+
+type pageImports_Save struct{}
+
+// POST references /imports/{url}/{strings}/{strconv}/{textOf}/save/
+func (pageImports_Save) POST(
+	pUrl string,
+	pStrings string,
+	pStrconv int,
+	pTextOf encoding.TextMarshaler,
+	query pageImports_Save_POSTQuery,
+	options ...option,
+) string {
+	s_pUrl := url.PathEscape(pUrl)
+	s_pStrings := url.PathEscape(pStrings)
+	s_pStrconv := strconv.FormatInt(int64(pStrconv), 10)
+	s_pTextOf := url.PathEscape(textOf(pTextOf))
+	var (
+		termStr string
+	)
+
+	if query.Term != "" {
+		termStr = url.QueryEscape(query.Term)
+	}
+
+	anyQuery := query.Term != ""
+
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	l := bl + len("@post('/imports/") + len(s_pUrl) + len("/") + len(s_pStrings) + len("/") + len(s_pStrconv) + len("/") + len(s_pTextOf) + len("/save/") + len("'") + actionexpr.OptionsLen(options) + len(")") + al
+	if anyQuery {
+		l += len("?")
+	}
+	n := 0
+	if query.Term != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		l += len("t=") + len(termStr)
+	}
+
+	b.Grow(l)
+
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/imports/")
+	b.WriteString(s_pUrl)
+	b.WriteString("/")
+	b.WriteString(s_pStrings)
+	b.WriteString("/")
+	b.WriteString(s_pStrconv)
+	b.WriteString("/")
+	b.WriteString(s_pTextOf)
+	b.WriteString("/save/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+	n = 0
+	if query.Term != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("t=")
+		b.WriteString(termStr)
+	}
+	b.WriteString("'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+
+	return b.String()
+}
+
+type pageImports_Save_POSTQuery struct {
+	Term string `query:"t"`
+}
+
+func (pageImports_Save) POSTQuery(vTerm string) pageImports_Save_POSTQuery {
+	return pageImports_Save_POSTQuery{
+		Term: vTerm,
+	}
+}
+
 var PageLocals pageLocals
 
 type pageLocals struct {
@@ -179,7 +304,14 @@ type pageLocals struct {
 type pageLocals_Save struct{}
 
 // POST references /locals/{b}/{l}/{n}/{bl}/{al}/save/
-func (pageLocals_Save) POST(b string, l string, n string, bl string, al string, options ...option) string {
+func (pageLocals_Save) POST(
+	b string,
+	l string,
+	n string,
+	bl string,
+	al string,
+	options ...option,
+) string {
 	s_b := url.PathEscape(b)
 	s_l := url.PathEscape(l)
 	s_n := url.PathEscape(n)
@@ -215,7 +347,13 @@ type pageMix struct {
 type pageMix_Store struct{}
 
 // POST references /mix/{l}/{n}/{pageStr}/store/
-func (pageMix_Store) POST(l int, n int, pageStr string, query pageMix_Store_POSTQuery, options ...option) string {
+func (pageMix_Store) POST(
+	l int,
+	n int,
+	pageStr string,
+	query pageMix_Store_POSTQuery,
+	options ...option,
+) string {
 	s_l := strconv.FormatInt(int64(l), 10)
 	s_n := strconv.FormatInt(int64(n), 10)
 	s_pageStr := url.PathEscape(pageStr)
@@ -291,7 +429,11 @@ type pageParams struct {
 type pageParams_Save struct{}
 
 // POST references /params/{query}/{options}/save/
-func (pageParams_Save) POST(query string, options string, options_ ...option) string {
+func (pageParams_Save) POST(
+	query string,
+	options string,
+	options_ ...option,
+) string {
 	s_query := url.PathEscape(query)
 	s_options := url.PathEscape(options)
 	var b strings.Builder
@@ -318,7 +460,10 @@ type pageTags struct {
 type pageTags_Select struct{}
 
 // POST references /tags/select/
-func (pageTags_Select) POST(query pageTags_Select_POSTQuery, options ...option) string {
+func (pageTags_Select) POST(
+	query pageTags_Select_POSTQuery,
+	options ...option,
+) string {
 	var (
 		pageSizeStr string
 	)

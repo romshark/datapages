@@ -56,7 +56,11 @@ func External(url string) string {
 }
 
 // PageConflict references /c/{value}/{s_value}/{s_s_value}/{$}
-func PageConflict(value int32, s_value int32, s_s_value string) string {
+func PageConflict(
+	value int32,
+	s_value int32,
+	s_s_value string,
+) string {
 	s_s_s_value := strconv.FormatInt(int64(value), 10)
 	s_s_s_s_value := strconv.FormatInt(int64(s_value), 10)
 	s_s_s_s_s_value := url.PathEscape(s_s_value)
@@ -114,7 +118,15 @@ func PageFilesEmbedded(rest string) string {
 func PageIndex() string { return "/" }
 
 // PageInts references /ints/{i8}/{i16}/{i32}/{i64}/{u8}/{u16}/{u32}/{$}
-func PageInts(i8 int8, i16 int16, i32 int32, i64 int64, u8 uint8, u16 uint16, u32 uint32) string {
+func PageInts(
+	i8 int8,
+	i16 int16,
+	i32 int32,
+	i64 int64,
+	u8 uint8,
+	u16 uint16,
+	u32 uint32,
+) string {
 	s_i8 := strconv.FormatInt(int64(i8), 10)
 	s_i16 := strconv.FormatInt(int64(i16), 10)
 	s_i32 := strconv.FormatInt(int64(i32), 10)
@@ -159,7 +171,11 @@ func PageInts(i8 int8, i16 int16, i32 int32, i64 int64, u8 uint8, u16 uint16, u3
 }
 
 // PageMixed references /org/{org}/item/{id}/{$}
-func PageMixed(org string, id int, query QueryPageMixed) string {
+func PageMixed(
+	org string,
+	id int,
+	query QueryPageMixed,
+) string {
 	s_org := url.PathEscape(org)
 	s_id := strconv.FormatInt(int64(id), 10)
 	var (
@@ -245,7 +261,13 @@ type QueryPageMixed struct {
 }
 
 // PagePath references /p/{str}/{i}/{u}/{f}/{flag}/{$}
-func PagePath(str string, i int, u uint64, f float64, flag bool) string {
+func PagePath(
+	str string,
+	i int,
+	u uint64,
+	f float64,
+	flag bool,
+) string {
 	s_str := url.PathEscape(str)
 	s_i := strconv.FormatInt(int64(i), 10)
 	s_u := strconv.FormatUint(u, 10)
@@ -558,7 +580,10 @@ type QueryPageReflect struct {
 }
 
 // PageSlug references /slug/{slug}/{$}
-func PageSlug(slug encoding.TextMarshaler, query QueryPageSlug) string {
+func PageSlug(
+	slug encoding.TextMarshaler,
+	query QueryPageSlug,
+) string {
 	s_slug := url.PathEscape(textOf(slug))
 	var (
 		tagStr string

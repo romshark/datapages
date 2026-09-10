@@ -194,6 +194,17 @@ func Suggest(err error) string {
 			d.MethodName, path,
 		)
 
+	case errors.Is(err, parser.ErrRouteVarNameInvalid):
+		var d *parser.ErrorRouteVarNameInvalid
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Rename {%s} to a Go identifier that is not a keyword. "+
+				"The generated href and action builders name a parameter after it.",
+			d.Var,
+		)
+
 	case errors.Is(err, parser.ErrEventCommMissing):
 		var d *parser.ErrorEventCommMissing
 		if !errors.As(err, &d) {

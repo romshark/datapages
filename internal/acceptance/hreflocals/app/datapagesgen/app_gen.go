@@ -3,6 +3,7 @@
 package datapagesgen
 
 import (
+	"encoding"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -35,6 +36,16 @@ const (
 )
 
 const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
+
+// textOf is what v marshals to. A builder returns no error,
+// hence a failing MarshalText falls back to fmt.Sprint.
+func textOf(v encoding.TextMarshaler) string {
+	b, err := v.MarshalText()
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	return string(b)
+}
 
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
@@ -150,6 +161,12 @@ func MessageBrokerStreamSubjects() []string {
 func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
+		"GET /expr/{actionexpr}/{$}",
+		pageExprHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /imports/{url}/{strings}/{strconv}/{textOf}/{$}",
+		pageImportsHandlers{s}.GET)
+	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
@@ -167,6 +184,12 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /tags/{$}",
 		pageTagsHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"POST /expr/{actionexpr}/run/{$}",
+		pageExprHandlers{s}.POSTRun)
+	s.Mux().HandleFunc(
+		"POST /imports/{url}/{strings}/{strconv}/{textOf}/save/{$}",
+		pageImportsHandlers{s}.POSTSave)
 	s.Mux().HandleFunc(
 		"POST /locals/{b}/{l}/{n}/{bl}/{al}/save/{$}",
 		pageLocalsHandlers{s}.POSTSave)
@@ -195,6 +218,151 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	httpserve.WriteErrStatus(w, err)
+}
+
+type pageExprHandlers struct{ *Server }
+
+func (s pageExprHandlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	var path datapages.Path[struct {
+		Actionexpr string `path:"actionexpr"`
+	}]
+	path.Values.Actionexpr = r.PathValue("actionexpr")
+
+	p := dpapp.PageExpr{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageExpr.GET")
+	body, err := p.GET(r, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageExpr.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageExpr", err)
+		return
+	}
+}
+
+func (s pageExprHandlers) POSTRun(
+	w http.ResponseWriter, r *http.Request,
+) {
+
+	var path datapages.Path[struct {
+		Actionexpr string `path:"actionexpr"`
+	}]
+	path.Values.Actionexpr = r.PathValue("actionexpr")
+	defer s.recoverPanic(w, r, nil, "PageExpr.Run")
+	p := dpapp.PageExpr{
+		App: s.app,
+	}
+	err := p.POSTRun(r, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageExpr.Run", err)
+		return
+	}
+}
+
+type pageImportsHandlers struct{ *Server }
+
+func (s pageImportsHandlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	var path datapages.Path[struct {
+		URL     string     `path:"url"`
+		Strings string     `path:"strings"`
+		Strconv int        `path:"strconv"`
+		TextOf  dpapp.Slug `path:"textOf"`
+	}]
+	path.Values.URL = r.PathValue("url")
+	path.Values.Strings = r.PathValue("strings")
+	{
+		v := r.PathValue("strconv")
+		i, err := strconv.ParseInt(v, 10, 0)
+		if err != nil {
+			s.HTTPErrBad(w, "unexpected value for path parameter: strconv", err)
+			return
+		}
+		path.Values.Strconv = int(i)
+	}
+	{
+		v := r.PathValue("textOf")
+		if err := path.Values.TextOf.UnmarshalText([]byte(v)); err != nil {
+			s.HTTPErrBad(w, "unexpected value for path parameter: textOf", err)
+			return
+		}
+	}
+
+	p := dpapp.PageImports{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageImports.GET")
+	body, err := p.GET(r, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageImports.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageImports", err)
+		return
+	}
+}
+
+func (s pageImportsHandlers) POSTSave(
+	w http.ResponseWriter, r *http.Request,
+) {
+
+	var query datapages.Query[struct {
+		Term string `query:"t"`
+	}]
+	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "t")
+
+	var path datapages.Path[struct {
+		URL     string     `path:"url"`
+		Strings string     `path:"strings"`
+		Strconv int        `path:"strconv"`
+		TextOf  dpapp.Slug `path:"textOf"`
+	}]
+	path.Values.URL = r.PathValue("url")
+	path.Values.Strings = r.PathValue("strings")
+	{
+		v := r.PathValue("strconv")
+		i, err := strconv.ParseInt(v, 10, 0)
+		if err != nil {
+			s.HTTPErrBad(w, "unexpected value for path parameter: strconv", err)
+			return
+		}
+		path.Values.Strconv = int(i)
+	}
+	{
+		v := r.PathValue("textOf")
+		if err := path.Values.TextOf.UnmarshalText([]byte(v)); err != nil {
+			s.HTTPErrBad(w, "unexpected value for path parameter: textOf", err)
+			return
+		}
+	}
+	defer s.recoverPanic(w, r, nil, "PageImports.Save")
+	p := dpapp.PageImports{
+		App: s.app,
+	}
+	err := p.POSTSave(r, path, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageImports.Save", err)
+		return
+	}
 }
 
 type pageIndexHandlers struct{ *Server }

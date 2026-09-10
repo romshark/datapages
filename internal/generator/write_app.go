@@ -24,6 +24,9 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	appPkg := appPkgQual
 	w.appPkgQual = appPkg
 	w.appPkgPath = m.PkgPath
+	// Before setSessionType and before the header: both render model types,
+	// which the table names the packages of.
+	w.imports = newAppImports(m)
 	w.buildEventMap(m.Events)
 	w.usage = computeAppUsage(m)
 	w.setSessionType(m)
@@ -173,6 +176,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 		w.writeQuoted(w.genImport + "/href")
 		w.Byte('\n')
 	}
+	w.writeExtraImports(w.imports.Extra())
 	w.Line(0, "")
 	if w.prometheus {
 		w.Line(1, `"github.com/prometheus/client_golang/prometheus"`)
@@ -1305,7 +1309,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	// Read signals.
 	if h.InputSignals != nil {
 		w.Raw("\tvar signals ")
-		w.Raw(renderSignalsType(h.InputSignals, m))
+		w.Raw(w.renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
@@ -1580,25 +1584,25 @@ const (
 	varSignals = "signals.Values"
 )
 
-func renderSignalsType(input *model.Input, m *model.App) string {
-	return "datapages.Signals[" + renderValuesType(input, m) + "]"
+func (w *Writer) renderSignalsType(input *model.Input, m *model.App) string {
+	return "datapages.Signals[" + w.renderValuesType(input, m) + "]"
 }
 
-func renderQueryType(input *model.Input, m *model.App) string {
-	return "datapages.Query[" + renderValuesType(input, m) + "]"
+func (w *Writer) renderQueryType(input *model.Input, m *model.App) string {
+	return "datapages.Query[" + w.renderValuesType(input, m) + "]"
 }
 
-func renderPathType(input *model.Input, m *model.App) string {
-	return "datapages.Path[" + renderValuesType(input, m) + "]"
+func (w *Writer) renderPathType(input *model.Input, m *model.App) string {
+	return "datapages.Path[" + w.renderValuesType(input, m) + "]"
 }
 
 // renderValuesType renders the Values type argument of a wrapped input.
-// It renders for app_gen.go, which imports the app package aliased.
-func renderValuesType(input *model.Input, m *model.App) string {
+// It renders for app_gen.go, which names every package [genImports] does.
+func (w *Writer) renderValuesType(input *model.Input, m *model.App) string {
 	if isNamedType(input.Type) {
-		return renderTypeIn(m.PkgPath, input.Type)
+		return renderTypeIn(w.imports.Qualifier(), input.Type)
 	}
-	return renderAnonStructType(input.Type, m.Fset, appQualifier(m.PkgPath))
+	return renderAnonStructType(input.Type, m.Fset, w.imports.Qualifier())
 }
 
 func handlerKind(h *model.Handler) string {

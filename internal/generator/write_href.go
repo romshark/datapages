@@ -234,9 +234,8 @@ func (w *Writer) writeHrefFuncPathOnly(funcName, route string, params []pathPara
 	// Function signature with path params.
 	w.Raw("func ")
 	w.Raw(funcName)
-	w.Byte('(')
-	w.writeTypedParams(params)
-	w.Raw(") string {\n")
+	w.writeParamList(typedParams(params))
+	w.Raw(" string {\n")
 
 	// Pre-convert non-string params to strings.
 	w.writePathPreConvert(params)
@@ -366,13 +365,9 @@ func (w *Writer) writeHrefFuncPathAndQuery(
 	// Function signature with path params + query struct.
 	w.Raw("func ")
 	w.Raw(funcName)
-	w.Byte('(')
-	w.writeTypedParams(params)
-	w.Raw(", ")
-	w.Raw(lo.query)
-	w.Raw(" Query")
-	w.Raw(funcName)
-	w.Raw(") string {\n")
+	w.writeParamList(append(typedParams(params),
+		lo.query+" Query"+funcName))
+	w.Raw(" string {\n")
 
 	literals, _ := routepattern.Segments(route)
 	if len(literals) != len(params)+1 {
@@ -516,42 +511,82 @@ type pathParamInfo struct {
 	StrVar string     // variable name for string representation (e.g. "valueStr")
 }
 
-// pathParamInfos builds typed path parameter info from a path input and route variables.
-// It computes conflict-free StrVar names for non-string parameters.
+// pathParamReserved are the identifiers a generated URL function resolves at
+// package scope: the packages it qualifies and the helper it calls.
+// A parameter of that name shadows the reference for the whole function body.
+// A wildcard named "url" leaves url.PathEscape(url) reading its own parameter.
+//
+// One set covers href_gen.go and action_gen.go, and it lists every name either
+// file can bind rather than the ones a given build imports. "encoding" and
+// "fmt" are in neither import block: goimports adds them for textOf.
+// Reserving a name the function does not resolve costs
+// a renamed parameter and nothing else.
+//
+// TestReservedNamesHaveAFixtureRoute keeps the fixture that provokes the
+// collision in step with this set. An entry added here needs no other edit.
+var pathParamReserved = map[string]bool{
+	"actionexpr": true,
+	"encoding":   true,
+	"fmt":        true,
+	"strconv":    true,
+	"strings":    true,
+	"textOf":     true,
+	"url":        true,
+}
+
+// pathParamName is the parameter a route wildcard names. A wildcard named
+// after something the function resolves at package scope takes a "p" prefix instead.
+// The name reaches the caller in the generated signature, where pUrl
+// reads as a path parameter and url_ reads as a typo.
+// See [pathParamReserved].
+//
+// taken holds the parameters already named. Two wildcards of one route never
+// share a name: only a prefix can make two parameters meet.
+func pathParamName(routeVar string, taken map[string]bool) string {
+	name := routeVar
+	if pathParamReserved[name] {
+		name = "p" + upperFirst(name)
+	}
+	for pathParamReserved[name] || taken[name] {
+		name += "_"
+	}
+	return name
+}
+
+// pathParamInfos names the parameter and the string local of every route variable,
+// in route order, and carries the Go type the path struct gives it.
+//
+// A nil pathInput leaves every type nil, which renders as a string parameter.
+// Only a partial model has that: the parser rejects a route variable no path
+// struct field covers.
 func (w *Writer) pathParamInfos(
 	pathInput *model.Input, pathVars []string,
 ) []pathParamInfo {
-	infos := make([]pathParamInfo, len(pathVars))
-	if pathInput == nil {
-		for i, v := range pathVars {
-			infos[i] = pathParamInfo{Name: v, StrVar: v}
+	var tagToType map[string]types.Type
+	if pathInput != nil {
+		fields := w.structFields(pathInput.Type.Resolved)
+		tagToType = make(map[string]types.Type, len(fields))
+		for _, f := range fields {
+			if tag := structtag.PathTagValue(f.Tag); tag != "" {
+				tagToType[tag] = f.Type
+			}
 		}
-		return infos
-	}
-	fields := w.structFields(pathInput.Type.Resolved)
-	tagToType := make(map[string]types.Type, len(fields))
-	for _, f := range fields {
-		if tag := structtag.PathTagValue(f.Tag); tag != "" {
-			tagToType[tag] = f.Type
-		}
-	}
-	for i, v := range pathVars {
-		infos[i] = pathParamInfo{Name: v, Type: tagToType[v]}
 	}
 
-	// Compute conflict-free StrVar for each parameter.
-	// Non-string params need a string conversion variable named "s_<name>".
-	// If that collides with another param name, prepend another "s_" prefix.
-	names := make(map[string]bool, len(infos))
-	for _, info := range infos {
-		names[info.Name] = true
+	infos := make([]pathParamInfo, len(pathVars))
+	names := make(map[string]bool, 2*len(pathVars))
+	for i, v := range pathVars {
+		name := pathParamName(v, names)
+		names[name] = true
+		infos[i] = pathParamInfo{Name: name, Type: tagToType[v]}
 	}
+
 	// Every parameter gets a local holding what goes into the URL:
 	// the string form of a number, and the escaped form of a string. A value
 	// carrying "/", "?", "&" or "#" would otherwise change what the URL addresses.
 	for i := range infos {
 		candidate := "s_" + infos[i].Name
-		for names[candidate] {
+		for pathParamReserved[candidate] || names[candidate] {
 			candidate = "s_" + candidate
 		}
 		infos[i].StrVar = candidate
@@ -571,6 +606,13 @@ func pathVarStrExpr(p pathParamInfo) string {
 // be called, "b" included. A local the writer names without looking is a
 // redeclaration in that function, and the generated package does not compile.
 // Each name is therefore moved out of the way of whatever the route brought.
+//
+// The base names below are what internal/acceptance/hreflocals writes its
+// routes with, one page per group. Renaming one here leaves that case passing
+// while it covers a name nothing generates any more. No test catches that:
+// unlike [pathParamReserved] these are literals in [newHrefLocals] rather
+// than a list a fixture can be checked against.
+// Move the route in hreflocals with the name.
 type hrefLocals struct {
 	builder  string
 	length   string
@@ -590,7 +632,13 @@ type hrefLocals struct {
 }
 
 func newHrefLocals(params []pathParamInfo, fields []structFieldInfo) hrefLocals {
-	taken := make(map[string]bool, len(params)*2+len(fields)+4)
+	taken := make(map[string]bool,
+		len(pathParamReserved)+len(params)*2+len(fields)+4)
+	// A local shadows a package qualifier the same way a parameter does.
+	// See [pathParamReserved].
+	for name := range pathParamReserved {
+		taken[name] = true
+	}
 	for _, p := range params {
 		taken[p.Name] = true
 		taken[p.StrVar] = true
@@ -625,16 +673,37 @@ func newHrefLocals(params []pathParamInfo, fields []structFieldInfo) hrefLocals 
 	return lo
 }
 
-// writeTypedParams writes a comma-separated typed parameter list.
-func (w *Writer) writeTypedParams(params []pathParamInfo) {
+// typedParams renders one "name type" fragment per path parameter,
+// in route order, for [Writer.writeParamList].
+func typedParams(params []pathParamInfo) []string {
+	out := make([]string, len(params))
 	for i, p := range params {
-		if i > 0 {
-			w.Raw(", ")
-		}
-		w.Raw(p.Name)
-		w.Byte(' ')
-		w.Raw(fieldTypeName(p.Type))
+		out[i] = p.Name + " " + fieldTypeName(p.Type)
 	}
+	return out
+}
+
+// writeParamList writes the parameter list of a generated function,
+// with the parentheses and without the return type.
+//
+// A list of more than one parameter goes one per line. The builders of a route
+// with several wildcards carry a path value each, a query struct and the
+// option variadic, which as one line runs past anything a reader scans and
+// past what gofmt would ever break up: it breaks no line it did not have to.
+func (w *Writer) writeParamList(params []string) {
+	if len(params) < 2 {
+		w.Byte('(')
+		w.writeCommaSep(params)
+		w.Byte(')')
+		return
+	}
+	w.Raw("(\n")
+	for _, p := range params {
+		w.Byte('\t')
+		w.Raw(p)
+		w.Raw(",\n")
+	}
+	w.Byte(')')
 }
 
 // writePathPreConvert emits the local that holds each path parameter's URL form:
@@ -820,4 +889,14 @@ func lowerFirst(s string) string {
 	}
 	r, n := utf8.DecodeRuneInString(s)
 	return string(unicode.ToLower(r)) + s[n:]
+}
+
+// upperFirst uppercases the first rune of s, which keeps a prefixed
+// identifier readable: "url" under a "p" prefix is pUrl, not purl.
+func upperFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	r, n := utf8.DecodeRuneInString(s)
+	return string(unicode.ToUpper(r)) + s[n:]
 }

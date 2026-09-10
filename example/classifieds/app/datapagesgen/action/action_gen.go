@@ -248,7 +248,10 @@ type pageMessages struct {
 type pageMessages_Read struct{}
 
 // POST references /messages/read/
-func (pageMessages_Read) POST(query pageMessages_Read_POSTQuery, options ...option) string {
+func (pageMessages_Read) POST(
+	query pageMessages_Read_POSTQuery,
+	options ...option,
+) string {
 	var (
 		messageIDStr string
 	)
@@ -369,7 +372,10 @@ type pagePost struct {
 type pagePost_SendMessage struct{}
 
 // POST references /post/{slug}/send-message/
-func (pagePost_SendMessage) POST(slug string, options ...option) string {
+func (pagePost_SendMessage) POST(
+	slug string,
+	options ...option,
+) string {
 	s_slug := url.PathEscape(slug)
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)
@@ -437,7 +443,10 @@ func (pageSettings_CloseAllSessions) POST(options ...option) string {
 type pageSettings_CloseSession struct{}
 
 // POST references /settings/close-session/{token}/
-func (pageSettings_CloseSession) POST(token string, options ...option) string {
+func (pageSettings_CloseSession) POST(
+	token string,
+	options ...option,
+) string {
 	s_token := url.PathEscape(token)
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)

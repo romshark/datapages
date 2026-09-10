@@ -199,33 +199,10 @@ func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool 
 	return hasPublic && hasPrivate
 }
 
-// renderType renders a Go type using types.TypeString,
-// qualifying every package by the name it declares.
-//
-// That is what an unaliased import binds to, for the app package as much as
-// for any other, and a package is free to declare a name its directory does not repeat.
-func renderType(t model.Type) string {
-	return types.TypeString(t.Resolved, declaredNameQualifier)
-}
-
-// declaredNameQualifier names every package by the name it declares.
-func declaredNameQualifier(p *types.Package) string { return p.Name() }
-
-// appQualifier names every package by the name it declares, except the app
-// package at appPkgPath, which app_gen.go imports under [appPkgQual].
-func appQualifier(appPkgPath string) func(*types.Package) string {
-	return func(p *types.Package) string {
-		if p.Path() == appPkgPath {
-			return appPkgQual
-		}
-		return p.Name()
-	}
-}
-
-// renderTypeIn renders a Go type for app_gen.go, where the app package is
-// aliased and every other package is its declared name.
-func renderTypeIn(appPkgPath string, t model.Type) string {
-	return types.TypeString(t.Resolved, appQualifier(appPkgPath))
+// renderTypeIn renders a Go type for app_gen.go, naming every package the way
+// [genImports] has that file import it.
+func renderTypeIn(qual func(*types.Package) string, t model.Type) string {
+	return types.TypeString(t.Resolved, qual)
 }
 
 // renderAnonStructType renders an anonymous struct type, preserving struct tags.
@@ -516,6 +493,8 @@ type Writer struct {
 	// appPkgPath is the import path of the app package, which app_gen.go
 	// imports under appPkgQual rather than under the name it declares.
 	appPkgPath string
+	// imports names every package app_gen.go renders a model type from.
+	imports genImports
 	// usage is computed once per WriteApp
 	usage appUsage
 	// sessionType is the rendered session type of the application,
@@ -541,7 +520,7 @@ func (w *Writer) setSessionType(m *model.App) {
 		w.sessionDataType = ""
 		return
 	}
-	data := renderTypeIn(m.PkgPath, m.Session.Data)
+	data := renderTypeIn(w.imports.Qualifier(), m.Session.Data)
 	w.sessionType = "datapages.Session[" + data + "]"
 	w.newSessionType = "datapages.NewSession[" + data + "]"
 	w.recordType = "sessions.Record[" + data + "]"

@@ -205,7 +205,8 @@ func (w *Writer) writeActionFunc(
 
 	if !hasPathVars && !hasQuery {
 		w.writeActionMethodHead(recv, methodName)
-		w.Raw("(options ...option) string {\n")
+		w.writeParamList([]string{"options ...option"})
+		w.Raw(" string {\n")
 		w.Line(1, "if len(options) == 0 {")
 		w.Raw("\t\treturn \"@")
 		w.Raw(method)
@@ -266,9 +267,8 @@ func (w *Writer) writeActionFuncPathOnly(
 
 	// func (recv) Method(params, options ...option) string {
 	w.writeActionMethodHead(recv, methodName)
-	w.Byte('(')
-	w.writeTypedParams(params)
-	w.Rawf(", %s ...option) string {\n", lo.options)
+	w.writeParamList(append(typedParams(params), lo.options+" ...option"))
+	w.Raw(" string {\n")
 
 	// Pre-convert non-string params to strings.
 	w.writePathPreConvert(params)
@@ -332,11 +332,11 @@ func (w *Writer) writeActionFuncQueryOnly(
 	lo := newHrefLocals(nil, fields)
 	// func (recv) Method(query QueryType, options ...option) string {
 	w.writeActionMethodHead(recv, methodName)
-	w.Raw("(")
-	w.Raw(lo.query)
-	w.Byte(' ')
-	w.Raw(queryType)
-	w.Rawf(", %s ...option) string {\n", lo.options)
+	w.writeParamList([]string{
+		lo.query + " " + queryType,
+		lo.options + " ...option",
+	})
+	w.Raw(" string {\n")
 
 	// Pre-convert non-string fields to strings.
 	w.writeQueryPreConvert(lo, fields)
@@ -425,13 +425,10 @@ func (w *Writer) writeActionFuncPathAndQuery(
 
 	// func (recv) Method(params, query QueryType, options ...option) string {
 	w.writeActionMethodHead(recv, methodName)
-	w.Byte('(')
-	w.writeTypedParams(params)
-	w.Raw(", ")
-	w.Raw(lo.query)
-	w.Byte(' ')
-	w.Raw(queryType)
-	w.Rawf(", %s ...option) string {\n", lo.options)
+	w.writeParamList(append(typedParams(params),
+		lo.query+" "+queryType,
+		lo.options+" ...option"))
+	w.Raw(" string {\n")
 
 	// Pre-convert non-string path params.
 	w.writePathPreConvert(params)
@@ -538,14 +535,13 @@ func (w *Writer) writeActionQueryCtor(
 	recv, methodName, queryType string, fields []structFieldInfo,
 ) {
 	w.Line(0, "")
-	w.Rawf("func (%s) %sQuery(", recv, methodName)
+	w.Rawf("func (%s) %sQuery", recv, methodName)
+	ctorParams := make([]string, len(fields))
 	for i, f := range fields {
-		if i > 0 {
-			w.Raw(", ")
-		}
-		w.Rawf("%s %s", queryCtorParam(f.Name), fieldTypeName(f.Type))
+		ctorParams[i] = queryCtorParam(f.Name) + " " + fieldTypeName(f.Type)
 	}
-	w.Rawf(") %s {\n", queryType)
+	w.writeParamList(ctorParams)
+	w.Rawf(" %s {\n", queryType)
 	w.Linef(1, "return %s{", queryType)
 	for _, f := range fields {
 		w.Linef(2, "%s: %s,", f.Name, queryCtorParam(f.Name))

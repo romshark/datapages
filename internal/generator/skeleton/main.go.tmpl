@@ -26,6 +26,9 @@ import (
 
 	{{if .AppAliased}}{{.AppPkg}} {{end}}"{{.AppImport}}"
 	"{{.GenImport}}"
+{{- range .ExtraImports}}
+	{{if .Aliased}}{{.Ident}} {{end}}"{{.Path}}"
+{{- end}}
 
 	"github.com/nats-io/nats.go"
 )

@@ -18,18 +18,32 @@ func GenerateCmd(
 	prometheus bool, m *model.App,
 	perm os.FileMode,
 ) error {
-	// The session manager is generic over the session Data type,
-	// not over the datapages.Session instantiation the app names.
-	var sessionData string
-	if m != nil && m.Session != nil {
-		sessionData = renderType(m.Session.Data)
-	}
 	appPkgName := "app"
 	if m != nil && m.PkgName != "" {
 		appPkgName = m.PkgName
 	}
+
+	// The session manager is generic over the session Data type, not over the
+	// datapages.Session instantiation the app names. The type can be built
+	// from packages main.go does not import yet, and from one whose declared
+	// name main.go already binds, which is why it renders against a table.
+	var sessionData string
+	var extraImports []skeleton.Import
+	if m != nil && m.Session != nil {
+		appPkg, _ := skeleton.MainGoAppPkg(appPkgName, genPkgName)
+		imports := newGenImports(
+			collectSessionDataPkgs(m),
+			skeleton.MainGoTaken(appPkgName, genPkgName),
+			map[string]string{m.PkgPath: appPkg},
+		)
+		sessionData = renderTypeIn(imports.Qualifier(), m.Session.Data)
+		for _, imp := range imports.Extra() {
+			extraImports = append(extraImports, skeleton.Import(imp))
+		}
+	}
 	src, err := skeleton.MainGo(
-		appImportPath, appPkgName, genImportPath, genPkgName, prometheus, sessionData,
+		appImportPath, appPkgName, genImportPath, genPkgName, prometheus,
+		sessionData, extraImports,
 	)
 	if err != nil {
 		return fmt.Errorf("generating cmd/main.go: %w", err)

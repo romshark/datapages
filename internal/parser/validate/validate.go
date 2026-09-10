@@ -3,6 +3,7 @@ package validate
 import (
 	"errors"
 	"go/ast"
+	"go/token"
 	"strings"
 
 	"github.com/romshark/datapages/internal/subject"
@@ -17,7 +18,23 @@ var (
 	ErrEventSubjectInvalid     = errors.New("invalid event subject")
 	ErrEventHandlerNameInvalid = errors.New("invalid event handler method name")
 	ErrSignalTagNameInvalid    = errors.New("invalid signal tag name")
+	ErrRouteVarNameInvalid     = errors.New("invalid route variable name")
 )
+
+// RouteVarName validates a route wildcard name as a name generated code can
+// give a function parameter. The generated href and action builders take one
+// parameter per wildcard, named by the route.
+//
+// net/http accepts more than Go does: "{type}" is a keyword and "{_}" is the
+// blank identifier, which no expression can read. Both leave a generated file
+// that does not parse or does not compile, neither of which names the route
+// the user has to fix.
+func RouteVarName(name string) error {
+	if name == "_" || !token.IsIdentifier(name) {
+		return ErrRouteVarNameInvalid
+	}
+	return nil
+}
 
 // PageTypeName validates page type names: "Page" + Uppercase letter + [A-Za-z0-9]*.
 func PageTypeName(name string) error {

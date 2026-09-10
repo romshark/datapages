@@ -179,7 +179,11 @@ type app struct {
 type app_Edit struct{}
 
 // PUT references /{id}/
-func (app_Edit) PUT(id string, query app_Edit_PUTQuery, options ...option) string {
+func (app_Edit) PUT(
+	id string,
+	query app_Edit_PUTQuery,
+	options ...option,
+) string {
 	s_id := url.PathEscape(id)
 	var (
 		toggleStr string
@@ -292,7 +296,10 @@ type pageItem struct {
 type pageItem_Item struct{}
 
 // DELETE references /item/{id}/
-func (pageItem_Item) DELETE(id string, options ...option) string {
+func (pageItem_Item) DELETE(
+	id string,
+	options ...option,
+) string {
 	s_id := url.PathEscape(id)
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)

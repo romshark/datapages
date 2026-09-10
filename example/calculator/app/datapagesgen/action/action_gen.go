@@ -179,7 +179,10 @@ type pageIndex struct {
 type pageIndex_Input struct{}
 
 // POST references /input/
-func (pageIndex_Input) POST(query pageIndex_Input_POSTQuery, options ...option) string {
+func (pageIndex_Input) POST(
+	query pageIndex_Input_POSTQuery,
+	options ...option,
+) string {
 	var (
 		btnStr string
 		numStr string
@@ -252,7 +255,10 @@ type pageIndex_Input_POSTQuery struct {
 	Num string `query:"num"`
 }
 
-func (pageIndex_Input) POSTQuery(vBtn int, vNum string) pageIndex_Input_POSTQuery {
+func (pageIndex_Input) POSTQuery(
+	vBtn int,
+	vNum string,
+) pageIndex_Input_POSTQuery {
 	return pageIndex_Input_POSTQuery{
 		Btn: vBtn,
 		Num: vNum,
