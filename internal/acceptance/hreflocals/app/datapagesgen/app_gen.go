@@ -17,7 +17,7 @@ import (
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
 
-	"github.com/romshark/datapages/internal/acceptance/hreflocals/app"
+	dpapp "github.com/romshark/datapages/internal/acceptance/hreflocals/app"
 	"github.com/romshark/datapages/internal/acceptance/hreflocals/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -74,13 +74,13 @@ type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
-	app                  *app.App
+	app                  *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -94,12 +94,12 @@ type Server struct {
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package app declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -151,34 +151,34 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /item/{b}/{$}",
-		s.handlePageItemGET)
+		pageItemHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /locals/{b}/{l}/{n}/{bl}/{al}/{$}",
-		s.handlePageLocalsGET)
+		pageLocalsHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /mix/{l}/{n}/{pageStr}/{$}",
-		s.handlePageMixGET)
+		pageMixHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /params/{query}/{options}/{$}",
-		s.handlePageParamsGET)
+		pageParamsHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /tags/{$}",
-		s.handlePageTagsGET)
+		pageTagsHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"POST /locals/{b}/{l}/{n}/{bl}/{al}/save/{$}",
-		s.handlePageLocalsPOSTSave)
+		pageLocalsHandlers{s}.POSTSave)
 	s.Mux().HandleFunc(
 		"POST /mix/{l}/{n}/{pageStr}/store/{$}",
-		s.handlePageMixPOSTStore)
+		pageMixHandlers{s}.POSTStore)
 	s.Mux().HandleFunc(
 		"POST /params/{query}/{options}/save/{$}",
-		s.handlePageParamsPOSTSave)
+		pageParamsHandlers{s}.POSTSave)
 	s.Mux().HandleFunc(
 		"POST /tags/select/{$}",
-		s.handlePageTagsPOSTSelect)
+		pageTagsHandlers{s}.POSTSelect)
 }
 
 func (s *Server) httpErrIntern(
@@ -197,13 +197,15 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -225,7 +227,9 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
+type pageItemHandlers struct{ *Server }
+
+func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	var path datapages.Path[struct {
 		B bool `path:"b"`
@@ -240,7 +244,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 		path.Values.B = b
 	}
 
-	p := app.PageItem{
+	p := dpapp.PageItem{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageItem.GET")
@@ -262,7 +266,9 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageLocalsGET(w http.ResponseWriter, r *http.Request) {
+type pageLocalsHandlers struct{ *Server }
+
+func (s pageLocalsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	var path datapages.Path[struct {
 		B  string `path:"b"`
@@ -277,7 +283,7 @@ func (s *Server) handlePageLocalsGET(w http.ResponseWriter, r *http.Request) {
 	path.Values.BL = r.PathValue("bl")
 	path.Values.AL = r.PathValue("al")
 
-	p := app.PageLocals{
+	p := dpapp.PageLocals{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageLocals.GET")
@@ -299,7 +305,7 @@ func (s *Server) handlePageLocalsGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageLocalsPOSTSave(
+func (s pageLocalsHandlers) POSTSave(
 	w http.ResponseWriter, r *http.Request,
 ) {
 
@@ -316,7 +322,7 @@ func (s *Server) handlePageLocalsPOSTSave(
 	path.Values.BL = r.PathValue("bl")
 	path.Values.AL = r.PathValue("al")
 	defer s.recoverPanic(w, r, nil, "PageLocals.Save")
-	p := app.PageLocals{
+	p := dpapp.PageLocals{
 		App: s.app,
 	}
 	err := p.POSTSave(r, path)
@@ -326,7 +332,9 @@ func (s *Server) handlePageLocalsPOSTSave(
 	}
 }
 
-func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
+type pageMixHandlers struct{ *Server }
+
+func (s pageMixHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	var query datapages.Query[struct {
 		AnyQuery string `query:"anyQuery"`
@@ -369,7 +377,7 @@ func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
 	}
 	path.Values.PageStr = r.PathValue("pageStr")
 
-	p := app.PageMix{
+	p := dpapp.PageMix{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageMix.GET")
@@ -391,7 +399,7 @@ func (s *Server) handlePageMixGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageMixPOSTStore(
+func (s pageMixHandlers) POSTStore(
 	w http.ResponseWriter, r *http.Request,
 ) {
 
@@ -425,7 +433,7 @@ func (s *Server) handlePageMixPOSTStore(
 	}
 	path.Values.PageStr = r.PathValue("pageStr")
 	defer s.recoverPanic(w, r, nil, "PageMix.Store")
-	p := app.PageMix{
+	p := dpapp.PageMix{
 		App: s.app,
 	}
 	err := p.POSTStore(r, path, query)
@@ -435,7 +443,9 @@ func (s *Server) handlePageMixPOSTStore(
 	}
 }
 
-func (s *Server) handlePageParamsGET(w http.ResponseWriter, r *http.Request) {
+type pageParamsHandlers struct{ *Server }
+
+func (s pageParamsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	var query datapages.Query[struct {
 		Term string `query:"t"`
@@ -449,7 +459,7 @@ func (s *Server) handlePageParamsGET(w http.ResponseWriter, r *http.Request) {
 	path.Values.Query = r.PathValue("query")
 	path.Values.Options = r.PathValue("options")
 
-	p := app.PageParams{
+	p := dpapp.PageParams{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageParams.GET")
@@ -471,7 +481,7 @@ func (s *Server) handlePageParamsGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageParamsPOSTSave(
+func (s pageParamsHandlers) POSTSave(
 	w http.ResponseWriter, r *http.Request,
 ) {
 
@@ -482,7 +492,7 @@ func (s *Server) handlePageParamsPOSTSave(
 	path.Values.Query = r.PathValue("query")
 	path.Values.Options = r.PathValue("options")
 	defer s.recoverPanic(w, r, nil, "PageParams.Save")
-	p := app.PageParams{
+	p := dpapp.PageParams{
 		App: s.app,
 	}
 	err := p.POSTSave(r, path)
@@ -492,7 +502,9 @@ func (s *Server) handlePageParamsPOSTSave(
 	}
 }
 
-func (s *Server) handlePageTagsGET(w http.ResponseWriter, r *http.Request) {
+type pageTagsHandlers struct{ *Server }
+
+func (s pageTagsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	var query datapages.Query[struct {
 		PageSize int    `query:"page-size"`
@@ -510,7 +522,7 @@ func (s *Server) handlePageTagsGET(w http.ResponseWriter, r *http.Request) {
 	}
 	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "q.term")
 
-	p := app.PageTags{
+	p := dpapp.PageTags{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageTags.GET")
@@ -532,7 +544,7 @@ func (s *Server) handlePageTagsGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageTagsPOSTSelect(
+func (s pageTagsHandlers) POSTSelect(
 	w http.ResponseWriter, r *http.Request,
 ) {
 
@@ -550,7 +562,7 @@ func (s *Server) handlePageTagsPOSTSelect(
 		}
 	}
 	defer s.recoverPanic(w, r, nil, "PageTags.Select")
-	p := app.PageTags{
+	p := dpapp.PageTags{
 		App: s.app,
 	}
 	err := p.POSTSelect(r, query)

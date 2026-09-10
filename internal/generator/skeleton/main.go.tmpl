@@ -24,7 +24,7 @@ import (
 	"github.com/romshark/datapages/modules/sessions/natskv"
 {{- end}}
 
-	"{{.AppImport}}"
+	{{if .AppAliased}}{{.AppPkg}} {{end}}"{{.AppImport}}"
 	"{{.GenImport}}"
 
 	"github.com/nats-io/nats.go"

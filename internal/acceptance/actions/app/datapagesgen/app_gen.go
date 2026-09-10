@@ -18,7 +18,7 @@ import (
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 
-	"github.com/romshark/datapages/internal/acceptance/actions/app"
+	dpapp "github.com/romshark/datapages/internal/acceptance/actions/app"
 	"github.com/romshark/datapages/internal/acceptance/actions/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -76,13 +76,13 @@ type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
-	app                  *app.App
+	app                  *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -96,12 +96,12 @@ type Server struct {
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package app declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -153,61 +153,61 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /form/{$}",
-		s.handlePageFormGET)
+		pageFormHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /log/{$}",
-		s.handlePageLogGET)
+		pageLogHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"POST /ping/{$}",
-		s.handlePOSTPing)
+		appHandlers{s}.POSTPing)
 	s.Mux().HandleFunc(
 		"DELETE /all/{$}",
-		s.handleDELETEAll)
+		appHandlers{s}.DELETEAll)
 	s.Mux().HandleFunc(
 		"POST /form/submit/{$}",
-		s.handlePageFormPOSTSubmit)
+		pageFormHandlers{s}.POSTSubmit)
 	s.Mux().HandleFunc(
 		"PUT /form/replace/{$}",
-		s.handlePageFormPUTReplace)
+		pageFormHandlers{s}.PUTReplace)
 	s.Mux().HandleFunc(
 		"PATCH /form/touch/{$}",
-		s.handlePageFormPATCHTouch)
+		pageFormHandlers{s}.PATCHTouch)
 	s.Mux().HandleFunc(
 		"DELETE /form/remove/{$}",
-		s.handlePageFormDELETERemove)
+		pageFormHandlers{s}.DELETERemove)
 	s.Mux().HandleFunc(
 		"POST /form/{id}/bump/{$}",
-		s.handlePageFormPOSTBump)
+		pageFormHandlers{s}.POSTBump)
 	s.Mux().HandleFunc(
 		"POST /form/render/{$}",
-		s.handlePageFormPOSTRender)
+		pageFormHandlers{s}.POSTRender)
 	s.Mux().HandleFunc(
 		"POST /form/go/{$}",
-		s.handlePageFormPOSTGo)
+		pageFormHandlers{s}.POSTGo)
 	s.Mux().HandleFunc(
 		"POST /form/go-stream/{$}",
-		s.handlePageFormPOSTGoStream)
+		pageFormHandlers{s}.POSTGoStream)
 	s.Mux().HandleFunc(
 		"POST /form/patch/{$}",
-		s.handlePageFormPOSTPatch)
+		pageFormHandlers{s}.POSTPatch)
 	s.Mux().HandleFunc(
 		"POST /form/patch-at/{$}",
-		s.handlePageFormPOSTPatchAt)
+		pageFormHandlers{s}.POSTPatchAt)
 	s.Mux().HandleFunc(
 		"POST /form/signals-raw/{$}",
-		s.handlePageFormPOSTSignalsRaw)
+		pageFormHandlers{s}.POSTSignalsRaw)
 	s.Mux().HandleFunc(
 		"POST /form/signals-missing/{$}",
-		s.handlePageFormPOSTSignalsMissing)
+		pageFormHandlers{s}.POSTSignalsMissing)
 	s.Mux().HandleFunc(
 		"POST /form/signals-bad/{$}",
-		s.handlePageFormPOSTSignalsBad)
+		pageFormHandlers{s}.POSTSignalsBad)
 	s.Mux().HandleFunc(
 		"POST /form/remove/{$}",
-		s.handlePageFormPOSTRemove)
+		pageFormHandlers{s}.POSTRemove)
 }
 
 func (s *Server) httpErrIntern(
@@ -226,7 +226,9 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePOSTPing(w http.ResponseWriter, r *http.Request) {
+type appHandlers struct{ *Server }
+
+func (s appHandlers) POSTPing(w http.ResponseWriter, r *http.Request) {
 	defer s.recoverPanic(w, r, nil, "App.Ping")
 	err := s.app.POSTPing(r)
 	if err != nil {
@@ -235,7 +237,7 @@ func (s *Server) handlePOSTPing(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleDELETEAll(w http.ResponseWriter, r *http.Request) {
+func (s appHandlers) DELETEAll(w http.ResponseWriter, r *http.Request) {
 	defer s.recoverPanic(w, r, nil, "App.All")
 	err := s.app.DELETEAll(r)
 	if err != nil {
@@ -244,8 +246,10 @@ func (s *Server) handleDELETEAll(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageFormGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageForm{
+type pageFormHandlers struct{ *Server }
+
+func (s pageFormHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageForm.GET")
@@ -268,7 +272,7 @@ func (s *Server) handlePageFormGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageFormPOSTSubmit(
+func (s pageFormHandlers) POSTSubmit(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -284,7 +288,7 @@ func (s *Server) handlePageFormPOSTSubmit(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageForm.Submit")
-	p := app.PageForm{
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	err := p.POSTSubmit(r, signals)
@@ -294,11 +298,11 @@ func (s *Server) handlePageFormPOSTSubmit(
 	}
 }
 
-func (s *Server) handlePageFormPUTReplace(
+func (s pageFormHandlers) PUTReplace(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	defer s.recoverPanic(w, r, nil, "PageForm.Replace")
-	p := app.PageForm{
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	err := p.PUTReplace(r)
@@ -308,11 +312,11 @@ func (s *Server) handlePageFormPUTReplace(
 	}
 }
 
-func (s *Server) handlePageFormPATCHTouch(
+func (s pageFormHandlers) PATCHTouch(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	defer s.recoverPanic(w, r, nil, "PageForm.Touch")
-	p := app.PageForm{
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	err := p.PATCHTouch(r)
@@ -322,11 +326,11 @@ func (s *Server) handlePageFormPATCHTouch(
 	}
 }
 
-func (s *Server) handlePageFormDELETERemove(
+func (s pageFormHandlers) DELETERemove(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	defer s.recoverPanic(w, r, nil, "PageForm.Remove")
-	p := app.PageForm{
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	err := p.DELETERemove(r)
@@ -336,7 +340,7 @@ func (s *Server) handlePageFormDELETERemove(
 	}
 }
 
-func (s *Server) handlePageFormPOSTBump(
+func (s pageFormHandlers) POSTBump(
 	w http.ResponseWriter, r *http.Request,
 ) {
 
@@ -367,7 +371,7 @@ func (s *Server) handlePageFormPOSTBump(
 		path.Values.ID = int(i)
 	}
 	defer s.recoverPanic(w, r, nil, "PageForm.Bump")
-	p := app.PageForm{
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	err := p.POSTBump(r, path, query)
@@ -377,11 +381,11 @@ func (s *Server) handlePageFormPOSTBump(
 	}
 }
 
-func (s *Server) handlePageFormPOSTRender(
+func (s pageFormHandlers) POSTRender(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	defer s.recoverPanic(w, r, nil, "PageForm.Render")
-	p := app.PageForm{
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	body, err := p.POSTRender(r)
@@ -398,11 +402,11 @@ func (s *Server) handlePageFormPOSTRender(
 	}
 }
 
-func (s *Server) handlePageFormPOSTGo(
+func (s pageFormHandlers) POSTGo(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	defer s.recoverPanic(w, r, nil, "PageForm.Go")
-	p := app.PageForm{
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	redirect, err := p.POSTGo(r)
@@ -415,7 +419,7 @@ func (s *Server) handlePageFormPOSTGo(
 	}
 }
 
-func (s *Server) handlePageFormPOSTGoStream(
+func (s pageFormHandlers) POSTGoStream(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -424,7 +428,7 @@ func (s *Server) handlePageFormPOSTGoStream(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageForm.GoStream")
-	p := app.PageForm{
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	redirect, err := p.POSTGoStream(r, dpsse.New(sse))
@@ -440,7 +444,7 @@ func (s *Server) handlePageFormPOSTGoStream(
 	}
 }
 
-func (s *Server) handlePageFormPOSTPatch(
+func (s pageFormHandlers) POSTPatch(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -457,7 +461,7 @@ func (s *Server) handlePageFormPOSTPatch(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageForm.Patch")
-	p := app.PageForm{
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	err := p.POSTPatch(r, dpsse.New(sse), signals)
@@ -467,7 +471,7 @@ func (s *Server) handlePageFormPOSTPatch(
 	}
 }
 
-func (s *Server) handlePageFormPOSTPatchAt(
+func (s pageFormHandlers) POSTPatchAt(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -485,7 +489,7 @@ func (s *Server) handlePageFormPOSTPatchAt(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageForm.PatchAt")
-	p := app.PageForm{
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	err := p.POSTPatchAt(r, dpsse.New(sse), signals)
@@ -495,7 +499,7 @@ func (s *Server) handlePageFormPOSTPatchAt(
 	}
 }
 
-func (s *Server) handlePageFormPOSTSignalsRaw(
+func (s pageFormHandlers) POSTSignalsRaw(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -504,7 +508,7 @@ func (s *Server) handlePageFormPOSTSignalsRaw(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageForm.SignalsRaw")
-	p := app.PageForm{
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	err := p.POSTSignalsRaw(r, dpsse.New(sse))
@@ -514,7 +518,7 @@ func (s *Server) handlePageFormPOSTSignalsRaw(
 	}
 }
 
-func (s *Server) handlePageFormPOSTSignalsMissing(
+func (s pageFormHandlers) POSTSignalsMissing(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -523,7 +527,7 @@ func (s *Server) handlePageFormPOSTSignalsMissing(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageForm.SignalsMissing")
-	p := app.PageForm{
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	err := p.POSTSignalsMissing(r, dpsse.New(sse))
@@ -533,7 +537,7 @@ func (s *Server) handlePageFormPOSTSignalsMissing(
 	}
 }
 
-func (s *Server) handlePageFormPOSTSignalsBad(
+func (s pageFormHandlers) POSTSignalsBad(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -542,7 +546,7 @@ func (s *Server) handlePageFormPOSTSignalsBad(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageForm.SignalsBad")
-	p := app.PageForm{
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	err := p.POSTSignalsBad(r, dpsse.New(sse))
@@ -552,7 +556,7 @@ func (s *Server) handlePageFormPOSTSignalsBad(
 	}
 }
 
-func (s *Server) handlePageFormPOSTRemove(
+func (s pageFormHandlers) POSTRemove(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -561,7 +565,7 @@ func (s *Server) handlePageFormPOSTRemove(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageForm.Remove")
-	p := app.PageForm{
+	p := dpapp.PageForm{
 		App: s.app,
 	}
 	err := p.POSTRemove(r, dpsse.New(sse))
@@ -571,13 +575,15 @@ func (s *Server) handlePageFormPOSTRemove(
 	}
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -600,8 +606,10 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageLogGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageLog{
+type pageLogHandlers struct{ *Server }
+
+func (s pageLogHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageLog{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageLog.GET")

@@ -169,8 +169,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexAdd references /add/
-func POSTPageIndexAdd(query QueryPOSTPageIndexAdd, options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Add pageIndex_Add
+}
+
+type pageIndex_Add struct{}
+
+// POST references /add/
+func (pageIndex_Add) POST(query pageIndex_Add_POSTQuery, options ...option) string {
 	var (
 		deltaStr string
 	)
@@ -218,6 +226,12 @@ func POSTPageIndexAdd(query QueryPOSTPageIndexAdd, options ...option) string {
 	return b.String()
 }
 
-type QueryPOSTPageIndexAdd struct {
+type pageIndex_Add_POSTQuery struct {
 	Delta int32 `query:"delta"`
+}
+
+func (pageIndex_Add) POSTQuery(vDelta int32) pageIndex_Add_POSTQuery {
+	return pageIndex_Add_POSTQuery{
+		Delta: vDelta,
+	}
 }

@@ -36,13 +36,13 @@ func TestContract(t *testing.T) {
 		HrefSetLogger:  href.SetLogger,
 		Links:          []string{href.PageIndex()},
 		StreamPath:     "/_$/",
-		DispatchAction: action.POSTPageIndexTick(),
+		DispatchAction: action.PageIndex.Tick.POST(),
 		DispatchBody:   `{"n":1}`,
-		Actions:        []string{action.POSTPageIndexTick()},
-		SignalActions:  []string{action.POSTPageIndexTick()},
+		Actions:        []string{action.PageIndex.Tick.POST()},
+		SignalActions:  []string{action.PageIndex.Tick.POST()},
 		// optionedAction carries every option at once.
 		// The keys and their order are asserted by the contract suite.
-		OptionedAction: action.POSTPageIndexTick(
+		OptionedAction: action.PageIndex.Tick.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),

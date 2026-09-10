@@ -97,28 +97,28 @@ func TestMethods(t *testing.T) {
 	}{
 		"post on a page": {
 			method: http.MethodPost,
-			expr:   action.POSTPageFormSubmit(),
+			expr:   action.PageForm.Submit.POST(),
 			body:   `{"name":"ada","age":36}`,
 			want:   `submit name="ada" age=36`,
 		},
 		"put on a page": {
 			method: http.MethodPut,
-			expr:   action.PUTPageFormReplace(),
+			expr:   action.PageForm.Replace.PUT(),
 			want:   "replace",
 		},
 		"patch on a page": {
 			method: http.MethodPatch,
-			expr:   action.PATCHPageFormTouch(),
+			expr:   action.PageForm.Touch.PATCH(),
 			want:   "touch",
 		},
 		"delete on a page": {
 			method: http.MethodDelete,
-			expr:   action.DELETEPageFormRemove(),
+			expr:   action.PageForm.Remove.DELETE(),
 			want:   "remove",
 		},
 		"post on the app": {
 			method: http.MethodPost,
-			expr:   action.POSTAppPing(),
+			expr:   action.App.Ping.POST(),
 			want:   "ping",
 		},
 	}
@@ -139,7 +139,7 @@ func TestParameters(t *testing.T) {
 	t.Parallel()
 	srv := newServer(t)
 
-	url := urlOf(t, action.POSTPageFormBump(7, action.QueryPOSTPageFormBump{By: 3}))
+	url := urlOf(t, action.PageForm.Bump.POST(7, action.PageForm.Bump.POSTQuery(3)))
 	status, body := srv.call(t, http.MethodPost, url, "")
 	require.Equal(t, http.StatusOK, status, "POST %s\n%s", url, body)
 	require.Equal(t, "bump id=7 by=3", srv.logOf(t))
@@ -151,7 +151,7 @@ func TestSignalsAreRequired(t *testing.T) {
 	t.Parallel()
 	srv := newServer(t)
 
-	url := urlOf(t, action.POSTPageFormSubmit())
+	url := urlOf(t, action.PageForm.Submit.POST())
 	status, _ := srv.call(t, http.MethodPost, url, `{"age":"not a number"}`)
 	require.Equal(t, http.StatusBadRequest, status)
 	require.Empty(t, srv.logOf(t), "the handler ran on a body it could not read")
@@ -165,8 +165,8 @@ func TestBodySizeLimit(t *testing.T) {
 	// datapagesgen.DefaultBodySizeLimit is 1 MiB.
 	body := `{"count":1,"pad":"` + strings.Repeat("a", 2*1024*1024) + `"}`
 	for name, expr := range map[string]string{
-		"signals":     action.POSTPageFormSubmit(),
-		"signals+sse": action.POSTPageFormPatch(),
+		"signals":     action.PageForm.Submit.POST(),
+		"signals+sse": action.PageForm.Patch.POST(),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -191,7 +191,7 @@ func TestBodySizeLimitOption(t *testing.T) {
 	pad := func(n int) string {
 		return `{"count":1,"pad":"` + strings.Repeat("a", n) + `"}`
 	}
-	url := urlOf(t, action.POSTPageFormSubmit())
+	url := urlOf(t, action.PageForm.Submit.POST())
 
 	status, _ := srv.call(t, http.MethodPost, url, pad(limit/2))
 	require.Equal(t, http.StatusOK, status, "a body under the limit")
@@ -499,65 +499,65 @@ func TestActionExpressions(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct{ got, want string }{
 		"page action": {
-			action.POSTPageFormSubmit(),
+			action.PageForm.Submit.POST(),
 			"@post('/form/submit/')",
 		},
 		"app action": {
-			action.POSTAppPing(),
+			action.App.Ping.POST(),
 			"@post('/ping/')",
 		},
 		"delete on the app": {
-			action.DELETEAppAll(),
+			action.App.All.DELETE(),
 			"@delete('/all/')",
 		},
 		"path variable": {
-			action.POSTPageFormBump(7, action.QueryPOSTPageFormBump{}),
+			action.PageForm.Bump.POST(7, action.PageForm.Bump.POSTQuery(0)),
 			"@post('/form/7/bump/')",
 		},
 		"path and query": {
-			action.POSTPageFormBump(7, action.QueryPOSTPageFormBump{By: 3}),
+			action.PageForm.Bump.POST(7, action.PageForm.Bump.POSTQuery(3)),
 			"@post('/form/7/bump/?by=3')",
 		},
 		"with an option": {
-			action.POSTPageFormSubmit(action.WithContentType(action.ContentTypeForm)),
+			action.PageForm.Submit.POST(action.WithContentType(action.ContentTypeForm)),
 			"@post('/form/submit/', {contentType: 'form'})",
 		},
 		"with a before expression": {
-			action.POSTPageFormSubmit(action.WithBefore("$busy = true")),
+			action.PageForm.Submit.POST(action.WithBefore("$busy = true")),
 			"$busy = true; @post('/form/submit/')",
 		},
 		"with an after expression": {
-			action.POSTPageFormSubmit(action.WithAfter("$busy = false")),
+			action.PageForm.Submit.POST(action.WithAfter("$busy = false")),
 			"@post('/form/submit/'); $busy = false",
 		},
 		"selector": {
-			action.POSTPageFormSubmit(action.WithSelector("#form")),
+			action.PageForm.Submit.POST(action.WithSelector("#form")),
 			"@post('/form/submit/', {selector: '#form'})",
 		},
 		"selector with a quote in it": {
-			action.POSTPageFormSubmit(action.WithSelector(`#it's`)),
+			action.PageForm.Submit.POST(action.WithSelector(`#it's`)),
 			`@post('/form/submit/', {selector: '#it\'s'})`,
 		},
 		"payload": {
-			action.POSTPageFormSubmit(action.WithPayload("{id: $id}")),
+			action.PageForm.Submit.POST(action.WithPayload("{id: $id}")),
 			"@post('/form/submit/', {payload: {id: $id}})",
 		},
 		"headers": {
-			action.POSTPageFormSubmit(
+			action.PageForm.Submit.POST(
 				action.WithHeaders(map[string]string{"X-Trace": "abc"}),
 			),
 			"@post('/form/submit/', {headers: {'X-Trace': 'abc'}})",
 		},
 		"filtered signals": {
-			action.POSTPageFormSubmit(action.WithFilterSignals("name", "secret")),
+			action.PageForm.Submit.POST(action.WithFilterSignals("name", "secret")),
 			"@post('/form/submit/', {filterSignals: {include: /name/, exclude: /secret/}})",
 		},
 		"open when hidden": {
-			action.POSTPageFormSubmit(action.WithOpenWhenHidden(true)),
+			action.PageForm.Submit.POST(action.WithOpenWhenHidden(true)),
 			"@post('/form/submit/', {openWhenHidden: true})",
 		},
 		"retry settings": {
-			action.POSTPageFormSubmit(
+			action.PageForm.Submit.POST(
 				action.WithRetry(action.RetryAlways),
 				action.WithRetryInterval(500),
 				action.WithRetryScaler(1.5),
@@ -568,37 +568,37 @@ func TestActionExpressions(t *testing.T) {
 				"retryScaler: 1.5, retryMaxWaitMs: 30000, retryMaxCount: 3})",
 		},
 		"request cancellation": {
-			action.POSTPageFormSubmit(
+			action.PageForm.Submit.POST(
 				action.WithRequestCancellation(action.RequestCancellationDisabled),
 			),
 			"@post('/form/submit/', {requestCancellation: 'disabled'})",
 		},
 		"an option with no typed helper": {
-			action.POSTPageFormSubmit(action.WithOption("custom", "$x")),
+			action.PageForm.Submit.POST(action.WithOption("custom", "$x")),
 			"@post('/form/submit/', {custom: $x})",
 		},
 		// The remaining entry points of the generated action package,
 		// with the inputs whose handling is a decision rather than a formatting rule.
 		"filtered signals defaulting the include": {
-			action.POSTPageFormSubmit(action.WithFilterSignals("", "secret")),
+			action.PageForm.Submit.POST(action.WithFilterSignals("", "secret")),
 			"@post('/form/submit/', {filterSignals: {include: /.*/, exclude: /secret/}})",
 		},
 		"filtered signals without an exclude": {
-			action.POSTPageFormSubmit(action.WithFilterSignals("name", "")),
+			action.PageForm.Submit.POST(action.WithFilterSignals("name", "")),
 			"@post('/form/submit/', {filterSignals: {include: /name/}})",
 		},
 		"a cancellation controller of the caller's own": {
-			action.POSTPageFormSubmit(
+			action.PageForm.Submit.POST(
 				action.WithRequestCancellationController("$myController"),
 			),
 			"@post('/form/submit/', {requestCancellation: $myController})",
 		},
 		"retries capped at none": {
-			action.POSTPageFormSubmit(action.WithRetryMaxCount(0)),
+			action.PageForm.Submit.POST(action.WithRetryMaxCount(0)),
 			"@post('/form/submit/', {retryMaxCount: 0})",
 		},
 		"before and after around options": {
-			action.POSTPageFormSubmit(
+			action.PageForm.Submit.POST(
 				action.WithBefore("$busy = true"),
 				action.WithContentType(action.ContentTypeForm),
 				action.WithAfter("$busy = false"),

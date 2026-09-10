@@ -14,6 +14,7 @@ import (
 	"go/types"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -44,7 +45,8 @@ type pkgMatcher struct {
 	// localName is the import qualifier (e.g. "href", "myhref").
 	// Empty for dot-imports.
 	localName string
-	// exports is the set of exported function names from the package.
+	// exports is the set of exported names of the package, which for the
+	// action package are the namespace values an action is a method on.
 	// Only populated for dot-imports; nil otherwise.
 	exports map[string]bool
 }
@@ -52,31 +54,50 @@ type pkgMatcher struct {
 // isCall reports whether call is a call to a function from this package.
 // Returns the called function name and true if matched.
 // Safe to call on a nil receiver (returns "", false).
+//
+// An action is reached through the namespace of its owner and of the action
+// itself, action.PageFoo.Bar.POST: a selector at any depth under the package matches.
+// The name returned is the path below the package,
+// "PageFoo.Bar.POST", which is what a template writes and what
+// buildActionOwnerMap keys on.
 func (m *pkgMatcher) isCall(call *ast.CallExpr) (funcName string, ok bool) {
 	if m == nil {
 		return "", false
 	}
+	root, path := selectorPath(call.Fun)
+	if root == nil {
+		return "", false
+	}
 	if m.exports != nil {
-		// Dot-import: match bare function calls by name.
-		ident, isIdent := call.Fun.(*ast.Ident)
-		if !isIdent {
+		// Dot-import: the root identifier is the exported name itself, and a
+		// bare call selects nothing from it.
+		if !m.exports[root.Name] {
 			return "", false
 		}
-		if m.exports[ident.Name] {
-			return ident.Name, true
+		return strings.Join(append([]string{root.Name}, path...), "."), true
+	}
+	if len(path) == 0 || root.Name != m.localName {
+		return "", false
+	}
+	return strings.Join(path, "."), true
+}
+
+// selectorPath splits a selector chain into its root identifier and the names
+// selected from it: "a.b.c" yields a and ["b", "c"].
+// root is nil for anything that is not a chain of selectors on an identifier.
+func selectorPath(expr ast.Expr) (root *ast.Ident, path []string) {
+	for {
+		switch x := expr.(type) {
+		case *ast.Ident:
+			slices.Reverse(path)
+			return x, path
+		case *ast.SelectorExpr:
+			path = append(path, x.Sel.Name)
+			expr = x.X
+		default:
+			return nil, nil
 		}
-		return "", false
 	}
-	// Qualified import: match pkg.Func() selector expressions.
-	sel, isSel := call.Fun.(*ast.SelectorExpr)
-	if !isSel {
-		return "", false
-	}
-	ident, isIdent := sel.X.(*ast.Ident)
-	if !isIdent || ident.Name != m.localName {
-		return "", false
-	}
-	return sel.Sel.Name, true
 }
 
 // parsedTempl holds a pre-parsed .templ file and its base filename.
@@ -857,19 +878,19 @@ func (c *checker) checkActionOwnership(
 	}
 }
 
-// buildActionOwnerMap returns a map from generated action function name
-// to the owning page type name (or "App" for app-level actions).
+// buildActionOwnerMap returns a map from the action as it is written in a
+// template to the owning page type name ("App" for app-level actions).
+//
+// The key is what [pkgMatcher.isCall] reports, "PageFoo.Bar.POST": the owner,
+// the action and the HTTP method, each a namespace below the one before it.
 func buildActionOwnerMap(app *model.App) map[string]string {
 	m := map[string]string{}
 	for _, a := range app.Actions {
-		funcName := strings.ToUpper(a.HTTPMethod) + "App" + a.Name
-		m[funcName] = "App"
+		m["App."+a.Name+"."+strings.ToUpper(a.HTTPMethod)] = "App"
 	}
 	for _, p := range app.Pages {
-		pageSuffix := strings.TrimPrefix(p.TypeName, "Page")
 		for _, a := range p.Actions {
-			funcName := strings.ToUpper(a.HTTPMethod) + "Page" + pageSuffix + a.Name
-			m[funcName] = p.TypeName
+			m[p.TypeName+"."+a.Name+"."+strings.ToUpper(a.HTTPMethod)] = p.TypeName
 		}
 	}
 	return m

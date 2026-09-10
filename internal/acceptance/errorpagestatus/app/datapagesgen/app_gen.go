@@ -16,7 +16,7 @@ import (
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 
-	"github.com/romshark/datapages/internal/acceptance/errorpagestatus/app"
+	dpapp "github.com/romshark/datapages/internal/acceptance/errorpagestatus/app"
 	"github.com/romshark/datapages/internal/acceptance/errorpagestatus/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -73,13 +73,13 @@ type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
-	app                  *app.App
+	app                  *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -93,12 +93,12 @@ type Server struct {
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package app declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -150,13 +150,13 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /not-found/{$}",
-		s.handlePageError404GET)
+		pageError404Handlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"POST /stream-fail/{$}",
-		s.handlePageIndexPOSTStreamFail)
+		pageIndexHandlers{s}.POSTStreamFail)
 }
 
 func (s *Server) httpErrIntern(
@@ -176,7 +176,7 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
-	p := app.PageError404{
+	p := dpapp.PageError404{
 		App: s.app,
 	}
 
@@ -202,8 +202,10 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageError404{
+type pageError404Handlers struct{ *Server }
+
+func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageError404{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
@@ -228,13 +230,15 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		s.render404(w, r)
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -256,7 +260,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexPOSTStreamFail(
+func (s pageIndexHandlers) POSTStreamFail(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -265,7 +269,7 @@ func (s *Server) handlePageIndexPOSTStreamFail(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageIndex.StreamFail")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTStreamFail(r, dpsse.New(sse))

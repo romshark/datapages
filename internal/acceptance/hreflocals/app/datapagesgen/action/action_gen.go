@@ -170,8 +170,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageLocalsSave references /locals/{b}/{l}/{n}/{bl}/{al}/save/
-func POSTPageLocalsSave(b string, l string, n string, bl string, al string, options ...option) string {
+var PageLocals pageLocals
+
+type pageLocals struct {
+	Save pageLocals_Save
+}
+
+type pageLocals_Save struct{}
+
+// POST references /locals/{b}/{l}/{n}/{bl}/{al}/save/
+func (pageLocals_Save) POST(b string, l string, n string, bl string, al string, options ...option) string {
 	s_b := url.PathEscape(b)
 	s_l := url.PathEscape(l)
 	s_n := url.PathEscape(n)
@@ -198,8 +206,16 @@ func POSTPageLocalsSave(b string, l string, n string, bl string, al string, opti
 	return b_.String()
 }
 
-// POSTPageMixStore references /mix/{l}/{n}/{pageStr}/store/
-func POSTPageMixStore(l int, n int, pageStr string, query QueryPOSTPageMixStore, options ...option) string {
+var PageMix pageMix
+
+type pageMix struct {
+	Store pageMix_Store
+}
+
+type pageMix_Store struct{}
+
+// POST references /mix/{l}/{n}/{pageStr}/store/
+func (pageMix_Store) POST(l int, n int, pageStr string, query pageMix_Store_POSTQuery, options ...option) string {
 	s_l := strconv.FormatInt(int64(l), 10)
 	s_n := strconv.FormatInt(int64(n), 10)
 	s_pageStr := url.PathEscape(pageStr)
@@ -256,12 +272,26 @@ func POSTPageMixStore(l int, n int, pageStr string, query QueryPOSTPageMixStore,
 	return b.String()
 }
 
-type QueryPOSTPageMixStore struct {
+type pageMix_Store_POSTQuery struct {
 	AnyQuery string `query:"anyQuery"`
 }
 
-// POSTPageParamsSave references /params/{query}/{options}/save/
-func POSTPageParamsSave(query string, options string, options_ ...option) string {
+func (pageMix_Store) POSTQuery(vAnyQuery string) pageMix_Store_POSTQuery {
+	return pageMix_Store_POSTQuery{
+		AnyQuery: vAnyQuery,
+	}
+}
+
+var PageParams pageParams
+
+type pageParams struct {
+	Save pageParams_Save
+}
+
+type pageParams_Save struct{}
+
+// POST references /params/{query}/{options}/save/
+func (pageParams_Save) POST(query string, options string, options_ ...option) string {
 	s_query := url.PathEscape(query)
 	s_options := url.PathEscape(options)
 	var b strings.Builder
@@ -279,8 +309,16 @@ func POSTPageParamsSave(query string, options string, options_ ...option) string
 	return b.String()
 }
 
-// POSTPageTagsSelect references /tags/select/
-func POSTPageTagsSelect(query QueryPOSTPageTagsSelect, options ...option) string {
+var PageTags pageTags
+
+type pageTags struct {
+	Select pageTags_Select
+}
+
+type pageTags_Select struct{}
+
+// POST references /tags/select/
+func (pageTags_Select) POST(query pageTags_Select_POSTQuery, options ...option) string {
 	var (
 		pageSizeStr string
 	)
@@ -328,6 +366,12 @@ func POSTPageTagsSelect(query QueryPOSTPageTagsSelect, options ...option) string
 	return b.String()
 }
 
-type QueryPOSTPageTagsSelect struct {
+type pageTags_Select_POSTQuery struct {
 	PageSize int `query:"page-size"`
+}
+
+func (pageTags_Select) POSTQuery(vPageSize int) pageTags_Select_POSTQuery {
+	return pageTags_Select_POSTQuery{
+		PageSize: vPageSize,
+	}
 }

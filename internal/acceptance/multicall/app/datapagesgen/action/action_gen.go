@@ -168,8 +168,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexTick references /tick/
-func POSTPageIndexTick(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Tick pageIndex_Tick
+}
+
+type pageIndex_Tick struct{}
+
+// POST references /tick/
+func (pageIndex_Tick) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/tick/')"
 	}

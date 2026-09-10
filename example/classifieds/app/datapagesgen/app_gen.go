@@ -26,7 +26,7 @@ import (
 	"github.com/romshark/datapages/runtime/stream"
 	"github.com/romshark/datapages/runtime/subject"
 
-	"github.com/romshark/datapages/example/classifieds/app"
+	dpapp "github.com/romshark/datapages/example/classifieds/app"
 	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/assets"
 	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/href"
 
@@ -119,14 +119,14 @@ type Server struct {
 	messageBroker        messaging.Broker
 	messageBrokerMetrics brokerMetrics
 	streams              *stream.Handler
-	app                  *app.App
+	app                  *dpapp.App
 	*auth.Manager[struct{}]
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, struct{}, datapages.EnablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, struct{}, datapages.EnablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -144,7 +144,7 @@ type Server struct {
 //   - datapages.WithPrometheus (required)
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[struct{}],
 ) error {
@@ -207,11 +207,11 @@ const (
 )
 
 const (
-	EvSubjPrefMessagingRead           = "messaging.read."
-	EvSubjPrefMessagingSent           = "messaging.sent."
-	EvSubjPrefMessagingWriting        = "messaging.writing."
-	EvSubjPrefMessagingWritingStopped = "messaging.writing-stopped."
-	EvSubjPrefSessionClosed           = "sessions.closed."
+	EvPrefixMessagingRead           = "messaging.read."
+	EvPrefixMessagingSent           = "messaging.sent."
+	EvPrefixMessagingWriting        = "messaging.writing."
+	EvPrefixMessagingWritingStopped = "messaging.writing-stopped."
+	EvPrefixSessionClosed           = "sessions.closed."
 )
 
 func MessageBrokerStreamSubjects() []string {
@@ -300,17 +300,17 @@ func evSubjPageUser(userID string) []string {
 // A metric labelled with the raw subject would carry one value per subject value.
 func brokerSubjectKind(subject string) string {
 	switch {
-	case strings.HasPrefix(subject, EvSubjPrefMessagingRead):
+	case strings.HasPrefix(subject, EvPrefixMessagingRead):
 		return "messaging.read"
-	case strings.HasPrefix(subject, EvSubjPrefMessagingSent):
+	case strings.HasPrefix(subject, EvPrefixMessagingSent):
 		return "messaging.sent"
-	case strings.HasPrefix(subject, EvSubjPrefMessagingWriting):
+	case strings.HasPrefix(subject, EvPrefixMessagingWriting):
 		return "messaging.writing"
-	case strings.HasPrefix(subject, EvSubjPrefMessagingWritingStopped):
+	case strings.HasPrefix(subject, EvPrefixMessagingWritingStopped):
 		return "messaging.writing-stopped"
 	case subject == EvSubjPostArchived:
 		return "posts.archived"
-	case strings.HasPrefix(subject, EvSubjPrefSessionClosed):
+	case strings.HasPrefix(subject, EvPrefixSessionClosed):
 		return "sessions.closed"
 	default:
 		return "unknown"
@@ -321,100 +321,100 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /not-found/{$}",
-		s.handlePageError404GET)
+		pageError404Handlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /not-found/_$/{$}",
-		s.handlePageError404GETStream)
+		pageError404Handlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /whoops/{$}",
-		s.handlePageError500GET)
+		pageError500Handlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /_$/{$}",
-		s.handlePageIndexGETStream)
+		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /login/{$}",
-		s.handlePageLoginGET)
+		pageLoginHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /messages/{$}",
-		s.handlePageMessagesGET)
+		pageMessagesHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /messages/_$/{$}",
-		s.handlePageMessagesGETStream)
+		pageMessagesHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /my-posts/{$}",
-		s.handlePageMyPostsGET)
+		pageMyPostsHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /my-posts/_$/{$}",
-		s.handlePageMyPostsGETStream)
+		pageMyPostsHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /post/{slug}/{$}",
-		s.handlePagePostGET)
+		pagePostHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /post/{slug}/_$/{$}",
-		s.handlePagePostGETStream)
+		pagePostHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /post/{slug}/_$/anon/{$}",
-		s.handlePagePostGETStreamAnon)
+		pagePostHandlers{s}.GETStreamAnon)
 	s.Mux().HandleFunc(
 		"GET /search/{$}",
-		s.handlePageSearchGET)
+		pageSearchHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /search/_$/{$}",
-		s.handlePageSearchGETStream)
+		pageSearchHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /settings/{$}",
-		s.handlePageSettingsGET)
+		pageSettingsHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /settings/_$/{$}",
-		s.handlePageSettingsGETStream)
+		pageSettingsHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /user/{name}/{$}",
-		s.handlePageUserGET)
+		pageUserHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /user/{name}/_$/{$}",
-		s.handlePageUserGETStream)
+		pageUserHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /user/{name}/_$/anon/{$}",
-		s.handlePageUserGETStreamAnon)
+		pageUserHandlers{s}.GETStreamAnon)
 	s.Mux().HandleFunc(
 		"POST /sign-out/{$}",
-		s.handlePOSTSignOut)
+		appHandlers{s}.POSTSignOut)
 	s.Mux().HandleFunc(
 		"POST /cause-500-internal-error/{$}",
-		s.handlePOSTCause500)
+		appHandlers{s}.POSTCause500)
 	s.Mux().HandleFunc(
 		"POST /login/submit/{$}",
-		s.handlePageLoginPOSTSubmit)
+		pageLoginHandlers{s}.POSTSubmit)
 	s.Mux().HandleFunc(
 		"POST /messages/read/{$}",
-		s.handlePageMessagesPOSTRead)
+		pageMessagesHandlers{s}.POSTRead)
 	s.Mux().HandleFunc(
 		"POST /messages/writing/{$}",
-		s.handlePageMessagesPOSTWriting)
+		pageMessagesHandlers{s}.POSTWriting)
 	s.Mux().HandleFunc(
 		"POST /messages/writing-stopped/{$}",
-		s.handlePageMessagesPOSTWritingStopped)
+		pageMessagesHandlers{s}.POSTWritingStopped)
 	s.Mux().HandleFunc(
 		"POST /messages/sendmessage/{$}",
-		s.handlePageMessagesPOSTSendMessage)
+		pageMessagesHandlers{s}.POSTSendMessage)
 	s.Mux().HandleFunc(
 		"POST /post/{slug}/send-message/{$}",
-		s.handlePagePostPOSTSendMessage)
+		pagePostHandlers{s}.POSTSendMessage)
 	s.Mux().HandleFunc(
 		"POST /search/paramchange/{$}",
-		s.handlePageSearchPOSTParamChange)
+		pageSearchHandlers{s}.POSTParamChange)
 	s.Mux().HandleFunc(
 		"POST /settings/save/{$}",
-		s.handlePageSettingsPOSTSave)
+		pageSettingsHandlers{s}.POSTSave)
 	s.Mux().HandleFunc(
 		"POST /settings/close-session/{token}/{$}",
-		s.handlePageSettingsPOSTCloseSession)
+		pageSettingsHandlers{s}.POSTCloseSession)
 	s.Mux().HandleFunc(
 		"POST /settings/close-all-sessions/{$}",
-		s.handlePageSettingsPOSTCloseAllSessions)
+		pageSettingsHandlers{s}.POSTCloseAllSessions)
 }
 
 // httpErrFinal writes the error response without rendering PageError500.
@@ -440,7 +440,7 @@ func (s *Server) httpErrIntern(
 		}
 		// The page serves 200 on its own route. Reached from here it carries 500.
 		w.WriteHeader(http.StatusInternalServerError)
-		s.handlePageError500GET(w, r)
+		pageError500Handlers{s}.GET(w, r)
 		return
 	}
 	// committed reports that the stream is open, hence no status is left to send.
@@ -477,9 +477,9 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := app.PageError404{
+	p := dpapp.PageError404{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -504,7 +504,9 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
+type appHandlers struct{ *Server }
+
+func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 	sess, sessToken, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -526,7 +528,7 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePOSTCause500(w http.ResponseWriter, r *http.Request) {
+func (s appHandlers) POSTCause500(w http.ResponseWriter, r *http.Request) {
 	// The CSRF token comes from the cookie, hence no store read here.
 	if !s.CheckCSRFOnly(w, r) {
 		return
@@ -539,15 +541,17 @@ func (s *Server) handlePOSTCause500(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
+type pageError404Handlers struct{ *Server }
+
+func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.PageError404{
+	p := dpapp.PageError404{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -578,7 +582,7 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageError404GETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageError404Handlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -592,9 +596,9 @@ func (s *Server) handlePageError404GETStream(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	p := app.PageError404{
+	p := dpapp.PageError404{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -606,12 +610,12 @@ func (s *Server) handlePageError404GETStream(w http.ResponseWriter, r *http.Requ
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageError404 stream")
-			var eventMessagingSent app.EventMessagingSent
-			var eventMessagingRead app.EventMessagingRead
+			var eventMessagingSent dpapp.EventMessagingSent
+			var eventMessagingRead dpapp.EventMessagingRead
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					eventMessagingSent = app.EventMessagingSent{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingSent):
+					eventMessagingSent = dpapp.EventMessagingSent{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
@@ -619,8 +623,8 @@ func (s *Server) handlePageError404GETStream(w http.ResponseWriter, r *http.Requ
 					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
 						s.LogErr("handling PageError404.OnMessagingSent", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					eventMessagingRead = app.EventMessagingRead{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
+					eventMessagingRead = dpapp.EventMessagingRead{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
@@ -633,8 +637,10 @@ func (s *Server) handlePageError404GETStream(w http.ResponseWriter, r *http.Requ
 		})
 }
 
-func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageError500{
+type pageError500Handlers struct{ *Server }
+
+func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageError500{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageError500.GET")
@@ -659,7 +665,9 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -670,9 +678,9 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -703,7 +711,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -717,9 +725,9 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -731,12 +739,12 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
-			var eventMessagingSent app.EventMessagingSent
-			var eventMessagingRead app.EventMessagingRead
+			var eventMessagingSent dpapp.EventMessagingSent
+			var eventMessagingRead dpapp.EventMessagingRead
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					eventMessagingSent = app.EventMessagingSent{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingSent):
+					eventMessagingSent = dpapp.EventMessagingSent{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
@@ -744,8 +752,8 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
 						s.LogErr("handling PageIndex.OnMessagingSent", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					eventMessagingRead = app.EventMessagingRead{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
+					eventMessagingRead = dpapp.EventMessagingRead{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
@@ -758,13 +766,15 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		})
 }
 
-func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
+type pageLoginHandlers struct{ *Server }
+
+func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.PageLogin{
+	p := dpapp.PageLogin{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.GET")
@@ -792,7 +802,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageLoginPOSTSubmit(
+func (s pageLoginHandlers) POSTSubmit(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -812,7 +822,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.Submit")
-	p := app.PageLogin{
+	p := dpapp.PageLogin{
 		App: s.app,
 	}
 	body, redirect, newSession, err := p.POSTSubmit(r, sess, signals)
@@ -840,7 +850,9 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	}
 }
 
-func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
+type pageMessagesHandlers struct{ *Server }
+
+func (s pageMessagesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -851,9 +863,9 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 	}]
 	query.Values.Chat = httpread.QueryValue(r.URL.RawQuery, "chat")
 
-	p := app.PageMessages{
+	p := dpapp.PageMessages{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -904,7 +916,7 @@ func (s *Server) handlePageMessagesGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageMessagesHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -918,9 +930,9 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	p := app.PageMessages{
+	p := dpapp.PageMessages{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -932,14 +944,14 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageMessages stream")
-			var eventMessagingRead app.EventMessagingRead
-			var eventMessagingWriting app.EventMessagingWriting
-			var eventMessagingWritingStopped app.EventMessagingWritingStopped
-			var eventMessagingSent app.EventMessagingSent
+			var eventMessagingRead dpapp.EventMessagingRead
+			var eventMessagingWriting dpapp.EventMessagingWriting
+			var eventMessagingWritingStopped dpapp.EventMessagingWritingStopped
+			var eventMessagingSent dpapp.EventMessagingSent
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					eventMessagingRead = app.EventMessagingRead{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
+					eventMessagingRead = dpapp.EventMessagingRead{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
@@ -947,8 +959,8 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 					if err := p.OnMessagingRead(eventMessagingRead, dpsse.New(sse), sess); err != nil {
 						s.LogErr("handling PageMessages.OnMessagingRead", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingWriting):
-					eventMessagingWriting = app.EventMessagingWriting{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingWriting):
+					eventMessagingWriting = dpapp.EventMessagingWriting{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingWriting); err != nil {
 						s.LogErr("unmarshaling EventMessagingWriting JSON", err)
 						continue
@@ -956,8 +968,8 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 					if err := p.OnMessagingWriting(eventMessagingWriting, dpsse.New(sse), sess); err != nil {
 						s.LogErr("handling PageMessages.OnMessagingWriting", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingWritingStopped):
-					eventMessagingWritingStopped = app.EventMessagingWritingStopped{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingWritingStopped):
+					eventMessagingWritingStopped = dpapp.EventMessagingWritingStopped{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingWritingStopped); err != nil {
 						s.LogErr("unmarshaling EventMessagingWritingStopped JSON", err)
 						continue
@@ -965,8 +977,8 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 					if err := p.OnMessagingWritingStopped(eventMessagingWritingStopped, dpsse.New(sse), sess); err != nil {
 						s.LogErr("handling PageMessages.OnMessagingWritingStopped", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					eventMessagingSent = app.EventMessagingSent{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingSent):
+					eventMessagingSent = dpapp.EventMessagingSent{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
@@ -979,7 +991,7 @@ func (s *Server) handlePageMessagesGETStream(w http.ResponseWriter, r *http.Requ
 		})
 }
 
-func (s *Server) handlePageMessagesPOSTRead(
+func (s pageMessagesHandlers) POSTRead(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -1003,11 +1015,11 @@ func (s *Server) handlePageMessagesPOSTRead(
 	}]
 	query.Values.MessageID = httpread.QueryValue(r.URL.RawQuery, "msgid")
 
-	dispatchMessagingRead := dispatcherEventMessagingRead{s: s, ctx: r.Context()}
+	dispatchMessagingRead := dispatcherEventMessagingRead{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageMessages.Read")
-	p := app.PageMessages{
+	p := dpapp.PageMessages{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1018,7 +1030,7 @@ func (s *Server) handlePageMessagesPOSTRead(
 	}
 }
 
-func (s *Server) handlePageMessagesPOSTWriting(
+func (s pageMessagesHandlers) POSTWriting(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -1037,11 +1049,11 @@ func (s *Server) handlePageMessagesPOSTWriting(
 		return
 	}
 
-	dispatchMessagingWriting := dispatcherEventMessagingWriting{s: s, ctx: r.Context()}
+	dispatchMessagingWriting := dispatcherEventMessagingWriting{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageMessages.Writing")
-	p := app.PageMessages{
+	p := dpapp.PageMessages{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1052,7 +1064,7 @@ func (s *Server) handlePageMessagesPOSTWriting(
 	}
 }
 
-func (s *Server) handlePageMessagesPOSTWritingStopped(
+func (s pageMessagesHandlers) POSTWritingStopped(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -1071,11 +1083,11 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 		return
 	}
 
-	dispatchMessagingWritingStopped := dispatcherEventMessagingWritingStopped{s: s, ctx: r.Context()}
+	dispatchMessagingWritingStopped := dispatcherEventMessagingWritingStopped{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageMessages.WritingStopped")
-	p := app.PageMessages{
+	p := dpapp.PageMessages{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1086,7 +1098,7 @@ func (s *Server) handlePageMessagesPOSTWritingStopped(
 	}
 }
 
-func (s *Server) handlePageMessagesPOSTSendMessage(
+func (s pageMessagesHandlers) POSTSendMessage(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -1106,13 +1118,13 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 		return
 	}
 
-	dispatchMessagingWritingStopped := dispatcherEventMessagingWritingStopped{s: s, ctx: r.Context()}
+	dispatchMessagingWritingStopped := dispatcherEventMessagingWritingStopped{s: s.Server, ctx: r.Context()}
 
-	dispatchMessagingSent := dispatcherEventMessagingSent{s: s, ctx: r.Context()}
+	dispatchMessagingSent := dispatcherEventMessagingSent{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageMessages.SendMessage")
-	p := app.PageMessages{
+	p := dpapp.PageMessages{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1123,15 +1135,17 @@ func (s *Server) handlePageMessagesPOSTSendMessage(
 	}
 }
 
-func (s *Server) handlePageMyPostsGET(w http.ResponseWriter, r *http.Request) {
+type pageMyPostsHandlers struct{ *Server }
+
+func (s pageMyPostsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.PageMyPosts{
+	p := dpapp.PageMyPosts{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1165,7 +1179,7 @@ func (s *Server) handlePageMyPostsGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageMyPostsGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageMyPostsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1179,9 +1193,9 @@ func (s *Server) handlePageMyPostsGETStream(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	p := app.PageMyPosts{
+	p := dpapp.PageMyPosts{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1193,12 +1207,12 @@ func (s *Server) handlePageMyPostsGETStream(w http.ResponseWriter, r *http.Reque
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageMyPosts stream")
-			var eventMessagingSent app.EventMessagingSent
-			var eventMessagingRead app.EventMessagingRead
+			var eventMessagingSent dpapp.EventMessagingSent
+			var eventMessagingRead dpapp.EventMessagingRead
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					eventMessagingSent = app.EventMessagingSent{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingSent):
+					eventMessagingSent = dpapp.EventMessagingSent{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
@@ -1206,8 +1220,8 @@ func (s *Server) handlePageMyPostsGETStream(w http.ResponseWriter, r *http.Reque
 					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
 						s.LogErr("handling PageMyPosts.OnMessagingSent", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					eventMessagingRead = app.EventMessagingRead{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
+					eventMessagingRead = dpapp.EventMessagingRead{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
@@ -1220,7 +1234,9 @@ func (s *Server) handlePageMyPostsGETStream(w http.ResponseWriter, r *http.Reque
 		})
 }
 
-func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
+type pagePostHandlers struct{ *Server }
+
+func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -1231,9 +1247,9 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 	}]
 	path.Values.Slug = r.PathValue("slug")
 
-	p := app.PagePost{
+	p := dpapp.PagePost{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1273,7 +1289,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1295,9 +1311,9 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	p := app.PagePost{
+	p := dpapp.PagePost{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1309,13 +1325,13 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PagePost stream")
-			var eventPostArchived app.EventPostArchived
-			var eventMessagingSent app.EventMessagingSent
-			var eventMessagingRead app.EventMessagingRead
+			var eventPostArchived dpapp.EventPostArchived
+			var eventMessagingSent dpapp.EventMessagingSent
+			var eventMessagingRead dpapp.EventMessagingRead
 			for msg := range ch {
 				switch {
 				case msg.Subject == EvSubjPostArchived:
-					eventPostArchived = app.EventPostArchived{}
+					eventPostArchived = dpapp.EventPostArchived{}
 					if err := json.Unmarshal(msg.Data, &eventPostArchived); err != nil {
 						s.LogErr("unmarshaling EventPostArchived JSON", err)
 						continue
@@ -1323,8 +1339,8 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 					if err := p.OnPostArchived(eventPostArchived, dpsse.New(sse), sess); err != nil {
 						s.LogErr("handling PagePost.OnPostArchived", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					eventMessagingSent = app.EventMessagingSent{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingSent):
+					eventMessagingSent = dpapp.EventMessagingSent{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
@@ -1332,8 +1348,8 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
 						s.LogErr("handling PagePost.OnMessagingSent", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					eventMessagingRead = app.EventMessagingRead{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
+					eventMessagingRead = dpapp.EventMessagingRead{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
@@ -1346,7 +1362,7 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 		})
 }
 
-func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Request) {
+func (s pagePostHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1360,9 +1376,9 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	p := app.PagePost{
+	p := dpapp.PagePost{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1373,11 +1389,11 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
-			var eventPostArchived app.EventPostArchived
+			var eventPostArchived dpapp.EventPostArchived
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjPostArchived:
-					eventPostArchived = app.EventPostArchived{}
+					eventPostArchived = dpapp.EventPostArchived{}
 					if err := json.Unmarshal(msg.Data, &eventPostArchived); err != nil {
 						s.LogErr("unmarshaling EventPostArchived JSON", err)
 						continue
@@ -1390,7 +1406,7 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 		})
 }
 
-func (s *Server) handlePagePostPOSTSendMessage(
+func (s pagePostHandlers) POSTSendMessage(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -1414,13 +1430,13 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	}]
 	path.Values.Slug = r.PathValue("slug")
 
-	dispatchMessagingSent := dispatcherEventMessagingSent{s: s, ctx: r.Context()}
+	dispatchMessagingSent := dispatcherEventMessagingSent{s: s.Server, ctx: r.Context()}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PagePost.SendMessage")
-	p := app.PagePost{
+	p := dpapp.PagePost{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1431,13 +1447,15 @@ func (s *Server) handlePagePostPOSTSendMessage(
 	}
 }
 
-func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
+type pageSearchHandlers struct{ *Server }
+
+func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	var query datapages.Query[app.SearchParams]
+	var query datapages.Query[dpapp.SearchParams]
 	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "t")
 	query.Values.Category = httpread.QueryValue(r.URL.RawQuery, "c")
 	{
@@ -1462,9 +1480,9 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 	}
 	query.Values.Location = httpread.QueryValue(r.URL.RawQuery, "l")
 
-	p := app.PageSearch{
+	p := dpapp.PageSearch{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1525,7 +1543,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageSearchHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1539,9 +1557,9 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	p := app.PageSearch{
+	p := dpapp.PageSearch{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1553,12 +1571,12 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageSearch stream")
-			var eventMessagingSent app.EventMessagingSent
-			var eventMessagingRead app.EventMessagingRead
+			var eventMessagingSent dpapp.EventMessagingSent
+			var eventMessagingRead dpapp.EventMessagingRead
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					eventMessagingSent = app.EventMessagingSent{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingSent):
+					eventMessagingSent = dpapp.EventMessagingSent{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
@@ -1566,8 +1584,8 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
 						s.LogErr("handling PageSearch.OnMessagingSent", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					eventMessagingRead = app.EventMessagingRead{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
+					eventMessagingRead = dpapp.EventMessagingRead{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
@@ -1580,7 +1598,7 @@ func (s *Server) handlePageSearchGETStream(w http.ResponseWriter, r *http.Reques
 		})
 }
 
-func (s *Server) handlePageSearchPOSTParamChange(
+func (s pageSearchHandlers) POSTParamChange(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -1591,7 +1609,7 @@ func (s *Server) handlePageSearchPOSTParamChange(
 		return
 	}
 	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
-	var signals datapages.Signals[app.SearchParams]
+	var signals datapages.Signals[dpapp.SearchParams]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
@@ -1599,9 +1617,9 @@ func (s *Server) handlePageSearchPOSTParamChange(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageSearch.ParamChange")
-	p := app.PageSearch{
+	p := dpapp.PageSearch{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1612,15 +1630,17 @@ func (s *Server) handlePageSearchPOSTParamChange(
 	}
 }
 
-func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
+type pageSettingsHandlers struct{ *Server }
+
+func (s pageSettingsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.PageSettings{
+	p := dpapp.PageSettings{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1654,7 +1674,7 @@ func (s *Server) handlePageSettingsGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageSettingsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1668,9 +1688,9 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	p := app.PageSettings{
+	p := dpapp.PageSettings{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1682,13 +1702,13 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageSettings stream")
-			var eventSessionClosed app.EventSessionClosed
-			var eventMessagingSent app.EventMessagingSent
-			var eventMessagingRead app.EventMessagingRead
+			var eventSessionClosed dpapp.EventSessionClosed
+			var eventMessagingSent dpapp.EventMessagingSent
+			var eventMessagingRead dpapp.EventMessagingRead
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefSessionClosed):
-					eventSessionClosed = app.EventSessionClosed{}
+				case strings.HasPrefix(msg.Subject, EvPrefixSessionClosed):
+					eventSessionClosed = dpapp.EventSessionClosed{}
 					if err := json.Unmarshal(msg.Data, &eventSessionClosed); err != nil {
 						s.LogErr("unmarshaling EventSessionClosed JSON", err)
 						continue
@@ -1696,8 +1716,8 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 					if err := p.OnSessionClosed(eventSessionClosed, dpsse.New(sse), sess); err != nil {
 						s.LogErr("handling PageSettings.OnSessionClosed", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					eventMessagingSent = app.EventMessagingSent{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingSent):
+					eventMessagingSent = dpapp.EventMessagingSent{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
@@ -1705,8 +1725,8 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
 						s.LogErr("handling PageSettings.OnMessagingSent", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					eventMessagingRead = app.EventMessagingRead{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
+					eventMessagingRead = dpapp.EventMessagingRead{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
@@ -1719,7 +1739,7 @@ func (s *Server) handlePageSettingsGETStream(w http.ResponseWriter, r *http.Requ
 		})
 }
 
-func (s *Server) handlePageSettingsPOSTSave(
+func (s pageSettingsHandlers) POSTSave(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -1740,9 +1760,9 @@ func (s *Server) handlePageSettingsPOSTSave(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageSettings.Save")
-	p := app.PageSettings{
+	p := dpapp.PageSettings{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1759,7 +1779,7 @@ func (s *Server) handlePageSettingsPOSTSave(
 	}
 }
 
-func (s *Server) handlePageSettingsPOSTCloseSession(
+func (s pageSettingsHandlers) POSTCloseSession(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	sess, sessToken, ok := s.ReadSession(w, r)
@@ -1772,11 +1792,11 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 	}]
 	path.Values.Token = r.PathValue("token")
 
-	dispatchSessionClosed := dispatcherEventSessionClosed{s: s, ctx: r.Context()}
+	dispatchSessionClosed := dispatcherEventSessionClosed{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageSettings.CloseSession")
-	p := app.PageSettings{
+	p := dpapp.PageSettings{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1796,7 +1816,7 @@ func (s *Server) handlePageSettingsPOSTCloseSession(
 	}
 }
 
-func (s *Server) handlePageSettingsPOSTCloseAllSessions(
+func (s pageSettingsHandlers) POSTCloseAllSessions(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	sess, _, ok := s.ReadSession(w, r)
@@ -1804,11 +1824,11 @@ func (s *Server) handlePageSettingsPOSTCloseAllSessions(
 		return
 	}
 
-	dispatchSessionClosed := dispatcherEventSessionClosed{s: s, ctx: r.Context()}
+	dispatchSessionClosed := dispatcherEventSessionClosed{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageSettings.CloseAllSessions")
-	p := app.PageSettings{
+	p := dpapp.PageSettings{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1822,7 +1842,9 @@ func (s *Server) handlePageSettingsPOSTCloseAllSessions(
 	}
 }
 
-func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
+type pageUserHandlers struct{ *Server }
+
+func (s pageUserHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -1833,9 +1855,9 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 	}]
 	path.Values.Name = r.PathValue("name")
 
-	p := app.PageUser{
+	p := dpapp.PageUser{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1875,7 +1897,7 @@ func (s *Server) handlePageUserGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageUserGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageUserHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1897,9 +1919,9 @@ func (s *Server) handlePageUserGETStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	p := app.PageUser{
+	p := dpapp.PageUser{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1911,13 +1933,13 @@ func (s *Server) handlePageUserGETStream(w http.ResponseWriter, r *http.Request)
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageUser stream")
-			var eventPostArchived app.EventPostArchived
-			var eventMessagingSent app.EventMessagingSent
-			var eventMessagingRead app.EventMessagingRead
+			var eventPostArchived dpapp.EventPostArchived
+			var eventMessagingSent dpapp.EventMessagingSent
+			var eventMessagingRead dpapp.EventMessagingRead
 			for msg := range ch {
 				switch {
 				case msg.Subject == EvSubjPostArchived:
-					eventPostArchived = app.EventPostArchived{}
+					eventPostArchived = dpapp.EventPostArchived{}
 					if err := json.Unmarshal(msg.Data, &eventPostArchived); err != nil {
 						s.LogErr("unmarshaling EventPostArchived JSON", err)
 						continue
@@ -1925,8 +1947,8 @@ func (s *Server) handlePageUserGETStream(w http.ResponseWriter, r *http.Request)
 					if err := p.OnPostArchived(eventPostArchived, dpsse.New(sse), sess); err != nil {
 						s.LogErr("handling PageUser.OnPostArchived", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingSent):
-					eventMessagingSent = app.EventMessagingSent{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingSent):
+					eventMessagingSent = dpapp.EventMessagingSent{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingSent); err != nil {
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
@@ -1934,8 +1956,8 @@ func (s *Server) handlePageUserGETStream(w http.ResponseWriter, r *http.Request)
 					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
 						s.LogErr("handling PageUser.OnMessagingSent", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefMessagingRead):
-					eventMessagingRead = app.EventMessagingRead{}
+				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
+					eventMessagingRead = dpapp.EventMessagingRead{}
 					if err := json.Unmarshal(msg.Data, &eventMessagingRead); err != nil {
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
@@ -1948,7 +1970,7 @@ func (s *Server) handlePageUserGETStream(w http.ResponseWriter, r *http.Request)
 		})
 }
 
-func (s *Server) handlePageUserGETStreamAnon(w http.ResponseWriter, r *http.Request) {
+func (s pageUserHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1962,9 +1984,9 @@ func (s *Server) handlePageUserGETStreamAnon(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	p := app.PageUser{
+	p := dpapp.PageUser{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -1975,11 +1997,11 @@ func (s *Server) handlePageUserGETStreamAnon(w http.ResponseWriter, r *http.Requ
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
-			var eventPostArchived app.EventPostArchived
+			var eventPostArchived dpapp.EventPostArchived
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjPostArchived:
-					eventPostArchived = app.EventPostArchived{}
+					eventPostArchived = dpapp.EventPostArchived{}
 					if err := json.Unmarshal(msg.Data, &eventPostArchived); err != nil {
 						s.LogErr("unmarshaling EventPostArchived JSON", err)
 						continue
@@ -1997,12 +2019,12 @@ type dispatcherEventMessagingRead struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventMessagingRead) Dispatch(e app.EventMessagingRead) error {
+func (d dispatcherEventMessagingRead) Dispatch(e dpapp.EventMessagingRead) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventMessagingRead) DispatchCtx(
-	ctx context.Context, e app.EventMessagingRead,
+	ctx context.Context, e dpapp.EventMessagingRead,
 ) error {
 	if e.Recipient == "" {
 		return errors.New("EventMessagingRead.Recipient must not be empty")
@@ -2024,12 +2046,12 @@ type dispatcherEventMessagingWriting struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventMessagingWriting) Dispatch(e app.EventMessagingWriting) error {
+func (d dispatcherEventMessagingWriting) Dispatch(e dpapp.EventMessagingWriting) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventMessagingWriting) DispatchCtx(
-	ctx context.Context, e app.EventMessagingWriting,
+	ctx context.Context, e dpapp.EventMessagingWriting,
 ) error {
 	if e.Recipient == "" {
 		return errors.New("EventMessagingWriting.Recipient must not be empty")
@@ -2051,12 +2073,12 @@ type dispatcherEventMessagingWritingStopped struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventMessagingWritingStopped) Dispatch(e app.EventMessagingWritingStopped) error {
+func (d dispatcherEventMessagingWritingStopped) Dispatch(e dpapp.EventMessagingWritingStopped) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventMessagingWritingStopped) DispatchCtx(
-	ctx context.Context, e app.EventMessagingWritingStopped,
+	ctx context.Context, e dpapp.EventMessagingWritingStopped,
 ) error {
 	if e.Recipient == "" {
 		return errors.New("EventMessagingWritingStopped.Recipient must not be empty")
@@ -2078,12 +2100,12 @@ type dispatcherEventMessagingSent struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventMessagingSent) Dispatch(e app.EventMessagingSent) error {
+func (d dispatcherEventMessagingSent) Dispatch(e dpapp.EventMessagingSent) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventMessagingSent) DispatchCtx(
-	ctx context.Context, e app.EventMessagingSent,
+	ctx context.Context, e dpapp.EventMessagingSent,
 ) error {
 	if e.Recipient == "" {
 		return errors.New("EventMessagingSent.Recipient must not be empty")
@@ -2105,12 +2127,12 @@ type dispatcherEventSessionClosed struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventSessionClosed) Dispatch(e app.EventSessionClosed) error {
+func (d dispatcherEventSessionClosed) Dispatch(e dpapp.EventSessionClosed) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventSessionClosed) DispatchCtx(
-	ctx context.Context, e app.EventSessionClosed,
+	ctx context.Context, e dpapp.EventSessionClosed,
 ) error {
 	if e.Recipient == "" {
 		return errors.New("EventSessionClosed.Recipient must not be empty")

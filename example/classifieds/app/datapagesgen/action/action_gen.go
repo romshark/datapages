@@ -169,8 +169,17 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTAppCause500 references /cause-500-internal-error/
-func POSTAppCause500(options ...option) string {
+var App app
+
+type app struct {
+	Cause500 app_Cause500
+	SignOut  app_SignOut
+}
+
+type app_Cause500 struct{}
+
+// POST references /cause-500-internal-error/
+func (app_Cause500) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/cause-500-internal-error/')"
 	}
@@ -185,8 +194,10 @@ func POSTAppCause500(options ...option) string {
 	return b.String()
 }
 
-// POSTAppSignOut references /sign-out/
-func POSTAppSignOut(options ...option) string {
+type app_SignOut struct{}
+
+// POST references /sign-out/
+func (app_SignOut) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/sign-out/')"
 	}
@@ -201,8 +212,16 @@ func POSTAppSignOut(options ...option) string {
 	return b.String()
 }
 
-// POSTPageLoginSubmit references /login/submit/
-func POSTPageLoginSubmit(options ...option) string {
+var PageLogin pageLogin
+
+type pageLogin struct {
+	Submit pageLogin_Submit
+}
+
+type pageLogin_Submit struct{}
+
+// POST references /login/submit/
+func (pageLogin_Submit) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/login/submit/')"
 	}
@@ -217,8 +236,19 @@ func POSTPageLoginSubmit(options ...option) string {
 	return b.String()
 }
 
-// POSTPageMessagesRead references /messages/read/
-func POSTPageMessagesRead(query QueryPOSTPageMessagesRead, options ...option) string {
+var PageMessages pageMessages
+
+type pageMessages struct {
+	Read           pageMessages_Read
+	SendMessage    pageMessages_SendMessage
+	Writing        pageMessages_Writing
+	WritingStopped pageMessages_WritingStopped
+}
+
+type pageMessages_Read struct{}
+
+// POST references /messages/read/
+func (pageMessages_Read) POST(query pageMessages_Read_POSTQuery, options ...option) string {
 	var (
 		messageIDStr string
 	)
@@ -266,12 +296,20 @@ func POSTPageMessagesRead(query QueryPOSTPageMessagesRead, options ...option) st
 	return b.String()
 }
 
-type QueryPOSTPageMessagesRead struct {
+type pageMessages_Read_POSTQuery struct {
 	MessageID string `query:"msgid"`
 }
 
-// POSTPageMessagesSendMessage references /messages/sendmessage/
-func POSTPageMessagesSendMessage(options ...option) string {
+func (pageMessages_Read) POSTQuery(vMessageID string) pageMessages_Read_POSTQuery {
+	return pageMessages_Read_POSTQuery{
+		MessageID: vMessageID,
+	}
+}
+
+type pageMessages_SendMessage struct{}
+
+// POST references /messages/sendmessage/
+func (pageMessages_SendMessage) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/messages/sendmessage/')"
 	}
@@ -286,8 +324,10 @@ func POSTPageMessagesSendMessage(options ...option) string {
 	return b.String()
 }
 
-// POSTPageMessagesWriting references /messages/writing/
-func POSTPageMessagesWriting(options ...option) string {
+type pageMessages_Writing struct{}
+
+// POST references /messages/writing/
+func (pageMessages_Writing) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/messages/writing/')"
 	}
@@ -302,8 +342,10 @@ func POSTPageMessagesWriting(options ...option) string {
 	return b.String()
 }
 
-// POSTPageMessagesWritingStopped references /messages/writing-stopped/
-func POSTPageMessagesWritingStopped(options ...option) string {
+type pageMessages_WritingStopped struct{}
+
+// POST references /messages/writing-stopped/
+func (pageMessages_WritingStopped) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/messages/writing-stopped/')"
 	}
@@ -318,8 +360,16 @@ func POSTPageMessagesWritingStopped(options ...option) string {
 	return b.String()
 }
 
-// POSTPagePostSendMessage references /post/{slug}/send-message/
-func POSTPagePostSendMessage(slug string, options ...option) string {
+var PagePost pagePost
+
+type pagePost struct {
+	SendMessage pagePost_SendMessage
+}
+
+type pagePost_SendMessage struct{}
+
+// POST references /post/{slug}/send-message/
+func (pagePost_SendMessage) POST(slug string, options ...option) string {
 	s_slug := url.PathEscape(slug)
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)
@@ -334,8 +384,16 @@ func POSTPagePostSendMessage(slug string, options ...option) string {
 	return b.String()
 }
 
-// POSTPageSearchParamChange references /search/paramchange/
-func POSTPageSearchParamChange(options ...option) string {
+var PageSearch pageSearch
+
+type pageSearch struct {
+	ParamChange pageSearch_ParamChange
+}
+
+type pageSearch_ParamChange struct{}
+
+// POST references /search/paramchange/
+func (pageSearch_ParamChange) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/search/paramchange/')"
 	}
@@ -350,8 +408,18 @@ func POSTPageSearchParamChange(options ...option) string {
 	return b.String()
 }
 
-// POSTPageSettingsCloseAllSessions references /settings/close-all-sessions/
-func POSTPageSettingsCloseAllSessions(options ...option) string {
+var PageSettings pageSettings
+
+type pageSettings struct {
+	CloseAllSessions pageSettings_CloseAllSessions
+	CloseSession     pageSettings_CloseSession
+	Save             pageSettings_Save
+}
+
+type pageSettings_CloseAllSessions struct{}
+
+// POST references /settings/close-all-sessions/
+func (pageSettings_CloseAllSessions) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/settings/close-all-sessions/')"
 	}
@@ -366,8 +434,10 @@ func POSTPageSettingsCloseAllSessions(options ...option) string {
 	return b.String()
 }
 
-// POSTPageSettingsCloseSession references /settings/close-session/{token}/
-func POSTPageSettingsCloseSession(token string, options ...option) string {
+type pageSettings_CloseSession struct{}
+
+// POST references /settings/close-session/{token}/
+func (pageSettings_CloseSession) POST(token string, options ...option) string {
 	s_token := url.PathEscape(token)
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)
@@ -382,8 +452,10 @@ func POSTPageSettingsCloseSession(token string, options ...option) string {
 	return b.String()
 }
 
-// POSTPageSettingsSave references /settings/save/
-func POSTPageSettingsSave(options ...option) string {
+type pageSettings_Save struct{}
+
+// POST references /settings/save/
+func (pageSettings_Save) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/settings/save/')"
 	}

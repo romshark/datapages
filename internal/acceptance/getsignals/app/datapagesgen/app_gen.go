@@ -17,7 +17,7 @@ import (
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
 
-	"github.com/romshark/datapages/internal/acceptance/getsignals/app"
+	dpapp "github.com/romshark/datapages/internal/acceptance/getsignals/app"
 	"github.com/romshark/datapages/internal/acceptance/getsignals/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -78,14 +78,14 @@ type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
-	app                  *app.App
+	app                  *dpapp.App
 	*auth.Manager[struct{}]
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, struct{}, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, struct{}, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -102,7 +102,7 @@ type Server struct {
 //   - datapages.WithCSRFProtection
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[struct{}],
 ) error {
@@ -160,13 +160,13 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /enter/{$}",
-		s.handlePageEnterGET)
+		pageEnterHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"POST /leave/{$}",
-		s.handlePageIndexPOSTLeave)
+		pageIndexHandlers{s}.POSTLeave)
 }
 
 func (s *Server) httpErrIntern(
@@ -185,8 +185,10 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePageEnterGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageEnter{
+type pageEnterHandlers struct{ *Server }
+
+func (s pageEnterHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageEnter{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageEnter.GET")
@@ -217,7 +219,9 @@ func (s *Server) handlePageEnterGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -239,7 +243,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -261,7 +265,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexPOSTLeave(
+func (s pageIndexHandlers) POSTLeave(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	sess, sessToken, ok := s.ReadSession(w, r)
@@ -269,7 +273,7 @@ func (s *Server) handlePageIndexPOSTLeave(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Leave")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	closeSession, err := p.POSTLeave(r, sess)

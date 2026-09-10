@@ -69,7 +69,7 @@ func TestNonIdentifierQueryTagAction(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
 
-	expr := action.POSTPageTagsSelect(action.QueryPOSTPageTagsSelect{PageSize: 7})
+	expr := action.PageTags.Select.POST(action.PageTags.Select.POSTQuery(7))
 
 	// The expression a template carries: @post('<url>').
 	const prefix, suffix = "@post('", "')"
@@ -107,7 +107,7 @@ func TestActionLocalNamesAreFree(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Status, url)
 	require.Equal(t, "b=1 l=2 n=3 bl=4 al=5", resp.Element(t, "echo"))
 
-	expr := action.POSTPageLocalsSave("1", "2", "3", "4", "5")
+	expr := action.PageLocals.Save.POST("1", "2", "3", "4", "5")
 	require.Equal(t, "@post('/locals/1/2/3/4/5/save/')", expr)
 }
 
@@ -117,8 +117,8 @@ func TestActionLocalNamesAreFreeWithQuery(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
 
-	expr := action.POSTPageMixStore(1, 2, "three",
-		action.QueryPOSTPageMixStore{AnyQuery: "yes"})
+	expr := action.PageMix.Store.POST(1, 2, "three",
+		action.PageMix.Store.POSTQuery("yes"))
 	require.Equal(t, "@post('/mix/1/2/three/store/?anyQuery=yes')", expr)
 
 	url := strings.TrimSuffix(strings.TrimPrefix(expr, "@post('"), "')")

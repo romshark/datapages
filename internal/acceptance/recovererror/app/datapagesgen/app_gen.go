@@ -19,7 +19,7 @@ import (
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"github.com/romshark/datapages/runtime/stream"
 
-	"github.com/romshark/datapages/internal/acceptance/recovererror/app"
+	dpapp "github.com/romshark/datapages/internal/acceptance/recovererror/app"
 	"github.com/romshark/datapages/internal/acceptance/recovererror/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -94,13 +94,13 @@ type Server struct {
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
 	streams              *stream.Handler
-	app                  *app.App
+	app                  *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -114,12 +114,12 @@ type Server struct {
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package app declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -184,40 +184,40 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /boom/{$}",
-		s.handlePageBoomGET)
+		pageBoomHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /server-error/{$}",
-		s.handlePageError500GET)
+		pageError500Handlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /panic-page/{$}",
-		s.handlePagePanicGET)
+		pagePanicHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /render-panic/{$}",
-		s.handlePageRenderPanicGET)
+		pageRenderPanicHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /stream-panic/{$}",
-		s.handlePageStreamPanicGET)
+		pageStreamPanicHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /stream-panic/_$/{$}",
-		s.handlePageStreamPanicGETStream)
+		pageStreamPanicHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"POST /bad/{$}",
-		s.handlePageIndexPOSTBad)
+		pageIndexHandlers{s}.POSTBad)
 	s.Mux().HandleFunc(
 		"POST /missing/{$}",
-		s.handlePageIndexPOSTMissing)
+		pageIndexHandlers{s}.POSTMissing)
 	s.Mux().HandleFunc(
 		"POST /plain/{$}",
-		s.handlePageIndexPOSTPlain)
+		pageIndexHandlers{s}.POSTPlain)
 	s.Mux().HandleFunc(
 		"POST /unrecoverable/{$}",
-		s.handlePageIndexPOSTUnrecoverable)
+		pageIndexHandlers{s}.POSTUnrecoverable)
 	s.Mux().HandleFunc(
 		"POST /panic/{$}",
-		s.handlePageIndexPOSTPanic)
+		pageIndexHandlers{s}.POSTPanic)
 }
 
 // httpErrFinal writes the error response without rendering PageError500.
@@ -243,7 +243,7 @@ func (s *Server) httpErrIntern(
 		}
 		// The page serves 200 on its own route. Reached from here it carries 500.
 		w.WriteHeader(http.StatusInternalServerError)
-		s.handlePageError500GET(w, r)
+		pageError500Handlers{s}.GET(w, r)
 		return
 	}
 	// committed reports that the stream is open, hence no status is left to send.
@@ -272,8 +272,10 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePageBoomGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageBoom{
+type pageBoomHandlers struct{ *Server }
+
+func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageBoom{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageBoom.GET")
@@ -295,8 +297,10 @@ func (s *Server) handlePageBoomGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageError500{
+type pageError500Handlers struct{ *Server }
+
+func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageError500{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageError500.GET")
@@ -318,13 +322,15 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -346,11 +352,11 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexPOSTBad(
+func (s pageIndexHandlers) POSTBad(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	defer s.recoverPanic(w, r, nil, "PageIndex.Bad")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTBad(r)
@@ -360,11 +366,11 @@ func (s *Server) handlePageIndexPOSTBad(
 	}
 }
 
-func (s *Server) handlePageIndexPOSTMissing(
+func (s pageIndexHandlers) POSTMissing(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	defer s.recoverPanic(w, r, nil, "PageIndex.Missing")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTMissing(r)
@@ -374,11 +380,11 @@ func (s *Server) handlePageIndexPOSTMissing(
 	}
 }
 
-func (s *Server) handlePageIndexPOSTPlain(
+func (s pageIndexHandlers) POSTPlain(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	defer s.recoverPanic(w, r, nil, "PageIndex.Plain")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTPlain(r)
@@ -388,11 +394,11 @@ func (s *Server) handlePageIndexPOSTPlain(
 	}
 }
 
-func (s *Server) handlePageIndexPOSTUnrecoverable(
+func (s pageIndexHandlers) POSTUnrecoverable(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	defer s.recoverPanic(w, r, nil, "PageIndex.Unrecoverable")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTUnrecoverable(r)
@@ -402,11 +408,11 @@ func (s *Server) handlePageIndexPOSTUnrecoverable(
 	}
 }
 
-func (s *Server) handlePageIndexPOSTPanic(
+func (s pageIndexHandlers) POSTPanic(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	defer s.recoverPanic(w, r, nil, "PageIndex.Panic")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTPanic(r)
@@ -416,8 +422,10 @@ func (s *Server) handlePageIndexPOSTPanic(
 	}
 }
 
-func (s *Server) handlePagePanicGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PagePanic{
+type pagePanicHandlers struct{ *Server }
+
+func (s pagePanicHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PagePanic{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PagePanic.GET")
@@ -439,8 +447,10 @@ func (s *Server) handlePagePanicGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageRenderPanicGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageRenderPanic{
+type pageRenderPanicHandlers struct{ *Server }
+
+func (s pageRenderPanicHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageRenderPanic{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageRenderPanic.GET")
@@ -462,8 +472,10 @@ func (s *Server) handlePageRenderPanicGET(w http.ResponseWriter, r *http.Request
 	}
 }
 
-func (s *Server) handlePageStreamPanicGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageStreamPanic{
+type pageStreamPanicHandlers struct{ *Server }
+
+func (s pageStreamPanicHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageStreamPanic{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageStreamPanic.GET")
@@ -490,12 +502,12 @@ func (s *Server) handlePageStreamPanicGET(w http.ResponseWriter, r *http.Request
 	}
 }
 
-func (s *Server) handlePageStreamPanicGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageStreamPanicHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
-	p := app.PageStreamPanic{
+	p := dpapp.PageStreamPanic{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageStreamPanic,
@@ -511,11 +523,11 @@ func (s *Server) handlePageStreamPanicGETStream(w http.ResponseWriter, r *http.R
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageStreamPanic stream")
-			var eventPinged app.EventPinged
+			var eventPinged dpapp.EventPinged
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjPinged:
-					eventPinged = app.EventPinged{}
+					eventPinged = dpapp.EventPinged{}
 					if err := json.Unmarshal(msg.Data, &eventPinged); err != nil {
 						s.LogErr("unmarshaling EventPinged JSON", err)
 						continue

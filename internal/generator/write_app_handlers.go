@@ -235,9 +235,8 @@ func eventHandlerInputArgs(eh *model.EventHandler, eventVar string) []string {
 // the one that renders the whole HTML document, as opposed to the stream handler.
 func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string) {
 	w.Line(0, "")
-	w.Raw("func (s *Server) handle")
-	w.Raw(p.TypeName)
-	w.Raw("GET(w http.ResponseWriter, r *http.Request) {\n")
+	w.Rawf("func (s %s) GET(w http.ResponseWriter, r *http.Request) {\n",
+		handlerRecvType(p.TypeName))
 
 	h := p.GET.Handler
 
@@ -893,9 +892,8 @@ func (w *Writer) writePageGETStreamHandler(
 	p *model.Page, m *model.App, appPkg string,
 ) {
 	w.Line(0, "")
-	w.Raw("func (s *Server) handle")
-	w.Raw(p.TypeName)
-	w.Raw("GETStream(w http.ResponseWriter, r *http.Request) {\n")
+	w.Rawf("func (s %s) GETStream(w http.ResponseWriter, r *http.Request) {\n",
+		handlerRecvType(p.TypeName))
 
 	w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 	w.Line(2, "return")
@@ -1105,19 +1103,17 @@ func (w *Writer) writeStreamEventCase(
 	p *model.Page, eh *model.EventHandler, ev *model.Event,
 	appPkg string, tagged bool,
 ) {
-	constName := eventConstName(ev.TypeName)
-
 	if evUsesPrefixMatch(ev) {
-		w.Raw("\t\t\tcase strings.HasPrefix(msg.Subject, EvSubjPref")
-		w.Raw(constName)
+		w.Raw("\t\t\tcase strings.HasPrefix(msg.Subject, ")
+		w.Raw(evSubjPrefConst(ev))
 		w.Raw("):\n")
 	} else if tagged {
-		w.Raw("\t\t\tcase EvSubj")
-		w.Raw(constName)
+		w.Raw("\t\t\tcase ")
+		w.Raw(evSubjConst(ev))
 		w.Raw(":\n")
 	} else {
-		w.Raw("\t\t\tcase msg.Subject == EvSubj")
-		w.Raw(constName)
+		w.Raw("\t\t\tcase msg.Subject == ")
+		w.Raw(evSubjConst(ev))
 		w.Raw(":\n")
 	}
 
@@ -1223,9 +1219,8 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	p *model.Page, m *model.App, appPkg string,
 ) {
 	w.Line(0, "")
-	w.Raw("func (s *Server) handle")
-	w.Raw(p.TypeName)
-	w.Raw("GETStreamAnon(w http.ResponseWriter, r *http.Request) {\n")
+	w.Rawf("func (s %s) GETStreamAnon(w http.ResponseWriter, r *http.Request) {\n",
+		handlerRecvType(p.TypeName))
 
 	w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 	w.Line(2, "return")
@@ -1356,11 +1351,8 @@ func (w *Writer) writePageActionHandler(
 	p *model.Page, h *model.Handler, m *model.App, appPkg string,
 ) {
 	w.Line(0, "")
-	w.Raw("func (s *Server) handle")
-	w.Raw(p.TypeName)
-	w.Raw(strings.ToUpper(h.HTTPMethod))
-	w.Raw(h.Name)
-	w.Raw("(\n")
+	w.Rawf("func (s %s) %s%s(\n", handlerRecvType(p.TypeName),
+		strings.ToUpper(h.HTTPMethod), h.Name)
 	w.Line(1, "w http.ResponseWriter, r *http.Request,")
 	w.Line(0, ") {")
 
@@ -1685,9 +1677,9 @@ func (w *Writer) writeParseField(
 		w.Raw(f.Name)
 		w.Raw(" = ")
 		if unsigned {
-			w.writeConv(convTypeName(f.Type, typeName), "uint64", "u")
+			w.writeConv(convTypeName(w.appPkgPath, f.Type, typeName), "uint64", "u")
 		} else {
-			w.writeConv(convTypeName(f.Type, typeName), "int64", "i")
+			w.writeConv(convTypeName(w.appPkgPath, f.Type, typeName), "int64", "i")
 		}
 		w.Byte('\n')
 	} else if gotypes.IsFloat(f.Type) {
@@ -1708,7 +1700,7 @@ func (w *Writer) writeParseField(
 		w.Byte('.')
 		w.Raw(f.Name)
 		w.Raw(" = ")
-		w.writeConv(convTypeName(f.Type, typeName), "float64", "f")
+		w.writeConv(convTypeName(w.appPkgPath, f.Type, typeName), "float64", "f")
 		w.Byte('\n')
 	} else if gotypes.IsBool(f.Type) {
 		tabs(indent)
@@ -1726,7 +1718,7 @@ func (w *Writer) writeParseField(
 		w.Byte('.')
 		w.Raw(f.Name)
 		w.Raw(" = ")
-		w.writeConv(convTypeName(f.Type, "bool"), "bool", "b")
+		w.writeConv(convTypeName(w.appPkgPath, f.Type, "bool"), "bool", "b")
 		w.Byte('\n')
 	}
 }
@@ -1744,14 +1736,14 @@ func isPlainString(t types.Type) bool {
 	return gotypes.IsString(t) && !gotypes.ImplementsTextUnmarshaler(t)
 }
 
-// convTypeName is the type a parsed value is assigned as: the declared type
-// when the field names one, the basic type otherwise.
+// convTypeName is the type a parsed value is assigned as:
+// the declared type when the field names one, the basic type otherwise.
 // strconv returns a basic value, which a named field cannot take without a conversion.
-func convTypeName(t types.Type, basic string) string {
+func convTypeName(appPkgPath string, t types.Type, basic string) string {
 	if _, isBasic := t.(*types.Basic); isBasic {
 		return basic
 	}
-	return gotypes.QualifiedTypeName(t)
+	return gotypes.QualifiedTypeNameWith(t, appQualifier(appPkgPath))
 }
 
 // writeConv writes expr converted to typeName, or expr alone when strconv
@@ -1771,7 +1763,7 @@ func (w *Writer) writeStringConv(t types.Type, inner func()) {
 		inner()
 		return
 	}
-	w.Raw(gotypes.QualifiedTypeName(t))
+	w.Raw(gotypes.QualifiedTypeNameWith(t, appQualifier(w.appPkgPath)))
 	w.Byte('(')
 	inner()
 	w.Byte(')')

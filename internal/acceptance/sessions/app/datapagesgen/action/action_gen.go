@@ -168,8 +168,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTAppSignOut references /sign-out/
-func POSTAppSignOut(options ...option) string {
+var App app
+
+type app struct {
+	SignOut app_SignOut
+}
+
+type app_SignOut struct{}
+
+// POST references /sign-out/
+func (app_SignOut) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/sign-out/')"
 	}
@@ -184,8 +192,20 @@ func POSTAppSignOut(options ...option) string {
 	return b.String()
 }
 
-// POSTPageLoginBroadcast references /login/broadcast/
-func POSTPageLoginBroadcast(options ...option) string {
+var PageLogin pageLogin
+
+type pageLogin struct {
+	Broadcast    pageLogin_Broadcast
+	Notify       pageLogin_Notify
+	Rename       pageLogin_Rename
+	Submit       pageLogin_Submit
+	SubmitInline pageLogin_SubmitInline
+}
+
+type pageLogin_Broadcast struct{}
+
+// POST references /login/broadcast/
+func (pageLogin_Broadcast) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/login/broadcast/')"
 	}
@@ -200,8 +220,10 @@ func POSTPageLoginBroadcast(options ...option) string {
 	return b.String()
 }
 
-// POSTPageLoginNotify references /login/notify/
-func POSTPageLoginNotify(options ...option) string {
+type pageLogin_Notify struct{}
+
+// POST references /login/notify/
+func (pageLogin_Notify) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/login/notify/')"
 	}
@@ -216,8 +238,10 @@ func POSTPageLoginNotify(options ...option) string {
 	return b.String()
 }
 
-// POSTPageLoginRename references /login/rename/
-func POSTPageLoginRename(options ...option) string {
+type pageLogin_Rename struct{}
+
+// POST references /login/rename/
+func (pageLogin_Rename) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/login/rename/')"
 	}
@@ -232,8 +256,10 @@ func POSTPageLoginRename(options ...option) string {
 	return b.String()
 }
 
-// POSTPageLoginSubmit references /login/submit/
-func POSTPageLoginSubmit(options ...option) string {
+type pageLogin_Submit struct{}
+
+// POST references /login/submit/
+func (pageLogin_Submit) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/login/submit/')"
 	}
@@ -248,8 +274,10 @@ func POSTPageLoginSubmit(options ...option) string {
 	return b.String()
 }
 
-// POSTPageLoginSubmitInline references /login/submit-inline/
-func POSTPageLoginSubmitInline(options ...option) string {
+type pageLogin_SubmitInline struct{}
+
+// POST references /login/submit-inline/
+func (pageLogin_SubmitInline) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/login/submit-inline/')"
 	}

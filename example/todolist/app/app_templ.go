@@ -140,9 +140,9 @@ func pageIndex(todos []list.Item, search, filter, sortMode string) templ.Compone
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var7 string
-		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageIndexFilter())
+		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageIndex.Filter.POST())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 53, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 53, Col: 66}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 		if templ_7745c5c3_Err != nil {
@@ -153,9 +153,9 @@ func pageIndex(todos []list.Item, search, filter, sortMode string) templ.Compone
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var8 string
-		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageIndexFilter())
+		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageIndex.Filter.POST())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 55, Col: 75}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 55, Col: 77}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
 		if templ_7745c5c3_Err != nil {
@@ -166,9 +166,9 @@ func pageIndex(todos []list.Item, search, filter, sortMode string) templ.Compone
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var9 string
-		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageIndexFilter())
+		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageIndex.Filter.POST())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 60, Col: 73}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 60, Col: 75}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 		if templ_7745c5c3_Err != nil {
@@ -187,7 +187,7 @@ func pageIndex(todos []list.Item, search, filter, sortMode string) templ.Compone
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var10 string
-		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageIndexCreate(
+		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageIndex.Create.POST(
 			action.WithAfter(
 				"$showModal=false;$newTitle='';$newDesc='';$newDue=''",
 			),
@@ -298,8 +298,8 @@ func todoList(todos []list.Item) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var16 string
-			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PUTAppEdit(
-				t.ID, action.QueryPUTAppEdit{Toggle: true},
+			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.App.Edit.PUT(
+				t.ID, action.App.Edit.PUTQuery(true),
 			))
 			if templ_7745c5c3_Err != nil {
 				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 126, Col: 6}
@@ -510,8 +510,8 @@ func pageItem(todo list.Item) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var29 string
-		templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PUTAppEdit(
-			todo.ID, action.QueryPUTAppEdit{},
+		templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.App.Edit.PUT(
+			todo.ID, action.App.Edit.PUTQuery(false),
 		))
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 164, Col: 5}
@@ -525,8 +525,8 @@ func pageItem(todo list.Item) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var30 string
-		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PUTAppEdit(
-			todo.ID, action.QueryPUTAppEdit{},
+		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.App.Edit.PUT(
+			todo.ID, action.App.Edit.PUTQuery(false),
 		))
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 171, Col: 5}
@@ -540,8 +540,8 @@ func pageItem(todo list.Item) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var31 string
-		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PUTAppEdit(
-			todo.ID, action.QueryPUTAppEdit{},
+		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.App.Edit.PUT(
+			todo.ID, action.App.Edit.PUTQuery(false),
 		))
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 179, Col: 6}
@@ -555,9 +555,9 @@ func pageItem(todo list.Item) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var32 string
-		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PUTAppEdit(todo.ID, action.QueryPUTAppEdit{}))
+		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.App.Edit.PUT(todo.ID, action.App.Edit.PUTQuery(false)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 187, Col: 73}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 187, Col: 82}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var32)
 		if templ_7745c5c3_Err != nil {
@@ -581,9 +581,9 @@ func pageItem(todo list.Item) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var34 string
-		templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.DELETEPageItemItem(todo.ID))
+		templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageItem.Item.DELETE(todo.ID))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 194, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 194, Col: 56}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var34)
 		if templ_7745c5c3_Err != nil {

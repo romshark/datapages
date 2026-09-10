@@ -24,7 +24,7 @@ import (
 	"github.com/romshark/datapages/runtime/stream"
 	"github.com/romshark/datapages/runtime/subject"
 
-	"github.com/romshark/datapages/example/calculator/app"
+	dpapp "github.com/romshark/datapages/example/calculator/app"
 	"github.com/romshark/datapages/example/calculator/app/datapagesgen/assets"
 	"github.com/romshark/datapages/example/calculator/app/datapagesgen/href"
 
@@ -101,13 +101,13 @@ type Server struct {
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
 	streams              *stream.Handler
-	app                  *app.App
+	app                  *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -121,12 +121,12 @@ type Server struct {
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package app declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -178,7 +178,7 @@ const (
 )
 
 const (
-	EvSubjPrefCalcUpdated = "calc.updated."
+	EvPrefixCalcUpdated = "calc.updated."
 )
 
 func MessageBrokerStreamSubjects() []string {
@@ -197,13 +197,13 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /_$/{$}",
-		s.handlePageIndexGETStream)
+		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"POST /input/{$}",
-		s.handlePageIndexPOSTInput)
+		pageIndexHandlers{s}.POSTInput)
 }
 
 func (s *Server) httpErrIntern(
@@ -222,13 +222,15 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -258,7 +260,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -276,7 +278,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageIndex(subjSignals.InstanceID),
@@ -287,11 +289,11 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
-			var eventCalcUpdated app.EventCalcUpdated
+			var eventCalcUpdated dpapp.EventCalcUpdated
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefCalcUpdated):
-					eventCalcUpdated = app.EventCalcUpdated{}
+				case strings.HasPrefix(msg.Subject, EvPrefixCalcUpdated):
+					eventCalcUpdated = dpapp.EventCalcUpdated{}
 					if err := json.Unmarshal(msg.Data, &eventCalcUpdated); err != nil {
 						s.LogErr("unmarshaling EventCalcUpdated JSON", err)
 						continue
@@ -304,7 +306,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		})
 }
 
-func (s *Server) handlePageIndexPOSTInput(
+func (s pageIndexHandlers) POSTInput(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -337,9 +339,9 @@ func (s *Server) handlePageIndexPOSTInput(
 	}
 	query.Values.Num = httpread.QueryValue(r.URL.RawQuery, "num")
 
-	dispatchCalcUpdated := dispatcherEventCalcUpdated{s: s, ctx: r.Context()}
+	dispatchCalcUpdated := dispatcherEventCalcUpdated{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Input")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTInput(r, dispatchCalcUpdated, query, signals)
@@ -354,12 +356,12 @@ type dispatcherEventCalcUpdated struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventCalcUpdated) Dispatch(e app.EventCalcUpdated) error {
+func (d dispatcherEventCalcUpdated) Dispatch(e dpapp.EventCalcUpdated) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventCalcUpdated) DispatchCtx(
-	ctx context.Context, e app.EventCalcUpdated,
+	ctx context.Context, e dpapp.EventCalcUpdated,
 ) error {
 	if e.InstanceID == "" {
 		return errors.New("EventCalcUpdated.InstanceID must not be empty")

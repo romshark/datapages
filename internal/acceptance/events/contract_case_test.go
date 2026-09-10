@@ -38,18 +38,18 @@ func TestContract(t *testing.T) {
 			href.PageRoom(),
 		},
 		Actions: []string{
-			action.POSTPageIndexTick(),
-			action.POSTPageRoomSay(),
-			action.POSTPageRoomBroadcast(),
+			action.PageIndex.Tick.POST(),
+			action.PageRoom.Say.POST(),
+			action.PageRoom.Broadcast.POST(),
 		},
 		SignalActions: []string{
-			action.POSTPageIndexTick(),
-			action.POSTPageRoomSay(),
-			action.POSTPageRoomBroadcast(),
+			action.PageIndex.Tick.POST(),
+			action.PageRoom.Say.POST(),
+			action.PageRoom.Broadcast.POST(),
 		},
 		// optionedAction carries every option at once.
 		// The keys and their order are asserted by the contract suite.
-		OptionedAction: action.POSTPageIndexTick(
+		OptionedAction: action.PageIndex.Tick.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),
@@ -71,7 +71,7 @@ func TestContract(t *testing.T) {
 			action.WithAfter("$busy = false"),
 		),
 		StreamPath:     "/_$/",
-		DispatchAction: action.POSTPageIndexTick(),
+		DispatchAction: action.PageIndex.Tick.POST(),
 		DispatchBody:   `{"n":1}`,
 	})
 }

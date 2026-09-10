@@ -23,7 +23,7 @@ import (
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"github.com/romshark/datapages/runtime/stream"
 
-	"github.com/romshark/datapages/example/todolist/app"
+	dpapp "github.com/romshark/datapages/example/todolist/app"
 	"github.com/romshark/datapages/example/todolist/app/datapagesgen/assets"
 	"github.com/romshark/datapages/example/todolist/app/datapagesgen/href"
 
@@ -100,13 +100,13 @@ type Server struct {
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
 	streams              *stream.Handler
-	app                  *app.App
+	app                  *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -120,12 +120,12 @@ type Server struct {
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package app declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -194,31 +194,31 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /not-found/{$}",
-		s.handlePageError404GET)
+		pageError404Handlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /_$/{$}",
-		s.handlePageIndexGETStream)
+		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /item/{id}/{$}",
-		s.handlePageItemGET)
+		pageItemHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /item/{id}/_$/{$}",
-		s.handlePageItemGETStream)
+		pageItemHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"PUT /{id}/{$}",
-		s.handlePUTEdit)
+		appHandlers{s}.PUTEdit)
 	s.Mux().HandleFunc(
 		"POST /{$}",
-		s.handlePageIndexPOSTCreate)
+		pageIndexHandlers{s}.POSTCreate)
 	s.Mux().HandleFunc(
 		"POST /filter/{$}",
-		s.handlePageIndexPOSTFilter)
+		pageIndexHandlers{s}.POSTFilter)
 	s.Mux().HandleFunc(
 		"DELETE /item/{id}/{$}",
-		s.handlePageItemDELETEItem)
+		pageItemHandlers{s}.DELETEItem)
 }
 
 func (s *Server) httpErrIntern(
@@ -238,7 +238,7 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
-	p := app.PageError404{
+	p := dpapp.PageError404{
 		App: s.app,
 	}
 
@@ -261,7 +261,9 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePUTEdit(w http.ResponseWriter, r *http.Request) {
+type appHandlers struct{ *Server }
+
+func (s appHandlers) PUTEdit(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -298,7 +300,7 @@ func (s *Server) handlePUTEdit(w http.ResponseWriter, r *http.Request) {
 	}]
 	path.Values.ID = r.PathValue("id")
 
-	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s, ctx: r.Context()}
+	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "App.Edit")
 	err := s.app.PUTEdit(r, path, query, signals, dispatchTodoUpdated)
 	if err != nil {
@@ -307,8 +309,10 @@ func (s *Server) handlePUTEdit(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageError404{
+type pageError404Handlers struct{ *Server }
+
+func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageError404{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
@@ -330,7 +334,9 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		s.render404(w, r)
 		return
@@ -345,7 +351,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	query.Values.Filter = httpread.QueryValue(r.URL.RawQuery, "filter")
 	query.Values.Sort = httpread.QueryValue(r.URL.RawQuery, "sort")
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -393,7 +399,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -408,7 +414,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageIndex,
@@ -426,11 +432,11 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
-			var eventTodoUpdated app.EventTodoUpdated
+			var eventTodoUpdated dpapp.EventTodoUpdated
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjTodoUpdated:
-					eventTodoUpdated = app.EventTodoUpdated{}
+					eventTodoUpdated = dpapp.EventTodoUpdated{}
 					if err := json.Unmarshal(msg.Data, &eventTodoUpdated); err != nil {
 						s.LogErr("unmarshaling EventTodoUpdated JSON", err)
 						continue
@@ -443,7 +449,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		})
 }
 
-func (s *Server) handlePageIndexPOSTCreate(
+func (s pageIndexHandlers) POSTCreate(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -461,9 +467,9 @@ func (s *Server) handlePageIndexPOSTCreate(
 		return
 	}
 
-	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s, ctx: r.Context()}
+	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Create")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTCreate(r, signals, dispatchTodoUpdated)
@@ -473,7 +479,7 @@ func (s *Server) handlePageIndexPOSTCreate(
 	}
 }
 
-func (s *Server) handlePageIndexPOSTFilter(
+func (s pageIndexHandlers) POSTFilter(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -493,7 +499,7 @@ func (s *Server) handlePageIndexPOSTFilter(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageIndex.Filter")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTFilter(r, dpsse.New(sse), signals)
@@ -503,14 +509,16 @@ func (s *Server) handlePageIndexPOSTFilter(
 	}
 }
 
-func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
+type pageItemHandlers struct{ *Server }
+
+func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	var path datapages.Path[struct {
 		ID string `path:"id"`
 	}]
 	path.Values.ID = r.PathValue("id")
 
-	p := app.PageItem{
+	p := dpapp.PageItem{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageItem.GET")
@@ -545,7 +553,7 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -558,7 +566,7 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	p := app.PageItem{
+	p := dpapp.PageItem{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageItem,
@@ -576,11 +584,11 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageItem stream")
-			var eventTodoUpdated app.EventTodoUpdated
+			var eventTodoUpdated dpapp.EventTodoUpdated
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjTodoUpdated:
-					eventTodoUpdated = app.EventTodoUpdated{}
+					eventTodoUpdated = dpapp.EventTodoUpdated{}
 					if err := json.Unmarshal(msg.Data, &eventTodoUpdated); err != nil {
 						s.LogErr("unmarshaling EventTodoUpdated JSON", err)
 						continue
@@ -593,7 +601,7 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 		})
 }
 
-func (s *Server) handlePageItemDELETEItem(
+func (s pageItemHandlers) DELETEItem(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -613,9 +621,9 @@ func (s *Server) handlePageItemDELETEItem(
 	}]
 	path.Values.ID = r.PathValue("id")
 
-	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s, ctx: r.Context()}
+	dispatchTodoUpdated := dispatcherEventTodoUpdated{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageItem.Item")
-	p := app.PageItem{
+	p := dpapp.PageItem{
 		App: s.app,
 	}
 	redirect, err := p.DELETEItem(r, path, signals, dispatchTodoUpdated)
@@ -633,12 +641,12 @@ type dispatcherEventTodoUpdated struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventTodoUpdated) Dispatch(e app.EventTodoUpdated) error {
+func (d dispatcherEventTodoUpdated) Dispatch(e dpapp.EventTodoUpdated) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventTodoUpdated) DispatchCtx(
-	ctx context.Context, e app.EventTodoUpdated,
+	ctx context.Context, e dpapp.EventTodoUpdated,
 ) error {
 	j, err := json.Marshal(e)
 	if err != nil {

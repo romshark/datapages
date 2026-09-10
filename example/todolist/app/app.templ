@@ -50,14 +50,14 @@ templ pageIndex(todos []list.Item, search, filter, sortMode string) {
 				type="text"
 				placeholder="Search..."
 				data-bind="search"
-				data-on:input__debounce.200ms={ action.POSTPageIndexFilter() }
+				data-on:input__debounce.200ms={ action.PageIndex.Filter.POST() }
 			/>
-			<select data-bind="filter" data-on:change={ action.POSTPageIndexFilter() }>
+			<select data-bind="filter" data-on:change={ action.PageIndex.Filter.POST() }>
 				<option value="all">All</option>
 				<option value="done">Done</option>
 				<option value="pending">Pending</option>
 			</select>
-			<select data-bind="sort" data-on:change={ action.POSTPageIndexFilter() }>
+			<select data-bind="sort" data-on:change={ action.PageIndex.Filter.POST() }>
 				<option value="alpha">Alphabetical</option>
 				<option value="created">Created</option>
 				<option value="due">Due Date</option>
@@ -90,7 +90,7 @@ templ pageIndex(todos []list.Item, search, filter, sortMode string) {
 					</button>
 					<button
 						class="btn-primary"
-						data-on:click={ action.POSTPageIndexCreate(
+						data-on:click={ action.PageIndex.Create.POST(
 							action.WithAfter(
 								"$showModal=false;$newTitle='';$newDesc='';$newDue=''",
 							),
@@ -121,8 +121,8 @@ templ todoList(todos []list.Item) {
 					if t.Done {
 						checked
 					}
-					data-on:click={ action.PUTAppEdit(
-						t.ID, action.QueryPUTAppEdit{Toggle: true},
+					data-on:click={ action.App.Edit.PUT(
+						t.ID, action.App.Edit.PUTQuery(true),
 					) }
 				/>
 				<a href={ href.PageItem(t.ID) } class="todo-content">
@@ -159,23 +159,23 @@ templ pageItem(todo list.Item) {
 			<input
 				type="text"
 				data-bind="title"
-				data-on:input__debounce.200ms={ action.PUTAppEdit(
-					todo.ID, action.QueryPUTAppEdit{},
+				data-on:input__debounce.200ms={ action.App.Edit.PUT(
+					todo.ID, action.App.Edit.PUTQuery(false),
 				) }
 			/>
 			<label>Description</label>
 			<textarea
 				data-bind="description"
-				data-on:input__debounce.200ms={ action.PUTAppEdit(
-					todo.ID, action.QueryPUTAppEdit{},
+				data-on:input__debounce.200ms={ action.App.Edit.PUT(
+					todo.ID, action.App.Edit.PUTQuery(false),
 				) }
 			></textarea>
 			<label class="checkbox-label">
 				<input
 					type="checkbox"
 					data-bind="done"
-					data-on:change={ action.PUTAppEdit(
-						todo.ID, action.QueryPUTAppEdit{},
+					data-on:change={ action.App.Edit.PUT(
+						todo.ID, action.App.Edit.PUTQuery(false),
 					) }
 				/>
 				Done
@@ -184,14 +184,14 @@ templ pageItem(todo list.Item) {
 			<input
 				type="datetime-local"
 				data-bind="due"
-				data-on:change={ action.PUTAppEdit(todo.ID, action.QueryPUTAppEdit{}) }
+				data-on:change={ action.App.Edit.PUT(todo.ID, action.App.Edit.PUTQuery(false)) }
 			/>
 			<p class="created">
 				Created: { todo.CreatedAt.Format("Jan 2, 2006 15:04") }
 			</p>
 			<button
 				class="btn-danger"
-				data-on:click={ action.DELETEPageItemItem(todo.ID) }
+				data-on:click={ action.PageItem.Item.DELETE(todo.ID) }
 			>
 				Delete
 			</button>

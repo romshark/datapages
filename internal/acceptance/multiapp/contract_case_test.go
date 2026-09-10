@@ -39,19 +39,19 @@ func TestContractFrontend(t *testing.T) {
 		HrefSetLogger:  frontendhref.SetLogger,
 		Links:          []string{frontendhref.PageIndex()},
 		StreamPath:     "/_$/",
-		DispatchAction: frontendaction.POSTPageIndexNotice(),
+		DispatchAction: frontendaction.PageIndex.Notice.POST(),
 		DispatchBody:   `{"text":"hello"}`,
 		Actions: []string{
-			frontendaction.POSTPageIndexSignIn(),
-			frontendaction.POSTPageIndexNotice(),
+			frontendaction.PageIndex.SignIn.POST(),
+			frontendaction.PageIndex.Notice.POST(),
 		},
 		SignalActions: []string{
-			frontendaction.POSTPageIndexSignIn(),
-			frontendaction.POSTPageIndexNotice(),
+			frontendaction.PageIndex.SignIn.POST(),
+			frontendaction.PageIndex.Notice.POST(),
 		},
 		// optionedAction carries every option at once.
 		// The keys and their order are asserted by the contract suite.
-		OptionedAction: frontendaction.POSTPageIndexNotice(
+		OptionedAction: frontendaction.PageIndex.Notice.POST(
 			frontendaction.WithBefore("$busy = true"),
 			frontendaction.WithContentType(frontendaction.ContentTypeForm),
 			frontendaction.WithSelector("#it's"),
@@ -93,13 +93,13 @@ func TestContractAdmin(t *testing.T) {
 		HrefSetLogger:  adminhref.SetLogger,
 		Links:          []string{adminhref.PageIndex()},
 		StreamPath:     "/_$/",
-		DispatchAction: adminaction.POSTPageIndexReport(),
+		DispatchAction: adminaction.PageIndex.Report.POST(),
 		DispatchBody:   `{"n":1}`,
-		Actions:        []string{adminaction.POSTPageIndexReport()},
-		SignalActions:  []string{adminaction.POSTPageIndexReport()},
+		Actions:        []string{adminaction.PageIndex.Report.POST()},
+		SignalActions:  []string{adminaction.PageIndex.Report.POST()},
 		// optionedAction carries every option at once.
 		// The keys and their order are asserted by the contract suite.
-		OptionedAction: adminaction.POSTPageIndexReport(
+		OptionedAction: adminaction.PageIndex.Report.POST(
 			adminaction.WithBefore("$busy = true"),
 			adminaction.WithContentType(adminaction.ContentTypeForm),
 			adminaction.WithSelector("#it's"),

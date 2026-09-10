@@ -157,22 +157,22 @@ templ pageCounter(value int32) {
 		<number-flow id="counter-value"></number-flow>
 		@counterValue(value)
 		<div class="buttons">
-			<button data-on:click={ action.POSTPageIndexSet(math.MinInt32) }>min</button>
+			<button data-on:click={ action.PageIndex.Set.POST(math.MinInt32) }>min</button>
 			<button
-				data-on:click={ action.POSTPageIndexAdd(
-					action.QueryPOSTPageIndexAdd{Delta: -1},
+				data-on:click={ action.PageIndex.Add.POST(
+					action.PageIndex.Add.POSTQuery(-1),
 				) }
 			>-</button>
 			<button
-				data-on:click={ action.POSTPageIndexAdd(
-					action.QueryPOSTPageIndexAdd{Delta: 1},
+				data-on:click={ action.PageIndex.Add.POST(
+					action.PageIndex.Add.POSTQuery(1),
 				) }
 			>+</button>
-			<button data-on:click={ action.POSTPageIndexSet(math.MaxInt32) }>max</button>
+			<button data-on:click={ action.PageIndex.Set.POST(math.MaxInt32) }>max</button>
 		</div>
 		<div class="set-group">
 			<input data-bind="setvalue" type="number" placeholder="Enter integer value"/>
-			<button data-on:click={ action.POSTPageIndexSet(0) }>Set</button>
+			<button data-on:click={ action.PageIndex.Set.POST(0) }>Set</button>
 		</div>
 		<p class="hint">
 			Open this page in multiple tabs to see real-time sync via events.

@@ -170,8 +170,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// PUTAppEdit references /{id}/
-func PUTAppEdit(id string, query QueryPUTAppEdit, options ...option) string {
+var App app
+
+type app struct {
+	Edit app_Edit
+}
+
+type app_Edit struct{}
+
+// PUT references /{id}/
+func (app_Edit) PUT(id string, query app_Edit_PUTQuery, options ...option) string {
 	s_id := url.PathEscape(id)
 	var (
 		toggleStr string
@@ -222,28 +230,27 @@ func PUTAppEdit(id string, query QueryPUTAppEdit, options ...option) string {
 	return b.String()
 }
 
-type QueryPUTAppEdit struct {
+type app_Edit_PUTQuery struct {
 	Toggle bool `query:"toggle"`
 }
 
-// DELETEPageItemItem references /item/{id}/
-func DELETEPageItemItem(id string, options ...option) string {
-	s_id := url.PathEscape(id)
-	var b strings.Builder
-	bl, al := actionexpr.BeforeAfterLen(options)
-	b.Grow(bl + len("@delete('/item/") + len(s_id) + len("/'") + actionexpr.OptionsLen(options) + len(")") + al)
-	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@delete('/item/")
-	b.WriteString(s_id)
-	b.WriteString("/'")
-	actionexpr.WriteOptions(&b, options)
-	b.WriteByte(')')
-	actionexpr.WriteAfter(&b, options)
-	return b.String()
+func (app_Edit) PUTQuery(vToggle bool) app_Edit_PUTQuery {
+	return app_Edit_PUTQuery{
+		Toggle: vToggle,
+	}
 }
 
-// POSTPageIndexCreate references /
-func POSTPageIndexCreate(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Create pageIndex_Create
+	Filter pageIndex_Filter
+}
+
+type pageIndex_Create struct{}
+
+// POST references /
+func (pageIndex_Create) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/')"
 	}
@@ -258,8 +265,10 @@ func POSTPageIndexCreate(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexFilter references /filter/
-func POSTPageIndexFilter(options ...option) string {
+type pageIndex_Filter struct{}
+
+// POST references /filter/
+func (pageIndex_Filter) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/filter/')"
 	}
@@ -268,6 +277,30 @@ func POSTPageIndexFilter(options ...option) string {
 	b.Grow(bl + len("@post('/filter/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/filter/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+var PageItem pageItem
+
+type pageItem struct {
+	Item pageItem_Item
+}
+
+type pageItem_Item struct{}
+
+// DELETE references /item/{id}/
+func (pageItem_Item) DELETE(id string, options ...option) string {
+	s_id := url.PathEscape(id)
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@delete('/item/") + len(s_id) + len("/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@delete('/item/")
+	b.WriteString(s_id)
+	b.WriteString("/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)

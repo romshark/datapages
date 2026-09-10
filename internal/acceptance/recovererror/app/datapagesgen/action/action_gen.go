@@ -168,8 +168,20 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexBad references /bad/
-func POSTPageIndexBad(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Bad           pageIndex_Bad
+	Missing       pageIndex_Missing
+	Panic         pageIndex_Panic
+	Plain         pageIndex_Plain
+	Unrecoverable pageIndex_Unrecoverable
+}
+
+type pageIndex_Bad struct{}
+
+// POST references /bad/
+func (pageIndex_Bad) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/bad/')"
 	}
@@ -184,8 +196,10 @@ func POSTPageIndexBad(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexMissing references /missing/
-func POSTPageIndexMissing(options ...option) string {
+type pageIndex_Missing struct{}
+
+// POST references /missing/
+func (pageIndex_Missing) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/missing/')"
 	}
@@ -200,8 +214,10 @@ func POSTPageIndexMissing(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexPanic references /panic/
-func POSTPageIndexPanic(options ...option) string {
+type pageIndex_Panic struct{}
+
+// POST references /panic/
+func (pageIndex_Panic) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/panic/')"
 	}
@@ -216,8 +232,10 @@ func POSTPageIndexPanic(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexPlain references /plain/
-func POSTPageIndexPlain(options ...option) string {
+type pageIndex_Plain struct{}
+
+// POST references /plain/
+func (pageIndex_Plain) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/plain/')"
 	}
@@ -232,8 +250,10 @@ func POSTPageIndexPlain(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexUnrecoverable references /unrecoverable/
-func POSTPageIndexUnrecoverable(options ...option) string {
+type pageIndex_Unrecoverable struct{}
+
+// POST references /unrecoverable/
+func (pageIndex_Unrecoverable) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/unrecoverable/')"
 	}

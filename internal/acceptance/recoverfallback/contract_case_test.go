@@ -32,8 +32,8 @@ func TestContract(t *testing.T) {
 		HrefExternal:   href.External,
 		HrefSetLogger:  href.SetLogger,
 		Links:          []string{href.PageIndex()},
-		Actions:        []string{action.POSTPageIndexBad()},
-		OptionedAction: action.POSTPageIndexBad(
+		Actions:        []string{action.PageIndex.Bad.POST()},
+		OptionedAction: action.PageIndex.Bad.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),

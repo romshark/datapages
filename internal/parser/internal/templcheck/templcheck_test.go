@@ -187,7 +187,7 @@ func TestCheck_ErrActionWrongPage(t *testing.T) {
 	// action.POSTPageSettingsUpdate() in settingsPage is OK (own page).
 	// action.POSTAppGlobal() in settingsActions is OK (app-level).
 	// action.POSTPageProfileSave() in profilePage is OK (own page).
-	// The nolinted POSTPageProfileSave() at line 33 is still flagged:
+	// The nolinted PageProfile.Save.POST() at line 33 is still flagged:
 	// nolint suppresses element-level checks but NOT ownership checks.
 
 	expect := []posError{
@@ -195,13 +195,13 @@ func TestCheck_ErrActionWrongPage(t *testing.T) {
 		{17, 17, templcheck.ErrorFormAction{}},
 		{25, 17, templcheck.ErrorFormAction{}},
 		{25, 17, templcheck.ErrorActionWrongPage{
-			ActionFunc: "POSTPageProfileSave",
+			ActionFunc: "PageProfile.Save.POST",
 			PageType:   "PageSettings",
 			OwnerPage:  "PageProfile",
 		}},
 		{28, 17, templcheck.ErrorFormAction{}},
 		{33, 17, templcheck.ErrorActionWrongPage{
-			ActionFunc: "POSTPageProfileSave",
+			ActionFunc: "PageProfile.Save.POST",
 			PageType:   "PageSettings",
 			OwnerPage:  "PageProfile",
 		}},

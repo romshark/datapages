@@ -76,7 +76,7 @@ func TestEveryConstructorServesTheSameApp(t *testing.T) {
 // reaches do not depend on which call built the server.
 func TestActionsAreOneSetOfRoutes(t *testing.T) {
 	t.Parallel()
-	require.Equal(t, "@post('/tick/')", action.POSTPageIndexTick())
+	require.Equal(t, "@post('/tick/')", action.PageIndex.Tick.POST())
 
 	for name, newServer := range constructors {
 		t.Run(name, func(t *testing.T) {

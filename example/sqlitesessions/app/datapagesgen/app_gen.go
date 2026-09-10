@@ -23,7 +23,7 @@ import (
 	"github.com/romshark/datapages/runtime/stream"
 	"github.com/romshark/datapages/runtime/subject"
 
-	"github.com/romshark/datapages/example/sqlitesessions/app"
+	dpapp "github.com/romshark/datapages/example/sqlitesessions/app"
 	"github.com/romshark/datapages/example/sqlitesessions/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -45,7 +45,7 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess datapages.Session[app.SessionData],
+	sess datapages.Session[dpapp.SessionData],
 	headGeneric, head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
@@ -64,7 +64,7 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[app.SessionData],
+	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[dpapp.SessionData],
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
@@ -103,14 +103,14 @@ type Server struct {
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
 	streams              *stream.Handler
-	app                  *app.App
-	*auth.Manager[app.SessionData]
+	app                  *dpapp.App
+	*auth.Manager[dpapp.SessionData]
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, app.SessionData, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, dpapp.SessionData, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -127,9 +127,9 @@ type Server struct {
 //   - datapages.WithCSRFProtection
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
-	sessionManager sessions.Manager[app.SessionData],
+	sessionManager sessions.Manager[dpapp.SessionData],
 ) error {
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -185,7 +185,7 @@ const (
 )
 
 const (
-	EvSubjPrefSessionClosed = "sessions.closed."
+	EvPrefixSessionClosed = "sessions.closed."
 )
 
 func MessageBrokerStreamSubjects() []string {
@@ -204,31 +204,31 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /_$/{$}",
-		s.handlePageIndexGETStream)
+		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /login/{$}",
-		s.handlePageLoginGET)
+		pageLoginHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /register/{$}",
-		s.handlePageRegisterGET)
+		pageRegisterHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"POST /signout/{$}",
-		s.handlePOSTSignOut)
+		appHandlers{s}.POSTSignOut)
 	s.Mux().HandleFunc(
 		"POST /login/validate/{$}",
-		s.handlePageLoginPOSTValidate)
+		pageLoginHandlers{s}.POSTValidate)
 	s.Mux().HandleFunc(
 		"POST /login/submit/{$}",
-		s.handlePageLoginPOSTSubmit)
+		pageLoginHandlers{s}.POSTSubmit)
 	s.Mux().HandleFunc(
 		"POST /register/validate/{$}",
-		s.handlePageRegisterPOSTValidate)
+		pageRegisterHandlers{s}.POSTValidate)
 	s.Mux().HandleFunc(
 		"POST /register/submit/{$}",
-		s.handlePageRegisterPOSTSubmit)
+		pageRegisterHandlers{s}.POSTSubmit)
 }
 
 func (s *Server) httpErrIntern(
@@ -247,13 +247,15 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
+type appHandlers struct{ *Server }
+
+func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 	sess, sessToken, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	dispatchSessionClosed := dispatcherEventSessionClosed{s: s, ctx: r.Context()}
+	dispatchSessionClosed := dispatcherEventSessionClosed{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "App.SignOut")
 	closeSession, redirect, err := s.app.POSTSignOut(r, sess, dispatchSessionClosed)
 	if err != nil {
@@ -271,7 +273,9 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -282,7 +286,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -312,7 +316,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -326,7 +330,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex(sess.UserID()),
@@ -337,11 +341,11 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
-			var eventSessionClosed app.EventSessionClosed
+			var eventSessionClosed dpapp.EventSessionClosed
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefSessionClosed):
-					eventSessionClosed = app.EventSessionClosed{}
+				case strings.HasPrefix(msg.Subject, EvPrefixSessionClosed):
+					eventSessionClosed = dpapp.EventSessionClosed{}
 					if err := json.Unmarshal(msg.Data, &eventSessionClosed); err != nil {
 						s.LogErr("unmarshaling EventSessionClosed JSON", err)
 						continue
@@ -354,13 +358,15 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		})
 }
 
-func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
+type pageLoginHandlers struct{ *Server }
+
+func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.PageLogin{
+	p := dpapp.PageLogin{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.GET")
@@ -386,7 +392,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageLoginPOSTValidate(
+func (s pageLoginHandlers) POSTValidate(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -406,7 +412,7 @@ func (s *Server) handlePageLoginPOSTValidate(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.Validate")
-	p := app.PageLogin{
+	p := dpapp.PageLogin{
 		App: s.app,
 	}
 	body, err := p.POSTValidate(r, sess, signals)
@@ -423,7 +429,7 @@ func (s *Server) handlePageLoginPOSTValidate(
 	}
 }
 
-func (s *Server) handlePageLoginPOSTSubmit(
+func (s pageLoginHandlers) POSTSubmit(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -443,7 +449,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.Submit")
-	p := app.PageLogin{
+	p := dpapp.PageLogin{
 		App: s.app,
 	}
 	body, redirect, newSession, err := p.POSTSubmit(r, sess, signals)
@@ -471,13 +477,15 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	}
 }
 
-func (s *Server) handlePageRegisterGET(w http.ResponseWriter, r *http.Request) {
+type pageRegisterHandlers struct{ *Server }
+
+func (s pageRegisterHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.PageRegister{
+	p := dpapp.PageRegister{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageRegister.GET")
@@ -503,7 +511,7 @@ func (s *Server) handlePageRegisterGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageRegisterPOSTValidate(
+func (s pageRegisterHandlers) POSTValidate(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -524,7 +532,7 @@ func (s *Server) handlePageRegisterPOSTValidate(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageRegister.Validate")
-	p := app.PageRegister{
+	p := dpapp.PageRegister{
 		App: s.app,
 	}
 	body, err := p.POSTValidate(r, sess, signals)
@@ -541,7 +549,7 @@ func (s *Server) handlePageRegisterPOSTValidate(
 	}
 }
 
-func (s *Server) handlePageRegisterPOSTSubmit(
+func (s pageRegisterHandlers) POSTSubmit(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -562,7 +570,7 @@ func (s *Server) handlePageRegisterPOSTSubmit(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageRegister.Submit")
-	p := app.PageRegister{
+	p := dpapp.PageRegister{
 		App: s.app,
 	}
 	body, redirect, newSession, err := p.POSTSubmit(r, sess, signals)
@@ -595,12 +603,12 @@ type dispatcherEventSessionClosed struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventSessionClosed) Dispatch(e app.EventSessionClosed) error {
+func (d dispatcherEventSessionClosed) Dispatch(e dpapp.EventSessionClosed) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventSessionClosed) DispatchCtx(
-	ctx context.Context, e app.EventSessionClosed,
+	ctx context.Context, e dpapp.EventSessionClosed,
 ) error {
 	if e.Recipient == "" {
 		return errors.New("EventSessionClosed.Recipient must not be empty")

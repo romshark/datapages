@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,8 +37,10 @@ type Options struct {
 
 // Generate generates the complete generated Datapages package with subpackages to
 // destination directory dstDir. pkgName is the Go package name for the generated
-// root package (e.g. "datapagesgen"). When m is nil, minimal stub files containing
-// only the package declaration are written so that IDEs can resolve the import.
+// root package (e.g. "datapagesgen"). When m is nil, a minimal stub file
+// containing only the package declaration is written for each package that has
+// none yet, so that IDEs can resolve the import. A package that already holds a
+// file keeps it.
 //
 // Nothing is written unless every file renders.
 // On error the destination is left as it was.
@@ -134,8 +137,14 @@ func Generate(
 	return nil
 }
 
-// generateStubs writes minimal package declaration files for each generated
-// package so that IDEs can resolve the import even when the app model is nil.
+// generateStubs writes a minimal package declaration for each generated
+// package that has no file yet, so that an IDE can resolve the import while
+// the errors that stopped the model from being built are fixed.
+//
+// A path that already holds a file is left alone. The model is nil because the
+// app package does not type-check, which a half-written edit is enough to
+// cause, and datapages watch re-runs gen on every change. Stubbing over
+// working generated code would answer one broken build with another.
 //
 // A stub carries the generated header like every other generated file:
 // without it the next run reads the destination as one datapages did not write.
@@ -145,19 +154,24 @@ func generateStubs(dstDir, pkgName string, perm os.FileMode, hasAssets bool) err
 		{filepath.Join(dstDir, "action"), "action", "action_gen.go"},
 		{filepath.Join(dstDir, "href"), "href", "href_gen.go"},
 	}
-	assetsDir := filepath.Join(dstDir, "assets")
 	if hasAssets {
-		stubs = append(stubs,
-			struct{ dir, name, file string }{assetsDir, "assets", "assets_gen.go"})
-	} else {
-		_ = os.RemoveAll(assetsDir)
+		stubs = append(stubs, struct{ dir, name, file string }{
+			filepath.Join(dstDir, "assets"), "assets", "assets_gen.go",
+		})
 	}
+	// The assets package is not removed here. Whether the application has
+	// assets is only known from a model, and there is none.
 	for _, pkg := range stubs {
+		p := filepath.Join(pkg.dir, pkg.file)
+		if _, err := os.Stat(p); err == nil {
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("reading %s: %w", p, err)
+		}
 		if err := os.MkdirAll(pkg.dir, 0o755); err != nil {
 			return fmt.Errorf("creating directory %s: %w", pkg.dir, err)
 		}
 		content := []byte(GeneratedHeader + "\n\npackage " + pkg.name + "\n")
-		p := filepath.Join(pkg.dir, pkg.file)
 		if err := os.WriteFile(p, content, perm); err != nil {
 			return fmt.Errorf("writing %s: %w", pkg.file, err)
 		}

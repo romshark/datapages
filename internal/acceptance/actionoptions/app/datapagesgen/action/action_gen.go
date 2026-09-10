@@ -168,8 +168,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexSave references /save/
-func POSTPageIndexSave(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Save pageIndex_Save
+}
+
+type pageIndex_Save struct{}
+
+// POST references /save/
+func (pageIndex_Save) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/save/')"
 	}

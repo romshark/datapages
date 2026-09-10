@@ -92,8 +92,8 @@ func TestActionURLEscaping(t *testing.T) {
 	c := client.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer)))
 
-	expr := action.POSTPageItemRename("a/b",
-		action.QueryPOSTPageItemRename{To: "c&d=e"})
+	expr := action.PageItem.Rename.POST("a/b",
+		action.PageItem.Rename.POSTQuery("c&d=e"))
 
 	// The expression a template carries: @post('<url>').
 	const prefix, suffix = "@post('", "')"
@@ -181,10 +181,10 @@ func TestStreamInitURLIsRouted(t *testing.T) {
 func TestActionURLCarriesNoQuote(t *testing.T) {
 	t.Parallel()
 	for name, expr := range map[string]string{
-		"path value": action.POSTPageItemRename(`a'b`,
-			action.QueryPOSTPageItemRename{To: "x"}),
-		"query value": action.POSTPageItemRename("a",
-			action.QueryPOSTPageItemRename{To: `b';alert(1);//`}),
+		"path value": action.PageItem.Rename.POST(`a'b`,
+			action.PageItem.Rename.POSTQuery("x")),
+		"query value": action.PageItem.Rename.POST("a",
+			action.PageItem.Rename.POSTQuery(`b';alert(1);//`)),
 	} {
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, 2, strings.Count(expr, "'"),

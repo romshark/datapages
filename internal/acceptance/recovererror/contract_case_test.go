@@ -33,14 +33,14 @@ func TestContract(t *testing.T) {
 		HrefSetLogger:  href.SetLogger,
 		Links:          []string{href.PageIndex(), href.PageBoom()},
 		Actions: []string{
-			action.POSTPageIndexBad(),
-			action.POSTPageIndexMissing(),
-			action.POSTPageIndexPlain(),
-			action.POSTPageIndexUnrecoverable(),
+			action.PageIndex.Bad.POST(),
+			action.PageIndex.Missing.POST(),
+			action.PageIndex.Plain.POST(),
+			action.PageIndex.Unrecoverable.POST(),
 		},
 		// optionedAction carries every option at once.
 		// The keys and their order are asserted by the contract suite.
-		OptionedAction: action.POSTPageIndexBad(
+		OptionedAction: action.PageIndex.Bad.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),

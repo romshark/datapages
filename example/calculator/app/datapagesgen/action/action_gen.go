@@ -170,8 +170,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexInput references /input/
-func POSTPageIndexInput(query QueryPOSTPageIndexInput, options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Input pageIndex_Input
+}
+
+type pageIndex_Input struct{}
+
+// POST references /input/
+func (pageIndex_Input) POST(query pageIndex_Input_POSTQuery, options ...option) string {
 	var (
 		btnStr string
 		numStr string
@@ -239,7 +247,14 @@ func POSTPageIndexInput(query QueryPOSTPageIndexInput, options ...option) string
 	return b.String()
 }
 
-type QueryPOSTPageIndexInput struct {
+type pageIndex_Input_POSTQuery struct {
 	Btn int    `query:"btn"`
 	Num string `query:"num"`
+}
+
+func (pageIndex_Input) POSTQuery(vBtn int, vNum string) pageIndex_Input_POSTQuery {
+	return pageIndex_Input_POSTQuery{
+		Btn: vBtn,
+		Num: vNum,
+	}
 }

@@ -16,7 +16,7 @@ import (
 	"github.com/romshark/datapages/runtime/auth"
 	"github.com/romshark/datapages/runtime/httpserve"
 
-	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/app"
+	dpapp "github.com/romshark/datapages/internal/acceptance/csrfcoverage/app"
 	"github.com/romshark/datapages/internal/acceptance/csrfcoverage/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -77,14 +77,14 @@ type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
-	app                  *app.App
+	app                  *dpapp.App
 	*auth.Manager[struct{}]
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, struct{}, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, struct{}, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -101,7 +101,7 @@ type Server struct {
 //   - datapages.WithCSRFProtection
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[struct{}],
 ) error {
@@ -159,22 +159,22 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /boom/{$}",
-		s.handlePageBoomGET)
+		pageBoomHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /not-found/{$}",
-		s.handlePageError404GET)
+		pageError404Handlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /server-error/{$}",
-		s.handlePageError500GET)
+		pageError500Handlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"POST /sign-in/{$}",
-		s.handlePageIndexPOSTSignIn)
+		pageIndexHandlers{s}.POSTSignIn)
 	s.Mux().HandleFunc(
 		"POST /delete/{$}",
-		s.handlePageIndexPOSTDelete)
+		pageIndexHandlers{s}.POSTDelete)
 }
 
 // httpErrFinal writes the error response without rendering PageError500.
@@ -200,7 +200,7 @@ func (s *Server) httpErrIntern(
 		}
 		// The page serves 200 on its own route. Reached from here it carries 500.
 		w.WriteHeader(http.StatusInternalServerError)
-		s.handlePageError500GET(w, r)
+		pageError500Handlers{s}.GET(w, r)
 		return
 	}
 	if sse != nil {
@@ -220,7 +220,7 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := app.PageError404{
+	p := dpapp.PageError404{
 		App: s.app,
 	}
 
@@ -243,8 +243,10 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageBoomGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageBoom{
+type pageBoomHandlers struct{ *Server }
+
+func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageBoom{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageBoom.GET")
@@ -266,13 +268,15 @@ func (s *Server) handlePageBoomGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
+type pageError404Handlers struct{ *Server }
+
+func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.PageError404{
+	p := dpapp.PageError404{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageError404.GET")
@@ -294,13 +298,15 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
+type pageError500Handlers struct{ *Server }
+
+func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.PageError500{
+	p := dpapp.PageError500{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageError500.GET")
@@ -322,7 +328,9 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -333,7 +341,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -355,7 +363,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexPOSTSignIn(
+func (s pageIndexHandlers) POSTSignIn(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -374,7 +382,7 @@ func (s *Server) handlePageIndexPOSTSignIn(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.SignIn")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	newSession, err := p.POSTSignIn(r, signals)
@@ -390,7 +398,7 @@ func (s *Server) handlePageIndexPOSTSignIn(
 	}
 }
 
-func (s *Server) handlePageIndexPOSTDelete(
+func (s pageIndexHandlers) POSTDelete(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -409,7 +417,7 @@ func (s *Server) handlePageIndexPOSTDelete(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Delete")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTDelete(r, signals)

@@ -168,8 +168,21 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexBoth references /both/
-func POSTPageIndexBoth(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Both     pageIndex_Both
+	Canceled pageIndex_Canceled
+	Hold     pageIndex_Hold
+	Note     pageIndex_Note
+	Release  pageIndex_Release
+	Tick     pageIndex_Tick
+}
+
+type pageIndex_Both struct{}
+
+// POST references /both/
+func (pageIndex_Both) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/both/')"
 	}
@@ -184,8 +197,10 @@ func POSTPageIndexBoth(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexCanceled references /canceled/
-func POSTPageIndexCanceled(options ...option) string {
+type pageIndex_Canceled struct{}
+
+// POST references /canceled/
+func (pageIndex_Canceled) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/canceled/')"
 	}
@@ -200,8 +215,10 @@ func POSTPageIndexCanceled(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexHold references /hold/
-func POSTPageIndexHold(options ...option) string {
+type pageIndex_Hold struct{}
+
+// POST references /hold/
+func (pageIndex_Hold) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/hold/')"
 	}
@@ -216,8 +233,10 @@ func POSTPageIndexHold(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexNote references /note/
-func POSTPageIndexNote(options ...option) string {
+type pageIndex_Note struct{}
+
+// POST references /note/
+func (pageIndex_Note) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/note/')"
 	}
@@ -232,8 +251,10 @@ func POSTPageIndexNote(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexRelease references /release/
-func POSTPageIndexRelease(options ...option) string {
+type pageIndex_Release struct{}
+
+// POST references /release/
+func (pageIndex_Release) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/release/')"
 	}
@@ -248,8 +269,10 @@ func POSTPageIndexRelease(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexTick references /tick/
-func POSTPageIndexTick(options ...option) string {
+type pageIndex_Tick struct{}
+
+// POST references /tick/
+func (pageIndex_Tick) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/tick/')"
 	}
@@ -264,8 +287,17 @@ func POSTPageIndexTick(options ...option) string {
 	return b.String()
 }
 
-// POSTPageRoomBroadcast references /room/broadcast/
-func POSTPageRoomBroadcast(options ...option) string {
+var PageRoom pageRoom
+
+type pageRoom struct {
+	Broadcast pageRoom_Broadcast
+	Say       pageRoom_Say
+}
+
+type pageRoom_Broadcast struct{}
+
+// POST references /room/broadcast/
+func (pageRoom_Broadcast) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/room/broadcast/')"
 	}
@@ -280,8 +312,10 @@ func POSTPageRoomBroadcast(options ...option) string {
 	return b.String()
 }
 
-// POSTPageRoomSay references /room/say/
-func POSTPageRoomSay(options ...option) string {
+type pageRoom_Say struct{}
+
+// POST references /room/say/
+func (pageRoom_Say) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/room/say/')"
 	}

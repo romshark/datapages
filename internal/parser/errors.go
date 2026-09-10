@@ -133,10 +133,6 @@ var (
 		"all handlers must use the same datapages.Session[Data] instantiation",
 	)
 
-	ErrGeneratedNameConflict = errors.New(
-		"conflicting generated identifier",
-	)
-
 	ErrNewSessionWithSSE = errors.New(
 		"newSession cannot be used together with sse parameter",
 	)
@@ -588,24 +584,6 @@ func (e *ErrorRouteConflict) Error() string {
 }
 
 func (e *ErrorRouteConflict) Unwrap() error { return ErrRouteConflict }
-
-// ErrorGeneratedNameConflict is [ErrGeneratedNameConflict] with both methods.
-// Page name and action name are spelled with nothing between them:
-// two distinct methods can produce one identifier.
-type ErrorGeneratedNameConflict struct {
-	Name  string
-	Owner string
-	First string
-}
-
-func (e *ErrorGeneratedNameConflict) Error() string {
-	return fmt.Sprintf("%v: %s and %s both generate %s",
-		ErrGeneratedNameConflict, e.Owner, e.First, e.Name)
-}
-
-func (e *ErrorGeneratedNameConflict) Unwrap() error {
-	return ErrGeneratedNameConflict
-}
 
 // ErrorRouteWildcardStream is [ErrRouteWildcardStream] with the page.
 // The stream endpoint sits under the page route. A {name...} wildcard matches

@@ -183,7 +183,7 @@ templ pageLogin(wrongCreds bool) {
 				<button
 					class="btn"
 					data-attr:disabled="$emailorusername == '' || $password == ''"
-					data-on:click={ action.POSTPageLoginSubmit() }
+					data-on:click={ action.PageLogin.Submit.POST() }
 				>Sign in</button>
 				<a
 					class="btn-ghost"
@@ -307,19 +307,19 @@ templ pageMessages(
 						type="text"
 						data-bind="messagetext"
 						placeholder="Message"
-						data-on:input__throttle.300ms={ action.POSTPageMessagesWriting(
+						data-on:input__throttle.300ms={ action.PageMessages.Writing.POST(
 							action.WithBefore("if (!$messagetext) return"),
 						) }
-						data-on:input__debounce.300ms={ action.POSTPageMessagesWritingStopped(
+						data-on:input__debounce.300ms={ action.PageMessages.WritingStopped.POST(
 							action.WithBefore("if ($messagetext) return"),
 						) }
-						data-on:keydown={ action.POSTPageMessagesSendMessage(
+						data-on:keydown={ action.PageMessages.SendMessage.POST(
 							action.WithBefore("if (evt.key !== 'Enter' || evt.shiftKey || !$messagetext.trim()) return; evt.preventDefault()"),
 						) }
 					></textarea>
 					<button
 						class="btn"
-						data-on:click={ action.POSTPageMessagesSendMessage() }
+						data-on:click={ action.PageMessages.SendMessage.POST() }
 						data-attr:disabled="$messagetext.trim() === ''"
 					>
 						Send
@@ -369,7 +369,7 @@ templ pageSettings(
 			<button
 				class="btn"
 				data-attr:disabled="!$_haschanges"
-				data-on:click={ action.POSTPageSettingsSave() }
+				data-on:click={ action.PageSettings.Save.POST() }
 			>Save</button>
 		</section>
 		<section>
@@ -380,7 +380,7 @@ templ pageSettings(
 			</p>
 			<button
 				class="btn"
-				data-on:click={ action.POSTAppCause500() }
+				data-on:click={ action.App.Cause500.POST() }
 			>Cause Internal Error</button>
 		</section>
 		<section>
@@ -402,7 +402,7 @@ templ pageSettings(
 						<p>{ sess.IssuedAt.String() }</p>
 						<button
 							class="btn-destructive"
-							data-on:click={ action.POSTPageSettingsCloseSession(token) }
+							data-on:click={ action.PageSettings.CloseSession.POST(token) }
 						>Terminate</button>
 					</li>
 				}
@@ -412,14 +412,14 @@ templ pageSettings(
 			</p>
 			<button
 				class="btn"
-				data-on:click={ action.POSTPageSettingsCloseAllSessions() }
+				data-on:click={ action.PageSettings.CloseAllSessions.POST() }
 			>Close All Sessions</button>
 			<p>
 				Close only current session
 			</p>
 			<button
 				class="btn-destructive"
-				data-on:click={ action.POSTAppSignOut() }
+				data-on:click={ action.App.SignOut.POST() }
 			>Sign Out</button>
 		</section>
 	}
@@ -434,7 +434,7 @@ templ pageSearch(
 		<div
 			class="card"
 			id="search-filters"
-			data-on:change={ action.POSTPageSearchParamChange() }
+			data-on:change={ action.PageSearch.ParamChange.POST() }
 		>
 			<label>
 				Category
@@ -664,7 +664,7 @@ templ fragmentMessageForm(slug string) {
 		></textarea>
 		<button
 			class="btn"
-			data-on:click={ action.POSTPagePostSendMessage(slug) }
+			data-on:click={ action.PagePost.SendMessage.POST(slug) }
 			data-attr:disabled="$messagetext === ''"
 		>Send</button>
 	</div>
@@ -762,8 +762,8 @@ templ fragmentMessage(session Session, msg domain.Message) {
 			<p
 				class="message-header"
 				if msg.TimeRead.IsZero() {
-					data-on-intersect={ action.POSTPageMessagesRead(
-						action.QueryPOSTPageMessagesRead{MessageID: msg.ID},
+					data-on-intersect={ action.PageMessages.Read.POST(
+						action.PageMessages.Read.POSTQuery(msg.ID),
 					) }
 				}
 			>

@@ -168,8 +168,21 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageBoomBad references /boom/bad/
-func POSTPageBoomBad(options ...option) string {
+var PageBoom pageBoom
+
+type pageBoom struct {
+	Bad       pageBoom_Bad
+	Conflict  pageBoom_Conflict
+	Forbidden pageBoom_Forbidden
+	NotFound  pageBoom_NotFound
+	Plain     pageBoom_Plain
+	Wrapped   pageBoom_Wrapped
+}
+
+type pageBoom_Bad struct{}
+
+// POST references /boom/bad/
+func (pageBoom_Bad) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/boom/bad/')"
 	}
@@ -184,8 +197,10 @@ func POSTPageBoomBad(options ...option) string {
 	return b.String()
 }
 
-// POSTPageBoomConflict references /boom/conflict/
-func POSTPageBoomConflict(options ...option) string {
+type pageBoom_Conflict struct{}
+
+// POST references /boom/conflict/
+func (pageBoom_Conflict) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/boom/conflict/')"
 	}
@@ -200,8 +215,10 @@ func POSTPageBoomConflict(options ...option) string {
 	return b.String()
 }
 
-// POSTPageBoomForbidden references /boom/forbidden/
-func POSTPageBoomForbidden(options ...option) string {
+type pageBoom_Forbidden struct{}
+
+// POST references /boom/forbidden/
+func (pageBoom_Forbidden) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/boom/forbidden/')"
 	}
@@ -216,8 +233,10 @@ func POSTPageBoomForbidden(options ...option) string {
 	return b.String()
 }
 
-// POSTPageBoomNotFound references /boom/not-found/
-func POSTPageBoomNotFound(options ...option) string {
+type pageBoom_NotFound struct{}
+
+// POST references /boom/not-found/
+func (pageBoom_NotFound) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/boom/not-found/')"
 	}
@@ -232,8 +251,10 @@ func POSTPageBoomNotFound(options ...option) string {
 	return b.String()
 }
 
-// POSTPageBoomPlain references /boom/plain/
-func POSTPageBoomPlain(options ...option) string {
+type pageBoom_Plain struct{}
+
+// POST references /boom/plain/
+func (pageBoom_Plain) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/boom/plain/')"
 	}
@@ -248,8 +269,10 @@ func POSTPageBoomPlain(options ...option) string {
 	return b.String()
 }
 
-// POSTPageBoomWrapped references /boom/wrapped/
-func POSTPageBoomWrapped(options ...option) string {
+type pageBoom_Wrapped struct{}
+
+// POST references /boom/wrapped/
+func (pageBoom_Wrapped) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/boom/wrapped/')"
 	}
@@ -264,8 +287,17 @@ func POSTPageBoomWrapped(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexStreamFail references /stream-fail/
-func POSTPageIndexStreamFail(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	StreamFail  pageIndex_StreamFail
+	StreamPanic pageIndex_StreamPanic
+}
+
+type pageIndex_StreamFail struct{}
+
+// POST references /stream-fail/
+func (pageIndex_StreamFail) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/stream-fail/')"
 	}
@@ -280,8 +312,10 @@ func POSTPageIndexStreamFail(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexStreamPanic references /stream-panic/
-func POSTPageIndexStreamPanic(options ...option) string {
+type pageIndex_StreamPanic struct{}
+
+// POST references /stream-panic/
+func (pageIndex_StreamPanic) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/stream-panic/')"
 	}

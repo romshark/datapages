@@ -44,6 +44,12 @@ func eventConstName(typeName string) string {
 
 // evSubjConst returns the subscription subject constant name.
 // "EventMessagingSent" -> "EvSubjMessagingSent"
+//
+// Neither this prefix nor [evSubjPrefConst]'s is a prefix of the other, which
+// is what keeps the two sets apart. An event suffix always starts with an
+// uppercase letter: "EvSubj"+X and "EvPrefix"+Y differ at the third byte
+// whatever the events are named. A prefix that extended this one would not:
+// "EvSubjPref"+Foo is "EvSubj"+PrefFoo, and EventPrefFoo is a valid name.
 func evSubjConst(e *model.Event) string {
 	return "EvSubj" + eventConstName(e.TypeName)
 }
@@ -61,12 +67,14 @@ func evUsesPrefixMatch(e *model.Event) bool {
 // evSubjPrefConst returns the subject prefix constant name for events
 // that use prefix-based subject matching.
 // Returns "" for plain public events.
-// "EventMessagingSent" -> "EvSubjPrefMessagingSent"
+// "EventMessagingSent" -> "EvPrefixMessagingSent"
+//
+// See [evSubjConst] for why this prefix must not extend that one.
 func evSubjPrefConst(e *model.Event) string {
 	if !evUsesPrefixMatch(e) {
 		return ""
 	}
-	return "EvSubjPref" + eventConstName(e.TypeName)
+	return "EvPrefix" + eventConstName(e.TypeName)
 }
 
 // evSubjValue returns the subscription subject constant value.
@@ -91,12 +99,17 @@ func evSubjPrefValue(e *model.Event) string {
 	return subject.Prefix(e.Subject)
 }
 
-// stripPagePrefix strips "Page" prefix from type name: "PageSettings" -> "Settings"
-func stripPagePrefix(typeName string) string {
-	return strings.TrimPrefix(typeName, "Page")
+// handlerRecvType is the receiver type carrying an owner's HTTP handlers:
+// "PageFoo" -> "pageFooHandlers", "App" -> "appHandlers".
+//
+// A method per owner keeps the owner name and the handler name in separate identifiers.
+// Concatenated, a page name ending in a verb and another page's
+// action spell one method: PageAPOSTB.GET and PageA.POSTBGET.
+func handlerRecvType(owner string) string {
+	return strings.ToLower(owner[:1]) + owner[1:] + "Handlers"
 }
 
-// pageHasStream returns true if the page has event handlers and needs a stream.
+// pageHasStream reports whether the page is served an SSE stream of its own.
 func pageHasStream(p *model.Page) bool {
 	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil
 }
@@ -192,16 +205,36 @@ func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool 
 // That is what an unaliased import binds to, for the app package as much as
 // for any other, and a package is free to declare a name its directory does not repeat.
 func renderType(t model.Type) string {
-	return types.TypeString(t.Resolved, func(p *types.Package) string {
+	return types.TypeString(t.Resolved, declaredNameQualifier)
+}
+
+// declaredNameQualifier names every package by the name it declares.
+func declaredNameQualifier(p *types.Package) string { return p.Name() }
+
+// appQualifier names every package by the name it declares, except the app
+// package at appPkgPath, which app_gen.go imports under [appPkgQual].
+func appQualifier(appPkgPath string) func(*types.Package) string {
+	return func(p *types.Package) string {
+		if p.Path() == appPkgPath {
+			return appPkgQual
+		}
 		return p.Name()
-	})
+	}
+}
+
+// renderTypeIn renders a Go type for app_gen.go, where the app package is
+// aliased and every other package is its declared name.
+func renderTypeIn(appPkgPath string, t model.Type) string {
+	return types.TypeString(t.Resolved, appQualifier(appPkgPath))
 }
 
 // renderAnonStructType renders an anonymous struct type, preserving struct tags.
 // It renders from the resolved type rather than the source it was written as.
 // The generated package is not the app package, which leaves a type the app
 // names with nothing to resolve to unless it is written with its package.
-func renderAnonStructType(t model.Type, fset *token.FileSet) string {
+func renderAnonStructType(
+	t model.Type, fset *token.FileSet, qual func(*types.Package) string,
+) string {
 	st, ok := t.Resolved.Underlying().(*types.Struct)
 	if !ok {
 		// Not a struct. Fall back to the source expression.
@@ -211,12 +244,12 @@ func renderAnonStructType(t model.Type, fset *token.FileSet) string {
 		}
 		return buf.String()
 	}
-	return renderStruct(st)
+	return renderStruct(st, qual)
 }
 
 // renderStruct writes a struct type with every named type qualified by its package.
 // Anonymous struct fields, which signals nest, recurse.
-func renderStruct(st *types.Struct) string {
+func renderStruct(st *types.Struct, qual func(*types.Package) string) string {
 	var b strings.Builder
 	b.WriteString("struct {\n")
 	for i := range st.NumFields() {
@@ -224,11 +257,9 @@ func renderStruct(st *types.Struct) string {
 		b.WriteString(f.Name())
 		b.WriteByte(' ')
 		if nested, ok := f.Type().(*types.Struct); ok {
-			b.WriteString(renderStruct(nested))
+			b.WriteString(renderStruct(nested, qual))
 		} else {
-			b.WriteString(types.TypeString(f.Type(), func(p *types.Package) string {
-				return p.Name()
-			}))
+			b.WriteString(types.TypeString(f.Type(), qual))
 		}
 		if tag := st.Tag(i); tag != "" {
 			b.WriteString(" `")
@@ -482,6 +513,9 @@ type Writer struct {
 	genImport string
 	// appPkgQual is the identifier that qualifies app types in generated code.
 	appPkgQual string
+	// appPkgPath is the import path of the app package, which app_gen.go
+	// imports under appPkgQual rather than under the name it declares.
+	appPkgPath string
 	// usage is computed once per WriteApp
 	usage appUsage
 	// sessionType is the rendered session type of the application,
@@ -507,7 +541,7 @@ func (w *Writer) setSessionType(m *model.App) {
 		w.sessionDataType = ""
 		return
 	}
-	data := renderType(m.Session.Data)
+	data := renderTypeIn(m.PkgPath, m.Session.Data)
 	w.sessionType = "datapages.Session[" + data + "]"
 	w.newSessionType = "datapages.NewSession[" + data + "]"
 	w.recordType = "sessions.Record[" + data + "]"
@@ -663,24 +697,10 @@ func (w *Writer) writeAnyCheck(varName, queryVar string, fields []structFieldInf
 	}
 }
 
-// appPkgQualifier returns the identifier that qualifies app types in generated code.
-// An unaliased import binds to the name the package declares,
-// which is free to differ from its directory.
-func appPkgQualifier(m *model.App) string {
-	if m.PkgName != "" {
-		return m.PkgName
-	}
-	return appPkgName(m.PkgPath)
-}
-
-// appPkgName returns the short package name from an import path.
-// "github.com/romshark/datapages/example/classifieds/app" -> "app"
-func appPkgName(pkgPath string) string {
-	if i := strings.LastIndex(pkgPath, "/"); i >= 0 {
-		return pkgPath[i+1:]
-	}
-	return pkgPath
-}
+// appPkgQual is the alias app_gen.go imports the app package under,
+// whatever it declares itself: an app package named "stream" or "http" would
+// otherwise bind the identifier one of the fixed imports already holds.
+const appPkgQual = "dpapp"
 
 // signalIdents returns unique exported identifiers for a page's signal-scoped
 // subject fields, derived from their signal names. They name both the fields of

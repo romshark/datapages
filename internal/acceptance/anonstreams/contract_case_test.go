@@ -46,22 +46,22 @@ func TestContract(t *testing.T) {
 			href.PageFeed(),
 		},
 		Actions: []string{
-			action.POSTPageRoomsPost(),
-			action.POSTPageRoomsNotice(),
-			action.POSTPageFeedTick(),
+			action.PageRooms.Post.POST(),
+			action.PageRooms.Notice.POST(),
+			action.PageFeed.Tick.POST(),
 		},
 		SignalActions: []string{
-			action.POSTPageRoomsPost(),
-			action.POSTPageRoomsNotice(),
-			action.POSTPageFeedTick(),
+			action.PageRooms.Post.POST(),
+			action.PageRooms.Notice.POST(),
+			action.PageFeed.Tick.POST(),
 		},
 		// The page whose stream subscribes by nothing,
 		// which is the one the suite can open without supplying a signal.
 		Index:          href.PageFeed(),
 		StreamPath:     "/feed/_$/",
-		DispatchAction: action.POSTPageFeedTick(),
+		DispatchAction: action.PageFeed.Tick.POST(),
 		DispatchBody:   `{"n":1}`,
-		OptionedAction: action.POSTPageFeedTick(
+		OptionedAction: action.PageFeed.Tick.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),

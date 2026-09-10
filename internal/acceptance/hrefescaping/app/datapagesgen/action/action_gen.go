@@ -169,8 +169,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageItemRename references /item/{name}/rename/
-func POSTPageItemRename(name string, query QueryPOSTPageItemRename, options ...option) string {
+var PageItem pageItem
+
+type pageItem struct {
+	Rename pageItem_Rename
+}
+
+type pageItem_Rename struct{}
+
+// POST references /item/{name}/rename/
+func (pageItem_Rename) POST(name string, query pageItem_Rename_POSTQuery, options ...option) string {
 	s_name := url.PathEscape(name)
 	var (
 		toStr string
@@ -221,6 +229,12 @@ func POSTPageItemRename(name string, query QueryPOSTPageItemRename, options ...o
 	return b.String()
 }
 
-type QueryPOSTPageItemRename struct {
+type pageItem_Rename_POSTQuery struct {
 	To string `query:"to"`
+}
+
+func (pageItem_Rename) POSTQuery(vTo string) pageItem_Rename_POSTQuery {
+	return pageItem_Rename_POSTQuery{
+		To: vTo,
+	}
 }

@@ -75,7 +75,6 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	finalizePages(&ctx)
 	assignSpecialPages(&ctx, &errs)
 	validateRouteConflicts(&ctx, &errs)
-	validateGeneratedNames(&ctx, &errs)
 	checkTemplFiles(&ctx, &errs)
 
 	if !ctx.appTypeFound {
@@ -1424,39 +1423,6 @@ func validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
 func finalizePages(ctx *parseCtx) {
 	for _, name := range slices.Sorted(maps.Keys(ctx.pages)) {
 		ctx.app.Pages = append(ctx.app.Pages, ctx.pages[name])
-	}
-}
-
-// validateGeneratedNames reports two methods the generator would spell as
-// one identifier: PageUser.POSTSettingsSave and PageUserSettings.POSTSave both
-// render as POSTPageUserSettingsSave. Both names and both routes are valid,
-// which leaves a redeclaration in a file the user must not edit.
-func validateGeneratedNames(ctx *parseCtx, errs *Errors) {
-	// The action identifier and the handler method name are spelled
-	// differently and collide independently.
-	seen := map[string]string{} // generated identifier -> the method that took it
-	claim := func(name, who string, expr ast.Expr) {
-		if prev, ok := seen[name]; ok {
-			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()),
-				&ErrorGeneratedNameConflict{Name: name, Owner: who, First: prev})
-			return
-		}
-		seen[name] = who
-	}
-	for _, p := range ctx.app.Pages {
-		suffix := strings.TrimPrefix(p.TypeName, "Page")
-		for _, h := range p.Actions {
-			who := p.TypeName + "." + h.HTTPMethod + h.Name
-			claim("action."+strings.ToUpper(h.HTTPMethod)+"Page"+suffix+h.Name,
-				who, h.Expr)
-			claim("handler."+p.TypeName+strings.ToUpper(h.HTTPMethod)+h.Name,
-				who, h.Expr)
-		}
-	}
-	for _, h := range ctx.app.Actions {
-		who := "App." + h.HTTPMethod + h.Name
-		claim("action."+strings.ToUpper(h.HTTPMethod)+h.Name, who, h.Expr)
-		claim("handler.App"+strings.ToUpper(h.HTTPMethod)+h.Name, who, h.Expr)
 	}
 }
 

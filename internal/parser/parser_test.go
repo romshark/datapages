@@ -995,14 +995,19 @@ func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 	requirePosEqual(t, "app.go", 15, 2, pos)
 }
 
-// TestParse_ErrGeneratedNameConflict tests two actions the generator would
-// spell as one identifier, which surfaces as a redeclaration in a generated
-// file the user must not edit.
-func TestParse_ErrGeneratedNameConflict(t *testing.T) {
-	_, err := parse(t, "err_generated_name_conflict")
-	require.NotZero(t, err.Error())
-
-	requireParseErrors(t, err, parser.ErrGeneratedNameConflict)
+// TestParse_NameCollisions tests the name pairs that concatenate into one
+// identifier when spelled as one. Each pair is accepted:
+// a page name ending in an HTTP verb against another page's action, the same
+// against a stream handler, a page suffix against an action name, an app
+// action against a page action, and the subject prefix of one event against
+// the subject of another.
+//
+// That the code generated for them compiles is TestCompileFixtures' job,
+// which builds every fixture in this directory.
+func TestParse_NameCollisions(t *testing.T) {
+	app, errs := parse(t, "name_collisions")
+	requireParseErrors(t, errs /*none*/)
+	require.NotNil(t, app)
 }
 
 // TestParse_ErrAppMethodSSE tests the sse parameter on an App method,

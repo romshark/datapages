@@ -20,7 +20,7 @@ import (
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"github.com/romshark/datapages/runtime/stream"
 
-	"github.com/romshark/datapages/internal/acceptance/multiapp/app/admin"
+	dpapp "github.com/romshark/datapages/internal/acceptance/multiapp/app/admin"
 	"github.com/romshark/datapages/internal/acceptance/multiapp/app/admin/datapagesgen/href"
 
 	"github.com/romshark/datapages/runtime/prom"
@@ -107,13 +107,13 @@ type Server struct {
 	messageBroker        messaging.Broker
 	messageBrokerMetrics brokerMetrics
 	streams              *stream.Handler
-	app                  *admin.App
+	app                  *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[admin.App, datapages.DisableSessions, datapages.EnablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.EnablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -128,12 +128,12 @@ type Server struct {
 //   - datapages.WithPrometheus (required)
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *admin.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package admin declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus == nil {
 		// This server is generated with datapages.EnablePrometheus,
@@ -209,13 +209,13 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /_$/{$}",
-		s.handlePageIndexGETStream)
+		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"POST /report/{$}",
-		s.handlePageIndexPOSTReport)
+		pageIndexHandlers{s}.POSTReport)
 }
 
 func (s *Server) httpErrIntern(
@@ -234,13 +234,15 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
-	p := admin.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -267,12 +269,12 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
-	p := admin.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageIndex,
@@ -283,11 +285,11 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
-			var eventReport admin.EventReport
+			var eventReport dpapp.EventReport
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjReport:
-					eventReport = admin.EventReport{}
+					eventReport = dpapp.EventReport{}
 					if err := json.Unmarshal(msg.Data, &eventReport); err != nil {
 						s.LogErr("unmarshaling EventReport JSON", err)
 						continue
@@ -300,7 +302,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		})
 }
 
-func (s *Server) handlePageIndexPOSTReport(
+func (s pageIndexHandlers) POSTReport(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -315,9 +317,9 @@ func (s *Server) handlePageIndexPOSTReport(
 		return
 	}
 
-	dispatchReport := dispatcherEventReport{s: s, ctx: r.Context()}
+	dispatchReport := dispatcherEventReport{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Report")
-	p := admin.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTReport(r, signals, dispatchReport)
@@ -332,12 +334,12 @@ type dispatcherEventReport struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventReport) Dispatch(e admin.EventReport) error {
+func (d dispatcherEventReport) Dispatch(e dpapp.EventReport) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventReport) DispatchCtx(
-	ctx context.Context, e admin.EventReport,
+	ctx context.Context, e dpapp.EventReport,
 ) error {
 	j, err := json.Marshal(e)
 	if err != nil {

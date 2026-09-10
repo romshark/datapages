@@ -37,16 +37,16 @@ func TestContract(t *testing.T) {
 			href.PageBoom(),
 		},
 		Actions: []string{
-			action.POSTPageBoomPlain(),
-			action.POSTPageBoomBad(),
-			action.POSTPageBoomForbidden(),
-			action.POSTPageBoomNotFound(),
-			action.POSTPageBoomConflict(),
-			action.POSTPageBoomWrapped(),
+			action.PageBoom.Plain.POST(),
+			action.PageBoom.Bad.POST(),
+			action.PageBoom.Forbidden.POST(),
+			action.PageBoom.NotFound.POST(),
+			action.PageBoom.Conflict.POST(),
+			action.PageBoom.Wrapped.POST(),
 		},
 		// optionedAction carries every option at once.
 		// The keys and their order are asserted by the contract suite.
-		OptionedAction: action.POSTPageBoomBad(
+		OptionedAction: action.PageBoom.Bad.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),

@@ -28,54 +28,100 @@ func (w *Writer) WritePkgAction(m *model.App) {
 		w.writeTextOf()
 	}
 
-	type actionEntry struct {
-		funcName   string
+	// An action reaches a template as action.PageFoo.Bar.POST: three
+	// identifiers, each a field or method of the namespace above it.
+	// Two model names never concatenate, which PageUser.POSTSettingsSave and
+	// PageUserSettings.POSTSave would spell as one.
+	//
+	// The unexported types below do concatenate, separated by "_", which no
+	// model name may contain: no pair of models spells one of them two ways.
+	type verbEntry struct {
 		httpMethod string
 		route      string
 		pathInput  *model.Input
 		queryInput *model.Input
 	}
-
-	// Collect and sort app actions.
-	appActions := make([]actionEntry, len(m.Actions))
-	for i, a := range m.Actions {
-		appActions[i] = actionEntry{
-			funcName:   strings.ToUpper(a.HTTPMethod) + "App" + a.Name,
+	type actionEntry struct {
+		name  string // the action name without its HTTP method, e.g. "SettingsSave"
+		verbs []verbEntry
+	}
+	byOwner := map[string]map[string][]verbEntry{}
+	add := func(owner string, a *model.Handler) {
+		if byOwner[owner] == nil {
+			byOwner[owner] = map[string][]verbEntry{}
+		}
+		byOwner[owner][a.Name] = append(byOwner[owner][a.Name], verbEntry{
 			httpMethod: a.HTTPMethod,
 			route:      a.Route,
 			pathInput:  a.InputPath,
 			queryInput: a.InputQuery,
-		}
+		})
 	}
-	slices.SortFunc(appActions, func(a, b actionEntry) int {
-		return strings.Compare(a.funcName, b.funcName)
-	})
-
-	// Collect and sort page actions.
-	pageActions := make([]actionEntry, 0, nPageActions)
+	for _, a := range m.Actions {
+		add("App", a)
+	}
 	for _, p := range m.Pages {
-		pageSuffix := stripPagePrefix(p.TypeName)
 		for _, a := range p.Actions {
-			pageActions = append(pageActions, actionEntry{
-				funcName:   strings.ToUpper(a.HTTPMethod) + "Page" + pageSuffix + a.Name,
-				httpMethod: a.HTTPMethod,
-				route:      a.Route,
-				pathInput:  a.InputPath,
-				queryInput: a.InputQuery,
-			})
+			add(p.TypeName, a)
 		}
 	}
-	slices.SortFunc(pageActions, func(a, b actionEntry) int {
-		return strings.Compare(a.funcName, b.funcName)
-	})
 
-	// Emit App actions first, then page actions.
-	for _, a := range appActions {
-		w.writeActionFunc(a.funcName, a.httpMethod, a.route, a.pathInput, a.queryInput)
+	// App first, then the pages by name: the order a reader scans.
+	owners := make([]string, 0, len(byOwner))
+	for owner := range byOwner {
+		if owner != "App" {
+			owners = append(owners, owner)
+		}
 	}
-	for _, a := range pageActions {
-		w.writeActionFunc(a.funcName, a.httpMethod, a.route, a.pathInput, a.queryInput)
+	slices.Sort(owners)
+	if _, ok := byOwner["App"]; ok {
+		owners = append([]string{"App"}, owners...)
 	}
+
+	for _, owner := range owners {
+		actions := make([]actionEntry, 0, len(byOwner[owner]))
+		for name, verbs := range byOwner[owner] {
+			slices.SortFunc(verbs, func(a, b verbEntry) int {
+				return strings.Compare(a.httpMethod, b.httpMethod)
+			})
+			actions = append(actions, actionEntry{name: name, verbs: verbs})
+		}
+		slices.SortFunc(actions, func(a, b actionEntry) int {
+			return strings.Compare(a.name, b.name)
+		})
+
+		ownerRecv := actionRecvType(owner)
+		w.Line(0, "")
+		w.Linef(0, "var %s %s", owner, ownerRecv)
+		w.Line(0, "")
+		w.Linef(0, "type %s struct {", ownerRecv)
+		for _, a := range actions {
+			w.Linef(1, "%s %s", a.name, actionRecvType(owner)+"_"+a.name)
+		}
+		w.Line(0, "}")
+
+		for _, a := range actions {
+			recv := ownerRecv + "_" + a.name
+			w.Line(0, "")
+			w.Linef(0, "type %s struct{}", recv)
+			for _, v := range a.verbs {
+				w.writeActionFunc(recv, strings.ToUpper(v.httpMethod),
+					v.httpMethod, v.route, v.pathInput, v.queryInput)
+			}
+		}
+	}
+}
+
+// actionRecvType is the unexported receiver type of an owner's namespace:
+// "PageFoo" -> "pageFoo", "App" -> "app".
+func actionRecvType(owner string) string {
+	return strings.ToLower(owner[:1]) + owner[1:]
+}
+
+// actionQueryType is the unexported type of an action's query argument.
+// A template never names it: [Writer.writeActionQueryCtor] builds it.
+func actionQueryType(recv, verb string) string {
+	return recv + "_" + verb + "Query"
 }
 
 func (w *Writer) writeActionHeader(hasActions bool) {
@@ -118,23 +164,29 @@ func (w *Writer) actionsNeedText(m *model.App) bool {
 }
 
 // writeActionRouteComment writes a doc comment line like
-// "// FuncName references /route/\n".
+// "// Method references /route/\n".
 // It strips {$} and ensures a trailing slash.
-func (w *Writer) writeActionRouteComment(funcName, route string) {
+func (w *Writer) writeActionRouteComment(name, route string) {
 	w.Raw("// ")
-	w.Raw(funcName)
+	w.Raw(name)
 	w.Raw(" references ")
 	w.Raw(routepattern.WithTrailingSlash(route))
 	w.Byte('\n')
 }
 
+// writeActionMethodHead writes "func (recv) Name" of an action method.
+func (w *Writer) writeActionMethodHead(recv, name string) {
+	w.Rawf("func (%s) %s", recv, name)
+}
+
 func (w *Writer) writeActionFunc(
-	funcName string,
+	recv, methodName string,
 	httpMethod string,
 	route string,
 	pathInput *model.Input,
 	queryInput *model.Input,
 ) {
+	queryType := actionQueryType(recv, methodName)
 	pathVars := slices.Collect(routepattern.Vars(route))
 	hasPathVars := len(pathVars) > 0
 	params := w.pathParamInfos(pathInput, pathVars)
@@ -149,10 +201,11 @@ func (w *Writer) writeActionFunc(
 
 	// Doc comment.
 	w.Line(0, "")
-	w.writeActionRouteComment(funcName, route)
+	w.writeActionRouteComment(methodName, route)
 
 	if !hasPathVars && !hasQuery {
-		w.Linef(0, "func %s(options ...option) string {", funcName)
+		w.writeActionMethodHead(recv, methodName)
+		w.Raw("(options ...option) string {\n")
 		w.Line(1, "if len(options) == 0 {")
 		w.Raw("\t\treturn \"@")
 		w.Raw(method)
@@ -183,23 +236,27 @@ func (w *Writer) writeActionFunc(
 	}
 
 	if hasPathVars && !hasQuery {
-		w.writeActionFuncPathOnly(funcName, method, route, params)
+		w.writeActionFuncPathOnly(recv, methodName, method, route, params)
 		return
 	}
 
 	if !hasPathVars && hasQuery {
-		w.writeActionFuncQueryOnly(funcName, method, route, queryFields)
-		w.writeActionQueryType(funcName, queryFields)
+		w.writeActionFuncQueryOnly(recv, methodName, queryType,
+			method, route, queryFields)
+		w.writeActionQueryType(queryType, queryFields)
+		w.writeActionQueryCtor(recv, methodName, queryType, queryFields)
 		return
 	}
 
 	// Both path and query.
-	w.writeActionFuncPathAndQuery(funcName, method, route, params, queryFields)
-	w.writeActionQueryType(funcName, queryFields)
+	w.writeActionFuncPathAndQuery(recv, methodName, queryType,
+		method, route, params, queryFields)
+	w.writeActionQueryType(queryType, queryFields)
+	w.writeActionQueryCtor(recv, methodName, queryType, queryFields)
 }
 
 func (w *Writer) writeActionFuncPathOnly(
-	funcName string,
+	recv, methodName string,
 	method string,
 	route string,
 	params []pathParamInfo,
@@ -207,9 +264,8 @@ func (w *Writer) writeActionFuncPathOnly(
 	lo := newHrefLocals(params, nil)
 	literals, _ := routepattern.Segments(route)
 
-	// func FuncName(params, options ...option) string {
-	w.Raw("func ")
-	w.Raw(funcName)
+	// func (recv) Method(params, options ...option) string {
+	w.writeActionMethodHead(recv, methodName)
 	w.Byte('(')
 	w.writeTypedParams(params)
 	w.Rawf(", %s ...option) string {\n", lo.options)
@@ -268,19 +324,18 @@ func (w *Writer) writeActionFuncPathOnly(
 }
 
 func (w *Writer) writeActionFuncQueryOnly(
-	funcName string,
+	recv, methodName, queryType string,
 	method string,
 	route string,
 	fields []structFieldInfo,
 ) {
 	lo := newHrefLocals(nil, fields)
-	// func FuncName(query QueryFuncName, options ...option) string {
-	w.Raw("func ")
-	w.Raw(funcName)
+	// func (recv) Method(query QueryType, options ...option) string {
+	w.writeActionMethodHead(recv, methodName)
 	w.Raw("(")
 	w.Raw(lo.query)
-	w.Raw(" Query")
-	w.Raw(funcName)
+	w.Byte(' ')
+	w.Raw(queryType)
 	w.Rawf(", %s ...option) string {\n", lo.options)
 
 	// Pre-convert non-string fields to strings.
@@ -359,7 +414,7 @@ func (w *Writer) writeActionFuncQueryOnly(
 }
 
 func (w *Writer) writeActionFuncPathAndQuery(
-	funcName string,
+	recv, methodName, queryType string,
 	method string,
 	route string,
 	params []pathParamInfo,
@@ -368,15 +423,14 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	lo := newHrefLocals(params, fields)
 	literals, _ := routepattern.Segments(route)
 
-	// func FuncName(params, query QueryFuncName, options ...option) string {
-	w.Raw("func ")
-	w.Raw(funcName)
+	// func (recv) Method(params, query QueryType, options ...option) string {
+	w.writeActionMethodHead(recv, methodName)
 	w.Byte('(')
 	w.writeTypedParams(params)
 	w.Raw(", ")
 	w.Raw(lo.query)
-	w.Raw(" Query")
-	w.Raw(funcName)
+	w.Byte(' ')
+	w.Raw(queryType)
 	w.Rawf(", %s ...option) string {\n", lo.options)
 
 	// Pre-convert non-string path params.
@@ -477,10 +531,40 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	w.Line(0, "}")
 }
 
-func (w *Writer) writeActionQueryType(funcName string, fields []structFieldInfo) {
+// writeActionQueryCtor writes the method that builds an action's query argument.
+// Its type is unexported, which leaves this the only way a template
+// has of producing one: the type never appears in a name a template writes.
+func (w *Writer) writeActionQueryCtor(
+	recv, methodName, queryType string, fields []structFieldInfo,
+) {
 	w.Line(0, "")
-	w.Raw("type Query")
-	w.Raw(funcName)
+	w.Rawf("func (%s) %sQuery(", recv, methodName)
+	for i, f := range fields {
+		if i > 0 {
+			w.Raw(", ")
+		}
+		w.Rawf("%s %s", queryCtorParam(f.Name), fieldTypeName(f.Type))
+	}
+	w.Rawf(") %s {\n", queryType)
+	w.Linef(1, "return %s{", queryType)
+	for _, f := range fields {
+		w.Linef(2, "%s: %s,", f.Name, queryCtorParam(f.Name))
+	}
+	w.Line(1, "}")
+	w.Line(0, "}")
+}
+
+// queryCtorParam names the constructor parameter of a query field.
+// The field is exported, the parameter is not: a field named "Options" would
+// otherwise take the name the variadic holds.
+func queryCtorParam(fieldName string) string {
+	return "v" + fieldName
+}
+
+func (w *Writer) writeActionQueryType(queryType string, fields []structFieldInfo) {
+	w.Line(0, "")
+	w.Raw("type ")
+	w.Raw(queryType)
 	w.Raw(" struct {\n")
 
 	// Find longest field name for alignment.

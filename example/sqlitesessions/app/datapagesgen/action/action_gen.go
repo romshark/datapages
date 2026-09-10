@@ -168,8 +168,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTAppSignOut references /signout/
-func POSTAppSignOut(options ...option) string {
+var App app
+
+type app struct {
+	SignOut app_SignOut
+}
+
+type app_SignOut struct{}
+
+// POST references /signout/
+func (app_SignOut) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/signout/')"
 	}
@@ -184,8 +192,17 @@ func POSTAppSignOut(options ...option) string {
 	return b.String()
 }
 
-// POSTPageLoginSubmit references /login/submit/
-func POSTPageLoginSubmit(options ...option) string {
+var PageLogin pageLogin
+
+type pageLogin struct {
+	Submit   pageLogin_Submit
+	Validate pageLogin_Validate
+}
+
+type pageLogin_Submit struct{}
+
+// POST references /login/submit/
+func (pageLogin_Submit) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/login/submit/')"
 	}
@@ -200,8 +217,10 @@ func POSTPageLoginSubmit(options ...option) string {
 	return b.String()
 }
 
-// POSTPageLoginValidate references /login/validate/
-func POSTPageLoginValidate(options ...option) string {
+type pageLogin_Validate struct{}
+
+// POST references /login/validate/
+func (pageLogin_Validate) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/login/validate/')"
 	}
@@ -216,8 +235,17 @@ func POSTPageLoginValidate(options ...option) string {
 	return b.String()
 }
 
-// POSTPageRegisterSubmit references /register/submit/
-func POSTPageRegisterSubmit(options ...option) string {
+var PageRegister pageRegister
+
+type pageRegister struct {
+	Submit   pageRegister_Submit
+	Validate pageRegister_Validate
+}
+
+type pageRegister_Submit struct{}
+
+// POST references /register/submit/
+func (pageRegister_Submit) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/register/submit/')"
 	}
@@ -232,8 +260,10 @@ func POSTPageRegisterSubmit(options ...option) string {
 	return b.String()
 }
 
-// POSTPageRegisterValidate references /register/validate/
-func POSTPageRegisterValidate(options ...option) string {
+type pageRegister_Validate struct{}
+
+// POST references /register/validate/
+func (pageRegister_Validate) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/register/validate/')"
 	}

@@ -125,3 +125,68 @@ func requireEmptyDir(t *testing.T, dst string) {
 type panicError struct{ value any }
 
 func (e *panicError) Error() string { return fmt.Sprintf("panic: %v", e.value) }
+
+// TestGenerateNilModelKeepsExistingCode tests the run that builds no model at
+// all against a destination that already holds generated code.
+//
+// The model is nil whenever the app package does not type-check, which a
+// half-written edit is enough to cause, and datapages watch re-runs gen on
+// every change. Answering that by replacing working generated code with stubs
+// destroys committed output and tells an IDE that every generated symbol is
+// gone.
+func TestGenerateNilModelKeepsExistingCode(t *testing.T) {
+	t.Parallel()
+
+	dst := t.TempDir()
+	opts := generator.Options{
+		GenImport:       "datapagestest/x/datapagesgen",
+		AssetsURLPrefix: "/static/",
+		AssetsDir:       "static",
+	}
+
+	app, errs := parser.Parse(filepath.Join("..", "parser", "testdata", "assets"))
+	require.Zero(t, errs.Len(), errs.Error())
+	require.NoError(t, generator.Generate(dst, "datapagesgen", app, 0o644, opts))
+
+	files := []string{
+		"app_gen.go",
+		filepath.Join("action", "action_gen.go"),
+		filepath.Join("href", "href_gen.go"),
+		filepath.Join("assets", "assets_gen.go"),
+	}
+	before := make(map[string][]byte, len(files))
+	for _, f := range files {
+		b, err := os.ReadFile(filepath.Join(dst, f))
+		require.NoError(t, err, "%s was not generated", f)
+		before[f] = b
+	}
+
+	require.NoError(t, generator.Generate(dst, "datapagesgen", nil, 0o644, opts))
+
+	for _, f := range files {
+		b, err := os.ReadFile(filepath.Join(dst, f))
+		require.NoError(t, err, "%s is gone", f)
+		require.Equal(t, string(before[f]), string(b), "%s was overwritten", f)
+	}
+}
+
+// TestGenerateNilModelWritesStubs tests the same run against an empty
+// destination, which is what the stubs are for: an import an IDE can resolve
+// while the errors are fixed.
+func TestGenerateNilModelWritesStubs(t *testing.T) {
+	t.Parallel()
+
+	dst := t.TempDir()
+	require.NoError(t, generator.Generate(dst, "datapagesgen", nil, 0o644,
+		generator.Options{GenImport: "datapagestest/x/datapagesgen"}))
+
+	for _, f := range []string{
+		"app_gen.go",
+		filepath.Join("action", "action_gen.go"),
+		filepath.Join("href", "href_gen.go"),
+	} {
+		b, err := os.ReadFile(filepath.Join(dst, f))
+		require.NoError(t, err, "no stub written for %s", f)
+		require.Contains(t, string(b), generator.GeneratedHeader)
+	}
+}

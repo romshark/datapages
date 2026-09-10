@@ -40,13 +40,13 @@ func TestContract(t *testing.T) {
 		HrefSetLogger:  href.SetLogger,
 		Links:          []string{href.PageIndex(), href.Asset("style.css")},
 		Actions: []string{
-			action.POSTPageIndexFail(),
-			action.POSTPageIndexAnnounce(),
+			action.PageIndex.Fail.POST(),
+			action.PageIndex.Announce.POST(),
 		},
-		SignalActions: []string{action.POSTPageIndexAnnounce()},
+		SignalActions: []string{action.PageIndex.Announce.POST()},
 		// optionedAction carries every option at once. The keys and their order
 		// are asserted by the contract suite.
-		OptionedAction: action.POSTPageIndexFail(
+		OptionedAction: action.PageIndex.Fail.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),
@@ -69,7 +69,7 @@ func TestContract(t *testing.T) {
 			action.WithAfter("$busy = false"),
 		),
 		StreamPath:     "/_$/",
-		DispatchAction: action.POSTPageIndexAnnounce(),
+		DispatchAction: action.PageIndex.Announce.POST(),
 		DispatchBody:   `{"text":"hello"}`,
 	})
 }

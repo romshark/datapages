@@ -51,20 +51,20 @@ func TestContract(t *testing.T) {
 			href.PageSecret(),
 		},
 		Actions: []string{
-			action.POSTPageLoginSubmit(),
-			action.POSTPageLoginBroadcast(),
-			action.POSTPageLoginNotify(),
-			action.POSTPageLoginRename(),
-			action.POSTAppSignOut(),
+			action.PageLogin.Submit.POST(),
+			action.PageLogin.Broadcast.POST(),
+			action.PageLogin.Notify.POST(),
+			action.PageLogin.Rename.POST(),
+			action.App.SignOut.POST(),
 		},
 		SignalActions: []string{
-			action.POSTPageLoginSubmit(),
-			action.POSTPageLoginBroadcast(),
-			action.POSTPageLoginNotify(),
+			action.PageLogin.Submit.POST(),
+			action.PageLogin.Broadcast.POST(),
+			action.PageLogin.Notify.POST(),
 		},
 		// optionedAction carries every option at once.
 		// The keys and their order are asserted by the contract suite.
-		OptionedAction: action.POSTPageLoginSubmit(
+		OptionedAction: action.PageLogin.Submit.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),

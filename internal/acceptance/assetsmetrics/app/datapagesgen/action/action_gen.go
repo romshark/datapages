@@ -168,8 +168,18 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexAnnounce references /announce/
-func POSTPageIndexAnnounce(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Announce    pageIndex_Announce
+	Fail        pageIndex_Fail
+	HalfWritten pageIndex_HalfWritten
+}
+
+type pageIndex_Announce struct{}
+
+// POST references /announce/
+func (pageIndex_Announce) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/announce/')"
 	}
@@ -184,8 +194,10 @@ func POSTPageIndexAnnounce(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexFail references /fail/
-func POSTPageIndexFail(options ...option) string {
+type pageIndex_Fail struct{}
+
+// POST references /fail/
+func (pageIndex_Fail) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/fail/')"
 	}
@@ -200,8 +212,10 @@ func POSTPageIndexFail(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexHalfWritten references /half-written/
-func POSTPageIndexHalfWritten(options ...option) string {
+type pageIndex_HalfWritten struct{}
+
+// POST references /half-written/
+func (pageIndex_HalfWritten) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/half-written/')"
 	}

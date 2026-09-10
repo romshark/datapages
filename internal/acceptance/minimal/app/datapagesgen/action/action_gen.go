@@ -168,8 +168,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexPing references /ping/
-func POSTPageIndexPing(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Ping pageIndex_Ping
+}
+
+type pageIndex_Ping struct{}
+
+// POST references /ping/
+func (pageIndex_Ping) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/ping/')"
 	}

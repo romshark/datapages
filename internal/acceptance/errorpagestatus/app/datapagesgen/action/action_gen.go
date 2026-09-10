@@ -168,8 +168,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexStreamFail references /stream-fail/
-func POSTPageIndexStreamFail(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	StreamFail pageIndex_StreamFail
+}
+
+type pageIndex_StreamFail struct{}
+
+// POST references /stream-fail/
+func (pageIndex_StreamFail) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/stream-fail/')"
 	}

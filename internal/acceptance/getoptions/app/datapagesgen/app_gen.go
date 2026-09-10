@@ -17,7 +17,7 @@ import (
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
 
-	"github.com/romshark/datapages/internal/acceptance/getoptions/app"
+	dpapp "github.com/romshark/datapages/internal/acceptance/getoptions/app"
 	"github.com/romshark/datapages/internal/acceptance/getoptions/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -74,13 +74,13 @@ type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
-	app                  *app.App
+	app                  *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -94,12 +94,12 @@ type Server struct {
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package app declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -151,19 +151,19 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /background/{$}",
-		s.handlePageBackgroundGET)
+		pageBackgroundHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /gone/{$}",
-		s.handlePageGoneGET)
+		pageGoneHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /maybe/{$}",
-		s.handlePageMaybeGET)
+		pageMaybeHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /no-refresh/{$}",
-		s.handlePageNoRefreshGET)
+		pageNoRefreshHandlers{s}.GET)
 }
 
 func (s *Server) httpErrIntern(
@@ -183,8 +183,10 @@ func (s *Server) httpErrIntern(
 	http.Error(w, http.StatusText(code), code)
 }
 
-func (s *Server) handlePageBackgroundGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageBackground{
+type pageBackgroundHandlers struct{ *Server }
+
+func (s pageBackgroundHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageBackground{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageBackground.GET")
@@ -208,8 +210,10 @@ func (s *Server) handlePageBackgroundGET(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-func (s *Server) handlePageGoneGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageGone{
+type pageGoneHandlers struct{ *Server }
+
+func (s pageGoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageGone{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageGone.GET")
@@ -234,13 +238,15 @@ func (s *Server) handlePageGoneGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -262,7 +268,9 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageMaybeGET(w http.ResponseWriter, r *http.Request) {
+type pageMaybeHandlers struct{ *Server }
+
+func (s pageMaybeHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	var query datapages.Query[struct {
 		Go bool `query:"go"`
@@ -278,7 +286,7 @@ func (s *Server) handlePageMaybeGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	p := app.PageMaybe{
+	p := dpapp.PageMaybe{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageMaybe.GET")
@@ -303,8 +311,10 @@ func (s *Server) handlePageMaybeGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageNoRefreshGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageNoRefresh{
+type pageNoRefreshHandlers struct{ *Server }
+
+func (s pageNoRefreshHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageNoRefresh{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageNoRefresh.GET")

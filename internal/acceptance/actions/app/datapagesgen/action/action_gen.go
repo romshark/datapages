@@ -169,8 +169,17 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// DELETEAppAll references /all/
-func DELETEAppAll(options ...option) string {
+var App app
+
+type app struct {
+	All  app_All
+	Ping app_Ping
+}
+
+type app_All struct{}
+
+// DELETE references /all/
+func (app_All) DELETE(options ...option) string {
 	if len(options) == 0 {
 		return "@delete('/all/')"
 	}
@@ -185,8 +194,10 @@ func DELETEAppAll(options ...option) string {
 	return b.String()
 }
 
-// POSTAppPing references /ping/
-func POSTAppPing(options ...option) string {
+type app_Ping struct{}
+
+// POST references /ping/
+func (app_Ping) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/ping/')"
 	}
@@ -201,40 +212,28 @@ func POSTAppPing(options ...option) string {
 	return b.String()
 }
 
-// DELETEPageFormRemove references /form/remove/
-func DELETEPageFormRemove(options ...option) string {
-	if len(options) == 0 {
-		return "@delete('/form/remove/')"
-	}
-	var b strings.Builder
-	bl, al := actionexpr.BeforeAfterLen(options)
-	b.Grow(bl + len("@delete('/form/remove/'") + actionexpr.OptionsLen(options) + len(")") + al)
-	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@delete('/form/remove/'")
-	actionexpr.WriteOptions(&b, options)
-	b.WriteByte(')')
-	actionexpr.WriteAfter(&b, options)
-	return b.String()
+var PageForm pageForm
+
+type pageForm struct {
+	Bump           pageForm_Bump
+	Go             pageForm_Go
+	GoStream       pageForm_GoStream
+	Patch          pageForm_Patch
+	PatchAt        pageForm_PatchAt
+	Remove         pageForm_Remove
+	Render         pageForm_Render
+	Replace        pageForm_Replace
+	SignalsBad     pageForm_SignalsBad
+	SignalsMissing pageForm_SignalsMissing
+	SignalsRaw     pageForm_SignalsRaw
+	Submit         pageForm_Submit
+	Touch          pageForm_Touch
 }
 
-// PATCHPageFormTouch references /form/touch/
-func PATCHPageFormTouch(options ...option) string {
-	if len(options) == 0 {
-		return "@patch('/form/touch/')"
-	}
-	var b strings.Builder
-	bl, al := actionexpr.BeforeAfterLen(options)
-	b.Grow(bl + len("@patch('/form/touch/'") + actionexpr.OptionsLen(options) + len(")") + al)
-	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@patch('/form/touch/'")
-	actionexpr.WriteOptions(&b, options)
-	b.WriteByte(')')
-	actionexpr.WriteAfter(&b, options)
-	return b.String()
-}
+type pageForm_Bump struct{}
 
-// POSTPageFormBump references /form/{id}/bump/
-func POSTPageFormBump(id int, query QueryPOSTPageFormBump, options ...option) string {
+// POST references /form/{id}/bump/
+func (pageForm_Bump) POST(id int, query pageForm_Bump_POSTQuery, options ...option) string {
 	s_id := strconv.FormatInt(int64(id), 10)
 	var (
 		byStr string
@@ -285,12 +284,20 @@ func POSTPageFormBump(id int, query QueryPOSTPageFormBump, options ...option) st
 	return b.String()
 }
 
-type QueryPOSTPageFormBump struct {
+type pageForm_Bump_POSTQuery struct {
 	By int `query:"by"`
 }
 
-// POSTPageFormGo references /form/go/
-func POSTPageFormGo(options ...option) string {
+func (pageForm_Bump) POSTQuery(vBy int) pageForm_Bump_POSTQuery {
+	return pageForm_Bump_POSTQuery{
+		By: vBy,
+	}
+}
+
+type pageForm_Go struct{}
+
+// POST references /form/go/
+func (pageForm_Go) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/form/go/')"
 	}
@@ -305,8 +312,10 @@ func POSTPageFormGo(options ...option) string {
 	return b.String()
 }
 
-// POSTPageFormGoStream references /form/go-stream/
-func POSTPageFormGoStream(options ...option) string {
+type pageForm_GoStream struct{}
+
+// POST references /form/go-stream/
+func (pageForm_GoStream) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/form/go-stream/')"
 	}
@@ -321,8 +330,10 @@ func POSTPageFormGoStream(options ...option) string {
 	return b.String()
 }
 
-// POSTPageFormPatch references /form/patch/
-func POSTPageFormPatch(options ...option) string {
+type pageForm_Patch struct{}
+
+// POST references /form/patch/
+func (pageForm_Patch) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/form/patch/')"
 	}
@@ -337,8 +348,10 @@ func POSTPageFormPatch(options ...option) string {
 	return b.String()
 }
 
-// POSTPageFormPatchAt references /form/patch-at/
-func POSTPageFormPatchAt(options ...option) string {
+type pageForm_PatchAt struct{}
+
+// POST references /form/patch-at/
+func (pageForm_PatchAt) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/form/patch-at/')"
 	}
@@ -353,8 +366,26 @@ func POSTPageFormPatchAt(options ...option) string {
 	return b.String()
 }
 
-// POSTPageFormRemove references /form/remove/
-func POSTPageFormRemove(options ...option) string {
+type pageForm_Remove struct{}
+
+// DELETE references /form/remove/
+func (pageForm_Remove) DELETE(options ...option) string {
+	if len(options) == 0 {
+		return "@delete('/form/remove/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@delete('/form/remove/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@delete('/form/remove/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+// POST references /form/remove/
+func (pageForm_Remove) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/form/remove/')"
 	}
@@ -369,8 +400,10 @@ func POSTPageFormRemove(options ...option) string {
 	return b.String()
 }
 
-// POSTPageFormRender references /form/render/
-func POSTPageFormRender(options ...option) string {
+type pageForm_Render struct{}
+
+// POST references /form/render/
+func (pageForm_Render) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/form/render/')"
 	}
@@ -385,8 +418,28 @@ func POSTPageFormRender(options ...option) string {
 	return b.String()
 }
 
-// POSTPageFormSignalsBad references /form/signals-bad/
-func POSTPageFormSignalsBad(options ...option) string {
+type pageForm_Replace struct{}
+
+// PUT references /form/replace/
+func (pageForm_Replace) PUT(options ...option) string {
+	if len(options) == 0 {
+		return "@put('/form/replace/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@put('/form/replace/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@put('/form/replace/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type pageForm_SignalsBad struct{}
+
+// POST references /form/signals-bad/
+func (pageForm_SignalsBad) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/form/signals-bad/')"
 	}
@@ -401,8 +454,10 @@ func POSTPageFormSignalsBad(options ...option) string {
 	return b.String()
 }
 
-// POSTPageFormSignalsMissing references /form/signals-missing/
-func POSTPageFormSignalsMissing(options ...option) string {
+type pageForm_SignalsMissing struct{}
+
+// POST references /form/signals-missing/
+func (pageForm_SignalsMissing) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/form/signals-missing/')"
 	}
@@ -417,8 +472,10 @@ func POSTPageFormSignalsMissing(options ...option) string {
 	return b.String()
 }
 
-// POSTPageFormSignalsRaw references /form/signals-raw/
-func POSTPageFormSignalsRaw(options ...option) string {
+type pageForm_SignalsRaw struct{}
+
+// POST references /form/signals-raw/
+func (pageForm_SignalsRaw) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/form/signals-raw/')"
 	}
@@ -433,8 +490,10 @@ func POSTPageFormSignalsRaw(options ...option) string {
 	return b.String()
 }
 
-// POSTPageFormSubmit references /form/submit/
-func POSTPageFormSubmit(options ...option) string {
+type pageForm_Submit struct{}
+
+// POST references /form/submit/
+func (pageForm_Submit) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/form/submit/')"
 	}
@@ -449,16 +508,18 @@ func POSTPageFormSubmit(options ...option) string {
 	return b.String()
 }
 
-// PUTPageFormReplace references /form/replace/
-func PUTPageFormReplace(options ...option) string {
+type pageForm_Touch struct{}
+
+// PATCH references /form/touch/
+func (pageForm_Touch) PATCH(options ...option) string {
 	if len(options) == 0 {
-		return "@put('/form/replace/')"
+		return "@patch('/form/touch/')"
 	}
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)
-	b.Grow(bl + len("@put('/form/replace/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	b.Grow(bl + len("@patch('/form/touch/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@put('/form/replace/'")
+	b.WriteString("@patch('/form/touch/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)

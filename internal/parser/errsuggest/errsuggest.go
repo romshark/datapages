@@ -53,7 +53,6 @@ func toSnakeCase(s string) string {
 //   - ErrSignatureEvHandReturnMustBeError: message names the required return type
 //   - ErrPageHasExtraFields: message states to remove the fields
 //   - ErrPageConflictingGETEmbed: message names the conflicting embedded types
-//   - ErrGeneratedNameConflict: message names both methods and the identifier
 //   - ErrPageNameInvalid: naming rule is clear from valid examples
 //   - ErrAppUnsupportedMethod: message names what App takes
 //   - ErrPageNotStruct: message names the required type form

@@ -21,7 +21,7 @@ import (
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"github.com/romshark/datapages/runtime/stream"
 
-	"github.com/romshark/datapages/internal/acceptance/multiapp/app/frontend"
+	dpapp "github.com/romshark/datapages/internal/acceptance/multiapp/app/frontend"
 	"github.com/romshark/datapages/internal/acceptance/multiapp/app/frontend/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -43,7 +43,7 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess datapages.Session[frontend.SessionData],
+	sess datapages.Session[dpapp.SessionData],
 	head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
@@ -100,14 +100,14 @@ type Server struct {
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
 	streams              *stream.Handler
-	app                  *frontend.App
-	*auth.Manager[frontend.SessionData]
+	app                  *dpapp.App
+	*auth.Manager[dpapp.SessionData]
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[frontend.App, frontend.SessionData, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, dpapp.SessionData, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -124,9 +124,9 @@ type Server struct {
 //   - datapages.WithCSRFProtection
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *frontend.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
-	sessionManager sessions.Manager[frontend.SessionData],
+	sessionManager sessions.Manager[dpapp.SessionData],
 ) error {
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -195,16 +195,16 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /_$/{$}",
-		s.handlePageIndexGETStream)
+		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"POST /sign-in/{$}",
-		s.handlePageIndexPOSTSignIn)
+		pageIndexHandlers{s}.POSTSignIn)
 	s.Mux().HandleFunc(
 		"POST /notice/{$}",
-		s.handlePageIndexPOSTNotice)
+		pageIndexHandlers{s}.POSTNotice)
 }
 
 func (s *Server) httpErrIntern(
@@ -223,7 +223,9 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -234,7 +236,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := frontend.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -261,12 +263,12 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
-	p := frontend.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageIndex,
@@ -277,11 +279,11 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
-			var eventNotice frontend.EventNotice
+			var eventNotice dpapp.EventNotice
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjNotice:
-					eventNotice = frontend.EventNotice{}
+					eventNotice = dpapp.EventNotice{}
 					if err := json.Unmarshal(msg.Data, &eventNotice); err != nil {
 						s.LogErr("unmarshaling EventNotice JSON", err)
 						continue
@@ -294,7 +296,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		})
 }
 
-func (s *Server) handlePageIndexPOSTSignIn(
+func (s pageIndexHandlers) POSTSignIn(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -314,7 +316,7 @@ func (s *Server) handlePageIndexPOSTSignIn(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.SignIn")
-	p := frontend.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	newSession, redirect, err := p.POSTSignIn(r, signals)
@@ -333,7 +335,7 @@ func (s *Server) handlePageIndexPOSTSignIn(
 	}
 }
 
-func (s *Server) handlePageIndexPOSTNotice(
+func (s pageIndexHandlers) POSTNotice(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -352,9 +354,9 @@ func (s *Server) handlePageIndexPOSTNotice(
 		return
 	}
 
-	dispatchNotice := dispatcherEventNotice{s: s, ctx: r.Context()}
+	dispatchNotice := dispatcherEventNotice{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Notice")
-	p := frontend.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTNotice(r, signals, dispatchNotice)
@@ -369,12 +371,12 @@ type dispatcherEventNotice struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventNotice) Dispatch(e frontend.EventNotice) error {
+func (d dispatcherEventNotice) Dispatch(e dpapp.EventNotice) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventNotice) DispatchCtx(
-	ctx context.Context, e frontend.EventNotice,
+	ctx context.Context, e dpapp.EventNotice,
 ) error {
 	j, err := json.Marshal(e)
 	if err != nil {

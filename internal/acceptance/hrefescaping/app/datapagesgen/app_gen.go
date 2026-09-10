@@ -22,7 +22,7 @@ import (
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"github.com/romshark/datapages/runtime/stream"
 
-	"github.com/romshark/datapages/internal/acceptance/hrefescaping/app"
+	dpapp "github.com/romshark/datapages/internal/acceptance/hrefescaping/app"
 	"github.com/romshark/datapages/internal/acceptance/hrefescaping/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -97,13 +97,13 @@ type Server struct {
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
 	streams              *stream.Handler
-	app                  *app.App
+	app                  *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -117,12 +117,12 @@ type Server struct {
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package app declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -187,19 +187,19 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /item/{name}/{$}",
-		s.handlePageItemGET)
+		pageItemHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /item/{name}/_$/{$}",
-		s.handlePageItemGETStream)
+		pageItemHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /search/{$}",
-		s.handlePageSearchGET)
+		pageSearchHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"POST /item/{name}/rename/{$}",
-		s.handlePageItemPOSTRename)
+		pageItemHandlers{s}.POSTRename)
 }
 
 func (s *Server) httpErrIntern(
@@ -218,13 +218,15 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -246,14 +248,16 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
+type pageItemHandlers struct{ *Server }
+
+func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	var path datapages.Path[struct {
 		Name string `path:"name"`
 	}]
 	path.Values.Name = r.PathValue("name")
 
-	p := app.PageItem{
+	p := dpapp.PageItem{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageItem.GET")
@@ -284,12 +288,12 @@ func (s *Server) handlePageItemGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
-	p := app.PageItem{
+	p := dpapp.PageItem{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageItem,
@@ -300,11 +304,11 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageItem stream")
-			var eventRenamed app.EventRenamed
+			var eventRenamed dpapp.EventRenamed
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjRenamed:
-					eventRenamed = app.EventRenamed{}
+					eventRenamed = dpapp.EventRenamed{}
 					if err := json.Unmarshal(msg.Data, &eventRenamed); err != nil {
 						s.LogErr("unmarshaling EventRenamed JSON", err)
 						continue
@@ -317,7 +321,7 @@ func (s *Server) handlePageItemGETStream(w http.ResponseWriter, r *http.Request)
 		})
 }
 
-func (s *Server) handlePageItemPOSTRename(
+func (s pageItemHandlers) POSTRename(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -336,7 +340,7 @@ func (s *Server) handlePageItemPOSTRename(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageItem.Rename")
-	p := app.PageItem{
+	p := dpapp.PageItem{
 		App: s.app,
 	}
 	err := p.POSTRename(r, dpsse.New(sse), path, query)
@@ -346,7 +350,9 @@ func (s *Server) handlePageItemPOSTRename(
 	}
 }
 
-func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
+type pageSearchHandlers struct{ *Server }
+
+func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	var query datapages.Query[struct {
 		Term string `query:"term"`
@@ -364,7 +370,7 @@ func (s *Server) handlePageSearchGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	p := app.PageSearch{
+	p := dpapp.PageSearch{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageSearch.GET")

@@ -227,6 +227,7 @@ Avoid:
   not "the pointer buys nothing here".
   Write "the tests that send it requests over HTTP",
   not "the tests that drive it over HTTP".
+- Restating a general principle the facts already show. Start with the example.
 - Rhetorical questions as headings: "So what does this mean?".
 - Filler transitions: "let's dive in", "at the end of the day", "it's worth
   noting that", "as we can see".
@@ -237,6 +238,7 @@ Avoid:
 - Em-dashes and ", so ..." clauses. Use a colon, a full stop or "which ...".
 - Non-ASCII characters where ASCII exists: curly quotes, ellipsis, arrows,
   non-breaking spaces. Write `'`, `"`, `...`, `->` and a plain space.
+- Stating what did not change, stayed, or was already correct.
 - Hedging where a check would settle it. Check, then state the answer.
 - Apologies and post-mortems after a mistake. Correct it and continue.
 
@@ -373,6 +375,11 @@ for _, it := range items {
   what the caller has to do, one step per line. A caller must be able to
   migrate from this block alone, without reading the diff. Say plainly when a
   step is automatic (`datapages gen` regenerates it) and when it is manual.
+  Every line is a step the caller takes. Never list what did not change:
+  `href is unchanged` is a step to do nothing. When a step could be read as
+  reaching further than it does, narrow the step instead of adding a line:
+  write `EvSubjPref<Event> -> EvPrefix<Event>, the prefix constants only`,
+  not `... unchanged` on a line of its own.
 - A `perf:` commit quotes the measurement as `before -> after`.
 - No tool attribution or `Co-Authored-By` trailers.
 

@@ -168,8 +168,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexBad references /bad/
-func POSTPageIndexBad(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Bad pageIndex_Bad
+}
+
+type pageIndex_Bad struct{}
+
+// POST references /bad/
+func (pageIndex_Bad) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/bad/')"
 	}
