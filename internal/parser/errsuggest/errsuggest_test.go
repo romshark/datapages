@@ -86,60 +86,60 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrPageMissingFieldApp": {
-			err:  &parser.ErrorPageMissingFieldApp{TypeName: "PageProfile"},
+			err:  &parser.PageMissingFieldAppError{TypeName: "PageProfile"},
 			want: "fix: Add field `App *App` to PageProfile",
 		},
 		"ErrPageMissingFieldApp/wrapped": {
-			err: fmt.Errorf("outer: %w", &parser.ErrorPageMissingFieldApp{
+			err: fmt.Errorf("outer: %w", &parser.PageMissingFieldAppError{
 				TypeName: "PageProfile",
 			}),
 			want: "fix: Add field `App *App` to PageProfile",
 		},
 
 		"ErrPageMissingPathComm/index": {
-			err:  &parser.ErrorPageMissingPathComm{TypeName: "PageIndex"},
+			err:  &parser.PageMissingPathCommError{TypeName: "PageIndex"},
 			want: "fix: Add `// PageIndex is /`",
 		},
 		"ErrPageMissingPathComm/profile": {
-			err:  &parser.ErrorPageMissingPathComm{TypeName: "PageProfile"},
+			err:  &parser.PageMissingPathCommError{TypeName: "PageProfile"},
 			want: "fix: Add `// PageProfile is /profile/`",
 		},
 		"ErrPageMissingPathComm/foobar": {
-			err:  &parser.ErrorPageMissingPathComm{TypeName: "PageFooBar"},
+			err:  &parser.PageMissingPathCommError{TypeName: "PageFooBar"},
 			want: "fix: Add `// PageFooBar is /foobar/`",
 		},
 		"ErrPageMissingPathComm/wrapped": {
-			err: fmt.Errorf("outer: %w", &parser.ErrorPageMissingPathComm{
+			err: fmt.Errorf("outer: %w", &parser.PageMissingPathCommError{
 				TypeName: "PageProfile",
 			}),
 			want: "fix: Add `// PageProfile is /profile/`",
 		},
 
 		"ErrPageMissingGET/profile": {
-			err:  &parser.ErrorPageMissingGET{TypeName: "PageProfile"},
+			err:  &parser.PageMissingGETError{TypeName: "PageProfile"},
 			want: "fix: Add `func (p PageProfile) GET(r *http.Request) (body templ.Component, err error) {}`",
 		},
 		"ErrPageMissingGET/index": {
-			err:  &parser.ErrorPageMissingGET{TypeName: "PageIndex"},
+			err:  &parser.PageMissingGETError{TypeName: "PageIndex"},
 			want: "fix: Add `func (p PageIndex) GET(r *http.Request) (body templ.Component, err error) {}`",
 		},
 
 		"ErrPageIndexPathMustBeRoot": {
-			err:  &parser.ErrorPageIndexPathMustBeRoot{Route: "/home"},
+			err:  &parser.PageIndexPathMustBeRootError{Route: "/home"},
 			want: "fix: Use `// PageIndex is /`",
 		},
 
 		"ErrPageInvalidPathComm/profile": {
-			err:  &parser.ErrorPageInvalidPathComm{TypeName: "PageProfile"},
+			err:  &parser.PageInvalidPathCommError{TypeName: "PageProfile"},
 			want: "fix: First doc comment line must be `// PageProfile is /profile/`",
 		},
 		"ErrPageInvalidPathComm/index": {
-			err:  &parser.ErrorPageInvalidPathComm{TypeName: "PageIndex"},
+			err:  &parser.PageInvalidPathCommError{TypeName: "PageIndex"},
 			want: "fix: First doc comment line must be `// PageIndex is /`",
 		},
 
 		"ErrActionMissingPathComm/with page path": {
-			err: &parser.ErrorActionMissingPathComm{
+			err: &parser.ActionMissingPathCommError{
 				PagePath:   "/profile/",
 				Recv:       "PageProfile",
 				MethodName: "POSTFoo",
@@ -147,7 +147,7 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add `// POSTFoo is /profile/foo`",
 		},
 		"ErrActionMissingPathComm/root page": {
-			err: &parser.ErrorActionMissingPathComm{
+			err: &parser.ActionMissingPathCommError{
 				PagePath:   "/",
 				Recv:       "PageIndex",
 				MethodName: "POSTLogin",
@@ -155,7 +155,7 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Add `// POSTLogin is /login`",
 		},
 		"ErrActionMissingPathComm/app level": {
-			err: &parser.ErrorActionMissingPathComm{
+			err: &parser.ActionMissingPathCommError{
 				Recv:       "App",
 				MethodName: "POSTSignup",
 			},
@@ -163,14 +163,14 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrActionInvalidPathComm": {
-			err: &parser.ErrorActionInvalidPathComm{
+			err: &parser.ActionInvalidPathCommError{
 				Recv:       "PageProfile",
 				MethodName: "POSTFoo",
 			},
 			want: "fix: First doc comment line must be `// POSTFoo is /profile/foo`",
 		},
 		"ErrActionInvalidPathComm/app": {
-			err: &parser.ErrorActionInvalidPathComm{
+			err: &parser.ActionInvalidPathCommError{
 				Recv:       "App",
 				MethodName: "DELETEItem",
 			},
@@ -178,7 +178,7 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrActionPathNotUnderPage": {
-			err: &parser.ErrorActionPathNotUnderPage{
+			err: &parser.ActionPathNotUnderPageError{
 				PagePath:   "/profile/",
 				Recv:       "PageProfile",
 				MethodName: "POSTFoo",
@@ -186,7 +186,7 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Use `// POSTFoo is /profile/foo`",
 		},
 		"ErrActionPathNotUnderPage/delete": {
-			err: &parser.ErrorActionPathNotUnderPage{
+			err: &parser.ActionPathNotUnderPageError{
 				PagePath:   "/items/",
 				Recv:       "PageItems",
 				MethodName: "DELETEItem",
@@ -195,17 +195,17 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrEventCommMissing": {
-			err:  &parser.ErrorEventCommMissing{TypeName: "EventUserCreated"},
+			err:  &parser.EventCommMissingError{TypeName: "EventUserCreated"},
 			want: "fix: Add `// EventUserCreated is \"subject\"` as the first doc comment line",
 		},
 
 		"ErrEventCommInvalid": {
-			err:  &parser.ErrorEventCommInvalid{TypeName: "EventUserCreated"},
+			err:  &parser.EventCommInvalidError{TypeName: "EventUserCreated"},
 			want: "fix: First doc comment line must be `// EventUserCreated is \"subject\"`",
 		},
 
 		"ErrPathFieldMissingTag": {
-			err: &paramvalidation.ErrorPathFieldMissingTag{
+			err: &paramvalidation.PathFieldMissingTagError{
 				FieldName: "UserID",
 				Recv:      "PageProfile",
 				Method:    "GETProfile",
@@ -214,7 +214,7 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrPathFieldEmptyTag": {
-			err: &paramvalidation.ErrorPathFieldEmptyTag{
+			err: &paramvalidation.PathFieldEmptyTagError{
 				FieldName: "UserID",
 				Recv:      "PageProfile",
 				Method:    "GETProfile",
@@ -223,7 +223,7 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrQueryFieldMissingTag": {
-			err: &paramvalidation.ErrorQueryFieldMissingTag{
+			err: &paramvalidation.QueryFieldMissingTagError{
 				FieldName: "Page",
 				Recv:      "PageItems",
 				Method:    "GETItems",
@@ -232,7 +232,7 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrQueryFieldEmptyTag": {
-			err: &paramvalidation.ErrorQueryFieldEmptyTag{
+			err: &paramvalidation.QueryFieldEmptyTagError{
 				FieldName: "Page",
 				Recv:      "PageItems",
 				Method:    "GETItems",
@@ -241,7 +241,7 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrSignalsFieldMissingTag": {
-			err: &paramvalidation.ErrorSignalsFieldMissingTag{
+			err: &paramvalidation.SignalsFieldMissingTagError{
 				FieldName: "SearchQuery",
 				Recv:      "PageSearch",
 				Method:    "POSTSearch",
@@ -250,7 +250,7 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrSignalsFieldEmptyTag": {
-			err: &paramvalidation.ErrorSignalsFieldEmptyTag{
+			err: &paramvalidation.SignalsFieldEmptyTagError{
 				FieldName: "SearchQuery",
 				Recv:      "PageSearch",
 				Method:    "POSTSearch",
@@ -259,7 +259,7 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrEventFieldMissingTag": {
-			err: &parser.ErrorEventFieldMissingTag{
+			err: &parser.EventFieldMissingTagError{
 				FieldName: "UserID",
 				TypeName:  "EventUserCreated",
 			},
@@ -267,7 +267,7 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrEventFieldEmptyTag": {
-			err: &parser.ErrorEventFieldEmptyTag{
+			err: &parser.EventFieldEmptyTagError{
 				FieldName: "UserID",
 				TypeName:  "EventUserCreated",
 			},
@@ -276,14 +276,14 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrEventSubjectUserNoSession": {
-			err: &parser.ErrorEventSubjectUserNoSession{
+			err: &parser.EventSubjectUserNoSessionError{
 				TypeName: "EventChat", PkgName: "app",
 			},
 			want: "fix: Define a Session type in package app",
 		},
 
 		"ErrEventSubjectAfterPayload": {
-			err: &parser.ErrorEventSubjectAfterPayload{
+			err: &parser.EventSubjectAfterPayloadError{
 				FieldName: "SubjectUser",
 				TypeName:  "EventChat",
 			},
@@ -291,7 +291,7 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrEventSubjectOverlap": {
-			err: &parser.ErrorEventSubjectOverlap{
+			err: &parser.EventSubjectOverlapError{
 				Subject:       "notify.user",
 				TypeName:      "EventNotifyUser",
 				FirstSubject:  "notify",
@@ -301,7 +301,7 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrEventSubjectDuplicateSignal": {
-			err: &parser.ErrorEventSubjectDuplicateSignal{
+			err: &parser.EventSubjectDuplicateSignalError{
 				FieldName:      "SubjectBar",
 				FirstFieldName: "SubjectFoo",
 				SignalName:     "instance_id",
@@ -311,7 +311,7 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrEventSubjectDerivedType": {
-			err: &parser.ErrorEventSubjectDerivedType{
+			err: &parser.EventSubjectDerivedTypeError{
 				FieldName:       "To",
 				TypeName:        "EventDirect",
 				DeclTypeName:    "UserID",
@@ -321,7 +321,7 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrEventSubjectSignalInvalid": {
-			err: &parser.ErrorEventSubjectSignalInvalid{
+			err: &parser.EventSubjectSignalInvalidError{
 				FieldName:  "SubjectInstance",
 				SignalName: "has spaces",
 				TypeName:   "EventBad",
@@ -330,45 +330,45 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrEventSubjectUserSignal": {
-			err: &parser.ErrorEventSubjectUserSignal{TypeName: "EventChat"},
+			err: &parser.EventSubjectUserSignalError{TypeName: "EventChat"},
 			want: "fix: Remove the signal tag: a datapages.SubjectUser(s) field" +
 				" is always bound to the authenticated user's ID",
 		},
 
 		"ErrTemplHrefRelative/simple": {
-			err:  &parser.ErrorTemplHrefRelative{URL: "/login"},
+			err:  &parser.TemplHrefRelativeError{URL: "/login"},
 			want: `fix: Use href={ href.PageLogin(...) } instead of "/login"`,
 		},
 		"ErrTemplHrefRelative/index": {
-			err:  &parser.ErrorTemplHrefRelative{URL: "/"},
+			err:  &parser.TemplHrefRelativeError{URL: "/"},
 			want: `fix: Use href={ href.PageIndex(...) } instead of "/"`,
 		},
 		"ErrTemplHrefRelative/trailing slash": {
-			err:  &parser.ErrorTemplHrefRelative{URL: "/profile/"},
+			err:  &parser.TemplHrefRelativeError{URL: "/profile/"},
 			want: `fix: Use href={ href.PageProfile(...) } instead of "/profile/"`,
 		},
 		"ErrTemplHrefRelative/deep path fallback": {
-			err:  &parser.ErrorTemplHrefRelative{URL: "/profile/edit"},
+			err:  &parser.TemplHrefRelativeError{URL: "/profile/edit"},
 			want: `fix: Use href={ href.Xxx(...) } from the generated href package instead of "/profile/edit"`,
 		},
 		"ErrTemplActionHardcoded/app level": {
-			err:  &parser.ErrorTemplActionHardcoded{URL: "/submit"},
+			err:  &parser.TemplActionHardcodedError{URL: "/submit"},
 			want: `fix: Use action={ action.POSTAppSubmit(...) } instead of "/submit"`,
 		},
 		"ErrTemplActionHardcoded/page level": {
-			err:  &parser.ErrorTemplActionHardcoded{URL: "/profile/save"},
+			err:  &parser.TemplActionHardcodedError{URL: "/profile/save"},
 			want: `fix: Use action={ action.POSTPageProfileSave(...) } instead of "/profile/save"`,
 		},
 		"ErrTemplActionHardcoded/deep path fallback": {
-			err:  &parser.ErrorTemplActionHardcoded{URL: "/a/b/c"},
+			err:  &parser.TemplActionHardcodedError{URL: "/a/b/c"},
 			want: `fix: Use action={ action.Xxx(...) } from the generated action package instead of "/a/b/c"`,
 		},
 		"ErrTemplActionUnverifiable": {
-			err:  &parser.ErrorTemplActionUnverifiable{Expr: `buildAction()`},
+			err:  &parser.TemplActionUnverifiableError{Expr: `buildAction()`},
 			want: `fix: Use action={ action.Xxx(...) } from the generated action package instead of "buildAction()"`,
 		},
 		"ErrTemplActionUnverifiableWithPrefix": {
-			err: &parser.ErrorTemplActionUnverifiableWithPrefix{
+			err: &parser.TemplActionUnverifiableWithPrefixError{
 				Expr:       `"$_fresh = true; " + action.POSTPageIndexCalculate()`,
 				ActionFunc: "POSTPageIndexCalculate",
 				Prefix:     `"$_fresh = true; "`,
@@ -376,7 +376,7 @@ func TestSuggest(t *testing.T) {
 			want: `fix: Use action.POSTPageIndexCalculate(action.WithBefore("$_fresh = true; ")) instead of concatenating a prefix`,
 		},
 		"ErrTemplActionUnverifiableWithSuffix": {
-			err: &parser.ErrorTemplActionUnverifiableWithSuffix{
+			err: &parser.TemplActionUnverifiableWithSuffixError{
 				Expr:       `action.POSTPageIndexCalculate() + "; $_fresh = true"`,
 				ActionFunc: "POSTPageIndexCalculate",
 				Suffix:     `"; $_fresh = true"`,
@@ -384,39 +384,39 @@ func TestSuggest(t *testing.T) {
 			want: `fix: Use action.POSTPageIndexCalculate(action.WithAfter("; $_fresh = true")) instead of concatenating a suffix`,
 		},
 		"ErrTemplFormAction": {
-			err:  &parser.ErrorTemplFormAction{},
+			err:  &parser.TemplFormActionError{},
 			want: "fix: Remove the action attribute and use data-on:submit with Datastar actions instead",
 		},
 		"ErrTemplHrefUnverifiable": {
-			err:  &parser.ErrorTemplHrefUnverifiable{Expr: `templ.SafeURL("/about")`},
+			err:  &parser.TemplHrefUnverifiableError{Expr: `templ.SafeURL("/about")`},
 			want: `fix: Use href={ href.Xxx(...) } from the generated href package, or href={ href.External(url) } for external URLs instead of "templ.SafeURL(\"/about\")"`,
 		},
 
 		"ErrTemplHrefExternalIsRelative/known page": {
-			err:  &parser.ErrorTemplHrefExternalIsRelative{URL: "/login"},
+			err:  &parser.TemplHrefExternalIsRelativeError{URL: "/login"},
 			want: `fix: Use href={ href.PageLogin(...) } instead of href.External("/login")`,
 		},
 		"ErrTemplHrefExternalIsRelative/deep path fallback": {
-			err:  &parser.ErrorTemplHrefExternalIsRelative{URL: "/a/b/c"},
+			err:  &parser.TemplHrefExternalIsRelativeError{URL: "/a/b/c"},
 			want: `fix: Use href={ href.Xxx(...) } from the generated href package instead of href.External("/a/b/c")`,
 		},
 
 		"ErrTemplHrefContext": {
-			err: &parser.ErrorTemplHrefContext{
+			err: &parser.TemplHrefContextError{
 				AttrName: "data-on:click",
 				HrefFunc: "PageIndex",
 			},
 			want: "fix: href.PageIndex() returns a URL path, not a Datastar action — use action.Xxx(...) from the generated action package instead",
 		},
 		"ErrTemplActionContext": {
-			err: &parser.ErrorTemplActionContext{
+			err: &parser.TemplActionContextError{
 				AttrName:   "href",
 				ActionFunc: "POSTPageLoginSubmit",
 			},
 			want: "fix: action.POSTPageLoginSubmit() is a Datastar action, not a URL — use href.PageXxx(...) from the generated href package instead",
 		},
 		"ErrTemplActionWrongPage": {
-			err: &parser.ErrorTemplActionWrongPage{
+			err: &parser.TemplActionWrongPageError{
 				ActionFunc: "POSTPageProfileSave",
 				PageType:   "PageSettings",
 				OwnerPage:  "PageProfile",
@@ -425,7 +425,7 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrSignatureUnsupportedInput/remove": {
-			err: &parser.ErrorSignatureUnsupportedInput{
+			err: &parser.SignatureUnsupportedInputError{
 				ParamName:  "b",
 				ParamType:  "*net/http.Request",
 				Recv:       "PageFoo",
@@ -434,7 +434,7 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Remove parameter b",
 		},
 		"ErrSignatureUnsupportedInput/single candidate": {
-			err: &parser.ErrorSignatureUnsupportedInput{
+			err: &parser.SignatureUnsupportedInputError{
 				ParamName:      "s",
 				ParamType:      "uint64",
 				Recv:           "PageFoo",
@@ -444,7 +444,7 @@ func TestSuggest(t *testing.T) {
 			want: "fix: Potential candidates: datapages.StreamID",
 		},
 		"ErrSignatureUnsupportedInput/type struct multiple candidates": {
-			err: &parser.ErrorSignatureUnsupportedInput{
+			err: &parser.SignatureUnsupportedInputError{
 				ParamName:  "data",
 				ParamType:  "struct{...}",
 				Recv:       "PageFoo",
@@ -482,7 +482,7 @@ func TestSuggest(t *testing.T) {
 		},
 
 		"ErrDispatchDuplicate": {
-			err: &parser.ErrorDispatchDuplicate{
+			err: &parser.DispatchDuplicateError{
 				Recv:          "PageFoo",
 				MethodName:    "GET",
 				EventTypeName: "EventFoo",

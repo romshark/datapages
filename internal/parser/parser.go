@@ -295,17 +295,17 @@ func firstPassEventType(
 	if err != nil {
 		switch err {
 		case validate.ErrEventCommMissing:
-			errs.ErrAt(typePos, &ErrorEventCommMissing{TypeName: name})
+			errs.ErrAt(typePos, &EventCommMissingError{TypeName: name})
 		case validate.ErrEventCommInvalid:
 			commPos := eventCommInvalidPos(doc, name, ctx.pkg.Fset, typePos)
-			errs.ErrAt(commPos, &ErrorEventCommInvalid{TypeName: name})
+			errs.ErrAt(commPos, &EventCommInvalidError{TypeName: name})
 		case validate.ErrEventSubjectInvalid:
 			subjPos := eventSubjectPos(doc, name, ctx.pkg.Fset, typePos)
 			errs.ErrAt(subjPos, fmt.Errorf("%w: %s", ErrEventSubjectInvalid, name))
 		default:
 			// validate returns no other error for a comment, an unknown one
 			// still means the comment cannot be read.
-			errs.ErrAt(typePos, &ErrorEventCommInvalid{TypeName: name})
+			errs.ErrAt(typePos, &EventCommInvalidError{TypeName: name})
 		}
 		return
 	}
@@ -314,7 +314,7 @@ func firstPassEventType(
 	if sfResult.AfterPayload != nil {
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(sfResult.AfterPayload.Pos),
-			&ErrorEventSubjectAfterPayload{
+			&EventSubjectAfterPayloadError{
 				FieldName: sfResult.AfterPayload.FieldName,
 				TypeName:  name,
 			},
@@ -323,7 +323,7 @@ func firstPassEventType(
 	if sfResult.DuplicateSignal != nil {
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(sfResult.DuplicateSignal.Pos),
-			&ErrorEventSubjectDuplicateSignal{
+			&EventSubjectDuplicateSignalError{
 				FieldName:      sfResult.DuplicateSignal.FieldName,
 				FirstFieldName: sfResult.DuplicateSignalFirst,
 				SignalName:     sfResult.DuplicateSignal.SignalName,
@@ -334,13 +334,13 @@ func firstPassEventType(
 	if sfResult.UserWithSignal != nil {
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(sfResult.UserWithSignal.Pos),
-			&ErrorEventSubjectUserSignal{TypeName: name},
+			&EventSubjectUserSignalError{TypeName: name},
 		)
 	}
 	if sfResult.InvalidSignal != nil {
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(sfResult.InvalidSignal.Pos),
-			&ErrorEventSubjectSignalInvalid{
+			&EventSubjectSignalInvalidError{
 				FieldName:  sfResult.InvalidSignal.FieldName,
 				SignalName: sfResult.InvalidSignal.SignalName,
 				TypeName:   name,
@@ -358,7 +358,7 @@ func firstPassEventType(
 	for _, sf := range sfResult.Prefixed {
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(sf.Pos),
-			&ErrorEventSubjectPrefixedField{
+			&EventSubjectPrefixedFieldError{
 				FieldName: sf.FieldName,
 				TypeName:  name,
 			},
@@ -367,7 +367,7 @@ func firstPassEventType(
 	for _, sf := range sfResult.Derived {
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(sf.Pos),
-			&ErrorEventSubjectDerivedType{
+			&EventSubjectDerivedTypeError{
 				FieldName:       sf.FieldName,
 				TypeName:        name,
 				DeclTypeName:    sf.DeclTypeName,
@@ -386,7 +386,7 @@ func firstPassEventType(
 	}
 
 	if first, ok := ctx.eventSubjects[subj]; ok {
-		errs.ErrAt(typePos, &ErrorEventSubjectDuplicate{
+		errs.ErrAt(typePos, &EventSubjectDuplicateError{
 			Subject:       subj,
 			TypeName:      name,
 			FirstTypeName: first,
@@ -402,7 +402,7 @@ func firstPassEventType(
 		if !claim.Overlaps(first.Claim) {
 			continue
 		}
-		errs.ErrAt(typePos, &ErrorEventSubjectOverlap{
+		errs.ErrAt(typePos, &EventSubjectOverlapError{
 			Subject:       subj,
 			TypeName:      name,
 			FirstSubject:  first.Subject,
@@ -570,7 +570,7 @@ func firstPassPageOrAbstractType(
 			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageNameInvalid, name))
 		}
 		if !structinspect.HasRequiredAppField(st, ctx.pkg.TypesInfo) {
-			errs.ErrAt(typePos, &ErrorPageMissingFieldApp{TypeName: name})
+			errs.ErrAt(typePos, &PageMissingFieldAppError{TypeName: name})
 		}
 		if structinspect.HasDisallowedNamedFields(st) {
 			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageHasExtraFields, name))
@@ -580,11 +580,11 @@ func firstPassPageOrAbstractType(
 			name, pickDoc(name, ctx.docByType, ctx.genDocByType),
 		)
 		if !found {
-			errs.ErrAt(typePos, &ErrorPageMissingPathComm{TypeName: name})
+			errs.ErrAt(typePos, &PageMissingPathCommError{TypeName: name})
 		} else if !ok {
-			errs.ErrAt(typePos, &ErrorPageInvalidPathComm{TypeName: name})
+			errs.ErrAt(typePos, &PageInvalidPathCommError{TypeName: name})
 		} else if name == "PageIndex" && route != "/" {
-			errs.ErrAt(typePos, &ErrorPageIndexPathMustBeRoot{Route: route})
+			errs.ErrAt(typePos, &PageIndexPathMustBeRootError{Route: route})
 		}
 
 		ctx.pages[name] = &model.Page{
@@ -1019,15 +1019,15 @@ func attachHTTPHandler(
 				pagePath = pg.Route
 			}
 			errs.ErrAt(pos,
-				&ErrorActionMissingPathComm{
+				&ActionMissingPathCommError{
 					PagePath: pagePath, Recv: recv, MethodName: fd.Name.Name,
 				})
 		} else if !valid {
 			errs.ErrAt(pos,
-				&ErrorActionInvalidPathComm{Recv: recv, MethodName: fd.Name.Name})
+				&ActionInvalidPathCommError{Recv: recv, MethodName: fd.Name.Name})
 		} else if pg != nil && pg.Route != "" && !actionIsUnderPage(pg.Route, r) {
 			errs.ErrAt(pos,
-				&ErrorActionPathNotUnderPage{
+				&ActionPathNotUnderPageError{
 					PagePath: pg.Route, Recv: recv, MethodName: fd.Name.Name,
 				})
 		}
@@ -1106,10 +1106,10 @@ func attachAppAction(
 
 	if !found {
 		errs.ErrAt(pos,
-			&ErrorActionMissingPathComm{Recv: "App", MethodName: fd.Name.Name})
+			&ActionMissingPathCommError{Recv: "App", MethodName: fd.Name.Name})
 	} else if !valid {
 		errs.ErrAt(pos,
-			&ErrorActionInvalidPathComm{Recv: "App", MethodName: fd.Name.Name})
+			&ActionInvalidPathCommError{Recv: "App", MethodName: fd.Name.Name})
 	}
 
 	// Validate path struct fields against route variables.
@@ -1416,7 +1416,7 @@ func validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
 		if ctx.pages[name].GET == nil {
 			ts := ctx.typeSpecByName[name]
 			errs.ErrAt(ctx.pkg.Fset.Position(ts.Name.Pos()),
-				&ErrorPageMissingGET{TypeName: name})
+				&PageMissingGETError{TypeName: name})
 		}
 	}
 }
@@ -1445,7 +1445,7 @@ func validateRouteVarNames(ctx *parseCtx, errs *Errors) {
 				continue
 			}
 			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()),
-				&ErrorRouteVarNameInvalid{Owner: owner, Route: route, Var: v})
+				&RouteVarNameInvalidError{Owner: owner, Route: route, Var: v})
 		}
 	}
 	for _, p := range ctx.app.Pages {
@@ -1472,7 +1472,7 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 		}
 		pattern := method + " " + route
 		if err := registerRoute(mux, pattern); err != nil {
-			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()), &ErrorRouteConflict{
+			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()), &RouteConflictError{
 				Pattern: pattern,
 				Owner:   owner,
 				Reason:  err.Error(),
@@ -1502,7 +1502,7 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 			// The stream path of such a route parses nowhere,
 			// which is what this reports. Claiming it would report it a second time.
 			errs.ErrAt(ctx.pkg.Fset.Position(p.Expr.Pos()),
-				&ErrorRouteWildcardStream{TypeName: p.TypeName, Route: p.Route})
+				&RouteWildcardStreamError{TypeName: p.TypeName, Route: p.Route})
 		default:
 			stream := routepattern.StreamPath(p.Route)
 			claim(http.MethodGet, stream+"{$}", p.Expr, p.TypeName+" stream")
@@ -1760,7 +1760,7 @@ func parseStreamHook(
 					return d.EventTypeName == eventName
 				}) {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
-					&ErrorDispatchDuplicate{
+					&DispatchDuplicateError{
 						Recv:          recv,
 						MethodName:    fd.Name.Name,
 						EventTypeName: eventName,
@@ -2028,13 +2028,13 @@ func appendPositioned(dst *[]error, fset *token.FileSet, fallback token.Pos, err
 	}
 }
 
-// unsupportedInputError builds an ErrorSignatureUnsupportedInput for a
+// unsupportedInputError builds an SignatureUnsupportedInputError for a
 // parameter that doesn't match any recognized handler input.
 // When h is non-nil, it names the inputs whose type the parameter could carry
 // and whose slot the handler hasn't filled yet.
 func unsupportedInputError(
 	f *ast.Field, h *model.Handler, info *types.Info, recv, method string,
-) *ErrorSignatureUnsupportedInput {
+) *SignatureUnsupportedInputError {
 	paramName := "_"
 	if len(f.Names) > 0 {
 		paramName = f.Names[0].Name
@@ -2044,7 +2044,7 @@ func unsupportedInputError(
 		paramType = t.String()
 	}
 
-	e := &ErrorSignatureUnsupportedInput{
+	e := &SignatureUnsupportedInputError{
 		ParamName:  paramName,
 		ParamType:  paramType,
 		Recv:       recv,
@@ -2303,7 +2303,7 @@ func parseHandler(
 					return d.EventTypeName == eventName
 				}) {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
-					&ErrorDispatchDuplicate{
+					&DispatchDuplicateError{
 						Recv:          recv,
 						MethodName:    fd.Name.Name,
 						EventTypeName: eventName,

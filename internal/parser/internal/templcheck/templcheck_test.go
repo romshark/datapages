@@ -57,27 +57,27 @@ func toPosErrors(errs []posErr) []posError {
 // so that require.Equal compares by value rather than pointer identity.
 func derefErr(err error) any {
 	switch e := err.(type) {
-	case *templcheck.ErrorHrefRelative:
+	case *templcheck.HrefRelativeError:
 		return *e
-	case *templcheck.ErrorHrefUnverifiable:
+	case *templcheck.HrefUnverifiableError:
 		return *e
-	case *templcheck.ErrorHrefExternalIsRelative:
+	case *templcheck.HrefExternalIsRelativeError:
 		return *e
-	case *templcheck.ErrorActionHardcoded:
+	case *templcheck.ActionHardcodedError:
 		return *e
-	case *templcheck.ErrorActionUnverifiable:
+	case *templcheck.ActionUnverifiableError:
 		return *e
-	case *templcheck.ErrorActionUnverifiableWithPrefix:
+	case *templcheck.ActionUnverifiableWithPrefixError:
 		return *e
-	case *templcheck.ErrorActionUnverifiableWithSuffix:
+	case *templcheck.ActionUnverifiableWithSuffixError:
 		return *e
-	case *templcheck.ErrorFormAction:
+	case *templcheck.FormActionError:
 		return *e
-	case *templcheck.ErrorActionContext:
+	case *templcheck.ActionContextError:
 		return *e
-	case *templcheck.ErrorHrefContext:
+	case *templcheck.HrefContextError:
 		return *e
-	case *templcheck.ErrorActionWrongPage:
+	case *templcheck.ActionWrongPageError:
 		return *e
 	default:
 		return err
@@ -111,37 +111,37 @@ func TestCheck_ErrHref(t *testing.T) {
 	errs := check(t, "err_templ_href", nil)
 
 	expect := []posError{
-		{31, 5, templcheck.ErrorHrefRelative{URL: "/login"}},
-		{33, 5, templcheck.ErrorHrefRelative{URL: "/profile"}},
-		{35, 5, templcheck.ErrorHrefRelative{URL: "/static/style.css"}},
-		{37, 12, templcheck.ErrorHrefRelative{URL: "/settings"}},
-		{39, 12, templcheck.ErrorHrefRelative{URL: "/set"}},
-		{41, 12, templcheck.ErrorHrefUnverifiable{Expr: `"/set" + dynamicValue`}},
-		{43, 12, templcheck.ErrorHrefUnverifiable{Expr: `templ.SafeURL("/about")`}},
-		{45, 12, templcheck.ErrorHrefUnverifiable{
+		{31, 5, templcheck.HrefRelativeError{URL: "/login"}},
+		{33, 5, templcheck.HrefRelativeError{URL: "/profile"}},
+		{35, 5, templcheck.HrefRelativeError{URL: "/static/style.css"}},
+		{37, 12, templcheck.HrefRelativeError{URL: "/settings"}},
+		{39, 12, templcheck.HrefRelativeError{URL: "/set"}},
+		{41, 12, templcheck.HrefUnverifiableError{Expr: `"/set" + dynamicValue`}},
+		{43, 12, templcheck.HrefUnverifiableError{Expr: `templ.SafeURL("/about")`}},
+		{45, 12, templcheck.HrefUnverifiableError{
 			Expr: `templ.SafeURL(ConstantStringNOTOK)`,
 		}},
-		{47, 12, templcheck.ErrorHrefUnverifiable{
+		{47, 12, templcheck.HrefUnverifiableError{
 			Expr: `templ.SafeURL("https://data-star.dev")`,
 		}},
-		{48, 12, templcheck.ErrorHrefRelative{URL: "/c"}},
-		{49, 12, templcheck.ErrorHrefRelative{URL: "notok"}},
-		{51, 5, templcheck.ErrorHrefRelative{URL: ""}},
-		{53, 5, templcheck.ErrorHrefRelative{URL: "?tab=settings"}},
-		{55, 5, templcheck.ErrorHrefRelative{URL: "relative"}},
-		{57, 5, templcheck.ErrorHrefRelative{URL: "javascript:void(0)"}},
-		{61, 7, templcheck.ErrorHrefRelative{URL: "/nested"}},
-		{65, 12, templcheck.ErrorHrefUnverifiable{Expr: `loginHref()`}},
-		{67, 12, templcheck.ErrorHrefUnverifiable{Expr: `someOtherFunc()`}},
-		{69, 12, templcheck.ErrorHrefUnverifiable{Expr: `buildURL(id)`}},
-		{71, 12, templcheck.ErrorHrefUnverifiable{
+		{48, 12, templcheck.HrefRelativeError{URL: "/c"}},
+		{49, 12, templcheck.HrefRelativeError{URL: "notok"}},
+		{51, 5, templcheck.HrefRelativeError{URL: ""}},
+		{53, 5, templcheck.HrefRelativeError{URL: "?tab=settings"}},
+		{55, 5, templcheck.HrefRelativeError{URL: "relative"}},
+		{57, 5, templcheck.HrefRelativeError{URL: "javascript:void(0)"}},
+		{61, 7, templcheck.HrefRelativeError{URL: "/nested"}},
+		{65, 12, templcheck.HrefUnverifiableError{Expr: `loginHref()`}},
+		{67, 12, templcheck.HrefUnverifiableError{Expr: `someOtherFunc()`}},
+		{69, 12, templcheck.HrefUnverifiableError{Expr: `buildURL(id)`}},
+		{71, 12, templcheck.HrefUnverifiableError{
 			Expr: `fmt.Sprintf("mailto:%s", "test@example.com")`,
 		}},
-		{73, 12, templcheck.ErrorHrefExternalIsRelative{URL: "/login"}},
-		{75, 12, templcheck.ErrorHrefExternalIsRelative{URL: "/internal"}},
-		{77, 5, templcheck.ErrorHrefRelative{URL: "/should-error"}},
-		{79, 12, templcheck.ErrorHrefRelative{URL: "/login-imported"}},
-		{81, 12, templcheck.ErrorHrefExternalIsRelative{URL: "/internal-imported"}},
+		{73, 12, templcheck.HrefExternalIsRelativeError{URL: "/login"}},
+		{75, 12, templcheck.HrefExternalIsRelativeError{URL: "/internal"}},
+		{77, 5, templcheck.HrefRelativeError{URL: "/should-error"}},
+		{79, 12, templcheck.HrefRelativeError{URL: "/login-imported"}},
+		{81, 12, templcheck.HrefExternalIsRelativeError{URL: "/internal-imported"}},
 	}
 
 	require.Equal(t, expect, toPosErrors(errs))
@@ -191,16 +191,16 @@ func TestCheck_ErrActionWrongPage(t *testing.T) {
 	// nolint suppresses element-level checks but NOT ownership checks.
 
 	expect := []posError{
-		{11, 17, templcheck.ErrorFormAction{}},
-		{17, 17, templcheck.ErrorFormAction{}},
-		{25, 17, templcheck.ErrorFormAction{}},
-		{25, 17, templcheck.ErrorActionWrongPage{
+		{11, 17, templcheck.FormActionError{}},
+		{17, 17, templcheck.FormActionError{}},
+		{25, 17, templcheck.FormActionError{}},
+		{25, 17, templcheck.ActionWrongPageError{
 			ActionFunc: "PageProfile.Save.POST",
 			PageType:   "PageSettings",
 			OwnerPage:  "PageProfile",
 		}},
-		{28, 17, templcheck.ErrorFormAction{}},
-		{33, 17, templcheck.ErrorActionWrongPage{
+		{28, 17, templcheck.FormActionError{}},
+		{33, 17, templcheck.ActionWrongPageError{
 			ActionFunc: "PageProfile.Save.POST",
 			PageType:   "PageSettings",
 			OwnerPage:  "PageProfile",
@@ -218,46 +218,46 @@ func TestCheck_ErrContext(t *testing.T) {
 	errs := check(t, "err_templ_context", nil)
 
 	expect := []posError{
-		{10, 12, templcheck.ErrorActionContext{
+		{10, 12, templcheck.ActionContextError{
 			AttrName: "href", ActionFunc: "POSTPageIndexSubmit",
 		}},
-		{26, 26, templcheck.ErrorHrefContext{
+		{26, 26, templcheck.HrefContextError{
 			AttrName: "data-on:click", HrefFunc: "PageIndex",
 		}},
-		{28, 25, templcheck.ErrorHrefContext{
+		{28, 25, templcheck.HrefContextError{
 			AttrName: "data-on:submit", HrefFunc: "PageIndex",
 		}},
-		{30, 19, templcheck.ErrorHrefContext{
+		{30, 19, templcheck.HrefContextError{
 			AttrName: "data-init", HrefFunc: "PageIndex",
 		}},
-		{36, 19, templcheck.ErrorActionContext{
+		{36, 19, templcheck.ActionContextError{
 			AttrName: "data-only", ActionFunc: "POSTPageIndexSubmit",
 		}},
-		{40, 26, templcheck.ErrorActionUnverifiableWithPrefix{
+		{40, 26, templcheck.ActionUnverifiableWithPrefixError{
 			Expr:       `"$_fresh = true; " + action.POSTPageIndexSubmit()`,
 			ActionFunc: "POSTPageIndexSubmit",
 			Prefix:     `"$_fresh = true; "`,
 		}},
-		{44, 26, templcheck.ErrorActionUnverifiableWithSuffix{
+		{44, 26, templcheck.ActionUnverifiableWithSuffixError{
 			Expr:       `action.POSTPageIndexSubmit() + "; $_fresh = true"`,
 			ActionFunc: "POSTPageIndexSubmit",
 			Suffix:     `"; $_fresh = true"`,
 		}},
-		{49, 19, templcheck.ErrorActionUnverifiable{
+		{49, 19, templcheck.ActionUnverifiableError{
 			Expr: `action.POSTPageIndexSubmit() + action.POSTPageIndexSubmit()`,
 		}},
-		{55, 19, templcheck.ErrorActionUnverifiable{
+		{55, 19, templcheck.ActionUnverifiableError{
 			Expr: `action.POSTPageIndexSubmit() + action.POSTPageIndexReset()`,
 		}},
-		{61, 19, templcheck.ErrorActionUnverifiableWithPrefix{
+		{61, 19, templcheck.ActionUnverifiableWithPrefixError{
 			Expr:       `"$a; " + "$b; " + action.POSTPageIndexSubmit()`,
 			ActionFunc: "POSTPageIndexSubmit",
 			Prefix:     `"$a; " + "$b; "`,
 		}},
-		{67, 19, templcheck.ErrorActionUnverifiable{
+		{67, 19, templcheck.ActionUnverifiableError{
 			Expr: `action.POSTPageIndexSubmit() + "; $a" + "; $b"`,
 		}},
-		{73, 19, templcheck.ErrorActionUnverifiableWithPrefix{
+		{73, 19, templcheck.ActionUnverifiableWithPrefixError{
 			Expr:       "action.POSTPageIndexSubmit() +\n\t\t\t\"; $a; \" +\n\t\t\taction.POSTPageIndexReset()",
 			ActionFunc: "POSTPageIndexReset",
 			Prefix:     `action.POSTPageIndexSubmit() + "; $a; "`,
@@ -273,9 +273,9 @@ func TestCheck_ErrFormAction(t *testing.T) {
 	errs := check(t, "err_templ_form_action", nil)
 
 	expect := []posError{
-		{7, 8, templcheck.ErrorFormAction{}},
-		{11, 17, templcheck.ErrorFormAction{}},
-		{15, 17, templcheck.ErrorFormAction{}},
+		{7, 8, templcheck.FormActionError{}},
+		{11, 17, templcheck.FormActionError{}},
+		{15, 17, templcheck.FormActionError{}},
 	}
 
 	require.Equal(t, expect, toPosErrors(errs))
@@ -288,28 +288,28 @@ func TestCheck_ErrActionHardcoded(t *testing.T) {
 	errs := check(t, "err_templ_hardcoded_action", nil)
 
 	expect := []posError{
-		{7, 10, templcheck.ErrorActionHardcoded{URL: "/login/submit"}},
-		{9, 7, templcheck.ErrorActionHardcoded{URL: "/api/data"}},
-		{11, 8, templcheck.ErrorActionHardcoded{URL: "/profile/save"}},
-		{13, 10, templcheck.ErrorActionHardcoded{URL: "/resource"}},
-		{15, 10, templcheck.ErrorActionHardcoded{URL: "/resource"}},
-		{17, 10, templcheck.ErrorActionHardcoded{URL: "/resource"}},
-		{19, 7, templcheck.ErrorActionHardcoded{URL: "/lazy"}},
-		{21, 7, templcheck.ErrorActionHardcoded{URL: "/poll"}},
-		{23, 7, templcheck.ErrorActionHardcoded{URL: "/sync"}},
-		{25, 7, templcheck.ErrorActionHardcoded{URL: "/init"}},
-		{27, 10, templcheck.ErrorActionHardcoded{URL: "/custom"}},
-		{29, 10, templcheck.ErrorActionHardcoded{URL: "/mixed"}},
-		{31, 10, templcheck.ErrorActionHardcoded{URL: "/debounced"}},
-		{33, 7, templcheck.ErrorActionHardcoded{URL: "/intersect-once"}},
-		{35, 7, templcheck.ErrorActionHardcoded{URL: "/init-once"}},
-		{37, 26, templcheck.ErrorActionHardcoded{URL: "/expr-literal"}},
-		{39, 26, templcheck.ErrorActionHardcoded{URL: "/backtick"}},
-		{41, 26, templcheck.ErrorActionHardcoded{URL: "/const-action"}},
-		{43, 26, templcheck.ErrorActionHardcoded{URL: "/imported-action"}},
-		{45, 26, templcheck.ErrorActionUnverifiable{Expr: `"@post" + "('/concat')"`}},
-		{47, 26, templcheck.ErrorActionUnverifiable{Expr: `buildAction()`}},
-		{49, 26, templcheck.ErrorActionUnverifiable{Expr: `dynamicVar`}},
+		{7, 10, templcheck.ActionHardcodedError{URL: "/login/submit"}},
+		{9, 7, templcheck.ActionHardcodedError{URL: "/api/data"}},
+		{11, 8, templcheck.ActionHardcodedError{URL: "/profile/save"}},
+		{13, 10, templcheck.ActionHardcodedError{URL: "/resource"}},
+		{15, 10, templcheck.ActionHardcodedError{URL: "/resource"}},
+		{17, 10, templcheck.ActionHardcodedError{URL: "/resource"}},
+		{19, 7, templcheck.ActionHardcodedError{URL: "/lazy"}},
+		{21, 7, templcheck.ActionHardcodedError{URL: "/poll"}},
+		{23, 7, templcheck.ActionHardcodedError{URL: "/sync"}},
+		{25, 7, templcheck.ActionHardcodedError{URL: "/init"}},
+		{27, 10, templcheck.ActionHardcodedError{URL: "/custom"}},
+		{29, 10, templcheck.ActionHardcodedError{URL: "/mixed"}},
+		{31, 10, templcheck.ActionHardcodedError{URL: "/debounced"}},
+		{33, 7, templcheck.ActionHardcodedError{URL: "/intersect-once"}},
+		{35, 7, templcheck.ActionHardcodedError{URL: "/init-once"}},
+		{37, 26, templcheck.ActionHardcodedError{URL: "/expr-literal"}},
+		{39, 26, templcheck.ActionHardcodedError{URL: "/backtick"}},
+		{41, 26, templcheck.ActionHardcodedError{URL: "/const-action"}},
+		{43, 26, templcheck.ActionHardcodedError{URL: "/imported-action"}},
+		{45, 26, templcheck.ActionUnverifiableError{Expr: `"@post" + "('/concat')"`}},
+		{47, 26, templcheck.ActionUnverifiableError{Expr: `buildAction()`}},
+		{49, 26, templcheck.ActionUnverifiableError{Expr: `dynamicVar`}},
 	}
 
 	require.Equal(t, expect, toPosErrors(errs))

@@ -70,7 +70,7 @@ func validateEventsNeedSession(ctx *parseCtx, errs *Errors) {
 		}
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(ev.Expr.Pos()),
-			&ErrorEventSubjectUserNoSession{
+			&EventSubjectUserNoSessionError{
 				TypeName: ev.TypeName,
 				PkgName:  ctx.pkg.Name,
 			},
@@ -138,17 +138,17 @@ func validateEventType(
 		// Minimal check: verify `json:"..."` exists.
 		if !strings.Contains(tag, "json:\"") {
 			errs.ErrAt(ctx.pkg.Fset.Position(fieldPos),
-				&ErrorEventFieldMissingTag{FieldName: f.Name(), TypeName: name})
+				&EventFieldMissingTagError{FieldName: f.Name(), TypeName: name})
 		} else {
 			tagVal := structtag.JSONTagValue(tag)
 			// 3. Tag name must not be empty (e.g. json:"" or json:",omitempty").
 			if tagVal == "" {
 				errs.ErrAt(ctx.pkg.Fset.Position(fieldPos),
-					&ErrorEventFieldEmptyTag{FieldName: f.Name(), TypeName: name})
+					&EventFieldEmptyTagError{FieldName: f.Name(), TypeName: name})
 			} else if seenTags[tagVal] {
 				// 4. Must not duplicate a json tag value already seen at this level.
 				errs.ErrAt(ctx.pkg.Fset.Position(fieldPos),
-					&ErrorEventFieldDuplicateTag{
+					&EventFieldDuplicateTagError{
 						FieldName: f.Name(), TagValue: tagVal, TypeName: name,
 					})
 			} else {

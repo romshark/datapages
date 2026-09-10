@@ -389,384 +389,384 @@ func sortErrors(e *Errors) {
 	})
 }
 
-// ErrorPageMissingFieldApp is [ErrPageMissingFieldApp] with suggestion context.
-type ErrorPageMissingFieldApp struct {
+// PageMissingFieldAppError is [ErrPageMissingFieldApp] with suggestion context.
+type PageMissingFieldAppError struct {
 	TypeName string // e.g. "PageProfile"
 }
 
-func (e *ErrorPageMissingFieldApp) Error() string {
+func (e *PageMissingFieldAppError) Error() string {
 	return fmt.Sprintf("%v: %s", ErrPageMissingFieldApp, e.TypeName)
 }
 
-func (e *ErrorPageMissingFieldApp) Unwrap() error { return ErrPageMissingFieldApp }
+func (e *PageMissingFieldAppError) Unwrap() error { return ErrPageMissingFieldApp }
 
-// ErrorActionPathNotUnderPage is [ErrActionPathNotUnderPage] with suggestion context.
-type ErrorActionPathNotUnderPage struct {
+// ActionPathNotUnderPageError is [ErrActionPathNotUnderPage] with suggestion context.
+type ActionPathNotUnderPageError struct {
 	PagePath   string // e.g. "/profile/"
 	Recv       string // e.g. "PageProfile"
 	MethodName string // e.g. "POSTFoo"
 }
 
-func (e *ErrorActionPathNotUnderPage) Error() string {
+func (e *ActionPathNotUnderPageError) Error() string {
 	return fmt.Sprintf("%v: %s.%s", ErrActionPathNotUnderPage, e.Recv, e.MethodName)
 }
 
-func (e *ErrorActionPathNotUnderPage) Unwrap() error { return ErrActionPathNotUnderPage }
+func (e *ActionPathNotUnderPageError) Unwrap() error { return ErrActionPathNotUnderPage }
 
-// ErrorPageMissingPathComm is [ErrPageMissingPathComm] with suggestion context.
-type ErrorPageMissingPathComm struct {
+// PageMissingPathCommError is [ErrPageMissingPathComm] with suggestion context.
+type PageMissingPathCommError struct {
 	TypeName string // e.g. "PageProfile"
 }
 
-func (e *ErrorPageMissingPathComm) Error() string {
+func (e *PageMissingPathCommError) Error() string {
 	return fmt.Sprintf("%v: %s", ErrPageMissingPathComm, e.TypeName)
 }
 
-func (e *ErrorPageMissingPathComm) Unwrap() error { return ErrPageMissingPathComm }
+func (e *PageMissingPathCommError) Unwrap() error { return ErrPageMissingPathComm }
 
-// ErrorActionMissingPathComm is [ErrActionMissingPathComm] with suggestion context.
-type ErrorActionMissingPathComm struct {
+// ActionMissingPathCommError is [ErrActionMissingPathComm] with suggestion context.
+type ActionMissingPathCommError struct {
 	PagePath   string // e.g. "/profile/" (empty for App-level actions)
 	Recv       string // e.g. "PageProfile" or "App"
 	MethodName string // e.g. "POSTFoo"
 }
 
-func (e *ErrorActionMissingPathComm) Error() string {
+func (e *ActionMissingPathCommError) Error() string {
 	return fmt.Sprintf("%v: %s.%s", ErrActionMissingPathComm, e.Recv, e.MethodName)
 }
 
-func (e *ErrorActionMissingPathComm) Unwrap() error { return ErrActionMissingPathComm }
+func (e *ActionMissingPathCommError) Unwrap() error { return ErrActionMissingPathComm }
 
-// ErrorPageMissingGET is [ErrPageMissingGET] with suggestion context.
-type ErrorPageMissingGET struct {
+// PageMissingGETError is [ErrPageMissingGET] with suggestion context.
+type PageMissingGETError struct {
 	TypeName string // e.g. "PageProfile"
 }
 
-func (e *ErrorPageMissingGET) Error() string {
+func (e *PageMissingGETError) Error() string {
 	return fmt.Sprintf("%v: %s", ErrPageMissingGET, e.TypeName)
 }
 
-func (e *ErrorPageMissingGET) Unwrap() error { return ErrPageMissingGET }
+func (e *PageMissingGETError) Unwrap() error { return ErrPageMissingGET }
 
-// ErrorPageInvalidPathComm is [ErrPageInvalidPathComm] with suggestion context.
-type ErrorPageInvalidPathComm struct {
+// PageInvalidPathCommError is [ErrPageInvalidPathComm] with suggestion context.
+type PageInvalidPathCommError struct {
 	TypeName string // e.g. "PageProfile"
 }
 
-func (e *ErrorPageInvalidPathComm) Error() string {
+func (e *PageInvalidPathCommError) Error() string {
 	return fmt.Sprintf("%v: %s", ErrPageInvalidPathComm, e.TypeName)
 }
 
-func (e *ErrorPageInvalidPathComm) Unwrap() error { return ErrPageInvalidPathComm }
+func (e *PageInvalidPathCommError) Unwrap() error { return ErrPageInvalidPathComm }
 
-// ErrorPageIndexPathMustBeRoot is [ErrPageIndexPathMustBeRoot] with suggestion context.
-type ErrorPageIndexPathMustBeRoot struct {
+// PageIndexPathMustBeRootError is [ErrPageIndexPathMustBeRoot] with suggestion context.
+type PageIndexPathMustBeRootError struct {
 	Route string // the invalid route, e.g. "/home"
 }
 
-func (e *ErrorPageIndexPathMustBeRoot) Error() string {
+func (e *PageIndexPathMustBeRootError) Error() string {
 	return fmt.Sprintf("%v, got %q", ErrPageIndexPathMustBeRoot, e.Route)
 }
 
-func (e *ErrorPageIndexPathMustBeRoot) Unwrap() error { return ErrPageIndexPathMustBeRoot }
+func (e *PageIndexPathMustBeRootError) Unwrap() error { return ErrPageIndexPathMustBeRoot }
 
-// ErrorActionInvalidPathComm is [ErrActionInvalidPathComm] with suggestion context.
-type ErrorActionInvalidPathComm struct {
+// ActionInvalidPathCommError is [ErrActionInvalidPathComm] with suggestion context.
+type ActionInvalidPathCommError struct {
 	Recv       string // e.g. "PageProfile" or "App"
 	MethodName string // e.g. "POSTFoo"
 }
 
-func (e *ErrorActionInvalidPathComm) Error() string {
+func (e *ActionInvalidPathCommError) Error() string {
 	return fmt.Sprintf("%v: %s.%s", ErrActionInvalidPathComm, e.Recv, e.MethodName)
 }
 
-func (e *ErrorActionInvalidPathComm) Unwrap() error { return ErrActionInvalidPathComm }
+func (e *ActionInvalidPathCommError) Unwrap() error { return ErrActionInvalidPathComm }
 
-// ErrorEventCommMissing is [ErrEventCommMissing] with suggestion context.
-type ErrorEventCommMissing struct {
+// EventCommMissingError is [ErrEventCommMissing] with suggestion context.
+type EventCommMissingError struct {
 	TypeName string // e.g. "EventFoo"
 }
 
-func (e *ErrorEventCommMissing) Error() string {
+func (e *EventCommMissingError) Error() string {
 	return fmt.Sprintf("%v: %s", ErrEventCommMissing, e.TypeName)
 }
 
-func (e *ErrorEventCommMissing) Unwrap() error { return ErrEventCommMissing }
+func (e *EventCommMissingError) Unwrap() error { return ErrEventCommMissing }
 
-// ErrorEventCommInvalid is [ErrEventCommInvalid] with suggestion context.
-type ErrorEventCommInvalid struct {
+// EventCommInvalidError is [ErrEventCommInvalid] with suggestion context.
+type EventCommInvalidError struct {
 	TypeName string // e.g. "EventFoo"
 }
 
-func (e *ErrorEventCommInvalid) Error() string {
+func (e *EventCommInvalidError) Error() string {
 	return fmt.Sprintf("%v: %s", ErrEventCommInvalid, e.TypeName)
 }
 
-func (e *ErrorEventCommInvalid) Unwrap() error { return ErrEventCommInvalid }
+func (e *EventCommInvalidError) Unwrap() error { return ErrEventCommInvalid }
 
-// ErrorEventFieldMissingTag is [ErrEventFieldMissingTag] with suggestion context.
-type ErrorEventFieldMissingTag struct {
+// EventFieldMissingTagError is [ErrEventFieldMissingTag] with suggestion context.
+type EventFieldMissingTagError struct {
 	FieldName string // e.g. "UserID"
 	TypeName  string // e.g. "EventFoo"
 }
 
-func (e *ErrorEventFieldMissingTag) Error() string {
+func (e *EventFieldMissingTagError) Error() string {
 	return fmt.Sprintf("%v: field %s in %s", ErrEventFieldMissingTag, e.FieldName, e.TypeName)
 }
 
-func (e *ErrorEventFieldMissingTag) Unwrap() error { return ErrEventFieldMissingTag }
+func (e *EventFieldMissingTagError) Unwrap() error { return ErrEventFieldMissingTag }
 
-// ErrorEventFieldEmptyTag is [ErrEventFieldEmptyTag] with suggestion context.
-type ErrorEventFieldEmptyTag struct {
+// EventFieldEmptyTagError is [ErrEventFieldEmptyTag] with suggestion context.
+type EventFieldEmptyTagError struct {
 	FieldName string // e.g. "UserID"
 	TypeName  string // e.g. "EventFoo"
 }
 
-func (e *ErrorEventFieldEmptyTag) Error() string {
+func (e *EventFieldEmptyTagError) Error() string {
 	return fmt.Sprintf("%v: field %s in %s", ErrEventFieldEmptyTag, e.FieldName, e.TypeName)
 }
 
-func (e *ErrorEventFieldEmptyTag) Unwrap() error { return ErrEventFieldEmptyTag }
+func (e *EventFieldEmptyTagError) Unwrap() error { return ErrEventFieldEmptyTag }
 
-// ErrorEventFieldDuplicateTag is [ErrEventFieldDuplicateTag] with suggestion context.
-type ErrorEventFieldDuplicateTag struct {
+// EventFieldDuplicateTagError is [ErrEventFieldDuplicateTag] with suggestion context.
+type EventFieldDuplicateTagError struct {
 	FieldName string // e.g. "UserID"
 	TagValue  string // e.g. "user_id"
 	TypeName  string // e.g. "EventFoo"
 }
 
-func (e *ErrorEventFieldDuplicateTag) Error() string {
+func (e *EventFieldDuplicateTagError) Error() string {
 	return fmt.Sprintf("%v: %q on field %s in %s",
 		ErrEventFieldDuplicateTag, e.TagValue, e.FieldName, e.TypeName)
 }
 
-func (e *ErrorEventFieldDuplicateTag) Unwrap() error { return ErrEventFieldDuplicateTag }
+func (e *EventFieldDuplicateTagError) Unwrap() error { return ErrEventFieldDuplicateTag }
 
-// ErrorEventSubjectUserNoSession is [ErrEventSubjectUserNoSession]
+// EventSubjectUserNoSessionError is [ErrEventSubjectUserNoSession]
 // with suggestion context.
-type ErrorEventSubjectUserNoSession struct {
+type EventSubjectUserNoSessionError struct {
 	TypeName string // e.g. "EventFoo"
 	PkgName  string // e.g. "app"
 }
 
-func (e *ErrorEventSubjectUserNoSession) Error() string {
+func (e *EventSubjectUserNoSessionError) Error() string {
 	return fmt.Sprintf("%v: %s", ErrEventSubjectUserNoSession, e.TypeName)
 }
 
-func (e *ErrorEventSubjectUserNoSession) Unwrap() error {
+func (e *EventSubjectUserNoSessionError) Unwrap() error {
 	return ErrEventSubjectUserNoSession
 }
 
-// ErrorEventSubjectAfterPayload is [ErrEventSubjectAfterPayload]
+// EventSubjectAfterPayloadError is [ErrEventSubjectAfterPayload]
 // with suggestion context.
-type ErrorEventSubjectAfterPayload struct {
+type EventSubjectAfterPayloadError struct {
 	FieldName string // e.g. "SubjectUser"
 	TypeName  string // e.g. "EventFoo"
 }
 
-func (e *ErrorEventSubjectAfterPayload) Error() string {
+func (e *EventSubjectAfterPayloadError) Error() string {
 	return fmt.Sprintf("%v: %s in %s",
 		ErrEventSubjectAfterPayload, e.FieldName, e.TypeName)
 }
 
-func (e *ErrorEventSubjectAfterPayload) Unwrap() error {
+func (e *EventSubjectAfterPayloadError) Unwrap() error {
 	return ErrEventSubjectAfterPayload
 }
 
-// ErrorRouteConflict is [ErrRouteConflict] with the pattern that could not be
+// RouteConflictError is [ErrRouteConflict] with the pattern that could not be
 // registered and what the router said about it.
-type ErrorRouteConflict struct {
+type RouteConflictError struct {
 	Pattern string
 	Owner   string
 	Reason  string
 }
 
-func (e *ErrorRouteConflict) Error() string {
+func (e *RouteConflictError) Error() string {
 	return fmt.Sprintf("%v: %s cannot serve %q: %s",
 		ErrRouteConflict, e.Owner, e.Pattern, e.Reason)
 }
 
-func (e *ErrorRouteConflict) Unwrap() error { return ErrRouteConflict }
+func (e *RouteConflictError) Unwrap() error { return ErrRouteConflict }
 
-// ErrorRouteWildcardStream is [ErrRouteWildcardStream] with the page.
+// RouteWildcardStreamError is [ErrRouteWildcardStream] with the page.
 // The stream endpoint sits under the page route. A {name...} wildcard matches
 // the rest of the path, which leaves nothing for the endpoint to sit in.
-type ErrorRouteWildcardStream struct {
+type RouteWildcardStreamError struct {
 	TypeName string
 	Route    string
 }
 
-func (e *ErrorRouteWildcardStream) Error() string {
+func (e *RouteWildcardStreamError) Error() string {
 	return fmt.Sprintf("%v: %s is %q", ErrRouteWildcardStream, e.TypeName, e.Route)
 }
 
-func (e *ErrorRouteWildcardStream) Unwrap() error { return ErrRouteWildcardStream }
+func (e *RouteWildcardStreamError) Unwrap() error { return ErrRouteWildcardStream }
 
-// ErrorRouteVarNameInvalid is [ErrRouteVarNameInvalid] with the wildcard,
+// RouteVarNameInvalidError is [ErrRouteVarNameInvalid] with the wildcard,
 // the route it sits in and what claims that route.
 // See [validate.RouteVarName] for the rule.
-type ErrorRouteVarNameInvalid struct {
+type RouteVarNameInvalidError struct {
 	Owner string // "PageFoo", "PageFoo.POSTBar" or "App.POSTBar"
 	Route string
 	Var   string
 }
 
-func (e *ErrorRouteVarNameInvalid) Error() string {
+func (e *RouteVarNameInvalidError) Error() string {
 	return fmt.Sprintf("%v: {%s} in %s route %q",
 		ErrRouteVarNameInvalid, e.Var, e.Owner, e.Route)
 }
 
-func (e *ErrorRouteVarNameInvalid) Unwrap() error { return ErrRouteVarNameInvalid }
+func (e *RouteVarNameInvalidError) Unwrap() error { return ErrRouteVarNameInvalid }
 
-// ErrorEventSubjectDuplicate is [ErrEventSubjectDuplicate] with the two types
+// EventSubjectDuplicateError is [ErrEventSubjectDuplicate] with the two types
 // that share the subject. A subject is the case an inbound event is matched by,
 // which two events cannot share.
-type ErrorEventSubjectDuplicate struct {
+type EventSubjectDuplicateError struct {
 	Subject       string
 	TypeName      string
 	FirstTypeName string
 }
 
-func (e *ErrorEventSubjectDuplicate) Error() string {
+func (e *EventSubjectDuplicateError) Error() string {
 	return fmt.Sprintf("%v: %s declares %q, already declared by %s",
 		ErrEventSubjectDuplicate, e.TypeName, e.Subject, e.FirstTypeName)
 }
 
-func (e *ErrorEventSubjectDuplicate) Unwrap() error { return ErrEventSubjectDuplicate }
+func (e *EventSubjectDuplicateError) Unwrap() error { return ErrEventSubjectDuplicate }
 
-// ErrorEventSubjectOverlap is [ErrEventSubjectOverlap] with the two types whose
+// EventSubjectOverlapError is [ErrEventSubjectOverlap] with the two types whose
 // subjects cover a common subject. An event with subject fields occupies
 // everything below its own, which leaves no subject there for another event.
-type ErrorEventSubjectOverlap struct {
+type EventSubjectOverlapError struct {
 	Subject       string
 	TypeName      string
 	FirstSubject  string
 	FirstTypeName string
 }
 
-func (e *ErrorEventSubjectOverlap) Error() string {
+func (e *EventSubjectOverlapError) Error() string {
 	return fmt.Sprintf("%v: %s declares %q, which overlaps %q of %s",
 		ErrEventSubjectOverlap, e.TypeName, e.Subject,
 		e.FirstSubject, e.FirstTypeName)
 }
 
-func (e *ErrorEventSubjectOverlap) Unwrap() error { return ErrEventSubjectOverlap }
+func (e *EventSubjectOverlapError) Unwrap() error { return ErrEventSubjectOverlap }
 
-// ErrorEventSubjectDuplicateSignal is [ErrEventSubjectDuplicateSignal]
+// EventSubjectDuplicateSignalError is [ErrEventSubjectDuplicateSignal]
 // with suggestion context.
-type ErrorEventSubjectDuplicateSignal struct {
+type EventSubjectDuplicateSignalError struct {
 	FieldName      string // e.g. "SubjectFoo" (second occurrence)
 	FirstFieldName string // e.g. "SubjectBar" (first occurrence)
 	SignalName     string // e.g. "instance_id"
 	TypeName       string // e.g. "EventCalcUpdated"
 }
 
-func (e *ErrorEventSubjectDuplicateSignal) Error() string {
+func (e *EventSubjectDuplicateSignalError) Error() string {
 	return fmt.Sprintf("%v: %s has duplicate signal %q in %s (already used by %s)",
 		ErrEventSubjectDuplicateSignal, e.FieldName, e.SignalName, e.TypeName, e.FirstFieldName)
 }
 
-func (e *ErrorEventSubjectDuplicateSignal) Unwrap() error {
+func (e *EventSubjectDuplicateSignalError) Unwrap() error {
 	return ErrEventSubjectDuplicateSignal
 }
 
-// ErrorEventSubjectUserSignal is [ErrEventSubjectUserSignal]
+// EventSubjectUserSignalError is [ErrEventSubjectUserSignal]
 // with suggestion context.
-type ErrorEventSubjectUserSignal struct {
+type EventSubjectUserSignalError struct {
 	TypeName string // e.g. "EventChat"
 }
 
-func (e *ErrorEventSubjectUserSignal) Error() string {
+func (e *EventSubjectUserSignalError) Error() string {
 	return fmt.Sprintf("%v: in %s", ErrEventSubjectUserSignal, e.TypeName)
 }
 
-func (e *ErrorEventSubjectUserSignal) Unwrap() error {
+func (e *EventSubjectUserSignalError) Unwrap() error {
 	return ErrEventSubjectUserSignal
 }
 
-// ErrorDispatchDuplicate is [ErrDispatchDuplicate] with the handler context.
-type ErrorDispatchDuplicate struct {
+// DispatchDuplicateError is [ErrDispatchDuplicate] with the handler context.
+type DispatchDuplicateError struct {
 	Recv          string
 	MethodName    string
 	EventTypeName string
 }
 
-func (e *ErrorDispatchDuplicate) Error() string {
+func (e *DispatchDuplicateError) Error() string {
 	return fmt.Sprintf("%v: %s in %s.%s",
 		ErrDispatchDuplicate, e.EventTypeName, e.Recv, e.MethodName)
 }
 
-func (e *ErrorDispatchDuplicate) Unwrap() error { return ErrDispatchDuplicate }
+func (e *DispatchDuplicateError) Unwrap() error { return ErrDispatchDuplicate }
 
-// ErrorEventSubjectPrefixedField is [ErrEventSubjectPrefixedField]
+// EventSubjectPrefixedFieldError is [ErrEventSubjectPrefixedField]
 // with the field and type context.
-type ErrorEventSubjectPrefixedField struct {
+type EventSubjectPrefixedFieldError struct {
 	FieldName string
 	TypeName  string
 }
 
-func (e *ErrorEventSubjectPrefixedField) Error() string {
+func (e *EventSubjectPrefixedFieldError) Error() string {
 	return fmt.Sprintf("%v: field %s in %s",
 		ErrEventSubjectPrefixedField, e.FieldName, e.TypeName)
 }
 
-func (e *ErrorEventSubjectPrefixedField) Unwrap() error {
+func (e *EventSubjectPrefixedFieldError) Unwrap() error {
 	return ErrEventSubjectPrefixedField
 }
 
-// ErrorEventSubjectDerivedType is [ErrEventSubjectDerivedType] with the field,
+// EventSubjectDerivedTypeError is [ErrEventSubjectDerivedType] with the field,
 // the type it names and the segment type that type is declared from.
-type ErrorEventSubjectDerivedType struct {
+type EventSubjectDerivedTypeError struct {
 	FieldName       string // e.g. "To"
 	TypeName        string // e.g. "EventDirect"
 	DeclTypeName    string // e.g. "UserID"
 	SubjectTypeName string // e.g. "datapages.SubjectUser"
 }
 
-func (e *ErrorEventSubjectDerivedType) Error() string {
+func (e *EventSubjectDerivedTypeError) Error() string {
 	return fmt.Sprintf("%v: field %s in %s names %s, declared from %s",
 		ErrEventSubjectDerivedType,
 		e.FieldName, e.TypeName, e.DeclTypeName, e.SubjectTypeName)
 }
 
-func (e *ErrorEventSubjectDerivedType) Unwrap() error {
+func (e *EventSubjectDerivedTypeError) Unwrap() error {
 	return ErrEventSubjectDerivedType
 }
 
-// ErrorEventSubjectSignalInvalid is [ErrEventSubjectSignalInvalid]
+// EventSubjectSignalInvalidError is [ErrEventSubjectSignalInvalid]
 // with suggestion context.
-type ErrorEventSubjectSignalInvalid struct {
+type EventSubjectSignalInvalidError struct {
 	FieldName  string // e.g. "SubjectInstance"
 	SignalName string // the invalid tag value
 	TypeName   string // e.g. "EventCalc"
 }
 
-func (e *ErrorEventSubjectSignalInvalid) Error() string {
+func (e *EventSubjectSignalInvalidError) Error() string {
 	return fmt.Sprintf("%v: %s has signal %q in %s",
 		ErrEventSubjectSignalInvalid, e.FieldName, e.SignalName, e.TypeName)
 }
 
-func (e *ErrorEventSubjectSignalInvalid) Unwrap() error {
+func (e *EventSubjectSignalInvalidError) Unwrap() error {
 	return ErrEventSubjectSignalInvalid
 }
 
 // Type aliases for templ-check error types defined in the templcheck subpackage.
 type (
-	ErrorTemplHrefRelative                 = templcheck.ErrorHrefRelative
-	ErrorTemplActionHardcoded              = templcheck.ErrorActionHardcoded
-	ErrorTemplFormAction                   = templcheck.ErrorFormAction
-	ErrorTemplActionWrongPage              = templcheck.ErrorActionWrongPage
-	ErrorTemplActionContext                = templcheck.ErrorActionContext
-	ErrorTemplHrefContext                  = templcheck.ErrorHrefContext
-	ErrorTemplHrefUnverifiable             = templcheck.ErrorHrefUnverifiable
-	ErrorTemplActionUnverifiable           = templcheck.ErrorActionUnverifiable
-	ErrorTemplActionUnverifiableWithPrefix = templcheck.ErrorActionUnverifiableWithPrefix
-	ErrorTemplActionUnverifiableWithSuffix = templcheck.ErrorActionUnverifiableWithSuffix
-	ErrorTemplHrefExternalIsRelative       = templcheck.ErrorHrefExternalIsRelative
+	TemplHrefRelativeError                 = templcheck.HrefRelativeError
+	TemplActionHardcodedError              = templcheck.ActionHardcodedError
+	TemplFormActionError                   = templcheck.FormActionError
+	TemplActionWrongPageError              = templcheck.ActionWrongPageError
+	TemplActionContextError                = templcheck.ActionContextError
+	TemplHrefContextError                  = templcheck.HrefContextError
+	TemplHrefUnverifiableError             = templcheck.HrefUnverifiableError
+	TemplActionUnverifiableError           = templcheck.ActionUnverifiableError
+	TemplActionUnverifiableWithPrefixError = templcheck.ActionUnverifiableWithPrefixError
+	TemplActionUnverifiableWithSuffixError = templcheck.ActionUnverifiableWithSuffixError
+	TemplHrefExternalIsRelativeError       = templcheck.HrefExternalIsRelativeError
 )
 
-// ErrorSignatureUnsupportedInput is [ErrSignatureUnsupportedInput] with context.
-type ErrorSignatureUnsupportedInput struct {
+// SignatureUnsupportedInputError is [ErrSignatureUnsupportedInput] with context.
+type SignatureUnsupportedInputError struct {
 	ParamName  string // e.g. "b"
 	ParamType  string // e.g. "*http.Request"
 	Recv       string // e.g. "PageFoo"
@@ -775,11 +775,11 @@ type ErrorSignatureUnsupportedInput struct {
 	CandidateNames []string
 }
 
-func (e *ErrorSignatureUnsupportedInput) Error() string {
+func (e *SignatureUnsupportedInputError) Error() string {
 	return fmt.Sprintf("%v %s %s in %s.%s",
 		ErrSignatureUnsupportedInput, e.ParamName, e.ParamType, e.Recv, e.MethodName)
 }
 
-func (e *ErrorSignatureUnsupportedInput) Unwrap() error {
+func (e *SignatureUnsupportedInputError) Unwrap() error {
 	return ErrSignatureUnsupportedInput
 }

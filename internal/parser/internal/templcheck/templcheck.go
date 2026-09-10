@@ -361,18 +361,18 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 				if el.Name != "a" || hrefcheck.IsAllowedNonRelativeHref(a.Value) {
 					continue
 				}
-				c.errFn(posFromRange(filename, a.Range), &ErrorHrefRelative{URL: a.Value})
+				c.errFn(posFromRange(filename, a.Range), &HrefRelativeError{URL: a.Value})
 			case "action":
 				if el.Name != "form" {
 					continue
 				}
-				c.errFn(posFromRange(filename, a.Range), &ErrorFormAction{})
+				c.errFn(posFromRange(filename, a.Range), &FormActionError{})
 			default:
 				if !isDatastarActionAttr(key.Name) {
 					continue
 				}
 				for _, url := range extractHardcodedActionURLs(a.Value) {
-					c.errFn(posFromRange(filename, a.Range), &ErrorActionHardcoded{URL: url})
+					c.errFn(posFromRange(filename, a.Range), &ActionHardcodedError{URL: url})
 				}
 			}
 		case *templparser.ExpressionAttribute:
@@ -389,7 +389,7 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 					continue
 				}
 				if parseErr != nil {
-					c.errFn(exprPos, &ErrorHrefUnverifiable{Expr: a.Expression.Value})
+					c.errFn(exprPos, &HrefUnverifiableError{Expr: a.Expression.Value})
 					break
 				}
 				// Skip href validation when the expression calls the action
@@ -405,18 +405,18 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 				if el.Name != "form" {
 					continue
 				}
-				c.errFn(exprPos, &ErrorFormAction{})
+				c.errFn(exprPos, &FormActionError{})
 				continue
 			}
 			if isDatastarActionAttr(key.Name) {
 				if parseErr != nil {
-					c.errFn(exprPos, &ErrorActionUnverifiable{Expr: a.Expression.Value})
+					c.errFn(exprPos, &ActionUnverifiableError{Expr: a.Expression.Value})
 					continue
 				}
 				findPkgCallsNode(
 					exprAST, c.hrefPkg,
 					func(funcName string) {
-						c.errFn(exprPos, &ErrorHrefContext{
+						c.errFn(exprPos, &HrefContextError{
 							AttrName: key.Name,
 							HrefFunc: funcName,
 						})
@@ -436,7 +436,7 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 				findPkgCallsNode(
 					exprAST, c.actionPkg,
 					func(funcName string) {
-						c.errFn(exprPos, &ErrorActionContext{
+						c.errFn(exprPos, &ActionContextError{
 							AttrName:   key.Name,
 							ActionFunc: funcName,
 						})
@@ -534,7 +534,7 @@ func (c *checker) checkActionEmbedding(pos token.Position, expr string, exprAST 
 		}
 		// Only report prefix/suffix when exactly one side is an action call.
 		if yIsAction && !xIsAction {
-			c.errFn(pos, &ErrorActionUnverifiableWithPrefix{
+			c.errFn(pos, &ActionUnverifiableWithPrefixError{
 				Expr:       expr,
 				ActionFunc: yFuncName,
 				Prefix:     exprSource(bin.X),
@@ -542,7 +542,7 @@ func (c *checker) checkActionEmbedding(pos token.Position, expr string, exprAST 
 			return
 		}
 		if xIsAction && !yIsAction {
-			c.errFn(pos, &ErrorActionUnverifiableWithSuffix{
+			c.errFn(pos, &ActionUnverifiableWithSuffixError{
 				Expr:       expr,
 				ActionFunc: xFuncName,
 				Suffix:     exprSource(bin.Y),
@@ -551,7 +551,7 @@ func (c *checker) checkActionEmbedding(pos token.Position, expr string, exprAST 
 		}
 	}
 
-	c.errFn(pos, &ErrorActionUnverifiable{Expr: expr})
+	c.errFn(pos, &ActionUnverifiableError{Expr: expr})
 }
 
 // exprSource renders a Go AST expression back to source code.
@@ -571,11 +571,11 @@ func exprSource(node ast.Expr) string {
 func (c *checker) checkExprHardcodedAction(pos token.Position, expr string, exprAST ast.Expr) {
 	resolved, ok := c.resolveSimpleExpr(exprAST)
 	if !ok {
-		c.errFn(pos, &ErrorActionUnverifiable{Expr: expr})
+		c.errFn(pos, &ActionUnverifiableError{Expr: expr})
 		return
 	}
 	for _, url := range extractHardcodedActionURLs(resolved) {
-		c.errFn(pos, &ErrorActionHardcoded{URL: url})
+		c.errFn(pos, &ActionHardcodedError{URL: url})
 	}
 }
 
@@ -626,23 +626,23 @@ func checkHrefExpr(
 	if info.usesHrefPkg {
 		if info.externalURL != "" &&
 			!hrefcheck.IsAllowedNonRelativeHref(info.externalURL) {
-			errFn(pos, &ErrorHrefExternalIsRelative{URL: info.externalURL})
+			errFn(pos, &HrefExternalIsRelativeError{URL: info.externalURL})
 		}
 		return
 	}
 
 	if info.hasCall {
-		errFn(pos, &ErrorHrefUnverifiable{Expr: expr})
+		errFn(pos, &HrefUnverifiableError{Expr: expr})
 		return
 	}
 
 	if info.hasUnresolved {
-		errFn(pos, &ErrorHrefUnverifiable{Expr: expr})
+		errFn(pos, &HrefUnverifiableError{Expr: expr})
 		return
 	}
 
 	if info.disallowedURL != "" {
-		errFn(pos, &ErrorHrefRelative{URL: info.disallowedURL})
+		errFn(pos, &HrefRelativeError{URL: info.disallowedURL})
 		return
 	}
 
@@ -650,7 +650,7 @@ func checkHrefExpr(
 		return
 	}
 
-	errFn(pos, &ErrorHrefUnverifiable{Expr: expr})
+	errFn(pos, &HrefUnverifiableError{Expr: expr})
 }
 
 // hrefExprInfo holds the results of analyzing a Go expression used as an
@@ -868,7 +868,7 @@ func (c *checker) checkActionOwnership(
 					Line:     ref.line,
 					Column:   ref.col,
 				}
-				c.errFn(pos, &ErrorActionWrongPage{
+				c.errFn(pos, &ActionWrongPageError{
 					ActionFunc: ref.funcName,
 					PageType:   page.TypeName,
 					OwnerPage:  owner,
