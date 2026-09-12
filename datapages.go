@@ -107,6 +107,10 @@ type Query[Values any] struct{ Values Values }
 // it in StreamOpen, read that state in the OnXXX handlers,
 // and drop it in StreamClose. It also ties the log lines of one stream together.
 //
+// A StreamOpen that returns an error or panics gets no StreamClose.
+// Drop what it already registered before returning the error.
+// If the hook can panic, defer that drop.
+//
 // Keep it server-side and never hand it to clients.
 type StreamID uint64
 

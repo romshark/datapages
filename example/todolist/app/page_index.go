@@ -63,13 +63,15 @@ func (p PageIndex) StreamOpen(
 		Sort:   sortMode,
 	}
 	p.App.lockTabs.Unlock()
-	return p.App.patchTabID(streamID, sse)
+	if err := p.App.patchTabID(streamID, sse); err != nil {
+		p.App.dropTabState(streamID)
+		return err
+	}
+	return nil
 }
 
 func (p PageIndex) StreamClose(r *http.Request, streamID datapages.StreamID) {
-	p.App.lockTabs.Lock()
-	delete(p.App.streamIDToTabState, streamID)
-	p.App.lockTabs.Unlock()
+	p.App.dropTabState(streamID)
 }
 
 // POSTCreate is /

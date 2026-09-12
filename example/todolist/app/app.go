@@ -144,6 +144,14 @@ func (a *App) streamState(streamID datapages.StreamID) *tabState {
 	return &cp
 }
 
+// dropTabState forgets the state of one stream. StreamOpen calls it on its own
+// error path: a StreamOpen that fails gets no StreamClose.
+func (a *App) dropTabState(streamID datapages.StreamID) {
+	a.lockTabs.Lock()
+	defer a.lockTabs.Unlock()
+	delete(a.streamIDToTabState, streamID)
+}
+
 func (a *App) patchTabID(streamID datapages.StreamID, sse datapages.SSE) error {
 	return sse.PatchSignals(struct {
 		TabID string `json:"tab_id"`

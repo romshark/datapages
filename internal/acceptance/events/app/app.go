@@ -160,11 +160,17 @@ func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 // is unavailable or the visitor may not watch this page.
 var errStreamRefused = errors.New("this stream may not open")
 
+// StreamOpen refuses the stream when the URL carries "refuse", and panics after
+// recording the stream when it carries "panic". The panic comes after the record
+// on purpose: it is a hook that acquired something and then failed.
 func (p PageIndex) StreamOpen(r *http.Request, streamID datapages.StreamID) error {
 	if r.URL.Query().Get("refuse") != "" {
 		return errStreamRefused
 	}
 	p.App.record("open(%d)", streamID)
+	if r.URL.Query().Get("panic") != "" {
+		panic("the stream open hook panicked")
+	}
 	return nil
 }
 
@@ -285,8 +291,9 @@ func (p PageLog) GET(_ *http.Request) (body datapages.Component, err error) {
 
 // PagePanicOnClose is /panic-on-close
 //
-// StreamClose panics on purpose. A client disconnecting runs it in a goroutine
-// net/http cannot recover, which the stream handler has to catch itself.
+// StreamClose panics on purpose. It runs on the request goroutine after the last
+// event handler, where an uncaught panic aborts the connection.
+// The stream handler recovers it.
 type PagePanicOnClose struct{ App *App }
 
 func (p PagePanicOnClose) GET(_ *http.Request) (body datapages.Component, err error) {

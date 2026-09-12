@@ -39,7 +39,9 @@ The stack is always logged.
 A response that has started cannot be replaced. A panic while the page is
 being written, in a component for example, is logged, and the visitor receives
 the truncated page with the status it already carries. A stream that panics is closed.
-`StreamClose` runs on its own goroutine and is recovered there.
+`StreamClose` runs on the request goroutine after the last event handler of the
+stream. A panic in it is recovered and logged. Graceful shutdown waits for it, which
+means a slow `StreamClose` holds the connection open.
 
 ```go
 func (*App) RecoverError(
@@ -208,6 +210,10 @@ If it returns an error, stream setup stops immediately and
 the stream is closed.
 Datapages handles the error like any other Datastar request error: if `RecoverError`
 is defined it is invoked, otherwise the server falls back to its internal-error path.
+A `StreamOpen` that returns an error or panics gets no `StreamClose`:
+the stream never opened, and `StreamClose` may assume what `StreamOpen`
+acquired is there. Release what the hook already acquired before returning the
+error, and defer that release if the hook can panic.
 The `streamID` is a per-process unique identifier for the SSE stream instance.
 The parameter is recognized by its `datapages.StreamID` type,
 its name is up to the application.
@@ -229,7 +235,9 @@ func (PageIndex) StreamOpen(
 }
 ```
 
-`StreamClose` runs when the page SSE stream closes.
+`StreamClose` runs when the page SSE stream closes, on the request goroutine,
+after the last event handler of the stream. It runs only for a stream whose
+`StreamOpen` succeeded, or for one that declares no `StreamOpen` at all.
 It returns `error`, or nothing at all. `error` is the only return value it may declare.
 If it returns an error, datapages logs the error server-side.
 
