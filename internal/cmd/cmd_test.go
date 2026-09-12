@@ -1132,3 +1132,103 @@ func TestInitPinsTheCLIInCI(t *testing.T) {
 	require.Contains(t, string(data),
 		"go install github.com/romshark/datapages/cmd/datapages@v1.2.3")
 }
+
+// TestInitPinsTheDatapagesModule tests that init requires datapages at the
+// version the running binary was built from, rather than leaving go mod tidy
+// to resolve one of its own.
+func TestInitPinsTheDatapagesModule(t *testing.T) {
+	t.Setenv("GOFLAGS", "-e")
+
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "pinned")
+	writeLocalWorkspace(t, projectDir, repoRootDir(t))
+	chdirTemp(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := cmd.Run(
+		context.Background(),
+		[]string{
+			"datapages", "init", "-n",
+			"--name", "pinned", "--module", "example.com/pinned",
+		},
+		nil, &stdout, &stderr,
+		// A released version the proxy has. The workspace redirects the build
+		// to this checkout, which is what keeps the scaffold type-checking.
+		"0.9.4", "xxxxxxx", "2026-2-23",
+	)
+	require.Equal(t, 0, code, "stdout: %s\nstderr: %s", stdout.String(), stderr.String())
+
+	data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
+	require.NoError(t, err)
+	require.Contains(t, string(data), "github.com/romshark/datapages v0.9.4")
+	require.Contains(t, stdout.String(),
+		"Required github.com/romshark/datapages v0.9.4")
+}
+
+// TestInitReplacesWithTheLocalCheckout tests what init writes when the build
+// has no version go.mod takes.
+//
+// A "go build" from a modified checkout reports a pseudo-version marked
+// "+dirty", and a binary stamped with a tag that was never pushed reports a
+// version the proxy does not have. go.mod takes neither, hence it names the
+// checkout the binary was compiled from, which keeps the scaffold and the
+// generator on one tree.
+//
+// This test writes no workspace: the replace alone has to resolve datapages.
+func TestInitReplacesWithTheLocalCheckout(t *testing.T) {
+	t.Setenv("GOFLAGS", "-e")
+
+	repoRoot := repoRootDir(t)
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "replaced")
+	chdirTemp(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := cmd.Run(
+		context.Background(),
+		[]string{
+			"datapages", "init", "-n",
+			"--name", "replaced", "--module", "example.com/replaced",
+		},
+		nil, &stdout, &stderr,
+		"99.99.99", "xxxxxxx", "2026-2-23",
+	)
+	require.Equal(t, 0, code, "stdout: %s\nstderr: %s", stdout.String(), stderr.String())
+
+	data, err := os.ReadFile(filepath.Join(projectDir, "go.mod"))
+	require.NoError(t, err)
+	require.Contains(t, string(data),
+		"replace github.com/romshark/datapages => "+repoRoot)
+	require.NotContains(t, string(data), "v99.99.99")
+	require.Contains(t, stderr.String(), "That path exists on this machine only")
+}
+
+// TestInitReportsAnUnimportableRoot tests what a user is told when the version
+// the project resolves has no importable root package.
+//
+// Every release up to v0.9.4 carries package main at the module root:
+// the CLI lived there before it moved to cmd/datapages. Without the report
+// every error that follows names the user's own app package and none names
+// the version that cannot be imported. This test writes no workspace, which
+// is what a real project has.
+func TestInitReportsAnUnimportableRoot(t *testing.T) {
+	t.Setenv("GOFLAGS", "-e")
+
+	dir := t.TempDir()
+	chdirTemp(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := cmd.Run(
+		context.Background(),
+		[]string{
+			"datapages", "init", "-n",
+			"--name", "cmdroot", "--module", "example.com/cmdroot",
+		},
+		nil, &stdout, &stderr,
+		"0.9.4", "xxxxxxx", "2026-2-23",
+	)
+	require.Equal(t, 1, code, "stdout: %s\nstderr: %s", stdout.String(), stderr.String())
+	require.Contains(t, stderr.String(),
+		"github.com/romshark/datapages v0.9.4 has no importable root package")
+	require.Contains(t, stderr.String(), "add a replace for a local checkout")
+}

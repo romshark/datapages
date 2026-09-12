@@ -4,21 +4,26 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
+	"golang.org/x/mod/modfile"
 
 	"github.com/romshark/datapages/internal/cmd/config"
 	"github.com/romshark/datapages/internal/generator/skeleton"
 )
 
-func newInitCmd(stderr io.Writer, version string) *cobra.Command {
+// newInitCmd takes two versions: version goes into the scaffolded CI workflow,
+// modVersion into the new go.mod. See [pinDatapages].
+func newInitCmd(stderr io.Writer, version, modVersion string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Args:  cobra.NoArgs,
@@ -50,7 +55,7 @@ go mod tidy resolves all dependencies.`,
 			in = c.InOrStdin()
 		}
 		return runInit(c.Context(), in, c.OutOrStdout(), stderr, *nonInteractive,
-			*name, *module, *prometheus, version)
+			*name, *module, *prometheus, version, modVersion)
 	}
 	return cmd
 }
@@ -78,7 +83,7 @@ func runField(f huh.Field, in io.Reader, out io.Writer) error {
 
 func runInit(
 	ctx context.Context, in io.Reader, out, stderr io.Writer, nonInteractive bool,
-	dir, module string, prometheus bool, version string,
+	dir, module string, prometheus bool, version, modVersion string,
 ) error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -177,19 +182,35 @@ func runInit(
 		}
 	}
 
-	// Step 8: Run go mod tidy to resolve app package dependencies
+	// Step 8: Require datapages at the version this binary was built from,
+	// before go mod tidy is left to choose one.
+	if err := pinDatapages(projectDir, modVersion, out, stderr); err != nil {
+		return err
+	}
+
+	// Step 9: Run templ generate to produce the _templ.go files from the .templ sources.
+	// It runs "go run templ@version", which reads the sources and nothing of the module,
+	// hence it needs no tidy module of its own.
+	//
+	// Ahead of go mod tidy: the templ import arrives with those files, and a  tidy that
+	// runs first records no requirement for it.
+	// The parser then fails on a package go.mod does not carry.
+	if err := templGenerate(projectDir); err != nil {
+		return err
+	}
+
+	// Step 10: Run go mod tidy to resolve app package dependencies
 	// (e.g. templ) so the parser can type-check before code generation.
 	if err := goModTidy(projectDir); err != nil {
 		return err
 	}
 
-	// Step 9: Run templ generate to produce _templ.go files from .templ
-	// sources so the parser can type-check before code generation.
-	if err := templGenerate(projectDir); err != nil {
+	// Step 11: Check the version tidy resolved, before the parser reads it.
+	if err := checkDatapagesRoot(projectDir); err != nil {
 		return err
 	}
 
-	// Step 10: Run code generation so all imports exist for the final tidy.
+	// Step 12: Run code generation so all imports exist for the final tidy.
 	conf, _, err := config.Load(projectDir)
 	if err != nil {
 		return err
@@ -198,7 +219,7 @@ func runInit(
 		return err
 	}
 
-	// Step 11: Run go mod tidy again to resolve generated code dependencies.
+	// Step 13: Run go mod tidy again to resolve generated code dependencies.
 	if err := goModTidy(projectDir); err != nil {
 		return err
 	}
@@ -506,4 +527,185 @@ func gitignoreEnv(projectDir string) error {
 		return fmt.Errorf("writing .gitignore: %w", writeErr)
 	}
 	return closeErr
+}
+
+// pinDatapages writes the datapages requirement into the project's go.mod
+// before the first tidy runs.
+//
+// Without it tidy picks whatever the proxy calls latest. The generated code
+// imports runtime/httpserve, runtime/auth and the rest, which have to come
+// from the same tree as the generator that wrote it.
+//
+// A version the proxy resolves becomes a require. Otherwise the checkout the
+// binary was compiled from becomes a replace, see [datapagesCheckout]. With
+// neither, init warns and leaves the choice to tidy.
+//
+// A go.mod that already requires datapages keeps it. init runs in an existing
+// module too, and the version there is the user's to choose.
+func pinDatapages(projectDir, version string, out, stderr io.Writer) error {
+	gomodPath := filepath.Join(projectDir, "go.mod")
+	data, err := os.ReadFile(gomodPath)
+	if err != nil {
+		return fmt.Errorf("reading go.mod: %w", err)
+	}
+	f, err := modfile.Parse("go.mod", data, nil)
+	if err != nil {
+		return fmt.Errorf("parsing go.mod: %w", err)
+	}
+	for _, req := range f.Require {
+		if req.Mod.Path == datapagesModulePath {
+			return nil
+		}
+	}
+
+	// A require the proxy cannot resolve breaks every import in the module,
+	// which is worse than the version tidy would have picked. A binary stamped
+	// with a tag that was never pushed carries such a require.
+	reason := "this build carries no version"
+	if version != "" {
+		reason = ""
+		if err := moduleVersionExists(projectDir, version); err != nil {
+			reason = err.Error()
+		}
+	}
+
+	var done string
+	switch dir := ""; reason {
+	case "":
+		if err := f.AddRequire(datapagesModulePath, version); err != nil {
+			return fmt.Errorf(
+				"adding the %s requirement: %w", datapagesModulePath, err,
+			)
+		}
+		done = fmt.Sprintf("Required %s %s", datapagesModulePath, version)
+
+	default:
+		dir = datapagesCheckout()
+		if dir == "" {
+			_, _ = fmt.Fprintf(stderr,
+				"warning: go.mod does not require the %s this CLI was built "+
+					"from: %s\n"+
+					"  go mod tidy picks a version instead, and the generated "+
+					"code is compiled against that one.\n"+
+					"  Add a replace for your checkout, or install a release: "+
+					"go install %s/cmd/datapages@latest\n",
+				datapagesModulePath, reason, datapagesModulePath)
+			return nil
+		}
+		if err := f.AddReplace(datapagesModulePath, "", dir, ""); err != nil {
+			return fmt.Errorf(
+				"adding the %s replace: %w", datapagesModulePath, err,
+			)
+		}
+		done = fmt.Sprintf("Replaced %s => %s", datapagesModulePath, dir)
+		_, _ = fmt.Fprintf(stderr,
+			"warning: %s, hence go.mod names the checkout this CLI was built "+
+				"from.\n"+
+				"  That path exists on this machine only. Install a release to "+
+				"require a version instead:\n"+
+				"  go install %s/cmd/datapages@latest\n",
+			reason, datapagesModulePath)
+	}
+
+	f.Cleanup()
+	b, err := f.Format()
+	if err != nil {
+		return fmt.Errorf("formatting go.mod: %w", err)
+	}
+	if err := os.WriteFile(gomodPath, b, 0o644); err != nil {
+		return fmt.Errorf("writing go.mod: %w", err)
+	}
+	_, _ = fmt.Fprintln(out, done)
+	return nil
+}
+
+// datapagesCheckout returns the directory of the datapages module this binary
+// was compiled from, empty when there is none to find.
+//
+// The compiler records the source path of every file it builds, which runtime.Caller
+// reads back. A release build erases it with -trimpath and carries a version instead.
+// A binary moved to another machine records a path that does not exist there.
+func datapagesCheckout() string {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok || !filepath.IsAbs(file) {
+		return ""
+	}
+	for dir := filepath.Dir(file); ; {
+		data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+		if err == nil {
+			f, err := modfile.ParseLax("go.mod", data, nil)
+			if err != nil || f.Module == nil ||
+				f.Module.Mod.Path != datapagesModulePath {
+				// Another module: this file is no part of a datapages checkout.
+				return ""
+			}
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// moduleVersionExists reports whether the proxy can resolve the datapages
+// module at version. It asks with "go list -m", which reports the answer in
+// its output rather than its exit status.
+// A caller may have set GOFLAGS=-e, which suppresses the exit status.
+func moduleVersionExists(projectDir, version string) error {
+	out, err := goListValue(projectDir,
+		"{{if .Error}}{{.Error.Err}}{{end}}",
+		"-m", datapagesModulePath+"@"+version)
+	if err != nil {
+		return err
+	}
+	if out != "" {
+		return errors.New(out)
+	}
+	return nil
+}
+
+// checkDatapagesRoot reports a resolved datapages version whose
+// root package cannot be imported.
+//
+// Every release up to v0.9.4 carries package main at the module root:
+// the CLI lived there before it moved to cmd/datapages.
+// The app package imports the root package, hence the parser,
+// the generator and the build all fail with errors that name the user's
+// own app package and never the version that cannot be imported.
+func checkDatapagesRoot(projectDir string) error {
+	name, err := goListValue(projectDir, "{{.Name}}", datapagesModulePath)
+	if err != nil || name != "main" {
+		// A load error is one the parser reports with more context.
+		return nil
+	}
+	version, err := goListValue(projectDir, "{{.Version}}", "-m", datapagesModulePath)
+	if err != nil {
+		version = "the resolved version"
+	}
+	return fmt.Errorf(
+		"%s %s has no importable root package: it is a command\n"+
+			"  The app package imports %s, which that version does not provide.\n"+
+			"  Require a version that does, or add a replace for a local checkout:\n"+
+			"    go mod edit -require=%s@<version>\n"+
+			"    go mod edit -replace=%s=<path to your checkout>",
+		datapagesModulePath, version,
+		datapagesModulePath, datapagesModulePath, datapagesModulePath,
+	)
+}
+
+// goListValue runs "go list" with the given format and arguments in dir and
+// returns the first line of its output. The -e keeps a package that does not
+// load from failing the command, which is the case the caller asks about.
+func goListValue(dir, format string, args ...string) (string, error) {
+	argv := append([]string{"list", "-e", "-f", format}, args...)
+	cmd := exec.Command("go", argv...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("go list: %w", err)
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	return line, nil
 }
