@@ -71,6 +71,11 @@ var (
 	ErrPageInvalidPathComm     = errors.New("page has invalid path comment")
 	ErrPageIndexPathMustBeRoot = errors.New(`PageIndex path must be "/"`)
 
+	ErrPageEmbedUnexported = errors.New("embedded abstract page must be exported")
+	ErrPageEmbedPointer    = errors.New(
+		"embedded abstract page must not be a pointer",
+	)
+
 	ErrAppUnsupportedMethod = errors.New(
 		"unsupported method on App; App takes Head, RecoverError and " +
 			"POST*/PUT*/PATCH*/DELETE* (actions). " +
@@ -813,3 +818,32 @@ func (e *EventDeclUnreadableError) Error() string {
 }
 
 func (e *EventDeclUnreadableError) Unwrap() error { return ErrEventDeclUnreadable }
+
+// PageEmbedPointerError is [ErrPageEmbedPointer] with context.
+// A page is written as a composite literal of values in generated code.
+type PageEmbedPointerError struct {
+	TypeName  string // e.g. "PageIndex"
+	EmbedName string // e.g. "Base"
+}
+
+func (e *PageEmbedPointerError) Error() string {
+	return fmt.Sprintf("%v: %s embeds *%s",
+		ErrPageEmbedPointer, e.TypeName, e.EmbedName)
+}
+
+func (e *PageEmbedPointerError) Unwrap() error { return ErrPageEmbedPointer }
+
+// PageEmbedUnexportedError is [ErrPageEmbedUnexported] with context.
+// The literal is written in the generated package, which reaches an unexported
+// name of the app package as little as any other importer does.
+type PageEmbedUnexportedError struct {
+	TypeName  string // e.g. "PageIndex"
+	EmbedName string // e.g. "base"
+}
+
+func (e *PageEmbedUnexportedError) Error() string {
+	return fmt.Sprintf("%v: %s embeds %s",
+		ErrPageEmbedUnexported, e.TypeName, e.EmbedName)
+}
+
+func (e *PageEmbedUnexportedError) Unwrap() error { return ErrPageEmbedUnexported }

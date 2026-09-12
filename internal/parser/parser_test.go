@@ -792,6 +792,25 @@ func TestParse_EventSharedAlias(t *testing.T) {
 	require.Len(a.InputDispatches, 2)
 }
 
+// TestParse_ErrEmbedPointer tests an abstract page embedded as a pointer.
+// Generated code writes a page as a composite literal of values, which a pointer
+// field cannot take, and a nil one would panic in every handler the embed promotes.
+func TestParse_ErrEmbedPointer(t *testing.T) {
+	_, err := parse(t, "err_embed_pointer")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrPageEmbedPointer)
+}
+
+// TestParse_ErrEmbedUnexported tests an abstract page embedded under
+// an unexported name, which the generated package cannot write.
+func TestParse_ErrEmbedUnexported(t *testing.T) {
+	_, err := parse(t, "err_embed_unexported")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrPageEmbedUnexported)
+}
+
 // TestParse_ErrEventShared tests the ways an event declared outside the app
 // package is refused: a type name two packages both declare, which generated
 // code has one identifier for, a subject an event of the app package already claims,

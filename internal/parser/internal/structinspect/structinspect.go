@@ -46,17 +46,33 @@ func ReceiverTypeName(expr ast.Expr) string {
 	return ""
 }
 
-// EmbeddedTypeNames returns the names of all embedded types
-// in a struct.
-func EmbeddedTypeNames(st *ast.StructType) []string {
-	var out []string
+// EmbeddedType is one embedded field of a struct.
+type EmbeddedType struct {
+	// Name is what the field embeds, with the pointer and the type
+	// arguments stripped: *Base[int] is Base.
+	Name string
+	// Pointer reports whether the field embeds *T rather than T.
+	// The caller sees what [baseIdent] folded away.
+	Pointer bool
+	// Pos is where the embedding field is written.
+	Pos token.Pos
+}
+
+// EmbeddedTypes returns the embedded fields of a struct in declaration order.
+func EmbeddedTypes(st *ast.StructType) []EmbeddedType {
+	var out []EmbeddedType
 	for _, f := range st.Fields.List {
 		if len(f.Names) != 0 {
 			continue
 		}
-		if id := baseIdent(f.Type); id != nil {
-			out = append(out, id.Name)
+		id := baseIdent(f.Type)
+		if id == nil {
+			continue
 		}
+		_, isPtr := f.Type.(*ast.StarExpr)
+		out = append(out, EmbeddedType{
+			Name: id.Name, Pointer: isPtr, Pos: f.Pos(),
+		})
 	}
 	return out
 }

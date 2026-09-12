@@ -728,14 +728,33 @@ func resolveEmbedsForStruct(
 	if !ok {
 		return
 	}
-	for _, emb := range structinspect.EmbeddedTypeNames(st) {
-		if ap, ok := ctx.abstracts[emb]; ok {
+	for _, emb := range structinspect.EmbeddedTypes(st) {
+		if ap, ok := ctx.abstracts[emb.Name]; ok {
+			embPos := ctx.pkg.Fset.Position(emb.Pos)
+			switch {
+			case emb.Pointer:
+				// Generated code writes the page as a composite literal of values.
+				// A pointer field would take the address of one,
+				// and a nil pointer would panic in every promoted handler.
+				errs.ErrAt(embPos, &PageEmbedPointerError{
+					TypeName: typeName, EmbedName: emb.Name,
+				})
+			case !token.IsExported(emb.Name):
+				// The literal is written in the generated package,
+				// which reaches an unexported name of the app package
+				// as little as any other importer does.
+				errs.ErrAt(embPos, &PageEmbedUnexportedError{
+					TypeName: typeName, EmbedName: emb.Name,
+				})
+			}
+			// Adopted whatever was reported: the page keeps what it inherits,
+			// which is what leaves the rest of the model worth reading.
 			add(ap)
 			continue
 		}
 		typePos := ctx.pkg.Fset.Position(ts.Name.Pos())
 		errs.ErrAt(typePos,
-			fmt.Errorf("%w: %s embeds %s", ErrPageHasExtraFields, typeName, emb))
+			fmt.Errorf("%w: %s embeds %s", ErrPageHasExtraFields, typeName, emb.Name))
 	}
 }
 
