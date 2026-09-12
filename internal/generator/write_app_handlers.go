@@ -583,7 +583,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 		fi := structFieldInfo{Name: f.FieldName, Type: f.Type}
 		if gotypes.IsString(f.Type) {
 			w.Line(0, "")
-			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
+			w.Raw("\t\t_, _ = io.WriteString(w, ` data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"'`)\n")
 			w.Raw("\t\thtmlattr.WriteSignalString(w, ")
@@ -592,7 +592,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
 		} else {
 			w.Line(0, "")
-			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
+			w.Raw("\t\t_, _ = io.WriteString(w, ` data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"`)\n")
 			w.Raw("\t\thtmlattr.WriteSignalValue(w, ")
@@ -628,7 +628,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				if h.InputPath != nil {
 					// Dynamic path.
 					w.Line(0, "")
-					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
+					w.Line(2, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					w.Line(2, `if sess.UserID() != "" {`)
 					w.Line(3, "_, _ = io.WriteString(w, `_$/')\"`)")
@@ -637,7 +637,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Line(2, "}")
 				} else {
 					w.Line(0, "")
-					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
+					w.Line(2, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
 					w.Line(2, `if sess.UserID() != "" {`)
 					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
 					w.Raw(streamPath)
@@ -652,7 +652,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				// Auth-only stream.
 				if h.InputPath != nil {
 					w.Line(0, "")
-					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
+					w.Line(2, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					if hasEnableBgStream {
 						w.Line(2, `if sess.UserID() != "" {`)
@@ -673,7 +673,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				} else if hasEnableBgStream {
 					w.Line(0, "")
 					w.Line(2, `if sess.UserID() != "" {`)
-					w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+					w.Raw("\t\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 					w.Raw(streamPath)
 					w.Raw("'`)\n")
 					w.Raw("\t\t\tif ")
@@ -687,7 +687,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				} else {
 					w.Line(0, "")
 					w.Line(2, `if sess.UserID() != "" {`)
-					w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+					w.Raw("\t\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 					w.Raw(streamPath)
 					w.Raw("')\"`)\n")
 					w.Line(2, "}")
@@ -697,7 +697,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			// Public-only stream: always emit data-init unconditionally.
 			if h.InputPath != nil {
 				w.Line(0, "")
-				w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
+				w.Line(2, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
 				w.writeStreamPathSegments(p.Route, h.InputPath)
 				if hasEnableBgStream {
 					w.Line(2, "_, _ = io.WriteString(w, `_$/'`)")
@@ -713,7 +713,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				}
 			} else if hasEnableBgStream {
 				w.Line(0, "")
-				w.Raw("\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+				w.Raw("\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 				w.Raw(streamPath)
 				w.Raw("'`)\n")
 				w.Raw("\t\tif ")
@@ -725,7 +725,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				w.Line(2, "}")
 			} else {
 				w.Line(0, "")
-				w.Raw("\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+				w.Raw("\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 				w.Raw(streamPath)
 				w.Raw("')\"`)\n")
 			}
@@ -741,7 +741,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 		}
 
 		w.Line(0, "")
-		w.Line(2, "_, _ = io.WriteString(w, `data-effect=\"const params = new URLSearchParams();")
+		w.Line(2, "_, _ = io.WriteString(w, ` data-effect=\"const params = new URLSearchParams();")
 		for _, f := range reflectFields {
 			w.Raw("\t\t\tif ($")
 			w.Raw(f.SignalName)

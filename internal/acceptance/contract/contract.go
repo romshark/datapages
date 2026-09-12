@@ -143,6 +143,7 @@ func Run(t *testing.T, c Case) {
 
 	for name, run := range map[string]func(*testing.T){
 		"ActionOptions":              c.testActionOptions,
+		"AttributeSeparation":        c.testAttributeSeparation,
 		"ClientGoesAway":             c.testClientGoesAway,
 		"Compression":                c.testCompression,
 		"DatastarJS":                 c.testDatastarJS,
@@ -309,6 +310,46 @@ func (c Case) testPageShell(t *testing.T) {
 	}
 	if !strings.Contains(body, "<script") {
 		t.Errorf("the page shell loads no client script:\n%s", body)
+	}
+
+	checkAttributeSeparation(t, c.index(), body)
+}
+
+// checkAttributeSeparation tests the separator between the attributes the
+// server writes.
+//
+// Every attribute writer opens with its own space and the shell writes none,
+// which is the one convention that keeps two attributes apart. A quote followed
+// by an attribute name is the HTML parse error
+// missing-whitespace-between-attributes: browsers recover from it, validators
+// refuse it.
+func checkAttributeSeparation(t *testing.T, url, body string) {
+	t.Helper()
+	if i := strings.Index(body, `"data-`); i >= 0 {
+		t.Errorf("%s writes two attributes without a space:\n%s",
+			url, body[max(0, i-80):min(len(body), i+80)])
+	}
+	for _, tag := range []string{"<body >", "<body  ", "<template >", "<template  "} {
+		if strings.Contains(body, tag) {
+			t.Errorf("%s writes %q, a separator nothing follows", url, tag)
+		}
+	}
+}
+
+// testAttributeSeparation tests every page the case lists, not only the index.
+// The attributes that sit next to each other are the ones a page with several
+// reflect signals or with both a stream and a reflect signal writes.
+func (c Case) testAttributeSeparation(t *testing.T) {
+	if len(c.Links) == 0 {
+		t.Skip("the case lists no links")
+	}
+	srv := c.server(t)
+	for _, link := range c.Links {
+		resp, body := get(t, srv, link)
+		if resp.StatusCode != http.StatusOK {
+			continue // A page the case answers with a status of its own.
+		}
+		checkAttributeSeparation(t, link, body)
 	}
 }
 

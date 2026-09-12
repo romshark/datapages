@@ -59,10 +59,13 @@ func DevNoCache(next http.Handler) http.Handler {
 
 // WriteReloadOnVisibility writes the body attribute that reloads a page
 // the browser shows again after the server restarted.
+//
+// Like every attribute writer [Core.WriteHTML] calls,
+// it opens with the space that separates it from what stands before it.
 func WriteReloadOnVisibility(w io.Writer) {
 	_, _ = io.WriteString(w,
-		`data-on:visibilitychange__window="`+
-			`if (!document.hidden) window.location.reload()" `)
+		` data-on:visibilitychange__window="`+
+			`if (!document.hidden) window.location.reload()"`)
 }
 
 // AssetsFileSystem is what the static files of an application are served from.

@@ -726,22 +726,22 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodyAttrs := func(w http.ResponseWriter) {
 		httpserve.WriteReloadOnVisibility(w)
 
-		_, _ = io.WriteString(w, `data-signals:term="'`)
+		_, _ = io.WriteString(w, ` data-signals:term="'`)
 		htmlattr.WriteSignalString(w, query.Values.Term)
 		_, _ = io.WriteString(w, `'"`)
 
-		_, _ = io.WriteString(w, `data-signals:page="`)
+		_, _ = io.WriteString(w, ` data-signals:page="`)
 		htmlattr.WriteSignalValue(w, strconv.FormatInt(int64(query.Values.Page), 10))
 		_, _ = io.WriteString(w, `"`)
 
-		_, _ = io.WriteString(w, `data-signals:slug="'`)
+		_, _ = io.WriteString(w, ` data-signals:slug="'`)
 		htmlattr.WriteSignalString(w, textOf(query.Values.Slug))
 		_, _ = io.WriteString(w, `'"`)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
 			if ($term) params.set('t', $term);
 			if ($page) params.set('p', $page);
 			if ($slug) params.set('s', $slug);

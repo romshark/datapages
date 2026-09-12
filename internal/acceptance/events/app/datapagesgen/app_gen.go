@@ -311,7 +311,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/_$/')"`)
 	}
 
 	if err := s.writeHTML(
@@ -581,7 +581,7 @@ func (s pageOtherHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/other/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/other/_$/')"`)
 	}
 
 	if err := s.writeHTML(
@@ -647,7 +647,7 @@ func (s pagePanicOnCloseHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/panic-on-close/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/panic-on-close/_$/')"`)
 	}
 
 	if err := s.writeHTML(
@@ -719,7 +719,7 @@ func (s pageRoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/room/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/room/_$/')"`)
 	}
 
 	if err := s.writeHTML(

@@ -570,7 +570,7 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `data-init="@get('/not-found/_$/')"`)
+			_, _ = io.WriteString(w, ` data-init="@get('/not-found/_$/')"`)
 		}
 	}
 
@@ -699,7 +699,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
+			_, _ = io.WriteString(w, ` data-init="@get('/_$/')"`)
 		}
 	}
 
@@ -885,7 +885,7 @@ func (s pageMessagesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			httpserve.WriteReloadOnVisibility(w)
 		}
 
-		_, _ = io.WriteString(w, `data-signals:chatselected="'`)
+		_, _ = io.WriteString(w, ` data-signals:chatselected="'`)
 		htmlattr.WriteSignalString(w, query.Values.Chat)
 		_, _ = io.WriteString(w, `'"`)
 	}
@@ -893,7 +893,7 @@ func (s pageMessagesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `data-init="@get('/messages/_$/'`)
+			_, _ = io.WriteString(w, ` data-init="@get('/messages/_$/'`)
 			if enableBackgroundStreaming {
 				_, _ = io.WriteString(w, `,{openWhenHidden:true})"`)
 			} else {
@@ -901,7 +901,7 @@ func (s pageMessagesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
 			if ($chatselected) params.set('chat', $chatselected);
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/messages?' + query : '/messages');
@@ -1167,7 +1167,7 @@ func (s pageMyPostsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `data-init="@get('/my-posts/_$/')"`)
+			_, _ = io.WriteString(w, ` data-init="@get('/my-posts/_$/')"`)
 		}
 	}
 
@@ -1270,7 +1270,7 @@ func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, ` data-init="@get('`)
 		_, _ = io.WriteString(w, `/post/`)
 		htmlattr.WritePathValue(w, path.Values.Slug)
 		_, _ = io.WriteString(w, `/`)
@@ -1497,23 +1497,23 @@ func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodyAttrs := func(w http.ResponseWriter) {
 		httpserve.WriteReloadOnVisibility(w)
 
-		_, _ = io.WriteString(w, `data-signals:term="'`)
+		_, _ = io.WriteString(w, ` data-signals:term="'`)
 		htmlattr.WriteSignalString(w, query.Values.Term)
 		_, _ = io.WriteString(w, `'"`)
 
-		_, _ = io.WriteString(w, `data-signals:category="'`)
+		_, _ = io.WriteString(w, ` data-signals:category="'`)
 		htmlattr.WriteSignalString(w, query.Values.Category)
 		_, _ = io.WriteString(w, `'"`)
 
-		_, _ = io.WriteString(w, `data-signals:pmin="`)
+		_, _ = io.WriteString(w, ` data-signals:pmin="`)
 		htmlattr.WriteSignalValue(w, strconv.FormatInt(query.Values.PriceMin, 10))
 		_, _ = io.WriteString(w, `"`)
 
-		_, _ = io.WriteString(w, `data-signals:pmax="`)
+		_, _ = io.WriteString(w, ` data-signals:pmax="`)
 		htmlattr.WriteSignalValue(w, strconv.FormatInt(query.Values.PriceMax, 10))
 		_, _ = io.WriteString(w, `"`)
 
-		_, _ = io.WriteString(w, `data-signals:location="'`)
+		_, _ = io.WriteString(w, ` data-signals:location="'`)
 		htmlattr.WriteSignalString(w, query.Values.Location)
 		_, _ = io.WriteString(w, `'"`)
 	}
@@ -1521,10 +1521,10 @@ func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `data-init="@get('/search/_$/')"`)
+			_, _ = io.WriteString(w, ` data-init="@get('/search/_$/')"`)
 		}
 
-		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
 			if ($term) params.set('t', $term);
 			if ($category) params.set('c', $category);
 			if ($pmin) params.set('pmin', $pmin);
@@ -1662,7 +1662,7 @@ func (s pageSettingsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodySuffix := func(w http.ResponseWriter) {
 
 		if sess.UserID() != "" {
-			_, _ = io.WriteString(w, `data-init="@get('/settings/_$/')"`)
+			_, _ = io.WriteString(w, ` data-init="@get('/settings/_$/')"`)
 		}
 	}
 
@@ -1878,7 +1878,7 @@ func (s pageUserHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, ` data-init="@get('`)
 		_, _ = io.WriteString(w, `/user/`)
 		htmlattr.WritePathValue(w, path.Values.Name)
 		_, _ = io.WriteString(w, `/`)

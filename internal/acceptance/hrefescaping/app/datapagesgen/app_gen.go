@@ -273,7 +273,7 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, ` data-init="@get('`)
 		_, _ = io.WriteString(w, `/item/`)
 		htmlattr.WritePathValue(w, path.Values.Name)
 		_, _ = io.WriteString(w, `/`)

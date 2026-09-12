@@ -365,24 +365,24 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	bodyAttrs := func(w http.ResponseWriter) {
 		httpserve.WriteReloadOnVisibility(w)
 
-		_, _ = io.WriteString(w, `data-signals:search="'`)
+		_, _ = io.WriteString(w, ` data-signals:search="'`)
 		htmlattr.WriteSignalString(w, query.Values.Search)
 		_, _ = io.WriteString(w, `'"`)
 
-		_, _ = io.WriteString(w, `data-signals:filter="'`)
+		_, _ = io.WriteString(w, ` data-signals:filter="'`)
 		htmlattr.WriteSignalString(w, query.Values.Filter)
 		_, _ = io.WriteString(w, `'"`)
 
-		_, _ = io.WriteString(w, `data-signals:sort="'`)
+		_, _ = io.WriteString(w, ` data-signals:sort="'`)
 		htmlattr.WriteSignalString(w, query.Values.Sort)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/_$/')"`)
 
-		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
 			if ($search) params.set('q', $search);
 			if ($filter) params.set('filter', $filter);
 			if ($sort) params.set('sort', $sort);
@@ -538,7 +538,7 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, ` data-init="@get('`)
 		_, _ = io.WriteString(w, `/item/`)
 		htmlattr.WritePathValue(w, path.Values.ID)
 		_, _ = io.WriteString(w, `/`)
