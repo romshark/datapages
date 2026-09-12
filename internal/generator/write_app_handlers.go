@@ -1102,9 +1102,7 @@ func (w *Writer) writeStreamEventVars(
 		w.Raw("\t\tvar ")
 		w.Raw(eventVarName(ev.TypeName))
 		w.Byte(' ')
-		w.Raw(appPkg)
-		w.Byte('.')
-		w.Raw(ev.TypeName)
+		w.Raw(w.eventTypeRef(ev, appPkg, ev.TypeName))
 		w.Byte('\n')
 	}
 }
@@ -1132,9 +1130,7 @@ func (w *Writer) writeStreamEventCase(
 	w.Raw("\t\t\t")
 	w.Raw(eventVar)
 	w.Raw(" = ")
-	w.Raw(appPkg)
-	w.Byte('.')
-	w.Raw(ev.TypeName)
+	w.Raw(w.eventTypeRef(ev, appPkg, ev.TypeName))
 	w.Raw("{}\n")
 	w.Line(4, "if err := json.Unmarshal(msg.Data, &"+eventVar+"); err != nil {")
 	w.Raw("\t\t\t\t\ts.LogErr(\"unmarshaling ")

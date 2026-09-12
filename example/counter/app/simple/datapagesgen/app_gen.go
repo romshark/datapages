@@ -171,7 +171,7 @@ const (
 
 	// Public events:
 
-	EvSubjCounterUpdated = "counter.updated"
+	EvSubjCounterUpdated = "simple.counter.updated"
 )
 
 func MessageBrokerStreamSubjects() []string {

@@ -205,6 +205,17 @@ func renderTypeIn(qual func(*types.Package) string, t model.Type) string {
 	return types.TypeString(t.Resolved, qual)
 }
 
+// eventTypeRef renders the event type the way the generated file names it.
+// An event declared outside the app package, which is how two applications
+// share one event, is qualified by the import [genImports] gave that package.
+// typeName carries the fallback for a model that holds no event of that name.
+func (w *Writer) eventTypeRef(ev *model.Event, appPkg, typeName string) string {
+	if ev != nil && ev.Type != nil {
+		return types.TypeString(ev.Type, w.imports.Qualifier())
+	}
+	return appPkg + "." + typeName
+}
+
 // renderAnonStructType renders an anonymous struct type, preserving struct tags.
 // It renders from the resolved type rather than the source it was written as.
 // The generated package is not the app package, which leaves a type the app

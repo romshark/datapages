@@ -24,6 +24,8 @@ import (
 	dpapp "github.com/romshark/datapages/internal/acceptance/multiapp/app/frontend"
 	"github.com/romshark/datapages/internal/acceptance/multiapp/app/frontend/datapagesgen/href"
 
+	"github.com/romshark/datapages/internal/acceptance/multiapp/events"
+
 	"github.com/starfederation/datastar-go/datastar"
 )
 
@@ -178,17 +180,20 @@ const (
 
 	// Public events:
 
-	EvSubjNotice = "notice"
+	EvSubjNotice       = "notice"
+	EvSubjAnnouncement = "announcement"
 )
 
 func MessageBrokerStreamSubjects() []string {
 	return []string{
 		EvSubjNotice,
+		EvSubjAnnouncement,
 	}
 }
 
 var evSubjPageIndex = []string{
 	EvSubjNotice,
+	EvSubjAnnouncement,
 }
 
 func setupHandlers(s *Server) {
@@ -199,6 +204,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /_$/{$}",
 		pageIndexHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
+		"POST /announce/{$}",
+		pageIndexHandlers{s}.POSTAnnounce)
 	s.Mux().HandleFunc(
 		"POST /sign-in/{$}",
 		pageIndexHandlers{s}.POSTSignIn)
@@ -280,6 +288,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
 			var eventNotice dpapp.EventNotice
+			var eventAnnouncement events.EventAnnouncement
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjNotice:
@@ -291,9 +300,49 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					if err := p.OnNotice(eventNotice, dpsse.New(sse)); err != nil {
 						s.LogErr("handling PageIndex.OnNotice", err)
 					}
+				case EvSubjAnnouncement:
+					eventAnnouncement = events.EventAnnouncement{}
+					if err := json.Unmarshal(msg.Data, &eventAnnouncement); err != nil {
+						s.LogErr("unmarshaling EventAnnouncement JSON", err)
+						continue
+					}
+					if err := p.OnAnnouncement(eventAnnouncement, dpsse.New(sse)); err != nil {
+						s.LogErr("handling PageIndex.OnAnnouncement", err)
+					}
 				}
 			}
 		})
+}
+
+func (s pageIndexHandlers) POSTAnnounce(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	// The CSRF token comes from the cookie, hence no store read here.
+	if !s.CheckCSRFOnly(w, r) {
+		return
+	}
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
+	var signals datapages.Signals[struct {
+		Text string `json:"text"`
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+
+	dispatchAnnouncement := dispatcherEventAnnouncement{s: s.Server, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageIndex.Announce")
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTAnnounce(r, signals, dispatchAnnouncement)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Announce", err)
+		return
+	}
 }
 
 func (s pageIndexHandlers) POSTSignIn(
@@ -364,6 +413,29 @@ func (s pageIndexHandlers) POSTNotice(
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Notice", err)
 		return
 	}
+}
+
+type dispatcherEventAnnouncement struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventAnnouncement) Dispatch(e events.EventAnnouncement) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventAnnouncement) DispatchCtx(
+	ctx context.Context, e events.EventAnnouncement,
+) error {
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventAnnouncement JSON: %w", err)
+	}
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, EvSubjAnnouncement, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", EvSubjAnnouncement, err)
+	}
+	return nil
 }
 
 type dispatcherEventNotice struct {

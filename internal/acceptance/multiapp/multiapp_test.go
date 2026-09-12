@@ -173,3 +173,42 @@ func TestBothServersRunTogether(t *testing.T) {
 		f.Action(t, http.MethodPost, "/report/", `{"n":1}`).Status,
 		http.StatusBadRequest, "the frontend server serves the admin action")
 }
+
+// TestSharedEventReachesBothApps tests the event neither app package declares.
+//
+// Both name the type of the events package,
+// which is what makes the two applications take part in one event.
+// Given one broker, what either dispatches reaches the streams of both.
+func TestSharedEventReachesBothApps(t *testing.T) {
+	t.Parallel()
+	shared := broker()
+
+	f := client.New(t, mustNewFrontend(t, &frontendapp.App{}, shared))
+	a := client.New(t, mustNewAdmin(t, &adminapp.App{}, shared))
+
+	fs := f.OpenStream(t, "/_$/", nil)
+	defer fs.Close()
+	as := a.OpenStream(t, "/_$/", nil)
+	defer as.Close()
+
+	// Dispatched by admin, handled by both.
+	require.Equal(t, http.StatusOK,
+		a.Action(t, http.MethodPost, "/announce/", `{"text":"from admin"}`).Status)
+	require.True(t, as.Saw(`<div id="announcement">from admin</div>`),
+		"the dispatching application did not receive its own event")
+	require.True(t, fs.Saw(`<div id="announcement">from admin</div>`),
+		"the other application did not receive the shared event")
+
+	// And the other way round.
+	require.Equal(t, http.StatusOK,
+		f.Action(t, http.MethodPost, "/announce/", `{"text":"from frontend"}`).Status)
+	require.True(t, fs.Saw(`<div id="announcement">from frontend</div>`))
+	require.True(t, as.Saw(`<div id="announcement">from frontend</div>`))
+
+	// An event only one application declares stays with it.
+	require.Equal(t, http.StatusOK,
+		f.Action(t, http.MethodPost, "/notice/", `{"text":"private"}`).Status)
+	require.True(t, fs.Saw(`<div id="out">private</div>`))
+	require.True(t, as.Never(`private`),
+		"the admin stream received an event only frontend declares")
+}

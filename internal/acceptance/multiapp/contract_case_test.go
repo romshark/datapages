@@ -44,10 +44,12 @@ func TestContractFrontend(t *testing.T) {
 		Actions: []string{
 			frontendaction.PageIndex.SignIn.POST(),
 			frontendaction.PageIndex.Notice.POST(),
+			frontendaction.PageIndex.Announce.POST(),
 		},
 		SignalActions: []string{
 			frontendaction.PageIndex.SignIn.POST(),
 			frontendaction.PageIndex.Notice.POST(),
+			frontendaction.PageIndex.Announce.POST(),
 		},
 		// optionedAction carries every option at once.
 		// The keys and their order are asserted by the contract suite.
@@ -95,8 +97,14 @@ func TestContractAdmin(t *testing.T) {
 		StreamPath:     "/_$/",
 		DispatchAction: adminaction.PageIndex.Report.POST(),
 		DispatchBody:   `{"n":1}`,
-		Actions:        []string{adminaction.PageIndex.Report.POST()},
-		SignalActions:  []string{adminaction.PageIndex.Report.POST()},
+		Actions: []string{
+			adminaction.PageIndex.Report.POST(),
+			adminaction.PageIndex.Announce.POST(),
+		},
+		SignalActions: []string{
+			adminaction.PageIndex.Report.POST(),
+			adminaction.PageIndex.Announce.POST(),
+		},
 		// optionedAction carries every option at once.
 		// The keys and their order are asserted by the contract suite.
 		OptionedAction: adminaction.PageIndex.Report.POST(

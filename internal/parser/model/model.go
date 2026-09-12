@@ -263,6 +263,14 @@ type Event struct {
 	TypeName string
 	Subject  string
 
+	// Type is the named event type. Generated code renders it from this,
+	// which is what qualifies an event declared outside the app package.
+	Type types.Type
+	// PkgPath is the package the event is declared in.
+	// It differs from [App.PkgPath] for an event this application takes part in
+	// without declaring, which is how two applications share one event.
+	PkgPath string
+
 	SubjectFields []SubjectField
 }
 

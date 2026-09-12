@@ -582,7 +582,10 @@ xxx datapages.Dispatcher[EventXXX]
 
 This parameter dispatches events, which can be handled by `OnXXX` page methods.
 Its name is free, the type is what makes it a dispatcher.
-`EventXXX` must be an event type declared in the application package.
+`EventXXX` must be an event type. It's declared in the application package,
+or in a package the application package imports.
+When two applications share an event, both use the same type.
+See [Events declared outside the application package](#events-declared-outside-the-application-package).
 
 ```go
 type Dispatcher[Event any] interface {
@@ -613,6 +616,53 @@ type EventExample struct {
 	Information string `json:"info"`
 }
 ```
+
+##### Events declared outside the application package
+
+An event type can also live in another package, which the application package
+reaches directly or through a package between. A handler or a dispatcher then
+uses it like any other event type:
+
+```go
+// package events, imported by both app packages
+// EventAnnouncement is "announcement"
+type EventAnnouncement struct {
+	Text string `json:"text"`
+}
+
+// app/admin
+func (PageIndex) OnAnnouncement(
+	event events.EventAnnouncement, sse datapages.SSE,
+) error
+
+func (PageIndex) POSTAnnounce(
+	r *http.Request, announcement datapages.Dispatcher[events.EventAnnouncement],
+) error
+```
+
+The subject, the payload and the subject fields are read where the type is written,
+and every rule above applies there.
+
+Two applications that use the same type publish and subscribe to the same subject.
+That is the point: what one dispatches reaches the streams of both.
+It's also the only supported way to share an event. Two applications that each
+declare their own event with the same subject are refused,
+since no two events may share a subject.
+
+Two restrictions:
+
+- The type must be reachable from the application package, through its imports
+  and theirs. `datapages gen` reads no further.
+- One application must not use two event types with the same name, wherever
+  they are declared. Generated code has one identifier per event type name.
+
+A type alias is not a declaration. `type EventX = other.EventX` points at the
+event of the other package, and that is the event: the subject, the payload and
+the package it counts as all come from where the type behind the alias is
+written. The alias can sit in the application package or anywhere between.
+
+For a user-addressed event, every application that uses it must agree on what a
+user ID means: the ID becomes part of the subject.
 
 Events can declare subject fields to build targeted NATS subjects.
 A field is a subject field when its type is one of these:
@@ -749,7 +799,12 @@ type EventRoomUpdate struct {
 - A user-addressed subject field must not have a `signal:"..."` tag.
 - No two subject fields may share the same `signal:"..."` tag value.
 - Signal tag names must match `[a-z][a-z0-9_.]*`.
-- Two events must not share a subject.
+- Two events must not share a subject. The rule holds across the whole module:
+  two applications given one broker deliver each other's events, and each
+  decodes the other's payload into its own event type. `datapages gen` and
+  `datapages lint` report a subject two app packages of the module claim.
+  Two applications that are meant to share an event name one declaration instead,
+  see [Events declared outside the application package](#events-declared-outside-the-application-package).
 - An event with subject fields occupies every subject below its own. No other
   event may declare one there. `"notify"` with one subject field rules out
   `"notify.user"`, since a page cannot tell the two apart on arrival.

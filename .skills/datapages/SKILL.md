@@ -413,8 +413,8 @@ func (PageSearch) GET(
 ## Step 8: Add Events
 
 Events push real-time updates over SSE.
-Each event is defined by a type in the app source package.
-Define the type. Write the doc comment with a quoted subject.
+Each event is defined by a type. Define the type.
+Write the doc comment with a quoted subject.
 
 ```go
 // EventMessageSent is "messaging.sent"
@@ -425,6 +425,12 @@ type EventMessageSent struct {
 
 Event names: `Event` then uppercase letter then letters and digits.
 The subject is quoted. `"messaging.sent"` works. `messaging.sent` does not.
+
+The type usually lives in the app source package. It can, however, also live in
+a package the app package imports, which is how two applications of one module
+receive each other's events: both use that type, and both publish and subscribe
+to its subject. The subject and the payload are read where the type is written.
+An application must not use two event types with the same name.
 
 ### Dispatch from Actions
 

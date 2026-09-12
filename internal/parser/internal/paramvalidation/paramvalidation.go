@@ -532,20 +532,27 @@ func IsDispatchParam(f *ast.Field, info *types.Info) bool {
 
 // ValidateDispatch validates that the type argument of a datapages.Dispatcher[EventXXX]
 // parameter is a declared event type. Returns the event type name.
+// resolve reports the event type name of a named type, false for a type that is no event.
+// It's what registers an event declared outside the app package.
 func ValidateDispatch(
 	f *ast.Field,
 	info *types.Info,
-	eventTypeNames map[string]struct{},
+	resolve func(named *types.Named, pos token.Pos) (string, bool),
 	recv, method string,
 ) (string, error) {
-	name, ok := typecheck.DispatchEventTypeName(f.Type, info)
+	named, ok := typecheck.DispatchEventNamed(f.Type, info)
 	if !ok {
 		// The caller checks IsDispatchParam first, hence unreachable.
 		return "", &DispatchParamNotEventError{
 			Recv: recv, MethodName: method, Pos: f.Type.Pos(),
 		}
 	}
-	if _, isEvent := eventTypeNames[name]; !isEvent {
+	var name string
+	var isEvent bool
+	if named != nil {
+		name, isEvent = resolve(named, f.Type.Pos())
+	}
+	if !isEvent {
 		return "", &DispatchParamNotEventError{
 			Recv:       recv,
 			MethodName: method,

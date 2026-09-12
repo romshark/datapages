@@ -95,6 +95,15 @@ type parseCtx struct {
 	// used for validating OnXXX param types.
 	eventTypeNames map[string]struct{}
 
+	// eventPkgByName maps an event type name to the package it is taken from.
+	// Generated code names an event by its type name alone, hence two events
+	// of one name are refused however far apart they are declared.
+	eventPkgByName map[string]string
+
+	// foreignEvents holds "pkgpath.TypeName" of every event this application
+	// takes part in without declaring it, which is registered on first use.
+	foreignEvents map[string]bool
+
 	// subject -> the event type that claimed it first.
 	eventSubjects map[string]string
 
@@ -123,6 +132,8 @@ func newParseCtx(pkg *packages.Package) parseCtx {
 		docByType:           map[string]*ast.CommentGroup{},
 		genDocByType:        map[string]*ast.CommentGroup{},
 		eventTypeNames:      map[string]struct{}{},
+		eventPkgByName:      map[string]string{},
+		foreignEvents:       map[string]bool{},
 		eventSubjects:       map[string]string{},
 		pages:               map[string]*model.Page{},
 		abstracts:           map[string]*model.AbstractPage{},
@@ -157,11 +168,87 @@ func indexTypes(ctx *parseCtx) {
 }
 
 func collectEventTypeNames(ctx *parseCtx) {
-	for name := range ctx.typeSpecByName {
+	for name, ts := range ctx.typeSpecByName {
+		if isTypeAlias(ts) {
+			continue
+		}
 		if err := validate.EventTypeName(name); err == nil {
 			ctx.eventTypeNames[name] = struct{}{}
+			ctx.eventPkgByName[name] = ctx.pkg.PkgPath
 		}
 	}
+}
+
+// isTypeAlias reports whether ts declares an alias rather than a type.
+// An alias is no event declaration: the event is the type behind it,
+// read where that type is written.
+func isTypeAlias(ts *ast.TypeSpec) bool { return ts.Assign.IsValid() }
+
+// eventResolver reports the event type name of a named type and registers an
+// event declared outside the app package. pos is where the type is named,
+// which is where an unusable declaration is reported.
+type eventResolver func(named *types.Named, pos token.Pos) (string, bool)
+
+// eventResolver returns the resolver the handler parsers take.
+func (ctx *parseCtx) eventResolver(errs *Errors) eventResolver {
+	return func(named *types.Named, pos token.Pos) (string, bool) {
+		return ctx.resolveEvent(named, ctx.pkg.Fset.Position(pos), errs)
+	}
+}
+
+// resolveEvent reports the event type name of named, registering it when it's
+// declared outside the app package. An application takes part in another one's
+// event by naming its type in a handler or a dispatcher; the declaration is
+// read where it's written.
+//
+// ok is false for a type that is no event at all. A declaration that cannot be
+// used is reported here and ok stays true: the parameter is an event parameter,
+// which is what the signature check above asks, and the error names the
+// declaration rather than the signature.
+func (ctx *parseCtx) resolveEvent(
+	named *types.Named, pos token.Position, errs *Errors,
+) (string, bool) {
+	obj := named.Obj()
+	name := obj.Name()
+	if validate.EventTypeName(name) != nil {
+		return "", false
+	}
+	pkgPath := obj.Pkg().Path()
+	if pkgPath == ctx.pkg.PkgPath {
+		_, ok := ctx.eventTypeNames[name]
+		return name, ok
+	}
+	key := pkgPath + "." + name
+	if ctx.foreignEvents[key] {
+		return name, true
+	}
+	ctx.foreignEvents[key] = true
+	if first, taken := ctx.eventPkgByName[name]; taken {
+		errs.ErrAt(pos, &EventTypeNameConflictError{
+			TypeName: name, PkgPath: pkgPath, FirstPkgPath: first,
+		})
+		return name, true
+	}
+	declPkg, ts, doc, found := typecheck.TypeDeclOf(obj, ctx.pkg)
+	if !found {
+		errs.ErrAt(pos, &EventDeclUnreadableError{
+			TypeName: name, PkgPath: pkgPath,
+		})
+		return name, true
+	}
+	if ts.TypeParams != nil && len(ts.TypeParams.List) > 0 {
+		// The app package's own declarations are checked by [checkTypeParams].
+		// Generated code names an event type without type arguments,
+		// which a generic one cannot be written as.
+		errs.ErrAt(ctx.pkg.Fset.Position(ts.Name.Pos()),
+			fmt.Errorf("%w: %s", ErrTypeParams, name))
+		return name, true
+	}
+	ctx.eventPkgByName[name] = pkgPath
+	registerEventType(ctx, errs, name, ts, doc, declPkg)
+	validateEventType(ctx, errs, name,
+		declPkg.TypesInfo.TypeOf(ts.Type), map[types.Type]bool{})
+	return name, true
 }
 
 func initApp(ctx *parseCtx, errs *Errors) {
@@ -185,7 +272,9 @@ func firstPassTypes(ctx *parseCtx, errs *Errors) {
 
 		// Only treat valid EventXXX as event types.
 		if err := validate.EventTypeName(name); err == nil {
-			firstPassEventType(ctx, errs, name, ts)
+			if !isTypeAlias(ts) {
+				firstPassEventType(ctx, errs, name, ts)
+			}
 			continue
 		}
 
@@ -288,8 +377,18 @@ func noteSessionType(
 func firstPassEventType(
 	ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSpec,
 ) {
+	registerEventType(ctx, errs, name, ts,
+		pickDoc(name, ctx.docByType, ctx.genDocByType), ctx.pkg)
+}
+
+// registerEventType reads one event declaration and adds it to the model.
+// declPkg is the package the declaration is written in, which is the app
+// package for an event the application declares itself.
+func registerEventType(
+	ctx *parseCtx, errs *Errors, name string,
+	ts *ast.TypeSpec, doc *ast.CommentGroup, declPkg *packages.Package,
+) {
 	typePos := ctx.pkg.Fset.Position(ts.Name.Pos())
-	doc := pickDoc(name, ctx.docByType, ctx.genDocByType)
 
 	subj, err := extractEventSubject(name, doc)
 	if err != nil {
@@ -310,7 +409,7 @@ func firstPassEventType(
 		return
 	}
 
-	sfResult := structinspect.SubjectFields(ts, ctx.pkg)
+	sfResult := structinspect.SubjectFields(ts, declPkg)
 	if sfResult.AfterPayload != nil {
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(sfResult.AfterPayload.Pos),
@@ -418,6 +517,8 @@ func firstPassEventType(
 		Expr:          ts.Name,
 		TypeName:      name,
 		Subject:       subj,
+		Type:          declaredType(declPkg, ts),
+		PkgPath:       declPkg.PkgPath,
 		SubjectFields: subjectFields,
 	})
 }
@@ -827,8 +928,12 @@ func validateAndAttachEventHandler(
 	evParams := 0
 	if params != nil {
 		for _, f := range params.List {
-			name, ok := typecheck.EventTypeNameOf(
-				f.Type, ctx.pkg.TypesInfo, ctx.eventTypeNames,
+			named, isNamed := typecheck.EventNamedOf(f.Type, ctx.pkg.TypesInfo)
+			if !isNamed {
+				continue
+			}
+			name, ok := ctx.resolveEvent(
+				named, ctx.pkg.Fset.Position(f.Type.Pos()), errs,
 			)
 			if !ok {
 				continue
@@ -938,7 +1043,7 @@ func validateAndAttachStreamHook(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	h, herr := parseStreamHook(
-		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset, ctx.eventTypeNames, kind,
+		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset, ctx.eventResolver(errs), kind,
 	)
 	if herr != nil {
 		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
@@ -999,7 +1104,8 @@ func attachHTTPHandler(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	h, outputs, herr := parseHandler(
-		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset, ctx.eventTypeNames, kind, suffix,
+		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset,
+		ctx.eventResolver(errs), kind, suffix,
 	)
 	if herr != nil {
 		// Keep going; still attach a best-effort handler model.
@@ -1094,7 +1200,8 @@ func attachAppAction(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	h, outputs, herr := parseHandler(
-		"App", fd, ctx.pkg.TypesInfo, ctx.pkg.Fset, ctx.eventTypeNames, kind, suffix,
+		"App", fd, ctx.pkg.TypesInfo, ctx.pkg.Fset,
+		ctx.eventResolver(errs), kind, suffix,
 	)
 	if herr != nil {
 		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
@@ -1649,7 +1756,7 @@ func parseStreamHook(
 	fd *ast.FuncDecl,
 	info *types.Info,
 	fset *token.FileSet,
-	eventTypeNames map[string]struct{},
+	resolveEvent eventResolver,
 	kind methodkind.Kind,
 ) (*model.Handler, error) {
 	h := &model.Handler{
@@ -1749,7 +1856,7 @@ func parseStreamHook(
 
 		case paramvalidation.IsDispatchParam(f, info):
 			eventName, dispErr := paramvalidation.ValidateDispatch(
-				f, info, eventTypeNames, recv, fd.Name.Name,
+				f, info, resolveEvent, recv, fd.Name.Name,
 			)
 			if dispErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), dispErr)
@@ -2173,7 +2280,7 @@ func parseHandler(
 	fd *ast.FuncDecl,
 	info *types.Info,
 	fset *token.FileSet,
-	eventTypeNames map[string]struct{},
+	resolveEvent eventResolver,
 	kind methodkind.Kind,
 	name string,
 ) (*model.Handler, []*model.Output, error) {
@@ -2292,7 +2399,7 @@ func parseHandler(
 
 		case paramvalidation.IsDispatchParam(f, info):
 			eventName, dispErr := paramvalidation.ValidateDispatch(
-				f, info, eventTypeNames, recv, fd.Name.Name,
+				f, info, resolveEvent, recv, fd.Name.Name,
 			)
 			if dispErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), dispErr)
@@ -2530,4 +2637,17 @@ func actionIsUnderPage(page, action string) bool {
 // checkTemplFiles delegates to the templcheck subpackage.
 func checkTemplFiles(ctx *parseCtx, errs *Errors) {
 	templcheck.Check(ctx.pkg, ctx.app, errs.ErrAt)
+}
+
+// declaredType returns the named type ts declares,
+// nil when the package holds no definition for it.
+func declaredType(pkg *packages.Package, ts *ast.TypeSpec) types.Type {
+	if pkg.TypesInfo == nil {
+		return nil
+	}
+	obj, ok := pkg.TypesInfo.Defs[ts.Name]
+	if !ok || obj == nil {
+		return nil
+	}
+	return obj.Type()
 }

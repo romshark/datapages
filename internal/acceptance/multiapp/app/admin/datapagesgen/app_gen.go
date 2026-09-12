@@ -23,6 +23,8 @@ import (
 	dpapp "github.com/romshark/datapages/internal/acceptance/multiapp/app/admin"
 	"github.com/romshark/datapages/internal/acceptance/multiapp/app/admin/datapagesgen/href"
 
+	"github.com/romshark/datapages/internal/acceptance/multiapp/events"
+
 	"github.com/romshark/datapages/runtime/prom"
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -181,17 +183,20 @@ const (
 
 	// Public events:
 
-	EvSubjReport = "report"
+	EvSubjReport       = "report"
+	EvSubjAnnouncement = "announcement"
 )
 
 func MessageBrokerStreamSubjects() []string {
 	return []string{
 		EvSubjReport,
+		EvSubjAnnouncement,
 	}
 }
 
 var evSubjPageIndex = []string{
 	EvSubjReport,
+	EvSubjAnnouncement,
 }
 
 // brokerSubjectKind folds subjects that carry a value back into the event name.
@@ -200,6 +205,8 @@ func brokerSubjectKind(subject string) string {
 	switch {
 	case subject == EvSubjReport:
 		return "report"
+	case subject == EvSubjAnnouncement:
+		return "announcement"
 	default:
 		return "unknown"
 	}
@@ -213,6 +220,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /_$/{$}",
 		pageIndexHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
+		"POST /announce/{$}",
+		pageIndexHandlers{s}.POSTAnnounce)
 	s.Mux().HandleFunc(
 		"POST /report/{$}",
 		pageIndexHandlers{s}.POSTReport)
@@ -286,6 +296,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
 			var eventReport dpapp.EventReport
+			var eventAnnouncement events.EventAnnouncement
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjReport:
@@ -297,9 +308,45 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 					if err := p.OnReport(eventReport, dpsse.New(sse)); err != nil {
 						s.LogErr("handling PageIndex.OnReport", err)
 					}
+				case EvSubjAnnouncement:
+					eventAnnouncement = events.EventAnnouncement{}
+					if err := json.Unmarshal(msg.Data, &eventAnnouncement); err != nil {
+						s.LogErr("unmarshaling EventAnnouncement JSON", err)
+						continue
+					}
+					if err := p.OnAnnouncement(eventAnnouncement, dpsse.New(sse)); err != nil {
+						s.LogErr("handling PageIndex.OnAnnouncement", err)
+					}
 				}
 			}
 		})
+}
+
+func (s pageIndexHandlers) POSTAnnounce(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
+	var signals datapages.Signals[struct {
+		Text string `json:"text"`
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+
+	dispatchAnnouncement := dispatcherEventAnnouncement{s: s.Server, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageIndex.Announce")
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	err := p.POSTAnnounce(r, signals, dispatchAnnouncement)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Announce", err)
+		return
+	}
 }
 
 func (s pageIndexHandlers) POSTReport(
@@ -327,6 +374,29 @@ func (s pageIndexHandlers) POSTReport(
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Report", err)
 		return
 	}
+}
+
+type dispatcherEventAnnouncement struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventAnnouncement) Dispatch(e events.EventAnnouncement) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventAnnouncement) DispatchCtx(
+	ctx context.Context, e events.EventAnnouncement,
+) error {
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventAnnouncement JSON: %w", err)
+	}
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, EvSubjAnnouncement, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", EvSubjAnnouncement, err)
+	}
+	return nil
 }
 
 type dispatcherEventReport struct {

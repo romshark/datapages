@@ -1486,7 +1486,7 @@ func (w *Writer) writeDispatcherTypes(appPkg string) {
 func (w *Writer) writeDispatcherType(evName, appPkg string) {
 	ev := w.eventMap[evName]
 	typeName := dispatcherTypeName(evName)
-	eventType := appPkg + "." + evName
+	eventType := w.eventTypeRef(ev, appPkg, evName)
 
 	w.Line(0, "")
 	w.Raw("type ")

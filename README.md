@@ -128,6 +128,12 @@ app/admindashboard/           cmd/admindashboard/
 app/admindashboard/datapagesgen/
 ```
 
+Events are the one thing the applications of a module share: two of them given
+one broker publish into one namespace. No two of them may claim the same subject,
+which `datapages gen` and `datapages lint` check over the whole module.
+To let two applications receive each other's events, declare the event once in
+a package both import and use that type in both, instead of declaring it twice.
+
 `datapages gen` generates every one of them. `datapages watch` runs one, so a
 module that builds more than one needs `--app` to say which:
 

@@ -11,6 +11,7 @@ import (
 	"github.com/a-h/templ"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/acceptance/multiapp/events"
 )
 
 type App struct{}
@@ -34,6 +35,29 @@ func (PageIndex) OnReport(
 	return sse.PatchElement(templ.Raw(
 		fmt.Sprintf(`<div id="out">report %d</div>`, event.N),
 	))
+}
+
+// OnAnnouncement handles the event of the events package, which frontend dispatches too.
+func (PageIndex) OnAnnouncement(
+	event events.EventAnnouncement,
+	sse datapages.SSE,
+) error {
+	return sse.PatchElement(templ.Raw(
+		`<div id="announcement">` + event.Text + `</div>`,
+	))
+}
+
+// POSTAnnounce is /announce
+func (PageIndex) POSTAnnounce(
+	_ *http.Request,
+	signals datapages.Signals[struct {
+		Text string `json:"text"`
+	}],
+	announcement datapages.Dispatcher[events.EventAnnouncement],
+) error {
+	return announcement.Dispatch(events.EventAnnouncement{
+		Text: signals.Values.Text,
+	})
 }
 
 // POSTReport is /report

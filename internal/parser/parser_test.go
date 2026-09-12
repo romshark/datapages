@@ -753,6 +753,84 @@ func TestParse_ErrEventSubjectDuplicate(t *testing.T) {
 	)
 }
 
+// TestParse_EventSharedAlias tests an event reached through a type alias,
+// in an imported package and in the app package itself.
+//
+// An alias is no declaration. The event is the type behind it:
+// its subject, its payload and the package it counts as come from there,
+// whatever the alias is called and wherever it sits.
+func TestParse_EventSharedAlias(t *testing.T) {
+	app, err := parse(t, "event_shared_alias")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	byName := map[string]*model.Event{}
+	for _, e := range app.Events {
+		byName[e.TypeName] = e
+	}
+	require.Len(byName, 2)
+
+	deep := byName["EventDeep"]
+	require.NotNil(deep)
+	require.Equal("deep", deep.Subject)
+	require.Equal(app.PkgPath+"/deep", deep.PkgPath)
+
+	// Aliased in the app package, which changes neither the name nor the
+	// package the event belongs to.
+	other := byName["EventOther"]
+	require.NotNil(other)
+	require.Equal("other", other.Subject)
+	require.Equal(app.PkgPath+"/deep", other.PkgPath)
+
+	p := app.PageIndex
+	require.NotNil(p)
+	require.Len(p.EventHandlers, 2)
+
+	a := findAction(p.Actions, "Publish")
+	require.NotNil(a)
+	require.Len(a.InputDispatches, 2)
+}
+
+// TestParse_ErrEventShared tests the ways an event declared outside the app
+// package is refused: a type name two packages both declare, which generated
+// code has one identifier for, a subject an event of the app package already claims,
+// and a type carrying no subject comment.
+func TestParse_ErrEventShared(t *testing.T) {
+	_, err := parse(t, "err_event_shared")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEvHandDuplicate,
+		parser.ErrEventTypeNameConflict,
+		parser.ErrEventSubjectDuplicate,
+		parser.ErrEventCommMissing,
+	)
+}
+
+// TestParse_ErrEventSharedRules tests the event rules on a declaration that
+// sits outside the app package. Every rule is checked where the type is written,
+// and the error points there rather than at the handler that uses it.
+//
+// The last one is what checkTypeParams refuses in the app package:
+// generated code names an event type without type arguments,
+// which a generic one cannot be written as.
+func TestParse_ErrEventSharedRules(t *testing.T) {
+	_, err := parse(t, "err_event_shared_rules")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventFieldMissingTag,
+		parser.ErrEventFieldUnexported,
+		parser.ErrEventSubjectAfterPayload,
+		parser.ErrEventSubjectInvalid,
+		parser.ErrEventSubjectUserNoSession,
+		parser.ErrTypeParams,
+	)
+}
+
 // TestParse_ErrEventSubjectDuplicateSignal tests two subject fields bound to one signal,
 // which leaves no way to tell which value fills which field.
 func TestParse_ErrEventSubjectDuplicateSignal(t *testing.T) {
@@ -1184,6 +1262,67 @@ func TestParse_Signals(t *testing.T) {
 		require.NotNil(action.InputQuery)
 		require.NotNil(action.InputSignals)
 	}
+}
+
+// TestParse_EventShared tests an event declared outside the app package,
+// which is how two applications of one module take part in one event.
+//
+// The subject, the payload and the subject fields are read where the type is written.
+// The application declares one event of its own beside them.
+func TestParse_EventShared(t *testing.T) {
+	app, err := parse(t, "event_shared")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	byName := map[string]*model.Event{}
+	for _, e := range app.Events {
+		byName[e.TypeName] = e
+	}
+	require.Len(byName, 4)
+
+	local := byName["EventLocal"]
+	require.NotNil(local)
+	require.Equal("local", local.Subject)
+	require.Equal(app.PkgPath, local.PkgPath)
+
+	shared := byName["EventShared"]
+	require.NotNil(shared)
+	require.Equal("shared", shared.Subject)
+	require.Equal(app.PkgPath+"/events", shared.PkgPath)
+	require.NotNil(shared.Type)
+	require.Empty(shared.SubjectFields)
+
+	room := byName["EventRoom"]
+	require.NotNil(room)
+	require.Equal("room", room.Subject)
+	require.Equal(app.PkgPath+"/events", room.PkgPath)
+	require.Len(room.SubjectFields, 1)
+	require.Equal("Room", room.SubjectFields[0].FieldName)
+
+	// The signal tag is read from the foreign declaration too, which is what
+	// makes the stream subscribe to the value the client sends.
+	calc := byName["EventCalc"]
+	require.NotNil(calc)
+	require.Len(calc.SubjectFields, 1)
+	require.Equal("calc_id", calc.SubjectFields[0].SignalName)
+
+	p := app.PageIndex
+	require.NotNil(p)
+	require.Len(p.EventHandlers, 4)
+
+	a := findAction(p.Actions, "Publish")
+	require.NotNil(a)
+	require.Len(a.InputDispatches, 4)
+	require.Equal("EventLocal", a.InputDispatches[0].EventTypeName)
+	require.Equal("EventShared", a.InputDispatches[1].EventTypeName)
+	require.Equal("EventRoom", a.InputDispatches[2].EventTypeName)
+
+	// The application's own action dispatches the foreign event too,
+	// which is written by the other half of the generator.
+	require.Len(app.Actions, 1)
+	require.Len(app.Actions[0].InputDispatches, 1)
+	require.Equal("EventShared", app.Actions[0].InputDispatches[0].EventTypeName)
 }
 
 // TestParse_Dispatch tests the dispatcher parameters a handler takes and the

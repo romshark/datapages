@@ -205,6 +205,10 @@ func collectModelPkgs(m *model.App) []*types.Package {
 	if m.Session != nil {
 		add(m.Session.Data.Resolved)
 	}
+	// An event of another application is named by its own package.
+	for _, e := range m.Events {
+		collectTypePkgs(e.Type, seen, &out)
+	}
 	for _, h := range m.Actions {
 		addHandler(h)
 	}

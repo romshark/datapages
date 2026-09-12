@@ -17,6 +17,7 @@ import (
 	"github.com/romshark/datapages/internal/parser/errsuggest"
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/serverscan"
+	"github.com/romshark/datapages/internal/subject"
 )
 
 func newGenCmd(stderr io.Writer, version string) *cobra.Command {
@@ -81,11 +82,17 @@ func runGen(
 	// Every app is generated, even when another one failed to parse:
 	// one broken model must not leave the rest of the module without code.
 	var errs []error
+	var events []subject.AppEvent
 	for _, app := range scan.Apps {
 		app.Prometheus = app.Prometheus || (scan.Fallback && scaffoldProm)
-		if err := genApp(moduleDir, cfg, scan, app, stderr); err != nil {
+		m, err := genApp(moduleDir, cfg, scan, app, stderr)
+		if err != nil {
 			errs = append(errs, err)
 		}
+		events = append(events, appEvents(app.Dir, m)...)
+	}
+	if err := subject.CheckAcrossApps(events); err != nil {
+		errs = append(errs, err)
 	}
 
 	// Run go mod tidy after generation so that go.sum stays in sync,
@@ -98,11 +105,34 @@ func runGen(
 	return errors.Join(errs...)
 }
 
+// appEvents is what [subject.CheckAcrossApps] takes for one application.
+// A model that failed to parse contributes nothing.
+func appEvents(appDir string, m *model.App) []subject.AppEvent {
+	if m == nil {
+		return nil
+	}
+	events := make([]subject.AppEvent, 0, len(m.Events))
+	for _, e := range m.Events {
+		events = append(events, subject.AppEvent{
+			App:      appDir,
+			TypeName: e.TypeName,
+			Decl:     e.PkgPath + "." + e.TypeName,
+			Claim: subject.Claim{
+				Subject:   e.Subject,
+				HasFields: len(e.SubjectFields) > 0,
+			},
+		})
+	}
+	return events
+}
+
 // genApp parses one app package and generates the code for it.
+// It returns the parsed model, which is nil when the app package has no model
+// to generate from, and partial when it has errors.
 func genApp(
 	moduleDir string, cfg config.Config,
 	scan serverscan.Result, app serverscan.App, stderr io.Writer,
-) error {
+) (*model.App, error) {
 	m, parseErr := parseApp(filepath.Join(moduleDir, app.Dir), stderr)
 
 	// Always generate the package; when m is nil, stub files are written so
@@ -121,7 +151,7 @@ func genApp(
 			GenImport:       app.GenImport,
 		},
 	); err != nil {
-		return fmt.Errorf("generating code: %w", err)
+		return m, fmt.Errorf("generating code: %w", err)
 	}
 
 	// A module without a NewServer call has no entry point yet.
@@ -129,24 +159,24 @@ func genApp(
 		cmdDir := filepath.Join(moduleDir, cfg.Cmd)
 		cmdExists, err := checkCmdPackage(cmdDir)
 		if err != nil {
-			return err
+			return m, err
 		}
 		if !cmdExists {
 			if err := generator.GenerateCmd(
 				cmdDir, app.Import, app.GenImport, serverscan.GenSubdir,
 				app.Prometheus, m, 0o644,
 			); err != nil {
-				return fmt.Errorf("generating cmd: %w", err)
+				return m, fmt.Errorf("generating cmd: %w", err)
 			}
 		}
 	}
 
 	if parseErr != nil {
-		return parseErr
+		return m, parseErr
 	}
 	// The calls are checked against what the app package was parsed to
 	// declare, which is why this runs last.
-	return serverscan.CheckSessionData(app, m.Session != nil)
+	return m, serverscan.CheckSessionData(app, m.Session != nil)
 }
 
 func parseApp(appDir string, stderr io.Writer) (*model.App, error) {

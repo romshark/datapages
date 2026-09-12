@@ -171,7 +171,7 @@ const (
 
 	// Public events:
 
-	EvSubjCounterUpdated = "counter.updated"
+	EvSubjCounterUpdated = "fancy.counter.updated"
 )
 
 func MessageBrokerStreamSubjects() []string {

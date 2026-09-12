@@ -5,8 +5,8 @@
 // packages and the type would resolve to nothing.
 //
 // The app package itself is covered by pkgname_collides. This is every other
-// package the model reaches: the session data type, and the path, query and
-// signals field types.
+// package the model reaches: the session data type, an event type,
+// and the path, query and signals field types.
 package app
 
 import (
@@ -66,6 +66,20 @@ func (PageItem) POSTSave(
 	}],
 ) error {
 	_, _, _ = path, query, signals
+	return nil
+}
+
+// OnTick handles an event declared in a package named after one app_gen.go imports.
+// The event type renders with the alias that package is given.
+func (PageIndex) OnTick(event stream.EventTick, sse datapages.SSE) error {
+	return nil
+}
+
+// POSTTick is /tick
+func (PageIndex) POSTTick(
+	r *http.Request, tick datapages.Dispatcher[stream.EventTick],
+) error {
+	_ = tick
 	return nil
 }
 

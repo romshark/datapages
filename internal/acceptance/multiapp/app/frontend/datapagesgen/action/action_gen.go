@@ -171,8 +171,27 @@ func WithRequestCancellationController(expr string) option {
 var PageIndex pageIndex
 
 type pageIndex struct {
-	Notice pageIndex_Notice
-	SignIn pageIndex_SignIn
+	Announce pageIndex_Announce
+	Notice   pageIndex_Notice
+	SignIn   pageIndex_SignIn
+}
+
+type pageIndex_Announce struct{}
+
+// POST references /announce/
+func (pageIndex_Announce) POST(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/announce/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/announce/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/announce/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
 }
 
 type pageIndex_Notice struct{}

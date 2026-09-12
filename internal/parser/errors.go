@@ -177,13 +177,9 @@ var (
 
 	ErrRouteVarNameInvalid = validate.ErrRouteVarNameInvalid
 
-	ErrEventSubjectDuplicate = errors.New(
-		"duplicate event subject",
-	)
+	ErrEventSubjectDuplicate = errors.New("duplicate event subject")
 
-	ErrEventSubjectOverlap = errors.New(
-		"overlapping event subjects",
-	)
+	ErrEventSubjectOverlap = errors.New("overlapping event subjects")
 
 	ErrEventSubjectDuplicateSignal = errors.New(
 		"multiple event subject fields with the same signal tag",
@@ -197,13 +193,15 @@ var (
 		"multiple dispatchers for the same event type",
 	)
 
+	ErrEventTypeNameConflict = errors.New("two events of the same type name")
+
+	ErrEventDeclUnreadable = errors.New("event declaration cannot be read")
+
 	ErrEventSubjectPrefixedField = errors.New(
 		"event field named like a subject field isn't typed as one",
 	)
 
-	ErrEventSubjectSignalInvalid = errors.New(
-		"invalid signal tag value",
-	)
+	ErrEventSubjectSignalInvalid = errors.New("invalid signal tag value")
 
 	ErrEventSubjectDerivedType = errors.New(
 		"event subject field must name datapages.Subject or datapages.SubjectUser",
@@ -783,3 +781,35 @@ func (e *SignatureUnsupportedInputError) Error() string {
 func (e *SignatureUnsupportedInputError) Unwrap() error {
 	return ErrSignatureUnsupportedInput
 }
+
+// EventTypeNameConflictError is [ErrEventTypeNameConflict] with context.
+// Generated code names an event by its type name alone, which is why one
+// application cannot take part in two events of one name.
+type EventTypeNameConflictError struct {
+	TypeName     string // e.g. "EventUpdated"
+	PkgPath      string // The package of the event named second.
+	FirstPkgPath string // The package of the event named first.
+}
+
+func (e *EventTypeNameConflictError) Error() string {
+	return fmt.Sprintf("%v: %s is declared in %s and in %s",
+		ErrEventTypeNameConflict, e.TypeName, e.FirstPkgPath, e.PkgPath)
+}
+
+func (e *EventTypeNameConflictError) Unwrap() error {
+	return ErrEventTypeNameConflict
+}
+
+// EventDeclUnreadableError is [ErrEventDeclUnreadable] with context.
+// It names an event type whose declaration the loaded packages do not carry.
+type EventDeclUnreadableError struct {
+	TypeName string // e.g. "EventUpdated"
+	PkgPath  string // The package declaring it.
+}
+
+func (e *EventDeclUnreadableError) Error() string {
+	return fmt.Sprintf("%v: %s in %s",
+		ErrEventDeclUnreadable, e.TypeName, e.PkgPath)
+}
+
+func (e *EventDeclUnreadableError) Unwrap() error { return ErrEventDeclUnreadable }
