@@ -45,12 +45,14 @@ func TestContract(t *testing.T) {
 		HrefSetLogger:  href.SetLogger,
 		Links: []string{
 			href.PageIndex(),
+			href.PageError404(),
 			href.PageLogin(),
 			href.PageLog(),
 			href.PageToken(),
 			href.PageSecret(),
 		},
 		Actions: []string{
+			action.PageIndex.Render.POST(),
 			action.PageLogin.Submit.POST(),
 			action.PageLogin.Broadcast.POST(),
 			action.PageLogin.Notify.POST(),

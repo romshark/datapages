@@ -40,6 +40,9 @@ func External(url string) string {
 	return url
 }
 
+// PageError404 references /not-found/{$}
+func PageError404() string { return "/not-found/" }
+
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
 

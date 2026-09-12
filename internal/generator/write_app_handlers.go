@@ -243,8 +243,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	hasBody := false
 
 	// Auth.
-	needsSession := h.InputSession != nil ||
-		(m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession)
+	needsSession := hasSessionInput(h) || globalHeadNeedsSession(m)
 	if needsSession {
 		hasBody = true
 		w.Line(1, "sess, _, ok := s.ReadSession(w, r)")
@@ -368,11 +367,9 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 
 	// Close and create session, before anything is written: both set a cookie,
 	// and a cookie set after the body has started is dropped.
-	getHeadNeedsSession := m.GlobalHeadGenerator != nil &&
-		m.GlobalHeadGenerator.InputSession
 	// The 500 page renders from its session like any other page.
 	getSessArg, getSessRebind := w.renderSessionVar(h, m, true,
-		hasSessionInput(h) || getHeadNeedsSession)
+		hasSessionInput(h) || globalHeadNeedsSession(m))
 	w.writeSessionOutputs(h, getSessRebind)
 
 	// Redirect.
@@ -380,8 +377,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 
 	// Generic head.
 	if gh := m.GlobalHeadGenerator; gh != nil {
-		hasSess := h.InputSession != nil || gh.InputSession
-		w.writeGenericHeadCall(gh, hasSess)
+		w.writeGenericHeadCall(gh, hasSessionInput(h) || globalHeadNeedsSession(m))
 	}
 
 	// Body attrs and suffix.
@@ -426,6 +422,20 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 
 func hasSessionInput(h *model.Handler) bool {
 	return h.InputSession != nil
+}
+
+// globalHeadNeedsSession reports whether the application-wide Head takes the session.
+func globalHeadNeedsSession(m *model.App) bool {
+	return m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession
+}
+
+// actionSessionInScope reports whether an action handler has a "sess" variable.
+// An action that renders a document reads the session even when it declares no
+// session parameter, since the application-wide Head renders from it.
+// Every site that names "sess" has to ask this, or the Head call gets a zero
+// session while the real one is in scope.
+func actionSessionInScope(h *model.Handler, m *model.App) bool {
+	return hasSessionInput(h) || (h.OutputBody != nil && globalHeadNeedsSession(m))
 }
 
 // writeSessionOutputs emits what a handler's newSession and closeSession
@@ -1364,13 +1374,11 @@ func (w *Writer) writePageActionHandler(
 
 	// Auth.
 	needsToken := h.OutputCloseSession != nil
-	headNeedsSess := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
-		m.GlobalHeadGenerator.InputSession
 	switch {
-	case h.InputSession != nil || needsToken || headNeedsSess:
+	case actionSessionInScope(h, m) || needsToken:
 		// A local nobody reads is a package that does not compile.
 		sessVar := "_"
-		if h.InputSession != nil || headNeedsSess {
+		if actionSessionInScope(h, m) {
 			sessVar = "sess"
 		}
 		if needsToken {
@@ -1480,10 +1488,8 @@ func (w *Writer) writeActionMethodCall(
 	}
 
 	// Close and create session.
-	actHeadNeedsSession := m.GlobalHeadGenerator != nil &&
-		m.GlobalHeadGenerator.InputSession
 	actSessArg, actSessRebind := w.renderSessionVar(h, m, h.OutputBody != nil,
-		hasSessionInput(h) || actHeadNeedsSession)
+		actionSessionInScope(h, m))
 	w.writeSessionOutputs(h, actSessRebind)
 
 	// Redirect.
@@ -1492,7 +1498,8 @@ func (w *Writer) writeActionMethodCall(
 	// Render body (if action returns templ.Component).
 	if h.OutputBody != nil {
 		if m.GlobalHeadGenerator != nil {
-			w.writeGenericHeadCall(m.GlobalHeadGenerator, hasSessionInput(h))
+			w.writeGenericHeadCall(m.GlobalHeadGenerator,
+				actionSessionInScope(h, m))
 		}
 		w.Line(1, "if err := s.writeHTML(")
 		w.Raw("\t\tw, r, ")

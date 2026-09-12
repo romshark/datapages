@@ -211,6 +211,9 @@ func evSubjPageIndex(userID string) []string {
 func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
+		"GET /not-found/{$}",
+		pageError404Handlers{s}.GET)
+	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
@@ -234,6 +237,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /sign-out/{$}",
 		appHandlers{s}.POSTSignOut)
+	s.Mux().HandleFunc(
+		"POST /render/{$}",
+		pageIndexHandlers{s}.POSTRender)
 	s.Mux().HandleFunc(
 		"POST /login/submit/{$}",
 		pageLoginHandlers{s}.POSTSubmit)
@@ -267,6 +273,36 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
+func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	p := dpapp.PageError404{
+		App: s.app,
+	}
+
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		return
+	}
+	genericHead := s.app.Head(sess, r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+	w.WriteHeader(http.StatusNotFound)
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageError404", err)
+		return
+	}
+}
+
 type appHandlers struct{ *Server }
 
 func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
@@ -291,6 +327,37 @@ func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type pageError404Handlers struct{ *Server }
+
+func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	p := dpapp.PageError404{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		return
+	}
+	genericHead := s.app.Head(sess, r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageError404", err)
+		return
+	}
+}
+
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
@@ -300,7 +367,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.URL.Path != "/" {
-		http.NotFound(w, r)
+		s.render404(w, r)
 		return
 	}
 
@@ -436,6 +503,31 @@ func (s pageIndexHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 				}
 			}
 		})
+}
+
+func (s pageIndexHandlers) POSTRender(
+	w http.ResponseWriter, r *http.Request,
+) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.Render")
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	body, err := p.POSTRender(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Render", err)
+		return
+	}
+	genericHead := s.app.Head(sess, r)
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering response of PageIndex.POSTRender", err)
+		return
+	}
 }
 
 type pageLogHandlers struct{ *Server }
@@ -574,7 +666,7 @@ func (s pageLoginHandlers) POSTSubmitInline(
 		}
 		sess = created
 	}
-	genericHead := s.app.Head(datapages.Session[dpapp.SessionData]{}, r)
+	genericHead := s.app.Head(sess, r)
 	if err := s.writeHTML(
 		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {

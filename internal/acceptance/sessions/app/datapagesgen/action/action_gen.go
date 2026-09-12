@@ -192,6 +192,30 @@ func (app_SignOut) POST(options ...option) string {
 	return b.String()
 }
 
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Render pageIndex_Render
+}
+
+type pageIndex_Render struct{}
+
+// POST references /render/
+func (pageIndex_Render) POST(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/render/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/render/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/render/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
 var PageLogin pageLogin
 
 type pageLogin struct {

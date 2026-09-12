@@ -1205,8 +1205,7 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	w.Line(0, "func (s *Server) render404(w http.ResponseWriter, r *http.Request) {")
 
 	h404 := p.GET.Handler
-	headNeedsSess := m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession
-	if h404.InputSession != nil || headNeedsSess {
+	if hasSessionInput(h404) || globalHeadNeedsSession(m) {
 		w.Line(1, "sess, _, ok := s.ReadSession(w, r)")
 		w.Line(1, "if !ok {")
 		w.Line(2, "return")
@@ -1271,13 +1270,11 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 
 	// Auth.
 	needsToken := h.OutputCloseSession != nil
-	headNeedsSess := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
-		m.GlobalHeadGenerator.InputSession
 	switch {
-	case h.InputSession != nil || needsToken || headNeedsSess:
+	case actionSessionInScope(h, m) || needsToken:
 		// A local nobody reads is a package that does not compile.
 		sessVar := "_"
-		if h.InputSession != nil || headNeedsSess {
+		if actionSessionInScope(h, m) {
 			sessVar = "sess"
 		}
 		if needsToken {
@@ -1414,10 +1411,8 @@ func (w *Writer) writeMethodCall(
 
 	// Close and create session: a document rendered below is written from what
 	// they produce, not from the session read before.
-	actHeadNeedsSession := m.GlobalHeadGenerator != nil &&
-		m.GlobalHeadGenerator.InputSession
 	actSessArg, actSessRebind := w.renderSessionVar(h, m, h.OutputBody != nil,
-		hasSessionInput(h) || actHeadNeedsSession)
+		actionSessionInScope(h, m))
 	w.writeSessionOutputs(h, actSessRebind)
 
 	// Redirect.
@@ -1428,7 +1423,8 @@ func (w *Writer) writeMethodCall(
 		ownerName := actionOwnerName(p, isAppLevel)
 
 		if m.GlobalHeadGenerator != nil {
-			w.writeGenericHeadCall(m.GlobalHeadGenerator, hasSessionInput(h))
+			w.writeGenericHeadCall(m.GlobalHeadGenerator,
+				actionSessionInScope(h, m))
 		}
 
 		w.Line(1, "if err := s.writeHTML(")
@@ -1682,7 +1678,8 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 
 	// Generic head.
 	if m.GlobalHeadGenerator != nil {
-		w.writeGenericHeadCall(m.GlobalHeadGenerator, h.InputSession != nil)
+		w.writeGenericHeadCall(m.GlobalHeadGenerator,
+			hasSessionInput(h) || globalHeadNeedsSession(m))
 	}
 
 	// Body attrs - simple for render404/error pages.
@@ -1707,10 +1704,8 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	w.Raw("\t\tw, r, ")
 	if m.Session != nil {
 		// The zero session only where none was read: it carries no CSRF script.
-		headNeedsSession := m.GlobalHeadGenerator != nil &&
-			m.GlobalHeadGenerator.InputSession
 		sessArg := w.sessionType + "{}"
-		if h.InputSession != nil || headNeedsSession {
+		if hasSessionInput(h) || globalHeadNeedsSession(m) {
 			sessArg = "sess"
 		}
 		w.Raw(sessArg)
