@@ -125,8 +125,8 @@ func TestWriteReloadOnVisibility(t *testing.T) {
 	var b strings.Builder
 	httpserve.WriteReloadOnVisibility(&b)
 	require.Equal(t,
-		`data-on:visibilitychange__window="`+
-			`if (!document.hidden) window.location.reload()" `,
+		` data-on:visibilitychange__window="`+
+			`if (!document.hidden) window.location.reload()"`,
 		b.String())
 }
 
