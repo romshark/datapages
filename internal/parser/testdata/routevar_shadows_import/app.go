@@ -100,6 +100,19 @@ func (PageShadowB) POSTSave(
 	return nil
 }
 
+// PageShadowLen is /len/{len}
+type PageShadowLen struct{ App *App }
+
+func (PageShadowLen) GET(
+	r *http.Request,
+	path datapages.Path[struct {
+		Len string `path:"len"`
+	}],
+) (body datapages.Component, err error) {
+	_ = path
+	return body, err
+}
+
 // PageShadowQuery is /q/{url}/{strings}
 //
 // The path-and-query writers declare more locals than the path-only ones and

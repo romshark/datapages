@@ -173,6 +173,9 @@ func setupHandlers(s *Server) {
 		"GET /item/{b}/{$}",
 		pageItemHandlers{s}.GET)
 	s.Mux().HandleFunc(
+		"GET /len/{len}/{$}",
+		pageLenHandlers{s}.GET)
+	s.Mux().HandleFunc(
 		"GET /locals/{b}/{l}/{n}/{bl}/{al}/{$}",
 		pageLocalsHandlers{s}.GET)
 	s.Mux().HandleFunc(
@@ -430,6 +433,37 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageItem", err)
+		return
+	}
+}
+
+type pageLenHandlers struct{ *Server }
+
+func (s pageLenHandlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	var path datapages.Path[struct {
+		Len string `path:"len"`
+	}]
+	path.Values.Len = r.PathValue("len")
+
+	p := dpapp.PageLen{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageLen.GET")
+	body, err := p.GET(r, path)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageLen.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageLen", err)
 		return
 	}
 }

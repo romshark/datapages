@@ -123,6 +123,21 @@ func PageItem(b bool) string {
 	return b_.String()
 }
 
+// PageLen references /len/{len}/{$}
+func PageLen(pLen string) string {
+	s_pLen := url.PathEscape(pLen)
+	var b strings.Builder
+	b.Grow(
+		len("/len/") +
+			len(s_pLen) +
+			len("/"),
+	)
+	b.WriteString("/len/")
+	b.WriteString(s_pLen)
+	b.WriteString("/")
+	return b.String()
+}
+
 // PageLocals references /locals/{b}/{l}/{n}/{bl}/{al}/{$}
 func PageLocals(
 	b string,

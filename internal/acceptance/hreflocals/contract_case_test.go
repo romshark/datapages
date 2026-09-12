@@ -39,6 +39,7 @@ func TestContract(t *testing.T) {
 			href.PageParams("a", "b", href.QueryPageParams{Term: "x"}),
 			href.PageLocals("1", "2", "3", "4", "5"),
 			href.PageImports("one", "two", 3, app.Slug("FOUR")),
+			href.PageLen("eight"),
 			href.PageExpr("seven"),
 		},
 		// Every action of the case: the assertion requests each and fails on

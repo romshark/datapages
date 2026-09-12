@@ -511,10 +511,12 @@ type pathParamInfo struct {
 	StrVar string     // variable name for string representation (e.g. "valueStr")
 }
 
-// pathParamReserved are the identifiers a generated URL function resolves at
-// package scope: the packages it qualifies and the helper it calls.
+// pathParamReserved are the identifiers a generated URL function resolves
+// outside its own body: the packages it qualifies, the helper it calls and the
+// builtin it counts with.
 // A parameter of that name shadows the reference for the whole function body.
-// A wildcard named "url" leaves url.PathEscape(url) reading its own parameter.
+// A wildcard named "url" leaves url.PathEscape(url) reading its own parameter,
+// and one named "len" leaves len(s) calling a string.
 //
 // One set covers href_gen.go and action_gen.go, and it lists every name either
 // file can bind rather than the ones a given build imports. "encoding" and
@@ -528,6 +530,7 @@ var pathParamReserved = map[string]bool{
 	"actionexpr": true,
 	"encoding":   true,
 	"fmt":        true,
+	"len":        true,
 	"strconv":    true,
 	"strings":    true,
 	"textOf":     true,

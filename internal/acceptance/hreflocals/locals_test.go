@@ -146,6 +146,20 @@ func TestImportNameIsFree(t *testing.T) {
 		resp.Element(t, "echo"))
 }
 
+// TestBuiltinNameIsFree tests a path variable named after the builtin the URL
+// writer counts with. The parameter is renamed, and len still counts.
+func TestBuiltinNameIsFree(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	url := href.PageLen("eight")
+	require.Equal(t, "/len/eight/", url)
+
+	resp := c.Get(t, url)
+	require.Equal(t, http.StatusOK, resp.Status, url)
+	require.Equal(t, "len=eight", resp.Element(t, "echo"))
+}
+
 // TestImportNameIsStillEscaped tests that the renamed parameter is the one escaped.
 // A path value belongs to one segment, which is what url.PathEscape
 // under a parameter named "url" is for.

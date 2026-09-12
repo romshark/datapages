@@ -206,6 +206,23 @@ func (PageLocals) POSTSave(
 	return nil
 }
 
+// PageLen is /len/{len}
+//
+// len is the builtin the URL writers count the segments with.
+// A parameter of that name leaves every len(s) in the body calling a string.
+type PageLen struct{ App *App }
+
+func (PageLen) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Len string `path:"len"`
+	}],
+) (body datapages.Component, err error) {
+	return templ.Raw(fmt.Sprintf(
+		`<pre id="echo">len=%s</pre>`, templ.EscapeString(path.Values.Len),
+	)), nil
+}
+
 // PageImports is /imports/{url}/{strings}/{strconv}/{textOf}
 //
 // Every wildcard is named after something the URL writers resolve at package scope:
