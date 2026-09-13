@@ -200,10 +200,10 @@ func pageCalculator(input string, fresh bool, instanceID string) templ.Component
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var11 string
-			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageIndexInput(
-				action.QueryPOSTPageIndexInput{Btn: int(b.Btn)}))
+			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageIndex.Input.POST(
+				action.PageIndex.Input.POSTQuery(int(b.Btn), "")))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 97, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 97, Col: 55}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 			if templ_7745c5c3_Err != nil {

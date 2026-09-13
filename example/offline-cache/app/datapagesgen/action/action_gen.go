@@ -169,8 +169,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTAppSignOut references /sign-out/
-func POSTAppSignOut(options ...option) string {
+var App app
+
+type app struct {
+	SignOut app_SignOut
+}
+
+type app_SignOut struct{}
+
+// POST references /sign-out/
+func (app_SignOut) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/sign-out/')"
 	}
@@ -185,8 +193,16 @@ func POSTAppSignOut(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexSearch references /search/
-func POSTPageIndexSearch(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Search pageIndex_Search
+}
+
+type pageIndex_Search struct{}
+
+// POST references /search/
+func (pageIndex_Search) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/search/')"
 	}
@@ -201,8 +217,16 @@ func POSTPageIndexSearch(options ...option) string {
 	return b.String()
 }
 
-// POSTPageLoginSubmit references /login/submit/
-func POSTPageLoginSubmit(options ...option) string {
+var PageLogin pageLogin
+
+type pageLogin struct {
+	Submit pageLogin_Submit
+}
+
+type pageLogin_Submit struct{}
+
+// POST references /login/submit/
+func (pageLogin_Submit) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/login/submit/')"
 	}
@@ -217,8 +241,19 @@ func POSTPageLoginSubmit(options ...option) string {
 	return b.String()
 }
 
-// POSTPagePurchaseConfirm references /shows/{nameslug}/purchase/confirm/
-func POSTPagePurchaseConfirm(nameslug string, options ...option) string {
+var PagePurchase pagePurchase
+
+type pagePurchase struct {
+	Confirm pagePurchase_Confirm
+}
+
+type pagePurchase_Confirm struct{}
+
+// POST references /shows/{nameslug}/purchase/confirm/
+func (pagePurchase_Confirm) POST(
+	nameslug string,
+	options ...option,
+) string {
 	s_nameslug := url.PathEscape(nameslug)
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)

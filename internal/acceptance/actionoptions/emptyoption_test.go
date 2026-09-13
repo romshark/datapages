@@ -16,8 +16,8 @@ import (
 func TestEmptyOptionIsSkipped(t *testing.T) {
 	t.Parallel()
 	tests := map[string]string{
-		"a nil header map": action.POSTPageIndexSave(action.WithHeaders(nil)),
-		"an empty header map": action.POSTPageIndexSave(
+		"a nil header map": action.PageIndex.Save.POST(action.WithHeaders(nil)),
+		"an empty header map": action.PageIndex.Save.POST(
 			action.WithHeaders(map[string]string{}),
 		),
 	}
@@ -34,7 +34,7 @@ func TestEmptyOptionIsSkipped(t *testing.T) {
 // only the empty one is dropped.
 func TestOptionsAreWritten(t *testing.T) {
 	t.Parallel()
-	expr := action.POSTPageIndexSave(
+	expr := action.PageIndex.Save.POST(
 		action.WithHeaders(nil),
 		action.WithSelector("#out"),
 		action.WithHeaders(map[string]string{"X-Trace": "abc"}),

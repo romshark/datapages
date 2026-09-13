@@ -40,6 +40,16 @@ func Run(
 		release = ""
 	}
 
+	// What a new go.mod requires. See [pinDatapages].
+	//
+	// A pseudo-version works: it names a commit the proxy can fetch.
+	// A "+dirty" one does not: it names a working tree, not a commit.
+	modVersion := ""
+	if v := "v" + version; version != "" &&
+		semver.IsValid(v) && semver.Build(v) == "" {
+		modVersion = v
+	}
+
 	root := &cobra.Command{
 		Use:   "datapages",
 		Short: "Datapages code generator and dev server",
@@ -59,7 +69,7 @@ and type-safe href/action helpers, and provides a live-reloading dev server.`,
 
 	root.AddCommand(
 		newGenCmd(stderr, release),
-		newInitCmd(stderr, release),
+		newInitCmd(stderr, release, modVersion),
 		newLintCmd(stderr, release),
 		newVersionCmd(stdout, version, commit, buildDate),
 		newWatchCmd(stderr, release),

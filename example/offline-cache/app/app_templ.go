@@ -414,9 +414,9 @@ func menuAccount(id, userName, userAvatarURL string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var20 string
-		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTAppSignOut())
+		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.App.SignOut.POST())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 96, Col: 82}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 96, Col: 84}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var20)
 		if templ_7745c5c3_Err != nil {
@@ -533,9 +533,9 @@ func pageShows(
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var25 string
-			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageIndexSearch())
+			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageIndex.Search.POST())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 138, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 138, Col: 67}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var25)
 			if templ_7745c5c3_Err != nil {
@@ -1343,7 +1343,7 @@ func pagePurchase(session Session, show domain.Show, baseData baseData) templ.Co
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var70 string
-			templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPagePurchaseConfirm(
+			templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PagePurchase.Confirm.POST(
 				show.Slug, action.WithBefore("$_buying = true"),
 			))
 			if templ_7745c5c3_Err != nil {
@@ -1827,9 +1827,9 @@ func pageLogin(wrongCreds bool, next string) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var97 string
-			templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageLoginSubmit())
+			templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageLogin.Submit.POST())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 395, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 395, Col: 66}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var97)
 			if templ_7745c5c3_Err != nil {

@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/romshark/datapages/internal/serverscan"
+	"github.com/romshark/datapages/internal/subject"
 )
 
 func newLintCmd(stderr io.Writer, version string) *cobra.Command {
@@ -41,17 +42,22 @@ call, defaulting to ./app when the module holds none.`,
 			// Every app is linted, even when an earlier one failed:
 			// one report per run beats one run per app.
 			var errs []error
+			var events []subject.AppEvent
 			for _, a := range scan.Apps {
 				m, err := parseApp(filepath.Join(moduleDir, a.Dir), stderr)
 				if err != nil {
 					errs = append(errs, err)
 					continue
 				}
+				events = append(events, appEvents(a.Dir, m)...)
 				if err := serverscan.CheckSessionData(
 					a, m.Session != nil,
 				); err != nil {
 					errs = append(errs, err)
 				}
+			}
+			if err := subject.CheckAcrossApps(events); err != nil {
+				errs = append(errs, err)
 			}
 			return errors.Join(errs...)
 		},

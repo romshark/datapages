@@ -733,6 +733,11 @@ func TestValidateDispatch(t *testing.T) {
 		"EventFoo": {},
 		"EventBar": {},
 	}
+	resolve := func(named *types.Named, _ token.Pos) (string, bool) {
+		name := named.Obj().Name()
+		_, ok := eventTypes[name]
+		return name, ok
+	}
 
 	tests := map[string]struct {
 		src       string
@@ -785,7 +790,7 @@ func f(d string) {}`,
 			}
 			p := firstFuncParam(t, f, 0)
 			event, err := ValidateDispatch(
-				p, info, eventTypes,
+				p, info, resolve,
 				"Recv", "Method",
 			)
 			if tt.wantErr == nil {

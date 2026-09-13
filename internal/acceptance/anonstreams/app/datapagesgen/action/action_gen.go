@@ -168,8 +168,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageFeedTick references /feed/tick/
-func POSTPageFeedTick(options ...option) string {
+var PageFeed pageFeed
+
+type pageFeed struct {
+	Tick pageFeed_Tick
+}
+
+type pageFeed_Tick struct{}
+
+// POST references /feed/tick/
+func (pageFeed_Tick) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/feed/tick/')"
 	}
@@ -184,8 +192,18 @@ func POSTPageFeedTick(options ...option) string {
 	return b.String()
 }
 
-// POSTPageRoomsDM references /rooms/dm/
-func POSTPageRoomsDM(options ...option) string {
+var PageRooms pageRooms
+
+type pageRooms struct {
+	DM     pageRooms_DM
+	Notice pageRooms_Notice
+	Post   pageRooms_Post
+}
+
+type pageRooms_DM struct{}
+
+// POST references /rooms/dm/
+func (pageRooms_DM) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/rooms/dm/')"
 	}
@@ -200,8 +218,10 @@ func POSTPageRoomsDM(options ...option) string {
 	return b.String()
 }
 
-// POSTPageRoomsNotice references /rooms/notice/
-func POSTPageRoomsNotice(options ...option) string {
+type pageRooms_Notice struct{}
+
+// POST references /rooms/notice/
+func (pageRooms_Notice) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/rooms/notice/')"
 	}
@@ -216,8 +236,10 @@ func POSTPageRoomsNotice(options ...option) string {
 	return b.String()
 }
 
-// POSTPageRoomsPost references /rooms/post/
-func POSTPageRoomsPost(options ...option) string {
+type pageRooms_Post struct{}
+
+// POST references /rooms/post/
+func (pageRooms_Post) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/rooms/post/')"
 	}

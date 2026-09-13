@@ -30,6 +30,11 @@ type HTMLDocument struct {
 }
 
 // WriteHTML writes doc as a complete HTML document.
+//
+// The attribute writers of doc open with their own separating space, which is
+// why the body and the template tag are written without one. Two attributes
+// written next to each other would otherwise be one HTML parse error,
+// recovered from by every browser and refused by every validator.
 func (c *Core) WriteHTML(
 	w http.ResponseWriter, r *http.Request, doc HTMLDocument,
 ) error {
@@ -52,7 +57,7 @@ func (c *Core) WriteHTML(
 			return err
 		}
 	}
-	if _, err := io.WriteString(w, "</head><body "); err != nil {
+	if _, err := io.WriteString(w, "</head><body"); err != nil {
 		return err
 	}
 	if doc.WriteBodyAttrs != nil {
@@ -67,7 +72,7 @@ func (c *Core) WriteHTML(
 		}
 	}
 	if doc.WriteBodySuffix != nil {
-		if _, err := io.WriteString(w, "<template "); err != nil {
+		if _, err := io.WriteString(w, "<template"); err != nil {
 			return err
 		}
 		doc.WriteBodySuffix(w)

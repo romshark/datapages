@@ -3,6 +3,7 @@
 package app
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -35,4 +36,13 @@ func (PageError404) GET(r *http.Request) (
 		return nil, datapages.Redirect{URL: "/"}, nil
 	}
 	return templ.Raw(`<p id="msg">no such page</p>`), redirect, nil
+}
+
+// POSTStreamFail is /stream-fail
+//
+// The response is committed as an event stream before the action runs.
+// With neither PageError500 nor RecoverError there is nothing left to answer with,
+// which must stay silence rather than a status written into the stream.
+func (PageIndex) POSTStreamFail(_ *http.Request, _ datapages.SSE) error {
+	return errors.New("the action failed with the stream open")
 }

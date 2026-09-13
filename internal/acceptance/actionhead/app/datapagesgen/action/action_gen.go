@@ -168,8 +168,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexRender references /render/
-func POSTPageIndexRender(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Render pageIndex_Render
+}
+
+type pageIndex_Render struct{}
+
+// POST references /render/
+func (pageIndex_Render) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/render/')"
 	}

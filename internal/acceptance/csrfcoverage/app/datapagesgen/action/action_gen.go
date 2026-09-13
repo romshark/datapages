@@ -168,8 +168,17 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexDelete references /delete/
-func POSTPageIndexDelete(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Delete pageIndex_Delete
+	SignIn pageIndex_SignIn
+}
+
+type pageIndex_Delete struct{}
+
+// POST references /delete/
+func (pageIndex_Delete) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/delete/')"
 	}
@@ -184,8 +193,10 @@ func POSTPageIndexDelete(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexSignIn references /sign-in/
-func POSTPageIndexSignIn(options ...option) string {
+type pageIndex_SignIn struct{}
+
+// POST references /sign-in/
+func (pageIndex_SignIn) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/sign-in/')"
 	}

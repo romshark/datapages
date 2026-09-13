@@ -7,7 +7,9 @@ import (
 	"github.com/romshark/datapages"
 )
 
-// EventCounterUpdated is "counter.updated"
+// EventCounterUpdated is "fancy.counter.updated"
+//
+// See the event of app/simple: no two applications of one module may claim one subject.
 type EventCounterUpdated struct{}
 
 type App struct{ counter atomic.Int32 }

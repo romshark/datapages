@@ -37,11 +37,11 @@ func TestContract(t *testing.T) {
 		HrefSetLogger:  href.SetLogger,
 		Links:          []string{href.PageIndex()},
 		StreamPath:     "/_$/",
-		DispatchAction: action.POSTPageIndexPing(),
+		DispatchAction: action.PageIndex.Ping.POST(),
 		DispatchBody:   `{"n":1}`,
-		Actions:        []string{action.POSTPageIndexPing()},
-		SignalActions:  []string{action.POSTPageIndexPing()},
-		OptionedAction: action.POSTPageIndexPing(
+		Actions:        []string{action.PageIndex.Ping.POST()},
+		SignalActions:  []string{action.PageIndex.Ping.POST()},
+		OptionedAction: action.PageIndex.Ping.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),

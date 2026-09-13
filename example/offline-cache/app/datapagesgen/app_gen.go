@@ -26,7 +26,7 @@ import (
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 
-	"github.com/romshark/datapages/example/offline-cache/app"
+	dpapp "github.com/romshark/datapages/example/offline-cache/app"
 	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/assets"
 	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/href"
 
@@ -330,14 +330,14 @@ type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
-	app                  *app.App
+	app                  *dpapp.App
 	*auth.Manager[struct{}]
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, struct{}, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, struct{}, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -354,7 +354,7 @@ type Server struct {
 //   - datapages.WithCSRFProtection
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[struct{}],
 ) error {
@@ -412,43 +412,43 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /not-found/{$}",
-		s.handlePageError404GET)
+		pageError404Handlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /whoops/{$}",
-		s.handlePageError500GET)
+		pageError500Handlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /login/{$}",
-		s.handlePageLoginGET)
+		pageLoginHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /offline/{$}",
-		s.handlePageOfflineGET)
+		pageOfflineHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /shows/{nameslug}/purchase/{$}",
-		s.handlePagePurchaseGET)
+		pagePurchaseHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /shows/{nameslug}/{$}",
-		s.handlePageShowGET)
+		pageShowHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /shows/{nameslug}/ticket/{$}",
-		s.handlePageTicketGET)
+		pageTicketHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /tickets/{$}",
-		s.handlePageTicketsGET)
+		pageTicketsHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"POST /sign-out/{$}",
-		s.handlePOSTSignOut)
+		appHandlers{s}.POSTSignOut)
 	s.Mux().HandleFunc(
 		"POST /search/{$}",
-		s.handlePageIndexPOSTSearch)
+		pageIndexHandlers{s}.POSTSearch)
 	s.Mux().HandleFunc(
 		"POST /login/submit/{$}",
-		s.handlePageLoginPOSTSubmit)
+		pageLoginHandlers{s}.POSTSubmit)
 	s.Mux().HandleFunc(
 		"POST /shows/{nameslug}/purchase/confirm/{$}",
-		s.handlePagePurchasePOSTConfirm)
+		pagePurchaseHandlers{s}.POSTConfirm)
 }
 
 // httpErrFinal writes the error response without rendering PageError500.
@@ -474,7 +474,11 @@ func (s *Server) httpErrIntern(
 		}
 		// The page serves 200 on its own route. Reached from here it carries 500.
 		w.WriteHeader(http.StatusInternalServerError)
-		s.handlePageError500GET(w, r)
+		pageError500Handlers{s}.GET(w, r)
+		return
+	}
+	if sse != nil {
+		// The stream is open, hence no status is left to send.
 		return
 	}
 	if httpserve.ResponseBodyWritten(w) {
@@ -490,9 +494,9 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := app.PageError404{
+	p := dpapp.PageError404{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -517,13 +521,15 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
+type appHandlers struct{ *Server }
+
+func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 	sess, sessToken, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "App.SignOut")
-	pageCache := newPageCache(s, r, nil)
+	pageCache := newPageCache(s.Server, r, nil)
 	closeSession, redirect, err := s.app.POSTSignOut(r, sess, pageCache)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.SignOut", err)
@@ -540,15 +546,17 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
+type pageError404Handlers struct{ *Server }
+
+func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.PageError404{
+	p := dpapp.PageError404{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -572,8 +580,10 @@ func (s *Server) handlePageError404GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageError500{
+type pageError500Handlers struct{ *Server }
+
+func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageError500{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageError500.GET")
@@ -598,7 +608,9 @@ func (s *Server) handlePageError500GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -609,13 +621,13 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var query datapages.Query[app.SearchParams]
+	var query datapages.Query[dpapp.SearchParams]
 	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "q")
-	pageCache := newPageCache(s, r, nil)
+	pageCache := newPageCache(s.Server, r, nil)
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -630,14 +642,14 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	bodyAttrs := func(w http.ResponseWriter) {
 		httpserve.WriteReloadOnVisibility(w)
 
-		_, _ = io.WriteString(w, `data-signals:q="'`)
+		_, _ = io.WriteString(w, ` data-signals:q="'`)
 		htmlattr.WriteSignalString(w, query.Values.Term)
 		_, _ = io.WriteString(w, `'"`)
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-effect="const params = new URLSearchParams();
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
 			if ($q) params.set('q', $q);
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/?' + query : '/');
@@ -653,7 +665,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	_ = pageCache.writeBake(w)
 }
 
-func (s *Server) handlePageIndexPOSTSearch(
+func (s pageIndexHandlers) POSTSearch(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -664,7 +676,7 @@ func (s *Server) handlePageIndexPOSTSearch(
 		return
 	}
 	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
-	var signals datapages.Signals[app.SearchParams]
+	var signals datapages.Signals[dpapp.SearchParams]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
 		return
@@ -672,9 +684,9 @@ func (s *Server) handlePageIndexPOSTSearch(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageIndex.Search")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -685,7 +697,9 @@ func (s *Server) handlePageIndexPOSTSearch(
 	}
 }
 
-func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
+type pageLoginHandlers struct{ *Server }
+
+func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -695,9 +709,9 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 		Next string `query:"next"`
 	}]
 	query.Values.Next = httpread.QueryValue(r.URL.RawQuery, "next")
-	pageCache := newPageCache(s, r, nil)
+	pageCache := newPageCache(s.Server, r, nil)
 
-	p := app.PageLogin{
+	p := dpapp.PageLogin{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.GET")
@@ -726,7 +740,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 	_ = pageCache.writeBake(w)
 }
 
-func (s *Server) handlePageLoginPOSTSubmit(
+func (s pageLoginHandlers) POSTSubmit(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -747,8 +761,8 @@ func (s *Server) handlePageLoginPOSTSubmit(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.Submit")
-	pageCache := newPageCache(s, r, nil)
-	p := app.PageLogin{
+	pageCache := newPageCache(s.Server, r, nil)
+	p := dpapp.PageLogin{
 		App: s.app,
 	}
 	body, redirect, newSession, err := p.POSTSubmit(r, sess, pageCache, signals)
@@ -776,8 +790,10 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	}
 }
 
-func (s *Server) handlePageOfflineGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageOffline{
+type pageOfflineHandlers struct{ *Server }
+
+func (s pageOfflineHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageOffline{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageOffline.GET")
@@ -802,7 +818,9 @@ func (s *Server) handlePageOfflineGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePagePurchaseGET(w http.ResponseWriter, r *http.Request) {
+type pagePurchaseHandlers struct{ *Server }
+
+func (s pagePurchaseHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -813,9 +831,9 @@ func (s *Server) handlePagePurchaseGET(w http.ResponseWriter, r *http.Request) {
 	}]
 	path.Values.Slug = r.PathValue("nameslug")
 
-	p := app.PagePurchase{
+	p := dpapp.PagePurchase{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -842,7 +860,7 @@ func (s *Server) handlePagePurchaseGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePagePurchasePOSTConfirm(
+func (s pagePurchaseHandlers) POSTConfirm(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -858,10 +876,10 @@ func (s *Server) handlePagePurchasePOSTConfirm(
 	}]
 	path.Values.Slug = r.PathValue("nameslug")
 	defer s.recoverPanic(w, r, nil, "PagePurchase.Confirm")
-	pageCache := newPageCache(s, r, nil)
-	p := app.PagePurchase{
+	pageCache := newPageCache(s.Server, r, nil)
+	p := dpapp.PagePurchase{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -875,7 +893,9 @@ func (s *Server) handlePagePurchasePOSTConfirm(
 	}
 }
 
-func (s *Server) handlePageShowGET(w http.ResponseWriter, r *http.Request) {
+type pageShowHandlers struct{ *Server }
+
+func (s pageShowHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -885,11 +905,11 @@ func (s *Server) handlePageShowGET(w http.ResponseWriter, r *http.Request) {
 		Slug string `path:"nameslug"`
 	}]
 	path.Values.Slug = r.PathValue("nameslug")
-	pageCache := newPageCache(s, r, nil)
+	pageCache := newPageCache(s.Server, r, nil)
 
-	p := app.PageShow{
+	p := dpapp.PageShow{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -914,7 +934,9 @@ func (s *Server) handlePageShowGET(w http.ResponseWriter, r *http.Request) {
 	_ = pageCache.writeBake(w)
 }
 
-func (s *Server) handlePageTicketGET(w http.ResponseWriter, r *http.Request) {
+type pageTicketHandlers struct{ *Server }
+
+func (s pageTicketHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -924,11 +946,11 @@ func (s *Server) handlePageTicketGET(w http.ResponseWriter, r *http.Request) {
 		Slug string `path:"nameslug"`
 	}]
 	path.Values.Slug = r.PathValue("nameslug")
-	pageCache := newPageCache(s, r, nil)
+	pageCache := newPageCache(s.Server, r, nil)
 
-	p := app.PageTicket{
+	p := dpapp.PageTicket{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -956,16 +978,18 @@ func (s *Server) handlePageTicketGET(w http.ResponseWriter, r *http.Request) {
 	_ = pageCache.writeBake(w)
 }
 
-func (s *Server) handlePageTicketsGET(w http.ResponseWriter, r *http.Request) {
+type pageTicketsHandlers struct{ *Server }
+
+func (s pageTicketsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
-	pageCache := newPageCache(s, r, nil)
+	pageCache := newPageCache(s.Server, r, nil)
 
-	p := app.PageTickets{
+	p := dpapp.PageTickets{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}

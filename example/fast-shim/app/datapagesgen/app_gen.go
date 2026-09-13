@@ -21,7 +21,7 @@ import (
 	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpserve"
 
-	"github.com/romshark/datapages/example/fast-shim/app"
+	dpapp "github.com/romshark/datapages/example/fast-shim/app"
 	"github.com/romshark/datapages/example/fast-shim/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -279,13 +279,13 @@ type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
-	app                  *app.App
+	app                  *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -299,12 +299,12 @@ type Server struct {
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package app declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -356,23 +356,27 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /noshim/{$}",
-		s.handlePageNoShimGET)
+		pageNoShimHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /noshim2/{$}",
-		s.handlePageNoShim2GET)
+		pageNoShim2Handlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /subpage/{$}",
-		s.handlePageSubpageGET)
+		pageSubpageHandlers{s}.GET)
 }
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if sse != nil {
+		// The stream is open, hence no status is left to send.
+		return
+	}
 	if httpserve.ResponseBodyWritten(w) {
 		// A status written now only appends its text to the body.
 		return
@@ -381,14 +385,16 @@ func (s *Server) httpErrIntern(
 	http.Error(w, http.StatusText(code), code)
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
-	pageCache := newPageCache(s, r, nil)
+	pageCache := newPageCache(s.Server, r, nil)
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -412,8 +418,10 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	_ = pageCache.writeBake(w)
 }
 
-func (s *Server) handlePageNoShimGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageNoShim{
+type pageNoShimHandlers struct{ *Server }
+
+func (s pageNoShimHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageNoShim{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageNoShim.GET")
@@ -436,8 +444,10 @@ func (s *Server) handlePageNoShimGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageNoShim2GET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageNoShim2{
+type pageNoShim2Handlers struct{ *Server }
+
+func (s pageNoShim2Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageNoShim2{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageNoShim2.GET")
@@ -460,9 +470,11 @@ func (s *Server) handlePageNoShim2GET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageSubpageGET(w http.ResponseWriter, r *http.Request) {
-	pageCache := newPageCache(s, r, nil)
-	p := app.PageSubpage{
+type pageSubpageHandlers struct{ *Server }
+
+func (s pageSubpageHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	pageCache := newPageCache(s.Server, r, nil)
+	p := dpapp.PageSubpage{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageSubpage.GET")

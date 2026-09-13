@@ -107,6 +107,10 @@ type Query[Values any] struct{ Values Values }
 // it in StreamOpen, read that state in the OnXXX handlers,
 // and drop it in StreamClose. It also ties the log lines of one stream together.
 //
+// A StreamOpen that returns an error or panics gets no StreamClose.
+// Drop what it already registered before returning the error.
+// If the hook can panic, defer that drop.
+//
 // Keep it server-side and never hand it to clients.
 type StreamID uint64
 
@@ -418,6 +422,21 @@ var ErrSelectorLineBreak = errors.New("CSS selector contains a line break")
 // struct tag, which subscribes the client's stream to the segment value the signal holds.
 //
 // All subject fields must be declared before any payload field.
+//
+// A field must name this type directly, not a type declared from it:
+//
+//	type DeviceID datapages.Subject
+//
+//	// EventNotify is "notify"
+//	type EventNotify struct {
+//		Device datapages.Subject `json:"device"` // OK
+//	}
+//
+//	// EventAlert is "alert"
+//	type EventAlert struct {
+//		Device DeviceID   `json:"device"` // rejected
+//		Sensor devices.ID `json:"sensor"` // rejected
+//	}
 type Subject string
 
 // SubjectUser is a subject segment carrying the ID of the user the event is addressed to.
@@ -438,6 +457,8 @@ type Subject string
 // One dispatch publishes to one subject. To address several users,
 // dispatch once per user, which leaves the handler in control of
 // what happens when one of the publishes fails.
+//
+// As with [Subject], a field must name this type itself.
 type SubjectUser string
 
 // User ID errors reported by [ValidateUserID].

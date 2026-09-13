@@ -86,9 +86,9 @@ func nav(session Session) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var4 string
-			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTAppSignOut())
+			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.App.SignOut.POST())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 132, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 132, Col: 45}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 			if templ_7745c5c3_Err != nil {
@@ -366,9 +366,9 @@ func pageLogin(errorMsg string, valid bool) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var16 string
-		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageLoginValidate())
+		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageLogin.Validate.POST())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 184, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 184, Col: 66}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 		if templ_7745c5c3_Err != nil {
@@ -379,9 +379,9 @@ func pageLogin(errorMsg string, valid bool) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var17 string
-		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageLoginSubmit())
+		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageLogin.Submit.POST())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 185, Col: 56}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 185, Col: 58}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 		if templ_7745c5c3_Err != nil {
@@ -500,9 +500,9 @@ func pageRegister(errorMsg string, valid bool) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var22 string
-		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageRegisterValidate())
+		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageRegister.Validate.POST())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 231, Col: 67}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 231, Col: 69}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var22)
 		if templ_7745c5c3_Err != nil {
@@ -513,9 +513,9 @@ func pageRegister(errorMsg string, valid bool) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var23 string
-		templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageRegisterSubmit())
+		templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageRegister.Submit.POST())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 232, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 232, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var23)
 		if templ_7745c5c3_Err != nil {

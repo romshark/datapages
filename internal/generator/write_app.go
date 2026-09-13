@@ -21,8 +21,12 @@ var appStaticContent2 string
 // WriteApp generates code for the generated root package and appends it to buffer.
 // pkgName is the Go package name (e.g. "datapagesgen").
 func (w *Writer) WriteApp(pkgName string, m *model.App) {
-	appPkg := appPkgQualifier(m)
+	appPkg := appPkgQual
 	w.appPkgQual = appPkg
+	w.appPkgPath = m.PkgPath
+	// Before setSessionType and before the header: both render model types,
+	// which the table names the packages of.
+	w.imports = newAppImports(m)
 	w.buildEventMap(m.Events)
 	w.usage = computeAppUsage(m)
 	w.setSessionType(m)
@@ -60,7 +64,7 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 		w.writeBrokerSubjectKind(m.Events)
 	}
 	w.writeSetupHandlers(m)
-	w.writeAppErrHelpers(m, appPkg)
+	w.writeAppErrHelpers(m)
 
 	if m.PageError404 != nil &&
 		m.PageError404.GET != nil && m.PageError404.GET.OutputBody != nil {
@@ -68,12 +72,18 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	}
 
 	// App-level action handlers.
-	for _, h := range m.Actions {
-		w.writeAppActionHandler(h, m, appPkg)
+	if len(m.Actions) > 0 {
+		w.Line(0, "")
+		w.Linef(0, "type %s struct{ *Server }", handlerRecvType("App"))
+		for _, h := range m.Actions {
+			w.writeAppActionHandler(h, m, appPkg)
+		}
 	}
 
 	// Per-page handlers.
 	for _, p := range m.Pages {
+		w.Line(0, "")
+		w.Linef(0, "type %s struct{ *Server }", handlerRecvType(p.TypeName))
 		if p.GET != nil && p.GET.OutputBody != nil {
 			w.writePageGETHandler(p, m, appPkg)
 		}
@@ -162,13 +172,8 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"golang.org/x/sync/errgroup"`)
 	w.Line(0, "")
 	w.Byte('\t')
-	// An unaliased import binds to the name the package declares.
-	// Name it anyway when that differs from the last element of the path,
-	// which is what a reader and the import formatter both assume it to be.
-	if w.appPkgQual != appPkgName(appPkgPath) {
-		w.Raw(w.appPkgQual)
-		w.Byte(' ')
-	}
+	w.Raw(w.appPkgQual)
+	w.Byte(' ')
 	w.writeQuoted(appPkgPath)
 	w.Byte('\n')
 	if w.hasAssets() && w.genImport != "" {
@@ -181,6 +186,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 		w.writeQuoted(w.genImport + "/href")
 		w.Byte('\n')
 	}
+	w.writeExtraImports(w.imports.Extra())
 	w.Line(0, "")
 	if w.prometheus {
 		w.Line(1, `"github.com/prometheus/client_golang/prometheus"`)
@@ -786,8 +792,12 @@ func (s *Server) Init(
 `)
 }
 
+// writeEventSubjectConsts writes the subject of every event and the subject
+// prefix of every event whose subject carries values.
+//
+// Both sets are constants. They are exported, and a var would let any importer
+// assign one and reroute the application at runtime.
 func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
-	// EvSubj* constants (subscription subjects with wildcards for prefixed events).
 	w.Line(0, "")
 	w.Line(0, "const (")
 
@@ -818,23 +828,21 @@ func (w *Writer) writeEventSubjectConsts(events []*model.Event) {
 
 	w.Line(0, ")")
 
-	// EvSubjPref* constants
-	// (prefix for matching events whose concrete subject is only known at runtime).
-	hasPrefixed := slices.ContainsFunc(events, evUsesPrefixMatch)
-	if hasPrefixed {
-		w.Line(0, "")
-		w.Line(0, "const (")
-		for _, e := range events {
-			if evUsesPrefixMatch(e) {
-				w.Byte('\t')
-				w.Raw(evSubjPrefConst(e))
-				w.Raw(" = ")
-				w.writeQuoted(evSubjPrefValue(e))
-				w.Byte('\n')
-			}
-		}
-		w.Line(0, ")")
+	if !slices.ContainsFunc(events, evUsesPrefixMatch) {
+		return
 	}
+	w.Line(0, "")
+	w.Line(0, "const (")
+	for _, e := range events {
+		if evUsesPrefixMatch(e) {
+			w.Byte('\t')
+			w.Raw(evSubjPrefConst(e))
+			w.Raw(" = ")
+			w.writeQuoted(evSubjPrefValue(e))
+			w.Byte('\n')
+		}
+	}
+	w.Line(0, ")")
 }
 
 func (w *Writer) writeMessageBrokerStreamSubjects(events []*model.Event) {
@@ -1221,9 +1229,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 			// Index page: GET /
 			w.Line(1, "s.Mux().HandleFunc(")
 			w.Line(2, "\"GET /\",")
-			w.Raw("\t\ts.handle")
-			w.Raw(p.TypeName)
-			w.Raw("GET)\n")
+			w.Rawf("\t\t%s{s}.GET)\n", handlerRecvType(p.TypeName))
 		} else if routepattern.EndsInWildcard(p.Route) {
 			// A {name...} wildcard runs to the end of the path already.
 			// Marking the end after it puts the wildcard in the middle,
@@ -1232,17 +1238,13 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 			w.Raw("\t\t\"GET ")
 			w.Raw(p.Route)
 			w.Raw("\",\n")
-			w.Raw("\t\ts.handle")
-			w.Raw(p.TypeName)
-			w.Raw("GET)\n")
+			w.Rawf("\t\t%s{s}.GET)\n", handlerRecvType(p.TypeName))
 		} else {
 			w.Line(1, "s.Mux().HandleFunc(")
 			w.Raw("\t\t\"GET ")
 			w.Raw(routeForHandler)
 			w.Raw("{$}\",\n")
-			w.Raw("\t\ts.handle")
-			w.Raw(p.TypeName)
-			w.Raw("GET)\n")
+			w.Rawf("\t\t%s{s}.GET)\n", handlerRecvType(p.TypeName))
 		}
 
 		// Stream endpoint.
@@ -1253,18 +1255,15 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 			w.Raw("\t\t\"GET ")
 			w.Raw(streamPath)
 			w.Raw("{$}\",\n")
-			w.Raw("\t\ts.handle")
-			w.Raw(p.TypeName)
-			w.Raw("GETStream)\n")
+			w.Rawf("\t\t%s{s}.GETStream)\n", handlerRecvType(p.TypeName))
 
 			if pageHasAnonStream(p, w.eventMap) {
 				w.Line(1, "s.Mux().HandleFunc(")
 				w.Raw("\t\t\"GET ")
 				w.Raw(streamPath)
 				w.Raw("anon/{$}\",\n")
-				w.Raw("\t\ts.handle")
-				w.Raw(p.TypeName)
-				w.Raw("GETStreamAnon)\n")
+				w.Rawf("\t\t%s{s}.GETStreamAnon)\n",
+					handlerRecvType(p.TypeName))
 			}
 		}
 	}
@@ -1280,10 +1279,7 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 		w.Byte(' ')
 		w.Raw(route)
 		w.Raw("{$}\",\n")
-		w.Raw("\t\ts.handle")
-		w.Raw(method)
-		w.Raw(h.Name)
-		w.Raw(")\n")
+		w.Rawf("\t\t%s{s}.%s%s)\n", handlerRecvType("App"), method, h.Name)
 	}
 
 	// Page actions.
@@ -1298,11 +1294,8 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 			w.Byte(' ')
 			w.Raw(route)
 			w.Raw("{$}\",\n")
-			w.Raw("\t\ts.handle")
-			w.Raw(p.TypeName)
-			w.Raw(method)
-			w.Raw(h.Name)
-			w.Raw(")\n")
+			w.Rawf("\t\t%s{s}.%s%s)\n",
+				handlerRecvType(p.TypeName), method, h.Name)
 		}
 	}
 
@@ -1352,23 +1345,9 @@ func (w *Writer) writeCSRFOnlyCheck() {
 	w.Line(1, "}")
 }
 
-func (w *Writer) writeAppErrHelpers(m *model.App, appPkg string) {
+func (w *Writer) writeAppErrHelpers(m *model.App) {
 	hasPage := m.PageError500 != nil
 	hasRecover := m.RecoverError != nil
-
-	if !hasPage && !hasRecover {
-		w.Raw(`
-func (s *Server) httpErrIntern(
-	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
-) {
-	s.LogErr(msg, err)
-`)
-		w.writeHTTPErrFallback()
-		w.Raw(`}
-`)
-		return
-	}
 
 	if hasPage {
 		// httpErrIntern answers a page load by rendering PageError500.
@@ -1384,13 +1363,18 @@ func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 `)
 	}
 
-	w.Raw(`
+	// r is read by the page branch and by the stream RecoverError answers on.
+	reqParam := "_ *http.Request"
+	if hasPage || hasRecover {
+		reqParam = "r *http.Request"
+	}
+	w.Rawf(`
 func (s *Server) httpErrIntern(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, %s,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
-`)
+`, reqParam)
 	if hasPage {
 		w.Raw(`	if !httpserve.IsDatastarRequest(r) {
 		if httpserve.ResponseBodyWritten(w) {
@@ -1399,8 +1383,9 @@ func (s *Server) httpErrIntern(
 		}
 		// The page serves 200 on its own route. Reached from here it carries 500.
 		w.WriteHeader(http.StatusInternalServerError)
-		s.handlePageError500GET(w, r)
-		return
+		`)
+		w.Rawf("%s{s}.GET(w, r)\n", handlerRecvType(m.PageError500.TypeName))
+		w.Raw(`		return
 	}
 `)
 	}
@@ -1411,9 +1396,7 @@ func (s *Server) httpErrIntern(
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
 		committed = true
 	}
-	errRecover := s.`)
-		w.Raw(appPkg)
-		w.Raw(`.RecoverError(`)
+	errRecover := s.app.RecoverError(`)
 		for i, kind := range m.RecoverError.OrderedInputs {
 			if i > 0 {
 				w.Raw(", ")
@@ -1445,6 +1428,14 @@ func (s *Server) httpErrIntern(
 		slog.Any("err", errRecover))
 	if committed {
 		// A status written now only appends its text to the stream.
+		return
+	}
+`)
+	} else {
+		// datastar.NewSSE sent the 200 and the headers without a body byte,
+		// which ResponseBodyWritten cannot see.
+		w.Raw(`	if sse != nil {
+		// The stream is open, hence no status is left to send.
 		return
 	}
 `)
@@ -1518,8 +1509,7 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	w.Line(0, "func (s *Server) render404(w http.ResponseWriter, r *http.Request) {")
 
 	h404 := p.GET.Handler
-	headNeedsSess := m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession
-	if h404.InputSession != nil || headNeedsSess {
+	if hasSessionInput(h404) || globalHeadNeedsSession(m) {
 		w.Line(1, "sess, _, ok := s.ReadSession(w, r)")
 		w.Line(1, "if !ok {")
 		w.Line(2, "return")
@@ -1582,10 +1572,8 @@ func (w *Writer) writeEmbedInitStmt(ap *model.AbstractPage, appPkg string, inden
 // of [Writer.writePageActionHandler] for a handler declared on App itself.
 func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg string) {
 	w.Line(0, "")
-	w.Raw("func (s *Server) handle")
-	w.Raw(strings.ToUpper(h.HTTPMethod))
-	w.Raw(h.Name)
-	w.Raw("(w http.ResponseWriter, r *http.Request) {\n")
+	w.Rawf("func (s %s) %s%s(w http.ResponseWriter, r *http.Request) {\n",
+		handlerRecvType("App"), strings.ToUpper(h.HTTPMethod), h.Name)
 
 	if h.InputSSE != nil || h.InputSignals != nil {
 		w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
@@ -1596,13 +1584,11 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 
 	// Auth.
 	needsToken := h.OutputCloseSession != nil
-	headNeedsSess := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
-		m.GlobalHeadGenerator.InputSession
 	switch {
-	case h.InputSession != nil || needsToken || headNeedsSess:
+	case actionSessionInScope(h, m) || needsToken:
 		// A local nobody reads is a package that does not compile.
 		sessVar := "_"
-		if h.InputSession != nil || headNeedsSess {
+		if actionSessionInScope(h, m) {
 			sessVar = "sess"
 		}
 		if needsToken {
@@ -1634,7 +1620,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	// Read signals.
 	if h.InputSignals != nil {
 		w.Raw("\tvar signals ")
-		w.Raw(renderSignalsType(h.InputSignals, m))
+		w.Raw(w.renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
@@ -1668,7 +1654,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	// Page cache handle. App-level actions have no SSE stream. They deliver
 	// their queued writes through the redirect response (see httpRedirectOffline).
 	if h.InputPageCache != nil && isAppLevel {
-		w.Line(1, "pageCache := newPageCache(s, r, nil)")
+		w.Line(1, "pageCache := newPageCache(s.Server, r, nil)")
 	}
 
 	// Page constructor (for page actions).
@@ -1745,10 +1731,8 @@ func (w *Writer) writeMethodCall(
 
 	// Close and create session: a document rendered below is written from what
 	// they produce, not from the session read before.
-	actHeadNeedsSession := m.GlobalHeadGenerator != nil &&
-		m.GlobalHeadGenerator.InputSession
 	actSessArg, actSessRebind := w.renderSessionVar(h, m, h.OutputBody != nil,
-		hasSessionInput(h) || actHeadNeedsSession)
+		actionSessionInScope(h, m))
 	w.writeSessionOutputs(h, actSessRebind)
 
 	// Redirect.
@@ -1759,7 +1743,8 @@ func (w *Writer) writeMethodCall(
 		ownerName := actionOwnerName(p, isAppLevel)
 
 		if m.GlobalHeadGenerator != nil {
-			w.writeGenericHeadCall(m.GlobalHeadGenerator, hasSessionInput(h))
+			w.writeGenericHeadCall(m.GlobalHeadGenerator,
+				actionSessionInScope(h, m))
 		}
 
 		w.Line(1, "if err := s.writeHTML(")
@@ -1801,7 +1786,9 @@ func (w *Writer) writeDispatchers(h *model.Handler, prefix, ctxExpr string) {
 		w.Raw(dispatchVarName(prefix, d.EventTypeName))
 		w.Raw(" := ")
 		w.Raw(dispatcherTypeName(d.EventTypeName))
-		w.Raw("{s: s, ctx: ")
+		// Every dispatcher is built inside a handler method, whose receiver
+		// embeds the server rather than being it.
+		w.Raw("{s: s.Server, ctx: ")
 		w.Raw(ctxExpr)
 		w.Raw("}\n")
 	}
@@ -1819,7 +1806,7 @@ func (w *Writer) writeDispatcherTypes(appPkg string) {
 func (w *Writer) writeDispatcherType(evName, appPkg string) {
 	ev := w.eventMap[evName]
 	typeName := dispatcherTypeName(evName)
-	eventType := appPkg + "." + evName
+	eventType := w.eventTypeRef(ev, appPkg, evName)
 
 	w.Line(0, "")
 	w.Raw("type ")
@@ -1913,24 +1900,25 @@ const (
 	varSignals = "signals.Values"
 )
 
-func renderSignalsType(input *model.Input, m *model.App) string {
-	return "datapages.Signals[" + renderValuesType(input, m) + "]"
+func (w *Writer) renderSignalsType(input *model.Input, m *model.App) string {
+	return "datapages.Signals[" + w.renderValuesType(input, m) + "]"
 }
 
-func renderQueryType(input *model.Input, m *model.App) string {
-	return "datapages.Query[" + renderValuesType(input, m) + "]"
+func (w *Writer) renderQueryType(input *model.Input, m *model.App) string {
+	return "datapages.Query[" + w.renderValuesType(input, m) + "]"
 }
 
-func renderPathType(input *model.Input, m *model.App) string {
-	return "datapages.Path[" + renderValuesType(input, m) + "]"
+func (w *Writer) renderPathType(input *model.Input, m *model.App) string {
+	return "datapages.Path[" + w.renderValuesType(input, m) + "]"
 }
 
 // renderValuesType renders the Values type argument of a wrapped input.
-func renderValuesType(input *model.Input, m *model.App) string {
+// It renders for app_gen.go, which names every package [genImports] does.
+func (w *Writer) renderValuesType(input *model.Input, m *model.App) string {
 	if isNamedType(input.Type) {
-		return renderType(input.Type)
+		return renderTypeIn(w.imports.Qualifier(), input.Type)
 	}
-	return renderAnonStructType(input.Type, m.Fset)
+	return renderAnonStructType(input.Type, m.Fset, w.imports.Qualifier())
 }
 
 func handlerKind(h *model.Handler) string {
@@ -2010,7 +1998,8 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 
 	// Generic head.
 	if m.GlobalHeadGenerator != nil {
-		w.writeGenericHeadCall(m.GlobalHeadGenerator, h.InputSession != nil)
+		w.writeGenericHeadCall(m.GlobalHeadGenerator,
+			hasSessionInput(h) || globalHeadNeedsSession(m))
 	}
 
 	// Body attrs - simple for render404/error pages.
@@ -2035,13 +2024,11 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	w.Raw("\t\tw, r, ")
 	if m.Session != nil {
 		// The zero session only where none was read: it carries no CSRF script.
-		headNeedsSession := m.GlobalHeadGenerator != nil &&
-			m.GlobalHeadGenerator.InputSession
 		// PageOffline keeps the zero one whatever its handler read: the worker
 		// precaches a single copy and serves it to every visitor.
 		sessArg := w.sessionType + "{}"
 		if p.PageSpecialization != model.PageTypeOffline &&
-			(h.InputSession != nil || headNeedsSession) {
+			(hasSessionInput(h) || globalHeadNeedsSession(m)) {
 			sessArg = "sess"
 		}
 		w.Raw(sessArg)

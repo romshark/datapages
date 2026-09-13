@@ -93,7 +93,7 @@ templ menuAccount(id, userName, userAvatarURL string) {
 						@iconTicket()
 						My Tickets
 					</a>
-					<button type="button" role="menuitem" data-on:click={ action.POSTAppSignOut() }>
+					<button type="button" role="menuitem" data-on:click={ action.App.SignOut.POST() }>
 						@iconClose()
 						Sign out
 					</button>
@@ -135,7 +135,7 @@ templ pageShows(
 					id="shows-search"
 					value={ query.Term }
 					data-bind="q"
-					data-on:input__debounce.250ms={ action.POSTPageIndexSearch() }
+					data-on:input__debounce.250ms={ action.PageIndex.Search.POST() }
 					placeholder="Search by title, genre, venue or city…"
 					autocomplete="off"
 				/>
@@ -282,7 +282,7 @@ templ pagePurchase(session Session, show domain.Show, baseData baseData) {
 				<button
 					class="btn buy"
 					data-attr:disabled="$_buying"
-					data-on:click={ action.POSTPagePurchaseConfirm(
+					data-on:click={ action.PagePurchase.Confirm.POST(
 						show.Slug, action.WithBefore("$_buying = true"),
 					) }
 				>
@@ -392,7 +392,7 @@ templ pageLogin(wrongCreds bool, next string) {
 				<a href={ href.PageIndex(href.QueryPageIndex{}) }>continue as guest</a>
 			</header>
 			<section>
-				<form data-on:submit__prevent={ action.POSTPageLoginSubmit() }>
+				<form data-on:submit__prevent={ action.PageLogin.Submit.POST() }>
 					<input
 						class="input"
 						id="elInEmail"

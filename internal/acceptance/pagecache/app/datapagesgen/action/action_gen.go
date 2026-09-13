@@ -168,8 +168,17 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexRedirect references /redirect-write/
-func POSTPageIndexRedirect(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Redirect pageIndex_Redirect
+	Stream   pageIndex_Stream
+}
+
+type pageIndex_Redirect struct{}
+
+// POST references /redirect-write/
+func (pageIndex_Redirect) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/redirect-write/')"
 	}
@@ -184,8 +193,10 @@ func POSTPageIndexRedirect(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexStream references /stream-write/
-func POSTPageIndexStream(options ...option) string {
+type pageIndex_Stream struct{}
+
+// POST references /stream-write/
+func (pageIndex_Stream) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/stream-write/')"
 	}

@@ -70,7 +70,7 @@ func TestWriteHTML(t *testing.T) {
 	}{
 		"empty": {
 			httpserve.HTMLDocument{},
-			c.HTMLPrefix() + "</head><body ></body></html>",
+			c.HTMLPrefix() + "</head><body></body></html>",
 		},
 		"head and body": {
 			httpserve.HTMLDocument{
@@ -78,14 +78,14 @@ func TestWriteHTML(t *testing.T) {
 				Body: renderer{s: "<p>b</p>"},
 			},
 			c.HTMLPrefix() +
-				"<title>t</title></head><body ><p>b</p></body></html>",
+				"<title>t</title></head><body><p>b</p></body></html>",
 		},
 		"generic head goes first": {
 			httpserve.HTMLDocument{
 				HeadGeneric: renderer{s: "<meta g>"},
 				Head:        renderer{s: "<meta p>"},
 			},
-			c.HTMLPrefix() + "<meta g><meta p></head><body ></body></html>",
+			c.HTMLPrefix() + "<meta g><meta p></head><body></body></html>",
 		},
 		"csrf follows the head": {
 			httpserve.HTMLDocument{
@@ -95,15 +95,15 @@ func TestWriteHTML(t *testing.T) {
 				Head:         renderer{s: "<meta p>"},
 			},
 			c.HTMLPrefix() +
-				"<meta p><csrf u1 tok></head><body ></body></html>",
+				"<meta p><csrf u1 tok></head><body></body></html>",
 		},
 		"body attributes and suffix": {
 			httpserve.HTMLDocument{
 				WriteBodyAttrs: func(w http.ResponseWriter) {
-					_, _ = io.WriteString(w, `class="x"`)
+					_, _ = io.WriteString(w, ` class="x"`)
 				},
 				WriteBodySuffix: func(w http.ResponseWriter) {
-					_, _ = io.WriteString(w, `data-x`)
+					_, _ = io.WriteString(w, ` data-x`)
 				},
 			},
 			c.HTMLPrefix() +

@@ -114,8 +114,16 @@ func writeCompileModule(t *testing.T, mod, src, repoRoot string) string {
 		}
 		from := filepath.Join(src, name)
 		if e.IsDir() {
+			// A directory of Go files is a sibling package the app package
+			// imports as <module>/<name>, hence it goes to the module root.
+			// Anything else is embedded, which only works from inside the app package:
+			// the assets directory is the one such fixture.
+			dst := pages
+			if isGoPkgDir(t, from) {
+				dst = mod
+			}
 			require.NoError(t,
-				os.CopyFS(filepath.Join(pages, name), os.DirFS(from)))
+				os.CopyFS(filepath.Join(dst, name), os.DirFS(from)))
 			continue
 		}
 		b, err := os.ReadFile(from)
@@ -134,6 +142,20 @@ func writeCompileModule(t *testing.T, mod, src, repoRoot string) string {
 	// The versions come from the example that requires everything the generator can emit.
 	writeModuleFiles(t, mod, modPath, repoRoot)
 	return modPath
+}
+
+// isGoPkgDir reports whether dir holds Go source, which makes it a package
+// rather than a directory the app package embeds.
+func isGoPkgDir(t *testing.T, dir string) bool {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") {
+			return true
+		}
+	}
+	return false
 }
 
 // writeModuleFiles writes the go.mod and go.sum of a throwaway module under

@@ -129,7 +129,7 @@ templ nav(session Session) {
 		if !session.IsGuest() {
 			<button
 				class="linklike"
-				data-on:click={ action.POSTAppSignOut() }
+				data-on:click={ action.App.SignOut.POST() }
 			>Sign Out</button>
 		} else {
 			<a href={ href.PageLogin() }>Login</a>
@@ -181,8 +181,8 @@ templ pageLogin(errorMsg string, valid bool) {
 		class="card"
 		data-signals:email="''"
 		data-signals:password="''"
-		data-on:input__debounce.300ms={ action.POSTPageLoginValidate() }
-		data-on:submit__prevent={ action.POSTPageLoginSubmit() }
+		data-on:input__debounce.300ms={ action.PageLogin.Validate.POST() }
+		data-on:submit__prevent={ action.PageLogin.Submit.POST() }
 	>
 		<h1>Login</h1>
 		<div class="field">
@@ -228,8 +228,8 @@ templ pageRegister(errorMsg string, valid bool) {
 		data-signals:name="''"
 		data-signals:email="''"
 		data-signals:password="''"
-		data-on:input__debounce.300ms={ action.POSTPageRegisterValidate() }
-		data-on:submit__prevent={ action.POSTPageRegisterSubmit() }
+		data-on:input__debounce.300ms={ action.PageRegister.Validate.POST() }
+		data-on:submit__prevent={ action.PageRegister.Submit.POST() }
 	>
 		<h1>Create account</h1>
 		<div class="field">

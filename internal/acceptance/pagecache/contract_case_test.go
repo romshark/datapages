@@ -33,8 +33,8 @@ func TestContract(t *testing.T) {
 		HrefSetLogger:  href.SetLogger,
 		Links:          []string{href.PageIndex(), href.PageOffline()},
 		Actions: []string{
-			action.POSTPageIndexStream(),
-			action.POSTPageIndexRedirect(),
+			action.PageIndex.Stream.POST(),
+			action.PageIndex.Redirect.POST(),
 		},
 	})
 }

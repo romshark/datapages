@@ -232,13 +232,19 @@ Avoid:
 - Counting the items instead of naming them. "Two things: X and Y" is "X and Y".
   A teaser count with no items after it ("three things jumped out at me") is
   worse.
-- Figurative verbs where a plain one fits: "buys", "drives", "unlocks",
-  "wins", "kills", "shines". Write "a value receiver prevents mutation",
+- Figurative language where a plain word fits: "buys", "drives", "unlocks",
+  "wins", "kills", "shines", "leaves the reader hunting". These are examples,
+  not the whole set. The test is whether the sentence says what literally happens:
+  nothing buys, drives or hunts (unless it literally does).
+  Write "a value receiver prevents mutation",
   not "a value receiver buys us immutability".
   Write "the pointer saves no allocation here",
   not "the pointer buys nothing here".
   Write "the tests that send it requests over HTTP",
   not "the tests that drive it over HTTP".
+  Write "the reader cannot tell what is meant",
+  not "it leaves the reader hunting for what was meant".
+- Restating a general principle the facts already show. Start with the example.
 - Rhetorical questions as headings: "So what does this mean?".
 - Filler transitions: "let's dive in", "at the end of the day", "it's worth
   noting that", "as we can see".
@@ -249,6 +255,7 @@ Avoid:
 - Em-dashes and ", so ..." clauses. Use a colon, a full stop or "which ...".
 - Non-ASCII characters where ASCII exists: curly quotes, ellipsis, arrows,
   non-breaking spaces. Write `'`, `"`, `...`, `->` and a plain space.
+- Stating what did not change, stayed, or was already correct.
 - Hedging where a check would settle it. Check, then state the answer.
 - Apologies and post-mortems after a mistake. Correct it and continue.
 
@@ -295,6 +302,10 @@ Don't write:
 - File and line references: `// see decoder.go:212`. They break as soon as the
   code moves and nothing checks them. Name the symbol with a doc link instead:
   `[Decoder.Next]`.
+- Positional references: `// here and not above`, `// unlike the check below`,
+  `// as mentioned earlier`. The reader cannot tell what is meant, and the
+  words stop being true when the code moves. Name the symbol, or state the
+  fact on its own.
 
 Do write:
 
@@ -385,6 +396,11 @@ for _, it := range items {
   what the caller has to do, one step per line. A caller must be able to
   migrate from this block alone, without reading the diff. Say plainly when a
   step is automatic (`datapages gen` regenerates it) and when it is manual.
+  Every line is a step the caller takes. Never list what did not change:
+  `href is unchanged` is a step to do nothing. When a step could be read as
+  reaching further than it does, narrow the step instead of adding a line:
+  write `EvSubjPref<Event> -> EvPrefix<Event>, the prefix constants only`,
+  not `... unchanged` on a line of its own.
 - A `perf:` commit quotes the measurement as `before -> after`.
 - No tool attribution or `Co-Authored-By` trailers.
 

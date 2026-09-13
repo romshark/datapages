@@ -83,6 +83,10 @@ func NewHandler(
 // sessionKey names the session the stream belongs to.
 // It is watched only when userID is non-empty and the handler was given a session store.
 //
+// onClose runs only for a stream whose onOpen succeeded. An onOpen that returns
+// an error or panics still owns what it acquired, which is what lets onClose
+// assume that state is there.
+//
 // A panic in onClose is recovered here, since nothing else would.
 // A panic in fn is the caller's, and generated code defers a recover of its own there.
 func (h *Handler) Handle(
@@ -130,6 +134,8 @@ func (h *Handler) Handle(
 
 	subC := sub.C()
 	if onOpen != nil {
+		// No onClose for a stream that never opened. onClose releases what
+		// onOpen acquired, and a failed onOpen may have acquired nothing.
 		if err := callOnOpen(onOpen, streamID, sse); err != nil {
 			h.onErr(w, r, sse, "handling stream open hook", err)
 			return

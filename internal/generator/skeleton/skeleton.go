@@ -6,6 +6,8 @@ import (
 	_ "embed"
 	"fmt"
 	"go/format"
+	"maps"
+	"strconv"
 	"text/template"
 )
 
@@ -82,9 +84,95 @@ func AppGo() ([]byte, error) {
 	return src, nil
 }
 
+// mainGoImports maps every import main.go.tmpl writes to the identifier it
+// binds, which is not always the last path element: nats.go binds "nats".
+//
+// TestMainGoImportsAreKnown fails when the template imports something this
+// table does not list.
+var mainGoImports = map[string]string{
+	"bufio":                         "bufio",
+	"context":                       "context",
+	"encoding/hex":                  "hex",
+	"errors":                        "errors",
+	"fmt":                           "fmt",
+	"io/fs":                         "fs",
+	"log/slog":                      "slog",
+	"net":                           "net",
+	"net/http":                      "http",
+	"os":                            "os",
+	"os/signal":                     "signal",
+	"strings":                       "strings",
+	"github.com/romshark/datapages": "datapages",
+	"github.com/romshark/datapages/modules/messaging/natscore": "natscore",
+	"github.com/romshark/datapages/modules/sessions":           "sessions",
+	"github.com/romshark/datapages/modules/sessions/natskv":    "natskv",
+	"github.com/nats-io/nats.go":                               "nats",
+}
+
+// MainGoImportIdents returns the imports main.go carries, mapped to the identifier
+// each binds. It exists for the test that keeps the table in step with the template.
+func MainGoImportIdents() map[string]string {
+	return maps.Clone(mainGoImports)
+}
+
+// MainGoTaken is every identifier main.go binds before the session data type
+// brings a package of its own along. A package of that name needs an alias,
+// or one identifier would name two packages.
+func MainGoTaken(appPkgName, genPkgName string) map[string]bool {
+	taken := make(map[string]bool, len(mainGoImports)+3)
+	for _, id := range mainGoImports {
+		taken[id] = true
+	}
+	taken[genPkgName] = true
+	appPkg, _ := mainGoAppPkg(appPkgName, genPkgName)
+	taken[appPkg] = true
+	return taken
+}
+
+// MainGoAppPkg reports the identifier main.go refers to the app package by
+// and whether the import carries it as an alias.
+func MainGoAppPkg(appPkgName, genPkgName string) (name string, aliased bool) {
+	return mainGoAppPkg(appPkgName, genPkgName)
+}
+
+// mainGoAppPkg reports the identifier main.go refers to
+// the app package by and whether the import carries it as an alias.
+//
+// The declared name is kept when nothing else in the file binds it, which is
+// the ordinary case. An app package named after one of the imports takes an
+// alias instead: unaliased, one identifier would bind two packages.
+func mainGoAppPkg(appPkgName, genPkgName string) (name string, aliased bool) {
+	taken := make(map[string]bool, len(mainGoImports)+1)
+	for _, id := range mainGoImports {
+		taken[id] = true
+	}
+	taken[genPkgName] = true
+	if !taken[appPkgName] {
+		return appPkgName, false
+	}
+	for n := 0; ; n++ {
+		alias := "dpapp"
+		if n > 0 {
+			alias += strconv.Itoa(n + 1)
+		}
+		if !taken[alias] {
+			return alias, true
+		}
+	}
+}
+
+// Import is a package main.go imports for the session data type,
+// under the identifier that file qualifies it by.
+type Import struct {
+	Path    string
+	Ident   string
+	Aliased bool
+}
+
 type mainGoData struct {
 	AppImport  string
 	AppPkg     string
+	AppAliased bool
 	GenImport  string
 	Gen        string
 	Prometheus bool
@@ -93,6 +181,8 @@ type mainGoData struct {
 	// SessionData is the rendered session Data type the session manager is
 	// instantiated with, for example "struct{}" or "app.SessionData".
 	SessionData string
+	// ExtraImports are the packages SessionData names beyond the app package.
+	ExtraImports []Import
 }
 
 // MainGo renders the cmd/server/main.go template with the given import paths
@@ -100,20 +190,25 @@ type mainGoData struct {
 // declares, which need not match the last element of its import path.
 //
 // sessionData is the rendered session Data type,
-// empty for an application without sessions.
+// empty for an application without sessions. extraImports are the packages it
+// names beyond the app package, which the caller renders it against:
+// [MainGoTaken] is the set they have to keep out of the way of.
 func MainGo(
 	appImportPath, appPkgName, genImportPath, genPkgName string,
-	prometheus bool, sessionData string,
+	prometheus bool, sessionData string, extraImports []Import,
 ) ([]byte, error) {
 	var buf bytes.Buffer
+	appPkg, aliased := mainGoAppPkg(appPkgName, genPkgName)
 	if err := tmpl.Execute(&buf, mainGoData{
-		AppImport:   appImportPath,
-		AppPkg:      appPkgName,
-		GenImport:   genImportPath,
-		Gen:         genPkgName,
-		Prometheus:  prometheus,
-		HasSession:  sessionData != "",
-		SessionData: sessionData,
+		AppImport:    appImportPath,
+		AppPkg:       appPkg,
+		AppAliased:   aliased,
+		GenImport:    genImportPath,
+		Gen:          genPkgName,
+		Prometheus:   prometheus,
+		HasSession:   sessionData != "",
+		SessionData:  sessionData,
+		ExtraImports: extraImports,
 	}); err != nil {
 		return nil, fmt.Errorf("executing main.go template: %w", err)
 	}
