@@ -89,7 +89,8 @@ func TestUnmarshalWatcherRequires(t *testing.T) {
 
 // TestLoad tests finding the config file next to the module: either extension is
 // accepted, both at once is refused rather than one silently winning,
-// and an unknown key is an error rather than a setting that quietly does nothing.
+// an unknown key is an error rather than a setting that quietly does nothing,
+// and a cmd that would scaffold the entry point outside the module is rejected.
 func TestLoad(t *testing.T) {
 	for name, tc := range map[string]struct {
 		setup     func(t *testing.T) string
@@ -132,6 +133,28 @@ func TestLoad(t *testing.T) {
 				return dir
 			},
 			wantErr: "ambiguous",
+		},
+		"cmd escapes module": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dir, "datapages.yaml"),
+					[]byte("cmd: ../outside/server\n"), 0o644,
+				))
+				return dir
+			},
+			wantErr: `invalid cmd "../outside/server"`,
+		},
+		"cmd absolute": {
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(
+					filepath.Join(dir, "datapages.yaml"),
+					[]byte("cmd: /tmp/server\n"), 0o644,
+				))
+				return dir
+			},
+			wantErr: `invalid cmd "/tmp/server"`,
 		},
 		"unknown field": {
 			setup: func(t *testing.T) string {

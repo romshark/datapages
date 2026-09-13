@@ -163,6 +163,8 @@ These top-level keys are supported:
   `main` package yet. Default: `cmd/server`. Once such a call exists,
   the command it is written in is the entry point and this key is unused,
   which is why a module building several applications does not set it.
+  Must be a relative path inside the module:
+  an absolute path or a `..` segment is rejected.
 - `watch`: optional development server settings (app host, proxy timeout,
   debounce, TLS, compiler flags, logging, custom watchers, etc.)
 
