@@ -485,9 +485,11 @@ type QueryPageQuery struct {
 // PageReflect references /reflect/{$}
 func PageReflect(query QueryPageReflect) string {
 	var (
-		termStr string
-		pageStr string
-		slugStr string
+		termStr     string
+		pageStr     string
+		slugStr     string
+		oddStr      string
+		newTitleStr string
 	)
 
 	if query.Term != "" {
@@ -499,10 +501,18 @@ func PageReflect(query QueryPageReflect) string {
 	if query.Slug != nil {
 		slugStr = url.QueryEscape(textOf(query.Slug))
 	}
+	if query.Odd != "" {
+		oddStr = url.QueryEscape(query.Odd)
+	}
+	if query.NewTitle != "" {
+		newTitleStr = url.QueryEscape(query.NewTitle)
+	}
 
 	anyQuery := query.Term != "" ||
 		query.Page != 0 ||
-		query.Slug != nil
+		query.Slug != nil ||
+		query.Odd != "" ||
+		query.NewTitle != ""
 
 	var b strings.Builder
 	l := len("/reflect/")
@@ -533,6 +543,20 @@ func PageReflect(query QueryPageReflect) string {
 		}
 		n++
 		l += len("s=") + len(slugStr)
+	}
+	if query.Odd != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("o'\"x=") + len(oddStr)
+	}
+	if query.NewTitle != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("nt=") + len(newTitleStr)
 	}
 	_ = n
 
@@ -565,8 +589,24 @@ func PageReflect(query QueryPageReflect) string {
 		if n > 0 {
 			b.WriteString("&")
 		}
+		n++
 		b.WriteString("s=")
 		b.WriteString(slugStr)
+	}
+	if query.Odd != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("o'\"x=")
+		b.WriteString(oddStr)
+	}
+	if query.NewTitle != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("nt=")
+		b.WriteString(newTitleStr)
 	}
 
 	return b.String()
@@ -574,9 +614,11 @@ func PageReflect(query QueryPageReflect) string {
 
 // QueryPageReflect is the query parameters for PageReflect
 type QueryPageReflect struct {
-	Term string                 `query:"t"`
-	Page int                    `query:"p"`
-	Slug encoding.TextMarshaler `query:"s"`
+	Term     string                 `query:"t"`
+	Page     int                    `query:"p"`
+	Slug     encoding.TextMarshaler `query:"s"`
+	Odd      string                 `query:"o'"x"`
+	NewTitle string                 `query:"nt"`
 }
 
 // PageSlug references /slug/{slug}/{$}

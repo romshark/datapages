@@ -410,6 +410,26 @@ func (PageSearch) GET(
 }
 ```
 
+A `json:"..."` tag of a signals struct declares one signal and must be a
+JavaScript identifier, no period and no hyphen. A reflected one also starts
+lower case.
+It is written into an attribute name and read back as `$name`. `json:"-"` is refused:
+encoding/json leaves the field out and the handler only ever sees the zero value.
+
+Nest a struct for a nested signal:
+
+```go
+signals datapages.Signals[struct {
+	Foo struct {
+		Bar string `json:"bar"`
+	} `json:"foo"`
+}]
+```
+
+declares the signal `foo.bar`. A `reflectsignal:"..."` tag references
+a signal by that path, periods included.
+A query tag is a URL parameter name and may carry anything.
+
 ## Step 8: Add Events
 
 Events push real-time updates over SSE.

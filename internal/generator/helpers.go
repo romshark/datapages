@@ -757,3 +757,27 @@ func signalIdent(signalName string) string {
 	}
 	return s
 }
+
+// kebabSignalPath writes a signal path the way an attribute name carries it.
+//
+// An HTML parser lowercases every attribute name, which is why Datastar reads
+// one back as camel case: "data-signals:my-signal" is the signal mySignal
+// (https://data-star.dev/reference/attributes#data-signals). Written as
+// "data-signals:mySignal" the same signal arrives as mysignal, and every
+// expression reading $mySignal reads a second, empty one.
+//
+// Periods separate the segments of a nested path and pass through untouched.
+func kebabSignalPath(path string) string {
+	var b strings.Builder
+	b.Grow(len(path) + 4)
+	for i := range len(path) {
+		c := path[i]
+		if c >= 'A' && c <= 'Z' {
+			b.WriteByte('-')
+			b.WriteByte(c - 'A' + 'a')
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
