@@ -6,6 +6,8 @@ package href
 
 import (
 	"log/slog"
+	"net/url"
+	"strings"
 	"sync/atomic"
 
 	"github.com/romshark/datapages/runtime/hrefcheck"
@@ -45,3 +47,58 @@ func PageEnter() string { return "/enter/" }
 
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
+
+// PageNested references /nested/{$}
+func PageNested(query QueryPageNested) string {
+	var (
+		fuzzStr string
+	)
+
+	if query.Fuzz != "" {
+		fuzzStr = url.QueryEscape(query.Fuzz)
+	}
+
+	anyQuery := query.Fuzz != ""
+
+	var b strings.Builder
+	l := len("/nested/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.Fuzz != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("fuzz=") + len(fuzzStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/nested/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.Fuzz != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("fuzz=")
+		b.WriteString(fuzzStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageNested is the query parameters for PageNested
+type QueryPageNested struct {
+	Fuzz string `query:"fuzz"`
+}

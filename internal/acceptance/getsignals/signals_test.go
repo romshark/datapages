@@ -67,6 +67,25 @@ func TestGETReadsSignals(t *testing.T) {
 	require.Equal(t, "term=shoes page=3 user=", resp.Element(t, "echo"))
 }
 
+// TestGETReadsNestedSignals tests a signals struct that nests.
+//
+// A nested struct is a nested signal: the client sends one object and the
+// handler reads foo.bar.bazz and foo.fuzz out of it. The page reflects foo.fuzz into
+// a query parameter, which is how a nested signal is referenced by its path.
+func TestGETReadsNestedSignals(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	resp := c.Get(t, "/nested/?fuzz=q&datastar="+url.QueryEscape(
+		`{"foo":{"bar":{"bazz":"x"},"fuzz":"y"}}`,
+	))
+
+	require.Equal(t, http.StatusOK, resp.Status)
+	require.Equal(t, "bazz=x fuzz=y query=q", resp.Element(t, "echo"))
+	require.Contains(t, resp.Body, "params.set('fuzz', $foo.fuzz)",
+		"the page does not reflect the nested signal")
+}
+
 // TestGETWithoutSignals tests the ordinary page load:
 // a visitor who typed the URL sends no signals and the handler is given the zero value.
 func TestGETWithoutSignals(t *testing.T) {

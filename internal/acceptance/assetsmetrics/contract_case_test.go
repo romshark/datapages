@@ -22,7 +22,7 @@ func TestContract(t *testing.T) {
 		NewServer: func(t *testing.T, opts ...any) contract.Server {
 			t.Helper()
 			opts = append(opts,
-				datapages.WithAssets(app.StaticFS),
+				datapages.WithAssets(app.StaticFS, false),
 				datapages.WithPrometheus(datapages.PrometheusConfig{
 					Host:       "127.0.0.1:0",
 					Registerer: registry,

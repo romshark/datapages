@@ -5,6 +5,7 @@ package datapagesgen
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -14,6 +15,7 @@ import (
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/auth"
+	"github.com/romshark/datapages/runtime/htmlattr"
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
 
@@ -165,6 +167,9 @@ func setupHandlers(s *Server) {
 		"GET /",
 		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
+		"GET /nested/{$}",
+		pageNestedHandlers{s}.GET)
+	s.Mux().HandleFunc(
 		"POST /leave/{$}",
 		pageIndexHandlers{s}.POSTLeave)
 }
@@ -286,5 +291,64 @@ func (s pageIndexHandlers) POSTLeave(
 			s.httpErrIntern(w, r, nil, "removing session", err)
 			return
 		}
+	}
+}
+
+type pageNestedHandlers struct{ *Server }
+
+func (s pageNestedHandlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		Fuzz string `query:"fuzz" reflectsignal:"foo.fuzz"`
+	}]
+	query.Values.Fuzz = httpread.QueryValue(r.URL.RawQuery, "fuzz")
+
+	var signals datapages.Signals[struct {
+		Foo struct {
+			Bar struct {
+				Bazz string `json:"bazz"`
+			} `json:"bar"`
+			Fuzz string `json:"fuzz"`
+		} `json:"foo"`
+	}]
+	if httpread.QueryHas(r.URL.RawQuery, "datastar") {
+		if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+			s.HTTPErrBad(w, "reading signals", err)
+			return
+		}
+	}
+
+	p := dpapp.PageNested{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageNested.GET")
+	body, err := p.GET(r, signals, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageNested.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+
+		_, _ = io.WriteString(w, ` data-signals:foo.fuzz="'`)
+		htmlattr.WriteSignalString(w, query.Values.Fuzz)
+		_, _ = io.WriteString(w, `'"`)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
+			if ($foo.fuzz) params.set('fuzz', $foo.fuzz);
+			const query = params.toString();
+			window.history.replaceState(null, '', query ? '/nested?' + query : '/nested');
+		"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, datapages.Session[struct{}]{}, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageNested", err)
+		return
 	}
 }

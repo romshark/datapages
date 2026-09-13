@@ -9,6 +9,7 @@ import (
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/routepattern"
 	"github.com/romshark/datapages/internal/structtag"
+	"github.com/romshark/datapages/runtime/htmlattr"
 )
 
 // handlerArgVar maps an InputKind constant to the local variable name
@@ -600,7 +601,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 		if gotypes.IsString(f.Type) {
 			w.Line(0, "")
 			w.Raw("\t\t_, _ = io.WriteString(w, ` data-signals:")
-			w.Raw(f.SignalName)
+			w.Raw(kebabSignalPath(f.SignalName))
 			w.Raw("=\"'`)\n")
 			w.Raw("\t\thtmlattr.WriteSignalString(w, ")
 			w.writeFieldToString(varQuery, fi)
@@ -609,7 +610,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 		} else {
 			w.Line(0, "")
 			w.Raw("\t\t_, _ = io.WriteString(w, ` data-signals:")
-			w.Raw(f.SignalName)
+			w.Raw(kebabSignalPath(f.SignalName))
 			w.Raw("=\"`)\n")
 			w.Raw("\t\thtmlattr.WriteSignalValue(w, ")
 			w.writeFieldToString(varQuery, fi)
@@ -762,7 +763,10 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 			w.Raw("\t\t\tif ($")
 			w.Raw(f.SignalName)
 			w.Raw(") params.set('")
-			w.Raw(f.QueryTag)
+			// A query tag is a URL parameter name and may carry anything.
+			// Here it stands inside a JavaScript string inside an attribute,
+			// which is what the escaping is of.
+			w.Raw(htmlattr.SignalString(f.QueryTag))
 			w.Raw("', $")
 			w.Raw(f.SignalName)
 			w.Raw(");\n")

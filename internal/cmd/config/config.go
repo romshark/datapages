@@ -161,7 +161,7 @@ func (r *WatcherRequires) UnmarshalText(text []byte) error {
 
 // Load reads datapages.yml or datapages.yaml from moduleDir.
 // If neither file exists, default values are returned and found is false.
-// Returns an error if both files exist simultaneously.
+// Returns an error if both files exist simultaneously or if cmd leaves moduleDir.
 func Load(moduleDir string) (c Config, found bool, _ error) {
 	var foundName string
 	for _, name := range []string{"datapages.yml", "datapages.yaml"} {
@@ -185,6 +185,14 @@ func Load(moduleDir string) (c Config, found bool, _ error) {
 	}
 	if c.Cmd == "" {
 		c.Cmd = "cmd/server"
+	}
+	// [filepath.Join] does not confine its result to moduleDir: a cmd with a
+	// ".." segment would scaffold the entry point outside the module,
+	// where it belongs to no module and cannot build.
+	if !filepath.IsLocal(c.Cmd) {
+		return Config{}, false, fmt.Errorf(
+			"invalid cmd %q: must be a relative path inside the module", c.Cmd,
+		)
 	}
 	return c, found, nil
 }

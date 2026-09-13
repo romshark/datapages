@@ -507,6 +507,44 @@ func TestBuildWithoutAssetsPrefix(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, serve(t, c, "/static/hello.txt").Code)
 }
 
+// TestBuildHidesAssetDirectories tests what a request for an asset directory
+// holding no index.html gets: 404, unless browsable is set.
+// The core reads the flag whichever asset option carried it,
+// which is why this test hands it the file system of [datapages.WithAssetsFS].
+func TestBuildHidesAssetDirectories(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		browsable  bool
+		url        string
+		wantStatus int
+		wantBody   string
+	}{
+		"root hidden":     {url: "/static/", wantStatus: http.StatusNotFound},
+		"subdir hidden":   {url: "/static/sub/", wantStatus: http.StatusNotFound},
+		"no slash hidden": {url: "/static/sub", wantStatus: http.StatusNotFound},
+		"file served":     {url: "/static/hello.txt", wantStatus: http.StatusOK, wantBody: "hello"},
+		"nested served":   {url: "/static/sub/nested.txt", wantStatus: http.StatusOK, wantBody: "nested"},
+		"root listed":     {browsable: true, url: "/static/", wantStatus: http.StatusOK, wantBody: "hello.txt"},
+		"subdir listed":   {browsable: true, url: "/static/sub/", wantStatus: http.StatusOK, wantBody: "nested.txt"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			c := mustCore(t, datapages.ServerConfig{
+				AssetsFS:        http.Dir("testdata/static"),
+				AssetsBrowsable: tc.browsable,
+			}, "/static/")
+			c.Build()
+
+			w := serve(t, c, tc.url)
+			require.Equal(t, tc.wantStatus, w.Code)
+			if tc.wantBody != "" {
+				require.Contains(t, w.Body.String(), tc.wantBody)
+			}
+		})
+	}
+}
+
 // TestWildcardPathValue tests the value a {name...} route wildcard hands a
 // handler after [httpserve.Core.ServeHTTP] normalized the path.
 func TestWildcardPathValue(t *testing.T) {

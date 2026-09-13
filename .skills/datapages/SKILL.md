@@ -426,6 +426,26 @@ func (PageSearch) GET(
 }
 ```
 
+A `json:"..."` tag of a signals struct declares one signal and must be a
+JavaScript identifier, no period and no hyphen. A reflected one also starts
+lower case.
+It is written into an attribute name and read back as `$name`. `json:"-"` is refused:
+encoding/json leaves the field out and the handler only ever sees the zero value.
+
+Nest a struct for a nested signal:
+
+```go
+signals datapages.Signals[struct {
+	Foo struct {
+		Bar string `json:"bar"`
+	} `json:"foo"`
+}]
+```
+
+declares the signal `foo.bar`. A `reflectsignal:"..."` tag references
+a signal by that path, periods included.
+A query tag is a URL parameter name and may carry anything.
+
 ## Step 8: Add Events
 
 Events push real-time updates over SSE.
@@ -905,16 +925,20 @@ The doc comment names the URL path and is what turns serving on. Then hand the
 filesystem to the server in `cmd/server/main.go`:
 
 ```go
-opts = append(opts, datapages.WithAssets(app.StaticFS))
+opts = append(opts, datapages.WithAssets(app.StaticFS, false))
 ```
 
-`WithAssets` carries only the `embed.FS`. The generated server applies what the
+`WithAssets` carries the `embed.FS` and the `browsable` flag. The generated server applies what the
 app package declared: in production it extracts the subdirectory (`assets.Dir`)
 and serves the embedded files; in dev mode (`IsDevMode`) it serves from disk
 (`assets.DevDir`) with caching disabled, for live reloading without
 recompilation. An app package that declares no assets rejects the option.
 
 The URL path prefix is the generated `assets.URLPrefix` constant, which comes from the doc comment of the `embed.FS` variable. The embed.FS subdirectory and dev-mode disk path come from its `//go:embed` directive.
+
+The `browsable` argument lists a directory that has no `index.html`.
+Pass `browsable=false` in production to avoid exposing every embedded file.
+Such a request then gets a 404, in dev mode as well.
 
 Reference static files in templates through the generated `assets.Path` helper,
 never a hardcoded path, so the prefix stays in one place:

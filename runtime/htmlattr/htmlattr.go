@@ -29,7 +29,14 @@ var signalStringEscaper = strings.NewReplacer(
 // WriteSignalString writes s as a quoted string inside a data-signals attribute.
 // It escapes s for the JavaScript string first and for the attribute second.
 func WriteSignalString(w io.Writer, s string) {
-	_, _ = io.WriteString(w, html.EscapeString(signalStringEscaper.Replace(s)))
+	_, _ = io.WriteString(w, SignalString(s))
+}
+
+// SignalString returns s escaped the way [WriteSignalString] writes it.
+// The generator calls it on what it knows at generation time,
+// a query parameter name for one, and writes the result as a literal.
+func SignalString(s string) string {
+	return html.EscapeString(signalStringEscaper.Replace(s))
 }
 
 // WriteSignalValue writes a number or boolean inside a data-signals attribute.

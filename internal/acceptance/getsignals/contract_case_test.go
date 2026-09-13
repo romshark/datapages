@@ -41,8 +41,12 @@ func TestContract(t *testing.T) {
 		StreamSubjects: datapagesgen.MessageBrokerStreamSubjects,
 		HrefExternal:   href.External,
 		HrefSetLogger:  href.SetLogger,
-		Links:          []string{href.PageIndex(), href.PageEnter()},
-		Actions:        []string{action.PageIndex.Leave.POST()},
+		Links: []string{
+			href.PageIndex(),
+			href.PageEnter(),
+			href.PageNested(href.QueryPageNested{Fuzz: "q"}),
+		},
+		Actions: []string{action.PageIndex.Leave.POST()},
 		OptionedAction: action.PageIndex.Leave.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),

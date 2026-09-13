@@ -185,6 +185,37 @@ func ImplementsTextMarshaler(t types.Type) bool {
 	return t != nil && types.Implements(t, textMarshaler)
 }
 
+// jsonUnmarshaler is the method set of encoding/json.Unmarshaler.
+var jsonUnmarshaler = func() *types.Interface {
+	sig := types.NewSignatureType(
+		nil, nil, nil,
+		types.NewTuple(
+			types.NewVar(0, nil, "data", types.NewSlice(types.Typ[types.Byte])),
+		),
+		types.NewTuple(
+			types.NewVar(0, nil, "", types.Universe.Lookup("error").Type()),
+		),
+		false,
+	)
+	return types.NewInterfaceType(
+		[]*types.Func{types.NewFunc(0, nil, "UnmarshalJSON", sig)},
+		nil,
+	).Complete()
+}()
+
+// ImplementsJSONUnmarshaler reports whether t or *t implements json.Unmarshaler.
+// Such a type decides its own JSON, which leaves its fields none of the
+// caller's business.
+func ImplementsJSONUnmarshaler(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	if types.Implements(t, jsonUnmarshaler) {
+		return true
+	}
+	return types.Implements(types.NewPointer(t), jsonUnmarshaler)
+}
+
 // ImplementsTextUnmarshaler reports whether t or *t implements encoding.TextUnmarshaler.
 func ImplementsTextUnmarshaler(t types.Type) bool {
 	if t == nil {
