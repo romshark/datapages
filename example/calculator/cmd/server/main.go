@@ -46,7 +46,7 @@ func main() {
 		datapages.DisableSessions,
 		datapages.DisablePrometheus,
 		datapagesgen.Server,
-	](a, msgBroker, datapages.WithAssets(app.StaticFS))
+	](a, msgBroker, datapages.WithAssets(app.StaticFS, false))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: creating server: %v\n", err)
 		os.Exit(1)

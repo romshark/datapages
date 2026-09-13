@@ -105,7 +105,7 @@ func withAccessLogger(opts *[]datapages.ServerOption) {
 }
 
 func withAssets(opts *[]datapages.ServerOption) {
-	*opts = append(*opts, datapages.WithAssets(app.StaticFS))
+	*opts = append(*opts, datapages.WithAssets(app.StaticFS, false))
 }
 
 func listenAndServe(ctx context.Context, s datapages.Server, host string) {

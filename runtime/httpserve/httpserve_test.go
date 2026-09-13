@@ -161,7 +161,7 @@ func TestWriteErrStatus(t *testing.T) {
 	}
 }
 
-//go:embed testdata/static/hello.txt
+//go:embed testdata/static
 var testAssets embed.FS
 
 // TestAssetsFileSystem tests which of the assets options wins: an explicit file

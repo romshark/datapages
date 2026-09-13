@@ -58,6 +58,9 @@ type ServerConfig struct {
 	// the app package declared and only the generated code knows.
 	AssetsEmbed *embed.FS
 
+	// AssetsBrowsable is the browsable argument of [WithAssets] and [WithAssetsFS].
+	AssetsBrowsable bool
+
 	// Sessions configures the session cookie and the token generator.
 	Sessions SessionsConfig
 
@@ -248,12 +251,37 @@ func validateDatastarJS(src string) error {
 	return fmt.Errorf("URL scheme %q is neither http nor https", u.Scheme)
 }
 
-// WithAssetsFS serves static files from fsys, overriding [WithAssets].
-// It takes the file system as it is, applying nothing the app package
-// declared: no subdirectory is extracted and dev mode changes nothing.
-func WithAssetsFS(fsys http.FileSystem) ServerOption {
+// WithAssets serves the static files embedded in fsys.
+//
+// The URL path they are served at, the subdirectory they are read from and
+// the directory dev mode reads them from instead are all declared by the app
+// package, on the embed.FS variable:
+//
+//	// AssetsFS is /static/
+//	//go:embed static/*
+//	var AssetsFS embed.FS
+//
+// The generated server applies them, and rejects this option when the app
+// package declares none.
+//
+// browsable true lists a directory that has no index.html, false returns 404.
+// Pass browsable=false in production to avoid exposing every embedded file.
+func WithAssets(fsys embed.FS, browsable bool) ServerOption {
 	return func(c *ServerConfig) error {
-		c.AssetsFS = fsys
+		c.AssetsEmbed, c.AssetsBrowsable = &fsys, browsable
+		return nil
+	}
+}
+
+// WithAssetsFS serves static files from fsys, overriding [WithAssets].
+// It takes the file system as it is, applying nothing the app package declared:
+// no subdirectory is extracted and dev mode changes nothing.
+//
+// browsable true lists a directory that has no index.html, false returns 404.
+// Pass browsable=false in production to avoid exposing every embedded file.
+func WithAssetsFS(fsys http.FileSystem, browsable bool) ServerOption {
+	return func(c *ServerConfig) error {
+		c.AssetsFS, c.AssetsBrowsable = fsys, browsable
 		return nil
 	}
 }
@@ -373,25 +401,6 @@ func WithSessionManager[SessionData any](
 			return errors.New("WithSessionManager: session manager already set")
 		}
 		c.sessionManager = m
-		return nil
-	}
-}
-
-// WithAssets serves the static files embedded in fsys.
-//
-// The URL path they are served at, the subdirectory they are read from and
-// the directory dev mode reads them from instead are all declared by the app
-// package, on the embed.FS variable:
-//
-//	// AssetsFS is /static/
-//	//go:embed static/*
-//	var AssetsFS embed.FS
-//
-// The generated server applies them, and rejects this option when the app
-// package declares none.
-func WithAssets(fsys embed.FS) ServerOption {
-	return func(c *ServerConfig) error {
-		c.AssetsEmbed = &fsys
 		return nil
 	}
 }

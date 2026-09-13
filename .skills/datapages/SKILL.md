@@ -909,16 +909,20 @@ The doc comment names the URL path and is what turns serving on. Then hand the
 filesystem to the server in `cmd/server/main.go`:
 
 ```go
-opts = append(opts, datapages.WithAssets(app.StaticFS))
+opts = append(opts, datapages.WithAssets(app.StaticFS, false))
 ```
 
-`WithAssets` carries only the `embed.FS`. The generated server applies what the
+`WithAssets` carries the `embed.FS` and the `browsable` flag. The generated server applies what the
 app package declared: in production it extracts the subdirectory (`assets.Dir`)
 and serves the embedded files; in dev mode (`IsDevMode`) it serves from disk
 (`assets.DevDir`) with caching disabled, for live reloading without
 recompilation. An app package that declares no assets rejects the option.
 
 The URL path prefix is the generated `assets.URLPrefix` constant, which comes from the doc comment of the `embed.FS` variable. The embed.FS subdirectory and dev-mode disk path come from its `//go:embed` directive.
+
+The `browsable` argument lists a directory that has no `index.html`.
+Pass `browsable=false` in production to avoid exposing every embedded file.
+Such a request then gets a 404, in dev mode as well.
 
 Reference static files in templates through the generated `assets.Path` helper,
 never a hardcoded path, so the prefix stays in one place:
