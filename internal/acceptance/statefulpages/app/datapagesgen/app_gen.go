@@ -28,7 +28,7 @@ import (
 	"github.com/romshark/datapages/runtime/stream"
 	"github.com/romshark/datapages/runtime/subject"
 
-	"github.com/romshark/datapages/internal/acceptance/statefulpages/app"
+	dpapp "github.com/romshark/datapages/internal/acceptance/statefulpages/app"
 	"github.com/romshark/datapages/internal/acceptance/statefulpages/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -155,7 +155,7 @@ type Server struct {
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
 	streams              *stream.Handler
-	app                  *app.App
+	app                  *dpapp.App
 
 	stateConf *datapages.StateConfig
 
@@ -166,7 +166,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -180,12 +180,12 @@ type Server struct {
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package app declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -242,7 +242,7 @@ const (
 )
 
 const (
-	EvSubjPrefFiltersUpdated = "filters.updated."
+	EvPrefixFiltersUpdated = "filters.updated."
 )
 
 func MessageBrokerStreamSubjects() []string {
@@ -255,7 +255,7 @@ var evSubjPageFailOpen = []string{}
 
 func evSubjPageIndex(stateID string) []string {
 	return []string{
-		EvSubjPrefFiltersUpdated + stateID,
+		EvPrefixFiltersUpdated + stateID,
 	}
 }
 
@@ -410,7 +410,7 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 // An instance lives exactly as long as the stream that created it and
 // is never reused: a client that reconnects gets a new one.
 type stateSlotStateFilters struct {
-	state *app.StateFilters
+	state *dpapp.StateFilters
 	mu    sync.Mutex // serializes all stateful handler calls on this instance
 	dead  bool       // true once the stream closed and the state was dropped
 }
@@ -423,7 +423,7 @@ func (s *Server) allocateStateFilters(id string) *stateSlotStateFilters {
 	if !s.ReserveStateInstance() {
 		return nil
 	}
-	slot := &stateSlotStateFilters{state: new(app.StateFilters)}
+	slot := &stateSlotStateFilters{state: new(dpapp.StateFilters)}
 	s.stateInstancesStateFilters.Store(id, slot)
 	return slot
 }
@@ -464,32 +464,36 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /failopen/{$}",
-		s.handlePageFailOpenGET)
+		pageFailOpenHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /failopen/_$/{$}",
-		s.handlePageFailOpenGETStream)
+		pageFailOpenHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /_$/{$}",
-		s.handlePageIndexGETStream)
+		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /panicclose/{$}",
-		s.handlePagePanicOnCloseGET)
+		pagePanicOnCloseHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /panicclose/_$/{$}",
-		s.handlePagePanicOnCloseGETStream)
+		pagePanicOnCloseHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"POST /update/{$}",
-		s.handlePageIndexPOSTUpdate)
+		pageIndexHandlers{s}.POSTUpdate)
 }
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if sse != nil {
+		// The stream is open, hence no status is left to send.
+		return
+	}
 	if httpserve.ResponseBodyWritten(w) {
 		// A status written now only appends its text to the body.
 		return
@@ -497,7 +501,9 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePageFailOpenGET(w http.ResponseWriter, r *http.Request) {
+type pageFailOpenHandlers struct{ *Server }
+
+func (s pageFailOpenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	// Mint the per-instance identifier for this page load.
 	// The client echoes this value on action requests and on the SSE
@@ -512,7 +518,7 @@ func (s *Server) handlePageFailOpenGET(w http.ResponseWriter, r *http.Request) {
 	// A cache that hands it to a second visitor hands over the state.
 	w.Header().Set("Cache-Control", "no-store")
 
-	p := app.PageFailOpen{
+	p := dpapp.PageFailOpen{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageFailOpen.GET")
@@ -529,7 +535,7 @@ func (s *Server) handlePageFailOpenGET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/failopen/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/failopen/_$/')"`)
 	}
 
 	if err := s.writeHTML(
@@ -540,7 +546,7 @@ func (s *Server) handlePageFailOpenGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageFailOpenGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageFailOpenHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -560,7 +566,7 @@ func (s *Server) handlePageFailOpenGETStream(w http.ResponseWriter, r *http.Requ
 	}
 	var slot *stateSlotStateFilters
 
-	p := app.PageFailOpen{
+	p := dpapp.PageFailOpen{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageFailOpen,
@@ -586,7 +592,7 @@ func (s *Server) handlePageFailOpenGETStream(w http.ResponseWriter, r *http.Requ
 			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, streamID, datapages.State[app.StateFilters]{Values: slot.state}); err != nil {
+			if err := p.StreamOpen(r, streamID, datapages.State[dpapp.StateFilters]{Values: slot.state}); err != nil {
 				return err
 			}
 			opened = true
@@ -604,7 +610,9 @@ func (s *Server) handlePageFailOpenGETStream(w http.ResponseWriter, r *http.Requ
 		})
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -623,7 +631,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	// A cache that hands it to a second visitor hands over the state.
 	w.Header().Set("Cache-Control", "no-store")
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -640,7 +648,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/_$/')"`)
 	}
 
 	if err := s.writeHTML(
@@ -651,7 +659,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -672,7 +680,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	stateID := s.stateRouteKey(instanceID)
 	var slot *stateSlotStateFilters
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageIndex(stateID),
@@ -698,7 +706,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, streamID, datapages.State[app.StateFilters]{Values: slot.state}); err != nil {
+			if err := p.StreamOpen(r, streamID, datapages.State[dpapp.StateFilters]{Values: slot.state}); err != nil {
 				return err
 			}
 			opened = true
@@ -712,11 +720,11 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
-			var eventFiltersUpdated app.EventFiltersUpdated
+			var eventFiltersUpdated dpapp.EventFiltersUpdated
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefFiltersUpdated):
-					eventFiltersUpdated = app.EventFiltersUpdated{}
+				case strings.HasPrefix(msg.Subject, EvPrefixFiltersUpdated):
+					eventFiltersUpdated = dpapp.EventFiltersUpdated{}
 					if err := json.Unmarshal(msg.Data, &eventFiltersUpdated); err != nil {
 						s.LogErr("unmarshaling EventFiltersUpdated JSON", err)
 						continue
@@ -731,7 +739,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						if err := p.OnFiltersUpdated(
 							eventFiltersUpdated,
 							dpsse.New(sse),
-							datapages.State[app.StateFilters]{Values: slot.state},
+							datapages.State[dpapp.StateFilters]{Values: slot.state},
 						); err != nil {
 							s.LogErr("handling PageIndex.OnFiltersUpdated", err)
 						}
@@ -741,7 +749,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		})
 }
 
-func (s *Server) handlePageIndexPOSTUpdate(
+func (s pageIndexHandlers) POSTUpdate(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -777,19 +785,21 @@ func (s *Server) handlePageIndexPOSTUpdate(
 		return
 	}
 
-	dispatchFiltersUpdated := dispatcherEventFiltersUpdated{s: s, ctx: r.Context()}
+	dispatchFiltersUpdated := dispatcherEventFiltersUpdated{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Update")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTUpdate(r, datapages.State[app.StateFilters]{Values: slot.state}, stateID, signals, dispatchFiltersUpdated)
+	err := p.POSTUpdate(r, datapages.State[dpapp.StateFilters]{Values: slot.state}, stateID, signals, dispatchFiltersUpdated)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Update", err)
 		return
 	}
 }
 
-func (s *Server) handlePagePanicOnCloseGET(w http.ResponseWriter, r *http.Request) {
+type pagePanicOnCloseHandlers struct{ *Server }
+
+func (s pagePanicOnCloseHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	// Mint the per-instance identifier for this page load.
 	// The client echoes this value on action requests and on the SSE
@@ -804,7 +814,7 @@ func (s *Server) handlePagePanicOnCloseGET(w http.ResponseWriter, r *http.Reques
 	// A cache that hands it to a second visitor hands over the state.
 	w.Header().Set("Cache-Control", "no-store")
 
-	p := app.PagePanicOnClose{
+	p := dpapp.PagePanicOnClose{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PagePanicOnClose.GET")
@@ -821,7 +831,7 @@ func (s *Server) handlePagePanicOnCloseGET(w http.ResponseWriter, r *http.Reques
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/panicclose/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/panicclose/_$/')"`)
 	}
 
 	if err := s.writeHTML(
@@ -832,7 +842,7 @@ func (s *Server) handlePagePanicOnCloseGET(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-func (s *Server) handlePagePanicOnCloseGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pagePanicOnCloseHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -852,7 +862,7 @@ func (s *Server) handlePagePanicOnCloseGETStream(w http.ResponseWriter, r *http.
 	}
 	var slot *stateSlotStateFilters
 
-	p := app.PagePanicOnClose{
+	p := dpapp.PagePanicOnClose{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPagePanicOnClose,
@@ -879,7 +889,7 @@ func (s *Server) handlePagePanicOnCloseGETStream(w http.ResponseWriter, r *http.
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
 			if !slot.dead {
-				if err := p.StreamClose(r, streamID, datapages.State[app.StateFilters]{Values: slot.state}); err != nil {
+				if err := p.StreamClose(r, streamID, datapages.State[dpapp.StateFilters]{Values: slot.state}); err != nil {
 					s.LogErr("handling PagePanicOnClose.StreamClose", err)
 				}
 			}
@@ -898,12 +908,12 @@ type dispatcherEventFiltersUpdated struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventFiltersUpdated) Dispatch(e app.EventFiltersUpdated) error {
+func (d dispatcherEventFiltersUpdated) Dispatch(e dpapp.EventFiltersUpdated) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventFiltersUpdated) DispatchCtx(
-	ctx context.Context, e app.EventFiltersUpdated,
+	ctx context.Context, e dpapp.EventFiltersUpdated,
 ) error {
 	if e.SubjectStateID == "" {
 		return errors.New("EventFiltersUpdated.SubjectStateID must not be empty")

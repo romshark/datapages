@@ -168,8 +168,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTAppBump references /bump/
-func POSTAppBump(options ...option) string {
+var App app
+
+type app struct {
+	Bump app_Bump
+}
+
+type app_Bump struct{}
+
+// POST references /bump/
+func (app_Bump) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/bump/')"
 	}
@@ -184,8 +192,16 @@ func POSTAppBump(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexNote references /note/
-func POSTPageIndexNote(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Note pageIndex_Note
+}
+
+type pageIndex_Note struct{}
+
+// POST references /note/
+func (pageIndex_Note) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/note/')"
 	}

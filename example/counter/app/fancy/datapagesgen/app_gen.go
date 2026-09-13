@@ -22,7 +22,7 @@ import (
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"github.com/romshark/datapages/runtime/stream"
 
-	"github.com/romshark/datapages/example/counter/app/fancy"
+	dpapp "github.com/romshark/datapages/example/counter/app/fancy"
 	"github.com/romshark/datapages/example/counter/app/fancy/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -98,13 +98,13 @@ type Server struct {
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
 	streams              *stream.Handler
-	app                  *fancy.App
+	app                  *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[fancy.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -118,12 +118,12 @@ type Server struct {
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *fancy.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package fancy declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -171,7 +171,7 @@ const (
 
 	// Public events:
 
-	EvSubjCounterUpdated = "counter.updated"
+	EvSubjCounterUpdated = "fancy.counter.updated"
 )
 
 func MessageBrokerStreamSubjects() []string {
@@ -188,23 +188,27 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /_$/{$}",
-		s.handlePageIndexGETStream)
+		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"POST /add/{$}",
-		s.handlePageIndexPOSTAdd)
+		pageIndexHandlers{s}.POSTAdd)
 	s.Mux().HandleFunc(
 		"POST /set/{value}/{$}",
-		s.handlePageIndexPOSTSet)
+		pageIndexHandlers{s}.POSTSet)
 }
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if sse != nil {
+		// The stream is open, hence no status is left to send.
+		return
+	}
 	if httpserve.ResponseBodyWritten(w) {
 		// A status written now only appends its text to the body.
 		return
@@ -212,13 +216,15 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
-	p := fancy.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -235,7 +241,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/_$/')"`)
 	}
 
 	if err := s.writeHTML(
@@ -246,12 +252,12 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
-	p := fancy.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageIndex,
@@ -262,11 +268,11 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
-			var eventCounterUpdated fancy.EventCounterUpdated
+			var eventCounterUpdated dpapp.EventCounterUpdated
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjCounterUpdated:
-					eventCounterUpdated = fancy.EventCounterUpdated{}
+					eventCounterUpdated = dpapp.EventCounterUpdated{}
 					if err := json.Unmarshal(msg.Data, &eventCounterUpdated); err != nil {
 						s.LogErr("unmarshaling EventCounterUpdated JSON", err)
 						continue
@@ -282,7 +288,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		})
 }
 
-func (s *Server) handlePageIndexPOSTAdd(
+func (s pageIndexHandlers) POSTAdd(
 	w http.ResponseWriter, r *http.Request,
 ) {
 
@@ -300,9 +306,9 @@ func (s *Server) handlePageIndexPOSTAdd(
 		}
 	}
 
-	dispatchCounterUpdated := dispatcherEventCounterUpdated{s: s, ctx: r.Context()}
+	dispatchCounterUpdated := dispatcherEventCounterUpdated{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Add")
-	p := fancy.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTAdd(r, dispatchCounterUpdated, query)
@@ -312,7 +318,7 @@ func (s *Server) handlePageIndexPOSTAdd(
 	}
 }
 
-func (s *Server) handlePageIndexPOSTSet(
+func (s pageIndexHandlers) POSTSet(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -340,9 +346,9 @@ func (s *Server) handlePageIndexPOSTSet(
 		path.Values.Value = int32(i)
 	}
 
-	dispatchCounterUpdated := dispatcherEventCounterUpdated{s: s, ctx: r.Context()}
+	dispatchCounterUpdated := dispatcherEventCounterUpdated{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Set")
-	p := fancy.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTSet(r, dispatchCounterUpdated, path, signals)
@@ -357,12 +363,12 @@ type dispatcherEventCounterUpdated struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventCounterUpdated) Dispatch(e fancy.EventCounterUpdated) error {
+func (d dispatcherEventCounterUpdated) Dispatch(e dpapp.EventCounterUpdated) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventCounterUpdated) DispatchCtx(
-	ctx context.Context, e fancy.EventCounterUpdated,
+	ctx context.Context, e dpapp.EventCounterUpdated,
 ) error {
 	j, err := json.Marshal(e)
 	if err != nil {

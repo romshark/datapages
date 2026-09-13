@@ -19,136 +19,136 @@ var (
 	ErrHrefExternalIsRelative       = errors.New("href.External used with relative URL")
 )
 
-// ErrorHrefRelative is ErrHrefRelative with context.
-type ErrorHrefRelative struct {
+// HrefRelativeError is ErrHrefRelative with context.
+type HrefRelativeError struct {
 	URL string // e.g. "/login"
 }
 
-func (e *ErrorHrefRelative) Error() string {
+func (e *HrefRelativeError) Error() string {
 	return fmt.Sprintf("%v: %s", ErrHrefRelative, e.URL)
 }
 
-func (e *ErrorHrefRelative) Unwrap() error { return ErrHrefRelative }
+func (e *HrefRelativeError) Unwrap() error { return ErrHrefRelative }
 
-// ErrorActionHardcoded is ErrActionHardcoded with context.
-type ErrorActionHardcoded struct {
+// ActionHardcodedError is ErrActionHardcoded with context.
+type ActionHardcodedError struct {
 	URL string // e.g. "/login/submit"
 }
 
-func (e *ErrorActionHardcoded) Error() string {
+func (e *ActionHardcodedError) Error() string {
 	return fmt.Sprintf("%v: %s", ErrActionHardcoded, e.URL)
 }
 
-func (e *ErrorActionHardcoded) Unwrap() error { return ErrActionHardcoded }
+func (e *ActionHardcodedError) Unwrap() error { return ErrActionHardcoded }
 
-// ErrorFormAction is ErrFormAction with context.
-type ErrorFormAction struct{}
+// FormActionError is ErrFormAction with context.
+type FormActionError struct{}
 
-func (e *ErrorFormAction) Error() string {
+func (e *FormActionError) Error() string {
 	return ErrFormAction.Error()
 }
 
-func (e *ErrorFormAction) Unwrap() error { return ErrFormAction }
+func (e *FormActionError) Unwrap() error { return ErrFormAction }
 
-// ErrorActionWrongPage is ErrActionWrongPage with context.
-type ErrorActionWrongPage struct {
+// ActionWrongPageError is ErrActionWrongPage with context.
+type ActionWrongPageError struct {
 	ActionFunc string // e.g. "POSTPageProfileSave"
 	PageType   string // e.g. "PageSettings" (the page whose template uses the action)
 	OwnerPage  string // e.g. "PageProfile" or "App" (the page/app that owns the action)
 }
 
-func (e *ErrorActionWrongPage) Error() string {
+func (e *ActionWrongPageError) Error() string {
 	return fmt.Sprintf("%v: %s belongs to %s, used in %s",
 		ErrActionWrongPage, e.ActionFunc, e.OwnerPage, e.PageType)
 }
 
-func (e *ErrorActionWrongPage) Unwrap() error { return ErrActionWrongPage }
+func (e *ActionWrongPageError) Unwrap() error { return ErrActionWrongPage }
 
-// ErrorActionContext is ErrActionContext with context.
-type ErrorActionContext struct {
+// ActionContextError is ErrActionContext with context.
+type ActionContextError struct {
 	AttrName   string // e.g. "href"
 	ActionFunc string // e.g. "POSTPageLoginSubmit"
 }
 
-func (e *ErrorActionContext) Error() string {
+func (e *ActionContextError) Error() string {
 	return fmt.Sprintf("%v: %s in %s attribute",
 		ErrActionContext, e.ActionFunc, e.AttrName)
 }
 
-func (e *ErrorActionContext) Unwrap() error { return ErrActionContext }
+func (e *ActionContextError) Unwrap() error { return ErrActionContext }
 
-// ErrorHrefContext is ErrHrefContext with context.
-type ErrorHrefContext struct {
+// HrefContextError is ErrHrefContext with context.
+type HrefContextError struct {
 	AttrName string // e.g. "data-on:click"
 	HrefFunc string // e.g. "PageIndex"
 }
 
-func (e *ErrorHrefContext) Error() string {
+func (e *HrefContextError) Error() string {
 	return fmt.Sprintf("%v: %s in %s attribute",
 		ErrHrefContext, e.HrefFunc, e.AttrName)
 }
 
-func (e *ErrorHrefContext) Unwrap() error { return ErrHrefContext }
+func (e *HrefContextError) Unwrap() error { return ErrHrefContext }
 
-// ErrorHrefUnverifiable is ErrHrefUnverifiable with context.
-type ErrorHrefUnverifiable struct {
+// HrefUnverifiableError is ErrHrefUnverifiable with context.
+type HrefUnverifiableError struct {
 	Expr string // the full expression value
 }
 
-func (e *ErrorHrefUnverifiable) Error() string {
+func (e *HrefUnverifiableError) Error() string {
 	return fmt.Sprintf("%v: %s", ErrHrefUnverifiable, e.Expr)
 }
 
-func (e *ErrorHrefUnverifiable) Unwrap() error { return ErrHrefUnverifiable }
+func (e *HrefUnverifiableError) Unwrap() error { return ErrHrefUnverifiable }
 
-// ErrorActionUnverifiable is ErrActionUnverifiable with context.
-type ErrorActionUnverifiable struct {
+// ActionUnverifiableError is ErrActionUnverifiable with context.
+type ActionUnverifiableError struct {
 	Expr string // the full expression value
 }
 
-func (e *ErrorActionUnverifiable) Error() string {
+func (e *ActionUnverifiableError) Error() string {
 	return fmt.Sprintf("%v: %s", ErrActionUnverifiable, e.Expr)
 }
 
-func (e *ErrorActionUnverifiable) Unwrap() error { return ErrActionUnverifiable }
+func (e *ActionUnverifiableError) Unwrap() error { return ErrActionUnverifiable }
 
-// ErrorActionUnverifiableWithPrefix is ErrActionUnverifiableWithPrefix with context.
-type ErrorActionUnverifiableWithPrefix struct {
+// ActionUnverifiableWithPrefixError is ErrActionUnverifiableWithPrefix with context.
+type ActionUnverifiableWithPrefixError struct {
 	Expr       string // the full expression value
 	ActionFunc string // e.g. "POSTPageIndexCalculate"
 	Prefix     string // the prefix expression source, e.g. `"$_fresh = true; "`
 }
 
-func (e *ErrorActionUnverifiableWithPrefix) Error() string {
+func (e *ActionUnverifiableWithPrefixError) Error() string {
 	return fmt.Sprintf("%v: %s", ErrActionUnverifiableWithPrefix, e.Expr)
 }
 
-func (e *ErrorActionUnverifiableWithPrefix) Unwrap() error {
+func (e *ActionUnverifiableWithPrefixError) Unwrap() error {
 	return ErrActionUnverifiableWithPrefix
 }
 
-// ErrorActionUnverifiableWithSuffix is ErrActionUnverifiableWithSuffix with context.
-type ErrorActionUnverifiableWithSuffix struct {
+// ActionUnverifiableWithSuffixError is ErrActionUnverifiableWithSuffix with context.
+type ActionUnverifiableWithSuffixError struct {
 	Expr       string // the full expression value
 	ActionFunc string // e.g. "POSTPageIndexCalculate"
 	Suffix     string // the suffix expression source, e.g. `"; $count++"`
 }
 
-func (e *ErrorActionUnverifiableWithSuffix) Error() string {
+func (e *ActionUnverifiableWithSuffixError) Error() string {
 	return fmt.Sprintf("%v: %s", ErrActionUnverifiableWithSuffix, e.Expr)
 }
 
-func (e *ErrorActionUnverifiableWithSuffix) Unwrap() error {
+func (e *ActionUnverifiableWithSuffixError) Unwrap() error {
 	return ErrActionUnverifiableWithSuffix
 }
 
-// ErrorHrefExternalIsRelative is ErrHrefExternalIsRelative with context.
-type ErrorHrefExternalIsRelative struct {
+// HrefExternalIsRelativeError is ErrHrefExternalIsRelative with context.
+type HrefExternalIsRelativeError struct {
 	URL string // the internal URL, e.g. "/login"
 }
 
-func (e *ErrorHrefExternalIsRelative) Error() string {
+func (e *HrefExternalIsRelativeError) Error() string {
 	return fmt.Sprintf("%v: %s", ErrHrefExternalIsRelative, e.URL)
 }
 
-func (e *ErrorHrefExternalIsRelative) Unwrap() error { return ErrHrefExternalIsRelative }
+func (e *HrefExternalIsRelativeError) Unwrap() error { return ErrHrefExternalIsRelative }

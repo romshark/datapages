@@ -135,6 +135,12 @@ func QualifiedTypeName(t types.Type) string {
 	return types.TypeString(t, func(p *types.Package) string { return p.Name() })
 }
 
+// QualifiedTypeNameWith renders a type with qual naming each package,
+// for a caller that imports one of them under an alias.
+func QualifiedTypeNameWith(t types.Type, qual func(*types.Package) string) string {
+	return types.TypeString(t, qual)
+}
+
 // textUnmarshaler is the method set of encoding.TextUnmarshaler.
 var textUnmarshaler = func() *types.Interface {
 	sig := types.NewSignatureType(

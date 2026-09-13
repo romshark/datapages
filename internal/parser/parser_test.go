@@ -753,6 +753,103 @@ func TestParse_ErrEventSubjectDuplicate(t *testing.T) {
 	)
 }
 
+// TestParse_EventSharedAlias tests an event reached through a type alias,
+// in an imported package and in the app package itself.
+//
+// An alias is no declaration. The event is the type behind it:
+// its subject, its payload and the package it counts as come from there,
+// whatever the alias is called and wherever it sits.
+func TestParse_EventSharedAlias(t *testing.T) {
+	app, err := parse(t, "event_shared_alias")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	byName := map[string]*model.Event{}
+	for _, e := range app.Events {
+		byName[e.TypeName] = e
+	}
+	require.Len(byName, 2)
+
+	deep := byName["EventDeep"]
+	require.NotNil(deep)
+	require.Equal("deep", deep.Subject)
+	require.Equal(app.PkgPath+"/deep", deep.PkgPath)
+
+	// Aliased in the app package, which changes neither the name nor the
+	// package the event belongs to.
+	other := byName["EventOther"]
+	require.NotNil(other)
+	require.Equal("other", other.Subject)
+	require.Equal(app.PkgPath+"/deep", other.PkgPath)
+
+	p := app.PageIndex
+	require.NotNil(p)
+	require.Len(p.EventHandlers, 2)
+
+	a := findAction(p.Actions, "Publish")
+	require.NotNil(a)
+	require.Len(a.InputDispatches, 2)
+}
+
+// TestParse_ErrEmbedPointer tests an abstract page embedded as a pointer.
+// Generated code writes a page as a composite literal of values, which a pointer
+// field cannot take, and a nil one would panic in every handler the embed promotes.
+func TestParse_ErrEmbedPointer(t *testing.T) {
+	_, err := parse(t, "err_embed_pointer")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrPageEmbedPointer)
+}
+
+// TestParse_ErrEmbedUnexported tests an abstract page embedded under
+// an unexported name, which the generated package cannot write.
+func TestParse_ErrEmbedUnexported(t *testing.T) {
+	_, err := parse(t, "err_embed_unexported")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrPageEmbedUnexported)
+}
+
+// TestParse_ErrEventShared tests the ways an event declared outside the app
+// package is refused: a type name two packages both declare, which generated
+// code has one identifier for, a subject an event of the app package already claims,
+// and a type carrying no subject comment.
+func TestParse_ErrEventShared(t *testing.T) {
+	_, err := parse(t, "err_event_shared")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEvHandDuplicate,
+		parser.ErrEventTypeNameConflict,
+		parser.ErrEventSubjectDuplicate,
+		parser.ErrEventCommMissing,
+	)
+}
+
+// TestParse_ErrEventSharedRules tests the event rules on a declaration that
+// sits outside the app package. Every rule is checked where the type is written,
+// and the error points there rather than at the handler that uses it.
+//
+// The last one is what checkTypeParams refuses in the app package:
+// generated code names an event type without type arguments,
+// which a generic one cannot be written as.
+func TestParse_ErrEventSharedRules(t *testing.T) {
+	_, err := parse(t, "err_event_shared_rules")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventFieldMissingTag,
+		parser.ErrEventFieldUnexported,
+		parser.ErrEventSubjectAfterPayload,
+		parser.ErrEventSubjectInvalid,
+		parser.ErrEventSubjectUserNoSession,
+		parser.ErrTypeParams,
+	)
+}
+
 // TestParse_ErrEventSubjectDuplicateSignal tests two subject fields bound to one signal,
 // which leaves no way to tell which value fills which field.
 func TestParse_ErrEventSubjectDuplicateSignal(t *testing.T) {
@@ -799,6 +896,35 @@ func TestParse_ErrEventSubjectPrefixedField(t *testing.T) {
 	requireParseErrors(
 		t, err,
 		parser.ErrEventSubjectPrefixedField,
+	)
+}
+
+// TestParse_ErrActionHeadWithoutBody tests an action returning a head and no body.
+// The head travels in the response the action renders, and without a
+// body the generated handler never reads the value.
+func TestParse_ErrActionHeadWithoutBody(t *testing.T) {
+	_, err := parse(t, "err_action_head_no_body")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrSignatureActionHeadWithoutBody,
+	)
+}
+
+// TestParse_ErrEventSubjectDerivedType tests an event field typed as a type
+// declared from datapages.Subject or datapages.SubjectUser, which go/types
+// renders as a plain string and which would therefore drop the segment from
+// the subject and broadcast a per-user event.
+func TestParse_ErrEventSubjectDerivedType(t *testing.T) {
+	_, err := parse(t, "err_event_subj_derived")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectDerivedType,
+		parser.ErrEventSubjectDerivedType,
+		parser.ErrEventSubjectDerivedType,
 	)
 }
 
@@ -966,14 +1092,19 @@ func TestParse_ErrEmbedConflictingGET(t *testing.T) {
 	requirePosEqual(t, "app.go", 15, 2, pos)
 }
 
-// TestParse_ErrGeneratedNameConflict tests two actions the generator would
-// spell as one identifier, which surfaces as a redeclaration in a generated
-// file the user must not edit.
-func TestParse_ErrGeneratedNameConflict(t *testing.T) {
-	_, err := parse(t, "err_generated_name_conflict")
-	require.NotZero(t, err.Error())
-
-	requireParseErrors(t, err, parser.ErrGeneratedNameConflict)
+// TestParse_NameCollisions tests the name pairs that concatenate into one
+// identifier when spelled as one. Each pair is accepted:
+// a page name ending in an HTTP verb against another page's action, the same
+// against a stream handler, a page suffix against an action name, an app
+// action against a page action, and the subject prefix of one event against
+// the subject of another.
+//
+// That the code generated for them compiles is TestCompileFixtures' job,
+// which builds every fixture in this directory.
+func TestParse_NameCollisions(t *testing.T) {
+	app, errs := parse(t, "name_collisions")
+	requireParseErrors(t, errs /*none*/)
+	require.NotNil(t, app)
 }
 
 // TestParse_ErrAppMethodSSE tests the sse parameter on an App method,
@@ -1150,6 +1281,67 @@ func TestParse_Signals(t *testing.T) {
 		require.NotNil(action.InputQuery)
 		require.NotNil(action.InputSignals)
 	}
+}
+
+// TestParse_EventShared tests an event declared outside the app package,
+// which is how two applications of one module take part in one event.
+//
+// The subject, the payload and the subject fields are read where the type is written.
+// The application declares one event of its own beside them.
+func TestParse_EventShared(t *testing.T) {
+	app, err := parse(t, "event_shared")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	byName := map[string]*model.Event{}
+	for _, e := range app.Events {
+		byName[e.TypeName] = e
+	}
+	require.Len(byName, 4)
+
+	local := byName["EventLocal"]
+	require.NotNil(local)
+	require.Equal("local", local.Subject)
+	require.Equal(app.PkgPath, local.PkgPath)
+
+	shared := byName["EventShared"]
+	require.NotNil(shared)
+	require.Equal("shared", shared.Subject)
+	require.Equal(app.PkgPath+"/events", shared.PkgPath)
+	require.NotNil(shared.Type)
+	require.Empty(shared.SubjectFields)
+
+	room := byName["EventRoom"]
+	require.NotNil(room)
+	require.Equal("room", room.Subject)
+	require.Equal(app.PkgPath+"/events", room.PkgPath)
+	require.Len(room.SubjectFields, 1)
+	require.Equal("Room", room.SubjectFields[0].FieldName)
+
+	// The signal tag is read from the foreign declaration too, which is what
+	// makes the stream subscribe to the value the client sends.
+	calc := byName["EventCalc"]
+	require.NotNil(calc)
+	require.Len(calc.SubjectFields, 1)
+	require.Equal("calc_id", calc.SubjectFields[0].SignalName)
+
+	p := app.PageIndex
+	require.NotNil(p)
+	require.Len(p.EventHandlers, 4)
+
+	a := findAction(p.Actions, "Publish")
+	require.NotNil(a)
+	require.Len(a.InputDispatches, 4)
+	require.Equal("EventLocal", a.InputDispatches[0].EventTypeName)
+	require.Equal("EventShared", a.InputDispatches[1].EventTypeName)
+	require.Equal("EventRoom", a.InputDispatches[2].EventTypeName)
+
+	// The application's own action dispatches the foreign event too,
+	// which is written by the other half of the generator.
+	require.Len(app.Actions, 1)
+	require.Len(app.Actions[0].InputDispatches, 1)
+	require.Equal("EventShared", app.Actions[0].InputDispatches[0].EventTypeName)
 }
 
 // TestParse_Dispatch tests the dispatcher parameters a handler takes and the
@@ -1718,6 +1910,9 @@ func TestParse_ErrorPositions(t *testing.T) {
 		"err_head_return": {
 			{parser.ErrAppHeadMustReturnHead, "app.go", 20, 13},
 		},
+		"err_action_head_no_body": {
+			{parser.ErrSignatureActionHeadWithoutBody, "app.go", 22, 18},
+		},
 		"err_head_unsupported": {
 			{parser.ErrAppHeadUnsupportedInput, "app.go", 20, 13},
 		},
@@ -1741,6 +1936,11 @@ func TestParse_ErrorPositions(t *testing.T) {
 		},
 		"err_event_subj_unexported": {
 			{parser.ErrEventFieldUnexported, "app.go", 25, 2},
+		},
+		"err_event_subj_derived": {
+			{parser.ErrEventSubjectDerivedType, "app.go", 43, 2},
+			{parser.ErrEventSubjectDerivedType, "app.go", 53, 2},
+			{parser.ErrEventSubjectDerivedType, "app.go", 62, 2},
 		},
 		"err_embed_get_path": {
 			{parser.ErrPathMissingRouteVar, "app.go", 17, 2},
@@ -1768,6 +1968,10 @@ func TestParse_ErrorPositions(t *testing.T) {
 			{parser.ErrEventFieldEmptyTag, "app.go", 168, 2},
 			{parser.ErrEventSubjectInvalid, "app.go", 192, 25},
 			{parser.ErrEventFieldUnexported, "subpkg.go", 7, 2},
+		},
+		"err_path_tag_no_route_var": {
+			{parser.ErrPathMissingRouteVar, "app.go", 33, 2},
+			{parser.ErrPathFieldNotInRoute, "app.go", 34, 3},
 		},
 		"err_path": {
 			{parser.ErrPathParamNotStruct, "app.go", 26, 24},

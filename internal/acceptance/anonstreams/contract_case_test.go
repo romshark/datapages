@@ -52,22 +52,22 @@ func TestContract(t *testing.T) {
 			href.PageTabs(),
 		},
 		Actions: []string{
-			action.POSTPageRoomsPost(),
-			action.POSTPageRoomsNotice(),
-			action.POSTPageTabsBump(),
+			action.PageRooms.Post.POST(),
+			action.PageRooms.Notice.POST(),
+			action.PageTabs.Bump.POST(),
 		},
 		SignalActions: []string{
-			action.POSTPageRoomsPost(),
-			action.POSTPageRoomsNotice(),
+			action.PageRooms.Post.POST(),
+			action.PageRooms.Notice.POST(),
 		},
 		// The stateful page,
 		// whose stream the suite opens and whose state it watches expire.
 		Index:           href.PageTabs(),
 		StreamPath:      "/tabs/_$/",
-		DispatchAction:  action.POSTPageTabsBump(),
-		StateAction:     action.POSTPageTabsBump(),
+		DispatchAction:  action.PageTabs.Bump.POST(),
+		StateAction:     action.PageTabs.Bump.POST(),
 		StateActionBody: "",
-		OptionedAction: action.POSTPageTabsBump(
+		OptionedAction: action.PageTabs.Bump.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),

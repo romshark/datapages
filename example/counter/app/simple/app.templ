@@ -33,14 +33,14 @@ templ head() {
 templ pageCounter(value int32) {
 	<div id="page-counter">
 		<button
-			data-on:click={ action.POSTPageIndexAdd(
-			action.QueryPOSTPageIndexAdd{Delta: -1},
+			data-on:click={ action.PageIndex.Add.POST(
+			action.PageIndex.Add.POSTQuery(-1),
 		) }
 		>-</button>
 		<span id="value">{ fmt.Sprint(value) }</span>
 		<button
-			data-on:click={ action.POSTPageIndexAdd(
-			action.QueryPOSTPageIndexAdd{Delta: 1},
+			data-on:click={ action.PageIndex.Add.POST(
+			action.PageIndex.Add.POSTQuery(1),
 		) }
 		>+</button>
 		<span class="attribution">

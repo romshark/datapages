@@ -93,8 +93,8 @@ templ pageCalculator(input string, fresh bool, instanceID string) {
 			for _, b := range buttons {
 				<button
 					class={ b.Class }
-					data-on:click={ action.POSTPageIndexInput(
-						action.QueryPOSTPageIndexInput{Btn: int(b.Btn)}) }
+					data-on:click={ action.PageIndex.Input.POST(
+						action.PageIndex.Input.POSTQuery(int(b.Btn), "")) }
 				>{ b.Label }</button>
 			}
 		</div>

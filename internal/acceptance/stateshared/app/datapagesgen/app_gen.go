@@ -28,7 +28,7 @@ import (
 	"github.com/romshark/datapages/runtime/stream"
 	"github.com/romshark/datapages/runtime/subject"
 
-	"github.com/romshark/datapages/internal/acceptance/stateshared/app"
+	dpapp "github.com/romshark/datapages/internal/acceptance/stateshared/app"
 	"github.com/romshark/datapages/internal/acceptance/stateshared/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -154,7 +154,7 @@ type Server struct {
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
 	streams              *stream.Handler
-	app                  *app.App
+	app                  *dpapp.App
 
 	stateConf *datapages.StateConfig
 
@@ -165,7 +165,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -179,12 +179,12 @@ type Server struct {
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package app declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -241,7 +241,7 @@ const (
 )
 
 const (
-	EvSubjPrefChanged = "changed."
+	EvPrefixChanged = "changed."
 )
 
 func MessageBrokerStreamSubjects() []string {
@@ -252,13 +252,13 @@ func MessageBrokerStreamSubjects() []string {
 
 func evSubjPageIndex(stateID string) []string {
 	return []string{
-		EvSubjPrefChanged + stateID,
+		EvPrefixChanged + stateID,
 	}
 }
 
 func evSubjPageOther(stateID string) []string {
 	return []string{
-		EvSubjPrefChanged + stateID,
+		EvPrefixChanged + stateID,
 	}
 }
 
@@ -411,7 +411,7 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 // An instance lives exactly as long as the stream that created it and
 // is never reused: a client that reconnects gets a new one.
 type stateSlotTabContext struct {
-	state *app.TabContext
+	state *dpapp.TabContext
 	mu    sync.Mutex // serializes all stateful handler calls on this instance
 	dead  bool       // true once the stream closed and the state was dropped
 }
@@ -424,7 +424,7 @@ func (s *Server) allocateTabContext(id string) *stateSlotTabContext {
 	if !s.ReserveStateInstance() {
 		return nil
 	}
-	slot := &stateSlotTabContext{state: new(app.TabContext)}
+	slot := &stateSlotTabContext{state: new(dpapp.TabContext)}
 	s.stateInstancesTabContext.Store(id, slot)
 	return slot
 }
@@ -465,32 +465,36 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /_$/{$}",
-		s.handlePageIndexGETStream)
+		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /other/{$}",
-		s.handlePageOtherGET)
+		pageOtherHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /other/_$/{$}",
-		s.handlePageOtherGETStream)
+		pageOtherHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /plain/{$}",
-		s.handlePagePlainGET)
+		pagePlainHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"POST /bump/{$}",
-		s.handlePOSTBump)
+		appHandlers{s}.POSTBump)
 	s.Mux().HandleFunc(
 		"POST /note/{$}",
-		s.handlePageIndexPOSTNote)
+		pageIndexHandlers{s}.POSTNote)
 }
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if sse != nil {
+		// The stream is open, hence no status is left to send.
+		return
+	}
 	if httpserve.ResponseBodyWritten(w) {
 		// A status written now only appends its text to the body.
 		return
@@ -498,7 +502,9 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePOSTBump(w http.ResponseWriter, r *http.Request) {
+type appHandlers struct{ *Server }
+
+func (s appHandlers) POSTBump(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.Header.Get(stateInstanceIDHeader)
 	if !s.verifyStateInstanceID(instanceID) {
 		w.Header().Set(stateRetryHeader, stateRetryReconnect)
@@ -520,16 +526,18 @@ func (s *Server) handlePOSTBump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dispatchChanged := dispatcherEventChanged{s: s, ctx: r.Context()}
+	dispatchChanged := dispatcherEventChanged{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "App.Bump")
-	err := s.app.POSTBump(r, datapages.State[app.TabContext]{Values: slot.state}, stateID, dispatchChanged)
+	err := s.app.POSTBump(r, datapages.State[dpapp.TabContext]{Values: slot.state}, stateID, dispatchChanged)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.Bump", err)
 		return
 	}
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -548,9 +556,9 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	// A cache that hands it to a second visitor hands over the state.
 	w.Header().Set("Cache-Control", "no-store")
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -567,7 +575,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/_$/')"`)
 	}
 
 	if err := s.writeHTML(
@@ -578,7 +586,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -599,9 +607,9 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 	stateID := s.stateRouteKey(instanceID)
 	var slot *stateSlotTabContext
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -628,7 +636,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, datapages.State[app.TabContext]{Values: slot.state}); err != nil {
+			if err := p.StreamOpen(r, datapages.State[dpapp.TabContext]{Values: slot.state}); err != nil {
 				return err
 			}
 			opened = true
@@ -642,11 +650,11 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
-			var eventChanged app.EventChanged
+			var eventChanged dpapp.EventChanged
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefChanged):
-					eventChanged = app.EventChanged{}
+				case strings.HasPrefix(msg.Subject, EvPrefixChanged):
+					eventChanged = dpapp.EventChanged{}
 					if err := json.Unmarshal(msg.Data, &eventChanged); err != nil {
 						s.LogErr("unmarshaling EventChanged JSON", err)
 						continue
@@ -661,7 +669,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						if err := p.OnChanged(
 							eventChanged,
 							dpsse.New(sse),
-							datapages.State[app.TabContext]{Values: slot.state},
+							datapages.State[dpapp.TabContext]{Values: slot.state},
 						); err != nil {
 							s.LogErr("handling PageIndex.OnChanged", err)
 						}
@@ -671,7 +679,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		})
 }
 
-func (s *Server) handlePageIndexPOSTNote(
+func (s pageIndexHandlers) POSTNote(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -706,22 +714,24 @@ func (s *Server) handlePageIndexPOSTNote(
 		return
 	}
 
-	dispatchChanged := dispatcherEventChanged{s: s, ctx: r.Context()}
+	dispatchChanged := dispatcherEventChanged{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Note")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
-	err := p.POSTNote(r, datapages.State[app.TabContext]{Values: slot.state}, stateID, signals, dispatchChanged)
+	err := p.POSTNote(r, datapages.State[dpapp.TabContext]{Values: slot.state}, stateID, signals, dispatchChanged)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageIndex.Note", err)
 		return
 	}
 }
 
-func (s *Server) handlePageOtherGET(w http.ResponseWriter, r *http.Request) {
+type pageOtherHandlers struct{ *Server }
+
+func (s pageOtherHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	// Mint the per-instance identifier for this page load.
 	// The client echoes this value on action requests and on the SSE
@@ -736,9 +746,9 @@ func (s *Server) handlePageOtherGET(w http.ResponseWriter, r *http.Request) {
 	// A cache that hands it to a second visitor hands over the state.
 	w.Header().Set("Cache-Control", "no-store")
 
-	p := app.PageOther{
+	p := dpapp.PageOther{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -755,7 +765,7 @@ func (s *Server) handlePageOtherGET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/other/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/other/_$/')"`)
 	}
 
 	if err := s.writeHTML(
@@ -766,7 +776,7 @@ func (s *Server) handlePageOtherGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageOtherHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -787,9 +797,9 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 	stateID := s.stateRouteKey(instanceID)
 	var slot *stateSlotTabContext
 
-	p := app.PageOther{
+	p := dpapp.PageOther{
 		App: s.app,
-		Base: app.Base{
+		Base: dpapp.Base{
 			App: s.app,
 		},
 	}
@@ -816,7 +826,7 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, datapages.State[app.TabContext]{Values: slot.state}); err != nil {
+			if err := p.StreamOpen(r, datapages.State[dpapp.TabContext]{Values: slot.state}); err != nil {
 				return err
 			}
 			opened = true
@@ -830,11 +840,11 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageOther stream")
-			var eventChanged app.EventChanged
+			var eventChanged dpapp.EventChanged
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefChanged):
-					eventChanged = app.EventChanged{}
+				case strings.HasPrefix(msg.Subject, EvPrefixChanged):
+					eventChanged = dpapp.EventChanged{}
 					if err := json.Unmarshal(msg.Data, &eventChanged); err != nil {
 						s.LogErr("unmarshaling EventChanged JSON", err)
 						continue
@@ -849,7 +859,7 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 						if err := p.OnChanged(
 							eventChanged,
 							dpsse.New(sse),
-							datapages.State[app.TabContext]{Values: slot.state},
+							datapages.State[dpapp.TabContext]{Values: slot.state},
 						); err != nil {
 							s.LogErr("handling PageOther.OnChanged", err)
 						}
@@ -859,8 +869,10 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 		})
 }
 
-func (s *Server) handlePagePlainGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PagePlain{
+type pagePlainHandlers struct{ *Server }
+
+func (s pagePlainHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PagePlain{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PagePlain.GET")
@@ -887,12 +899,12 @@ type dispatcherEventChanged struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventChanged) Dispatch(e app.EventChanged) error {
+func (d dispatcherEventChanged) Dispatch(e dpapp.EventChanged) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventChanged) DispatchCtx(
-	ctx context.Context, e app.EventChanged,
+	ctx context.Context, e dpapp.EventChanged,
 ) error {
 	if e.SubjectStateID == "" {
 		return errors.New("EventChanged.SubjectStateID must not be empty")

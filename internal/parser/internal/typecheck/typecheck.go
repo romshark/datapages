@@ -4,7 +4,10 @@ package typecheck
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
+
+	"golang.org/x/tools/go/packages"
 
 	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/model"
@@ -242,19 +245,21 @@ func IsDispatchType(expr ast.Expr, info *types.Info) bool {
 	return ok
 }
 
-// DispatchEventTypeName returns the name of the Event type argument of
+// DispatchEventNamed returns the Event type argument of
 // datapages.Dispatcher[Event]. ok is false if expr isn't an instantiation of
-// datapages.Dispatcher, name is empty if the argument isn't a named type.
-func DispatchEventTypeName(expr ast.Expr, info *types.Info) (name string, ok bool) {
+// datapages.Dispatcher, named is nil if the argument isn't a named type.
+func DispatchEventNamed(
+	expr ast.Expr, info *types.Info,
+) (named *types.Named, ok bool) {
 	arg, ok := namedTypeArg(expr, info, "Dispatcher")
 	if !ok {
-		return "", false
+		return nil, false
 	}
 	named, isNamed := types.Unalias(arg).(*types.Named)
-	if !isNamed || named.Obj() == nil {
-		return "", true
+	if !isNamed || named.Obj() == nil || named.Obj().Pkg() == nil {
+		return nil, true
 	}
-	return named.Obj().Name(), true
+	return named, true
 }
 
 // IsEventType reports whether the expression resolves to the
@@ -267,47 +272,33 @@ func IsEventType(
 	if eventTypeName == "" {
 		return false
 	}
-	t := info.TypeOf(expr)
-	if t == nil {
-		return false
-	}
-	if ptr, ok := t.(*types.Pointer); ok {
-		t = ptr.Elem()
-	}
-	named, ok := t.(*types.Named)
-	if !ok || named.Obj() == nil {
+	named, ok := EventNamedOf(expr, info)
+	if !ok {
 		return false
 	}
 	return named.Obj().Name() == eventTypeName
 }
 
-// EventTypeNameOf returns the EventXXX type name for expr
-// if it is (or points to) a named type whose name is in eventTypeNames.
-func EventTypeNameOf(
-	expr ast.Expr,
-	info *types.Info,
-	eventTypeNames map[string]struct{},
-) (string, bool) {
+// EventNamedOf returns the named type expr denotes, a pointer to one
+// counting as that type. The caller decides whether the name is an event.
+//
+// A type without a package is no event: every event is declared at package level,
+// in the app package or in a package it imports.
+func EventNamedOf(expr ast.Expr, info *types.Info) (*types.Named, bool) {
 	t := info.TypeOf(expr)
 	if t == nil {
-		return "", false
+		return nil, false
 	}
 	// Allow both EventFoo and *EventFoo.
-	if ptr, ok := t.(*types.Pointer); ok {
+	if ptr, ok := types.Unalias(t).(*types.Pointer); ok {
 		t = ptr.Elem()
 	}
-	named, ok := t.(*types.Named)
-	if !ok || named.Obj() == nil || named.Obj().Pkg() == nil {
-		return "", false
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok || named.Obj() == nil || named.Obj().Pkg() == nil ||
+		named.Obj().Pkg().Path() == "" {
+		return nil, false
 	}
-	name := named.Obj().Name()
-	if _, ok := eventTypeNames[name]; !ok {
-		return "", false
-	}
-	if named.Obj().Pkg().Path() == "" {
-		return "", false
-	}
-	return name, true
+	return named, true
 }
 
 // SubjectKindOf reports which datapages subject segment type t is,
@@ -372,4 +363,134 @@ func TypeArgExpr(expr ast.Expr) ast.Expr {
 		}
 	}
 	return expr
+}
+
+// maxSubjectDeriveDepth caps the declaration chain [DerivedSubjectKindOf] follows.
+// Go rejects a cycle among type declarations:
+// the cap only guards against an unexpected type graph.
+const maxSubjectDeriveDepth = 16
+
+// DerivedSubjectKindOf reports which datapages subject segment type t is declared from,
+// e.g. [model.SubjectKindUser] for `type UserID datapages.SubjectUser`.
+// It returns [model.SubjectKindNone] for the two framework types themselves,
+// which [SubjectKindOf] reports, and for every other type.
+//
+// pkg is the package t is written in. Both framework types are strings
+// and a declaration from either keeps that underlying type, which erases the
+// derivation from go/types: the declaration is read from the syntax of pkg and
+// of its imports instead.
+func DerivedSubjectKindOf(t types.Type, pkg *packages.Package) model.SubjectKind {
+	if t == nil || pkg == nil || SubjectKindOf(t).IsSubject() {
+		return model.SubjectKindNone
+	}
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok || !gotypes.IsString(named.Underlying()) {
+		return model.SubjectKindNone
+	}
+	for range maxSubjectDeriveDepth {
+		obj := named.Obj()
+		if obj == nil || obj.Pkg() == nil {
+			return model.SubjectKindNone
+		}
+		declPkg := packageByPath(pkg, obj.Pkg().Path())
+		if declPkg == nil || declPkg.TypesInfo == nil {
+			return model.SubjectKindNone
+		}
+		rhs := typeSpecRHS(declPkg, obj.Pos())
+		if rhs == nil {
+			return model.SubjectKindNone
+		}
+		next, ok := types.Unalias(declPkg.TypesInfo.TypeOf(rhs)).(*types.Named)
+		if !ok {
+			return model.SubjectKindNone
+		}
+		if kind := SubjectKindOf(next); kind.IsSubject() {
+			return kind
+		}
+		named, pkg = next, declPkg
+	}
+	return model.SubjectKindNone
+}
+
+// TypeDeclOf returns the package-level type declaration of obj, the package it
+// is written in and the doc comment above it. It reads the syntax of pkg and of
+// its imports, which is as far as a declaration an app package names can sit.
+func TypeDeclOf(obj *types.TypeName, pkg *packages.Package) (
+	declPkg *packages.Package, ts *ast.TypeSpec, doc *ast.CommentGroup, ok bool,
+) {
+	if obj == nil || obj.Pkg() == nil || pkg == nil {
+		return nil, nil, nil, false
+	}
+	declPkg = packageByPath(pkg, obj.Pkg().Path())
+	if declPkg == nil {
+		return nil, nil, nil, false
+	}
+	for _, file := range declPkg.Syntax {
+		for _, decl := range file.Decls {
+			gd, isGen := decl.(*ast.GenDecl)
+			if !isGen || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts, isType := spec.(*ast.TypeSpec)
+				if !isType || ts.Name.Pos() != obj.Pos() {
+					continue
+				}
+				doc = ts.Doc
+				if doc == nil {
+					doc = gd.Doc
+				}
+				return declPkg, ts, doc, true
+			}
+		}
+	}
+	return nil, nil, nil, false
+}
+
+// packageByPath returns pkg itself or the package with the given path among
+// what pkg imports, directly or further down. An alias re-exporting a type puts
+// the declaration one package further out than the app package imports.
+func packageByPath(pkg *packages.Package, path string) *packages.Package {
+	if pkg.PkgPath == path {
+		return pkg
+	}
+	if p, ok := pkg.Imports[path]; ok {
+		return p
+	}
+	seen := map[*packages.Package]bool{pkg: true}
+	queue := []*packages.Package{pkg}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if p, ok := cur.Imports[path]; ok {
+			return p
+		}
+		for _, imp := range cur.Imports {
+			if !seen[imp] {
+				seen[imp] = true
+				queue = append(queue, imp)
+			}
+		}
+	}
+	return nil
+}
+
+// typeSpecRHS returns the right-hand side of the package-level type
+// declaration whose name identifier sits at pos, nil if pkg declares none.
+func typeSpecRHS(pkg *packages.Package, pos token.Pos) ast.Expr {
+	for _, file := range pkg.Syntax {
+		for _, decl := range file.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if ok && ts.Name.Pos() == pos {
+					return ts.Type
+				}
+			}
+		}
+	}
+	return nil
 }

@@ -30,7 +30,7 @@ import (
 	"github.com/romshark/datapages/runtime/stream"
 	"github.com/romshark/datapages/runtime/subject"
 
-	"github.com/romshark/datapages/internal/acceptance/anonstreams/app"
+	dpapp "github.com/romshark/datapages/internal/acceptance/anonstreams/app"
 	"github.com/romshark/datapages/internal/acceptance/anonstreams/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -161,7 +161,7 @@ type Server struct {
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
 	streams              *stream.Handler
-	app                  *app.App
+	app                  *dpapp.App
 	*auth.Manager[struct{}]
 	stateConf *datapages.StateConfig
 
@@ -172,7 +172,7 @@ type Server struct {
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, struct{}, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, struct{}, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -189,7 +189,7 @@ type Server struct {
 //   - datapages.WithCSRFProtection
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[struct{}],
 ) error {
@@ -255,9 +255,9 @@ const (
 )
 
 const (
-	EvSubjPrefDMed       = "dmed."
-	EvSubjPrefNoticed    = "noticed."
-	EvSubjPrefRoomPosted = "room.posted."
+	EvPrefixDMed       = "dmed."
+	EvPrefixNoticed    = "noticed."
+	EvPrefixRoomPosted = "room.posted."
 )
 
 func MessageBrokerStreamSubjects() []string {
@@ -455,7 +455,7 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 // An instance lives exactly as long as the stream that created it and
 // is never reused: a client that reconnects gets a new one.
 type stateSlotStateTab struct {
-	state *app.StateTab
+	state *dpapp.StateTab
 	mu    sync.Mutex // serializes all stateful handler calls on this instance
 	dead  bool       // true once the stream closed and the state was dropped
 }
@@ -468,7 +468,7 @@ func (s *Server) allocateStateTab(id string) *stateSlotStateTab {
 	if !s.ReserveStateInstance() {
 		return nil
 	}
-	slot := &stateSlotStateTab{state: new(app.StateTab)}
+	slot := &stateSlotStateTab{state: new(dpapp.StateTab)}
 	s.stateInstancesStateTab.Store(id, slot)
 	return slot
 }
@@ -509,53 +509,57 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /post/{slug}/{$}",
-		s.handlePagePostGET)
+		pagePostHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /post/{slug}/_$/{$}",
-		s.handlePagePostGETStream)
+		pagePostHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /post/{slug}/_$/anon/{$}",
-		s.handlePagePostGETStreamAnon)
+		pagePostHandlers{s}.GETStreamAnon)
 	s.Mux().HandleFunc(
 		"GET /rooms/{$}",
-		s.handlePageRoomsGET)
+		pageRoomsHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /rooms/_$/{$}",
-		s.handlePageRoomsGETStream)
+		pageRoomsHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /rooms/_$/anon/{$}",
-		s.handlePageRoomsGETStreamAnon)
+		pageRoomsHandlers{s}.GETStreamAnon)
 	s.Mux().HandleFunc(
 		"GET /tabs/{$}",
-		s.handlePageTabsGET)
+		pageTabsHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /tabs/_$/{$}",
-		s.handlePageTabsGETStream)
+		pageTabsHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /tabs/_$/anon/{$}",
-		s.handlePageTabsGETStreamAnon)
+		pageTabsHandlers{s}.GETStreamAnon)
 	s.Mux().HandleFunc(
 		"POST /rooms/post/{$}",
-		s.handlePageRoomsPOSTPost)
+		pageRoomsHandlers{s}.POSTPost)
 	s.Mux().HandleFunc(
 		"POST /rooms/notice/{$}",
-		s.handlePageRoomsPOSTNotice)
+		pageRoomsHandlers{s}.POSTNotice)
 	s.Mux().HandleFunc(
 		"POST /rooms/dm/{$}",
-		s.handlePageRoomsPOSTDM)
+		pageRoomsHandlers{s}.POSTDM)
 	s.Mux().HandleFunc(
 		"POST /tabs/bump/{$}",
-		s.handlePageTabsPOSTBump)
+		pageTabsHandlers{s}.POSTBump)
 }
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if sse != nil {
+		// The stream is open, hence no status is left to send.
+		return
+	}
 	if httpserve.ResponseBodyWritten(w) {
 		// A status written now only appends its text to the body.
 		return
@@ -563,7 +567,9 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -574,7 +580,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -597,7 +603,9 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
+type pagePostHandlers struct{ *Server }
+
+func (s pagePostHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -608,7 +616,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 	}]
 	path.Values.Slug = r.PathValue("slug")
 
-	p := app.PagePost{
+	p := dpapp.PagePost{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PagePost.GET")
@@ -625,7 +633,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, ` data-init="@get('`)
 		_, _ = io.WriteString(w, `/post/`)
 		htmlattr.WritePathValue(w, path.Values.Slug)
 		_, _ = io.WriteString(w, `/`)
@@ -644,7 +652,7 @@ func (s *Server) handlePagePostGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -666,7 +674,7 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	p := app.PagePost{
+	p := dpapp.PagePost{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID()),
@@ -677,12 +685,12 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PagePost stream")
-			var eventTicked app.EventTicked
-			var eventNoticed app.EventNoticed
+			var eventTicked dpapp.EventTicked
+			var eventNoticed dpapp.EventNoticed
 			for msg := range ch {
 				switch {
 				case msg.Subject == EvSubjTicked:
-					eventTicked = app.EventTicked{}
+					eventTicked = dpapp.EventTicked{}
 					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
 						s.LogErr("unmarshaling EventTicked JSON", err)
 						continue
@@ -693,8 +701,8 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 					); err != nil {
 						s.LogErr("handling PagePost.OnTicked", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefNoticed):
-					eventNoticed = app.EventNoticed{}
+				case strings.HasPrefix(msg.Subject, EvPrefixNoticed):
+					eventNoticed = dpapp.EventNoticed{}
 					if err := json.Unmarshal(msg.Data, &eventNoticed); err != nil {
 						s.LogErr("unmarshaling EventNoticed JSON", err)
 						continue
@@ -710,7 +718,7 @@ func (s *Server) handlePagePostGETStream(w http.ResponseWriter, r *http.Request)
 		})
 }
 
-func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Request) {
+func (s pagePostHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -724,7 +732,7 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	p := app.PagePost{
+	p := dpapp.PagePost{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPagePost(sess.UserID()),
@@ -734,11 +742,11 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
-			var eventTicked app.EventTicked
+			var eventTicked dpapp.EventTicked
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjTicked:
-					eventTicked = app.EventTicked{}
+					eventTicked = dpapp.EventTicked{}
 					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
 						s.LogErr("unmarshaling EventTicked JSON", err)
 						continue
@@ -754,13 +762,15 @@ func (s *Server) handlePagePostGETStreamAnon(w http.ResponseWriter, r *http.Requ
 		})
 }
 
-func (s *Server) handlePageRoomsGET(w http.ResponseWriter, r *http.Request) {
+type pageRoomsHandlers struct{ *Server }
+
+func (s pageRoomsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.PageRooms{
+	p := dpapp.PageRooms{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageRooms.GET")
@@ -777,7 +787,7 @@ func (s *Server) handlePageRoomsGET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, ` data-init="@get('`)
 		if sess.UserID() != "" {
 			_, _ = io.WriteString(w, `/rooms/_$/')"`)
 		} else {
@@ -793,7 +803,7 @@ func (s *Server) handlePageRoomsGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageRoomsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -828,7 +838,7 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	p := app.PageRooms{
+	p := dpapp.PageRooms{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageRooms(sess.UserID(), subjSignals.Room),
@@ -839,13 +849,13 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageRooms stream")
-			var eventRoomPosted app.EventRoomPosted
-			var eventNoticed app.EventNoticed
-			var eventDMed app.EventDMed
+			var eventRoomPosted dpapp.EventRoomPosted
+			var eventNoticed dpapp.EventNoticed
+			var eventDMed dpapp.EventDMed
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefRoomPosted):
-					eventRoomPosted = app.EventRoomPosted{}
+				case strings.HasPrefix(msg.Subject, EvPrefixRoomPosted):
+					eventRoomPosted = dpapp.EventRoomPosted{}
 					if err := json.Unmarshal(msg.Data, &eventRoomPosted); err != nil {
 						s.LogErr("unmarshaling EventRoomPosted JSON", err)
 						continue
@@ -856,8 +866,8 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 					); err != nil {
 						s.LogErr("handling PageRooms.OnRoomPosted", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefNoticed):
-					eventNoticed = app.EventNoticed{}
+				case strings.HasPrefix(msg.Subject, EvPrefixNoticed):
+					eventNoticed = dpapp.EventNoticed{}
 					if err := json.Unmarshal(msg.Data, &eventNoticed); err != nil {
 						s.LogErr("unmarshaling EventNoticed JSON", err)
 						continue
@@ -868,8 +878,8 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 					); err != nil {
 						s.LogErr("handling PageRooms.OnNoticed", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefDMed):
-					eventDMed = app.EventDMed{}
+				case strings.HasPrefix(msg.Subject, EvPrefixDMed):
+					eventDMed = dpapp.EventDMed{}
 					if err := json.Unmarshal(msg.Data, &eventDMed); err != nil {
 						s.LogErr("unmarshaling EventDMed JSON", err)
 						continue
@@ -885,7 +895,7 @@ func (s *Server) handlePageRoomsGETStream(w http.ResponseWriter, r *http.Request
 		})
 }
 
-func (s *Server) handlePageRoomsGETStreamAnon(w http.ResponseWriter, r *http.Request) {
+func (s pageRoomsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -912,7 +922,7 @@ func (s *Server) handlePageRoomsGETStreamAnon(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	p := app.PageRooms{
+	p := dpapp.PageRooms{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageRooms(sess.UserID(), subjSignals.Room),
@@ -922,11 +932,11 @@ func (s *Server) handlePageRoomsGETStreamAnon(w http.ResponseWriter, r *http.Req
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
-			var eventRoomPosted app.EventRoomPosted
+			var eventRoomPosted dpapp.EventRoomPosted
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefRoomPosted):
-					eventRoomPosted = app.EventRoomPosted{}
+				case strings.HasPrefix(msg.Subject, EvPrefixRoomPosted):
+					eventRoomPosted = dpapp.EventRoomPosted{}
 					if err := json.Unmarshal(msg.Data, &eventRoomPosted); err != nil {
 						s.LogErr("unmarshaling EventRoomPosted JSON", err)
 						continue
@@ -942,7 +952,7 @@ func (s *Server) handlePageRoomsGETStreamAnon(w http.ResponseWriter, r *http.Req
 		})
 }
 
-func (s *Server) handlePageRoomsPOSTPost(
+func (s pageRoomsHandlers) POSTPost(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -962,9 +972,9 @@ func (s *Server) handlePageRoomsPOSTPost(
 		return
 	}
 
-	dispatchRoomPosted := dispatcherEventRoomPosted{s: s, ctx: r.Context()}
+	dispatchRoomPosted := dispatcherEventRoomPosted{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageRooms.Post")
-	p := app.PageRooms{
+	p := dpapp.PageRooms{
 		App: s.app,
 	}
 	err := p.POSTPost(r, signals, dispatchRoomPosted)
@@ -974,7 +984,7 @@ func (s *Server) handlePageRoomsPOSTPost(
 	}
 }
 
-func (s *Server) handlePageRoomsPOSTNotice(
+func (s pageRoomsHandlers) POSTNotice(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -994,9 +1004,9 @@ func (s *Server) handlePageRoomsPOSTNotice(
 		return
 	}
 
-	dispatchNoticed := dispatcherEventNoticed{s: s, ctx: r.Context()}
+	dispatchNoticed := dispatcherEventNoticed{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageRooms.Notice")
-	p := app.PageRooms{
+	p := dpapp.PageRooms{
 		App: s.app,
 	}
 	err := p.POSTNotice(r, signals, dispatchNoticed)
@@ -1006,7 +1016,7 @@ func (s *Server) handlePageRoomsPOSTNotice(
 	}
 }
 
-func (s *Server) handlePageRoomsPOSTDM(
+func (s pageRoomsHandlers) POSTDM(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -1027,9 +1037,9 @@ func (s *Server) handlePageRoomsPOSTDM(
 		return
 	}
 
-	dispatchDMed := dispatcherEventDMed{s: s, ctx: r.Context()}
+	dispatchDMed := dispatcherEventDMed{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageRooms.DM")
-	p := app.PageRooms{
+	p := dpapp.PageRooms{
 		App: s.app,
 	}
 	err := p.POSTDM(r, signals, dispatchDMed)
@@ -1039,7 +1049,9 @@ func (s *Server) handlePageRoomsPOSTDM(
 	}
 }
 
-func (s *Server) handlePageTabsGET(w http.ResponseWriter, r *http.Request) {
+type pageTabsHandlers struct{ *Server }
+
+func (s pageTabsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -1058,7 +1070,7 @@ func (s *Server) handlePageTabsGET(w http.ResponseWriter, r *http.Request) {
 	// A cache that hands it to a second visitor hands over the state.
 	w.Header().Set("Cache-Control", "no-store")
 
-	p := app.PageTabs{
+	p := dpapp.PageTabs{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageTabs.GET")
@@ -1075,7 +1087,7 @@ func (s *Server) handlePageTabsGET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, ` data-init="@get('`)
 		if sess.UserID() != "" {
 			_, _ = io.WriteString(w, `/tabs/_$/')"`)
 		} else {
@@ -1091,7 +1103,7 @@ func (s *Server) handlePageTabsGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageTabsGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageTabsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1128,7 +1140,7 @@ func (s *Server) handlePageTabsGETStream(w http.ResponseWriter, r *http.Request)
 	}
 	var slot *stateSlotStateTab
 
-	p := app.PageTabs{
+	p := dpapp.PageTabs{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageTabs(sess.UserID()),
@@ -1154,7 +1166,7 @@ func (s *Server) handlePageTabsGETStream(w http.ResponseWriter, r *http.Request)
 			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, streamID, datapages.State[app.StateTab]{Values: slot.state}); err != nil {
+			if err := p.StreamOpen(r, streamID, datapages.State[dpapp.StateTab]{Values: slot.state}); err != nil {
 				return err
 			}
 			opened = true
@@ -1168,12 +1180,12 @@ func (s *Server) handlePageTabsGETStream(w http.ResponseWriter, r *http.Request)
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageTabs stream")
-			var eventTicked app.EventTicked
-			var eventNoticed app.EventNoticed
+			var eventTicked dpapp.EventTicked
+			var eventNoticed dpapp.EventNoticed
 			for msg := range ch {
 				switch {
 				case msg.Subject == EvSubjTicked:
-					eventTicked = app.EventTicked{}
+					eventTicked = dpapp.EventTicked{}
 					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
 						s.LogErr("unmarshaling EventTicked JSON", err)
 						continue
@@ -1188,13 +1200,13 @@ func (s *Server) handlePageTabsGETStream(w http.ResponseWriter, r *http.Request)
 						if err := p.OnTicked(
 							eventTicked,
 							dpsse.New(sse),
-							datapages.State[app.StateTab]{Values: slot.state},
+							datapages.State[dpapp.StateTab]{Values: slot.state},
 						); err != nil {
 							s.LogErr("handling PageTabs.OnTicked", err)
 						}
 					}()
-				case strings.HasPrefix(msg.Subject, EvSubjPrefNoticed):
-					eventNoticed = app.EventNoticed{}
+				case strings.HasPrefix(msg.Subject, EvPrefixNoticed):
+					eventNoticed = dpapp.EventNoticed{}
 					if err := json.Unmarshal(msg.Data, &eventNoticed); err != nil {
 						s.LogErr("unmarshaling EventNoticed JSON", err)
 						continue
@@ -1209,7 +1221,7 @@ func (s *Server) handlePageTabsGETStream(w http.ResponseWriter, r *http.Request)
 						if err := p.OnNoticed(
 							eventNoticed,
 							dpsse.New(sse),
-							datapages.State[app.StateTab]{Values: slot.state},
+							datapages.State[dpapp.StateTab]{Values: slot.state},
 						); err != nil {
 							s.LogErr("handling PageTabs.OnNoticed", err)
 						}
@@ -1219,7 +1231,7 @@ func (s *Server) handlePageTabsGETStream(w http.ResponseWriter, r *http.Request)
 		})
 }
 
-func (s *Server) handlePageTabsGETStreamAnon(w http.ResponseWriter, r *http.Request) {
+func (s pageTabsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -1248,7 +1260,7 @@ func (s *Server) handlePageTabsGETStreamAnon(w http.ResponseWriter, r *http.Requ
 	}
 	var slot *stateSlotStateTab
 
-	p := app.PageTabs{
+	p := dpapp.PageTabs{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageTabs(sess.UserID()),
@@ -1274,7 +1286,7 @@ func (s *Server) handlePageTabsGETStreamAnon(w http.ResponseWriter, r *http.Requ
 			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, streamID, datapages.State[app.StateTab]{Values: slot.state}); err != nil {
+			if err := p.StreamOpen(r, streamID, datapages.State[dpapp.StateTab]{Values: slot.state}); err != nil {
 				return err
 			}
 			opened = true
@@ -1287,11 +1299,11 @@ func (s *Server) handlePageTabsGETStreamAnon(w http.ResponseWriter, r *http.Requ
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
-			var eventTicked app.EventTicked
+			var eventTicked dpapp.EventTicked
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjTicked:
-					eventTicked = app.EventTicked{}
+					eventTicked = dpapp.EventTicked{}
 					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
 						s.LogErr("unmarshaling EventTicked JSON", err)
 						continue
@@ -1306,7 +1318,7 @@ func (s *Server) handlePageTabsGETStreamAnon(w http.ResponseWriter, r *http.Requ
 						if err := p.OnTicked(
 							eventTicked,
 							dpsse.New(sse),
-							datapages.State[app.StateTab]{Values: slot.state},
+							datapages.State[dpapp.StateTab]{Values: slot.state},
 						); err != nil {
 							s.LogErr("handling PageTabs.OnTicked", err)
 						}
@@ -1316,7 +1328,7 @@ func (s *Server) handlePageTabsGETStreamAnon(w http.ResponseWriter, r *http.Requ
 		})
 }
 
-func (s *Server) handlePageTabsPOSTBump(
+func (s pageTabsHandlers) POSTBump(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	instanceID := r.Header.Get(stateInstanceIDHeader)
@@ -1343,12 +1355,12 @@ func (s *Server) handlePageTabsPOSTBump(
 		return
 	}
 
-	dispatchTicked := dispatcherEventTicked{s: s, ctx: r.Context()}
+	dispatchTicked := dispatcherEventTicked{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageTabs.Bump")
-	p := app.PageTabs{
+	p := dpapp.PageTabs{
 		App: s.app,
 	}
-	err := p.POSTBump(r, datapages.State[app.StateTab]{Values: slot.state}, dispatchTicked)
+	err := p.POSTBump(r, datapages.State[dpapp.StateTab]{Values: slot.state}, dispatchTicked)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageTabs.Bump", err)
 		return
@@ -1360,12 +1372,12 @@ type dispatcherEventRoomPosted struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventRoomPosted) Dispatch(e app.EventRoomPosted) error {
+func (d dispatcherEventRoomPosted) Dispatch(e dpapp.EventRoomPosted) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventRoomPosted) DispatchCtx(
-	ctx context.Context, e app.EventRoomPosted,
+	ctx context.Context, e dpapp.EventRoomPosted,
 ) error {
 	if e.Room == "" {
 		return errors.New("EventRoomPosted.Room must not be empty")
@@ -1387,12 +1399,12 @@ type dispatcherEventNoticed struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventNoticed) Dispatch(e app.EventNoticed) error {
+func (d dispatcherEventNoticed) Dispatch(e dpapp.EventNoticed) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventNoticed) DispatchCtx(
-	ctx context.Context, e app.EventNoticed,
+	ctx context.Context, e dpapp.EventNoticed,
 ) error {
 	if e.Recipient == "" {
 		return errors.New("EventNoticed.Recipient must not be empty")
@@ -1414,12 +1426,12 @@ type dispatcherEventDMed struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventDMed) Dispatch(e app.EventDMed) error {
+func (d dispatcherEventDMed) Dispatch(e dpapp.EventDMed) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventDMed) DispatchCtx(
-	ctx context.Context, e app.EventDMed,
+	ctx context.Context, e dpapp.EventDMed,
 ) error {
 	if e.To == "" {
 		return errors.New("EventDMed.To must not be empty")
@@ -1444,12 +1456,12 @@ type dispatcherEventTicked struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventTicked) Dispatch(e app.EventTicked) error {
+func (d dispatcherEventTicked) Dispatch(e dpapp.EventTicked) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventTicked) DispatchCtx(
-	ctx context.Context, e app.EventTicked,
+	ctx context.Context, e dpapp.EventTicked,
 ) error {
 	j, err := json.Marshal(e)
 	if err != nil {

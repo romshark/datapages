@@ -23,7 +23,7 @@ import (
 	"github.com/romshark/datapages/runtime/stream"
 	"github.com/romshark/datapages/runtime/subject"
 
-	"github.com/romshark/datapages/internal/acceptance/sessions/app"
+	dpapp "github.com/romshark/datapages/internal/acceptance/sessions/app"
 	"github.com/romshark/datapages/internal/acceptance/sessions/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -45,7 +45,7 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 func (s *Server) writeHTML(
 	w http.ResponseWriter,
 	r *http.Request,
-	sess datapages.Session[app.SessionData],
+	sess datapages.Session[dpapp.SessionData],
 	headGeneric, head datapages.Head,
 	body datapages.Component,
 	writeBodyAttrs func(w http.ResponseWriter),
@@ -64,7 +64,7 @@ func (s *Server) writeHTML(
 }
 
 func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[app.SessionData],
+	w http.ResponseWriter, r *http.Request, sessKey string, sess datapages.Session[dpapp.SessionData],
 	subjects []string,
 	onOpen func(
 		streamID datapages.StreamID,
@@ -103,14 +103,14 @@ type Server struct {
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
 	streams              *stream.Handler
-	app                  *app.App
-	*auth.Manager[app.SessionData]
+	app                  *dpapp.App
+	*auth.Manager[dpapp.SessionData]
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, app.SessionData, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, dpapp.SessionData, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -127,9 +127,9 @@ type Server struct {
 //   - datapages.WithCSRFProtection
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
-	sessionManager sessions.Manager[app.SessionData],
+	sessionManager sessions.Manager[dpapp.SessionData],
 ) error {
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -186,7 +186,7 @@ const (
 )
 
 const (
-	EvSubjPrefNotice = "notice."
+	EvPrefixNotice = "notice."
 )
 
 func MessageBrokerStreamSubjects() []string {
@@ -211,51 +211,61 @@ func evSubjPageIndex(userID string) []string {
 func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
+		"GET /not-found/{$}",
+		pageError404Handlers{s}.GET)
+	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /_$/{$}",
-		s.handlePageIndexGETStream)
+		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /_$/anon/{$}",
-		s.handlePageIndexGETStreamAnon)
+		pageIndexHandlers{s}.GETStreamAnon)
 	s.Mux().HandleFunc(
 		"GET /log/{$}",
-		s.handlePageLogGET)
+		pageLogHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /login/{$}",
-		s.handlePageLoginGET)
+		pageLoginHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /secret/{$}",
-		s.handlePageSecretGET)
+		pageSecretHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /token/{$}",
-		s.handlePageTokenGET)
+		pageTokenHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"POST /sign-out/{$}",
-		s.handlePOSTSignOut)
+		appHandlers{s}.POSTSignOut)
+	s.Mux().HandleFunc(
+		"POST /render/{$}",
+		pageIndexHandlers{s}.POSTRender)
 	s.Mux().HandleFunc(
 		"POST /login/submit/{$}",
-		s.handlePageLoginPOSTSubmit)
+		pageLoginHandlers{s}.POSTSubmit)
 	s.Mux().HandleFunc(
 		"POST /login/submit-inline/{$}",
-		s.handlePageLoginPOSTSubmitInline)
+		pageLoginHandlers{s}.POSTSubmitInline)
 	s.Mux().HandleFunc(
 		"POST /login/notify/{$}",
-		s.handlePageLoginPOSTNotify)
+		pageLoginHandlers{s}.POSTNotify)
 	s.Mux().HandleFunc(
 		"POST /login/broadcast/{$}",
-		s.handlePageLoginPOSTBroadcast)
+		pageLoginHandlers{s}.POSTBroadcast)
 	s.Mux().HandleFunc(
 		"POST /login/rename/{$}",
-		s.handlePageLoginPOSTRename)
+		pageLoginHandlers{s}.POSTRename)
 }
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if sse != nil {
+		// The stream is open, hence no status is left to send.
+		return
+	}
 	if httpserve.ResponseBodyWritten(w) {
 		// A status written now only appends its text to the body.
 		return
@@ -263,7 +273,39 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
+func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	p := dpapp.PageError404{
+		App: s.app,
+	}
+
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		return
+	}
+	genericHead := s.app.Head(sess, r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+	w.WriteHeader(http.StatusNotFound)
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageError404", err)
+		return
+	}
+}
+
+type appHandlers struct{ *Server }
+
+func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 	sess, sessToken, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -285,18 +327,51 @@ func (s *Server) handlePOSTSignOut(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageError404Handlers struct{ *Server }
+
+func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	p := dpapp.PageError404{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageError404.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageError404.GET", err)
+		return
+	}
+	genericHead := s.app.Head(sess, r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageError404", err)
+		return
+	}
+}
+
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
 	if r.URL.Path != "/" {
-		http.NotFound(w, r)
+		s.render404(w, r)
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -313,7 +388,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('`)
+		_, _ = io.WriteString(w, ` data-init="@get('`)
 		if sess.UserID() != "" {
 			_, _ = io.WriteString(w, `/_$/')"`)
 		} else {
@@ -329,7 +404,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -351,7 +426,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex(sess.UserID()),
@@ -362,12 +437,12 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
-			var eventNotice app.EventNotice
-			var eventBroadcast app.EventBroadcast
+			var eventNotice dpapp.EventNotice
+			var eventBroadcast dpapp.EventBroadcast
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefNotice):
-					eventNotice = app.EventNotice{}
+				case strings.HasPrefix(msg.Subject, EvPrefixNotice):
+					eventNotice = dpapp.EventNotice{}
 					if err := json.Unmarshal(msg.Data, &eventNotice); err != nil {
 						s.LogErr("unmarshaling EventNotice JSON", err)
 						continue
@@ -380,7 +455,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.LogErr("handling PageIndex.OnNotice", err)
 					}
 				case msg.Subject == EvSubjBroadcast:
-					eventBroadcast = app.EventBroadcast{}
+					eventBroadcast = dpapp.EventBroadcast{}
 					if err := json.Unmarshal(msg.Data, &eventBroadcast); err != nil {
 						s.LogErr("unmarshaling EventBroadcast JSON", err)
 						continue
@@ -396,7 +471,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		})
 }
 
-func (s *Server) handlePageIndexGETStreamAnon(w http.ResponseWriter, r *http.Request) {
+func (s pageIndexHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -410,7 +485,7 @@ func (s *Server) handlePageIndexGETStreamAnon(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageIndex(sess.UserID()),
@@ -420,11 +495,11 @@ func (s *Server) handlePageIndexGETStreamAnon(w http.ResponseWriter, r *http.Req
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
-			var eventBroadcast app.EventBroadcast
+			var eventBroadcast dpapp.EventBroadcast
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjBroadcast:
-					eventBroadcast = app.EventBroadcast{}
+					eventBroadcast = dpapp.EventBroadcast{}
 					if err := json.Unmarshal(msg.Data, &eventBroadcast); err != nil {
 						s.LogErr("unmarshaling EventBroadcast JSON", err)
 						continue
@@ -440,13 +515,40 @@ func (s *Server) handlePageIndexGETStreamAnon(w http.ResponseWriter, r *http.Req
 		})
 }
 
-func (s *Server) handlePageLogGET(w http.ResponseWriter, r *http.Request) {
+func (s pageIndexHandlers) POSTRender(
+	w http.ResponseWriter, r *http.Request,
+) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "PageIndex.Render")
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	body, err := p.POSTRender(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Render", err)
+		return
+	}
+	genericHead := s.app.Head(sess, r)
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering response of PageIndex.POSTRender", err)
+		return
+	}
+}
+
+type pageLogHandlers struct{ *Server }
+
+func (s pageLogHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.PageLog{
+	p := dpapp.PageLog{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageLog.GET")
@@ -469,13 +571,15 @@ func (s *Server) handlePageLogGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
+type pageLoginHandlers struct{ *Server }
+
+func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.PageLogin{
+	p := dpapp.PageLogin{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.GET")
@@ -498,7 +602,7 @@ func (s *Server) handlePageLoginGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageLoginPOSTSubmit(
+func (s pageLoginHandlers) POSTSubmit(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -518,7 +622,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.Submit")
-	p := app.PageLogin{
+	p := dpapp.PageLogin{
 		App: s.app,
 	}
 	newSession, redirect, err := p.POSTSubmit(r, signals)
@@ -537,7 +641,7 @@ func (s *Server) handlePageLoginPOSTSubmit(
 	}
 }
 
-func (s *Server) handlePageLoginPOSTSubmitInline(
+func (s pageLoginHandlers) POSTSubmitInline(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -556,7 +660,7 @@ func (s *Server) handlePageLoginPOSTSubmitInline(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.SubmitInline")
-	p := app.PageLogin{
+	p := dpapp.PageLogin{
 		App: s.app,
 	}
 	body, newSession, err := p.POSTSubmitInline(r, signals)
@@ -572,7 +676,7 @@ func (s *Server) handlePageLoginPOSTSubmitInline(
 		}
 		sess = created
 	}
-	genericHead := s.app.Head(datapages.Session[app.SessionData]{}, r)
+	genericHead := s.app.Head(sess, r)
 	if err := s.writeHTML(
 		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
@@ -581,7 +685,7 @@ func (s *Server) handlePageLoginPOSTSubmitInline(
 	}
 }
 
-func (s *Server) handlePageLoginPOSTNotify(
+func (s pageLoginHandlers) POSTNotify(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -601,9 +705,9 @@ func (s *Server) handlePageLoginPOSTNotify(
 		return
 	}
 
-	dispatchNotice := dispatcherEventNotice{s: s, ctx: r.Context()}
+	dispatchNotice := dispatcherEventNotice{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageLogin.Notify")
-	p := app.PageLogin{
+	p := dpapp.PageLogin{
 		App: s.app,
 	}
 	err := p.POSTNotify(r, signals, dispatchNotice)
@@ -613,7 +717,7 @@ func (s *Server) handlePageLoginPOSTNotify(
 	}
 }
 
-func (s *Server) handlePageLoginPOSTBroadcast(
+func (s pageLoginHandlers) POSTBroadcast(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -632,9 +736,9 @@ func (s *Server) handlePageLoginPOSTBroadcast(
 		return
 	}
 
-	dispatchBroadcast := dispatcherEventBroadcast{s: s, ctx: r.Context()}
+	dispatchBroadcast := dispatcherEventBroadcast{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageLogin.Broadcast")
-	p := app.PageLogin{
+	p := dpapp.PageLogin{
 		App: s.app,
 	}
 	err := p.POSTBroadcast(r, signals, dispatchBroadcast)
@@ -644,7 +748,7 @@ func (s *Server) handlePageLoginPOSTBroadcast(
 	}
 }
 
-func (s *Server) handlePageLoginPOSTRename(
+func (s pageLoginHandlers) POSTRename(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -663,7 +767,7 @@ func (s *Server) handlePageLoginPOSTRename(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.Rename")
-	p := app.PageLogin{
+	p := dpapp.PageLogin{
 		App: s.app,
 	}
 	err := p.POSTRename(r, sess, signals)
@@ -673,13 +777,15 @@ func (s *Server) handlePageLoginPOSTRename(
 	}
 }
 
-func (s *Server) handlePageSecretGET(w http.ResponseWriter, r *http.Request) {
+type pageSecretHandlers struct{ *Server }
+
+func (s pageSecretHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.PageSecret{
+	p := dpapp.PageSecret{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageSecret.GET")
@@ -702,13 +808,15 @@ func (s *Server) handlePageSecretGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageTokenGET(w http.ResponseWriter, r *http.Request) {
+type pageTokenHandlers struct{ *Server }
+
+func (s pageTokenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 
-	p := app.PageToken{
+	p := dpapp.PageToken{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageToken.GET")
@@ -736,12 +844,12 @@ type dispatcherEventNotice struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventNotice) Dispatch(e app.EventNotice) error {
+func (d dispatcherEventNotice) Dispatch(e dpapp.EventNotice) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventNotice) DispatchCtx(
-	ctx context.Context, e app.EventNotice,
+	ctx context.Context, e dpapp.EventNotice,
 ) error {
 	if e.Recipient == "" {
 		return errors.New("EventNotice.Recipient must not be empty")
@@ -763,12 +871,12 @@ type dispatcherEventBroadcast struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventBroadcast) Dispatch(e app.EventBroadcast) error {
+func (d dispatcherEventBroadcast) Dispatch(e dpapp.EventBroadcast) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventBroadcast) DispatchCtx(
-	ctx context.Context, e app.EventBroadcast,
+	ctx context.Context, e dpapp.EventBroadcast,
 ) error {
 	j, err := json.Marshal(e)
 	if err != nil {

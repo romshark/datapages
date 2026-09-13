@@ -84,6 +84,14 @@ func (PageIndex) GET(_ *http.Request, session Session) (
 		session.UserID(), session.Data().Nickname, session.IssuedAt().Unix())), nil
 }
 
+// POSTRender is /render
+//
+// An action that answers with a document and declares no session parameter.
+// The application-wide head still renders from the session the visitor sent.
+func (PageIndex) POSTRender(_ *http.Request) (body datapages.Component, err error) {
+	return echo("rendered"), nil
+}
+
 func (p PageIndex) OnNotice(
 	event EventNotice,
 	sse datapages.SSE,
@@ -242,4 +250,14 @@ type PageLog struct{ App *App }
 
 func (p PageLog) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo(p.App.entries()), nil
+}
+
+// PageError404 is /not-found
+//
+// The page a URL no page claims is served. Its GET takes no session,
+// and the application-wide head still renders from the one the visitor sent.
+type PageError404 struct{ App *App }
+
+func (PageError404) GET(_ *http.Request) (body datapages.Component, err error) {
+	return echo("not found"), nil
 }

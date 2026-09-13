@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/tools/go/packages"
+
 	"github.com/romshark/datapages/internal/parser/internal/typecheck"
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/parser/validate"
@@ -44,17 +46,33 @@ func ReceiverTypeName(expr ast.Expr) string {
 	return ""
 }
 
-// EmbeddedTypeNames returns the names of all embedded types
-// in a struct.
-func EmbeddedTypeNames(st *ast.StructType) []string {
-	var out []string
+// EmbeddedType is one embedded field of a struct.
+type EmbeddedType struct {
+	// Name is what the field embeds, with the pointer and the type
+	// arguments stripped: *Base[int] is Base.
+	Name string
+	// Pointer reports whether the field embeds *T rather than T.
+	// The caller sees what [baseIdent] folded away.
+	Pointer bool
+	// Pos is where the embedding field is written.
+	Pos token.Pos
+}
+
+// EmbeddedTypes returns the embedded fields of a struct in declaration order.
+func EmbeddedTypes(st *ast.StructType) []EmbeddedType {
+	var out []EmbeddedType
 	for _, f := range st.Fields.List {
 		if len(f.Names) != 0 {
 			continue
 		}
-		if id := baseIdent(f.Type); id != nil {
-			out = append(out, id.Name)
+		id := baseIdent(f.Type)
+		if id == nil {
+			continue
 		}
+		_, isPtr := f.Type.(*ast.StarExpr)
+		out = append(out, EmbeddedType{
+			Name: id.Name, Pointer: isPtr, Pos: f.Pos(),
+		})
 	}
 	return out
 }
@@ -159,6 +177,15 @@ type SubjectField struct {
 	Pos        token.Pos         // position of the field name identifier
 }
 
+// DerivedSubjectField describes an event field typed as a type declared from
+// a datapages subject segment type, e.g. type UserID datapages.SubjectUser.
+type DerivedSubjectField struct {
+	FieldName       string    // e.g. "To"
+	DeclTypeName    string    // e.g. "UserID"
+	SubjectTypeName string    // e.g. "datapages.SubjectUser"
+	Pos             token.Pos // position of the field name identifier
+}
+
 // SubjectFieldResult holds the result of inspecting a struct for subject fields.
 type SubjectFieldResult struct {
 	// Fields are the valid subject fields found, in definition order.
@@ -184,6 +211,10 @@ type SubjectFieldResult struct {
 	// (prefix "Subject") that aren't typed as one. Kind is
 	// model.SubjectKindNone for all of them.
 	Prefixed []SubjectField
+	// Derived lists exported fields typed as a type declared from a subject
+	// segment type. go/types keeps no trace of the derivation: such a field
+	// would silently become a payload field and drop the segment.
+	Derived []DerivedSubjectField
 }
 
 // SubjectFields inspects a type spec for fields typed as datapages subject
@@ -191,9 +222,10 @@ type SubjectFieldResult struct {
 // and .SubjectUsers). Returns them in definition order together with the
 // violations found along the way.
 func SubjectFields(
-	ts *ast.TypeSpec, info *types.Info,
+	ts *ast.TypeSpec, pkg *packages.Package,
 ) SubjectFieldResult {
 	var result SubjectFieldResult
+	info := pkg.TypesInfo
 	st, ok := ts.Type.(*ast.StructType)
 	if !ok {
 		return result
@@ -205,7 +237,12 @@ func SubjectFields(
 		if len(f.Names) == 0 {
 			continue
 		}
-		kind := typecheck.SubjectKindOf(info.TypeOf(f.Type))
+		fieldType := info.TypeOf(f.Type)
+		kind := typecheck.SubjectKindOf(fieldType)
+		derivedKind := model.SubjectKindNone
+		if !kind.IsSubject() {
+			derivedKind = typecheck.DerivedSubjectKindOf(fieldType, pkg)
+		}
 
 		// Extract optional signal:"xxx" tag for signal-scoped subject fields.
 		var signalName string
@@ -220,6 +257,17 @@ func SubjectFields(
 		// subject silently and publish the event to the bare subject.
 		for _, ident := range f.Names {
 			name := ident.Name
+			if derivedKind.IsSubject() {
+				if ident.IsExported() {
+					result.Derived = append(result.Derived, DerivedSubjectField{
+						FieldName:       name,
+						DeclTypeName:    declTypeName(pkg, fieldType),
+						Pos:             ident.Pos(),
+						SubjectTypeName: derivedKind.String(),
+					})
+				}
+				continue
+			}
 			if !kind.IsSubject() {
 				// Not a subject field, it's a payload field.
 				if ident.IsExported() {
@@ -271,4 +319,18 @@ func SubjectFields(
 	}
 
 	return result
+}
+
+// declTypeName renders t as it is written in pkg: the bare type name for a
+// type pkg declares, package-qualified for one it imports.
+func declTypeName(pkg *packages.Package, t types.Type) string {
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return ""
+	}
+	obj := named.Obj()
+	if obj.Pkg() == nil || obj.Pkg().Path() == pkg.PkgPath {
+		return obj.Name()
+	}
+	return obj.Pkg().Name() + "." + obj.Name()
 }

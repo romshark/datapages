@@ -42,13 +42,13 @@ func TestContract(t *testing.T) {
 			href.PagePlain(),
 		},
 		Actions: []string{
-			action.POSTPageIndexNote(),
-			action.POSTAppBump(),
+			action.PageIndex.Note.POST(),
+			action.App.Bump.POST(),
 		},
-		SignalActions: []string{action.POSTPageIndexNote()},
+		SignalActions: []string{action.PageIndex.Note.POST()},
 		// optionedAction carries every option at once.
 		// The keys and their order are asserted by the contract suite.
-		OptionedAction: action.POSTAppBump(
+		OptionedAction: action.App.Bump.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),
@@ -70,7 +70,7 @@ func TestContract(t *testing.T) {
 			action.WithAfter("$busy = false"),
 		),
 		StreamPath:     "/_$/",
-		DispatchAction: action.POSTAppBump(),
-		StateAction:    action.POSTAppBump(),
+		DispatchAction: action.App.Bump.POST(),
+		StateAction:    action.App.Bump.POST(),
 	})
 }

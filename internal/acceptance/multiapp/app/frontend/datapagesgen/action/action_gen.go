@@ -168,8 +168,36 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexNotice references /notice/
-func POSTPageIndexNotice(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Announce pageIndex_Announce
+	Notice   pageIndex_Notice
+	SignIn   pageIndex_SignIn
+}
+
+type pageIndex_Announce struct{}
+
+// POST references /announce/
+func (pageIndex_Announce) POST(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/announce/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/announce/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/announce/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type pageIndex_Notice struct{}
+
+// POST references /notice/
+func (pageIndex_Notice) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/notice/')"
 	}
@@ -184,8 +212,10 @@ func POSTPageIndexNotice(options ...option) string {
 	return b.String()
 }
 
-// POSTPageIndexSignIn references /sign-in/
-func POSTPageIndexSignIn(options ...option) string {
+type pageIndex_SignIn struct{}
+
+// POST references /sign-in/
+func (pageIndex_SignIn) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/sign-in/')"
 	}

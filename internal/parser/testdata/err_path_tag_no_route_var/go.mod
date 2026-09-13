@@ -1,4 +1,4 @@
-module datapagestest/fixture/err_generated_name_conflict
+module datapagestest/fixture/err_path_tag_no_route_var
 
 go 1.27.1
 

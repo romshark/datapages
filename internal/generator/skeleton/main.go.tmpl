@@ -24,8 +24,11 @@ import (
 	"github.com/romshark/datapages/modules/sessions/natskv"
 {{- end}}
 
-	"{{.AppImport}}"
+	{{if .AppAliased}}{{.AppPkg}} {{end}}"{{.AppImport}}"
 	"{{.GenImport}}"
+{{- range .ExtraImports}}
+	{{if .Aliased}}{{.Ident}} {{end}}"{{.Path}}"
+{{- end}}
 
 	"github.com/nats-io/nats.go"
 )

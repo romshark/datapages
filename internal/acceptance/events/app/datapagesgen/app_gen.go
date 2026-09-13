@@ -22,7 +22,7 @@ import (
 	"github.com/romshark/datapages/runtime/stream"
 	"github.com/romshark/datapages/runtime/subject"
 
-	"github.com/romshark/datapages/internal/acceptance/events/app"
+	dpapp "github.com/romshark/datapages/internal/acceptance/events/app"
 	"github.com/romshark/datapages/internal/acceptance/events/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -97,13 +97,13 @@ type Server struct {
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
 	streams              *stream.Handler
-	app                  *app.App
+	app                  *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -117,12 +117,12 @@ type Server struct {
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package app declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -179,8 +179,8 @@ const (
 )
 
 const (
-	EvSubjPrefRoomBroadcast = "room.broadcast."
-	EvSubjPrefRoomSaid      = "room.said."
+	EvPrefixRoomBroadcast = "room.broadcast."
+	EvPrefixRoomSaid      = "room.said."
 )
 
 func MessageBrokerStreamSubjects() []string {
@@ -220,62 +220,66 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /_$/{$}",
-		s.handlePageIndexGETStream)
+		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /log/{$}",
-		s.handlePageLogGET)
+		pageLogHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /other/{$}",
-		s.handlePageOtherGET)
+		pageOtherHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /other/_$/{$}",
-		s.handlePageOtherGETStream)
+		pageOtherHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /panic-on-close/{$}",
-		s.handlePagePanicOnCloseGET)
+		pagePanicOnCloseHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /panic-on-close/_$/{$}",
-		s.handlePagePanicOnCloseGETStream)
+		pagePanicOnCloseHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"GET /room/{$}",
-		s.handlePageRoomGET)
+		pageRoomHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /room/_$/{$}",
-		s.handlePageRoomGETStream)
+		pageRoomHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"POST /note/{$}",
-		s.handlePageIndexPOSTNote)
+		pageIndexHandlers{s}.POSTNote)
 	s.Mux().HandleFunc(
 		"POST /tick/{$}",
-		s.handlePageIndexPOSTTick)
+		pageIndexHandlers{s}.POSTTick)
 	s.Mux().HandleFunc(
 		"POST /hold/{$}",
-		s.handlePageIndexPOSTHold)
+		pageIndexHandlers{s}.POSTHold)
 	s.Mux().HandleFunc(
 		"POST /release/{$}",
-		s.handlePageIndexPOSTRelease)
+		pageIndexHandlers{s}.POSTRelease)
 	s.Mux().HandleFunc(
 		"POST /both/{$}",
-		s.handlePageIndexPOSTBoth)
+		pageIndexHandlers{s}.POSTBoth)
 	s.Mux().HandleFunc(
 		"POST /canceled/{$}",
-		s.handlePageIndexPOSTCanceled)
+		pageIndexHandlers{s}.POSTCanceled)
 	s.Mux().HandleFunc(
 		"POST /room/say/{$}",
-		s.handlePageRoomPOSTSay)
+		pageRoomHandlers{s}.POSTSay)
 	s.Mux().HandleFunc(
 		"POST /room/broadcast/{$}",
-		s.handlePageRoomPOSTBroadcast)
+		pageRoomHandlers{s}.POSTBroadcast)
 }
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if sse != nil {
+		// The stream is open, hence no status is left to send.
+		return
+	}
 	if httpserve.ResponseBodyWritten(w) {
 		// A status written now only appends its text to the body.
 		return
@@ -283,13 +287,15 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -305,7 +311,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/_$/')"`)
 	}
 
 	if err := s.writeHTML(
@@ -316,14 +322,14 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
-	dispatchClosedStreamGone := dispatcherEventStreamGone{s: s, ctx: context.WithoutCancel(r.Context())}
+	dispatchClosedStreamGone := dispatcherEventStreamGone{s: s.Server, ctx: context.WithoutCancel(r.Context())}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageIndex,
@@ -343,14 +349,14 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageIndex stream")
-			var eventStreamGone app.EventStreamGone
-			var eventPong app.EventPong
-			var eventTick app.EventTick
-			var eventNote app.EventNote
+			var eventStreamGone dpapp.EventStreamGone
+			var eventPong dpapp.EventPong
+			var eventTick dpapp.EventTick
+			var eventNote dpapp.EventNote
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjStreamGone:
-					eventStreamGone = app.EventStreamGone{}
+					eventStreamGone = dpapp.EventStreamGone{}
 					if err := json.Unmarshal(msg.Data, &eventStreamGone); err != nil {
 						s.LogErr("unmarshaling EventStreamGone JSON", err)
 						continue
@@ -362,7 +368,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.LogErr("handling PageIndex.OnStreamGone", err)
 					}
 				case EvSubjPong:
-					eventPong = app.EventPong{}
+					eventPong = dpapp.EventPong{}
 					if err := json.Unmarshal(msg.Data, &eventPong); err != nil {
 						s.LogErr("unmarshaling EventPong JSON", err)
 						continue
@@ -374,7 +380,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.LogErr("handling PageIndex.OnPong", err)
 					}
 				case EvSubjTick:
-					eventTick = app.EventTick{}
+					eventTick = dpapp.EventTick{}
 					if err := json.Unmarshal(msg.Data, &eventTick); err != nil {
 						s.LogErr("unmarshaling EventTick JSON", err)
 						continue
@@ -387,7 +393,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 						s.LogErr("handling PageIndex.OnTick", err)
 					}
 				case EvSubjNote:
-					eventNote = app.EventNote{}
+					eventNote = dpapp.EventNote{}
 					if err := json.Unmarshal(msg.Data, &eventNote); err != nil {
 						s.LogErr("unmarshaling EventNote JSON", err)
 						continue
@@ -403,7 +409,7 @@ func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request
 		})
 }
 
-func (s *Server) handlePageIndexPOSTNote(
+func (s pageIndexHandlers) POSTNote(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -418,9 +424,9 @@ func (s *Server) handlePageIndexPOSTNote(
 		return
 	}
 
-	dispatchNote := dispatcherEventNote{s: s, ctx: r.Context()}
+	dispatchNote := dispatcherEventNote{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Note")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTNote(r, signals, dispatchNote)
@@ -430,7 +436,7 @@ func (s *Server) handlePageIndexPOSTNote(
 	}
 }
 
-func (s *Server) handlePageIndexPOSTTick(
+func (s pageIndexHandlers) POSTTick(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -445,9 +451,9 @@ func (s *Server) handlePageIndexPOSTTick(
 		return
 	}
 
-	dispatchTick := dispatcherEventTick{s: s, ctx: r.Context()}
+	dispatchTick := dispatcherEventTick{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Tick")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTTick(r, signals, dispatchTick)
@@ -457,11 +463,11 @@ func (s *Server) handlePageIndexPOSTTick(
 	}
 }
 
-func (s *Server) handlePageIndexPOSTHold(
+func (s pageIndexHandlers) POSTHold(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	defer s.recoverPanic(w, r, nil, "PageIndex.Hold")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTHold(r)
@@ -471,11 +477,11 @@ func (s *Server) handlePageIndexPOSTHold(
 	}
 }
 
-func (s *Server) handlePageIndexPOSTRelease(
+func (s pageIndexHandlers) POSTRelease(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	defer s.recoverPanic(w, r, nil, "PageIndex.Release")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTRelease(r)
@@ -485,7 +491,7 @@ func (s *Server) handlePageIndexPOSTRelease(
 	}
 }
 
-func (s *Server) handlePageIndexPOSTBoth(
+func (s pageIndexHandlers) POSTBoth(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -500,11 +506,11 @@ func (s *Server) handlePageIndexPOSTBoth(
 		return
 	}
 
-	dispatchTick := dispatcherEventTick{s: s, ctx: r.Context()}
+	dispatchTick := dispatcherEventTick{s: s.Server, ctx: r.Context()}
 
-	dispatchPong := dispatcherEventPong{s: s, ctx: r.Context()}
+	dispatchPong := dispatcherEventPong{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Both")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTBoth(r, signals, dispatchTick, dispatchPong)
@@ -514,7 +520,7 @@ func (s *Server) handlePageIndexPOSTBoth(
 	}
 }
 
-func (s *Server) handlePageIndexPOSTCanceled(
+func (s pageIndexHandlers) POSTCanceled(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -529,9 +535,9 @@ func (s *Server) handlePageIndexPOSTCanceled(
 		return
 	}
 
-	dispatchTick := dispatcherEventTick{s: s, ctx: r.Context()}
+	dispatchTick := dispatcherEventTick{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Canceled")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	err := p.POSTCanceled(r, signals, dispatchTick)
@@ -541,8 +547,10 @@ func (s *Server) handlePageIndexPOSTCanceled(
 	}
 }
 
-func (s *Server) handlePageLogGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageLog{
+type pageLogHandlers struct{ *Server }
+
+func (s pageLogHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageLog{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageLog.GET")
@@ -564,10 +572,12 @@ func (s *Server) handlePageLogGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageOtherGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageOther{
+type pageOtherHandlers struct{ *Server }
+
+func (s pageOtherHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageOther{
 		App: s.app,
-		Notifier: app.Notifier{
+		Notifier: dpapp.Notifier{
 			App: s.app,
 		},
 	}
@@ -584,7 +594,7 @@ func (s *Server) handlePageOtherGET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/other/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/other/_$/')"`)
 	}
 
 	if err := s.writeHTML(
@@ -595,14 +605,14 @@ func (s *Server) handlePageOtherGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageOtherHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
-	p := app.PageOther{
+	p := dpapp.PageOther{
 		App: s.app,
-		Notifier: app.Notifier{
+		Notifier: dpapp.Notifier{
 			App: s.app,
 		},
 	}
@@ -614,11 +624,11 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageOther stream")
-			var eventTick app.EventTick
+			var eventTick dpapp.EventTick
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjTick:
-					eventTick = app.EventTick{}
+					eventTick = dpapp.EventTick{}
 					if err := json.Unmarshal(msg.Data, &eventTick); err != nil {
 						s.LogErr("unmarshaling EventTick JSON", err)
 						continue
@@ -634,8 +644,10 @@ func (s *Server) handlePageOtherGETStream(w http.ResponseWriter, r *http.Request
 		})
 }
 
-func (s *Server) handlePagePanicOnCloseGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PagePanicOnClose{
+type pagePanicOnCloseHandlers struct{ *Server }
+
+func (s pagePanicOnCloseHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PagePanicOnClose{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PagePanicOnClose.GET")
@@ -651,7 +663,7 @@ func (s *Server) handlePagePanicOnCloseGET(w http.ResponseWriter, r *http.Reques
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/panic-on-close/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/panic-on-close/_$/')"`)
 	}
 
 	if err := s.writeHTML(
@@ -662,12 +674,12 @@ func (s *Server) handlePagePanicOnCloseGET(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-func (s *Server) handlePagePanicOnCloseGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pagePanicOnCloseHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
 
-	p := app.PagePanicOnClose{
+	p := dpapp.PagePanicOnClose{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPagePanicOnClose,
@@ -687,11 +699,11 @@ func (s *Server) handlePagePanicOnCloseGETStream(w http.ResponseWriter, r *http.
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PagePanicOnClose stream")
-			var eventTick app.EventTick
+			var eventTick dpapp.EventTick
 			for msg := range ch {
 				switch msg.Subject {
 				case EvSubjTick:
-					eventTick = app.EventTick{}
+					eventTick = dpapp.EventTick{}
 					if err := json.Unmarshal(msg.Data, &eventTick); err != nil {
 						s.LogErr("unmarshaling EventTick JSON", err)
 						continue
@@ -707,8 +719,10 @@ func (s *Server) handlePagePanicOnCloseGETStream(w http.ResponseWriter, r *http.
 		})
 }
 
-func (s *Server) handlePageRoomGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageRoom{
+type pageRoomHandlers struct{ *Server }
+
+func (s pageRoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageRoom{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageRoom.GET")
@@ -724,7 +738,7 @@ func (s *Server) handlePageRoomGET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, `data-init="@get('/room/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/room/_$/')"`)
 	}
 
 	if err := s.writeHTML(
@@ -735,7 +749,7 @@ func (s *Server) handlePageRoomGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageRoomGETStream(w http.ResponseWriter, r *http.Request) {
+func (s pageRoomHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
@@ -753,7 +767,7 @@ func (s *Server) handlePageRoomGETStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	p := app.PageRoom{
+	p := dpapp.PageRoom{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPageRoom(subjSignals.Room),
@@ -764,12 +778,12 @@ func (s *Server) handlePageRoomGETStream(w http.ResponseWriter, r *http.Request)
 			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
 		) {
 			defer s.recoverPanic(w, r, sse, "PageRoom stream")
-			var eventRoomSaid app.EventRoomSaid
-			var eventRoomBroadcast app.EventRoomBroadcast
+			var eventRoomSaid dpapp.EventRoomSaid
+			var eventRoomBroadcast dpapp.EventRoomBroadcast
 			for msg := range ch {
 				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefRoomSaid):
-					eventRoomSaid = app.EventRoomSaid{}
+				case strings.HasPrefix(msg.Subject, EvPrefixRoomSaid):
+					eventRoomSaid = dpapp.EventRoomSaid{}
 					if err := json.Unmarshal(msg.Data, &eventRoomSaid); err != nil {
 						s.LogErr("unmarshaling EventRoomSaid JSON", err)
 						continue
@@ -780,8 +794,8 @@ func (s *Server) handlePageRoomGETStream(w http.ResponseWriter, r *http.Request)
 					); err != nil {
 						s.LogErr("handling PageRoom.OnRoomSaid", err)
 					}
-				case strings.HasPrefix(msg.Subject, EvSubjPrefRoomBroadcast):
-					eventRoomBroadcast = app.EventRoomBroadcast{}
+				case strings.HasPrefix(msg.Subject, EvPrefixRoomBroadcast):
+					eventRoomBroadcast = dpapp.EventRoomBroadcast{}
 					if err := json.Unmarshal(msg.Data, &eventRoomBroadcast); err != nil {
 						s.LogErr("unmarshaling EventRoomBroadcast JSON", err)
 						continue
@@ -797,7 +811,7 @@ func (s *Server) handlePageRoomGETStream(w http.ResponseWriter, r *http.Request)
 		})
 }
 
-func (s *Server) handlePageRoomPOSTSay(
+func (s pageRoomHandlers) POSTSay(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -813,9 +827,9 @@ func (s *Server) handlePageRoomPOSTSay(
 		return
 	}
 
-	dispatchRoomSaid := dispatcherEventRoomSaid{s: s, ctx: r.Context()}
+	dispatchRoomSaid := dispatcherEventRoomSaid{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageRoom.Say")
-	p := app.PageRoom{
+	p := dpapp.PageRoom{
 		App: s.app,
 	}
 	err := p.POSTSay(r, signals, dispatchRoomSaid)
@@ -825,7 +839,7 @@ func (s *Server) handlePageRoomPOSTSay(
 	}
 }
 
-func (s *Server) handlePageRoomPOSTBroadcast(
+func (s pageRoomHandlers) POSTBroadcast(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -841,9 +855,9 @@ func (s *Server) handlePageRoomPOSTBroadcast(
 		return
 	}
 
-	dispatchRoomBroadcast := dispatcherEventRoomBroadcast{s: s, ctx: r.Context()}
+	dispatchRoomBroadcast := dispatcherEventRoomBroadcast{s: s.Server, ctx: r.Context()}
 	defer s.recoverPanic(w, r, nil, "PageRoom.Broadcast")
-	p := app.PageRoom{
+	p := dpapp.PageRoom{
 		App: s.app,
 	}
 	err := p.POSTBroadcast(r, signals, dispatchRoomBroadcast)
@@ -858,12 +872,12 @@ type dispatcherEventStreamGone struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventStreamGone) Dispatch(e app.EventStreamGone) error {
+func (d dispatcherEventStreamGone) Dispatch(e dpapp.EventStreamGone) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventStreamGone) DispatchCtx(
-	ctx context.Context, e app.EventStreamGone,
+	ctx context.Context, e dpapp.EventStreamGone,
 ) error {
 	j, err := json.Marshal(e)
 	if err != nil {
@@ -881,12 +895,12 @@ type dispatcherEventNote struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventNote) Dispatch(e app.EventNote) error {
+func (d dispatcherEventNote) Dispatch(e dpapp.EventNote) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventNote) DispatchCtx(
-	ctx context.Context, e app.EventNote,
+	ctx context.Context, e dpapp.EventNote,
 ) error {
 	j, err := json.Marshal(e)
 	if err != nil {
@@ -904,12 +918,12 @@ type dispatcherEventTick struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventTick) Dispatch(e app.EventTick) error {
+func (d dispatcherEventTick) Dispatch(e dpapp.EventTick) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventTick) DispatchCtx(
-	ctx context.Context, e app.EventTick,
+	ctx context.Context, e dpapp.EventTick,
 ) error {
 	j, err := json.Marshal(e)
 	if err != nil {
@@ -927,12 +941,12 @@ type dispatcherEventPong struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventPong) Dispatch(e app.EventPong) error {
+func (d dispatcherEventPong) Dispatch(e dpapp.EventPong) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventPong) DispatchCtx(
-	ctx context.Context, e app.EventPong,
+	ctx context.Context, e dpapp.EventPong,
 ) error {
 	j, err := json.Marshal(e)
 	if err != nil {
@@ -950,12 +964,12 @@ type dispatcherEventRoomSaid struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventRoomSaid) Dispatch(e app.EventRoomSaid) error {
+func (d dispatcherEventRoomSaid) Dispatch(e dpapp.EventRoomSaid) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventRoomSaid) DispatchCtx(
-	ctx context.Context, e app.EventRoomSaid,
+	ctx context.Context, e dpapp.EventRoomSaid,
 ) error {
 	if e.Room == "" {
 		return errors.New("EventRoomSaid.Room must not be empty")
@@ -977,12 +991,12 @@ type dispatcherEventRoomBroadcast struct {
 	ctx context.Context
 }
 
-func (d dispatcherEventRoomBroadcast) Dispatch(e app.EventRoomBroadcast) error {
+func (d dispatcherEventRoomBroadcast) Dispatch(e dpapp.EventRoomBroadcast) error {
 	return d.DispatchCtx(d.ctx, e)
 }
 
 func (d dispatcherEventRoomBroadcast) DispatchCtx(
-	ctx context.Context, e app.EventRoomBroadcast,
+	ctx context.Context, e dpapp.EventRoomBroadcast,
 ) error {
 	if e.Room == "" {
 		return errors.New("EventRoomBroadcast.Room must not be empty")

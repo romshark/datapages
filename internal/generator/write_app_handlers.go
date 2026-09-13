@@ -261,17 +261,15 @@ func eventHandlerInputArgs(
 // the one that renders the whole HTML document, as opposed to the stream handler.
 func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string) {
 	w.Line(0, "")
-	w.Raw("func (s *Server) handle")
-	w.Raw(p.TypeName)
-	w.Raw("GET(w http.ResponseWriter, r *http.Request) {\n")
+	w.Rawf("func (s %s) GET(w http.ResponseWriter, r *http.Request) {\n",
+		handlerRecvType(p.TypeName))
 
 	h := p.GET.Handler
 
 	hasBody := false
 
 	// Auth.
-	needsSession := h.InputSession != nil ||
-		(m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession) ||
+	needsSession := hasSessionInput(h) || globalHeadNeedsSession(m) ||
 		pageHasPrivateEvent(p, w.eventMap)
 	if needsSession {
 		hasBody = true
@@ -319,7 +317,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		hasBody = true
 		w.Line(0, "")
 		w.Raw("\tvar signals ")
-		w.Raw(renderSignalsType(h.InputSignals, m))
+		w.Raw(w.renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, `if httpread.QueryHas(r.URL.RawQuery, "datastar") {`)
 		w.Line(2, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
@@ -440,11 +438,9 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 
 	// Close and create session, before anything is written: both set a cookie,
 	// and a cookie set after the body has started is dropped.
-	getHeadNeedsSession := m.GlobalHeadGenerator != nil &&
-		m.GlobalHeadGenerator.InputSession
 	// The 500 page renders from its session like any other page.
 	getSessArg, getSessRebind := w.renderSessionVar(h, m, true,
-		hasSessionInput(h) || getHeadNeedsSession)
+		hasSessionInput(h) || globalHeadNeedsSession(m))
 	w.writeSessionOutputs(h, getSessRebind)
 
 	// Redirect.
@@ -497,6 +493,20 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 
 func hasSessionInput(h *model.Handler) bool {
 	return h.InputSession != nil
+}
+
+// globalHeadNeedsSession reports whether the application-wide Head takes the session.
+func globalHeadNeedsSession(m *model.App) bool {
+	return m.GlobalHeadGenerator != nil && m.GlobalHeadGenerator.InputSession
+}
+
+// actionSessionInScope reports whether an action handler has a "sess" variable.
+// An action that renders a document reads the session even when it declares no
+// session parameter, since the application-wide Head renders from it.
+// Every site that names "sess" has to ask this, or the Head call gets a zero
+// session while the real one is in scope.
+func actionSessionInScope(h *model.Handler, m *model.App) bool {
+	return hasSessionInput(h) || (h.OutputBody != nil && globalHeadNeedsSession(m))
 }
 
 // writeSessionOutputs emits what a handler's newSession and closeSession
@@ -644,7 +654,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 		fi := structFieldInfo{Name: f.FieldName, Type: f.Type}
 		if gotypes.IsString(f.Type) {
 			w.Line(0, "")
-			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
+			w.Raw("\t\t_, _ = io.WriteString(w, ` data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"'`)\n")
 			w.Raw("\t\thtmlattr.WriteSignalString(w, ")
@@ -653,7 +663,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
 		} else {
 			w.Line(0, "")
-			w.Raw("\t\t_, _ = io.WriteString(w, `data-signals:")
+			w.Raw("\t\t_, _ = io.WriteString(w, ` data-signals:")
 			w.Raw(f.SignalName)
 			w.Raw("=\"`)\n")
 			w.Raw("\t\thtmlattr.WriteSignalValue(w, ")
@@ -689,7 +699,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 				if h.InputPath != nil {
 					// Dynamic path.
 					w.Line(0, "")
-					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
+					w.Line(2, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					w.Line(2, `if sess.UserID() != "" {`)
 					w.Line(3, "_, _ = io.WriteString(w, `_$/')\"`)")
@@ -698,7 +708,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 					w.Line(2, "}")
 				} else {
 					w.Line(0, "")
-					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
+					w.Line(2, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
 					w.Line(2, `if sess.UserID() != "" {`)
 					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
 					w.Raw(streamPath)
@@ -713,7 +723,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 				// Auth-only stream.
 				if h.InputPath != nil {
 					w.Line(0, "")
-					w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
+					w.Line(2, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					if hasEnableBgStream {
 						w.Line(2, `if sess.UserID() != "" {`)
@@ -734,7 +744,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 				} else if hasEnableBgStream {
 					w.Line(0, "")
 					w.Line(2, `if sess.UserID() != "" {`)
-					w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+					w.Raw("\t\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 					w.Raw(streamPath)
 					w.Raw("'`)\n")
 					w.Raw("\t\t\tif ")
@@ -748,7 +758,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 				} else {
 					w.Line(0, "")
 					w.Line(2, `if sess.UserID() != "" {`)
-					w.Raw("\t\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+					w.Raw("\t\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 					w.Raw(streamPath)
 					w.Raw("')\"`)\n")
 					w.Line(2, "}")
@@ -758,7 +768,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 			// Public-only stream: always emit data-init unconditionally.
 			if h.InputPath != nil {
 				w.Line(0, "")
-				w.Line(2, "_, _ = io.WriteString(w, `data-init=\"@get('`)")
+				w.Line(2, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
 				w.writeStreamPathSegments(p.Route, h.InputPath)
 				if hasEnableBgStream {
 					w.Line(2, "_, _ = io.WriteString(w, `_$/'`)")
@@ -774,7 +784,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 				}
 			} else if hasEnableBgStream {
 				w.Line(0, "")
-				w.Raw("\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+				w.Raw("\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 				w.Raw(streamPath)
 				w.Raw("'`)\n")
 				w.Raw("\t\tif ")
@@ -786,7 +796,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 				w.Line(2, "}")
 			} else {
 				w.Line(0, "")
-				w.Raw("\t\t_, _ = io.WriteString(w, `data-init=\"@get('")
+				w.Raw("\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 				w.Raw(streamPath)
 				w.Raw("')\"`)\n")
 			}
@@ -802,7 +812,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 		}
 
 		w.Line(0, "")
-		w.Line(2, "_, _ = io.WriteString(w, `data-effect=\"const params = new URLSearchParams();")
+		w.Line(2, "_, _ = io.WriteString(w, ` data-effect=\"const params = new URLSearchParams();")
 		for _, f := range reflectFields {
 			w.Raw("\t\t\tif ($")
 			w.Raw(f.SignalName)
@@ -826,21 +836,22 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 			// template.HTMLEscape calls. It assumes we are mid-backtick
 			// in an io.WriteString and leaves us mid-backtick.
 			writeRoute := func(r string) {
-				for {
-					i := strings.IndexByte(r, '{')
-					if i < 0 {
-						w.Raw(r)
-						return
+				literals, vars := routepattern.Segments(r)
+				for i, lit := range literals {
+					if i == len(literals)-1 {
+						// Segments closes the last literal with a slash.
+						// route carries none: the caller trimmed it.
+						lit = strings.TrimSuffix(lit, "/")
 					}
-					j := strings.IndexByte(r[i:], '}')
-					w.Raw(r[:i])
+					w.Raw(lit)
+					if i >= len(vars) {
+						continue
+					}
 					w.Raw("`)\n")
-					f := tagToField[r[i+1:i+j]]
 					w.Raw("\t\ttemplate.HTMLEscape(w, []byte(")
-					w.writeFieldToString(varPath, f)
+					w.writeFieldToString(varPath, tagToField[vars[i]])
 					w.Raw("))\n")
 					w.Raw("\t\t_, _ = io.WriteString(w, `")
-					r = r[i+j+1:]
 				}
 			}
 			w.Raw("\t\t\twindow.history.replaceState(null, '', query ? '")
@@ -908,6 +919,13 @@ func (w *Writer) writeDeferRecover(hasSSE bool, handler string) {
 // the URL builders write as well. A string is itself, a number and a bool go
 // through strconv, and anything else is left to fmt.Sprint.
 func (w *Writer) writeFieldToString(varName string, f structFieldInfo) {
+	if f.Type == nil {
+		// The field is the zero value of a missed lookup by path tag,
+		// which the parser has already reported. Generation runs on the rejected
+		// model anyway, and its output only has to stay parseable.
+		w.Raw(`""`)
+		return
+	}
 	ref := varName + "." + f.Name
 	if gotypes.ImplementsTextMarshaler(f.Type) {
 		w.Rawf("textOf(%s)", ref)
@@ -955,9 +973,8 @@ func (w *Writer) writePageGETStreamHandler(
 	p *model.Page, m *model.App, appPkg string,
 ) {
 	w.Line(0, "")
-	w.Raw("func (s *Server) handle")
-	w.Raw(p.TypeName)
-	w.Raw("GETStream(w http.ResponseWriter, r *http.Request) {\n")
+	w.Rawf("func (s %s) GETStream(w http.ResponseWriter, r *http.Request) {\n",
+		handlerRecvType(p.TypeName))
 
 	w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 	w.Line(2, "return")
@@ -1009,7 +1026,7 @@ func (w *Writer) writePageGETStreamHandler(
 	if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
 		w.Line(0, "")
 		w.Raw("\tvar signals ")
-		w.Raw(renderSignalsType(p.StreamOpen.InputSignals, m))
+		w.Raw(w.renderSignalsType(p.StreamOpen.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
@@ -1147,9 +1164,7 @@ func (w *Writer) writeStreamEventVars(
 		w.Raw("\t\tvar ")
 		w.Raw(eventVarName(ev.TypeName))
 		w.Byte(' ')
-		w.Raw(appPkg)
-		w.Byte('.')
-		w.Raw(ev.TypeName)
+		w.Raw(w.eventTypeRef(ev, appPkg, ev.TypeName))
 		w.Byte('\n')
 	}
 }
@@ -1158,19 +1173,17 @@ func (w *Writer) writeStreamEventCase(
 	p *model.Page, eh *model.EventHandler, ev *model.Event,
 	appPkg string, tagged bool,
 ) {
-	constName := eventConstName(ev.TypeName)
-
 	if evUsesPrefixMatch(ev) {
-		w.Raw("\t\t\tcase strings.HasPrefix(msg.Subject, EvSubjPref")
-		w.Raw(constName)
+		w.Raw("\t\t\tcase strings.HasPrefix(msg.Subject, ")
+		w.Raw(evSubjPrefConst(ev))
 		w.Raw("):\n")
 	} else if tagged {
-		w.Raw("\t\t\tcase EvSubj")
-		w.Raw(constName)
+		w.Raw("\t\t\tcase ")
+		w.Raw(evSubjConst(ev))
 		w.Raw(":\n")
 	} else {
-		w.Raw("\t\t\tcase msg.Subject == EvSubj")
-		w.Raw(constName)
+		w.Raw("\t\t\tcase msg.Subject == ")
+		w.Raw(evSubjConst(ev))
 		w.Raw(":\n")
 	}
 
@@ -1179,9 +1192,7 @@ func (w *Writer) writeStreamEventCase(
 	w.Raw("\t\t\t")
 	w.Raw(eventVar)
 	w.Raw(" = ")
-	w.Raw(appPkg)
-	w.Byte('.')
-	w.Raw(ev.TypeName)
+	w.Raw(w.eventTypeRef(ev, appPkg, ev.TypeName))
 	w.Raw("{}\n")
 	w.Line(4, "if err := json.Unmarshal(msg.Data, &"+eventVar+"); err != nil {")
 	w.Raw("\t\t\t\t\ts.LogErr(\"unmarshaling ")
@@ -1448,9 +1459,8 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	p *model.Page, m *model.App, appPkg string,
 ) {
 	w.Line(0, "")
-	w.Raw("func (s *Server) handle")
-	w.Raw(p.TypeName)
-	w.Raw("GETStreamAnon(w http.ResponseWriter, r *http.Request) {\n")
+	w.Rawf("func (s %s) GETStreamAnon(w http.ResponseWriter, r *http.Request) {\n",
+		handlerRecvType(p.TypeName))
 
 	w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 	w.Line(2, "return")
@@ -1479,7 +1489,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
 		w.Line(0, "")
 		w.Raw("\tvar signals ")
-		w.Raw(renderSignalsType(p.StreamOpen.InputSignals, m))
+		w.Raw(w.renderSignalsType(p.StreamOpen.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
@@ -1572,11 +1582,8 @@ func (w *Writer) writePageActionHandler(
 	p *model.Page, h *model.Handler, m *model.App, appPkg string,
 ) {
 	w.Line(0, "")
-	w.Raw("func (s *Server) handle")
-	w.Raw(p.TypeName)
-	w.Raw(strings.ToUpper(h.HTTPMethod))
-	w.Raw(h.Name)
-	w.Raw("(\n")
+	w.Rawf("func (s %s) %s%s(\n", handlerRecvType(p.TypeName),
+		strings.ToUpper(h.HTTPMethod), h.Name)
 	w.Line(1, "w http.ResponseWriter, r *http.Request,")
 	w.Line(0, ") {")
 
@@ -1600,13 +1607,11 @@ func (w *Writer) writePageActionHandler(
 
 	// Auth.
 	needsToken := h.OutputCloseSession != nil
-	headNeedsSess := h.OutputBody != nil && m.GlobalHeadGenerator != nil &&
-		m.GlobalHeadGenerator.InputSession
 	switch {
-	case h.InputSession != nil || needsToken || headNeedsSess:
+	case actionSessionInScope(h, m) || needsToken:
 		// A local nobody reads is a package that does not compile.
 		sessVar := "_"
-		if h.InputSession != nil || headNeedsSess {
+		if actionSessionInScope(h, m) {
 			sessVar = "sess"
 		}
 		if needsToken {
@@ -1629,7 +1634,7 @@ func (w *Writer) writePageActionHandler(
 	// Read signals.
 	if h.InputSignals != nil {
 		w.Raw("\tvar signals ")
-		w.Raw(renderSignalsType(h.InputSignals, m))
+		w.Raw(w.renderSignalsType(h.InputSignals, m))
 		w.Byte('\n')
 		w.Line(1, "if err := datastar.ReadSignals(r, &"+varSignals+"); err != nil {")
 		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
@@ -1723,10 +1728,8 @@ func (w *Writer) writeActionMethodCall(
 	}
 
 	// Close and create session.
-	actHeadNeedsSession := m.GlobalHeadGenerator != nil &&
-		m.GlobalHeadGenerator.InputSession
 	actSessArg, actSessRebind := w.renderSessionVar(h, m, h.OutputBody != nil,
-		hasSessionInput(h) || actHeadNeedsSession)
+		actionSessionInScope(h, m))
 	w.writeSessionOutputs(h, actSessRebind)
 
 	// Redirect.
@@ -1735,7 +1738,8 @@ func (w *Writer) writeActionMethodCall(
 	// Render body (if action returns templ.Component).
 	if h.OutputBody != nil {
 		if m.GlobalHeadGenerator != nil {
-			w.writeGenericHeadCall(m.GlobalHeadGenerator, hasSessionInput(h))
+			w.writeGenericHeadCall(m.GlobalHeadGenerator,
+				actionSessionInScope(h, m))
 		}
 		w.Line(1, "if err := s.writeHTML(")
 		w.Raw("\t\tw, r, ")
@@ -1747,8 +1751,9 @@ func (w *Writer) writeActionMethodCall(
 			w.Raw("genericHead, ")
 		}
 		// An action may return a head of its own, which the response it
-		// renders has to carry. Anything else leaves the value the handler
-		// returned unused, which is also a package that does not compile.
+		// renders has to carry. A head without a body never reaches here:
+		// [github.com/romshark/datapages/internal/parser.ErrSignatureActionHeadWithoutBody]
+		// refuses it.
 		if h.OutputHead != nil {
 			w.Raw(outputVar(h.OutputHead.Output))
 		} else {
@@ -1788,7 +1793,7 @@ func (w *Writer) writeActionErrCheck(
 func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 	w.Line(0, "")
 	w.Raw("\tvar query ")
-	w.Raw(renderQueryType(input, m))
+	w.Raw(w.renderQueryType(input, m))
 	w.Byte('\n')
 	fields := w.structFields(input.Type.Resolved)
 	for _, f := range fields {
@@ -1818,7 +1823,7 @@ func (w *Writer) writeReadQuery(input *model.Input, m *model.App) {
 func (w *Writer) writeReadPath(input *model.Input, m *model.App, route string) {
 	w.Line(0, "")
 	w.Raw("\tvar path ")
-	w.Raw(renderPathType(input, m))
+	w.Raw(w.renderPathType(input, m))
 	w.Byte('\n')
 	wildcard := wildcardVar(route)
 	fields := w.structFields(input.Type.Resolved)
@@ -1919,9 +1924,9 @@ func (w *Writer) writeParseField(
 		w.Raw(f.Name)
 		w.Raw(" = ")
 		if unsigned {
-			w.writeConv(convTypeName(f.Type, typeName), "uint64", "u")
+			w.writeConv(w.convTypeName(f.Type, typeName), "uint64", "u")
 		} else {
-			w.writeConv(convTypeName(f.Type, typeName), "int64", "i")
+			w.writeConv(w.convTypeName(f.Type, typeName), "int64", "i")
 		}
 		w.Byte('\n')
 	} else if gotypes.IsFloat(f.Type) {
@@ -1942,7 +1947,7 @@ func (w *Writer) writeParseField(
 		w.Byte('.')
 		w.Raw(f.Name)
 		w.Raw(" = ")
-		w.writeConv(convTypeName(f.Type, typeName), "float64", "f")
+		w.writeConv(w.convTypeName(f.Type, typeName), "float64", "f")
 		w.Byte('\n')
 	} else if gotypes.IsBool(f.Type) {
 		tabs(indent)
@@ -1960,7 +1965,7 @@ func (w *Writer) writeParseField(
 		w.Byte('.')
 		w.Raw(f.Name)
 		w.Raw(" = ")
-		w.writeConv(convTypeName(f.Type, "bool"), "bool", "b")
+		w.writeConv(w.convTypeName(f.Type, "bool"), "bool", "b")
 		w.Byte('\n')
 	}
 }
@@ -1978,14 +1983,14 @@ func isPlainString(t types.Type) bool {
 	return gotypes.IsString(t) && !gotypes.ImplementsTextUnmarshaler(t)
 }
 
-// convTypeName is the type a parsed value is assigned as: the declared type
-// when the field names one, the basic type otherwise.
+// convTypeName is the type a parsed value is assigned as:
+// the declared type when the field names one, the basic type otherwise.
 // strconv returns a basic value, which a named field cannot take without a conversion.
-func convTypeName(t types.Type, basic string) string {
+func (w *Writer) convTypeName(t types.Type, basic string) string {
 	if _, isBasic := t.(*types.Basic); isBasic {
 		return basic
 	}
-	return gotypes.QualifiedTypeName(t)
+	return gotypes.QualifiedTypeNameWith(t, w.imports.Qualifier())
 }
 
 // writeConv writes expr converted to typeName, or expr alone when strconv
@@ -2005,7 +2010,7 @@ func (w *Writer) writeStringConv(t types.Type, inner func()) {
 		inner()
 		return
 	}
-	w.Raw(gotypes.QualifiedTypeName(t))
+	w.Raw(gotypes.QualifiedTypeNameWith(t, w.imports.Qualifier()))
 	w.Byte('(')
 	inner()
 	w.Byte(')')

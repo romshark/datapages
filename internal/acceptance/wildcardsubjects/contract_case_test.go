@@ -32,12 +32,12 @@ func TestContract(t *testing.T) {
 		HrefExternal:   href.External,
 		HrefSetLogger:  href.SetLogger,
 		Links:          []string{href.PageIndex()},
-		Actions:        []string{action.POSTPageIndexNote()},
-		SignalActions:  []string{action.POSTPageIndexNote()},
+		Actions:        []string{action.PageIndex.Note.POST()},
+		SignalActions:  []string{action.PageIndex.Note.POST()},
 		StreamPath:     "/_$/",
-		DispatchAction: action.POSTPageIndexNote(),
+		DispatchAction: action.PageIndex.Note.POST(),
 		DispatchBody:   `{"topic":"anything","text":"x"}`,
-		OptionedAction: action.POSTPageIndexNote(
+		OptionedAction: action.PageIndex.Note.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),

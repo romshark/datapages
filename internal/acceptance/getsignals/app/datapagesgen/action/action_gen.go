@@ -168,8 +168,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexLeave references /leave/
-func POSTPageIndexLeave(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Leave pageIndex_Leave
+}
+
+type pageIndex_Leave struct{}
+
+// POST references /leave/
+func (pageIndex_Leave) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/leave/')"
 	}

@@ -168,8 +168,16 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageIndexUpdate references /update/
-func POSTPageIndexUpdate(options ...option) string {
+var PageIndex pageIndex
+
+type pageIndex struct {
+	Update pageIndex_Update
+}
+
+type pageIndex_Update struct{}
+
+// POST references /update/
+func (pageIndex_Update) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/update/')"
 	}
