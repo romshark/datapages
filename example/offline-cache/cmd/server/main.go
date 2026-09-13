@@ -43,9 +43,9 @@ func main() {
 		datapagesgen.Server,
 	](
 		a, messageBroker,
-		datapages.WithSessionManager[struct{}](sessionManager),
+		datapages.WithSessionManager(sessionManager),
 		datapages.WithSessions(datapages.SessionsConfig{}),
-		datapages.WithAssets(app.StaticFS),
+		datapages.WithAssets(app.StaticFS, false),
 		// Self-host Datastar so the app also works offline.
 		datapages.WithDatastarJS(assets.Path("datastar.js")),
 		// Service-worker-based offline support: serves the worker and injects
