@@ -10,8 +10,10 @@ import (
 	"go/types"
 	"strings"
 
+	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/internal/typecheck"
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/internal/parser/validate"
 	"github.com/romshark/datapages/internal/routepattern"
 	"github.com/romshark/datapages/internal/structtag"
 )
@@ -67,6 +69,12 @@ var (
 	ErrQueryReflectSignalNotInSignals = errors.New(
 		"query reflectsignal tag references signal not in signals parameter",
 	)
+	ErrQueryReflectSignalInvalid = errors.New(
+		"query struct field has an invalid reflectsignal tag value",
+	)
+	ErrSignalsFieldNameDotted = errors.New(
+		"signals struct field declares one signal, which carries no period",
+	)
 )
 
 // Signals parameter errors.
@@ -83,7 +91,8 @@ var (
 	ErrSignalsFieldDuplicateTag = errors.New(
 		"signals struct field has duplicate json tag value",
 	)
-	ErrSignalsFieldEmptyTag = errors.New(
+	ErrSignalsFieldNameInvalid = validate.ErrSignalNameInvalid
+	ErrSignalsFieldEmptyTag    = errors.New(
 		`signals struct field json tag must have a non-empty name`,
 	)
 )
@@ -302,6 +311,19 @@ func ValidateQueryStruct(
 				Pos: fpos,
 			}
 		}
+		// The reflectsignal tag is the name of a Datastar signal:
+		// it becomes the attribute the value is written into and is read back as $name.
+		// [ValidateReflectSignal] holds it against the signals struct,
+		// which a handler need not declare.
+		if rs := structtag.ReflectSignalTagValue(tag); rs != "" {
+			if validate.ReflectSignalPath(rs) != nil {
+				return &QueryFieldReflectSignalInvalidError{
+					FieldName: field.Name(), TagValue: rs,
+					Recv: recv, Method: method,
+					Pos: fpos,
+				}
+			}
+		}
 		seen[tagVal] = true
 	}
 	return nil
@@ -327,7 +349,18 @@ func ValidateSignalsStruct(
 			ErrSignalsParamNotStruct, recv, method,
 		)
 	}
+	return validateSignalsFields(st, recv, method, map[types.Type]bool{})
+}
 
+// validateSignalsFields validates one level of a signals struct and every
+// struct below it. A nested struct is a nested signal: the client sends
+// {"form":{"term":...}} for it and Datastar reads the name as "form.term",
+// which puts the same rules on it as on the level above.
+//
+// visited stops a type that reaches itself through a pointer.
+func validateSignalsFields(
+	st *types.Struct, recv, method string, visited map[types.Type]bool,
+) error {
 	seen := make(map[string]bool, st.NumFields())
 	for i := range st.NumFields() {
 		field := st.Field(i)
@@ -365,10 +398,80 @@ func ValidateSignalsStruct(
 				Recv: recv, Method: method,
 				Pos: fpos,
 			}
+		} else if validate.SignalName(tagVal) != nil {
+			// The tag value is the name of a Datastar signal: it becomes an
+			// attribute name and is read back as $name. A json:"-" field is
+			// refused here too, since encoding/json drops it
+			// and the handler only ever sees the zero value.
+			return &SignalsFieldNameInvalidError{
+				FieldName: field.Name(), TagValue: tagVal,
+				Recv: recv, Method: method,
+				Pos: fpos,
+			}
 		}
 		seen[tagVal] = true
+
+		nested, ok := signalsNestedStruct(field.Type())
+		// visited holds what stands above this field rather than everything seen:
+		// two fields of one struct type are two signals, while a type
+		// that reaches itself through a pointer is a walk that never ends.
+		if ok && !visited[nested] {
+			visited[nested] = true
+			err := validateSignalsFields(nested, recv, method, visited)
+			delete(visited, nested)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+// collectSignalPaths records the path of every signal the struct declares.
+// A nested struct contributes the paths below it, which is how a reflectsignal
+// tag reaches one: {"foo":{"bar":1}} is the signal foo.bar.
+func collectSignalPaths(
+	st *types.Struct, prefix string, out map[string]bool,
+	visited map[types.Type]bool,
+) {
+	for i := range st.NumFields() {
+		name := structtag.JSONTagValue(st.Tag(i))
+		if name == "" {
+			continue
+		}
+		path := prefix + name
+		if nested, ok := signalsNestedStruct(st.Field(i).Type()); ok {
+			if visited[nested] {
+				continue
+			}
+			visited[nested] = true
+			collectSignalPaths(nested, path+".", out, visited)
+			delete(visited, nested)
+			continue
+		}
+		out[path] = true
+	}
+}
+
+// signalsNestedStruct returns the struct a signals field carries signals of,
+// nil for a field that carries a value. A type that unmarshals itself decides
+// its own JSON, which leaves its fields out of this.
+func signalsNestedStruct(t types.Type) (*types.Struct, bool) {
+	if t == nil {
+		return nil, false
+	}
+	if ptr, ok := types.Unalias(t).(*types.Pointer); ok {
+		return signalsNestedStruct(ptr.Elem())
+	}
+	if gotypes.ImplementsJSONUnmarshaler(t) ||
+		gotypes.ImplementsTextUnmarshaler(t) {
+		return nil, false
+	}
+	st, ok := t.Underlying().(*types.Struct)
+	if !ok {
+		return nil, false
+	}
+	return st, true
 }
 
 // PathFieldMissingTagError is ErrPathFieldMissingTag with suggestion context.
@@ -665,12 +768,8 @@ func ValidateReflectSignal(
 		return nil
 	}
 
-	sigNames := make(map[string]bool, sigSt.NumFields())
-	for i := range sigSt.NumFields() {
-		if v := structtag.JSONTagValue(sigSt.Tag(i)); v != "" {
-			sigNames[v] = true
-		}
-	}
+	sigNames := map[string]bool{}
+	collectSignalPaths(sigSt, "", sigNames, map[types.Type]bool{})
 
 	for i := range querySt.NumFields() {
 		rs := structtag.ReflectSignalTagValue(querySt.Tag(i))
@@ -687,3 +786,43 @@ func ValidateReflectSignal(
 	}
 	return nil
 }
+
+// SignalsFieldNameInvalidError is [ErrSignalsFieldNameInvalid] with context.
+type SignalsFieldNameInvalidError struct {
+	FieldName string
+	TagValue  string
+	Recv      string
+	Method    string
+	Pos       token.Pos
+}
+
+func (e *SignalsFieldNameInvalidError) Error() string {
+	return fmt.Sprintf("%v: %q on field %s in %s.%s",
+		ErrSignalsFieldNameInvalid, e.TagValue, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *SignalsFieldNameInvalidError) Unwrap() error {
+	return ErrSignalsFieldNameInvalid
+}
+
+func (e *SignalsFieldNameInvalidError) ASTPos() token.Pos { return e.Pos }
+
+// QueryFieldReflectSignalInvalidError is [ErrQueryReflectSignalInvalid] with context.
+type QueryFieldReflectSignalInvalidError struct {
+	FieldName string
+	TagValue  string
+	Recv      string
+	Method    string
+	Pos       token.Pos
+}
+
+func (e *QueryFieldReflectSignalInvalidError) Error() string {
+	return fmt.Sprintf("%v: %q on field %s in %s.%s",
+		ErrQueryReflectSignalInvalid, e.TagValue, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *QueryFieldReflectSignalInvalidError) Unwrap() error {
+	return ErrQueryReflectSignalInvalid
+}
+
+func (e *QueryFieldReflectSignalInvalidError) ASTPos() token.Pos { return e.Pos }

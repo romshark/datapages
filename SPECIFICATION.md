@@ -687,6 +687,51 @@ query datapages.Query[struct {
 The above example will automatically synchronize the query parameter `s` with the
 signal `selecteditem`.
 
+A `json:"..."` tag of a signals struct declares one signal and must be a
+JavaScript identifier that starts lower case, `[a-z_][A-Za-z0-9_]*`. The name is
+written into an attribute name and read back as `$name`. An attribute name
+cannot be escaped, and `$name` is code rather than a string. Anything else
+breaks the page. `json:"-"` is refused too: `encoding/json` leaves the field out
+and the handler only ever sees the zero value.
+
+A double underscore is refused wherever it stands, since Datastar reads it as
+the delimiter of an attribute modifier. A single leading underscore is allowed
+and means something: Datastar leaves such a signal out of requests to the
+server by default, so a signals struct field declared `json:"_draft"` stays
+empty unless the page opts it back in with the `filterSignals` action option.
+
+Upper case is carried by a hyphen. An HTML parser lowercases every attribute name,
+which is why Datastar reads one back as camel case: `data-signals:my-signal`
+is the signal `mySignal`. Datapages writes that hyphenated form, so a signal
+declared `json:"newTitle"` reaches the page as `data-signals:new-title`
+and the expressions read `$newTitle`. A hyphen in the name itself is refused,
+since Datastar would read it as the boundary, and an upper case first character with it,
+since no hyphen can precede it.
+
+A period is refused there. It stands between the steps of a signal path,
+and a signals struct writes a path by nesting a struct:
+
+```go
+signals datapages.Signals[struct {
+	Foo struct {
+		Bar struct {
+			Bazz string `json:"bazz"`
+		} `json:"bar"`
+		Fuzz string `json:"fuzz"`
+	} `json:"foo"`
+}]
+```
+
+declares the two signals `foo.bar.bazz` and `foo.fuzz`, which the client sends
+as `{"foo":{"bar":{"bazz":...},"fuzz":...}}`. A `json:"foo.bar"` tag is one key
+that happens to carry a period, which no client sends.
+
+A `reflectsignal:"..."` tag references one of those signals by its path, so
+periods belong there: `reflectsignal:"foo.fuzz"`.
+
+A query tag is a URL parameter name and stays free of that rule. It may carry anything,
+a quote included, and is escaped where it is written into the page.
+
 #### Parameter: `session datapages.Session[Data]`
 
 ```go
@@ -976,8 +1021,9 @@ the SSE stream, the server reads the signal value and uses it to build the
 subscription subject. This enables per-instance event routing without
 authentication.
 
-The signal name must start with a lowercase letter and contain only lowercase letters,
-digits, underscores, or periods (e.g. `signal:"instance_id"`, `signal:"form.calc_id"`).
+The tag references a signal the page declares, so it carries the same name,
+the periods of a nested path included
+(e.g. `signal:"instance_id"`, `signal:"form.calc_id"`, `signal:"calcId"`).
 
 `datapages.SubjectUser` must not have a signal tag: it's already bound to the
 authenticated user.
@@ -993,8 +1039,8 @@ type EventCalcUpdated struct {
 
 When the SSE stream handler runs, it reads `instance_id` from the client's signals,
 escapes it, and subscribes to `calc.updated.<instance_id>`. An empty signal is
-refused with 400. A wildcard needs no refusing: escaped, it is one literal
-segment, so a client sending `*` subscribes to that value and to nothing else.
+refused with 400. A wildcard needs no refusing: escaped, it is one literal segment,
+so a client sending `*` subscribes to that value and to nothing else.
 
 Signal-scoped events can be mixed with user-addressed events and plain public
 events on the same page. They can also coexist with non-signal subject fields:

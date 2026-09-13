@@ -126,6 +126,7 @@ var (
 	ErrQueryFieldUnsupportedType = paramvalidation.ErrQueryFieldUnsupportedType
 
 	ErrQueryReflectSignalNotInSignals = paramvalidation.ErrQueryReflectSignalNotInSignals
+	ErrQueryReflectSignalInvalid      = paramvalidation.ErrQueryReflectSignalInvalid
 
 	ErrFieldTypeUnexported = paramvalidation.ErrFieldTypeUnexported
 
@@ -133,6 +134,7 @@ var (
 	ErrSignalsFieldUnexported   = paramvalidation.ErrSignalsFieldUnexported
 	ErrSignalsFieldMissingTag   = paramvalidation.ErrSignalsFieldMissingTag
 	ErrSignalsFieldDuplicateTag = paramvalidation.ErrSignalsFieldDuplicateTag
+	ErrSignalsFieldNameInvalid  = paramvalidation.ErrSignalsFieldNameInvalid
 	ErrSignalsFieldEmptyTag     = paramvalidation.ErrSignalsFieldEmptyTag
 
 	ErrDispatchParamNotEvent = paramvalidation.ErrDispatchParamNotEvent

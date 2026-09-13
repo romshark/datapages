@@ -58,20 +58,21 @@ type Core struct {
 	lockRun   sync.Mutex
 	runCancel context.CancelFunc
 
-	httpServer    *http.Server
-	metricsServer *http.Server
-	mux           *http.ServeMux
-	handler       http.Handler
-	logger        *slog.Logger
-	sampledLogger *slog.Logger
-	middleware    []func(http.Handler) http.Handler
-	outermost     func(http.Handler) http.Handler
-	assetsFS      http.FileSystem
-	datastarJSSrc string
-	htmlPrefix    string
-	htmlHead      string
-	htmlDatastar  string
-	bodySizeLimit int64
+	httpServer      *http.Server
+	metricsServer   *http.Server
+	mux             *http.ServeMux
+	handler         http.Handler
+	logger          *slog.Logger
+	sampledLogger   *slog.Logger
+	middleware      []func(http.Handler) http.Handler
+	outermost       func(http.Handler) http.Handler
+	assetsFS        http.FileSystem
+	assetsBrowsable bool
+	datastarJSSrc   string
+	htmlPrefix      string
+	htmlHead        string
+	htmlDatastar    string
+	bodySizeLimit   int64
 
 	// lockListen guards the fields [Core.listenAndServe] sets once it binds.
 	lockListen sync.Mutex
@@ -90,7 +91,9 @@ type Core struct {
 }
 
 // NewCore returns a core configured by cfg, serving static files under assetsURLPrefix.
-// An empty prefix serves none.
+// An empty prefix serves none. Every asset file system passes through
+// [notBrowsableFS] unless cfg.AssetsBrowsable is set,
+// whichever option carried the file system here.
 func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) {
 	c := &Core{
 		assetsURLPrefix: assetsURLPrefix,
@@ -99,6 +102,7 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		middleware:      cfg.Middleware,
 		outermost:       cfg.OutermostMiddleware,
 		assetsFS:        cfg.AssetsFS,
+		assetsBrowsable: cfg.AssetsBrowsable,
 		datastarJSSrc:   cfg.DatastarJS,
 		logger:          cfg.Logger,
 		stateConf:       cfg.State,
@@ -185,7 +189,11 @@ func (c *Core) Build() {
 	}
 
 	if c.assetsFS != nil && c.assetsURLPrefix != "" {
-		h := http.StripPrefix(c.assetsURLPrefix, http.FileServer(c.assetsFS))
+		fsys := c.assetsFS
+		if !c.assetsBrowsable {
+			fsys = notBrowsableFS{fsys: fsys}
+		}
+		h := http.StripPrefix(c.assetsURLPrefix, http.FileServer(fsys))
 		if datapages.IsDevMode() {
 			h = DevNoCache(h)
 		}

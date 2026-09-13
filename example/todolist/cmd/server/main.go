@@ -53,7 +53,7 @@ func main() {
 		datapages.DisablePrometheus,
 		datapagesgen.Server,
 	](a, msgBroker,
-		datapages.WithAssets(app.StaticFS),
+		datapages.WithAssets(app.StaticFS, false),
 		datapages.WithStateConfig(datapages.StateConfig{
 			HMACKey: hmacKey[:],
 		}))

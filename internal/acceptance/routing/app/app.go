@@ -121,10 +121,18 @@ func (PageReflect) GET(
 		Term string `query:"t" reflectsignal:"term"`
 		Page int    `query:"p" reflectsignal:"page"`
 		Slug Slug   `query:"s" reflectsignal:"slug"`
+		// A query tag is a URL parameter name and may carry what ends the
+		// JavaScript string and the attribute it is written into.
+		Odd string `query:"o'\"x" reflectsignal:"odd"`
+		// An HTML parser lowercases an attribute name, which is why Datastar
+		// reads one back as camel case. Written as data-signals:newTitle the
+		// signal would arrive as newtitle.
+		NewTitle string `query:"nt" reflectsignal:"newTitle"`
 	}],
 ) (body datapages.Component, err error) {
-	return echo("term=%q page=%d slug=%q",
-		query.Values.Term, query.Values.Page, query.Values.Slug), nil
+	return echo("term=%q page=%d slug=%q odd=%q title=%q",
+		query.Values.Term, query.Values.Page, query.Values.Slug,
+		query.Values.Odd, query.Values.NewTitle), nil
 }
 
 // PageMixed is /org/{org}/item/{id}

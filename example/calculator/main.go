@@ -38,7 +38,7 @@ func main() {
 		datapages.DisableSessions,
 		datapages.DisablePrometheus,
 		datapagesgen.Server,
-	](a, msgBroker, datapages.WithAssets(app.StaticFS))
+	](a, msgBroker, datapages.WithAssets(app.StaticFS, false))
 	if err != nil {
 		panic(err)
 	}

@@ -94,6 +94,10 @@ The URL path in the comment must start and end with `/` and cannot be `/`.
 The `//go:embed` directive must name exactly one directory inside the app
 package.
 
+The `browsable` argument of `datapages.WithAssets` lists a directory that has
+no `index.html`. Pass `browsable=false` in production to avoid exposing every
+embedded file.
+
 The app package, the session data type, the metrics mode and the package to
 generate into are the type arguments of the `datapages.NewServer` call.
 
@@ -163,6 +167,8 @@ These top-level keys are supported:
   `main` package yet. Default: `cmd/server`. Once such a call exists,
   the command it is written in is the entry point and this key is unused,
   which is why a module building several applications does not set it.
+  Must be a relative path inside the module:
+  an absolute path or a `..` segment is rejected.
 - `watch`: optional development server settings (app host, proxy timeout,
   debounce, TLS, compiler flags, logging, custom watchers, etc.)
 

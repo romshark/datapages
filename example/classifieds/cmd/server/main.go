@@ -89,7 +89,7 @@ func withAccessLogger(opts *[]datapages.ServerOption) {
 
 func withAssets(opts *[]datapages.ServerOption) {
 	*opts = append(*opts,
-		datapages.WithAssets(app.StaticFS),
+		datapages.WithAssets(app.StaticFS, false),
 		datapages.WithDatastarJS(assets.Path("ds.min.js")))
 }
 

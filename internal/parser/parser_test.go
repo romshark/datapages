@@ -792,6 +792,37 @@ func TestParse_EventSharedAlias(t *testing.T) {
 	require.Len(a.InputDispatches, 2)
 }
 
+// TestParse_ErrSignalsName tests a signal name generated code cannot write:
+// one carrying a quote, which no attribute name and no JavaScript identifier can carry,
+// and "-", which encoding/json reads as "leave this field out".
+//
+// The 3rd sits one level down. A nested struct is a nested signal,
+// which Datastar reads as "form.term" and which the same rules hold for.
+// The 4th writes that path as one key, which no client sends:
+// a signals struct writes a path by nesting a struct.
+func TestParse_ErrSignalsName(t *testing.T) {
+	_, err := parse(t, "err_signals_name")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrSignalsFieldNameInvalid,
+		parser.ErrSignalsFieldNameInvalid,
+		parser.ErrSignalsFieldNameInvalid,
+		parser.ErrSignalsFieldNameInvalid,
+	)
+}
+
+// TestParse_ErrQueryReflectSignal tests a reflectsignal tag whose value is no
+// signal name. A handler without a signals parameter has nothing else to hold
+// the name against.
+func TestParse_ErrQueryReflectSignal(t *testing.T) {
+	_, err := parse(t, "err_query_reflectsignal")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrQueryReflectSignalInvalid)
+}
+
 // TestParse_ErrEmbedPointer tests an abstract page embedded as a pointer.
 // Generated code writes a page as a composite literal of values, which a pointer
 // field cannot take, and a nil one would panic in every handler the embed promotes.
