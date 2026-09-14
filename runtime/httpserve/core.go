@@ -221,7 +221,7 @@ func (c *Core) HTTPErrBad(w http.ResponseWriter, msg string, err error) {
 // It answers r with 406 when it was not, in which case the handler must
 // write nothing more.
 func (c *Core) CheckDatastarRequest(w http.ResponseWriter, r *http.Request) (ok bool) {
-	if !IsDatastarRequest(r) {
+	if !IsDatastarRequest(r.Header) {
 		c.logger.Debug("not a datastar request",
 			slog.Any("method", r.Method),
 			slog.String("path", r.URL.Path))

@@ -11,7 +11,7 @@ import (
 	"github.com/romshark/datapages"
 )
 
-// IsDatastarRequest reports whether r was issued by the Datastar client.
+// IsDatastarRequest reports whether h carries the header the Datastar client sends.
 func IsDatastarRequest(h http.Header) bool {
 	return h.Get("Datastar-Request") == "true"
 }
