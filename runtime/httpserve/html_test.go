@@ -192,6 +192,11 @@ func TestCheckSameOrigin(t *testing.T) {
 			headers: map[string]string{"Sec-Fetch-Site": "cross-site"},
 			wantOK:  false,
 		},
+		"same site": {
+			method:  http.MethodPost,
+			headers: map[string]string{"Sec-Fetch-Site": "same-site"},
+			wantOK:  false,
+		},
 		"foreign origin": {
 			method:  http.MethodPost,
 			headers: map[string]string{"Origin": "https://evil.example"},

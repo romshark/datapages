@@ -159,13 +159,17 @@ func (PageIndex) POSTActionName(
 Action handlers that omit the `sse` parameter can instead redirect,
 return HTML, and set or remove sessions.
 
-An action that declares neither `signals` nor `sse` is reachable by a plain HTML form,
-which a page on another site can host as well. Such a handler is guarded
-by [`net/http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection)
-instead: a request the browser reports as cross-site through `Sec-Fetch-Site`,
+An action that declares neither `signals` nor `sse` does not require
+`Datastar-Request: true`. A page on another site can therefore target it with a
+plain HTML form. Datapages does not support forms as an application interface;
+the form is an attack path here. Such a handler is guarded by
+[`net/http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection):
+a request the browser reports as same-site or cross-site through `Sec-Fetch-Site`,
 or whose `Origin` does not match `Host`, gets a 403. A client that sends neither
-header is allowed, which keeps non-browser clients working. Every other action
-requires `Datastar-Request: true`, which no form and no unpreflighted `fetch` can set.
+header is allowed, which keeps non-browser clients working. In an application
+with sessions and CSRF protection, an authenticated form submission also fails
+the CSRF token check. Every other action requires `Datastar-Request: true`,
+which no form and no unpreflighted `fetch` can set.
 
 **Session mutation and SSE are mutually exclusive in action handlers.**
 When the `sse` parameter is present, the handler opens a long-lived SSE stream —

@@ -195,6 +195,10 @@ func (c *Core) Build() {
 }
 
 // Mux is the router the routes are registered on.
+//
+// Handlers registered directly on it pass through the configured middleware.
+// They don't receive the Datastar, session, CSRF, or origin checks emitted into
+// generated handlers. The caller must apply the checks each handler needs.
 func (c *Core) Mux() *http.ServeMux { return c.mux }
 
 // Logger is the logger the server writes to.
