@@ -206,6 +206,9 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageIndexHandlers) POSTRender(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Render")
 	p := dpapp.PageIndex{
 		App: s.app,

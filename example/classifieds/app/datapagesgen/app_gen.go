@@ -507,6 +507,10 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 type appHandlers struct{ *Server }
 
 func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
 	sess, sessToken, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -529,6 +533,10 @@ func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s appHandlers) POSTCause500(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
 	// The CSRF token comes from the cookie, hence no store read here.
 	if !s.CheckCSRFOnly(w, r) {
 		return
@@ -1782,6 +1790,9 @@ func (s pageSettingsHandlers) POSTSave(
 func (s pageSettingsHandlers) POSTCloseSession(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	sess, sessToken, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -1819,6 +1830,9 @@ func (s pageSettingsHandlers) POSTCloseSession(
 func (s pageSettingsHandlers) POSTCloseAllSessions(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return

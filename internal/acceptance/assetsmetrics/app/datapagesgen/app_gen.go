@@ -352,6 +352,9 @@ func (s pageIndexHandlers) POSTAnnounce(
 func (s pageIndexHandlers) POSTFail(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Fail")
 	p := dpapp.PageIndex{
 		App: s.app,

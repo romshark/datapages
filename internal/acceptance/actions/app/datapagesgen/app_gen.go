@@ -229,6 +229,10 @@ func (s *Server) httpErrIntern(
 type appHandlers struct{ *Server }
 
 func (s appHandlers) POSTPing(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
 	defer s.recoverPanic(w, r, nil, "App.Ping")
 	err := s.app.POSTPing(r)
 	if err != nil {
@@ -238,6 +242,10 @@ func (s appHandlers) POSTPing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s appHandlers) DELETEAll(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
 	defer s.recoverPanic(w, r, nil, "App.All")
 	err := s.app.DELETEAll(r)
 	if err != nil {
@@ -301,6 +309,9 @@ func (s pageFormHandlers) POSTSubmit(
 func (s pageFormHandlers) PUTReplace(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageForm.Replace")
 	p := dpapp.PageForm{
 		App: s.app,
@@ -315,6 +326,9 @@ func (s pageFormHandlers) PUTReplace(
 func (s pageFormHandlers) PATCHTouch(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageForm.Touch")
 	p := dpapp.PageForm{
 		App: s.app,
@@ -329,6 +343,9 @@ func (s pageFormHandlers) PATCHTouch(
 func (s pageFormHandlers) DELETERemove(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageForm.Remove")
 	p := dpapp.PageForm{
 		App: s.app,
@@ -343,6 +360,9 @@ func (s pageFormHandlers) DELETERemove(
 func (s pageFormHandlers) POSTBump(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 
 	var query datapages.Query[struct {
 		By int `query:"by"`
@@ -384,6 +404,9 @@ func (s pageFormHandlers) POSTBump(
 func (s pageFormHandlers) POSTRender(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageForm.Render")
 	p := dpapp.PageForm{
 		App: s.app,
@@ -405,6 +428,9 @@ func (s pageFormHandlers) POSTRender(
 func (s pageFormHandlers) POSTGo(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageForm.Go")
 	p := dpapp.PageForm{
 		App: s.app,

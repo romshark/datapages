@@ -1370,6 +1370,15 @@ func (w *Writer) writePageActionHandler(
 		w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
+	} else {
+		// The Datastar header is what keeps the other actions unreachable from
+		// another origin: a fetch that sets it is preflighted and a form cannot
+		// set it at all. An action that needs neither signals nor an SSE
+		// connection is a plain form target, which a page on another site can
+		// host as well, hence the origin check in its place.
+		w.Line(1, "if !s.CheckSameOrigin(w, r) {")
+		w.Line(2, "return")
+		w.Line(1, "}")
 	}
 
 	// Auth.

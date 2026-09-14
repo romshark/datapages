@@ -159,6 +159,14 @@ func (PageIndex) POSTActionName(
 Action handlers that omit the `sse` parameter can instead redirect,
 return HTML, and set or remove sessions.
 
+An action that declares neither `signals` nor `sse` is reachable by a plain HTML form,
+which a page on another site can host as well. Such a handler is guarded
+by [`net/http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection)
+instead: a request the browser reports as cross-site through `Sec-Fetch-Site`,
+or whose `Origin` does not match `Host`, gets a 403. A client that sends neither
+header is allowed, which keeps non-browser clients working. Every other action
+requires `Datastar-Request: true`, which no form and no unpreflighted `fetch` can set.
+
 **Session mutation and SSE are mutually exclusive in action handlers.**
 When the `sse` parameter is present, the handler opens a long-lived SSE stream —
 HTTP headers (including session cookies) have already been sent, so `newSession`

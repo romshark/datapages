@@ -250,6 +250,10 @@ func (s *Server) httpErrIntern(
 type appHandlers struct{ *Server }
 
 func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
 	sess, sessToken, ok := s.ReadSession(w, r)
 	if !ok {
 		return

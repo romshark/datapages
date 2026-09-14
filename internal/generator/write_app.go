@@ -1266,6 +1266,13 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 		w.Line(2, "return")
 		w.Line(1, "}")
 		w.Line(0, "")
+	} else {
+		// [Writer.writePageActionHandler] states why the other branch is not
+		// enough on its own.
+		w.Line(1, "if !s.CheckSameOrigin(w, r) {")
+		w.Line(2, "return")
+		w.Line(1, "}")
+		w.Line(0, "")
 	}
 
 	// Auth.

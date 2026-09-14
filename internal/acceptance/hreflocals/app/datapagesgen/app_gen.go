@@ -257,6 +257,9 @@ func (s pageExprHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageExprHandlers) POSTRun(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 
 	var path datapages.Path[struct {
 		Actionexpr string `path:"actionexpr"`
@@ -327,6 +330,9 @@ func (s pageImportsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageImportsHandlers) POSTSave(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 
 	var query datapages.Query[struct {
 		Term string `query:"t"`
@@ -510,6 +516,9 @@ func (s pageLocalsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageLocalsHandlers) POSTSave(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 
 	var path datapages.Path[struct {
 		B  string `path:"b"`
@@ -604,6 +613,9 @@ func (s pageMixHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageMixHandlers) POSTStore(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 
 	var query datapages.Query[struct {
 		AnyQuery string `query:"anyQuery"`
@@ -686,6 +698,9 @@ func (s pageParamsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageParamsHandlers) POSTSave(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 
 	var path datapages.Path[struct {
 		Query   string `path:"query"`
@@ -749,6 +764,9 @@ func (s pageTagsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageTagsHandlers) POSTSelect(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 
 	var query datapages.Query[struct {
 		PageSize int `query:"page-size"`

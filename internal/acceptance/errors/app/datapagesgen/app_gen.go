@@ -275,6 +275,9 @@ func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
 func (s pageBoomHandlers) POSTPlain(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageBoom.Plain")
 	p := dpapp.PageBoom{
 		App: s.app,
@@ -289,6 +292,9 @@ func (s pageBoomHandlers) POSTPlain(
 func (s pageBoomHandlers) POSTBad(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageBoom.Bad")
 	p := dpapp.PageBoom{
 		App: s.app,
@@ -303,6 +309,9 @@ func (s pageBoomHandlers) POSTBad(
 func (s pageBoomHandlers) POSTForbidden(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageBoom.Forbidden")
 	p := dpapp.PageBoom{
 		App: s.app,
@@ -317,6 +326,9 @@ func (s pageBoomHandlers) POSTForbidden(
 func (s pageBoomHandlers) POSTNotFound(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageBoom.NotFound")
 	p := dpapp.PageBoom{
 		App: s.app,
@@ -331,6 +343,9 @@ func (s pageBoomHandlers) POSTNotFound(
 func (s pageBoomHandlers) POSTConflict(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageBoom.Conflict")
 	p := dpapp.PageBoom{
 		App: s.app,
@@ -345,6 +360,9 @@ func (s pageBoomHandlers) POSTConflict(
 func (s pageBoomHandlers) POSTWrapped(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageBoom.Wrapped")
 	p := dpapp.PageBoom{
 		App: s.app,
