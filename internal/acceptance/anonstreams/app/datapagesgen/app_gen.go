@@ -184,6 +184,7 @@ type Server struct {
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
 //   - datapages.WithAssets
+//   - datapages.WithStateConfig (required)
 //   - datapages.WithSessionManager (required)
 //   - datapages.WithSessions
 //   - datapages.WithCSRFProtection

@@ -747,6 +747,13 @@ func (p PageIndex) OnItemsChanged(
   so a transient network blip resets per-tab state. Keep in the state struct only
   what a tab can afford to lose.
 
+With the default `GET` return values, hiding a tab closes its stream and releases
+its state. Showing the tab again reloads the page and creates a fresh instance.
+Keep state reconstructible from the URL or signals that `StreamOpen`
+reads. If state must survive while the tab is hidden, return `enableBackgroundStreaming=true`; this keeps the stream open and disables the
+visibility reload. Returning only `disableRefreshAfterHidden=true` stops the
+reload but does not keep the stream or its state alive while the tab is hidden.
+
 **Server configuration**. Stateful apps must opt in via
 `datapages.WithStateConfig`:
 

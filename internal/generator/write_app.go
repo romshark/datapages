@@ -392,6 +392,10 @@ func (w *Writer) writeAppInit(appPkg string) {
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
 //   - datapages.WithAssets`)
+	if w.usage.stateRuntime {
+		w.Raw(`
+//   - datapages.WithStateConfig (required)`)
+	}
 	if w.usage.hasSession {
 		w.Raw(`
 //   - datapages.WithSessionManager (required)

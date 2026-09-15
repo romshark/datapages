@@ -58,8 +58,8 @@ func DevNoCache(next http.Handler) http.Handler {
 	})
 }
 
-// WriteReloadOnVisibility writes the body attribute that reloads a page
-// the browser shows again after the server restarted.
+// WriteReloadOnVisibility writes the body attribute that reloads a page when
+// the browser shows it again after it was hidden.
 //
 // Like every attribute writer [Core.WriteHTML] calls,
 // it opens with the space that separates it from what stands before it.

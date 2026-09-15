@@ -522,6 +522,15 @@ state-id matches the dispatched value receives the event. Rules:
    An instance lives exactly as long as the stream that created it and is
    never reused by another stream.
 
+With the default `GET` return values, hiding a tab closes its stream and
+releases its state. When the tab becomes visible, Datapages reloads the page,
+which creates a new instance with zeroed state. Keep state reconstructible from
+the URL or signals that `StreamOpen` reads. If state must survive while the tab
+is hidden, return `enableBackgroundStreaming=true`; this keeps the stream open
+and disables the visibility reload.
+Returning only `disableRefreshAfterHidden=true` stops the reload but does not keep
+the stream or its state alive while the tab is hidden.
+
 **Configuration**. `datapages.WithStateConfig` is required on
 `datapages.NewServer` when any handler takes `state`:
 

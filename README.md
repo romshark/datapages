@@ -209,10 +209,11 @@ application keeps the state alive after the tab is gone. Copy the fields out ins
 The state lives in server memory for exactly as long as the tab holds its SSE
 stream: a stream that drops takes it, and a reconnect starts from a zeroed value.
 The tab is named by a signed
-`Datapages-Instance` header the page load mints; nothing is stored in the
-browser. A page that takes state gets that stream whether or not it declares
-`StreamOpen`, `StreamClose` or an `OnXXX` handler, and the server is given a
-`WithStateConfig`.
+`Datapages-Instance` header the page load mints. The id is not written to a
+cookie or browser storage. The client shim stores only a reload marker in
+`sessionStorage`. A page that takes state gets that stream whether or not it
+declares `StreamOpen`, `StreamClose` or an `OnXXX` handler, and the server is
+given a `WithStateConfig`.
 
 See [`datapages.State[T]`](SPECIFICATION.md#parameter-datapagesstatet) for the declaration rules,
 the configuration, and what a client is told when its state is gone.

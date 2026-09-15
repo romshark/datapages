@@ -178,6 +178,7 @@ type Server struct {
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
 //   - datapages.WithAssets
+//   - datapages.WithStateConfig (required)
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
 	app *dpapp.App,

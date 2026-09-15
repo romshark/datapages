@@ -95,8 +95,8 @@ type Query[Values any] struct{ Values Values }
 //   - event handlers (OnXXX)
 //   - action handlers (POST/PUT/PATCH/DELETE)
 //
-// GET handlers may not: the instance a page load mints holds no state until
-// its stream opens.
+// GET handlers may not: the server allocates state only when the tab connects
+// its stream, before StreamOpen runs.
 //
 // Values is any exported struct the application package declares.
 // Unlike [Query], [Signals] and [Path] it carries a pointer pointing to a struct
@@ -112,9 +112,10 @@ type Query[Values any] struct{ Values Values }
 //		return nil
 //	}
 //
-// The state lives as long as the tab's SSE stream. It is allocated when the stream opens.
-// When the stream closes the server drops its reference, and the garbage collector
-// reclaims the value once nothing else holds it. A tab that reconnects gets a new one.
+// The state lives as long as the tab's SSE stream. The server allocates it when
+// the tab connects its stream, before StreamOpen runs. When the stream closes
+// the server drops its reference, and the garbage collector reclaims the value
+// once nothing else holds it. A tab that reconnects gets a new one.
 // No instance is ever reused by another tab.
 //
 // Datapages serializes the handlers of one tab that take State,
