@@ -407,7 +407,8 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 }
 
 // stateSlotTabContext holds one instance of TabContext.
-// It is allocated on StreamOpen and dropped on StreamClose.
+// It is allocated on the stream connect, before the stream opens,
+// and dropped when that stream closes.
 // An instance lives exactly as long as the stream that created it and
 // is never reused: a client that reconnects gets a new one.
 type stateSlotTabContext struct {

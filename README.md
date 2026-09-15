@@ -191,11 +191,11 @@ func (p PageIndex) POSTFilter(
 	r *http.Request,
 	sse datapages.SSE,
 	state datapages.State[TabFilters],
-	signals struct {
+	signals datapages.Signals[struct {
 		Search string `json:"search"`
-	},
+	}],
 ) error {
-	state.Values.Search = signals.Search
+	state.Values.Search = signals.Values.Search
 	// Read out what is needed; the pointer must not outlive this handler.
 	return sse.PatchElement(results(p.App.Search(state.Values.Search)))
 }

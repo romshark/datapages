@@ -501,16 +501,18 @@ state-id matches the dispatched value receives the event. Rules:
    embeds it in the HTML so the client echoes it on subsequent requests.
 2. The generated client shim attaches `Datapages-Instance` to every
    subsequent Datastar action request and to the SSE stream connect.
-3. On `StreamOpen`, the server allocates a zeroed `*T` (the page's bound
-   state type) and registers the `id -> slot` mapping. When `StreamOpen`
-   declares `state`, that pointer is passed to it.
+3. On the stream connect, before the stream is opened, the server verifies the header,
+   allocates a zeroed `*T` (the page's bound state type) and registers
+   the `id -> slot` mapping. The slot is therefore reachable by the time
+   `StreamOpen` runs, and by the time any event handler of that stream runs.
+   When `StreamOpen` declares `state`, that pointer is passed to it.
 4. For stateful action and `OnXXX` calls, the server verifies the header,
-   looks up the slot, acquires its mutex, and invokes the user handler with
-   `state`. A missing slot (for example, an action fired before `StreamOpen`
-   completes) yields `409 Conflict` with `Datapages-Retry: reconnect`.
-5. On `StreamClose`, the slot drops its reference to the state at once and the
-   instance leaves the map. The garbage collector reclaims the value once
-   nothing else holds it.
+   looks up the slot, acquires its mutex, and invokes the user handler with `state`.
+   A missing slot (for example, an action fired before the tab connected its stream)
+   yields `409 Conflict` with `Datapages-Retry: reconnect`.
+5. When the stream closes, whether or not the page declares `StreamClose`,
+   the slot drops its reference to the state at once and the instance leaves the map.
+   The garbage collector reclaims the value once nothing else holds it.
    A reconnect with the same id opens a new stream and allocates a new `*T`.
    An instance lives exactly as long as the stream that created it and is
    never reused by another stream.

@@ -127,7 +127,7 @@ slow or too noisy under `-race`, and say in the case why.
 whatever the application: the page shell, compression, URL canonicalization,
 `ListenAndServe`, `ListenAndServeTLS`, `Shutdown` closing open streams,
 the `main.go` options, opening and reopening an SSE stream, an event dispatched from
-an action arriving on it, per-tab state released after its grace period,
+an action arriving on it, per-tab state released when its stream closes,
 and every URL `href` and `action` build addressing a real route.
 
 The server is generated per model. The same assertion therefore runs against

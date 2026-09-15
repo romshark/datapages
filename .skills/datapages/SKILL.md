@@ -587,9 +587,9 @@ a page or action route claiming it is rejected.
 
 - **Per-tab server-side state.** Declare an exported struct and take
   `state datapages.State[T]` in `StreamOpen`, actions, and `OnXXX` handlers.
-	The generator allocates one zeroed state per tab, serializes handler calls
+  The generator allocates one zeroed state per tab, serializes handler calls
   with a per-instance mutex, and drops the state on `StreamClose`.
-	No manual tab-id signing or map bookkeeping. See Step 10.
+  No manual tab-id signing or map bookkeeping. See Step 10.
 - **CQRS read-model binding.** In a CQRS architecture, actions (commands)
   dispatch events and event handlers (queries) render the updated UI. The
   event handler needs context about *which* tab it is rendering for (e.g.
@@ -729,8 +729,9 @@ func (p PageIndex) OnItemsChanged(
 
 - Allocates one zeroed state per tab, never reused by another tab.
 - Signs an instance identifier on `GET` and threads it through the browser
-  via a `Datapages-Instance` header (no cookies, no storage — in-memory only
-  so other tabs on the same origin cannot impersonate).
+  via a `Datapages-Instance` header. The id lives in a closure of the injected script,
+	which removes its own node: no cookie, no storage, no copy left in
+  the DOM for another reader on the same origin to lift.
 - Serializes every handler call on the same instance under a per-instance
   mutex, so you never need to lock inside a handler.
 - Returns `409 Conflict` with `Datapages-Retry: reconnect` if an action
@@ -738,9 +739,10 @@ func (p PageIndex) OnItemsChanged(
   released. The client shim reloads the page once per document on such a
   response, which reconnects the stream and mints a fresh instance. It does
   not retry the action, so unsaved form input is lost.
-- Releases the state on `StreamClose`. An instance lives exactly as long as
-  its stream, so a transient network blip resets per-tab state. Keep in the
-  state struct only what a tab can afford to lose.
+- Releases the state when the tab's stream closes, whether or not the page
+  declares `StreamClose`. An instance lives exactly as long as its stream,
+	so a transient network blip resets per-tab state. Keep in the state struct only
+  what a tab can afford to lose.
 
 **Server configuration**. Stateful apps must opt in via
 `datapages.WithStateConfig`:

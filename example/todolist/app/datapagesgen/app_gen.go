@@ -406,7 +406,8 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 }
 
 // stateSlotStateIndex holds one instance of StateIndex.
-// It is allocated on StreamOpen and dropped on StreamClose.
+// It is allocated on the stream connect, before the stream opens,
+// and dropped when that stream closes.
 // An instance lives exactly as long as the stream that created it and
 // is never reused: a client that reconnects gets a new one.
 type stateSlotStateIndex struct {
@@ -461,7 +462,8 @@ func (s *Server) releaseStateIndex(id string, slot *stateSlotStateIndex) {
 }
 
 // stateSlotStateItem holds one instance of StateItem.
-// It is allocated on StreamOpen and dropped on StreamClose.
+// It is allocated on the stream connect, before the stream opens,
+// and dropped when that stream closes.
 // An instance lives exactly as long as the stream that created it and
 // is never reused: a client that reconnects gets a new one.
 type stateSlotStateItem struct {

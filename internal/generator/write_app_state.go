@@ -409,7 +409,8 @@ func (w *Writer) writeStateSlot(st *model.StateType, appPkg string) {
 
 	w.Raw("\n")
 	w.Linef(0, "// %s holds one instance of %s.", slot, stateType)
-	w.Line(0, "// It is allocated on StreamOpen and dropped on StreamClose.")
+	w.Line(0, "// It is allocated on the stream connect, before the stream opens,")
+	w.Line(0, "// and dropped when that stream closes.")
 	w.Line(0, "// An instance lives exactly as long as the stream that created it and")
 	w.Line(0, "// is never reused: a client that reconnects gets a new one.")
 	w.Linef(0, "type %s struct {", slot)
