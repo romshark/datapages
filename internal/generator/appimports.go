@@ -56,6 +56,7 @@ var appFixedImports = map[string]string{
 	"hash/maphash":                                            "maphash",
 	"io":                                                      "io",
 	"log/slog":                                                "slog",
+	"math":                                                    "math",
 	"net":                                                     "net",
 	"net/http":                                                "http",
 	"os":                                                      "os",

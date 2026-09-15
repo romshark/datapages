@@ -469,7 +469,7 @@ func (pageTags_Select) POST(
 	)
 
 	if query.PageSize != 0 {
-		pageSizeStr = strconv.FormatInt(int64(query.PageSize), 10)
+		pageSizeStr = url.QueryEscape(strconv.FormatInt(int64(query.PageSize), 10))
 	}
 
 	anyQuery := query.PageSize != 0

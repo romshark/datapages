@@ -198,7 +198,7 @@ func PageMix(
 		anyQueryStr = url.QueryEscape(query.AnyQuery)
 	}
 	if query.Page != 0 {
-		pageStr_ = strconv.FormatInt(int64(query.Page), 10)
+		pageStr_ = url.QueryEscape(strconv.FormatInt(int64(query.Page), 10))
 	}
 
 	anyQuery := query.AnyQuery != "" ||
@@ -352,7 +352,7 @@ func PageTags(query QueryPageTags) string {
 	)
 
 	if query.PageSize != 0 {
-		pageSizeStr = strconv.FormatInt(int64(query.PageSize), 10)
+		pageSizeStr = url.QueryEscape(strconv.FormatInt(int64(query.PageSize), 10))
 	}
 	if query.Term != "" {
 		termStr = url.QueryEscape(query.Term)

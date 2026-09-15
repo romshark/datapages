@@ -135,6 +135,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"fmt"`)
 	w.Line(1, `"io"`)
 	w.Line(1, `"log/slog"`)
+	w.Line(1, `"math"`)
 	w.Line(1, `"net"`)
 	w.Line(1, `"net/http"`)
 	w.Line(1, `"os"`)
@@ -1187,7 +1188,7 @@ func (s *Server) httpErrIntern(
 	s.LogErr(msg, err)
 `, reqParam)
 	if hasPage {
-		w.Raw(`	if !httpserve.IsDatastarRequest(r) {
+		w.Raw(`	if !httpserve.IsDatastarRequest(r.Header) {
 		if httpserve.ResponseBodyWritten(w) {
 			// An error page after a half-written one sends two documents.
 			return
@@ -1371,6 +1372,13 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 
 	if h.InputSSE != nil || h.InputSignals != nil {
 		w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
+		w.Line(2, "return")
+		w.Line(1, "}")
+		w.Line(0, "")
+	} else {
+		// [Writer.writePageActionHandler] states why the other branch is not
+		// enough on its own.
+		w.Line(1, "if !s.CheckSameOrigin(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
 		w.Line(0, "")

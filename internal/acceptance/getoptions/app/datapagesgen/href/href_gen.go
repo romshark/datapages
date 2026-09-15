@@ -6,6 +6,7 @@ package href
 
 import (
 	"log/slog"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -58,7 +59,7 @@ func PageMaybe(query QueryPageMaybe) string {
 	)
 
 	if query.Go {
-		goStr = strconv.FormatBool(query.Go)
+		goStr = url.QueryEscape(strconv.FormatBool(query.Go))
 	}
 
 	anyQuery := query.Go

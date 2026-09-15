@@ -214,7 +214,7 @@ func (pageItem_Save) POST(
 	)
 
 	if query.Count != 0 {
-		countStr = strconv.FormatInt(int64(query.Count), 10)
+		countStr = url.QueryEscape(strconv.FormatInt(int64(query.Count), 10))
 	}
 
 	anyQuery := query.Count != 0

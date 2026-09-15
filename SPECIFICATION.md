@@ -163,6 +163,18 @@ func (PageIndex) POSTActionName(
 Action handlers that omit the `sse` parameter can instead redirect,
 return HTML, and set or remove sessions.
 
+An action that declares neither `signals` nor `sse` does not require
+`Datastar-Request: true`. A page on another site can therefore target it with a
+plain HTML form. Datapages does not support forms as an application interface;
+the form is an attack path here. Such a handler is guarded by
+[`net/http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection):
+a request the browser reports as same-site or cross-site through `Sec-Fetch-Site`,
+or whose `Origin` does not match `Host`, gets a 403. A client that sends neither
+header is allowed, which keeps non-browser clients working. In an application
+with sessions and CSRF protection, an authenticated form submission also fails
+the CSRF token check. Every other action requires `Datastar-Request: true`,
+which no form and no unpreflighted `fetch` can set.
+
 **Session mutation and SSE are mutually exclusive in action handlers.**
 When the `sse` parameter is present, the handler opens a long-lived SSE stream —
 HTTP headers (including session cookies) have already been sent, so `newSession`
@@ -643,7 +655,9 @@ Supported field types are:
 or any type implementing `encoding.TextUnmarshaler`.
 Values are parsed from their string representation in the URL.
 If a value cannot be parsed into the target type, the request
-returns HTTP 400 Bad Request.
+returns HTTP 400 Bad Request. A float field also rejects `Inf`, `+Inf`,
+`-Inf` and `NaN`, which `strconv.ParseFloat` accepts: a non-finite value
+does not marshal to JSON and does not round-trip through a URL builder.
 
 The generated `href` and `action` builders write the same values back into a URL.
 A type implementing `encoding.TextMarshaler` is taken as that interface
