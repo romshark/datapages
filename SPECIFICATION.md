@@ -439,7 +439,9 @@ Supported field types are:
 or any type implementing `encoding.TextUnmarshaler`.
 Values are parsed from their string representation in the URL.
 If a value cannot be parsed into the target type, the request
-returns HTTP 400 Bad Request.
+returns HTTP 400 Bad Request. A float field also rejects `Inf`, `+Inf`,
+`-Inf` and `NaN`, which `strconv.ParseFloat` accepts: a non-finite value
+does not marshal to JSON and does not round-trip through a URL builder.
 
 The generated `href` and `action` builders write the same values back into a URL.
 A type implementing `encoding.TextMarshaler` is taken as that interface

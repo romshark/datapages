@@ -1704,7 +1704,11 @@ func (w *Writer) writeParseField(
 		tabs(indent)
 		w.Rawf("f, err := strconv.ParseFloat(%s, %d)\n", raw, bits)
 		tabs(indent)
-		w.Raw("if err != nil {\n")
+		// strconv.ParseFloat accepts "Inf", "+Inf", "-Inf" and "NaN" without error,
+		// and only overflow ("1e400") as one. No handler can use a non-finite value:
+		// encoding/json refuses it, which turns every event dispatch of the page into
+		// a 500 for as long as it stays in the URL.
+		w.Raw("if err != nil || math.IsInf(f, 0) || math.IsNaN(f) {\n")
 		tabs(indent + 1)
 		w.Rawf("s.HTTPErrBad(w, \"unexpected value for %s: %s\", err)\n", label, tag)
 		tabs(indent + 1)

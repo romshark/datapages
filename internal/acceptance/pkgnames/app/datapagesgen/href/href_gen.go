@@ -74,7 +74,7 @@ func PageItem(
 		codeStr = url.QueryEscape(query.Code)
 	}
 	if query.Count != 0 {
-		countStr = strconv.FormatInt(int64(query.Count), 10)
+		countStr = url.QueryEscape(strconv.FormatInt(int64(query.Count), 10))
 	}
 	if query.Slug != nil {
 		slugStr = url.QueryEscape(textOf(query.Slug))

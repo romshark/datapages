@@ -51,6 +51,7 @@ var appFixedImports = map[string]string{
 	"golang.org/x/sync/errgroup":                              "errgroup",
 	"io":                                                      "io",
 	"log/slog":                                                "slog",
+	"math":                                                    "math",
 	"net":                                                     "net",
 	"net/http":                                                "http",
 	"os":                                                      "os",

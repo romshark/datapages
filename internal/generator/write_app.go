@@ -133,6 +133,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"fmt"`)
 	w.Line(1, `"io"`)
 	w.Line(1, `"log/slog"`)
+	w.Line(1, `"math"`)
 	w.Line(1, `"net"`)
 	w.Line(1, `"net/http"`)
 	w.Line(1, `"os"`)

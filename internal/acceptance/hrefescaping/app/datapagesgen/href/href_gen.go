@@ -72,7 +72,7 @@ func PageSearch(query QueryPageSearch) string {
 		termStr = url.QueryEscape(query.Term)
 	}
 	if query.Page != 0 {
-		pageStr = strconv.FormatInt(int64(query.Page), 10)
+		pageStr = url.QueryEscape(strconv.FormatInt(int64(query.Page), 10))
 	}
 
 	anyQuery := query.Term != "" ||
