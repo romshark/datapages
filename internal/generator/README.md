@@ -36,11 +36,13 @@ for three reasons:
 
 The parser returns a partial model next to its errors, and any caller can pass
 that model to `Generate`. It describes an application nobody wrote. `Generate`
-must answer it without panicking. It also writes nothing unless every file
+validates it and returns an error. It also writes nothing unless every file
 renders. On error the destination is left as it was.
 
-What `datapages gen` does with an app package that does not parse is covered by
-[../cmd/cmd_test.go](../cmd/cmd_test.go).
+`datapages gen` stops before it generates when the app package does not parse.
+Generated code keeps what the last successful run produced. A package that was
+never generated is written as stubs. Stubs hold no application code and let the
+import resolve. See `TestGenFailure*` in [../cmd/cmd_test.go](../cmd/cmd_test.go).
 
 ## Coverage
 

@@ -76,6 +76,9 @@ type ServerConfig struct {
 	// Zero selects httpserve.DefaultBodySizeLimit.
 	BodySizeLimit int64
 
+	// State sets the per-tab state limit. Nil selects the default.
+	State *StateConfig
+
 	// sessionManager is what [WithSessionManager] carries.
 	// ServerConfig is not generic, hence the manager travels as any and
 	// [NewServer] asserts it once to the type the application declares.
@@ -446,6 +449,46 @@ func WithPrometheus(conf PrometheusConfig) ServerOption {
 		}
 		c.Prometheus = &conf
 		c.OutermostMiddleware = prom.Middleware
+		return nil
+	}
+}
+
+// DefaultMaxConcurrentInstances is the default value of
+// [StateConfig.MaxConcurrentInstances].
+const DefaultMaxConcurrentInstances = 10_000
+
+// StateConfig sets the live-instance limit for per-tab [State].
+type StateConfig struct {
+	// MaxConcurrentInstances limits the live state instances held by this server
+	// across all state types. A stream allocates one instance before it opens and
+	// releases it when it closes. Each server keeps its own count.
+	//
+	// A stream over the limit receives 503 with Retry-After. The generated page
+	// configures Datastar to retry the connection 10 times over about three minutes.
+	//
+	// Reaching the limit does not notify application code. Read one server's live
+	// count with `Server.StateLiveInstances`. Servers built with [EnablePrometheus]
+	// also add their counts to the `datapages_state_instances` process gauge.
+	//
+	// Zero selects [DefaultMaxConcurrentInstances].
+	// A negative value disables the limit.
+	MaxConcurrentInstances int
+}
+
+// WithStateConfig sets the concurrent instance limit for handlers that use [State].
+// A server built without it uses [DefaultMaxConcurrentInstances].
+//
+// State lives in one server process. In a multi-server deployment, the load balancer
+// must send a page instance's stream and action requests to the same server.
+// The Datapages-Instance request header is a stable routing key for that instance.
+// Otherwise, an action can reach a server that has no state for
+// the instance and make the generated client reload the page.
+func WithStateConfig(conf StateConfig) ServerOption {
+	return func(c *ServerConfig) error {
+		if conf.MaxConcurrentInstances == 0 {
+			conf.MaxConcurrentInstances = DefaultMaxConcurrentInstances
+		}
+		c.State = &conf
 		return nil
 	}
 }

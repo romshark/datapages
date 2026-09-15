@@ -451,7 +451,11 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventNotice JSON", err)
 						continue
 					}
-					if err := p.OnNotice(eventNotice, dpsse.New(sse), sess); err != nil {
+					if err := p.OnNotice(
+						eventNotice,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageIndex.OnNotice", err)
 					}
 				case msg.Subject == EvSubjBroadcast:
@@ -460,7 +464,10 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventBroadcast JSON", err)
 						continue
 					}
-					if err := p.OnBroadcast(eventBroadcast, dpsse.New(sse)); err != nil {
+					if err := p.OnBroadcast(
+						eventBroadcast,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnBroadcast", err)
 					}
 				}
@@ -501,7 +508,10 @@ func (s pageIndexHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 						s.LogErr("unmarshaling EventBroadcast JSON", err)
 						continue
 					}
-					if err := p.OnBroadcast(eventBroadcast, dpsse.New(sse)); err != nil {
+					if err := p.OnBroadcast(
+						eventBroadcast,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnBroadcast", err)
 					}
 				}

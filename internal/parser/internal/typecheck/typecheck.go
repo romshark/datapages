@@ -320,6 +320,8 @@ func SubjectKindOf(t types.Type) model.SubjectKind {
 		return model.SubjectKindValue
 	case "SubjectUser":
 		return model.SubjectKindUser
+	case "SubjectStateID":
+		return model.SubjectKindStateID
 	}
 	return model.SubjectKindNone
 }
@@ -340,6 +342,12 @@ func QueryValuesType(expr ast.Expr, info *types.Info) (types.Type, bool) {
 // ok is false if expr isn't an instantiation of datapages.Signals.
 func SignalsValuesType(expr ast.Expr, info *types.Info) (types.Type, bool) {
 	return namedTypeArg(expr, info, "Signals")
+}
+
+// StateValuesType returns the Values type argument of datapages.State[Values].
+// ok is false if expr isn't an instantiation of datapages.State.
+func StateValuesType(expr ast.Expr, info *types.Info) (types.Type, bool) {
+	return namedTypeArg(expr, info, "State")
 }
 
 // TypeArgExpr returns the type argument expression of a generic type

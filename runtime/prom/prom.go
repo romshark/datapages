@@ -156,6 +156,19 @@ var (
 		},
 		[]string{"result"}, // "valid" | "none" | "stale" | "expired" | "error"
 	)
+
+	// The gauge is what datapages.StateConfig.MaxConcurrentInstances is
+	// reached against. The cap itself is not exported: it belongs to one
+	// server and this gauge, like every other here, counts every server of
+	// the process that registered metrics.
+	mStateInstances = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "datapages",
+			Subsystem: "state",
+			Name:      "instances",
+			Help:      "Live per-tab state instances, across all state types",
+		},
+	)
 )
 
 // Register registers the built-in metrics on r, followed by extra.
@@ -177,6 +190,7 @@ func Register(r prometheus.Registerer, extra ...prometheus.Collector) error {
 		mSessionCreations,
 		mSessionClosures,
 		mSessionReads,
+		mStateInstances,
 	}
 	for _, c := range builtin {
 		if err := register(r, c); err != nil {
@@ -205,6 +219,13 @@ func SSEConnectionOpened() { mSSEConnections.Inc() }
 
 // SSEConnectionClosed counts down the stream the server just let go.
 func SSEConnectionClosed() { mSSEConnections.Dec() }
+
+// StateInstanceReserved counts a per-tab state instance the server just took
+// out of its budget.
+func StateInstanceReserved() { mStateInstances.Inc() }
+
+// StateInstanceReleased counts down the instance the server just gave back.
+func StateInstanceReleased() { mStateInstances.Dec() }
 
 // SSEDisconnect counts why a stream ended.
 // reason is "close", "client" or "shutdown".

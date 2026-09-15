@@ -423,8 +423,8 @@ func TestParse_ErrStreamHooks(t *testing.T) {
 	requireParseErrors(
 		t, err,
 		parser.ErrSignatureMissingReq,
-		parser.ErrSignatureMissingStreamID,
-		parser.ErrSignatureMissingStreamID,  // StreamOpen with streamID string
+		parser.ErrStreamHookMissingHandle,
+		parser.ErrStreamHookMissingHandle,   // StreamOpen with streamID string
 		parser.ErrSignatureUnsupportedInput, // StreamClose with signals
 		parser.ErrSignatureStreamHookReturnMustBeError,
 		parser.ErrSignatureUnsupportedInput, // StreamClose with sse
@@ -433,7 +433,7 @@ func TestParse_ErrStreamHooks(t *testing.T) {
 		parser.ErrSignatureUnsupportedInput, // StreamOpen with query
 		parser.ErrSignatureUnsupportedInput, // StreamClose with query
 		parser.ErrSignatureUnsupportedInput, // action handler with streamID
-		parser.ErrSignatureMissingStreamID,  // StreamOpen with streamID int
+		parser.ErrStreamHookMissingHandle,   // StreamOpen with streamID int
 		parser.ErrSignatureUnsupportedInput, // StreamOpen with an untyped dispatcher
 		parser.ErrDispatchDuplicate,         // StreamClose with two of one type
 	)
@@ -2083,6 +2083,222 @@ func requirePosEqual(
 	require.True(t, wantFile == fName && wantLine == p.Line && wantCol == p.Column,
 		"expected %s:%d:%d; received %s:%d:%d",
 		wantFile, wantLine, wantCol, fName, p.Line, p.Column)
+}
+
+func TestParse_State(t *testing.T) {
+	app, err := parse(t, "state")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	require.Len(app.States, 3)
+	require.Contains(app.States, "StateIndex")
+	require.Contains(app.States, "TabContext")
+	// Exportedness is the first rune's case, not the first byte's range.
+	require.Contains(app.States, "Übersicht")
+
+	// PageIndex
+	pi := app.PageIndex
+	require.NotNil(pi)
+	require.NotNil(pi.State)
+	require.Equal("StateIndex", pi.State.TypeName)
+
+	require.NotNil(pi.StreamOpen)
+	require.NotNil(pi.StreamOpen.InputState)
+	require.Equal("StateIndex", pi.StreamOpen.InputState.StateTypeName)
+	require.Equal("state", pi.StreamOpen.InputState.Name)
+
+	require.NotNil(pi.StreamClose)
+	require.NotNil(pi.StreamClose.InputState)
+	require.Equal("StateIndex", pi.StreamClose.InputState.StateTypeName)
+
+	require.Len(pi.Actions, 1)
+	require.Equal("Increment", pi.Actions[0].Name)
+	require.NotNil(pi.Actions[0].InputState)
+	require.Equal("StateIndex", pi.Actions[0].InputState.StateTypeName)
+
+	require.Len(pi.EventHandlers, 1)
+	require.NotNil(pi.EventHandlers[0].InputState)
+	require.Equal("StateIndex", pi.EventHandlers[0].InputState.StateTypeName)
+
+	// PageBase: state comes via embedded Base.
+	pb := findPage(app, "PageBase")
+	require.NotNil(pb)
+	require.NotNil(pb.State)
+	require.Equal("TabContext", pb.State.TypeName)
+
+	// PageUmlaut binds the state type whose name starts outside A-Z.
+	pu := findPage(app, "PageUmlaut")
+	require.NotNil(pu)
+	require.NotNil(pu.State)
+	require.Equal("Übersicht", pu.State.TypeName)
+
+	// App-level action takes state.
+	require.Len(app.Actions, 1)
+	appAct := app.Actions[0]
+	require.Equal("AppLevel", appAct.Name)
+	require.NotNil(appAct.InputState)
+	require.Equal("StateIndex", appAct.InputState.StateTypeName)
+}
+
+func TestParse_StateSubjectID(t *testing.T) {
+	app, err := parse(t, "state_subject_id")
+	require := require.New(t)
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(app)
+
+	// Event uses SubjectStateID.
+	var ev *model.Event
+	for _, e := range app.Events {
+		if e.TypeName == "EventFiltersUpdated" {
+			ev = e
+			break
+		}
+	}
+	require.NotNil(ev)
+	require.True(ev.HasSubjectStateID())
+	require.True(ev.IsStateIDScoped())
+	require.False(ev.IsPrivate())
+	require.False(ev.IsSignalScoped())
+
+	pi := app.PageIndex
+	require.NotNil(pi)
+	require.NotNil(pi.State)
+	require.Equal("TabState", pi.State.TypeName)
+
+	// OnFiltersUpdated takes stateID in addition to state.
+	require.Len(pi.EventHandlers, 1)
+	eh := pi.EventHandlers[0]
+	require.Equal("FiltersUpdated", eh.Name)
+	require.NotNil(eh.InputState)
+	require.NotNil(eh.InputStateID)
+	require.Equal("stateID", eh.InputStateID.Name)
+
+	// POSTUpdate takes stateID alongside state and dispatches
+	// EventFiltersUpdated keyed on it.
+	require.Len(pi.Actions, 1)
+	act := pi.Actions[0]
+	require.Equal("Update", act.Name)
+	require.NotNil(act.InputState)
+	require.NotNil(act.InputStateID)
+	require.Equal("stateID", act.InputStateID.Name)
+}
+
+func TestParse_ErrStateOnGET(t *testing.T) {
+	_, err := parse(t, "err_state_on_get")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateOnGET)
+}
+
+func TestParse_ErrStateConflict(t *testing.T) {
+	_, err := parse(t, "err_state_conflict")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateConflict)
+}
+
+func TestParse_ErrStateTypeArgNotNamed(t *testing.T) {
+	_, err := parse(t, "err_state_type_arg_not_named")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateTypeArgNotNamed)
+}
+
+// TestParse_ErrStateTypeArgStructLiteral covers datapages.State[struct{...}],
+// the anonymous struct that datapages.Query, Signals and Path would accept.
+func TestParse_ErrStateTypeArgStructLiteral(t *testing.T) {
+	_, err := parse(t, "err_state_type_arg_struct_literal")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateTypeArgNotNamed)
+}
+
+// TestParse_ErrStateTypeArgQualified covers datapages.State[time.Time]:
+// a named type, but not one of the app package.
+func TestParse_ErrStateTypeArgQualified(t *testing.T) {
+	_, err := parse(t, "err_state_type_arg_qualified")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateTypeArgNotNamed)
+}
+
+// TestParse_ErrStateParamInvalidType covers a type argument naming a type the
+// app package declares as something other than a struct.
+func TestParse_ErrStateParamInvalidType(t *testing.T) {
+	_, err := parse(t, "err_state_param_invalid_type")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateParamInvalidType)
+}
+
+// TestParse_ErrStateDuplicate covers a handler taking two state parameters.
+func TestParse_ErrStateDuplicate(t *testing.T) {
+	_, err := parse(t, "err_state_duplicate")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateDuplicate)
+}
+
+// TestParse_ErrStateIDParamNotString covers a stateID parameter
+// of another type.
+func TestParse_ErrStateIDParamNotString(t *testing.T) {
+	_, err := parse(t, "err_state_id_not_string")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateIDParamNotString)
+}
+
+// TestParse_ErrStateIDWithoutState covers stateID on a handler that takes
+// no state.
+// The parameter names the tab whose state the handler acts on,
+// and without one there is no tab to name.
+func TestParse_ErrStateIDWithoutState(t *testing.T) {
+	_, err := parse(t, "err_state_id_without_state")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateIDWithoutState)
+}
+
+// TestParse_StateActionOnly covers a stateful page whose only handler is
+// an action.
+// State alone anchors the lifecycle: the page needs no StreamOpen,
+// StreamClose or OnXXX handler of its own.
+func TestParse_StateActionOnly(t *testing.T) {
+	app, err := parse(t, "state_action_only")
+	requireParseErrors(t, err /*none*/)
+	require.NotNil(t, app)
+
+	require.Len(t, app.Pages, 1)
+	pg := app.Pages[0]
+	require.NotNil(t, pg.State)
+	require.Equal(t, "StateIndex", pg.State.TypeName)
+	require.Nil(t, pg.StreamOpen)
+	require.Nil(t, pg.StreamClose)
+	require.Empty(t, pg.EventHandlers)
+}
+
+// TestParse_ErrStateAppActionUnbound covers an app-level action that takes a
+// state type no page binds. Such an action can never find a slot.
+func TestParse_ErrStateAppActionUnbound(t *testing.T) {
+	_, err := parse(t, "err_state_app_action_unbound")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrStateAppActionUnbound)
+}
+
+// TestParse_ErrSubjectStateIDWithoutState covers a stateless page handling a
+// SubjectStateID event, whether or not another page makes the app stateful.
+func TestParse_ErrSubjectStateIDWithoutState(t *testing.T) {
+	for name, fixture := range map[string]string{
+		"no app state":        "err_state_subject_id_without_state",
+		"state on other page": "err_state_subject_id_state_on_other_page",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := parse(t, fixture)
+			require.NotZero(t, err.Error())
+			requireParseErrors(t, err, parser.ErrSubjectStateIDWithoutState)
+		})
+	}
+}
+
+// TestParse_ErrSubjectStateIDPageMixed covers a page that handles a
+// SubjectStateID event next to a private or signal-scoped one.
+// A page holds one subscription list, and these kinds name their subjects differently.
+func TestParse_ErrSubjectStateIDPageMixed(t *testing.T) {
+	_, err := parse(t, "err_state_subject_id_mixed_page")
+	require.NotZero(t, err.Error())
+	requireParseErrors(t, err, parser.ErrSubjectStateIDPageMixed)
 }
 
 func fixtureDir(t *testing.T, name string) string {

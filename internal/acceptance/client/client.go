@@ -320,8 +320,8 @@ func (tb *Tab) Act(t *testing.T, method, path, body string) Response {
 }
 
 // Reopen connects a new stream under the same instance id, the way the client
-// does after its connection dropped.
-// Within the grace period the tab finds the state it had.
+// does after its connection dropped. The state the tab held is gone with the
+// stream that dropped: the new stream allocates a zeroed one.
 func (tb *Tab) Reopen(t *testing.T) {
 	t.Helper()
 	tb.Stream = tb.client.openStream(t, tb.stream, nil, tb.instanceID)

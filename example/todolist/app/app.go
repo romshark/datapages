@@ -1,16 +1,10 @@
 package app
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
 	"embed"
-	"encoding/base64"
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/romshark/datapages"
@@ -25,33 +19,37 @@ var StaticFS embed.FS
 // EventTodoUpdated is "todo.updated"
 type EventTodoUpdated struct{}
 
-// tabState holds per-tab server-side state managed via stream hooks.
-type tabState struct {
+// StateIndex is the per-tab state held by PageIndex.
+//
+// The datapages generator allocates one zeroed *StateIndex per SSE stream
+// (i.e. per browser tab) and drops it when that stream closes.
+// All stateful handlers touching the same instance are serialized by
+// the generator under a per-instance mutex.
+type StateIndex struct {
 	list.ViewParameters
-	ItemID string // todo ID being viewed; only set for PageItem streams
+}
+
+// StateItem is the per-tab state held by PageItem. It tracks which
+// todo the current tab is viewing so the OnTodoUpdated handler can
+// re-render only the affected item.
+type StateItem struct {
+	ItemID string
 }
 
 type App struct {
-	hmacKey [32]byte
-
-	list               *list.List
-	lockTabs           sync.RWMutex
-	streamIDToTabState map[datapages.StreamID]*tabState
+	list *list.List
 }
 
-func NewApp(hmacKey [32]byte, list *list.List) *App {
-	return &App{
-		hmacKey:            hmacKey,
-		list:               list,
-		streamIDToTabState: make(map[datapages.StreamID]*tabState),
-	}
+func NewApp(l *list.List) *App {
+	return &App{list: l}
 }
 
 func (*App) Head(r *http.Request) datapages.Head { return head() }
 
 // PUTEdit is /{id}
 //
-// This action is shared across all pages.
+// This action is shared across pages. It does not take state because
+// editing a todo mutates global list state, not per-tab state.
 func (a *App) PUTEdit(
 	r *http.Request,
 	path datapages.Path[struct {
@@ -61,7 +59,6 @@ func (a *App) PUTEdit(
 		Toggle bool `query:"toggle"`
 	}],
 	signals datapages.Signals[struct {
-		TabID       string `json:"tab_id"`
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Done        bool   `json:"done"`
@@ -69,9 +66,6 @@ func (a *App) PUTEdit(
 	}],
 	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) error {
-	if _, err := a.verifyTabID(signals.Values.TabID); err != nil {
-		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
-	}
 	if query.Values.Toggle {
 		if !a.list.ToggleItem(path.Values.ID) {
 			return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
@@ -97,63 +91,4 @@ func (a *App) PUTEdit(
 		return fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 	}
 	return todoUpdated.Dispatch(EventTodoUpdated{})
-}
-
-// signStreamID produces an HMAC-signed tab identifier from a streamID.
-func (a *App) signStreamID(streamID datapages.StreamID) string {
-	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], uint64(streamID))
-	mac := hmac.New(sha256.New, a.hmacKey[:])
-	mac.Write(buf[:])
-	return base64.RawURLEncoding.EncodeToString(buf[:]) +
-		"~" + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-}
-
-var errInvalidTabID = errors.New("invalid tab ID")
-
-// verifyTabID verifies the HMAC signature and extracts the streamID.
-func (a *App) verifyTabID(tabID string) (datapages.StreamID, error) {
-	parts := strings.SplitN(tabID, "~", 2)
-	if len(parts) != 2 {
-		return 0, errInvalidTabID
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil || len(raw) != 8 {
-		return 0, errInvalidTabID
-	}
-	sig, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return 0, errInvalidTabID
-	}
-	mac := hmac.New(sha256.New, a.hmacKey[:])
-	mac.Write(raw)
-	if !hmac.Equal(mac.Sum(nil), sig) {
-		return 0, errInvalidTabID
-	}
-	return datapages.StreamID(binary.BigEndian.Uint64(raw)), nil
-}
-
-func (a *App) streamState(streamID datapages.StreamID) *tabState {
-	a.lockTabs.RLock()
-	defer a.lockTabs.RUnlock()
-	ts := a.streamIDToTabState[streamID]
-	if ts == nil {
-		return nil
-	}
-	cp := *ts
-	return &cp
-}
-
-// dropTabState forgets the state of one stream. StreamOpen calls it on its own
-// error path: a StreamOpen that fails gets no StreamClose.
-func (a *App) dropTabState(streamID datapages.StreamID) {
-	a.lockTabs.Lock()
-	defer a.lockTabs.Unlock()
-	delete(a.streamIDToTabState, streamID)
-}
-
-func (a *App) patchTabID(streamID datapages.StreamID, sse datapages.SSE) error {
-	return sse.PatchSignals(struct {
-		TabID string `json:"tab_id"`
-	}{TabID: a.signStreamID(streamID)})
 }

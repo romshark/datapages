@@ -361,7 +361,10 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventStreamGone JSON", err)
 						continue
 					}
-					if err := p.OnStreamGone(eventStreamGone, dpsse.New(sse)); err != nil {
+					if err := p.OnStreamGone(
+						eventStreamGone,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnStreamGone", err)
 					}
 				case EvSubjPong:
@@ -370,7 +373,10 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventPong JSON", err)
 						continue
 					}
-					if err := p.OnPong(eventPong, dpsse.New(sse)); err != nil {
+					if err := p.OnPong(
+						eventPong,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnPong", err)
 					}
 				case EvSubjTick:
@@ -379,7 +385,11 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventTick JSON", err)
 						continue
 					}
-					if err := p.OnTick(eventTick, dpsse.New(sse), streamID); err != nil {
+					if err := p.OnTick(
+						eventTick,
+						dpsse.New(sse),
+						streamID,
+					); err != nil {
 						s.LogErr("handling PageIndex.OnTick", err)
 					}
 				case EvSubjNote:
@@ -388,7 +398,10 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventNote JSON", err)
 						continue
 					}
-					if err := p.OnNote(eventNote, dpsse.New(sse)); err != nil {
+					if err := p.OnNote(
+						eventNote,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnNote", err)
 					}
 				}
@@ -626,7 +639,10 @@ func (s pageOtherHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventTick JSON", err)
 						continue
 					}
-					if err := p.OnTick(eventTick, dpsse.New(sse)); err != nil {
+					if err := p.OnTick(
+						eventTick,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageOther.OnTick", err)
 					}
 				}
@@ -698,7 +714,10 @@ func (s pagePanicOnCloseHandlers) GETStream(w http.ResponseWriter, r *http.Reque
 						s.LogErr("unmarshaling EventTick JSON", err)
 						continue
 					}
-					if err := p.OnTick(eventTick, dpsse.New(sse)); err != nil {
+					if err := p.OnTick(
+						eventTick,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PagePanicOnClose.OnTick", err)
 					}
 				}
@@ -775,7 +794,10 @@ func (s pageRoomHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventRoomSaid JSON", err)
 						continue
 					}
-					if err := p.OnRoomSaid(eventRoomSaid, dpsse.New(sse)); err != nil {
+					if err := p.OnRoomSaid(
+						eventRoomSaid,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageRoom.OnRoomSaid", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixRoomBroadcast):
@@ -784,7 +806,10 @@ func (s pageRoomHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventRoomBroadcast JSON", err)
 						continue
 					}
-					if err := p.OnRoomBroadcast(eventRoomBroadcast, dpsse.New(sse)); err != nil {
+					if err := p.OnRoomBroadcast(
+						eventRoomBroadcast,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageRoom.OnRoomBroadcast", err)
 					}
 				}

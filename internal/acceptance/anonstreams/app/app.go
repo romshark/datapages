@@ -1,8 +1,10 @@
-// Package app exercises the stream a page serves to a visitor with no session.
+// Package app exercises the stream a page serves to a visitor with no session:
+// one page that scopes its events by a signal, and one that holds per-tab state.
 //
 // A page whose events are partly private serves two streams. The one for
 // signed-in visitors carries both kinds; the anonymous one carries what is public,
-// and has to subscribe by the same signal values as the other.
+// and has to subscribe by the same signal values and
+// hold the same per-tab state as the other.
 package app
 
 import (
@@ -156,43 +158,56 @@ func (p PageRooms) POSTDM(
 	})
 }
 
-// PageFeed is /feed
-//
-// One private event and one public, and no subject bound to a signal,
-// so its stream connects with nothing to supply.
-type PageFeed struct{ App *App }
+// StateTab is the per-tab state of PageTabs.
+type StateTab struct{ Count int }
 
-func (PageFeed) GET(_ *http.Request) (body datapages.Component, err error) {
-	return templ.Raw(`<div id="feed">feed</div>`), nil
+// PageTabs is /tabs
+//
+// Stateful, and with one private and one public event,
+// so an anonymous visitor holds per-tab state on a stream of its own.
+type PageTabs struct{ App *App }
+
+func (PageTabs) GET(_ *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<div id="count">count 0</div>`), nil
 }
 
-func (p PageFeed) OnTicked(
+func (PageTabs) StreamOpen(
+	_ *http.Request, streamID datapages.StreamID, state datapages.State[StateTab],
+) error {
+	return nil
+}
+
+func (p PageTabs) OnTicked(
 	event EventTicked,
 	sse datapages.SSE,
+	state datapages.State[StateTab],
 ) error {
 	return sse.PatchElement(templ.Raw(fmt.Sprintf(
-		`<div id="feed">tick %d</div>`, event.N,
+		`<div id="count">count %d</div>`, state.Values.Count,
 	)))
 }
 
-func (p PageFeed) OnNoticed(
+func (p PageTabs) OnNoticed(
 	event EventNoticed,
 	sse datapages.SSE,
+	state datapages.State[StateTab],
 ) error {
 	return sse.PatchElement(templ.Raw(fmt.Sprintf(
-		`<div id="feed">notice: %s</div>`, templ.EscapeString(event.Text),
+		`<div id="count">notice %s</div>`, templ.EscapeString(event.Text),
 	)))
 }
 
-// POSTTick is /feed/tick
-func (p PageFeed) POSTTick(
+// POSTBump is /tabs/bump
+//
+// Writes the calling tab's state and dispatches the public event,
+// which makes every tab render its own count.
+func (p PageTabs) POSTBump(
 	_ *http.Request,
-	signals datapages.Signals[struct {
-		N int `json:"n"`
-	}],
+	state datapages.State[StateTab],
 	ticked datapages.Dispatcher[EventTicked],
 ) error {
-	return ticked.Dispatch(EventTicked{N: signals.Values.N})
+	state.Values.Count++
+	return ticked.Dispatch(EventTicked{N: state.Values.Count})
 }
 
 // PagePost is /post/{slug}

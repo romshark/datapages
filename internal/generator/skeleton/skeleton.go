@@ -186,8 +186,8 @@ type mainGoData struct {
 }
 
 // MainGo renders the cmd/server/main.go template with the given import paths
-// and returns formatted Go source. appPkgName is the name the app package
-// declares, which need not match the last element of its import path.
+// and returns formatted Go source. appPkgName is the name the app package declares,
+// which need not match the last element of its import path.
 //
 // sessionData is the rendered session Data type,
 // empty for an application without sessions. extraImports are the packages it

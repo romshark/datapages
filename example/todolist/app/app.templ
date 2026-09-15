@@ -35,7 +35,6 @@ templ pageIndex(todos []list.Item, search, filter, sortMode string) {
 	<div
 		id="page-index"
 		class="container"
-		data-signals:tab_id="''"
 		data-signals:search={ jsStr(search) }
 		data-signals:filter={ jsStr(filter) }
 		data-signals:sort={ jsStr(sortMode) }
@@ -143,7 +142,6 @@ templ pageItem(todo list.Item) {
 	<div
 		id="page-item"
 		class="container"
-		data-signals:tab_id="''"
 		data-signals:itemId={ jsStr(todo.ID) }
 		data-signals:title={ jsStr(todo.Title) }
 		data-signals:description={ jsStr(todo.Description) }
