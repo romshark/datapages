@@ -505,6 +505,10 @@ func (s *Server) httpErrIntern(
 type appHandlers struct{ *Server }
 
 func (s appHandlers) POSTBump(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
 	instanceID := r.Header.Get(stateInstanceIDHeader)
 	if !s.verifyStateInstanceID(instanceID) {
 		w.Header().Set(stateRetryHeader, stateRetryReconnect)

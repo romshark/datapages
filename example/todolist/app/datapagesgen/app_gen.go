@@ -1069,6 +1069,9 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageItemHandlers) DELETEItem(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 
 	var path datapages.Path[struct {
 		ID string `path:"id"`

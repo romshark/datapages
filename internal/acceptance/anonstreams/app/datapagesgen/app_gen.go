@@ -1331,6 +1331,9 @@ func (s pageTabsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 func (s pageTabsHandlers) POSTBump(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	instanceID := r.Header.Get(stateInstanceIDHeader)
 	if !s.verifyStateInstanceID(instanceID) {
 		w.Header().Set(stateRetryHeader, stateRetryReconnect)
