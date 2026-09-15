@@ -2277,6 +2277,21 @@ func TestParse_ErrStateAppActionUnbound(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrStateAppActionUnbound)
 }
 
+// TestParse_ErrSubjectStateIDWithoutState covers a stateless page handling a
+// SubjectStateID event, whether or not another page makes the app stateful.
+func TestParse_ErrSubjectStateIDWithoutState(t *testing.T) {
+	for name, fixture := range map[string]string{
+		"no app state":        "err_state_subject_id_without_state",
+		"state on other page": "err_state_subject_id_state_on_other_page",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := parse(t, fixture)
+			require.NotZero(t, err.Error())
+			requireParseErrors(t, err, parser.ErrSubjectStateIDWithoutState)
+		})
+	}
+}
+
 // TestParse_ErrSubjectStateIDPageMixed covers a page that handles a
 // SubjectStateID event next to a private or signal-scoped one.
 // A page holds one subscription list, and these kinds name their subjects differently.

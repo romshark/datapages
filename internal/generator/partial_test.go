@@ -82,6 +82,33 @@ func TestGeneratePartialModels(t *testing.T) {
 	require.NotZero(t, found, "no err_ fixtures")
 }
 
+// TestGenerateRejectsStateIDEventOnStatelessPage tests the writer invariant
+// behind the parser rule: the generated stream needs a state ID variable that
+// only a stateful page declares.
+func TestGenerateRejectsStateIDEventOnStatelessPage(t *testing.T) {
+	t.Parallel()
+
+	m := &model.App{
+		Pages: []*model.Page{{
+			TypeName: "PageIndex",
+			EventHandlers: []*model.EventHandler{{
+				Name: "FiltersUpdated", EventTypeName: "EventFiltersUpdated",
+			}},
+		}},
+		Events: []*model.Event{{
+			TypeName: "EventFiltersUpdated",
+			SubjectFields: []model.SubjectField{{
+				Kind: model.SubjectKindStateID,
+			}},
+		}},
+	}
+	dst := t.TempDir()
+	err := generator.Generate(dst, "datapagesgen", m, 0o644,
+		generator.Options{GenImport: "datapagestest/x/datapagesgen"})
+	require.ErrorContains(t, err, "handles a state-id-scoped event")
+	requireEmptyDir(t, dst)
+}
+
 // generateRecovering runs the generator and
 // reports whether it panicked instead of returning.
 func generateRecovering(

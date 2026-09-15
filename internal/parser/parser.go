@@ -1626,7 +1626,7 @@ func finalizePages(ctx *parseCtx) {
 
 // finalizeStates binds each page and each abstract page to its single state type.
 // Handler-driven registration populates ctx.app.States on demand in parseStateParam;
-// this pass only resolves the per-page binding and flags multi-state conflicts.
+// this pass resolves the final bindings and flags multi-state conflicts.
 func finalizeStates(ctx *parseCtx, errs *Errors) {
 	if len(ctx.app.States) == 0 {
 		return
@@ -1643,11 +1643,6 @@ func finalizeStates(ctx *parseCtx, errs *Errors) {
 			ap.State = ctx.app.States[n]
 		}
 	}
-	// Built once: every page below looks its handlers' events up in it.
-	eventByName := make(map[string]*model.Event, len(ctx.app.Events))
-	for _, e := range ctx.app.Events {
-		eventByName[e.TypeName] = e
-	}
 	for _, pg := range ctx.pages {
 		names := collectPageStateNames(pg)
 		if len(names) > 1 {
@@ -1658,26 +1653,14 @@ func finalizeStates(ctx *parseCtx, errs *Errors) {
 		for n := range names {
 			pg.State = ctx.app.States[n]
 		}
-		// A page handling a state-id-scoped event needs state itself
-		// (the runtime reads the validated instance-id header,
-		// which is only available on stateful pages).
-		if pg.State == nil {
-			for _, eh := range pg.EventHandlers {
-				if e, ok := eventByName[eh.EventTypeName]; ok && e.IsStateIDScoped() {
-					pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
-					errs.ErrAt(pos, fmt.Errorf("%w: %s.%s",
-						ErrSubjectStateIDWithoutState, pg.TypeName, eh.Name))
-				}
-			}
-		}
 	}
 	checkAppActionStates(ctx, errs)
 }
 
-// checkPageSubjectKinds rejects a page that handles a SubjectStateID event
-// next to a private or signal-scoped one. A page subscribes once,
-// with one list of subjects. A subject that ends in a tab id cannot share
-// that list with one that ends in a user id or a signal value.
+// checkPageSubjectKinds rejects a SubjectStateID event on a stateless page or
+// next to a private or signal-scoped event. A page subscribes once, with one
+// list of subjects. A subject that ends in a tab id cannot share that list with
+// one that ends in a user id or a signal value.
 func checkPageSubjectKinds(ctx *parseCtx, errs *Errors) {
 	eventByName := make(map[string]*model.Event, len(ctx.app.Events))
 	for _, e := range ctx.app.Events {
@@ -1702,7 +1685,18 @@ func checkPageSubjectKinds(ctx *parseCtx, errs *Errors) {
 				}
 			}
 		}
-		if byStateID == nil || byOther == nil {
+		if byStateID == nil {
+			continue
+		}
+		// A state-id-scoped subscription reads the verified instance header,
+		// which only a stateful page receives. A state parameter that failed to
+		// bind already has its own error, so do not add this one to it.
+		if pg.State == nil && len(collectPageStateNames(pg)) == 0 {
+			errs.ErrAt(ctx.pkg.Fset.Position(pg.Expr.Pos()),
+				fmt.Errorf("%w: %s.%s",
+					ErrSubjectStateIDWithoutState, pg.TypeName, byStateID.Name))
+		}
+		if byOther == nil {
 			continue
 		}
 		errs.ErrAt(ctx.pkg.Fset.Position(pg.Expr.Pos()),

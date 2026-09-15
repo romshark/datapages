@@ -16,6 +16,12 @@ import (
 // The writers used to dereference the missing type and panic.
 // An error reports the same thing without a stack trace and without writing files.
 func validateModel(m *model.App) error {
+	eventByName := make(map[string]*model.Event, len(m.Events))
+	for _, e := range m.Events {
+		if e != nil {
+			eventByName[e.TypeName] = e
+		}
+	}
 	for _, p := range m.Pages {
 		if p == nil {
 			return fmt.Errorf("model is incomplete: a page is missing")
@@ -26,6 +32,12 @@ func validateModel(m *model.App) error {
 		if h := statefulHandler(p); h != "" {
 			return fmt.Errorf(
 				"model is incomplete: %s.%s takes state, "+
+					"but %s has no state type", p.TypeName, h, p.TypeName,
+			)
+		}
+		if h := stateIDEventHandler(p, eventByName); h != "" {
+			return fmt.Errorf(
+				"model is incomplete: %s.%s handles a state-id-scoped event, "+
 					"but %s has no state type", p.TypeName, h, p.TypeName,
 			)
 		}
@@ -46,6 +58,23 @@ func validateModel(m *model.App) error {
 		}
 	}
 	return nil
+}
+
+// stateIDEventHandler returns the name of an event handler on p whose event
+// carries SubjectStateID, or "" when none does.
+func stateIDEventHandler(
+	p *model.Page, events map[string]*model.Event,
+) string {
+	for _, h := range p.EventHandlers {
+		if h == nil {
+			continue
+		}
+		e := events[h.EventTypeName]
+		if e != nil && e.IsStateIDScoped() {
+			return h.Name
+		}
+	}
+	return ""
 }
 
 // statefulHandler returns the name of a handler on p that takes state,
