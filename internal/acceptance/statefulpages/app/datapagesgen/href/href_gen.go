@@ -40,6 +40,9 @@ func External(url string) string {
 	return url
 }
 
+// PageCloseState references /closestate/{$}
+func PageCloseState() string { return "/closestate/" }
+
 // PageFailOpen references /failopen/{$}
 func PageFailOpen() string { return "/failopen/" }
 

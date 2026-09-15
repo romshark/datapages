@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,9 @@ const (
 	pathFailOpenStream   = "/failopen/_$/"
 	pathPanicClose       = "/panicclose/"
 	pathPanicCloseStream = "/panicclose/_$/"
+	pathCloseState       = "/closestate/"
+	pathCloseStateStream = "/closestate/_$/"
+	pathCloseStateMark   = "/closestate/mark/"
 )
 
 func newClient(t *testing.T) *client.Client {
@@ -66,6 +70,63 @@ func TestPerTabState(t *testing.T) {
 	require.True(t, b.Saw("deliveries:1 filter:from-b"),
 		"the second tab does not hold its own state")
 	require.True(t, a.Never("filter:from-b"), "one tab sees the state of another")
+}
+
+// TestSecondStreamUnderOneID covers a tab that opens a second stream before
+// the server has noticed its first one is gone, which is what a Datastar
+// reconnect does over a connection that dropped without closing.
+//
+// The second stream registers a slot of its own under the same id.
+// The first one is still on its way out and releases by the slot it allocated
+// rather than by the id, which is what keeps it from taking the live slot with it.
+// Releasing by id would leave the tab holding a page whose every action is
+// answered 409 while its stream is open.
+func TestSecondStreamUnderOneID(t *testing.T) {
+	c := newClient(t)
+
+	tab := c.OpenTab(t, "/", pathStream)
+	first := tab.Stream
+	tab.Reopen(t)
+	second := tab.Stream
+
+	first.Close()
+
+	require.True(t, client.WaitFor(func() bool {
+		return update(t, tab, "after-first-closed").Status == http.StatusOK
+	}, 2*time.Second), "the older stream closing took the newer stream's state")
+	require.True(t, second.Saw("filter:after-first-closed"),
+		"the surviving stream rendered nothing from the tab's state")
+
+	// The slot is the second stream's to release, and nothing else holds one.
+	second.Close()
+	require.True(t, client.WaitFor(func() bool {
+		return update(t, tab, "after-both-closed").Status == http.StatusConflict
+	}, 2*time.Second), "the state outlived every stream that named it")
+}
+
+// TestStreamCloseReadsTheFinalState covers the value a stateful StreamClose is
+// given: what the tab's last handler wrote, not the zero value its stream
+// started with.
+//
+// The hook takes no sse and runs once the tab is gone, which leaves the app
+// the only place it can report from.
+func TestStreamCloseReadsTheFinalState(t *testing.T) {
+	a := &app.App{}
+	key := sha256.Sum256([]byte("acceptance"))
+	c := client.New(t, mustNewServer(t, a, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithStateConfig(datapages.StateConfig{HMACKey: key[:]})))
+
+	tab := c.OpenTab(t, pathCloseState, pathCloseStateStream)
+	require.Equal(t, http.StatusOK,
+		tab.Act(t, http.MethodPost, pathCloseStateMark, `{"filter":"written"}`).Status,
+		"writing the state the close hook has to find")
+	require.Empty(t, a.Closed(), "the close hook ran while the stream was open")
+
+	tab.Close()
+
+	require.True(t, client.WaitFor(func() bool {
+		return slices.Contains(a.Closed(), "written")
+	}, 2*time.Second), "StreamClose read %q, not what the action wrote", a.Closed())
 }
 
 // TestActionWithoutInstance covers an action from a tab the server knows nothing about.

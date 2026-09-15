@@ -251,6 +251,8 @@ func MessageBrokerStreamSubjects() []string {
 	}
 }
 
+var evSubjPageCloseState = []string{}
+
 var evSubjPageFailOpen = []string{}
 
 func evSubjPageIndex(stateID string) []string {
@@ -463,6 +465,12 @@ func (s *Server) releaseStateFilters(id string, slot *stateSlotStateFilters) {
 func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
+		"GET /closestate/{$}",
+		pageCloseStateHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /closestate/_$/{$}",
+		pageCloseStateHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
 		"GET /failopen/{$}",
 		pageFailOpenHandlers{s}.GET)
 	s.Mux().HandleFunc(
@@ -480,6 +488,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /panicclose/_$/{$}",
 		pagePanicOnCloseHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
+		"POST /closestate/mark/{$}",
+		pageCloseStateHandlers{s}.POSTMark)
 	s.Mux().HandleFunc(
 		"POST /update/{$}",
 		pageIndexHandlers{s}.POSTUpdate)
@@ -499,6 +510,143 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	httpserve.WriteErrStatus(w, err)
+}
+
+type pageCloseStateHandlers struct{ *Server }
+
+func (s pageCloseStateHandlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	// Mint the per-instance identifier for this page load.
+	// The client echoes this value on action requests and on the SSE
+	// stream connect via the Datapages-Instance header.
+	instanceID, err := s.signStateInstanceID()
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "minting state instance", err)
+		return
+	}
+	w.Header().Set(stateInstanceIDHeader, instanceID)
+	// The page carries an identifier that stands for one tab's state.
+	// A cache that hands it to a second visitor hands over the state.
+	w.Header().Set("Cache-Control", "no-store")
+
+	p := dpapp.PageCloseState{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageCloseState.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageCloseState.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('/closestate/_$/',{retry:'error'})"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageCloseState", err)
+		return
+	}
+}
+
+func (s pageCloseStateHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !s.verifyStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot := s.allocateStateFilters(instanceID)
+	if slot == nil {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	defer s.releaseStateFilters(instanceID, slot)
+
+	p := dpapp.PageCloseState{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPageCloseState,
+		nil,
+		func(streamID datapages.StreamID) {
+			// Both of these run even when the hook below panics.
+			// Deferred calls unwind in reverse, which puts the release after the unlock,
+			// and the release takes this same mutex.
+			defer s.releaseStateFilters(instanceID, slot)
+			slot.mu.Lock()
+			defer slot.mu.Unlock()
+			if !slot.dead {
+				if err := p.StreamClose(r, streamID, datapages.State[dpapp.StateFilters]{Values: slot.state}); err != nil {
+					s.LogErr("handling PageCloseState.StreamClose", err)
+				}
+			}
+		},
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			for range ch {
+			}
+		})
+}
+
+func (s pageCloseStateHandlers) POSTMark(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !s.verifyStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot, ok := s.lookupStateFilters(instanceID)
+	if !ok {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
+	var signals datapages.Signals[struct {
+		Filter string `json:"filter"`
+	}]
+	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+		s.HTTPErrBad(w, "reading signals", err)
+		return
+	}
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	defer s.recoverPanic(w, r, nil, "PageCloseState.Mark")
+	p := dpapp.PageCloseState{
+		App: s.app,
+	}
+	err := p.POSTMark(r, datapages.State[dpapp.StateFilters]{Values: slot.state}, signals)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageCloseState.Mark", err)
+		return
+	}
 }
 
 type pageFailOpenHandlers struct{ *Server }

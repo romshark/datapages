@@ -168,6 +168,30 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
+var PageCloseState pageCloseState
+
+type pageCloseState struct {
+	Mark pageCloseState_Mark
+}
+
+type pageCloseState_Mark struct{}
+
+// POST references /closestate/mark/
+func (pageCloseState_Mark) POST(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/closestate/mark/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/closestate/mark/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/closestate/mark/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
 var PageIndex pageIndex
 
 type pageIndex struct {

@@ -7,13 +7,34 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
+	"sync"
 
 	"github.com/a-h/templ"
 
 	"github.com/romshark/datapages"
 )
 
-type App struct{}
+type App struct {
+	lockClosed sync.Mutex
+	closed     []string
+}
+
+// recordClosed keeps what a StreamClose read from the state it was given.
+// A close hook takes no sse and runs after its tab is gone,
+// which leaves the app the only place it can report from.
+func (a *App) recordClosed(filter string) {
+	a.lockClosed.Lock()
+	defer a.lockClosed.Unlock()
+	a.closed = append(a.closed, filter)
+}
+
+// Closed returns what every StreamClose so far read, in the order they ran.
+func (a *App) Closed() []string {
+	a.lockClosed.Lock()
+	defer a.lockClosed.Unlock()
+	return slices.Clone(a.closed)
+}
 
 // StateFilters is the per-tab state of PageIndex.
 type StateFilters struct {
@@ -104,6 +125,37 @@ func (p PageFailOpen) StreamOpen(
 	state datapages.State[StateFilters],
 ) error {
 	return ErrStreamOpen
+}
+
+// PageCloseState is /closestate
+//
+// Its StreamClose reads the state one last time. The value it finds there must
+// be the one the tab's last handler wrote, not the zero value its stream started with.
+type PageCloseState struct{ App *App }
+
+func (PageCloseState) GET(r *http.Request) (body datapages.Component, err error) {
+	return templ.Raw(`<div id="status">closestate</div>`), nil
+}
+
+// POSTMark is /closestate/mark
+func (PageCloseState) POSTMark(
+	r *http.Request,
+	state datapages.State[StateFilters],
+	signals datapages.Signals[struct {
+		Filter string `json:"filter"`
+	}],
+) error {
+	state.Values.Filter = signals.Values.Filter
+	return nil
+}
+
+func (p PageCloseState) StreamClose(
+	r *http.Request,
+	streamID datapages.StreamID,
+	state datapages.State[StateFilters],
+) error {
+	p.App.recordClosed(state.Values.Filter)
+	return nil
 }
 
 // ErrStreamClose is what PagePanicOnClose.StreamClose panics with.

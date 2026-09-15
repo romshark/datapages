@@ -44,7 +44,9 @@ func (PageIndex) StreamClose(
 
 // PageBoth is /both
 //
-// Both handles at once stay accepted.
+// Both handles at once stay accepted, next to the stateID that names this tab
+// in message broker subjects. The page handles no event scoped by that id,
+// which leaves the stream hook the only reason to derive one.
 type PageBoth struct{ App *App }
 
 func (PageBoth) GET(_ *http.Request) (body datapages.Component, err error) {
@@ -55,7 +57,8 @@ func (PageBoth) StreamOpen(
 	r *http.Request,
 	streamID datapages.StreamID,
 	state datapages.State[TabState],
+	stateID string,
 ) error {
-	_, _, _ = r, streamID, state
+	_, _, _, _ = r, streamID, state, stateID
 	return nil
 }
