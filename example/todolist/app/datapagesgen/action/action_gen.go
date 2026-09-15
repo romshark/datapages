@@ -190,7 +190,7 @@ func (app_Edit) PUT(
 	)
 
 	if query.Toggle {
-		toggleStr = strconv.FormatBool(query.Toggle)
+		toggleStr = url.QueryEscape(strconv.FormatBool(query.Toggle))
 	}
 
 	anyQuery := query.Toggle

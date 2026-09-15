@@ -304,6 +304,51 @@ func TestDatastarOnlyActions(t *testing.T) {
 	}
 }
 
+// TestCrossOriginFormAction tests the action that carries no Datastar check.
+// A plain form reaches it, hence so does a form on another site,
+// which the browser reports through Sec-Fetch-Site and Origin.
+func TestCrossOriginFormAction(t *testing.T) {
+	t.Parallel()
+	srv := newServer(t)
+
+	for name, tc := range map[string]struct {
+		headers    map[string]string
+		wantStatus int
+	}{
+		"cross site": {
+			headers:    map[string]string{"Sec-Fetch-Site": "cross-site"},
+			wantStatus: http.StatusForbidden,
+		},
+		"foreign origin": {
+			headers:    map[string]string{"Origin": "https://evil.example"},
+			wantStatus: http.StatusForbidden,
+		},
+		"same origin": {
+			headers:    map[string]string{"Sec-Fetch-Site": "same-origin"},
+			wantStatus: http.StatusSeeOther,
+		},
+		"no origin headers": {wantStatus: http.StatusSeeOther},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := *srv.Client()
+			client.CheckRedirect = func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			}
+			req, err := http.NewRequestWithContext(
+				context.Background(), http.MethodPost, srv.URL+"/form/go/", nil,
+			)
+			require.NoError(t, err, "building request")
+			for k, v := range tc.headers {
+				req.Header.Set(k, v)
+			}
+			resp, err := client.Do(req)
+			require.NoError(t, err, "POST /form/go/")
+			defer func() { _ = resp.Body.Close() }()
+			require.Equal(t, tc.wantStatus, resp.StatusCode)
+		})
+	}
+}
+
 // TestSSEOutput tests an action that writes on the connection of its own request.
 // The client sent one request and reads elements and signals back from it.
 func TestSSEOutput(t *testing.T) {

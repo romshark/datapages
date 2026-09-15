@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -549,7 +550,7 @@ func (s pagePathHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	{
 		v := r.PathValue("f")
 		f, err := strconv.ParseFloat(v, 64)
-		if err != nil {
+		if err != nil || math.IsInf(f, 0) || math.IsNaN(f) {
 			s.HTTPErrBad(w, "unexpected value for path parameter: f", err)
 			return
 		}
@@ -614,7 +615,7 @@ func (s pageQueryHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	{
 		if q := httpread.QueryValue(r.URL.RawQuery, "ratio"); q != "" {
 			f, err := strconv.ParseFloat(q, 32)
-			if err != nil {
+			if err != nil || math.IsInf(f, 0) || math.IsNaN(f) {
 				s.HTTPErrBad(w, "unexpected value for query parameter: ratio", err)
 				return
 			}
@@ -624,7 +625,7 @@ func (s pageQueryHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	{
 		if q := httpread.QueryValue(r.URL.RawQuery, "score"); q != "" {
 			f, err := strconv.ParseFloat(q, 64)
-			if err != nil {
+			if err != nil || math.IsInf(f, 0) || math.IsNaN(f) {
 				s.HTTPErrBad(w, "unexpected value for query parameter: score", err)
 				return
 			}

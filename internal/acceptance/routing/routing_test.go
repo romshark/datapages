@@ -3,6 +3,7 @@
 package acceptance_test
 
 import (
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -163,6 +164,21 @@ func TestUnparsableValues(t *testing.T) {
 		"query bool is a word":     "/q/?flag=yes-please",
 		"query uint32 is negative": "/q/?big=-1",
 		"reflected int is a word":  "/reflect/?p=many",
+
+		// strconv.ParseFloat accepts "Inf", "+Inf", "-Inf" and "NaN" in any case without
+		// an error. A non-finite value reaches no handler: encoding/json refuses it,
+		// which turns every event dispatch of the page into a 500.
+		"path float is Inf":           "/p/x/1/1/Inf/true/",
+		"path float is -Inf":          "/p/x/1/1/-Inf/true/",
+		"path float is lowercase":     "/p/x/1/1/inf/true/",
+		"path float is NaN":           "/p/x/1/1/NaN/true/",
+		"path float overflows":        "/p/x/1/1/1e400/true/",
+		"query float is Inf":          "/q/?score=Inf",
+		"query float is -Inf":         "/q/?score=-Inf",
+		"query float is NaN":          "/q/?score=NaN",
+		"query float32 is Inf":        "/q/?ratio=inf",
+		"query float32 is NaN":        "/q/?ratio=NaN",
+		"query float is escaped +Inf": "/q/?score=%2BInf",
 	}
 
 	for name, url := range tests {
@@ -170,6 +186,44 @@ func TestUnparsableValues(t *testing.T) {
 			resp := c.Get(t, url)
 			require.Equal(t, http.StatusBadRequest, resp.Status,
 				"GET %s\n%s", url, resp.Body)
+		})
+	}
+}
+
+// TestNonFiniteFloatHref tests the URL the builder writes for a float value
+// the handler refuses, which every non-finite one is.
+// strconv.FormatFloat writes +Inf as "+Inf", and query decoding reads a "+"
+// as a space: unescaped, the value reaches the handler as " Inf" and fails a
+// different check than the other spellings. A path segment keeps its "+".
+func TestNonFiniteFloatHref(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	for name, tt := range map[string]struct {
+		url  string
+		want string
+	}{
+		"query +Inf": {
+			url:  href.PageQuery(href.QueryPageQuery{Score: math.Inf(1)}),
+			want: "/q/?score=%2BInf",
+		},
+		"query -Inf": {
+			url:  href.PageQuery(href.QueryPageQuery{Score: math.Inf(-1)}),
+			want: "/q/?score=-Inf",
+		},
+		"query NaN": {
+			url:  href.PageQuery(href.QueryPageQuery{Score: math.NaN()}),
+			want: "/q/?score=NaN",
+		},
+		"path +Inf": {
+			url:  href.PagePath("x", 1, 1, math.Inf(1), true),
+			want: "/p/x/1/1/+Inf/true/",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tt.want, tt.url)
+			resp := c.Get(t, tt.url)
+			require.Equal(t, http.StatusBadRequest, resp.Status, resp.Body)
 		})
 	}
 }

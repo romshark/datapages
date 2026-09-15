@@ -453,6 +453,9 @@ func (s pageIndexHandlers) POSTTick(
 func (s pageIndexHandlers) POSTHold(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Hold")
 	p := dpapp.PageIndex{
 		App: s.app,
@@ -467,6 +470,9 @@ func (s pageIndexHandlers) POSTHold(
 func (s pageIndexHandlers) POSTRelease(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Release")
 	p := dpapp.PageIndex{
 		App: s.app,

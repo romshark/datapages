@@ -187,7 +187,7 @@ func PageMixed(
 		tabStr = url.QueryEscape(query.Tab)
 	}
 	if query.Page != 0 {
-		pageStr = strconv.FormatInt(int64(query.Page), 10)
+		pageStr = url.QueryEscape(strconv.FormatInt(int64(query.Page), 10))
 	}
 
 	anyQuery := query.Tab != "" ||
@@ -317,22 +317,22 @@ func PageQuery(query QueryPageQuery) string {
 		termStr = url.QueryEscape(query.Term)
 	}
 	if query.Limit != 0 {
-		limitStr = strconv.FormatInt(int64(query.Limit), 10)
+		limitStr = url.QueryEscape(strconv.FormatInt(int64(query.Limit), 10))
 	}
 	if query.Ratio != 0 {
-		ratioStr = strconv.FormatFloat(float64(query.Ratio), 'f', -1, 32)
+		ratioStr = url.QueryEscape(strconv.FormatFloat(float64(query.Ratio), 'f', -1, 32))
 	}
 	if query.Score != 0 {
-		scoreStr = strconv.FormatFloat(query.Score, 'f', -1, 64)
+		scoreStr = url.QueryEscape(strconv.FormatFloat(query.Score, 'f', -1, 64))
 	}
 	if query.Big != 0 {
-		bigStr = strconv.FormatUint(uint64(query.Big), 10)
+		bigStr = url.QueryEscape(strconv.FormatUint(uint64(query.Big), 10))
 	}
 	if query.Deep != 0 {
-		deepStr = strconv.FormatInt(query.Deep, 10)
+		deepStr = url.QueryEscape(strconv.FormatInt(query.Deep, 10))
 	}
 	if query.Flag {
-		flagStr = strconv.FormatBool(query.Flag)
+		flagStr = url.QueryEscape(strconv.FormatBool(query.Flag))
 	}
 
 	anyQuery := query.Term != "" ||
@@ -496,7 +496,7 @@ func PageReflect(query QueryPageReflect) string {
 		termStr = url.QueryEscape(query.Term)
 	}
 	if query.Page != 0 {
-		pageStr = strconv.FormatInt(int64(query.Page), 10)
+		pageStr = url.QueryEscape(strconv.FormatInt(int64(query.Page), 10))
 	}
 	if query.Slug != nil {
 		slugStr = url.QueryEscape(textOf(query.Slug))

@@ -29,11 +29,11 @@ func TestIsDatastarRequest(t *testing.T) {
 	} {
 		t.Run(header, func(t *testing.T) {
 			t.Parallel()
-			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			h := http.Header{}
 			if header != "" {
-				r.Header.Set("Datastar-Request", header)
+				h.Set("Datastar-Request", header)
 			}
-			require.Equal(t, want, httpserve.IsDatastarRequest(r))
+			require.Equal(t, want, httpserve.IsDatastarRequest(h))
 		})
 	}
 }

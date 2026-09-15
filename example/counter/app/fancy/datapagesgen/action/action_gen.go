@@ -5,6 +5,7 @@
 package action
 
 import (
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -188,7 +189,7 @@ func (pageIndex_Add) POST(
 	)
 
 	if query.Delta != 0 {
-		deltaStr = strconv.FormatInt(int64(query.Delta), 10)
+		deltaStr = url.QueryEscape(strconv.FormatInt(int64(query.Delta), 10))
 	}
 
 	anyQuery := query.Delta != 0

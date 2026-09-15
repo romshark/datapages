@@ -5,6 +5,7 @@
 package action
 
 import (
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -244,7 +245,7 @@ func (pageForm_Bump) POST(
 	)
 
 	if query.By != 0 {
-		byStr = strconv.FormatInt(int64(query.By), 10)
+		byStr = url.QueryEscape(strconv.FormatInt(int64(query.By), 10))
 	}
 
 	anyQuery := query.By != 0

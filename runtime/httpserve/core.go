@@ -67,6 +67,7 @@ type Core struct {
 	outermost       func(http.Handler) http.Handler
 	assetsFS        http.FileSystem
 	assetsBrowsable bool
+	crossOrigin     *http.CrossOriginProtection
 	datastarJSSrc   string
 	htmlPrefix      string
 	bodySizeLimit   int64
@@ -90,6 +91,7 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		outermost:       cfg.OutermostMiddleware,
 		assetsFS:        cfg.AssetsFS,
 		assetsBrowsable: cfg.AssetsBrowsable,
+		crossOrigin:     http.NewCrossOriginProtection(),
 		datastarJSSrc:   cfg.DatastarJS,
 		logger:          cfg.Logger,
 		httpServer:      cfg.HTTPServer,
@@ -193,6 +195,10 @@ func (c *Core) Build() {
 }
 
 // Mux is the router the routes are registered on.
+//
+// Handlers registered directly on it pass through the configured middleware.
+// They don't receive the Datastar, session, CSRF, or origin checks emitted into
+// generated handlers. The caller must apply the checks each handler needs.
 func (c *Core) Mux() *http.ServeMux { return c.mux }
 
 // Logger is the logger the server writes to.
@@ -219,13 +225,40 @@ func (c *Core) HTTPErrBad(w http.ResponseWriter, msg string, err error) {
 // It answers r with 406 when it was not, in which case the handler must
 // write nothing more.
 func (c *Core) CheckDatastarRequest(w http.ResponseWriter, r *http.Request) (ok bool) {
-	if !IsDatastarRequest(r) {
+	if !IsDatastarRequest(r.Header) {
 		c.logger.Debug("not a datastar request",
 			slog.Any("method", r.Method),
 			slog.String("path", r.URL.Path))
 		http.Error(w,
 			http.StatusText(http.StatusNotAcceptable),
 			http.StatusNotAcceptable)
+		return false
+	}
+	return true
+}
+
+// CheckSameOrigin reports whether r may proceed. A request passes when:
+//
+//   - it uses a safe method,
+//   - it is same-origin, or
+//   - it carries neither Sec-Fetch-Site nor Origin,
+//     which keeps non-browser clients working.
+//
+// Anything else gets a 403 and the handler must write nothing more.
+//
+// It stands in for [Core.CheckDatastarRequest] on the actions that don't call it.
+// Those take no signals and no SSE, which makes them reachable by a plain HTML form,
+// and a page on another site can host that form too. [http.CrossOriginProtection] reads
+// Sec-Fetch-Site and falls back to Origin against Host.
+func (c *Core) CheckSameOrigin(w http.ResponseWriter, r *http.Request) (ok bool) {
+	if err := c.crossOrigin.Check(r); err != nil {
+		c.logger.Debug("cross-origin request",
+			slog.Any("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Any("err", err))
+		http.Error(w,
+			http.StatusText(http.StatusForbidden),
+			http.StatusForbidden)
 		return false
 	}
 	return true

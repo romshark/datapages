@@ -11,9 +11,9 @@ import (
 	"github.com/romshark/datapages"
 )
 
-// IsDatastarRequest reports whether r was issued by the Datastar client.
-func IsDatastarRequest(r *http.Request) bool {
-	return r.Header.Get("Datastar-Request") == "true"
+// IsDatastarRequest reports whether h carries the header the Datastar client sends.
+func IsDatastarRequest(h http.Header) bool {
+	return h.Get("Datastar-Request") == "true"
 }
 
 // Redirect writes the redirect to w and reports whether it wrote one.
@@ -26,7 +26,7 @@ func Redirect(
 		return false
 	}
 
-	if IsDatastarRequest(r) {
+	if IsDatastarRequest(r.Header) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		_, _ = fmt.Fprintf(w, "window.location = %q;", redirect.URL)
 		return true

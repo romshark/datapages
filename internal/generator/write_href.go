@@ -856,7 +856,12 @@ func (w *Writer) writeQueryPreConvert(lo hrefLocals, fields []structFieldInfo) {
 		case !isFormattedType(f.Type):
 			w.Rawf("url.QueryEscape(%s.%s)", lo.query, f.Name)
 		default:
+			// A formatted number or bool still needs escaping: query decoding
+			// reads the "+" of strconv.FormatFloat's "+Inf" as a space.
+			// QueryEscape returns everything else unchanged.
+			w.Raw("url.QueryEscape(")
 			w.writeFormatExpr(lo.query+"."+f.Name, f.Type)
+			w.Byte(')')
 		}
 		w.Byte('\n')
 		w.Line(1, "}")
