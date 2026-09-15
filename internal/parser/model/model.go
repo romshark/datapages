@@ -333,10 +333,9 @@ func (e *Event) HasSubjectUser() bool {
 }
 
 // HasSubjectStateID reports whether the event has a datapages.SubjectStateID
-// subject field. Like SubjectUser, SubjectStateID is resolved on the server
-// side at stream connect from the HMAC-validated Datapages-Instance header
-// of the connecting tab. Only the tab whose state-id matches the dispatched
-// value receives the event.
+// subject field. At stream connect, the server derives SubjectStateID by
+// hashing the connecting tab's Datapages-Instance header. Only the tab whose
+// state ID matches the dispatched value receives the event.
 func (e *Event) HasSubjectStateID() bool {
 	for _, sf := range e.SubjectFields {
 		if sf.Kind.IsStateID() {

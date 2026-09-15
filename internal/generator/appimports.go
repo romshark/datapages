@@ -28,7 +28,6 @@ import (
 var appFixedImports = map[string]string{
 	"bufio":                "bufio",
 	"context":              "context",
-	"crypto/hmac":          "hmac",
 	"crypto/rand":          "rand",
 	"crypto/sha256":        "sha256",
 	"encoding/base64":      "base64",

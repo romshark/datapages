@@ -76,9 +76,7 @@ type ServerConfig struct {
 	// Zero selects httpserve.DefaultBodySizeLimit.
 	BodySizeLimit int64
 
-	// State configures the per-page-instance state runtime.
-	// A nil value leaves it unconfigured, which an application whose handlers
-	// take datapages.State[T] is rejected for.
+	// State sets the per-tab state limit. Nil selects the default.
 	State *StateConfig
 
 	// sessionManager is what [WithSessionManager] carries.
@@ -455,29 +453,12 @@ func WithPrometheus(conf PrometheusConfig) ServerOption {
 	}
 }
 
-// StateHMACKeyMinLen is the shortest key [WithStateConfig] accepts,
-// the output size of the hash the key is used with.
-const StateHMACKeyMinLen = 32
-
 // DefaultMaxConcurrentInstances is the default value of
 // [StateConfig.MaxConcurrentInstances].
 const DefaultMaxConcurrentInstances = 10_000
 
-// StateConfig configures the per-tab state passed to handlers as [State].
-// A server with any handler that takes [State] requires [WithStateConfig].
+// StateConfig sets the live-instance limit for per-tab [State].
 type StateConfig struct {
-	// HMACKey signs each Datapages-Instance identifier. The signature lets the
-	// server reject an identifier it did not issue before looking up state.
-	//
-	// It must contain at least [StateHMACKeyMinLen] bytes. Use a dedicated random key.
-	// A weak value of the required length still passes validation.
-	// Sharing the key lets a compromise elsewhere sign valid instance identifiers.
-	//
-	// Changing the key invalidates the identifiers held by open pages.
-	// After a rejected request, the client reloads once and starts with empty state.
-	// Unsent input is lost.
-	HMACKey []byte
-
 	// MaxConcurrentInstances limits the live state instances held by this server
 	// across all state types. A stream allocates one instance before it opens and
 	// releases it when it closes. Each server keeps its own count.
@@ -494,7 +475,8 @@ type StateConfig struct {
 	MaxConcurrentInstances int
 }
 
-// WithStateConfig enables per-tab state for handlers that take [State].
+// WithStateConfig sets the concurrent instance limit for handlers that use [State].
+// A server built without it uses [DefaultMaxConcurrentInstances].
 //
 // State lives in one server process. In a multi-server deployment, the load balancer
 // must send a page instance's stream and action requests to the same server.
@@ -503,16 +485,6 @@ type StateConfig struct {
 // the instance and make the generated client reload the page.
 func WithStateConfig(conf StateConfig) ServerOption {
 	return func(c *ServerConfig) error {
-		// The bound is the output size of SHA-256, which is what RFC 2104
-		// asks of a key. It catches a short literal and nothing else:
-		// length is not entropy, and 32 bytes derived from one weak
-		// passphrase pass this check.
-		if len(conf.HMACKey) < StateHMACKeyMinLen {
-			return fmt.Errorf(
-				"WithStateConfig: HMACKey must be at least %d bytes, got %d",
-				StateHMACKeyMinLen, len(conf.HMACKey),
-			)
-		}
 		if conf.MaxConcurrentInstances == 0 {
 			conf.MaxConcurrentInstances = DefaultMaxConcurrentInstances
 		}

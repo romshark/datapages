@@ -731,62 +731,58 @@ func (p PageIndex) OnItemsChanged(
 **What the generator does for you**:
 
 - Allocates one zeroed state per tab, never reused by another tab.
-- Signs an instance identifier on `GET` and threads it through the browser
-  via a `Datapages-Instance` header. The id lives in a closure of the injected script,
-	which removes its own node: no cookie, no storage, no copy left in
-  the DOM for another reader on the same origin to lift.
-- Serializes every handler call on the same instance under a per-instance
-  mutex, so you never need to lock inside a handler.
+- Mints a 16-byte random instance id on `GET`. The injected script adds it to
+  later Datastar requests through the `Datapages-Instance` header, keeps it in
+  a closure, and removes its own DOM node. It does not write the id to cookies
+  or browser storage.
+- Serializes every handler call on the same instance under a per-instance mutex.
+  A handler needs no lock for the state fields it reads or writes.
 - Returns `409 Conflict` with `Datapages-Retry: reconnect` if an action
-  arrives before the SSE stream opens, or after the tab's state was
-  released. The client shim reloads the page once per document on such a
-  response, which reconnects the stream and mints a fresh instance. It does
-  not retry the action, so unsaved form input is lost.
+  arrives before the SSE stream opens, or after the tab's state was released.
+  The client shim reloads the page once per document on such a response.
+  The reload reconnects the stream and mints a fresh instance.
+  The action is not retried. Unsaved form input is lost.
 - Releases the state when the tab's stream closes, whether or not the page
-  declares `StreamClose`. An instance lives exactly as long as its stream,
-  so a transient network blip resets per-tab state. Keep in the state struct only
-  what a tab can afford to lose.
+  declares `StreamClose`. An instance lives exactly as long as its stream.
+  A transient network blip resets per-tab state.
+  Keep in the state struct only what a tab can afford to lose.
 
 With the default `GET` return values, hiding a tab closes its stream and releases
 its state. Showing the tab again reloads the page and creates a fresh instance.
-Keep state reconstructible from the URL or signals that `StreamOpen`
-reads. If state must survive while the tab is hidden, return `enableBackgroundStreaming=true`; this keeps the stream open and disables the
-visibility reload. Returning only `disableRefreshAfterHidden=true` stops the
-reload but does not keep the stream or its state alive while the tab is hidden.
+Keep state reconstructible from the URL or signals that `StreamOpen` reads.
+If state must survive while the tab is hidden, return `enableBackgroundStreaming=true`.
+This keeps the stream open and disables the visibility reload.
+Returning only `disableRefreshAfterHidden=true` stops the reload but
+does not keep the stream or its state alive while the tab is hidden.
 
-**Server configuration**. Stateful apps must opt in via
-`datapages.WithStateConfig`:
+**Server configuration**. Without `datapages.WithStateConfig`, the server
+allows `datapages.DefaultMaxConcurrentInstances` live instances.
+Set a different limit with:
 
 ```go
-hmacKey := sha256.Sum256([]byte(hmacSecret))
 opts = append(opts, datapages.WithStateConfig(datapages.StateConfig{
-    HMACKey:                hmacKey[:],
-    MaxConcurrentInstances: 10_000, // optional, 0 takes the default
+    MaxConcurrentInstances: 10_000, // 0 takes the default
 }))
 ```
 
-`NewServer` returns an error without this option. `MaxConcurrentInstances` caps how
-many instances the server holds at the same time. A stream connect past the cap
-gets `503`. The generated stream init carries `{retry:'error'}`, which is what
-makes Datastar retry it: the default policy covers network errors only.
-The retries follow Datastar's backoff and stop after 10 attempts, about three minutes.
+A stream connect past the cap gets `503`. The generated stream init carries
+`{retry:'error'}` to make Datastar retry it. The default policy covers network
+errors only. Datastar stops after 10 attempts over about three minutes.
 Zero selects `DefaultMaxConcurrentInstances` and a negative value removes the cap.
-Each server counts and caps its own instances, so two servers in one process
-share neither the budget nor the state behind it.
+Each server has its own instance count and cap. Servers in one process share
+neither the limit nor the state behind it.
 Nothing in the app is notified when the cap is reached. Watch the live count instead:
 `datapages_state_instances` on a server built with Prometheus,
 and `Server.StateLiveInstances()` on any.
 
-`datapages gen` writes this option into `cmd/server/main.go` when it creates
-the entry point, reading the key from `STATE_HMAC_KEY` as hex. An entry point
-that already exists is left alone: a project that becomes stateful later adds
-the option by hand.
-
-**Multi-server deployments**. State lives in process memory, so the load
-balancer must route each client consistently to the same backend (cookie
-hashing or hashing on the `Datapages-Instance` header). Round-robin load
-balancing is incompatible — every other request will hit a server without the
-state and get rejected with `409`.
+**Multi-server deployments**. State lives in process memory. The load balancer
+must send the stream and the actions of one tab to the same backend.
+Hashing on the `Datapages-Instance` header does that for every tab, signed in or not.
+The page `GET` carries no id and may land on any server.
+The stream connect carries the id and lands on the server selected by its hash.
+That server allocates the state. Hashing on a session or affinity cookie also works.
+Round-robin load balancing is incompatible: an action may reach a server
+without the state and receive `409`.
 
 ## Step 11: Share Handlers Across Pages
 

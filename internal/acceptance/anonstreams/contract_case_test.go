@@ -1,12 +1,11 @@
 // Wires the anonstreams case into the shared contract suite.
 //
-// The app declares a stateful page and a Session type. NewServer therefore
-// needs a state config and a CSRF token manager, and fails without either.
+// The app declares a Session type.
+// NewServer needs a CSRF token manager and returns an error without one.
 
 package acceptance_test
 
 import (
-	"crypto/sha256"
 	"testing"
 
 	"github.com/romshark/datapages"
@@ -27,14 +26,9 @@ func TestContract(t *testing.T) {
 	contract.Run(t, contract.Case{
 		NewServer: func(t *testing.T, opts ...any) contract.Server {
 			t.Helper()
-			stateKey := sha256.Sum256([]byte("acceptance-state"))
 			sessions := sessinmem.New[struct{}](
 				sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 			)
-			opts = append(opts,
-				datapages.WithStateConfig(datapages.StateConfig{
-					HMACKey: stateKey[:],
-				}))
 			return mustNewServer(t, &app.App{},
 				inmem.New(messaging.DefaultBrokerChanBuffer), sessions,
 				contract.Options[datapages.ServerOption](opts)...)

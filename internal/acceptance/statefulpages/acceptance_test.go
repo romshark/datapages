@@ -4,7 +4,6 @@ package acceptance_test
 
 import (
 	"context"
-	"crypto/sha256"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,7 +17,6 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/statefulpages/app"
-	"github.com/romshark/datapages/internal/acceptance/statefulpages/app/datapagesgen"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
@@ -37,9 +35,8 @@ const (
 
 func newClient(t *testing.T) *client.Client {
 	t.Helper()
-	key := sha256.Sum256([]byte("acceptance"))
-	return client.New(t, mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithStateConfig(datapages.StateConfig{HMACKey: key[:]})))
+	return client.New(t, mustNewServer(t, &app.App{},
+		inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
 // update sends the action that writes a tab's state.
@@ -112,9 +109,7 @@ func TestSecondStreamUnderOneID(t *testing.T) {
 // the only place it can report from.
 func TestStreamCloseReadsTheFinalState(t *testing.T) {
 	a := &app.App{}
-	key := sha256.Sum256([]byte("acceptance"))
-	c := client.New(t, mustNewServer(t, a, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithStateConfig(datapages.StateConfig{HMACKey: key[:]})))
+	c := client.New(t, mustNewServer(t, a, inmem.New(messaging.DefaultBrokerChanBuffer)))
 
 	tab := c.OpenTab(t, pathCloseState, pathCloseStateStream)
 	require.Equal(t, http.StatusOK,
@@ -222,54 +217,65 @@ func TestSlowRequestDoesNotStallTab(t *testing.T) {
 	require.True(t, tab.Saw("filter:slow"), "the slow action left no patch behind")
 }
 
-// TestShortHMACKey covers a key too short for the hash it is used with.
-// A key is refused where it is given,
-// rather than weakening every id the server goes on to sign with it.
-func TestShortHMACKey(t *testing.T) {
-	_, err := datapages.NewServer[
-		app.App,
-		datapages.DisableSessions,
-		datapages.DisablePrometheus,
-		datapagesgen.Server,
-	](&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithStateConfig(datapages.StateConfig{
-			HMACKey: []byte("too short to sign with"),
-		}))
-	require.Error(t, err, "a 22 byte HMACKey was accepted")
-	require.Contains(t, err.Error(), "HMACKey",
-		"the refusal does not name what is wrong")
-}
-
-// TestMissingStateConfig covers a stateful app built without WithStateConfig.
-// The state runtime has no key to sign an instance id with,
-// which the server says at construction rather than on the first page load.
-func TestMissingStateConfig(t *testing.T) {
-	_, err := datapages.NewServer[
-		app.App,
-		datapages.DisableSessions,
-		datapages.DisablePrometheus,
-		datapagesgen.Server,
-	](&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer))
-	require.Error(t, err, "a stateful app was built without a state config")
-	require.Contains(t, err.Error(), "WithStateConfig",
-		"the refusal does not name the option that is missing")
-}
-
-// TestForgedInstanceID covers an id the server never signed.
-func TestForgedInstanceID(t *testing.T) {
+// TestMalformedInstanceID tests that a wrong length or a character outside
+// the base64url alphabet makes streams and actions return the reconnect
+// response without allocating state.
+func TestMalformedInstanceID(t *testing.T) {
 	c := newClient(t)
 
-	require.Equal(t, http.StatusConflict, postUpdate(t, c, "AAAA~BBBB", "x").Status)
+	for name, id := range map[string]string{
+		"empty":     "",
+		"short":     "AAAA",
+		"long":      strings.Repeat("A", 23),
+		"separator": "AAAAAAAAAAAAAAAAAAAA~B",
+		"quote":     `AAAAAAAAAAAAAAAAAAAAA"`,
+		"padding":   "AAAAAAAAAAAAAAAAAAAAA=",
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, http.StatusConflict, openStream(t, c, id),
+				"the stream of a malformed id was opened")
+			resp := postUpdate(t, c, id, "x")
+			require.Equal(t, http.StatusConflict, resp.Status,
+				"the action of a malformed id was served")
+			require.Equal(t, "reconnect", resp.Retry())
+		})
+	}
+}
+
+// TestUnmintedInstanceID tests that a well-formed id need not come from this server.
+// Before its stream connects, an action receives the reconnect response.
+// The stream then creates state under the id, and a later action uses that state.
+func TestUnmintedInstanceID(t *testing.T) {
+	c := newClient(t)
+	const id = "AAAAAAAAAAAAAAAAAAAAAA" // 22 characters, the shape the server mints.
+
+	resp := postUpdate(t, c, id, "x")
+	require.Equal(t, http.StatusConflict, resp.Status,
+		"an action was served for an id without a stream")
+	require.Equal(t, "reconnect", resp.Retry())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	req := c.Request(t, http.MethodGet, pathStream, "").WithContext(ctx)
+	req.Header.Set("Datapages-Instance", id)
+	stream, err := http.DefaultClient.Do(req)
+	require.NoError(t, err, "opening the stream of an unminted id")
+	t.Cleanup(func() { _ = stream.Body.Close() })
+	require.Equal(t, http.StatusOK, stream.StatusCode,
+		"the stream of a well-formed id the server did not mint was refused")
+
+	// State registration precedes the HTTP 200 response.
+	// The action can find the state as soon as the client sees that the stream is open.
+	require.Equal(t, http.StatusOK, postUpdate(t, c, id, "x").Status,
+		"the stream allocated no state under the supplied id")
 }
 
 // capServer starts a server whose state budget is cap.
 func capServer(t *testing.T, cap int) *httptest.Server {
 	t.Helper()
-	key := sha256.Sum256([]byte("acceptance"))
 	srv := httptest.NewServer(mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer),
 		datapages.WithStateConfig(datapages.StateConfig{
-			HMACKey:                key[:],
 			MaxConcurrentInstances: cap,
 		})))
 	t.Cleanup(srv.Close)
@@ -344,9 +350,8 @@ func TestStreamInitRetriesOnRefusal(t *testing.T) {
 // package in one process. Each holds its own counter and its own instance store,
 // which is what keeps one server's budget and state its own.
 //
-// Both are given the same HMACKey, the case where an id minted by one is
-// well-formed to the other. Sharing a counter would let a full server A refuse
-// every stream of an empty server B; sharing a store would let B serve A's tab.
+// Sharing a counter would let a full server A refuse every stream of an
+// empty server B; sharing a store would let B serve A's tab.
 func TestInstanceCapIsPerServer(t *testing.T) {
 	a, b := capServer(t, 1), capServer(t, 1)
 
@@ -362,19 +367,15 @@ func TestInstanceCapIsPerServer(t *testing.T) {
 		"server B refuses its first stream while server A is full")
 }
 
-// TestInstanceIDIsNotSharedBetweenServers covers an id minted by one server and
-// presented to another built from the same package with the same HMACKey.
-//
-// The signature verifies on both, since the key is what it is checked against.
-// The instance behind it belongs to the server that minted it,
-// and the other answers the reconnect it answers any id it holds no state for.
+// TestInstanceIDIsNotSharedBetweenServers tests an id minted by one server and
+// presented to another built from the same package. Both accept its shape,
+// but only the server whose stream opened it holds its state. The other server
+// returns the reconnect response.
 func TestInstanceIDIsNotSharedBetweenServers(t *testing.T) {
-	key := sha256.Sum256([]byte("acceptance"))
-	conf := datapages.WithStateConfig(datapages.StateConfig{HMACKey: key[:]})
 	broker := func() messaging.Broker { return inmem.New(messaging.DefaultBrokerChanBuffer) }
 
-	a := client.New(t, mustNewServer(t, &app.App{}, broker(), conf))
-	b := client.New(t, mustNewServer(t, &app.App{}, broker(), conf))
+	a := client.New(t, mustNewServer(t, &app.App{}, broker()))
+	b := client.New(t, mustNewServer(t, &app.App{}, broker()))
 
 	tab := a.OpenTab(t, "/", pathStream)
 	require.Equal(t, http.StatusOK, update(t, tab, "on-a").Status,
@@ -419,10 +420,8 @@ func TestInstanceCapDisabled(t *testing.T) {
 // a second stream is served only if the first gave its instance back.
 // The id that named it stops being answered in the same place, and both are asserted.
 func TestFailedOpenReleasesInstance(t *testing.T) {
-	key := sha256.Sum256([]byte("acceptance"))
 	c := client.New(t, mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
 		datapages.WithStateConfig(datapages.StateConfig{
-			HMACKey:                key[:],
 			MaxConcurrentInstances: 1,
 		})))
 
@@ -461,7 +460,6 @@ func TestFailedOpenReleasesInstance(t *testing.T) {
 // while it holds the slot mutex. The event stream ends, and its close path must
 // acquire that mutex before it can release the state and its capacity slot.
 func TestPanicInEventHandlerReleasesInstance(t *testing.T) {
-	key := sha256.Sum256([]byte("acceptance"))
 	// net/http also recovers this panic, but logs its stack.
 	// Recover at the test boundary to keep an expected panic out of the test output.
 	containPanic := datapages.WithMiddleware(func(next http.Handler) http.Handler {
@@ -473,7 +471,6 @@ func TestPanicInEventHandlerReleasesInstance(t *testing.T) {
 	c := client.New(t, mustNewServer(t, &app.App{},
 		inmem.New(messaging.DefaultBrokerChanBuffer), containPanic,
 		datapages.WithStateConfig(datapages.StateConfig{
-			HMACKey:                key[:],
 			MaxConcurrentInstances: 1,
 		})))
 
@@ -498,11 +495,7 @@ func TestPanicInEventHandlerReleasesInstance(t *testing.T) {
 // the process for every user of the server. A recovery that skips the unlock
 // and the release wedges the tab instead and keeps its instance forever.
 func TestPanicInStreamCloseIsContained(t *testing.T) {
-	key := sha256.Sum256([]byte("acceptance"))
-	c := client.New(t, mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithStateConfig(datapages.StateConfig{
-			HMACKey: key[:],
-		})))
+	c := client.New(t, mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer)))
 
 	tab := c.OpenTab(t, pathPanicClose, pathPanicCloseStream)
 	id := tab.InstanceID()

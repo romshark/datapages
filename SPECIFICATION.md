@@ -477,8 +477,9 @@ broker subjects and is used to dispatch events targeted at that tab (see
 `datapages.SubjectStateID`). `stateID` requires the handler to also take
 `datapages.State[T]`.
 
-The value is derived from the `Datapages-Instance` id with the server's HMAC
-key and is stable for the tab's lifetime. It is not the id itself.
+The value is the first 16 bytes of the SHA-256 hash of the
+`Datapages-Instance` id, encoded as unpadded base64url.
+It is stable for the tab's lifetime and is not the id itself.
 Subjects reach broker logs, stream storage, traces and metrics,
 and presenting the id is what claims a tab's state.
 Knowing a `stateID` only allows addressing events at that tab.
@@ -501,17 +502,20 @@ state-id matches the dispatched value receives the event. Rules:
 
 **Lifecycle**:
 
-1. On `GET` of a stateful page, the server mints a fresh HMAC-signed
-   identifier, sets it on the `Datapages-Instance` response header, and
+1. On `GET` of a stateful page, the server mints a fresh random identifier,
+   sets it in the `Datapages-Instance` response header, and
    embeds it in the HTML so the client echoes it on subsequent requests.
+   Nothing is stored for it yet.
 2. The generated client shim attaches `Datapages-Instance` to every
    subsequent Datastar action request and to the SSE stream connect.
-3. On the stream connect, before the stream is opened, the server verifies the header,
+3. On the stream connect, before the stream is opened, the server checks that
+   the header is 22 characters from the base64url alphabet,
    allocates a zeroed `*T` (the page's bound state type) and registers
    the `id -> slot` mapping. The slot is therefore reachable by the time
    `StreamOpen` runs, and by the time any event handler of that stream runs.
    When `StreamOpen` declares `state`, that pointer is passed to it.
-4. For stateful action and `OnXXX` calls, the server verifies the header,
+4. For stateful action and `OnXXX` calls, the server applies the same header
+   check,
    looks up the slot, acquires its mutex, and invokes the user handler with `state`.
    A missing slot (for example, an action fired before the tab connected its stream)
    yields `409 Conflict` with `Datapages-Retry: reconnect`.
@@ -531,34 +535,36 @@ and disables the visibility reload.
 Returning only `disableRefreshAfterHidden=true` stops the reload but does not keep
 the stream or its state alive while the tab is hidden.
 
-**Configuration**. `datapages.WithStateConfig` is required on
-`datapages.NewServer` when any handler takes `state`:
+**Configuration**. Without `datapages.WithStateConfig`, a server allows
+`datapages.DefaultMaxConcurrentInstances` live instances. Set a different
+limit with:
 
 ```go
 s, err := datapages.NewServer[
     app.App, datapages.DisableSessions, datapages.DisablePrometheus, datapagesgen.Server,
 ](a, msgBroker,
     datapages.WithStateConfig(datapages.StateConfig{
-        HMACKey:                hmacKey, // required, 32+ bytes
-        MaxConcurrentInstances: 10_000,  // optional, 0 takes the default
+        MaxConcurrentInstances: 10_000, // optional, 0 takes the default
     }),
 )
 ```
 
-`NewServer` returns an error when an app with stateful pages receives no
-`StateConfig`. `datapages gen` writes the option into `cmd/server/main.go`
-when it creates that file, reading the key from `STATE_HMAC_KEY` as hex.
-It never rewrites an entry point that already exists, which leaves the option to
-add by hand on a project that became stateful after its first run.
+**The identifier**. The `Datapages-Instance` id is 16 bytes from `crypto/rand`,
+encoded as 22 unpadded base64url characters. It is not signed. Possession of
+the id authorizes access to its state, and 128 bits of randomness make another
+tab's id impractical to guess.
 
-`HMACKey` signs the instance identifier. Key rotation or process restart
-invalidates every live instance; connected clients recover by reloading the
-page on the next rejected request. Give this purpose a key of its own, 32
-random bytes or more. `WithStateConfig` rejects a shorter one, which catches a
-short literal and nothing else: length is not entropy, and 32 bytes derived
-from one weak passphrase pass the same check. Datapages tags each value it
-derives from the key, which keeps its own two derivations apart. It cannot do
-that for a subsystem that shares the key.
+A server accepts any well-formed id, including one it did not mint. The stream
+creates the state on the server it reaches. This permits a load balancer to
+route the page `GET` and the stream to different servers without a shared key.
+A signature would prove only that a server issued the id. It would not stop a
+client from consuming the instance limit because any client can request a
+minted id with `GET`. The shape check bounds the map key to 22 base64url
+characters.
+
+A process restart drops every live instance. A tab whose stream reconnects
+first gets a zeroed state under the same id. A tab whose action arrives first
+is answered `409` and reloads once.
 
 `MaxConcurrentInstances` caps how many instances the server holds at the same
 time, across all state types. The budget belongs to the server it is configured
@@ -587,10 +593,13 @@ configuration the operator sets, and the gauge, like every other one,
 counts each server of the process that registered metrics.
 
 **Sticky sessions on multi-server deployments**. State lives in process
-memory, so each client's requests must land on the same backend. A load
-balancer that hashes on a client-stable value — the session cookie or the
-`Datapages-Instance` header — satisfies this. A round-robin balancer will
-produce frequent `409` rejections followed by reloads.
+memory. The stream and the actions of one tab must land on the same backend.
+A load balancer that hashes on the `Datapages-Instance` header
+satisfies this for every tab, signed in or not: the page `GET` carries no
+header yet and lands on any server, the stream connect carries one and lands
+on the server the id hashes to, and that server allocates the state. A
+balancer that hashes on a session or affinity cookie also works. A round-robin
+balancer produces frequent `409` rejections followed by reloads.
 
 **Rate limiting**. An instance lives no longer than its stream, which leaves a
 per-client connection limit bounding how many one client can hold. Datapages
@@ -601,8 +610,9 @@ the stream route.
 by the inline script that reads it. That script removes itself from the
 document as it runs, which leaves the id in no cookie, in no `localStorage`,
 `sessionStorage` or `IndexedDB`, and in no DOM node a later reader can find.
-Another tab on the same origin cannot observe it. The HMAC signature rejects
-forged values.
+Another tab on the same origin cannot observe it. A new well-formed id creates
+only new state when its stream connects. Reaching another tab's state requires
+that tab's 128-bit random id.
 
 That script is inline and runs at parse time, which a module script cannot do
 without missing the requests made before it installs. An application that sets

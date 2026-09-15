@@ -4,7 +4,6 @@ package datapagesgen
 
 import (
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -17,7 +16,6 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/romshark/datapages"
@@ -61,13 +59,11 @@ func (s *Server) writeHTML(
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
 		HeadGeneric: headGeneric,
 		WriteHeadPrologue: func(io.Writer) error {
-			// The instance id is a bearer credential: presenting it claims a tab's state.
-			// The script below closes over the id and then drops its own node.
-			// The closure is what the fetch wrapper reads, and no copy is
-			// left in the DOM for a later reader to lift, a session replay
-			// recorder or an error reporter included. The response body still
-			// carries the id, which is what the page's Cache-Control: no-store is for.
-			if id := w.Header().Get(stateInstanceIDHeader); s.verifyStateInstanceID(id) {
+			// The id authorizes access to one tab's state. The fetch wrapper keeps
+			// it in a closure. Removing the script node prevents later DOM readers,
+			// including replay and error-reporting tools, from recording it.
+			// Cache-Control: no-store prevents caches from retaining the response body.
+			if id := w.Header().Get(stateInstanceIDHeader); wellFormedStateInstanceID(id) {
 				if _, err := io.WriteString(w, `<script>(() => {
 		let __dpInstance="`); err != nil {
 					return err
@@ -160,12 +156,10 @@ type Server struct {
 	streams              *stream.Handler
 	app                  *dpapp.App
 
-	stateConf *datapages.StateConfig
-
-	// stateInstancesStateIndex maps a verified Datapages-Instance id to the live slot.
+	// stateInstancesStateIndex maps a Datapages-Instance id to the live slot.
 	stateInstancesStateIndex stateStore[stateSlotStateIndex]
 
-	// stateInstancesStateItem maps a verified Datapages-Instance id to the live slot.
+	// stateInstancesStateItem maps a Datapages-Instance id to the live slot.
 	stateInstancesStateItem stateStore[stateSlotStateItem]
 }
 
@@ -184,7 +178,7 @@ type Server struct {
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
 //   - datapages.WithAssets
-//   - datapages.WithStateConfig (required)
+//   - datapages.WithStateConfig
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
 	app *dpapp.App,
@@ -199,10 +193,6 @@ func (s *Server) Init(
 		// hence there is no instrumentation for the metrics to count.
 		return errors.New("unexpected option WithPrometheus: " +
 			"the server is generated with datapages.DisablePrometheus")
-	}
-	if cfg.State == nil {
-		return errors.New("missing option WithStateConfig: " +
-			"this app has stateful pages")
 	}
 
 	assetsFS, err := httpserve.AssetsFileSystem(cfg, assets.DevDir, assets.Dir)
@@ -224,7 +214,6 @@ func (s *Server) Init(
 			return fmt.Errorf("initializing message broker streams: %w", err)
 		}
 	}
-	s.stateConf = cfg.State
 	s.streams = stream.NewHandler(
 		s.Core, messageBroker, s.messageBrokerMetrics,
 		nil,
@@ -262,106 +251,74 @@ var evSubjPageItem = []string{
 	EvSubjTodoUpdated,
 }
 
-// stateInstanceIDHeader is the request/response header used to carry the
-// server-issued per-page-instance identifier.
 const stateInstanceIDHeader = "Datapages-Instance"
 
-// stateRetryHeader signals the client to reconnect before retrying an
-// action that was rejected because no live instance was found.
+// stateRetryHeader tells the generated client that no state slot exists and
+// that it must reconnect.
 const stateRetryHeader = "Datapages-Retry"
 
-// stateRetryReconnect is the only value currently emitted on stateRetryHeader.
 const stateRetryReconnect = "reconnect"
 
-// stateInstanceIDSep separates payload and signature in a Datapages-Instance value.
-// It must not appear in the base64url alphabet, which is what lets
-// verifyStateInstanceID cut the value at its first occurrence.
-const stateInstanceIDSep = '~'
+// stateInstanceIDLen is the unpadded base64url length of 16 bytes.
+const stateInstanceIDLen = 22
 
-// stateInstanceIDTag and the tag stateRouteKey writes name what each MAC is for.
-// One key, two derivations: without a tag of its own on each,
-// a value computed for one of them is a value the other would accept.
-var stateInstanceIDTag = []byte("datapages-instance\x00")
-
-// signStateInstanceID produces an HMAC-signed Datapages-Instance value.
-// The payload is 16 random bytes; the output is:
-// base64url(payload) + "~" + base64url(hmacSHA256(tag, payload)).
-func (s *Server) signStateInstanceID() (string, error) {
-	if s.stateConf == nil {
-		return "", errors.New("state runtime not configured")
-	}
-	var payload [16]byte
-	if _, err := rand.Read(payload[:]); err != nil {
+// newStateInstanceID returns 128 random bits as unpadded base64url.
+//
+// The id is an unsigned bearer credential. Signing would prove only that a
+// server issued it. It would not make another tab's random id harder to guess
+// or stop clients from opening streams to consume the instance limit.
+// State is created only when a stream presents an id.
+//
+// Unsigned ids require no key shared between servers. A load balancer may
+// route the page GET and stream to different servers. The stream's server
+// allocates the state.
+func newStateInstanceID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
 	}
-	mac := hmac.New(sha256.New, s.stateConf.HMACKey)
-	mac.Write(stateInstanceIDTag)
-	mac.Write(payload[:])
-	return base64.RawURLEncoding.EncodeToString(payload[:]) +
-		string(stateInstanceIDSep) +
-		base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+	return base64.RawURLEncoding.EncodeToString(b[:]), nil
 }
 
-// verifyStateInstanceID returns true when the supplied Datapages-Instance
-// value is well-formed and signed by the server's HMAC key.
-func (s *Server) verifyStateInstanceID(id string) bool {
-	if s.stateConf == nil || id == "" {
+// wellFormedStateInstanceID accepts exactly [stateInstanceIDLen] base64url characters.
+// This bounds client-chosen map keys and permits verbatim use in
+// the page's JavaScript string.
+func wellFormedStateInstanceID(id string) bool {
+	if len(id) != stateInstanceIDLen {
 		return false
 	}
-	sep := strings.IndexByte(id, stateInstanceIDSep)
-	if sep <= 0 || sep == len(id)-1 {
-		return false
+	for _, c := range []byte(id) {
+		switch {
+		case 'A' <= c && c <= 'Z', 'a' <= c && c <= 'z', '0' <= c && c <= '9':
+		case c == '-', c == '_':
+		default:
+			return false
+		}
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(id[:sep])
-	if err != nil {
-		return false
-	}
-	sig, err := base64.RawURLEncoding.DecodeString(id[sep+1:])
-	if err != nil {
-		return false
-	}
-	mac := hmac.New(sha256.New, s.stateConf.HMACKey)
-	mac.Write(stateInstanceIDTag)
-	mac.Write(payload)
-	return hmac.Equal(mac.Sum(nil), sig)
+	return true
 }
 
-// stateRouteKey derives the value that names a tab in message broker subjects.
-// Subjects travel further than a request does: into broker logs,
-// stream storage, traces and metrics. The Datapages-Instance id itself
-// stays out of them, since presenting it is what claims a tab's state.
-// Knowing the routing key only lets a dispatcher address that tab.
-//
-// Callers must verify the id first.
-func (s *Server) stateRouteKey(id string) string {
-	mac := hmac.New(sha256.New, s.stateConf.HMACKey)
-	mac.Write([]byte("datapages-route\x00"))
-	mac.Write([]byte(id))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)[:16])
+// stateRouteKey keeps the bearer instance id out of broker subjects, which may
+// appear in logs, stream storage, traces and metrics. It returns the first 16
+// bytes of SHA-256 as unpadded base64url. The result can address the tab but
+// cannot authorize state access. Its keyless derivation is stable across
+// servers and process restarts.
+func stateRouteKey(id string) string {
+	sum := sha256.Sum256([]byte(id))
+	return base64.RawURLEncoding.EncodeToString(sum[:16])
 }
 
-// stateStoreShards is how many independent maps a stateStore spreads its keys over.
-// Instance ids are random, which distributes them evenly.
-// Each shard carries its own lock.
 const stateStoreShards = 32
 
-// stateStoreSeed randomizes shard selection per process.
+// stateStoreSeed prevents clients from choosing a shard for an id.
 var stateStoreSeed = maphash.MakeSeed()
 
-// stateStoreShard is one lock and the keys that belong to it.
 type stateStoreShard[S any] struct {
 	mu sync.RWMutex
 	m  map[string]*S
 }
 
-// stateStore maps a verified Datapages-Instance id to the live slot it names.
-//
-// Every key is written once and deleted once, and none is read after its deletion.
-// That is the opposite of what sync.Map is tuned for,
-// which is a read-mostly set of stable keys. Sharded plain maps read without a write
-// barrier and delete without leaving a tombstone behind.
-//
-// The zero value is ready to use.
+// stateStore initializes shards lazily, which makes its zero value ready to use.
 type stateStore[S any] struct {
 	shards [stateStoreShards]stateStoreShard[S]
 }
@@ -370,7 +327,6 @@ func (s *stateStore[S]) shard(id string) *stateStoreShard[S] {
 	return &s.shards[maphash.String(stateStoreSeed, id)%stateStoreShards]
 }
 
-// Load returns the slot registered under id, or (nil, false).
 func (s *stateStore[S]) Load(id string) (*S, bool) {
 	sh := s.shard(id)
 	sh.mu.RLock()
@@ -379,7 +335,7 @@ func (s *stateStore[S]) Load(id string) (*S, bool) {
 	return slot, ok
 }
 
-// Store registers slot under id, replacing whatever was there.
+// Store registers slot, replacing an older stream under the same id.
 func (s *stateStore[S]) Store(id string, slot *S) {
 	sh := s.shard(id)
 	sh.mu.Lock()
@@ -390,9 +346,8 @@ func (s *stateStore[S]) Store(id string, slot *S) {
 	sh.mu.Unlock()
 }
 
-// CompareAndDelete removes id only while it still names slot.
-// A stream can allocate a fresh slot under an id whose predecessor is on its way out,
-// and the one leaving must not take the new one with it.
+// CompareAndDelete prevents a closing stream from deleting a replacement slot
+// registered under the same id.
 func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 	sh := s.shard(id)
 	sh.mu.Lock()
@@ -404,22 +359,16 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 	return true
 }
 
-// stateSlotStateIndex holds one instance of StateIndex.
-// It is allocated on the stream connect, before the stream opens,
-// and dropped when that stream closes.
-// An instance lives exactly as long as the stream that created it and
-// is never reused: a client that reconnects gets a new one.
+// stateSlotStateIndex belongs to one stream and is never reused.
+// A reconnect allocates a new slot and state value.
 type stateSlotStateIndex struct {
 	state *dpapp.StateIndex
 	mu    sync.Mutex // serializes all stateful handler calls on this instance
-	dead  bool       // true once the stream closed and the state was dropped
+	dead  bool
 }
 
-// allocateStateIndex allocates a zeroed state value, registers it under id
-// and hands it to the SSE stream that asked for it.
-// The stream handler calls it before the stream opens and passes the
-// slot to StreamOpen, the event loop and the close hook.
-// Returns nil when the server holds as many instances as it may.
+// allocateStateIndex reserves capacity and registers state before the stream opens.
+// It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].
 func (s *Server) allocateStateIndex(id string) *stateSlotStateIndex {
 	if !s.ReserveStateInstance() {
 		return nil
@@ -429,23 +378,13 @@ func (s *Server) allocateStateIndex(id string) *stateSlotStateIndex {
 	return slot
 }
 
-// lookupStateIndex returns the registered slot for id, or (nil, false)
-// when no live instance matches. The id is not HMAC-verified here;
-// call verifyStateInstanceID first.
 func (s *Server) lookupStateIndex(id string) (*stateSlotStateIndex, bool) {
 	return s.stateInstancesStateIndex.Load(id)
 }
 
-// releaseStateIndex drops the slot's state the moment its stream closes.
-// Nothing of the instance outlives the stream: a client that
-// reconnects opens a new stream and gets a freshly allocated state.
-//
-// The caller passes the slot it allocated rather than the id alone.
-// A tab can hold two streams at once while the server still tears the
-// older one down, and the second registers its own slot under the same id.
-// Releasing by id would give back whichever slot the map holds now.
-//
-// Calling this twice on one slot releases it once.
+// releaseStateIndex drops state and capacity exactly once.
+// Passing slot preserves a replacement registered
+// under the same id while an older stream closes.
 func (s *Server) releaseStateIndex(id string, slot *stateSlotStateIndex) {
 	slot.mu.Lock()
 	if slot.dead {
@@ -455,28 +394,20 @@ func (s *Server) releaseStateIndex(id string, slot *stateSlotStateIndex) {
 	slot.dead = true
 	slot.state = nil
 	slot.mu.Unlock()
-	// A stream can allocate a fresh slot under this id while this
-	// one is on its way out. Drop only the slot this call owns.
 	s.stateInstancesStateIndex.CompareAndDelete(id, slot)
 	s.ReleaseStateInstance()
 }
 
-// stateSlotStateItem holds one instance of StateItem.
-// It is allocated on the stream connect, before the stream opens,
-// and dropped when that stream closes.
-// An instance lives exactly as long as the stream that created it and
-// is never reused: a client that reconnects gets a new one.
+// stateSlotStateItem belongs to one stream and is never reused.
+// A reconnect allocates a new slot and state value.
 type stateSlotStateItem struct {
 	state *dpapp.StateItem
 	mu    sync.Mutex // serializes all stateful handler calls on this instance
-	dead  bool       // true once the stream closed and the state was dropped
+	dead  bool
 }
 
-// allocateStateItem allocates a zeroed state value, registers it under id
-// and hands it to the SSE stream that asked for it.
-// The stream handler calls it before the stream opens and passes the
-// slot to StreamOpen, the event loop and the close hook.
-// Returns nil when the server holds as many instances as it may.
+// allocateStateItem reserves capacity and registers state before the stream opens.
+// It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].
 func (s *Server) allocateStateItem(id string) *stateSlotStateItem {
 	if !s.ReserveStateInstance() {
 		return nil
@@ -486,23 +417,13 @@ func (s *Server) allocateStateItem(id string) *stateSlotStateItem {
 	return slot
 }
 
-// lookupStateItem returns the registered slot for id, or (nil, false)
-// when no live instance matches. The id is not HMAC-verified here;
-// call verifyStateInstanceID first.
 func (s *Server) lookupStateItem(id string) (*stateSlotStateItem, bool) {
 	return s.stateInstancesStateItem.Load(id)
 }
 
-// releaseStateItem drops the slot's state the moment its stream closes.
-// Nothing of the instance outlives the stream: a client that
-// reconnects opens a new stream and gets a freshly allocated state.
-//
-// The caller passes the slot it allocated rather than the id alone.
-// A tab can hold two streams at once while the server still tears the
-// older one down, and the second registers its own slot under the same id.
-// Releasing by id would give back whichever slot the map holds now.
-//
-// Calling this twice on one slot releases it once.
+// releaseStateItem drops state and capacity exactly once.
+// Passing slot preserves a replacement registered
+// under the same id while an older stream closes.
 func (s *Server) releaseStateItem(id string, slot *stateSlotStateItem) {
 	slot.mu.Lock()
 	if slot.dead {
@@ -512,8 +433,6 @@ func (s *Server) releaseStateItem(id string, slot *stateSlotStateItem) {
 	slot.dead = true
 	slot.state = nil
 	slot.mu.Unlock()
-	// A stream can allocate a fresh slot under this id while this
-	// one is on its way out. Drop only the slot this call owns.
 	s.stateInstancesStateItem.CompareAndDelete(id, slot)
 	s.ReleaseStateInstance()
 }
@@ -678,17 +597,13 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	query.Values.Filter = httpread.QueryValue(r.URL.RawQuery, "filter")
 	query.Values.Sort = httpread.QueryValue(r.URL.RawQuery, "sort")
 
-	// Mint the per-instance identifier for this page load.
-	// The client echoes this value on action requests and on the SSE
-	// stream connect via the Datapages-Instance header.
-	instanceID, err := s.signStateInstanceID()
+	instanceID, err := newStateInstanceID()
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "minting state instance", err)
 		return
 	}
 	w.Header().Set(stateInstanceIDHeader, instanceID)
-	// The page carries an identifier that stands for one tab's state.
-	// A cache that hands it to a second visitor hands over the state.
+	// A shared cache would expose this bearer id to another visitor.
 	w.Header().Set("Cache-Control", "no-store")
 
 	p := dpapp.PageIndex{
@@ -755,7 +670,7 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	instanceID := r.Header.Get(stateInstanceIDHeader)
-	if !s.verifyStateInstanceID(instanceID) {
+	if !wellFormedStateInstanceID(instanceID) {
 		w.Header().Set(stateRetryHeader, stateRetryReconnect)
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
@@ -855,7 +770,7 @@ func (s pageIndexHandlers) POSTFilter(
 		return
 	}
 	instanceID := r.Header.Get(stateInstanceIDHeader)
-	if !s.verifyStateInstanceID(instanceID) {
+	if !wellFormedStateInstanceID(instanceID) {
 		w.Header().Set(stateRetryHeader, stateRetryReconnect)
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
@@ -905,17 +820,13 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}]
 	path.Values.ID = r.PathValue("id")
 
-	// Mint the per-instance identifier for this page load.
-	// The client echoes this value on action requests and on the SSE
-	// stream connect via the Datapages-Instance header.
-	instanceID, err := s.signStateInstanceID()
+	instanceID, err := newStateInstanceID()
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "minting state instance", err)
 		return
 	}
 	w.Header().Set(stateInstanceIDHeader, instanceID)
-	// The page carries an identifier that stands for one tab's state.
-	// A cache that hands it to a second visitor hands over the state.
+	// A shared cache would expose this bearer id to another visitor.
 	w.Header().Set("Cache-Control", "no-store")
 
 	p := dpapp.PageItem{
@@ -967,7 +878,7 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	instanceID := r.Header.Get(stateInstanceIDHeader)
-	if !s.verifyStateInstanceID(instanceID) {
+	if !wellFormedStateInstanceID(instanceID) {
 		w.Header().Set(stateRetryHeader, stateRetryReconnect)
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return

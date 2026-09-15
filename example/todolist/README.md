@@ -18,13 +18,10 @@ https://github.com/user-attachments/assets/bac07de1-bce6-43fe-af32-41a10c2e0add
 ## Run
 
 ```sh
-HMAC_SECRET_KEY=my-secret go run ./cmd/server
+go run ./cmd/server
 ```
 
 Then open http://localhost:8080/.
-
-`HMAC_SECRET_KEY` is hashed into the key that signs the per-tab instance
-identifier. It defaults to a dev-only value if unset.
 
 ## Develop
 
@@ -44,11 +41,11 @@ Then open http://localhost:7331/.
   which isn't a problem thanks to
   [Brotli compression](https://andersmurphy.com/2025/04/15/why-you-should-use-brotli-sse.html).
 - Per-tab state lives in `StateIndex` and `StateItem` and is reached through
-  the `datapages.State[T]` handler parameter. Datapages mints an HMAC-signed
-  instance identifier per page load, carries it on the `Datapages-Instance` header,
-  and hands every handler the state of the tab that called it, which is
-  what keeps one tab out of the state of another. The state is allocated when
-  the tab opens its SSE stream and released when that stream closes.
+  the `datapages.State[T]` handler parameter. Datapages mints a random
+  instance identifier per page load and sends it in the `Datapages-Instance` header.
+  The server uses the identifier to pass each handler the calling tab's state.
+  The state is allocated when the tab opens its SSE stream and
+  released when that stream closes.
 - All application state is managed by the server and stored on the server
   (see [State in the Right Place](https://data-star.dev/guide/the_tao_of_datastar#state-in-the-right-place)).
 - For simplicity reasons, an in-memory message broker is used since this example
@@ -66,13 +63,13 @@ sequenceDiagram
 
     B->>S: GET /
     activate S
-    S->>S: Mint HMAC-signed instance id
+    S->>S: Mint random instance id
     S->>B: HTML page + Datapages-Instance<br/>(signals: search, filter, sort)
     deactivate S
 
     B->>S: SSE connect<br/>(Datapages-Instance, signals: search, filter, sort)
     activate S
-    S->>S: Verify id, allocate zeroed StateIndex
+    S->>S: Allocate zeroed StateIndex under the id
     create participant SS as SSE goroutine
     S->>SS: StreamOpen(state, signals)
     SS->>SS: state.Values = search / filter / sort

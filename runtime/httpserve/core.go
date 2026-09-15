@@ -80,14 +80,16 @@ type Core struct {
 	addr       string
 	enabledTLS bool
 
-	// stateConf is nil for an application whose handlers take no
-	// datapages.State[T]. The budget below is then never consulted.
-	stateConf *datapages.StateConfig
+	// maxStateInstances is the limit [Core.ReserveStateInstance] enforces.
+	// A server built without [datapages.WithStateConfig] uses
+	// [datapages.DefaultMaxConcurrentInstances]. A negative value disables the limit.
+	// An app without [datapages.State] handlers never consults it.
+	maxStateInstances int
 
-	// stateLiveInstances counts the live per-page-instance states of every
-	// state type. They share the memory and the budget in
-	// datapages.StateConfig.MaxConcurrentInstances. The counter belongs to the
-	// Core, which leaves two servers in one process holding one each.
+	// stateLiveInstances counts the live per-page-instance states of every state type.
+	// They share the memory and the budget in
+	// [datapages.StateConfig.MaxConcurrentInstances].
+	// Each Core has its own counter. Servers in one process do not share it.
 	stateLiveInstances atomic.Int64
 }
 
@@ -107,9 +109,12 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		crossOrigin:     http.NewCrossOriginProtection(),
 		datastarJSSrc:   cfg.DatastarJS,
 		logger:          cfg.Logger,
-		stateConf:       cfg.State,
 		httpServer:      cfg.HTTPServer,
 		bodySizeLimit:   cfg.BodySizeLimit,
+	}
+	c.maxStateInstances = datapages.DefaultMaxConcurrentInstances
+	if cfg.State != nil && cfg.State.MaxConcurrentInstances != 0 {
+		c.maxStateInstances = cfg.State.MaxConcurrentInstances
 	}
 	if c.bodySizeLimit <= 0 {
 		c.bodySizeLimit = DefaultBodySizeLimit
@@ -296,21 +301,19 @@ func (c *Core) HTMLHead() string { return c.htmlHead }
 // Writing the two in order produces [Core.HTMLPrefix].
 func (c *Core) HTMLDatastarScript() string { return c.htmlDatastar }
 
-// noStateInstanceLimit reports what a negative MaxConcurrentInstances means:
-// no budget at all. The counter is still kept, since releases decrement it
-// unconditionally and the two must stay balanced.
+// noStateInstanceLimit reports whether MaxConcurrentInstances disables the limit.
+// The counter remains enabled because every release decrements it.
 func (c *Core) noStateInstanceLimit() bool {
-	return c.stateConf.MaxConcurrentInstances < 0
+	return c.maxStateInstances < 0
 }
 
-// ReserveStateInstance takes one instance out of the budget. It reports false
-// when the server is full, which fails the stream open that asked for it.
-// An unlimited server serves every caller.
+// ReserveStateInstance increments the live instance count unless the server
+// has reached its limit. It reports whether it reserved the instance.
 //
 // Generated code calls this when a stream allocates its state.
 func (c *Core) ReserveStateInstance() bool {
 	n := c.stateLiveInstances.Add(1)
-	if !c.noStateInstanceLimit() && n > int64(c.stateConf.MaxConcurrentInstances) {
+	if !c.noStateInstanceLimit() && n > int64(c.maxStateInstances) {
 		c.stateLiveInstances.Add(-1)
 		return false
 	}

@@ -22,9 +22,8 @@ What the generated server provides:
 - **Request limits.** A read timeout, a header read timeout,
   a header size limit and a 1 MiB request body limit.
 - **Sessions and CSRF.** Modules the application wires in.
-- **Per-tab state isolation.** State is reached only with an HMAC-signed
-  identifier that the server minted, and that identifier stays out of message
-  broker subjects.
+- **Per-tab state isolation.** State access requires the tab's 16-byte random identifier.
+  The identifier stays out of message broker subjects.
 
 What is the responsibility of the application or of the deployment instead.
 A report about one of these is a feature request rather than a vulnerability.
@@ -45,9 +44,10 @@ A report about one of these is a feature request rather than a vulnerability.
 - **The identity of per-tab state.** An instance is not bound to a session or a
   user and survives a sign-out. Do not keep in it what the next session on that
   tab may not see.
-- **Key management.** The application supplies the HMAC and encryption keys.
-  Storage and rotation are its own, and a key given to one subsystem should not
-  be shared with another.
+- **Key management.** The application supplies the keys of the modules it
+  wires in: the CSRF secret and the session encryption key.
+  The application controls their storage and rotation.
+  Do not share a key between subsystems.
 - **Transport.** TLS versions, ciphers, HSTS and the certificate lifecycle
   belong to whatever terminates TLS, including when that is `ListenAndServeTLS`.
 - **Slow readers.** The write timeout is disabled by default because SSE requires it.

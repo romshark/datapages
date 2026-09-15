@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -22,12 +21,6 @@ func main() {
 	fHost := flag.String("host", "localhost:8080", "server host address")
 	flag.Parse()
 
-	hmacSecret := os.Getenv("HMAC_SECRET_KEY")
-	if hmacSecret == "" {
-		// This is fine for demo purposes.
-		hmacSecret = "dev-secret-do-not-use-in-production"
-	}
-
 	l := new(list.List)
 	now := time.Now()
 	for _, s := range []struct {
@@ -46,17 +39,12 @@ func main() {
 
 	a := app.NewApp(l)
 	msgBroker := inmem.New(messaging.DefaultBrokerChanBuffer)
-	hmacKey := sha256.Sum256([]byte(hmacSecret))
 	s, err := datapages.NewServer[
 		app.App,
 		datapages.DisableSessions,
 		datapages.DisablePrometheus,
 		datapagesgen.Server,
-	](a, msgBroker,
-		datapages.WithAssets(app.StaticFS, false),
-		datapages.WithStateConfig(datapages.StateConfig{
-			HMACKey: hmacKey[:],
-		}))
+	](a, msgBroker, datapages.WithAssets(app.StaticFS, false))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

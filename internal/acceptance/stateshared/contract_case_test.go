@@ -3,7 +3,6 @@
 package acceptance_test
 
 import (
-	"crypto/sha256"
 	"testing"
 
 	"github.com/romshark/datapages"
@@ -20,12 +19,6 @@ func TestContract(t *testing.T) {
 	contract.Run(t, contract.Case{
 		NewServer: func(t *testing.T, opts ...any) contract.Server {
 			t.Helper()
-			key := sha256.Sum256([]byte("acceptance"))
-			opts = append(opts, datapages.WithStateConfig(
-				datapages.StateConfig{
-					HMACKey: key[:],
-				},
-			))
 			return mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
 				contract.Options[datapages.ServerOption](opts)...)
 		},

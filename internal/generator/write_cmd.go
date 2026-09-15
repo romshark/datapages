@@ -41,12 +41,9 @@ func GenerateCmd(
 			extraImports = append(extraImports, skeleton.Import(imp))
 		}
 	}
-	// A stateful application needs WithStateConfig. Without it NewServer
-	// returns an error and the entry point this writes exits at startup.
-	hasState := m != nil && len(m.States) > 0
 	src, err := skeleton.MainGo(
 		appImportPath, appPkgName, genImportPath, genPkgName, prometheus,
-		hasState, sessionData, extraImports,
+		sessionData, extraImports,
 	)
 	if err != nil {
 		return fmt.Errorf("generating cmd/main.go: %w", err)

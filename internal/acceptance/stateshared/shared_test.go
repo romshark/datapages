@@ -3,13 +3,11 @@
 package acceptance_test
 
 import (
-	"crypto/sha256"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/client"
 	"github.com/romshark/datapages/internal/acceptance/stateshared/app"
 	"github.com/romshark/datapages/modules/messaging"
@@ -18,10 +16,8 @@ import (
 
 func newClient(t *testing.T) *client.Client {
 	t.Helper()
-	key := sha256.Sum256([]byte("acceptance"))
 	return client.New(t, mustNewServer(t,
-		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithStateConfig(datapages.StateConfig{HMACKey: key[:]})))
+		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer)))
 }
 
 // TestSharedStateIsPerTab covers two tabs of one page bound to a shared state

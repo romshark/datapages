@@ -135,7 +135,8 @@ type Query[Values any] struct{ Values Values }
 //
 // A page whose handlers take State gets an SSE stream whether or not it
 // declares StreamOpen, StreamClose or an OnXXX handler: the stream is what
-// bounds the instance's lifetime. The server needs [WithStateConfig].
+// bounds the instance's lifetime. [WithStateConfig] sets the concurrent instance limit.
+// Without it the server uses [DefaultMaxConcurrentInstances].
 type State[Values any] struct{ Values *Values }
 
 // StreamID identifies one SSE stream instance within the process.
@@ -513,8 +514,8 @@ type Subject string
 type SubjectUser string
 
 // SubjectStateID is a subject segment carrying the state ID of the tab
-// the event is addressed to. It is resolved on the server side at stream
-// connect from the HMAC-validated Datapages-Instance header of the connecting tab.
+// the event is addressed to. At stream connect, the server derives it by
+// hashing the connecting tab's Datapages-Instance header.
 // Only the tab whose state ID matches the dispatched value receives the event.
 //
 //	// EventFiltersUpdated is "filters.updated"

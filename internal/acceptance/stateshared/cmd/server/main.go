@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -32,7 +31,6 @@ func main() {
 
 	var opts []datapages.ServerOption
 	withAccessLogger(&opts)
-	withState(&opts)
 
 	messageBroker := connectNATS()
 
@@ -101,30 +99,6 @@ func withAccessLogger(opts *[]datapages.ServerOption) {
 				slog.String("path", r.URL.Path))
 			next.ServeHTTP(w, r)
 		})
-	}))
-}
-
-// withState configures the per-tab server-side state runtime, which pages
-// taking datapages.State[T] need. The key signs the identifier that names one
-// browser tab's state. Give this purpose 32 random bytes of its own,
-// hex encoded: sharing one key across subsystems makes the security of each of
-// them the security of all. Rotating it invalidates every live instance,
-// and each tab then reloads once and loses what it had not sent.
-//
-// The instance cap is left at [datapages.DefaultMaxConcurrentInstances].
-func withState(opts *[]datapages.ServerOption) {
-	stateHMACKeyHex := os.Getenv("STATE_HMAC_KEY")
-	if stateHMACKeyHex == "" {
-		slog.Error("STATE_HMAC_KEY not set")
-		os.Exit(2)
-	}
-	stateHMACKey, err := hex.DecodeString(stateHMACKeyHex)
-	if err != nil {
-		slog.Error("decoding STATE_HMAC_KEY", slog.Any("err", err))
-		os.Exit(1)
-	}
-	*opts = append(*opts, datapages.WithStateConfig(datapages.StateConfig{
-		HMACKey: stateHMACKey,
 	}))
 }
 

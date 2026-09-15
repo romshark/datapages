@@ -177,7 +177,6 @@ type mainGoData struct {
 	Gen        string
 	Prometheus bool
 	HasSession bool
-	HasState   bool
 
 	// SessionData is the rendered session Data type the session manager is
 	// instantiated with, for example "struct{}" or "app.SessionData".
@@ -194,13 +193,9 @@ type mainGoData struct {
 // empty for an application without sessions. extraImports are the packages it
 // names beyond the app package, which the caller renders it against:
 // [MainGoTaken] is the set they have to keep out of the way of.
-//
-// hasState reports whether any handler takes datapages.State[T].
-// Such an application needs datapages.WithStateConfig,
-// which datapages.NewServer refuses to build a server without.
 func MainGo(
 	appImportPath, appPkgName, genImportPath, genPkgName string,
-	prometheus, hasState bool, sessionData string, extraImports []Import,
+	prometheus bool, sessionData string, extraImports []Import,
 ) ([]byte, error) {
 	var buf bytes.Buffer
 	appPkg, aliased := mainGoAppPkg(appPkgName, genPkgName)
@@ -212,7 +207,6 @@ func MainGo(
 		Gen:          genPkgName,
 		Prometheus:   prometheus,
 		HasSession:   sessionData != "",
-		HasState:     hasState,
 		SessionData:  sessionData,
 		ExtraImports: extraImports,
 	}); err != nil {

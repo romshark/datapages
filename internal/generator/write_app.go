@@ -151,7 +151,6 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	}
 	w.Line(1, `"time"`)
 	if w.usage.stateRuntime {
-		w.Line(1, `"crypto/hmac"`)
 		w.Line(1, `"crypto/rand"`)
 		w.Line(1, `"crypto/sha256"`)
 		w.Line(1, `"encoding/base64"`)
@@ -342,16 +341,14 @@ type Server struct {
 	if w.usage.hasSession {
 		w.Raw(`	*auth.Manager[`)
 		w.Raw(w.sessionDataType)
-		w.Raw(`]`)
+		w.Raw(`]
+`)
 	}
 	if w.usage.stateRuntime {
-		w.Raw(`
-	stateConf             *datapages.StateConfig
-`)
 		for _, st := range boundStateTypes(m) {
 			w.Raw("\n")
 			w.Linef(1,
-				"// %s maps a verified Datapages-Instance id to the live slot.",
+				"// %s maps a Datapages-Instance id to the live slot.",
 				stateMapName(st))
 			w.Linef(1, "%s %s", stateMapName(st), stateStoreTypeRef(st))
 		}
@@ -394,7 +391,7 @@ func (w *Writer) writeAppInit(appPkg string) {
 //   - datapages.WithAssets`)
 	if w.usage.stateRuntime {
 		w.Raw(`
-//   - datapages.WithStateConfig (required)`)
+//   - datapages.WithStateConfig`)
 	}
 	if w.usage.hasSession {
 		w.Raw(`
@@ -452,13 +449,6 @@ func (s *Server) Init(
 	}
 `)
 	}
-	if w.usage.stateRuntime {
-		w.Raw(`	if cfg.State == nil {
-		return errors.New("missing option WithStateConfig: " +
-			"this app has stateful pages")
-	}
-`)
-	}
 	w.Raw(`
 	assetsFS, err := httpserve.AssetsFileSystem(cfg, `)
 	if w.hasAssets() {
@@ -494,10 +484,6 @@ func (s *Server) Init(
 		}
 	}
 `)
-	if w.usage.stateRuntime {
-		w.Raw(`	s.stateConf = cfg.State
-`)
-	}
 	if w.usage.hasSession {
 		w.Raw(`	s.Manager = auth.NewManager(s.Core, sessionManager, cfg, `)
 		if w.prometheus {

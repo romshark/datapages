@@ -3,7 +3,6 @@
 package acceptance_test
 
 import (
-	"crypto/sha256"
 	"net/http"
 	"net/url"
 	"os"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/internal/acceptance/anonstreams/app"
 	"github.com/romshark/datapages/internal/acceptance/brokers"
 	"github.com/romshark/datapages/internal/acceptance/client"
@@ -27,11 +25,7 @@ func newClient(t *testing.T, broker messaging.Broker) *client.Client {
 	sessions := sessinmem.New[struct{}](
 		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
 	)
-	stateKey := sha256.Sum256([]byte("acceptance-state"))
-	return client.New(t, mustNewServer(t, &app.App{}, broker, sessions,
-		datapages.WithStateConfig(datapages.StateConfig{
-			HMACKey: stateKey[:],
-		})))
+	return client.New(t, mustNewServer(t, &app.App{}, broker, sessions))
 }
 
 // TestAnonStreamSubscribesBySignal tests a visitor with no session on a page

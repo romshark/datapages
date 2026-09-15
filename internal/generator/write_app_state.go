@@ -4,67 +4,53 @@ import (
 	"github.com/romshark/datapages/internal/parser/model"
 )
 
-// stateSuffix is the suffix used to form per-page state symbol names.
-// Since state types may carry any exported name, the full type name is
-// used verbatim: "StateIndex" gives "allocateStateIndex" and
-// "TabContext" gives "allocateTabContext".
+// stateSuffix keeps the full type name because
+// each bound state type has a separate runtime.
 func stateSuffix(st *model.StateType) string {
 	return st.TypeName
 }
 
-// stateTypeRef returns the *model.StateType for a given type name;
-// the parser guarantees the name is registered when used by a handler.
+// stateTypeRef needs no presence check: the parser registers every state type
+// used by a handler.
 func stateTypeRef(m *model.App, typeName string) *model.StateType {
 	return m.States[typeName]
 }
 
-// writeMintInstanceIDOnGET emits the code that signs a new Datapages-Instance
-// identifier and sets it on the response header on the GET of a stateful page.
-// Placed before the user's GET method is invoked so the header is present on
-// the response even when the handler writes body content early.
+// writeMintInstanceIDOnGET emits code that mints a new Datapages-Instance id
+// for a stateful page GET. It runs before the user's GET method. The response
+// therefore contains the header even when the handler writes body content early.
 func (w *Writer) writeMintInstanceIDOnGET() {
 	w.Line(0, "")
-	w.Line(1, "// Mint the per-instance identifier for this page load.")
-	w.Line(1, "// The client echoes this value on action requests and on the SSE")
-	w.Line(1, "// stream connect via the Datapages-Instance header.")
-	w.Line(1, "instanceID, err := s.signStateInstanceID()")
+	w.Line(1, "instanceID, err := newStateInstanceID()")
 	w.Line(1, "if err != nil {")
 	w.Line(2, `s.httpErrIntern(w, r, nil, "minting state instance", err)`)
 	w.Line(2, "return")
 	w.Line(1, "}")
 	w.Line(1, "w.Header().Set(stateInstanceIDHeader, instanceID)")
-	w.Line(1, "// The page carries an identifier that stands for one tab's state.")
-	w.Line(1, "// A cache that hands it to a second visitor hands over the state.")
+	w.Line(1, "// A shared cache would expose this bearer id to another visitor.")
 	w.Line(1, `w.Header().Set("Cache-Control", "no-store")`)
 }
 
 // writeStateFetchWrapper emits the inline script that replaces globalThis.fetch
 // on a stateful page. The wrapper adds the instance id to every same-origin
 // Datastar request, reloads once when the server rejects the id,
-// and reloads on a back/forward-cache restore. Nothing else on the page sees the id.
+// and reloads on a back/forward-cache restore.
 //
 // It is written before the Datastar bundle and runs at parse time.
 // A module script would be deferred and would miss requests made before it installs.
 //
-// The id is read back from the response header set by the page GET.
-// It is verified again here: the value reaches the page inside a
-// JavaScript string literal, and only a value the server signed may get there.
-//
-// The script drops its own node once __dpInstance holds the id. The closure is
-// the copy the wrapper needs, which makes the node's text a second copy of
-// a bearer credential, sitting where every later reader of the DOM finds it.
-// Removing it does not clear the id from the response body.
+// The shape check makes writing the id verbatim into a JavaScript string safe.
+// The script removes its node after copying the id into the wrapper closure.
+// The response body still contains the id and relies on Cache-Control: no-store.
 func (w *Writer) writeStateFetchWrapper() {
 	if !w.usage.stateRuntime {
 		return
 	}
-	w.Line(1, "// The instance id is a bearer credential: presenting it claims a tab's state.")
-	w.Line(1, "// The script below closes over the id and then drops its own node.")
-	w.Line(1, "// The closure is what the fetch wrapper reads, and no copy is")
-	w.Line(1, "// left in the DOM for a later reader to lift, a session replay")
-	w.Line(1, "// recorder or an error reporter included. The response body still")
-	w.Line(1, "// carries the id, which is what the page's Cache-Control: no-store is for.")
-	w.Raw("\tif id := w.Header().Get(stateInstanceIDHeader); s.verifyStateInstanceID(id) {\n")
+	w.Line(1, "// The id authorizes access to one tab's state. The fetch wrapper keeps")
+	w.Line(1, "// it in a closure. Removing the script node prevents later DOM readers,")
+	w.Line(1, "// including replay and error-reporting tools, from recording it.")
+	w.Line(1, "// Cache-Control: no-store prevents caches from retaining the response body.")
+	w.Raw("\tif id := w.Header().Get(stateInstanceIDHeader); wellFormedStateInstanceID(id) {\n")
 	w.Raw("\t\tif _, err := io.WriteString(w, `<script>(() => {\n")
 	w.Raw("\t\tlet __dpInstance=\"`); err != nil { return err }\n")
 	w.Raw("\t\tif _, err := io.WriteString(w, id); err != nil { return err }\n")
@@ -103,27 +89,21 @@ func (w *Writer) writeStateFetchWrapper() {
 	w.Raw("\t}\n")
 }
 
-// writeVerifyInstanceIDHeader emits the header-read + HMAC-verify preamble
-// shared by stateful stream handlers and stateful action handlers.
-// On failure it writes 409 Conflict + Datapages-Retry: reconnect and returns.
 func (w *Writer) writeVerifyInstanceIDHeader() {
 	w.Line(1, "instanceID := r.Header.Get(stateInstanceIDHeader)")
-	w.Line(1, "if !s.verifyStateInstanceID(instanceID) {")
+	w.Line(1, "if !wellFormedStateInstanceID(instanceID) {")
 	w.Line(2, "w.Header().Set(stateRetryHeader, stateRetryReconnect)")
 	w.Line(2, "http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)")
 	w.Line(2, "return")
 	w.Line(1, "}")
 }
 
-// writeStateAllocateOrReject emits the instance allocation of a stateful stream handler.
-// It runs before handleStreamRequest, since that commits the status line
-// the moment it opens the SSE response: a server at capacity has to answer
-// 503 here or not at all, and a client that acts on the open stream finds no
-// instance registered if the allocation waits for the open hook.
+// writeStateAllocateOrReject emits allocation before handleStreamRequest
+// commits the SSE status. This lets a full server return 503 and ensures an
+// open stream already has registered state.
 //
-// The release is deferred here as well. handleStreamRequest blocks until the stream ends,
-// and the close hook that normally releases runs only for a stream that opened.
-// Releasing twice releases once.
+// The deferred release also covers a stream that fails before its close hook.
+// Release is idempotent because an opened stream calls it from both paths.
 func (w *Writer) writeStateAllocateOrReject(p *model.Page) {
 	suffix := stateSuffix(p.State)
 	w.Linef(1, "slot := s.allocate%s(instanceID)", suffix)
@@ -137,20 +117,15 @@ func (w *Writer) writeStateAllocateOrReject(p *model.Page) {
 	w.Linef(1, "defer s.release%s(instanceID, slot)", suffix)
 }
 
-// writeStateRouteKeyVar emits the local that names this tab in message broker subjects.
-// Handlers receive it as their `stateID` parameter and
-// dispatch tab-scoped events with it.
 func (w *Writer) writeStateRouteKeyVar() {
-	w.Line(1, "stateID := s.stateRouteKey(instanceID)")
+	w.Line(1, "stateID := stateRouteKey(instanceID)")
 }
 
-// writeLookupSlotOrReject emits the code that looks up an allocated slot by instanceID,
-// responding 409+reconnect if missing. Used by stateful action handlers;
-// the stream handler uses allocate/reconnect instead.
+// writeLookupSlotOrReject emits the stateful action lookup and its
+// 409+reconnect response for a missing slot. Streams allocate instead.
 //
-// It only finds the slot. writeLockSlotOrReject is what claims it, and the two sit apart:
-// everything a request reads from the network belongs between them,
-// so that no client holds a tab's mutex by sending a body slowly.
+// Request parsing stays between lookup and lock.
+// A slow request body therefore cannot hold the tab mutex.
 func (w *Writer) writeLookupSlotOrReject(st *model.StateType) {
 	suffix := stateSuffix(st)
 	w.Linef(1, "slot, ok := s.lookup%s(instanceID)", suffix)
@@ -161,11 +136,10 @@ func (w *Writer) writeLookupSlotOrReject(st *model.StateType) {
 	w.Line(1, "}")
 }
 
-// writeLockSlotOrReject emits the code that takes the slot mutex for the rest
-// of the handler. It is emitted once the request has been read in full,
-// since the mutex serializes every handler of one tab, including the SSE event loop:
-// a client that trickles its body would otherwise stall its own tab,
-// and events published to a stalled stream are dropped once its buffer fills.
+// writeLockSlotOrReject emits the slot lock after the request body is read.
+// The mutex serializes all handlers of one tab, including the SSE event loop.
+// Locking before the read would let a slow request stall the tab and fill the
+// event buffer.
 //
 // The stream can close between the lookup and the lock and drop the state,
 // which is why liveness is re-checked here.
@@ -179,12 +153,8 @@ func (w *Writer) writeLockSlotOrReject() {
 	w.Line(1, "}")
 }
 
-// State runtime symbols are derived from the state type's full Go name.
-// The runtime belongs to the state type. Pages that share a state type share
-// its slot type and instance map. App-level action handlers,
-// which belong to no page, resolve the same symbols from their
-// datapages.State[T] parameter.
-
+// stateSlotTypeName uses the full state type name because pages bound to the
+// same type share its slot type and instance map.
 func stateSlotTypeName(st *model.StateType) string {
 	return "stateSlot" + st.TypeName
 }
@@ -193,13 +163,10 @@ func stateMapName(st *model.StateType) string {
 	return "stateInstances" + st.TypeName
 }
 
-// stateStoreTypeRef returns the instantiated store type held by the Server field
-// that stateMapName names.
 func stateStoreTypeRef(st *model.StateType) string {
 	return "stateStore[" + stateSlotTypeName(st) + "]"
 }
 
-// statefulPages returns the subset of pages that bind a state type.
 func statefulPages(m *model.App) []*model.Page {
 	var out []*model.Page
 	for _, p := range m.Pages {
@@ -210,8 +177,8 @@ func statefulPages(m *model.App) []*model.Page {
 	return out
 }
 
-// boundStateTypes returns every state type bound by a page, in page order,
-// each one once. Several pages may share a state type.
+// boundStateTypes preserves page order instead of ranging over m.States,
+// whose map order is random.
 func boundStateTypes(m *model.App) []*model.StateType {
 	var out []*model.StateType
 	seen := map[string]bool{}
@@ -225,23 +192,12 @@ func boundStateTypes(m *model.App) []*model.StateType {
 	return out
 }
 
-// writeStateRuntime emits the server-side state runtime:
-//
-//   - The sharded instance store type, instantiated per state type
-//   - Per state type: slot type + allocate/lookup/release methods
-//   - HMAC sign/verify helpers for Datapages-Instance header
-//   - Mint/lookup/release/reconnect helpers
-//
-// The stores themselves and the live-instance counter are fields on Server,
-// written by writeAppServerStruct.
-//
-// This runtime is only emitted when at least one page declares a state type.
 func (w *Writer) writeStateRuntime(m *model.App, appPkg string) {
 	if !w.usage.stateRuntime {
 		return
 	}
 
-	w.writeStateHMACHelpers()
+	w.writeStateIDHelpers()
 	w.writeStateStoreType()
 
 	for _, st := range boundStateTypes(m) {
@@ -249,32 +205,19 @@ func (w *Writer) writeStateRuntime(m *model.App, appPkg string) {
 	}
 }
 
-// writeStateStoreType emits the map that holds live instances.
-// One type serves every state type, instantiated per slot type.
 func (w *Writer) writeStateStoreType() {
 	w.Raw(`
-// stateStoreShards is how many independent maps a stateStore spreads its keys over.
-// Instance ids are random, which distributes them evenly.
-// Each shard carries its own lock.
 const stateStoreShards = 32
 
-// stateStoreSeed randomizes shard selection per process.
+// stateStoreSeed prevents clients from choosing a shard for an id.
 var stateStoreSeed = maphash.MakeSeed()
 
-// stateStoreShard is one lock and the keys that belong to it.
 type stateStoreShard[S any] struct {
 	mu sync.RWMutex
 	m  map[string]*S
 }
 
-// stateStore maps a verified Datapages-Instance id to the live slot it names.
-//
-// Every key is written once and deleted once, and none is read after its deletion.
-// That is the opposite of what sync.Map is tuned for,
-// which is a read-mostly set of stable keys. Sharded plain maps read without a write
-// barrier and delete without leaving a tombstone behind.
-//
-// The zero value is ready to use.
+// stateStore initializes shards lazily, which makes its zero value ready to use.
 type stateStore[S any] struct {
 	shards [stateStoreShards]stateStoreShard[S]
 }
@@ -283,7 +226,6 @@ func (s *stateStore[S]) shard(id string) *stateStoreShard[S] {
 	return &s.shards[maphash.String(stateStoreSeed, id)%stateStoreShards]
 }
 
-// Load returns the slot registered under id, or (nil, false).
 func (s *stateStore[S]) Load(id string) (*S, bool) {
 	sh := s.shard(id)
 	sh.mu.RLock()
@@ -292,7 +234,7 @@ func (s *stateStore[S]) Load(id string) (*S, bool) {
 	return slot, ok
 }
 
-// Store registers slot under id, replacing whatever was there.
+// Store registers slot, replacing an older stream under the same id.
 func (s *stateStore[S]) Store(id string, slot *S) {
 	sh := s.shard(id)
 	sh.mu.Lock()
@@ -303,9 +245,8 @@ func (s *stateStore[S]) Store(id string, slot *S) {
 	sh.mu.Unlock()
 }
 
-// CompareAndDelete removes id only while it still names slot.
-// A stream can allocate a fresh slot under an id whose predecessor is on its way out,
-// and the one leaving must not take the new one with it.
+// CompareAndDelete prevents a closing stream from deleting a replacement slot
+// registered under the same id.
 func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 	sh := s.shard(id)
 	sh.mu.Lock()
@@ -319,84 +260,63 @@ func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
 `)
 }
 
-func (w *Writer) writeStateHMACHelpers() {
+func (w *Writer) writeStateIDHelpers() {
 	w.Raw(`
-// stateInstanceIDHeader is the request/response header used to carry the
-// server-issued per-page-instance identifier.
 const stateInstanceIDHeader = "Datapages-Instance"
 
-// stateRetryHeader signals the client to reconnect before retrying an
-// action that was rejected because no live instance was found.
+// stateRetryHeader tells the generated client that no state slot exists and
+// that it must reconnect.
 const stateRetryHeader = "Datapages-Retry"
 
-// stateRetryReconnect is the only value currently emitted on stateRetryHeader.
 const stateRetryReconnect = "reconnect"
 
-// stateInstanceIDSep separates payload and signature in a Datapages-Instance value.
-// It must not appear in the base64url alphabet, which is what lets
-// verifyStateInstanceID cut the value at its first occurrence.
-const stateInstanceIDSep = '~'
+// stateInstanceIDLen is the unpadded base64url length of 16 bytes.
+const stateInstanceIDLen = 22
 
-// stateInstanceIDTag and the tag stateRouteKey writes name what each MAC is for.
-// One key, two derivations: without a tag of its own on each,
-// a value computed for one of them is a value the other would accept.
-var stateInstanceIDTag = []byte("datapages-instance\x00")
-
-// signStateInstanceID produces an HMAC-signed Datapages-Instance value.
-// The payload is 16 random bytes; the output is:
-// base64url(payload) + "~" + base64url(hmacSHA256(tag, payload)).
-func (s *Server) signStateInstanceID() (string, error) {
-	if s.stateConf == nil {
-		return "", errors.New("state runtime not configured")
-	}
-	var payload [16]byte
-	if _, err := rand.Read(payload[:]); err != nil {
+// newStateInstanceID returns 128 random bits as unpadded base64url.
+//
+// The id is an unsigned bearer credential. Signing would prove only that a
+// server issued it. It would not make another tab's random id harder to guess
+// or stop clients from opening streams to consume the instance limit.
+// State is created only when a stream presents an id.
+//
+// Unsigned ids require no key shared between servers. A load balancer may
+// route the page GET and stream to different servers. The stream's server
+// allocates the state.
+func newStateInstanceID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
 	}
-	mac := hmac.New(sha256.New, s.stateConf.HMACKey)
-	mac.Write(stateInstanceIDTag)
-	mac.Write(payload[:])
-	return base64.RawURLEncoding.EncodeToString(payload[:]) +
-		string(stateInstanceIDSep) +
-		base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+	return base64.RawURLEncoding.EncodeToString(b[:]), nil
 }
 
-// verifyStateInstanceID returns true when the supplied Datapages-Instance
-// value is well-formed and signed by the server's HMAC key.
-func (s *Server) verifyStateInstanceID(id string) bool {
-	if s.stateConf == nil || id == "" {
+// wellFormedStateInstanceID accepts exactly [stateInstanceIDLen] base64url characters.
+// This bounds client-chosen map keys and permits verbatim use in
+// the page's JavaScript string.
+func wellFormedStateInstanceID(id string) bool {
+	if len(id) != stateInstanceIDLen {
 		return false
 	}
-	sep := strings.IndexByte(id, stateInstanceIDSep)
-	if sep <= 0 || sep == len(id)-1 {
-		return false
+	for _, c := range []byte(id) {
+		switch {
+		case 'A' <= c && c <= 'Z', 'a' <= c && c <= 'z', '0' <= c && c <= '9':
+		case c == '-', c == '_':
+		default:
+			return false
+		}
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(id[:sep])
-	if err != nil {
-		return false
-	}
-	sig, err := base64.RawURLEncoding.DecodeString(id[sep+1:])
-	if err != nil {
-		return false
-	}
-	mac := hmac.New(sha256.New, s.stateConf.HMACKey)
-	mac.Write(stateInstanceIDTag)
-	mac.Write(payload)
-	return hmac.Equal(mac.Sum(nil), sig)
+	return true
 }
 
-// stateRouteKey derives the value that names a tab in message broker subjects.
-// Subjects travel further than a request does: into broker logs,
-// stream storage, traces and metrics. The Datapages-Instance id itself
-// stays out of them, since presenting it is what claims a tab's state.
-// Knowing the routing key only lets a dispatcher address that tab.
-//
-// Callers must verify the id first.
-func (s *Server) stateRouteKey(id string) string {
-	mac := hmac.New(sha256.New, s.stateConf.HMACKey)
-	mac.Write([]byte("datapages-route\x00"))
-	mac.Write([]byte(id))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)[:16])
+// stateRouteKey keeps the bearer instance id out of broker subjects, which may
+// appear in logs, stream storage, traces and metrics. It returns the first 16
+// bytes of SHA-256 as unpadded base64url. The result can address the tab but
+// cannot authorize state access. Its keyless derivation is stable across
+// servers and process restarts.
+func stateRouteKey(id string) string {
+	sum := sha256.Sum256([]byte(id))
+	return base64.RawURLEncoding.EncodeToString(sum[:16])
 }
 `)
 }
@@ -406,26 +326,17 @@ func (w *Writer) writeStateSlot(st *model.StateType, appPkg string) {
 	stateType := st.TypeName
 
 	w.Raw("\n")
-	w.Linef(0, "// %s holds one instance of %s.", slot, stateType)
-	w.Line(0, "// It is allocated on the stream connect, before the stream opens,")
-	w.Line(0, "// and dropped when that stream closes.")
-	w.Line(0, "// An instance lives exactly as long as the stream that created it and")
-	w.Line(0, "// is never reused: a client that reconnects gets a new one.")
+	w.Linef(0, "// %s belongs to one stream and is never reused.", slot)
+	w.Line(0, "// A reconnect allocates a new slot and state value.")
 	w.Linef(0, "type %s struct {", slot)
 	w.Linef(1, "state *%s.%s", appPkg, stateType)
 	w.Line(1, "mu    sync.Mutex // serializes all stateful handler calls on this instance")
-	w.Line(1, "dead  bool       // true once the stream closed and the state was dropped")
+	w.Line(1, "dead  bool")
 	w.Line(0, "}")
 
 	w.writeStateMethods(st, appPkg)
 }
 
-// writeStateMethods emits the allocate/lookup/release methods of a state type.
-//   - allocate<T>: called by the stream handler before the stream opens;
-//     allocates the state and registers the slot.
-//   - lookup<T>:   called by actions; returns the slot or (nil, false).
-//   - release<T>:  called when the stream closes, and by the deferred release
-//     of a stream that never opened; drops the state at once.
 func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	slot := stateSlotTypeName(st)
 	instances := stateMapName(st)
@@ -434,12 +345,9 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 
 	w.Raw("\n")
 	w.Linef(0,
-		"// allocate%s allocates a zeroed state value, registers it under id",
+		"// allocate%s reserves capacity and registers state before the stream opens.",
 		suffix)
-	w.Line(0, "// and hands it to the SSE stream that asked for it.")
-	w.Line(0, "// The stream handler calls it before the stream opens and passes the")
-	w.Line(0, "// slot to StreamOpen, the event loop and the close hook.")
-	w.Line(0, "// Returns nil when the server holds as many instances as it may.")
+	w.Line(0, "// It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].")
 	w.Linef(0, "func (s *Server) allocate%s(id string) *%s {", suffix, slot)
 	w.Line(1, "if !s.ReserveStateInstance() {")
 	w.Line(2, "return nil")
@@ -450,24 +358,14 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	w.Line(0, "}")
 
 	w.Raw("\n")
-	w.Linef(0, "// lookup%s returns the registered slot for id, or (nil, false)", suffix)
-	w.Line(0, "// when no live instance matches. The id is not HMAC-verified here;")
-	w.Line(0, "// call verifyStateInstanceID first.")
 	w.Linef(0, "func (s *Server) lookup%s(id string) (*%s, bool) {", suffix, slot)
 	w.Linef(1, "return s.%s.Load(id)", instances)
 	w.Line(0, "}")
 
 	w.Raw("\n")
-	w.Linef(0, "// release%s drops the slot's state the moment its stream closes.", suffix)
-	w.Line(0, "// Nothing of the instance outlives the stream: a client that")
-	w.Line(0, "// reconnects opens a new stream and gets a freshly allocated state.")
-	w.Line(0, "//")
-	w.Line(0, "// The caller passes the slot it allocated rather than the id alone.")
-	w.Line(0, "// A tab can hold two streams at once while the server still tears the")
-	w.Line(0, "// older one down, and the second registers its own slot under the same id.")
-	w.Line(0, "// Releasing by id would give back whichever slot the map holds now.")
-	w.Line(0, "//")
-	w.Line(0, "// Calling this twice on one slot releases it once.")
+	w.Linef(0, "// release%s drops state and capacity exactly once.", suffix)
+	w.Line(0, "// Passing slot preserves a replacement registered")
+	w.Line(0, "// under the same id while an older stream closes.")
 	w.Linef(0, "func (s *Server) release%s(id string, slot *%s) {", suffix, slot)
 	w.Line(1, "slot.mu.Lock()")
 	w.Line(1, "if slot.dead {")
@@ -477,8 +375,6 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	w.Line(1, "slot.dead = true")
 	w.Line(1, "slot.state = nil")
 	w.Line(1, "slot.mu.Unlock()")
-	w.Line(1, "// A stream can allocate a fresh slot under this id while this")
-	w.Line(1, "// one is on its way out. Drop only the slot this call owns.")
 	w.Linef(1, "s.%s.CompareAndDelete(id, slot)", instances)
 	w.Line(1, "s.ReleaseStateInstance()")
 	w.Line(0, "}")
