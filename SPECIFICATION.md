@@ -537,7 +537,10 @@ s, err := datapages.NewServer[
 ```
 
 `NewServer` returns an error when an app with stateful pages receives no
-`StateConfig`.
+`StateConfig`. `datapages gen` writes the option into `cmd/server/main.go`
+when it creates that file, reading the key from `STATE_HMAC_KEY` as hex.
+It never rewrites an entry point that already exists, which leaves the option to
+add by hand on a project that became stateful after its first run.
 
 `HMACKey` signs the instance identifier. Key rotation or process restart
 invalidates every live instance; connected clients recover by reloading the

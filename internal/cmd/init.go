@@ -487,9 +487,17 @@ func writeEnvIfMissing(projectDir string, w io.Writer) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("generating session encryption key: %w", err)
 	}
+	// datapages.StateHMACKeyMinLen bytes, the output size of the hash the key
+	// is used with. The scaffolded app takes no state yet; a key is seeded here
+	// because this file is written once and never revisited.
+	stateKey, err := randomHex(32)
+	if err != nil {
+		return false, fmt.Errorf("generating state HMAC key: %w", err)
+	}
 	content := "NATS_URL=nats://localhost:4222\n" +
 		"CSRF_SECRET=" + csrfSecret + "\n" +
-		"SESSION_ENCRYPTION_KEY=" + sessKey + "\n"
+		"SESSION_ENCRYPTION_KEY=" + sessKey + "\n" +
+		"STATE_HMAC_KEY=" + stateKey + "\n"
 	return writeIfMissing(projectDir, ".env", []byte(content), w)
 }
 

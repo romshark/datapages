@@ -744,7 +744,7 @@ func (p PageIndex) OnItemsChanged(
   not retry the action, so unsaved form input is lost.
 - Releases the state when the tab's stream closes, whether or not the page
   declares `StreamClose`. An instance lives exactly as long as its stream,
-	so a transient network blip resets per-tab state. Keep in the state struct only
+  so a transient network blip resets per-tab state. Keep in the state struct only
   what a tab can afford to lose.
 
 **Server configuration**. Stateful apps must opt in via
@@ -766,6 +766,11 @@ The retries follow Datastar's backoff and stop after 10 attempts, about three mi
 Zero selects `DefaultMaxConcurrentInstances` and a negative value removes the cap.
 Each server counts and caps its own instances, so two servers in one process
 share neither the budget nor the state behind it.
+
+`datapages gen` writes this option into `cmd/server/main.go` when it creates
+the entry point, reading the key from `STATE_HMAC_KEY` as hex. An entry point
+that already exists is left alone: a project that becomes stateful later adds
+the option by hand.
 
 **Multi-server deployments**. State lives in process memory, so the load
 balancer must route each client consistently to the same backend (cookie

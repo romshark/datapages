@@ -82,7 +82,7 @@ func TestMainGoAppImportAlias(t *testing.T) {
 			src, err := skeleton.MainGo(
 				"example.com/m/app", tt.appPkg,
 				"example.com/m/app/datapagesgen", "datapagesgen",
-				false, "struct{}", nil,
+				false, false, "struct{}", nil,
 			)
 			require.NoError(t, err)
 			require.Contains(t, string(src), tt.wantLine)
@@ -97,20 +97,25 @@ func TestMainGoAppImportAlias(t *testing.T) {
 func TestMainGoImportsAreKnown(t *testing.T) {
 	t.Parallel()
 
-	for name, hasSession := range map[string]bool{
-		"with a session":    true,
-		"without a session": false,
+	for name, tt := range map[string]struct {
+		hasSession bool
+		hasState   bool
+	}{
+		"plain":           {},
+		"session":         {hasSession: true},
+		"state":           {hasState: true},
+		"session + state": {hasSession: true, hasState: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			sessionData := ""
-			if hasSession {
+			if tt.hasSession {
 				sessionData = "struct{}"
 			}
 			src, err := skeleton.MainGo(
 				"example.com/m/app", "app",
 				"example.com/m/app/datapagesgen", "datapagesgen",
-				true, sessionData, nil,
+				true, tt.hasState, sessionData, nil,
 			)
 			require.NoError(t, err)
 
@@ -129,6 +134,44 @@ func TestMainGoImportsAreKnown(t *testing.T) {
 				}
 				require.Contains(t, known, path,
 					"main.go imports %s, which the alias decision does not know", path)
+			}
+		})
+	}
+}
+
+// TestMainGoWiresStateConfig tests the option the scaffolded entry point
+// carries for an application whose handlers take datapages.State[T].
+//
+// datapages.NewServer refuses to build such a server without
+// datapages.WithStateConfig. An entry point written without it compiles and
+// then exits on its first run, which is a project the scaffold never built.
+func TestMainGoWiresStateConfig(t *testing.T) {
+	t.Parallel()
+
+	for name, hasState := range map[string]bool{
+		"stateful":  true,
+		"stateless": false,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			src, err := skeleton.MainGo(
+				"example.com/m/app", "app",
+				"example.com/m/app/datapagesgen", "datapagesgen",
+				false, hasState, "", nil,
+			)
+			require.NoError(t, err)
+
+			for _, want := range []string{
+				"datapages.WithStateConfig(",
+				`os.Getenv("STATE_HMAC_KEY")`,
+				"withState(&opts)",
+			} {
+				if hasState {
+					require.Contains(t, string(src), want)
+					continue
+				}
+				require.NotContains(t, string(src), want,
+					"a stateless entry point configures the state runtime")
 			}
 		})
 	}

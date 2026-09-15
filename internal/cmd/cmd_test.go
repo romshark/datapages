@@ -526,6 +526,23 @@ func TestLintGen(t *testing.T) {
 			wantOK:    true,
 			checkGen:  checkGenFiles,
 		},
+		// A handler takes datapages.State[T]. NewServer refuses to build a
+		// server for it without WithStateConfig, which the entry point this
+		// writes has to carry or exit on its first run.
+		"stateful": {
+			appGoFile: "stateful.go",
+			wantOK:    true,
+			checkGen: func(t *testing.T, dir string) {
+				t.Helper()
+				checkGenFiles(t, dir)
+				b, err := os.ReadFile(filepath.Join(dir, "cmd/server/main.go"))
+				require.NoError(t, err)
+				require.Contains(t, string(b), "datapages.WithStateConfig(",
+					"the entry point of a stateful app cannot start the server")
+				require.Contains(t, string(b), `os.Getenv("STATE_HMAC_KEY")`,
+					"the entry point reads no key for the state runtime")
+			},
+		},
 		// App type missing. The parser returns no model. Nothing was generated
 		// in this project yet. Stubs are written for the import to resolve.
 		"error no app type": {
