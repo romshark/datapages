@@ -134,7 +134,7 @@ func TestStatefulPageRendersAnonStreamInit(t *testing.T) {
 		page := c.Get(t, "/tabs/")
 		require.Equal(t, http.StatusOK, page.Status)
 		require.Contains(t, page.Body,
-			`data-init="@get('/tabs/_$/anon/')"`,
+			`data-init="@get('/tabs/_$/anon/',{retry:'error'})"`,
 			"the rendered page does not start its anonymous state stream")
 	})
 }

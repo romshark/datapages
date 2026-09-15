@@ -493,6 +493,11 @@ state-id matches the dispatched value receives the event. Rules:
   `datapages.SubjectUser`, other signal-scoped fields, or additional subject
   fields is rejected.
 - Any page with an `OnXXX` for such an event must be stateful.
+- A page handling such an event must not also handle a user-addressed
+  (`datapages.SubjectUser`) or signal-scoped event. A page subscribes once,
+  with one list of subjects, and a subject ending in a tab id cannot share that
+  list with one ending in a user id or a signal value. Plain public events may
+  sit next to it.
 
 **Lifecycle**:
 
@@ -554,7 +559,13 @@ which leaves what per-tab state may take bounded by nothing this server knows
 about: bound it elsewhere, by capping the connections one client may hold.
 
 A stream connect that would exceed the cap receives `503 Service Unavailable`
-with `Retry-After`. Datastar retries the connect on its own.
+with `Retry-After`. The stream init of a stateful page carries `{retry:'error'}` for it.
+Datastar's default policy retries network errors only and would
+leave such a tab without a stream until the visitor reloads.
+`Retry-After` is not an input Datastar reads: its own backoff applies,
+starting at 1s, doubling to a 30s ceiling, over 10 attempts, which spans about
+three minutes. A tab that exhausts them holds a page with no stream, and its
+next stateful action is answered `409`, which reloads the page once.
 Actions of a tab that already holds an instance keep working.
 Nothing in the app is notified, which makes the cap a limit to watch rather than
 one to rely on.

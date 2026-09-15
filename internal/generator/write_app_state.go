@@ -333,10 +333,8 @@ const stateRetryHeader = "Datapages-Retry"
 const stateRetryReconnect = "reconnect"
 
 // stateInstanceIDSep separates payload and signature in a Datapages-Instance value.
-// It must not be "." and must not appear in the base64url alphabet:
-// the identifier is used verbatim as a single message-broker subject token
-// (see the SubjectStateID event routing), and "." would split it in two,
-// breaking single-token wildcard matching.
+// It must not appear in the base64url alphabet, which is what lets
+// verifyStateInstanceID cut the value at its first occurrence.
 const stateInstanceIDSep = '~'
 
 // stateInstanceIDTag and the tag stateRouteKey writes name what each MAC is for.
@@ -423,9 +421,11 @@ func (w *Writer) writeStateSlot(st *model.StateType, appPkg string) {
 }
 
 // writeStateMethods emits the allocate/lookup/release methods of a state type.
-// - allocate<T>: called by StreamOpen; allocates the state, registers slot.
-// - lookup<T>:   called by actions/OnXXX; returns the slot or (nil, false).
-// - release<T>:  called by StreamClose; drops the state at once.
+//   - allocate<T>: called by the stream handler before the stream opens;
+//     allocates the state and registers the slot.
+//   - lookup<T>:   called by actions; returns the slot or (nil, false).
+//   - release<T>:  called when the stream closes, and by the deferred release
+//     of a stream that never opened; drops the state at once.
 func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 	slot := stateSlotTypeName(st)
 	instances := stateMapName(st)
@@ -437,8 +437,9 @@ func (w *Writer) writeStateMethods(st *model.StateType, appPkg string) {
 		"// allocate%s allocates a zeroed state value, registers it under id",
 		suffix)
 	w.Line(0, "// and hands it to the SSE stream that asked for it.")
-	w.Line(0, "// Returns the slot so callers (StreamOpen) can pass the state to the user,")
-	w.Line(0, "// or nil when the server holds as many instances as it may.")
+	w.Line(0, "// The stream handler calls it before the stream opens and passes the")
+	w.Line(0, "// slot to StreamOpen, the event loop and the close hook.")
+	w.Line(0, "// Returns nil when the server holds as many instances as it may.")
 	w.Linef(0, "func (s *Server) allocate%s(id string) *%s {", suffix, slot)
 	w.Line(1, "if !s.ReserveStateInstance() {")
 	w.Line(2, "return nil")

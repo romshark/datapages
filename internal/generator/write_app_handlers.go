@@ -604,6 +604,30 @@ func (w *Writer) writeGenericHeadCall(gh *model.GlobalHead, hasSess bool) {
 	w.Raw(")\n")
 }
 
+// streamInitTail closes the data-init attribute of a page after the quoted
+// stream path: the Datastar option object, when the page needs one, then the
+// closing parenthesis of the call and the closing quote of the attribute.
+//
+// retry is written for a stateful page. Its stream connect is answered 503
+// once the server holds datapages.StateConfig.MaxConcurrentInstances, and the
+// default policy retries network errors only, which leaves a tab refused at
+// the cap with no stream and no way back until the visitor reloads the page.
+// "error" covers a status, which is what lets such a tab reconnect on its own
+// once the server has room again.
+func streamInitTail(openWhenHidden, retry bool) string {
+	var opts []string
+	if openWhenHidden {
+		opts = append(opts, "openWhenHidden:true")
+	}
+	if retry {
+		opts = append(opts, "retry:'error'")
+	}
+	if len(opts) == 0 {
+		return `)"`
+	}
+	return ",{" + strings.Join(opts, ",") + `})"`
+}
+
 func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix bool) {
 	h := p.GET.Handler
 
@@ -693,6 +717,9 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 	if hasStream {
 		hasPrivate := pageHasPrivateEvent(p, w.eventMap)
 		streamPath := routepattern.StreamPath(p.Route)
+		// Only a stateful stream is ever refused for want of capacity.
+		tail := streamInitTail(false, p.State != nil)
+		tailBg := streamInitTail(true, p.State != nil)
 		if hasPrivate && hasSess {
 			if hasAnonStream {
 				// Mixed: authenticated -> "/_$/"; anonymous -> "/_$/anon/"
@@ -703,9 +730,9 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 					w.Line(2, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					w.Line(2, `if sess.UserID() != "" {`)
-					w.Line(3, "_, _ = io.WriteString(w, `_$/')\"`)")
+					w.Linef(3, "_, _ = io.WriteString(w, `_$/'%s`)", tail)
 					w.Line(2, "} else {")
-					w.Line(3, "_, _ = io.WriteString(w, `_$/anon/')\"`)")
+					w.Linef(3, "_, _ = io.WriteString(w, `_$/anon/'%s`)", tail)
 					w.Line(2, "}")
 				} else {
 					w.Line(0, "")
@@ -713,11 +740,11 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 					w.Line(2, `if sess.UserID() != "" {`)
 					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
 					w.Raw(streamPath)
-					w.Raw("')\"`)\n")
+					w.Rawf("'%s`)\n", tail)
 					w.Line(2, "} else {")
 					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
 					w.Raw(streamPath)
-					w.Raw("anon/')\"`)\n")
+					w.Rawf("anon/'%s`)\n", tail)
 					w.Line(2, "}")
 				}
 			} else {
@@ -732,14 +759,14 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 						w.Raw("\t\t\tif ")
 						w.Raw(outputVar(h.OutputEnableBgStream))
 						w.Raw(" {\n")
-						w.Line(4, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+						w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tailBg)
 						w.Line(3, "} else {")
-						w.Line(4, "_, _ = io.WriteString(w, `)\"`)")
+						w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tail)
 						w.Line(3, "}")
 						w.Line(2, "}")
 					} else {
 						w.Line(2, `if sess.UserID() != "" {`)
-						w.Line(3, "_, _ = io.WriteString(w, `_$/')\"`)")
+						w.Linef(3, "_, _ = io.WriteString(w, `_$/'%s`)", tail)
 						w.Line(2, "}")
 					}
 				} else if hasEnableBgStream {
@@ -751,9 +778,9 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 					w.Raw("\t\t\tif ")
 					w.Raw(outputVar(h.OutputEnableBgStream))
 					w.Raw(" {\n")
-					w.Line(4, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+					w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tailBg)
 					w.Line(3, "} else {")
-					w.Line(4, "_, _ = io.WriteString(w, `)\"`)")
+					w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tail)
 					w.Line(3, "}")
 					w.Line(2, "}")
 				} else {
@@ -761,7 +788,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 					w.Line(2, `if sess.UserID() != "" {`)
 					w.Raw("\t\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 					w.Raw(streamPath)
-					w.Raw("')\"`)\n")
+					w.Rawf("'%s`)\n", tail)
 					w.Line(2, "}")
 				}
 			}
@@ -776,12 +803,12 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 					w.Raw("\t\tif ")
 					w.Raw(outputVar(h.OutputEnableBgStream))
 					w.Raw(" {\n")
-					w.Line(3, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+					w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tailBg)
 					w.Line(2, "} else {")
-					w.Line(3, "_, _ = io.WriteString(w, `)\"`)")
+					w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tail)
 					w.Line(2, "}")
 				} else {
-					w.Line(2, "_, _ = io.WriteString(w, `_$/')\"`)")
+					w.Linef(2, "_, _ = io.WriteString(w, `_$/'%s`)", tail)
 				}
 			} else if hasEnableBgStream {
 				w.Line(0, "")
@@ -791,15 +818,15 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 				w.Raw("\t\tif ")
 				w.Raw(outputVar(h.OutputEnableBgStream))
 				w.Raw(" {\n")
-				w.Line(3, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+				w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tailBg)
 				w.Line(2, "} else {")
-				w.Line(3, "_, _ = io.WriteString(w, `)\"`)")
+				w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tail)
 				w.Line(2, "}")
 			} else {
 				w.Line(0, "")
 				w.Raw("\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 				w.Raw(streamPath)
-				w.Raw("')\"`)\n")
+				w.Rawf("'%s`)\n", tail)
 			}
 		}
 	}

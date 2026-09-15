@@ -463,36 +463,40 @@ const StateHMACKeyMinLen = 32
 // [StateConfig.MaxConcurrentInstances].
 const DefaultMaxConcurrentInstances = 10_000
 
-// StateConfig configures the per-page-instance server-side state runtime.
-// Pass it via [WithStateConfig] when at least one handler takes datapages.State[T].
+// StateConfig configures the per-tab state passed to handlers as [State].
+// A server with any handler that takes [State] requires [WithStateConfig].
 type StateConfig struct {
-	// HMACKey signs the Datapages-Instance identifier that rides on
-	// request/response headers. Required; 32 bytes or more.
-	// Rotating the key invalidates all live instances. A client whose
-	// request is rejected reloads the page once and starts a fresh instance;
-	// what it had not sent is lost.
+	// HMACKey signs each Datapages-Instance identifier. The signature lets the
+	// server reject an identifier it did not issue before looking up state.
 	//
-	// Give this purpose a key of its own, 32 random bytes or more. Sharing one key
-	// across subsystems makes the security of each of them the security of all.
+	// It must contain at least [StateHMACKeyMinLen] bytes. Use a dedicated random key.
+	// A weak value of the required length still passes validation.
+	// Sharing the key lets a compromise elsewhere sign valid instance identifiers.
+	//
+	// Changing the key invalidates the identifiers held by open pages.
+	// After a rejected request, the client reloads once and starts with empty state.
+	// Unsent input is lost.
 	HMACKey []byte
 
-	// MaxConcurrentInstances caps how many instances this server holds at the same time,
-	// across all state types. An instance lives exactly as long as its stream.
-	// A stream open beyond the cap is answered 503 with Retry-After.
+	// MaxConcurrentInstances limits the live state instances held by this server
+	// across all state types. A stream allocates one instance before it opens and
+	// releases it when it closes. Each server keeps its own count.
 	//
-	// The budget belongs to the server it is configured on.
-	// Two servers built in one process count and cap their instances independently.
+	// A stream over the limit receives 503 with Retry-After. The generated page
+	// configures Datastar to retry the connection 10 times over about three minutes.
 	//
-	// Zero selects [DefaultMaxConcurrentInstances]. A negative value removes the cap.
+	// Zero selects [DefaultMaxConcurrentInstances].
+	// A negative value disables the limit.
 	MaxConcurrentInstances int
 }
 
-// WithStateConfig enables the per-page-instance server-side state runtime.
-// Required when at least one handler takes datapages.State[T].
+// WithStateConfig enables per-tab state for handlers that take [State].
 //
-// On multi-server deployments the load balancer MUST route requests for a
-// given client consistently to the same backend (sticky sessions),
-// since state lives in process memory.
+// State lives in one server process. In a multi-server deployment, the load balancer
+// must send a page instance's stream and action requests to the same server.
+// The Datapages-Instance request header is a stable routing key for that instance.
+// Otherwise, an action can reach a server that has no state for
+// the instance and make the generated client reload the page.
 func WithStateConfig(conf StateConfig) ServerOption {
 	return func(c *ServerConfig) error {
 		// The bound is the output size of SHA-256, which is what RFC 2104

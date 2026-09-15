@@ -273,10 +273,8 @@ const stateRetryHeader = "Datapages-Retry"
 const stateRetryReconnect = "reconnect"
 
 // stateInstanceIDSep separates payload and signature in a Datapages-Instance value.
-// It must not be "." and must not appear in the base64url alphabet:
-// the identifier is used verbatim as a single message-broker subject token
-// (see the SubjectStateID event routing), and "." would split it in two,
-// breaking single-token wildcard matching.
+// It must not appear in the base64url alphabet, which is what lets
+// verifyStateInstanceID cut the value at its first occurrence.
 const stateInstanceIDSep = '~'
 
 // stateInstanceIDTag and the tag stateRouteKey writes name what each MAC is for.
@@ -418,8 +416,9 @@ type stateSlotStateFilters struct {
 
 // allocateStateFilters allocates a zeroed state value, registers it under id
 // and hands it to the SSE stream that asked for it.
-// Returns the slot so callers (StreamOpen) can pass the state to the user,
-// or nil when the server holds as many instances as it may.
+// The stream handler calls it before the stream opens and passes the
+// slot to StreamOpen, the event loop and the close hook.
+// Returns nil when the server holds as many instances as it may.
 func (s *Server) allocateStateFilters(id string) *stateSlotStateFilters {
 	if !s.ReserveStateInstance() {
 		return nil
@@ -536,7 +535,7 @@ func (s pageFailOpenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/failopen/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/failopen/_$/',{retry:'error'})"`)
 	}
 
 	if err := s.writeHTML(
@@ -630,7 +629,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/_$/',{retry:'error'})"`)
 	}
 
 	if err := s.writeHTML(
@@ -794,7 +793,7 @@ func (s pagePanicOnCloseHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/panicclose/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/panicclose/_$/',{retry:'error'})"`)
 	}
 
 	if err := s.writeHTML(

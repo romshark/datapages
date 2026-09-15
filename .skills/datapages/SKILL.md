@@ -722,8 +722,11 @@ func (p PageIndex) OnItemsChanged(
   subject field on an event type:
   the generator auto-subscribes to `<base>.<state_id>` at stream connect
   so only the originating tab receives the event. Such a field must
-  be the event's only subject field and the subscribing page must be
-  stateful.
+  be the event's only subject field and the subscribing page must be stateful.
+	That page may handle plain public events next to it, but no
+  user-addressed (`datapages.SubjectUser`) or signal-scoped event: a stream
+  subscribes with one list of subjects, and a tab id cannot share it with a
+  user id or a signal value.
 
 **What the generator does for you**:
 
@@ -757,8 +760,10 @@ opts = append(opts, datapages.WithStateConfig(datapages.StateConfig{
 
 `NewServer` returns an error without this option. `MaxConcurrentInstances` caps how
 many instances the server holds at the same time. A stream connect past the cap
-gets `503` and Datastar retries it. Zero selects
-`DefaultMaxConcurrentInstances` and a negative value removes the cap.
+gets `503`. The generated stream init carries `{retry:'error'}`, which is what
+makes Datastar retry it: the default policy covers network errors only.
+The retries follow Datastar's backoff and stop after 10 attempts, about three minutes.
+Zero selects `DefaultMaxConcurrentInstances` and a negative value removes the cap.
 Each server counts and caps its own instances, so two servers in one process
 share neither the budget nor the state behind it.
 
