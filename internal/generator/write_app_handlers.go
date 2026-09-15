@@ -1047,16 +1047,15 @@ func (w *Writer) writePageGETStreamHandler(
 			"context.WithoutCancel(r.Context())")
 	}
 
-	// Stateful page: verify Datapages-Instance header and declare the slot
-	// handle that is captured by the onOpen/onClose/event-loop closures.
+	// Stateful page: verify the Datapages-Instance header and allocate the slot
+	// the onOpen/onClose/event-loop closures capture.
 	if p.State != nil {
 		w.Line(0, "")
 		w.writeVerifyInstanceIDHeader()
-		w.writeStateCapacityCheck(p.State)
+		w.writeStateAllocateOrReject(p)
 		if pageNeedsStateRouteKey(p, w.eventMap) {
 			w.writeStateRouteKeyVar()
 		}
-		w.Linef(1, "var slot *%s", pageStateSlotTypeName(p))
 	}
 
 	// Page constructor.
@@ -1260,8 +1259,6 @@ func (w *Writer) writeEventHandlerCall(
 }
 
 func (w *Writer) writePageStreamOpenHook(p *model.Page) {
-	// Stateful page: always emit an onOpen closure so the slot is
-	// allocated even when the user did not define StreamOpen.
 	if p.State != nil {
 		w.writeStatefulStreamOpenHook(p)
 		return
@@ -1290,55 +1287,24 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 	w.Line(1, "},")
 }
 
-// writeStatefulStreamOpenHook emits the onOpen closure for a stateful page.
-// The closure allocates a fresh slot, stashes it in the outer
-// `slot` variable, and, if the user defined StreamOpen, calls it under the slot mutex.
+// writeStatefulStreamOpenHook emits the onOpen closure for a stateful page,
+// which calls the user's StreamOpen under the slot mutex.
 //
-// Every stream gets its own instance. A client that reconnects under an id it
-// already used is a new stream and starts from a zeroed state.
-//
-// The instance is reserved before the user hook runs, and the close hook that
-// gives it back is wired up only once this one has returned nil. An open that
-// ends any other way therefore releases what it took, here, or nothing ever does.
+// The slot is allocated by the handler before the response opens, not here.
+// See writeStateAllocateOrReject.
 func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
-	suffix := stateSuffix(p.State)
+	if p.StreamOpen == nil {
+		w.Line(1, "nil,")
+		return
+	}
 	w.Line(1, "func(")
 	w.Line(2, "streamID datapages.StreamID,")
 	w.Line(2, "sse *datastar.ServerSentEventGenerator,")
 	w.Line(1, ") error {")
-	w.Linef(2, "slot = s.allocate%s(instanceID)", suffix)
-	w.Line(2, "// A stream that gets no slot never opens: the event loop and the")
-	w.Line(2, "// close hook run only once this hook has returned nil,")
-	w.Line(2, "// which is why neither of them checks again.")
-	w.Line(2, "if slot == nil {")
-	w.Line(3, "return httpserve.ErrStateAtCapacity")
-	w.Line(2, "}")
-	if p.StreamOpen == nil {
-		// Nothing between the allocation and the return can fail,
-		// so there is nothing to give back.
-		w.Line(2, "slot.mu.Lock()")
-		w.Line(2, "defer slot.mu.Unlock()")
-		w.Line(2, "return nil")
-		w.Line(1, "},")
-		return
-	}
-	// The hook the user wrote can return an error or panic. Either way this
-	// stream never opens and never closes, which leaves nothing else to return
-	// the instance. Only this defer does. It runs after the unlock below,
-	// whose mutex the release takes.
-	w.Line(2, "// The close hook is wired up only once this one has returned nil.")
-	w.Line(2, "// An open that ends any other way gives the instance back here,")
-	w.Line(2, "// since nothing else is left to do it.")
-	w.Line(2, "opened := false")
-	w.Line(2, "defer func() {")
-	w.Line(3, "if !opened {")
-	w.Linef(4, "s.release%s(instanceID, slot)", suffix)
-	w.Line(3, "}")
-	w.Line(2, "}()")
 	w.Line(2, "slot.mu.Lock()")
 	w.Line(2, "defer slot.mu.Unlock()")
 	if p.StreamOpen.OutputErr != nil {
-		w.Raw("\t\tif err := ")
+		w.Raw("\t\treturn ")
 	} else {
 		w.Raw("\t\t")
 	}
@@ -1346,15 +1312,10 @@ func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
 		"p", "StreamOpen",
 		handlerInputArgs(p.StreamOpen, false, "dispatchOpen", w.appPkgQual),
 	)
-	if p.StreamOpen.OutputErr != nil {
-		w.Raw("; err != nil {\n")
-		w.Line(3, "return err")
-		w.Line(2, "}")
-	} else {
-		w.Byte('\n')
+	w.Byte('\n')
+	if p.StreamOpen.OutputErr == nil {
+		w.Line(2, "return nil")
 	}
-	w.Line(2, "opened = true")
-	w.Line(2, "return nil")
 	w.Line(1, "},")
 }
 
@@ -1515,11 +1476,10 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	if p.State != nil {
 		w.Line(0, "")
 		w.writeVerifyInstanceIDHeader()
-		w.writeStateCapacityCheck(p.State)
+		w.writeStateAllocateOrReject(p)
 		if pageNeedsStateRouteKey(p, w.eventMap) {
 			w.writeStateRouteKeyVar()
 		}
-		w.Linef(1, "var slot *%s", pageStateSlotTypeName(p))
 	}
 
 	// Page constructor.

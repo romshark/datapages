@@ -557,14 +557,15 @@ func (s pageFailOpenHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
-	if _, live := s.lookupStateFilters(instanceID); !live && !s.HasStateCapacity() {
+	slot := s.allocateStateFilters(instanceID)
+	if slot == nil {
 		w.Header().Set("Retry-After", "5")
 		http.Error(w,
 			http.StatusText(http.StatusServiceUnavailable),
 			http.StatusServiceUnavailable)
 		return
 	}
-	var slot *stateSlotStateFilters
+	defer s.releaseStateFilters(instanceID, slot)
 
 	p := dpapp.PageFailOpen{
 		App: s.app,
@@ -574,29 +575,9 @@ func (s pageFailOpenHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
-			slot = s.allocateStateFilters(instanceID)
-			// A stream that gets no slot never opens: the event loop and the
-			// close hook run only once this hook has returned nil,
-			// which is why neither of them checks again.
-			if slot == nil {
-				return httpserve.ErrStateAtCapacity
-			}
-			// The close hook is wired up only once this one has returned nil.
-			// An open that ends any other way gives the instance back here,
-			// since nothing else is left to do it.
-			opened := false
-			defer func() {
-				if !opened {
-					s.releaseStateFilters(instanceID, slot)
-				}
-			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, streamID, datapages.State[dpapp.StateFilters]{Values: slot.state}); err != nil {
-				return err
-			}
-			opened = true
-			return nil
+			return p.StreamOpen(r, streamID, datapages.State[dpapp.StateFilters]{Values: slot.state})
 		},
 		func(streamID datapages.StreamID) {
 			s.releaseStateFilters(instanceID, slot)
@@ -670,15 +651,16 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
-	if _, live := s.lookupStateFilters(instanceID); !live && !s.HasStateCapacity() {
+	slot := s.allocateStateFilters(instanceID)
+	if slot == nil {
 		w.Header().Set("Retry-After", "5")
 		http.Error(w,
 			http.StatusText(http.StatusServiceUnavailable),
 			http.StatusServiceUnavailable)
 		return
 	}
+	defer s.releaseStateFilters(instanceID, slot)
 	stateID := s.stateRouteKey(instanceID)
-	var slot *stateSlotStateFilters
 
 	p := dpapp.PageIndex{
 		App: s.app,
@@ -688,29 +670,9 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
-			slot = s.allocateStateFilters(instanceID)
-			// A stream that gets no slot never opens: the event loop and the
-			// close hook run only once this hook has returned nil,
-			// which is why neither of them checks again.
-			if slot == nil {
-				return httpserve.ErrStateAtCapacity
-			}
-			// The close hook is wired up only once this one has returned nil.
-			// An open that ends any other way gives the instance back here,
-			// since nothing else is left to do it.
-			opened := false
-			defer func() {
-				if !opened {
-					s.releaseStateFilters(instanceID, slot)
-				}
-			}()
 			slot.mu.Lock()
 			defer slot.mu.Unlock()
-			if err := p.StreamOpen(r, streamID, datapages.State[dpapp.StateFilters]{Values: slot.state}); err != nil {
-				return err
-			}
-			opened = true
-			return nil
+			return p.StreamOpen(r, streamID, datapages.State[dpapp.StateFilters]{Values: slot.state})
 		},
 		func(streamID datapages.StreamID) {
 			s.releaseStateFilters(instanceID, slot)
@@ -853,34 +815,21 @@ func (s pagePanicOnCloseHandlers) GETStream(w http.ResponseWriter, r *http.Reque
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 		return
 	}
-	if _, live := s.lookupStateFilters(instanceID); !live && !s.HasStateCapacity() {
+	slot := s.allocateStateFilters(instanceID)
+	if slot == nil {
 		w.Header().Set("Retry-After", "5")
 		http.Error(w,
 			http.StatusText(http.StatusServiceUnavailable),
 			http.StatusServiceUnavailable)
 		return
 	}
-	var slot *stateSlotStateFilters
+	defer s.releaseStateFilters(instanceID, slot)
 
 	p := dpapp.PagePanicOnClose{
 		App: s.app,
 	}
 	s.handleStreamRequest(w, r, evSubjPagePanicOnClose,
-		func(
-			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator,
-		) error {
-			slot = s.allocateStateFilters(instanceID)
-			// A stream that gets no slot never opens: the event loop and the
-			// close hook run only once this hook has returned nil,
-			// which is why neither of them checks again.
-			if slot == nil {
-				return httpserve.ErrStateAtCapacity
-			}
-			slot.mu.Lock()
-			defer slot.mu.Unlock()
-			return nil
-		},
+		nil,
 		func(streamID datapages.StreamID) {
 			// Both of these run even when the hook below panics.
 			// Deferred calls unwind in reverse, which puts the release after the unlock,

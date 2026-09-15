@@ -115,20 +115,26 @@ func (w *Writer) writeVerifyInstanceIDHeader() {
 	w.Line(1, "}")
 }
 
-// writeStateCapacityCheck emits the capacity check of a stateful stream handler.
-// The stream request commits its status line before the open hook runs,
-// which leaves this as the last point where a full server can say so.
-// An id that already names a live instance skips the check.
-// Core.ReserveStateInstance is what holds the bound in every case.
-func (w *Writer) writeStateCapacityCheck(st *model.StateType) {
-	w.Linef(1, "if _, live := s.lookup%s(instanceID); !live && !s.HasStateCapacity() {",
-		stateSuffix(st))
+// writeStateAllocateOrReject emits the instance allocation of a stateful stream handler.
+// It runs before handleStreamRequest, since that commits the status line
+// the moment it opens the SSE response: a server at capacity has to answer
+// 503 here or not at all, and a client that acts on the open stream finds no
+// instance registered if the allocation waits for the open hook.
+//
+// The release is deferred here as well. handleStreamRequest blocks until the stream ends,
+// and the close hook that normally releases runs only for a stream that opened.
+// Releasing twice releases once.
+func (w *Writer) writeStateAllocateOrReject(p *model.Page) {
+	suffix := stateSuffix(p.State)
+	w.Linef(1, "slot := s.allocate%s(instanceID)", suffix)
+	w.Line(1, "if slot == nil {")
 	w.Line(2, `w.Header().Set("Retry-After", "5")`)
 	w.Line(2, "http.Error(w,")
 	w.Line(3, "http.StatusText(http.StatusServiceUnavailable),")
 	w.Line(3, "http.StatusServiceUnavailable)")
 	w.Line(2, "return")
 	w.Line(1, "}")
+	w.Linef(1, "defer s.release%s(instanceID, slot)", suffix)
 }
 
 // writeStateRouteKeyVar emits the local that names this tab in message broker subjects.
@@ -191,12 +197,6 @@ func stateMapName(st *model.StateType) string {
 // that stateMapName names.
 func stateStoreTypeRef(st *model.StateType) string {
 	return "stateStore[" + stateSlotTypeName(st) + "]"
-}
-
-// pageStateSlotTypeName returns the slot type name for the page's bound state.
-// The page must have State != nil.
-func pageStateSlotTypeName(p *model.Page) string {
-	return stateSlotTypeName(p.State)
 }
 
 // statefulPages returns the subset of pages that bind a state type.

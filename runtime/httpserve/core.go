@@ -324,19 +324,6 @@ func (c *Core) ReserveStateInstance() bool {
 // Generated code calls this when a stream drops its state.
 func (c *Core) ReleaseStateInstance() { c.stateLiveInstances.Add(-1) }
 
-// HasStateCapacity reports whether the budget has room right now. It is a look,
-// not a claim, and callers use it before a stream commits its status line.
-// [Core.ReserveStateInstance] is what actually holds the bound.
-func (c *Core) HasStateCapacity() bool {
-	if c.noStateInstanceLimit() {
-		return true
-	}
-	return c.stateLiveInstances.Load() < int64(c.stateConf.MaxConcurrentInstances)
-}
-
-// ErrStateAtCapacity fails a stream open that finds no free instance.
-var ErrStateAtCapacity = errors.New("state instance limit reached")
-
 // AssetsFS is the file system static files are served from, nil when unset.
 func (c *Core) AssetsFS() http.FileSystem { return c.assetsFS }
 

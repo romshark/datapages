@@ -594,16 +594,13 @@ func TestStateBudget(t *testing.T) {
 			}, "")
 
 			for i := range tc.max {
-				require.True(t, c.HasStateCapacity(), "no room reported at %d", i)
 				require.True(t, c.ReserveStateInstance(), "refused at %d", i)
 			}
 
-			require.False(t, c.HasStateCapacity(), "room reported at the cap")
 			require.False(t, c.ReserveStateInstance(), "served past the cap")
 
 			// A refused reservation must not consume budget of its own.
 			c.ReleaseStateInstance()
-			require.True(t, c.HasStateCapacity(), "one release freed nothing")
 			require.True(t, c.ReserveStateInstance(), "refused after a release")
 		})
 	}
@@ -616,7 +613,6 @@ func TestStateBudgetUnlimited(t *testing.T) {
 		State: &datapages.StateConfig{MaxConcurrentInstances: -1},
 	}, "")
 	for i := range 1000 {
-		require.True(t, c.HasStateCapacity(), "no room reported at %d", i)
 		require.True(t, c.ReserveStateInstance(), "refused at %d", i)
 	}
 }
