@@ -2091,9 +2091,11 @@ func TestParse_State(t *testing.T) {
 	requireParseErrors(t, err /*none*/)
 	require.NotNil(app)
 
-	require.Len(app.States, 2)
+	require.Len(app.States, 3)
 	require.Contains(app.States, "StateIndex")
 	require.Contains(app.States, "TabContext")
+	// Exportedness is the first rune's case, not the first byte's range.
+	require.Contains(app.States, "Übersicht")
 
 	// PageIndex
 	pi := app.PageIndex
@@ -2124,6 +2126,12 @@ func TestParse_State(t *testing.T) {
 	require.NotNil(pb)
 	require.NotNil(pb.State)
 	require.Equal("TabContext", pb.State.TypeName)
+
+	// PageUmlaut binds the state type whose name starts outside A-Z.
+	pu := findPage(app, "PageUmlaut")
+	require.NotNil(pu)
+	require.NotNil(pu.State)
+	require.Equal("Übersicht", pu.State.TypeName)
 
 	// App-level action takes state.
 	require.Len(app.Actions, 1)

@@ -2578,7 +2578,7 @@ func registerStateType(ctx *parseCtx, name string) error {
 			return nil
 		}
 	}
-	if name == "" || name[0] < 'A' || name[0] > 'Z' {
+	if !token.IsExported(name) {
 		return fmt.Errorf("state type %q must be exported", name)
 	}
 	ts, ok := ctx.typeSpecByName[name]

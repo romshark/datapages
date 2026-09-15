@@ -38,6 +38,15 @@ type TabContext struct {
 	Started bool
 }
 
+// Übersicht is the per-instance state of PageUmlaut.
+//
+// Go exports an identifier whose first rune is upper case, which is not the
+// same as its first byte sitting in A-Z. A check by byte range refuses this
+// type as unexported.
+type Übersicht struct {
+	Zeilen int
+}
+
 type Base struct{ App *App }
 
 func (Base) StreamOpen(
@@ -97,4 +106,20 @@ type PageBase struct {
 
 func (PageBase) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
+}
+
+// PageUmlaut is /umlaut
+type PageUmlaut struct{ App *App }
+
+func (PageUmlaut) GET(r *http.Request) (body datapages.Component, err error) {
+	return nil, nil
+}
+
+// POSTScroll is /umlaut/scroll
+func (PageUmlaut) POSTScroll(
+	r *http.Request,
+	state datapages.State[Übersicht],
+) error {
+	state.Values.Zeilen++
+	return nil
 }
