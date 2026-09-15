@@ -485,6 +485,10 @@ type StateConfig struct {
 	// A stream over the limit receives 503 with Retry-After. The generated page
 	// configures Datastar to retry the connection 10 times over about three minutes.
 	//
+	// Reaching the limit does not notify application code. Read one server's live
+	// count with `Server.StateLiveInstances`. Servers built with [EnablePrometheus]
+	// also add their counts to the `datapages_state_instances` process gauge.
+	//
 	// Zero selects [DefaultMaxConcurrentInstances].
 	// A negative value disables the limit.
 	MaxConcurrentInstances int

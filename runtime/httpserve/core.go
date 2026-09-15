@@ -310,19 +310,31 @@ func (c *Core) noStateInstanceLimit() bool {
 // Generated code calls this when a stream allocates its state.
 func (c *Core) ReserveStateInstance() bool {
 	n := c.stateLiveInstances.Add(1)
-	if c.noStateInstanceLimit() {
-		return true
-	}
-	if n > int64(c.stateConf.MaxConcurrentInstances) {
+	if !c.noStateInstanceLimit() && n > int64(c.stateConf.MaxConcurrentInstances) {
 		c.stateLiveInstances.Add(-1)
 		return false
+	}
+	if c.MetricsEnabled() {
+		prom.StateInstanceReserved()
 	}
 	return true
 }
 
 // ReleaseStateInstance gives one instance back to the budget.
 // Generated code calls this when a stream drops its state.
-func (c *Core) ReleaseStateInstance() { c.stateLiveInstances.Add(-1) }
+func (c *Core) ReleaseStateInstance() {
+	c.stateLiveInstances.Add(-1)
+	if c.MetricsEnabled() {
+		prom.StateInstanceReleased()
+	}
+}
+
+// StateLiveInstances is how many per-tab state instances this server holds,
+// across all state types. It is what [datapages.StateConfig.MaxConcurrentInstances] caps.
+//
+// A server built with Prometheus exports the same number as datapages_state_instances.
+// This reads it without one, for an application that reports its own health.
+func (c *Core) StateLiveInstances() int64 { return c.stateLiveInstances.Load() }
 
 // AssetsFS is the file system static files are served from, nil when unset.
 func (c *Core) AssetsFS() http.FileSystem { return c.assetsFS }

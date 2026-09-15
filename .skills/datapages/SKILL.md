@@ -766,6 +766,9 @@ The retries follow Datastar's backoff and stop after 10 attempts, about three mi
 Zero selects `DefaultMaxConcurrentInstances` and a negative value removes the cap.
 Each server counts and caps its own instances, so two servers in one process
 share neither the budget nor the state behind it.
+Nothing in the app is notified when the cap is reached. Watch the live count instead:
+`datapages_state_instances` on a server built with Prometheus,
+and `Server.StateLiveInstances()` on any.
 
 `datapages gen` writes this option into `cmd/server/main.go` when it creates
 the entry point, reading the key from `STATE_HMAC_KEY` as hex. An entry point

@@ -571,7 +571,11 @@ three minutes. A tab that exhausts them holds a page with no stream, and its
 next stateful action is answered `409`, which reloads the page once.
 Actions of a tab that already holds an instance keep working.
 Nothing in the app is notified, which makes the cap a limit to watch rather than
-one to rely on.
+one to rely on. What to watch is the live count: a server built with Prometheus
+exports it as the gauge `datapages_state_instances`, and every server answers
+`Server.StateLiveInstances()`. The cap itself is not exported. It is
+configuration the operator sets, and the gauge, like every other one,
+counts each server of the process that registered metrics.
 
 **Sticky sessions on multi-server deployments**. State lives in process
 memory, so each client's requests must land on the same backend. A load
