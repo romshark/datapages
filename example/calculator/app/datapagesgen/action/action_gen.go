@@ -189,7 +189,7 @@ func (pageIndex_Input) POST(
 	)
 
 	if query.Btn != 0 {
-		btnStr = url.QueryEscape(strconv.FormatInt(int64(query.Btn), 10))
+		btnStr = strconv.FormatInt(int64(query.Btn), 10)
 	}
 	if query.Num != "" {
 		numStr = url.QueryEscape(query.Num)

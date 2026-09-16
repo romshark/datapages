@@ -1,7 +1,0 @@
-services:
-  nats:
-    image: nats:latest
-    ports:
-      - "4222:4222"
-      - "8222:8222"
-    command: ["--jetstream"]

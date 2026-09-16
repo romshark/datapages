@@ -3,16 +3,12 @@
 package datapagesgen
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
 	"strconv"
-	"strings"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
@@ -21,8 +17,6 @@ import (
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
-	"github.com/romshark/datapages/runtime/stream"
-	"github.com/romshark/datapages/runtime/subject"
 
 	dpapp "github.com/romshark/datapages/example/calculator/app"
 	"github.com/romshark/datapages/example/calculator/app/datapagesgen/assets"
@@ -61,23 +55,6 @@ func (s *Server) writeHTML(
 	})
 }
 
-func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request,
-	subjects []string,
-	onOpen func(
-		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
-	) error,
-	onClose func(streamID datapages.StreamID),
-	fn func(
-		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
-		ch <-chan messaging.Message,
-	),
-) {
-	s.streams.Handle(w, r, "", "", subjects, onOpen, onClose, fn)
-}
-
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
@@ -100,7 +77,6 @@ type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
-	streams              *stream.Handler
 	app                  *dpapp.App
 }
 
@@ -154,12 +130,6 @@ func (s *Server) Init(
 			return fmt.Errorf("initializing message broker streams: %w", err)
 		}
 	}
-	s.streams = stream.NewHandler(
-		s.Core, messageBroker, s.messageBrokerMetrics,
-		nil,
-		nil,
-		s.httpErrIntern,
-	)
 
 	setupHandlers(s)
 
@@ -172,25 +142,12 @@ func (s *Server) Init(
 
 const (
 
-	// Public events:
+// Public events:
 
-	EvSubjCalcUpdated = "calc.updated.*"
-)
-
-const (
-	EvPrefixCalcUpdated = "calc.updated."
 )
 
 func MessageBrokerStreamSubjects() []string {
-	return []string{
-		EvSubjCalcUpdated,
-	}
-}
-
-func evSubjPageIndex(subjInstanceID string) []string {
-	return []string{
-		"calc.updated." + subject.Encode(subjInstanceID),
-	}
+	return []string{}
 }
 
 func setupHandlers(s *Server) {
@@ -198,9 +155,6 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
-	s.Mux().HandleFunc(
-		"GET /_$/{$}",
-		pageIndexHandlers{s}.GETStream)
 	s.Mux().HandleFunc(
 		"POST /input/{$}",
 		pageIndexHandlers{s}.POSTInput)
@@ -247,66 +201,12 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	bodySuffix := func(w http.ResponseWriter) {
-
-		_, _ = io.WriteString(w, ` data-init="@get('/_$/')"`)
-	}
-
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, genericHead, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
 	}
-}
-
-func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
-	if !s.CheckDatastarRequest(w, r) {
-		return
-	}
-
-	var subjSignals struct {
-		InstanceID string `json:"instance_id"`
-	}
-	if err := datastar.ReadSignals(r, &subjSignals); err != nil {
-		s.HTTPErrBad(w, "reading signals", err)
-		return
-	}
-	if subjSignals.InstanceID == "" {
-		s.HTTPErrBad(w, "invalid signal",
-			fmt.Errorf("signal %q must not be empty", "instance_id"))
-		return
-	}
-
-	p := dpapp.PageIndex{
-		App: s.app,
-	}
-	s.handleStreamRequest(w, r, evSubjPageIndex(subjSignals.InstanceID),
-		nil,
-		nil,
-		func(
-			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
-		) {
-			defer s.recoverPanic(w, r, sse, "PageIndex stream")
-			var eventCalcUpdated dpapp.EventCalcUpdated
-			for msg := range ch {
-				switch {
-				case strings.HasPrefix(msg.Subject, EvPrefixCalcUpdated):
-					eventCalcUpdated = dpapp.EventCalcUpdated{}
-					if err := json.Unmarshal(msg.Data, &eventCalcUpdated); err != nil {
-						s.LogErr("unmarshaling EventCalcUpdated JSON", err)
-						continue
-					}
-					if err := p.OnCalcUpdated(
-						eventCalcUpdated,
-						dpsse.New(sse),
-					); err != nil {
-						s.LogErr("handling PageIndex.OnCalcUpdated", err)
-					}
-				}
-			}
-		})
 }
 
 func (s pageIndexHandlers) POSTInput(
@@ -317,9 +217,8 @@ func (s pageIndexHandlers) POSTInput(
 	}
 	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
-		InstanceID string `json:"instance_id"`
-		Input      string `json:"input"`
-		Fresh      bool   `json:"fresh"`
+		Input string `json:"input"`
+		Fresh bool   `json:"fresh"`
 	}]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
@@ -342,41 +241,14 @@ func (s pageIndexHandlers) POSTInput(
 	}
 	query.Values.Num = httpread.QueryValue(r.URL.RawQuery, "num")
 
-	dispatchCalcUpdated := dispatcherEventCalcUpdated{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Input")
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageIndex.Input")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTInput(r, dispatchCalcUpdated, query, signals)
+	err := p.POSTInput(r, dpsse.New(sse), query, signals)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageIndex.Input", err)
+		s.httpErrIntern(w, r, sse, "handling action PageIndex.Input", err)
 		return
 	}
-}
-
-type dispatcherEventCalcUpdated struct {
-	s   *Server
-	ctx context.Context
-}
-
-func (d dispatcherEventCalcUpdated) Dispatch(e dpapp.EventCalcUpdated) error {
-	return d.DispatchCtx(d.ctx, e)
-}
-
-func (d dispatcherEventCalcUpdated) DispatchCtx(
-	ctx context.Context, e dpapp.EventCalcUpdated,
-) error {
-	if e.InstanceID == "" {
-		return errors.New("EventCalcUpdated.InstanceID must not be empty")
-	}
-	j, err := json.Marshal(e)
-	if err != nil {
-		return fmt.Errorf("marshaling EventCalcUpdated JSON: %w", err)
-	}
-	subj := "calc.updated." + subject.Encode(string(e.InstanceID))
-	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
-	if err != nil {
-		return fmt.Errorf("publishing subject %q: %w", subj, err)
-	}
-	return nil
 }
