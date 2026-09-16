@@ -24,6 +24,13 @@ type HTMLDocument struct {
 	// It goes before Head, which is the head of the page itself.
 	HeadGeneric, Head datapages.Head
 
+	// WriteHeadPrologue writes into the head between the opening tags and the
+	// Datastar script tag. It is the seam for a script that has to run before
+	// Datastar does, which a deferred module script cannot: the stateful-page
+	// fetch wrapper installs itself here so no request on the page escapes it.
+	// Nil when nothing needs that seam, which writes the head in one piece.
+	WriteHeadPrologue func(w io.Writer) error
+
 	Body            datapages.Component
 	WriteBodyAttrs  func(w http.ResponseWriter)
 	WriteBodySuffix func(w http.ResponseWriter)
@@ -38,8 +45,20 @@ type HTMLDocument struct {
 func (c *Core) WriteHTML(
 	w http.ResponseWriter, r *http.Request, doc HTMLDocument,
 ) error {
-	if _, err := io.WriteString(w, c.htmlPrefix); err != nil {
-		return err
+	if doc.WriteHeadPrologue == nil {
+		if _, err := io.WriteString(w, c.htmlPrefix); err != nil {
+			return err
+		}
+	} else {
+		if _, err := io.WriteString(w, c.htmlHead); err != nil {
+			return err
+		}
+		if err := doc.WriteHeadPrologue(w); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, c.htmlDatastar); err != nil {
+			return err
+		}
 	}
 	if doc.HeadGeneric != nil {
 		if err := doc.HeadGeneric.Render(r.Context(), w); err != nil {

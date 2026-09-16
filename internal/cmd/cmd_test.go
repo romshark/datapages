@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -527,18 +526,34 @@ func TestLintGen(t *testing.T) {
 			wantOK:    true,
 			checkGen:  checkGenFiles,
 		},
-		// App type missing: parser returns nil model, stub package files are generated.
+		// A handler takes datapages.State[T]. Per-tab state has defaults.
+		// The generated entry point needs no state option.
+		"stateful": {
+			appGoFile: "stateful.go",
+			wantOK:    true,
+			checkGen: func(t *testing.T, dir string) {
+				t.Helper()
+				checkGenFiles(t, dir)
+				b, err := os.ReadFile(filepath.Join(dir, "cmd/server/main.go"))
+				require.NoError(t, err)
+				require.NotContains(t, string(b), "WithStateConfig",
+					"the generated entry point contains an unnecessary state option")
+			},
+		},
+		// App type missing. The parser returns no model. Nothing was generated
+		// in this project yet. Stubs are written for the import to resolve.
 		"error no app type": {
 			appGoFile: "invalid.go",
 			wantOK:    false,
 			checkGen:  checkGenPackage,
 		},
-		// App type present but errors in other pages: the parser returns a
-		// partial model, which gen still writes the generated package from.
+		// App type present, other pages broken. The parser returns a partial
+		// model. Nothing is generated from it. The entry point is not written
+		// either. Only stubs appear.
 		"error partial model": {
 			appGoFile: "invalid_with_app.go",
 			wantOK:    false,
-			checkGen:  checkGenFiles,
+			checkGen:  checkGenPackage,
 		},
 		"config yml": {
 			appGoFile: "valid.go",
@@ -785,14 +800,22 @@ func TestGenGoModUpgrade(t *testing.T) {
 	}
 }
 
-// TestGenServeFailingErrorPage serves a request against a generated server
-// whose PageIndex.GET and PageError500.GET both fail.
-// The response must be 500 Internal Server Error.
+// TestGenFailureLeavesGeneratedCode covers what a failed run does to code that
+// was already generated.
 //
-// It runs the request in a separate process: a server that cannot answer this
-// case takes the whole process down with it, not just the request.
-func TestGenServeFailingErrorPage(t *testing.T) {
-	dir := setupProject(t, "failing_error_page.go")
+// The app package breaks after a working run. The parser rejects it and
+// returns a partial model. Generating from it would replace code that builds
+// with code that does not. The user would then read compiler errors in files
+// they do not own instead of their own mistake.
+func TestGenFailureLeavesGeneratedCode(t *testing.T) {
+	// setupProject changes the working directory.
+	// The fixture path is resolved before that.
+	broken, err := filepath.Abs(
+		filepath.Join("testdata", "app", "invalid_with_app.go"),
+	)
+	require.NoError(t, err)
+
+	dir := setupProject(t, "valid.go")
 
 	var stdout, stderr bytes.Buffer
 	code := cmd.Run(
@@ -802,49 +825,66 @@ func TestGenServeFailingErrorPage(t *testing.T) {
 	)
 	require.Zero(t, code, "gen stderr: %s", stderr.String())
 
-	writeFileAt(t, filepath.Join(dir, "probe", "main.go"), `package main
+	genDir := filepath.Join(dir, "app", "datapagesgen")
+	before := hashDir(t, genDir)
 
-import (
-	"fmt"
-	"net/http"
-	"net/http/httptest"
+	// Break the app package the way an edit in progress does.
+	copyTestdata(t, filepath.Join(dir, "app", "app.go"), broken)
 
-	"github.com/romshark/datapages"
-	"github.com/romshark/datapages/modules/messaging/inmem"
+	// The generated code imports datapages. go.mod requires it after the first run.
+	// The second run must claim that version. Otherwise it stops at the
+	// version check and never reads the app package.
+	version := strings.TrimPrefix(readDatapagesVersion(t, dir), "v")
+	require.NotEmpty(t, version, "the first run did not record a version")
 
-	"testproject/app"
-	"testproject/app/datapagesgen"
-)
+	stdout.Reset()
+	stderr.Reset()
+	code = cmd.Run(
+		context.Background(), []string{"datapages", "gen"},
+		nil, &stdout, &stderr,
+		version, "xxxxxxx", "2026-2-23",
+	)
+	require.Equal(t, 1, code, "gen must fail on an app package it cannot parse")
+	require.Contains(t, stderr.String(), "parsing app package",
+		"gen failed for some other reason than the app package")
 
-func main() {
-	s, err := datapages.NewServer[
-		app.App,
-		datapages.DisableSessions,
-		datapages.DisablePrometheus,
-		datapagesgen.Server,
-	](&app.App{}, inmem.New(16))
-	if err != nil {
-		panic(err)
-	}
-	ts := httptest.NewServer(s)
-	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/")
-	if err != nil {
-		panic(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	fmt.Printf("status=%d\n", resp.StatusCode)
+	require.Equal(t, before, hashDir(t, genDir),
+		"a failed run rewrote the generated package")
 }
-`)
 
-	out, err := exec.Command("go", "mod", "tidy").CombinedOutput()
-	require.NoError(t, err, "go mod tidy: %s", out)
+// TestGenFailureWritesStubsWhenNothingGenerated covers the same failure on a
+// project that never generated.
+//
+// There is nothing to lose. The app package imports a package that does not exist yet.
+// Stubs make the import resolve while the errors are fixed.
+// They carry no application code and cannot be wrong.
+func TestGenFailureWritesStubsWhenNothingGenerated(t *testing.T) {
+	dir := setupProject(t, "invalid_with_app.go")
 
-	out, err = exec.Command("go", "run", "./probe").CombinedOutput()
-	require.NoError(t, err, "go run ./probe: %s", out)
-	require.Contains(t, string(out),
-		fmt.Sprintf("status=%d\n", http.StatusInternalServerError),
-		"go run ./probe: %s", out)
+	var stdout, stderr bytes.Buffer
+	code := cmd.Run(
+		context.Background(), []string{"datapages", "gen"},
+		nil, &stdout, &stderr,
+		"0.0.0", "xxxxxxx", "2026-2-23",
+	)
+	require.Equal(t, 1, code, "gen must fail on an app package it cannot parse")
+
+	for _, f := range []string{
+		"app/datapagesgen/app_gen.go",
+		"app/datapagesgen/action/action_gen.go",
+		"app/datapagesgen/href/href_gen.go",
+	} {
+		path := filepath.Join(dir, f)
+		require.FileExists(t, path)
+		b, err := os.ReadFile(path)
+		require.NoError(t, err)
+		require.NotContains(t, string(b), "func ",
+			"%s holds generated application code rather than a stub", f)
+	}
+
+	// The entry point belongs to the user after the first run.
+	// It is never written from a model that does not parse.
+	require.NoFileExists(t, filepath.Join(dir, "cmd", "server", "main.go"))
 }
 
 // TestGenBuild tests that a generated application compiles and runs: gen,

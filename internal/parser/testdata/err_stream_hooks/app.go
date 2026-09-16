@@ -30,7 +30,7 @@ func (PageMissingStreamID) GET(
 	return nil, nil
 }
 
-/* ErrSignatureMissingStreamID */
+/* ErrStreamHookMissingHandle */
 
 func (PageMissingStreamID) StreamOpen(r *http.Request) error {
 	return nil
@@ -45,7 +45,7 @@ func (PageWrongStreamID) GET(
 	return nil, nil
 }
 
-/* ErrSignatureMissingStreamID: streamID string */
+/* ErrStreamHookMissingHandle: streamID string */
 
 func (PageWrongStreamID) StreamOpen(
 	r *http.Request, streamID string,
@@ -222,7 +222,7 @@ func (PageWrongStreamIDType) GET(
 	return nil, nil
 }
 
-/* ErrSignatureMissingStreamID: streamID int */
+/* ErrStreamHookMissingHandle: streamID int */
 
 func (PageWrongStreamIDType) StreamOpen(
 	r *http.Request, streamID int,

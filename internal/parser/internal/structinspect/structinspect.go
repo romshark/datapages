@@ -97,6 +97,25 @@ func EmbeddedFieldPosMap(
 	return out
 }
 
+// EmbeddedFieldTypeExprs returns a map from embedded type name to the
+// type expression written at the embed site. For a generic embed the expression carries
+// the type arguments, e.g. `Base` maps to the expression `Base[StateFoo]`.
+func EmbeddedFieldTypeExprs(st *ast.StructType) map[string]ast.Expr {
+	out := map[string]ast.Expr{}
+	if st == nil || st.Fields == nil {
+		return out
+	}
+	for _, f := range st.Fields.List {
+		if len(f.Names) != 0 {
+			continue
+		}
+		if id := baseIdent(f.Type); id != nil {
+			out[id.Name] = f.Type
+		}
+	}
+	return out
+}
+
 // HasDisallowedNamedFields reports whether a page struct
 // contains any named field besides the single allowed
 // `App *App`. Embedded fields are ignored (validated

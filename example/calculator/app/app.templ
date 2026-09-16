@@ -73,13 +73,12 @@ templ head() {
 	</script>
 }
 
-templ pageCalculator(input string, fresh bool, instanceID string) {
+templ pageCalculator(input string, fresh bool) {
 	<div
 		id="page-calculator"
 		class="card"
 		data-signals:input={ fmt.Sprintf("'%s'", input) }
 		data-signals:fresh={ fmt.Sprintf("%t", fresh) }
-		data-signals:instance_id={ fmt.Sprintf("'%s'", instanceID) }
 		data-on:keydown__window="calcKey(evt)"
 		data-on:copy__window="
 			evt.preventDefault();

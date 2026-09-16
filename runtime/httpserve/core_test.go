@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/romshark/datapages"
@@ -577,6 +578,87 @@ func mustCore(
 	return c
 }
 
+// TestStateBudget covers the per-instance budget the state runtime reserves against.
+// The counter lives on the core,
+// which leaves two servers in one process holding one each.
+func TestStateBudget(t *testing.T) {
+	for name, tc := range map[string]struct {
+		max int
+	}{
+		"one":  {max: 1},
+		"few":  {max: 3},
+		"many": {max: 64},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := mustCore(t, datapages.ServerConfig{
+				State: &datapages.StateConfig{MaxConcurrentInstances: tc.max},
+			}, "")
+
+			for i := range tc.max {
+				require.True(t, c.ReserveStateInstance(), "refused at %d", i)
+			}
+
+			require.False(t, c.ReserveStateInstance(), "served past the cap")
+			require.Equal(t, int64(tc.max), c.StateLiveInstances(),
+				"the count a server without Prometheus reports")
+
+			// A refused reservation must not consume budget of its own.
+			c.ReleaseStateInstance()
+			require.True(t, c.ReserveStateInstance(), "refused after a release")
+		})
+	}
+}
+
+// TestStateBudgetDefault tests the two configurations that select
+// [datapages.DefaultMaxConcurrentInstances]: a server built without
+// [datapages.WithStateConfig], and a [datapages.ServerConfig] assembled
+// without that option, whose limit is left at zero.
+func TestStateBudgetDefault(t *testing.T) {
+	for name, tc := range map[string]struct {
+		state *datapages.StateConfig
+	}{
+		"no config":  {state: nil},
+		"zero limit": {state: &datapages.StateConfig{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := mustCore(t, datapages.ServerConfig{State: tc.state}, "")
+
+			for i := range datapages.DefaultMaxConcurrentInstances {
+				require.True(t, c.ReserveStateInstance(), "refused at %d", i)
+			}
+
+			require.False(t, c.ReserveStateInstance(), "served past the default")
+		})
+	}
+}
+
+// TestStateBudgetUnlimited covers a negative MaxConcurrentInstances,
+// which removes the cap.
+func TestStateBudgetUnlimited(t *testing.T) {
+	c := mustCore(t, datapages.ServerConfig{
+		State: &datapages.StateConfig{MaxConcurrentInstances: -1},
+	}, "")
+	for i := range 1000 {
+		require.True(t, c.ReserveStateInstance(), "refused at %d", i)
+	}
+}
+
+// TestStateBudgetIsPerCore covers two servers in one process.
+// Each holds its own budget, which a package-level counter would not give them.
+func TestStateBudgetIsPerCore(t *testing.T) {
+	cfg := datapages.ServerConfig{
+		State: &datapages.StateConfig{MaxConcurrentInstances: 1},
+	}
+	a, b := mustCore(t, cfg, ""), mustCore(t, cfg, "")
+
+	require.True(t, a.ReserveStateInstance(),
+		"the first core refused its only instance")
+	require.False(t, a.ReserveStateInstance(),
+		"the first core served past its cap")
+	require.True(t, b.ReserveStateInstance(),
+		"the second core was spent by the first")
+}
+
 // BenchmarkServeAsset measures the asset route, which http.FileServer serves
 // through the response wrapper Core.ServeHTTP installs.
 func BenchmarkServeAsset(b *testing.B) {
@@ -606,4 +688,58 @@ func BenchmarkServeAsset(b *testing.B) {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 	}
+}
+
+// TestStateInstancesMetric covers what a server built with Prometheus exports
+// for the budget its state runtime reserves against.
+//
+// A connect past the cap is answered 503 and nothing in the app is notified,
+// which leaves this gauge the only warning an operator gets before the first
+// visitor is turned away.
+func TestStateInstancesMetric(t *testing.T) {
+	const metric = "datapages_state_instances"
+
+	reg := prometheus.NewRegistry()
+	c := mustCore(t, datapages.ServerConfig{
+		Prometheus: &datapages.PrometheusConfig{
+			Host: "localhost:0", Registerer: reg, Gatherer: reg,
+		},
+		State: &datapages.StateConfig{MaxConcurrentInstances: 2},
+	}, "")
+	require.Zero(t, gaugeValue(t, reg, metric), "the gauge starts above zero")
+
+	require.True(t, c.ReserveStateInstance())
+	require.True(t, c.ReserveStateInstance())
+	require.Equal(t, 2.0, gaugeValue(t, reg, metric))
+	require.Equal(t, int64(2), c.StateLiveInstances())
+
+	// A refused reservation counts in neither the budget nor the gauge.
+	require.False(t, c.ReserveStateInstance())
+	require.Equal(t, 2.0, gaugeValue(t, reg, metric),
+		"a refused reservation was counted")
+	require.Equal(t, int64(2), c.StateLiveInstances())
+
+	c.ReleaseStateInstance()
+	require.Equal(t, 1.0, gaugeValue(t, reg, metric))
+	require.Equal(t, int64(1), c.StateLiveInstances())
+
+	// The gauge is package-level and outlives this core.
+	c.ReleaseStateInstance()
+	require.Zero(t, gaugeValue(t, reg, metric))
+}
+
+// gaugeValue reads the value of the named gauge from g.
+func gaugeValue(t *testing.T, g prometheus.Gatherer, name string) float64 {
+	t.Helper()
+	mfs, err := g.Gather()
+	require.NoError(t, err)
+	for _, mf := range mfs {
+		if mf.GetName() != name {
+			continue
+		}
+		require.Len(t, mf.GetMetric(), 1, "%s carries more than one series", name)
+		return mf.GetMetric()[0].GetGauge().GetValue()
+	}
+	t.Fatalf("no metric named %s", name)
+	return 0
 }

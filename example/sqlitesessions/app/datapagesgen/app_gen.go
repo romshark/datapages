@@ -354,7 +354,11 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventSessionClosed JSON", err)
 						continue
 					}
-					if err := p.OnSessionClosed(eventSessionClosed, dpsse.New(sse), sess); err != nil {
+					if err := p.OnSessionClosed(
+						eventSessionClosed,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageIndex.OnSessionClosed", err)
 					}
 				}

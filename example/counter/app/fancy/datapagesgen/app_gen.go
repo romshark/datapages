@@ -277,7 +277,10 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventCounterUpdated JSON", err)
 						continue
 					}
-					if err := p.OnCounterUpdated(eventCounterUpdated, dpsse.New(sse)); err != nil {
+					if err := p.OnCounterUpdated(
+						eventCounterUpdated,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnCounterUpdated", err)
 					}
 				}

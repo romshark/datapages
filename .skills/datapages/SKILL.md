@@ -601,27 +601,24 @@ a page or action route claiming it is rejected.
 
 ### When to use stream hooks
 
-- **Per-tab server-side state.** Store filters, sort order, or view preferences
-  keyed by `streamID`. Event handlers (which don't receive signals) can then look
-  up the current tab's state to render correctly filtered responses. Clean up in
-  `StreamClose`.
-- **CQRS read-model binding.** In a CQRS architecture, actions (commands) dispatch
-  events and event handlers (queries) render the updated UI. The event handler
-  needs context about *which* tab it is rendering for (e.g. which item is being
-  viewed, which filters are active). `StreamOpen` is the place to capture that
-  context — read initial signals, store them alongside the `streamID`, and use them
-  later in event handlers to produce the right fat morph.
-- **HMAC-signed tab identifiers.** Generate an HMAC of the `streamID` in
-  `StreamOpen`, patch it to the client as a signal via `sse.PatchSignals`,
-  and validate it in action handlers. Because only the server knows the HMAC key,
-  clients cannot forge a tab ID for a stream they don't own, which prevents
-  one tab from impersonating another when calling actions.
-- **Resource lifecycle.** Acquire per-stream resources (subscriptions, connections,
-  counters) in `StreamOpen` and release them in `StreamClose`.
+- **Per-tab server-side state.** Declare an exported struct and take
+  `state datapages.State[T]` in `StreamOpen`, actions, and `OnXXX` handlers.
+  The generator allocates one zeroed state per tab, serializes handler calls
+  with a per-instance mutex, and drops the state on `StreamClose`.
+  No manual tab-id signing or map bookkeeping. See Step 10.
+- **CQRS read-model binding.** In a CQRS architecture, actions (commands)
+  dispatch events and event handlers (queries) render the updated UI. The
+  event handler needs context about *which* tab it is rendering for (e.g.
+  which item is being viewed, which filters are active). Capture that context
+  into `state.Values` inside `StreamOpen`, then read it from the event handler
+  via the same `state` parameter.
+- **Resource lifecycle.** Acquire per-stream resources (subscriptions,
+  connections, counters) in `StreamOpen` and release them in `StreamClose`.
 
 ### Signature
 
-Both require `r *http.Request` and `streamID datapages.StreamID`.
+Both require `r *http.Request`, and at least one of
+`streamID datapages.StreamID` or `state datapages.State[T]`.
 Both return `error`, or nothing at all: `error` is the only return value they may declare.
 The `streamID` is a per-process unique identifier for the SSE stream instance.
 It is recognized by its `datapages.StreamID` type, the parameter name is free.
@@ -631,12 +628,13 @@ to clients, as it could leak information about server activity and connection vo
 
 `StreamOpen` runs after the SSE stream is established, before any event handler.
 It additionally accepts these optional parameters:
-`sse datapages.SSE`, `session Session`,
+`sse datapages.SSE`, `session Session`, `state datapages.State[T]`,
 `signals datapages.Signals[struct{...}]`, `datapages.Dispatcher[EventXXX]`.
 
 `StreamClose` runs when the stream closes.
 It additionally accepts these optional parameters:
-`session Session`, `datapages.Dispatcher[EventXXX]`.
+`session Session`, `state datapages.State[T]`,
+`datapages.Dispatcher[EventXXX]`.
 Note: `StreamClose` does **not** accept `sse` or `signals`.
 
 ```go
@@ -668,7 +666,141 @@ func (PageIndex) StreamClose(
 Stream hooks can also be defined on abstract types and embedded in pages,
 following the same pattern as event handlers (see next step).
 
-## Step 10: Share Handlers Across Pages
+## Step 10: Per-Tab Server-Side State (Optional)
+
+When a page needs state that lives across a tab's lifetime but must not leak
+between tabs — filters, cursors, which item is being viewed, a per-tab
+counter — declare any exported struct type and accept
+`state datapages.State[T]` on the handlers that read or write it.
+The struct is reached through the `Values` field, which is a `*T`.
+
+```go
+type IndexState struct {
+    Filter string
+    Cursor int
+}
+
+func (PageIndex) StreamOpen(
+    r *http.Request,
+    streamID datapages.StreamID,
+    state datapages.State[IndexState],
+    signals datapages.Signals[struct {
+        Filter string `json:"filter"`
+    }],
+) error {
+    state.Values.Filter = signals.Values.Filter
+    return nil
+}
+
+// POSTFilter is /filter
+func (p PageIndex) POSTFilter(
+    r *http.Request,
+    sse datapages.SSE,
+    state datapages.State[IndexState],
+    signals datapages.Signals[struct {
+        Filter string `json:"filter"`
+    }],
+) error {
+    state.Values.Filter = signals.Values.Filter
+    return sse.PatchElement(itemList(p.App.filter(state.Values.Filter)))
+}
+
+func (p PageIndex) OnItemsChanged(
+    event EventItemsChanged,
+    sse datapages.SSE,
+    state datapages.State[IndexState],
+) error {
+    return sse.PatchElement(itemList(p.App.filter(state.Values.Filter)))
+}
+```
+
+**Rules**:
+
+- The state type is any exported named struct in the app package.
+- A page (including any embedded abstract types) may reference at most one
+  state type. Conflicts are generator errors.
+- `GET` handlers cannot take `state` (no instance exists at render time).
+- A page that takes `state` gets an SSE stream whether or not it declares
+  `StreamOpen`, `StreamClose`, or an `OnXXX` handler. The stream is what bounds
+  the instance's lifetime: it allocates the slot on connect and releases it on
+  disconnect.
+- Global `*App` actions can take `datapages.State[T]`, but they only succeed when the
+  calling tab is bound to a page that uses that same `T` — otherwise the
+  runtime returns `409 Conflict`. App actions intended to work from every
+  page should remain stateless.
+- `state.Values` must not outlive the handler that received it. The mutex
+  serializes handlers, not a goroutine one of them started: a goroutine holding
+  the pointer races with the tab's later handlers. Copy the fields out instead.
+- A stateful handler may take `stateID string` alongside `datapages.State[T]`.
+  It names the calling tab in message broker subjects. The value is derived
+  from the instance id and grants nothing on its own, which keeps the id
+  out of broker logs and storage. Pair it with a `datapages.SubjectStateID`
+  subject field on an event type:
+  the generator auto-subscribes to `<base>.<state_id>` at stream connect
+  so only the originating tab receives the event. Such a field must
+  be the event's only subject field and the subscribing page must be stateful.
+	That page may handle plain public events next to it, but no
+  user-addressed (`datapages.SubjectUser`) or signal-scoped event: a stream
+  subscribes with one list of subjects, and a tab id cannot share it with a
+  user id or a signal value.
+
+**What the generator does for you**:
+
+- Allocates one zeroed state per tab, never reused by another tab.
+- Mints a 16-byte random instance id on `GET`. The injected script adds it to
+  later Datastar requests through the `Datapages-Instance` header, keeps it in
+  a closure, and removes its own DOM node. It does not write the id to cookies
+  or browser storage.
+- Serializes every handler call on the same instance under a per-instance mutex.
+  A handler needs no lock for the state fields it reads or writes.
+- Returns `409 Conflict` with `Datapages-Retry: reconnect` if an action
+  arrives before the SSE stream opens, or after the tab's state was released.
+  The client shim reloads the page once per document on such a response.
+  The reload reconnects the stream and mints a fresh instance.
+  The action is not retried. Unsaved form input is lost.
+- Releases the state when the tab's stream closes, whether or not the page
+  declares `StreamClose`. An instance lives exactly as long as its stream.
+  A transient network blip resets per-tab state.
+  Keep in the state struct only what a tab can afford to lose.
+
+With the default `GET` return values, hiding a tab closes its stream and releases
+its state. Showing the tab again reloads the page and creates a fresh instance.
+Keep state reconstructible from the URL or signals that `StreamOpen` reads.
+If state must survive while the tab is hidden, return `enableBackgroundStreaming=true`.
+This keeps the stream open and disables the visibility reload.
+Returning only `disableRefreshAfterHidden=true` stops the reload but
+does not keep the stream or its state alive while the tab is hidden.
+
+**Server configuration**. Without `datapages.WithStateConfig`, the server
+allows `datapages.DefaultMaxConcurrentInstances` live instances.
+Set a different limit with:
+
+```go
+opts = append(opts, datapages.WithStateConfig(datapages.StateConfig{
+    MaxConcurrentInstances: 10_000, // 0 takes the default
+}))
+```
+
+A stream connect past the cap gets `503`. The generated stream init carries
+`{retry:'error'}` to make Datastar retry it. The default policy covers network
+errors only. Datastar stops after 10 attempts over about three minutes.
+Zero selects `DefaultMaxConcurrentInstances` and a negative value removes the cap.
+Each server has its own instance count and cap. Servers in one process share
+neither the limit nor the state behind it.
+Nothing in the app is notified when the cap is reached. Watch the live count instead:
+`datapages_state_instances` on a server built with Prometheus,
+and `Server.StateLiveInstances()` on any.
+
+**Multi-server deployments**. State lives in process memory. The load balancer
+must send the stream and the actions of one tab to the same backend.
+Hashing on the `Datapages-Instance` header does that for every tab, signed in or not.
+The page `GET` carries no id and may land on any server.
+The stream connect carries the id and lands on the server selected by its hash.
+That server allocates the state. Hashing on a session or affinity cookie also works.
+Round-robin load balancing is incompatible: an action may reach a server
+without the state and receive `409`.
+
+## Step 11: Share Handlers Across Pages
 
 When multiple pages need the same event handler or action, define it once on an abstract type and embed it. This avoids duplicating handler methods across pages.
 Abstract types are not pages. No `Page` prefix. No route.
@@ -709,7 +841,7 @@ func (p PageChat) OnMessageSent(
 }
 ```
 
-## Step 11: Add Custom Error Pages (Optional)
+## Step 12: Add Custom Error Pages (Optional)
 
 Without these, Datapages serves default error responses. Define custom error pages to match your app's look and feel and provide helpful navigation back to valid pages.
 
@@ -724,7 +856,7 @@ func (PageError404) GET(r *http.Request) (body datapages.Component, err error) {
 
 Same pattern for `PageError500`.
 
-## Step 12: Add Global Head (Optional)
+## Step 13: Add Global Head (Optional)
 
 Adds shared `<head>` content (meta tags, stylesheets, scripts) to every page, so you don't have to repeat it in each page's `head` return value. Pointer receiver on App.
 
@@ -739,7 +871,7 @@ func (*App) Head(
 
 Both parameters are matched by their type, the names and order are free.
 
-## Step 13: Add Error Recovery (Optional)
+## Step 14: Add Error Recovery (Optional)
 
 When a handler returns an error during a Datastar SSE request, a plain HTTP error is invisible to the user - there is no visible feedback, only a console log that normal users never see. `RecoverError` lets you handle this gracefully by patching in an error UI (e.g. a toast notification) over SSE instead. All action handler errors (including the datapages sentinels) are routed through `RecoverError` when defined. Use `errors.Is(err, datapages.ErrBadRequest)` etc. inside `RecoverError` to distinguish error types.
 
@@ -759,7 +891,7 @@ func (*App) RecoverError(
 
 Both parameters are matched by their type, the names and order are free.
 
-## Step 14: Configure the Server Entry Point
+## Step 15: Configure the Server Entry Point
 
 `datapages gen` generates `cmd/server/main.go` on the first run. After that, you own this file - it is not regenerated or overwritten. Edit it to configure dependencies, middleware, and server options.
 
@@ -905,7 +1037,7 @@ s.ListenAndServe(ctx, "localhost:8080")
 s.ListenAndServeTLS(ctx, "localhost:8443", certPath, keyPath)
 ```
 
-## Step 15: Serve Static Files (Optional)
+## Step 16: Serve Static Files (Optional)
 
 If your app needs to serve static assets (CSS, JS, images, fonts), place them in a directory inside your app package (e.g. `app/static/`) and use Go's `embed` package to bundle them into the binary.
 
@@ -951,7 +1083,7 @@ never a hardcoded path, so the prefix stays in one place:
 In an `<a href>` use `href.Asset("style.css")` instead: the linter rejects a
 hardcoded root-relative `href` there.
 
-## Step 16: Generate and Run
+## Step 17: Generate and Run
 
 Build workflow after editing `app.go` or `.templ` files:
 
@@ -975,7 +1107,7 @@ datapages help            # show help for all commands and flags
 datapages help <command>  # show help for a specific command
 ```
 
-## Step 17: Use Generated URL Packages
+## Step 18: Use Generated URL Packages
 
 `datapages gen` produces two packages with type-safe URL builders. **Always use these instead of hardcoding URLs.**
 

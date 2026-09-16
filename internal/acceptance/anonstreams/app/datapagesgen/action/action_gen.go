@@ -168,30 +168,6 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-var PageFeed pageFeed
-
-type pageFeed struct {
-	Tick pageFeed_Tick
-}
-
-type pageFeed_Tick struct{}
-
-// POST references /feed/tick/
-func (pageFeed_Tick) POST(options ...option) string {
-	if len(options) == 0 {
-		return "@post('/feed/tick/')"
-	}
-	var b strings.Builder
-	bl, al := actionexpr.BeforeAfterLen(options)
-	b.Grow(bl + len("@post('/feed/tick/'") + actionexpr.OptionsLen(options) + len(")") + al)
-	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@post('/feed/tick/'")
-	actionexpr.WriteOptions(&b, options)
-	b.WriteByte(')')
-	actionexpr.WriteAfter(&b, options)
-	return b.String()
-}
-
 var PageRooms pageRooms
 
 type pageRooms struct {
@@ -248,6 +224,30 @@ func (pageRooms_Post) POST(options ...option) string {
 	b.Grow(bl + len("@post('/rooms/post/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/rooms/post/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+var PageTabs pageTabs
+
+type pageTabs struct {
+	Bump pageTabs_Bump
+}
+
+type pageTabs_Bump struct{}
+
+// POST references /tabs/bump/
+func (pageTabs_Bump) POST(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/tabs/bump/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/tabs/bump/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/tabs/bump/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)

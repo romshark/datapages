@@ -69,6 +69,10 @@ special methods:
 - `StreamClose`: runs when the page SSE stream closes.
 - `OnXXX`: subscribes to events in the SSE listener.
 
+Any action method, `OnXXX`, `StreamOpen`, or `StreamClose` may also take
+`datapages.State[T]` to opt the page into per-tab server-side state — see
+[Parameter: `datapages.State[T]`](#parameter-datapagesstatet).
+
 `XXX` is just a name placeholder.
 
 A page type is a struct type literal. A `Page*` name bound to anything else,
@@ -241,10 +245,18 @@ Use it to correlate `StreamOpen` and `StreamClose` for the same stream.
 It's intended for internal server-side bookkeeping only and
 should not be exposed to clients.
 
+A stream hook must take `datapages.StreamID`, `datapages.State[T]`, or both.
+Either one is a handle on the stream the hook is about: `StreamID` names the
+stream, `State[T]` is the value that belongs to it. A hook that takes neither
+can only act on the application as a whole and is a generator error. A hook
+that holds per-tab state through `State[T]` therefore needs no `streamID` of
+its own.
+
 ```go
 func (PageIndex) StreamOpen(
 	r *http.Request,
-	streamID datapages.StreamID,
+	streamID datapages.StreamID, // Optional when state is declared
+	state datapages.State[T], // Optional when streamID is declared
 	sse datapages.SSE, // Optional
 	session datapages.Session[Data], // Optional
 	signals datapages.Signals[struct{...}], // Optional
@@ -264,7 +276,8 @@ If it returns an error, datapages logs the error server-side.
 ```go
 func (PageIndex) StreamClose(
 	r *http.Request,
-	streamID datapages.StreamID,
+	streamID datapages.StreamID, // Optional when state is declared
+	state datapages.State[T], // Optional when streamID is declared
 	session datapages.Session[Data], // Optional
 	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
@@ -371,6 +384,248 @@ func (p PageExample) OnSomethingHappened(
 ```
 
 </details>
+
+#### Parameter: `datapages.State[T]`
+
+```go
+state datapages.State[T]
+```
+
+Provides per-page-instance server-side state. A **page instance** corresponds to
+an open browser tab: two tabs on the same page receive independent `T`
+values. The value is reached through the `Values` field, which is a `*T`:
+unlike `Query`, `Signals` and `Path`, which carry a copy of what the request
+said, a handler writes through `State` and the next handler of the same tab
+reads it back. State is held in server memory. Handlers on the same instance are
+serialized by a per-instance mutex, so fields may be read and written without
+additional synchronization inside a handler.
+
+An instance belongs to a tab, not to a user. It is bound to no session and
+survives a sign-out. Treat `State.Values` as scratch space for the tab.
+
+**`State.Values` must not outlive the handler that received it.** The mutex
+serializes handlers, not a goroutine one of them started: a goroutine that
+keeps the pointer races with the tab's later handlers. An alias stored in the
+application or held by a `datapages.Component` that renders later also keeps
+the state alive long after the tab is gone. Copy the fields out instead:
+
+```go
+// Wrong: the tab's value outlives the handler.
+p.App.current = state.Values
+go p.App.refresh(state.Values)
+
+// Right: copy, don't alias.
+filter := state.Values.Filter
+go p.App.refresh(filter)
+```
+
+The serialization guarantee has the same boundary: it covers the handlers of
+one instance, not a goroutine one of them started.
+
+A page opts into state by declaring an exported struct and referencing it via
+`datapages.State[T]` on one or more action methods, `OnXXX` handlers,
+`StreamOpen`, or `StreamClose`. The type may carry any exported name — `StateIndex` and
+`TabContext` are both accepted:
+
+```go
+type StateIndex struct {
+    Filter string
+    Count  int
+}
+
+func (PageIndex) StreamOpen(
+    r *http.Request,
+    state datapages.State[StateIndex],
+) error { /* ... */ }
+
+func (PageIndex) POSTIncrement(
+    r *http.Request,
+    state datapages.State[StateIndex],
+) error {
+    state.Values.Count++
+    return nil
+}
+
+func (PageIndex) OnSomething(
+    event EventSomething,
+    sse datapages.SSE,
+    state datapages.State[StateIndex],
+) error { /* read state.Values.Count, etc. */ }
+```
+
+**Declaration rules**:
+
+- The state type is an exported struct declared at the source package level.
+  Its name is free; the generator derives its runtime symbols from it.
+- The parameter is typed `datapages.State[T]`, where `T` names the struct
+  directly. The type is what makes it a state parameter, as it is for
+  `Query`, `Signals` and `Path`, so the parameter name is free.
+  A type argument that is not a named type of the app package
+  (a pointer, a struct literal, a type from another package)
+  is a generator error.
+- All handlers on a page, including those inherited from embedded abstract
+  pages, must reference the same state type.
+- Abstract (embedded) page types may reference a state type on their own
+  handlers; the binding flows into every concrete page that embeds them.
+- Global `*App` actions may take `datapages.State[T]`. The runtime resolves the slot
+  using the calling tab's `Datapages-Instance` header against the map for
+  `T`; an App action succeeds only when the calling tab is bound to a page
+  that uses the same `T`, and otherwise receives `409 Conflict` with
+  `Datapages-Retry: reconnect`. An App action that must be callable from
+  every page must remain stateless.
+- `GET` handlers must not take `state`: no instance exists at render time.
+- A page that takes `state` gets an SSE stream whether or not it declares
+  `StreamOpen`, `StreamClose`, or an `OnXXX` event handler. The stream is what
+  bounds the instance's lifetime: it allocates the slot on connect and releases
+  it on disconnect.
+
+**Parameter: `stateID string`**. A stateful handler may take `stateID
+string` alongside `datapages.State[T]`. The parameter names the calling tab in message
+broker subjects and is used to dispatch events targeted at that tab (see
+`datapages.SubjectStateID`). `stateID` requires the handler to also take
+`datapages.State[T]`.
+
+The value is the first 16 bytes of the SHA-256 hash of the
+`Datapages-Instance` id, encoded as unpadded base64url.
+It is stable for the tab's lifetime and is not the id itself.
+Subjects reach broker logs, stream storage, traces and metrics,
+and presenting the id is what claims a tab's state.
+Knowing a `stateID` only allows addressing events at that tab.
+
+**Subject field: `datapages.SubjectStateID`**. An event may declare a subject
+field typed `datapages.SubjectStateID` (the field name is free). At SSE stream
+connect the server subscribes to `<base>.<state_id>`. Only the tab whose
+state-id matches the dispatched value receives the event. Rules:
+
+- A `datapages.SubjectStateID` field must not carry a `signal:"..."` tag.
+- It must be the only subject field on the event — mixing with
+  `datapages.SubjectUser`, other signal-scoped fields, or additional subject
+  fields is rejected.
+- Any page with an `OnXXX` for such an event must be stateful.
+- A page handling such an event must not also handle a user-addressed
+  (`datapages.SubjectUser`) or signal-scoped event. A page subscribes once,
+  with one list of subjects, and a subject ending in a tab id cannot share that
+  list with one ending in a user id or a signal value. Plain public events may
+  sit next to it.
+
+**Lifecycle**:
+
+1. On `GET` of a stateful page, the server mints a fresh random identifier,
+   sets it in the `Datapages-Instance` response header, and
+   embeds it in the HTML so the client echoes it on subsequent requests.
+   Nothing is stored for it yet.
+2. The generated client shim attaches `Datapages-Instance` to every
+   subsequent Datastar action request and to the SSE stream connect.
+3. On the stream connect, before the stream is opened, the server checks that
+   the header is 22 characters from the base64url alphabet,
+   allocates a zeroed `*T` (the page's bound state type) and registers
+   the `id -> slot` mapping. The slot is therefore reachable by the time
+   `StreamOpen` runs, and by the time any event handler of that stream runs.
+   When `StreamOpen` declares `state`, that pointer is passed to it.
+4. For stateful action and `OnXXX` calls, the server applies the same header
+   check,
+   looks up the slot, acquires its mutex, and invokes the user handler with `state`.
+   A missing slot (for example, an action fired before the tab connected its stream)
+   yields `409 Conflict` with `Datapages-Retry: reconnect`.
+5. When the stream closes, whether or not the page declares `StreamClose`,
+   the slot drops its reference to the state at once and the instance leaves the map.
+   The garbage collector reclaims the value once nothing else holds it.
+   A reconnect with the same id opens a new stream and allocates a new `*T`.
+   An instance lives exactly as long as the stream that created it and is
+   never reused by another stream.
+
+With the default `GET` return values, hiding a tab closes its stream and
+releases its state. When the tab becomes visible, Datapages reloads the page,
+which creates a new instance with zeroed state. Keep state reconstructible from
+the URL or signals that `StreamOpen` reads. If state must survive while the tab
+is hidden, return `enableBackgroundStreaming=true`; this keeps the stream open
+and disables the visibility reload.
+Returning only `disableRefreshAfterHidden=true` stops the reload but does not keep
+the stream or its state alive while the tab is hidden.
+
+**Configuration**. Without `datapages.WithStateConfig`, a server allows
+`datapages.DefaultMaxConcurrentInstances` live instances. Set a different
+limit with:
+
+```go
+s, err := datapages.NewServer[
+    app.App, datapages.DisableSessions, datapages.DisablePrometheus, datapagesgen.Server,
+](a, msgBroker,
+    datapages.WithStateConfig(datapages.StateConfig{
+        MaxConcurrentInstances: 10_000, // optional, 0 takes the default
+    }),
+)
+```
+
+**The identifier**. The `Datapages-Instance` id is 16 bytes from `crypto/rand`,
+encoded as 22 unpadded base64url characters. It is not signed. Possession of
+the id authorizes access to its state, and 128 bits of randomness make another
+tab's id impractical to guess.
+
+A server accepts any well-formed id, including one it did not mint. The stream
+creates the state on the server it reaches. This permits a load balancer to
+route the page `GET` and the stream to different servers without a shared key.
+A signature would prove only that a server issued the id. It would not stop a
+client from consuming the instance limit because any client can request a
+minted id with `GET`. The shape check bounds the map key to 22 base64url
+characters.
+
+A process restart drops every live instance. A tab whose stream reconnects
+first gets a zeroed state under the same id. A tab whose action arrives first
+is answered `409` and reloads once.
+
+`MaxConcurrentInstances` caps how many instances the server holds at the same
+time, across all state types. The budget belongs to the server it is configured
+on: two servers built in one process count and cap their instances independently.
+A page load plus an SSE connect creates one, which anyone who reaches
+the server can ask for. One client holds no more of them than it holds open streams.
+Size the cap by the memory one state value costs.
+Zero selects `DefaultMaxConcurrentInstances`. A negative value removes the cap,
+which leaves what per-tab state may take bounded by nothing this server knows
+about: bound it elsewhere, by capping the connections one client may hold.
+
+A stream connect that would exceed the cap receives `503 Service Unavailable`
+with `Retry-After`. The stream init of a stateful page carries `{retry:'error'}` for it.
+Datastar's default policy retries network errors only and would
+leave such a tab without a stream until the visitor reloads.
+`Retry-After` is not an input Datastar reads: its own backoff applies,
+starting at 1s, doubling to a 30s ceiling, over 10 attempts, which spans about
+three minutes. A tab that exhausts them holds a page with no stream, and its
+next stateful action is answered `409`, which reloads the page once.
+Actions of a tab that already holds an instance keep working.
+Nothing in the app is notified, which makes the cap a limit to watch rather than
+one to rely on. What to watch is the live count: a server built with Prometheus
+exports it as the gauge `datapages_state_instances`, and every server answers
+`Server.StateLiveInstances()`. The cap itself is not exported. It is
+configuration the operator sets, and the gauge, like every other one,
+counts each server of the process that registered metrics.
+
+**Sticky sessions on multi-server deployments**. State lives in process
+memory. The stream and the actions of one tab must land on the same backend.
+A load balancer that hashes on the `Datapages-Instance` header
+satisfies this for every tab, signed in or not: the page `GET` carries no
+header yet and lands on any server, the stream connect carries one and lands
+on the server the id hashes to, and that server allocates the state. A
+balancer that hashes on a session or affinity cookie also works. A round-robin
+balancer produces frequent `409` rejections followed by reloads.
+
+**Rate limiting**. An instance lives no longer than its stream, which leaves a
+per-client connection limit bounding how many one client can hold. Datapages
+meters nothing beyond the global cap. A per-session cap is `WithMiddleware` on
+the stream route.
+
+**Security**. The instance id arrives in the HTML response and is closed over
+by the inline script that reads it. That script removes itself from the
+document as it runs, which leaves the id in no cookie, in no `localStorage`,
+`sessionStorage` or `IndexedDB`, and in no DOM node a later reader can find.
+Another tab on the same origin cannot observe it. A new well-formed id creates
+only new state when its stream connects. Reaching another tab's state requires
+that tab's 128-bit random id.
+
+That script is inline and runs at parse time, which a module script cannot do
+without missing the requests made before it installs. An application that sets
+a `Content-Security-Policy` needs `script-src 'unsafe-inline'` for it.
+There is no nonce hook.
 
 #### Parameter: `datapages.Signals[struct {...}]`
 

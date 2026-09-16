@@ -313,7 +313,10 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventRenamed JSON", err)
 						continue
 					}
-					if err := p.OnRenamed(eventRenamed, dpsse.New(sse)); err != nil {
+					if err := p.OnRenamed(
+						eventRenamed,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageItem.OnRenamed", err)
 					}
 				}

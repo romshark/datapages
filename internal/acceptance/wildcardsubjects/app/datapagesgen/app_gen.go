@@ -276,7 +276,10 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventNoted JSON", err)
 						continue
 					}
-					if err := p.OnNoted(eventNoted, dpsse.New(sse)); err != nil {
+					if err := p.OnNoted(
+						eventNoted,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnNoted", err)
 					}
 				}

@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -70,12 +71,26 @@ type Core struct {
 	crossOrigin     *http.CrossOriginProtection
 	datastarJSSrc   string
 	htmlPrefix      string
+	htmlHead        string
+	htmlDatastar    string
 	bodySizeLimit   int64
 
 	// lockListen guards the fields [Core.listenAndServe] sets once it binds.
 	lockListen sync.Mutex
 	addr       string
 	enabledTLS bool
+
+	// maxStateInstances is the limit [Core.ReserveStateInstance] enforces.
+	// A server built without [datapages.WithStateConfig] uses
+	// [datapages.DefaultMaxConcurrentInstances]. A negative value disables the limit.
+	// An app without [datapages.State] handlers never consults it.
+	maxStateInstances int
+
+	// stateLiveInstances counts the live per-page-instance states of every state type.
+	// They share the memory and the budget in
+	// [datapages.StateConfig.MaxConcurrentInstances].
+	// Each Core has its own counter. Servers in one process do not share it.
+	stateLiveInstances atomic.Int64
 }
 
 // NewCore returns a core configured by cfg, serving static files under assetsURLPrefix.
@@ -96,6 +111,10 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		logger:          cfg.Logger,
 		httpServer:      cfg.HTTPServer,
 		bodySizeLimit:   cfg.BodySizeLimit,
+	}
+	c.maxStateInstances = datapages.DefaultMaxConcurrentInstances
+	if cfg.State != nil && cfg.State.MaxConcurrentInstances != 0 {
+		c.maxStateInstances = cfg.State.MaxConcurrentInstances
 	}
 	if c.bodySizeLimit <= 0 {
 		c.bodySizeLimit = DefaultBodySizeLimit
@@ -162,8 +181,12 @@ func (c *Core) Build() {
 	if c.datastarJSSrc == "" {
 		c.datastarJSSrc = DefaultDatastarJSSrc
 	}
-	c.htmlPrefix = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="` + html.EscapeString(c.datastarJSSrc) + `"></script>`
+	// The two halves are kept apart as well: a page that must install a script
+	// of its own before Datastar loads writes them around it.
+	c.htmlHead = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>`
+	c.htmlDatastar = "\n\t\t" + `<script type="module" src="` +
+		html.EscapeString(c.datastarJSSrc) + `"></script>`
+	c.htmlPrefix = c.htmlHead + c.htmlDatastar
 
 	if c.httpServer.ErrorLog == nil {
 		c.httpServer.ErrorLog = slog.NewLogLogger(
@@ -269,6 +292,52 @@ func (c *Core) ShutdownCh() <-chan struct{} { return c.shutdownCh }
 
 // HTMLPrefix is the head of a page up to the Datastar script tag.
 func (c *Core) HTMLPrefix() string { return c.htmlPrefix }
+
+// HTMLHead is [Core.HTMLPrefix] up to, but excluding, the Datastar script tag.
+// A page that installs a script before Datastar loads writes this first.
+func (c *Core) HTMLHead() string { return c.htmlHead }
+
+// HTMLDatastarScript is the Datastar script tag [Core.HTMLHead] stops short of.
+// Writing the two in order produces [Core.HTMLPrefix].
+func (c *Core) HTMLDatastarScript() string { return c.htmlDatastar }
+
+// noStateInstanceLimit reports whether MaxConcurrentInstances disables the limit.
+// The counter remains enabled because every release decrements it.
+func (c *Core) noStateInstanceLimit() bool {
+	return c.maxStateInstances < 0
+}
+
+// ReserveStateInstance increments the live instance count unless the server
+// has reached its limit. It reports whether it reserved the instance.
+//
+// Generated code calls this when a stream allocates its state.
+func (c *Core) ReserveStateInstance() bool {
+	n := c.stateLiveInstances.Add(1)
+	if !c.noStateInstanceLimit() && n > int64(c.maxStateInstances) {
+		c.stateLiveInstances.Add(-1)
+		return false
+	}
+	if c.MetricsEnabled() {
+		prom.StateInstanceReserved()
+	}
+	return true
+}
+
+// ReleaseStateInstance gives one instance back to the budget.
+// Generated code calls this when a stream drops its state.
+func (c *Core) ReleaseStateInstance() {
+	c.stateLiveInstances.Add(-1)
+	if c.MetricsEnabled() {
+		prom.StateInstanceReleased()
+	}
+}
+
+// StateLiveInstances is how many per-tab state instances this server holds,
+// across all state types. It is what [datapages.StateConfig.MaxConcurrentInstances] caps.
+//
+// A server built with Prometheus exports the same number as datapages_state_instances.
+// This reads it without one, for an application that reports its own health.
+func (c *Core) StateLiveInstances() int64 { return c.stateLiveInstances.Load() }
 
 // AssetsFS is the file system static files are served from, nil when unset.
 func (c *Core) AssetsFS() http.FileSystem { return c.assetsFS }

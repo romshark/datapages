@@ -36,6 +36,7 @@ func TestAppFixedImportsCoverTheHeader(t *testing.T) {
 		appPkgQual:      appPkgQual,
 	}
 	w.usage.stream = true
+	w.usage.stateRuntime = true
 	w.writeAppHeader("datapagesgen", appPath, true)
 
 	f, err := parser.ParseFile(

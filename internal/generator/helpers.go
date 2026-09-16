@@ -57,6 +57,7 @@ func evSubjConst(e *model.Event) string {
 // evUsesPrefixMatch reports whether the event's concrete subject is only
 // known at runtime. Both subscription building and inbound matching must then
 // go through the subject prefix instead of the wildcard constant.
+// True for private (SubjectUser), signal-scoped and state-id-scoped events.
 func evUsesPrefixMatch(e *model.Event) bool {
 	// Any subject field makes the subscription a pattern: the constant carries
 	// one "*" per field. A received subject carries the values instead,
@@ -110,7 +111,19 @@ func handlerRecvType(owner string) string {
 }
 
 // pageHasStream reports whether the page is served an SSE stream of its own.
+// State counts on its own: the stream allocates the instance on connect and
+// releases it on disconnect. A stateful page therefore needs one even when it
+// declares no hook and handles no event.
 func pageHasStream(p *model.Page) bool {
+	return len(p.EventHandlers) > 0 || p.StreamOpen != nil ||
+		p.StreamClose != nil || p.State != nil
+}
+
+// pageStreamCallsPage returns true if the page's stream handler calls a method
+// on the page value. A stateful page with no hook and no event handler gets a
+// stream purely to bound its instance lifetime and never touches the page,
+// which would leave the constructed value unused.
+func pageStreamCallsPage(p *model.Page) bool {
 	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil
 }
 
@@ -154,6 +167,37 @@ func pageHasPrivateEvent(p *model.Page, eventByName map[string]*model.Event) boo
 func pageHasSignalScopedEvent(p *model.Page, eventByName map[string]*model.Event) bool {
 	for _, eh := range p.EventHandlers {
 		if e, ok := eventByName[eh.EventTypeName]; ok && e.IsSignalScoped() {
+			return true
+		}
+	}
+	return false
+}
+
+// pageHasStateIDScopedEvent returns true if any event handler on the page
+// handles a state-id-scoped event (has a SubjectStateID field).
+func pageHasStateIDScopedEvent(p *model.Page, eventByName map[string]*model.Event) bool {
+	for _, eh := range p.EventHandlers {
+		if e, ok := eventByName[eh.EventTypeName]; ok && e.IsStateIDScoped() {
+			return true
+		}
+	}
+	return false
+}
+
+// pageNeedsStateRouteKey returns true if the page's stream handler has to
+// derive the tab's routing key, either to subscribe or to pass it on to a
+// handler that takes stateID.
+func pageNeedsStateRouteKey(p *model.Page, eventByName map[string]*model.Event) bool {
+	if pageHasStateIDScopedEvent(p, eventByName) {
+		return true
+	}
+	for _, h := range []*model.Handler{p.StreamOpen, p.StreamClose} {
+		if h != nil && h.InputStateID != nil {
+			return true
+		}
+	}
+	for _, eh := range p.EventHandlers {
+		if eh.InputStateID != nil {
 			return true
 		}
 	}
@@ -331,6 +375,9 @@ type appUsage struct {
 	// offlinePage: whether PageOffline is declared (needs the offline module
 	// import and the generated WithOffline option).
 	offlinePage bool
+	// stateRuntime: whether any page (including via embedded abstract pages)
+	// takes datapages.State[T]; enables the per-page-instance state runtime.
+	stateRuntime bool
 	// signalSubjects: subject.Encode is called by any page that builds
 	// a subscription subject from a client-provided signal.
 	signalSubjects bool
@@ -471,6 +518,9 @@ func computeAppUsage(m *model.App) appUsage {
 				u.errSentinels = true
 			}
 		}
+		if p.State != nil {
+			u.stateRuntime = true
+		}
 	}
 	if m.PageError404 != nil && m.PageError404.GET != nil {
 		checkHandler(m.PageError404.GET.Handler)
@@ -608,27 +658,83 @@ func (w *Writer) writePageConstructor(p *model.Page, appPkg string) {
 	w.Raw("{\n")
 	w.Raw("\tApp: s.app,\n")
 	for _, embed := range p.Embeds {
-		w.writeEmbedInit(embed, appPkg, "\t")
+		w.writeEmbedInit(p, embed, appPkg, "\t", nil)
 	}
 	w.Byte('}')
 }
 
 // writeEmbedInit recursively appends an embed field initialization.
-func (w *Writer) writeEmbedInit(ap *model.AbstractPage, appPkg, indent string) {
+func (w *Writer) writeEmbedInit(
+	p *model.Page, ap *model.AbstractPage, appPkg, indent string,
+	parent types.Type,
+) {
 	w.Raw(indent)
 	w.Raw(ap.TypeName)
 	w.Raw(": ")
-	w.Raw(appPkg)
-	w.Byte('.')
-	w.Raw(ap.TypeName)
+	expr, embedded := w.embedLiteralExpr(p, ap, appPkg, parent)
+	w.Raw(expr)
 	w.Raw("{\n")
 	w.Raw(indent)
 	w.Raw("\tApp: s.app,\n")
 	for _, sub := range ap.Embeds {
-		w.writeEmbedInit(sub, appPkg, indent+"\t")
+		w.writeEmbedInit(p, sub, appPkg, indent+"\t", embedded)
 	}
 	w.Raw(indent)
 	w.Raw("},\n")
+}
+
+// embedTypeExpr returns the type to use in the embed's composite literal.
+// A generic abstract page must be instantiated with the type arguments
+// written at the embed site, e.g. "app.Base[app.StateFoo]".
+// embedLiteralExpr returns the composite literal prefix for an embed and
+// whether the field is a pointer.
+//
+// Go lets a struct embed a pointer to another struct. The field type is then
+// "*app.Base", which is not a type a composite literal can be written of: the
+// literal is of the element type and its address is taken.
+func (w *Writer) embedLiteralExpr(
+	p *model.Page, ap *model.AbstractPage, appPkg string, parent types.Type,
+) (expr string, embedded types.Type) {
+	name := appPkg + "." + ap.TypeName
+	var resolved types.Type
+	switch {
+	case parent != nil:
+		// An embed of an embed: its type comes from the parent's, already
+		// instantiated. The Base inside Mid[StateA] is Base[StateA].
+		if t, ok := embedFieldType(parent, ap.TypeName); ok {
+			resolved = t
+		}
+	default:
+		if t, ok := p.EmbedTypes[ap.TypeName]; ok && t.Resolved != nil {
+			resolved = t.Resolved
+		}
+	}
+	if resolved != nil {
+		name = renderTypeIn(w.imports.Qualifier(), model.Type{Resolved: resolved})
+	}
+	if rest, ok := strings.CutPrefix(name, "*"); ok {
+		return "&" + rest, resolved
+	}
+	return name, resolved
+}
+
+// embedFieldType returns the type of the embedded field named name inside t.
+// For a generic parent the field carries the instantiation the parent was
+// given, which is what the composite literal has to name.
+func embedFieldType(t types.Type, name string) (types.Type, bool) {
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	st, ok := t.Underlying().(*types.Struct)
+	if !ok {
+		return nil, false
+	}
+	for f := range st.Fields() {
+		if f.Embedded() && f.Name() == name {
+			return f.Type(), true
+		}
+	}
+	return nil, false
 }
 
 // itoa converts a small non-negative integer to a string without allocation.
@@ -656,6 +762,25 @@ func (w *Writer) writeCallExpr(receiver, method string, args []string) {
 	w.Raw(method)
 	w.Byte('(')
 	w.writeCommaSep(args)
+	w.Byte(')')
+}
+
+// writeMultilineCallExpr writes one argument per line. ind is the indentation
+// of the call expression; arguments are indented one level further.
+func (w *Writer) writeMultilineCallExpr(
+	receiver, method string, args []string, ind int,
+) {
+	w.Raw(receiver)
+	w.Byte('.')
+	w.Raw(method)
+	w.Raw("(\n")
+	argTabs := strings.Repeat("\t", ind+1)
+	for _, arg := range args {
+		w.Raw(argTabs)
+		w.Raw(arg)
+		w.Raw(",\n")
+	}
+	w.Raw(strings.Repeat("\t", ind))
 	w.Byte(')')
 }
 

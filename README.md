@@ -20,8 +20,8 @@ for building dynamic, server-rendered web applications in pure Go.
 
 **Focus on your business logic, generate the boilerplate**
 Datapages parses your app source package and generates all the wiring.
-Routing, sessions and authentication, SSE streams, CSRF protection,
-type-safe URL and action helpers, Prometheus metrics -
+Routing, sessions and authentication, SSE streams, per-tab server-side state,
+CSRF protection, type-safe URL and action helpers, Prometheus metrics -
 so your application code stays clean and takes full advantage of Go's strong
 static typing and high performance.
 
@@ -177,6 +177,52 @@ These top-level keys are supported:
   an absolute path or a `..` segment is rejected.
 - `watch`: optional development server settings (app host, proxy timeout,
   debounce, TLS, compiler flags, logging, custom watchers, etc.)
+
+## Per-tab state
+
+A handler that declares `datapages.State[T]` is given a value that belongs to
+the browser tab the request came from. Two tabs of the same page hold two
+values, and handlers of one tab are serialized against each other, so a handler
+reads and writes its fields without locking:
+
+```go
+// TabFilters is the per-tab state of PageIndex.
+type TabFilters struct {
+	Search string
+	Sort   string
+}
+
+// POSTFilter is /filter
+func (p PageIndex) POSTFilter(
+	r *http.Request,
+	sse datapages.SSE,
+	state datapages.State[TabFilters],
+	signals datapages.Signals[struct {
+		Search string `json:"search"`
+	}],
+) error {
+	state.Values.Search = signals.Values.Search
+	// Read out what is needed; the pointer must not outlive this handler.
+	return sse.PatchElement(results(p.App.Search(state.Values.Search)))
+}
+```
+
+`state.Values` must not outlive the handler that received it. The per-tab mutex
+serializes handlers, not a goroutine one of them started, so a goroutine that
+keeps the pointer races with the tab's later handlers. Storing it in the
+application keeps the state alive after the tab is gone. Copy the fields out instead.
+
+The state lives in server memory for exactly as long as the tab holds its SSE
+stream: a stream that drops takes it, and a reconnect starts from a zeroed value.
+The page load mints a random tab id and returns it in the `Datapages-Instance` header.
+The id is not written to a cookie or browser storage.
+The client shim stores only a reload marker in `sessionStorage`.
+A page that takes state gets that stream whether or not it declares `StreamOpen`,
+`StreamClose` or an `OnXXX` handler. The default instance limit needs no configuration.
+`WithStateConfig` sets a different limit.
+
+See [`datapages.State[T]`](SPECIFICATION.md#parameter-datapagesstatet) for the declaration rules,
+the configuration, and what a client is told when its state is gone.
 
 ## Specification
 

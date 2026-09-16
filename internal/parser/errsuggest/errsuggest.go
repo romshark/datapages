@@ -102,8 +102,9 @@ func Suggest(err error) string {
 	case errors.Is(err, parser.ErrSignatureMissingReq):
 		return "fix: Add `r *http.Request` parameter"
 
-	case errors.Is(err, parser.ErrSignatureMissingStreamID):
-		return "fix: Add `streamID datapages.StreamID` parameter"
+	case errors.Is(err, parser.ErrStreamHookMissingHandle):
+		return "fix: Add `streamID datapages.StreamID` or " +
+			"`state datapages.State[T]` parameter"
 
 	case errors.Is(err, parser.ErrSignatureGETMissingBody):
 		return "fix: Add `body templ.Component` to return values"
@@ -516,6 +517,37 @@ func Suggest(err error) string {
 			"fix: Remove the second datapages.Dispatcher[%s] parameter in %s.%s",
 			d.EventTypeName, d.Recv, d.MethodName,
 		)
+
+	case errors.Is(err, parser.ErrStateTypeArgNotNamed):
+		return "fix: Use a struct the app package declares, not a pointer, " +
+			"an anonymous struct or a type from another package"
+
+	case errors.Is(err, parser.ErrStateParamInvalidType):
+		return "fix: Declare the state type as an exported struct at package level"
+
+	case errors.Is(err, parser.ErrStateOnGET):
+		return "fix: Move the state parameter to an action, an OnXXX handler, " +
+			"StreamOpen or StreamClose"
+
+	case errors.Is(err, parser.ErrStateDuplicate):
+		return "fix: Keep one datapages.State[T] parameter and remove the rest"
+
+	case errors.Is(err, parser.ErrStateConflict):
+		return "fix: Reference one state type from every handler of the page, " +
+			"the handlers of embedded abstract pages included"
+
+	case errors.Is(err, parser.ErrStateAppActionUnbound):
+		return "fix: Bind the state type on a page, " +
+			"or drop the state parameter from the App action"
+
+	case errors.Is(err, parser.ErrStateIDDuplicate):
+		return "fix: Keep one stateID parameter and remove the rest"
+
+	case errors.Is(err, parser.ErrStateIDParamNotString):
+		return "fix: Declare the parameter as `stateID string`"
+
+	case errors.Is(err, parser.ErrStateIDWithoutState):
+		return "fix: Add a `state datapages.State[T]` parameter, or remove stateID"
 	}
 	return ""
 }
@@ -547,7 +579,7 @@ func methodPathSuffix(method string) string {
 
 // actionFuncFromURL derives a likely action package function name from a URL path.
 // Assumes POST (the most common method for form actions).
-// "/submit" → "POSTAppSubmit", "/profile/save" → "POSTPageProfileSave".
+// "/submit" -> "POSTAppSubmit", "/profile/save" -> "POSTPageProfileSave".
 // Returns "" when the URL contains variables or cannot be mapped.
 func actionFuncFromURL(url string) string {
 	// Strip query string.
@@ -566,10 +598,10 @@ func actionFuncFromURL(url string) string {
 	parts := strings.Split(url, "/")
 	switch len(parts) {
 	case 1:
-		// Single segment: app-level action, e.g. "/submit" → "POSTAppSubmit"
+		// Single segment: app-level action, e.g. "/submit" -> "POSTAppSubmit"
 		return "POSTApp" + capitalize(parts[0])
 	case 2:
-		// Two segments: page action, e.g. "/profile/save" → "POSTPageProfileSave"
+		// Two segments: page action, e.g. "/profile/save" -> "POSTPageProfileSave"
 		return "POSTPage" + capitalize(parts[0]) + capitalize(parts[1])
 	default:
 		return ""
@@ -584,7 +616,7 @@ func capitalize(s string) string {
 }
 
 // hrefFuncFromURL derives a likely href package function name from a URL path.
-// "/" → "PageIndex", "/login" → "PageLogin", "/profile/" → "PageProfile".
+// "/" -> "PageIndex", "/login" -> "PageLogin", "/profile/" -> "PageProfile".
 // Returns "" when the URL contains path variables or cannot be mapped.
 func hrefFuncFromURL(url string) string {
 	// Strip query string.
@@ -603,7 +635,7 @@ func hrefFuncFromURL(url string) string {
 	if strings.ContainsAny(url, "{}") {
 		return ""
 	}
-	// Capitalize: "login" → "PageLogin", "myposts" → "PageMyposts"
+	// Capitalize: "login" -> "PageLogin", "myposts" -> "PageMyposts"
 	return "Page" + capitalize(url)
 }
 

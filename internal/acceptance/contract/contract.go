@@ -94,6 +94,12 @@ type Case struct {
 	DispatchAction string
 	DispatchBody   string
 
+	// StateAction is an action that needs the calling tab's state,
+	// and StateActionBody the signals it reads.
+	// Set by cases whose pages hold per-tab state.
+	StateAction     string
+	StateActionBody string
+
 	// OptionedAction is one of the case's action expressions built with every
 	// option the generated package offers, in the order listed by optionKeys.
 	// A template can pass any combination to any action. Every generated
@@ -157,6 +163,7 @@ func Run(t *testing.T, c Case) {
 		"Middleware":                 c.testMiddleware,
 		"PageShell":                  c.testPageShell,
 		"ShutdownClosesStreams":      c.testShutdownClosesStreams,
+		"StateIsReleased":            c.testStateIsReleased,
 		"Stream":                     c.testStream,
 		"StreamRequiresDatastar":     c.testStreamRequiresDatastar,
 		"TrailingSlash":              c.testTrailingSlash,
@@ -820,6 +827,56 @@ func (c Case) testDispatchReachesTheStream(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Error("the dispatched event never reached the stream")
+	}
+}
+
+// testStateIsReleased covers the end of a tab's life.
+//
+// The state a tab holds lives exactly as long as its stream. A stream that
+// drops releases it. Otherwise every tab that ever connected stays in memory.
+func (c Case) testStateIsReleased(t *testing.T) {
+	if c.StateAction == "" {
+		t.Skip("the app holds no per-tab state")
+	}
+	srv := c.server(t)
+
+	_, instance, cancel := c.openStream(t, srv)
+	if instance == "" {
+		cancel()
+		t.Fatal("a stateful page load minted no instance id")
+	}
+
+	method, target := parseAction(t, c.StateAction)
+	resp := sendAs(t, srv, method, target, c.StateActionBody, instance)
+	status := resp.StatusCode
+	_ = resp.Body.Close()
+	if status != http.StatusOK {
+		cancel()
+		t.Fatalf("%s %s: status = %d while the stream is open",
+			method, target, status)
+	}
+
+	cancel()
+
+	// The release is prompt, but the server learns of the drop on its own
+	// schedule, which is what this polls for rather than sleeps out.
+	var after *http.Response
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		after = sendAs(t, srv, method, target, c.StateActionBody, instance)
+		if after.StatusCode == http.StatusConflict || time.Now().After(deadline) {
+			break
+		}
+		_ = after.Body.Close()
+		time.Sleep(20 * time.Millisecond)
+	}
+	defer func() { _ = after.Body.Close() }()
+	if after.StatusCode != http.StatusConflict {
+		t.Errorf("%s %s after the stream closed: status = %d, want %d",
+			method, target, after.StatusCode, http.StatusConflict)
+	}
+	if retry := after.Header.Get("Datapages-Retry"); retry != "reconnect" {
+		t.Errorf("Datapages-Retry = %q, want %q", retry, "reconnect")
 	}
 }
 

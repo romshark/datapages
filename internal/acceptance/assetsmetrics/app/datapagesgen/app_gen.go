@@ -197,8 +197,8 @@ var evSubjPageIndex = []string{
 
 var evSubjPageQuiet = []string{}
 
-// brokerSubjectKind folds subjects that carry a value back into the event name.
-// A metric labelled with the raw subject would carry one value per subject value.
+// brokerSubjectKind folds subjects that carry a user or a tab back into the event name.
+// A metric labelled with the raw subject would carry one value per user or per tab.
 func brokerSubjectKind(subject string) string {
 	switch {
 	case subject == EvSubjAnnounced:
@@ -314,7 +314,10 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventAnnounced JSON", err)
 						continue
 					}
-					if err := p.OnAnnounced(eventAnnounced, dpsse.New(sse)); err != nil {
+					if err := p.OnAnnounced(
+						eventAnnounced,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnAnnounced", err)
 					}
 				}
