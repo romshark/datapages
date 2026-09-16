@@ -14,7 +14,6 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/example/calculator/app"
 	"github.com/romshark/datapages/example/calculator/app/datapagesgen"
-	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
@@ -29,10 +28,9 @@ func main() {
 	addr := ln.Addr().String()
 	_ = ln.Close()
 
-	// In desktop app mode we don't need neither the HMAC secret,
-	// nor the NATS message broker, since it's a single-user system.
-	a := app.NewApp([32]byte{})
-	msgBroker := inmem.New(messaging.DefaultBrokerChanBuffer)
+	a := app.NewApp()
+	// The application dispatches no events. NewServer still requires a broker.
+	msgBroker := inmem.New(0)
 	s, err := datapages.NewServer[
 		app.App,
 		datapages.DisableSessions,

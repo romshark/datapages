@@ -18,12 +18,10 @@ https://github.com/user-attachments/assets/bac07de1-bce6-43fe-af32-41a10c2e0add
 ## Run
 
 ```sh
-HMAC_SECRET_KEY=my-secret go run ./cmd/server
+go run ./cmd/server
 ```
 
 Then open http://localhost:8080/.
-
-The `HMAC_SECRET_KEY` defaults to a dev-only value if unset.
 
 ## Develop
 
@@ -42,9 +40,12 @@ Then open http://localhost:7331/.
   (["fat morph"](https://data-star.dev/guide/the_tao_of_datastar#in-morph-we-trust)),
   which isn't a problem thanks to
   [Brotli compression](https://andersmurphy.com/2025/04/15/why-you-should-use-brotli-sse.html).
-- HMAC-signed identifiers securily identify each individual browser tab
-  (or rather the SSE stream that tab opens). Every action handler verifies this
-  signature, preventing one tab from impersonating another.
+- Per-tab state lives in `StateIndex` and `StateItem` and is reached through
+  the `datapages.State[T]` handler parameter. Datapages mints a random
+  instance identifier per page load and sends it in the `Datapages-Instance` header.
+  The server uses the identifier to pass each handler the calling tab's state.
+  The state is allocated when the tab opens its SSE stream and
+  released when that stream closes.
 - All application state is managed by the server and stored on the server
   (see [State in the Right Place](https://data-star.dev/guide/the_tao_of_datastar#state-in-the-right-place)).
 - For simplicity reasons, an in-memory message broker is used since this example
@@ -62,25 +63,24 @@ sequenceDiagram
 
     B->>S: GET /
     activate S
-    S->>B: HTML page<br/>(signals: search, filter, sort)
+    S->>S: Mint random instance id
+    S->>B: HTML page + Datapages-Instance<br/>(signals: search, filter, sort)
     deactivate S
 
-    B->>S: SSE connect<br/>(signals: search, filter, sort)
+    B->>S: SSE connect<br/>(Datapages-Instance, signals: search, filter, sort)
     activate S
+    S->>S: Allocate zeroed StateIndex under the id
     create participant SS as SSE goroutine
-    S->>SS: StreamOpen
-    SS->>SS: Store tab state<br>(streamID → filter/sort)
-    SS->>SS: HMAC-sign streamID
-    SS->>B: patch signal tab_id
+    S->>SS: StreamOpen(state, signals)
+    SS->>SS: state.Values = search / filter / sort
     deactivate S
     activate SS
     Note over SS: kept alive<br/>until disconnect
     SS->>N: Subscribe to EventTodoUpdated
 
     loop Every toggle / edit
-    B->>S: PUT /{id}?toggle=true<br/>(signal: tab_id)
+    B->>S: PUT /{id}?toggle=true
     activate S
-    S->>S: Verify tab_id HMAC
     S->>S: Toggle todo done state
     S->>N: Publish EventTodoUpdated
     S->>B: 200 OK
@@ -88,19 +88,20 @@ sequenceDiagram
 
     N->>SS: Deliver EventTodoUpdated
     activate SS
-    SS->>SS: Look up tab state by streamID
-    SS->>SS: Render filtered todo list
+    SS->>SS: Render todo list from state.Values
     SS->>B: SSE morph patch #todo-list
     deactivate SS
     end
 
     loop Every filter / sort / search change
-    B->>S: POST /filter (SSE action)<br/>(signals: tab_id, filter, sort, search)
+    B->>S: POST /filter (SSE action)<br/>(Datapages-Instance, signals: filter, sort, search)
     activate S
-    S->>S: Verify tab_id, extract streamID
-    S->>S: Update tab state for streamID
+    S->>S: Verify id, look up the tab's StateIndex
+    S->>S: Update state.Values
     S->>S: Render filtered todo list
     S->>B: SSE morph patch #todo-list
     deactivate S
     end
+
+    Note over B,SS: On disconnect the SSE goroutine ends<br/>and the tab's StateIndex is released
 ```

@@ -297,7 +297,10 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventNotice JSON", err)
 						continue
 					}
-					if err := p.OnNotice(eventNotice, dpsse.New(sse)); err != nil {
+					if err := p.OnNotice(
+						eventNotice,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnNotice", err)
 					}
 				case EvSubjAnnouncement:
@@ -306,7 +309,10 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventAnnouncement JSON", err)
 						continue
 					}
-					if err := p.OnAnnouncement(eventAnnouncement, dpsse.New(sse)); err != nil {
+					if err := p.OnAnnouncement(
+						eventAnnouncement,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnAnnouncement", err)
 					}
 				}

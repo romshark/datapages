@@ -154,6 +154,9 @@ func (h *Handler) Handle(
 		if err := h.sessions.NotifyClosed(ctx, sessionKey, func() {
 			once.Do(func() { close(sessionClosed) })
 		}); err != nil {
+			// The open hook already ran. This stream holds whatever it took:
+			// on a stateful page an instance, which only onClose gives back.
+			h.runCloseHook(onClose, streamID)
 			h.onErr(w, r, sse, "setting up session closure watcher", err)
 			return
 		}
@@ -191,19 +194,7 @@ func (h *Handler) Handle(
 	// After fn, not beside sub.Close. fn still delivers what the channel buffered,
 	// and onClose may free what those handlers read.
 	// Here it also makes http.Server.Shutdown wait for the hook.
-	if onClose != nil {
-		func() {
-			defer func() {
-				if v := recover(); v != nil {
-					h.core.Logger().Error("recovered panic while closing the stream",
-						slog.Any("panic", v),
-						slog.Uint64("stream-id", uint64(streamID)),
-						slog.String("stack", string(debug.Stack())))
-				}
-			}()
-			onClose(streamID)
-		}()
-	}
+	h.runCloseHook(onClose, streamID)
 }
 
 // callOnOpen runs the stream open hook and turns a panic in it into a
@@ -219,4 +210,29 @@ func callOnOpen(
 		}
 	}()
 	return onOpen(streamID, sse)
+}
+
+// runCloseHook calls onClose, which may be nil. A panic in it is recovered and
+// logged: neither caller can report it, the error path still owes the client a
+// response and the normal path has already written one.
+func (h *Handler) runCloseHook(
+	onClose func(streamID datapages.StreamID), streamID datapages.StreamID,
+) {
+	if onClose == nil {
+		return
+	}
+	defer h.recoverPanic(streamID)
+	onClose(streamID)
+}
+
+// recoverPanic swallows a panic and reports it against the stream it happened on.
+func (h *Handler) recoverPanic(streamID datapages.StreamID) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	h.core.Logger().Error("recovered panic while closing a stream",
+		slog.Any("panic", v),
+		slog.Uint64("stream-id", uint64(streamID)),
+		slog.String("stack", string(debug.Stack())))
 }

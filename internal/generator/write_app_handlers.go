@@ -12,9 +12,18 @@ import (
 	"github.com/romshark/datapages/runtime/htmlattr"
 )
 
+// stateArgExpr returns the expression a stateful handler receives its state as.
+// The slot holds the checked-out *T, the handler takes datapages.State[T].
+// The wrapper is that same pointer: nothing is copied.
+func stateArgExpr(appPkgQual, stateTypeName string) string {
+	return "datapages.State[" + appPkgQual + "." + stateTypeName +
+		"]{Values: slot.state}"
+}
+
 // handlerArgVar maps an InputKind constant to the local variable name
 // used in generated code. skipSSE causes SSE to be omitted (for app-level actions).
-func handlerArgVar(kind string, skipSSE bool) string {
+// stateExpr is what a state input is passed as, built by stateArgExpr.
+func handlerArgVar(kind string, skipSSE bool, stateExpr string) string {
 	switch kind {
 	case model.InputKindRequest:
 		return "r"
@@ -38,6 +47,13 @@ func handlerArgVar(kind string, skipSSE bool) string {
 		return "dispatch"
 	case model.InputKindEvent:
 		return "e"
+	case model.InputKindState:
+		// The generated wrapper holds the checked-out *T as slot.state.
+		return stateExpr
+	case model.InputKindStateID:
+		// The derived routing key of the tab, not the instance id.
+		// See writeStateRouteKeyVar.
+		return "stateID"
 	default:
 		return ""
 	}
@@ -145,8 +161,12 @@ func handlerOutputVars(h *model.Handler) []string {
 // in the order defined by h.OrderedInputs. dispatchPrefix names the dispatch
 // closures the call passes, see dispatchVarName.
 func handlerInputArgs(
-	h *model.Handler, skipSSE bool, dispatchPrefix string,
+	h *model.Handler, skipSSE bool, dispatchPrefix, appPkgQual string,
 ) []string {
+	stateExpr := ""
+	if h.InputState != nil {
+		stateExpr = stateArgExpr(appPkgQual, h.InputState.StateTypeName)
+	}
 	if len(h.OrderedInputs) > 0 {
 		args := make([]string, 0, len(h.OrderedInputs))
 		for _, inp := range h.OrderedInputs {
@@ -154,7 +174,7 @@ func handlerInputArgs(
 				args = append(args, dispatchArgVar(h, inp, dispatchPrefix))
 				continue
 			}
-			if v := handlerArgVar(inp.Kind, skipSSE); v != "" {
+			if v := handlerArgVar(inp.Kind, skipSSE, stateExpr); v != "" {
 				args = append(args, v)
 			}
 		}
@@ -201,11 +221,17 @@ func dispatchArgVar(h *model.Handler, inp *model.Input, prefix string) string {
 
 // eventHandlerInputArgs builds the argument list for an event handler call
 // in the order defined by eh.OrderedInputs.
-func eventHandlerInputArgs(eh *model.EventHandler, eventVar string) []string {
+func eventHandlerInputArgs(
+	eh *model.EventHandler, eventVar, appPkgQual string,
+) []string {
+	stateExpr := ""
+	if eh.InputState != nil {
+		stateExpr = stateArgExpr(appPkgQual, eh.InputState.StateTypeName)
+	}
 	if len(eh.OrderedInputs) > 0 {
 		args := make([]string, 0, len(eh.OrderedInputs))
 		for _, inp := range eh.OrderedInputs {
-			v := handlerArgVar(inp.Kind, false)
+			v := handlerArgVar(inp.Kind, false, stateExpr)
 			if inp.Kind == model.InputKindEvent {
 				v = eventVar
 			}
@@ -244,7 +270,8 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	hasBody := false
 
 	// Auth.
-	needsSession := hasSessionInput(h) || globalHeadNeedsSession(m)
+	needsSession := hasSessionInput(h) || globalHeadNeedsSession(m) ||
+		pageHasPrivateEvent(p, w.eventMap)
 	if needsSession {
 		hasBody = true
 		w.Line(1, "sess, _, ok := s.ReadSession(w, r)")
@@ -307,6 +334,13 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		w.writeDispatchers(h, "dispatch", "r.Context()")
 	}
 
+	// Stateful page: mint the Datapages-Instance header so the client can
+	// echo it on actions and on the SSE stream connect.
+	if p.State != nil {
+		hasBody = true
+		w.writeMintInstanceIDOnGET()
+	}
+
 	// Page constructor.
 	if hasBody {
 		w.Raw("\n\tp := ")
@@ -317,12 +351,49 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	w.Byte('\n')
 
 	// Call GET.
-	w.writeGETMethodCall(p, m)
+	w.writeGETMethodCall(p, m, needsSession)
 
 	w.Line(0, "}")
 }
 
-func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
+// writeSessionOutputs emits what a handler's newSession and closeSession
+// outputs ask for. A handler that returns them and is answered by neither has
+// them declared and unused, which is a package that does not compile.
+// writeSubjectSignalsRead emits the read of the signal values a page subscribes by.
+// Both stream handlers need it: the subjects a stream subscribes to do not depend on
+// whether the client holds a session.
+func (w *Writer) writeSubjectSignalsRead(signalFields []model.SubjectField) {
+	idents := signalIdents(signalFields)
+	w.Line(0, "")
+	w.Line(1, "var subjSignals struct {")
+	for i, sf := range signalFields {
+		w.Raw("\t\t")
+		w.Raw(idents[i])
+		w.Raw(` string `)
+		w.Raw("`json:\"")
+		w.Raw(sf.SignalName)
+		w.Raw("\"`")
+		w.Byte('\n')
+	}
+	w.Line(1, "}")
+	w.Line(1, "if err := datastar.ReadSignals(r, &subjSignals); err != nil {")
+	w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
+	w.Line(2, "return")
+	w.Line(1, "}")
+	for i, sf := range signalFields {
+		w.Raw("\tif subjSignals.")
+		w.Raw(idents[i])
+		w.Raw(" == \"\" {\n")
+		w.Raw("\t\ts.HTTPErrBad(w, \"invalid signal\",\n")
+		w.Raw("\t\t\tfmt.Errorf(\"signal %q must not be empty\", ")
+		w.writeQuoted(sf.SignalName)
+		w.Raw("))\n")
+		w.Line(2, "return")
+		w.Line(1, "}")
+	}
+}
+
+func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	h := p.GET.Handler
 
 	// Build output list in user-defined order.
@@ -342,7 +413,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 	}
 
 	// Build input args in user-defined order.
-	args := handlerInputArgs(h, false, "dispatch")
+	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
 
 	w.writeDeferRecover(false, p.TypeName+".GET")
 
@@ -378,11 +449,11 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App) {
 
 	// Generic head.
 	if gh := m.GlobalHeadGenerator; gh != nil {
-		w.writeGenericHeadCall(gh, hasSessionInput(h) || globalHeadNeedsSession(m))
+		w.writeGenericHeadCall(gh, hasSess)
 	}
 
 	// Body attrs and suffix.
-	hasBodySuffix := w.writeGETBodyAttrs(p)
+	hasBodySuffix := w.writeGETBodyAttrs(p, hasSess)
 
 	headArg := "nil"
 	if p.GET.OutputHead != nil {
@@ -533,7 +604,31 @@ func (w *Writer) writeGenericHeadCall(gh *model.GlobalHead, hasSess bool) {
 	w.Raw(")\n")
 }
 
-func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
+// streamInitTail closes the data-init attribute of a page after the quoted
+// stream path: the Datastar option object, when the page needs one, then the
+// closing parenthesis of the call and the closing quote of the attribute.
+//
+// retry is written for a stateful page. Its stream connect is answered 503
+// once the server holds datapages.StateConfig.MaxConcurrentInstances, and the
+// default policy retries network errors only, which leaves a tab refused at
+// the cap with no stream and no way back until the visitor reloads the page.
+// "error" covers a status, which is what lets such a tab reconnect on its own
+// once the server has room again.
+func streamInitTail(openWhenHidden, retry bool) string {
+	var opts []string
+	if openWhenHidden {
+		opts = append(opts, "openWhenHidden:true")
+	}
+	if retry {
+		opts = append(opts, "retry:'error'")
+	}
+	if len(opts) == 0 {
+		return `)"`
+	}
+	return ",{" + strings.Join(opts, ",") + `})"`
+}
+
+func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix bool) {
 	h := p.GET.Handler
 
 	hasDisableRefresh := h.OutputDisableRefresh != nil
@@ -622,7 +717,10 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 	if hasStream {
 		hasPrivate := pageHasPrivateEvent(p, w.eventMap)
 		streamPath := routepattern.StreamPath(p.Route)
-		if hasPrivate && h.InputSession != nil {
+		// Only a stateful stream is ever refused for want of capacity.
+		tail := streamInitTail(false, p.State != nil)
+		tailBg := streamInitTail(true, p.State != nil)
+		if hasPrivate && hasSess {
 			if hasAnonStream {
 				// Mixed: authenticated -> "/_$/"; anonymous -> "/_$/anon/"
 				// Need to handle path variables.
@@ -632,9 +730,9 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Line(2, "_, _ = io.WriteString(w, ` data-init=\"@get('`)")
 					w.writeStreamPathSegments(p.Route, h.InputPath)
 					w.Line(2, `if sess.UserID() != "" {`)
-					w.Line(3, "_, _ = io.WriteString(w, `_$/')\"`)")
+					w.Linef(3, "_, _ = io.WriteString(w, `_$/'%s`)", tail)
 					w.Line(2, "} else {")
-					w.Line(3, "_, _ = io.WriteString(w, `_$/anon/')\"`)")
+					w.Linef(3, "_, _ = io.WriteString(w, `_$/anon/'%s`)", tail)
 					w.Line(2, "}")
 				} else {
 					w.Line(0, "")
@@ -642,11 +740,11 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Line(2, `if sess.UserID() != "" {`)
 					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
 					w.Raw(streamPath)
-					w.Raw("')\"`)\n")
+					w.Rawf("'%s`)\n", tail)
 					w.Line(2, "} else {")
 					w.Raw("\t\t\t_, _ = io.WriteString(w, `")
 					w.Raw(streamPath)
-					w.Raw("anon/')\"`)\n")
+					w.Rawf("anon/'%s`)\n", tail)
 					w.Line(2, "}")
 				}
 			} else {
@@ -661,14 +759,14 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 						w.Raw("\t\t\tif ")
 						w.Raw(outputVar(h.OutputEnableBgStream))
 						w.Raw(" {\n")
-						w.Line(4, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+						w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tailBg)
 						w.Line(3, "} else {")
-						w.Line(4, "_, _ = io.WriteString(w, `)\"`)")
+						w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tail)
 						w.Line(3, "}")
 						w.Line(2, "}")
 					} else {
 						w.Line(2, `if sess.UserID() != "" {`)
-						w.Line(3, "_, _ = io.WriteString(w, `_$/')\"`)")
+						w.Linef(3, "_, _ = io.WriteString(w, `_$/'%s`)", tail)
 						w.Line(2, "}")
 					}
 				} else if hasEnableBgStream {
@@ -680,9 +778,9 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Raw("\t\t\tif ")
 					w.Raw(outputVar(h.OutputEnableBgStream))
 					w.Raw(" {\n")
-					w.Line(4, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+					w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tailBg)
 					w.Line(3, "} else {")
-					w.Line(4, "_, _ = io.WriteString(w, `)\"`)")
+					w.Linef(4, "_, _ = io.WriteString(w, `%s`)", tail)
 					w.Line(3, "}")
 					w.Line(2, "}")
 				} else {
@@ -690,7 +788,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Line(2, `if sess.UserID() != "" {`)
 					w.Raw("\t\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 					w.Raw(streamPath)
-					w.Raw("')\"`)\n")
+					w.Rawf("'%s`)\n", tail)
 					w.Line(2, "}")
 				}
 			}
@@ -705,12 +803,12 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 					w.Raw("\t\tif ")
 					w.Raw(outputVar(h.OutputEnableBgStream))
 					w.Raw(" {\n")
-					w.Line(3, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+					w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tailBg)
 					w.Line(2, "} else {")
-					w.Line(3, "_, _ = io.WriteString(w, `)\"`)")
+					w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tail)
 					w.Line(2, "}")
 				} else {
-					w.Line(2, "_, _ = io.WriteString(w, `_$/')\"`)")
+					w.Linef(2, "_, _ = io.WriteString(w, `_$/'%s`)", tail)
 				}
 			} else if hasEnableBgStream {
 				w.Line(0, "")
@@ -720,15 +818,15 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page) (hasBodySuffix bool) {
 				w.Raw("\t\tif ")
 				w.Raw(outputVar(h.OutputEnableBgStream))
 				w.Raw(" {\n")
-				w.Line(3, "_, _ = io.WriteString(w, `,{openWhenHidden:true})\"`)")
+				w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tailBg)
 				w.Line(2, "} else {")
-				w.Line(3, "_, _ = io.WriteString(w, `)\"`)")
+				w.Linef(3, "_, _ = io.WriteString(w, `%s`)", tail)
 				w.Line(2, "}")
 			} else {
 				w.Line(0, "")
 				w.Raw("\t\t_, _ = io.WriteString(w, ` data-init=\"@get('")
 				w.Raw(streamPath)
-				w.Raw("')\"`)\n")
+				w.Rawf("'%s`)\n", tail)
 			}
 		}
 	}
@@ -953,33 +1051,7 @@ func (w *Writer) writePageGETStreamHandler(
 	signalFields := pageSignalSubjectFields(p, w.eventMap)
 	signalIdents := signalIdents(signalFields)
 	if hasSignalScoped {
-		w.Line(0, "")
-		w.Line(1, "var subjSignals struct {")
-		for i, sf := range signalFields {
-			w.Raw("\t\t")
-			w.Raw(signalIdents[i])
-			w.Raw(` string `)
-			w.Raw("`json:\"")
-			w.Raw(sf.SignalName)
-			w.Raw("\"`")
-			w.Byte('\n')
-		}
-		w.Line(1, "}")
-		w.Line(1, "if err := datastar.ReadSignals(r, &subjSignals); err != nil {")
-		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
-		w.Line(2, "return")
-		w.Line(1, "}")
-		for i, sf := range signalFields {
-			w.Raw("\tif subjSignals.")
-			w.Raw(signalIdents[i])
-			w.Raw(" == \"\" {\n")
-			w.Raw("\t\ts.HTTPErrBad(w, \"invalid signal\",\n")
-			w.Raw("\t\t\tfmt.Errorf(\"signal %q must not be empty\", ")
-			w.writeQuoted(sf.SignalName)
-			w.Raw("))\n")
-			w.Line(2, "return")
-			w.Line(1, "}")
-		}
+		w.writeSubjectSignalsRead(signalFields)
 	}
 
 	if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
@@ -1002,10 +1074,23 @@ func (w *Writer) writePageGETStreamHandler(
 			"context.WithoutCancel(r.Context())")
 	}
 
+	// Stateful page: verify the Datapages-Instance header and allocate the slot
+	// the onOpen/onClose/event-loop closures capture.
+	if p.State != nil {
+		w.Line(0, "")
+		w.writeVerifyInstanceIDHeader()
+		w.writeStateAllocateOrReject(p)
+		if pageNeedsStateRouteKey(p, w.eventMap) {
+			w.writeStateRouteKeyVar()
+		}
+	}
+
 	// Page constructor.
-	w.Raw("\n\tp := ")
-	w.writePageConstructor(p, appPkg)
-	w.Byte('\n')
+	if pageStreamCallsPage(p) {
+		w.Raw("\n\tp := ")
+		w.writePageConstructor(p, appPkg)
+		w.Byte('\n')
+	}
 
 	// evSubj call.
 	evSubjName := "evSubj" + p.TypeName
@@ -1019,16 +1104,19 @@ func (w *Writer) writePageGETStreamHandler(
 	}
 	w.Raw(" ")
 	w.Raw(evSubjName)
-	if hasPrivate && hasSignalScoped {
+	switch {
+	case pageHasStateIDScopedEvent(p, w.eventMap):
+		w.Raw("(stateID),\n")
+	case hasPrivate && hasSignalScoped:
 		w.Raw("(sess.UserID()")
 		for _, ident := range signalIdents {
 			w.Raw(", subjSignals.")
 			w.Raw(ident)
 		}
 		w.Raw("),\n")
-	} else if hasPrivate {
+	case hasPrivate:
 		w.Raw("(sess.UserID()),\n")
-	} else if hasSignalScoped {
+	case hasSignalScoped:
 		w.Raw("(")
 		for i, ident := range signalIdents {
 			if i > 0 {
@@ -1038,7 +1126,7 @@ func (w *Writer) writePageGETStreamHandler(
 			w.Raw(ident)
 		}
 		w.Raw("),\n")
-	} else {
+	default:
 		w.Raw(",\n")
 	}
 	w.writePageStreamOpenHook(p)
@@ -1150,28 +1238,58 @@ func (w *Writer) writeEventHandlerCall(
 	ownerLabel string, eh *model.EventHandler, receiver, eventVar string,
 ) {
 	// Build args in user-defined order.
-	args := eventHandlerInputArgs(eh, eventVar)
+	args := eventHandlerInputArgs(eh, eventVar, w.appPkgQual)
 
 	methodName := "On" + eh.Name
 
+	// Stateful event handlers run under the per-slot mutex to serialize with
+	// concurrent action calls and with StreamOpen / StreamClose.
+	// The loop can outlive the close that drops the state,
+	// which is what the liveness check guards against.
+	stateful := eh.InputState != nil
+	if stateful {
+		w.Line(4, "slot.mu.Lock()")
+		w.Line(4, "if slot.dead {")
+		w.Line(5, "slot.mu.Unlock()")
+		w.Line(5, "continue")
+		w.Line(4, "}")
+		w.Line(4, "func() {")
+		w.Line(5, "defer slot.mu.Unlock()")
+	}
+	ind := 4
+	if stateful {
+		ind = 5
+	}
+	tabs := strings.Repeat("\t", ind)
+
 	if eh.OutputErr != nil {
-		w.Raw("\t\t\t\tif err := ")
-		w.writeCallExpr(receiver, methodName, args)
+		w.Raw(tabs)
+		w.Raw("if err := ")
+		w.writeMultilineCallExpr(receiver, methodName, args, ind)
 		w.Raw("; err != nil {\n")
-		w.Raw("\t\t\t\t\ts.LogErr(\"handling ")
+		w.Raw(tabs)
+		w.Raw("\ts.LogErr(\"handling ")
 		w.Raw(ownerLabel)
 		w.Byte('.')
 		w.Raw(methodName)
 		w.Raw("\", err)\n")
-		w.Line(4, "}")
+		w.Line(ind, "}")
 	} else {
-		w.Raw("\t\t\t\t")
-		w.writeCallExpr(receiver, methodName, args)
+		w.Raw(tabs)
+		w.writeMultilineCallExpr(receiver, methodName, args, ind)
 		w.Byte('\n')
+	}
+
+	if stateful {
+		w.Line(4, "}()")
 	}
 }
 
 func (w *Writer) writePageStreamOpenHook(p *model.Page) {
+	if p.State != nil {
+		w.writeStatefulStreamOpenHook(p)
+		return
+	}
 	if p.StreamOpen == nil {
 		w.Line(1, "nil,")
 		return
@@ -1187,7 +1305,39 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 	}
 	w.writeCallExpr(
 		"p", "StreamOpen",
-		handlerInputArgs(p.StreamOpen, false, "dispatchOpen"),
+		handlerInputArgs(p.StreamOpen, false, "dispatchOpen", w.appPkgQual),
+	)
+	w.Byte('\n')
+	if p.StreamOpen.OutputErr == nil {
+		w.Line(2, "return nil")
+	}
+	w.Line(1, "},")
+}
+
+// writeStatefulStreamOpenHook emits the onOpen closure for a stateful page,
+// which calls the user's StreamOpen under the slot mutex.
+//
+// The slot is allocated by the handler before the response opens, not here.
+// See writeStateAllocateOrReject.
+func (w *Writer) writeStatefulStreamOpenHook(p *model.Page) {
+	if p.StreamOpen == nil {
+		w.Line(1, "nil,")
+		return
+	}
+	w.Line(1, "func(")
+	w.Line(2, "streamID datapages.StreamID,")
+	w.Line(2, "sse *datastar.ServerSentEventGenerator,")
+	w.Line(1, ") error {")
+	w.Line(2, "slot.mu.Lock()")
+	w.Line(2, "defer slot.mu.Unlock()")
+	if p.StreamOpen.OutputErr != nil {
+		w.Raw("\t\treturn ")
+	} else {
+		w.Raw("\t\t")
+	}
+	w.writeCallExpr(
+		"p", "StreamOpen",
+		handlerInputArgs(p.StreamOpen, false, "dispatchOpen", w.appPkgQual),
 	)
 	w.Byte('\n')
 	if p.StreamOpen.OutputErr == nil {
@@ -1197,6 +1347,12 @@ func (w *Writer) writePageStreamOpenHook(p *model.Page) {
 }
 
 func (w *Writer) writePageStreamCloseHook(p *model.Page) {
+	// Stateful page: always emit an onClose closure so the instance is given back,
+	// even when the user did not define StreamClose.
+	if p.State != nil {
+		w.writeStatefulStreamCloseHook(p)
+		return
+	}
 	if p.StreamClose == nil {
 		w.Line(1, "nil,")
 		return
@@ -1206,7 +1362,7 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 		w.Raw("\t\tif err := ")
 		w.writeCallExpr(
 			"p", "StreamClose",
-			handlerInputArgs(p.StreamClose, false, "dispatchClosed"),
+			handlerInputArgs(p.StreamClose, false, "dispatchClosed", w.appPkgQual),
 		)
 		w.Raw("; err != nil {\n")
 		w.Raw("\t\t\ts.LogErr(\"handling ")
@@ -1217,10 +1373,76 @@ func (w *Writer) writePageStreamCloseHook(p *model.Page) {
 		w.Raw("\t\t")
 		w.writeCallExpr(
 			"p", "StreamClose",
-			handlerInputArgs(p.StreamClose, false, "dispatchClosed"),
+			handlerInputArgs(p.StreamClose, false, "dispatchClosed", w.appPkgQual),
 		)
 		w.Byte('\n')
 	}
+	w.Line(1, "},")
+}
+
+// writeStatefulStreamCloseHook emits the onClose closure for a stateful page.
+// If the user defined StreamClose, it runs under the slot mutex.
+// In all cases the state is dropped before this returns.
+//
+// This closure runs outside the goroutine net/http recovers on.
+// handleStreamRequest recovers a panic raised here, which leaves this one
+// responsible for unlocking the slot and releasing the instance on that path as well.
+// Both are deferred. A StreamClose that reads state still runs only
+// while the slot is alive.
+func (w *Writer) writeStatefulStreamCloseHook(p *model.Page) {
+	suffix := stateSuffix(p.State)
+	w.Line(1, "func(streamID datapages.StreamID) {")
+
+	// The slot is taken only to call the user's hook under it. Without a hook
+	// there is nothing to serialize, and the release below takes the slot on its own.
+	if p.StreamClose == nil {
+		w.Linef(2, "s.release%s(instanceID, slot)", suffix)
+		w.Line(1, "},")
+		return
+	}
+
+	w.Line(2, "// Both of these run even when the hook below panics.")
+	w.Line(2, "// Deferred calls unwind in reverse, which puts the release after the unlock,")
+	w.Line(2, "// and the release takes this same mutex.")
+	w.Linef(2, "defer s.release%s(instanceID, slot)", suffix)
+	w.Line(2, "slot.mu.Lock()")
+	w.Line(2, "defer slot.mu.Unlock()")
+
+	ind := 2
+	guard := p.StreamClose.InputState != nil
+	if guard {
+		w.Line(2, "if !slot.dead {")
+		ind = 3
+	}
+	tabs := strings.Repeat("\t", ind)
+
+	if p.StreamClose != nil {
+		if p.StreamClose.OutputErr != nil {
+			w.Raw(tabs)
+			w.Raw("if err := ")
+			w.writeCallExpr(
+				"p", "StreamClose",
+				handlerInputArgs(p.StreamClose, false, "dispatchClosed", w.appPkgQual),
+			)
+			w.Raw("; err != nil {\n")
+			w.Raw(tabs)
+			w.Raw("\ts.LogErr(\"handling ")
+			w.Raw(p.TypeName)
+			w.Raw(".StreamClose\", err)\n")
+			w.Line(ind, "}")
+		} else {
+			w.Raw(tabs)
+			w.writeCallExpr(
+				"p", "StreamClose",
+				handlerInputArgs(p.StreamClose, false, "dispatchClosed", w.appPkgQual),
+			)
+			w.Byte('\n')
+		}
+	}
+	if guard {
+		w.Line(2, "}")
+	}
+
 	w.Line(1, "},")
 }
 
@@ -1253,33 +1475,7 @@ func (w *Writer) writePageGETStreamAnonHandler(
 	signalFields := pageSignalSubjectFields(p, w.eventMap)
 	signalIdents := signalIdents(signalFields)
 	if len(signalFields) > 0 {
-		w.Line(0, "")
-		w.Line(1, "var subjSignals struct {")
-		for i, sf := range signalFields {
-			w.Raw("\t\t")
-			w.Raw(signalIdents[i])
-			w.Raw(` string `)
-			w.Raw("`json:\"")
-			w.Raw(sf.SignalName)
-			w.Raw("\"`")
-			w.Byte('\n')
-		}
-		w.Line(1, "}")
-		w.Line(1, "if err := datastar.ReadSignals(r, &subjSignals); err != nil {")
-		w.Line(2, `s.HTTPErrBad(w, "reading signals", err)`)
-		w.Line(2, "return")
-		w.Line(1, "}")
-		for i, sf := range signalFields {
-			w.Raw("\tif subjSignals.")
-			w.Raw(signalIdents[i])
-			w.Raw(" == \"\" {\n")
-			w.Raw("\t\ts.HTTPErrBad(w, \"invalid signal\",\n")
-			w.Raw("\t\t\tfmt.Errorf(\"signal %q must not be empty\", ")
-			w.writeQuoted(sf.SignalName)
-			w.Raw("))\n")
-			w.Line(2, "return")
-			w.Line(1, "}")
-		}
+		w.writeSubjectSignalsRead(signalFields)
 	}
 
 	if p.StreamOpen != nil && p.StreamOpen.InputSignals != nil {
@@ -1301,12 +1497,28 @@ func (w *Writer) writePageGETStreamAnonHandler(
 			"context.WithoutCancel(r.Context())")
 	}
 
-	// Page constructor.
-	w.Raw("\n\tp := ")
-	w.writePageConstructor(p, appPkg)
-	w.Byte('\n')
+	// Per-tab state is unrelated to the session. A signed-out client on
+	// this endpoint holds an instance like any other client,
+	// and the stream hooks below expect the same locals as the main handler.
+	if p.State != nil {
+		w.Line(0, "")
+		w.writeVerifyInstanceIDHeader()
+		w.writeStateAllocateOrReject(p)
+		if pageNeedsStateRouteKey(p, w.eventMap) {
+			w.writeStateRouteKeyVar()
+		}
+	}
 
-	// evSubj call (for anon, pass empty userID to get public-only subjects).
+	// Page constructor.
+	if pageStreamCallsPage(p) {
+		w.Raw("\n\tp := ")
+		w.writePageConstructor(p, appPkg)
+		w.Byte('\n')
+	}
+
+	// evSubj call. The client holds no session. The user id is empty and only
+	// public subjects come back, though a page that scopes by signals still
+	// subscribes by their values.
 	w.Raw("\ts.handleStreamRequest(w, r, sessToken, sess, evSubj")
 	w.Raw(p.TypeName)
 	w.Raw("(sess.UserID()")
@@ -1381,6 +1593,18 @@ func (w *Writer) writePageActionHandler(
 		w.Line(1, "}")
 	}
 
+	// Stateful action: verify Datapages-Instance header and find the live
+	// slot. On a miss the client is told to reconnect and retry,
+	// before the request body is read. The mutex that serializes the
+	// handlers of this state is taken further down, once nothing is left to read.
+	if h.InputState != nil {
+		w.writeVerifyInstanceIDHeader()
+		w.writeLookupSlotOrReject(p.State)
+		if h.InputStateID != nil {
+			w.writeStateRouteKeyVar()
+		}
+	}
+
 	// Auth.
 	needsToken := h.OutputCloseSession != nil
 	switch {
@@ -1428,6 +1652,13 @@ func (w *Writer) writePageActionHandler(
 		w.writeReadPath(h.InputPath, m, h.Route)
 	}
 
+	// The request is read; claim the state for the duration of the handler.
+	// Before the SSE generator, which commits the response headers and would
+	// leave the rejection below nowhere to go.
+	if h.InputState != nil {
+		w.writeLockSlotOrReject()
+	}
+
 	// Dispatch closures.
 	w.writeDispatchers(h, "dispatch", "r.Context()")
 
@@ -1457,7 +1688,7 @@ func (w *Writer) writeActionMethodCall(
 	outs := handlerOutputVars(h)
 
 	// Build input args in user-defined order.
-	args := handlerInputArgs(h, false, "dispatch")
+	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
 
 	methodName := h.HTTPMethod + h.Name
 

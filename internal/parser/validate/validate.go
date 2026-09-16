@@ -200,10 +200,10 @@ func cleanLine(raw string) string {
 	return strings.TrimSpace(s)
 }
 
-// CutEventIsPrefix checks whether line starts with typeName followed by
-// whitespace, "is", and more whitespace, and returns the remainder (the
-// subject portion) plus true. Extra spaces or tabs between the parts are
-// tolerated. Returns ("", false) when the prefix does not match.
+// CutEventIsPrefix checks whether line starts with typeName followed by whitespace,
+// "is", and more whitespace, and returns the remainder (the subject portion) plus true.
+// Extra spaces or tabs between the parts are tolerated.
+// Returns ("", false) when the prefix does not match.
 func CutEventIsPrefix(line, typeName string) (rest string, ok bool) {
 	s, ok := strings.CutPrefix(line, typeName)
 	if !ok || len(s) == 0 {

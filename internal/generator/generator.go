@@ -51,6 +51,10 @@ func Generate(
 	if m == nil {
 		return generateStubs(dstDir, pkgName, perm, opts.AssetsURLPrefix != "")
 	}
+	if err := validateModel(m); err != nil {
+		return err
+	}
+
 	w := writerPool.Get().(*Writer)
 	defer writerPool.Put(w)
 

@@ -42,9 +42,6 @@ func External(url string) string {
 	return url
 }
 
-// PageFeed references /feed/{$}
-func PageFeed() string { return "/feed/" }
-
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
 
@@ -65,3 +62,6 @@ func PagePost(slug string) string {
 
 // PageRooms references /rooms/{$}
 func PageRooms() string { return "/rooms/" }
+
+// PageTabs references /tabs/{$}
+func PageTabs() string { return "/tabs/" }

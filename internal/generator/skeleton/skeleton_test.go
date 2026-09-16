@@ -97,14 +97,16 @@ func TestMainGoAppImportAlias(t *testing.T) {
 func TestMainGoImportsAreKnown(t *testing.T) {
 	t.Parallel()
 
-	for name, hasSession := range map[string]bool{
-		"with a session":    true,
-		"without a session": false,
+	for name, tt := range map[string]struct {
+		hasSession bool
+	}{
+		"plain":   {},
+		"session": {hasSession: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			sessionData := ""
-			if hasSession {
+			if tt.hasSession {
 				sessionData = "struct{}"
 			}
 			src, err := skeleton.MainGo(

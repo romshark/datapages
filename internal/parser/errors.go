@@ -18,10 +18,12 @@ import (
 )
 
 var (
-	ErrAppMissingTypeApp         = errors.New(`missing required type "App"`)
-	ErrAppMissingPageIndex       = errors.New(`missing required page type "PageIndex"`)
-	ErrSignatureMissingReq       = errors.New(`missing the *http.Request parameter`)
-	ErrSignatureMissingStreamID  = errors.New(`missing the datapages.StreamID parameter`)
+	ErrAppMissingTypeApp       = errors.New(`missing required type "App"`)
+	ErrAppMissingPageIndex     = errors.New(`missing required page type "PageIndex"`)
+	ErrSignatureMissingReq     = errors.New(`missing the *http.Request parameter`)
+	ErrStreamHookMissingHandle = errors.New(
+		"stream hook must take datapages.StreamID, datapages.State[T], or both",
+	)
 	ErrSignatureMultiErrRet      = errors.New(`multiple error return values`)
 	ErrSignatureUnsupportedInput = errors.New(`unsupported input parameter`)
 	ErrSignatureEvHandMissingSSE = errors.New(
@@ -212,6 +214,48 @@ var (
 
 	ErrEventSubjectDerivedType = errors.New(
 		"event subject field must name datapages.Subject or datapages.SubjectUser",
+	)
+
+	ErrStateTypeArgNotNamed = errors.New(
+		"type argument of datapages.State must be a named type " +
+			"declared in the app package",
+	)
+	ErrStateParamInvalidType = errors.New(
+		"state parameter has invalid type",
+	)
+	ErrStateOnGET = errors.New(
+		"state parameter is not allowed on GET handlers",
+	)
+	ErrStateDuplicate = errors.New(
+		"handler has multiple state parameters",
+	)
+	ErrStateIDDuplicate = errors.New(
+		"handler has multiple stateID parameters",
+	)
+	ErrStateConflict = errors.New(
+		"page references multiple state types via its handlers and embeds",
+	)
+	ErrStateAppActionUnbound = errors.New(
+		"app-level action takes a state type that no page binds",
+	)
+	ErrStateIDParamNotString = errors.New(
+		"stateID parameter must be of type string",
+	)
+	ErrStateIDWithoutState = errors.New(
+		"stateID parameter requires the handler to also take datapages.State[T]",
+	)
+	ErrSubjectStateIDWithSignal = errors.New(
+		"SubjectStateID must not have a signal tag",
+	)
+	ErrSubjectStateIDWithoutState = errors.New(
+		"event with SubjectStateID can only be handled by stateful pages",
+	)
+	ErrSubjectStateIDMixed = errors.New(
+		"SubjectStateID must be the only subject field on the event",
+	)
+	ErrSubjectStateIDPageMixed = errors.New(
+		"page handles a SubjectStateID event next to a private " +
+			"or signal-scoped one",
 	)
 
 	ErrTemplHrefRelative                 = templcheck.ErrHrefRelative
@@ -668,7 +712,8 @@ type EventSubjectDuplicateSignalError struct {
 
 func (e *EventSubjectDuplicateSignalError) Error() string {
 	return fmt.Sprintf("%v: %s has duplicate signal %q in %s (already used by %s)",
-		ErrEventSubjectDuplicateSignal, e.FieldName, e.SignalName, e.TypeName, e.FirstFieldName)
+		ErrEventSubjectDuplicateSignal, e.FieldName,
+		e.SignalName, e.TypeName, e.FirstFieldName)
 }
 
 func (e *EventSubjectDuplicateSignalError) Unwrap() error {

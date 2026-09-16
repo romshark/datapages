@@ -296,8 +296,8 @@ func evSubjPageUser(userID string) []string {
 	}
 }
 
-// brokerSubjectKind folds subjects that carry a value back into the event name.
-// A metric labelled with the raw subject would carry one value per subject value.
+// brokerSubjectKind folds subjects that carry a user or a tab back into the event name.
+// A metric labelled with the raw subject would carry one value per user or per tab.
 func brokerSubjectKind(subject string) string {
 	switch {
 	case strings.HasPrefix(subject, EvPrefixMessagingRead):
@@ -628,7 +628,11 @@ func (s pageError404Handlers) GETStream(w http.ResponseWriter, r *http.Request) 
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingSent(
+						eventMessagingSent,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageError404.OnMessagingSent", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
@@ -637,7 +641,11 @@ func (s pageError404Handlers) GETStream(w http.ResponseWriter, r *http.Request) 
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(eventMessagingRead, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingRead(
+						eventMessagingRead,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageError404.OnMessagingRead", err)
 					}
 				}
@@ -757,7 +765,11 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingSent(
+						eventMessagingSent,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageIndex.OnMessagingSent", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
@@ -766,7 +778,11 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(eventMessagingRead, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingRead(
+						eventMessagingRead,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageIndex.OnMessagingRead", err)
 					}
 				}
@@ -964,7 +980,11 @@ func (s pageMessagesHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(eventMessagingRead, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingRead(
+						eventMessagingRead,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageMessages.OnMessagingRead", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixMessagingWriting):
@@ -973,7 +993,11 @@ func (s pageMessagesHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 						s.LogErr("unmarshaling EventMessagingWriting JSON", err)
 						continue
 					}
-					if err := p.OnMessagingWriting(eventMessagingWriting, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingWriting(
+						eventMessagingWriting,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageMessages.OnMessagingWriting", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixMessagingWritingStopped):
@@ -982,7 +1006,11 @@ func (s pageMessagesHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 						s.LogErr("unmarshaling EventMessagingWritingStopped JSON", err)
 						continue
 					}
-					if err := p.OnMessagingWritingStopped(eventMessagingWritingStopped, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingWritingStopped(
+						eventMessagingWritingStopped,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageMessages.OnMessagingWritingStopped", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixMessagingSent):
@@ -991,7 +1019,11 @@ func (s pageMessagesHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingSent(
+						eventMessagingSent,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageMessages.OnMessagingSent", err)
 					}
 				}
@@ -1225,7 +1257,11 @@ func (s pageMyPostsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingSent(
+						eventMessagingSent,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageMyPosts.OnMessagingSent", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
@@ -1234,7 +1270,11 @@ func (s pageMyPostsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(eventMessagingRead, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingRead(
+						eventMessagingRead,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageMyPosts.OnMessagingRead", err)
 					}
 				}
@@ -1344,7 +1384,11 @@ func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventPostArchived JSON", err)
 						continue
 					}
-					if err := p.OnPostArchived(eventPostArchived, dpsse.New(sse), sess); err != nil {
+					if err := p.OnPostArchived(
+						eventPostArchived,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PagePost.OnPostArchived", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixMessagingSent):
@@ -1353,7 +1397,11 @@ func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingSent(
+						eventMessagingSent,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PagePost.OnMessagingSent", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
@@ -1362,7 +1410,11 @@ func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(eventMessagingRead, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingRead(
+						eventMessagingRead,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PagePost.OnMessagingRead", err)
 					}
 				}
@@ -1406,7 +1458,11 @@ func (s pagePostHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 						s.LogErr("unmarshaling EventPostArchived JSON", err)
 						continue
 					}
-					if err := p.OnPostArchived(eventPostArchived, dpsse.New(sse), sess); err != nil {
+					if err := p.OnPostArchived(
+						eventPostArchived,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PagePost.OnPostArchived", err)
 					}
 				}
@@ -1589,7 +1645,11 @@ func (s pageSearchHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingSent(
+						eventMessagingSent,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageSearch.OnMessagingSent", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
@@ -1598,7 +1658,11 @@ func (s pageSearchHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(eventMessagingRead, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingRead(
+						eventMessagingRead,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageSearch.OnMessagingRead", err)
 					}
 				}
@@ -1721,7 +1785,11 @@ func (s pageSettingsHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 						s.LogErr("unmarshaling EventSessionClosed JSON", err)
 						continue
 					}
-					if err := p.OnSessionClosed(eventSessionClosed, dpsse.New(sse), sess); err != nil {
+					if err := p.OnSessionClosed(
+						eventSessionClosed,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageSettings.OnSessionClosed", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixMessagingSent):
@@ -1730,7 +1798,11 @@ func (s pageSettingsHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingSent(
+						eventMessagingSent,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageSettings.OnMessagingSent", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
@@ -1739,7 +1811,11 @@ func (s pageSettingsHandlers) GETStream(w http.ResponseWriter, r *http.Request) 
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(eventMessagingRead, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingRead(
+						eventMessagingRead,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageSettings.OnMessagingRead", err)
 					}
 				}
@@ -1958,7 +2034,11 @@ func (s pageUserHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventPostArchived JSON", err)
 						continue
 					}
-					if err := p.OnPostArchived(eventPostArchived, dpsse.New(sse), sess); err != nil {
+					if err := p.OnPostArchived(
+						eventPostArchived,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageUser.OnPostArchived", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixMessagingSent):
@@ -1967,7 +2047,11 @@ func (s pageUserHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventMessagingSent JSON", err)
 						continue
 					}
-					if err := p.OnMessagingSent(eventMessagingSent, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingSent(
+						eventMessagingSent,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageUser.OnMessagingSent", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixMessagingRead):
@@ -1976,7 +2060,11 @@ func (s pageUserHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventMessagingRead JSON", err)
 						continue
 					}
-					if err := p.OnMessagingRead(eventMessagingRead, dpsse.New(sse), sess); err != nil {
+					if err := p.OnMessagingRead(
+						eventMessagingRead,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageUser.OnMessagingRead", err)
 					}
 				}
@@ -2020,7 +2108,11 @@ func (s pageUserHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 						s.LogErr("unmarshaling EventPostArchived JSON", err)
 						continue
 					}
-					if err := p.OnPostArchived(eventPostArchived, dpsse.New(sse), sess); err != nil {
+					if err := p.OnPostArchived(
+						eventPostArchived,
+						dpsse.New(sse),
+						sess,
+					); err != nil {
 						s.LogErr("handling PageUser.OnPostArchived", err)
 					}
 				}

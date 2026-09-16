@@ -4,14 +4,19 @@ package datapagesgen
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"io"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
 	"strings"
+	"sync"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
@@ -53,10 +58,59 @@ func (s *Server) writeHTML(
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
-		CSRF:            s.Manager,
-		UserID:          sess.UserID(),
-		SessionToken:    sess.Token(),
-		HeadGeneric:     headGeneric,
+		CSRF:         s.Manager,
+		UserID:       sess.UserID(),
+		SessionToken: sess.Token(),
+		HeadGeneric:  headGeneric,
+		WriteHeadPrologue: func(io.Writer) error {
+			// The id authorizes access to one tab's state. The fetch wrapper keeps
+			// it in a closure. Removing the script node prevents later DOM readers,
+			// including replay and error-reporting tools, from recording it.
+			// Cache-Control: no-store prevents caches from retaining the response body.
+			if id := w.Header().Get(stateInstanceIDHeader); wellFormedStateInstanceID(id) {
+				if _, err := io.WriteString(w, `<script>(() => {
+		let __dpInstance="`); err != nil {
+					return err
+				}
+				if _, err := io.WriteString(w, id); err != nil {
+					return err
+				}
+				if _, err := io.WriteString(w, `"
+		document.currentScript?.remove()
+		const k="datapages-reloaded:"+location.pathname
+		const mark=v => { try { v ? sessionStorage.setItem(k,"1"):sessionStorage.removeItem(k) } catch {} }
+		const marked=() => { try { return !!sessionStorage.getItem(k) } catch { return false } }
+		const o2 = globalThis.fetch.bind(globalThis)
+		globalThis.fetch=(i,init={}) => {
+			const isReq=i instanceof Request
+			const r=isReq ? i:new Request(i,init)
+			if (r.headers.get("Datastar-Request")!=="true" ||
+				new URL(r.url,location.href).origin!==location.origin
+			) return isReq ? o2(r,init):o2(r)
+			const h=new Headers(r.headers)
+			if (__dpInstance) h.set("Datapages-Instance",__dpInstance)
+			return o2(new Request(r,{...init,headers:h})).then(resp => {
+				if (resp.status===409 && resp.headers.get("Datapages-Retry")==="reconnect") {
+					__dpInstance=""
+					if (!marked()) {
+						mark(true)
+						location.reload()
+					}
+				} else if (resp.ok) {
+					mark(false)
+				}
+				return resp
+			})
+		}
+		globalThis.addEventListener("pageshow", e => {
+			if (e.persisted) location.reload()
+		})
+	})()</script>`); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
 		Head:            head,
 		Body:            body,
 		WriteBodyAttrs:  writeBodyAttrs,
@@ -106,6 +160,9 @@ type Server struct {
 	streams              *stream.Handler
 	app                  *dpapp.App
 	*auth.Manager[struct{}]
+
+	// stateInstancesStateTab maps a Datapages-Instance id to the live slot.
+	stateInstancesStateTab stateStore[stateSlotStateTab]
 }
 
 // Init wires the server. It is called by datapages.NewServer,
@@ -123,6 +180,7 @@ type Server struct {
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
 //   - datapages.WithAssets
+//   - datapages.WithStateConfig
 //   - datapages.WithSessionManager (required)
 //   - datapages.WithSessions
 //   - datapages.WithCSRFProtection
@@ -203,18 +261,6 @@ func MessageBrokerStreamSubjects() []string {
 	}
 }
 
-func evSubjPageFeed(userID string) []string {
-	if userID == "" {
-		return []string{
-			EvSubjTicked,
-		}
-	}
-	return []string{
-		EvSubjTicked,
-		"noticed." + subject.Encode(userID),
-	}
-}
-
 func evSubjPagePost(userID string) []string {
 	if userID == "" {
 		return []string{
@@ -240,17 +286,167 @@ func evSubjPageRooms(userID string, subjRoom string) []string {
 	}
 }
 
+func evSubjPageTabs(userID string) []string {
+	if userID == "" {
+		return []string{
+			EvSubjTicked,
+		}
+	}
+	return []string{
+		EvSubjTicked,
+		"noticed." + subject.Encode(userID),
+	}
+}
+
+const stateInstanceIDHeader = "Datapages-Instance"
+
+// stateRetryHeader tells the generated client that no state slot exists and
+// that it must reconnect.
+const stateRetryHeader = "Datapages-Retry"
+
+const stateRetryReconnect = "reconnect"
+
+// stateInstanceIDLen is the unpadded base64url length of 16 bytes.
+const stateInstanceIDLen = 22
+
+// newStateInstanceID returns 128 random bits as unpadded base64url.
+//
+// The id is an unsigned bearer credential. Signing would prove only that a
+// server issued it. It would not make another tab's random id harder to guess
+// or stop clients from opening streams to consume the instance limit.
+// State is created only when a stream presents an id.
+//
+// Unsigned ids require no key shared between servers. A load balancer may
+// route the page GET and stream to different servers. The stream's server
+// allocates the state.
+func newStateInstanceID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:]), nil
+}
+
+// wellFormedStateInstanceID accepts exactly [stateInstanceIDLen] base64url characters.
+// This bounds client-chosen map keys and permits verbatim use in
+// the page's JavaScript string.
+func wellFormedStateInstanceID(id string) bool {
+	if len(id) != stateInstanceIDLen {
+		return false
+	}
+	for _, c := range []byte(id) {
+		switch {
+		case 'A' <= c && c <= 'Z', 'a' <= c && c <= 'z', '0' <= c && c <= '9':
+		case c == '-', c == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// stateRouteKey keeps the bearer instance id out of broker subjects, which may
+// appear in logs, stream storage, traces and metrics. It returns the first 16
+// bytes of SHA-256 as unpadded base64url. The result can address the tab but
+// cannot authorize state access. Its keyless derivation is stable across
+// servers and process restarts.
+func stateRouteKey(id string) string {
+	sum := sha256.Sum256([]byte(id))
+	return base64.RawURLEncoding.EncodeToString(sum[:16])
+}
+
+const stateStoreShards = 32
+
+// stateStoreSeed prevents clients from choosing a shard for an id.
+var stateStoreSeed = maphash.MakeSeed()
+
+type stateStoreShard[S any] struct {
+	mu sync.RWMutex
+	m  map[string]*S
+}
+
+// stateStore initializes shards lazily, which makes its zero value ready to use.
+type stateStore[S any] struct {
+	shards [stateStoreShards]stateStoreShard[S]
+}
+
+func (s *stateStore[S]) shard(id string) *stateStoreShard[S] {
+	return &s.shards[maphash.String(stateStoreSeed, id)%stateStoreShards]
+}
+
+func (s *stateStore[S]) Load(id string) (*S, bool) {
+	sh := s.shard(id)
+	sh.mu.RLock()
+	slot, ok := sh.m[id]
+	sh.mu.RUnlock()
+	return slot, ok
+}
+
+// Store registers slot, replacing an older stream under the same id.
+func (s *stateStore[S]) Store(id string, slot *S) {
+	sh := s.shard(id)
+	sh.mu.Lock()
+	if sh.m == nil {
+		sh.m = make(map[string]*S)
+	}
+	sh.m[id] = slot
+	sh.mu.Unlock()
+}
+
+// CompareAndDelete prevents a closing stream from deleting a replacement slot
+// registered under the same id.
+func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
+	sh := s.shard(id)
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	if sh.m[id] != slot {
+		return false
+	}
+	delete(sh.m, id)
+	return true
+}
+
+// stateSlotStateTab belongs to one stream and is never reused.
+// A reconnect allocates a new slot and state value.
+type stateSlotStateTab struct {
+	state *dpapp.StateTab
+	mu    sync.Mutex // serializes all stateful handler calls on this instance
+	dead  bool
+}
+
+// allocateStateTab reserves capacity and registers state before the stream opens.
+// It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].
+func (s *Server) allocateStateTab(id string) *stateSlotStateTab {
+	if !s.ReserveStateInstance() {
+		return nil
+	}
+	slot := &stateSlotStateTab{state: new(dpapp.StateTab)}
+	s.stateInstancesStateTab.Store(id, slot)
+	return slot
+}
+
+func (s *Server) lookupStateTab(id string) (*stateSlotStateTab, bool) {
+	return s.stateInstancesStateTab.Load(id)
+}
+
+// releaseStateTab drops state and capacity exactly once.
+// Passing slot preserves a replacement registered
+// under the same id while an older stream closes.
+func (s *Server) releaseStateTab(id string, slot *stateSlotStateTab) {
+	slot.mu.Lock()
+	if slot.dead {
+		slot.mu.Unlock()
+		return
+	}
+	slot.dead = true
+	slot.state = nil
+	slot.mu.Unlock()
+	s.stateInstancesStateTab.CompareAndDelete(id, slot)
+	s.ReleaseStateInstance()
+}
+
 func setupHandlers(s *Server) {
 	// Pages
-	s.Mux().HandleFunc(
-		"GET /feed/{$}",
-		pageFeedHandlers{s}.GET)
-	s.Mux().HandleFunc(
-		"GET /feed/_$/{$}",
-		pageFeedHandlers{s}.GETStream)
-	s.Mux().HandleFunc(
-		"GET /feed/_$/anon/{$}",
-		pageFeedHandlers{s}.GETStreamAnon)
 	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
@@ -273,8 +469,14 @@ func setupHandlers(s *Server) {
 		"GET /rooms/_$/anon/{$}",
 		pageRoomsHandlers{s}.GETStreamAnon)
 	s.Mux().HandleFunc(
-		"POST /feed/tick/{$}",
-		pageFeedHandlers{s}.POSTTick)
+		"GET /tabs/{$}",
+		pageTabsHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /tabs/_$/{$}",
+		pageTabsHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
+		"GET /tabs/_$/anon/{$}",
+		pageTabsHandlers{s}.GETStreamAnon)
 	s.Mux().HandleFunc(
 		"POST /rooms/post/{$}",
 		pageRoomsHandlers{s}.POSTPost)
@@ -284,6 +486,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /rooms/dm/{$}",
 		pageRoomsHandlers{s}.POSTDM)
+	s.Mux().HandleFunc(
+		"POST /tabs/bump/{$}",
+		pageTabsHandlers{s}.POSTBump)
 }
 
 func (s *Server) httpErrIntern(
@@ -300,167 +505,6 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	httpserve.WriteErrStatus(w, err)
-}
-
-type pageFeedHandlers struct{ *Server }
-
-func (s pageFeedHandlers) GET(w http.ResponseWriter, r *http.Request) {
-	p := dpapp.PageFeed{
-		App: s.app,
-	}
-	defer s.recoverPanic(w, r, nil, "PageFeed.GET")
-	body, err := p.GET(r)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageFeed.GET", err)
-		return
-	}
-	genericHead := s.app.Head(r)
-
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
-	bodySuffix := func(w http.ResponseWriter) {
-	}
-
-	if err := s.writeHTML(
-		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, bodySuffix,
-	); err != nil {
-		s.LogErr("rendering PageFeed", err)
-		return
-	}
-}
-
-func (s pageFeedHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
-	if !s.CheckDatastarRequest(w, r) {
-		return
-	}
-	sess, sessToken, ok := s.ReadSession(w, r)
-	if !ok {
-		return
-	}
-
-	if sess.UserID() == "" {
-		// The query carries the signals a stream subscribes by,
-		// which the anonymous route needs as much as this one.
-		// EscapedPath, not the decoded Path: a value carrying "?" or "#" re-parses
-		// in the Location header as a query or a fragment.
-		target := r.URL.EscapedPath() + "anon/"
-		if r.URL.RawQuery != "" {
-			target += "?" + r.URL.RawQuery
-		}
-		http.Redirect(w, r, target, http.StatusSeeOther)
-		return
-	}
-
-	p := dpapp.PageFeed{
-		App: s.app,
-	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageFeed(sess.UserID()),
-		nil,
-		nil,
-		func(
-			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
-		) {
-			defer s.recoverPanic(w, r, sse, "PageFeed stream")
-			var eventTicked dpapp.EventTicked
-			var eventNoticed dpapp.EventNoticed
-			for msg := range ch {
-				switch {
-				case msg.Subject == EvSubjTicked:
-					eventTicked = dpapp.EventTicked{}
-					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
-						s.LogErr("unmarshaling EventTicked JSON", err)
-						continue
-					}
-					if err := p.OnTicked(eventTicked, dpsse.New(sse)); err != nil {
-						s.LogErr("handling PageFeed.OnTicked", err)
-					}
-				case strings.HasPrefix(msg.Subject, EvPrefixNoticed):
-					eventNoticed = dpapp.EventNoticed{}
-					if err := json.Unmarshal(msg.Data, &eventNoticed); err != nil {
-						s.LogErr("unmarshaling EventNoticed JSON", err)
-						continue
-					}
-					if err := p.OnNoticed(eventNoticed, dpsse.New(sse)); err != nil {
-						s.LogErr("handling PageFeed.OnNoticed", err)
-					}
-				}
-			}
-		})
-}
-
-func (s pageFeedHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) {
-	if !s.CheckDatastarRequest(w, r) {
-		return
-	}
-	sess, sessToken, ok := s.ReadSession(w, r)
-	if !ok {
-		return
-	}
-
-	if sess.UserID() != "" {
-		s.HTTPErrBad(w, "authenticated client on anonymous stream", nil)
-		return
-	}
-
-	p := dpapp.PageFeed{
-		App: s.app,
-	}
-	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageFeed(sess.UserID()),
-		nil,
-		nil,
-		func(
-			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
-		) {
-			var eventTicked dpapp.EventTicked
-			for msg := range ch {
-				switch msg.Subject {
-				case EvSubjTicked:
-					eventTicked = dpapp.EventTicked{}
-					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
-						s.LogErr("unmarshaling EventTicked JSON", err)
-						continue
-					}
-					if err := p.OnTicked(eventTicked, dpsse.New(sse)); err != nil {
-						s.LogErr("handling PageFeed.OnTicked", err)
-					}
-				}
-			}
-		})
-}
-
-func (s pageFeedHandlers) POSTTick(
-	w http.ResponseWriter, r *http.Request,
-) {
-	if !s.CheckDatastarRequest(w, r) {
-		return
-	}
-	// The CSRF token comes from the cookie, hence no store read here.
-	if !s.CheckCSRFOnly(w, r) {
-		return
-	}
-	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
-	var signals datapages.Signals[struct {
-		N int `json:"n"`
-	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.HTTPErrBad(w, "reading signals", err)
-		return
-	}
-
-	dispatchTicked := dispatcherEventTicked{s: s.Server, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageFeed.Tick")
-	p := dpapp.PageFeed{
-		App: s.app,
-	}
-	err := p.POSTTick(r, signals, dispatchTicked)
-	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageFeed.Tick", err)
-		return
-	}
 }
 
 type pageIndexHandlers struct{ *Server }
@@ -591,7 +635,10 @@ func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventTicked JSON", err)
 						continue
 					}
-					if err := p.OnTicked(eventTicked, dpsse.New(sse)); err != nil {
+					if err := p.OnTicked(
+						eventTicked,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PagePost.OnTicked", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixNoticed):
@@ -600,7 +647,10 @@ func (s pagePostHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventNoticed JSON", err)
 						continue
 					}
-					if err := p.OnNoticed(eventNoticed, dpsse.New(sse)); err != nil {
+					if err := p.OnNoticed(
+						eventNoticed,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PagePost.OnNoticed", err)
 					}
 				}
@@ -641,7 +691,10 @@ func (s pagePostHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 						s.LogErr("unmarshaling EventTicked JSON", err)
 						continue
 					}
-					if err := p.OnTicked(eventTicked, dpsse.New(sse)); err != nil {
+					if err := p.OnTicked(
+						eventTicked,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PagePost.OnTicked", err)
 					}
 				}
@@ -652,6 +705,11 @@ func (s pagePostHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) 
 type pageRoomsHandlers struct{ *Server }
 
 func (s pageRoomsHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
 	p := dpapp.PageRooms{
 		App: s.app,
 	}
@@ -668,6 +726,13 @@ func (s pageRoomsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('`)
+		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, `/rooms/_$/')"`)
+		} else {
+			_, _ = io.WriteString(w, `/rooms/_$/anon/')"`)
+		}
 	}
 
 	if err := s.writeHTML(
@@ -735,7 +800,10 @@ func (s pageRoomsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventRoomPosted JSON", err)
 						continue
 					}
-					if err := p.OnRoomPosted(eventRoomPosted, dpsse.New(sse)); err != nil {
+					if err := p.OnRoomPosted(
+						eventRoomPosted,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageRooms.OnRoomPosted", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixNoticed):
@@ -744,7 +812,10 @@ func (s pageRoomsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventNoticed JSON", err)
 						continue
 					}
-					if err := p.OnNoticed(eventNoticed, dpsse.New(sse)); err != nil {
+					if err := p.OnNoticed(
+						eventNoticed,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageRooms.OnNoticed", err)
 					}
 				case strings.HasPrefix(msg.Subject, EvPrefixDMed):
@@ -753,7 +824,10 @@ func (s pageRoomsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventDMed JSON", err)
 						continue
 					}
-					if err := p.OnDMed(eventDMed, dpsse.New(sse)); err != nil {
+					if err := p.OnDMed(
+						eventDMed,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageRooms.OnDMed", err)
 					}
 				}
@@ -807,7 +881,10 @@ func (s pageRoomsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request)
 						s.LogErr("unmarshaling EventRoomPosted JSON", err)
 						continue
 					}
-					if err := p.OnRoomPosted(eventRoomPosted, dpsse.New(sse)); err != nil {
+					if err := p.OnRoomPosted(
+						eventRoomPosted,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageRooms.OnRoomPosted", err)
 					}
 				}
@@ -912,27 +989,283 @@ func (s pageRoomsHandlers) POSTDM(
 	}
 }
 
-type dispatcherEventTicked struct {
-	s   *Server
-	ctx context.Context
+type pageTabsHandlers struct{ *Server }
+
+func (s pageTabsHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	instanceID, err := newStateInstanceID()
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "minting state instance", err)
+		return
+	}
+	w.Header().Set(stateInstanceIDHeader, instanceID)
+	// A shared cache would expose this bearer id to another visitor.
+	w.Header().Set("Cache-Control", "no-store")
+
+	p := dpapp.PageTabs{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageTabs.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageTabs.GET", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('`)
+		if sess.UserID() != "" {
+			_, _ = io.WriteString(w, `/tabs/_$/',{retry:'error'})"`)
+		} else {
+			_, _ = io.WriteString(w, `/tabs/_$/anon/',{retry:'error'})"`)
+		}
+	}
+
+	if err := s.writeHTML(
+		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageTabs", err)
+		return
+	}
 }
 
-func (d dispatcherEventTicked) Dispatch(e dpapp.EventTicked) error {
-	return d.DispatchCtx(d.ctx, e)
+func (s pageTabsHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	if sess.UserID() == "" {
+		// The query carries the signals a stream subscribes by,
+		// which the anonymous route needs as much as this one.
+		// EscapedPath, not the decoded Path: a value carrying "?" or "#" re-parses
+		// in the Location header as a query or a fragment.
+		target := r.URL.EscapedPath() + "anon/"
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
+		return
+	}
+
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot := s.allocateStateTab(instanceID)
+	if slot == nil {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	defer s.releaseStateTab(instanceID, slot)
+
+	p := dpapp.PageTabs{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageTabs(sess.UserID()),
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator,
+		) error {
+			slot.mu.Lock()
+			defer slot.mu.Unlock()
+			return p.StreamOpen(r, streamID, datapages.State[dpapp.StateTab]{Values: slot.state})
+		},
+		func(streamID datapages.StreamID) {
+			s.releaseStateTab(instanceID, slot)
+		},
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageTabs stream")
+			var eventTicked dpapp.EventTicked
+			var eventNoticed dpapp.EventNoticed
+			for msg := range ch {
+				switch {
+				case msg.Subject == EvSubjTicked:
+					eventTicked = dpapp.EventTicked{}
+					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
+						s.LogErr("unmarshaling EventTicked JSON", err)
+						continue
+					}
+					slot.mu.Lock()
+					if slot.dead {
+						slot.mu.Unlock()
+						continue
+					}
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnTicked(
+							eventTicked,
+							dpsse.New(sse),
+							datapages.State[dpapp.StateTab]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PageTabs.OnTicked", err)
+						}
+					}()
+				case strings.HasPrefix(msg.Subject, EvPrefixNoticed):
+					eventNoticed = dpapp.EventNoticed{}
+					if err := json.Unmarshal(msg.Data, &eventNoticed); err != nil {
+						s.LogErr("unmarshaling EventNoticed JSON", err)
+						continue
+					}
+					slot.mu.Lock()
+					if slot.dead {
+						slot.mu.Unlock()
+						continue
+					}
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnNoticed(
+							eventNoticed,
+							dpsse.New(sse),
+							datapages.State[dpapp.StateTab]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PageTabs.OnNoticed", err)
+						}
+					}()
+				}
+			}
+		})
 }
 
-func (d dispatcherEventTicked) DispatchCtx(
-	ctx context.Context, e dpapp.EventTicked,
-) error {
-	j, err := json.Marshal(e)
-	if err != nil {
-		return fmt.Errorf("marshaling EventTicked JSON: %w", err)
+func (s pageTabsHandlers) GETStreamAnon(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
 	}
-	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, EvSubjTicked, j)
-	if err != nil {
-		return fmt.Errorf("publishing subject %q: %w", EvSubjTicked, err)
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
 	}
-	return nil
+
+	if sess.UserID() != "" {
+		s.HTTPErrBad(w, "authenticated client on anonymous stream", nil)
+		return
+	}
+
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot := s.allocateStateTab(instanceID)
+	if slot == nil {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	defer s.releaseStateTab(instanceID, slot)
+
+	p := dpapp.PageTabs{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, sessToken, sess, evSubjPageTabs(sess.UserID()),
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator,
+		) error {
+			slot.mu.Lock()
+			defer slot.mu.Unlock()
+			return p.StreamOpen(r, streamID, datapages.State[dpapp.StateTab]{Values: slot.state})
+		},
+		func(streamID datapages.StreamID) {
+			s.releaseStateTab(instanceID, slot)
+		},
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			var eventTicked dpapp.EventTicked
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjTicked:
+					eventTicked = dpapp.EventTicked{}
+					if err := json.Unmarshal(msg.Data, &eventTicked); err != nil {
+						s.LogErr("unmarshaling EventTicked JSON", err)
+						continue
+					}
+					slot.mu.Lock()
+					if slot.dead {
+						slot.mu.Unlock()
+						continue
+					}
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnTicked(
+							eventTicked,
+							dpsse.New(sse),
+							datapages.State[dpapp.StateTab]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PageTabs.OnTicked", err)
+						}
+					}()
+				}
+			}
+		})
+}
+
+func (s pageTabsHandlers) POSTBump(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot, ok := s.lookupStateTab(instanceID)
+	if !ok {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	// The CSRF token comes from the cookie, hence no store read here.
+	if !s.CheckCSRFOnly(w, r) {
+		return
+	}
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+
+	dispatchTicked := dispatcherEventTicked{s: s.Server, ctx: r.Context()}
+	defer s.recoverPanic(w, r, nil, "PageTabs.Bump")
+	p := dpapp.PageTabs{
+		App: s.app,
+	}
+	err := p.POSTBump(r, datapages.State[dpapp.StateTab]{Values: slot.state}, dispatchTicked)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageTabs.Bump", err)
+		return
+	}
 }
 
 type dispatcherEventRoomPosted struct {
@@ -1015,6 +1348,29 @@ func (d dispatcherEventDMed) DispatchCtx(
 	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
 	if err != nil {
 		return fmt.Errorf("publishing subject %q: %w", subj, err)
+	}
+	return nil
+}
+
+type dispatcherEventTicked struct {
+	s   *Server
+	ctx context.Context
+}
+
+func (d dispatcherEventTicked) Dispatch(e dpapp.EventTicked) error {
+	return d.DispatchCtx(d.ctx, e)
+}
+
+func (d dispatcherEventTicked) DispatchCtx(
+	ctx context.Context, e dpapp.EventTicked,
+) error {
+	j, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshaling EventTicked JSON: %w", err)
+	}
+	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, EvSubjTicked, j)
+	if err != nil {
+		return fmt.Errorf("publishing subject %q: %w", EvSubjTicked, err)
 	}
 	return nil
 }

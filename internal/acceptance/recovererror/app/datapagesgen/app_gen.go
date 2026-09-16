@@ -547,7 +547,10 @@ func (s pageStreamPanicHandlers) GETStream(w http.ResponseWriter, r *http.Reques
 						s.LogErr("unmarshaling EventPinged JSON", err)
 						continue
 					}
-					if err := p.OnPinged(eventPinged, dpsse.New(sse)); err != nil {
+					if err := p.OnPinged(
+						eventPinged,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageStreamPanic.OnPinged", err)
 					}
 				}

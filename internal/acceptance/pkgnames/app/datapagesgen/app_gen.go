@@ -316,7 +316,10 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventTicked JSON", err)
 						continue
 					}
-					if err := p.OnTicked(eventTicked, dpsse.New(sse)); err != nil {
+					if err := p.OnTicked(
+						eventTicked,
+						dpsse.New(sse),
+					); err != nil {
 						s.LogErr("handling PageIndex.OnTicked", err)
 					}
 				}

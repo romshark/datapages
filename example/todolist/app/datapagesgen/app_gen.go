@@ -4,14 +4,19 @@ package datapagesgen
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"io"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
 	"strconv"
+	"sync"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
@@ -52,7 +57,56 @@ func (s *Server) writeHTML(
 	writeBodySuffix func(w http.ResponseWriter),
 ) error {
 	return s.Core.WriteHTML(w, r, httpserve.HTMLDocument{
-		HeadGeneric:     headGeneric,
+		HeadGeneric: headGeneric,
+		WriteHeadPrologue: func(io.Writer) error {
+			// The id authorizes access to one tab's state. The fetch wrapper keeps
+			// it in a closure. Removing the script node prevents later DOM readers,
+			// including replay and error-reporting tools, from recording it.
+			// Cache-Control: no-store prevents caches from retaining the response body.
+			if id := w.Header().Get(stateInstanceIDHeader); wellFormedStateInstanceID(id) {
+				if _, err := io.WriteString(w, `<script>(() => {
+		let __dpInstance="`); err != nil {
+					return err
+				}
+				if _, err := io.WriteString(w, id); err != nil {
+					return err
+				}
+				if _, err := io.WriteString(w, `"
+		document.currentScript?.remove()
+		const k="datapages-reloaded:"+location.pathname
+		const mark=v => { try { v ? sessionStorage.setItem(k,"1"):sessionStorage.removeItem(k) } catch {} }
+		const marked=() => { try { return !!sessionStorage.getItem(k) } catch { return false } }
+		const o2 = globalThis.fetch.bind(globalThis)
+		globalThis.fetch=(i,init={}) => {
+			const isReq=i instanceof Request
+			const r=isReq ? i:new Request(i,init)
+			if (r.headers.get("Datastar-Request")!=="true" ||
+				new URL(r.url,location.href).origin!==location.origin
+			) return isReq ? o2(r,init):o2(r)
+			const h=new Headers(r.headers)
+			if (__dpInstance) h.set("Datapages-Instance",__dpInstance)
+			return o2(new Request(r,{...init,headers:h})).then(resp => {
+				if (resp.status===409 && resp.headers.get("Datapages-Retry")==="reconnect") {
+					__dpInstance=""
+					if (!marked()) {
+						mark(true)
+						location.reload()
+					}
+				} else if (resp.ok) {
+					mark(false)
+				}
+				return resp
+			})
+		}
+		globalThis.addEventListener("pageshow", e => {
+			if (e.persisted) location.reload()
+		})
+	})()</script>`); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
 		Head:            head,
 		Body:            body,
 		WriteBodyAttrs:  writeBodyAttrs,
@@ -101,6 +155,12 @@ type Server struct {
 	messageBrokerMetrics messaging.NoopMetrics
 	streams              *stream.Handler
 	app                  *dpapp.App
+
+	// stateInstancesStateIndex maps a Datapages-Instance id to the live slot.
+	stateInstancesStateIndex stateStore[stateSlotStateIndex]
+
+	// stateInstancesStateItem maps a Datapages-Instance id to the live slot.
+	stateInstancesStateItem stateStore[stateSlotStateItem]
 }
 
 // Init wires the server. It is called by datapages.NewServer,
@@ -118,6 +178,7 @@ type Server struct {
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
 //   - datapages.WithAssets
+//   - datapages.WithStateConfig
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
 	app *dpapp.App,
@@ -188,6 +249,192 @@ var evSubjPageIndex = []string{
 
 var evSubjPageItem = []string{
 	EvSubjTodoUpdated,
+}
+
+const stateInstanceIDHeader = "Datapages-Instance"
+
+// stateRetryHeader tells the generated client that no state slot exists and
+// that it must reconnect.
+const stateRetryHeader = "Datapages-Retry"
+
+const stateRetryReconnect = "reconnect"
+
+// stateInstanceIDLen is the unpadded base64url length of 16 bytes.
+const stateInstanceIDLen = 22
+
+// newStateInstanceID returns 128 random bits as unpadded base64url.
+//
+// The id is an unsigned bearer credential. Signing would prove only that a
+// server issued it. It would not make another tab's random id harder to guess
+// or stop clients from opening streams to consume the instance limit.
+// State is created only when a stream presents an id.
+//
+// Unsigned ids require no key shared between servers. A load balancer may
+// route the page GET and stream to different servers. The stream's server
+// allocates the state.
+func newStateInstanceID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:]), nil
+}
+
+// wellFormedStateInstanceID accepts exactly [stateInstanceIDLen] base64url characters.
+// This bounds client-chosen map keys and permits verbatim use in
+// the page's JavaScript string.
+func wellFormedStateInstanceID(id string) bool {
+	if len(id) != stateInstanceIDLen {
+		return false
+	}
+	for _, c := range []byte(id) {
+		switch {
+		case 'A' <= c && c <= 'Z', 'a' <= c && c <= 'z', '0' <= c && c <= '9':
+		case c == '-', c == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// stateRouteKey keeps the bearer instance id out of broker subjects, which may
+// appear in logs, stream storage, traces and metrics. It returns the first 16
+// bytes of SHA-256 as unpadded base64url. The result can address the tab but
+// cannot authorize state access. Its keyless derivation is stable across
+// servers and process restarts.
+func stateRouteKey(id string) string {
+	sum := sha256.Sum256([]byte(id))
+	return base64.RawURLEncoding.EncodeToString(sum[:16])
+}
+
+const stateStoreShards = 32
+
+// stateStoreSeed prevents clients from choosing a shard for an id.
+var stateStoreSeed = maphash.MakeSeed()
+
+type stateStoreShard[S any] struct {
+	mu sync.RWMutex
+	m  map[string]*S
+}
+
+// stateStore initializes shards lazily, which makes its zero value ready to use.
+type stateStore[S any] struct {
+	shards [stateStoreShards]stateStoreShard[S]
+}
+
+func (s *stateStore[S]) shard(id string) *stateStoreShard[S] {
+	return &s.shards[maphash.String(stateStoreSeed, id)%stateStoreShards]
+}
+
+func (s *stateStore[S]) Load(id string) (*S, bool) {
+	sh := s.shard(id)
+	sh.mu.RLock()
+	slot, ok := sh.m[id]
+	sh.mu.RUnlock()
+	return slot, ok
+}
+
+// Store registers slot, replacing an older stream under the same id.
+func (s *stateStore[S]) Store(id string, slot *S) {
+	sh := s.shard(id)
+	sh.mu.Lock()
+	if sh.m == nil {
+		sh.m = make(map[string]*S)
+	}
+	sh.m[id] = slot
+	sh.mu.Unlock()
+}
+
+// CompareAndDelete prevents a closing stream from deleting a replacement slot
+// registered under the same id.
+func (s *stateStore[S]) CompareAndDelete(id string, slot *S) bool {
+	sh := s.shard(id)
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	if sh.m[id] != slot {
+		return false
+	}
+	delete(sh.m, id)
+	return true
+}
+
+// stateSlotStateIndex belongs to one stream and is never reused.
+// A reconnect allocates a new slot and state value.
+type stateSlotStateIndex struct {
+	state *dpapp.StateIndex
+	mu    sync.Mutex // serializes all stateful handler calls on this instance
+	dead  bool
+}
+
+// allocateStateIndex reserves capacity and registers state before the stream opens.
+// It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].
+func (s *Server) allocateStateIndex(id string) *stateSlotStateIndex {
+	if !s.ReserveStateInstance() {
+		return nil
+	}
+	slot := &stateSlotStateIndex{state: new(dpapp.StateIndex)}
+	s.stateInstancesStateIndex.Store(id, slot)
+	return slot
+}
+
+func (s *Server) lookupStateIndex(id string) (*stateSlotStateIndex, bool) {
+	return s.stateInstancesStateIndex.Load(id)
+}
+
+// releaseStateIndex drops state and capacity exactly once.
+// Passing slot preserves a replacement registered
+// under the same id while an older stream closes.
+func (s *Server) releaseStateIndex(id string, slot *stateSlotStateIndex) {
+	slot.mu.Lock()
+	if slot.dead {
+		slot.mu.Unlock()
+		return
+	}
+	slot.dead = true
+	slot.state = nil
+	slot.mu.Unlock()
+	s.stateInstancesStateIndex.CompareAndDelete(id, slot)
+	s.ReleaseStateInstance()
+}
+
+// stateSlotStateItem belongs to one stream and is never reused.
+// A reconnect allocates a new slot and state value.
+type stateSlotStateItem struct {
+	state *dpapp.StateItem
+	mu    sync.Mutex // serializes all stateful handler calls on this instance
+	dead  bool
+}
+
+// allocateStateItem reserves capacity and registers state before the stream opens.
+// It returns nil at the instance limit. id must pass [wellFormedStateInstanceID].
+func (s *Server) allocateStateItem(id string) *stateSlotStateItem {
+	if !s.ReserveStateInstance() {
+		return nil
+	}
+	slot := &stateSlotStateItem{state: new(dpapp.StateItem)}
+	s.stateInstancesStateItem.Store(id, slot)
+	return slot
+}
+
+func (s *Server) lookupStateItem(id string) (*stateSlotStateItem, bool) {
+	return s.stateInstancesStateItem.Load(id)
+}
+
+// releaseStateItem drops state and capacity exactly once.
+// Passing slot preserves a replacement registered
+// under the same id while an older stream closes.
+func (s *Server) releaseStateItem(id string, slot *stateSlotStateItem) {
+	slot.mu.Lock()
+	if slot.dead {
+		slot.mu.Unlock()
+		return
+	}
+	slot.dead = true
+	slot.state = nil
+	slot.mu.Unlock()
+	s.stateInstancesStateItem.CompareAndDelete(id, slot)
+	s.ReleaseStateInstance()
 }
 
 func setupHandlers(s *Server) {
@@ -270,7 +517,6 @@ func (s appHandlers) PUTEdit(w http.ResponseWriter, r *http.Request) {
 
 	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
-		TabID       string `json:"tab_id"`
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		Done        bool   `json:"done"`
@@ -351,6 +597,15 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	query.Values.Filter = httpread.QueryValue(r.URL.RawQuery, "filter")
 	query.Values.Sort = httpread.QueryValue(r.URL.RawQuery, "sort")
 
+	instanceID, err := newStateInstanceID()
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "minting state instance", err)
+		return
+	}
+	w.Header().Set(stateInstanceIDHeader, instanceID)
+	// A shared cache would expose this bearer id to another visitor.
+	w.Header().Set("Cache-Control", "no-store")
+
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -380,7 +635,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-init="@get('/_$/')"`)
+		_, _ = io.WriteString(w, ` data-init="@get('/_$/',{retry:'error'})"`)
 
 		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
 			if ($search) params.set('q', $search);
@@ -414,6 +669,22 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot := s.allocateStateIndex(instanceID)
+	if slot == nil {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	defer s.releaseStateIndex(instanceID, slot)
+
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -422,10 +693,12 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
-			return p.StreamOpen(r, streamID, dpsse.New(sse), signals)
+			slot.mu.Lock()
+			defer slot.mu.Unlock()
+			return p.StreamOpen(r, datapages.State[dpapp.StateIndex]{Values: slot.state}, signals)
 		},
 		func(streamID datapages.StreamID) {
-			p.StreamClose(r, streamID)
+			s.releaseStateIndex(instanceID, slot)
 		},
 		func(
 			streamID datapages.StreamID,
@@ -441,9 +714,21 @@ func (s pageIndexHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventTodoUpdated JSON", err)
 						continue
 					}
-					if err := p.OnTodoUpdated(eventTodoUpdated, dpsse.New(sse), streamID); err != nil {
-						s.LogErr("handling PageIndex.OnTodoUpdated", err)
+					slot.mu.Lock()
+					if slot.dead {
+						slot.mu.Unlock()
+						continue
 					}
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnTodoUpdated(
+							eventTodoUpdated,
+							dpsse.New(sse),
+							datapages.State[dpapp.StateIndex]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PageIndex.OnTodoUpdated", err)
+						}
+					}()
 				}
 			}
 		})
@@ -457,7 +742,6 @@ func (s pageIndexHandlers) POSTCreate(
 	}
 	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
-		TabID    string `json:"tab_id"`
 		NewTitle string `json:"newTitle"`
 		NewDesc  string `json:"newDesc"`
 		NewDue   string `json:"newDue"`
@@ -485,9 +769,20 @@ func (s pageIndexHandlers) POSTFilter(
 	if !s.CheckDatastarRequest(w, r) {
 		return
 	}
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot, ok := s.lookupStateIndex(instanceID)
+	if !ok {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
 	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
-		TabID  string `json:"tab_id"`
 		Search string `json:"search"`
 		Filter string `json:"filter"`
 		Sort   string `json:"sort"`
@@ -496,13 +791,20 @@ func (s pageIndexHandlers) POSTFilter(
 		s.HTTPErrBad(w, "reading signals", err)
 		return
 	}
+	slot.mu.Lock()
+	defer slot.mu.Unlock()
+	if slot.dead {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageIndex.Filter")
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTFilter(r, dpsse.New(sse), signals)
+	err := p.POSTFilter(r, dpsse.New(sse), datapages.State[dpapp.StateIndex]{Values: slot.state}, signals)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action PageIndex.Filter", err)
 		return
@@ -517,6 +819,15 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		ID string `path:"id"`
 	}]
 	path.Values.ID = r.PathValue("id")
+
+	instanceID, err := newStateInstanceID()
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "minting state instance", err)
+		return
+	}
+	w.Header().Set(stateInstanceIDHeader, instanceID)
+	// A shared cache would expose this bearer id to another visitor.
+	w.Header().Set("Cache-Control", "no-store")
 
 	p := dpapp.PageItem{
 		App: s.app,
@@ -542,7 +853,7 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `/item/`)
 		htmlattr.WritePathValue(w, path.Values.ID)
 		_, _ = io.WriteString(w, `/`)
-		_, _ = io.WriteString(w, `_$/')"`)
+		_, _ = io.WriteString(w, `_$/',{retry:'error'})"`)
 	}
 
 	if err := s.writeHTML(
@@ -566,6 +877,22 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	instanceID := r.Header.Get(stateInstanceIDHeader)
+	if !wellFormedStateInstanceID(instanceID) {
+		w.Header().Set(stateRetryHeader, stateRetryReconnect)
+		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+		return
+	}
+	slot := s.allocateStateItem(instanceID)
+	if slot == nil {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w,
+			http.StatusText(http.StatusServiceUnavailable),
+			http.StatusServiceUnavailable)
+		return
+	}
+	defer s.releaseStateItem(instanceID, slot)
+
 	p := dpapp.PageItem{
 		App: s.app,
 	}
@@ -574,10 +901,12 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 			streamID datapages.StreamID,
 			sse *datastar.ServerSentEventGenerator,
 		) error {
-			return p.StreamOpen(r, streamID, dpsse.New(sse), signals)
+			slot.mu.Lock()
+			defer slot.mu.Unlock()
+			return p.StreamOpen(r, datapages.State[dpapp.StateItem]{Values: slot.state}, signals)
 		},
 		func(streamID datapages.StreamID) {
-			p.StreamClose(r, streamID)
+			s.releaseStateItem(instanceID, slot)
 		},
 		func(
 			streamID datapages.StreamID,
@@ -593,9 +922,21 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 						s.LogErr("unmarshaling EventTodoUpdated JSON", err)
 						continue
 					}
-					if err := p.OnTodoUpdated(eventTodoUpdated, dpsse.New(sse), streamID); err != nil {
-						s.LogErr("handling PageItem.OnTodoUpdated", err)
+					slot.mu.Lock()
+					if slot.dead {
+						slot.mu.Unlock()
+						continue
 					}
+					func() {
+						defer slot.mu.Unlock()
+						if err := p.OnTodoUpdated(
+							eventTodoUpdated,
+							dpsse.New(sse),
+							datapages.State[dpapp.StateItem]{Values: slot.state},
+						); err != nil {
+							s.LogErr("handling PageItem.OnTodoUpdated", err)
+						}
+					}()
 				}
 			}
 		})
@@ -604,15 +945,7 @@ func (s pageItemHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
 func (s pageItemHandlers) DELETEItem(
 	w http.ResponseWriter, r *http.Request,
 ) {
-	if !s.CheckDatastarRequest(w, r) {
-		return
-	}
-	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
-	var signals datapages.Signals[struct {
-		TabID string `json:"tab_id"`
-	}]
-	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
-		s.HTTPErrBad(w, "reading signals", err)
+	if !s.CheckSameOrigin(w, r) {
 		return
 	}
 
@@ -626,7 +959,7 @@ func (s pageItemHandlers) DELETEItem(
 	p := dpapp.PageItem{
 		App: s.app,
 	}
-	redirect, err := p.DELETEItem(r, path, signals, dispatchTodoUpdated)
+	redirect, err := p.DELETEItem(r, path, dispatchTodoUpdated)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action PageItem.Item", err)
 		return
