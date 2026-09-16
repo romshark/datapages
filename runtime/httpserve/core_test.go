@@ -609,6 +609,29 @@ func TestStateBudget(t *testing.T) {
 	}
 }
 
+// TestStateBudgetDefault tests the two configurations that select
+// [datapages.DefaultMaxConcurrentInstances]: a server built without
+// [datapages.WithStateConfig], and a [datapages.ServerConfig] assembled
+// without that option, whose limit is left at zero.
+func TestStateBudgetDefault(t *testing.T) {
+	for name, tc := range map[string]struct {
+		state *datapages.StateConfig
+	}{
+		"no config":  {state: nil},
+		"zero limit": {state: &datapages.StateConfig{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := mustCore(t, datapages.ServerConfig{State: tc.state}, "")
+
+			for i := range datapages.DefaultMaxConcurrentInstances {
+				require.True(t, c.ReserveStateInstance(), "refused at %d", i)
+			}
+
+			require.False(t, c.ReserveStateInstance(), "served past the default")
+		})
+	}
+}
+
 // TestStateBudgetUnlimited covers a negative MaxConcurrentInstances,
 // which removes the cap.
 func TestStateBudgetUnlimited(t *testing.T) {
