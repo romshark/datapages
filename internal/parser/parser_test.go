@@ -579,11 +579,17 @@ func TestParse_ErrRouteAssetsConflict(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrRouteConflict)
 }
 
-// TestParse_ErrRouteStreamConflict tests a page at the URL another page's SSE
-// stream is served under.
+// TestParse_ErrRouteStreamConflict tests pages at stream URLs. One stream
+// comes from an event handler; the other comes only from action state.
 func TestParse_ErrRouteStreamConflict(t *testing.T) {
 	_, err := parse(t, "err_route_stream_conflict")
-	requireParseErrors(t, err, parser.ErrRouteConflict)
+	requireParseErrors(t, err, parser.ErrRouteConflict, parser.ErrRouteConflict)
+
+	_, second := err.Entry(1)
+	var conflict *parser.RouteConflictError
+	require.ErrorAs(t, second, &conflict)
+	require.Equal(t, "PageFilesStream", conflict.Owner)
+	require.Equal(t, "GET /files/_$/{$}", conflict.Pattern)
 }
 
 // TestParse_ErrRouteWildcardStream tests a page whose path ends in a wildcard

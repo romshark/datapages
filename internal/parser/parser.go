@@ -1908,7 +1908,10 @@ func pageHasAnonStream(p *model.Page, events map[string]*model.Event) bool {
 
 // pageHasStream reports whether the page is served an SSE stream of its own.
 func pageHasStream(p *model.Page) bool {
-	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil
+	return len(p.EventHandlers) > 0 ||
+		p.StreamOpen != nil ||
+		p.StreamClose != nil ||
+		p.State != nil
 }
 
 // registerRoute reports what ServeMux says about a pattern.
