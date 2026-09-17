@@ -61,7 +61,7 @@ func httpRedirectOffline(
 		return false
 	}
 
-	if httpserve.IsDatastarRequest(r) {
+	if httpserve.IsDatastarRequest(r.Header) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		js, err := oc.redirectScript(redirect.URL)
 		if err != nil {
@@ -467,7 +467,7 @@ func (s *Server) httpErrIntern(
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
-	if !httpserve.IsDatastarRequest(r) {
+	if !httpserve.IsDatastarRequest(r.Header) {
 		if httpserve.ResponseBodyWritten(w) {
 			// An error page after a half-written one sends two documents.
 			return
@@ -524,6 +524,10 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 type appHandlers struct{ *Server }
 
 func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
 	sess, sessToken, ok := s.ReadSession(w, r)
 	if !ok {
 		return

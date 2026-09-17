@@ -57,7 +57,7 @@ func httpRedirectOffline(
 		return false
 	}
 
-	if httpserve.IsDatastarRequest(r) {
+	if httpserve.IsDatastarRequest(r.Header) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		js, err := oc.redirectScript(redirect.URL)
 		if err != nil {
