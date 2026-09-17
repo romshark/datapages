@@ -16,6 +16,7 @@ type PageIndex struct{ App *App }
 func (PageIndex) GET(
 	r *http.Request,
 	state datapages.State[StateIndex], // not allowed on GET
+	sse datapages.SSE, // not allowed on GET
 ) (body datapages.Component, err error) {
 	return nil, nil
 }

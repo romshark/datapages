@@ -2190,10 +2190,11 @@ func TestParse_StateSubjectID(t *testing.T) {
 	require.Equal("stateID", act.InputStateID.Name)
 }
 
-func TestParse_ErrStateOnGET(t *testing.T) {
+// TestParse_ErrStateAndSSEOnGET tests parameters forbidden in GET.
+func TestParse_ErrStateAndSSEOnGET(t *testing.T) {
 	_, err := parse(t, "err_state_on_get")
 	require.NotZero(t, err.Error())
-	requireParseErrors(t, err, parser.ErrStateOnGET)
+	requireParseErrors(t, err, parser.ErrStateOnGET, parser.ErrSSEOnGET)
 }
 
 func TestParse_ErrStateConflict(t *testing.T) {

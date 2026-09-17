@@ -83,6 +83,7 @@ func toSnakeCase(s string) string {
 //   - ErrNewSessionWithSSE: message states the mutual exclusion
 //   - ErrCloseSessionWithSSE: message states the mutual exclusion
 //   - ErrSSEOnAppMethod: message states where sse is allowed
+//   - ErrSSEOnGET: message states where sse is not allowed
 //   - ErrEnableBgStreamNotGET: message states it must be in a GET handler
 //   - ErrDisableRefreshNotGET: message states it must be in a GET handler
 //   - ErrEventSubjectUserNoSession: has a dedicated suggestion

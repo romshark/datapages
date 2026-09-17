@@ -2699,6 +2699,12 @@ func parseHandler(
 			foundReq = true
 
 		case typecheck.IsSSEParam(f.Type, info):
+			if kind == methodkind.GETHandler {
+				unsupErrs = append(unsupErrs,
+					fieldErr(fmt.Errorf("%w in %s.%s",
+						ErrSSEOnGET, recv, fd.Name.Name)))
+				continue
+			}
 			if h.InputSSE != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
