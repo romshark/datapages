@@ -1735,7 +1735,7 @@ func (w *Writer) writeActionMethodCall(
 	// Redirect.
 	w.writeRedirect(h)
 
-	// Render body (if action returns templ.Component).
+	// Render body (if action returns datapages.Component).
 	if h.OutputBody != nil {
 		if m.GlobalHeadGenerator != nil {
 			w.writeGenericHeadCall(m.GlobalHeadGenerator,

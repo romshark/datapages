@@ -1543,7 +1543,7 @@ func (w *Writer) writeMethodCall(
 	// Redirect.
 	w.writeRedirect(h)
 
-	// Render body (if action returns templ.Component).
+	// Render body (if action returns datapages.Component).
 	if h.OutputBody != nil {
 		ownerName := actionOwnerName(p, isAppLevel)
 

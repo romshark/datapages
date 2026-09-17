@@ -19,6 +19,11 @@ var (
 
 // TestSkillExamplesResolve checks the helper names in code examples against
 // the generated API used by the classifieds app.
+//
+// It resolves action.XXX and href.XXX selectors and the arity of
+// [github.com/romshark/datapages.WithAssets]. A datapages.XXX, sse.XXX or
+// state.XXX spelling is not resolved, and the multi-app generated API of
+// example/counter is not loaded.
 func TestSkillExamplesResolve(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	appDir := filepath.Join(root, "example", "classifieds")

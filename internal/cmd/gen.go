@@ -112,7 +112,7 @@ func runGen(
 		errs = append(errs, fmt.Errorf("checking agent instructions: %w", err))
 	} else if stale {
 		_, _ = fmt.Fprintln(stderr,
-			"Agent instructions differ from this CLI; run `datapages init` to update them (edits are backed up).")
+			"Agent instructions differ from this CLI; run `datapages init -n` to update them (edits are backed up).")
 	}
 	return errors.Join(errs...)
 }
