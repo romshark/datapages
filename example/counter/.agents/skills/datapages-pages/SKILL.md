@@ -10,9 +10,7 @@ description: >-
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-One struct per page, one route doc comment, one `GET` method. `PageIndex` for
-`/` is required. `App *App` is the only named field a page may declare, so
-per-page dependencies go on `App`.
+One struct per page, one route doc comment, one `GET` method. `PageIndex` for `/` is required. `App *App` is the only named field a page may declare, so per-page dependencies go on `App`.
 
 ```go
 // PageIndex is /
@@ -23,13 +21,9 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 }
 ```
 
-Routes are `net/http.ServeMux` patterns: `/item/{id}` captures a segment,
-`/{path...}` the rest, `/{$}` matches that path and nothing below it. `_$` is
-where a page's SSE stream is served. A route that claims it conflicts with that
-endpoint, so do not use it.
+Routes are `net/http.ServeMux` patterns: `/item/{id}` captures a segment, `/{path...}` the rest, `/{$}` matches that path and nothing below it. `_$` is where a page's SSE stream is served. A route that claims it conflicts with that endpoint, so do not use it.
 
-If a route comment has a description, separate it from the route with a blank
-`//` line:
+If a route comment has a description, separate it from the route with a blank `//` line:
 
 ```go
 // PageItem is /item/{id}
@@ -39,14 +33,11 @@ If a route comment has a description, separate it from the route with a blank
 
 ## GET parameters
 
-`r *http.Request` is required. The rest are the action parameters minus
-`datapages.SSE`, which a `GET` may not take: `Session`, `Path`, `Query`,
-`Signals` and dispatchers. See `datapages-actions` for the table.
+`r *http.Request` is required. The rest are the action parameters minus `datapages.SSE`, which a `GET` may not take: `Session`, `Path`, `Query`, `Signals` and dispatchers. See `datapages-actions` for the table.
 
 ## GET return values
 
-`(body datapages.Component, err error)` is the minimum. Add what you need,
-matched by type:
+`(body datapages.Component, err error)` is the minimum. Add what you need, matched by type:
 
 | type | effect |
 | ---- | ------ |
@@ -84,11 +75,7 @@ query datapages.Query[struct {
 }]
 ```
 
-Values sit in `query.Values`. A `reflectsignal:"term"` tag binds the field to a
-Datastar signal: the parameter seeds the signal on load, and a signal change
-rewrites the browser URL. Its period-separated path must have each step start
-with a lowercase letter or underscore; later characters may be letters, digits
-or underscores. A double underscore is invalid.
+Values sit in `query.Values`. A `reflectsignal:"term"` tag binds the field to a Datastar signal: the parameter seeds the signal on load, and a signal change rewrites the browser URL. Its period-separated path must have each step start with a lowercase letter or underscore; later characters may be letters, digits or underscores. A double underscore is invalid.
 
 ## Error pages
 
@@ -113,19 +100,13 @@ func (*App) Head(r *http.Request, session Session) datapages.Head {
 }
 ```
 
-`session` is optional. It applies to every page, so a per-page `head` return
-value only adds to it.
+`session` is optional. It applies to every page, so a per-page `head` return value only adds to it.
 
 ## Sharing handlers
 
-Define a `GET`, a stream hook or an event handler once on a type without the
-`Page` prefix and embed it. Such a type is not a page and carries no route, but
-it needs the same `App *App` field. Their routes come from the page that
-embeds them, so any number of pages may.
+Define a `GET`, a stream hook or an event handler once on a type without the `Page` prefix and embed it. Such a type is not a page and carries no route, but it needs the same `App *App` field. Their routes come from the page that embeds them, so any number of pages may.
 
-An **action cannot be shared this way**: its doc comment names one absolute
-route, and the second page to embed it is rejected as a route conflict. Put a
-shared action on `*App` instead, or give each page its own.
+An **action cannot be shared this way**: its doc comment names one absolute route, and the second page to embed it is rejected as a route conflict. Put a shared action on `*App` instead, or give each page its own.
 
 ```go
 type Base struct{ App *App }
@@ -141,5 +122,4 @@ type PageChat struct {
 }
 ```
 
-A method declared on the page replaces the embedded one for that page only.
-Call `p.Base.OnMessageSent(event, sse)` from the override to wrap it.
+A method declared on the page replaces the embedded one for that page only. Call `p.Base.OnMessageSent(event, sse)` from the override to wrap it.

@@ -108,7 +108,6 @@ func runInit(
 		in = oneByteReader{in}
 	}
 
-	// Step 1: Ensure git repository.
 	var projectDir string
 	var created bool
 	if gitDir := findGitDir(cwd); gitDir == "" {
@@ -129,7 +128,6 @@ func runInit(
 		projectDir = cwd
 	}
 
-	// Step 2: Ensure Go module.
 	goModPath := filepath.Join(projectDir, "go.mod")
 	if _, err := os.Stat(goModPath); os.IsNotExist(err) {
 		modulePath, err := resolveModulePath(in, out, projectDir, nonInteractive, module)
@@ -143,14 +141,14 @@ func runInit(
 		created = true
 	}
 
-	// Step 3: Write datapages.yaml if missing.
 	if wrote, err := writeDefaultConfigIfMissing(projectDir, out); err != nil {
 		return err
 	} else if wrote {
 		created = true
 	}
 
-	// Step 4: A module with NewServer calls already names its app packages.
+	// [github.com/romshark/datapages.NewServer] calls identify app packages
+	// before those packages exist on disk.
 	modulePath, err := readModulePath(projectDir)
 	if err != nil {
 		return err
@@ -167,13 +165,16 @@ func runInit(
 		}
 	}
 
-	// Step 5: Write the instructions for AI coding agents. It runs before the
-	// check below, since running init in an initialized project is how that
-	// project gets them.
+	// An initialized project may still need refreshed agent instructions.
 	if aiSkills {
 		if err := writeAgentDocs(projectDir, out, version); err != nil {
 			return err
 		}
+	}
+
+	// A refresh may leave backups even when no scaffold files are needed.
+	if err := ensureGitignoreEntries(projectDir); err != nil {
+		return err
 	}
 
 	if !created {
@@ -181,13 +182,7 @@ func runInit(
 		return nil
 	}
 
-	// Step 6: Write .env with random secrets if missing.
 	if _, err := writeEnvIfMissing(projectDir, out); err != nil {
-		return err
-	}
-
-	// Step 7: Append .env to .gitignore.
-	if err := gitignoreEnv(projectDir); err != nil {
 		return err
 	}
 
@@ -196,7 +191,6 @@ func runInit(
 		return err
 	}
 
-	// Step 8: Write the remaining project files if missing.
 	for _, f := range []struct {
 		rel     string
 		content string
@@ -213,35 +207,25 @@ func runInit(
 		}
 	}
 
-	// Step 9: Require datapages at the version this binary was built from,
-	// before go mod tidy is left to choose one.
+	// Pin the CLI's Datapages version before tidy selects one.
 	if err := pinDatapages(projectDir, modVersion, out, stderr); err != nil {
 		return err
 	}
 
-	// Step 10: Run templ generate to produce the _templ.go files from the .templ
-	// sources. It runs "go run templ@version", which reads the sources and nothing
-	// of the module, hence it needs no tidy module of its own.
-	//
-	// Ahead of go mod tidy: the templ import arrives with those files, and a tidy
-	// that runs first records no requirement for it.
-	// The parser then fails on a package go.mod does not carry.
+	// Generate Templ files before tidy so go.mod records their templ import.
+	// The parser cannot type-check the app package without that requirement.
 	if err := templGenerate(projectDir); err != nil {
 		return err
 	}
 
-	// Step 11: Run go mod tidy to resolve app package dependencies
-	// (e.g. templ) so the parser can type-check before code generation.
 	if err := goModTidy(projectDir); err != nil {
 		return err
 	}
 
-	// Step 12: Check the version tidy resolved, before the parser reads it.
 	if err := checkDatapagesRoot(projectDir); err != nil {
 		return err
 	}
 
-	// Step 13: Run code generation so all imports exist for the final tidy.
 	conf, _, err := config.Load(projectDir)
 	if err != nil {
 		return err
@@ -250,7 +234,7 @@ func runInit(
 		return err
 	}
 
-	// Step 14: Run go mod tidy again to resolve generated code dependencies.
+	// Generated imports need a second tidy.
 	if err := goModTidy(projectDir); err != nil {
 		return err
 	}
@@ -586,23 +570,33 @@ func randomHex(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// gitignoreEnv ensures .env is listed in .gitignore.
-func gitignoreEnv(projectDir string) error {
+func ensureGitignoreEntries(projectDir string) error {
 	gitignorePath := filepath.Join(projectDir, ".gitignore")
 	content, err := os.ReadFile(gitignorePath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("reading .gitignore: %w", err)
 	}
-	for line := range strings.SplitSeq(string(content), "\n") {
-		if strings.TrimSpace(line) == ".env" {
-			return nil
+	var missing []string
+	for _, want := range []string{".env", "*.bak", "*.bak.[0-9]*"} {
+		found := false
+		for line := range strings.SplitSeq(string(content), "\n") {
+			if strings.TrimSpace(line) == want {
+				found = true
+				break
+			}
 		}
+		if !found {
+			missing = append(missing, want)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
 	}
 	f, err := os.OpenFile(gitignorePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		return fmt.Errorf("opening .gitignore: %w", err)
 	}
-	entry := ".env\n"
+	entry := strings.Join(missing, "\n") + "\n"
 	if len(content) > 0 && content[len(content)-1] != '\n' {
 		entry = "\n" + entry
 	}

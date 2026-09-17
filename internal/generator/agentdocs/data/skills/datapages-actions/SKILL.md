@@ -10,9 +10,7 @@ description: >-
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-Methods on a page type (value receiver), or on `*App` for a route not tied to
-a page. One route doc comment each. A page action route must be under its page
-route: for `PageLogin` at `/login`, `/login/submit` is valid.
+Methods on a page type (value receiver), or on `*App` for a route not tied to a page. One route doc comment each. A page action route must be under its page route: for `PageLogin` at `/login`, `/login/submit` is valid.
 
 ```go
 // POSTSubmit is /login/submit
@@ -24,8 +22,7 @@ func (*App) POSTSignOut(r *http.Request) error { return nil }
 
 ## Parameters
 
-Any order, matched by type. Names are free except `stateID`. Values sit in
-`.Values` where applicable.
+Any order, matched by type. Names are free except `stateID`. Values sit in `.Values` where applicable.
 
 | type | what |
 | ---- | ---- |
@@ -41,9 +38,7 @@ Any order, matched by type. Names are free except `stateID`. Values sit in
 
 ## Return values
 
-`error` alone is valid. Otherwise pick from `datapages.Component`,
-`datapages.Head`, `datapages.Redirect`, `datapages.NewSession[Data]`,
-`datapages.CloseSession`. Return values may appear in any order.
+`error` alone is valid. Otherwise pick from `datapages.Component`, `datapages.Head`, `datapages.Redirect`, `datapages.NewSession[Data]`, `datapages.CloseSession`. Return values may appear in any order.
 
 ```go
 ) (redirect datapages.Redirect, err error) {
@@ -51,13 +46,9 @@ Any order, matched by type. Names are free except `stateID`. Values sit in
 }
 ```
 
-`Redirect.Status` defaults to 302 and is ignored for a Datastar request, which
-cannot follow an HTTP redirect and navigates by assigning `window.location`.
+`Redirect.Status` defaults to 302 and is ignored for a Datastar request, which cannot follow an HTTP redirect and navigates by assigning `window.location`.
 
-**`datapages.SSE` and session mutation exclude each other.** Taking `sse` has
-already sent the response headers the cookie would travel in, so `newSession`
-and `closeSession` are rejected alongside it. `redirect` still works: it
-navigates through the stream.
+**`datapages.SSE` and session mutation exclude each other.** Taking `sse` has already sent the response headers the cookie would travel in, so `newSession` and `closeSession` are rejected alongside it. `redirect` still works: it navigates through the stream.
 
 ## SSE
 
@@ -73,9 +64,7 @@ navigates through the stream.
 | `Redirect(url)` | client-side navigation |
 | `Prefetch(urls...)` | speculation rules hint |
 
-A selector may not contain a line break. Prefer one fragment that carries its
-own context over several surgical patches. `...Prepend` and `...Append` cannot
-recover missed events; see delivery rules in `datapages-events`.
+A selector may not contain a line break. Prefer one fragment that carries its own context over several surgical patches. `...Prepend` and `...Append` cannot recover missed events; see delivery rules in `datapages-events`.
 
 ## Errors
 
@@ -87,14 +76,11 @@ return datapages.ErrConflict                              // 409
 return fmt.Errorf("%w: %w", datapages.ErrNotFound, err)   // 404, keeps err
 ```
 
-Any other error is 500. The response body is always the standard status text.
-Wrap at most one sentinel; with several, the first of `ErrBadRequest`,
-`ErrForbidden`, `ErrNotFound`, `ErrConflict` decides.
+Any other error is 500. The response body is always the standard status text. Wrap at most one sentinel; with several, the first of `ErrBadRequest`, `ErrForbidden`, `ErrNotFound`, `ErrConflict` decides.
 
 ## RecoverError
 
-An HTTP error on a Datastar request is invisible to the user: only the console
-shows it. Define this hook to patch an error UI instead.
+An HTTP error on a Datastar request is invisible to the user: only the console shows it. Define this hook to patch an error UI instead.
 
 ```go
 func (*App) RecoverError(err error, sse datapages.SSE) error {
@@ -102,9 +88,4 @@ func (*App) RecoverError(err error, sse datapages.SSE) error {
 }
 ```
 
-Every handler error routes through it, sentinels included. Tell them apart
-with `errors.Is`. A panic in a `GET`, an action, `StreamOpen` or an `On`
-handler arrives as `datapages.PanicError` carrying the value and the stack
-(`errors.As`); it is logged either way and the request ends there. An error
-returned from the hook itself falls back to the plain HTTP error response for
-the original error.
+Every handler error routes through it, sentinels included. Tell them apart with `errors.Is`. A panic in a `GET`, an action, `StreamOpen` or an `On` handler arrives as `datapages.PanicError` carrying the value and the stack (`errors.As`); it is logged either way and the request ends there. An error returned from the hook itself falls back to the plain HTTP error response for the original error.
