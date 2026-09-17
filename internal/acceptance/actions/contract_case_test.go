@@ -37,24 +37,24 @@ func TestContract(t *testing.T) {
 			href.PageLog(),
 		},
 		Actions: []string{
-			action.POSTPageFormSubmit(),
-			action.PUTPageFormReplace(),
-			action.PATCHPageFormTouch(),
-			action.DELETEPageFormRemove(),
-			action.POSTPageFormBump(7, action.QueryPOSTPageFormBump{By: 3}),
-			action.POSTPageFormRender(),
-			action.POSTPageFormGo(),
-			action.POSTPageFormPatch(),
-			action.POSTAppPing(),
-			action.DELETEAppAll(),
+			action.PageForm.Submit.POST(),
+			action.PageForm.Replace.PUT(),
+			action.PageForm.Touch.PATCH(),
+			action.PageForm.Remove.DELETE(),
+			action.PageForm.Bump.POST(7, action.PageForm.Bump.POSTQuery(3)),
+			action.PageForm.Render.POST(),
+			action.PageForm.Go.POST(),
+			action.PageForm.Patch.POST(),
+			action.App.Ping.POST(),
+			action.App.All.DELETE(),
 		},
 		SignalActions: []string{
-			action.POSTPageFormSubmit(),
-			action.POSTPageFormPatch(),
+			action.PageForm.Submit.POST(),
+			action.PageForm.Patch.POST(),
 		},
 		// optionedAction carries every option at once.
 		// The keys and their order are asserted by the contract suite.
-		OptionedAction: action.POSTPageFormSubmit(
+		OptionedAction: action.PageForm.Submit.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),

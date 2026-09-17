@@ -68,8 +68,8 @@ func pageCounter(value int32) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var3 string
-		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageIndexAdd(
-			action.QueryPOSTPageIndexAdd{Delta: -1},
+		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageIndex.Add.POST(
+			action.PageIndex.Add.POSTQuery(-1),
 		))
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/simple/app.templ`, Line: 38, Col: 3}
@@ -96,8 +96,8 @@ func pageCounter(value int32) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var5 string
-		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageIndexAdd(
-			action.QueryPOSTPageIndexAdd{Delta: 1},
+		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageIndex.Add.POST(
+			action.PageIndex.Add.POSTQuery(1),
 		))
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/simple/app.templ`, Line: 44, Col: 3}

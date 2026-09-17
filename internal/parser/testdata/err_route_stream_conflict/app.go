@@ -29,3 +29,26 @@ type PageStream struct{ App *App }
 func (PageStream) GET(r *http.Request) (body datapages.Component, err error) {
 	return nil, nil
 }
+
+type FileState struct{}
+
+// PageFiles is /files/
+type PageFiles struct{ App *App }
+
+func (PageFiles) GET(r *http.Request) (body datapages.Component, err error) {
+	return nil, nil
+}
+
+// POSTFilter is /files/filter
+func (PageFiles) POSTFilter(
+	r *http.Request, state datapages.State[FileState],
+) error {
+	return nil
+}
+
+// PageFilesStream is /files/_$/
+type PageFilesStream struct{ App *App }
+
+func (PageFilesStream) GET(r *http.Request) (body datapages.Component, err error) {
+	return nil, nil
+}

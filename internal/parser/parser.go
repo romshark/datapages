@@ -73,9 +73,11 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	validateEventsNeedSession(&ctx, &errs)
 	validateRequiredHandlers(&ctx, &errs)
 	finalizePages(&ctx)
+	finalizeStates(&ctx, &errs)
+	checkPageSubjectKinds(&ctx, &errs)
 	assignSpecialPages(&ctx, &errs)
 	validateRouteConflicts(&ctx, &errs)
-	validateGeneratedNames(&ctx, &errs)
+	validateRouteVarNames(&ctx, &errs)
 	checkTemplFiles(&ctx, &errs)
 
 	if !ctx.appTypeFound {
@@ -94,6 +96,15 @@ type parseCtx struct {
 	// Set of declared valid EventXXX names (same package),
 	// used for validating OnXXX param types.
 	eventTypeNames map[string]struct{}
+
+	// eventPkgByName maps an event type name to the package it is taken from.
+	// Generated code names an event by its type name alone, hence two events
+	// of one name are refused however far apart they are declared.
+	eventPkgByName map[string]string
+
+	// foreignEvents holds "pkgpath.TypeName" of every event this application
+	// takes part in without declaring it, which is registered on first use.
+	foreignEvents map[string]bool
 
 	// subject -> the event type that claimed it first.
 	eventSubjects map[string]string
@@ -123,6 +134,8 @@ func newParseCtx(pkg *packages.Package) parseCtx {
 		docByType:           map[string]*ast.CommentGroup{},
 		genDocByType:        map[string]*ast.CommentGroup{},
 		eventTypeNames:      map[string]struct{}{},
+		eventPkgByName:      map[string]string{},
+		foreignEvents:       map[string]bool{},
 		eventSubjects:       map[string]string{},
 		pages:               map[string]*model.Page{},
 		abstracts:           map[string]*model.AbstractPage{},
@@ -157,11 +170,87 @@ func indexTypes(ctx *parseCtx) {
 }
 
 func collectEventTypeNames(ctx *parseCtx) {
-	for name := range ctx.typeSpecByName {
+	for name, ts := range ctx.typeSpecByName {
+		if isTypeAlias(ts) {
+			continue
+		}
 		if err := validate.EventTypeName(name); err == nil {
 			ctx.eventTypeNames[name] = struct{}{}
+			ctx.eventPkgByName[name] = ctx.pkg.PkgPath
 		}
 	}
+}
+
+// isTypeAlias reports whether ts declares an alias rather than a type.
+// An alias is no event declaration: the event is the type behind it,
+// read where that type is written.
+func isTypeAlias(ts *ast.TypeSpec) bool { return ts.Assign.IsValid() }
+
+// eventResolver reports the event type name of a named type and registers an
+// event declared outside the app package. pos is where the type is named,
+// which is where an unusable declaration is reported.
+type eventResolver func(named *types.Named, pos token.Pos) (string, bool)
+
+// eventResolver returns the resolver the handler parsers take.
+func (ctx *parseCtx) eventResolver(errs *Errors) eventResolver {
+	return func(named *types.Named, pos token.Pos) (string, bool) {
+		return ctx.resolveEvent(named, ctx.pkg.Fset.Position(pos), errs)
+	}
+}
+
+// resolveEvent reports the event type name of named, registering it when it's
+// declared outside the app package. An application takes part in another one's
+// event by naming its type in a handler or a dispatcher; the declaration is
+// read where it's written.
+//
+// ok is false for a type that is no event at all. A declaration that cannot be
+// used is reported here and ok stays true: the parameter is an event parameter,
+// which is what the signature check above asks, and the error names the
+// declaration rather than the signature.
+func (ctx *parseCtx) resolveEvent(
+	named *types.Named, pos token.Position, errs *Errors,
+) (string, bool) {
+	obj := named.Obj()
+	name := obj.Name()
+	if validate.EventTypeName(name) != nil {
+		return "", false
+	}
+	pkgPath := obj.Pkg().Path()
+	if pkgPath == ctx.pkg.PkgPath {
+		_, ok := ctx.eventTypeNames[name]
+		return name, ok
+	}
+	key := pkgPath + "." + name
+	if ctx.foreignEvents[key] {
+		return name, true
+	}
+	ctx.foreignEvents[key] = true
+	if first, taken := ctx.eventPkgByName[name]; taken {
+		errs.ErrAt(pos, &EventTypeNameConflictError{
+			TypeName: name, PkgPath: pkgPath, FirstPkgPath: first,
+		})
+		return name, true
+	}
+	declPkg, ts, doc, found := typecheck.TypeDeclOf(obj, ctx.pkg)
+	if !found {
+		errs.ErrAt(pos, &EventDeclUnreadableError{
+			TypeName: name, PkgPath: pkgPath,
+		})
+		return name, true
+	}
+	if ts.TypeParams != nil && len(ts.TypeParams.List) > 0 {
+		// The app package's own declarations are checked by [checkTypeParams].
+		// Generated code names an event type without type arguments,
+		// which a generic one cannot be written as.
+		errs.ErrAt(ctx.pkg.Fset.Position(ts.Name.Pos()),
+			fmt.Errorf("%w: %s", ErrTypeParams, name))
+		return name, true
+	}
+	ctx.eventPkgByName[name] = pkgPath
+	registerEventType(ctx, errs, name, ts, doc, declPkg)
+	validateEventType(ctx, errs, name,
+		declPkg.TypesInfo.TypeOf(ts.Type), map[types.Type]bool{})
+	return name, true
 }
 
 func initApp(ctx *parseCtx, errs *Errors) {
@@ -185,11 +274,15 @@ func firstPassTypes(ctx *parseCtx, errs *Errors) {
 
 		// Only treat valid EventXXX as event types.
 		if err := validate.EventTypeName(name); err == nil {
-			firstPassEventType(ctx, errs, name, ts)
+			if !isTypeAlias(ts) {
+				firstPassEventType(ctx, errs, name, ts)
+			}
 			continue
 		}
 
 		// Pages / abstracts are structs only.
+		// State types are detected usage-driven on the first handler that
+		// accepts datapages.State[SomeType], not by name.
 		firstPassPageOrAbstractType(ctx, errs, name, ts)
 	}
 }
@@ -288,33 +381,43 @@ func noteSessionType(
 func firstPassEventType(
 	ctx *parseCtx, errs *Errors, name string, ts *ast.TypeSpec,
 ) {
+	registerEventType(ctx, errs, name, ts,
+		pickDoc(name, ctx.docByType, ctx.genDocByType), ctx.pkg)
+}
+
+// registerEventType reads one event declaration and adds it to the model.
+// declPkg is the package the declaration is written in, which is the app
+// package for an event the application declares itself.
+func registerEventType(
+	ctx *parseCtx, errs *Errors, name string,
+	ts *ast.TypeSpec, doc *ast.CommentGroup, declPkg *packages.Package,
+) {
 	typePos := ctx.pkg.Fset.Position(ts.Name.Pos())
-	doc := pickDoc(name, ctx.docByType, ctx.genDocByType)
 
 	subj, err := extractEventSubject(name, doc)
 	if err != nil {
 		switch err {
 		case validate.ErrEventCommMissing:
-			errs.ErrAt(typePos, &ErrorEventCommMissing{TypeName: name})
+			errs.ErrAt(typePos, &EventCommMissingError{TypeName: name})
 		case validate.ErrEventCommInvalid:
 			commPos := eventCommInvalidPos(doc, name, ctx.pkg.Fset, typePos)
-			errs.ErrAt(commPos, &ErrorEventCommInvalid{TypeName: name})
+			errs.ErrAt(commPos, &EventCommInvalidError{TypeName: name})
 		case validate.ErrEventSubjectInvalid:
 			subjPos := eventSubjectPos(doc, name, ctx.pkg.Fset, typePos)
 			errs.ErrAt(subjPos, fmt.Errorf("%w: %s", ErrEventSubjectInvalid, name))
 		default:
 			// validate returns no other error for a comment, an unknown one
 			// still means the comment cannot be read.
-			errs.ErrAt(typePos, &ErrorEventCommInvalid{TypeName: name})
+			errs.ErrAt(typePos, &EventCommInvalidError{TypeName: name})
 		}
 		return
 	}
 
-	sfResult := structinspect.SubjectFields(ts, ctx.pkg.TypesInfo)
+	sfResult := structinspect.SubjectFields(ts, declPkg)
 	if sfResult.AfterPayload != nil {
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(sfResult.AfterPayload.Pos),
-			&ErrorEventSubjectAfterPayload{
+			&EventSubjectAfterPayloadError{
 				FieldName: sfResult.AfterPayload.FieldName,
 				TypeName:  name,
 			},
@@ -323,7 +426,7 @@ func firstPassEventType(
 	if sfResult.DuplicateSignal != nil {
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(sfResult.DuplicateSignal.Pos),
-			&ErrorEventSubjectDuplicateSignal{
+			&EventSubjectDuplicateSignalError{
 				FieldName:      sfResult.DuplicateSignal.FieldName,
 				FirstFieldName: sfResult.DuplicateSignalFirst,
 				SignalName:     sfResult.DuplicateSignal.SignalName,
@@ -334,18 +437,33 @@ func firstPassEventType(
 	if sfResult.UserWithSignal != nil {
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(sfResult.UserWithSignal.Pos),
-			&ErrorEventSubjectUserSignal{TypeName: name},
+			&EventSubjectUserSignalError{TypeName: name},
 		)
 	}
 	if sfResult.InvalidSignal != nil {
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(sfResult.InvalidSignal.Pos),
-			&ErrorEventSubjectSignalInvalid{
+			&EventSubjectSignalInvalidError{
 				FieldName:  sfResult.InvalidSignal.FieldName,
 				SignalName: sfResult.InvalidSignal.SignalName,
 				TypeName:   name,
 			},
 		)
+	}
+	for _, sf := range sfResult.Fields {
+		if !sf.Kind.IsStateID() {
+			continue
+		}
+		if sf.SignalName != "" {
+			errs.ErrAt(ctx.pkg.Fset.Position(sf.Pos),
+				fmt.Errorf("%w: %s.%s",
+					ErrSubjectStateIDWithSignal, name, sf.FieldName))
+		}
+		if len(sfResult.Fields) > 1 {
+			errs.ErrAt(ctx.pkg.Fset.Position(sf.Pos),
+				fmt.Errorf("%w: %s.%s",
+					ErrSubjectStateIDMixed, name, sf.FieldName))
+		}
 	}
 
 	for _, sf := range sfResult.Unexported {
@@ -358,9 +476,20 @@ func firstPassEventType(
 	for _, sf := range sfResult.Prefixed {
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(sf.Pos),
-			&ErrorEventSubjectPrefixedField{
+			&EventSubjectPrefixedFieldError{
 				FieldName: sf.FieldName,
 				TypeName:  name,
+			},
+		)
+	}
+	for _, sf := range sfResult.Derived {
+		errs.ErrAt(
+			ctx.pkg.Fset.Position(sf.Pos),
+			&EventSubjectDerivedTypeError{
+				FieldName:       sf.FieldName,
+				TypeName:        name,
+				DeclTypeName:    sf.DeclTypeName,
+				SubjectTypeName: sf.SubjectTypeName,
 			},
 		)
 	}
@@ -375,7 +504,7 @@ func firstPassEventType(
 	}
 
 	if first, ok := ctx.eventSubjects[subj]; ok {
-		errs.ErrAt(typePos, &ErrorEventSubjectDuplicate{
+		errs.ErrAt(typePos, &EventSubjectDuplicateError{
 			Subject:       subj,
 			TypeName:      name,
 			FirstTypeName: first,
@@ -391,7 +520,7 @@ func firstPassEventType(
 		if !claim.Overlaps(first.Claim) {
 			continue
 		}
-		errs.ErrAt(typePos, &ErrorEventSubjectOverlap{
+		errs.ErrAt(typePos, &EventSubjectOverlapError{
 			Subject:       subj,
 			TypeName:      name,
 			FirstSubject:  first.Subject,
@@ -407,6 +536,8 @@ func firstPassEventType(
 		Expr:          ts.Name,
 		TypeName:      name,
 		Subject:       subj,
+		Type:          declaredType(declPkg, ts),
+		PkgPath:       declPkg.PkgPath,
 		SubjectFields: subjectFields,
 	})
 }
@@ -477,10 +608,10 @@ func eventSubjectPos(
 	return pos
 }
 
-// eventCommInvalidPos returns the position of the first unexpected token
-// in an invalid event subject comment. When the type name matches but "is"
-// is missing, it points at the token after the type name. When the type
-// name doesn't match, it points at the start of the comment content.
+// eventCommInvalidPos returns the position of the first unexpected token in an
+// invalid event subject comment. When the type name matches but "is" is missing,
+// it points at the token after the type name. When the type name doesn't match,
+// it points at the start of the comment content.
 func eventCommInvalidPos(
 	doc *ast.CommentGroup, typeName string,
 	fset *token.FileSet, fallback token.Position,
@@ -559,7 +690,7 @@ func firstPassPageOrAbstractType(
 			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageNameInvalid, name))
 		}
 		if !structinspect.HasRequiredAppField(st, ctx.pkg.TypesInfo) {
-			errs.ErrAt(typePos, &ErrorPageMissingFieldApp{TypeName: name})
+			errs.ErrAt(typePos, &PageMissingFieldAppError{TypeName: name})
 		}
 		if structinspect.HasDisallowedNamedFields(st) {
 			errs.ErrAt(typePos, fmt.Errorf("%w: %s", ErrPageHasExtraFields, name))
@@ -569,11 +700,11 @@ func firstPassPageOrAbstractType(
 			name, pickDoc(name, ctx.docByType, ctx.genDocByType),
 		)
 		if !found {
-			errs.ErrAt(typePos, &ErrorPageMissingPathComm{TypeName: name})
+			errs.ErrAt(typePos, &PageMissingPathCommError{TypeName: name})
 		} else if !ok {
-			errs.ErrAt(typePos, &ErrorPageInvalidPathComm{TypeName: name})
+			errs.ErrAt(typePos, &PageInvalidPathCommError{TypeName: name})
 		} else if name == "PageIndex" && route != "/" {
-			errs.ErrAt(typePos, &ErrorPageIndexPathMustBeRoot{Route: route})
+			errs.ErrAt(typePos, &PageIndexPathMustBeRootError{Route: route})
 		}
 
 		ctx.pages[name] = &model.Page{
@@ -597,8 +728,17 @@ func firstPassPageOrAbstractType(
 
 func secondPassEmbeds(ctx *parseCtx, errs *Errors) {
 	for _, pg := range ctx.pages {
+		embedTypes := embeddedFieldTypes(ctx, pg.TypeName)
 		resolveEmbedsForStruct(ctx, errs, pg.TypeName, func(ap *model.AbstractPage) {
 			pg.Embeds = append(pg.Embeds, ap)
+			t, ok := embedTypes[ap.TypeName]
+			if !ok {
+				return
+			}
+			if pg.EmbedTypes == nil {
+				pg.EmbedTypes = map[string]model.Type{}
+			}
+			pg.EmbedTypes[ap.TypeName] = t
 		})
 	}
 	for _, ap := range ctx.abstracts {
@@ -606,6 +746,24 @@ func secondPassEmbeds(ctx *parseCtx, errs *Errors) {
 			ap.Embeds = append(ap.Embeds, sub)
 		})
 	}
+}
+
+// embeddedFieldTypes resolves the type written at each embed site of the named struct,
+// keyed by the embedded type's base name.
+func embeddedFieldTypes(ctx *parseCtx, typeName string) map[string]model.Type {
+	out := map[string]model.Type{}
+	st := typeStruct(ctx, typeName)
+	if st == nil {
+		return out
+	}
+	for name, expr := range structinspect.EmbeddedFieldTypeExprs(st) {
+		resolved := ctx.pkg.TypesInfo.TypeOf(expr)
+		if resolved == nil {
+			continue
+		}
+		out[name] = model.Type{Resolved: resolved, TypeExpr: expr}
+	}
+	return out
 }
 
 func resolveEmbedsForStruct(
@@ -616,14 +774,33 @@ func resolveEmbedsForStruct(
 	if !ok {
 		return
 	}
-	for _, emb := range structinspect.EmbeddedTypeNames(st) {
-		if ap, ok := ctx.abstracts[emb]; ok {
+	for _, emb := range structinspect.EmbeddedTypes(st) {
+		if ap, ok := ctx.abstracts[emb.Name]; ok {
+			embPos := ctx.pkg.Fset.Position(emb.Pos)
+			switch {
+			case emb.Pointer:
+				// Generated code writes the page as a composite literal of values.
+				// A pointer field would take the address of one,
+				// and a nil pointer would panic in every promoted handler.
+				errs.ErrAt(embPos, &PageEmbedPointerError{
+					TypeName: typeName, EmbedName: emb.Name,
+				})
+			case !token.IsExported(emb.Name):
+				// The literal is written in the generated package,
+				// which reaches an unexported name of the app package
+				// as little as any other importer does.
+				errs.ErrAt(embPos, &PageEmbedUnexportedError{
+					TypeName: typeName, EmbedName: emb.Name,
+				})
+			}
+			// Adopted whatever was reported: the page keeps what it inherits,
+			// which is what leaves the rest of the model worth reading.
 			add(ap)
 			continue
 		}
 		typePos := ctx.pkg.Fset.Position(ts.Name.Pos())
 		errs.ErrAt(typePos,
-			fmt.Errorf("%w: %s embeds %s", ErrPageHasExtraFields, typeName, emb))
+			fmt.Errorf("%w: %s embeds %s", ErrPageHasExtraFields, typeName, emb.Name))
 	}
 }
 
@@ -816,8 +993,12 @@ func validateAndAttachEventHandler(
 	evParams := 0
 	if params != nil {
 		for _, f := range params.List {
-			name, ok := typecheck.EventTypeNameOf(
-				f.Type, ctx.pkg.TypesInfo, ctx.eventTypeNames,
+			named, isNamed := typecheck.EventNamedOf(f.Type, ctx.pkg.TypesInfo)
+			if !isNamed {
+				continue
+			}
+			name, ok := ctx.resolveEvent(
+				named, ctx.pkg.Fset.Position(f.Type.Pos()), errs,
 			)
 			if !ok {
 				continue
@@ -873,8 +1054,8 @@ func validateAndAttachEventHandler(
 			fmt.Errorf("%w: %s.%s", ErrSignatureEvHandMissingSSE, recv, fd.Name.Name))
 	}
 
-	// What is left after the event, the SSE, the session and the stream ID,
-	// each of which was matched by type already, is unsupported.
+	// What is left after the event, the SSE, the session, the stream ID and
+	// the per-tab state, each of which was matched already, is unsupported.
 	if params != nil {
 		for _, f := range params.List {
 			switch {
@@ -882,6 +1063,17 @@ func validateAndAttachEventHandler(
 			case typecheck.IsSSEParam(f.Type, ctx.pkg.TypesInfo):
 			case paramvalidation.IsSessionParam(f, ctx.pkg.TypesInfo):
 			case typecheck.IsStreamIDType(f.Type, ctx.pkg.TypesInfo):
+			case paramvalidation.IsStateParam(f, ctx.pkg.TypesInfo):
+				// Delegated to parseEventHandler which resolves the
+				// pointer element type against the declared state types.
+			case paramvalidation.IsStateIDParam(f):
+				if !gotypes.IsString(ctx.pkg.TypesInfo.TypeOf(f.Type)) {
+					errs.ErrAt(ctx.pkg.Fset.Position(f.Type.Pos()), fmt.Errorf(
+						"%w: %s.%s",
+						ErrStateIDParamNotString,
+						recv, fd.Name.Name,
+					))
+				}
 			default:
 				p := f.Type.Pos()
 				if len(f.Names) > 0 {
@@ -904,7 +1096,13 @@ func validateAndAttachEventHandler(
 			ErrSignatureEvHandReturnMustBeError, recv, fd.Name.Name))
 	}
 
-	h := parseEventHandler(fd, ctx.pkg.TypesInfo, suffix, evName)
+	h, ehErr := parseEventHandler(
+		fd, ctx.pkg.TypesInfo, ctx,
+		recv, suffix, evName,
+	)
+	if ehErr != nil {
+		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, ehErr)
+	}
 
 	// A handler with an empty evName carries no event for the override checks
 	// to match on. It is attached anyway, for its AST position.
@@ -927,7 +1125,8 @@ func validateAndAttachStreamHook(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	h, herr := parseStreamHook(
-		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset, ctx.eventTypeNames, kind,
+		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset,
+		ctx.eventResolver(errs), ctx, kind,
 	)
 	if herr != nil {
 		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
@@ -988,12 +1187,14 @@ func attachHTTPHandler(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	h, outputs, herr := parseHandler(
-		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset, ctx.eventTypeNames, kind, suffix,
+		recv, fd, ctx.pkg.TypesInfo, ctx.pkg.Fset,
+		ctx.eventResolver(errs), ctx,
+		kind, suffix,
 	)
 	if herr != nil {
 		// Keep going; still attach a best-effort handler model.
-		// herr may contain multiple joined errors (e.g. several
-		// unsupported params); report each one separately.
+		// herr may contain multiple joined errors (e.g. several unsupported params);
+		// report each one separately.
 		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
 	}
 	ctx.handlerOutputs[h] = outputs
@@ -1008,15 +1209,15 @@ func attachHTTPHandler(
 				pagePath = pg.Route
 			}
 			errs.ErrAt(pos,
-				&ErrorActionMissingPathComm{
+				&ActionMissingPathCommError{
 					PagePath: pagePath, Recv: recv, MethodName: fd.Name.Name,
 				})
 		} else if !valid {
 			errs.ErrAt(pos,
-				&ErrorActionInvalidPathComm{Recv: recv, MethodName: fd.Name.Name})
+				&ActionInvalidPathCommError{Recv: recv, MethodName: fd.Name.Name})
 		} else if pg != nil && pg.Route != "" && !actionIsUnderPage(pg.Route, r) {
 			errs.ErrAt(pos,
-				&ErrorActionPathNotUnderPage{
+				&ActionPathNotUnderPageError{
 					PagePath: pg.Route, Recv: recv, MethodName: fd.Name.Name,
 				})
 		}
@@ -1052,8 +1253,8 @@ func attachHTTPHandler(
 		if kind == methodkind.GETHandler {
 			if herr != nil {
 				// Handler parsing failed; attach a minimal GET so the
-				// page is not flagged as missing a GET handler, but skip
-				// output validation and code generation details.
+				// page is not flagged as missing a GET handler,
+				// but skip output validation and code generation details.
 				pg.GET = &model.HandlerGET{Handler: h}
 			} else {
 				get, getErr := buildHandlerGET(h, outputs)
@@ -1083,7 +1284,9 @@ func attachAppAction(
 	pos := ctx.pkg.Fset.Position(fd.Name.Pos())
 
 	h, outputs, herr := parseHandler(
-		"App", fd, ctx.pkg.TypesInfo, ctx.pkg.Fset, ctx.eventTypeNames, kind, suffix,
+		"App", fd, ctx.pkg.TypesInfo, ctx.pkg.Fset,
+		ctx.eventResolver(errs), ctx,
+		kind, suffix,
 	)
 	if herr != nil {
 		reportErrorsWithFset(errs, ctx.pkg.Fset, pos, herr)
@@ -1095,10 +1298,10 @@ func attachAppAction(
 
 	if !found {
 		errs.ErrAt(pos,
-			&ErrorActionMissingPathComm{Recv: "App", MethodName: fd.Name.Name})
+			&ActionMissingPathCommError{Recv: "App", MethodName: fd.Name.Name})
 	} else if !valid {
 		errs.ErrAt(pos,
-			&ErrorActionInvalidPathComm{Recv: "App", MethodName: fd.Name.Name})
+			&ActionInvalidPathCommError{Recv: "App", MethodName: fd.Name.Name})
 	}
 
 	// Validate path struct fields against route variables.
@@ -1183,11 +1386,12 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 	// Queue items carry the embed site position that introduced this abstract.
 	type qitem struct {
 		ap       *model.AbstractPage
-		embedPos token.Pos // position of the embedded field identifier
+		embedPos token.Pos
 	}
 
 	// seed queue from the page's struct embed sites
-	pageEmbPos := structinspect.EmbeddedFieldPosMap(typeStruct(ctx, pg.TypeName))
+	pageSt := typeStruct(ctx, pg.TypeName)
+	pageEmbPos := structinspect.EmbeddedFieldPosMap(pageSt)
 	queue := make([]qitem, 0, len(pg.Embeds))
 	for _, ap := range pg.Embeds {
 		queue = append(queue, qitem{
@@ -1208,7 +1412,8 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 
 		// A child carries the position of its embed site in the parent abstract,
 		// which is where a conflict it introduces is reported.
-		apEmbPos := structinspect.EmbeddedFieldPosMap(typeStruct(ctx, ap.TypeName))
+		apSt := typeStruct(ctx, ap.TypeName)
+		apEmbPos := structinspect.EmbeddedFieldPosMap(apSt)
 		for _, child := range ap.Embeds {
 			queue = append(queue, qitem{
 				ap:       child,
@@ -1285,7 +1490,8 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 				continue
 			}
 			ownedMethods[m.Name] = true
-			pg.Actions = append(pg.Actions, m)
+			pg.Actions = append(pg.Actions,
+				m)
 		}
 
 		if ap.StreamOpen != nil {
@@ -1357,7 +1563,8 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 					continue
 				}
 				ownedMethods[h.Name] = true
-				pg.EventHandlers = append(pg.EventHandlers, h)
+				pg.EventHandlers = append(pg.EventHandlers,
+					h)
 				continue
 			}
 
@@ -1394,7 +1601,8 @@ func flattenPage(ctx *parseCtx, errs *Errors, pg *model.Page) {
 			if h.Expr != nil {
 				handledEventPos[ev] = h.Expr.Pos()
 			}
-			pg.EventHandlers = append(pg.EventHandlers, h)
+			pg.EventHandlers = append(pg.EventHandlers,
+				h)
 		}
 	}
 }
@@ -1405,7 +1613,7 @@ func validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
 		if ctx.pages[name].GET == nil {
 			ts := ctx.typeSpecByName[name]
 			errs.ErrAt(ctx.pkg.Fset.Position(ts.Name.Pos()),
-				&ErrorPageMissingGET{TypeName: name})
+				&PageMissingGETError{TypeName: name})
 		}
 	}
 }
@@ -1416,36 +1624,180 @@ func finalizePages(ctx *parseCtx) {
 	}
 }
 
-// validateGeneratedNames reports two methods the generator would spell as
-// one identifier: PageUser.POSTSettingsSave and PageUserSettings.POSTSave both
-// render as POSTPageUserSettingsSave. Both names and both routes are valid,
-// which leaves a redeclaration in a file the user must not edit.
-func validateGeneratedNames(ctx *parseCtx, errs *Errors) {
-	// The action identifier and the handler method name are spelled
-	// differently and collide independently.
-	seen := map[string]string{} // generated identifier -> the method that took it
-	claim := func(name, who string, expr ast.Expr) {
-		if prev, ok := seen[name]; ok {
-			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()),
-				&ErrorGeneratedNameConflict{Name: name, Owner: who, First: prev})
-			return
-		}
-		seen[name] = who
+// finalizeStates binds each page and each abstract page to its single state type.
+// Handler-driven registration populates ctx.app.States on demand in parseStateParam;
+// this pass resolves the final bindings and flags multi-state conflicts.
+func finalizeStates(ctx *parseCtx, errs *Errors) {
+	if len(ctx.app.States) == 0 {
+		return
 	}
-	for _, p := range ctx.app.Pages {
-		suffix := strings.TrimPrefix(p.TypeName, "Page")
-		for _, h := range p.Actions {
-			who := p.TypeName + "." + h.HTTPMethod + h.Name
-			claim("action."+strings.ToUpper(h.HTTPMethod)+"Page"+suffix+h.Name,
-				who, h.Expr)
-			claim("handler."+p.TypeName+strings.ToUpper(h.HTTPMethod)+h.Name,
-				who, h.Expr)
+	for _, name := range slices.Sorted(maps.Keys(ctx.abstracts)) {
+		ap := ctx.abstracts[name]
+		names := collectAbstractStateNames(ap)
+		if len(names) > 1 {
+			pos := ctx.pkg.Fset.Position(ap.Expr.Pos())
+			errs.ErrAt(pos, fmt.Errorf("%w: %s", ErrStateConflict, ap.TypeName))
+			continue
+		}
+		for n := range names {
+			ap.State = ctx.app.States[n]
+		}
+	}
+	for _, pg := range ctx.pages {
+		names := collectPageStateNames(pg)
+		if len(names) > 1 {
+			pos := ctx.pkg.Fset.Position(pg.Expr.Pos())
+			errs.ErrAt(pos, fmt.Errorf("%w: %s", ErrStateConflict, pg.TypeName))
+			continue
+		}
+		for n := range names {
+			pg.State = ctx.app.States[n]
+		}
+	}
+	checkAppActionStates(ctx, errs)
+}
+
+// checkPageSubjectKinds rejects a SubjectStateID event on a stateless page or
+// next to a private or signal-scoped event. A page subscribes once, with one
+// list of subjects. A subject that ends in a tab id cannot share that list with
+// one that ends in a user id or a signal value.
+func checkPageSubjectKinds(ctx *parseCtx, errs *Errors) {
+	eventByName := make(map[string]*model.Event, len(ctx.app.Events))
+	for _, e := range ctx.app.Events {
+		eventByName[e.TypeName] = e
+	}
+	for _, name := range slices.Sorted(maps.Keys(ctx.pages)) {
+		pg := ctx.pages[name]
+		var byStateID, byOther *model.EventHandler
+		for _, eh := range pg.EventHandlers {
+			e, ok := eventByName[eh.EventTypeName]
+			if !ok {
+				continue
+			}
+			switch {
+			case e.IsStateIDScoped():
+				if byStateID == nil {
+					byStateID = eh
+				}
+			case e.IsPrivate() || e.IsSignalScoped():
+				if byOther == nil {
+					byOther = eh
+				}
+			}
+		}
+		if byStateID == nil {
+			continue
+		}
+		// A state-id-scoped subscription reads the verified instance header,
+		// which only a stateful page receives. A state parameter that failed to
+		// bind already has its own error, so do not add this one to it.
+		if pg.State == nil && len(collectPageStateNames(pg)) == 0 {
+			errs.ErrAt(ctx.pkg.Fset.Position(pg.Expr.Pos()),
+				fmt.Errorf("%w: %s.%s",
+					ErrSubjectStateIDWithoutState, pg.TypeName, byStateID.Name))
+		}
+		if byOther == nil {
+			continue
+		}
+		errs.ErrAt(ctx.pkg.Fset.Position(pg.Expr.Pos()),
+			fmt.Errorf("%w: %s handles On%s and On%s",
+				ErrSubjectStateIDPageMixed, pg.TypeName,
+				byStateID.Name, byOther.Name))
+	}
+}
+
+// checkAppActionStates rejects app-level actions whose state type no page binds.
+// Such an action resolves its slot from the calling tab,
+// and only a page bound to the same state type ever allocates one.
+func checkAppActionStates(ctx *parseCtx, errs *Errors) {
+	bound := map[string]struct{}{}
+	for _, pg := range ctx.pages {
+		if pg.State != nil {
+			bound[pg.State.TypeName] = struct{}{}
 		}
 	}
 	for _, h := range ctx.app.Actions {
-		who := "App." + h.HTTPMethod + h.Name
-		claim("action."+strings.ToUpper(h.HTTPMethod)+h.Name, who, h.Expr)
-		claim("handler.App"+strings.ToUpper(h.HTTPMethod)+h.Name, who, h.Expr)
+		if h.InputState == nil {
+			continue
+		}
+		if _, ok := bound[h.InputState.StateTypeName]; ok {
+			continue
+		}
+		errs.ErrAt(ctx.pkg.Fset.Position(h.Expr.Pos()),
+			fmt.Errorf("%w: App.%s takes %s",
+				ErrStateAppActionUnbound, h.Name, h.InputState.StateTypeName))
+	}
+}
+
+func collectAbstractStateNames(ap *model.AbstractPage) map[string]struct{} {
+	out := map[string]struct{}{}
+	add := func(h *model.Handler) {
+		if h != nil && h.InputState != nil {
+			out[h.InputState.StateTypeName] = struct{}{}
+		}
+	}
+	for _, h := range ap.Methods {
+		add(h)
+	}
+	add(ap.StreamOpen)
+	add(ap.StreamClose)
+	for _, eh := range ap.EventHandlers {
+		if eh.InputState != nil {
+			out[eh.InputState.StateTypeName] = struct{}{}
+		}
+	}
+	return out
+}
+
+func collectPageStateNames(pg *model.Page) map[string]struct{} {
+	out := map[string]struct{}{}
+	add := func(h *model.Handler) {
+		if h != nil && h.InputState != nil {
+			out[h.InputState.StateTypeName] = struct{}{}
+		}
+	}
+	for _, h := range pg.Actions {
+		add(h)
+	}
+	add(pg.StreamOpen)
+	add(pg.StreamClose)
+	for _, eh := range pg.EventHandlers {
+		if eh.InputState != nil {
+			out[eh.InputState.StateTypeName] = struct{}{}
+		}
+	}
+	return out
+}
+
+// validateRouteVarNames reports a route wildcard whose name generated code
+// cannot give a function parameter. See [validate.RouteVarName].
+//
+// net/http rejects some of these itself, which [validateRouteConflicts] reports.
+// It accepts a Go keyword and the blank identifier,
+// and both leave a generated href and action package the user's build refuses.
+// The report names the route, which is the one line the user edits.
+func validateRouteVarNames(ctx *parseCtx, errs *Errors) {
+	check := func(route string, expr ast.Expr, owner string) {
+		if !strings.HasPrefix(route, "/") {
+			// Reported where the route is read.
+			return
+		}
+		for v := range routepattern.Vars(route) {
+			if validate.RouteVarName(v) == nil {
+				continue
+			}
+			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()),
+				&RouteVarNameInvalidError{Owner: owner, Route: route, Var: v})
+		}
+	}
+	for _, p := range ctx.app.Pages {
+		check(p.Route, p.Expr, p.TypeName)
+		for _, h := range p.Actions {
+			check(h.Route, h.Expr, p.TypeName+"."+h.Name)
+		}
+	}
+	for _, h := range ctx.app.Actions {
+		check(h.Route, h.Expr, "App."+h.Name)
 	}
 }
 
@@ -1462,7 +1814,7 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 		}
 		pattern := method + " " + route
 		if err := registerRoute(mux, pattern); err != nil {
-			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()), &ErrorRouteConflict{
+			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()), &RouteConflictError{
 				Pattern: pattern,
 				Owner:   owner,
 				Reason:  err.Error(),
@@ -1492,7 +1844,7 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 			// The stream path of such a route parses nowhere,
 			// which is what this reports. Claiming it would report it a second time.
 			errs.ErrAt(ctx.pkg.Fset.Position(p.Expr.Pos()),
-				&ErrorRouteWildcardStream{TypeName: p.TypeName, Route: p.Route})
+				&RouteWildcardStreamError{TypeName: p.TypeName, Route: p.Route})
 		default:
 			stream := routepattern.StreamPath(p.Route)
 			claim(http.MethodGet, stream+"{$}", p.Expr, p.TypeName+" stream")
@@ -1556,7 +1908,10 @@ func pageHasAnonStream(p *model.Page, events map[string]*model.Event) bool {
 
 // pageHasStream reports whether the page is served an SSE stream of its own.
 func pageHasStream(p *model.Page) bool {
-	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil
+	return len(p.EventHandlers) > 0 ||
+		p.StreamOpen != nil ||
+		p.StreamClose != nil ||
+		p.State != nil
 }
 
 // registerRoute reports what ServeMux says about a pattern.
@@ -1592,8 +1947,10 @@ func assignSpecialPages(ctx *parseCtx, errs *Errors) {
 }
 
 func parseEventHandler(
-	fd *ast.FuncDecl, info *types.Info, name, eventTypeName string,
-) *model.EventHandler {
+	fd *ast.FuncDecl, info *types.Info,
+	ctx *parseCtx,
+	recv, name, eventTypeName string,
+) (*model.EventHandler, error) {
 	params := fd.Type.Params.List
 
 	h := &model.EventHandler{
@@ -1621,7 +1978,38 @@ func parseEventHandler(
 			h.InputSession = parseInput(f, f.Type, info)
 			h.InputSession.Kind = model.InputKindSession
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSession)
+		case paramvalidation.IsStateParam(f, ctx.pkg.TypesInfo):
+			if h.InputState != nil {
+				// Reported the way the other handler parsers report it:
+				// a second state parameter is a mistake, not a value to ignore.
+				return h, fmt.Errorf("%w in %s.%s",
+					ErrStateDuplicate, recv, fd.Name.Name)
+			}
+			is, sterr := parseStateParam(f, info, ctx, recv, fd.Name.Name)
+			if sterr != nil {
+				return h, sterr
+			}
+			h.InputState = is
+			h.OrderedInputs = append(h.OrderedInputs, is.Input)
+		case paramvalidation.IsStateIDParam(f):
+			if h.InputStateID != nil {
+				return h, fmt.Errorf("%w in %s.%s",
+					ErrStateIDDuplicate, recv, fd.Name.Name)
+			}
+			if !gotypes.IsString(info.TypeOf(f.Type)) {
+				return h, fmt.Errorf("%w in %s.%s",
+					ErrStateIDParamNotString, recv, fd.Name.Name)
+			}
+			inp := parseInput(f, f.Type, info)
+			inp.Kind = model.InputKindStateID
+			h.InputStateID = inp
+			h.OrderedInputs = append(h.OrderedInputs, inp)
 		}
+	}
+
+	if h.InputStateID != nil && h.InputState == nil {
+		return h, fmt.Errorf("%w in %s.%s",
+			ErrStateIDWithoutState, recv, fd.Name.Name)
 	}
 
 	if fd.Type.Results != nil && len(fd.Type.Results.List) > 0 {
@@ -1631,7 +2019,7 @@ func parseEventHandler(
 		}
 	}
 
-	return h
+	return h, nil
 }
 
 func parseStreamHook(
@@ -1639,7 +2027,8 @@ func parseStreamHook(
 	fd *ast.FuncDecl,
 	info *types.Info,
 	fset *token.FileSet,
-	eventTypeNames map[string]struct{},
+	resolveEvent eventResolver,
+	ctx *parseCtx,
 	kind methodkind.Kind,
 ) (*model.Handler, error) {
 	h := &model.Handler{
@@ -1739,7 +2128,7 @@ func parseStreamHook(
 
 		case paramvalidation.IsDispatchParam(f, info):
 			eventName, dispErr := paramvalidation.ValidateDispatch(
-				f, info, eventTypeNames, recv, fd.Name.Name,
+				f, info, resolveEvent, recv, fd.Name.Name,
 			)
 			if dispErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), dispErr)
@@ -1750,7 +2139,7 @@ func parseStreamHook(
 					return d.EventTypeName == eventName
 				}) {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
-					&ErrorDispatchDuplicate{
+					&DispatchDuplicateError{
 						Recv:          recv,
 						MethodName:    fd.Name.Name,
 						EventTypeName: eventName,
@@ -1765,6 +2154,38 @@ func parseStreamHook(
 			})
 			h.OrderedInputs = append(h.OrderedInputs, inp)
 
+		case paramvalidation.IsStateParam(f, ctx.pkg.TypesInfo):
+			if h.InputState != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(fmt.Errorf("%w in %s.%s",
+						ErrStateDuplicate, recv, fd.Name.Name)))
+				continue
+			}
+			is, sterr := parseStateParam(f, info, ctx, recv, fd.Name.Name)
+			if sterr != nil {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sterr)
+				continue
+			}
+			h.InputState = is
+			h.OrderedInputs = append(h.OrderedInputs, is.Input)
+
+		case paramvalidation.IsStateIDParam(f):
+			if h.InputStateID != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+				continue
+			}
+			if !gotypes.IsString(info.TypeOf(f.Type)) {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
+					fmt.Errorf("%w in %s.%s",
+						ErrStateIDParamNotString, recv, fd.Name.Name))
+				continue
+			}
+			inp := parseInput(f, f.Type, info)
+			inp.Kind = model.InputKindStateID
+			h.InputStateID = inp
+			h.OrderedInputs = append(h.OrderedInputs, inp)
+
 		default:
 			unsupErrs = append(unsupErrs,
 				fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
@@ -1775,9 +2196,17 @@ func parseStreamHook(
 		return h, fmt.Errorf("%w in %s.%s",
 			ErrSignatureMissingReq, recv, fd.Name.Name)
 	}
-	if !foundStreamID {
+	if h.InputStateID != nil && h.InputState == nil {
 		return h, fmt.Errorf("%w in %s.%s",
-			ErrSignatureMissingStreamID, recv, fd.Name.Name)
+			ErrStateIDWithoutState, recv, fd.Name.Name)
+	}
+	// A stream hook needs a handle on the stream it is about. StreamID names
+	// the stream, State holds the value that belongs to it.
+	// Either one identifies the tab. A hook with neither can only act on
+	// the whole application, which no stream hook is for.
+	if !foundStreamID && h.InputState == nil {
+		return h, fmt.Errorf("%w in %s.%s",
+			ErrStreamHookMissingHandle, recv, fd.Name.Name)
 	}
 	if len(unsupErrs) > 0 {
 		return h, errors.Join(unsupErrs...)
@@ -2018,13 +2447,13 @@ func appendPositioned(dst *[]error, fset *token.FileSet, fallback token.Pos, err
 	}
 }
 
-// unsupportedInputError builds an ErrorSignatureUnsupportedInput for a
+// unsupportedInputError builds an SignatureUnsupportedInputError for a
 // parameter that doesn't match any recognized handler input.
 // When h is non-nil, it names the inputs whose type the parameter could carry
 // and whose slot the handler hasn't filled yet.
 func unsupportedInputError(
 	f *ast.Field, h *model.Handler, info *types.Info, recv, method string,
-) *ErrorSignatureUnsupportedInput {
+) *SignatureUnsupportedInputError {
 	paramName := "_"
 	if len(f.Names) > 0 {
 		paramName = f.Names[0].Name
@@ -2034,7 +2463,7 @@ func unsupportedInputError(
 		paramType = t.String()
 	}
 
-	e := &ErrorSignatureUnsupportedInput{
+	e := &SignatureUnsupportedInputError{
 		ParamName:  paramName,
 		ParamType:  paramType,
 		Recv:       recv,
@@ -2104,6 +2533,68 @@ func isStructType(t types.Type) bool {
 	return ok
 }
 
+// parseStateParam attempts to match f as a datapages.State[T] parameter.
+// Returns (nil, nil) when the field is not a state parameter at all.
+// Returns (inputState, nil) on success.
+// Returns (nil, error) when the field is a state parameter but its type
+// argument is not a named type of the app package.
+func parseStateParam(
+	f *ast.Field,
+	info *types.Info,
+	ctx *parseCtx,
+	recv, method string,
+) (*model.InputState, error) {
+	if !paramvalidation.IsStateParam(f, info) {
+		return nil, nil
+	}
+	elemName := paramvalidation.StateParamElementName(f)
+	if elemName == "" {
+		return nil, fmt.Errorf("%w in %s.%s",
+			ErrStateTypeArgNotNamed, recv, method)
+	}
+
+	// Concrete state type: must be a declared, exported struct in the
+	// app source package. Register it on first encounter;
+	// subsequent handlers that reference the same type reuse the same entry.
+	if err := registerStateType(ctx, elemName); err != nil {
+		return nil, fmt.Errorf("%w in %s.%s: %s",
+			ErrStateParamInvalidType, recv, method, err)
+	}
+	inp := parseInput(f, f.Type, info)
+	inp.Kind = model.InputKindState
+	return &model.InputState{Input: inp, StateTypeName: elemName}, nil
+}
+
+// registerStateType validates that name refers to a declared exported
+// struct in the app source package and records it in ctx.app.States.
+// Returns a descriptive error when the type is missing, unexported,
+// or not a struct.
+func registerStateType(ctx *parseCtx, name string) error {
+	if ctx.app.States != nil {
+		if _, ok := ctx.app.States[name]; ok {
+			return nil
+		}
+	}
+	if !token.IsExported(name) {
+		return fmt.Errorf("state type %q must be exported", name)
+	}
+	ts, ok := ctx.typeSpecByName[name]
+	if !ok {
+		return fmt.Errorf("state type %q is not declared in the app package", name)
+	}
+	if _, ok := ts.Type.(*ast.StructType); !ok {
+		return fmt.Errorf("state type %q must be a struct type", name)
+	}
+	if ctx.app.States == nil {
+		ctx.app.States = map[string]*model.StateType{}
+	}
+	ctx.app.States[name] = &model.StateType{
+		Expr:     ts.Name,
+		TypeName: name,
+	}
+	return nil
+}
+
 // parseInput builds the model input for a handler parameter.
 // typeExpr is the type the model records, which is f.Type for a plain
 // parameter and the Values type argument for a wrapped one
@@ -2163,7 +2654,8 @@ func parseHandler(
 	fd *ast.FuncDecl,
 	info *types.Info,
 	fset *token.FileSet,
-	eventTypeNames map[string]struct{},
+	resolveEvent eventResolver,
+	ctx *parseCtx,
 	kind methodkind.Kind,
 	name string,
 ) (*model.Handler, []*model.Output, error) {
@@ -2207,6 +2699,12 @@ func parseHandler(
 			foundReq = true
 
 		case typecheck.IsSSEParam(f.Type, info):
+			if kind == methodkind.GETHandler {
+				unsupErrs = append(unsupErrs,
+					fieldErr(fmt.Errorf("%w in %s.%s",
+						ErrSSEOnGET, recv, fd.Name.Name)))
+				continue
+			}
 			if h.InputSSE != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
@@ -2282,7 +2780,7 @@ func parseHandler(
 
 		case paramvalidation.IsDispatchParam(f, info):
 			eventName, dispErr := paramvalidation.ValidateDispatch(
-				f, info, eventTypeNames, recv, fd.Name.Name,
+				f, info, resolveEvent, recv, fd.Name.Name,
 			)
 			if dispErr != nil {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(), dispErr)
@@ -2293,7 +2791,7 @@ func parseHandler(
 					return d.EventTypeName == eventName
 				}) {
 				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
-					&ErrorDispatchDuplicate{
+					&DispatchDuplicateError{
 						Recv:          recv,
 						MethodName:    fd.Name.Name,
 						EventTypeName: eventName,
@@ -2308,6 +2806,44 @@ func parseHandler(
 			})
 			h.OrderedInputs = append(h.OrderedInputs, inp)
 
+		case paramvalidation.IsStateParam(f, ctx.pkg.TypesInfo):
+			if h.InputState != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(fmt.Errorf("%w in %s.%s",
+						ErrStateDuplicate, recv, fd.Name.Name)))
+				continue
+			}
+			is, sterr := parseStateParam(f, info, ctx, recv, fd.Name.Name)
+			if sterr != nil {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(), sterr)
+				continue
+			}
+			if kind == methodkind.GETHandler {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
+					fmt.Errorf("%w in %s.%s",
+						ErrStateOnGET, recv, fd.Name.Name))
+				continue
+			}
+			h.InputState = is
+			h.OrderedInputs = append(h.OrderedInputs, is.Input)
+
+		case paramvalidation.IsStateIDParam(f):
+			if h.InputStateID != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+				continue
+			}
+			if !gotypes.IsString(info.TypeOf(f.Type)) {
+				appendPositioned(&unsupErrs, fset, f.Type.Pos(),
+					fmt.Errorf("%w in %s.%s",
+						ErrStateIDParamNotString, recv, fd.Name.Name))
+				continue
+			}
+			inp := parseInput(f, f.Type, info)
+			inp.Kind = model.InputKindStateID
+			h.InputStateID = inp
+			h.OrderedInputs = append(h.OrderedInputs, inp)
+
 		default:
 			unsupErrs = append(unsupErrs,
 				fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
@@ -2317,6 +2853,10 @@ func parseHandler(
 	if !foundReq {
 		return h, nil, fmt.Errorf("%w in %s.%s",
 			ErrSignatureMissingReq, recv, fd.Name.Name)
+	}
+	if h.InputStateID != nil && h.InputState == nil {
+		return h, nil, fmt.Errorf("%w in %s.%s",
+			ErrStateIDWithoutState, recv, fd.Name.Name)
 	}
 
 	if len(unsupErrs) > 0 {
@@ -2472,6 +3012,13 @@ func parseHandler(
 				}
 			}
 		}
+		// Only the response an action renders carries a head. Without a body
+		// there is no response to put it in, and the generated handler would
+		// leave the returned value unread.
+		if h.OutputHead != nil && h.OutputBody == nil {
+			return h, outputs, fmt.Errorf("%w in %s.%s",
+				ErrSignatureActionHeadWithoutBody, recv, fd.Name.Name)
+		}
 	}
 
 	return h, outputs, nil
@@ -2486,8 +3033,7 @@ func typeStruct(ctx *parseCtx, typeName string) *ast.StructType {
 	return st
 }
 
-// actionIsUnderPage reports whether action is under page.
-// Rules:
+// actionIsUnderPage reports whether action is under page. Rules:
 //   - page must be prefix of action
 //   - boundary: either page=="/" OR next char after prefix is '/'
 //   - disallow exact equality (action == page) to avoid colliding with GET route
@@ -2513,4 +3059,17 @@ func actionIsUnderPage(page, action string) bool {
 // checkTemplFiles delegates to the templcheck subpackage.
 func checkTemplFiles(ctx *parseCtx, errs *Errors) {
 	templcheck.Check(ctx.pkg, ctx.app, errs.ErrAt)
+}
+
+// declaredType returns the named type ts declares,
+// nil when the package holds no definition for it.
+func declaredType(pkg *packages.Package, ts *ast.TypeSpec) types.Type {
+	if pkg.TypesInfo == nil {
+		return nil
+	}
+	obj, ok := pkg.TypesInfo.Defs[ts.Name]
+	if !ok || obj == nil {
+		return nil
+	}
+	return obj.Type()
 }

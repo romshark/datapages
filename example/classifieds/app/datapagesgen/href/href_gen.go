@@ -148,10 +148,10 @@ func PageSearch(query QueryPageSearch) string {
 		categoryStr = url.QueryEscape(query.Category)
 	}
 	if query.PriceMin != 0 {
-		priceMinStr = strconv.FormatInt(query.PriceMin, 10)
+		priceMinStr = url.QueryEscape(strconv.FormatInt(query.PriceMin, 10))
 	}
 	if query.PriceMax != 0 {
-		priceMaxStr = strconv.FormatInt(query.PriceMax, 10)
+		priceMaxStr = url.QueryEscape(strconv.FormatInt(query.PriceMax, 10))
 	}
 	if query.Location != "" {
 		locationStr = url.QueryEscape(query.Location)

@@ -168,24 +168,18 @@ func WithRequestCancellationController(expr string) option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
-// POSTPageFeedTick references /feed/tick/
-func POSTPageFeedTick(options ...option) string {
-	if len(options) == 0 {
-		return "@post('/feed/tick/')"
-	}
-	var b strings.Builder
-	bl, al := actionexpr.BeforeAfterLen(options)
-	b.Grow(bl + len("@post('/feed/tick/'") + actionexpr.OptionsLen(options) + len(")") + al)
-	actionexpr.WriteBefore(&b, options)
-	b.WriteString("@post('/feed/tick/'")
-	actionexpr.WriteOptions(&b, options)
-	b.WriteByte(')')
-	actionexpr.WriteAfter(&b, options)
-	return b.String()
+var PageRooms pageRooms
+
+type pageRooms struct {
+	DM     pageRooms_DM
+	Notice pageRooms_Notice
+	Post   pageRooms_Post
 }
 
-// POSTPageRoomsDM references /rooms/dm/
-func POSTPageRoomsDM(options ...option) string {
+type pageRooms_DM struct{}
+
+// POST references /rooms/dm/
+func (pageRooms_DM) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/rooms/dm/')"
 	}
@@ -200,8 +194,10 @@ func POSTPageRoomsDM(options ...option) string {
 	return b.String()
 }
 
-// POSTPageRoomsNotice references /rooms/notice/
-func POSTPageRoomsNotice(options ...option) string {
+type pageRooms_Notice struct{}
+
+// POST references /rooms/notice/
+func (pageRooms_Notice) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/rooms/notice/')"
 	}
@@ -216,8 +212,10 @@ func POSTPageRoomsNotice(options ...option) string {
 	return b.String()
 }
 
-// POSTPageRoomsPost references /rooms/post/
-func POSTPageRoomsPost(options ...option) string {
+type pageRooms_Post struct{}
+
+// POST references /rooms/post/
+func (pageRooms_Post) POST(options ...option) string {
 	if len(options) == 0 {
 		return "@post('/rooms/post/')"
 	}
@@ -226,6 +224,30 @@ func POSTPageRoomsPost(options ...option) string {
 	b.Grow(bl + len("@post('/rooms/post/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/rooms/post/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+var PageTabs pageTabs
+
+type pageTabs struct {
+	Bump pageTabs_Bump
+}
+
+type pageTabs_Bump struct{}
+
+// POST references /tabs/bump/
+func (pageTabs_Bump) POST(options ...option) string {
+	if len(options) == 0 {
+		return "@post('/tabs/bump/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/tabs/bump/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/tabs/bump/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)

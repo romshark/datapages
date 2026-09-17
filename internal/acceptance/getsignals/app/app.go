@@ -36,6 +36,35 @@ func (PageIndex) GET(
 	)), nil
 }
 
+// PageNested is /nested
+//
+// A signals struct that nests. A nested struct is a nested signal: the client
+// sends {"foo":{"bar":{"bazz":"x"},"fuzz":"y"}} for the signals foo.bar.bazz
+// and foo.fuzz, and a query parameter reflects one of them by that path.
+type PageNested struct{ App *App }
+
+func (PageNested) GET(
+	_ *http.Request,
+	signals datapages.Signals[struct {
+		Foo struct {
+			Bar struct {
+				Bazz string `json:"bazz"`
+			} `json:"bar"`
+			Fuzz string `json:"fuzz"`
+		} `json:"foo"`
+	}],
+	query datapages.Query[struct {
+		Fuzz string `query:"fuzz" reflectsignal:"foo.fuzz"`
+	}],
+) (body datapages.Component, err error) {
+	return templ.Raw(fmt.Sprintf(
+		`<pre id="echo">bazz=%s fuzz=%s query=%s</pre>`,
+		templ.EscapeString(signals.Values.Foo.Bar.Bazz),
+		templ.EscapeString(signals.Values.Foo.Fuzz),
+		templ.EscapeString(query.Values.Fuzz),
+	)), nil
+}
+
 // PageEnter is /enter
 //
 // GET issues a session on a page load.

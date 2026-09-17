@@ -23,7 +23,7 @@ func main() {
 	defer cancel()
 
 	opts := []datapages.ServerOption{
-		datapages.WithAssets(app.StaticFS),
+		datapages.WithAssets(app.StaticFS, false),
 	}
 
 	s, err := datapages.NewServer[

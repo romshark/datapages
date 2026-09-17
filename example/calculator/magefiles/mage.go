@@ -16,14 +16,6 @@ import (
 // TestUIWorkflows builds and starts the calculator server,
 // runs Maestro flows against it, then stops the server.
 func TestUIWorkflows() error {
-	setDevEnv()
-
-	stop, err := dockerComposeUp()
-	if err != nil {
-		return err
-	}
-	defer stop()
-
 	fmt.Println("==> go build ./cmd/server")
 	if err := run("go", "build", "-o", "server", "./cmd/server"); err != nil {
 		return err
@@ -83,18 +75,11 @@ func RunDesktop() error {
 	return run("go", "run", ".")
 }
 
-// RunServer starts NATS via docker compose, then builds and runs the server.
-// Press Ctrl+C to stop both the server and NATS.
+// RunServer builds and runs the server. Press Ctrl+C to stop it.
 func RunServer() error {
 	if err := Gen(); err != nil {
 		return err
 	}
-
-	stop, err := dockerComposeUp()
-	if err != nil {
-		return err
-	}
-	defer stop()
 
 	fmt.Println("==> go build ./cmd/server")
 	if err := run("go", "build", "-o", "server", "./cmd/server"); err != nil {
@@ -109,8 +94,6 @@ func RunServer() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	setDevEnv()
-
 	fmt.Println("==> starting server on localhost:8080")
 	cmd := exec.CommandContext(ctx, "./server", "-host", "localhost:8080")
 	cmd.Stdout = os.Stdout
@@ -123,38 +106,10 @@ func RunServer() error {
 	return nil
 }
 
-// Dev starts NATS via docker compose and runs datapages watch with dev env vars.
-// Press Ctrl+C to stop.
+// Dev runs datapages watch. Press Ctrl+C to stop.
 func Dev() error {
-	stop, err := dockerComposeUp()
-	if err != nil {
-		return err
-	}
-	defer stop()
-
-	setDevEnv()
-
 	fmt.Println("==> datapages watch")
 	return run("datapages", "watch")
-}
-
-func dockerComposeUp() (stop func(), err error) {
-	fmt.Println("==> docker compose up -d")
-	if err := run("docker", "compose", "up", "-d"); err != nil {
-		return nil, fmt.Errorf("starting docker compose: %w", err)
-	}
-	return func() {
-		fmt.Println("==> docker compose down")
-		_ = run("docker", "compose", "down")
-	}, nil
-}
-
-func setDevEnv() {
-	if os.Getenv("HMAC_SECRET_KEY") == "" {
-		if err := os.Setenv("HMAC_SECRET_KEY", "dev-secret"); err != nil {
-			log.Printf("ERR: setting env var HMAC_SECRET_KEY: %v", err)
-		}
-	}
 }
 
 func Gen() error {

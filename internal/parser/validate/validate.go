@@ -3,6 +3,7 @@ package validate
 import (
 	"errors"
 	"go/ast"
+	"go/token"
 	"strings"
 
 	"github.com/romshark/datapages/internal/subject"
@@ -17,7 +18,25 @@ var (
 	ErrEventSubjectInvalid     = errors.New("invalid event subject")
 	ErrEventHandlerNameInvalid = errors.New("invalid event handler method name")
 	ErrSignalTagNameInvalid    = errors.New("invalid signal tag name")
+	ErrSignalNameInvalid       = errors.New("invalid signal name")
+	ErrSignalPathInvalid       = errors.New("invalid signal path")
+	ErrRouteVarNameInvalid     = errors.New("invalid route variable name")
 )
+
+// RouteVarName validates a route wildcard name as a name generated code can
+// give a function parameter. The generated href and action builders take one
+// parameter per wildcard, named by the route.
+//
+// net/http accepts more than Go does: "{type}" is a keyword and "{_}" is the
+// blank identifier, which no expression can read. Both leave a generated file
+// that does not parse or does not compile, neither of which names the route
+// the user has to fix.
+func RouteVarName(name string) error {
+	if name == "_" || !token.IsIdentifier(name) {
+		return ErrRouteVarNameInvalid
+	}
+	return nil
+}
 
 // PageTypeName validates page type names: "Page" + Uppercase letter + [A-Za-z0-9]*.
 func PageTypeName(name string) error {
@@ -181,10 +200,10 @@ func cleanLine(raw string) string {
 	return strings.TrimSpace(s)
 }
 
-// CutEventIsPrefix checks whether line starts with typeName followed by
-// whitespace, "is", and more whitespace, and returns the remainder (the
-// subject portion) plus true. Extra spaces or tabs between the parts are
-// tolerated. Returns ("", false) when the prefix does not match.
+// CutEventIsPrefix checks whether line starts with typeName followed by whitespace,
+// "is", and more whitespace, and returns the remainder (the subject portion) plus true.
+// Extra spaces or tabs between the parts are tolerated.
+// Returns ("", false) when the prefix does not match.
 func CutEventIsPrefix(line, typeName string) (rest string, ok bool) {
 	s, ok := strings.CutPrefix(line, typeName)
 	if !ok || len(s) == 0 {
@@ -206,26 +225,108 @@ func CutEventIsPrefix(line, typeName string) (rest string, ok bool) {
 	return strings.TrimLeft(s, " \t"), true
 }
 
-// SignalTagName validates a signal:"..." tag value.
-// Valid: non-empty, [a-z][a-z0-9_.]* (lowercase start, then lowercase/digits/underscores/dots).
+// SignalTagName validates a signal:"..." tag value, which references one client
+// signal by the steps on the way to it.
+//
+// It's the rule [SignalPath] carries: the stream reads the signal out of what
+// the client sends, under the name the client declared it by, which makes the
+// two the same rule. A camel case name reaches this tag as it's written,
+// since the value of an attribute keeps its case where the name of one does not.
 func SignalTagName(name string) error {
-	if name == "" {
-		return ErrSignalTagNameInvalid
-	}
-	c0 := name[0]
-	if c0 < 'a' || c0 > 'z' {
-		return ErrSignalTagNameInvalid
-	}
-	for i := 1; i < len(name); i++ {
-		c := name[i]
-		if (c >= 'a' && c <= 'z') ||
-			(c >= '0' && c <= '9') ||
-			c == '_' || c == '.' {
-			continue
-		}
+	if SignalPath(name) != nil {
 		return ErrSignalTagNameInvalid
 	}
 	return nil
+}
+
+// SignalName validates the name of one Datastar signal, which is what a
+// json:"..." tag of a signals struct declares.
+//
+// The name is written into a data-signals attribute name and read back as
+// $name. An attribute name cannot be escaped, and $name is code rather than a
+// string. Anything else breaks the page.
+//
+// Valid: [A-Za-z_][A-Za-z0-9_]*, a JavaScript identifier.
+//
+// A hyphen is refused. Datastar reads one as the boundary of a camel case name,
+// which an HTML parser lowercases the attribute for:
+// "data-signals:my-signal" is the signal mySignal
+// (https://data-star.dev/reference/attributes#data-signals).
+// [ReflectSignalPath] holds the upper bound that follows for a reflected signal,
+// whose name the generator writes into such an attribute.
+//
+// A double underscore is refused wherever it stands:
+// Datastar reads it as the delimiter of an attribute modifier
+// (https://data-star.dev/reference/attributes#data-bind).
+//
+// A period is refused here. It stands between the steps of a signal path,
+// and a signals struct writes a path by nesting a struct: {"foo":{"bar":1}} is
+// the signal foo.bar, while json:"foo.bar" is one key that happens to carry
+// a period and that no client sends. See [SignalPath].
+func SignalName(name string) error {
+	if name == "" {
+		return ErrSignalNameInvalid
+	}
+	if !isSignalNameLetter(name[0]) {
+		return ErrSignalNameInvalid
+	}
+	if strings.Contains(name, "__") {
+		return ErrSignalNameInvalid
+	}
+	for i := 1; i < len(name); i++ {
+		c := name[i]
+		if isSignalNameLetter(c) || (c >= '0' && c <= '9') {
+			continue
+		}
+		return ErrSignalNameInvalid
+	}
+	return nil
+}
+
+// SignalPath validates a reference to one signal, which is what a
+// reflectsignal:"..." tag carries. A nested signal is referenced by the steps
+// on the way to it, separated by periods: "foo.bar" is the signal bar of the
+// signals struct nested under foo.
+//
+// Valid: period-separated [SignalName] segments.
+func SignalPath(path string) error {
+	if path == "" {
+		return ErrSignalPathInvalid
+	}
+	for segment := range strings.SplitSeq(path, ".") {
+		if SignalName(segment) != nil {
+			return ErrSignalPathInvalid
+		}
+	}
+	return nil
+}
+
+// ReflectSignalPath validates the reference a reflectsignal:"..." tag carries.
+//
+// It is [SignalPath] with every step starting lower case. The generator writes
+// a reflected signal into an attribute name, which an HTML parser lowercases,
+// and the upper case of a step survives that only as the hyphen Datastar reads
+// it back from: mySignal goes out as my-signal. A step starting upper case has
+// no hyphen before it.
+//
+// A signal the page never reflects is free of this: [SignalName] takes it
+// however the page declares it.
+func ReflectSignalPath(path string) error {
+	if SignalPath(path) != nil {
+		return ErrSignalPathInvalid
+	}
+	for segment := range strings.SplitSeq(path, ".") {
+		if c := segment[0]; c >= 'A' && c <= 'Z' {
+			return ErrSignalPathInvalid
+		}
+	}
+	return nil
+}
+
+// isSignalNameLetter reports whether c may stand in
+// a signal name after the first character.
+func isSignalNameLetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
 }
 
 // EventHandlerMethodName validates event handler method names:

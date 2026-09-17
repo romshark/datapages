@@ -29,11 +29,11 @@ func TestIsDatastarRequest(t *testing.T) {
 	} {
 		t.Run(header, func(t *testing.T) {
 			t.Parallel()
-			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			h := http.Header{}
 			if header != "" {
-				r.Header.Set("Datastar-Request", header)
+				h.Set("Datastar-Request", header)
 			}
-			require.Equal(t, want, httpserve.IsDatastarRequest(r))
+			require.Equal(t, want, httpserve.IsDatastarRequest(h))
 		})
 	}
 }
@@ -125,8 +125,8 @@ func TestWriteReloadOnVisibility(t *testing.T) {
 	var b strings.Builder
 	httpserve.WriteReloadOnVisibility(&b)
 	require.Equal(t,
-		`data-on:visibilitychange__window="`+
-			`if (!document.hidden) window.location.reload()" `,
+		` data-on:visibilitychange__window="`+
+			`if (!document.hidden) window.location.reload()"`,
 		b.String())
 }
 
@@ -161,7 +161,7 @@ func TestWriteErrStatus(t *testing.T) {
 	}
 }
 
-//go:embed testdata/static/hello.txt
+//go:embed testdata/static
 var testAssets embed.FS
 
 // TestAssetsFileSystem tests which of the assets options wins: an explicit file

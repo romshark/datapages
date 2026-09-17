@@ -44,6 +44,12 @@ func eventConstName(typeName string) string {
 
 // evSubjConst returns the subscription subject constant name.
 // "EventMessagingSent" -> "EvSubjMessagingSent"
+//
+// Neither this prefix nor [evSubjPrefConst]'s is a prefix of the other, which
+// is what keeps the two sets apart. An event suffix always starts with an
+// uppercase letter: "EvSubj"+X and "EvPrefix"+Y differ at the third byte
+// whatever the events are named. A prefix that extended this one would not:
+// "EvSubjPref"+Foo is "EvSubj"+PrefFoo, and EventPrefFoo is a valid name.
 func evSubjConst(e *model.Event) string {
 	return "EvSubj" + eventConstName(e.TypeName)
 }
@@ -51,6 +57,7 @@ func evSubjConst(e *model.Event) string {
 // evUsesPrefixMatch reports whether the event's concrete subject is only
 // known at runtime. Both subscription building and inbound matching must then
 // go through the subject prefix instead of the wildcard constant.
+// True for private (SubjectUser), signal-scoped and state-id-scoped events.
 func evUsesPrefixMatch(e *model.Event) bool {
 	// Any subject field makes the subscription a pattern: the constant carries
 	// one "*" per field. A received subject carries the values instead,
@@ -61,12 +68,14 @@ func evUsesPrefixMatch(e *model.Event) bool {
 // evSubjPrefConst returns the subject prefix constant name for events
 // that use prefix-based subject matching.
 // Returns "" for plain public events.
-// "EventMessagingSent" -> "EvSubjPrefMessagingSent"
+// "EventMessagingSent" -> "EvPrefixMessagingSent"
+//
+// See [evSubjConst] for why this prefix must not extend that one.
 func evSubjPrefConst(e *model.Event) string {
 	if !evUsesPrefixMatch(e) {
 		return ""
 	}
-	return "EvSubjPref" + eventConstName(e.TypeName)
+	return "EvPrefix" + eventConstName(e.TypeName)
 }
 
 // evSubjValue returns the subscription subject constant value.
@@ -91,13 +100,30 @@ func evSubjPrefValue(e *model.Event) string {
 	return subject.Prefix(e.Subject)
 }
 
-// stripPagePrefix strips "Page" prefix from type name: "PageSettings" -> "Settings"
-func stripPagePrefix(typeName string) string {
-	return strings.TrimPrefix(typeName, "Page")
+// handlerRecvType is the receiver type carrying an owner's HTTP handlers:
+// "PageFoo" -> "pageFooHandlers", "App" -> "appHandlers".
+//
+// A method per owner keeps the owner name and the handler name in separate identifiers.
+// Concatenated, a page name ending in a verb and another page's
+// action spell one method: PageAPOSTB.GET and PageA.POSTBGET.
+func handlerRecvType(owner string) string {
+	return strings.ToLower(owner[:1]) + owner[1:] + "Handlers"
 }
 
-// pageHasStream returns true if the page has event handlers and needs a stream.
+// pageHasStream reports whether the page is served an SSE stream of its own.
+// State counts on its own: the stream allocates the instance on connect and
+// releases it on disconnect. A stateful page therefore needs one even when it
+// declares no hook and handles no event.
 func pageHasStream(p *model.Page) bool {
+	return len(p.EventHandlers) > 0 || p.StreamOpen != nil ||
+		p.StreamClose != nil || p.State != nil
+}
+
+// pageStreamCallsPage returns true if the page's stream handler calls a method
+// on the page value. A stateful page with no hook and no event handler gets a
+// stream purely to bound its instance lifetime and never touches the page,
+// which would leave the constructed value unused.
+func pageStreamCallsPage(p *model.Page) bool {
 	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil
 }
 
@@ -147,6 +173,37 @@ func pageHasSignalScopedEvent(p *model.Page, eventByName map[string]*model.Event
 	return false
 }
 
+// pageHasStateIDScopedEvent returns true if any event handler on the page
+// handles a state-id-scoped event (has a SubjectStateID field).
+func pageHasStateIDScopedEvent(p *model.Page, eventByName map[string]*model.Event) bool {
+	for _, eh := range p.EventHandlers {
+		if e, ok := eventByName[eh.EventTypeName]; ok && e.IsStateIDScoped() {
+			return true
+		}
+	}
+	return false
+}
+
+// pageNeedsStateRouteKey returns true if the page's stream handler has to
+// derive the tab's routing key, either to subscribe or to pass it on to a
+// handler that takes stateID.
+func pageNeedsStateRouteKey(p *model.Page, eventByName map[string]*model.Event) bool {
+	if pageHasStateIDScopedEvent(p, eventByName) {
+		return true
+	}
+	for _, h := range []*model.Handler{p.StreamOpen, p.StreamClose} {
+		if h != nil && h.InputStateID != nil {
+			return true
+		}
+	}
+	for _, eh := range p.EventHandlers {
+		if eh.InputStateID != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // pageSignalSubjectFields returns the unique signal-scoped subject fields
 // across all events handled by the page, in first-seen order.
 func pageSignalSubjectFields(p *model.Page, eventByName map[string]*model.Event) []model.SubjectField {
@@ -186,22 +243,30 @@ func pageHasAnonStream(p *model.Page, eventByName map[string]*model.Event) bool 
 	return hasPublic && hasPrivate
 }
 
-// renderType renders a Go type using types.TypeString,
-// qualifying every package by the name it declares.
-//
-// That is what an unaliased import binds to, for the app package as much as
-// for any other, and a package is free to declare a name its directory does not repeat.
-func renderType(t model.Type) string {
-	return types.TypeString(t.Resolved, func(p *types.Package) string {
-		return p.Name()
-	})
+// renderTypeIn renders a Go type for app_gen.go, naming every package the way
+// [genImports] has that file import it.
+func renderTypeIn(qual func(*types.Package) string, t model.Type) string {
+	return types.TypeString(t.Resolved, qual)
+}
+
+// eventTypeRef renders the event type the way the generated file names it.
+// An event declared outside the app package, which is how two applications
+// share one event, is qualified by the import [genImports] gave that package.
+// typeName carries the fallback for a model that holds no event of that name.
+func (w *Writer) eventTypeRef(ev *model.Event, appPkg, typeName string) string {
+	if ev != nil && ev.Type != nil {
+		return types.TypeString(ev.Type, w.imports.Qualifier())
+	}
+	return appPkg + "." + typeName
 }
 
 // renderAnonStructType renders an anonymous struct type, preserving struct tags.
 // It renders from the resolved type rather than the source it was written as.
 // The generated package is not the app package, which leaves a type the app
 // names with nothing to resolve to unless it is written with its package.
-func renderAnonStructType(t model.Type, fset *token.FileSet) string {
+func renderAnonStructType(
+	t model.Type, fset *token.FileSet, qual func(*types.Package) string,
+) string {
 	st, ok := t.Resolved.Underlying().(*types.Struct)
 	if !ok {
 		// Not a struct. Fall back to the source expression.
@@ -211,12 +276,12 @@ func renderAnonStructType(t model.Type, fset *token.FileSet) string {
 		}
 		return buf.String()
 	}
-	return renderStruct(st)
+	return renderStruct(st, qual)
 }
 
 // renderStruct writes a struct type with every named type qualified by its package.
 // Anonymous struct fields, which signals nest, recurse.
-func renderStruct(st *types.Struct) string {
+func renderStruct(st *types.Struct, qual func(*types.Package) string) string {
 	var b strings.Builder
 	b.WriteString("struct {\n")
 	for i := range st.NumFields() {
@@ -224,11 +289,9 @@ func renderStruct(st *types.Struct) string {
 		b.WriteString(f.Name())
 		b.WriteByte(' ')
 		if nested, ok := f.Type().(*types.Struct); ok {
-			b.WriteString(renderStruct(nested))
+			b.WriteString(renderStruct(nested, qual))
 		} else {
-			b.WriteString(types.TypeString(f.Type(), func(p *types.Package) string {
-				return p.Name()
-			}))
+			b.WriteString(types.TypeString(f.Type(), qual))
 		}
 		if tag := st.Tag(i); tag != "" {
 			b.WriteString(" `")
@@ -306,6 +369,9 @@ type appUsage struct {
 	// datapagesSSE: whether any handler takes a datapages.SSE param
 	// (needs the datapages import and the generated sseWrapper).
 	datapagesSSE bool
+	// stateRuntime: whether any page (including via embedded abstract pages)
+	// takes datapages.State[T]; enables the per-page-instance state runtime.
+	stateRuntime bool
 	// signalSubjects: subject.Encode is called by any page that builds
 	// a subscription subject from a client-provided signal.
 	signalSubjects bool
@@ -442,6 +508,9 @@ func computeAppUsage(m *model.App) appUsage {
 				u.errSentinels = true
 			}
 		}
+		if p.State != nil {
+			u.stateRuntime = true
+		}
 	}
 	if m.PageError404 != nil && m.PageError404.GET != nil {
 		checkHandler(m.PageError404.GET.Handler)
@@ -482,6 +551,11 @@ type Writer struct {
 	genImport string
 	// appPkgQual is the identifier that qualifies app types in generated code.
 	appPkgQual string
+	// appPkgPath is the import path of the app package, which app_gen.go
+	// imports under appPkgQual rather than under the name it declares.
+	appPkgPath string
+	// imports names every package app_gen.go renders a model type from.
+	imports genImports
 	// usage is computed once per WriteApp
 	usage appUsage
 	// sessionType is the rendered session type of the application,
@@ -507,7 +581,7 @@ func (w *Writer) setSessionType(m *model.App) {
 		w.sessionDataType = ""
 		return
 	}
-	data := renderType(m.Session.Data)
+	data := renderTypeIn(w.imports.Qualifier(), m.Session.Data)
 	w.sessionType = "datapages.Session[" + data + "]"
 	w.newSessionType = "datapages.NewSession[" + data + "]"
 	w.recordType = "sessions.Record[" + data + "]"
@@ -574,27 +648,83 @@ func (w *Writer) writePageConstructor(p *model.Page, appPkg string) {
 	w.Raw("{\n")
 	w.Raw("\tApp: s.app,\n")
 	for _, embed := range p.Embeds {
-		w.writeEmbedInit(embed, appPkg, "\t")
+		w.writeEmbedInit(p, embed, appPkg, "\t", nil)
 	}
 	w.Byte('}')
 }
 
 // writeEmbedInit recursively appends an embed field initialization.
-func (w *Writer) writeEmbedInit(ap *model.AbstractPage, appPkg, indent string) {
+func (w *Writer) writeEmbedInit(
+	p *model.Page, ap *model.AbstractPage, appPkg, indent string,
+	parent types.Type,
+) {
 	w.Raw(indent)
 	w.Raw(ap.TypeName)
 	w.Raw(": ")
-	w.Raw(appPkg)
-	w.Byte('.')
-	w.Raw(ap.TypeName)
+	expr, embedded := w.embedLiteralExpr(p, ap, appPkg, parent)
+	w.Raw(expr)
 	w.Raw("{\n")
 	w.Raw(indent)
 	w.Raw("\tApp: s.app,\n")
 	for _, sub := range ap.Embeds {
-		w.writeEmbedInit(sub, appPkg, indent+"\t")
+		w.writeEmbedInit(p, sub, appPkg, indent+"\t", embedded)
 	}
 	w.Raw(indent)
 	w.Raw("},\n")
+}
+
+// embedTypeExpr returns the type to use in the embed's composite literal.
+// A generic abstract page must be instantiated with the type arguments
+// written at the embed site, e.g. "app.Base[app.StateFoo]".
+// embedLiteralExpr returns the composite literal prefix for an embed and
+// whether the field is a pointer.
+//
+// Go lets a struct embed a pointer to another struct. The field type is then
+// "*app.Base", which is not a type a composite literal can be written of: the
+// literal is of the element type and its address is taken.
+func (w *Writer) embedLiteralExpr(
+	p *model.Page, ap *model.AbstractPage, appPkg string, parent types.Type,
+) (expr string, embedded types.Type) {
+	name := appPkg + "." + ap.TypeName
+	var resolved types.Type
+	switch {
+	case parent != nil:
+		// An embed of an embed: its type comes from the parent's, already
+		// instantiated. The Base inside Mid[StateA] is Base[StateA].
+		if t, ok := embedFieldType(parent, ap.TypeName); ok {
+			resolved = t
+		}
+	default:
+		if t, ok := p.EmbedTypes[ap.TypeName]; ok && t.Resolved != nil {
+			resolved = t.Resolved
+		}
+	}
+	if resolved != nil {
+		name = renderTypeIn(w.imports.Qualifier(), model.Type{Resolved: resolved})
+	}
+	if rest, ok := strings.CutPrefix(name, "*"); ok {
+		return "&" + rest, resolved
+	}
+	return name, resolved
+}
+
+// embedFieldType returns the type of the embedded field named name inside t.
+// For a generic parent the field carries the instantiation the parent was
+// given, which is what the composite literal has to name.
+func embedFieldType(t types.Type, name string) (types.Type, bool) {
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	st, ok := t.Underlying().(*types.Struct)
+	if !ok {
+		return nil, false
+	}
+	for f := range st.Fields() {
+		if f.Embedded() && f.Name() == name {
+			return f.Type(), true
+		}
+	}
+	return nil, false
 }
 
 // itoa converts a small non-negative integer to a string without allocation.
@@ -622,6 +752,25 @@ func (w *Writer) writeCallExpr(receiver, method string, args []string) {
 	w.Raw(method)
 	w.Byte('(')
 	w.writeCommaSep(args)
+	w.Byte(')')
+}
+
+// writeMultilineCallExpr writes one argument per line. ind is the indentation
+// of the call expression; arguments are indented one level further.
+func (w *Writer) writeMultilineCallExpr(
+	receiver, method string, args []string, ind int,
+) {
+	w.Raw(receiver)
+	w.Byte('.')
+	w.Raw(method)
+	w.Raw("(\n")
+	argTabs := strings.Repeat("\t", ind+1)
+	for _, arg := range args {
+		w.Raw(argTabs)
+		w.Raw(arg)
+		w.Raw(",\n")
+	}
+	w.Raw(strings.Repeat("\t", ind))
 	w.Byte(')')
 }
 
@@ -663,24 +812,10 @@ func (w *Writer) writeAnyCheck(varName, queryVar string, fields []structFieldInf
 	}
 }
 
-// appPkgQualifier returns the identifier that qualifies app types in generated code.
-// An unaliased import binds to the name the package declares,
-// which is free to differ from its directory.
-func appPkgQualifier(m *model.App) string {
-	if m.PkgName != "" {
-		return m.PkgName
-	}
-	return appPkgName(m.PkgPath)
-}
-
-// appPkgName returns the short package name from an import path.
-// "github.com/romshark/datapages/example/classifieds/app" -> "app"
-func appPkgName(pkgPath string) string {
-	if i := strings.LastIndex(pkgPath, "/"); i >= 0 {
-		return pkgPath[i+1:]
-	}
-	return pkgPath
-}
+// appPkgQual is the alias app_gen.go imports the app package under,
+// whatever it declares itself: an app package named "stream" or "http" would
+// otherwise bind the identifier one of the fixed imports already holds.
+const appPkgQual = "dpapp"
 
 // signalIdents returns unique exported identifiers for a page's signal-scoped
 // subject fields, derived from their signal names. They name both the fields of
@@ -746,4 +881,28 @@ func signalIdent(signalName string) string {
 		s = s[:len(s)-2] + "ID"
 	}
 	return s
+}
+
+// kebabSignalPath writes a signal path the way an attribute name carries it.
+//
+// An HTML parser lowercases every attribute name, which is why Datastar reads
+// one back as camel case: "data-signals:my-signal" is the signal mySignal
+// (https://data-star.dev/reference/attributes#data-signals). Written as
+// "data-signals:mySignal" the same signal arrives as mysignal, and every
+// expression reading $mySignal reads a second, empty one.
+//
+// Periods separate the segments of a nested path and pass through untouched.
+func kebabSignalPath(path string) string {
+	var b strings.Builder
+	b.Grow(len(path) + 4)
+	for i := range len(path) {
+		c := path[i]
+		if c >= 'A' && c <= 'Z' {
+			b.WriteByte('-')
+			b.WriteByte(c - 'A' + 'a')
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }

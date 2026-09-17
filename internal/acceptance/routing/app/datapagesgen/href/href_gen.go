@@ -56,7 +56,11 @@ func External(url string) string {
 }
 
 // PageConflict references /c/{value}/{s_value}/{s_s_value}/{$}
-func PageConflict(value int32, s_value int32, s_s_value string) string {
+func PageConflict(
+	value int32,
+	s_value int32,
+	s_s_value string,
+) string {
 	s_s_s_value := strconv.FormatInt(int64(value), 10)
 	s_s_s_s_value := strconv.FormatInt(int64(s_value), 10)
 	s_s_s_s_s_value := url.PathEscape(s_s_value)
@@ -114,7 +118,15 @@ func PageFilesEmbedded(rest string) string {
 func PageIndex() string { return "/" }
 
 // PageInts references /ints/{i8}/{i16}/{i32}/{i64}/{u8}/{u16}/{u32}/{$}
-func PageInts(i8 int8, i16 int16, i32 int32, i64 int64, u8 uint8, u16 uint16, u32 uint32) string {
+func PageInts(
+	i8 int8,
+	i16 int16,
+	i32 int32,
+	i64 int64,
+	u8 uint8,
+	u16 uint16,
+	u32 uint32,
+) string {
 	s_i8 := strconv.FormatInt(int64(i8), 10)
 	s_i16 := strconv.FormatInt(int64(i16), 10)
 	s_i32 := strconv.FormatInt(int64(i32), 10)
@@ -159,7 +171,11 @@ func PageInts(i8 int8, i16 int16, i32 int32, i64 int64, u8 uint8, u16 uint16, u3
 }
 
 // PageMixed references /org/{org}/item/{id}/{$}
-func PageMixed(org string, id int, query QueryPageMixed) string {
+func PageMixed(
+	org string,
+	id int,
+	query QueryPageMixed,
+) string {
 	s_org := url.PathEscape(org)
 	s_id := strconv.FormatInt(int64(id), 10)
 	var (
@@ -171,7 +187,7 @@ func PageMixed(org string, id int, query QueryPageMixed) string {
 		tabStr = url.QueryEscape(query.Tab)
 	}
 	if query.Page != 0 {
-		pageStr = strconv.FormatInt(int64(query.Page), 10)
+		pageStr = url.QueryEscape(strconv.FormatInt(int64(query.Page), 10))
 	}
 
 	anyQuery := query.Tab != "" ||
@@ -245,7 +261,13 @@ type QueryPageMixed struct {
 }
 
 // PagePath references /p/{str}/{i}/{u}/{f}/{flag}/{$}
-func PagePath(str string, i int, u uint64, f float64, flag bool) string {
+func PagePath(
+	str string,
+	i int,
+	u uint64,
+	f float64,
+	flag bool,
+) string {
 	s_str := url.PathEscape(str)
 	s_i := strconv.FormatInt(int64(i), 10)
 	s_u := strconv.FormatUint(u, 10)
@@ -295,22 +317,22 @@ func PageQuery(query QueryPageQuery) string {
 		termStr = url.QueryEscape(query.Term)
 	}
 	if query.Limit != 0 {
-		limitStr = strconv.FormatInt(int64(query.Limit), 10)
+		limitStr = url.QueryEscape(strconv.FormatInt(int64(query.Limit), 10))
 	}
 	if query.Ratio != 0 {
-		ratioStr = strconv.FormatFloat(float64(query.Ratio), 'f', -1, 32)
+		ratioStr = url.QueryEscape(strconv.FormatFloat(float64(query.Ratio), 'f', -1, 32))
 	}
 	if query.Score != 0 {
-		scoreStr = strconv.FormatFloat(query.Score, 'f', -1, 64)
+		scoreStr = url.QueryEscape(strconv.FormatFloat(query.Score, 'f', -1, 64))
 	}
 	if query.Big != 0 {
-		bigStr = strconv.FormatUint(uint64(query.Big), 10)
+		bigStr = url.QueryEscape(strconv.FormatUint(uint64(query.Big), 10))
 	}
 	if query.Deep != 0 {
-		deepStr = strconv.FormatInt(query.Deep, 10)
+		deepStr = url.QueryEscape(strconv.FormatInt(query.Deep, 10))
 	}
 	if query.Flag {
-		flagStr = strconv.FormatBool(query.Flag)
+		flagStr = url.QueryEscape(strconv.FormatBool(query.Flag))
 	}
 
 	anyQuery := query.Term != "" ||
@@ -463,24 +485,34 @@ type QueryPageQuery struct {
 // PageReflect references /reflect/{$}
 func PageReflect(query QueryPageReflect) string {
 	var (
-		termStr string
-		pageStr string
-		slugStr string
+		termStr     string
+		pageStr     string
+		slugStr     string
+		oddStr      string
+		newTitleStr string
 	)
 
 	if query.Term != "" {
 		termStr = url.QueryEscape(query.Term)
 	}
 	if query.Page != 0 {
-		pageStr = strconv.FormatInt(int64(query.Page), 10)
+		pageStr = url.QueryEscape(strconv.FormatInt(int64(query.Page), 10))
 	}
 	if query.Slug != nil {
 		slugStr = url.QueryEscape(textOf(query.Slug))
 	}
+	if query.Odd != "" {
+		oddStr = url.QueryEscape(query.Odd)
+	}
+	if query.NewTitle != "" {
+		newTitleStr = url.QueryEscape(query.NewTitle)
+	}
 
 	anyQuery := query.Term != "" ||
 		query.Page != 0 ||
-		query.Slug != nil
+		query.Slug != nil ||
+		query.Odd != "" ||
+		query.NewTitle != ""
 
 	var b strings.Builder
 	l := len("/reflect/")
@@ -511,6 +543,20 @@ func PageReflect(query QueryPageReflect) string {
 		}
 		n++
 		l += len("s=") + len(slugStr)
+	}
+	if query.Odd != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("o'\"x=") + len(oddStr)
+	}
+	if query.NewTitle != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("nt=") + len(newTitleStr)
 	}
 	_ = n
 
@@ -543,8 +589,24 @@ func PageReflect(query QueryPageReflect) string {
 		if n > 0 {
 			b.WriteString("&")
 		}
+		n++
 		b.WriteString("s=")
 		b.WriteString(slugStr)
+	}
+	if query.Odd != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("o'\"x=")
+		b.WriteString(oddStr)
+	}
+	if query.NewTitle != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("nt=")
+		b.WriteString(newTitleStr)
 	}
 
 	return b.String()
@@ -552,13 +614,18 @@ func PageReflect(query QueryPageReflect) string {
 
 // QueryPageReflect is the query parameters for PageReflect
 type QueryPageReflect struct {
-	Term string                 `query:"t"`
-	Page int                    `query:"p"`
-	Slug encoding.TextMarshaler `query:"s"`
+	Term     string                 `query:"t"`
+	Page     int                    `query:"p"`
+	Slug     encoding.TextMarshaler `query:"s"`
+	Odd      string                 `query:"o'"x"`
+	NewTitle string                 `query:"nt"`
 }
 
 // PageSlug references /slug/{slug}/{$}
-func PageSlug(slug encoding.TextMarshaler, query QueryPageSlug) string {
+func PageSlug(
+	slug encoding.TextMarshaler,
+	query QueryPageSlug,
+) string {
 	s_slug := url.PathEscape(textOf(slug))
 	var (
 		tagStr string

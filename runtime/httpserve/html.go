@@ -24,17 +24,41 @@ type HTMLDocument struct {
 	// It goes before Head, which is the head of the page itself.
 	HeadGeneric, Head datapages.Head
 
+	// WriteHeadPrologue writes into the head between the opening tags and the
+	// Datastar script tag. It is the seam for a script that has to run before
+	// Datastar does, which a deferred module script cannot: the stateful-page
+	// fetch wrapper installs itself here so no request on the page escapes it.
+	// Nil when nothing needs that seam, which writes the head in one piece.
+	WriteHeadPrologue func(w io.Writer) error
+
 	Body            datapages.Component
 	WriteBodyAttrs  func(w http.ResponseWriter)
 	WriteBodySuffix func(w http.ResponseWriter)
 }
 
 // WriteHTML writes doc as a complete HTML document.
+//
+// The attribute writers of doc open with their own separating space, which is
+// why the body and the template tag are written without one. Two attributes
+// written next to each other would otherwise be one HTML parse error,
+// recovered from by every browser and refused by every validator.
 func (c *Core) WriteHTML(
 	w http.ResponseWriter, r *http.Request, doc HTMLDocument,
 ) error {
-	if _, err := io.WriteString(w, c.htmlPrefix); err != nil {
-		return err
+	if doc.WriteHeadPrologue == nil {
+		if _, err := io.WriteString(w, c.htmlPrefix); err != nil {
+			return err
+		}
+	} else {
+		if _, err := io.WriteString(w, c.htmlHead); err != nil {
+			return err
+		}
+		if err := doc.WriteHeadPrologue(w); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, c.htmlDatastar); err != nil {
+			return err
+		}
 	}
 	if doc.HeadGeneric != nil {
 		if err := doc.HeadGeneric.Render(r.Context(), w); err != nil {
@@ -52,7 +76,7 @@ func (c *Core) WriteHTML(
 			return err
 		}
 	}
-	if _, err := io.WriteString(w, "</head><body "); err != nil {
+	if _, err := io.WriteString(w, "</head><body"); err != nil {
 		return err
 	}
 	if doc.WriteBodyAttrs != nil {
@@ -67,7 +91,7 @@ func (c *Core) WriteHTML(
 		}
 	}
 	if doc.WriteBodySuffix != nil {
-		if _, err := io.WriteString(w, "<template "); err != nil {
+		if _, err := io.WriteString(w, "<template"); err != nil {
 			return err
 		}
 		doc.WriteBodySuffix(w)

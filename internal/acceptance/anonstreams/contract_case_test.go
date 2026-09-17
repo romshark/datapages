@@ -1,7 +1,7 @@
 // Wires the anonstreams case into the shared contract suite.
 //
-// The app declares a Session type, which makes a CSRF token manager required:
-// datapages.NewServer fails without one.
+// The app declares a Session type.
+// NewServer needs a CSRF token manager and returns an error without one.
 
 package acceptance_test
 
@@ -43,25 +43,25 @@ func TestContract(t *testing.T) {
 		Links: []string{
 			href.PageIndex(),
 			href.PageRooms(),
-			href.PageFeed(),
+			href.PageTabs(),
 		},
 		Actions: []string{
-			action.POSTPageRoomsPost(),
-			action.POSTPageRoomsNotice(),
-			action.POSTPageFeedTick(),
+			action.PageRooms.Post.POST(),
+			action.PageRooms.Notice.POST(),
+			action.PageTabs.Bump.POST(),
 		},
 		SignalActions: []string{
-			action.POSTPageRoomsPost(),
-			action.POSTPageRoomsNotice(),
-			action.POSTPageFeedTick(),
+			action.PageRooms.Post.POST(),
+			action.PageRooms.Notice.POST(),
 		},
-		// The page whose stream subscribes by nothing,
-		// which is the one the suite can open without supplying a signal.
-		Index:          href.PageFeed(),
-		StreamPath:     "/feed/_$/",
-		DispatchAction: action.POSTPageFeedTick(),
-		DispatchBody:   `{"n":1}`,
-		OptionedAction: action.POSTPageFeedTick(
+		// The stateful page,
+		// whose stream the suite opens and whose state it watches expire.
+		Index:           href.PageTabs(),
+		StreamPath:      "/tabs/_$/",
+		DispatchAction:  action.PageTabs.Bump.POST(),
+		StateAction:     action.PageTabs.Bump.POST(),
+		StateActionBody: "",
+		OptionedAction: action.PageTabs.Bump.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),

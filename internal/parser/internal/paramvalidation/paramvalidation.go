@@ -10,8 +10,10 @@ import (
 	"go/types"
 	"strings"
 
+	"github.com/romshark/datapages/internal/gotypes"
 	"github.com/romshark/datapages/internal/parser/internal/typecheck"
 	"github.com/romshark/datapages/internal/parser/model"
+	"github.com/romshark/datapages/internal/parser/validate"
 	"github.com/romshark/datapages/internal/routepattern"
 	"github.com/romshark/datapages/internal/structtag"
 )
@@ -67,6 +69,12 @@ var (
 	ErrQueryReflectSignalNotInSignals = errors.New(
 		"query reflectsignal tag references signal not in signals parameter",
 	)
+	ErrQueryReflectSignalInvalid = errors.New(
+		"query struct field has an invalid reflectsignal tag value",
+	)
+	ErrSignalsFieldNameDotted = errors.New(
+		"signals struct field declares one signal, which carries no period",
+	)
 )
 
 // Signals parameter errors.
@@ -83,7 +91,8 @@ var (
 	ErrSignalsFieldDuplicateTag = errors.New(
 		"signals struct field has duplicate json tag value",
 	)
-	ErrSignalsFieldEmptyTag = errors.New(
+	ErrSignalsFieldNameInvalid = validate.ErrSignalNameInvalid
+	ErrSignalsFieldEmptyTag    = errors.New(
 		`signals struct field json tag must have a non-empty name`,
 	)
 )
@@ -141,6 +150,30 @@ func IsSessionParam(f *ast.Field, info *types.Info) bool {
 	return typecheck.IsSessionType(f.Type, info)
 }
 
+// IsStateParam reports whether the AST field is typed datapages.State[Values].
+// The type is what makes it a state parameter. The name may be anything.
+func IsStateParam(f *ast.Field, info *types.Info) bool {
+	_, ok := typecheck.StateValuesType(f.Type, info)
+	return ok
+}
+
+// IsStateIDParam reports whether the AST field is named "stateID".
+func IsStateIDParam(f *ast.Field) bool {
+	return len(f.Names) > 0 && f.Names[0].Name == "stateID"
+}
+
+// StateParamElementName returns the state type name referenced by a
+// datapages.State[T] parameter. Returns "" when the type argument is not a
+// plain identifier, which is what a pointer, an anonymous struct or a
+// qualified type gives.
+func StateParamElementName(f *ast.Field) string {
+	id, ok := typecheck.TypeArgExpr(f.Type).(*ast.Ident)
+	if !ok {
+		return ""
+	}
+	return id.Name
+}
+
 // IsPathParam reports whether the AST field is typed datapages.Path[Values].
 func IsPathParam(f *ast.Field, info *types.Info) bool {
 	_, ok := typecheck.PathValuesType(f.Type, info)
@@ -189,19 +222,19 @@ func ValidatePathStruct(
 			)}
 		}
 		if !strings.Contains(tag, `path:"`) {
-			return &ErrorPathFieldMissingTag{
+			return &PathFieldMissingTagError{
 				FieldName: field.Name(), Recv: recv, Method: method,
 				Pos: fpos,
 			}
 		}
 		tagVal := structtag.PathTagValue(tag)
 		if tagVal == "" {
-			return &ErrorPathFieldEmptyTag{
+			return &PathFieldEmptyTagError{
 				FieldName: field.Name(), Recv: recv, Method: method,
 				Pos: fpos,
 			}
 		} else if seen[tagVal] {
-			return &ErrorPathFieldDuplicateTag{
+			return &PathFieldDuplicateTagError{
 				FieldName: field.Name(), TagValue: tagVal,
 				Recv: recv, Method: method,
 				Pos: fpos,
@@ -260,22 +293,35 @@ func ValidateQueryStruct(
 			)}
 		}
 		if !strings.Contains(tag, `query:"`) {
-			return &ErrorQueryFieldMissingTag{
+			return &QueryFieldMissingTagError{
 				FieldName: field.Name(), Recv: recv, Method: method,
 				Pos: fpos,
 			}
 		}
 		tagVal := structtag.QueryTagValue(tag)
 		if tagVal == "" {
-			return &ErrorQueryFieldEmptyTag{
+			return &QueryFieldEmptyTagError{
 				FieldName: field.Name(), Recv: recv, Method: method,
 				Pos: fpos,
 			}
 		} else if seen[tagVal] {
-			return &ErrorQueryFieldDuplicateTag{
+			return &QueryFieldDuplicateTagError{
 				FieldName: field.Name(), TagValue: tagVal,
 				Recv: recv, Method: method,
 				Pos: fpos,
+			}
+		}
+		// The reflectsignal tag is the name of a Datastar signal:
+		// it becomes the attribute the value is written into and is read back as $name.
+		// [ValidateReflectSignal] holds it against the signals struct,
+		// which a handler need not declare.
+		if rs := structtag.ReflectSignalTagValue(tag); rs != "" {
+			if validate.ReflectSignalPath(rs) != nil {
+				return &QueryFieldReflectSignalInvalidError{
+					FieldName: field.Name(), TagValue: rs,
+					Recv: recv, Method: method,
+					Pos: fpos,
+				}
 			}
 		}
 		seen[tagVal] = true
@@ -303,7 +349,18 @@ func ValidateSignalsStruct(
 			ErrSignalsParamNotStruct, recv, method,
 		)
 	}
+	return validateSignalsFields(st, recv, method, map[types.Type]bool{})
+}
 
+// validateSignalsFields validates one level of a signals struct and every
+// struct below it. A nested struct is a nested signal: the client sends
+// {"form":{"term":...}} for it and Datastar reads the name as "form.term",
+// which puts the same rules on it as on the level above.
+//
+// visited stops a type that reaches itself through a pointer.
+func validateSignalsFields(
+	st *types.Struct, recv, method string, visited map[types.Type]bool,
+) error {
 	seen := make(map[string]bool, st.NumFields())
 	for i := range st.NumFields() {
 		field := st.Field(i)
@@ -324,63 +381,133 @@ func ValidateSignalsStruct(
 			)}
 		}
 		if !strings.Contains(tag, `json:"`) {
-			return &ErrorSignalsFieldMissingTag{
+			return &SignalsFieldMissingTagError{
 				FieldName: field.Name(), Recv: recv, Method: method,
 				Pos: fpos,
 			}
 		}
 		tagVal := structtag.JSONTagValue(tag)
 		if tagVal == "" {
-			return &ErrorSignalsFieldEmptyTag{
+			return &SignalsFieldEmptyTagError{
 				FieldName: field.Name(), Recv: recv, Method: method,
 				Pos: fpos,
 			}
 		} else if seen[tagVal] {
-			return &ErrorSignalsFieldDuplicateTag{
+			return &SignalsFieldDuplicateTagError{
+				FieldName: field.Name(), TagValue: tagVal,
+				Recv: recv, Method: method,
+				Pos: fpos,
+			}
+		} else if validate.SignalName(tagVal) != nil {
+			// The tag value is the name of a Datastar signal: it becomes an
+			// attribute name and is read back as $name. A json:"-" field is
+			// refused here too, since encoding/json drops it
+			// and the handler only ever sees the zero value.
+			return &SignalsFieldNameInvalidError{
 				FieldName: field.Name(), TagValue: tagVal,
 				Recv: recv, Method: method,
 				Pos: fpos,
 			}
 		}
 		seen[tagVal] = true
+
+		nested, ok := signalsNestedStruct(field.Type())
+		// visited holds what stands above this field rather than everything seen:
+		// two fields of one struct type are two signals, while a type
+		// that reaches itself through a pointer is a walk that never ends.
+		if ok && !visited[nested] {
+			visited[nested] = true
+			err := validateSignalsFields(nested, recv, method, visited)
+			delete(visited, nested)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
 
-// ErrorPathFieldMissingTag is ErrPathFieldMissingTag with suggestion context.
-type ErrorPathFieldMissingTag struct {
+// collectSignalPaths records the path of every signal the struct declares.
+// A nested struct contributes the paths below it, which is how a reflectsignal
+// tag reaches one: {"foo":{"bar":1}} is the signal foo.bar.
+func collectSignalPaths(
+	st *types.Struct, prefix string, out map[string]bool,
+	visited map[types.Type]bool,
+) {
+	for i := range st.NumFields() {
+		name := structtag.JSONTagValue(st.Tag(i))
+		if name == "" {
+			continue
+		}
+		path := prefix + name
+		if nested, ok := signalsNestedStruct(st.Field(i).Type()); ok {
+			if visited[nested] {
+				continue
+			}
+			visited[nested] = true
+			collectSignalPaths(nested, path+".", out, visited)
+			delete(visited, nested)
+			continue
+		}
+		out[path] = true
+	}
+}
+
+// signalsNestedStruct returns the struct a signals field carries signals of,
+// nil for a field that carries a value. A type that unmarshals itself decides
+// its own JSON, which leaves its fields out of this.
+func signalsNestedStruct(t types.Type) (*types.Struct, bool) {
+	if t == nil {
+		return nil, false
+	}
+	if ptr, ok := types.Unalias(t).(*types.Pointer); ok {
+		return signalsNestedStruct(ptr.Elem())
+	}
+	if gotypes.ImplementsJSONUnmarshaler(t) ||
+		gotypes.ImplementsTextUnmarshaler(t) {
+		return nil, false
+	}
+	st, ok := t.Underlying().(*types.Struct)
+	if !ok {
+		return nil, false
+	}
+	return st, true
+}
+
+// PathFieldMissingTagError is ErrPathFieldMissingTag with suggestion context.
+type PathFieldMissingTagError struct {
 	FieldName string
 	Recv      string
 	Method    string
 	Pos       token.Pos
 }
 
-func (e *ErrorPathFieldMissingTag) Error() string {
+func (e *PathFieldMissingTagError) Error() string {
 	return fmt.Sprintf("%v: field %s in %s.%s",
 		ErrPathFieldMissingTag, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorPathFieldMissingTag) Unwrap() error     { return ErrPathFieldMissingTag }
-func (e *ErrorPathFieldMissingTag) ASTPos() token.Pos { return e.Pos }
+func (e *PathFieldMissingTagError) Unwrap() error     { return ErrPathFieldMissingTag }
+func (e *PathFieldMissingTagError) ASTPos() token.Pos { return e.Pos }
 
-// ErrorPathFieldEmptyTag is ErrPathFieldEmptyTag with suggestion context.
-type ErrorPathFieldEmptyTag struct {
+// PathFieldEmptyTagError is ErrPathFieldEmptyTag with suggestion context.
+type PathFieldEmptyTagError struct {
 	FieldName string
 	Recv      string
 	Method    string
 	Pos       token.Pos
 }
 
-func (e *ErrorPathFieldEmptyTag) Error() string {
+func (e *PathFieldEmptyTagError) Error() string {
 	return fmt.Sprintf("%v: field %s in %s.%s",
 		ErrPathFieldEmptyTag, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorPathFieldEmptyTag) Unwrap() error     { return ErrPathFieldEmptyTag }
-func (e *ErrorPathFieldEmptyTag) ASTPos() token.Pos { return e.Pos }
+func (e *PathFieldEmptyTagError) Unwrap() error     { return ErrPathFieldEmptyTag }
+func (e *PathFieldEmptyTagError) ASTPos() token.Pos { return e.Pos }
 
-// ErrorPathFieldDuplicateTag is ErrPathFieldDuplicateTag with suggestion context.
-type ErrorPathFieldDuplicateTag struct {
+// PathFieldDuplicateTagError is ErrPathFieldDuplicateTag with suggestion context.
+type PathFieldDuplicateTagError struct {
 	FieldName string
 	TagValue  string
 	Recv      string
@@ -388,46 +515,46 @@ type ErrorPathFieldDuplicateTag struct {
 	Pos       token.Pos
 }
 
-func (e *ErrorPathFieldDuplicateTag) Error() string {
+func (e *PathFieldDuplicateTagError) Error() string {
 	return fmt.Sprintf("%v: %q on field %s in %s.%s",
 		ErrPathFieldDuplicateTag, e.TagValue, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorPathFieldDuplicateTag) Unwrap() error     { return ErrPathFieldDuplicateTag }
-func (e *ErrorPathFieldDuplicateTag) ASTPos() token.Pos { return e.Pos }
+func (e *PathFieldDuplicateTagError) Unwrap() error     { return ErrPathFieldDuplicateTag }
+func (e *PathFieldDuplicateTagError) ASTPos() token.Pos { return e.Pos }
 
-// ErrorQueryFieldMissingTag is ErrQueryFieldMissingTag with suggestion context.
-type ErrorQueryFieldMissingTag struct {
+// QueryFieldMissingTagError is ErrQueryFieldMissingTag with suggestion context.
+type QueryFieldMissingTagError struct {
 	FieldName string
 	Recv      string
 	Method    string
 	Pos       token.Pos
 }
 
-func (e *ErrorQueryFieldMissingTag) Error() string {
+func (e *QueryFieldMissingTagError) Error() string {
 	return fmt.Sprintf("%v: field %s in %s.%s", ErrQueryFieldMissingTag, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorQueryFieldMissingTag) Unwrap() error     { return ErrQueryFieldMissingTag }
-func (e *ErrorQueryFieldMissingTag) ASTPos() token.Pos { return e.Pos }
+func (e *QueryFieldMissingTagError) Unwrap() error     { return ErrQueryFieldMissingTag }
+func (e *QueryFieldMissingTagError) ASTPos() token.Pos { return e.Pos }
 
-// ErrorQueryFieldEmptyTag is ErrQueryFieldEmptyTag with suggestion context.
-type ErrorQueryFieldEmptyTag struct {
+// QueryFieldEmptyTagError is ErrQueryFieldEmptyTag with suggestion context.
+type QueryFieldEmptyTagError struct {
 	FieldName string
 	Recv      string
 	Method    string
 	Pos       token.Pos
 }
 
-func (e *ErrorQueryFieldEmptyTag) Error() string {
+func (e *QueryFieldEmptyTagError) Error() string {
 	return fmt.Sprintf("%v: field %s in %s.%s", ErrQueryFieldEmptyTag, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorQueryFieldEmptyTag) Unwrap() error     { return ErrQueryFieldEmptyTag }
-func (e *ErrorQueryFieldEmptyTag) ASTPos() token.Pos { return e.Pos }
+func (e *QueryFieldEmptyTagError) Unwrap() error     { return ErrQueryFieldEmptyTag }
+func (e *QueryFieldEmptyTagError) ASTPos() token.Pos { return e.Pos }
 
-// ErrorQueryFieldDuplicateTag is ErrQueryFieldDuplicateTag with suggestion context.
-type ErrorQueryFieldDuplicateTag struct {
+// QueryFieldDuplicateTagError is ErrQueryFieldDuplicateTag with suggestion context.
+type QueryFieldDuplicateTagError struct {
 	FieldName string
 	TagValue  string
 	Recv      string
@@ -435,48 +562,48 @@ type ErrorQueryFieldDuplicateTag struct {
 	Pos       token.Pos
 }
 
-func (e *ErrorQueryFieldDuplicateTag) Error() string {
+func (e *QueryFieldDuplicateTagError) Error() string {
 	return fmt.Sprintf("%v: %q on field %s in %s.%s",
 		ErrQueryFieldDuplicateTag, e.TagValue, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorQueryFieldDuplicateTag) Unwrap() error     { return ErrQueryFieldDuplicateTag }
-func (e *ErrorQueryFieldDuplicateTag) ASTPos() token.Pos { return e.Pos }
+func (e *QueryFieldDuplicateTagError) Unwrap() error     { return ErrQueryFieldDuplicateTag }
+func (e *QueryFieldDuplicateTagError) ASTPos() token.Pos { return e.Pos }
 
-// ErrorSignalsFieldMissingTag is ErrSignalsFieldMissingTag with suggestion context.
-type ErrorSignalsFieldMissingTag struct {
+// SignalsFieldMissingTagError is ErrSignalsFieldMissingTag with suggestion context.
+type SignalsFieldMissingTagError struct {
 	FieldName string
 	Recv      string
 	Method    string
 	Pos       token.Pos
 }
 
-func (e *ErrorSignalsFieldMissingTag) Error() string {
+func (e *SignalsFieldMissingTagError) Error() string {
 	return fmt.Sprintf("%v: field %s in %s.%s",
 		ErrSignalsFieldMissingTag, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorSignalsFieldMissingTag) Unwrap() error     { return ErrSignalsFieldMissingTag }
-func (e *ErrorSignalsFieldMissingTag) ASTPos() token.Pos { return e.Pos }
+func (e *SignalsFieldMissingTagError) Unwrap() error     { return ErrSignalsFieldMissingTag }
+func (e *SignalsFieldMissingTagError) ASTPos() token.Pos { return e.Pos }
 
-// ErrorSignalsFieldEmptyTag is ErrSignalsFieldEmptyTag with suggestion context.
-type ErrorSignalsFieldEmptyTag struct {
+// SignalsFieldEmptyTagError is ErrSignalsFieldEmptyTag with suggestion context.
+type SignalsFieldEmptyTagError struct {
 	FieldName string
 	Recv      string
 	Method    string
 	Pos       token.Pos
 }
 
-func (e *ErrorSignalsFieldEmptyTag) Error() string {
+func (e *SignalsFieldEmptyTagError) Error() string {
 	return fmt.Sprintf("%v: field %s in %s.%s",
 		ErrSignalsFieldEmptyTag, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorSignalsFieldEmptyTag) Unwrap() error     { return ErrSignalsFieldEmptyTag }
-func (e *ErrorSignalsFieldEmptyTag) ASTPos() token.Pos { return e.Pos }
+func (e *SignalsFieldEmptyTagError) Unwrap() error     { return ErrSignalsFieldEmptyTag }
+func (e *SignalsFieldEmptyTagError) ASTPos() token.Pos { return e.Pos }
 
-// ErrorSignalsFieldDuplicateTag is ErrSignalsFieldDuplicateTag with suggestion context.
-type ErrorSignalsFieldDuplicateTag struct {
+// SignalsFieldDuplicateTagError is ErrSignalsFieldDuplicateTag with suggestion context.
+type SignalsFieldDuplicateTagError struct {
 	FieldName string
 	TagValue  string
 	Recv      string
@@ -484,28 +611,28 @@ type ErrorSignalsFieldDuplicateTag struct {
 	Pos       token.Pos
 }
 
-func (e *ErrorSignalsFieldDuplicateTag) Error() string {
+func (e *SignalsFieldDuplicateTagError) Error() string {
 	return fmt.Sprintf("%v: %q on field %s in %s.%s",
 		ErrSignalsFieldDuplicateTag, e.TagValue, e.FieldName, e.Recv, e.Method)
 }
 
-func (e *ErrorSignalsFieldDuplicateTag) Unwrap() error     { return ErrSignalsFieldDuplicateTag }
-func (e *ErrorSignalsFieldDuplicateTag) ASTPos() token.Pos { return e.Pos }
+func (e *SignalsFieldDuplicateTagError) Unwrap() error     { return ErrSignalsFieldDuplicateTag }
+func (e *SignalsFieldDuplicateTagError) ASTPos() token.Pos { return e.Pos }
 
 // ErrDispatchParamNotEvent is reported when the type argument of
 // datapages.Dispatcher is not an event type.
-var ErrDispatchParamNotEvent error = &ErrorDispatchParamNotEvent{}
+var ErrDispatchParamNotEvent error = &DispatchParamNotEventError{}
 
-// ErrorDispatchParamNotEvent is returned when the type argument of
+// DispatchParamNotEventError is returned when the type argument of
 // datapages.Dispatcher is not an event type.
-type ErrorDispatchParamNotEvent struct {
+type DispatchParamNotEventError struct {
 	Recv       string    // e.g. "PageFoo"
 	MethodName string    // e.g. "GET"
 	TypeName   string    // e.g. "string"
 	Pos        token.Pos // position of the type argument
 }
 
-func (e *ErrorDispatchParamNotEvent) Error() string {
+func (e *DispatchParamNotEventError) Error() string {
 	if e.TypeName == "" {
 		return fmt.Sprintf(
 			"datapages.Dispatcher type argument must be an event type in %s.%s",
@@ -518,12 +645,12 @@ func (e *ErrorDispatchParamNotEvent) Error() string {
 	)
 }
 
-func (e *ErrorDispatchParamNotEvent) Is(target error) bool {
-	_, ok := target.(*ErrorDispatchParamNotEvent)
+func (e *DispatchParamNotEventError) Is(target error) bool {
+	_, ok := target.(*DispatchParamNotEventError)
 	return ok
 }
 
-func (e *ErrorDispatchParamNotEvent) ASTPos() token.Pos { return e.Pos }
+func (e *DispatchParamNotEventError) ASTPos() token.Pos { return e.Pos }
 
 // IsDispatchParam reports whether the AST field is typed datapages.Dispatcher[EventXXX].
 func IsDispatchParam(f *ast.Field, info *types.Info) bool {
@@ -532,21 +659,28 @@ func IsDispatchParam(f *ast.Field, info *types.Info) bool {
 
 // ValidateDispatch validates that the type argument of a datapages.Dispatcher[EventXXX]
 // parameter is a declared event type. Returns the event type name.
+// resolve reports the event type name of a named type, false for a type that is no event.
+// It's what registers an event declared outside the app package.
 func ValidateDispatch(
 	f *ast.Field,
 	info *types.Info,
-	eventTypeNames map[string]struct{},
+	resolve func(named *types.Named, pos token.Pos) (string, bool),
 	recv, method string,
 ) (string, error) {
-	name, ok := typecheck.DispatchEventTypeName(f.Type, info)
+	named, ok := typecheck.DispatchEventNamed(f.Type, info)
 	if !ok {
 		// The caller checks IsDispatchParam first, hence unreachable.
-		return "", &ErrorDispatchParamNotEvent{
+		return "", &DispatchParamNotEventError{
 			Recv: recv, MethodName: method, Pos: f.Type.Pos(),
 		}
 	}
-	if _, isEvent := eventTypeNames[name]; !isEvent {
-		return "", &ErrorDispatchParamNotEvent{
+	var name string
+	var isEvent bool
+	if named != nil {
+		name, isEvent = resolve(named, f.Type.Pos())
+	}
+	if !isEvent {
+		return "", &DispatchParamNotEventError{
 			Recv:       recv,
 			MethodName: method,
 			TypeName:   name,
@@ -634,12 +768,8 @@ func ValidateReflectSignal(
 		return nil
 	}
 
-	sigNames := make(map[string]bool, sigSt.NumFields())
-	for i := range sigSt.NumFields() {
-		if v := structtag.JSONTagValue(sigSt.Tag(i)); v != "" {
-			sigNames[v] = true
-		}
-	}
+	sigNames := map[string]bool{}
+	collectSignalPaths(sigSt, "", sigNames, map[types.Type]bool{})
 
 	for i := range querySt.NumFields() {
 		rs := structtag.ReflectSignalTagValue(querySt.Tag(i))
@@ -656,3 +786,43 @@ func ValidateReflectSignal(
 	}
 	return nil
 }
+
+// SignalsFieldNameInvalidError is [ErrSignalsFieldNameInvalid] with context.
+type SignalsFieldNameInvalidError struct {
+	FieldName string
+	TagValue  string
+	Recv      string
+	Method    string
+	Pos       token.Pos
+}
+
+func (e *SignalsFieldNameInvalidError) Error() string {
+	return fmt.Sprintf("%v: %q on field %s in %s.%s",
+		ErrSignalsFieldNameInvalid, e.TagValue, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *SignalsFieldNameInvalidError) Unwrap() error {
+	return ErrSignalsFieldNameInvalid
+}
+
+func (e *SignalsFieldNameInvalidError) ASTPos() token.Pos { return e.Pos }
+
+// QueryFieldReflectSignalInvalidError is [ErrQueryReflectSignalInvalid] with context.
+type QueryFieldReflectSignalInvalidError struct {
+	FieldName string
+	TagValue  string
+	Recv      string
+	Method    string
+	Pos       token.Pos
+}
+
+func (e *QueryFieldReflectSignalInvalidError) Error() string {
+	return fmt.Sprintf("%v: %q on field %s in %s.%s",
+		ErrQueryReflectSignalInvalid, e.TagValue, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *QueryFieldReflectSignalInvalidError) Unwrap() error {
+	return ErrQueryReflectSignalInvalid
+}
+
+func (e *QueryFieldReflectSignalInvalidError) ASTPos() token.Pos { return e.Pos }

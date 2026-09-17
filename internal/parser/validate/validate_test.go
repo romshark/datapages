@@ -298,9 +298,95 @@ func TestEventHandlerMethodName(t *testing.T) {
 	f(validate.ErrEventHandlerNameInvalid, "OnA💥")
 }
 
-// TestSignalTagName tests the signal names a struct tag may declare. They travel
-// into Datastar expressions as identifiers, dotted paths included, which rules out
-// upper case, a leading digit or underscore, and anything that could end the attribute.
+// TestSignalName tests the name a signals struct field declares.
+//
+// The name reaches the client as an attribute name, which an HTML parser
+// lowercases and Datastar reads back as camel case, so the first character is
+// held to lower case and a hyphen is refused. A period is refused with it:
+// a path is written by nesting a struct, not by a key carrying a period.
+func TestSignalName(t *testing.T) {
+	f := func(expect error, input string) {
+		t.Helper()
+		require.ErrorIs(t, validate.SignalName(input), expect)
+	}
+
+	// valid
+	f(nil, "term")
+	f(nil, "newTitle")
+	f(nil, "instance_id")
+	f(nil, "_local")
+	f(nil, "foo123")
+	f(nil, "x")
+
+	// empty
+	f(validate.ErrSignalNameInvalid, "")
+	// a path is written by nesting a struct
+	f(validate.ErrSignalNameInvalid, "foo.bar")
+	// what encoding/json leaves out
+	f(validate.ErrSignalNameInvalid, "-")
+	// Datastar reads a hyphen as the camel case boundary
+	f(validate.ErrSignalNameInvalid, "new-title")
+	// starts with a digit
+	f(validate.ErrSignalNameInvalid, "1foo")
+	// what ends the attribute
+	f(validate.ErrSignalNameInvalid, `foo"bar`)
+	f(validate.ErrSignalNameInvalid, "has spaces")
+	// Datastar reads a double underscore as the modifier delimiter
+	f(validate.ErrSignalNameInvalid, "__x")
+	f(validate.ErrSignalNameInvalid, "foo__bar")
+}
+
+// TestSignalPath tests the reference a reflectsignal tag carries:
+// the names on the way to one signal, separated by periods.
+func TestSignalPath(t *testing.T) {
+	f := func(expect error, input string) {
+		t.Helper()
+		require.ErrorIs(t, validate.SignalPath(input), expect)
+	}
+
+	// valid
+	f(nil, "term")
+	f(nil, "foo.fuzz")
+	f(nil, "foo.bar.bazz")
+	f(nil, "foo.bazQux")
+	f(nil, "foo.Bar")
+
+	// empty
+	f(validate.ErrSignalPathInvalid, "")
+	// an empty step
+	f(validate.ErrSignalPathInvalid, "foo.")
+	f(validate.ErrSignalPathInvalid, ".foo")
+	f(validate.ErrSignalPathInvalid, "foo..bar")
+	// a step that is no signal name
+	f(validate.ErrSignalPathInvalid, "foo.bar-bazz")
+}
+
+// TestReflectSignalPath tests the reference a reflectsignal tag carries.
+// The generator writes it into an attribute name, which an HTML parser
+// lowercases, leaving no way to write a step that starts upper case.
+func TestReflectSignalPath(t *testing.T) {
+	f := func(expect error, input string) {
+		t.Helper()
+		require.ErrorIs(t, validate.ReflectSignalPath(input), expect)
+	}
+
+	// valid
+	f(nil, "term")
+	f(nil, "newTitle")
+	f(nil, "foo.bazQux")
+
+	// a step starting upper case
+	f(validate.ErrSignalPathInvalid, "Foo")
+	f(validate.ErrSignalPathInvalid, "foo.Bar")
+	// everything [validate.SignalPath] refuses
+	f(validate.ErrSignalPathInvalid, "")
+	f(validate.ErrSignalPathInvalid, "foo..bar")
+	f(validate.ErrSignalPathInvalid, "foo.bar-bazz")
+}
+
+// TestSignalTagName tests the signal a subject field binds its value to.
+// The tag references a signal the client declared, which is why it's the rule of
+// [validate.SignalPath] rather than one of its own.
 func TestSignalTagName(t *testing.T) {
 	f := func(expect error, input string) {
 		t.Helper()
@@ -318,18 +404,57 @@ func TestSignalTagName(t *testing.T) {
 
 	// empty
 	f(validate.ErrSignalTagNameInvalid, "")
-	// starts with uppercase
-	f(validate.ErrSignalTagNameInvalid, "Foo")
+	// camel case, which the client declares by a hyphenated attribute name
+	f(nil, "camelCase")
+	// the tag reads the signal out of the request rather than writing an attribute,
+	// which leaves the case of the first character to the page
+	f(nil, "Foo")
+	// Datastar leaves a signal with a leading underscore out of requests by
+	// default, which is the page's business rather than this tag's
+	f(nil, "_foo")
+
 	// starts with digit
 	f(validate.ErrSignalTagNameInvalid, "1foo")
-	// starts with underscore
-	f(validate.ErrSignalTagNameInvalid, "_foo")
+	// the delimiter of an attribute modifier
+	f(validate.ErrSignalTagNameInvalid, "foo__bar")
 	// contains spaces
 	f(validate.ErrSignalTagNameInvalid, "has spaces")
-	// contains uppercase
-	f(validate.ErrSignalTagNameInvalid, "camelCase")
 	// contains hyphen
 	f(validate.ErrSignalTagNameInvalid, "foo-bar")
 	// contains quotes
 	f(validate.ErrSignalTagNameInvalid, `foo"bar`)
+}
+
+// TestRouteVarName tests which wildcard names generated code can give a
+// function parameter. net/http rejects less than Go does, hence the cases
+// that matter are the ones it lets through.
+func TestRouteVarName(t *testing.T) {
+	f := func(expect error, input string) {
+		t.Helper()
+		require.ErrorIs(t, validate.RouteVarName(input), expect)
+	}
+
+	f(nil, "id")
+	f(nil, "ID")
+	f(nil, "userID")
+	f(nil, "user_id")
+	f(nil, "_id")
+	f(nil, "a1")
+	// A name the URL writers already resolve is renamed, not refused.
+	f(nil, "url")
+	f(nil, "strings")
+
+	// The blank identifier: no expression can read the parameter.
+	f(validate.ErrRouteVarNameInvalid, "_")
+	// Keywords.
+	f(validate.ErrRouteVarNameInvalid, "type")
+	f(validate.ErrRouteVarNameInvalid, "func")
+	f(validate.ErrRouteVarNameInvalid, "range")
+	f(validate.ErrRouteVarNameInvalid, "map")
+	// Not identifiers.
+	f(validate.ErrRouteVarNameInvalid, "")
+	f(validate.ErrRouteVarNameInvalid, "1id")
+	f(validate.ErrRouteVarNameInvalid, "my-var")
+	f(validate.ErrRouteVarNameInvalid, "my var")
+	f(validate.ErrRouteVarNameInvalid, "a.b")
 }

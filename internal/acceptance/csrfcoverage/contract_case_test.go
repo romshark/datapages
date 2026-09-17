@@ -42,11 +42,11 @@ func TestContract(t *testing.T) {
 		HrefSetLogger:  href.SetLogger,
 		Links:          []string{href.PageIndex()},
 		Actions: []string{
-			action.POSTPageIndexSignIn(),
-			action.POSTPageIndexDelete(),
+			action.PageIndex.SignIn.POST(),
+			action.PageIndex.Delete.POST(),
 		},
-		SignalActions: []string{action.POSTPageIndexSignIn()},
-		OptionedAction: action.POSTPageIndexSignIn(
+		SignalActions: []string{action.PageIndex.SignIn.POST()},
+		OptionedAction: action.PageIndex.SignIn.POST(
 			action.WithBefore("$busy = true"),
 			action.WithContentType(action.ContentTypeForm),
 			action.WithSelector("#it's"),

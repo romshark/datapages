@@ -24,7 +24,7 @@ func TestAssetsRefused(t *testing.T) {
 		datapages.DisablePrometheus,
 		datapagesgen.Server,
 	](&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithAssets(embed.FS{}))
+		datapages.WithAssets(embed.FS{}, false))
 	require.Nil(t, s)
 	require.ErrorContains(t, err, "the app package declares no assets")
 }

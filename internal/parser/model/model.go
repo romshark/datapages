@@ -30,6 +30,11 @@ type App struct {
 	Pages   []*Page
 	Events  []*Event
 	Actions []*Handler // App-level POST/PUT/PATCH/DELETE actions.
+
+	// States are all state types the source package declares, keyed by type name.
+	// Pages reference them directly or through embedded abstract pages.
+	// Several pages may share one state type.
+	States map[string]*StateType
 }
 
 // Assets is the static file serving an embed.FS variable of the app package
@@ -67,6 +72,13 @@ type SessionType struct {
 	Data Type // The Data type argument.
 }
 
+// StateType represents a per-page-instance server-side state type
+// declared as an exported struct.
+type StateType struct {
+	Expr     ast.Expr
+	TypeName string
+}
+
 type PageSpecialization int8
 
 const (
@@ -89,6 +101,16 @@ type Page struct {
 	StreamClose   *Handler
 	EventHandlers []*EventHandler
 	Embeds        []*AbstractPage
+
+	// EmbedTypes maps an embedded abstract page type name to the type
+	// written at the embed site, keyed by base name.
+	// For a generic abstract the type is the instantiation, e.g. "Base" maps to
+	// Base[StateFoo]. Needed to construct the embed in generated code.
+	EmbedTypes map[string]Type
+
+	// State is the state type referenced by any stateful handler on
+	// this page (or its embedded abstract pages). Nullable.
+	State *StateType
 }
 
 type AbstractPage struct {
@@ -100,6 +122,10 @@ type AbstractPage struct {
 	StreamClose   *Handler
 	EventHandlers []*EventHandler
 	Embeds        []*AbstractPage
+
+	// State is the state type referenced by any stateful handler on
+	// this abstract page. Nullable.
+	State *StateType
 }
 
 type TemplComponent struct {
@@ -127,6 +153,8 @@ type Handler struct {
 	InputPath     *Input
 	InputQuery    *Input
 	InputSignals  *Input
+	InputState    *InputState // datapages.State[T]; nullable.
+	InputStateID  *Input      // stateID string; nullable.
 	// InputDispatches are the datapages.Dispatcher[EventXXX] parameters,
 	// in user-defined order. One dispatcher publishes one event type.
 	InputDispatches []*InputDispatch
@@ -148,6 +176,12 @@ type InputDispatch struct {
 	EventTypeName string
 }
 
+// InputState wraps the state input with the referenced state type name.
+type InputState struct {
+	*Input
+	StateTypeName string
+}
+
 type EventHandler struct {
 	Expr ast.Expr
 
@@ -158,7 +192,9 @@ type EventHandler struct {
 	InputSSE      *Input
 	InputStreamID *Input
 	InputSession  *Input
-	OrderedInputs []*Input // Inputs in user-defined order.
+	InputState    *InputState // datapages.State[T]; nullable.
+	InputStateID  *Input      // stateID string; nullable.
+	OrderedInputs []*Input    // Inputs in user-defined order.
 
 	OutputErr *Output
 }
@@ -174,6 +210,8 @@ const (
 	InputKindSignals  = "signals"
 	InputKindDispatch = "dispatch"
 	InputKindEvent    = "event"
+	InputKindState    = "state"
+	InputKindStateID  = "stateID"
 	InputKindErr      = "err"
 )
 
@@ -223,6 +261,9 @@ const (
 
 	// SubjectKindUser is datapages.SubjectUser.
 	SubjectKindUser
+
+	// SubjectKindStateID is datapages.SubjectStateID.
+	SubjectKindStateID
 )
 
 // IsSubject reports whether k is any subject segment kind.
@@ -232,6 +273,11 @@ func (k SubjectKind) IsSubject() bool { return k != SubjectKindNone }
 // which makes its stream require authentication.
 func (k SubjectKind) IsUser() bool { return k == SubjectKindUser }
 
+// IsStateID reports whether k carries the state ID of the tab the event is
+// addressed to, which the server resolves from the connecting tab's
+// validated instance header.
+func (k SubjectKind) IsStateID() bool { return k == SubjectKindStateID }
+
 // String returns the datapages type name of k.
 func (k SubjectKind) String() string {
 	switch k {
@@ -239,6 +285,8 @@ func (k SubjectKind) String() string {
 		return "datapages.Subject"
 	case SubjectKindUser:
 		return "datapages.SubjectUser"
+	case SubjectKindStateID:
+		return "datapages.SubjectStateID"
 	}
 	return ""
 }
@@ -263,6 +311,14 @@ type Event struct {
 	TypeName string
 	Subject  string
 
+	// Type is the named event type. Generated code renders it from this,
+	// which is what qualifies an event declared outside the app package.
+	Type types.Type
+	// PkgPath is the package the event is declared in.
+	// It differs from [App.PkgPath] for an event this application takes part in
+	// without declaring, which is how two applications share one event.
+	PkgPath string
+
 	SubjectFields []SubjectField
 }
 
@@ -270,6 +326,19 @@ type Event struct {
 func (e *Event) HasSubjectUser() bool {
 	for _, sf := range e.SubjectFields {
 		if sf.Kind.IsUser() {
+			return true
+		}
+	}
+	return false
+}
+
+// HasSubjectStateID reports whether the event has a datapages.SubjectStateID
+// subject field. At stream connect, the server derives SubjectStateID by
+// hashing the connecting tab's Datapages-Instance header. Only the tab whose
+// state ID matches the dispatched value receives the event.
+func (e *Event) HasSubjectStateID() bool {
+	for _, sf := range e.SubjectFields {
+		if sf.Kind.IsStateID() {
 			return true
 		}
 	}
@@ -296,3 +365,10 @@ func (e *Event) HasSignalSubjectFields() bool {
 // IsSignalScoped reports whether the event uses signal-based
 // subject routing (has at least one signal-tagged subject field).
 func (e *Event) IsSignalScoped() bool { return e.HasSignalSubjectFields() }
+
+// IsStateIDScoped reports whether the event uses state-id-based
+// subject routing (has a SubjectStateID field). At stream connect
+// the server uses the validated Datapages-Instance header as the
+// subject segment, which delivers the event only to the tab whose
+// state-id matches the dispatched value.
+func (e *Event) IsStateIDScoped() bool { return e.HasSubjectStateID() }

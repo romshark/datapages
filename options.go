@@ -58,6 +58,9 @@ type ServerConfig struct {
 	// the app package declared and only the generated code knows.
 	AssetsEmbed *embed.FS
 
+	// AssetsBrowsable is the browsable argument of [WithAssets] and [WithAssetsFS].
+	AssetsBrowsable bool
+
 	// Sessions configures the session cookie and the token generator.
 	Sessions SessionsConfig
 
@@ -72,6 +75,9 @@ type ServerConfig struct {
 	// BodySizeLimit is what [WithBodySizeLimit] carries.
 	// Zero selects httpserve.DefaultBodySizeLimit.
 	BodySizeLimit int64
+
+	// State sets the per-tab state limit. Nil selects the default.
+	State *StateConfig
 
 	// sessionManager is what [WithSessionManager] carries.
 	// ServerConfig is not generic, hence the manager travels as any and
@@ -248,12 +254,37 @@ func validateDatastarJS(src string) error {
 	return fmt.Errorf("URL scheme %q is neither http nor https", u.Scheme)
 }
 
-// WithAssetsFS serves static files from fsys, overriding [WithAssets].
-// It takes the file system as it is, applying nothing the app package
-// declared: no subdirectory is extracted and dev mode changes nothing.
-func WithAssetsFS(fsys http.FileSystem) ServerOption {
+// WithAssets serves the static files embedded in fsys.
+//
+// The URL path they are served at, the subdirectory they are read from and
+// the directory dev mode reads them from instead are all declared by the app
+// package, on the embed.FS variable:
+//
+//	// AssetsFS is /static/
+//	//go:embed static/*
+//	var AssetsFS embed.FS
+//
+// The generated server applies them, and rejects this option when the app
+// package declares none.
+//
+// browsable true lists a directory that has no index.html, false returns 404.
+// Pass browsable=false in production to avoid exposing every embedded file.
+func WithAssets(fsys embed.FS, browsable bool) ServerOption {
 	return func(c *ServerConfig) error {
-		c.AssetsFS = fsys
+		c.AssetsEmbed, c.AssetsBrowsable = &fsys, browsable
+		return nil
+	}
+}
+
+// WithAssetsFS serves static files from fsys, overriding [WithAssets].
+// It takes the file system as it is, applying nothing the app package declared:
+// no subdirectory is extracted and dev mode changes nothing.
+//
+// browsable true lists a directory that has no index.html, false returns 404.
+// Pass browsable=false in production to avoid exposing every embedded file.
+func WithAssetsFS(fsys http.FileSystem, browsable bool) ServerOption {
+	return func(c *ServerConfig) error {
+		c.AssetsFS, c.AssetsBrowsable = fsys, browsable
 		return nil
 	}
 }
@@ -377,25 +408,6 @@ func WithSessionManager[SessionData any](
 	}
 }
 
-// WithAssets serves the static files embedded in fsys.
-//
-// The URL path they are served at, the subdirectory they are read from and
-// the directory dev mode reads them from instead are all declared by the app
-// package, on the embed.FS variable:
-//
-//	// AssetsFS is /static/
-//	//go:embed static/*
-//	var AssetsFS embed.FS
-//
-// The generated server applies them, and rejects this option when the app
-// package declares none.
-func WithAssets(fsys embed.FS) ServerOption {
-	return func(c *ServerConfig) error {
-		c.AssetsEmbed = &fsys
-		return nil
-	}
-}
-
 // PrometheusConfig configures the Prometheus metrics endpoint.
 type PrometheusConfig struct {
 	// Host is the address the metrics server listens on,
@@ -437,6 +449,46 @@ func WithPrometheus(conf PrometheusConfig) ServerOption {
 		}
 		c.Prometheus = &conf
 		c.OutermostMiddleware = prom.Middleware
+		return nil
+	}
+}
+
+// DefaultMaxConcurrentInstances is the default value of
+// [StateConfig.MaxConcurrentInstances].
+const DefaultMaxConcurrentInstances = 10_000
+
+// StateConfig sets the live-instance limit for per-tab [State].
+type StateConfig struct {
+	// MaxConcurrentInstances limits the live state instances held by this server
+	// across all state types. A stream allocates one instance before it opens and
+	// releases it when it closes. Each server keeps its own count.
+	//
+	// A stream over the limit receives 503 with Retry-After. The generated page
+	// configures Datastar to retry the connection 10 times over about three minutes.
+	//
+	// Reaching the limit does not notify application code. Read one server's live
+	// count with `Server.StateLiveInstances`. Servers built with [EnablePrometheus]
+	// also add their counts to the `datapages_state_instances` process gauge.
+	//
+	// Zero selects [DefaultMaxConcurrentInstances].
+	// A negative value disables the limit.
+	MaxConcurrentInstances int
+}
+
+// WithStateConfig sets the concurrent instance limit for handlers that use [State].
+// A server built without it uses [DefaultMaxConcurrentInstances].
+//
+// State lives in one server process. In a multi-server deployment, the load balancer
+// must send a page instance's stream and action requests to the same server.
+// The Datapages-Instance request header is a stable routing key for that instance.
+// Otherwise, an action can reach a server that has no state for
+// the instance and make the generated client reload the page.
+func WithStateConfig(conf StateConfig) ServerOption {
+	return func(c *ServerConfig) error {
+		if conf.MaxConcurrentInstances == 0 {
+			conf.MaxConcurrentInstances = DefaultMaxConcurrentInstances
+		}
+		c.State = &conf
 		return nil
 	}
 }

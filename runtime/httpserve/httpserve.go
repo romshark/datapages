@@ -6,13 +6,14 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"path"
 
 	"github.com/romshark/datapages"
 )
 
-// IsDatastarRequest reports whether r was issued by the Datastar client.
-func IsDatastarRequest(r *http.Request) bool {
-	return r.Header.Get("Datastar-Request") == "true"
+// IsDatastarRequest reports whether h carries the header the Datastar client sends.
+func IsDatastarRequest(h http.Header) bool {
+	return h.Get("Datastar-Request") == "true"
 }
 
 // Redirect writes the redirect to w and reports whether it wrote one.
@@ -25,7 +26,7 @@ func Redirect(
 		return false
 	}
 
-	if IsDatastarRequest(r) {
+	if IsDatastarRequest(r.Header) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		_, _ = fmt.Fprintf(w, "window.location = %q;", redirect.URL)
 		return true
@@ -57,12 +58,15 @@ func DevNoCache(next http.Handler) http.Handler {
 	})
 }
 
-// WriteReloadOnVisibility writes the body attribute that reloads a page
-// the browser shows again after the server restarted.
+// WriteReloadOnVisibility writes the body attribute that reloads a page when
+// the browser shows it again after it was hidden.
+//
+// Like every attribute writer [Core.WriteHTML] calls,
+// it opens with the space that separates it from what stands before it.
 func WriteReloadOnVisibility(w io.Writer) {
 	_, _ = io.WriteString(w,
-		`data-on:visibilitychange__window="`+
-			`if (!document.hidden) window.location.reload()" `)
+		` data-on:visibilitychange__window="`+
+			`if (!document.hidden) window.location.reload()"`)
 }
 
 // AssetsFileSystem is what the static files of an application are served from.
@@ -73,6 +77,9 @@ func WriteReloadOnVisibility(w io.Writer) {
 //
 // In dev mode (datapages.IsDevMode) the files are read from devDir on disk so
 // that a change reloads without recompilation.
+//
+// Directory listing is decided by [NewCore], which sees the file system of
+// datapages.WithAssetsFS as well.
 func AssetsFileSystem(
 	cfg datapages.ServerConfig, devDir, dir string,
 ) (http.FileSystem, error) {
@@ -95,6 +102,35 @@ func AssetsFileSystem(
 		return nil, fmt.Errorf("datapages.WithAssets: %w", err)
 	}
 	return http.FS(sub), nil
+}
+
+// notBrowsableFS returns fs.ErrNotExist for a directory that holds no index.html,
+// which [http.FileServer] turns into 404.
+// Without it a GET on the assets URL prefix lists the whole tree.
+type notBrowsableFS struct{ fsys http.FileSystem }
+
+func (f notBrowsableFS) Open(name string) (http.File, error) {
+	file, err := f.fsys.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	stat, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if !stat.IsDir() {
+		return file, nil
+	}
+	// A directory holding an index.html stays open: [http.FileServer] serves
+	// that file through a second Open and never lists such a directory.
+	index, err := f.fsys.Open(path.Join(name, "index.html"))
+	if err != nil {
+		_ = file.Close()
+		return nil, fs.ErrNotExist
+	}
+	_ = index.Close()
+	return file, nil
 }
 
 // WriteErrStatus writes the HTTP error response err maps to.

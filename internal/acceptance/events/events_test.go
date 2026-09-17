@@ -440,6 +440,55 @@ func TestStreamOpenRefuses(t *testing.T) {
 	})
 }
 
+// TestStreamOpenPanicRunsNoStreamClose tests a StreamOpen that panics after it
+// registered the stream.
+//
+// A panic in the hook is an error like any other: the stream never opens, so it
+// gets no StreamClose. Whatever the hook registered before the panic is the
+// application's to drop, under a defer of its own.
+func TestStreamOpenPanicRunsNoStreamClose(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := client.New(t, mustNewServer(t, &app.App{}, broker))
+
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		req, err := http.NewRequestWithContext(
+			ctx, http.MethodGet, c.URL()+"/_$/?panic=1", nil,
+		)
+		require.NoError(t, err, "building stream request")
+		req.Header.Set("Datastar-Request", "true")
+		req.Header.Set("Accept-Encoding", "identity")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err, "GET /_$/?panic=1")
+		defer func() { _ = resp.Body.Close() }()
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_, _ = io.Copy(io.Discard, resp.Body)
+		}()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("a stream whose StreamOpen panicked was left open")
+		}
+
+		require.Contains(t, logOf(t, c), "open(",
+			"StreamOpen did not run")
+		if got := logOf(t, c); strings.Contains(got, "close(") {
+			t.Errorf("StreamClose ran for a stream that never opened: %s", got)
+		}
+
+		// The panic did not take the server down.
+		s := c.OpenStream(t, "/_$/", nil)
+		postOK(t, c, "/tick/", `{"n":7}`)
+		require.True(t, s.Saw(`<div id="out">tick 7</div>`),
+			"a later stream was not served")
+	})
+}
+
 // TestStreamRequiresDatastar tests a stream route reached by a plain client.
 func TestStreamRequiresDatastar(t *testing.T) {
 	t.Parallel()

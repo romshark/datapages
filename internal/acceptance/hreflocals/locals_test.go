@@ -1,5 +1,6 @@
 // Asserts that a path variable may carry any name the URL writer uses for a
-// local of its own, and that a query tag needs to be no Go identifier.
+// local of its own or resolves at package scope, and that a query tag needs to
+// be no Go identifier.
 
 package acceptance_test
 
@@ -69,7 +70,7 @@ func TestNonIdentifierQueryTagAction(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
 
-	expr := action.POSTPageTagsSelect(action.QueryPOSTPageTagsSelect{PageSize: 7})
+	expr := action.PageTags.Select.POST(action.PageTags.Select.POSTQuery(7))
 
 	// The expression a template carries: @post('<url>').
 	const prefix, suffix = "@post('", "')"
@@ -107,7 +108,7 @@ func TestActionLocalNamesAreFree(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Status, url)
 	require.Equal(t, "b=1 l=2 n=3 bl=4 al=5", resp.Element(t, "echo"))
 
-	expr := action.POSTPageLocalsSave("1", "2", "3", "4", "5")
+	expr := action.PageLocals.Save.POST("1", "2", "3", "4", "5")
 	require.Equal(t, "@post('/locals/1/2/3/4/5/save/')", expr)
 }
 
@@ -117,12 +118,98 @@ func TestActionLocalNamesAreFreeWithQuery(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
 
-	expr := action.POSTPageMixStore(1, 2, "three",
-		action.QueryPOSTPageMixStore{AnyQuery: "yes"})
+	expr := action.PageMix.Store.POST(1, 2, "three",
+		action.PageMix.Store.POSTQuery("yes"))
 	require.Equal(t, "@post('/mix/1/2/three/store/?anyQuery=yes')", expr)
 
 	url := strings.TrimSuffix(strings.TrimPrefix(expr, "@post('"), "')")
 	require.Equal(t, http.StatusOK,
 		c.Action(t, http.MethodPost, url, "").Status,
 		"the values did not survive the action URL")
+}
+
+// TestImportNameIsFree tests path variables named after the packages the URL
+// writer qualifies and after the helper it calls: url, strings, strconv and textOf.
+// Each parameter is renamed, and each value has to reach the segment
+// its own wildcard names.
+func TestImportNameIsFree(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	url := href.PageImports("one", "two", 3, app.Slug("FOUR"))
+	require.Equal(t, "/imports/one/two/3/four/", url,
+		"textOf marshals the slug to lower case on its way into the URL")
+
+	resp := c.Get(t, url)
+	require.Equal(t, http.StatusOK, resp.Status, url)
+	require.Equal(t, "url=one strings=two strconv=3 textOf=four",
+		resp.Element(t, "echo"))
+}
+
+// TestBuiltinNameIsFree tests a path variable named after the builtin the URL
+// writer counts with. The parameter is renamed, and len still counts.
+func TestBuiltinNameIsFree(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	url := href.PageLen("eight")
+	require.Equal(t, "/len/eight/", url)
+
+	resp := c.Get(t, url)
+	require.Equal(t, http.StatusOK, resp.Status, url)
+	require.Equal(t, "len=eight", resp.Element(t, "echo"))
+}
+
+// TestImportNameIsStillEscaped tests that the renamed parameter is the one escaped.
+// A path value belongs to one segment, which is what url.PathEscape
+// under a parameter named "url" is for.
+func TestImportNameIsStillEscaped(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	url := href.PageImports("a/b", "c?d", 0, app.Slug("e"))
+	require.Equal(t, "/imports/a%2Fb/c%3Fd/0/e/", url)
+
+	resp := c.Get(t, url)
+	require.Equal(t, http.StatusOK, resp.Status, url)
+	require.Equal(t, "url=a/b strings=c?d strconv=0 textOf=e",
+		resp.Element(t, "echo"))
+}
+
+// TestImportNameIsFreeInAction tests the same names in an action, which writes
+// the parameters into an expression and calls actionexpr around them.
+func TestImportNameIsFreeInAction(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	expr := action.PageImports.Save.POST("one", "two", 3, app.Slug("FOUR"),
+		action.PageImports.Save.POSTQuery("x"))
+	require.Equal(t, "@post('/imports/one/two/3/four/save/?t=x')", expr)
+
+	url := strings.TrimSuffix(strings.TrimPrefix(expr, "@post('"), "')")
+	require.Equal(t, http.StatusOK,
+		c.Action(t, http.MethodPost, url, "").Status,
+		"the values did not survive the action URL")
+}
+
+// TestActionexprNameIsFree tests a route whose single wildcard is named after
+// actionexpr, which the action writers resolve and the href writers do not.
+func TestActionexprNameIsFree(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	url := href.PageExpr("seven")
+	require.Equal(t, "/expr/seven/", url)
+
+	resp := c.Get(t, url)
+	require.Equal(t, http.StatusOK, resp.Status, url)
+	require.Equal(t, "actionexpr=seven", resp.Element(t, "echo"))
+
+	expr := action.PageExpr.Run.POST("seven")
+	require.Equal(t, "@post('/expr/seven/run/')", expr)
+
+	url = strings.TrimSuffix(strings.TrimPrefix(expr, "@post('"), "')")
+	require.Equal(t, http.StatusOK,
+		c.Action(t, http.MethodPost, url, "").Status,
+		"the value did not survive the action URL")
 }

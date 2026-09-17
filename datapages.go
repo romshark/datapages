@@ -87,8 +87,61 @@ type Path[Values any] struct{ Values Values }
 // The tag value must match a json tag in the signals struct.
 type Query[Values any] struct{ Values Values }
 
+// State carries the per-page-instance server-side state of one browser tab.
+// It may be received as a parameter by:
+//
+//   - StreamOpen
+//   - StreamClose
+//   - event handlers (OnXXX)
+//   - action handlers (POST/PUT/PATCH/DELETE)
+//
+// GET handlers may not: the server allocates state only when the tab connects
+// its stream, before StreamOpen runs.
+//
+// Values is any exported struct the application package declares.
+// Unlike [Query], [Signals] and [Path] it carries a pointer pointing to a struct
+// that is shared across handlers:
+//
+//	type StateIndex struct{ Filter string }
+//
+//	func (p PageIndex) StreamOpen(
+//		r *http.Request,
+//		state datapages.State[StateIndex],
+//	) error {
+//		state.Values.Filter = "all"
+//		return nil
+//	}
+//
+// The state lives as long as the tab's SSE stream. The server allocates it when
+// the tab connects its stream, before StreamOpen runs. When the stream closes
+// the server drops its reference, and the garbage collector reclaims the value
+// once nothing else holds it. A tab that reconnects gets a new one.
+// No instance is ever reused by another tab.
+//
+// Datapages serializes the handlers of one tab that take State,
+// which is why the fields need no explicit synchronization (like a mutex lock).
+// Handlers without a State parameter (like GET) are not serialized,
+// and neither are the handlers of other tabs.
+//
+// WARNING: Values must not outlive the handler that received it. The serialization
+// described above covers handlers, not, for example, a goroutine one of them started.
+// A goroutine that keeps the pointer to the state value races with the tab's handlers.
+// An alias stored in the application or held by a [Component] that renders
+// later also keeps the state alive long after the tab is gone.
+// Copy the fields out instead:
+//
+//	filter := state.Values.Filter
+//	go p.App.refresh(filter)
+//
+// A page whose handlers take State gets an SSE stream whether or not it
+// declares StreamOpen, StreamClose or an OnXXX handler: the stream is what
+// bounds the instance's lifetime. [WithStateConfig] sets the concurrent instance limit.
+// Without it the server uses [DefaultMaxConcurrentInstances].
+type State[Values any] struct{ Values *Values }
+
 // StreamID identifies one SSE stream instance within the process.
-// StreamOpen and StreamClose must receive it, event (OnXXX) handlers may:
+// A declared StreamOpen or StreamClose must take StreamID, [State], or both.
+// Event (OnXXX) handlers may also take StreamID:
 //
 //	func (p PageIndex) StreamOpen(
 //		r *http.Request, streamID datapages.StreamID,
@@ -106,6 +159,10 @@ type Query[Values any] struct{ Values Values }
 // one per open tab, and the ID is what tells them apart: register per-tab state under
 // it in StreamOpen, read that state in the OnXXX handlers,
 // and drop it in StreamClose. It also ties the log lines of one stream together.
+//
+// A StreamOpen that returns an error or panics gets no StreamClose.
+// Drop what it already registered before returning the error.
+// If the hook can panic, defer that drop.
 //
 // Keep it server-side and never hand it to clients.
 type StreamID uint64
@@ -418,6 +475,21 @@ var ErrSelectorLineBreak = errors.New("CSS selector contains a line break")
 // struct tag, which subscribes the client's stream to the segment value the signal holds.
 //
 // All subject fields must be declared before any payload field.
+//
+// A field must name this type directly, not a type declared from it:
+//
+//	type DeviceID datapages.Subject
+//
+//	// EventNotify is "notify"
+//	type EventNotify struct {
+//		Device datapages.Subject `json:"device"` // OK
+//	}
+//
+//	// EventAlert is "alert"
+//	type EventAlert struct {
+//		Device DeviceID   `json:"device"` // rejected
+//		Sensor devices.ID `json:"sensor"` // rejected
+//	}
 type Subject string
 
 // SubjectUser is a subject segment carrying the ID of the user the event is addressed to.
@@ -438,7 +510,27 @@ type Subject string
 // One dispatch publishes to one subject. To address several users,
 // dispatch once per user, which leaves the handler in control of
 // what happens when one of the publishes fails.
+//
+// As with [Subject], a field must name this type itself.
 type SubjectUser string
+
+// SubjectStateID is a subject segment carrying the state ID of the tab
+// the event is addressed to. At stream connect, the server derives it by
+// hashing the connecting tab's Datapages-Instance header.
+// Only the tab whose state ID matches the dispatched value receives the event.
+//
+//	// EventFiltersUpdated is "filters.updated"
+//	type EventFiltersUpdated struct {
+//		Tab datapages.SubjectStateID
+//
+//		Query string `json:"query"`
+//	}
+//
+// A handler dispatching such an event takes stateID string alongside
+// datapages.State[T], and a page handling it must be stateful.
+// Since the segment is bound to the connecting tab, the field must not
+// carry a signal:"<name>" tag, and it must be the event's only subject field.
+type SubjectStateID string
 
 // User ID errors reported by [ValidateUserID].
 var (

@@ -3,16 +3,12 @@
 package datapagesgen
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
 	"strconv"
-	"strings"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
@@ -21,10 +17,8 @@ import (
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
-	"github.com/romshark/datapages/runtime/stream"
-	"github.com/romshark/datapages/runtime/subject"
 
-	"github.com/romshark/datapages/example/calculator/app"
+	dpapp "github.com/romshark/datapages/example/calculator/app"
 	"github.com/romshark/datapages/example/calculator/app/datapagesgen/assets"
 	"github.com/romshark/datapages/example/calculator/app/datapagesgen/href"
 
@@ -61,23 +55,6 @@ func (s *Server) writeHTML(
 	})
 }
 
-func (s *Server) handleStreamRequest(
-	w http.ResponseWriter, r *http.Request,
-	subjects []string,
-	onOpen func(
-		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
-	) error,
-	onClose func(streamID datapages.StreamID),
-	fn func(
-		streamID datapages.StreamID,
-		sse *datastar.ServerSentEventGenerator,
-		ch <-chan messaging.Message,
-	),
-) {
-	s.streams.Handle(w, r, "", "", subjects, onOpen, onClose, fn)
-}
-
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
@@ -100,14 +77,13 @@ type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
-	streams              *stream.Handler
-	app                  *app.App
+	app                  *dpapp.App
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, datapages.DisableSessions, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -121,12 +97,12 @@ type Server struct {
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[datapages.DisableSessions],
 ) error {
 	if sessionManager != nil {
-		return errors.New("unexpected option WithSessionManager: package app declares no session type")
+		return errors.New("unexpected option WithSessionManager: package dpapp declares no session type")
 	}
 	if cfg.Prometheus != nil {
 		// This server is generated with datapages.DisablePrometheus,
@@ -154,12 +130,6 @@ func (s *Server) Init(
 			return fmt.Errorf("initializing message broker streams: %w", err)
 		}
 	}
-	s.streams = stream.NewHandler(
-		s.Core, messageBroker, s.messageBrokerMetrics,
-		nil,
-		nil,
-		s.httpErrIntern,
-	)
 
 	setupHandlers(s)
 
@@ -172,45 +142,33 @@ func (s *Server) Init(
 
 const (
 
-	// Public events:
+// Public events:
 
-	EvSubjCalcUpdated = "calc.updated.*"
-)
-
-const (
-	EvSubjPrefCalcUpdated = "calc.updated."
 )
 
 func MessageBrokerStreamSubjects() []string {
-	return []string{
-		EvSubjCalcUpdated,
-	}
-}
-
-func evSubjPageIndex(subjInstanceID string) []string {
-	return []string{
-		"calc.updated." + subject.Encode(subjInstanceID),
-	}
+	return []string{}
 }
 
 func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
-	s.Mux().HandleFunc(
-		"GET /_$/{$}",
-		s.handlePageIndexGETStream)
+		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"POST /input/{$}",
-		s.handlePageIndexPOSTInput)
+		pageIndexHandlers{s}.POSTInput)
 }
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if sse != nil {
+		// The stream is open, hence no status is left to send.
+		return
+	}
 	if httpserve.ResponseBodyWritten(w) {
 		// A status written now only appends its text to the body.
 		return
@@ -218,13 +176,15 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -241,66 +201,15 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	bodySuffix := func(w http.ResponseWriter) {
-
-		_, _ = io.WriteString(w, `data-init="@get('/_$/')"`)
-	}
-
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, bodySuffix,
+		w, r, genericHead, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
 	}
 }
 
-func (s *Server) handlePageIndexGETStream(w http.ResponseWriter, r *http.Request) {
-	if !s.CheckDatastarRequest(w, r) {
-		return
-	}
-
-	var subjSignals struct {
-		InstanceID string `json:"instance_id"`
-	}
-	if err := datastar.ReadSignals(r, &subjSignals); err != nil {
-		s.HTTPErrBad(w, "reading signals", err)
-		return
-	}
-	if subjSignals.InstanceID == "" {
-		s.HTTPErrBad(w, "invalid signal",
-			fmt.Errorf("signal %q must not be empty", "instance_id"))
-		return
-	}
-
-	p := app.PageIndex{
-		App: s.app,
-	}
-	s.handleStreamRequest(w, r, evSubjPageIndex(subjSignals.InstanceID),
-		nil,
-		nil,
-		func(
-			streamID datapages.StreamID,
-			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
-		) {
-			defer s.recoverPanic(w, r, sse, "PageIndex stream")
-			var eventCalcUpdated app.EventCalcUpdated
-			for msg := range ch {
-				switch {
-				case strings.HasPrefix(msg.Subject, EvSubjPrefCalcUpdated):
-					eventCalcUpdated = app.EventCalcUpdated{}
-					if err := json.Unmarshal(msg.Data, &eventCalcUpdated); err != nil {
-						s.LogErr("unmarshaling EventCalcUpdated JSON", err)
-						continue
-					}
-					if err := p.OnCalcUpdated(eventCalcUpdated, dpsse.New(sse)); err != nil {
-						s.LogErr("handling PageIndex.OnCalcUpdated", err)
-					}
-				}
-			}
-		})
-}
-
-func (s *Server) handlePageIndexPOSTInput(
+func (s pageIndexHandlers) POSTInput(
 	w http.ResponseWriter, r *http.Request,
 ) {
 	if !s.CheckDatastarRequest(w, r) {
@@ -308,9 +217,8 @@ func (s *Server) handlePageIndexPOSTInput(
 	}
 	httpserve.LimitRequestBody(w, r, s.BodySizeLimit())
 	var signals datapages.Signals[struct {
-		InstanceID string `json:"instance_id"`
-		Input      string `json:"input"`
-		Fresh      bool   `json:"fresh"`
+		Input string `json:"input"`
+		Fresh bool   `json:"fresh"`
 	}]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
@@ -333,41 +241,14 @@ func (s *Server) handlePageIndexPOSTInput(
 	}
 	query.Values.Num = httpread.QueryValue(r.URL.RawQuery, "num")
 
-	dispatchCalcUpdated := dispatcherEventCalcUpdated{s: s, ctx: r.Context()}
-	defer s.recoverPanic(w, r, nil, "PageIndex.Input")
-	p := app.PageIndex{
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageIndex.Input")
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
-	err := p.POSTInput(r, dispatchCalcUpdated, query, signals)
+	err := p.POSTInput(r, dpsse.New(sse), query, signals)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling action PageIndex.Input", err)
+		s.httpErrIntern(w, r, sse, "handling action PageIndex.Input", err)
 		return
 	}
-}
-
-type dispatcherEventCalcUpdated struct {
-	s   *Server
-	ctx context.Context
-}
-
-func (d dispatcherEventCalcUpdated) Dispatch(e app.EventCalcUpdated) error {
-	return d.DispatchCtx(d.ctx, e)
-}
-
-func (d dispatcherEventCalcUpdated) DispatchCtx(
-	ctx context.Context, e app.EventCalcUpdated,
-) error {
-	if e.InstanceID == "" {
-		return errors.New("EventCalcUpdated.InstanceID must not be empty")
-	}
-	j, err := json.Marshal(e)
-	if err != nil {
-		return fmt.Errorf("marshaling EventCalcUpdated JSON: %w", err)
-	}
-	subj := "calc.updated." + subject.Encode(string(e.InstanceID))
-	err = d.s.messageBroker.Publish(ctx, d.s.messageBrokerMetrics, subj, j)
-	if err != nil {
-		return fmt.Errorf("publishing subject %q: %w", subj, err)
-	}
-	return nil
 }

@@ -77,3 +77,88 @@ func TestClaimOverlaps(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckAcrossApps tests the subject rule between the applications of one module.
+// Two of them claiming one subject deliver each other's events,
+// while two events of one application are left to the check the parser runs.
+func TestCheckAcrossApps(t *testing.T) {
+	t.Parallel()
+	// Every application declares its event itself unless a case says otherwise.
+	ev := func(app, typeName, subj string) subject.AppEvent {
+		return subject.AppEvent{
+			App: app, TypeName: typeName, Decl: app + "." + typeName,
+			Claim: subject.Claim{Subject: subj},
+		}
+	}
+	// shared is one declaration two applications take part in.
+	shared := func(app, typeName, subj string) subject.AppEvent {
+		e := ev(app, typeName, subj)
+		e.Decl = "events." + typeName
+		return e
+	}
+	evFields := func(app, typeName, subj string) subject.AppEvent {
+		e := ev(app, typeName, subj)
+		e.HasFields = true
+		return e
+	}
+
+	for name, td := range map[string]struct {
+		events  []subject.AppEvent
+		wantErr bool
+	}{
+		"equal subjects in two apps": {
+			events: []subject.AppEvent{
+				ev("app/alpha", "EventPing", "ping"),
+				ev("app/beta", "EventPing", "ping"),
+			},
+			wantErr: true,
+		},
+		"equal subjects in one app": {
+			// The parser refuses this one; here it must stay silent.
+			events: []subject.AppEvent{
+				ev("app/alpha", "EventPing", "ping"),
+				ev("app/alpha", "EventPong", "ping"),
+			},
+		},
+		"nested under a claim with fields": {
+			events: []subject.AppEvent{
+				evFields("app/alpha", "EventNotify", "notify"),
+				ev("app/beta", "EventNotifyUser", "notify.user"),
+			},
+			wantErr: true,
+		},
+		"different subjects": {
+			events: []subject.AppEvent{
+				ev("app/alpha", "EventPing", "ping"),
+				ev("app/beta", "EventPong", "pong"),
+			},
+		},
+		"shared text without a separator": {
+			events: []subject.AppEvent{
+				evFields("app/alpha", "EventPing", "ping"),
+				ev("app/beta", "EventPinger", "pinger"),
+			},
+		},
+		"one declaration in two apps": {
+			events: []subject.AppEvent{
+				shared("app/alpha", "EventPing", "ping"),
+				shared("app/beta", "EventPing", "ping"),
+			},
+		},
+		"no events": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			err := subject.CheckAcrossApps(td.events)
+			if !td.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			for _, e := range td.events {
+				require.Contains(t, err.Error(), e.App)
+				require.Contains(t, err.Error(), e.TypeName)
+			}
+		})
+	}
+}

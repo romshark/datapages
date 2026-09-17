@@ -14,6 +14,7 @@ import (
 	"go/types"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -44,7 +45,8 @@ type pkgMatcher struct {
 	// localName is the import qualifier (e.g. "href", "myhref").
 	// Empty for dot-imports.
 	localName string
-	// exports is the set of exported function names from the package.
+	// exports is the set of exported names of the package, which for the
+	// action package are the namespace values an action is a method on.
 	// Only populated for dot-imports; nil otherwise.
 	exports map[string]bool
 }
@@ -52,31 +54,50 @@ type pkgMatcher struct {
 // isCall reports whether call is a call to a function from this package.
 // Returns the called function name and true if matched.
 // Safe to call on a nil receiver (returns "", false).
+//
+// An action is reached through the namespace of its owner and of the action
+// itself, action.PageFoo.Bar.POST: a selector at any depth under the package matches.
+// The name returned is the path below the package,
+// "PageFoo.Bar.POST", which is what a template writes and what
+// buildActionOwnerMap keys on.
 func (m *pkgMatcher) isCall(call *ast.CallExpr) (funcName string, ok bool) {
 	if m == nil {
 		return "", false
 	}
+	root, path := selectorPath(call.Fun)
+	if root == nil {
+		return "", false
+	}
 	if m.exports != nil {
-		// Dot-import: match bare function calls by name.
-		ident, isIdent := call.Fun.(*ast.Ident)
-		if !isIdent {
+		// Dot-import: the root identifier is the exported name itself, and a
+		// bare call selects nothing from it.
+		if !m.exports[root.Name] {
 			return "", false
 		}
-		if m.exports[ident.Name] {
-			return ident.Name, true
+		return strings.Join(append([]string{root.Name}, path...), "."), true
+	}
+	if len(path) == 0 || root.Name != m.localName {
+		return "", false
+	}
+	return strings.Join(path, "."), true
+}
+
+// selectorPath splits a selector chain into its root identifier and the names
+// selected from it: "a.b.c" yields a and ["b", "c"].
+// root is nil for anything that is not a chain of selectors on an identifier.
+func selectorPath(expr ast.Expr) (root *ast.Ident, path []string) {
+	for {
+		switch x := expr.(type) {
+		case *ast.Ident:
+			slices.Reverse(path)
+			return x, path
+		case *ast.SelectorExpr:
+			path = append(path, x.Sel.Name)
+			expr = x.X
+		default:
+			return nil, nil
 		}
-		return "", false
 	}
-	// Qualified import: match pkg.Func() selector expressions.
-	sel, isSel := call.Fun.(*ast.SelectorExpr)
-	if !isSel {
-		return "", false
-	}
-	ident, isIdent := sel.X.(*ast.Ident)
-	if !isIdent || ident.Name != m.localName {
-		return "", false
-	}
-	return sel.Sel.Name, true
 }
 
 // parsedTempl holds a pre-parsed .templ file and its base filename.
@@ -340,18 +361,18 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 				if el.Name != "a" || hrefcheck.IsAllowedNonRelativeHref(a.Value) {
 					continue
 				}
-				c.errFn(posFromRange(filename, a.Range), &ErrorHrefRelative{URL: a.Value})
+				c.errFn(posFromRange(filename, a.Range), &HrefRelativeError{URL: a.Value})
 			case "action":
 				if el.Name != "form" {
 					continue
 				}
-				c.errFn(posFromRange(filename, a.Range), &ErrorFormAction{})
+				c.errFn(posFromRange(filename, a.Range), &FormActionError{})
 			default:
 				if !isDatastarActionAttr(key.Name) {
 					continue
 				}
 				for _, url := range extractHardcodedActionURLs(a.Value) {
-					c.errFn(posFromRange(filename, a.Range), &ErrorActionHardcoded{URL: url})
+					c.errFn(posFromRange(filename, a.Range), &ActionHardcodedError{URL: url})
 				}
 			}
 		case *templparser.ExpressionAttribute:
@@ -368,7 +389,7 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 					continue
 				}
 				if parseErr != nil {
-					c.errFn(exprPos, &ErrorHrefUnverifiable{Expr: a.Expression.Value})
+					c.errFn(exprPos, &HrefUnverifiableError{Expr: a.Expression.Value})
 					break
 				}
 				// Skip href validation when the expression calls the action
@@ -384,18 +405,18 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 				if el.Name != "form" {
 					continue
 				}
-				c.errFn(exprPos, &ErrorFormAction{})
+				c.errFn(exprPos, &FormActionError{})
 				continue
 			}
 			if isDatastarActionAttr(key.Name) {
 				if parseErr != nil {
-					c.errFn(exprPos, &ErrorActionUnverifiable{Expr: a.Expression.Value})
+					c.errFn(exprPos, &ActionUnverifiableError{Expr: a.Expression.Value})
 					continue
 				}
 				findPkgCallsNode(
 					exprAST, c.hrefPkg,
 					func(funcName string) {
-						c.errFn(exprPos, &ErrorHrefContext{
+						c.errFn(exprPos, &HrefContextError{
 							AttrName: key.Name,
 							HrefFunc: funcName,
 						})
@@ -415,7 +436,7 @@ func (c *checker) checkElementAttrs(filename string, el *templparser.Element) {
 				findPkgCallsNode(
 					exprAST, c.actionPkg,
 					func(funcName string) {
-						c.errFn(exprPos, &ErrorActionContext{
+						c.errFn(exprPos, &ActionContextError{
 							AttrName:   key.Name,
 							ActionFunc: funcName,
 						})
@@ -513,7 +534,7 @@ func (c *checker) checkActionEmbedding(pos token.Position, expr string, exprAST 
 		}
 		// Only report prefix/suffix when exactly one side is an action call.
 		if yIsAction && !xIsAction {
-			c.errFn(pos, &ErrorActionUnverifiableWithPrefix{
+			c.errFn(pos, &ActionUnverifiableWithPrefixError{
 				Expr:       expr,
 				ActionFunc: yFuncName,
 				Prefix:     exprSource(bin.X),
@@ -521,7 +542,7 @@ func (c *checker) checkActionEmbedding(pos token.Position, expr string, exprAST 
 			return
 		}
 		if xIsAction && !yIsAction {
-			c.errFn(pos, &ErrorActionUnverifiableWithSuffix{
+			c.errFn(pos, &ActionUnverifiableWithSuffixError{
 				Expr:       expr,
 				ActionFunc: xFuncName,
 				Suffix:     exprSource(bin.Y),
@@ -530,7 +551,7 @@ func (c *checker) checkActionEmbedding(pos token.Position, expr string, exprAST 
 		}
 	}
 
-	c.errFn(pos, &ErrorActionUnverifiable{Expr: expr})
+	c.errFn(pos, &ActionUnverifiableError{Expr: expr})
 }
 
 // exprSource renders a Go AST expression back to source code.
@@ -550,11 +571,11 @@ func exprSource(node ast.Expr) string {
 func (c *checker) checkExprHardcodedAction(pos token.Position, expr string, exprAST ast.Expr) {
 	resolved, ok := c.resolveSimpleExpr(exprAST)
 	if !ok {
-		c.errFn(pos, &ErrorActionUnverifiable{Expr: expr})
+		c.errFn(pos, &ActionUnverifiableError{Expr: expr})
 		return
 	}
 	for _, url := range extractHardcodedActionURLs(resolved) {
-		c.errFn(pos, &ErrorActionHardcoded{URL: url})
+		c.errFn(pos, &ActionHardcodedError{URL: url})
 	}
 }
 
@@ -605,23 +626,23 @@ func checkHrefExpr(
 	if info.usesHrefPkg {
 		if info.externalURL != "" &&
 			!hrefcheck.IsAllowedNonRelativeHref(info.externalURL) {
-			errFn(pos, &ErrorHrefExternalIsRelative{URL: info.externalURL})
+			errFn(pos, &HrefExternalIsRelativeError{URL: info.externalURL})
 		}
 		return
 	}
 
 	if info.hasCall {
-		errFn(pos, &ErrorHrefUnverifiable{Expr: expr})
+		errFn(pos, &HrefUnverifiableError{Expr: expr})
 		return
 	}
 
 	if info.hasUnresolved {
-		errFn(pos, &ErrorHrefUnverifiable{Expr: expr})
+		errFn(pos, &HrefUnverifiableError{Expr: expr})
 		return
 	}
 
 	if info.disallowedURL != "" {
-		errFn(pos, &ErrorHrefRelative{URL: info.disallowedURL})
+		errFn(pos, &HrefRelativeError{URL: info.disallowedURL})
 		return
 	}
 
@@ -629,7 +650,7 @@ func checkHrefExpr(
 		return
 	}
 
-	errFn(pos, &ErrorHrefUnverifiable{Expr: expr})
+	errFn(pos, &HrefUnverifiableError{Expr: expr})
 }
 
 // hrefExprInfo holds the results of analyzing a Go expression used as an
@@ -847,7 +868,7 @@ func (c *checker) checkActionOwnership(
 					Line:     ref.line,
 					Column:   ref.col,
 				}
-				c.errFn(pos, &ErrorActionWrongPage{
+				c.errFn(pos, &ActionWrongPageError{
 					ActionFunc: ref.funcName,
 					PageType:   page.TypeName,
 					OwnerPage:  owner,
@@ -857,19 +878,19 @@ func (c *checker) checkActionOwnership(
 	}
 }
 
-// buildActionOwnerMap returns a map from generated action function name
-// to the owning page type name (or "App" for app-level actions).
+// buildActionOwnerMap returns a map from the action as it is written in a
+// template to the owning page type name ("App" for app-level actions).
+//
+// The key is what [pkgMatcher.isCall] reports, "PageFoo.Bar.POST": the owner,
+// the action and the HTTP method, each a namespace below the one before it.
 func buildActionOwnerMap(app *model.App) map[string]string {
 	m := map[string]string{}
 	for _, a := range app.Actions {
-		funcName := strings.ToUpper(a.HTTPMethod) + "App" + a.Name
-		m[funcName] = "App"
+		m["App."+a.Name+"."+strings.ToUpper(a.HTTPMethod)] = "App"
 	}
 	for _, p := range app.Pages {
-		pageSuffix := strings.TrimPrefix(p.TypeName, "Page")
 		for _, a := range p.Actions {
-			funcName := strings.ToUpper(a.HTTPMethod) + "Page" + pageSuffix + a.Name
-			m[funcName] = p.TypeName
+			m[p.TypeName+"."+a.Name+"."+strings.ToUpper(a.HTTPMethod)] = p.TypeName
 		}
 	}
 	return m

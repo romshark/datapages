@@ -625,9 +625,9 @@ func pageLogin(wrongCreds bool) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var26 string
-			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageLoginSubmit())
+			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageLogin.Submit.POST())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 186, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 186, Col: 51}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var26)
 			if templ_7745c5c3_Err != nil {
@@ -875,7 +875,7 @@ func pageMessages(
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var38 string
-				templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageMessagesWriting(
+				templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageMessages.Writing.POST(
 					action.WithBefore("if (!$messagetext) return"),
 				))
 				if templ_7745c5c3_Err != nil {
@@ -890,7 +890,7 @@ func pageMessages(
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var39 string
-				templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageMessagesWritingStopped(
+				templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageMessages.WritingStopped.POST(
 					action.WithBefore("if ($messagetext) return"),
 				))
 				if templ_7745c5c3_Err != nil {
@@ -905,7 +905,7 @@ func pageMessages(
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var40 string
-				templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageMessagesSendMessage(
+				templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageMessages.SendMessage.POST(
 					action.WithBefore("if (evt.key !== 'Enter' || evt.shiftKey || !$messagetext.trim()) return; evt.preventDefault()"),
 				))
 				if templ_7745c5c3_Err != nil {
@@ -920,9 +920,9 @@ func pageMessages(
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var41 string
-				templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageMessagesSendMessage())
+				templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageMessages.SendMessage.POST())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 322, Col: 58}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 322, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 				if templ_7745c5c3_Err != nil {
@@ -1053,9 +1053,9 @@ func pageSettings(
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var47 string
-			templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageSettingsSave())
+			templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageSettings.Save.POST())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 372, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 372, Col: 51}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var47)
 			if templ_7745c5c3_Err != nil {
@@ -1066,9 +1066,9 @@ func pageSettings(
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var48 string
-			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTAppCause500())
+			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.App.Cause500.POST())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 383, Col: 44}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 383, Col: 46}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var48)
 			if templ_7745c5c3_Err != nil {
@@ -1105,9 +1105,9 @@ func pageSettings(
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var50 string
-				templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageSettingsCloseSession(token))
+				templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageSettings.CloseSession.POST(token))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 405, Col: 65}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 405, Col: 67}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var50)
 				if templ_7745c5c3_Err != nil {
@@ -1123,9 +1123,9 @@ func pageSettings(
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var51 string
-			templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageSettingsCloseAllSessions())
+			templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageSettings.CloseAllSessions.POST())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 415, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 415, Col: 63}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var51)
 			if templ_7745c5c3_Err != nil {
@@ -1136,9 +1136,9 @@ func pageSettings(
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var52 string
-			templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTAppSignOut())
+			templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.App.SignOut.POST())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 422, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 422, Col: 45}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var52)
 			if templ_7745c5c3_Err != nil {
@@ -1203,9 +1203,9 @@ func pageSearch(
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var55 string
-			templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageSearchParamChange())
+			templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageSearch.ParamChange.POST())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 437, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 437, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var55)
 			if templ_7745c5c3_Err != nil {
@@ -2116,9 +2116,9 @@ func fragmentMessageForm(slug string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var104 string
-		templ_7745c5c3_Var104, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPagePostSendMessage(slug))
+		templ_7745c5c3_Var104, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PagePost.SendMessage.POST(slug))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 667, Col: 55}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 667, Col: 57}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var104)
 		if templ_7745c5c3_Err != nil {
@@ -2470,8 +2470,8 @@ func fragmentMessage(session Session, msg domain.Message) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var123 string
-				templ_7745c5c3_Var123, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.POSTPageMessagesRead(
-					action.QueryPOSTPageMessagesRead{MessageID: msg.ID},
+				templ_7745c5c3_Var123, templ_7745c5c3_Err = templ.ResolveAttributeValue(action.PageMessages.Read.POST(
+					action.PageMessages.Read.POSTQuery(msg.ID),
 				))
 				if templ_7745c5c3_Err != nil {
 					return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 767, Col: 6}

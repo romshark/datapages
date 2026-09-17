@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -57,27 +58,45 @@ type Core struct {
 	lockRun   sync.Mutex
 	runCancel context.CancelFunc
 
-	httpServer    *http.Server
-	metricsServer *http.Server
-	mux           *http.ServeMux
-	handler       http.Handler
-	logger        *slog.Logger
-	sampledLogger *slog.Logger
-	middleware    []func(http.Handler) http.Handler
-	outermost     func(http.Handler) http.Handler
-	assetsFS      http.FileSystem
-	datastarJSSrc string
-	htmlPrefix    string
-	bodySizeLimit int64
+	httpServer      *http.Server
+	metricsServer   *http.Server
+	mux             *http.ServeMux
+	handler         http.Handler
+	logger          *slog.Logger
+	sampledLogger   *slog.Logger
+	middleware      []func(http.Handler) http.Handler
+	outermost       func(http.Handler) http.Handler
+	assetsFS        http.FileSystem
+	assetsBrowsable bool
+	crossOrigin     *http.CrossOriginProtection
+	datastarJSSrc   string
+	htmlPrefix      string
+	htmlHead        string
+	htmlDatastar    string
+	bodySizeLimit   int64
 
 	// lockListen guards the fields [Core.listenAndServe] sets once it binds.
 	lockListen sync.Mutex
 	addr       string
 	enabledTLS bool
+
+	// maxStateInstances is the limit [Core.ReserveStateInstance] enforces.
+	// A server built without [datapages.WithStateConfig] uses
+	// [datapages.DefaultMaxConcurrentInstances]. A negative value disables the limit.
+	// An app without [datapages.State] handlers never consults it.
+	maxStateInstances int
+
+	// stateLiveInstances counts the live per-page-instance states of every state type.
+	// They share the memory and the budget in
+	// [datapages.StateConfig.MaxConcurrentInstances].
+	// Each Core has its own counter. Servers in one process do not share it.
+	stateLiveInstances atomic.Int64
 }
 
 // NewCore returns a core configured by cfg, serving static files under assetsURLPrefix.
-// An empty prefix serves none.
+// An empty prefix serves none. Every asset file system passes through
+// [notBrowsableFS] unless cfg.AssetsBrowsable is set,
+// whichever option carried the file system here.
 func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) {
 	c := &Core{
 		assetsURLPrefix: assetsURLPrefix,
@@ -86,10 +105,16 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		middleware:      cfg.Middleware,
 		outermost:       cfg.OutermostMiddleware,
 		assetsFS:        cfg.AssetsFS,
+		assetsBrowsable: cfg.AssetsBrowsable,
+		crossOrigin:     http.NewCrossOriginProtection(),
 		datastarJSSrc:   cfg.DatastarJS,
 		logger:          cfg.Logger,
 		httpServer:      cfg.HTTPServer,
 		bodySizeLimit:   cfg.BodySizeLimit,
+	}
+	c.maxStateInstances = datapages.DefaultMaxConcurrentInstances
+	if cfg.State != nil && cfg.State.MaxConcurrentInstances != 0 {
+		c.maxStateInstances = cfg.State.MaxConcurrentInstances
 	}
 	if c.bodySizeLimit <= 0 {
 		c.bodySizeLimit = DefaultBodySizeLimit
@@ -156,8 +181,12 @@ func (c *Core) Build() {
 	if c.datastarJSSrc == "" {
 		c.datastarJSSrc = DefaultDatastarJSSrc
 	}
-	c.htmlPrefix = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-		<script type="module" src="` + html.EscapeString(c.datastarJSSrc) + `"></script>`
+	// The two halves are kept apart as well: a page that must install a script
+	// of its own before Datastar loads writes them around it.
+	c.htmlHead = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>`
+	c.htmlDatastar = "\n\t\t" + `<script type="module" src="` +
+		html.EscapeString(c.datastarJSSrc) + `"></script>`
+	c.htmlPrefix = c.htmlHead + c.htmlDatastar
 
 	if c.httpServer.ErrorLog == nil {
 		c.httpServer.ErrorLog = slog.NewLogLogger(
@@ -167,7 +196,11 @@ func (c *Core) Build() {
 	}
 
 	if c.assetsFS != nil && c.assetsURLPrefix != "" {
-		h := http.StripPrefix(c.assetsURLPrefix, http.FileServer(c.assetsFS))
+		fsys := c.assetsFS
+		if !c.assetsBrowsable {
+			fsys = notBrowsableFS{fsys: fsys}
+		}
+		h := http.StripPrefix(c.assetsURLPrefix, http.FileServer(fsys))
 		if datapages.IsDevMode() {
 			h = DevNoCache(h)
 		}
@@ -185,6 +218,10 @@ func (c *Core) Build() {
 }
 
 // Mux is the router the routes are registered on.
+//
+// Handlers registered directly on it pass through the configured middleware.
+// They don't receive the Datastar, session, CSRF, or origin checks emitted into
+// generated handlers. The caller must apply the checks each handler needs.
 func (c *Core) Mux() *http.ServeMux { return c.mux }
 
 // Logger is the logger the server writes to.
@@ -211,7 +248,7 @@ func (c *Core) HTTPErrBad(w http.ResponseWriter, msg string, err error) {
 // It answers r with 406 when it was not, in which case the handler must
 // write nothing more.
 func (c *Core) CheckDatastarRequest(w http.ResponseWriter, r *http.Request) (ok bool) {
-	if !IsDatastarRequest(r) {
+	if !IsDatastarRequest(r.Header) {
 		c.logger.Debug("not a datastar request",
 			slog.Any("method", r.Method),
 			slog.String("path", r.URL.Path))
@@ -223,11 +260,84 @@ func (c *Core) CheckDatastarRequest(w http.ResponseWriter, r *http.Request) (ok 
 	return true
 }
 
+// CheckSameOrigin reports whether r may proceed. A request passes when:
+//
+//   - it uses a safe method,
+//   - it is same-origin, or
+//   - it carries neither Sec-Fetch-Site nor Origin,
+//     which keeps non-browser clients working.
+//
+// Anything else gets a 403 and the handler must write nothing more.
+//
+// It stands in for [Core.CheckDatastarRequest] on the actions that don't call it.
+// Those take no signals and no SSE, which makes them reachable by a plain HTML form,
+// and a page on another site can host that form too. [http.CrossOriginProtection] reads
+// Sec-Fetch-Site and falls back to Origin against Host.
+func (c *Core) CheckSameOrigin(w http.ResponseWriter, r *http.Request) (ok bool) {
+	if err := c.crossOrigin.Check(r); err != nil {
+		c.logger.Debug("cross-origin request",
+			slog.Any("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Any("err", err))
+		http.Error(w,
+			http.StatusText(http.StatusForbidden),
+			http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
 // ShutdownCh is closed when the shutdown begins.
 func (c *Core) ShutdownCh() <-chan struct{} { return c.shutdownCh }
 
 // HTMLPrefix is the head of a page up to the Datastar script tag.
 func (c *Core) HTMLPrefix() string { return c.htmlPrefix }
+
+// HTMLHead is [Core.HTMLPrefix] up to, but excluding, the Datastar script tag.
+// A page that installs a script before Datastar loads writes this first.
+func (c *Core) HTMLHead() string { return c.htmlHead }
+
+// HTMLDatastarScript is the Datastar script tag [Core.HTMLHead] stops short of.
+// Writing the two in order produces [Core.HTMLPrefix].
+func (c *Core) HTMLDatastarScript() string { return c.htmlDatastar }
+
+// noStateInstanceLimit reports whether MaxConcurrentInstances disables the limit.
+// The counter remains enabled because every release decrements it.
+func (c *Core) noStateInstanceLimit() bool {
+	return c.maxStateInstances < 0
+}
+
+// ReserveStateInstance increments the live instance count unless the server
+// has reached its limit. It reports whether it reserved the instance.
+//
+// Generated code calls this when a stream allocates its state.
+func (c *Core) ReserveStateInstance() bool {
+	n := c.stateLiveInstances.Add(1)
+	if !c.noStateInstanceLimit() && n > int64(c.maxStateInstances) {
+		c.stateLiveInstances.Add(-1)
+		return false
+	}
+	if c.MetricsEnabled() {
+		prom.StateInstanceReserved()
+	}
+	return true
+}
+
+// ReleaseStateInstance gives one instance back to the budget.
+// Generated code calls this when a stream drops its state.
+func (c *Core) ReleaseStateInstance() {
+	c.stateLiveInstances.Add(-1)
+	if c.MetricsEnabled() {
+		prom.StateInstanceReleased()
+	}
+}
+
+// StateLiveInstances is how many per-tab state instances this server holds,
+// across all state types. It is what [datapages.StateConfig.MaxConcurrentInstances] caps.
+//
+// A server built with Prometheus exports the same number as datapages_state_instances.
+// This reads it without one, for an application that reports its own health.
+func (c *Core) StateLiveInstances() int64 { return c.stateLiveInstances.Load() }
 
 // AssetsFS is the file system static files are served from, nil when unset.
 func (c *Core) AssetsFS() http.FileSystem { return c.assetsFS }

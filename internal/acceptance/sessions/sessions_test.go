@@ -472,6 +472,57 @@ func TestErrorSentinel(t *testing.T) {
 	})
 }
 
+// TestActionHeadRendersFromTheSession tests the application-wide head of an
+// action that answers with a document.
+//
+// The head of this app takes the session. An action that declares no session
+// parameter renders it from the session the visitor sent, and a sign-in renders
+// it from the session the same request created.
+func TestActionHeadRendersFromTheSession(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+
+		t.Run("guest", func(t *testing.T) {
+			c := srv.client(t)
+			status, body := c.post(t, "/render/", `{}`)
+			require.Equal(t, http.StatusOK, status, "%s", body)
+			require.Contains(t, body, "<title>anonymous</title>", "%s", body)
+		})
+
+		t.Run("signed in", func(t *testing.T) {
+			c := srv.client(t)
+			c.signIn(t, "alice", "")
+			status, body := c.post(t, "/render/", `{}`)
+			require.Equal(t, http.StatusOK, status, "%s", body)
+			require.Contains(t, body, "<title>alice</title>", "%s", body)
+		})
+
+		t.Run("signed in by the same request", func(t *testing.T) {
+			c := srv.client(t)
+			status, body := c.postWithToken(t, "/login/submit-inline/",
+				`{"user":"bob"}`, "")
+			require.Equal(t, http.StatusOK, status, "%s", body)
+			require.Contains(t, body, "<title>bob</title>", "%s", body)
+		})
+	})
+}
+
+// TestError404HeadRendersFromTheSession tests the application-wide head of the 404 page,
+// whose GET declares no session parameter.
+func TestError404HeadRendersFromTheSession(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+		c := srv.client(t)
+		c.signIn(t, "carol", "")
+
+		status, body := c.get(t, "/no-such-page-a1b2c3/")
+		require.Equal(t, http.StatusNotFound, status, "%s", body)
+		require.Contains(t, body, "<title>carol</title>", "%s", body)
+	})
+}
+
 // TestInlineSignInCarriesCSRFScript tests a sign-in answering with a document
 // instead of a navigation. Its Set-Cookie makes the CSRF token mandatory for
 // every later action of the page, which sends what the script carries.

@@ -53,7 +53,6 @@ func toSnakeCase(s string) string {
 //   - ErrSignatureEvHandReturnMustBeError: message names the required return type
 //   - ErrPageHasExtraFields: message states to remove the fields
 //   - ErrPageConflictingGETEmbed: message names the conflicting embedded types
-//   - ErrGeneratedNameConflict: message names both methods and the identifier
 //   - ErrPageNameInvalid: naming rule is clear from valid examples
 //   - ErrAppUnsupportedMethod: message names what App takes
 //   - ErrPageNotStruct: message names the required type form
@@ -84,6 +83,7 @@ func toSnakeCase(s string) string {
 //   - ErrNewSessionWithSSE: message states the mutual exclusion
 //   - ErrCloseSessionWithSSE: message states the mutual exclusion
 //   - ErrSSEOnAppMethod: message states where sse is allowed
+//   - ErrSSEOnGET: message states where sse is not allowed
 //   - ErrEnableBgStreamNotGET: message states it must be in a GET handler
 //   - ErrDisableRefreshNotGET: message states it must be in a GET handler
 //   - ErrEventSubjectUserNoSession: has a dedicated suggestion
@@ -103,11 +103,15 @@ func Suggest(err error) string {
 	case errors.Is(err, parser.ErrSignatureMissingReq):
 		return "fix: Add `r *http.Request` parameter"
 
-	case errors.Is(err, parser.ErrSignatureMissingStreamID):
-		return "fix: Add `streamID datapages.StreamID` parameter"
+	case errors.Is(err, parser.ErrStreamHookMissingHandle):
+		return "fix: Add `streamID datapages.StreamID` or " +
+			"`state datapages.State[T]` parameter"
 
 	case errors.Is(err, parser.ErrSignatureGETMissingBody):
 		return "fix: Add `body templ.Component` to return values"
+
+	case errors.Is(err, parser.ErrSignatureActionHeadWithoutBody):
+		return "fix: Add `body templ.Component` to return values, or drop the head"
 
 	case errors.Is(err, parser.ErrSignatureEvHandMissingSSE):
 		return "fix: Add `sse datapages.SSE` parameter"
@@ -119,14 +123,14 @@ func Suggest(err error) string {
 		return "fix: Keep one parameter of an EventXXX type and remove the rest"
 
 	case errors.Is(err, parser.ErrPageMissingFieldApp):
-		var d *parser.ErrorPageMissingFieldApp
+		var d *parser.PageMissingFieldAppError
 		if !errors.As(err, &d) {
 			return ""
 		}
 		return fmt.Sprintf("fix: Add field `App *App` to %s", d.TypeName)
 
 	case errors.Is(err, parser.ErrPageMissingPathComm):
-		var d *parser.ErrorPageMissingPathComm
+		var d *parser.PageMissingPathCommError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -137,7 +141,7 @@ func Suggest(err error) string {
 		return "fix: Use `// PageIndex is /`"
 
 	case errors.Is(err, parser.ErrActionMissingPathComm):
-		var d *parser.ErrorActionMissingPathComm
+		var d *parser.ActionMissingPathCommError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -150,7 +154,7 @@ func Suggest(err error) string {
 		return fmt.Sprintf("fix: Add `// %s is %s`", d.MethodName, path)
 
 	case errors.Is(err, parser.ErrActionPathNotUnderPage):
-		var d *parser.ErrorActionPathNotUnderPage
+		var d *parser.ActionPathNotUnderPageError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -159,7 +163,7 @@ func Suggest(err error) string {
 		return fmt.Sprintf("fix: Use `// %s is %s`", d.MethodName, path)
 
 	case errors.Is(err, parser.ErrPageMissingGET):
-		var d *parser.ErrorPageMissingGET
+		var d *parser.PageMissingGETError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -170,7 +174,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrPageInvalidPathComm):
-		var d *parser.ErrorPageInvalidPathComm
+		var d *parser.PageInvalidPathCommError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -181,7 +185,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrActionInvalidPathComm):
-		var d *parser.ErrorActionInvalidPathComm
+		var d *parser.ActionInvalidPathCommError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -192,15 +196,26 @@ func Suggest(err error) string {
 			d.MethodName, path,
 		)
 
+	case errors.Is(err, parser.ErrRouteVarNameInvalid):
+		var d *parser.RouteVarNameInvalidError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Rename {%s} to a Go identifier that is not a keyword. "+
+				"The generated href and action builders name a parameter after it.",
+			d.Var,
+		)
+
 	case errors.Is(err, parser.ErrEventCommMissing):
-		var d *parser.ErrorEventCommMissing
+		var d *parser.EventCommMissingError
 		if !errors.As(err, &d) {
 			return ""
 		}
 		return fmt.Sprintf(`fix: Add `+"`"+`// %s is "subject"`+"`"+` as the first doc comment line`, d.TypeName)
 
 	case errors.Is(err, parser.ErrEventCommInvalid):
-		var d *parser.ErrorEventCommInvalid
+		var d *parser.EventCommInvalidError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -210,7 +225,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrPathFieldMissingTag):
-		var d *paramvalidation.ErrorPathFieldMissingTag
+		var d *paramvalidation.PathFieldMissingTagError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -218,7 +233,7 @@ func Suggest(err error) string {
 			toSnakeCase(d.FieldName), d.FieldName)
 
 	case errors.Is(err, parser.ErrPathFieldEmptyTag):
-		var d *paramvalidation.ErrorPathFieldEmptyTag
+		var d *paramvalidation.PathFieldEmptyTagError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -228,7 +243,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrQueryFieldMissingTag):
-		var d *paramvalidation.ErrorQueryFieldMissingTag
+		var d *paramvalidation.QueryFieldMissingTagError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -236,7 +251,7 @@ func Suggest(err error) string {
 			toSnakeCase(d.FieldName), d.FieldName)
 
 	case errors.Is(err, parser.ErrQueryFieldEmptyTag):
-		var d *paramvalidation.ErrorQueryFieldEmptyTag
+		var d *paramvalidation.QueryFieldEmptyTagError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -246,7 +261,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrSignalsFieldMissingTag):
-		var d *paramvalidation.ErrorSignalsFieldMissingTag
+		var d *paramvalidation.SignalsFieldMissingTagError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -254,7 +269,7 @@ func Suggest(err error) string {
 			toSnakeCase(d.FieldName), d.FieldName)
 
 	case errors.Is(err, parser.ErrSignalsFieldEmptyTag):
-		var d *paramvalidation.ErrorSignalsFieldEmptyTag
+		var d *paramvalidation.SignalsFieldEmptyTagError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -264,7 +279,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrEventFieldMissingTag):
-		var d *parser.ErrorEventFieldMissingTag
+		var d *parser.EventFieldMissingTagError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -272,7 +287,7 @@ func Suggest(err error) string {
 			toSnakeCase(d.FieldName), d.FieldName)
 
 	case errors.Is(err, parser.ErrEventFieldEmptyTag):
-		var d *parser.ErrorEventFieldEmptyTag
+		var d *parser.EventFieldEmptyTagError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -282,14 +297,14 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrEventSubjectUserNoSession):
-		var d *parser.ErrorEventSubjectUserNoSession
+		var d *parser.EventSubjectUserNoSessionError
 		if !errors.As(err, &d) {
 			return ""
 		}
 		return fmt.Sprintf("fix: Define a Session type in package %s", d.PkgName)
 
 	case errors.Is(err, parser.ErrEventSubjectAfterPayload):
-		var d *parser.ErrorEventSubjectAfterPayload
+		var d *parser.EventSubjectAfterPayloadError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -299,7 +314,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrEventSubjectOverlap):
-		var d *parser.ErrorEventSubjectOverlap
+		var d *parser.EventSubjectOverlapError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -309,7 +324,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrEventSubjectDuplicateSignal):
-		var d *parser.ErrorEventSubjectDuplicateSignal
+		var d *parser.EventSubjectDuplicateSignalError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -323,7 +338,7 @@ func Suggest(err error) string {
 			" is always bound to the authenticated user's ID"
 
 	case errors.Is(err, parser.ErrEventSubjectPrefixedField):
-		var d *parser.ErrorEventSubjectPrefixedField
+		var d *parser.EventSubjectPrefixedFieldError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -333,8 +348,18 @@ func Suggest(err error) string {
 			d.FieldName, d.TypeName,
 		)
 
+	case errors.Is(err, parser.ErrEventSubjectDerivedType):
+		var d *parser.EventSubjectDerivedTypeError
+		if !errors.As(err, &d) {
+			return ""
+		}
+		return fmt.Sprintf(
+			"fix: Type %s in %s as %s instead of %s",
+			d.FieldName, d.TypeName, d.SubjectTypeName, d.DeclTypeName,
+		)
+
 	case errors.Is(err, parser.ErrEventSubjectSignalInvalid):
-		var d *parser.ErrorEventSubjectSignalInvalid
+		var d *parser.EventSubjectSignalInvalidError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -344,7 +369,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrTemplHrefRelative):
-		var d *parser.ErrorTemplHrefRelative
+		var d *parser.TemplHrefRelativeError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -358,7 +383,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrTemplHrefUnverifiable):
-		var d *parser.ErrorTemplHrefUnverifiable
+		var d *parser.TemplHrefUnverifiableError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -369,7 +394,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrTemplHrefExternalIsRelative):
-		var d *parser.ErrorTemplHrefExternalIsRelative
+		var d *parser.TemplHrefExternalIsRelativeError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -385,7 +410,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrTemplActionWrongPage):
-		var d *parser.ErrorTemplActionWrongPage
+		var d *parser.TemplActionWrongPageError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -396,7 +421,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrTemplActionHardcoded):
-		var d *parser.ErrorTemplActionHardcoded
+		var d *parser.TemplActionHardcodedError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -410,7 +435,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrTemplActionUnverifiableWithPrefix):
-		var d *parser.ErrorTemplActionUnverifiableWithPrefix
+		var d *parser.TemplActionUnverifiableWithPrefixError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -421,7 +446,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrTemplActionUnverifiableWithSuffix):
-		var d *parser.ErrorTemplActionUnverifiableWithSuffix
+		var d *parser.TemplActionUnverifiableWithSuffixError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -432,7 +457,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrTemplActionUnverifiable):
-		var d *parser.ErrorTemplActionUnverifiable
+		var d *parser.TemplActionUnverifiableError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -446,7 +471,7 @@ func Suggest(err error) string {
 			"data-on:submit with Datastar actions instead"
 
 	case errors.Is(err, parser.ErrTemplHrefContext):
-		var d *parser.ErrorTemplHrefContext
+		var d *parser.TemplHrefContextError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -457,7 +482,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrTemplActionContext):
-		var d *parser.ErrorTemplActionContext
+		var d *parser.TemplActionContextError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -468,7 +493,7 @@ func Suggest(err error) string {
 		)
 
 	case errors.Is(err, parser.ErrSignatureUnsupportedInput):
-		var d *parser.ErrorSignatureUnsupportedInput
+		var d *parser.SignatureUnsupportedInputError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -485,7 +510,7 @@ func Suggest(err error) string {
 		return suggestUnsupportedFieldType
 
 	case errors.Is(err, parser.ErrDispatchDuplicate):
-		var d *parser.ErrorDispatchDuplicate
+		var d *parser.DispatchDuplicateError
 		if !errors.As(err, &d) {
 			return ""
 		}
@@ -493,6 +518,37 @@ func Suggest(err error) string {
 			"fix: Remove the second datapages.Dispatcher[%s] parameter in %s.%s",
 			d.EventTypeName, d.Recv, d.MethodName,
 		)
+
+	case errors.Is(err, parser.ErrStateTypeArgNotNamed):
+		return "fix: Use a struct the app package declares, not a pointer, " +
+			"an anonymous struct or a type from another package"
+
+	case errors.Is(err, parser.ErrStateParamInvalidType):
+		return "fix: Declare the state type as an exported struct at package level"
+
+	case errors.Is(err, parser.ErrStateOnGET):
+		return "fix: Move the state parameter to an action, an OnXXX handler, " +
+			"StreamOpen or StreamClose"
+
+	case errors.Is(err, parser.ErrStateDuplicate):
+		return "fix: Keep one datapages.State[T] parameter and remove the rest"
+
+	case errors.Is(err, parser.ErrStateConflict):
+		return "fix: Reference one state type from every handler of the page, " +
+			"the handlers of embedded abstract pages included"
+
+	case errors.Is(err, parser.ErrStateAppActionUnbound):
+		return "fix: Bind the state type on a page, " +
+			"or drop the state parameter from the App action"
+
+	case errors.Is(err, parser.ErrStateIDDuplicate):
+		return "fix: Keep one stateID parameter and remove the rest"
+
+	case errors.Is(err, parser.ErrStateIDParamNotString):
+		return "fix: Declare the parameter as `stateID string`"
+
+	case errors.Is(err, parser.ErrStateIDWithoutState):
+		return "fix: Add a `state datapages.State[T]` parameter, or remove stateID"
 	}
 	return ""
 }
@@ -524,7 +580,7 @@ func methodPathSuffix(method string) string {
 
 // actionFuncFromURL derives a likely action package function name from a URL path.
 // Assumes POST (the most common method for form actions).
-// "/submit" → "POSTAppSubmit", "/profile/save" → "POSTPageProfileSave".
+// "/submit" -> "POSTAppSubmit", "/profile/save" -> "POSTPageProfileSave".
 // Returns "" when the URL contains variables or cannot be mapped.
 func actionFuncFromURL(url string) string {
 	// Strip query string.
@@ -543,10 +599,10 @@ func actionFuncFromURL(url string) string {
 	parts := strings.Split(url, "/")
 	switch len(parts) {
 	case 1:
-		// Single segment: app-level action, e.g. "/submit" → "POSTAppSubmit"
+		// Single segment: app-level action, e.g. "/submit" -> "POSTAppSubmit"
 		return "POSTApp" + capitalize(parts[0])
 	case 2:
-		// Two segments: page action, e.g. "/profile/save" → "POSTPageProfileSave"
+		// Two segments: page action, e.g. "/profile/save" -> "POSTPageProfileSave"
 		return "POSTPage" + capitalize(parts[0]) + capitalize(parts[1])
 	default:
 		return ""
@@ -561,7 +617,7 @@ func capitalize(s string) string {
 }
 
 // hrefFuncFromURL derives a likely href package function name from a URL path.
-// "/" → "PageIndex", "/login" → "PageLogin", "/profile/" → "PageProfile".
+// "/" -> "PageIndex", "/login" -> "PageLogin", "/profile/" -> "PageProfile".
 // Returns "" when the URL contains path variables or cannot be mapped.
 func hrefFuncFromURL(url string) string {
 	// Strip query string.
@@ -580,7 +636,7 @@ func hrefFuncFromURL(url string) string {
 	if strings.ContainsAny(url, "{}") {
 		return ""
 	}
-	// Capitalize: "login" → "PageLogin", "myposts" → "PageMyposts"
+	// Capitalize: "login" -> "PageLogin", "myposts" -> "PageMyposts"
 	return "Page" + capitalize(url)
 }
 

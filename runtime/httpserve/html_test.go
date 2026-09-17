@@ -70,7 +70,7 @@ func TestWriteHTML(t *testing.T) {
 	}{
 		"empty": {
 			httpserve.HTMLDocument{},
-			c.HTMLPrefix() + "</head><body ></body></html>",
+			c.HTMLPrefix() + "</head><body></body></html>",
 		},
 		"head and body": {
 			httpserve.HTMLDocument{
@@ -78,14 +78,14 @@ func TestWriteHTML(t *testing.T) {
 				Body: renderer{s: "<p>b</p>"},
 			},
 			c.HTMLPrefix() +
-				"<title>t</title></head><body ><p>b</p></body></html>",
+				"<title>t</title></head><body><p>b</p></body></html>",
 		},
 		"generic head goes first": {
 			httpserve.HTMLDocument{
 				HeadGeneric: renderer{s: "<meta g>"},
 				Head:        renderer{s: "<meta p>"},
 			},
-			c.HTMLPrefix() + "<meta g><meta p></head><body ></body></html>",
+			c.HTMLPrefix() + "<meta g><meta p></head><body></body></html>",
 		},
 		"csrf follows the head": {
 			httpserve.HTMLDocument{
@@ -95,15 +95,15 @@ func TestWriteHTML(t *testing.T) {
 				Head:         renderer{s: "<meta p>"},
 			},
 			c.HTMLPrefix() +
-				"<meta p><csrf u1 tok></head><body ></body></html>",
+				"<meta p><csrf u1 tok></head><body></body></html>",
 		},
 		"body attributes and suffix": {
 			httpserve.HTMLDocument{
 				WriteBodyAttrs: func(w http.ResponseWriter) {
-					_, _ = io.WriteString(w, `class="x"`)
+					_, _ = io.WriteString(w, ` class="x"`)
 				},
 				WriteBodySuffix: func(w http.ResponseWriter) {
-					_, _ = io.WriteString(w, `data-x`)
+					_, _ = io.WriteString(w, ` data-x`)
 				},
 			},
 			c.HTMLPrefix() +
@@ -165,6 +165,69 @@ func TestCheckDatastarRequest(t *testing.T) {
 		require.False(t, c.CheckDatastarRequest(w, r))
 		require.Equal(t, http.StatusNotAcceptable, w.Code)
 	})
+}
+
+// TestCheckSameOrigin tests the guard on an action that carries no Datastar check:
+// a plain HTML form reaches it, and so does a form on another site.
+// A client that reports no origin at all is allowed, which is what
+// net/http.CrossOriginProtection does and what keeps non-browser clients working.
+func TestCheckSameOrigin(t *testing.T) {
+	t.Parallel()
+
+	c := builtCore(t)
+
+	for name, tc := range map[string]struct {
+		method  string
+		headers map[string]string
+		wantOK  bool
+	}{
+		"no origin headers": {method: http.MethodPost, wantOK: true},
+		"same origin": {
+			method:  http.MethodPost,
+			headers: map[string]string{"Sec-Fetch-Site": "same-origin"},
+			wantOK:  true,
+		},
+		"cross site": {
+			method:  http.MethodPost,
+			headers: map[string]string{"Sec-Fetch-Site": "cross-site"},
+			wantOK:  false,
+		},
+		"same site": {
+			method:  http.MethodPost,
+			headers: map[string]string{"Sec-Fetch-Site": "same-site"},
+			wantOK:  false,
+		},
+		"foreign origin": {
+			method:  http.MethodPost,
+			headers: map[string]string{"Origin": "https://evil.example"},
+			wantOK:  false,
+		},
+		"own origin": {
+			method:  http.MethodPost,
+			headers: map[string]string{"Origin": "http://example.com"},
+			wantOK:  true,
+		},
+		"cross site GET": {
+			method:  http.MethodGet,
+			headers: map[string]string{"Sec-Fetch-Site": "cross-site"},
+			wantOK:  true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(tc.method, "http://example.com/act/", nil)
+			for k, v := range tc.headers {
+				r.Header.Set(k, v)
+			}
+			require.Equal(t, tc.wantOK, c.CheckSameOrigin(w, r))
+			if tc.wantOK {
+				require.Empty(t, w.Body.String())
+				return
+			}
+			require.Equal(t, http.StatusForbidden, w.Code)
+		})
+	}
 }
 
 // TestHTTPErrBad tests what a 400 tells the client. The body carries the

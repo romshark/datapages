@@ -4,6 +4,8 @@
 package subject
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/romshark/datapages/runtime/subject"
@@ -50,4 +52,53 @@ func (c Claim) Overlaps(other Claim) bool {
 		// which the duplicate check already refused.
 		return false
 	}
+}
+
+// AppEvent is one event of one application of a module.
+type AppEvent struct {
+	// App names the app package, relative to the module root,
+	// such as "app/frontend".
+	App string
+	// TypeName is the name of the event type.
+	TypeName string
+	// Decl identifies the declaration behind the event.
+	// Two applications naming one declaration take part in one event
+	// rather than claiming one subject twice.
+	Decl string
+	Claim
+}
+
+// CheckAcrossApps reports two events of different applications of
+// one module that claim the same subject.
+//
+// One module may build several applications, and two of them given the
+// same broker is the ordinary deployment. A subject both claim carries each
+// application's messages to the other's streams, where the foreign payload is
+// decoded into the receiving application's own event type.
+//
+// The events of one application are checked while it is parsed.
+// This is the rest of the rule and needs every parsed model of the module at once.
+// Order the input by application and the message names the first claim.
+func CheckAcrossApps(events []AppEvent) error {
+	var errs []error
+	for i, e := range events {
+		for _, first := range events[:i] {
+			if first.App == e.App || first.Decl == e.Decl {
+				continue
+			}
+			// Equality is tested here and not in [Claim.Overlaps],
+			// which leaves it to the duplicate check of one application.
+			// Two applications have no such check between them.
+			if e.Subject != first.Subject && !e.Overlaps(first.Claim) {
+				continue
+			}
+			errs = append(errs, fmt.Errorf(
+				"%s.%s claims subject %q and %s.%s claims %q: "+
+					"two applications of one module must not claim the same subject",
+				e.App, e.TypeName, e.Subject,
+				first.App, first.TypeName, first.Subject,
+			))
+		}
+	}
+	return errors.Join(errs...)
 }

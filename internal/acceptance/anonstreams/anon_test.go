@@ -117,3 +117,45 @@ func TestAnonStreamCarriesNoPrivateEvent(t *testing.T) {
 			"a private event reached a stream of a visitor with no session")
 	})
 }
+
+// TestStatefulPageRendersAnonStreamInit covers a page whose GET handler does
+// not take Session. The generated HTTP handler still needs the session to
+// select the anonymous stream that allocates the page's state.
+func TestStatefulPageRendersAnonStreamInit(t *testing.T) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := newClient(t, broker)
+
+		page := c.Get(t, "/tabs/")
+		require.Equal(t, http.StatusOK, page.Status)
+		require.Contains(t, page.Body,
+			`data-init="@get('/tabs/_$/anon/',{retry:'error'})"`,
+			"the rendered page does not start its anonymous state stream")
+	})
+}
+
+// TestAnonStreamHoldsPerTabState covers a stateful page reached without a session:
+// the tab gets an instance of its own, and its handlers are given the
+// value that belongs to it.
+func TestAnonStreamHoldsPerTabState(t *testing.T) {
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		c := newClient(t, broker)
+
+		a := c.OpenTab(t, "/tabs/", "/tabs/_$/")
+		b := c.OpenTab(t, "/tabs/", "/tabs/_$/")
+
+		require.NotEqual(t, a.InstanceID(), b.InstanceID(),
+			"two page loads share one instance id")
+
+		for range 2 {
+			require.Equal(t, http.StatusOK,
+				a.Act(t, http.MethodPost, "/tabs/bump/", "").Status, "bumping")
+		}
+
+		// The event is public. Both tabs render, each from its own state.
+		require.True(t, a.Saw(`<div id="count">count 2</div>`),
+			"the tab that acted does not hold its own count")
+		require.True(t, b.Saw(`<div id="count">count 0</div>`),
+			"the other tab was not rendered from its own state")
+		require.True(t, b.Never("count 2"), "one tab sees the count of another")
+	})
+}

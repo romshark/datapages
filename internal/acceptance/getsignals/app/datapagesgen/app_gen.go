@@ -5,6 +5,7 @@ package datapagesgen
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -14,10 +15,11 @@ import (
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/auth"
+	"github.com/romshark/datapages/runtime/htmlattr"
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
 
-	"github.com/romshark/datapages/internal/acceptance/getsignals/app"
+	dpapp "github.com/romshark/datapages/internal/acceptance/getsignals/app"
 	"github.com/romshark/datapages/internal/acceptance/getsignals/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -78,14 +80,14 @@ type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
-	app                  *app.App
+	app                  *dpapp.App
 	*auth.Manager[struct{}]
 }
 
 // Init wires the server. It is called by datapages.NewServer,
 // which is the only way to construct a Server:
 //
-//	s, err := datapages.NewServer[app.App, struct{}, datapages.DisablePrometheus, Server](
+//	s, err := datapages.NewServer[dpapp.App, struct{}, datapages.DisablePrometheus, Server](
 //		app, broker, opts...,
 //	)
 //
@@ -102,7 +104,7 @@ type Server struct {
 //   - datapages.WithCSRFProtection
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
-	app *app.App,
+	app *dpapp.App,
 	messageBroker messaging.Broker,
 	sessionManager sessions.Manager[struct{}],
 ) error {
@@ -160,20 +162,27 @@ func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
 		"GET /enter/{$}",
-		s.handlePageEnterGET)
+		pageEnterHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /",
-		s.handlePageIndexGET)
+		pageIndexHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /nested/{$}",
+		pageNestedHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"POST /leave/{$}",
-		s.handlePageIndexPOSTLeave)
+		pageIndexHandlers{s}.POSTLeave)
 }
 
 func (s *Server) httpErrIntern(
 	w http.ResponseWriter, _ *http.Request,
-	_ *datastar.ServerSentEventGenerator, msg string, err error,
+	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
+	if sse != nil {
+		// The stream is open, hence no status is left to send.
+		return
+	}
 	if httpserve.ResponseBodyWritten(w) {
 		// A status written now only appends its text to the body.
 		return
@@ -181,8 +190,10 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-func (s *Server) handlePageEnterGET(w http.ResponseWriter, r *http.Request) {
-	p := app.PageEnter{
+type pageEnterHandlers struct{ *Server }
+
+func (s pageEnterHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageEnter{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageEnter.GET")
@@ -213,7 +224,9 @@ func (s *Server) handlePageEnterGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
+type pageIndexHandlers struct{ *Server }
+
+func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	sess, _, ok := s.ReadSession(w, r)
 	if !ok {
 		return
@@ -235,7 +248,7 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.GET")
@@ -257,15 +270,18 @@ func (s *Server) handlePageIndexGET(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handlePageIndexPOSTLeave(
+func (s pageIndexHandlers) POSTLeave(
 	w http.ResponseWriter, r *http.Request,
 ) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
 	sess, sessToken, ok := s.ReadSession(w, r)
 	if !ok {
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Leave")
-	p := app.PageIndex{
+	p := dpapp.PageIndex{
 		App: s.app,
 	}
 	closeSession, err := p.POSTLeave(r, sess)
@@ -278,5 +294,64 @@ func (s *Server) handlePageIndexPOSTLeave(
 			s.httpErrIntern(w, r, nil, "removing session", err)
 			return
 		}
+	}
+}
+
+type pageNestedHandlers struct{ *Server }
+
+func (s pageNestedHandlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		Fuzz string `query:"fuzz" reflectsignal:"foo.fuzz"`
+	}]
+	query.Values.Fuzz = httpread.QueryValue(r.URL.RawQuery, "fuzz")
+
+	var signals datapages.Signals[struct {
+		Foo struct {
+			Bar struct {
+				Bazz string `json:"bazz"`
+			} `json:"bar"`
+			Fuzz string `json:"fuzz"`
+		} `json:"foo"`
+	}]
+	if httpread.QueryHas(r.URL.RawQuery, "datastar") {
+		if err := datastar.ReadSignals(r, &signals.Values); err != nil {
+			s.HTTPErrBad(w, "reading signals", err)
+			return
+		}
+	}
+
+	p := dpapp.PageNested{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageNested.GET")
+	body, err := p.GET(r, signals, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageNested.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+
+		_, _ = io.WriteString(w, ` data-signals:foo.fuzz="'`)
+		htmlattr.WriteSignalString(w, query.Values.Fuzz)
+		_, _ = io.WriteString(w, `'"`)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
+			if ($foo.fuzz) params.set('fuzz', $foo.fuzz);
+			const query = params.toString();
+			window.history.replaceState(null, '', query ? '/nested?' + query : '/nested');
+		"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, datapages.Session[struct{}]{}, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageNested", err)
+		return
 	}
 }

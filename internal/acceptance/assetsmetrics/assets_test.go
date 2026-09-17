@@ -35,7 +35,7 @@ func newServer(t *testing.T) *httptest.Server {
 	srv := httptest.NewServer(mustNewServer(
 		t,
 		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithAssets(app.StaticFS),
+		datapages.WithAssets(app.StaticFS, false),
 		datapages.WithPrometheus(datapages.PrometheusConfig{
 			Host:       "127.0.0.1:0",
 			Registerer: registry,
@@ -124,6 +124,53 @@ func TestAssetsAreServed(t *testing.T) {
 	}
 }
 
+// TestAssetsNotBrowsable tests browsable false: a request for a directory
+// holding no index.html is a 404, whichever way it is spelled.
+func TestAssetsNotBrowsable(t *testing.T) {
+	t.Parallel()
+	srv := newServer(t)
+
+	for name, url := range map[string]string{
+		"root with slash":      "/static/",
+		"root without slash":   "/static",
+		"subdir with slash":    "/static/sub/",
+		"subdir without slash": "/static/sub",
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := get(t, srv, url)
+			defer func() { _ = resp.Body.Close() }()
+			b, err := io.ReadAll(resp.Body)
+			require.NoError(t, err, "reading %s", url)
+			require.Equal(t, http.StatusNotFound, resp.StatusCode, "GET %s", url)
+			require.NotContains(t, string(b), "nested.js", "GET %s listed the tree", url)
+		})
+	}
+}
+
+// TestAssetsBrowsable tests browsable true:
+// the application gets the listing http.FileServer generates.
+func TestAssetsBrowsable(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(mustNewServer(
+		t,
+		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithAssets(app.StaticFS, true),
+		datapages.WithPrometheus(datapages.PrometheusConfig{
+			Host:       "127.0.0.1:0",
+			Registerer: registry,
+			Gatherer:   registry,
+		}),
+	))
+	t.Cleanup(srv.Close)
+
+	resp := get(t, srv, "/static/")
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "reading the listing")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Contains(t, string(b), "style.css")
+}
+
 // TestAssetURLs tests the two generated ways to name an asset.
 // Both are used in templates and both must produce the configured prefix.
 func TestAssetURLs(t *testing.T) {
@@ -170,7 +217,7 @@ func TestDatapagesDevModeServesFromDisk(t *testing.T) {
 	srv := httptest.NewServer(mustNewServer(
 		t,
 		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithAssets(app.StaticFS),
+		datapages.WithAssets(app.StaticFS, false),
 		datapages.WithPrometheus(datapages.PrometheusConfig{
 			Host:       "127.0.0.1:0",
 			Registerer: registry,
@@ -209,7 +256,7 @@ func TestDevModeServesFromDisk(t *testing.T) {
 	srv := httptest.NewServer(mustNewServer(
 		t,
 		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithAssets(app.StaticFS),
+		datapages.WithAssets(app.StaticFS, false),
 		datapages.WithPrometheus(datapages.PrometheusConfig{
 			Host:       "127.0.0.1:0",
 			Registerer: registry,
@@ -469,7 +516,7 @@ func TestMetricsWithoutOption(t *testing.T) {
 		datapages.EnablePrometheus,
 		datapagesgen.Server,
 	](&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
-		datapages.WithAssets(app.StaticFS))
+		datapages.WithAssets(app.StaticFS, false))
 	require.Nil(t, s, "server built without WithPrometheus")
 	require.ErrorContains(t, err, "missing option WithPrometheus")
 }

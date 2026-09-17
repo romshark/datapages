@@ -25,24 +25,13 @@ func (p PageItem) GET(
 
 func (p PageItem) StreamOpen(
 	r *http.Request,
-	streamID datapages.StreamID,
-	sse datapages.SSE,
+	state datapages.State[StateItem],
 	signals datapages.Signals[struct {
 		ItemID string `json:"itemId"`
 	}],
 ) error {
-	p.App.lockTabs.Lock()
-	p.App.streamIDToTabState[streamID] = &tabState{
-		ItemID: signals.Values.ItemID,
-	}
-	p.App.lockTabs.Unlock()
-	return p.App.patchTabID(streamID, sse)
-}
-
-func (p PageItem) StreamClose(r *http.Request, streamID datapages.StreamID) {
-	p.App.lockTabs.Lock()
-	delete(p.App.streamIDToTabState, streamID)
-	p.App.lockTabs.Unlock()
+	state.Values.ItemID = signals.Values.ItemID
+	return nil
 }
 
 // DELETEItem is /item/{id}/
@@ -51,14 +40,8 @@ func (p PageItem) DELETEItem(
 	path datapages.Path[struct {
 		ID string `path:"id"`
 	}],
-	signals datapages.Signals[struct {
-		TabID string `json:"tab_id"`
-	}],
 	todoUpdated datapages.Dispatcher[EventTodoUpdated],
 ) (redirect datapages.Redirect, err error) {
-	if _, err := p.App.verifyTabID(signals.Values.TabID); err != nil {
-		return redirect, fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
-	}
 	if !p.App.list.DeleteItem(path.Values.ID) {
 		return redirect, fmt.Errorf("%w: todo not found", datapages.ErrNotFound)
 	}
@@ -71,13 +54,12 @@ func (p PageItem) DELETEItem(
 func (p PageItem) OnTodoUpdated(
 	event EventTodoUpdated,
 	sse datapages.SSE,
-	streamID datapages.StreamID,
+	state datapages.State[StateItem],
 ) error {
-	ts := p.App.streamState(streamID)
-	if ts == nil || ts.ItemID == "" {
+	if state.Values.ItemID == "" {
 		return nil
 	}
-	todo, ok := p.App.list.GetItem(ts.ItemID)
+	todo, ok := p.App.list.GetItem(state.Values.ItemID)
 	if !ok {
 		return sse.Redirect("/")
 	}
