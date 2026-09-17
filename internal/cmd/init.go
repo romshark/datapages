@@ -150,11 +150,21 @@ func runInit(
 		created = true
 	}
 
-	// Step 4: Write app/app.go if missing.
-	if wrote, err := writeAppGoIfMissing(projectDir, out); err != nil {
+	// Step 4: A module with NewServer calls already names its app packages.
+	modulePath, err := readModulePath(projectDir)
+	if err != nil {
 		return err
-	} else if wrote {
-		created = true
+	}
+	scan, err := serverscan.Scan(projectDir, modulePath)
+	if err != nil {
+		return err
+	}
+	if scan.Fallback {
+		if wrote, err := writeAppGoIfMissing(projectDir, out); err != nil {
+			return err
+		} else if wrote {
+			created = true
+		}
 	}
 
 	// Step 5: Write the instructions for AI coding agents. It runs before the

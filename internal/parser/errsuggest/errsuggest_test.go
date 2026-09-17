@@ -39,7 +39,7 @@ func TestSuggest(t *testing.T) {
 				"// PageIndex is /\n" +
 				"type PageIndex struct{ App *App }\n" +
 				"func (p PageIndex) GET(r *http.Request) " +
-				"(body templ.Component, err error) { return nil, nil }",
+				"(body datapages.Component, err error) { return nil, nil }",
 		},
 
 		"ErrSignatureMissingReq": {
@@ -53,12 +53,12 @@ func TestSuggest(t *testing.T) {
 
 		"ErrSignatureGETMissingBody": {
 			err:  parser.ErrSignatureGETMissingBody,
-			want: "fix: Add `body templ.Component` to return values",
+			want: "fix: Add `body datapages.Component` to return values",
 		},
 
 		"ErrSignatureActionHeadWithoutBody": {
 			err:  parser.ErrSignatureActionHeadWithoutBody,
-			want: "fix: Add `body templ.Component` to return values, or drop the head",
+			want: "fix: Add `body datapages.Component` to return values, or drop the head",
 		},
 
 		"ErrSignatureEvHandMissingSSE": {
@@ -117,11 +117,11 @@ func TestSuggest(t *testing.T) {
 
 		"ErrPageMissingGET/profile": {
 			err:  &parser.PageMissingGETError{TypeName: "PageProfile"},
-			want: "fix: Add `func (p PageProfile) GET(r *http.Request) (body templ.Component, err error) {}`",
+			want: "fix: Add `func (p PageProfile) GET(r *http.Request) (body datapages.Component, err error) { return nil, nil }`",
 		},
 		"ErrPageMissingGET/index": {
 			err:  &parser.PageMissingGETError{TypeName: "PageIndex"},
-			want: "fix: Add `func (p PageIndex) GET(r *http.Request) (body templ.Component, err error) {}`",
+			want: "fix: Add `func (p PageIndex) GET(r *http.Request) (body datapages.Component, err error) { return nil, nil }`",
 		},
 
 		"ErrPageIndexPathMustBeRoot": {
@@ -131,11 +131,11 @@ func TestSuggest(t *testing.T) {
 
 		"ErrPageInvalidPathComm/profile": {
 			err:  &parser.PageInvalidPathCommError{TypeName: "PageProfile"},
-			want: "fix: First doc comment line must be `// PageProfile is /profile/`",
+			want: "fix: First doc comment line must be `// PageProfile is /profile/`; put a blank `//` line before any description",
 		},
 		"ErrPageInvalidPathComm/index": {
 			err:  &parser.PageInvalidPathCommError{TypeName: "PageIndex"},
-			want: "fix: First doc comment line must be `// PageIndex is /`",
+			want: "fix: First doc comment line must be `// PageIndex is /`; put a blank `//` line before any description",
 		},
 
 		"ErrActionMissingPathComm/with page path": {
@@ -167,14 +167,14 @@ func TestSuggest(t *testing.T) {
 				Recv:       "PageProfile",
 				MethodName: "POSTFoo",
 			},
-			want: "fix: First doc comment line must be `// POSTFoo is /profile/foo`",
+			want: "fix: First doc comment line must be `// POSTFoo is /profile/foo`; put a blank `//` line before any description",
 		},
 		"ErrActionInvalidPathComm/app": {
 			err: &parser.ActionInvalidPathCommError{
 				Recv:       "App",
 				MethodName: "DELETEItem",
 			},
-			want: "fix: First doc comment line must be `// DELETEItem is /item`",
+			want: "fix: First doc comment line must be `// DELETEItem is /item`; put a blank `//` line before any description",
 		},
 
 		"ErrActionPathNotUnderPage": {
@@ -353,35 +353,35 @@ func TestSuggest(t *testing.T) {
 		},
 		"ErrTemplActionHardcoded/app level": {
 			err:  &parser.TemplActionHardcodedError{URL: "/submit"},
-			want: `fix: Use action={ action.POSTAppSubmit(...) } instead of "/submit"`,
+			want: `fix: Use action={ action.App.Submit.POST(...) } instead of "/submit"`,
 		},
 		"ErrTemplActionHardcoded/page level": {
 			err:  &parser.TemplActionHardcodedError{URL: "/profile/save"},
-			want: `fix: Use action={ action.POSTPageProfileSave(...) } instead of "/profile/save"`,
+			want: `fix: Use action={ action.PageProfile.Save.POST(...) } instead of "/profile/save"`,
 		},
 		"ErrTemplActionHardcoded/deep path fallback": {
 			err:  &parser.TemplActionHardcodedError{URL: "/a/b/c"},
-			want: `fix: Use action={ action.Xxx(...) } from the generated action package instead of "/a/b/c"`,
+			want: `fix: Use action={ action.<Owner>.<Name>.<METHOD>(...) } from the generated action package instead of "/a/b/c"`,
 		},
 		"ErrTemplActionUnverifiable": {
 			err:  &parser.TemplActionUnverifiableError{Expr: `buildAction()`},
-			want: `fix: Use action={ action.Xxx(...) } from the generated action package instead of "buildAction()"`,
+			want: `fix: Use action={ action.<Owner>.<Name>.<METHOD>(...) } from the generated action package instead of "buildAction()"`,
 		},
 		"ErrTemplActionUnverifiableWithPrefix": {
 			err: &parser.TemplActionUnverifiableWithPrefixError{
-				Expr:       `"$_fresh = true; " + action.POSTPageIndexCalculate()`,
-				ActionFunc: "POSTPageIndexCalculate",
+				Expr:       `"$_fresh = true; " + action.PageIndex.Calculate.POST()`,
+				ActionFunc: "PageIndex.Calculate.POST",
 				Prefix:     `"$_fresh = true; "`,
 			},
-			want: `fix: Use action.POSTPageIndexCalculate(action.WithBefore("$_fresh = true; ")) instead of concatenating a prefix`,
+			want: `fix: Use action.PageIndex.Calculate.POST(action.WithBefore("$_fresh = true; ")) instead of concatenating a prefix`,
 		},
 		"ErrTemplActionUnverifiableWithSuffix": {
 			err: &parser.TemplActionUnverifiableWithSuffixError{
-				Expr:       `action.POSTPageIndexCalculate() + "; $_fresh = true"`,
-				ActionFunc: "POSTPageIndexCalculate",
+				Expr:       `action.PageIndex.Calculate.POST() + "; $_fresh = true"`,
+				ActionFunc: "PageIndex.Calculate.POST",
 				Suffix:     `"; $_fresh = true"`,
 			},
-			want: `fix: Use action.POSTPageIndexCalculate(action.WithAfter("; $_fresh = true")) instead of concatenating a suffix`,
+			want: `fix: Use action.PageIndex.Calculate.POST(action.WithAfter("; $_fresh = true")) instead of concatenating a suffix`,
 		},
 		"ErrTemplFormAction": {
 			err:  &parser.TemplFormActionError{},
@@ -406,18 +406,18 @@ func TestSuggest(t *testing.T) {
 				AttrName: "data-on:click",
 				HrefFunc: "PageIndex",
 			},
-			want: "fix: href.PageIndex() returns a URL path, not a Datastar action — use action.Xxx(...) from the generated action package instead",
+			want: "fix: href.PageIndex() returns a URL path, not a Datastar action — use action.<Owner>.<Name>.<METHOD>(...) from the generated action package instead",
 		},
 		"ErrTemplActionContext": {
 			err: &parser.TemplActionContextError{
 				AttrName:   "href",
-				ActionFunc: "POSTPageLoginSubmit",
+				ActionFunc: "PageLogin.Submit.POST",
 			},
-			want: "fix: action.POSTPageLoginSubmit() is a Datastar action, not a URL — use href.PageXxx(...) from the generated href package instead",
+			want: "fix: action.PageLogin.Submit.POST() is a Datastar action, not a URL — use href.PageXxx(...) from the generated href package instead",
 		},
 		"ErrTemplActionWrongPage": {
 			err: &parser.TemplActionWrongPageError{
-				ActionFunc: "POSTPageProfileSave",
+				ActionFunc: "PageProfile.Save.POST",
 				PageType:   "PageSettings",
 				OwnerPage:  "PageProfile",
 			},
