@@ -67,11 +67,11 @@ URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/
 
 `PageError500` and `PageError404` may override the default error pages for status codes 500 and 404.
 
-A page with an SSE stream serves `_$/` under its route. A page with both public and user-addressed events also serves `_$/anon/` for signed-out visitors. Page and action routes cannot conflict with these endpoints. A page whose route ends in a wildcard cannot have a stream.
+A page with an SSE stream serves `_$/` under its route. A page with both public and user-addressed events also serves `_$/anon/` for signed-out visitors. Page and action routes cannot conflict with these endpoints. A page whose route ends in a `{name...}` wildcard cannot have a stream.
 
 Handler parameters and return values may appear in any order. Unsupported names or types are generator errors.
 
-`GET` requires `r *http.Request` and permits these optional parameters:
+`GET` requires `r *http.Request` and a `datapages.Component` return value. Other parameters and return values are optional:
 
 ```go
 func (PageIndex) GET(
@@ -90,7 +90,7 @@ func (PageIndex) GET(
 	closeSession datapages.CloseSession, // Optional
 	enableBackgroundStreaming datapages.EnableBackgroundStreaming, // Optional
 	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden, // Optional
-	err error
+	err error, // Optional
 ) {
 	// ...
 }
