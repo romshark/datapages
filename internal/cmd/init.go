@@ -486,11 +486,16 @@ func writeAgentDocs(projectDir string, w io.Writer, version string) error {
 		return err
 	}
 	apps := make([]agentdocs.App, len(scan.Apps))
+	var cmds []string
 	for i, a := range scan.Apps {
 		apps[i] = agentdocs.App{Dir: a.Dir, GenDir: a.GenDir}
+		if cmd, ok := a.Cmd(); ok {
+			cmds = append(cmds, cmd)
+		}
 	}
 	res, err := agentdocs.Write(projectDir, agentdocs.Project{
 		Cmd:     cfg.Cmd,
+		Cmds:    cmds,
 		Apps:    apps,
 		Version: version,
 	}, 0o644)

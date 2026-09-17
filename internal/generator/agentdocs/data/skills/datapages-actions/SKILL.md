@@ -8,8 +8,11 @@ description: >-
 
 # Actions
 
+Read `datapages` first for the build loop, hard rules and naming conventions.
+
 Methods on a page type (value receiver), or on `*App` for a route not tied to
-a page. One route doc comment each.
+a page. One route doc comment each. A page action route must be under its page
+route: for `PageLogin` at `/login`, `/login/submit` is valid.
 
 ```go
 // POSTSubmit is /login/submit
@@ -21,7 +24,8 @@ func (*App) POSTSignOut(r *http.Request) error { return nil }
 
 ## Parameters
 
-Any order, matched by type, names free. Values sit in `.Values`.
+Any order, matched by type. Names are free except `stateID`. Values sit in
+`.Values` where applicable.
 
 | type | what |
 | ---- | ---- |
@@ -31,13 +35,15 @@ Any order, matched by type, names free. Values sit in `.Values`.
 | `datapages.Path[struct{...}]` | route variables, `path:"id"` tags |
 | `datapages.Query[struct{...}]` | query parameters, `query:"p"` tags |
 | `datapages.Signals[struct{...}]` | signals sent by the client, `json:"v"` tags |
+| `datapages.State[StateX]` | per-tab server state, see `datapages-state` |
+| `stateID string` | tab event address; requires `State[T]`, see `datapages-state` |
 | `datapages.Dispatcher[EventX]` | publishes `EventX`, see `datapages-events` |
 
 ## Return values
 
 `error` alone is valid. Otherwise pick from `datapages.Component`,
 `datapages.Head`, `datapages.Redirect`, `datapages.NewSession[Data]`,
-`datapages.CloseSession`, with `error` last.
+`datapages.CloseSession`. Return values may appear in any order.
 
 ```go
 ) (redirect datapages.Redirect, err error) {
@@ -57,6 +63,7 @@ navigates through the stream.
 
 | method | effect |
 | ------ | ------ |
+| `Context()` | context of the SSE stream |
 | `PatchElement(c)` | morph by element id |
 | `PatchElementAt(c, sel, mode)` | target a selector; `datapages.PatchModeInner`, `...Replace`, `...Prepend`, `...Append`, `...Before`, `...After` |
 | `RemoveElement(sel)` | remove matching elements |
@@ -67,7 +74,8 @@ navigates through the stream.
 | `Prefetch(urls...)` | speculation rules hint |
 
 A selector may not contain a line break. Prefer one fragment that carries its
-own context over several surgical patches.
+own context over several surgical patches. `...Prepend` and `...Append` cannot
+recover missed events; see delivery rules in `datapages-events`.
 
 ## Errors
 

@@ -7,6 +7,8 @@ description: >-
 
 # Server entry point
 
+Read `datapages` first for the build loop, hard rules and naming conventions.
+
 `datapages gen` writes the `main.go` of the server command on the first run.
 After that the file is yours and is never regenerated.
 
@@ -36,7 +38,8 @@ rejects it.
 
 Always required: it carries events between instances and fans out SSE. Use
 `modules/messaging/natscore`. `modules/messaging/inmem` is for a single
-instance only.
+instance only. The scaffolded server uses NATS; start it with `make up` before
+running the server.
 
 ## Options
 
@@ -47,7 +50,7 @@ opts = append(opts,
 	datapages.WithMiddleware(mw),
 	datapages.WithSessions(datapages.SessionsConfig{}),
 	datapages.WithSessionManager[app.SessionData](mgr),
-	datapages.WithAssets(app.StaticFS),
+	datapages.WithAssets(app.StaticFS, false),
 	datapages.WithHTTPServer(&http.Server{ReadHeaderTimeout: 10 * time.Second}),
 	datapages.WithDatastarJS("https://cdn.example.com/datastar.js"),
 	datapages.WithBodySizeLimit(1<<20),
@@ -57,12 +60,19 @@ opts = append(opts,
 ```
 
 `WithBodySizeLimit` caps the request body of an action, which is what limits
-the signals a page may send. `WithLogSampling` throttles the framework's own
-warnings, not the application's. `WithHTTPServer` keeps every field but `Addr`
-and `Handler`. The session cookie
+the signals a page may send. Its default is 1 MiB; an over-limit request
+returns 400 while reading signals. `WithLogSampling` throttles the framework's
+own warnings, not the application's. `WithHTTPServer` keeps every field but
+`Addr` and `Handler`. Keep `WriteTimeout` at zero: a nonzero value ends
+long-lived SSE streams. `WithPrometheus` starts a second HTTP server on the
+configured host for `/metrics`. The session cookie
 carries `Secure`: set `DisableSecureCookie` only for a deployment that is plain
 HTTP end to end, where the browser would drop it. `datapages.IsDevMode()`
-reports the dev server, which is a reason to log at `slog.LevelDebug`.
+reports the dev server; `DATAPAGES_DEV_MODE` and `TEMPL_DEV_MODE` enable dev
+behavior, which is a reason to log at `slog.LevelDebug`.
+
+If `WithMiddleware` adds a `Content-Security-Policy`, stateful pages require
+`script-src 'unsafe-inline'` for the generated instance-ID script.
 
 ```go
 s.ListenAndServe(ctx, "localhost:8080")
@@ -84,11 +94,31 @@ One such variable per app package, no more. The URL prefix has to start and
 end with `/` and cannot be `/` alone. The directive has to name exactly one
 directory inside the app package.
 
-`datapages.WithAssets(app.StaticFS)` carries only the filesystem; the generated
-code supplies the prefix, the subdirectory and the dev-mode disk path. In dev
+`datapages.WithAssets(app.StaticFS, false)` carries the filesystem and whether
+directory browsing is allowed. The generated code supplies the prefix, the
+subdirectory and the dev-mode disk path. `WithAssetsFS` accepts an `http.FileSystem`
+instead of an `embed.FS`. In dev
 mode the files come from disk with caching off, so no rebuild is needed. An app
 package that declares no assets rejects the option.
 
 Reference files with `assets.Path("style.css")` from the generated `assets`
 package, or `href.Asset("style.css")` inside an `<a href>`. A hardcoded path is
 a lint error.
+
+## datapages.yaml
+
+`cmd` names the command scaffolded when there is no `NewServer` call; it
+defaults to `cmd/server`. `watch` configures `datapages watch`:
+
+| key under `watch` | use |
+| ----------------- | --- |
+| `app-host`, `proxy-timeout`, `debounce` | dev server URL and timing |
+| `format`, `lint` | format or lint during rebuilds |
+| `exclude`, `watcher-ignore` | paths excluded from source scanning or file watching |
+| `flags`, `dir-work` | command flags and working directory |
+| `log.level`, `log.clear-on`, `log.print-js-debug-logs` | watcher output |
+| `tls.cert`, `tls.key` | certificate and key for dev-server TLS |
+| `compiler.tags`, `compiler.env` | Go build tags and environment; `compiler` also accepts Go compiler flags |
+| `custom-watchers` | extra watchers with include/exclude patterns, command and rebuild action |
+
+See `datapages watch --help` for CLI flags.

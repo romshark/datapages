@@ -1,6 +1,6 @@
 // Package agentdocs writes the instructions AI coding agents read in a
-// Datapages project: AGENTS.md for any agent that reads it, CLAUDE.md for
-// Claude Code and one skill per task under .claude/skills.
+// Datapages project: AGENTS.md for any agent that reads it and task skills
+// under .agents/skills and .claude/skills.
 //
 // The files belong to the project once written, the way the scaffolded app
 // package and server command do. A run that finds one holding something else
@@ -24,9 +24,11 @@ import (
 //go:embed data
 var data embed.FS
 
-// SkillsDir is where the skills are written, relative to the module root.
-// Claude Code discovers them there, AGENTS.md names the path for every other agent.
+// SkillsDir is where Claude Code discovers skills, relative to the module root.
 const SkillsDir = ".claude/skills"
+
+// AgentsSkillsDir is the tool-neutral skill directory named in AGENTS.md.
+const AgentsSkillsDir = ".agents/skills"
 
 // claudeMD points Claude Code at AGENTS.md instead of repeating it.
 const claudeMD = "@AGENTS.md\n"
@@ -46,8 +48,11 @@ type App struct {
 
 // Project is what the instructions are written for.
 type Project struct {
-	// Cmd is the server command package relative to the module root.
+	// Cmd is the command generated for a module with no NewServer call yet.
 	Cmd string
+
+	// Cmds holds the existing server command packages, ordered by path.
+	Cmds []string
 
 	// Apps holds one entry per app package, ordered by directory.
 	Apps []App
@@ -105,8 +110,11 @@ func render(p Project) (map[string]string, error) {
 		return nil, err
 	}
 	files := map[string]string{
-		"AGENTS.md": agents,
-		"CLAUDE.md": claudeMD,
+		"AGENTS.md":                       agents,
+		"CLAUDE.md":                       claudeMD,
+		"GEMINI.md":                       "Read and follow AGENTS.md in the repository root.\n",
+		".github/copilot-instructions.md": "Read and follow AGENTS.md in the repository root.\n",
+		".cursor/rules/datapages.mdc":     "---\ndescription: Datapages project instructions\nalwaysApply: true\n---\n\nRead and follow AGENTS.md in the repository root.\n",
 	}
 
 	entries, err := fs.ReadDir(data, "data/skills")
@@ -118,8 +126,10 @@ func render(p Project) (map[string]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading skill %s: %w", e.Name(), err)
 		}
-		rel := filepath.Join(filepath.FromSlash(SkillsDir), e.Name(), "SKILL.md")
-		files[rel] = string(src)
+		for _, dir := range []string{SkillsDir, AgentsSkillsDir} {
+			rel := filepath.Join(filepath.FromSlash(dir), e.Name(), "SKILL.md")
+			files[rel] = string(src)
+		}
 	}
 	return files, nil
 }
@@ -140,19 +150,71 @@ func renderAGENTS(p Project) (string, error) {
 			GenDir: filepath.ToSlash(a.GenDir),
 		}
 	}
-	cmd := filepath.ToSlash(p.Cmd)
-	if cmd == "" {
-		cmd = "cmd/server"
+	cmds := make([]string, 0, len(p.Cmds)+1)
+	for _, cmd := range p.Cmds {
+		if cmd != "" {
+			cmds = append(cmds, filepath.ToSlash(cmd))
+		}
 	}
+	if len(cmds) == 0 && len(p.Apps) == 1 {
+		cmd := p.Cmd
+		if cmd == "" {
+			cmd = "cmd/server"
+		}
+		cmds = append(cmds, filepath.ToSlash(cmd))
+	}
+	slices.Sort(cmds)
+	cmds = slices.Compact(cmds)
 	var buf bytes.Buffer
 	err := agentsTmpl.Execute(&buf, struct {
-		Cmd, SkillsDir, SpecURL string
-		Apps                    []App
-	}{cmd, SkillsDir, specURL, apps})
+		SkillsDir, SpecURL string
+		Apps               []App
+		Cmds               []string
+	}{AgentsSkillsDir, specURL, apps, cmds})
 	if err != nil {
 		return "", fmt.Errorf("executing AGENTS.md template: %w", err)
 	}
 	return buf.String(), nil
+}
+
+// SkillsDiffer reports whether existing skills differ from the instructions
+// embedded in this CLI. A project without either skills directory opted out.
+func SkillsDiffer(moduleDir string) (bool, error) {
+	dirs := []string{SkillsDir, AgentsSkillsDir}
+	var found bool
+	for _, dir := range dirs {
+		if _, err := os.Stat(filepath.Join(moduleDir, dir)); err == nil {
+			found = true
+		} else if !os.IsNotExist(err) {
+			return false, err
+		}
+	}
+	if !found {
+		return false, nil
+	}
+	entries, err := fs.ReadDir(data, "data/skills")
+	if err != nil {
+		return false, err
+	}
+	for _, e := range entries {
+		src, err := fs.ReadFile(data, path.Join("data/skills", e.Name(), "SKILL.md"))
+		if err != nil {
+			return false, err
+		}
+		for _, dir := range dirs {
+			got, err := os.ReadFile(filepath.Join(moduleDir, dir, e.Name(), "SKILL.md"))
+			if os.IsNotExist(err) {
+				return true, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			if !bytes.Equal(src, got) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
 // writeFile writes content to rel under moduleDir. It reports whether it wrote and

@@ -3,9 +3,13 @@ name: datapages-sessions
 description: >-
   Datapages authentication: the Session type, reading it in handlers,
   opening and closing sessions, CSRF protection and choosing a session manager.
+  Activate when adding sign-in, sign-out or authenticated handlers to a
+  Datapages app.
 ---
 
 # Sessions
+
+Read `datapages` first for the build loop, hard rules and naming conventions.
 
 Declare the payload and the alias once in the app package. Skip all of this if
 the app needs no authentication.

@@ -8,6 +8,8 @@ description: >-
 
 # Pages
 
+Read `datapages` first for the build loop, hard rules and naming conventions.
+
 One struct per page, one route doc comment, one `GET` method. `PageIndex` for
 `/` is required. `App *App` is the only named field a page may declare, so
 per-page dependencies go on `App`.
@@ -22,8 +24,18 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 ```
 
 Routes are `net/http.ServeMux` patterns: `/item/{id}` captures a segment,
-`/{path...}` the rest, `/{$}` matches that path and nothing below it. `_$` is reserved for the SSE
-stream path and is rejected in a route.
+`/{path...}` the rest, `/{$}` matches that path and nothing below it. `_$` is
+where a page's SSE stream is served. A route that claims it conflicts with that
+endpoint, so do not use it.
+
+If a route comment has a description, separate it from the route with a blank
+`//` line:
+
+```go
+// PageItem is /item/{id}
+//
+// Shows one item.
+```
 
 ## GET parameters
 
@@ -38,14 +50,14 @@ matched by type:
 
 | type | effect |
 | ---- | ------ |
-| `datapages.Component` | the body, always first |
+| `datapages.Component` | the body |
 | `datapages.Head` | extra `<head>` content for this page |
 | `datapages.Redirect` | `{URL, Status}`, sent instead of the body |
 | `datapages.NewSession[Data]` | opens a session |
 | `datapages.CloseSession` | ends the session |
 | `datapages.EnableBackgroundStreaming` | keep the stream open while the tab is hidden |
 | `datapages.DisableRefreshAfterHidden` | no refresh when the tab is shown again |
-| `error` | always last |
+| `error` | reports an error |
 
 ## Path variables
 
@@ -74,7 +86,9 @@ query datapages.Query[struct {
 
 Values sit in `query.Values`. A `reflectsignal:"term"` tag binds the field to a
 Datastar signal: the parameter seeds the signal on load, and a signal change
-rewrites the browser URL.
+rewrites the browser URL. Its period-separated path must have each step start
+with a lowercase letter or underscore; later characters may be letters, digits
+or underscores. A double underscore is invalid.
 
 ## Error pages
 
@@ -83,9 +97,13 @@ Optional. Without them Datapages serves plain error responses.
 ```go
 // PageError404 is /not-found
 type PageError404 struct{ App *App }
+
+func (PageError404) GET(r *http.Request) (datapages.Component, error) {
+	return notFoundPage(), nil
+}
 ```
 
-`PageError500` follows the same shape.
+`PageError500` follows the same shape and needs a `GET` method too.
 
 ## Global head
 

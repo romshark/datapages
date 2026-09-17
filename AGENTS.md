@@ -155,11 +155,10 @@ Generated output is committed, and tests fail when it goes stale.
 - `*/datapagesgen/**` in examples and acceptance cases: written by the CLI from
   the app package. `mage genDatapages` builds `cmd/datapages` from source and
   runs `datapages gen` in every example and acceptance module.
-- `example/classifieds/{AGENTS.md,CLAUDE.md,.claude/skills/**}`: written by
-  `datapages init` from `internal/generator/agentdocs/data`. `mage genAISkills`
-  runs it in that one example, which is what catches a drift between the CLI
-  and what a project holds. The example is initialized already, so the run
-  writes the instructions and changes nothing else.
+- `example/{classifieds,counter}/{AGENTS.md,CLAUDE.md,.agents/skills/**,.claude/skills/**}`:
+  written by `datapages init` from `internal/generator/agentdocs/data`.
+  `mage genAISkills` runs it in both initialized examples to catch drift and
+  the multi-app command layout.
 - `docs/index.html`: written by `internal/tools/render-pages` from
   `internal/docs-src/`. `mage genDocs`.
 - `mage gen` runs all four.
@@ -173,10 +172,10 @@ acceptance tests regenerate and diff against the committed output, and report
 
 When working with Datapages application code, read and follow these files:
 
-- `.skills/datapages/SKILL.md`: step-by-step guide for writing Datapages apps and using
-  the CLI.
-- `.skills/datastar/SKILL.md`: Datastar HTML attribute and action reference for
-  templates.
+- `internal/generator/agentdocs/data/skills/datapages/SKILL.md`: guide for
+  writing Datapages apps and using the CLI.
+- `internal/generator/agentdocs/data/skills/datastar/SKILL.md`: Datastar HTML
+  attribute and action reference for templates.
 - `SPECIFICATION.md`: full parameter, return type, and configuration reference.
 
 # Writing

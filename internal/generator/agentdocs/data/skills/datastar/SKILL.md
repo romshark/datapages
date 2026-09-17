@@ -70,9 +70,10 @@ or the one named by `selector`), `filterSignals` (`{include, exclude}` regexes,
 `_`-prefixed signals excluded by default), `selector`, `headers`,
 `openWhenHidden` (false for GET, true otherwise), `payload`, `retry`
 (`auto` on network errors, `error` on 4xx/5xx, `always`, `never`),
-`retryInterval` 1000, `retryScaler` 2, `retryMaxWait` 30000, `retryMaxCount`
-10, `requestCancellation` (`auto` cancels an in-flight request to the same URL
-and method, `cleanup`, `disabled`, or an `AbortController`).
+`retryInterval` 1000, `retryScaler` 2, `retryMaxWaitMs` 30000, `retryMaxCount`
+10, `requestCancellation` (`auto` cancels an in-flight request from the same
+element, `cleanup` also cancels on element or attribute cleanup, `disabled`,
+or an `AbortController`).
 
 Responses dispatch on content type: `text/event-stream` (Datastar SSE events),
 `text/html` (patch elements), `application/json` (patch signals),

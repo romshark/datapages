@@ -7,6 +7,8 @@ description: >-
 
 # Templates
 
+Read `datapages` first for the build loop, hard rules and naming conventions.
+
 Handlers return `datapages.Component`, which a Templ component satisfies.
 `.templ` files compile to `_templ.go` through `templ generate`, which Datapages
 never runs for you. Templ docs: https://templ.guide/llms.md
@@ -34,18 +36,19 @@ included, and any variable, is rejected: the linter cannot resolve it.
 
 ## action: Datastar actions
 
-One function per action handler: the method, then `Page` and the page name
-after its `Page` prefix, then the handler name after its method prefix, so
-`PageLogin.POSTSubmit` becomes `POSTPageLoginSubmit`. An app-level action drops
-the page: `POSTAppSignOut`. It returns the whole `@post('/...')` expression.
+An action is `action.<Owner>.<Name>.<METHOD>(...)`, where `Owner` is the page
+type or `App`. `PageLogin.POSTSubmit` becomes `action.PageLogin.Submit.POST()`;
+`(*App).POSTSignOut` becomes `action.App.SignOut.POST()`. It returns the whole
+`@post('/...')` expression. Read the generated `datapagesgen/action` package
+for exact signatures after `datapages gen`.
 
 ```templ
-<button data-on:click={ action.POSTPageLoginSubmit() }>Submit</button>
-<button data-on:click={ action.POSTPagePostSendMessage(slug) }>Send</button>
-<button data-on:click={ action.POSTAppSignOut() }>Sign out</button>
+<button data-on:click={ action.PageLogin.Submit.POST() }>Submit</button>
+<button data-on:click={ action.PagePost.SendMessage.POST(slug) }>Send</button>
+<button data-on:click={ action.App.SignOut.POST() }>Sign out</button>
 ```
 
-A page's action belongs to that page: using `action.POSTPageA...` in the
+A page's action belongs to that page: using `action.PageA.X.POST()` in the
 template of page B is a lint error. App-level actions work anywhere. An action
 expression belongs in a Datastar action attribute, never in an `href`.
 
@@ -67,13 +70,35 @@ Every function takes variadic modifiers. Never hand-write the options object.
 | `action.WithOption` | raw key and value for anything the helpers miss |
 
 Arguments go in one order: the path variables as the route names them, then
-the query struct `action.Query<FunctionName>`, then the modifiers.
+the query value built by `<METHOD>Query(...)`, then the modifiers. The query
+type is unexported, so build it with the generated constructor.
 
 ```templ
-<button data-on:click={ action.POSTPageMessagesRead(
-	action.QueryPOSTPageMessagesRead{MessageID: msg.ID},
+<button data-on:click={ action.PageMessages.Read.POST(
+	action.PageMessages.Read.POSTQuery(msg.ID),
 ) }>Mark read</button>
 ```
+
+## Forms
+
+Use a Datastar submit action to keep Enter-to-submit and browser validation:
+
+```templ
+<form
+	data-signals:email="''"
+	data-signals:password="''"
+	data-on:submit__prevent={ action.PageLogin.Submit.POST() }
+>
+	<input type="email" data-bind:email required/>
+	<input type="password" data-bind:password required/>
+	<button type="submit">Sign in</button>
+</form>
+```
+
+The default action sends signals. To send form controls or file data instead,
+use `action.WithContentType(action.ContentTypeForm)`. It selects the closest
+form; add `action.WithSelector("#login")` only to target another form. Form
+content type sends no signals.
 
 ## Syntax
 

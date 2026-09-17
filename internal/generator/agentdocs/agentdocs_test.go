@@ -41,6 +41,7 @@ var skillNames = []string{
 	"datapages-pages",
 	"datapages-server",
 	"datapages-sessions",
+	"datapages-state",
 	"datapages-templates",
 	"datastar",
 }
@@ -55,23 +56,57 @@ func TestWrite(t *testing.T) {
 	require.Contains(t, agents, "| `app/` |")
 	require.Contains(t, agents, "| `app/datapagesgen/` |")
 	require.Contains(t, agents, "| `cmd/server/` |")
-	require.Contains(t, agents, agentdocs.SkillsDir+"/<name>/SKILL.md")
+	require.Contains(t, agents, agentdocs.AgentsSkillsDir+"/<name>/SKILL.md")
 	require.Contains(t, agents, "/blob/v1.2.3/SPECIFICATION.md")
 	require.NotContains(t, agents, "{{")
 
 	require.Contains(t, read(t, dir, "CLAUDE.md"), "@AGENTS.md")
 
 	for _, name := range skillNames {
-		rel := agentdocs.SkillsDir + "/" + name + "/SKILL.md"
-		require.Contains(t, res.Written, filepath.FromSlash(rel))
-		content := read(t, dir, rel)
-		// The front matter has to stay the first thing in the file:
-		// it is what an agent reads the name and the description off.
-		require.True(t, strings.HasPrefix(content, "---\n"), rel)
-		require.Contains(t, content, "\nname: "+name+"\n", rel)
-		require.Contains(t, content, "description:", rel)
+		for _, skillsDir := range []string{
+			agentdocs.SkillsDir, agentdocs.AgentsSkillsDir,
+		} {
+			rel := skillsDir + "/" + name + "/SKILL.md"
+			require.Contains(t, res.Written, filepath.FromSlash(rel))
+			content := read(t, dir, rel)
+			require.True(t, strings.HasPrefix(content, "---\n"), rel)
+			require.Contains(t, content, "\nname: "+name+"\n", rel)
+			require.Contains(t, content, "description:", rel)
+		}
 	}
-	require.Len(t, res.Written, len(skillNames)+2)
+	require.Len(t, res.Written, len(skillNames)*2+5)
+}
+
+func TestWriteMultiApp(t *testing.T) {
+	dir := t.TempDir()
+	p := project
+	p.Apps = []agentdocs.App{
+		{Dir: "app/simple", GenDir: "app/simple/datapagesgen"},
+		{Dir: "app/fancy", GenDir: "app/fancy/datapagesgen"},
+	}
+	p.Cmds = []string{"cmd/simple", "cmd/fancy"}
+	_, err := agentdocs.Write(dir, p, 0o644)
+	require.NoError(t, err)
+	agents := read(t, dir, "AGENTS.md")
+	require.Contains(t, agents, "| `cmd/simple/` |")
+	require.Contains(t, agents, "| `cmd/fancy/` |")
+	require.NotContains(t, agents, "cmd/server")
+}
+
+func TestSkillsDiffer(t *testing.T) {
+	dir := t.TempDir()
+	diff, err := agentdocs.SkillsDiffer(dir)
+	require.NoError(t, err)
+	require.False(t, diff)
+	write(t, dir)
+	diff, err = agentdocs.SkillsDiffer(dir)
+	require.NoError(t, err)
+	require.False(t, diff)
+	skill := filepath.Join(dir, agentdocs.SkillsDir, "datapages", "SKILL.md")
+	require.NoError(t, os.WriteFile(skill, []byte("old instructions"), 0o644))
+	diff, err = agentdocs.SkillsDiffer(dir)
+	require.NoError(t, err)
+	require.True(t, diff)
 }
 
 // TestWriteUnpinnedVersion tests that a build from source links the
