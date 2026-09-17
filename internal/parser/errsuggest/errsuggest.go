@@ -98,7 +98,7 @@ func Suggest(err error) string {
 			"// PageIndex is /\n" +
 			"type PageIndex struct{ App *App }\n" +
 			"func (p PageIndex) GET(r *http.Request) " +
-			"(body templ.Component, err error) { return nil, nil }"
+			"(body datapages.Component, err error) { return nil, nil }"
 
 	case errors.Is(err, parser.ErrSignatureMissingReq):
 		return "fix: Add `r *http.Request` parameter"
@@ -108,10 +108,10 @@ func Suggest(err error) string {
 			"`state datapages.State[T]` parameter"
 
 	case errors.Is(err, parser.ErrSignatureGETMissingBody):
-		return "fix: Add `body templ.Component` to return values"
+		return "fix: Add `body datapages.Component` to return values"
 
 	case errors.Is(err, parser.ErrSignatureActionHeadWithoutBody):
-		return "fix: Add `body templ.Component` to return values, or drop the head"
+		return "fix: Add `body datapages.Component` to return values, or drop the head"
 
 	case errors.Is(err, parser.ErrSignatureEvHandMissingSSE):
 		return "fix: Add `sse datapages.SSE` parameter"
@@ -169,7 +169,7 @@ func Suggest(err error) string {
 		}
 		recv := strings.ToLower(string(d.TypeName[0]))
 		return fmt.Sprintf(
-			"fix: Add `func (%s %s) GET(r *http.Request) (body templ.Component, err error) {}`",
+			"fix: Add `func (%s %s) GET(r *http.Request) (body datapages.Component, err error) { return nil, nil }`",
 			recv, d.TypeName,
 		)
 
@@ -180,7 +180,8 @@ func Suggest(err error) string {
 		}
 		path := pageTypePath(d.TypeName)
 		return fmt.Sprintf(
-			"fix: First doc comment line must be `// %s is %s`",
+			"fix: First doc comment line must be `// %s is %s`; "+
+				"put a blank `//` line before any description",
 			d.TypeName, path,
 		)
 
@@ -192,7 +193,8 @@ func Suggest(err error) string {
 		suffix := methodPathSuffix(d.MethodName)
 		path := pageTypePath(d.Recv) + suffix
 		return fmt.Sprintf(
-			"fix: First doc comment line must be `// %s is %s`",
+			"fix: First doc comment line must be `// %s is %s`; "+
+				"put a blank `//` line before any description",
 			d.MethodName, path,
 		)
 
@@ -430,7 +432,7 @@ func Suggest(err error) string {
 				fn, d.URL)
 		}
 		return fmt.Sprintf(
-			"fix: Use action={ action.Xxx(...) } from the generated action package "+
+			"fix: Use action={ action.<Owner>.<Name>.<METHOD>(...) } from the generated action package "+
 				"instead of %q", d.URL,
 		)
 
@@ -462,7 +464,7 @@ func Suggest(err error) string {
 			return ""
 		}
 		return fmt.Sprintf(
-			"fix: Use action={ action.Xxx(...) } from the generated action package "+
+			"fix: Use action={ action.<Owner>.<Name>.<METHOD>(...) } from the generated action package "+
 				"instead of %q", d.Expr,
 		)
 
@@ -477,7 +479,7 @@ func Suggest(err error) string {
 		}
 		return fmt.Sprintf(
 			"fix: href.%s() returns a URL path, not a Datastar action — "+
-				"use action.Xxx(...) from the generated action package instead",
+				"use action.<Owner>.<Name>.<METHOD>(...) from the generated action package instead",
 			d.HrefFunc,
 		)
 
@@ -578,9 +580,9 @@ func methodPathSuffix(method string) string {
 	return strings.ToLower(method)
 }
 
-// actionFuncFromURL derives a likely action package function name from a URL path.
+// actionFuncFromURL derives a likely action selector from a URL path.
 // Assumes POST (the most common method for form actions).
-// "/submit" -> "POSTAppSubmit", "/profile/save" -> "POSTPageProfileSave".
+// "/submit" -> "App.Submit.POST", "/profile/save" -> "PageProfile.Save.POST".
 // Returns "" when the URL contains variables or cannot be mapped.
 func actionFuncFromURL(url string) string {
 	// Strip query string.
@@ -599,11 +601,9 @@ func actionFuncFromURL(url string) string {
 	parts := strings.Split(url, "/")
 	switch len(parts) {
 	case 1:
-		// Single segment: app-level action, e.g. "/submit" -> "POSTAppSubmit"
-		return "POSTApp" + capitalize(parts[0])
+		return "App." + capitalize(parts[0]) + ".POST"
 	case 2:
-		// Two segments: page action, e.g. "/profile/save" -> "POSTPageProfileSave"
-		return "POSTPage" + capitalize(parts[0]) + capitalize(parts[1])
+		return "Page" + capitalize(parts[0]) + "." + capitalize(parts[1]) + ".POST"
 	default:
 		return ""
 	}
