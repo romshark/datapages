@@ -93,20 +93,86 @@ func TestWriteMultiApp(t *testing.T) {
 	require.NotContains(t, agents, "cmd/server")
 }
 
+// TestSkillsDiffer tests release markers, project edits, missing skills and
+// projects without Datapages skills.
 func TestSkillsDiffer(t *testing.T) {
-	dir := t.TempDir()
-	diff, err := agentdocs.SkillsDiffer(dir)
-	require.NoError(t, err)
-	require.False(t, diff)
-	write(t, dir)
-	diff, err = agentdocs.SkillsDiffer(dir)
-	require.NoError(t, err)
-	require.False(t, diff)
-	skill := filepath.Join(dir, agentdocs.SkillsDir, "datapages", "SKILL.md")
-	require.NoError(t, os.WriteFile(skill, []byte("old instructions"), 0o644))
-	diff, err = agentdocs.SkillsDiffer(dir)
-	require.NoError(t, err)
-	require.True(t, diff)
+	const version = "1.2.3"
+
+	skill := func(dir, skillsDir, name string) string {
+		return filepath.Join(dir, skillsDir, name, "SKILL.md")
+	}
+
+	for name, tt := range map[string]struct {
+		setup   func(t *testing.T, dir string)
+		version string
+		want    bool
+	}{
+		"no skills": {
+			setup: func(*testing.T, string) {},
+		},
+		"current version": {
+			setup: func(t *testing.T, dir string) { write(t, dir) },
+		},
+		"edited by the project": {
+			setup: func(t *testing.T, dir string) {
+				write(t, dir)
+				for _, d := range []string{agentdocs.SkillsDir, agentdocs.AgentsSkillsDir} {
+					p := skill(dir, d, "datapages")
+					b, err := os.ReadFile(p)
+					require.NoError(t, err)
+					b = append([]byte("- run `make lint` too.\n"), b...)
+					require.NoError(t, os.WriteFile(p, b, 0o644))
+				}
+			},
+		},
+		"one copy removed": {
+			setup: func(t *testing.T, dir string) {
+				write(t, dir)
+				require.NoError(t, os.RemoveAll(
+					filepath.Join(dir, filepath.Dir(agentdocs.AgentsSkillsDir))))
+			},
+		},
+		"unrelated skill": {
+			setup: func(t *testing.T, dir string) {
+				p := skill(dir, agentdocs.SkillsDir, "not-datapages")
+				require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+				require.NoError(t, os.WriteFile(p, []byte("mine\n"), 0o644))
+			},
+		},
+		"unversioned build": {
+			setup:   func(t *testing.T, dir string) { write(t, dir) },
+			version: "-",
+		},
+		"written by an older CLI": {
+			setup: func(t *testing.T, dir string) {
+				write(t, dir)
+				p := skill(dir, agentdocs.SkillsDir, "datapages")
+				require.NoError(t, os.WriteFile(p,
+					[]byte("old\n<!-- written by datapages v1.0.0 -->\n"), 0o644))
+			},
+			want: true,
+		},
+		"missing skill": {
+			setup: func(t *testing.T, dir string) {
+				write(t, dir)
+				require.NoError(t, os.RemoveAll(
+					filepath.Dir(skill(dir, agentdocs.SkillsDir, "datastar"))))
+			},
+			want: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			tt.setup(t, dir)
+			v := version
+			if tt.version == "-" {
+				v = ""
+			}
+			diff, err := agentdocs.SkillsDiffer(dir, v)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, diff)
+		})
+	}
 }
 
 // TestWriteUnpinnedVersion tests that a build from source links the

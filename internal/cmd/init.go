@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -41,13 +42,13 @@ a Go module, a new one is initialized. Missing datapages.yaml and
 app/app.go files are generated. Code generation is run, and finally
 go mod tidy resolves all dependencies.
 
-AGENTS.md, CLAUDE.md and the task skills under .claude/skills are written
-for AI coding agents. They are yours to edit afterwards: a later run keeps
-your version as a .bak file next to it. Pass --no-ai-skills to skip them.
+Init writes AGENTS.md, pointers for Claude Code, Gemini CLI, Copilot and
+Cursor, and task skills under .agents/skills and .claude/skills. Edit these
+files as needed. A later run backs up changed files beside them with a
+.bak suffix. Pass --no-ai-skills to skip them.
 
-An already initialized project is not an error: init writes what is missing,
-reports that, and leaves the rest alone. Running it in one is how an existing
-project gets the instructions.`,
+Running init in an existing project refreshes agent instructions and writes
+missing scaffold files.`,
 	}
 	nonInteractive := cmd.Flags().BoolP("non-interactive", "n", false,
 		"Disable interactive prompts (requires --name/--module when applicable)")
@@ -58,7 +59,7 @@ project gets the instructions.`,
 	prometheus := cmd.Flags().Bool("prometheus", true,
 		"Enable Prometheus metrics generation")
 	noAISkills := cmd.Flags().Bool("no-ai-skills", false,
-		"Skip AGENTS.md, CLAUDE.md and .claude/skills for AI coding agents")
+		"Skip agent instructions and skills")
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		// Use accessible mode for non-terminal input (tests, piped input).
 		// When stdin is a real terminal, pass nil so huh uses its TUI.
@@ -487,19 +488,24 @@ func writeAgentDocs(projectDir string, w io.Writer, version string) error {
 		return fmt.Errorf("writing agent instructions: %w", err)
 	}
 
-	// One line per skill would bury the rest of the output, so the skills are
-	// reported as the directory they land in.
-	skillsDir := filepath.FromSlash(agentdocs.SkillsDir)
-	var skills int
+	// Report skill writes as one count to avoid a line for each file.
+	skillsDirs := []string{
+		filepath.FromSlash(agentdocs.SkillsDir),
+		filepath.FromSlash(agentdocs.AgentsSkillsDir),
+	}
+	var skillFiles int
 	for _, rel := range res.Written {
-		if strings.HasPrefix(rel, skillsDir) {
-			skills++
+		if slices.ContainsFunc(skillsDirs, func(d string) bool {
+			return strings.HasPrefix(rel, d)
+		}) {
+			skillFiles++
 			continue
 		}
 		_, _ = fmt.Fprintf(w, "Wrote %s\n", rel)
 	}
-	if skills > 0 {
-		_, _ = fmt.Fprintf(w, "Wrote %d skills in %s\n", skills, skillsDir)
+	if skillFiles > 0 {
+		_, _ = fmt.Fprintf(w, "Wrote %d skill files in %s\n",
+			skillFiles, strings.Join(skillsDirs, " and "))
 	}
 	for _, b := range res.BackedUp {
 		_, _ = fmt.Fprintf(w, "Kept the previous %s as %s\n", b.Path, b.To)

@@ -78,7 +78,10 @@ datapages init
 | `.claude/skills/*/SKILL.md` | the same task guides for Claude Code |
 
 The guides cover Datapages rules, pages, actions, events, per-tab state,
-sessions, server setup, templates and Datastar.
+sessions, server setup, templates and Datastar. `datapages init` writes the same
+skills to both directories. Claude Code reads `.claude/skills`; `AGENTS.md`
+points other agents to `.agents/skills`. Manual edits do not sync between the
+directories. Edit both copies when you use both.
 
 Edit the files as needed. Run `datapages init -n` in an existing project to
 install the CLI's current instructions. If a file differs, init saves the prior

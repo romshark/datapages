@@ -126,12 +126,38 @@ func render(p Project) (map[string]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading skill %s: %w", e.Name(), err)
 		}
+		body := string(src) + skillStamp(p.Version)
 		for _, dir := range []string{SkillsDir, AgentsSkillsDir} {
 			rel := filepath.Join(filepath.FromSlash(dir), e.Name(), "SKILL.md")
-			files[rel] = string(src)
+			files[rel] = body
 		}
 	}
 	return files, nil
+}
+
+const stampPrefix = "<!-- written by datapages "
+
+// skillStamp returns the release marker appended to a skill. [SkillsDiffer]
+// compares markers so edits to skill content do not cause a warning.
+// Builds without a release version return no marker.
+func skillStamp(version string) string {
+	if version == "" {
+		return ""
+	}
+	return "\n" + stampPrefix + "v" + version + " -->\n"
+}
+
+func stampOf(body []byte) string {
+	i := bytes.LastIndex(body, []byte(stampPrefix))
+	if i < 0 {
+		return ""
+	}
+	rest := body[i+len(stampPrefix):]
+	end := bytes.Index(rest, []byte(" -->"))
+	if end < 0 {
+		return ""
+	}
+	return string(rest[:end])
 }
 
 var agentsTmpl = template.Must(template.ParseFS(data, "data/AGENTS.md.tmpl"))
@@ -177,19 +203,27 @@ func renderAGENTS(p Project) (string, error) {
 	return buf.String(), nil
 }
 
-// SkillsDiffer reports whether existing skills differ from the instructions
-// embedded in this CLI. A project without either skills directory opted out.
-func SkillsDiffer(moduleDir string) (bool, error) {
-	dirs := []string{SkillsDir, AgentsSkillsDir}
-	var found bool
-	for _, dir := range dirs {
-		if _, err := os.Stat(filepath.Join(moduleDir, dir)); err == nil {
-			found = true
-		} else if !os.IsNotExist(err) {
+// SkillsDiffer reports whether an installed skill directory has a missing
+// skill or a release marker that does not match version. It ignores edits to
+// content.
+// It returns false for unversioned builds and projects without a Datapages
+// skill in either directory.
+func SkillsDiffer(moduleDir, version string) (bool, error) {
+	if version == "" {
+		return false, nil
+	}
+	var dirs []string
+	for _, dir := range []string{SkillsDir, AgentsSkillsDir} {
+		switch _, err := os.Stat(
+			filepath.Join(moduleDir, dir, "datapages", "SKILL.md"),
+		); {
+		case err == nil:
+			dirs = append(dirs, dir)
+		case !os.IsNotExist(err):
 			return false, err
 		}
 	}
-	if !found {
+	if len(dirs) == 0 {
 		return false, nil
 	}
 	entries, err := fs.ReadDir(data, "data/skills")
@@ -197,19 +231,17 @@ func SkillsDiffer(moduleDir string) (bool, error) {
 		return false, err
 	}
 	for _, e := range entries {
-		src, err := fs.ReadFile(data, path.Join("data/skills", e.Name(), "SKILL.md"))
-		if err != nil {
-			return false, err
-		}
 		for _, dir := range dirs {
-			got, err := os.ReadFile(filepath.Join(moduleDir, dir, e.Name(), "SKILL.md"))
+			got, err := os.ReadFile(
+				filepath.Join(moduleDir, dir, e.Name(), "SKILL.md"),
+			)
 			if os.IsNotExist(err) {
 				return true, nil
 			}
 			if err != nil {
 				return false, err
 			}
-			if !bytes.Equal(src, got) {
+			if stampOf(got) != "v"+version {
 				return true, nil
 			}
 		}

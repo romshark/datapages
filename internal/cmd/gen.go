@@ -107,7 +107,7 @@ func runGen(
 	if out, err := tidy.CombinedOutput(); err != nil {
 		errs = append(errs, execErr("go mod tidy", err, out))
 	}
-	stale, err := agentdocs.SkillsDiffer(moduleDir)
+	stale, err := agentdocs.SkillsDiffer(moduleDir, version)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("checking agent instructions: %w", err))
 	} else if stale {
