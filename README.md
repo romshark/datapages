@@ -67,19 +67,23 @@ datapages init
 
 `datapages init` also writes the instructions AI coding agents read:
 
-| path | read by |
+| path | purpose |
 | ---- | ------- |
-| `AGENTS.md` | any agent that follows the [AGENTS.md](https://agents.md) convention |
-| `CLAUDE.md` | Claude Code, which it points at `AGENTS.md` |
-| `.claude/skills/*/SKILL.md` | one skill per task: pages, actions, events, sessions, the server entry point, templates, Datastar |
+| `AGENTS.md` | project instructions for agents that follow the [AGENTS.md](https://agents.md) convention |
+| `CLAUDE.md` | points Claude Code to `AGENTS.md` |
+| `GEMINI.md` | points Gemini CLI to `AGENTS.md` |
+| `.github/copilot-instructions.md` | points GitHub Copilot to `AGENTS.md` |
+| `.cursor/rules/datapages.mdc` | points Cursor to `AGENTS.md` |
+| `.agents/skills/*/SKILL.md` | task guides for coding agents |
+| `.claude/skills/*/SKILL.md` | the same task guides for Claude Code |
 
-The files are yours to edit once written. Another `datapages init` keeps your
-version as a `.bak` file next to it, so running it in an existing project is how
-that project gets the instructions, and how it picks up the ones a newer CLI ships.
-Pass `--no-ai-skills` to skip them.
+The guides cover Datapages rules, pages, actions, events, per-tab state,
+sessions, server setup, templates and Datastar.
 
-An already initialized project is not an error: `datapages init` writes what is missing,
-reports that, and leaves the rest alone.
+Edit the files as needed. Run `datapages init -n` in an existing project to
+install the CLI's current instructions. If a file differs, init saves the prior
+copy beside it with a `.bak` suffix and adds a number if that name exists.
+Pass `--no-ai-skills` to skip agent instructions.
 
 ## CLI Commands
 
