@@ -34,14 +34,15 @@ func TestRecoverErrorIsCalled(t *testing.T) {
 		"the error message reached the client")
 }
 
-// TestPageLoadWithoutAn500Page tests a failed page load in the same app:
-// with no page to render, the built-in response carries the status and
-// nothing about the error.
+// TestPageLoadWithoutAn500Page tests that a failed page load returns HTTP 500
+// when the app defines RecoverError but no PageError500.
 func TestPageLoadWithoutAn500Page(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
 
-	resp := c.Get(t, "/fail/")
-	require.NotEqual(t, http.StatusOK, resp.Status)
-	require.NotContains(t, resp.Body, "the action failed")
+	resp := c.Get(t, "/boom/")
+	require.Equal(t, http.StatusInternalServerError, resp.Status)
+	require.NotContains(t, resp.Header.Get("Content-Type"), "text/event-stream")
+	require.NotContains(t, resp.Body, "toast")
+	require.NotContains(t, resp.Body, "the page could not be built")
 }

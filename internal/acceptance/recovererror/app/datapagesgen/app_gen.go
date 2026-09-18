@@ -225,7 +225,6 @@ func setupHandlers(s *Server) {
 func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 	s.LogErr(msg, err)
 	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
 		return
 	}
 	httpserve.WriteErrStatus(w, err)
@@ -246,30 +245,19 @@ func (s *Server) httpErrIntern(
 		pageError500Handlers{s}.GET(w, r)
 		return
 	}
-	// committed reports that the stream is open, hence no status is left to send.
-	committed := sse != nil
 	if sse == nil {
+		// [datastar.NewSSE] commits HTTP 200 and SSE headers before recovery runs.
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
-		committed = true
 	}
 	errRecover := s.app.RecoverError(err, dpsse.New(sse))
 	if errRecover == nil {
-		return // Feedback delivered gracefully.
+		return
 	}
-	// RecoverError failed — fall back to HTTP error response.
+	// An HTTP error here would append plain text to the open SSE stream.
 	s.Logger().Error("recovering error",
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
-	if committed {
-		// A status written now only appends its text to the stream.
-		return
-	}
-	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
-		return
-	}
-	httpserve.WriteErrStatus(w, err)
 }
 
 type pageBoomHandlers struct{ *Server }

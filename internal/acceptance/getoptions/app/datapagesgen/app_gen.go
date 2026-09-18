@@ -176,7 +176,6 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
 		return
 	}
 	const code = http.StatusInternalServerError

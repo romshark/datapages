@@ -375,7 +375,7 @@ return fmt.Errorf("%w: %w", datapages.ErrNotFound, errOriginal)   // 404, preser
 Wrap at most one sentinel per error. With several, the first of `ErrBadRequest`,
 `ErrForbidden`, `ErrNotFound`, `ErrConflict` decides the status.
 
-Errors without a sentinel default to 500 (or `RecoverError` if defined).
+Errors without a sentinel return 500 unless `RecoverError` handles the Datastar request.
 
 ## Step 7: Add Signals
 
@@ -857,7 +857,14 @@ Both parameters are matched by their type, the names and order are free.
 
 ## Step 14: Add Error Recovery (Optional)
 
-When a handler returns an error during a Datastar SSE request, a plain HTTP error is invisible to the user - there is no visible feedback, only a console log that normal users never see. `RecoverError` lets you handle this gracefully by patching in an error UI (e.g. a toast notification) over SSE instead. All action handler errors (including the datapages sentinels) are routed through `RecoverError` when defined. Use `errors.Is(err, datapages.ErrBadRequest)` etc. inside `RecoverError` to distinguish error types.
+A plain HTTP error from a Datastar request gives the user no visible feedback.
+Define `RecoverError` to write error UI over SSE. It receives every handler
+error from a Datastar request, including Datapages sentinels. Use `errors.Is`
+to distinguish sentinels.
+
+`RecoverError` writes an event stream, which a browser would render as the
+document during a page load. Define `PageError500` for a custom error page;
+otherwise the server writes a plain HTTP error if the response has not started.
 
 A panic in a handler reaches `RecoverError` as a `datapages.PanicError`
 carrying the value and the stack. Read it with

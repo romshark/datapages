@@ -21,7 +21,7 @@ func (*App) Head(
 
 Parameters are identified by type; names and order are unrestricted.
 
-If defined, `RecoverError` receives handler errors, including datapages sentinels, and may write feedback over SSE. When `PageError500` is defined, non-Datastar requests render that page instead if the response has not started. Without `PageError500`, `RecoverError` also receives non-Datastar request errors. If `RecoverError` fails, its error is logged and the response remains as written.
+`RecoverError` receives errors from Datastar requests when defined, including Datapages sentinels, and may write feedback over SSE. It does not handle page loads: the browser would render its SSE frames as the document. For a failed page load whose response has not started, the server renders `PageError500` when defined or writes a plain HTTP error otherwise. If `RecoverError` fails, the server logs its error and leaves the response as written.
 
 A panic in `GET`, an action, `StreamOpen`, or `OnXXX` follows the handler error path. When `RecoverError` handles it, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
 
@@ -679,7 +679,12 @@ Sentinels:
 
 Do not wrap multiple sentinels into one error. If multiple occur, precedence is `ErrBadRequest`, `ErrForbidden`, `ErrNotFound`, then `ErrConflict`.
 
-Sentinels may be returned directly or wrapped. `RecoverError` handles Datastar request errors when defined. For non-Datastar requests, `PageError500` renders with status 500 if defined and the response has not started. Without that page, `RecoverError` handles the error when defined. If `RecoverError` fails, its error is logged and the response remains as written. When neither handler applies and the response has not started, the server writes the corresponding status and standard status text.
+Sentinels may be returned directly or wrapped. `RecoverError` handles errors
+from Datastar requests when defined. Other requests use `PageError500` with
+status 500 if defined and the response has not started. When neither handler
+applies and the response has not started, the server writes the corresponding
+status and standard status text. If `RecoverError` fails, the server logs its
+error and leaves the response as written.
 
 #### `GET` Return Value: `enableBackgroundStreaming datapages.EnableBackgroundStreaming`
 

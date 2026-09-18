@@ -32,3 +32,10 @@ func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 func (PageIndex) POSTFail(_ *http.Request) error {
 	return errors.New("the action failed")
 }
+
+// PageBoom is /boom
+type PageBoom struct{ App *App }
+
+func (PageBoom) GET(_ *http.Request) (body datapages.Component, err error) {
+	return nil, errors.New("the page could not be built")
+}

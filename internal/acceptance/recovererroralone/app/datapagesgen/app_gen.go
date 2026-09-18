@@ -149,6 +149,9 @@ func MessageBrokerStreamSubjects() []string {
 func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
+		"GET /boom/{$}",
+		pageBoomHandlers{s}.GET)
+	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
@@ -161,30 +164,51 @@ func (s *Server) httpErrIntern(
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
-	// committed reports that the stream is open, hence no status is left to send.
-	committed := sse != nil
+	if !httpserve.IsDatastarRequest(r.Header) {
+		if httpserve.ResponseBodyWritten(w) {
+			return
+		}
+		httpserve.WriteErrStatus(w, err)
+		return
+	}
 	if sse == nil {
+		// [datastar.NewSSE] commits HTTP 200 and SSE headers before recovery runs.
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
-		committed = true
 	}
 	errRecover := s.app.RecoverError(dpsse.New(sse), err)
 	if errRecover == nil {
-		return // Feedback delivered gracefully.
+		return
 	}
-	// RecoverError failed — fall back to HTTP error response.
+	// An HTTP error here would append plain text to the open SSE stream.
 	s.Logger().Error("recovering error",
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
-	if committed {
-		// A status written now only appends its text to the stream.
+}
+
+type pageBoomHandlers struct{ *Server }
+
+func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageBoom{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageBoom.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageBoom.GET", err)
 		return
 	}
-	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageBoom", err)
 		return
 	}
-	httpserve.WriteErrStatus(w, err)
 }
 
 type pageIndexHandlers struct{ *Server }
