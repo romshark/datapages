@@ -677,16 +677,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 	// Reflect signal attrs.
 	for _, f := range reflectFields {
 		fi := structFieldInfo{Name: f.FieldName, Type: f.Type}
-		if gotypes.IsString(f.Type) {
-			w.Line(0, "")
-			w.Raw("\t\t_, _ = io.WriteString(w, ` data-signals:")
-			w.Raw(kebabSignalPath(f.SignalName))
-			w.Raw("=\"'`)\n")
-			w.Raw("\t\thtmlattr.WriteSignalString(w, ")
-			w.writeFieldToString(varQuery, fi)
-			w.Raw(")\n")
-			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
-		} else {
+		if signalIsJSLiteral(f.Type) {
 			w.Line(0, "")
 			w.Raw("\t\t_, _ = io.WriteString(w, ` data-signals:")
 			w.Raw(kebabSignalPath(f.SignalName))
@@ -695,6 +686,15 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 			w.writeFieldToString(varQuery, fi)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `\"`)")
+		} else {
+			w.Line(0, "")
+			w.Raw("\t\t_, _ = io.WriteString(w, ` data-signals:")
+			w.Raw(kebabSignalPath(f.SignalName))
+			w.Raw("=\"'`)\n")
+			w.Raw("\t\thtmlattr.WriteSignalString(w, ")
+			w.writeFieldToString(varQuery, fi)
+			w.Raw(")\n")
+			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
 		}
 	}
 
@@ -948,6 +948,16 @@ func (w *Writer) writeDeferRecover(hasSSE bool, handler string) {
 		sse = "sse"
 	}
 	w.Linef(1, "defer s.recoverPanic(w, r, %s, %q)", sse, handler)
+}
+
+// signalIsJSLiteral reports whether t renders as a JavaScript number or boolean.
+// Text marshalers render as strings even when their Go kind is numeric,
+// so their output needs quotes in a data-signals attribute.
+func signalIsJSLiteral(t types.Type) bool {
+	if t == nil || gotypes.ImplementsTextMarshaler(t) {
+		return false
+	}
+	return isFormattedType(t)
 }
 
 // writeFieldToString emits an expression that renders a struct field as the

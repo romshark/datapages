@@ -342,6 +342,20 @@ func TestReflectedSignalsKeepOtherQueryParams(t *testing.T) {
 	require.NotContains(t, resp.Body, "'utm'")
 }
 
+// TestReflectedSignalSeedQuoting tests that time.Time seeds a quoted signal
+// and int seeds a numeric signal.
+func TestReflectedSignalSeedQuoting(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	resp := c.Get(t, "/when/?when=2020-01-02T03%3A04%3A05Z&n=7")
+	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+	require.Equal(t, `when="2020-01-02T03:04:05Z" count=7`, resp.Element(t, "echo"))
+
+	require.Contains(t, resp.Body, `data-signals:when="'2020-01-02T03:04:05Z'"`)
+	require.Contains(t, resp.Body, `data-signals:count="7"`)
+}
+
 // TestReflectedSignalEscapesPathValue tests a path variable in a page's
 // data-effect when the page also reflects a query field. HTML escaping alone
 // lets a quote end the JavaScript string after the browser decodes the attribute.

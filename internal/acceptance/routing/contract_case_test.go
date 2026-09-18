@@ -40,6 +40,7 @@ func TestContract(t *testing.T) {
 			href.PageTitled("welcome"),
 			href.PageReflect(href.QueryPageReflect{Term: "x", Page: 1}),
 			href.PageShop("boots", href.QueryPageShop{Term: "x"}),
+			href.PageWhen(href.QueryPageWhen{Count: 1}),
 		},
 	})
 }

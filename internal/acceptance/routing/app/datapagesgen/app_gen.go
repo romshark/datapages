@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strconv"
+	"time"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
@@ -199,6 +200,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /titled/{name}/{$}",
 		pageTitledHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /when/{$}",
+		pageWhenHandlers{s}.GET)
 }
 
 func (s *Server) httpErrIntern(
@@ -903,6 +907,73 @@ func (s pageTitledHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		w, r, head, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageTitled", err)
+		return
+	}
+}
+
+type pageWhenHandlers struct{ *Server }
+
+func (s pageWhenHandlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		When  time.Time `query:"when" reflectsignal:"when"`
+		Count int       `query:"n" reflectsignal:"count"`
+	}]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "when"); q != "" {
+			if err := query.Values.When.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: when", err)
+				return
+			}
+		}
+	}
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "n"); q != "" {
+			i, err := strconv.ParseInt(q, 10, 0)
+			if err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: n", err)
+				return
+			}
+			query.Values.Count = int(i)
+		}
+	}
+
+	p := dpapp.PageWhen{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageWhen.GET")
+	body, err := p.GET(r, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageWhen.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+
+		_, _ = io.WriteString(w, ` data-signals:when="'`)
+		htmlattr.WriteSignalString(w, textOf(query.Values.When))
+		_, _ = io.WriteString(w, `'"`)
+
+		_, _ = io.WriteString(w, ` data-signals:count="`)
+		htmlattr.WriteSignalValue(w, strconv.FormatInt(int64(query.Values.Count), 10))
+		_, _ = io.WriteString(w, `"`)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($when) params.set('when', $when); else params.delete('when');
+			if ($count) params.set('n', $count); else params.delete('n');
+			const query = params.toString();
+			window.history.replaceState(null, '', query ? '/when?' + query : '/when');
+		"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageWhen", err)
 		return
 	}
 }

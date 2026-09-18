@@ -381,6 +381,8 @@ Here, `s` and `selecteditem` are synchronized.
 
 The browser updates only the reflected query keys. It removes a key when its signal becomes empty. Other query parameters remain, including fields declared without `reflectsignal`.
 
+Reflected integer, float, and bool fields seed JavaScript numbers or booleans unless they implement `encoding.TextMarshaler`. Text marshalers and all other field types seed strings.
+
 Signal `json` tags must match `[A-Za-z_][A-Za-z0-9_]*` and must not contain `__`. `json:"-"` is rejected.
 
 Datastar treats `__` as an attribute modifier delimiter. A leading single underscore is allowed, but Datastar omits that signal from requests unless `filterSignals` includes it.

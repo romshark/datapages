@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/a-h/templ"
 
@@ -134,6 +135,20 @@ func (PageReflect) GET(
 	return echo("term=%q page=%d slug=%q odd=%q title=%q lang=%q",
 		query.Values.Term, query.Values.Page, query.Values.Slug,
 		query.Values.Odd, query.Values.NewTitle, query.Values.Lang), nil
+}
+
+// PageWhen is /when
+type PageWhen struct{ App *App }
+
+func (PageWhen) GET(
+	_ *http.Request,
+	query datapages.Query[struct {
+		When  time.Time `query:"when" reflectsignal:"when"`
+		Count int       `query:"n" reflectsignal:"count"`
+	}],
+) (body datapages.Component, err error) {
+	return echo("when=%q count=%d",
+		query.Values.When.Format(time.RFC3339), query.Values.Count), nil
 }
 
 // PageShop is /shop/{cat}

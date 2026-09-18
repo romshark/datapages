@@ -782,3 +782,79 @@ func PageTitled(name string) string {
 	b.WriteString("/")
 	return b.String()
 }
+
+// PageWhen references /when/{$}
+func PageWhen(query QueryPageWhen) string {
+	var (
+		whenStr  string
+		countStr string
+	)
+
+	if query.When != nil {
+		whenStr = url.QueryEscape(textOf(query.When))
+	}
+	if query.Count != 0 {
+		countStr = url.QueryEscape(strconv.FormatInt(int64(query.Count), 10))
+	}
+
+	anyQuery := query.When != nil ||
+		query.Count != 0
+
+	var b strings.Builder
+	l := len("/when/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.When != nil {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("when=") + len(whenStr)
+	}
+	if query.Count != 0 {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("n=") + len(countStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/when/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.When != nil {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("when=")
+		b.WriteString(whenStr)
+	}
+	if query.Count != 0 {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("n=")
+		b.WriteString(countStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageWhen is the query parameters for PageWhen
+type QueryPageWhen struct {
+	When  encoding.TextMarshaler `query:"when"`
+	Count int                    `query:"n"`
+}
