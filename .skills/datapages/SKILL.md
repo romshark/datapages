@@ -394,7 +394,10 @@ func (PageForm) POSTSubmit(
 }
 ```
 
-Add `reflectsignal` to a query field to bind it to a Datastar signal. The query parameter initializes the signal value on page load, and when the signal changes, the browser URL is updated to reflect the new value:
+Tag a query field with `reflectsignal` to bind it to a Datastar signal.
+The query parameter sets the signal on page load. Signal changes update
+or remove only that parameter in the browser URL. Other parameters remain,
+including query fields without `reflectsignal`:
 
 ```go
 func (PageSearch) GET(

@@ -840,18 +840,24 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 		}
 
 		w.Line(0, "")
-		w.Line(2, "_, _ = io.WriteString(w, ` data-effect=\"const params = new URLSearchParams();")
+		// replaceState writes the whole query. Starting with an empty set would
+		// drop unreflected and undeclared parameters from the current URL.
+		w.Line(2, "_, _ = io.WriteString(w, ` data-effect=\"const params = new URLSearchParams(location.search);")
 		for _, f := range reflectFields {
-			w.Raw("\t\t\tif ($")
-			w.Raw(f.SignalName)
-			w.Raw(") params.set('")
 			// A query tag is a URL parameter name and may carry anything.
 			// Here it stands inside a JavaScript string inside an attribute,
 			// which is what the escaping is of.
-			w.Raw(htmlattr.SignalString(f.QueryTag))
+			key := htmlattr.SignalString(f.QueryTag)
+			w.Raw("\t\t\tif ($")
+			w.Raw(f.SignalName)
+			w.Raw(") params.set('")
+			w.Raw(key)
 			w.Raw("', $")
 			w.Raw(f.SignalName)
-			w.Raw(");\n")
+			// The seeded query still holds the old value when a signal is empty.
+			w.Raw("); else params.delete('")
+			w.Raw(key)
+			w.Raw("');\n")
 		}
 		w.Line(3, "const query = params.toString();")
 		if h.InputPath != nil {

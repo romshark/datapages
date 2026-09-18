@@ -490,6 +490,7 @@ func PageReflect(query QueryPageReflect) string {
 		slugStr     string
 		oddStr      string
 		newTitleStr string
+		langStr     string
 	)
 
 	if query.Term != "" {
@@ -507,12 +508,16 @@ func PageReflect(query QueryPageReflect) string {
 	if query.NewTitle != "" {
 		newTitleStr = url.QueryEscape(query.NewTitle)
 	}
+	if query.Lang != "" {
+		langStr = url.QueryEscape(query.Lang)
+	}
 
 	anyQuery := query.Term != "" ||
 		query.Page != 0 ||
 		query.Slug != nil ||
 		query.Odd != "" ||
-		query.NewTitle != ""
+		query.NewTitle != "" ||
+		query.Lang != ""
 
 	var b strings.Builder
 	l := len("/reflect/")
@@ -557,6 +562,13 @@ func PageReflect(query QueryPageReflect) string {
 		}
 		n++
 		l += len("nt=") + len(newTitleStr)
+	}
+	if query.Lang != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("lang=") + len(langStr)
 	}
 	_ = n
 
@@ -605,8 +617,16 @@ func PageReflect(query QueryPageReflect) string {
 		if n > 0 {
 			b.WriteString("&")
 		}
+		n++
 		b.WriteString("nt=")
 		b.WriteString(newTitleStr)
+	}
+	if query.Lang != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("lang=")
+		b.WriteString(langStr)
 	}
 
 	return b.String()
@@ -619,6 +639,7 @@ type QueryPageReflect struct {
 	Slug     encoding.TextMarshaler `query:"s"`
 	Odd      string                 `query:"o'"x"`
 	NewTitle string                 `query:"nt"`
+	Lang     string                 `query:"lang"`
 }
 
 // PageSlug references /slug/{slug}/{$}

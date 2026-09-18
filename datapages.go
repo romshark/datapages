@@ -69,8 +69,9 @@ type Path[Values any] struct{ Values Values }
 //	}
 //
 // A field can carry a reflectsignal:"<name>" tag naming a signal of the
-// handler's [Signals] parameter. The query parameter gives that signal its
-// value on page load, and the browser URL is rewritten whenever the signal changes:
+// handler's [Signals] parameter. The query parameter sets the signal on page load.
+// Signal changes update or remove only that query key;
+// other parameters remain in the browser URL:
 //
 //	func (p PageSearch) GET(
 //		r *http.Request,

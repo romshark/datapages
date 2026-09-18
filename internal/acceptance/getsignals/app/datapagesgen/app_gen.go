@@ -340,8 +340,8 @@ func (s pageNestedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
-			if ($foo.fuzz) params.set('fuzz', $foo.fuzz);
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($foo.fuzz) params.set('fuzz', $foo.fuzz); else params.delete('fuzz');
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/nested?' + query : '/nested');
 		"`)

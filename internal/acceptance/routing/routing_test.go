@@ -294,7 +294,7 @@ func TestReflectedSignals(t *testing.T) {
 
 	resp := c.Get(t, "/reflect/?t=shoes&p=3&s=news")
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
-	require.Equal(t, `term="shoes" page=3 slug="news" odd="" title=""`,
+	require.Equal(t, `term="shoes" page=3 slug="news" odd="" title="" lang=""`,
 		resp.Element(t, "echo"))
 	for _, want := range []string{
 		`data-signals:term="'shoes'"`,
@@ -317,6 +317,29 @@ func TestReflectedSignals(t *testing.T) {
 	} {
 		require.Contains(t, resp.Body, want, "the page does not carry %q")
 	}
+}
+
+// TestReflectedSignalsKeepOtherQueryParams tests that URL sync preserves
+// unreflected query fields and undeclared parameters.
+func TestReflectedSignalsKeepOtherQueryParams(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	resp := c.Get(t, "/reflect/?t=shoes&lang=de&utm=spring")
+	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+	require.Equal(t, `term="shoes" page=0 slug="" odd="" title="" lang="de"`,
+		resp.Element(t, "echo"))
+
+	require.Contains(t, resp.Body, "new URLSearchParams(location.search)")
+	for _, want := range []string{
+		"if ($term) params.set('t', $term); else params.delete('t');",
+		"if ($page) params.set('p', $page); else params.delete('p');",
+		"if ($newTitle) params.set('nt', $newTitle); else params.delete('nt');",
+	} {
+		require.Contains(t, resp.Body, want)
+	}
+	require.NotContains(t, resp.Body, "'lang'")
+	require.NotContains(t, resp.Body, "'utm'")
 }
 
 // TestReflectedSignalEscapesMarkup tests a reflected query value carrying markup.

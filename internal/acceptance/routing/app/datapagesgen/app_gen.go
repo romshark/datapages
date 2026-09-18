@@ -693,6 +693,7 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		Slug     dpapp.Slug `query:"s" reflectsignal:"slug"`
 		Odd      string     `query:"o'\"x" reflectsignal:"odd"`
 		NewTitle string     `query:"nt" reflectsignal:"newTitle"`
+		Lang     string     `query:"lang"`
 	}]
 	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "t")
 	{
@@ -715,6 +716,7 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	query.Values.Odd = httpread.QueryValue(r.URL.RawQuery, "o'\"x")
 	query.Values.NewTitle = httpread.QueryValue(r.URL.RawQuery, "nt")
+	query.Values.Lang = httpread.QueryValue(r.URL.RawQuery, "lang")
 
 	p := dpapp.PageReflect{
 		App: s.app,
@@ -752,12 +754,12 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
-			if ($term) params.set('t', $term);
-			if ($page) params.set('p', $page);
-			if ($slug) params.set('s', $slug);
-			if ($odd) params.set('o\&#39;&#34;x', $odd);
-			if ($newTitle) params.set('nt', $newTitle);
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($term) params.set('t', $term); else params.delete('t');
+			if ($page) params.set('p', $page); else params.delete('p');
+			if ($slug) params.set('s', $slug); else params.delete('s');
+			if ($odd) params.set('o\&#39;&#34;x', $odd); else params.delete('o\&#39;&#34;x');
+			if ($newTitle) params.set('nt', $newTitle); else params.delete('nt');
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/reflect?' + query : '/reflect');
 		"`)

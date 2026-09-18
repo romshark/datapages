@@ -913,8 +913,8 @@ func (s pageMessagesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
-			if ($chatselected) params.set('chat', $chatselected);
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($chatselected) params.set('chat', $chatselected); else params.delete('chat');
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/messages?' + query : '/messages');
 		"`)
@@ -1576,12 +1576,12 @@ func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			_, _ = io.WriteString(w, ` data-init="@get('/search/_$/')"`)
 		}
 
-		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
-			if ($term) params.set('t', $term);
-			if ($category) params.set('c', $category);
-			if ($pmin) params.set('pmin', $pmin);
-			if ($pmax) params.set('pmax', $pmax);
-			if ($location) params.set('l', $location);
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($term) params.set('t', $term); else params.delete('t');
+			if ($category) params.set('c', $category); else params.delete('c');
+			if ($pmin) params.set('pmin', $pmin); else params.delete('pmin');
+			if ($pmax) params.set('pmax', $pmax); else params.delete('pmax');
+			if ($location) params.set('l', $location); else params.delete('l');
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/search?' + query : '/search');
 		"`)

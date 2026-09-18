@@ -51,9 +51,7 @@ Pages use `type PageXXX struct { App *App }` and these methods:
 - `StreamClose`: runs when the page SSE stream closes.
 - `OnXXX`: subscribes to events in the SSE listener.
 
-An action, `OnXXX`, `StreamOpen`, or `StreamClose` may take
-`datapages.State[T]` for per-tab state; see
-[Parameter: `datapages.State[T]`](#parameter-datapagesstatet).
+An action, `OnXXX`, `StreamOpen`, or `StreamClose` may take `datapages.State[T]` for per-tab state; see [Parameter: `datapages.State[T]`](#parameter-datapagesstatet).
 
 `XXX` denotes a name suffix.
 
@@ -178,9 +176,7 @@ func (PageIndex) OnSomethingHappened(
 
 `StreamOpen` runs after the SSE stream is established and before event handlers. It may return `error` or nothing. On error, setup stops, the stream closes, and `RecoverError` handles the error if defined. Otherwise the server uses its internal-error path. `StreamClose` does not run if `StreamOpen` returns an error or panics. `StreamOpen` must release acquired resources before returning an error and defer their release if it can panic.
 
-`datapages.StreamID` identifies an SSE stream within a process. Its parameter
-name is unrestricted. It may correlate `StreamOpen` with `StreamClose` and
-must not be exposed to clients.
+`datapages.StreamID` identifies an SSE stream within a process. Its parameter name is unrestricted. It may correlate `StreamOpen` with `StreamClose` and must not be exposed to clients.
 
 A stream hook must take `datapages.StreamID`, `datapages.State[T]`, or both.
 
@@ -382,6 +378,8 @@ query datapages.Query[struct {
 ```
 
 Here, `s` and `selecteditem` are synchronized.
+
+The browser updates only the reflected query keys. It removes a key when its signal becomes empty. Other query parameters remain, including fields declared without `reflectsignal`.
 
 Signal `json` tags must match `[A-Za-z_][A-Za-z0-9_]*` and must not contain `__`. `json:"-"` is rejected.
 
@@ -679,12 +677,7 @@ Sentinels:
 
 Do not wrap multiple sentinels into one error. If multiple occur, precedence is `ErrBadRequest`, `ErrForbidden`, `ErrNotFound`, then `ErrConflict`.
 
-Sentinels may be returned directly or wrapped. `RecoverError` handles errors
-from Datastar requests when defined. Other requests use `PageError500` with
-status 500 if defined and the response has not started. When neither handler
-applies and the response has not started, the server writes the corresponding
-status and standard status text. If `RecoverError` fails, the server logs its
-error and leaves the response as written.
+Sentinels may be returned directly or wrapped. `RecoverError` handles errors from Datastar requests when defined. Other requests use `PageError500` with status 500 if defined and the response has not started. When neither handler applies and the response has not started, the server writes the corresponding status and standard status text. If `RecoverError` fails, the server logs its error and leaves the response as written.
 
 #### `GET` Return Value: `enableBackgroundStreaming datapages.EnableBackgroundStreaming`
 

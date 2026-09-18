@@ -128,11 +128,12 @@ func (PageReflect) GET(
 		// reads one back as camel case. Written as data-signals:newTitle the
 		// signal would arrive as newtitle.
 		NewTitle string `query:"nt" reflectsignal:"newTitle"`
+		Lang string `query:"lang"`
 	}],
 ) (body datapages.Component, err error) {
-	return echo("term=%q page=%d slug=%q odd=%q title=%q",
+	return echo("term=%q page=%d slug=%q odd=%q title=%q lang=%q",
 		query.Values.Term, query.Values.Page, query.Values.Slug,
-		query.Values.Odd, query.Values.NewTitle), nil
+		query.Values.Odd, query.Values.NewTitle, query.Values.Lang), nil
 }
 
 // PageMixed is /org/{org}/item/{id}
