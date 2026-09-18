@@ -140,7 +140,8 @@ type Query[Values any] struct{ Values Values }
 type State[Values any] struct{ Values *Values }
 
 // StreamID identifies one SSE stream instance within the process.
-// StreamOpen and StreamClose must receive it, event (OnXXX) handlers may:
+// A declared StreamOpen or StreamClose must take StreamID, [State], or both.
+// Event (OnXXX) handlers may also take StreamID:
 //
 //	func (p PageIndex) StreamOpen(
 //		r *http.Request, streamID datapages.StreamID,

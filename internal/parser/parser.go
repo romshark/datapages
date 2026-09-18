@@ -1908,7 +1908,10 @@ func pageHasAnonStream(p *model.Page, events map[string]*model.Event) bool {
 
 // pageHasStream reports whether the page is served an SSE stream of its own.
 func pageHasStream(p *model.Page) bool {
-	return len(p.EventHandlers) > 0 || p.StreamOpen != nil || p.StreamClose != nil
+	return len(p.EventHandlers) > 0 ||
+		p.StreamOpen != nil ||
+		p.StreamClose != nil ||
+		p.State != nil
 }
 
 // registerRoute reports what ServeMux says about a pattern.
@@ -2699,6 +2702,12 @@ func parseHandler(
 			foundReq = true
 
 		case typecheck.IsSSEParam(f.Type, info):
+			if kind == methodkind.GETHandler {
+				unsupErrs = append(unsupErrs,
+					fieldErr(fmt.Errorf("%w in %s.%s",
+						ErrSSEOnGET, recv, fd.Name.Name)))
+				continue
+			}
 			if h.InputSSE != nil {
 				unsupErrs = append(unsupErrs,
 					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))

@@ -2,17 +2,13 @@
 
 ## Source Package
 
-Generator requires a path to an application source package
-that must contain an `App` type and the `type PageIndex struct`.
+The generator requires an application source package containing `App` and `type PageIndex struct`.
 
-`App`, page, abstract page and event types are declared without type parameters.
-Generated code names them as written, hence a type parameter list
-is rejected with "type parameters are not supported".
-Any other generic type of the package is free to use them.
+`App`, page, abstract page, and event types must not have type parameters. The generator rejects them with "type parameters are not supported". Other package types may have type parameters.
 
 ### App
 
-The `App` type may optionally provide a method for custom global HTML `<head>` tags:
+`App` may define global HTML `<head>` tags:
 
 ```go
 func (*App) Head(
@@ -23,25 +19,13 @@ func (*App) Head(
 }
 ```
 
-Both parameters are recognized by their type, so their names and order
-are up to the application.
+Parameters are identified by type; names and order are unrestricted.
 
-`RecoverError` is called when a handler fails during a Datastar request,
-if the application defines it. It receives the error, including the datapages sentinels,
-and writes feedback over SSE. If it returns an error,
-the server sends the HTTP error response for the original error instead.
+If defined, `RecoverError` receives handler errors, including datapages sentinels, and may write feedback over SSE. When `PageError500` is defined, non-Datastar requests render that page instead if the response has not started. Without `PageError500`, `RecoverError` also receives non-Datastar request errors. If `RecoverError` fails, its error is logged and the response remains as written.
 
-A panic in a `GET`, an action, a `StreamOpen` or an `OnXXX` handler is recovered
-and passed to `RecoverError` as a `datapages.PanicError`, which holds the panic
-value and the stack.
-The stack is always logged.
+A panic in `GET`, an action, `StreamOpen`, or `OnXXX` follows the handler error path. When `RecoverError` handles it, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
 
-A response that has started cannot be replaced. A panic while the page is
-being written, in a component for example, is logged, and the visitor receives
-the truncated page with the status it already carries. A stream that panics is closed.
-`StreamClose` runs on the request goroutine after the last event handler of the
-stream. A panic in it is recovered and logged. Graceful shutdown waits for it, which
-means a slow `StreamClose` holds the connection open.
+A panic during page writing is logged; the response retains its status and truncated body. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged. Graceful shutdown waits for it; a slow `StreamClose` holds the connection open.
 
 ```go
 func (*App) RecoverError(
@@ -52,13 +36,11 @@ func (*App) RecoverError(
 }
 ```
 
-Both parameters are recognized by their type, so their names and order
-are up to the application.
+Parameters are identified by type; names and order are unrestricted.
 
 ### Pages
 
-Individual pages are defined with `type PageXXX struct { App *App }` and
-special methods:
+Pages use `type PageXXX struct { App *App }` and these methods:
 
 - `GET`: handles `GET` requests.
 - `POSTXXX`: handles `POST` action requests.
@@ -69,24 +51,19 @@ special methods:
 - `StreamClose`: runs when the page SSE stream closes.
 - `OnXXX`: subscribes to events in the SSE listener.
 
-Any action method, `OnXXX`, `StreamOpen`, or `StreamClose` may also take
-`datapages.State[T]` to opt the page into per-tab server-side state — see
+An action, `OnXXX`, `StreamOpen`, or `StreamClose` may take
+`datapages.State[T]` for per-tab state; see
 [Parameter: `datapages.State[T]`](#parameter-datapagesstatet).
 
-`XXX` is just a name placeholder.
+`XXX` denotes a name suffix.
 
-A page type is a struct type literal. A `Page*` name bound to anything else,
-a defined non-struct type or an alias, is rejected.
+A `Page*` declaration must use a struct type literal. An alias to a struct literal is recognized as a page; an alias to a named type or a non-struct type is rejected.
 
-A page type must declare exactly one named field, the exported `App *App`.
-Any other named field is rejected. Embedded types are the exception and are
-validated separately, see [Abstract Page Types](#abstract-page-types).
-Methods can be enriched with capabilities through parameters.
+A page type must declare exactly one named field: `App *App`. Embedded types are permitted under [Abstract Page Types](#abstract-page-types).
 
-URLs must be specified by a strictly formatted comment
-in [net/http Mux pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns-ServeMux):
+URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns-ServeMux).
 
-The page type `PageIndex` (for URL `/`) is required.
+`PageIndex` is required for `/`.
 
 Page types `PageError500`, `PageError404` and `PageOffline` are optional special pages.
 The names are reserved: a page type carrying one of them is that special page,
@@ -100,17 +77,11 @@ Each declares its route by comment like any other page. `PageError500` and
 has already failed, and the latter is precached once by the service worker and
 served to every visitor, so neither may depend on who is signed in.
 
-The path segment `_$` is reserved. A page that opens an SSE stream is served
-one at its own route plus `_$/`, and a page mixing public and user-addressed
-events is served a second one at `_$/anon/` for its signed-out visitors.
-A page or action route that claims either is rejected as a route conflict.
+A page with an SSE stream serves `_$/` under its route. A page with both public and user-addressed events also serves `_$/anon/` for signed-out visitors. Page and action routes cannot conflict with these endpoints. A page whose route ends in a `{name...}` wildcard cannot have a stream.
 
-Handler method parameters and return values are defined and enforced by datapages.
-Parameters and return values may be in any order. Using unsupported parameter or
-return value names and types will result in generator errors.
+Handler parameters and return values may appear in any order. Unsupported names or types are generator errors.
 
-The `GET` method parameter lists must include `r *http.Request`
-and may include the following optional parameters:
+`GET` requires `r *http.Request` and a `datapages.Component` return value. Other parameters and return values are optional:
 
 ```go
 func (PageIndex) GET(
@@ -129,14 +100,13 @@ func (PageIndex) GET(
 	closeSession datapages.CloseSession, // Optional
 	enableBackgroundStreaming datapages.EnableBackgroundStreaming, // Optional
 	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden, // Optional
-	err error
+	err error, // Optional
 ) {
 	// ...
 }
 ```
 
-Action handlers can also be defined on `*App` (pointer receiver) for global actions
-not tied to a specific page:
+Global actions may be defined on `*App`:
 
 ```go
 // POSTSignOut is /sign-out/{$}
@@ -149,8 +119,9 @@ func (*App) POSTSignOut(r *http.Request, session Session) (
 }
 ```
 
-The SSE action handlers `POSTXXX`, `PUTXXX`, `PATCHXXX` and `DELETEXXX` method parameter lists must
-include `r *http.Request` and may include the following optional parameters:
+Page action handlers (`POSTXXX`, `PUTXXX`, `PATCHXXX`, `DELETEXXX`) require
+`r *http.Request` and permit these optional parameters. A handler returning
+only `error` may use this signature:
 
 ```go
 // POSTActionName is <path>
@@ -161,6 +132,8 @@ func (PageIndex) POSTActionName(
 	path datapages.Path[struct{...}], // Required only when path variables are used in the URL
 	query datapages.Query[struct{...}], // Optional
 	signals datapages.Signals[struct{...}], // Optional
+	state datapages.State[T], // Optional
+	stateID string, // Optional with state
 	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) error {
@@ -168,26 +141,11 @@ func (PageIndex) POSTActionName(
 }
 ```
 
-Action handlers that omit the `sse` parameter can instead redirect,
-return HTML, and set or remove sessions.
+An action with neither `signals` nor `sse` does not require `Datastar-Request: true` and can receive HTML form submissions. It is guarded by [`net/http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection): requests reported as same-site or cross-site by `Sec-Fetch-Site`, or with an `Origin` that differs from `Host`, receive 403. Requests with neither header are allowed. Authenticated forms also fail the CSRF check when sessions and CSRF protection are enabled. All other actions require `Datastar-Request: true`; requests without it receive 406 Not Acceptable.
 
-An action that declares neither `signals` nor `sse` does not require
-`Datastar-Request: true`. A page on another site can therefore target it with a
-plain HTML form. Datapages does not support forms as an application interface;
-the form is an attack path here. Such a handler is guarded by
-[`net/http.CrossOriginProtection`](https://pkg.go.dev/net/http#CrossOriginProtection):
-a request the browser reports as same-site or cross-site through `Sec-Fetch-Site`,
-or whose `Origin` does not match `Host`, gets a 403. A client that sends neither
-header is allowed, which keeps non-browser clients working. In an application
-with sessions and CSRF protection, an authenticated form submission also fails
-the CSRF token check. Every other action requires `Datastar-Request: true`,
-which no form and no unpreflighted `fetch` can set.
+**Actions with `sse` cannot return `newSession` or `closeSession`.** The SSE stream sends headers before the handler returns. A `redirect` return value navigates through the stream, as `sse.Redirect` does.
 
-**Session mutation and SSE are mutually exclusive in action handlers.**
-When the `sse` parameter is present, the handler opens a long-lived SSE stream —
-HTTP headers (including session cookies) have already been sent, so `newSession`
-and `closeSession` return values cannot be used. A `redirect` return value works:
-it navigates through the stream, the way `sse.Redirect` does.
+An action without `sse` may redirect, return HTML, and change sessions:
 
 ```go
 // POSTActionName is <path>
@@ -197,6 +155,8 @@ func (PageIndex) POSTActionName(
 	path datapages.Path[struct{...}], // Required only when path variables are used in the URL
 	query datapages.Query[struct{...}], // Optional
 	signals datapages.Signals[struct{...}], // Optional
+	state datapages.State[T], // Optional
+	stateID string, // Optional with state
 	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
 ) (
@@ -211,52 +171,35 @@ func (PageIndex) POSTActionName(
 }
 ```
 
-All `OnXXX` method parameter lists must include exactly one parameter
-of an event type and `sse datapages.SSE`. Parameters may be in any order.
-The event parameter is recognized by its type, its name is up to the application.
-The `XXX` placeholder must always match the event name after the type's `Event` prefix.
+`OnXXX` requires exactly one event parameter and `sse datapages.SSE`, and must return exactly one `error`. The event parameter is identified by type; `XXX` must match the event type's name after `Event`. Parameter order and the event parameter's name are unrestricted.
 
 ```go
 func (PageIndex) OnSomethingHappened(
 	event EventSomethingHappened,
 	sse datapages.SSE,
 	streamID datapages.StreamID, // Optional
+	state datapages.State[T], // Optional
+	stateID string, // Optional with state
 	session datapages.Session[Data], // Optional
 ) error {
 	// ...
 }
 ```
 
-`StreamOpen` runs after the page SSE stream has been established and before
-any event handler is invoked.
-It returns `error`, or nothing at all. `error` is the only return value it may declare.
-If it returns an error, stream setup stops immediately and
-the stream is closed.
-Datapages handles the error like any other Datastar request error: if `RecoverError`
-is defined it is invoked, otherwise the server falls back to its internal-error path.
-A `StreamOpen` that returns an error or panics gets no `StreamClose`:
-the stream never opened, and `StreamClose` may assume what `StreamOpen`
-acquired is there. Release what the hook already acquired before returning the
-error, and defer that release if the hook can panic.
-The `streamID` is a per-process unique identifier for the SSE stream instance.
-The parameter is recognized by its `datapages.StreamID` type,
-its name is up to the application.
-Use it to correlate `StreamOpen` and `StreamClose` for the same stream.
-It's intended for internal server-side bookkeeping only and
-should not be exposed to clients.
+`StreamOpen` runs after the SSE stream is established and before event handlers. It may return `error` or nothing. On error, setup stops, the stream closes, and `RecoverError` handles the error if defined. Otherwise the server uses its internal-error path. `StreamClose` does not run if `StreamOpen` returns an error or panics. `StreamOpen` must release acquired resources before returning an error and defer their release if it can panic.
+
+`datapages.StreamID` identifies an SSE stream within a process. Its parameter
+name is unrestricted. It may correlate `StreamOpen` with `StreamClose` and
+must not be exposed to clients.
 
 A stream hook must take `datapages.StreamID`, `datapages.State[T]`, or both.
-Either one is a handle on the stream the hook is about: `StreamID` names the
-stream, `State[T]` is the value that belongs to it. A hook that takes neither
-can only act on the application as a whole and is a generator error. A hook
-that holds per-tab state through `State[T]` therefore needs no `streamID` of
-its own.
 
 ```go
 func (PageIndex) StreamOpen(
 	r *http.Request,
 	streamID datapages.StreamID, // Optional when state is declared
 	state datapages.State[T], // Optional when streamID is declared
+	stateID string, // Optional with state
 	sse datapages.SSE, // Optional
 	session datapages.Session[Data], // Optional
 	signals datapages.Signals[struct{...}], // Optional
@@ -267,17 +210,14 @@ func (PageIndex) StreamOpen(
 }
 ```
 
-`StreamClose` runs when the page SSE stream closes, on the request goroutine,
-after the last event handler of the stream. It runs only for a stream whose
-`StreamOpen` succeeded, or for one that declares no `StreamOpen` at all.
-It returns `error`, or nothing at all. `error` is the only return value it may declare.
-If it returns an error, datapages logs the error server-side.
+`StreamClose` runs on the request goroutine after the stream's last event handler, provided `StreamOpen` succeeded or is absent. It may return `error` or nothing. Returned errors are logged.
 
 ```go
 func (PageIndex) StreamClose(
 	r *http.Request,
 	streamID datapages.StreamID, // Optional when state is declared
 	state datapages.State[T], // Optional when streamID is declared
+	stateID string, // Optional with state
 	session datapages.Session[Data], // Optional
 	somethingHappened datapages.Dispatcher[EventSomethingHappened], // Optional
 	somethingElseHappened datapages.Dispatcher[EventSomethingElseHappened], // Optional
@@ -288,102 +228,7 @@ func (PageIndex) StreamClose(
 
 #### Abstract Page Types
 
-Abstract page types can be embedded in page types to share functionality across pages:
-
-```go
-type Base struct{ App *App }
-
-func (Base) OnSomethingHappened(
-	event EventSomethingHappened,
-	sse datapages.SSE,
-	session Session,
-) error {
-	// ...
-}
-
-// PageFoo is /foo
-type PageFoo struct {
-	App *App
-	Base
-}
-
-func (PageFoo) GET(r *http.Request) (body datapages.Component, err error) {
-	return pageFoo(), nil
-}
-
-// PageBar is /bar
-type PageBar struct {
-	App *App
-	Base
-}
-
-func (PageBar) GET(r *http.Request) (body datapages.Component, err error) {
-	return pageBar(), nil
-}
-```
-
-The embeddable abstract page type must always have `App *App`
-same as concrete page types.
-
----
-
-<details>
-	<summary>Example</summary>
-
-```go
-// EventSomethingHappened is "something.happened"
-type EventSomethingHappened struct {
-	WhoCausedIt string `json:"who-caused-it"`
-}
-
-// PageExample is /example
-type PageExample struct { App *App }
-
-func (p PageExample) GET(r *http.Request) (body datapages.Component, err error) {
-	data, err := p.App.fetchData("")
-	if err != nil {
-		return nil, err
-	}
-	return examplePageTemplate(data), nil
-}
-
-// POSTInputChanged is /example/input-changed
-func (p PageExample) POSTInputChanged(
-	r *http.Request,
-	session Session,
-	signals datapages.Signals[struct {
-		InputValue string `json:"inputvalue"`
-	}],
-) (body datapages.Component, err error) {
-	// Patch the page with a fat morph directly on action.
-	data, err := p.App.fetchData(signals.Values.InputValue)
-	if err != nil {
-		return nil, err
-	}
-	return examplePageTemplate(data), nil
-}
-
-// POSTButtonClicked is /example/button-clicked
-func (p PageExample) POSTButtonClicked(
-	r *http.Request,
-	session Session,
-	somethingHappened datapages.Dispatcher[EventSomethingHappened],
-) error {
-	// Update everyone that something happened.
-	return somethingHappened.Dispatch(EventSomethingHappened{WhoCausedIt: session.UserID()})
-}
-
-func (p PageExample) OnSomethingHappened(
-	event EventSomethingHappened,
-	sse datapages.SSE,
-	session Session,
-) error {
-	// When something happens, patch the page.
-	return sse.PatchElement(updateTemplate())
-}
-```
-
-</details>
+A struct in the app package whose name does not start with `Page` and that declares `App *App` is an abstract page type. Pages may embed it to inherit its handlers.
 
 #### Parameter: `datapages.State[T]`
 
@@ -391,258 +236,86 @@ func (p PageExample) OnSomethingHappened(
 state datapages.State[T]
 ```
 
-Provides per-page-instance server-side state. A **page instance** corresponds to
-an open browser tab: two tabs on the same page receive independent `T`
-values. The value is reached through the `Values` field, which is a `*T`:
-unlike `Query`, `Signals` and `Path`, which carry a copy of what the request
-said, a handler writes through `State` and the next handler of the same tab
-reads it back. State is held in server memory. Handlers on the same instance are
-serialized by a per-instance mutex, so fields may be read and written without
-additional synchronization inside a handler.
+`State[T]` holds per-tab server-side state. Each open tab has an independent `*T` in `Values`. Writes persist across handlers of that tab. A per-instance mutex serializes those handlers, so access within a handler needs no additional synchronization.
 
-An instance belongs to a tab, not to a user. It is bound to no session and
-survives a sign-out. Treat `State.Values` as scratch space for the tab.
+An instance belongs to a tab, is not session-bound, and survives sign-out.
 
-**`State.Values` must not outlive the handler that received it.** The mutex
-serializes handlers, not a goroutine one of them started: a goroutine that
-keeps the pointer races with the tab's later handlers. An alias stored in the
-application or held by a `datapages.Component` that renders later also keeps
-the state alive long after the tab is gone. Copy the fields out instead:
+**`State.Values` must not outlive its handler.** The mutex does not protect goroutines started by a handler. Retaining the pointer in application state or a component rendered later can retain it past the tab's lifetime. Copy needed fields instead.
 
-```go
-// Wrong: the tab's value outlives the handler.
-p.App.current = state.Values
-go p.App.refresh(state.Values)
-
-// Right: copy, don't alias.
-filter := state.Values.Filter
-go p.App.refresh(filter)
-```
-
-The serialization guarantee has the same boundary: it covers the handlers of
-one instance, not a goroutine one of them started.
-
-A page opts into state by declaring an exported struct and referencing it via
-`datapages.State[T]` on one or more action methods, `OnXXX` handlers,
-`StreamOpen`, or `StreamClose`. The type may carry any exported name — `StateIndex` and
-`TabContext` are both accepted:
+A page enables state by declaring an exported struct and using it as `T` in an action, `OnXXX`, `StreamOpen`, or `StreamClose`:
 
 ```go
 type StateIndex struct {
-    Filter string
-    Count  int
+	Filter string
+	Count  int
 }
 
-func (PageIndex) StreamOpen(
-    r *http.Request,
-    state datapages.State[StateIndex],
-) error { /* ... */ }
-
-func (PageIndex) POSTIncrement(
-    r *http.Request,
-    state datapages.State[StateIndex],
-) error {
-    state.Values.Count++
-    return nil
+func (PageIndex) StreamOpen(r *http.Request, state datapages.State[StateIndex]) error {
+	return nil
 }
-
-func (PageIndex) OnSomething(
-    event EventSomething,
-    sse datapages.SSE,
-    state datapages.State[StateIndex],
-) error { /* read state.Values.Count, etc. */ }
 ```
 
-**Declaration rules**:
+**Declaration rules:**
 
-- The state type is an exported struct declared at the source package level.
-  Its name is free; the generator derives its runtime symbols from it.
-- The parameter is typed `datapages.State[T]`, where `T` names the struct
-  directly. The type is what makes it a state parameter, as it is for
-  `Query`, `Signals` and `Path`, so the parameter name is free.
-  A type argument that is not a named type of the app package
-  (a pointer, a struct literal, a type from another package)
-  is a generator error.
-- All handlers on a page, including those inherited from embedded abstract
-  pages, must reference the same state type.
-- Abstract (embedded) page types may reference a state type on their own
-  handlers; the binding flows into every concrete page that embeds them.
-- Global `*App` actions may take `datapages.State[T]`. The runtime resolves the slot
-  using the calling tab's `Datapages-Instance` header against the map for
-  `T`; an App action succeeds only when the calling tab is bound to a page
-  that uses the same `T`, and otherwise receives `409 Conflict` with
-  `Datapages-Retry: reconnect`. An App action that must be callable from
-  every page must remain stateless.
-- `GET` handlers must not take `state`: no instance exists at render time.
-- A page that takes `state` gets an SSE stream whether or not it declares
-  `StreamOpen`, `StreamClose`, or an `OnXXX` event handler. The stream is what
-  bounds the instance's lifetime: it allocates the slot on connect and releases
-  it on disconnect.
+- `T` must be an exported struct declared at the source package level.
+- The parameter name is unrestricted. `T` must directly name the app package's struct. Pointers, struct literals, and types from other packages are rejected.
+- All handlers on a page, including inherited handlers, must use the same `T`.
+- State used by an abstract page binds every page that embeds it.
+- Global `*App` actions may take `datapages.State[T]`. The caller must be bound to a page using the same `T`; otherwise the action receives `409 Conflict` with `Datapages-Retry: reconnect`. A global action callable from every page must be stateless.
+- `GET` cannot take state because no instance exists at render time.
+- A page using state gets an SSE stream even without stream hooks or `OnXXX`. Connect allocates the state slot; disconnect releases it.
 
-**Parameter: `stateID string`**. A stateful handler may take `stateID
-string` alongside `datapages.State[T]`. The parameter names the calling tab in message
-broker subjects and is used to dispatch events targeted at that tab (see
-`datapages.SubjectStateID`). `stateID` requires the handler to also take
-`datapages.State[T]`.
+**Parameter: `stateID string`.** A stateful handler may take `stateID string` alongside `datapages.State[T]` to dispatch events targeted at the tab via `datapages.SubjectStateID`.
 
-The value is the first 16 bytes of the SHA-256 hash of the
-`Datapages-Instance` id, encoded as unpadded base64url.
-It is stable for the tab's lifetime and is not the id itself.
-Subjects reach broker logs, stream storage, traces and metrics,
-and presenting the id is what claims a tab's state.
-Knowing a `stateID` only allows addressing events at that tab.
+`stateID` is the first 16 bytes of the SHA-256 hash of `Datapages-Instance`, encoded as unpadded base64url. It remains stable for the tab's lifetime. Knowing it permits event addressing but not access to the tab's state.
 
-**Subject field: `datapages.SubjectStateID`**. An event may declare a subject
-field typed `datapages.SubjectStateID` (the field name is free). At SSE stream
-connect the server subscribes to `<base>.<state_id>`. Only the tab whose
-state-id matches the dispatched value receives the event. Rules:
+**Subject field: `datapages.SubjectStateID`.** An event may declare a field of this type with any name. On SSE connect, the server subscribes to `<base>.<state_id>`; only the matching tab receives the event.
 
 - A `datapages.SubjectStateID` field must not carry a `signal:"..."` tag.
-- It must be the only subject field on the event — mixing with
-  `datapages.SubjectUser`, other signal-scoped fields, or additional subject
-  fields is rejected.
-- Any page with an `OnXXX` for such an event must be stateful.
-- A page handling such an event must not also handle a user-addressed
-  (`datapages.SubjectUser`) or signal-scoped event. A page subscribes once,
-  with one list of subjects, and a subject ending in a tab id cannot share that
-  list with one ending in a user id or a signal value. Plain public events may
-  sit next to it.
+- It must be the event's only subject field.
+- A page handling the event must use state.
+- A page handling the event cannot also handle a user-addressed or signal-scoped event. It may handle public events.
 
-**Lifecycle**:
+**Lifecycle:**
 
-1. On `GET` of a stateful page, the server mints a fresh random identifier,
-   sets it in the `Datapages-Instance` response header, and
-   embeds it in the HTML so the client echoes it on subsequent requests.
-   Nothing is stored for it yet.
-2. The generated client shim attaches `Datapages-Instance` to every
-   subsequent Datastar action request and to the SSE stream connect.
-3. On the stream connect, before the stream is opened, the server checks that
-   the header is 22 characters from the base64url alphabet,
-   allocates a zeroed `*T` (the page's bound state type) and registers
-   the `id -> slot` mapping. The slot is therefore reachable by the time
-   `StreamOpen` runs, and by the time any event handler of that stream runs.
-   When `StreamOpen` declares `state`, that pointer is passed to it.
-4. For stateful action and `OnXXX` calls, the server applies the same header
-   check,
-   looks up the slot, acquires its mutex, and invokes the user handler with `state`.
-   A missing slot (for example, an action fired before the tab connected its stream)
-   yields `409 Conflict` with `Datapages-Retry: reconnect`.
-5. When the stream closes, whether or not the page declares `StreamClose`,
-   the slot drops its reference to the state at once and the instance leaves the map.
-   The garbage collector reclaims the value once nothing else holds it.
-   A reconnect with the same id opens a new stream and allocates a new `*T`.
-   An instance lives exactly as long as the stream that created it and is
-   never reused by another stream.
+1. `GET` generates an identifier, sets `Datapages-Instance` in the response, and embeds it in the HTML. No state is allocated yet.
+2. The client includes the header in later Datastar actions and SSE connects.
+3. On connect, the server checks for 22 base64url characters, allocates a zeroed `*T`, and registers the `id -> slot` mapping before `StreamOpen` or event handlers run.
+4. Before a stateful action or `OnXXX`, the server validates the header, looks up and locks the slot, and passes its state to the handler. A missing slot yields `409 Conflict` with `Datapages-Retry: reconnect`.
+5. On disconnect, the server removes the instance and releases its reference to the state. Reconnect with the same ID allocates a new `*T`; instances are never reused across streams.
 
-With the default `GET` return values, hiding a tab closes its stream and
-releases its state. When the tab becomes visible, Datapages reloads the page,
-which creates a new instance with zeroed state. Keep state reconstructible from
-the URL or signals that `StreamOpen` reads. If state must survive while the tab
-is hidden, return `enableBackgroundStreaming=true`; this keeps the stream open
-and disables the visibility reload.
-Returning only `disableRefreshAfterHidden=true` stops the reload but does not keep
-the stream or its state alive while the tab is hidden.
+By default, hiding a tab closes its stream and releases its state. Visibility reload creates a new instance with zeroed state. State needed after reload must be reconstructible from the URL or signals read by `StreamOpen`. Returning `enableBackgroundStreaming=true` keeps the stream and state alive and disables visibility reload. Returning only `disableRefreshAfterHidden=true` suppresses the reload without preserving state.
 
-**Configuration**. Without `datapages.WithStateConfig`, a server allows
-`datapages.DefaultMaxConcurrentInstances` live instances. Set a different
-limit with:
+**Configuration.** The default instance limit is `datapages.DefaultMaxConcurrentInstances`. Set it with `datapages.WithStateConfig(datapages.StateConfig{MaxConcurrentInstances: n})`.
 
-```go
-s, err := datapages.NewServer[
-    app.App, datapages.DisableSessions, datapages.DisablePrometheus, datapagesgen.Server,
-](a, msgBroker,
-    datapages.WithStateConfig(datapages.StateConfig{
-        MaxConcurrentInstances: 10_000, // optional, 0 takes the default
-    }),
-)
-```
+**Identifier.** `Datapages-Instance` is 16 random bytes from `crypto/rand`, encoded as 22 unpadded base64url characters. It is not signed; possession authorizes access to the tab's state.
 
-**The identifier**. The `Datapages-Instance` id is 16 bytes from `crypto/rand`,
-encoded as 22 unpadded base64url characters. It is not signed. Possession of
-the id authorizes access to its state, and 128 bits of randomness make another
-tab's id impractical to guess.
+The server accepts any well-formed ID, including one issued elsewhere. The stream creates state on the server it reaches, so `GET` and the stream may reach different servers. Validation bounds map keys to 22 base64url characters.
 
-A server accepts any well-formed id, including one it did not mint. The stream
-creates the state on the server it reaches. This permits a load balancer to
-route the page `GET` and the stream to different servers without a shared key.
-A signature would prove only that a server issued the id. It would not stop a
-client from consuming the instance limit because any client can request a
-minted id with `GET`. The shape check bounds the map key to 22 base64url
-characters.
+A process restart drops all instances. Reconnect creates zeroed state under the same ID. An action arriving before reconnect receives `409` and reloads once.
 
-A process restart drops every live instance. A tab whose stream reconnects
-first gets a zeroed state under the same id. A tab whose action arrives first
-is answered `409` and reloads once.
+`MaxConcurrentInstances` caps live instances across state types, separately for each server. A client can hold at most one instance per open stream. Zero selects `DefaultMaxConcurrentInstances`; a negative value removes the cap. Size the cap by state memory use and limit per-client connections separately.
 
-`MaxConcurrentInstances` caps how many instances the server holds at the same
-time, across all state types. The budget belongs to the server it is configured
-on: two servers built in one process count and cap their instances independently.
-A page load plus an SSE connect creates one, which anyone who reaches
-the server can ask for. One client holds no more of them than it holds open streams.
-Size the cap by the memory one state value costs.
-Zero selects `DefaultMaxConcurrentInstances`. A negative value removes the cap,
-which leaves what per-tab state may take bounded by nothing this server knows
-about: bound it elsewhere, by capping the connections one client may hold.
+Connects exceeding the cap receive `503 Service Unavailable` with `Retry-After`. Stateful stream initialization uses `{retry:'error'}`. Datastar ignores `Retry-After` and retries after 1s, doubling to a 30s ceiling, for 10 attempts (about three minutes). After retries are exhausted, the next stateful action receives `409` and reloads. Existing instances continue to work. The application receives no cap notification. `Server.StateLiveInstances()` reports the live count; servers with Prometheus export it as `datapages_state_instances`. The configured cap is not exported. The gauge counts each server in the process that registered metrics.
 
-A stream connect that would exceed the cap receives `503 Service Unavailable`
-with `Retry-After`. The stream init of a stateful page carries `{retry:'error'}` for it.
-Datastar's default policy retries network errors only and would
-leave such a tab without a stream until the visitor reloads.
-`Retry-After` is not an input Datastar reads: its own backoff applies,
-starting at 1s, doubling to a 30s ceiling, over 10 attempts, which spans about
-three minutes. A tab that exhausts them holds a page with no stream, and its
-next stateful action is answered `409`, which reloads the page once.
-Actions of a tab that already holds an instance keep working.
-Nothing in the app is notified, which makes the cap a limit to watch rather than
-one to rely on. What to watch is the live count: a server built with Prometheus
-exports it as the gauge `datapages_state_instances`, and every server answers
-`Server.StateLiveInstances()`. The cap itself is not exported. It is
-configuration the operator sets, and the gauge, like every other one,
-counts each server of the process that registered metrics.
+**Multi-server routing.** State is process-local. A tab's stream and actions must reach the same backend. Hashing `Datapages-Instance` routes both to the same server; `GET` can reach any server because it has no ID yet. Session or affinity-cookie routing also works. Round-robin routing causes `409` responses and reloads.
 
-**Sticky sessions on multi-server deployments**. State lives in process
-memory. The stream and the actions of one tab must land on the same backend.
-A load balancer that hashes on the `Datapages-Instance` header
-satisfies this for every tab, signed in or not: the page `GET` carries no
-header yet and lands on any server, the stream connect carries one and lands
-on the server the id hashes to, and that server allocates the state. A
-balancer that hashes on a session or affinity cookie also works. A round-robin
-balancer produces frequent `409` rejections followed by reloads.
+**Rate limiting.** Datapages enforces only the global instance cap. Middleware added with `WithMiddleware` can enforce a per-session limit by matching the stream path; it wraps the whole router.
 
-**Rate limiting**. An instance lives no longer than its stream, which leaves a
-per-client connection limit bounding how many one client can hold. Datapages
-meters nothing beyond the global cap. A per-session cap is `WithMiddleware` on
-the stream route.
+**Security.** An inline script captures the ID from the HTML response and removes itself. The ID is not stored in cookies, browser storage, or a persistent DOM node. Another tab cannot observe it. Access to another tab's state requires its 128-bit random ID.
 
-**Security**. The instance id arrives in the HTML response and is closed over
-by the inline script that reads it. That script removes itself from the
-document as it runs, which leaves the id in no cookie, in no `localStorage`,
-`sessionStorage` or `IndexedDB`, and in no DOM node a later reader can find.
-Another tab on the same origin cannot observe it. A new well-formed id creates
-only new state when its stream connects. Reaching another tab's state requires
-that tab's 128-bit random id.
-
-That script is inline and runs at parse time, which a module script cannot do
-without missing the requests made before it installs. An application that sets
-a `Content-Security-Policy` needs `script-src 'unsafe-inline'` for it.
-There is no nonce hook.
+The script runs at parse time. Applications setting `Content-Security-Policy` must allow `script-src 'unsafe-inline'`; no nonce hook exists.
 
 #### Parameter: `datapages.Signals[struct {...}]`
 
 ```go
 signals datapages.Signals[struct {
 	Foo string `json:"foo"`
-	Bar int	`json:"bar"`
+	Bar int    `json:"bar"`
 }]
 ```
 
-Provides the captured [Datastar signals](https://data-star.dev/guide/reactive_signals)
-from the page. The parameter is recognized by its `datapages.Signals` type,
-its name is up to the application. The values are read from the `Values` field.
-Signal fields map directly to Datastar signal names via their `json` tags.
-Any named or anonymous struct is accepted as the type argument,
-but every field must have a json struct field tag.
-Any JSON-serializable field type is supported, including nested structs, slices, and maps.
+`Signals` captures [Datastar signals](https://data-star.dev/guide/reactive_signals) in `Values`. The parameter name is unrestricted. Its type argument may be a named or anonymous struct; every field requires a `json` tag. Any JSON-serializable field type is supported, including nested structs, slices, and maps.
 
 Nested structs map to nested Datastar signals using dot notation:
 
@@ -655,15 +328,9 @@ signals datapages.Signals[struct {
 }]
 ```
 
-This maps to Datastar signals `$form.name` and `$form.email`, initialized in
-templates with `data-signals:form.name="''"` and `data-signals:form.email="''"`,
-or as a single object `data-signals="{form: {name: '', email: ''}}"`.
-The Go handler receives the nested values as `signals.Values.Form.Name` and
-`signals.Values.Form.Email`.
+This maps to `$form.name` and `$form.email`, accessible as `signals.Values.Form.Name` and `signals.Values.Form.Email`.
 
-Signals travel in the request body of an action, which is read up to 1 MiB.
-A request carrying more is answered with 400. `datapages.WithBodySizeLimit`
-raises or lowers that cap for the whole server.
+Action bodies carrying signals are limited to 1 MiB by default. Oversized bodies receive 400. `datapages.WithBodySizeLimit` changes the server-wide limit.
 
 #### Parameter: `datapages.Path[struct {...}]`
 
@@ -673,14 +340,9 @@ path datapages.Path[struct {
 }]
 ```
 
-Provides URL path parameters. These parameters must be defined in the URL comment.
-The parameter is recognized by its `datapages.Path` type, its name is up to the
-application. The values are read from the `Values` field.
-Both named and anonymous struct types are accepted as the type argument.
+`Path` provides URL path parameters in `Values`. Each must appear in the URL comment. The parameter name is unrestricted; its type argument may be a named or anonymous struct.
 
-Each field must be exported with a `path:"..."` struct tag
-where the tag value names the corresponding route variable
-(e.g. `path:"id"` binds to `{id}` in the URL pattern).
+Each field must be exported and tagged with its route variable: `path:"id"` binds to `{id}`.
 
 Supported field types are:
 
@@ -699,42 +361,26 @@ Supported field types are:
 - `float32`
 - `float64`
 
-or any type implementing `encoding.TextUnmarshaler`.
-Values are parsed from their string representation in the URL.
-If a value cannot be parsed into the target type, the request
-returns HTTP 400 Bad Request. A float field also rejects `Inf`, `+Inf`,
-`-Inf` and `NaN`, which `strconv.ParseFloat` accepts: a non-finite value
-does not marshal to JSON and does not round-trip through a URL builder.
+Types implementing `encoding.TextUnmarshaler` are also supported. Parse failures return 400. Float fields reject `Inf`, `+Inf`, `-Inf`, and `NaN`.
 
-The generated `href` and `action` builders write the same values back into a URL.
-A type implementing `encoding.TextMarshaler` is taken as that interface
-and written as what it marshals to, which is what makes the round trip the
-type's own business. Every other type is taken as its basic kind,
-a named string included: the builders live in packages the app package imports,
-hence they cannot name a type the app package declares.
+Generated `href` and `action` builders encode `encoding.TextMarshaler` values with that interface. Other values, including named strings, use their basic kind because the builders cannot import app-defined types.
 
 #### Parameter: `datapages.Query[struct {...}]`
 
 ```go
 query datapages.Query[struct {
 	Filter string `query:"f"`
-	Limit  int	`query:"l"`
+	Limit  int    `query:"l"`
 }]
 ```
 
-Provides URL query parameters.
-The parameter is recognized by its `datapages.Query` type, its name is up to the
-application. The values are read from the `Values` field.
-Both named and anonymous struct types are accepted as the type argument.
+`Query` provides URL query parameters in `Values`. The parameter name is unrestricted; its type argument may be a named or anonymous struct.
 
-Each field must be exported with a `query:"..."` struct tag
-where the tag value names the query parameter key
-(e.g. `query:"f"` reads from `?f=...`).
+Each field must be exported and tagged with its query key: `query:"f"` reads `?f=...`.
 
 The same field types as [`datapages.Path`](#parameter-datapagespathstruct-) are supported.
 
-The `reflectsignal` struct field tag can be used to define what signal shall reflect
-into the query parameter:
+The `reflectsignal` tag binds a signal to a query parameter:
 
 ```go
 signals datapages.Signals[struct {
@@ -745,32 +391,15 @@ query datapages.Query[struct {
 }]
 ```
 
-The above example will automatically synchronize the query parameter `s` with the
-signal `selecteditem`.
+Here, `s` and `selecteditem` are synchronized.
 
-A `json:"..."` tag of a signals struct declares one signal and must be a
-JavaScript identifier that starts lower case, `[a-z_][A-Za-z0-9_]*`. The name is
-written into an attribute name and read back as `$name`. An attribute name
-cannot be escaped, and `$name` is code rather than a string. Anything else
-breaks the page. `json:"-"` is refused too: `encoding/json` leaves the field out
-and the handler only ever sees the zero value.
+Signal `json` tags must match `[A-Za-z_][A-Za-z0-9_]*` and must not contain `__`. `json:"-"` is rejected.
 
-A double underscore is refused wherever it stands, since Datastar reads it as
-the delimiter of an attribute modifier. A single leading underscore is allowed
-and means something: Datastar leaves such a signal out of requests to the
-server by default, so a signals struct field declared `json:"_draft"` stays
-empty unless the page opts it back in with the `filterSignals` action option.
+Datastar treats `__` as an attribute modifier delimiter. A leading single underscore is allowed, but Datastar omits that signal from requests unless `filterSignals` includes it.
 
-Upper case is carried by a hyphen. An HTML parser lowercases every attribute name,
-which is why Datastar reads one back as camel case: `data-signals:my-signal`
-is the signal `mySignal`. Datapages writes that hyphenated form, so a signal
-declared `json:"newTitle"` reaches the page as `data-signals:new-title`
-and the expressions read `$newTitle`. A hyphen in the name itself is refused,
-since Datastar would read it as the boundary, and an upper case first character with it,
-since no hyphen can precede it.
+Datapages writes uppercase letters with a preceding hyphen in attribute names: `json:"newTitle"` becomes `data-signals:new-title` and `$newTitle`. Hyphens in signal `json` tags are rejected. Each step of a `reflectsignal` path must not start with an uppercase letter.
 
-A period is refused there. It stands between the steps of a signal path,
-and a signals struct writes a path by nesting a struct:
+Periods are rejected in signal names. Nested structs define signal paths:
 
 ```go
 signals datapages.Signals[struct {
@@ -783,15 +412,11 @@ signals datapages.Signals[struct {
 }]
 ```
 
-declares the two signals `foo.bar.bazz` and `foo.fuzz`, which the client sends
-as `{"foo":{"bar":{"bazz":...},"fuzz":...}}`. A `json:"foo.bar"` tag is one key
-that happens to carry a period, which no client sends.
+This declares `foo.bar.bazz` and `foo.fuzz`. A `json:"foo.bar"` tag would instead declare a single key that the client does not send.
 
-A `reflectsignal:"..."` tag references one of those signals by its path, so
-periods belong there: `reflectsignal:"foo.fuzz"`.
+A `reflectsignal` tag references the full path, such as `reflectsignal:"foo.fuzz"`.
 
-A query tag is a URL parameter name and stays free of that rule. It may carry anything,
-a quote included, and is escaped where it is written into the page.
+Query tags may contain any characters, including quotes; their values are escaped when written into the page.
 
 #### Parameter: `session datapages.Session[Data]`
 
@@ -799,51 +424,19 @@ a quote included, and is escaped where it is written into the page.
 session datapages.Session[Data]
 ```
 
-Provides authentication information from cookies.
-The parameter is recognized by its `datapages.Session` type,
-its name is up to the application.
+`Session` provides cookie-based authentication. Its parameter name is unrestricted.
 
-The session is read-only: it exposes `UserID()`, `IsGuest()`, `Token()`,
-`IssuedAt()`, `ExpiresAt()` and `Data()`, and returning [`newSession`](#return-value-newsession-datapagesnewsessiondata)
-is the only way to change it. `Data` is the application payload,
-use `struct{}` when the application keeps nothing else in the session.
+`Session` is read-only and exposes `UserID()`, `IsGuest()`, `Token()`, `IssuedAt()`, `ExpiresAt()`, and `Data()`. Only a [`newSession`](#return-value-newsession-datapagesnewsessiondata) return value changes it. Use `struct{}` for `Data` when no application payload is needed.
 
-The type is defined in [datapages.go](datapages.go), which documents each method
-and is the source of truth. It is also rendered on
-[pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#Session).
+See [datapages.go](datapages.go) for method definitions.
 
-A client whose `ExpiresAt()` has passed is treated as unauthenticated and its
-session cookie is removed, the zero value never expires.
+Expired sessions are unauthenticated and their cookies are removed. A zero `ExpiresAt()` never expires.
 
-An action that declares no session is CSRF-checked against the session cookie
-alone. The session store is not read for it, hence the cookie of a session that
-was closed or expired passes that check. An action that declares a session is
-checked after the store read, which rejects it.
+An action without a session parameter checks CSRF against the cookie without reading the session store; a closed or expired session cookie passes this check. An action with a session parameter reads the store and rejects such sessions.
 
-Expiry that way reclaims only the sessions a client comes back to: the read is
-what notices one and drops it. An abandoned session is never read again.
-Every session manager implements `DeleteExpired`, which the Datapages never calls.
-The application developer decides when and how often to garbage collect.
+Expired sessions are removed on read. Datapages does not call the session manager's `DeleteExpired`; applications must schedule cleanup for abandoned sessions.
 
-```go
-go func() {
-	t := time.NewTicker(time.Hour)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			if _, err := sessionManager.DeleteExpired(ctx); err != nil {
-				slog.Error("deleting expired sessions", slog.Any("err", err))
-			}
-		}
-	}
-}()
-```
-
-All handlers of an application must use the same `Data` type, since the server
-holds a single session manager. Declaring an alias keeps the signatures short:
+All handlers must use the same `Data` type because the server has one session manager. A type alias is permitted:
 
 ```go
 type SessionData struct {
@@ -851,13 +444,6 @@ type SessionData struct {
 }
 
 type Session = datapages.Session[SessionData]
-
-func (p PageIndex) GET(r *http.Request, session Session) (
-	body datapages.Component, err error,
-) {
-	_ = session.Data().Name
-	return pageIndex(), nil
-}
 ```
 
 #### Parameter: `sse datapages.SSE`
@@ -866,35 +452,21 @@ func (p PageIndex) GET(r *http.Request, session Session) (
 sse datapages.SSE
 ```
 
-This parameter is allowed on `POSTXXX`, `PUTXXX`, `PATCHXXX`, and `DELETEXXX` page methods
-handling [action requests](https://data-star.dev/reference/actions),
-on `OnXXX` event handler page methods, on `StreamOpen` and on `RecoverError`.
-`StreamClose` does not accept it.
-This gives you a handle to patch page elements, execute scripts, etc.
+`SSE` is allowed on page action methods, `OnXXX`, `StreamOpen`, and `App.RecoverError`. Global `*App` actions and `StreamClose` cannot take it.
 
-`datapages.SSE` (from `github.com/romshark/datapages`) hides the underlying
-Datastar generator so handler signatures never depend on the datastar package
-directly.
+`datapages.SSE` exposes Datastar operations without a Datastar dependency in handler signatures.
 
-It provides `Context`, `PatchElement`, `PatchElementAt`, `RemoveElement`,
-`ExecuteScript`, `PatchSignals`, `PatchSignalsIfMissing`, `Redirect` and
-`Prefetch`, alongside the `PatchMode` constants.
+It provides `Context`, `PatchElement`, `PatchElementAt`, `RemoveElement`, `ExecuteScript`, `PatchSignals`, `PatchSignalsIfMissing`, `Redirect` and `Prefetch`, alongside the `PatchMode` constants.
 
-`PatchElement(c)` morphs each rendered element into the element carrying its id.
-`PatchElementAt(c, selector, mode)` names the target and how it is applied:
+`PatchElement(c)` morphs each rendered element into the element with its ID. `PatchElementAt(c, selector, mode)` specifies a target and patch mode:
 
 ```go
 return sse.PatchElementAt(toast(msg), "#toaster", datapages.PatchModeAppend)
 ```
 
-Both methods refuse a selector containing `\r` or `\n` with
-`datapages.ErrSelectorLineBreak`. The selector is written on one line of the
-event, and a line break ends that line: without the check, a selector built
-from client data could add events of its own.
+`PatchElementAt` and `RemoveElement` reject selectors containing `\r` or `\n` with `datapages.ErrSelectorLineBreak`.
 
-The interface is defined in [datapages.go](datapages.go), which documents each
-method and is the source of truth. It is also rendered on
-[pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#SSE).
+See [datapages.go](datapages.go) for method definitions.
 
 #### Parameter: `pageCache datapages.PageCacheWriter`
 
@@ -1017,12 +589,7 @@ See [Service Worker](#service-worker) for how these entries are stored and serve
 xxx datapages.Dispatcher[EventXXX]
 ```
 
-This parameter dispatches events, which can be handled by `OnXXX` page methods.
-Its name is free, the type is what makes it a dispatcher.
-`EventXXX` must be an event type. It's declared in the application package,
-or in a package the application package imports.
-When two applications share an event, both use the same type.
-See [Events declared outside the application package](#events-declared-outside-the-application-package).
+`Dispatcher[EventXXX]` publishes events handled by `OnXXX`. The parameter name is unrestricted. `EventXXX` must be an event type declared in the application package or a reachable imported package. Shared events use the same type; see [Events declared outside the application package](#events-declared-outside-the-application-package).
 
 ```go
 type Dispatcher[Event any] interface {
@@ -1031,21 +598,9 @@ type Dispatcher[Event any] interface {
 }
 ```
 
-`Dispatch` publishes with the context of the handler that dispatches: the request
-context in actions, and the request context without its cancelation in stream
-hooks, which run while the stream is being torn down. `DispatchCtx` publishes with
-the given context, which a handler needs only when it dispatches after
-returning, from a goroutine that outlives it, or when the publish needs a
-deadline of its own:
+`Dispatch` uses the request context in actions and the request context without cancellation in stream hooks. `DispatchCtx` uses its explicit context, including for publication after a handler returns or with a separate deadline.
 
-```go
-ctx, cancel := context.WithTimeout(r.Context(), time.Second)
-defer cancel()
-return somethingHappened.DispatchCtx(ctx, EventSomethingHappened{})
-```
-
-An event type must use json struct field tags, and be strictly commented with
-`// EventXXX is "xxx"` (where `"xxx"` is the NATS subject prefix):
+Event fields require `json` tags. The event type comment must have the form `// EventXXX is "xxx"`, where `xxx` is the NATS subject prefix:
 
 ```go
 // EventExample is "example"
@@ -1056,9 +611,7 @@ type EventExample struct {
 
 ##### Events declared outside the application package
 
-An event type can also live in another package, which the application package
-reaches directly or through a package between. A handler or a dispatcher then
-uses it like any other event type:
+An event type may be declared in a directly or transitively imported package:
 
 ```go
 // package events, imported by both app packages
@@ -1077,132 +630,45 @@ func (PageIndex) POSTAnnounce(
 ) error
 ```
 
-The subject, the payload and the subject fields are read where the type is written,
-and every rule above applies there.
+Subject, payload, and subject fields are read from the declaring package.
 
-Two applications that use the same type publish and subscribe to the same subject.
-That is the point: what one dispatches reaches the streams of both.
-It's also the only supported way to share an event. Two applications that each
-declare their own event with the same subject are refused,
-since no two events may share a subject.
+Applications using the same event type share its subject. Separate event types with the same subject are rejected.
 
-Two restrictions:
+Restrictions:
 
-- The type must be reachable from the application package, through its imports
-  and theirs. `datapages gen` reads no further.
-- One application must not use two event types with the same name, wherever
-  they are declared. Generated code has one identifier per event type name.
+- The type must be reachable through application-package imports.
+- An application cannot use two event types with the same name, regardless of declaring package.
 
-A type alias is not a declaration. `type EventX = other.EventX` points at the
-event of the other package, and that is the event: the subject, the payload and
-the package it counts as all come from where the type behind the alias is
-written. The alias can sit in the application package or anywhere between.
+A type alias such as `type EventX = other.EventX` refers to the original event's subject, payload, and declaring package. It may occur anywhere along the import path.
 
-For a user-addressed event, every application that uses it must agree on what a
-user ID means: the ID becomes part of the subject.
+Applications sharing a user-addressed event must use the same user ID namespace.
 
-Events can declare subject fields to build targeted NATS subjects.
-A field is a subject field when its type is one of these:
+Events may declare subject fields for targeted NATS subjects:
 
 | type | segment |
 | ---- | ------- |
 | `datapages.Subject` | a segment value |
 | `datapages.SubjectUser` | the ID of the user the event is addressed to |
 
-The field name is free, the type decides. Subject fields must be exported and
-must be defined before any payload field.
+Subject fields must be exported and precede payload fields. Names are unrestricted; types determine their role.
 
-Each subject field carries exactly one value, and one dispatch publishes to
-exactly one subject. When an event is dispatched, subject field values are
-appended (in field definition order) to the event's base subject, separated by
-dots.
+Each dispatch publishes to one subject. Subject field values follow the base subject in field order, separated by dots. For base `notify` and values `u1`, `r1`, and `mobile`, the subject is `notify.u1.r1.mobile`.
 
-For example:
+A subject field value may contain any byte. `.`, `*`, `>`, `%`, and whitespace are escaped into one literal segment. Escaping `%` distinguishes a literal value such as `a%2Eb` from an encoded `a.b`. Empty values cause dispatch to fail without publishing.
 
-```go
-// EventNotify is "notify"
-type EventNotify struct {
-	Recipient datapages.SubjectUser `json:"recipient"`
-	Room      datapages.Subject     `json:"room"`
-	Device    datapages.Subject     `json:"device"`
+Publish and subscription use the same escaping. Values that need none remain unchanged; `a.b` becomes `a%2Eb` in the broker subject.
 
-	Text string `json:"text"`
-}
+Addressing multiple values requires one dispatch per value. Each dispatch can fail independently, and each recipient receives only its addressed payload.
 
-notify.Dispatch(EventNotify{
-	Recipient: "u1",
-	Room:      "r1",
-	Device:    "mobile",
-})
-```
+`datapages.SubjectUser` requires authentication and routes to the named user. An application dispatching such an event must define a Session type.
 
-publishes to the subject `notify.u1.r1.mobile`.
-
-A subject field value may carry any byte. A value is escaped on its way into
-the subject, so `.`, `*`, `>` and whitespace name one segment rather than
-ending it or matching more than themselves. An email address is a valid value.
-Only an empty value is refused: it names no segment, and the dispatch returns
-an error and publishes nothing.
-
-The escaping is applied to the publish and the subscription alike,
-and a value that needs none is used as it is. Escaped values reach the broker
-percent-encoded, so `a.b` publishes to `notify.a%2Eb`.
-
-To reach several rooms, or several users, dispatch once per value:
-
-```go
-for _, room := range rooms {
-	err := notify.Dispatch(EventNotify{
-		Recipient: "u1",
-		Room:      datapages.Subject(room),
-		Device:    "mobile",
-		Text:      "hello",
-	})
-	if err != nil {
-		return err
-	}
-}
-```
-
-The framework doesn't fan a single dispatch out over multiple values.
-Each publish can fail on its own, and the handler decides whether to stop, continue,
-or join the errors. Fanning out also means marshaling one payload per publish,
-so each recipient receives only the values addressed to them.
-
-A `datapages.SubjectUser` field makes the event stream require authentication:
-only the client authenticated as that user receives the event. An application
-dispatching such an event must define a Session type.
-
-The user ID names the subject on both sides and is escaped there like any
-other subject field value, which is why it can be an email address.
-Only its length is bounded, since the whole subject has to fit what the broker accepts
-on one line. Use [`datapages.ValidateUserID`](#validating-a-user-id) to check
-an ID before a session carries it.
-
-```go
-// EventDirectMessage is "message.direct"
-type EventDirectMessage struct {
-	Recipient datapages.SubjectUser `json:"recipient"`
-
-	Text   string `json:"text"`
-	Sender string `json:"sender"`
-}
-```
+User IDs are escaped like other subject values and may be email addresses. Their encoded length is bounded; see [`datapages.ValidateUserID`](#validating-a-user-id).
 
 ##### Signal-scoped subject fields
 
-A subject field that doesn't address users can carry a `signal:"<name>"` struct
-tag to bind its value to a client-side Datastar signal. When a client connects to
-the SSE stream, the server reads the signal value and uses it to build the
-subscription subject. This enables per-instance event routing without
-authentication.
+A non-user subject field may use `signal:"<name>"` to bind its subscription value to a Datastar signal. On SSE connect, the server reads the signal and builds the subscription subject.
 
-The tag references a signal the page declares, so it carries the same name,
-the periods of a nested path included
-(e.g. `signal:"instance_id"`, `signal:"form.calc_id"`, `signal:"calcId"`).
-
-`datapages.SubjectUser` must not have a signal tag: it's already bound to the
-authenticated user.
+The tag must name a signal declared by the page, including periods in a nested path (for example, `signal:"form.calc_id"`).
 
 ```go
 // EventCalcUpdated is "calc.updated"
@@ -1213,13 +679,9 @@ type EventCalcUpdated struct {
 }
 ```
 
-When the SSE stream handler runs, it reads `instance_id` from the client's signals,
-escapes it, and subscribes to `calc.updated.<instance_id>`. An empty signal is
-refused with 400. A wildcard needs no refusing: escaped, it is one literal segment,
-so a client sending `*` subscribes to that value and to nothing else.
+Here, SSE connect subscribes to `calc.updated.<instance_id>` after escaping the signal. An empty value receives 400. A `*` is escaped as one literal segment.
 
-Signal-scoped events can be mixed with user-addressed events and plain public
-events on the same page. They can also coexist with non-signal subject fields:
+Signal-scoped events may coexist with user-addressed and public events on a page. Signal-scoped fields may coexist with other subject fields:
 
 ```go
 // EventRoomUpdate is "room.update"
@@ -1236,162 +698,36 @@ type EventRoomUpdate struct {
 
 - A user-addressed subject field must not have a `signal:"..."` tag.
 - No two subject fields may share the same `signal:"..."` tag value.
-- Signal tag names must match `[a-z][a-z0-9_.]*`.
-- Two events must not share a subject. The rule holds across the whole module:
-  two applications given one broker deliver each other's events, and each
-  decodes the other's payload into its own event type. `datapages gen` and
-  `datapages lint` report a subject two app packages of the module claim.
-  Two applications that are meant to share an event name one declaration instead,
-  see [Events declared outside the application package](#events-declared-outside-the-application-package).
-- An event with subject fields occupies every subject below its own. No other
-  event may declare one there. `"notify"` with one subject field rules out
-  `"notify.user"`, since a page cannot tell the two apart on arrival.
+- `signal` tag values must be period-separated signal names. Each step follows the `Signals` `json` tag rule.
+- Two event types cannot claim the same subject anywhere in a module. `datapages gen` and `datapages lint` report conflicts across applications. To share a subject, use one event declaration; see [Events declared outside the application package](#events-declared-outside-the-application-package).
+- An event with subject fields reserves every subject below its base. `"notify"` with one subject field conflicts with `"notify.user"`.
 
-The following is invalid because a subject field appears after a payload field:
+Subject fields after payload fields are invalid. A field named like a subject field must have a subject-field type. Types declared from subject-field types, such as `type UserID datapages.SubjectUser`, are rejected.
 
-```go
-// EventInvalid is "invalid"
-type EventInvalid struct {
-	Message   string `json:"message"`
-	Recipient datapages.SubjectUser // ERROR: subject field after payload field
-}
-```
-
-A field named like a subject field but not typed as one is rejected, since it reads as routing metadata but would silently become
-payload:
-
-```go
-// EventInvalid2 is "invalid2"
-type EventInvalid2 struct {
-	SubjectUser string // ERROR: not typed as a subject field
-}
-```
-
-A field must name the subject type itself.
-A type declared from one is rejected, since it would silently become payload:
-
-```go
-type UserID datapages.SubjectUser
-
-// EventInvalid3 is "invalid3"
-type EventInvalid3 struct {
-	Recipient UserID `json:"recipient"` // ERROR: declared from datapages.SubjectUser
-}
-```
-
-One dispatcher publishes one event type. A handler that publishes several
-declares one parameter per type, and it must not declare two for the same type:
-
-```go
-typeA datapages.Dispatcher[EventTypeA],
-typeB datapages.Dispatcher[EventTypeB],
-typeC datapages.Dispatcher[EventTypeC],
-```
-
-The events go out in the order the handler dispatches them.
-Nothing is atomic across them: a failed publish neither undoes the ones before it nor
-stops the ones after, which is why joining the errors is usually what you want:
-
-```go
-return errors.Join(
-	typeA.Dispatch(EventTypeA{}),
-	typeB.Dispatch(EventTypeB{}),
-)
-```
-
----
-
-<details>
-<summary>Example</summary>
-
-```go
-// EventMessageSent is "chat.sent"
-type EventMessageSent struct {
-	Recipient datapages.SubjectUser `json:"recipient"`
-	ChatRoom  datapages.Subject     `json:"chat_room"`
-
-	Message string `json:"message"`
-	Sender  string `json:"sender"`
-}
-
-// PageChat is /chat
-type PageChat struct { App *App }
-
-func (PageChat) POSTSendMessage(
-	r *http.Request,
-	session Session,
-	signals datapages.Signals[struct {
-		InputText string `json:"inputtext"`
-		ChatRoom  string `json:"chatroom"`
-	}],
-	messageSent datapages.Dispatcher[EventMessageSent],
-) error {
-	if !isUserAllowedToSendMessages(session.UserID()) {
-		return errors.New("unauthorized")
-	}
-	if signals.Values.InputText == "" {
-		return nil // No-op.
-	}
-	for _, participant := range chatroom.ParticipantIDs {
-		err := messageSent.Dispatch(EventMessageSent{
-			Recipient: datapages.SubjectUser(participant),
-			ChatRoom:  datapages.Subject(signals.Values.ChatRoom),
-			Message:   signals.Values.InputText,
-			Sender:    session.UserID(),
-		})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (PageChat) OnMessageSent(
-	event EventMessageSent,
-	sse datapages.SSE,
-	session Session,
-) error {
-	// Use sse to patch the new message into view.
-}
-```
-
-</details>
+Each dispatcher publishes one event type. A handler may declare one dispatcher per event type, but cannot declare two for the same type. Events publish in dispatch order. Failure does not undo earlier publishes or prevent later ones.
 
 ##### Event delivery
 
-Delivery is at most once, without replay. An event reaches the streams
-subscribed to its subject at the time of the publish.
+Delivery is at most once, without replay, to streams subscribed at publish time.
 
-A stream misses an event when:
+A stream misses events when:
 
-- its tab is in the background, where the stream is closed by default, see
-  [`enableBackgroundStreaming`](#get-return-value-enablebackgroundstreaming-datapagesenablebackgroundstreaming);
-- its subscription buffer is full. The buffer holds `ChanBuffer` messages, 16 by
-  default, and the broker drops what does not fit instead of blocking the
-  publisher. A stream consumes events one at a time: a slow `OnXXX` handler
-  fills the buffer.
+- its tab is hidden and its stream is closed by default; see [`enableBackgroundStreaming`](#get-return-value-enablebackgroundstreaming-datapagesenablebackgroundstreaming);
+- its subscription buffer is full. `messaging.DefaultBrokerChanBuffer` is 16 messages; built-in brokers may configure another size. The broker drops overflow instead of blocking the publisher; `OnXXX` consumes events serially.
 
-A missed event is not reported to the page. The UI stays stale until the next render,
-which by default follows the tab becoming visible again,
-see [`disableRefreshAfterHidden`](#get-return-value-disablerefreshafterhidden-datapagesdisablerefreshafterhidden).
-A render must therefore carry the full state, not a delta.
+Misses are not reported to the page. The next render must include full state; by default it occurs when the tab becomes visible again. See [`disableRefreshAfterHidden`](#get-return-value-disablerefreshafterhidden-datapagesdisablerefreshafterhidden).
 
-Applications built with Prometheus metrics export drops as
-`datapages_event_broker_deliveries_dropped_total`.
+Prometheus-enabled applications export drops as `datapages_event_broker_deliveries_dropped_total`.
 
 #### Return Value: `body datapages.Component`
 
-Specifies the [Templ](https://templ.guide/) template to use for the contents of the page.
+The [Templ](https://templ.guide/) component for page contents.
 
 #### Return Value: `head datapages.Head`
 
-Specifies the [Templ](https://templ.guide/) template to use for `<head>` tag of the page.
-`datapages.Head` is `datapages.Component` under another name, which is what
-tells the head apart from the body.
-Return values are recognized by their type, their names are up to the application.
+The [Templ](https://templ.guide/) component for the page's `<head>`. `datapages.Head` is a distinct name for `datapages.Component`. Return values are identified by type; names are unrestricted.
 
-An action returning a `head` must also return a `body`. The head travels in the
-response the action renders, and without a body there is no response to put it in.
+An action returning `head` must also return `body`.
 
 #### Return Value: `redirect datapages.Redirect`
 
@@ -1399,21 +735,15 @@ response the action renders, and without a body there is no response to put it i
 redirect datapages.Redirect
 ```
 
-Redirects the client to `redirect.URL` with the status code `redirect.Status`.
-The zero value is a no-op, the client stays on the current page.
+Redirects to `redirect.URL` with `redirect.Status`. The zero value is a no-op.
 
 ```go
 return datapages.Redirect{URL: href.PageIndex()}, nil
 ```
 
-`Status` defaults to `302 Found`, any code that isn't a redirect status is
-replaced by it. Requests issued by Datastar actions (carrying the header
-`Datastar-Request: true`) can't follow an HTTP redirect:
-they navigate client-side by assigning `window.location` and ignore `Status`.
+`Status` defaults to `302 Found`; non-redirect codes are replaced by 302. Datastar action requests (`Datastar-Request: true`) navigate by assigning `window.location` and ignore `Status`.
 
-The type is defined in [datapages.go](datapages.go),
-which documents each field and is the source of truth. It is also rendered on
-[pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#Redirect).
+See [datapages.go](datapages.go) for field definitions.
 
 #### Return Value: `newSession datapages.NewSession[Data]`
 
@@ -1421,12 +751,7 @@ which documents each field and is the source of truth. It is also rendered on
 newSession datapages.NewSession[Data]
 ```
 
-Signs a client in. Adds response headers to set a session cookie if
-`newSession.UserID` is not empty, otherwise no-op. Datapages generates the
-session token and stamps the issuance time, the handler supplies `UserID`, an
-optional `ExpiresAt` and `Data`. See
-[datapages.go](datapages.go) and
-[pkg.go.dev](https://pkg.go.dev/github.com/romshark/datapages#NewSession).
+Signs in a client when `UserID` is nonempty; otherwise it is a no-op. Datapages generates the token and issuance time. The handler supplies `UserID`, optional `ExpiresAt`, and `Data`. See [datapages.go](datapages.go).
 
 #### Validating a User ID
 
@@ -1434,26 +759,12 @@ optional `ExpiresAt` and `Data`. See
 func ValidateUserID(userID string) error
 ```
 
-A user ID may carry any byte: what cannot stand in a subject is escaped.
-Two things are still refused, and `datapages.ValidateUserID` reports both
-without allocating:
+A user ID may contain any byte; invalid subject bytes are escaped. `datapages.ValidateUserID` rejects:
 
-- `datapages.ErrUserIDEmpty`, an empty ID names nobody.
-- `datapages.ErrUserIDTooLong`, an ID whose escaped form is longer than
-  `datapages.MaxUserIDEncodedLen`. A subject travels on one broker line,
-  which bounds what fits.
+- `datapages.ErrUserIDEmpty`: empty ID.
+- `datapages.ErrUserIDTooLong`: escaped ID exceeds `datapages.MaxUserIDEncodedLen`.
 
-Call it before returning a `newSession`,
-to answer the request rather than fail the sign-in:
-
-```go
-if err := datapages.ValidateUserID(id); err != nil {
-	return fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
-}
-```
-
-`newSession` is checked against the same rule,
-and a sign-in carrying an ID that breaks it fails.
+`newSession` applies the same check and rejects invalid IDs.
 
 #### Return Value: `closeSession datapages.CloseSession`
 
@@ -1461,15 +772,13 @@ and a sign-in carrying an ID that breaks it fails.
 closeSession datapages.CloseSession
 ```
 
-Closes the session and removes any session cookie if `true`, otherwise no-op.
+If `true`, closes the session and removes its cookie. Otherwise it is a no-op.
 
 #### Return Value `error` or `err error`
 
-Regular error values that will be logged and followed by the error handling procedure
-(500 Internal Server Error, or `RecoverError` if defined).
+Ordinary errors are logged and produce 500 unless `RecoverError` handles them. Sentinels select the status of plain HTTP error responses.
 
-To return a specific HTTP status code instead of 500, return one of the sentinel
-errors from `github.com/romshark/datapages`:
+To specify an HTTP status, return a datapages sentinel:
 
 ```go
 func (p PageIndex) POSTInput(...) error {
@@ -1487,141 +796,89 @@ func (p PageIndex) POSTInput(...) error {
 }
 ```
 
-Available sentinels:
+Sentinels:
 - `datapages.ErrBadRequest` - 400
 - `datapages.ErrForbidden` - 403
 - `datapages.ErrNotFound` - 404
 - `datapages.ErrConflict` - 409
 
-Don't wrap more than one sentinel into a single error. If you do, the first of
-`ErrBadRequest`, `ErrForbidden`, `ErrNotFound`, `ErrConflict` decides the status.
+Do not wrap multiple sentinels into one error. If multiple occur, precedence is `ErrBadRequest`, `ErrForbidden`, `ErrNotFound`, then `ErrConflict`.
 
-Return a sentinel directly, or wrap into the original error. When `RecoverError` is
-defined, all errors (including the datapages sentinels) are routed through it first. If
-`RecoverError` is not defined or fails, the server responds with the appropriate HTTP
-status code using the standard status text.
+Sentinels may be returned directly or wrapped. `RecoverError` handles Datastar request errors when defined. For non-Datastar requests, `PageError500` renders with status 500 if defined and the response has not started. Without that page, `RecoverError` handles the error when defined. If `RecoverError` fails, its error is logged and the response remains as written. When neither handler applies and the response has not started, the server writes the corresponding status and standard status text.
 
 #### `GET` Return Value: `enableBackgroundStreaming datapages.EnableBackgroundStreaming`
 
-Can only be used for `GET` methods.
+Valid only on `GET`.
 
 ```go
 enableBackgroundStreaming datapages.EnableBackgroundStreaming
 ```
 
-By default, `OnXXX` event handlers can't deliver updates to background tabs.
-If `true`, the SSE stream is always kept open. This prevents missed updates when the tab
-is inactive, but increases battery and resource usage, especially on mobile devices.
+If `true`, keeps the SSE stream open while the tab is hidden. This permits `OnXXX` updates and increases client resource use.
 
-This is equivalent to datastar's [`openWhenHidden`](https://data-star.dev/reference/actions)).
+Equivalent to Datastar's [`openWhenHidden`](https://data-star.dev/reference/actions).
 
-Events published while the stream is closed are lost, they are not replayed when
-it opens again. See [Event delivery](#event-delivery).
+Closed streams lose events; see [Event delivery](#event-delivery).
 
-`enableBackgroundStreaming=true` will automatically disable the auto-refresh after
-hidden. If you want to prevent this, you have to explicitly add
-`disableRefreshAfterHidden` to the return values and set it to `false`.
+`true` also disables refresh after the tab becomes visible. Return `disableRefreshAfterHidden=false` explicitly to retain that refresh.
 
 #### `GET` Return Value: `disableRefreshAfterHidden datapages.DisableRefreshAfterHidden`
 
-Can only be used for `GET` methods.
+Valid only on `GET`.
 
 ```go
 disableRefreshAfterHidden datapages.DisableRefreshAfterHidden
 ```
 
-By default, Datapages refreshes the page when it becomes active again after being in the
-background (for example, when switching back from another tab).
-This is useful when `enableBackgroundStreaming` is `false`, since SSE events may be missed
-while the tab is inactive and the page state can become stale.
-You can disable this behavior by returning `disableRefreshAfterHidden=true`.
-Doing so leaves the page showing whatever it last rendered, since nothing else
-tells it that it missed an event. See [Event delivery](#event-delivery).
+By default, Datapages refreshes a page when its tab becomes visible again. Returning `true` disables this refresh. Events missed while the tab was hidden may leave the page stale; see [Event delivery](#event-delivery).
 
-Datapages relies on the
-[`visibilitychange`](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event)
-event to perform the automatic refresh.
+Refresh uses the [`visibilitychange`](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event) event.
 
 ## Dev Mode
 
-Dev mode is on when `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` holds anything.
-`datapages watch` runs the application under templier, which sets the latter.
-Setting `DATAPAGES_DEV_MODE` also sets `TEMPL_DEV_MODE` for the process,
-so templ sees the same mode.
+Dev mode is enabled when `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` is nonempty. `datapages watch` uses templier, which sets `TEMPL_DEV_MODE`. `DATAPAGES_DEV_MODE` also sets `TEMPL_DEV_MODE` for the process.
 
-In dev mode the static assets are read from the source tree rather than the embedded FS,
-and every asset response carries `Cache-Control: no-store`.
-A production process that inherits either variable serves its assets from a
-directory it does not have. The server logs a warning at startup when dev mode is on.
+Dev mode reads static assets from the source tree and sets `Cache-Control: no-store` on asset responses. The server logs a startup warning. A production process inheriting either variable may lack the source directory.
 
-`datapages.IsDevMode` reports the mode to application code.
+`datapages.IsDevMode` reports the mode.
 
 ## Linting
 
-`datapages lint` parses the application model and reports all errors without generating
-code. It validates the same rules as `datapages gen`, making it useful for CI checks
-and editor integration.
+`datapages lint` reports application model errors without generating code. It applies the same rules as `datapages gen`.
 
-This includes all structural validations (missing types, invalid signatures,
-path comments, event definitions, parameter types, etc.) as well as
-template-specific checks on `.templ` files:
+It also checks `.templ` files:
 
-- **Hardcoded href**: a static `href="/path"` on an `<a>` tag or an expression
-  `href={ "/path" }` / `href={ SomeConst }` whose value resolves to a disallowed URL.
-  Use the generated `href` package instead (e.g. `href={ href.PageLogin() }`).
-- **Unverifiable href expression**: an expression `href` on an `<a>` tag that contains
-  a function call not from the `href` package (e.g. `href={ templ.SafeURL("/about") }`,
-  `href={ loginHref() }`, `href={ fmt.Sprintf(...) }`). The linter cannot statically
-  verify these, so they must use `href` package functions.
-- **`href.External` with internal URL**: `href.External("/login")` wrapping a URL that
-  looks app-internal.
-- **Hardcoded action URLs**: using a hardcoded URL in a Datastar action context
-  (e.g. `@post('/foo/bar')`) instead of the generated `action` package
-  (e.g. `action={ action.POSTPageProfileSave() }`).
-- **Unverifiable action expression**: an expression in a Datastar action context
-  that is not a plain `action.XXX()` call (e.g.
-  `data-on:click={ buildAction() }`, `data-on:click={ fmt.Sprintf(...) }`).
-  The linter cannot statically verify these.
-- **Action call with a prefix or suffix**: an `action.XXX()` call concatenated
-  with another string (e.g. `data-on:click={ "$busy = true; " + action.POSTPageIndexSave() }`).
-  Reported separately from the generic unverifiable case, with the concatenated
-  side named. Use `action.WithBefore(expr)` and `action.WithAfter(expr)`
-  instead, which put the expression inside the generated action string.
-- **Form action attribute**: using a `<form action=...>` attribute (constant or
-  expression). Datapages does not support plain HTML form submissions — use
-  `data-on:submit` with Datastar actions instead.
-- **Action context**: using an `action.XXX()` call in an attribute that is not a
-  Datastar action context.
-  For example, `action.POSTPageIndexSubmit()` in an `href` attribute.
-- **Href context**: using an `href.XXX()` call in a Datastar action context.
-  Href functions return URL paths, not Datastar action strings,
-  use `action.XXX()` instead.
-- **Action on wrong page**: using an action that belongs to a different page
-  (e.g. `action.POSTPageProfileSave()` in a template rendered by `PageSettings`).
-  App-level actions are allowed on any page.
+- **Hardcoded href**: an `<a>` href such as `href="/path"`, `href={ "/path" }`, or a constant resolving to a disallowed URL.
+- **Unverifiable href expression**: an `<a>` href calling a function outside the `href` package, such as `templ.SafeURL(...)` or `fmt.Sprintf(...)`.
+- **`href.External` with internal URL**: for example, `href.External("/login")`.
+- **Hardcoded action URL**: for example, `@post('/foo/bar')` in a Datastar action context.
+- **Unverifiable action expression**: an expression in a Datastar action context other than a plain `action.XXX()` call.
+- **Action call with a prefix or suffix**: an `action.XXX()` call concatenated with a string. This has a separate diagnostic naming the concatenated side. `action.WithBefore(expr)` and `action.WithAfter(expr)` place expressions inside the generated action string.
+- **Form action attribute**: any `<form action=...>` attribute.
+- **Action context**: an `action.XXX()` call outside a Datastar action context.
+- **Href context**: an `href.XXX()` call in a Datastar action context.
+- **Action on wrong page**: a page action in another page's template. App-level actions are allowed on every page.
 
-These attributes are the Datastar action contexts, and no others:
+Datastar action contexts are:
 
-- `data-on:<event>`, any DOM event.
-- `data-on-intersect`, `data-on-interval` and `data-on-signal-patch`,
-  the plugin events the linter knows.
+- `data-on:<event>` for any DOM event;
+- `data-on-intersect`, `data-on-interval`, and `data-on-signal-patch`;
 - `data-init`.
 
-The plugin and `data-init` attributes may carry Datastar modifiers
-(`data-on-intersect.once`, `data-on-interval__duration.500ms`).
+Plugin and `data-init` attributes may have Datastar modifiers, such as `data-on-intersect.once` and `data-on-interval__duration.500ms`.
 
 ### Allowed href values
 
-The following href values are allowed without the `href` package and will not
-produce lint errors:
+Allowed without the `href` package:
 
 - Fragment-only: `#section`, `#`
 - Protocol-relative: `//cdn.example.com`
-- Absolute with scheme: `https://...`, `mailto:...`, `tel:...`, `sms:...`, `ftp://...`
-- `const` values that resolve to one of the above
-- Backtick and double-quoted string literals that resolve to one of the above
+- Absolute with any scheme except `javascript:`: for example, `http://...`, `https://...`, `mailto:...`, `tel:...`, `ftp://...`, `ftps://...`
+- Constants, backtick literals, and double-quoted literals resolving to the above
 
-The following are always disallowed:
+Templ preserves `http`, `https`, `mailto`, `tel`, `ftp`, and `ftps` schemes in expression hrefs. Other schemes pass lint but render as `about:invalid#TemplFailedSanitizationURL`. Literal attributes bypass this sanitizer.
+
+Disallowed:
 
 - Root-relative paths: `/login`, `/static/style.css`
 - Relative paths: `relative`, `./x`, `../x`
@@ -1631,23 +888,16 @@ The following are always disallowed:
 
 ### Expression href validation
 
-Expression href attributes (`href={ expr }`) are parsed as Go AST and validated:
+Expression hrefs (`href={ expr }`) are parsed as Go AST:
 
-1. **`href` package calls** (`href.PageXxx()`, `href.External(...)`, `href.Asset(...)`)
-   are always allowed. For `href.External`, the first argument is checked if it is a
-   string literal or constant — if it resolves to a disallowed URL, an error is reported.
-2. **Any other function call** (e.g. `templ.SafeURL(...)`, `fmt.Sprintf(...)`,
-   `loginHref()`) is rejected because the result cannot be statically verified.
-3. **String literals and constants** are resolved and checked against the allowed/disallowed
-   rules above.
-4. **Bare identifiers** are resolved via `const` values. **Qualified
-   identifiers** (e.g. `urls.LoginURL`) are resolved via exported constants from
-   imported packages. Variables are not trusted (their value cannot be determined statically).
+1. Any call into the generated `href` package is allowed. A literal or constant first argument to `href.External` is checked against the disallowed values above.
+2. Other function calls are rejected.
+3. String literals and constants are checked against the rules above.
+4. Bare identifiers resolve through local constants; qualified identifiers resolve through exported constants in imported packages. Variables are rejected because their values cannot be determined statically.
 
 ### Suppressing Lint Errors
 
-Use `//datapages:nolint` in a templ file to suppress the next element's lint errors.
-An optional trailing explanation comment is allowed:
+`//datapages:nolint` suppresses lint errors on the next element in a templ file. A trailing explanation is optional:
 
 ```templ
 //datapages:nolint
@@ -1657,28 +907,26 @@ An optional trailing explanation comment is allowed:
 <a href="/another-legacy">Another</a>
 ```
 
-The directive applies to the immediately following non-whitespace sibling element.
-It suppresses all attribute-level lint errors (hardcoded href, unverifiable href,
-`href.External` with internal URL, hardcoded action, unverifiable action,
-form action, action/href context mismatch) — it does **not** suppress
-cross-page action ownership errors.
+The directive applies to the next non-whitespace sibling element. It suppresses attribute-level lint errors, but not cross-page action ownership errors.
 
 ## Technical Limitations
 
-- For now, an application that declares a session type cannot use plain HTML forms.
-  CSRF protection is on for it and the CSRF token is auto-injected only for
-  Datastar `fetch` requests (where the `Datastar-Request` header is `true`).
-  You must use Datastar actions for any sort of server interactivity.
+### Plain Forms and CSRF
 
-- The href linter cannot detect absolute links to your own domain
-  (e.g. `href="https://mydomain.com/login"`). These bypass the linter because they
-  have an explicit URL scheme, which the linter treats as external.
-  Use the generated `href.PageXxx()` builders instead.
+With sessions and CSRF protection enabled, authenticated plain form submissions fail the CSRF check. Guest forms can reach actions that declare neither `signals` nor `sse`. CSRF tokens are injected for Datastar `fetch` requests with `Datastar-Request: true`; authenticated forms must use Datastar actions.
 
-- The app package must hold no build-constrained file. Pages, actions and events
-  are read from the package as the host builds it, so a page in a `//go:build windows`
-  file or in `page_windows.go` is generated on Windows and is missing everywhere else,
-  with no error. The `datapages.NewServer` calls are read differently, from every file except those under `//go:build ignore`, and may live in a platform-specific command.
+### Absolute URLs in Href Linting
+
+The href linter treats absolute URLs as external, including URLs on the
+application's own domain. Use `href.PageXxx()` for internal links.
+
+### Build-Constrained Application Files
+
+The app package cannot contain build-constrained files. Pages, actions, and
+events are read for the host platform, so platform-specific declarations may
+disappear without an error on other platforms. `datapages.NewServer` calls are
+read from all files except those under `//go:build ignore` and may occur in
+platform-specific commands.
 
 ## Service Worker
 

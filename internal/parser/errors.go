@@ -152,6 +152,7 @@ var (
 	ErrSSEOnAppMethod = errors.New(
 		"the sse parameter is only allowed on page methods",
 	)
+	ErrSSEOnGET = errors.New("sse parameter is not allowed on GET handlers")
 
 	ErrEnableBgStreamNotGET = errors.New(
 		"enableBackgroundStreaming can only be used in GET handlers",
