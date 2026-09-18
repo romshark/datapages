@@ -72,6 +72,9 @@ var (
 	ErrQueryReflectSignalInvalid = errors.New(
 		"query struct field has an invalid reflectsignal tag value",
 	)
+	ErrQueryReflectSignalDuplicate = errors.New(
+		"query struct fields reflect the same signal",
+	)
 	ErrSignalsFieldNameDotted = errors.New(
 		"signals struct field declares one signal, which carries no period",
 	)
@@ -267,6 +270,7 @@ func ValidateQueryStruct(
 	}
 
 	seen := make(map[string]bool, st.NumFields())
+	seenReflect := make(map[string]bool, st.NumFields())
 	for i := range st.NumFields() {
 		field := st.Field(i)
 		tag := st.Tag(i)
@@ -323,6 +327,16 @@ func ValidateQueryStruct(
 					Pos: fpos,
 				}
 			}
+			// HTML parsers keep only the first attribute with a given name,
+			// which would discard the second field's signal seed.
+			if seenReflect[rs] {
+				return &QueryFieldReflectSignalDuplicateError{
+					FieldName: field.Name(), TagValue: rs,
+					Recv: recv, Method: method,
+					Pos: fpos,
+				}
+			}
+			seenReflect[rs] = true
 		}
 		seen[tagVal] = true
 	}
@@ -806,6 +820,27 @@ func (e *SignalsFieldNameInvalidError) Unwrap() error {
 }
 
 func (e *SignalsFieldNameInvalidError) ASTPos() token.Pos { return e.Pos }
+
+// QueryFieldReflectSignalDuplicateError reports the field and tag value
+// responsible for [ErrQueryReflectSignalDuplicate].
+type QueryFieldReflectSignalDuplicateError struct {
+	FieldName string
+	TagValue  string
+	Recv      string
+	Method    string
+	Pos       token.Pos
+}
+
+func (e *QueryFieldReflectSignalDuplicateError) Error() string {
+	return fmt.Sprintf("%v: %q on field %s in %s.%s",
+		ErrQueryReflectSignalDuplicate, e.TagValue, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *QueryFieldReflectSignalDuplicateError) Unwrap() error {
+	return ErrQueryReflectSignalDuplicate
+}
+
+func (e *QueryFieldReflectSignalDuplicateError) ASTPos() token.Pos { return e.Pos }
 
 // QueryFieldReflectSignalInvalidError is [ErrQueryReflectSignalInvalid] with context.
 type QueryFieldReflectSignalInvalidError struct {

@@ -404,6 +404,21 @@ func f(query struct {
 }) {}`,
 			wantErr: ErrQueryFieldDuplicateTag,
 		},
+		"duplicate reflectsignal": {
+			src: `package test
+func f(query struct {
+	B string ` + "`" + `query:"b" reflectsignal:"term"` + "`" + `
+	C string ` + "`" + `query:"c" reflectsignal:"term"` + "`" + `
+}) {}`,
+			wantErr: ErrQueryReflectSignalDuplicate,
+		},
+		"distinct reflectsignals": {
+			src: `package test
+func f(query struct {
+	B string ` + "`" + `query:"b" reflectsignal:"one"` + "`" + `
+	C string ` + "`" + `query:"c" reflectsignal:"two"` + "`" + `
+}) {}`,
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

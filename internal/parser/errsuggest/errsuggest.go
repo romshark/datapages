@@ -74,6 +74,7 @@ func toSnakeCase(s string) string {
 //   - ErrQueryFieldUnexported: fix is obvious: capitalize the field name
 //   - ErrQueryFieldDuplicateTag: message names the duplicate value
 //   - ErrQueryReflectSignalNotInSignals: message names the missing signal
+//   - ErrQueryReflectSignalDuplicate: message names the tag value and second field
 //   - ErrSignalsParamNotStruct: type constraint is clear from message
 //   - ErrSignalsFieldUnexported: fix is obvious: capitalize the field name
 //   - ErrSignalsFieldDuplicateTag: message names the duplicate value

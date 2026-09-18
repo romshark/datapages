@@ -413,6 +413,10 @@ func (PageSearch) GET(
 }
 ```
 
+`datapages gen` rejects two query fields with the same `reflectsignal` value.
+They would generate duplicate `data-signals` attributes, and the browser
+would ignore the second value.
+
 A `json:"..."` tag of a signals struct declares one signal and must be a
 JavaScript identifier, no period and no hyphen. A reflected one also starts
 lower case.
