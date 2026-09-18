@@ -36,6 +36,8 @@ Any order, matched by type. Names are free except `stateID`. Values sit in `.Val
 | `stateID string` | tab event address; requires `State[T]`, see `datapages-state` |
 | `datapages.Dispatcher[EventX]` | publishes `EventX`, see `datapages-events` |
 
+The name in a `Signals` field's `json` tag must match `[A-Za-z_][A-Za-z0-9_]*` and cannot contain `__`. `json:"-"` is invalid; omit the field to exclude it. Nested structs define signal paths.
+
 ## Return values
 
 `error` alone is valid. Otherwise pick from `datapages.Component`, `datapages.Head`, `datapages.Redirect`, `datapages.NewSession[Data]`, `datapages.CloseSession`. Return values may appear in any order.

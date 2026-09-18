@@ -10,7 +10,9 @@ description: >-
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-Declare an exported struct in the app package. A page becomes stateful when an action, `On` handler, `StreamOpen` or `StreamClose` takes `datapages.State[T]`. Every stateful handler on that page must use the same `T`. An app-level action may take `State[T]` only when the calling page uses that `T`; a mismatch returns 409 with `Datapages-Retry: reconnect`. Keep an action that every page may call stateless.
+Declare `T` as an exported struct at package level in the app package. `State[T]` rejects pointers, anonymous structs and types from other packages. A page becomes stateful when an action, `On` handler, `StreamOpen` or `StreamClose` takes `datapages.State[T]`.
+
+Every stateful handler on a page must use the same `T`. An app-level action may take `State[T]` only when the calling page uses that `T`; a mismatch returns 409 with `Datapages-Retry: reconnect`. Keep actions callable from every page stateless.
 
 ```go
 type StateIndex struct{ Filter string }

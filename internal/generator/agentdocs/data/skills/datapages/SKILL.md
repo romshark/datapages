@@ -29,7 +29,7 @@ go build ./...
 - Never hardcode an app-internal URL. `href.PageX()` for links, `action.PageX.Y.POST()` for page actions and `action.App.Y.POST()` for app actions.
 - Never write JavaScript for application logic. Logic is Go on the server, the client is Datastar attributes. JS only for browser APIs Datastar cannot reach, such as the clipboard.
 - Never open an SSE stream, set a CSRF header or add the Datastar script by hand. Datapages does all three.
-- Never use a plain HTML `<form>` submit. CSRF covers Datastar actions only.
+- Submit `<form>` elements through Datastar actions. Browser form submissions do not carry the CSRF token; see `datapages-templates`.
 - Do not put build-constrained files in the app package. The generator reads its pages, actions and events for the host platform, so a platform-specific declaration can disappear from generated code elsewhere.
 - Prefer one HTML fragment that carries its own context over many small patches or over signal updates. The server is the source of truth, signals hold transient client state.
 
@@ -50,7 +50,7 @@ No underscores, nothing lowercase after the prefix. The word `is` is required. E
 
 `PageIndex`, the page for `/`, is required. A page struct declares `App *App` and no other named field: embedded types are the only exception. Page methods take a value receiver, app-level methods (`Head`, `RecoverError`, app actions) a `*App`.
 
-Handler parameters and return values are matched **by type**: names are free and order does not matter. Declare only what the handler needs.
+Handler parameters and return values are matched **by type**; order does not matter. Parameter names are free except `stateID`, which must use that name. Declare only what the handler needs.
 
 ## Testing
 

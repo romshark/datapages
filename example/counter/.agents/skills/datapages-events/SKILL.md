@@ -54,7 +54,7 @@ The event and `sse` are required. `On` handlers accept **no** signals: put what 
 
 ## Subjects
 
-A field typed `datapages.Subject` or `datapages.SubjectUser` extends the base subject. Subject fields are exported, come before any payload field, and are appended in field order, separated by dots. `EventNotify` below with `Recipient: "u1"` publishes to `notify.u1`.
+A subject field must use `datapages.Subject` or `datapages.SubjectUser` directly. A defined type such as `type Recipient datapages.SubjectUser` is rejected. Subject fields must be exported and precede payload fields. Their values extend the base subject in field order, separated by dots. `EventDirectMessage{Recipient: "u1"}` publishes to `messaging.direct.u1`.
 
 ```go
 // EventDirectMessage is "messaging.direct"

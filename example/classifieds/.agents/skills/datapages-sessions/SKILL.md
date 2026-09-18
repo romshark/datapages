@@ -51,7 +51,7 @@ func (*App) POSTSignIn(
 	return datapages.NewSession[SessionData]{
 		UserID: name,
 		Data:   SessionData{Name: name},
-	}, datapages.Redirect{URL: "/"}, nil
+	}, datapages.Redirect{URL: href.PageIndex()}, nil
 }
 ```
 
@@ -61,7 +61,7 @@ Neither works next to a `datapages.SSE` parameter: the headers the cookie travel
 
 ## CSRF
 
-On for every app with a session type, needs no option, and is derived from the session token. Never set a CSRF header in a template. It covers Datastar actions only, which is why a plain `<form>` submit does not work. Configure it only to replace the token source or to switch the protection off: `datapages.WithCSRFProtection(datapages.CSRFConfig{...})`.
+CSRF is enabled for every app with a session type. Datapages derives the token from the session; no option is needed. Do not set a CSRF header in a template. Browser form submissions do not carry the token. Submit forms through a Datastar action as shown in `datapages-templates`. Use `datapages.WithCSRFProtection(datapages.CSRFConfig{...})` only to replace the token source or disable protection.
 
 ## Manager
 

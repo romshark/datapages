@@ -33,7 +33,7 @@ If a route comment has a description, separate it from the route with a blank `/
 
 ## GET parameters
 
-`r *http.Request` is required. The rest are the action parameters minus `datapages.SSE`, which a `GET` may not take: `Session`, `Path`, `Query`, `Signals` and dispatchers. See `datapages-actions` for the table.
+`r *http.Request` is required. A `GET` may also take `Session`, `Path`, `Query`, `Signals` and dispatchers. It cannot take `datapages.SSE`, `datapages.State[T]` or `stateID`. See `datapages-actions` for the parameter types.
 
 ## GET return values
 

@@ -24,7 +24,9 @@ Hard rules:
 - Never hardcode an app-internal URL. Use the generated `href` package for
   links and the generated `action` package for Datastar actions.
 - Never write JavaScript for application logic, open an SSE stream by hand, set
-  a CSRF header, add the Datastar script, or submit a plain HTML `<form>`.
+  a CSRF header or add the Datastar script.
+- Submit forms through generated Datastar actions. Browser form submissions do
+  not carry the CSRF token.
 
 Task instructions are in `.agents/skills/<name>/SKILL.md`. Read the one that
 matches the task:
