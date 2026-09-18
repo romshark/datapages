@@ -861,7 +861,6 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 		}
 		w.Line(3, "const query = params.toString();")
 		if h.InputPath != nil {
-			// Route has path parameters that must be interpolated with HTML escaping.
 			fields := w.structFields(h.InputPath.Type.Resolved)
 			tagToField := make(map[string]structFieldInfo, len(fields))
 			for _, f := range fields {
@@ -869,9 +868,11 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 					tagToField[tag] = f
 				}
 			}
-			// writeRoute writes the route with path params replaced by
-			// template.HTMLEscape calls. It assumes we are mid-backtick
-			// in an io.WriteString and leaves us mid-backtick.
+			// writeRoute closes and reopens the raw string around path values.
+			// The values sit in a JavaScript string inside an HTML attribute.
+			// The browser decodes HTML entities before evaluating JavaScript,
+			// so [htmlattr.WritePathValue] percent-encodes each value before
+			// escaping it for the attribute.
 			writeRoute := func(r string) {
 				literals, vars := routepattern.Segments(r)
 				for i, lit := range literals {
@@ -885,9 +886,9 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 						continue
 					}
 					w.Raw("`)\n")
-					w.Raw("\t\ttemplate.HTMLEscape(w, []byte(")
+					w.Raw("\t\thtmlattr.WritePathValue(w, ")
 					w.writeFieldToString(varPath, tagToField[vars[i]])
-					w.Raw("))\n")
+					w.Raw(")\n")
 					w.Raw("\t\t_, _ = io.WriteString(w, `")
 				}
 			}

@@ -39,6 +39,7 @@ func TestContract(t *testing.T) {
 			href.PageConflict(1, 2, "three"),
 			href.PageTitled("welcome"),
 			href.PageReflect(href.QueryPageReflect{Term: "x", Page: 1}),
+			href.PageShop("boots", href.QueryPageShop{Term: "x"}),
 		},
 	})
 }

@@ -342,6 +342,45 @@ func TestReflectedSignalsKeepOtherQueryParams(t *testing.T) {
 	require.NotContains(t, resp.Body, "'utm'")
 }
 
+// TestReflectedSignalEscapesPathValue tests a path variable in a page's
+// data-effect when the page also reflects a query field. HTML escaping alone
+// lets a quote end the JavaScript string after the browser decodes the attribute.
+func TestReflectedSignalEscapesPathValue(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	tests := map[string]struct {
+		send string // the path segment, already percent-encoded
+		read string // what the handler parsed
+		want string // what the effect writes into the address bar
+	}{
+		"quote in JavaScript": {
+			send: "%27%2Balert(1)%2B%27",
+			read: `'+alert(1)+'`,
+			want: "'/shop/%27+alert%281%29+%27'",
+		},
+		"question mark in path": {send: "a%3Fb", read: "a?b", want: "'/shop/a%3Fb'"},
+		"slash in segment":      {send: "a%2Fb", read: "a/b", want: "'/shop/a%2Fb'"},
+		"plain segment":         {send: "boots", read: "boots", want: "'/shop/boots'"},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			resp := c.Get(t, "/shop/"+tt.send+"/?q=x")
+
+			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+			require.Equal(t, `cat=`+strconv.Quote(tt.read)+` term="x"`,
+				resp.Element(t, "echo"))
+			require.Contains(t, resp.Body, tt.want)
+		})
+	}
+
+	// The browser decodes &#39; back to a quote before Datastar reads the effect.
+	resp := c.Get(t, "/shop/%27%2Balert(1)%2B%27/?q=x")
+	require.NotContains(t, resp.Body, "&#39;+alert")
+}
+
 // TestReflectedSignalEscapesMarkup tests a reflected query value carrying markup.
 // The server writes it into an attribute of the body tag, where a quote ends the
 // attribute and an angle bracket opens an element of its own.

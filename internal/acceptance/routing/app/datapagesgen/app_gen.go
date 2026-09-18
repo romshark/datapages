@@ -191,6 +191,9 @@ func setupHandlers(s *Server) {
 		"GET /reflect/{$}",
 		pageReflectHandlers{s}.GET)
 	s.Mux().HandleFunc(
+		"GET /shop/{cat}/{$}",
+		pageShopHandlers{s}.GET)
+	s.Mux().HandleFunc(
 		"GET /slug/{slug}/{$}",
 		pageSlugHandlers{s}.GET)
 	s.Mux().HandleFunc(
@@ -769,6 +772,59 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageReflect", err)
+		return
+	}
+}
+
+type pageShopHandlers struct{ *Server }
+
+func (s pageShopHandlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		Term string `query:"q" reflectsignal:"term"`
+	}]
+	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "q")
+
+	var path datapages.Path[struct {
+		Cat string `path:"cat"`
+	}]
+	path.Values.Cat = r.PathValue("cat")
+
+	p := dpapp.PageShop{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageShop.GET")
+	body, err := p.GET(r, path, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageShop.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+
+		_, _ = io.WriteString(w, ` data-signals:term="'`)
+		htmlattr.WriteSignalString(w, query.Values.Term)
+		_, _ = io.WriteString(w, `'"`)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($term) params.set('q', $term); else params.delete('q');
+			const query = params.toString();
+			window.history.replaceState(null, '', query ? '/shop/`)
+		htmlattr.WritePathValue(w, path.Values.Cat)
+		_, _ = io.WriteString(w, `?' + query : '/shop/`)
+		htmlattr.WritePathValue(w, path.Values.Cat)
+		_, _ = io.WriteString(w, `');
+		"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageShop", err)
 		return
 	}
 }

@@ -12,9 +12,9 @@ import (
 	"strings"
 )
 
-// WritePathValue writes v into the @get URL of a data-init attribute.
-// Percent encoding removes the quotes that would end the JavaScript string,
-// HTML escaping removes the ampersand that url.PathEscape keeps.
+// WritePathValue writes v as a URL path segment inside a JavaScript string
+// in an HTML attribute. Percent encoding keeps v inside the string and the
+// segment; HTML escaping keeps the result inside the attribute.
 func WritePathValue(w io.Writer, v string) {
 	_, _ = io.WriteString(w, html.EscapeString(url.PathEscape(v)))
 }

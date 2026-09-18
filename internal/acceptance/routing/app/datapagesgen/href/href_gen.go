@@ -642,6 +642,69 @@ type QueryPageReflect struct {
 	Lang     string                 `query:"lang"`
 }
 
+// PageShop references /shop/{cat}/{$}
+func PageShop(
+	cat string,
+	query QueryPageShop,
+) string {
+	s_cat := url.PathEscape(cat)
+	var (
+		termStr string
+	)
+
+	if query.Term != "" {
+		termStr = url.QueryEscape(query.Term)
+	}
+
+	anyQuery := query.Term != ""
+
+	var b strings.Builder
+	l := len("/shop/") +
+		len(s_cat) +
+		len("/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.Term != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("q=") + len(termStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/shop/")
+	b.WriteString(s_cat)
+	b.WriteString("/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.Term != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("q=")
+		b.WriteString(termStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageShop is the query parameters for PageShop
+type QueryPageShop struct {
+	Term string `query:"q"`
+}
+
 // PageSlug references /slug/{slug}/{$}
 func PageSlug(
 	slug encoding.TextMarshaler,

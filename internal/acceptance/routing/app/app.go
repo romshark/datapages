@@ -136,6 +136,21 @@ func (PageReflect) GET(
 		query.Values.Odd, query.Values.NewTitle, query.Values.Lang), nil
 }
 
+// PageShop is /shop/{cat}
+type PageShop struct{ App *App }
+
+func (PageShop) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Cat string `path:"cat"`
+	}],
+	query datapages.Query[struct {
+		Term string `query:"q" reflectsignal:"term"`
+	}],
+) (body datapages.Component, err error) {
+	return echo("cat=%q term=%q", path.Values.Cat, query.Values.Term), nil
+}
+
 // PageMixed is /org/{org}/item/{id}
 //
 // Path and query on one handler, which is where an off-by-one in either
