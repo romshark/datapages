@@ -178,8 +178,7 @@ func (s *Server) httpErrIntern(
 	if httpserve.ResponseBodyWritten(w) {
 		return
 	}
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
+	httpserve.WriteErrStatus(w, err)
 }
 
 type pageBackgroundHandlers struct{ *Server }

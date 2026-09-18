@@ -1097,19 +1097,15 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 
 func (w *Writer) writeHTTPErrFallback() { w.writeHTTPErrFallbackAt(1) }
 
+// writeHTTPErrFallbackAt emits [httpserve.WriteErrStatus] at indent.
+// A page GET can return a sentinel even when no action returns an error.
+// A fixed 500 in that case would discard the sentinel's status.
 func (w *Writer) writeHTTPErrFallbackAt(indent int) {
 	tabs := strings.Repeat("\t", indent)
 	w.Rawf(`%[1]sif httpserve.ResponseBodyWritten(w) {
 %[1]s	return
 %[1]s}
-`, tabs)
-	if !w.usage.errSentinels {
-		w.Rawf(`%[1]sconst code = http.StatusInternalServerError
-%[1]shttp.Error(w, http.StatusText(code), code)
-`, tabs)
-		return
-	}
-	w.Rawf(`%shttpserve.WriteErrStatus(w, err)
+%[1]shttpserve.WriteErrStatus(w, err)
 `, tabs)
 }
 

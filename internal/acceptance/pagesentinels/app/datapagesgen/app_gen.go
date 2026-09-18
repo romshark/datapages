@@ -15,8 +15,8 @@ import (
 	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpserve"
 
-	dpapp "github.com/romshark/datapages/internal/acceptance/error500failing/app"
-	"github.com/romshark/datapages/internal/acceptance/error500failing/app/datapagesgen/href"
+	dpapp "github.com/romshark/datapages/internal/acceptance/pagesentinels/app"
+	"github.com/romshark/datapages/internal/acceptance/pagesentinels/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
 )
@@ -148,41 +148,30 @@ func MessageBrokerStreamSubjects() []string {
 func setupHandlers(s *Server) {
 	// Pages
 	s.Mux().HandleFunc(
-		"GET /boom/{$}",
-		pageBoomHandlers{s}.GET)
+		"GET /bad-request/{$}",
+		pageBadHandlers{s}.GET)
 	s.Mux().HandleFunc(
-		"GET /server-error/{$}",
-		pageError500Handlers{s}.GET)
+		"GET /conflict/{$}",
+		pageConflictHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /denied/{$}",
+		pageDeniedHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /gone/{$}",
+		pageGoneHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
-}
-
-// httpErrFinal writes the error response without rendering PageError500.
-// The PageError500 handler uses it so it can't render itself.
-func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
-	s.LogErr(msg, err)
-	if httpserve.ResponseBodyWritten(w) {
-		return
-	}
-	httpserve.WriteErrStatus(w, err)
+	s.Mux().HandleFunc(
+		"GET /plain/{$}",
+		pagePlainHandlers{s}.GET)
 }
 
 func (s *Server) httpErrIntern(
-	w http.ResponseWriter, r *http.Request,
+	w http.ResponseWriter, _ *http.Request,
 	sse *datastar.ServerSentEventGenerator, msg string, err error,
 ) {
 	s.LogErr(msg, err)
-	if !httpserve.IsDatastarRequest(r.Header) {
-		if httpserve.ResponseBodyWritten(w) {
-			// An error page after a half-written one sends two documents.
-			return
-		}
-		// The page serves 200 on its own route. Reached from here it carries 500.
-		w.WriteHeader(http.StatusInternalServerError)
-		pageError500Handlers{s}.GET(w, r)
-		return
-	}
 	if sse != nil {
 		// The stream is open, hence no status is left to send.
 		return
@@ -193,16 +182,16 @@ func (s *Server) httpErrIntern(
 	httpserve.WriteErrStatus(w, err)
 }
 
-type pageBoomHandlers struct{ *Server }
+type pageBadHandlers struct{ *Server }
 
-func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
-	p := dpapp.PageBoom{
+func (s pageBadHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageBad{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageBoom.GET")
+	defer s.recoverPanic(w, r, nil, "PageBad.GET")
 	body, err := p.GET(r)
 	if err != nil {
-		s.httpErrIntern(w, r, nil, "handling PageBoom.GET", err)
+		s.httpErrIntern(w, r, nil, "handling PageBad.GET", err)
 		return
 	}
 
@@ -213,21 +202,21 @@ func (s pageBoomHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if err := s.writeHTML(
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
-		s.LogErr("rendering PageBoom", err)
+		s.LogErr("rendering PageBad", err)
 		return
 	}
 }
 
-type pageError500Handlers struct{ *Server }
+type pageConflictHandlers struct{ *Server }
 
-func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
-	p := dpapp.PageError500{
+func (s pageConflictHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageConflict{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageError500.GET")
+	defer s.recoverPanic(w, r, nil, "PageConflict.GET")
 	body, err := p.GET(r)
 	if err != nil {
-		s.httpErrFinal(w, "handling PageError500.GET", err)
+		s.httpErrIntern(w, r, nil, "handling PageConflict.GET", err)
 		return
 	}
 
@@ -238,7 +227,57 @@ func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	if err := s.writeHTML(
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
-		s.LogErr("rendering PageError500", err)
+		s.LogErr("rendering PageConflict", err)
+		return
+	}
+}
+
+type pageDeniedHandlers struct{ *Server }
+
+func (s pageDeniedHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageDenied{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageDenied.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageDenied.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageDenied", err)
+		return
+	}
+}
+
+type pageGoneHandlers struct{ *Server }
+
+func (s pageGoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageGone{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageGone.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageGone.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageGone", err)
 		return
 	}
 }
@@ -269,6 +308,31 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
+		return
+	}
+}
+
+type pagePlainHandlers struct{ *Server }
+
+func (s pagePlainHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PagePlain{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PagePlain.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PagePlain.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PagePlain", err)
 		return
 	}
 }

@@ -165,8 +165,7 @@ func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 	if httpserve.ResponseBodyWritten(w) {
 		return
 	}
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
+	httpserve.WriteErrStatus(w, err)
 }
 
 func (s *Server) httpErrIntern(
@@ -191,8 +190,7 @@ func (s *Server) httpErrIntern(
 	if httpserve.ResponseBodyWritten(w) {
 		return
 	}
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
+	httpserve.WriteErrStatus(w, err)
 }
 
 type pageBoomHandlers struct{ *Server }

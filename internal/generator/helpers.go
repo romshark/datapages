@@ -363,9 +363,6 @@ type appUsage struct {
 	// PageError500, RecoverError, or both. The two features are independent
 	// and either one makes the helper's answer decide what the response is.
 	recoverError bool
-	// errSentinels: whether any action returns an error, so the generated
-	// fallback maps the datapages error sentinels to status codes.
-	errSentinels bool
 	// datapagesSSE: whether any handler takes a datapages.SSE param
 	// (needs the datapages import and the generated sseWrapper).
 	datapagesSSE bool
@@ -482,9 +479,6 @@ func computeAppUsage(m *model.App) appUsage {
 
 	for _, h := range m.Actions {
 		checkHandler(h)
-		if h.OutputErr != nil {
-			u.errSentinels = true
-		}
 	}
 	for _, p := range m.Pages {
 		if p.GET != nil {
@@ -504,9 +498,6 @@ func computeAppUsage(m *model.App) appUsage {
 		}
 		for _, h := range p.Actions {
 			checkHandler(h)
-			if h.OutputErr != nil {
-				u.errSentinels = true
-			}
 		}
 		if p.State != nil {
 			u.stateRuntime = true
