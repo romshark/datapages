@@ -721,6 +721,14 @@ Dev mode is enabled when `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` is nonempty. `
 
 Dev mode reads static assets from the source tree and sets `Cache-Control: no-store` on asset responses, ignoring `datapages.WithAssetsCache`. The server logs a startup warning. A production process inheriting either variable may lack the source directory.
 
+Outside dev mode, Datapages adds no `Cache-Control` or `ETag` header unless `datapages.WithAssetsCache` is set.
+
+Files passed to `datapages.WithAssets` come from `embed.FS`, which reports a zero modification time. `http.ServeContent` therefore adds no `Last-Modified` header. The response gives the client no validator to reuse on a later request.
+
+`datapages.WithAssetsCache` adds `Cache-Control` and an `ETag` computed from the file contents. A matching `If-None-Match` request receives 304 with no body. `Disabled` suppresses both headers; `DisableETag` suppresses the `ETag`.
+
+Generated asset URLs do not contain a content hash. With a positive `MaxAge`, browsers may reuse stale content until it expires unless the file name changes with the file contents.
+
 `datapages.IsDevMode` reports the mode.
 
 ## Linting
