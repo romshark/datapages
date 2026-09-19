@@ -1,0 +1,46 @@
+<!-- Scaffolded by `datapages init`. Yours to edit: another run keeps your
+     version as a .bak file next to it. -->
+
+# AGENTS.md
+
+This module is a [Datapages](https://github.com/romshark/datapages) application.
+You write Go handlers and Templ templates. `datapages gen` writes the server.
+
+| path | what |
+| ---- | ---- |
+| `app/` | app package: pages, actions, events, templates. Edit this. |
+| `app/datapagesgen/` | generated. Never edit. |
+| `cmd/server/` | server entry point. Generated once, then yours. |
+| `datapages.yaml` | CLI and dev server settings. |
+
+Build loop: write the app model, run `datapages gen` to generate helpers, then
+`templ generate` after a `.templ` change, `datapages lint` and `go build ./...`.
+`datapages gen` also runs `go mod tidy`.
+
+Hard rules:
+
+- Never edit a `_gen.go` file, anything under `datapagesgen/`, or a file with a
+  `DO NOT EDIT` header. Change the source and regenerate.
+- Never hardcode an app-internal URL. Use the generated `href` package for
+  links and the generated `action` package for Datastar actions.
+- Never write JavaScript for application logic, open an SSE stream by hand, set
+  a CSRF header or add the Datastar script.
+- Submit forms through generated Datastar actions. Browser form submissions do
+  not carry the CSRF token.
+
+Task instructions are in `.agents/skills/<name>/SKILL.md`. Read the one that
+matches the task:
+
+| skill | read it when |
+| ----- | ------------ |
+| `datapages` | any Datapages work: rules, workflow, naming |
+| `datapages-pages` | pages, routes, path and query parameters, error pages, `<head>` |
+| `datapages-actions` | POST/PUT/PATCH/DELETE handlers, signals, SSE, errors |
+| `datapages-events` | events, subjects, dispatchers, `On` handlers, stream hooks |
+| `datapages-state` | per-tab server state and state-scoped events |
+| `datapages-sessions` | authentication, session data, CSRF |
+| `datapages-server` | server entry points, options, broker, static assets |
+| `datapages-templates` | `.templ` files, `href` and `action` helpers, Templ pitfalls |
+| `datastar` | `data-*` attributes and `@get`/`@post` actions |
+
+Full reference: https://github.com/romshark/datapages/blob/main/SPECIFICATION.md
