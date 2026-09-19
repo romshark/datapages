@@ -160,8 +160,8 @@ type Handler struct {
 	InputDispatches []*InputDispatch
 	OrderedInputs   []*Input // Inputs in user-defined order.
 
-	OutputBody           *TemplComponent // templ.Component body (actions only)
-	OutputHead           *TemplComponent // templ.Component head (actions only)
+	OutputBody           *TemplComponent // datapages.Component body (actions only)
+	OutputHead           *TemplComponent // datapages.Component head (actions only)
 	OutputRedirect       *Output
 	OutputNewSession     *Output
 	OutputCloseSession   *Output
