@@ -135,7 +135,7 @@ func pageIndex(todos []list.Item, search, filter, sortMode string) templ.Compone
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" data-signals:showModal=\"false\" data-signals:newTitle=\"''\" data-signals:newDesc=\"''\" data-signals:newDue=\"''\"><h1>Todo List</h1><div class=\"toolbar\"><input type=\"text\" placeholder=\"Search...\" data-bind=\"search\" data-on:input__debounce.200ms=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" data-signals:show-modal=\"false\" data-signals:new-title=\"''\" data-signals:new-desc=\"''\" data-signals:new-due=\"''\"><h1>Todo List</h1><div class=\"toolbar\"><input type=\"text\" placeholder=\"Search...\" data-bind=\"search\" data-on:input__debounce.200ms=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -414,14 +414,14 @@ func pageItem(todo list.Item) templ.Component {
 			templ_7745c5c3_Var21 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<div id=\"page-item\" class=\"container\" data-signals:itemId=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<div id=\"page-item\" class=\"container\" data-signals:item-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue(jsStr(todo.ID))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 145, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `app/app.templ`, Line: 145, Col: 39}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var22)
 		if templ_7745c5c3_Err != nil {

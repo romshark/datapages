@@ -589,7 +589,7 @@ func pageLogin(wrongCreds bool) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<div data-signals:_wobbleTip=\"false\"></div><div class=\"card\"><header><h1>Sign in</h1><a href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<div data-signals:_wobble-tip=\"false\"></div><div class=\"card\"><header><h1>Sign in</h1><a href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
