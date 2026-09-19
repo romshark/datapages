@@ -18,11 +18,17 @@ Templates are written in Templ. Docs: https://templ.guide/llms.md
 
 ### IMPORTANT: Datapages Rules (ALWAYS follow these)
 
-- **Never hardcode action URLs** (`@get('/path')`, `@post('/path')`, etc.). Always use the generated functions from the `action` package (`app/datapagesgen/action/`). These functions return the correct Datastar action string. Example: `action.POSTPageLoginSubmit()` returns `@post('/login/submit/')`. To pass Datastar action options, use the typed helpers (`action.WithContentType(action.ContentTypeForm)`, `action.WithPayload("{extra: 1}")`, `action.WithRetry(action.RetryNever)`, ...), never hardcode the options object.
+- **Use generated action URLs.** Call the helpers in
+  `app/datapagesgen/action/` instead of writing `@get('/path')` or
+  `@post('/path')`. For example, `action.PageLogin.Submit.POST()` returns
+  `@post('/login/submit/')`. Build options with typed helpers such as
+  `action.WithContentType`, `action.WithPayload`, and `action.WithRetry`.
 - **Never hardcode href URLs for app-internal links.** Always use the generated functions from the `href` package (`app/datapagesgen/href/`). Each function is named after the page type. Example: `href.PageMessages(href.QueryPageMessages{Chat: chatID})` returns `/messages/?chat=...`. External URLs (outside the app) can be hardcoded as usual.
 - **CSRF protection is handled automatically** by Datapages - never set CSRF headers manually.
 - **SSE streams must NOT be opened manually** — Datapages manages all SSE stream lifecycle.
-- **Use Templ expression syntax for action attributes.** In `.templ` files, use `={ expr }` (not `="..."`) for attributes that call generated action functions. Example: `data-on:click={ action.POSTPageLoginSubmit() }`, not `data-on:click="@post('/login/submit/')"`.
+- **Use Templ expressions for action attributes.** Write
+  `data-on:click={ action.PageLogin.Submit.POST() }` instead of embedding an
+  action string in `data-on:click="@post('/login/submit/')"`.
 - **No plain HTML forms for server interaction.** CSRF protection only works with Datastar `fetch` requests. Always use Datastar actions (`@get`, `@post`, `@put`, `@patch`, `@delete`) instead of plain HTML `<form>` submissions.
 - **Never install the Datastar JS file manually.** Datapages includes and serves it automatically.
 

@@ -1140,27 +1140,27 @@ Generated functions return Datastar action strings (`@post('/...')`, `@put('/...
 
 ```templ
 // Simple action
-<button data-on:click={ action.POSTPageLoginSubmit() }>Submit</button>
+<button data-on:click={ action.PageLogin.Submit.POST() }>Submit</button>
 
 // Action with path variable
-<button data-on:click={ action.POSTPagePostSendMessage(slug) }>Send</button>
+<button data-on:click={ action.PagePost.SendMessage.POST(slug) }>Send</button>
 
 // Action with query parameters
-<button data-on:click={ action.POSTPageMessagesRead(
-    action.QueryPOSTPageMessagesRead{MessageID: msg.ID},
+<button data-on:click={ action.PageMessages.Read.POST(
+    action.PageMessages.Read.POSTQuery(msg.ID),
 ) }>Mark Read</button>
 
 // App-level action (not tied to a page)
-<button data-on:click={ action.POSTAppSignOut() }>Sign Out</button>
+<button data-on:click={ action.App.SignOut.POST() }>Sign Out</button>
 
-// Action with Datastar options (e.g. payload, contentType, filterSignals)
-<button data-on:click={ action.POSTPageLoginSubmit(
+// Action with Datastar options
+<button data-on:click={ action.PageLogin.Submit.POST(
     action.WithContentType(action.ContentTypeForm),
     action.WithPayload("{extra: 1}"),
 ) }>Submit</button>
 
-// Action with before/after expressions (joined with "; " separators)
-<button data-on:click={ action.POSTPageLoginSubmit(
+// Action with expressions before and after the request
+<button data-on:click={ action.PageLogin.Submit.POST(
     action.WithBefore("$foo='asd'"),
     action.WithAfter("$foo=''"),
 ) }>Submit</button>
@@ -1193,4 +1193,10 @@ Two more modifiers wrap the call itself:
 `action.WithOption(key, value string)` passes an option the helpers don't cover.
 Both arguments are raw strings, the value a JavaScript expression.
 
-Naming convention: `{METHOD}Page{PageName}{HandlerName}` for page actions, `{METHOD}App{HandlerName}` for app-level actions. Query parameter structs are generated as `action.Query<FunctionName>`.
+Every option helper returns `action.Option`. Store conditional options in an
+`[]action.Option` and pass them as `opts...`. Use this alias instead of
+importing `runtime/actionexpr`.
+
+Page actions use `action.Page{PageName}.{HandlerName}.{METHOD}(...)`. App
+actions use `action.App.{HandlerName}.{METHOD}(...)`. For query parameters,
+pass `action.Page{PageName}.{HandlerName}.{METHOD}Query(...)`.

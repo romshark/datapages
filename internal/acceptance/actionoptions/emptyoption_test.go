@@ -43,3 +43,24 @@ func TestOptionsAreWritten(t *testing.T) {
 	require.Equal(t,
 		`@post('/save/', {selector: '#out', headers: {'X-Trace': 'abc'}})`, expr)
 }
+
+// TestOptionTypeIsExported tests that callers can build a slice of
+// [action.Option] values.
+func TestOptionTypeIsExported(t *testing.T) {
+	t.Parallel()
+
+	collect := func(busy bool) []action.Option {
+		opts := []action.Option{action.WithSelector("#out")}
+		if busy {
+			opts = append(opts, action.WithRetry(action.RetryNever))
+		}
+		return opts
+	}
+
+	require.Equal(t,
+		`@post('/save/', {selector: '#out'})`,
+		action.PageIndex.Save.POST(collect(false)...))
+	require.Equal(t,
+		`@post('/save/', {selector: '#out', retry: 'never'})`,
+		action.PageIndex.Save.POST(collect(true)...))
+}

@@ -205,7 +205,7 @@ func (w *Writer) writeActionFunc(
 
 	if !hasPathVars && !hasQuery {
 		w.writeActionMethodHead(recv, methodName)
-		w.writeParamList([]string{"options ...option"})
+		w.writeParamList([]string{"options ...Option"})
 		w.Raw(" string {\n")
 		w.Line(1, "if len(options) == 0 {")
 		w.Raw("\t\treturn \"@")
@@ -265,9 +265,8 @@ func (w *Writer) writeActionFuncPathOnly(
 	lo := newHrefLocals(params, nil)
 	literals, _ := routepattern.Segments(route)
 
-	// func (recv) Method(params, options ...option) string {
 	w.writeActionMethodHead(recv, methodName)
-	w.writeParamList(append(typedParams(params), lo.options+" ...option"))
+	w.writeParamList(append(typedParams(params), lo.options+" ...Option"))
 	w.Raw(" string {\n")
 
 	// Pre-convert non-string params to strings.
@@ -330,11 +329,10 @@ func (w *Writer) writeActionFuncQueryOnly(
 	fields []structFieldInfo,
 ) {
 	lo := newHrefLocals(nil, fields)
-	// func (recv) Method(query QueryType, options ...option) string {
 	w.writeActionMethodHead(recv, methodName)
 	w.writeParamList([]string{
 		lo.query + " " + queryType,
-		lo.options + " ...option",
+		lo.options + " ...Option",
 	})
 	w.Raw(" string {\n")
 
@@ -423,11 +421,10 @@ func (w *Writer) writeActionFuncPathAndQuery(
 	lo := newHrefLocals(params, fields)
 	literals, _ := routepattern.Segments(route)
 
-	// func (recv) Method(params, query QueryType, options ...option) string {
 	w.writeActionMethodHead(recv, methodName)
 	w.writeParamList(append(typedParams(params),
 		lo.query+" "+queryType,
-		lo.options+" ...option"))
+		lo.options+" ...Option"))
 	w.Raw(" string {\n")
 
 	// Pre-convert non-string path params.
