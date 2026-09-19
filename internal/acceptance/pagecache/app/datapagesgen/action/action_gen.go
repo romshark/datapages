@@ -215,8 +215,9 @@ func (app_AppPrecache) POST(options ...Option) string {
 var PageIndex pageIndex
 
 type pageIndex struct {
-	Redirect pageIndex_Redirect
-	Stream   pageIndex_Stream
+	Redirect       pageIndex_Redirect
+	Stream         pageIndex_Stream
+	StreamRedirect pageIndex_StreamRedirect
 }
 
 type pageIndex_Redirect struct{}
@@ -249,6 +250,24 @@ func (pageIndex_Stream) POST(options ...Option) string {
 	b.Grow(bl + len("@post('/stream-write/'") + actionexpr.OptionsLen(options) + len(")") + al)
 	actionexpr.WriteBefore(&b, options)
 	b.WriteString("@post('/stream-write/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type pageIndex_StreamRedirect struct{}
+
+// POST references /stream-redirect-write/
+func (pageIndex_StreamRedirect) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/stream-redirect-write/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/stream-redirect-write/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/stream-redirect-write/'")
 	actionexpr.WriteOptions(&b, options)
 	b.WriteByte(')')
 	actionexpr.WriteAfter(&b, options)

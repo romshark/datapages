@@ -8,6 +8,7 @@ package acceptance_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -175,4 +176,18 @@ func TestAppLevelActionBakesIntoItsBody(t *testing.T) {
 	require.Contains(t, resp.Body, applyType,
 		"an app-level action answering with a document bakes into it")
 	require.Contains(t, resp.Body, `"version":12`)
+}
+
+func TestStreamRedirectFlushesBeforeNavigating(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	resp := c.Action(t, http.MethodPost, "/stream-redirect-write/", "")
+	require.Equal(t, http.StatusOK, resp.Status)
+	require.Contains(t, resp.Body, applyType,
+		"an action redirecting through its own stream delivers over it first")
+	require.Contains(t, resp.Body, `"version":14`)
+	require.Less(t, strings.Index(resp.Body, applyType),
+		strings.Index(resp.Body, "window.location.href"),
+		"the writes reach the worker ahead of the navigation")
 }

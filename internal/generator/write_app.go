@@ -1537,9 +1537,10 @@ func (s *Server) httpErrIntern(
 
 // writeRedirect emits the redirect of a handler. A handler holding an open
 // stream navigates through it, since the response head is long gone.
-// viaPageCache carries the handler's queued page cache writes in the redirect
-// response, which is how an action without a stream reaches the worker before
-// the navigation unloads the page.
+// Either form carries the handler's queued page cache writes ahead of the navigation,
+// which is what reaches the worker before the page unloads.
+// viaPageCache selects the carrying form of the response-head redirect;
+// the stream redirect flushes whenever the stream is what delivers the writes.
 func (w *Writer) writeRedirect(h *model.Handler, viaPageCache bool) {
 	if h.OutputRedirect == nil {
 		return
@@ -1560,6 +1561,10 @@ func (w *Writer) writeRedirect(h *model.Handler, viaPageCache bool) {
 		return
 	}
 	w.Linef(1, "if %s.URL != \"\" {", ref)
+	// The branch returns, which the flush after the method call never survives.
+	if pageCacheViaStream(h) {
+		w.Line(2, "_ = pageCache.flush()")
+	}
 	w.Linef(2, "if err := dpsse.New(sse).Redirect(%s.URL); err != nil {", ref)
 	w.Line(3, `s.httpErrIntern(w, r, sse, "redirecting", err)`)
 	w.Line(2, "}")

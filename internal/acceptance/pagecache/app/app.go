@@ -102,3 +102,14 @@ func (*App) POSTAppBody(
 	pageCache.Set("/", echo("cached", "written by an app-level body action"), 12)
 	return echo("out", "done"), nil
 }
+
+// POSTStreamRedirect is /stream-redirect-write
+//
+// An action that holds a stream and redirects through it. The navigation is an
+// event on that stream, so the writes have to be flushed onto it first.
+func (PageIndex) POSTStreamRedirect(
+	_ *http.Request, sse datapages.SSE, pageCache datapages.PageCacheWriter,
+) (redirect datapages.Redirect, err error) {
+	pageCache.Set("/", echo("cached", "written before a stream redirect"), 14)
+	return datapages.Redirect{URL: "/"}, nil
+}

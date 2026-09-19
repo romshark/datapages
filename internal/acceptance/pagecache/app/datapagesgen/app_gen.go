@@ -418,6 +418,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /redirect-write/{$}",
 		pageIndexHandlers{s}.POSTRedirect)
+	s.Mux().HandleFunc(
+		"POST /stream-redirect-write/{$}",
+		pageIndexHandlers{s}.POSTStreamRedirect)
 }
 
 func (s *Server) httpErrIntern(
@@ -599,6 +602,34 @@ func (s pageIndexHandlers) POSTRedirect(
 	if httpRedirectOffline(w, r, redirect, pageCache) {
 		return
 	}
+}
+
+func (s pageIndexHandlers) POSTStreamRedirect(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "PageIndex.StreamRedirect")
+	pageCache := newPageCache(s.Server, r, sse)
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	redirect, err := p.POSTStreamRedirect(r, dpsse.New(sse), pageCache)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action PageIndex.StreamRedirect", err)
+		return
+	}
+	if redirect.URL != "" {
+		_ = pageCache.flush()
+		if err := dpsse.New(sse).Redirect(redirect.URL); err != nil {
+			s.httpErrIntern(w, r, sse, "redirecting", err)
+		}
+		return
+	}
+	_ = pageCache.flush()
 }
 
 type pageOfflineHandlers struct{ *Server }
