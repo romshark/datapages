@@ -436,7 +436,7 @@ session datapages.Session[Data]
 
 See [datapages.go](datapages.go) for method definitions.
 
-Expired sessions are unauthenticated and their cookies are removed. A zero `ExpiresAt()` never expires.
+Expired sessions are unauthenticated and their cookies are removed. A zero `ExpiresAt()` never expires; its cookie lasts until the browser closes.
 
 An action without a session parameter checks CSRF against the cookie without reading the session store; a closed or expired session cookie passes this check. An action with a session parameter reads the store and rejects such sessions.
 
@@ -758,6 +758,8 @@ newSession datapages.NewSession[Data]
 ```
 
 Signs in a client when `UserID` is nonempty; otherwise it is a no-op. Datapages generates the token and issuance time. The handler supplies `UserID`, optional `ExpiresAt`, and `Data`. See [datapages.go](datapages.go).
+
+`ExpiresAt` becomes the `Max-Age` and `Expires` of the session cookie; a zero `ExpiresAt` writes a cookie the browser drops when it closes. The session record stays in the store either way.
 
 #### Validating a User ID
 

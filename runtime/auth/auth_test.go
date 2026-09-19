@@ -59,7 +59,7 @@ func TestSecureCookie(t *testing.T) {
 				}, nil)
 
 			w := httptest.NewRecorder()
-			m.SetSessionCookie(w, "tok")
+			m.SetSessionCookie(w, "tok", time.Time{})
 
 			cookies := w.Result().Cookies()
 			require.Len(t, cookies, 1)
@@ -114,4 +114,68 @@ func TestReadSessionKeepsALiveSession(t *testing.T) {
 			require.True(t, found, "a live session was dropped")
 		})
 	}
+}
+
+// TestSessionCookieLifetime tests that the session cookie carries Max-Age and
+// Expires from the session expiry, and neither when the session never expires.
+func TestSessionCookieLifetime(t *testing.T) {
+	expiresAt := time.Now().Add(time.Hour)
+
+	for name, td := range map[string]struct {
+		value      string
+		expiresAt  time.Time
+		wantMaxAge int
+	}{
+		"browser session": {value: "tok", wantMaxAge: 0},
+		"persistent":      {value: "tok", expiresAt: expiresAt, wantMaxAge: 3600},
+		// An expiry in the past must not write a Max-Age below 1,
+		// which deletes the cookie.
+		"already expired": {
+			value:      "tok",
+			expiresAt:  time.Now().Add(-time.Hour),
+			wantMaxAge: 1,
+		},
+		"cleared": {value: "", expiresAt: expiresAt, wantMaxAge: -1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m, _ := newManager(t)
+			w := httptest.NewRecorder()
+			m.SetSessionCookie(w, td.value, td.expiresAt)
+
+			cookies := w.Result().Cookies()
+			require.Len(t, cookies, 1)
+			c := cookies[0]
+			require.InDelta(t, td.wantMaxAge, c.MaxAge, 1)
+			switch {
+			case td.value == "":
+				require.Equal(t, time.Unix(0, 0).UTC(), c.Expires.UTC())
+			case td.expiresAt.IsZero():
+				require.True(t, c.Expires.IsZero(),
+					"a browser-session cookie carries an expiry")
+			default:
+				require.WithinDuration(t, td.expiresAt, c.Expires, time.Second)
+			}
+		})
+	}
+}
+
+// TestCreateSessionCookieExpiry tests that CreateSession puts the expiry of the
+// new session into the cookie, not only into the store record.
+func TestCreateSessionCookieExpiry(t *testing.T) {
+	m, _ := newManager(t)
+	expiresAt := time.Now().Add(30 * 24 * time.Hour)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/", nil)
+	sess, err := m.CreateSession(w, r, datapages.NewSession[struct{}]{
+		UserID:    "alice",
+		ExpiresAt: expiresAt,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "alice", sess.UserID())
+
+	cookies := w.Result().Cookies()
+	require.Len(t, cookies, 1)
+	require.WithinDuration(t, expiresAt, cookies[0].Expires, time.Second)
+	require.InDelta(t, int(30*24*time.Hour/time.Second), cookies[0].MaxAge, 1)
 }
