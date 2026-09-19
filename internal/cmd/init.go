@@ -38,17 +38,19 @@ Use -n/--non-interactive to disable prompts; when a value is needed
 that would normally be prompted for, pass it via --name or --module.
 
 If not inside a git repository, a new one is created. If not inside
-a Go module, a new one is initialized. Missing datapages.yaml and
-app/app.go files are generated. Code generation is run, and finally
-go mod tidy resolves all dependencies.
+a Go module, a new one is initialized. Code generation is run, and
+finally go mod tidy resolves all dependencies. Init never deletes any files.
 
-Init writes AGENTS.md, pointers for Claude Code, Gemini CLI, Copilot and
-Cursor, and task skills under .agents/skills and .claude/skills. Edit these
-files as needed. A later run backs up changed files beside them with a
-.bak suffix. Pass --no-ai-skills to skip them.
+Init writes these only when they are missing and never touches them
+again: datapages.yaml, app/app.go, cmd/server/main.go, .env, compose.yaml,
+Makefile and .github/workflows/ci.yml. It also adds .env to .gitignore.
 
-Running init in an existing project refreshes agent instructions and writes
-missing scaffold files.`,
+Init rewrites these on every run: AGENTS.md, CLAUDE.md, GEMINI.md,
+.github/copilot-instructions.md, .cursor/rules/datapages.mdc and the
+skills under .agents/skills and .claude/skills. If you edit these files
+then init will create <name>.bak backup files before it replaces them.
+Skills with other names stay untouched.
+Pass --no-ai-skills to skip all of these files.`,
 	}
 	nonInteractive := cmd.Flags().BoolP("non-interactive", "n", false,
 		"Disable interactive prompts (requires --name/--module when applicable)")
@@ -173,8 +175,7 @@ func runInit(
 		}
 	}
 
-	// A refresh may leave backups even when no scaffold files are needed.
-	if err := ensureGitignoreEntries(projectDir); err != nil {
+	if err := gitignoreEnv(projectDir); err != nil {
 		return err
 	}
 
@@ -576,33 +577,23 @@ func randomHex(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func ensureGitignoreEntries(projectDir string) error {
+// gitignoreEnv ensures .env is listed in .gitignore.
+func gitignoreEnv(projectDir string) error {
 	gitignorePath := filepath.Join(projectDir, ".gitignore")
 	content, err := os.ReadFile(gitignorePath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("reading .gitignore: %w", err)
 	}
-	var missing []string
-	for _, want := range []string{".env", "*.bak", "*.bak.[0-9]*"} {
-		found := false
-		for line := range strings.SplitSeq(string(content), "\n") {
-			if strings.TrimSpace(line) == want {
-				found = true
-				break
-			}
+	for line := range strings.SplitSeq(string(content), "\n") {
+		if strings.TrimSpace(line) == ".env" {
+			return nil
 		}
-		if !found {
-			missing = append(missing, want)
-		}
-	}
-	if len(missing) == 0 {
-		return nil
 	}
 	f, err := os.OpenFile(gitignorePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		return fmt.Errorf("opening .gitignore: %w", err)
 	}
-	entry := strings.Join(missing, "\n") + "\n"
+	entry := ".env\n"
 	if len(content) > 0 && content[len(content)-1] != '\n' {
 		entry = "\n" + entry
 	}
