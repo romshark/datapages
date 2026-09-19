@@ -1383,11 +1383,16 @@ caching other pages is always unconditional.
 Queued writes reach the worker differently depending on the handler, handled for
 you by the generated code:
 
+The framework picks the delivery from the signature, first row that matches.
+An action declared on `App` follows the same rules as one on a page.
+
 | Handler | Delivery |
 | --- | --- |
 | GET | trailing `<script>` baked into the HTML response |
 | Action with `sse` | script flushed over the SSE stream |
-| Action returning `redirect` | JS in the `text/javascript` redirect response, posted **before** navigating |
+| Action returning `redirect`, no `sse` | JS in the `text/javascript` redirect response, posted **before** navigating |
+| Action returning only a body | trailing `<script>` baked into the rendered document |
+| Action returning neither | script flushed over an SSE stream opened for it, which only a Datastar request can read |
 
 `newSession` and `closeSession` cannot be combined with an `sse` parameter. Sign-in
 and sign-out therefore take `pageCache` and return a `redirect`; their queued

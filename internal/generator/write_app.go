@@ -1667,7 +1667,9 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 	w.Rawf("func (s %s) %s%s(w http.ResponseWriter, r *http.Request) {\n",
 		handlerRecvType("App"), strings.ToUpper(h.HTTPMethod), h.Name)
 
-	if h.InputSSE != nil || h.InputSignals != nil {
+	// An action delivering its page cache writes over a stream answers with an
+	// event stream, which only a Datastar request can read.
+	if h.InputSSE != nil || h.InputSignals != nil || pageCacheViaStream(h) {
 		w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1759,20 +1761,27 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	// Dispatch closures.
 	w.writeDispatchers(h, "dispatch", "r.Context()")
 
-	// SSE for actions that take it.
-	if h.InputSSE != nil && !isAppLevel {
+	// An app-level action cannot take datapages.SSE
+	// ([github.com/romshark/datapages/internal/parser.ErrSSEOnAppMethod]), but it
+	// still needs a stream when that is how its page cache writes are delivered.
+	viaStream := isAppLevel && pageCacheViaStream(h)
+	if viaStream {
 		w.Line(0, "")
 		w.Line(1, "sse := datastar.NewSSE(w, r, datastar.WithCompression())")
 	}
 
 	if isAppLevel {
-		w.writeDeferRecover(false, "App."+h.Name)
+		w.writeDeferRecover(viaStream, "App."+h.Name)
 	}
 
-	// Page cache handle. App-level actions have no SSE stream. They deliver
-	// their queued writes through the redirect response (see httpRedirectOffline).
+	// Page cache handle. The other two deliveries write to the response
+	// themselves (see httpRedirectOffline and pageCacheWriter.writeBake).
 	if h.InputPageCache != nil && isAppLevel {
-		w.Line(1, "pageCache := newPageCache(s.Server, r, nil)")
+		if viaStream {
+			w.Line(1, "pageCache := newPageCache(s.Server, r, sse)")
+		} else {
+			w.Line(1, "pageCache := newPageCache(s.Server, r, nil)")
+		}
 	}
 
 	// Page constructor (for page actions).
@@ -1782,6 +1791,11 @@ func (w *Writer) writeHandlerCallAndOutputs(
 
 	// Build the actual method call.
 	w.writeMethodCall(p, h, m, isAppLevel)
+
+	// Deliver queued offline writes over the SSE stream on success.
+	if viaStream {
+		w.Line(1, "_ = pageCache.flush()")
+	}
 }
 
 func (w *Writer) writeMethodCall(
@@ -1800,13 +1814,20 @@ func (w *Writer) writeMethodCall(
 	}
 	methodName := h.HTTPMethod + h.Name
 
+	// The error path patches into the stream the handler answers on, which an
+	// app-level action has only when its page cache writes are delivered there.
+	sseRef := "nil"
+	if (h.InputSSE != nil && !isAppLevel) || (isAppLevel && pageCacheViaStream(h)) {
+		sseRef = "sse"
+	}
+
 	if len(outs) == 0 {
 		// Void return or only error.
 		if h.OutputErr != nil {
 			w.Raw("\tif err := ")
 			w.writeCallExpr(receiver, methodName, args)
 			w.Raw("; err != nil {\n")
-			w.Raw("\t\ts.httpErrIntern(w, r, nil, \"handling action ")
+			w.Raw("\t\ts.httpErrIntern(w, r, " + sseRef + ", \"handling action ")
 			w.Raw(actionOwnerName(p, isAppLevel))
 			w.Byte('.')
 			w.Raw(h.Name)
@@ -1827,10 +1848,6 @@ func (w *Writer) writeMethodCall(
 	w.Byte('\n')
 
 	if h.OutputErr != nil {
-		sseRef := "nil"
-		if h.InputSSE != nil && !isAppLevel {
-			sseRef = "sse"
-		}
 		w.Line(1, "if err != nil {")
 		w.Raw("\t\ts.httpErrIntern(w, r, ")
 		w.Raw(sseRef)
@@ -1887,6 +1904,12 @@ func (w *Writer) writeMethodCall(
 		w.Raw("\", err)\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
+
+		// Bake queued offline writes into the rendered document,
+		// the way a GET page method does.
+		if pageCacheViaBake(h) {
+			w.Line(1, "_ = pageCache.writeBake(w)")
+		}
 	}
 }
 

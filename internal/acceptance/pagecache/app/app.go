@@ -81,3 +81,24 @@ type PageOffline struct{ App *App }
 func (PageOffline) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("offline", "offline"), nil
 }
+
+// POSTAppPrecache is /app-precache
+//
+// An app-level action that returns neither a redirect nor a body. The framework
+// opens a stream for it, which is the only way its writes can reach the worker.
+func (*App) POSTAppPrecache(
+	_ *http.Request, pageCache datapages.PageCacheWriter,
+) error {
+	pageCache.Set("/", echo("cached", "written by an app-level action"), 11)
+	return nil
+}
+
+// POSTAppBody is /app-body
+//
+// An app-level action answering with a document. Its writes are baked into it.
+func (*App) POSTAppBody(
+	_ *http.Request, pageCache datapages.PageCacheWriter,
+) (body datapages.Component, err error) {
+	pageCache.Set("/", echo("cached", "written by an app-level body action"), 12)
+	return echo("out", "done"), nil
+}

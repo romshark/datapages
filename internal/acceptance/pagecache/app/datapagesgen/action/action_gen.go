@@ -169,6 +169,49 @@ func WithRequestCancellationController(expr string) Option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
+var App app
+
+type app struct {
+	AppBody     app_AppBody
+	AppPrecache app_AppPrecache
+}
+
+type app_AppBody struct{}
+
+// POST references /app-body/
+func (app_AppBody) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/app-body/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/app-body/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/app-body/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
+type app_AppPrecache struct{}
+
+// POST references /app-precache/
+func (app_AppPrecache) POST(options ...Option) string {
+	if len(options) == 0 {
+		return "@post('/app-precache/')"
+	}
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	b.Grow(bl + len("@post('/app-precache/'") + actionexpr.OptionsLen(options) + len(")") + al)
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/app-precache/'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+	return b.String()
+}
+
 var PageIndex pageIndex
 
 type pageIndex struct {

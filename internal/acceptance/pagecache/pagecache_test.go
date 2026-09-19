@@ -147,3 +147,32 @@ func TestWithOfflineRegistersOnlyWhileOutdated(t *testing.T) {
 	require.NotContains(t, current.Body, "serviceWorker.register(",
 		"a client running the current worker is sent no registration script")
 }
+
+func TestAppLevelActionFlushesOverAStream(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	resp := c.Action(t, http.MethodPost, "/app-precache/", "")
+	require.Equal(t, http.StatusOK, resp.Status)
+	require.Contains(t, resp.Header.Get("Content-Type"), "text/event-stream")
+	require.Contains(t, resp.Body, applyType,
+		"an app-level action with neither a redirect nor a body"+
+			" delivers over the stream the framework opens for it")
+	require.Contains(t, resp.Body, `"url":"/"`)
+	require.Contains(t, resp.Body, `"version":11`)
+	require.Contains(t, resp.Body, "written by an app-level action",
+		"the entry carries the rendered body")
+}
+
+func TestAppLevelActionBakesIntoItsBody(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	resp := c.Action(t, http.MethodPost, "/app-body/", "")
+	require.Equal(t, http.StatusOK, resp.Status)
+	require.Contains(t, resp.Header.Get("Content-Type"), "text/html")
+	require.Equal(t, "done", resp.Element(t, "out"))
+	require.Contains(t, resp.Body, applyType,
+		"an app-level action answering with a document bakes into it")
+	require.Contains(t, resp.Body, `"version":12`)
+}

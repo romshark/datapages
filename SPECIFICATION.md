@@ -534,14 +534,21 @@ Each cached URL carries its own individual version, chosen by the framework user
 (0 if none); compare it against the resource's server-side version to decide whether
 to re-`Set` it.
 
-Delivery is chosen by the framework from the handler kind:
+Delivery is chosen by the framework from the handler's signature, in this order.
+The same rules apply to a page method and to an action declared on `App`:
 
 - On a **`GET`** page method the queued writes are rendered and baked into the
   page's HTML; the service worker applies them on load, adding no extra request.
-- On an **action opening an SSE stream** they are delivered over that stream.
+- On an **action taking `sse`** they are delivered over that stream.
 - On an **action returning a redirect** they are carried in its `text/javascript`
   response and handed to the worker before the navigation runs,
-  which keeps them from being lost to the page unload.
+  which keeps them from being lost to the page unload. This is chosen even when
+  the action can also return a body.
+- On an **action returning only a body** they are baked into the document it
+  renders, the way a `GET` does.
+- On an **action returning neither** they go over an SSE stream the framework
+  opens for that purpose. Such an action is reachable only from a Datastar
+  request, since nothing else can read an event stream.
 
 A page can lazily cache itself on visit, versioned by its own data so it
 refreshes whenever that data changes:

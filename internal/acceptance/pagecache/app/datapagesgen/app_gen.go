@@ -407,6 +407,12 @@ func setupHandlers(s *Server) {
 		"GET /offline/{$}",
 		pageOfflineHandlers{s}.GET)
 	s.Mux().HandleFunc(
+		"POST /app-precache/{$}",
+		appHandlers{s}.POSTAppPrecache)
+	s.Mux().HandleFunc(
+		"POST /app-body/{$}",
+		appHandlers{s}.POSTAppBody)
+	s.Mux().HandleFunc(
 		"POST /stream-write/{$}",
 		pageIndexHandlers{s}.POSTStream)
 	s.Mux().HandleFunc(
@@ -450,6 +456,45 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
+		return
+	}
+	_ = pageCache.writeBake(w)
+}
+
+type appHandlers struct{ *Server }
+
+func (s appHandlers) POSTAppPrecache(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	sse := datastar.NewSSE(w, r, datastar.WithCompression())
+	defer s.recoverPanic(w, r, sse, "App.AppPrecache")
+	pageCache := newPageCache(s.Server, r, sse)
+	err := s.app.POSTAppPrecache(r, pageCache)
+	if err != nil {
+		s.httpErrIntern(w, r, sse, "handling action App.AppPrecache", err)
+		return
+	}
+	_ = pageCache.flush()
+}
+
+func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
+	defer s.recoverPanic(w, r, nil, "App.AppBody")
+	pageCache := newPageCache(s.Server, r, nil)
+	body, err := s.app.POSTAppBody(r, pageCache)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.AppBody", err)
+		return
+	}
+	if err := s.writeHTML(
+		w, r, nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering response of App.POSTAppBody", err)
 		return
 	}
 	_ = pageCache.writeBake(w)
