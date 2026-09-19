@@ -385,6 +385,8 @@ Reflected integer, float, and bool fields seed JavaScript numbers or booleans un
 
 `datapages gen` rejects two query fields with the same `reflectsignal` value. They would generate duplicate `data-signals` attributes, and the browser would ignore the second value.
 
+The query field's seed must have a JSON kind that the signal field can decode. `datapages gen` rejects incompatible pairs. For example, it rejects a string query field reflected into a `bool` signal because the browser would submit `"true"` and the action would return 400 while decoding the signals. Fields that implement `json.Unmarshaler` and interface fields accept every JSON kind.
+
 Signal `json` tags must match `[A-Za-z_][A-Za-z0-9_]*` and must not contain `__`. `json:"-"` is rejected.
 
 Datastar treats `__` as an attribute modifier delimiter. A leading single underscore is allowed, but Datastar omits that signal from requests unless `filterSignals` includes it.

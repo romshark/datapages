@@ -951,13 +951,10 @@ func (w *Writer) writeDeferRecover(hasSSE bool, handler string) {
 }
 
 // signalIsJSLiteral reports whether t renders as a JavaScript number or boolean.
-// Text marshalers render as strings even when their Go kind is numeric,
-// so their output needs quotes in a data-signals attribute.
+// [gotypes.TextJSONKind] classifies text marshalers as strings and is shared
+// with parser validation of reflected signal fields.
 func signalIsJSLiteral(t types.Type) bool {
-	if t == nil || gotypes.ImplementsTextMarshaler(t) {
-		return false
-	}
-	return isFormattedType(t)
+	return gotypes.TextJSONKind(t) != gotypes.JSONString
 }
 
 // writeFieldToString emits an expression that renders a struct field as the

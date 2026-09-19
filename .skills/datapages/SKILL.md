@@ -417,6 +417,11 @@ func (PageSearch) GET(
 They would generate duplicate `data-signals` attributes, and the browser
 would ignore the second value.
 
+The query field and signal field must use compatible JSON kinds: number,
+boolean, or string. `datapages gen` rejects a string query field reflected
+into a `bool` signal because the browser would send `"true"` and every action
+would return 400 while decoding the signals.
+
 A `json:"..."` tag of a signals struct declares one signal and must be a
 JavaScript identifier, no period and no hyphen. A reflected one also starts
 lower case.
