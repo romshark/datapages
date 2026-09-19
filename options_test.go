@@ -74,32 +74,34 @@ func TestWithAssetsCache(t *testing.T) {
 			conf: datapages.AssetsCacheConfig{
 				MaxAge: -time.Second,
 			},
-			wantErr: "max age must not be negative",
+			wantErr: `max age (-1s) must not be negative`,
 		},
 		"sub second max age": {
 			conf: datapages.AssetsCacheConfig{
 				MaxAge: 500 * time.Millisecond,
 			},
-			wantErr: "max age must be at least 1s",
+			wantErr: `max age (500ms) must be at least 1s`,
 		},
 		"immutable without max age": {
 			conf: datapages.AssetsCacheConfig{
 				Immutable: true,
 			},
-			wantErr: "immutable requires a max age above zero",
+			wantErr: `immutable (true) requires a max age (0s) above zero`,
 		},
 		"cache control with max age": {
 			conf: datapages.AssetsCacheConfig{
 				CacheControl: "no-store", MaxAge: time.Hour,
 			},
-			wantErr: "cannot be combined with max age or immutable",
+			wantErr: `cache control ("no-store") cannot be combined with ` +
+				`max age (1h0m0s) or immutable (false)`,
 		},
 		"cache control with immutable": {
 			conf: datapages.AssetsCacheConfig{
 				CacheControl: "no-store",
 				Immutable:    true,
 			},
-			wantErr: "cannot be combined with max age or immutable",
+			wantErr: `cache control ("no-store") cannot be combined with ` +
+				`max age (0s) or immutable (true)`,
 		},
 		"header injection": {
 			conf: datapages.AssetsCacheConfig{
