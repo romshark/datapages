@@ -98,6 +98,9 @@ The `browsable` argument of `datapages.WithAssets` lists a directory that has
 no `index.html`. Pass `browsable=false` in production to avoid exposing every
 embedded file.
 
+Datapages adds no `Cache-Control` or `ETag` header unless
+`datapages.WithAssetsCache` is configured.
+
 The app package, the session data type, the metrics mode and the package to
 generate into are the type arguments of the `datapages.NewServer` call.
 

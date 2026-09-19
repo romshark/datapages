@@ -1028,6 +1028,9 @@ opts = append(opts, datapages.WithDatastarJS("https://cdn.example.com/datastar.j
 // Allow in-flight requests, SSE streams, and StreamClose hooks 30s to finish.
 opts = append(opts, datapages.WithShutdownTimeout(30*time.Second))
 
+// Revalidate unchanged embedded assets with an ETag.
+opts = append(opts, datapages.WithAssetsCache(datapages.AssetsCacheConfig{}))
+
 // Prometheus metrics on a dedicated HTTP server.
 // Requires the datapages.EnablePrometheus type argument at the NewServer call.
 opts = append(opts, datapages.WithPrometheus(datapages.PrometheusConfig{
@@ -1077,6 +1080,28 @@ The URL path prefix is the generated `assets.URLPrefix` constant, which comes fr
 The `browsable` argument lists a directory that has no `index.html`.
 Pass `browsable=false` in production to avoid exposing every embedded file.
 Such a request then gets a 404, in dev mode as well.
+
+Datapages adds no `Cache-Control` or `ETag` header unless
+`datapages.WithAssetsCache` is configured:
+
+```go
+opts = append(opts, datapages.WithAssetsCache(datapages.AssetsCacheConfig{}))
+```
+
+The zero value sends `Cache-Control: public, max-age=0` and an ETag. The browser
+revalidates each request, and an unchanged file receives 304 with no body. Set
+`MaxAge` only when the asset URL changes with its content, such as a file name
+containing a build hash. Otherwise the browser may use stale content until the
+age expires. `Immutable` prevents reloads from revalidating a fresh response.
+`CacheControl` sets the header value directly. `DisableETag` omits the ETag.
+`Disabled` prevents the option from adding either header.
+
+The server computes an ETag on the first request for a file and caches it for
+the process lifetime. This matches the immutable file system used by
+`WithAssets`. Set `DisableETag` for a `WithAssetsFS` file system whose files can
+change while the server runs.
+
+Dev mode ignores the option and keeps answering `Cache-Control: no-store`.
 
 Reference static files in templates through the generated `assets.Path` helper,
 never a hardcoded path, so the prefix stays in one place:

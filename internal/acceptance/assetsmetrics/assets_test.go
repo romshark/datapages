@@ -520,3 +520,112 @@ func TestMetricsWithoutOption(t *testing.T) {
 	require.Nil(t, s, "server built without WithPrometheus")
 	require.ErrorContains(t, err, "missing option WithPrometheus")
 }
+
+// TestAssetsCacheHeaders tests the configured headers on embedded assets.
+// embed.FS reports a zero modification time, so these responses have no
+// Last-Modified header.
+func TestAssetsCacheHeaders(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		opts             []datapages.ServerOption
+		wantCacheControl string
+		wantETag         bool
+	}{
+		"no option": {},
+		"default": {
+			opts: []datapages.ServerOption{
+				datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
+			},
+			wantCacheControl: "public, max-age=0",
+			wantETag:         true,
+		},
+		"immutable": {
+			opts: []datapages.ServerOption{
+				datapages.WithAssetsCache(datapages.AssetsCacheConfig{
+					MaxAge:    365 * 24 * time.Hour,
+					Immutable: true,
+				}),
+			},
+			wantCacheControl: "public, max-age=31536000, immutable",
+			wantETag:         true,
+		},
+		"disabled": {
+			opts: []datapages.ServerOption{
+				datapages.WithAssetsCache(datapages.AssetsCacheConfig{Disabled: true}),
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			opts := append([]datapages.ServerOption{
+				datapages.WithAssets(app.StaticFS, false),
+				datapages.WithPrometheus(datapages.PrometheusConfig{
+					Host:       "127.0.0.1:0",
+					Registerer: registry,
+					Gatherer:   registry,
+				}),
+			}, tc.opts...)
+			srv := httptest.NewServer(mustNewServer(
+				t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), opts...,
+			))
+			t.Cleanup(srv.Close)
+
+			resp := get(t, srv, href.Asset("style.css"))
+			defer func() { _ = resp.Body.Close() }()
+			_, err := io.ReadAll(resp.Body)
+			require.NoError(t, err, "reading the stylesheet")
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Empty(t, resp.Header.Get("Last-Modified"))
+			require.Equal(t, tc.wantCacheControl, resp.Header.Get("Cache-Control"))
+			if !tc.wantETag {
+				require.Empty(t, resp.Header.Get("ETag"))
+				return
+			}
+			require.NotEmpty(t, resp.Header.Get("ETag"))
+		})
+	}
+}
+
+// TestAssetsCacheRevalidates tests that a matching If-None-Match value returns
+// 304 with an empty body.
+func TestAssetsCacheRevalidates(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(mustNewServer(
+		t,
+		&app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+		datapages.WithAssets(app.StaticFS, false),
+		datapages.WithAssetsCache(datapages.AssetsCacheConfig{}),
+		datapages.WithPrometheus(datapages.PrometheusConfig{
+			Host:       "127.0.0.1:0",
+			Registerer: registry,
+			Gatherer:   registry,
+		}),
+	))
+	t.Cleanup(srv.Close)
+
+	first := get(t, srv, href.Asset("style.css"))
+	defer func() { _ = first.Body.Close() }()
+	body, err := io.ReadAll(first.Body)
+	require.NoError(t, err, "reading the stylesheet")
+	require.Equal(t, http.StatusOK, first.StatusCode)
+	require.NotEmpty(t, body)
+	etag := first.Header.Get("ETag")
+	require.NotEmpty(t, etag)
+
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, srv.URL+href.Asset("style.css"), nil,
+	)
+	require.NoError(t, err)
+	req.Header.Set("If-None-Match", etag)
+	second, err := srv.Client().Do(req)
+	require.NoError(t, err)
+	defer func() { _ = second.Body.Close() }()
+	body, err = io.ReadAll(second.Body)
+	require.NoError(t, err)
+
+	require.Equal(t, http.StatusNotModified, second.StatusCode)
+	require.Empty(t, body)
+	require.Equal(t, etag, second.Header.Get("ETag"))
+}

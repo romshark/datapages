@@ -72,6 +72,7 @@ type Core struct {
 	outermost       func(http.Handler) http.Handler
 	assetsFS        http.FileSystem
 	assetsBrowsable bool
+	assetsCache     *datapages.AssetsCacheConfig
 	crossOrigin     *http.CrossOriginProtection
 	datastarJSSrc   string
 	htmlPrefix      string
@@ -111,6 +112,7 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		outermost:       cfg.OutermostMiddleware,
 		assetsFS:        cfg.AssetsFS,
 		assetsBrowsable: cfg.AssetsBrowsable,
+		assetsCache:     cfg.AssetsCache,
 		crossOrigin:     http.NewCrossOriginProtection(),
 		datastarJSSrc:   cfg.DatastarJS,
 		logger:          cfg.Logger,
@@ -209,11 +211,16 @@ func (c *Core) Build() {
 		if !c.assetsBrowsable {
 			fsys = notBrowsableFS{fsys: fsys}
 		}
-		h := http.StripPrefix(c.assetsURLPrefix, http.FileServer(fsys))
-		if datapages.IsDevMode() {
+		h := http.FileServer(fsys)
+		switch {
+		case datapages.IsDevMode():
+			// Dev files may change while the server runs. Cache-Control:
+			// no-store prevents the browser from reusing a stale response.
 			h = DevNoCache(h)
+		case c.assetsCache != nil && !c.assetsCache.Disabled:
+			h = newAssetsCache(fsys, *c.assetsCache, h)
 		}
-		c.mux.Handle("GET "+c.assetsURLPrefix, h)
+		c.mux.Handle("GET "+c.assetsURLPrefix, http.StripPrefix(c.assetsURLPrefix, h))
 	}
 
 	c.handler = http.Handler(c.mux)

@@ -719,7 +719,7 @@ Refresh uses the [`visibilitychange`](https://developer.mozilla.org/en-US/docs/W
 
 Dev mode is enabled when `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` is nonempty. `datapages watch` uses templier, which sets `TEMPL_DEV_MODE`. `DATAPAGES_DEV_MODE` also sets `TEMPL_DEV_MODE` for the process.
 
-Dev mode reads static assets from the source tree and sets `Cache-Control: no-store` on asset responses. The server logs a startup warning. A production process inheriting either variable may lack the source directory.
+Dev mode reads static assets from the source tree and sets `Cache-Control: no-store` on asset responses, ignoring `datapages.WithAssetsCache`. The server logs a startup warning. A production process inheriting either variable may lack the source directory.
 
 `datapages.IsDevMode` reports the mode.
 
