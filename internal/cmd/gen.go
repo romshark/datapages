@@ -39,8 +39,10 @@ datapages.NewServer call. A module without one is generated with the defaults
 
 Assets and Prometheus are read from the Config variable of the app package.
 
-This command does not run "templ generate". You must run it yourself
-before "datapages gen" if you have created or modified .templ files.
+This command does not run "templ generate". Generate the app model first,
+then run "templ generate" after changing .templ files. If generated Templ
+references a helper that does not exist yet, remove the reference, regenerate
+Templ, run "datapages gen", then restore it and regenerate Templ.
 
 A failed run never replaces generated code that already exists. It keeps
 what the last successful run produced. A package that was never generated is
