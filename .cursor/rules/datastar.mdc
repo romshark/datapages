@@ -5,6 +5,6 @@ globs: ["app/**/*.templ", "**/*.templ"]
 
 When working with Datastar templates, read and follow these files:
 
-- `.skills/datastar/SKILL.md` — Datastar HTML attribute and action reference.
-- `.skills/datapages/SKILL.md` — Datapages-specific rules for actions and URLs
+- `internal/generator/agentdocs/data/skills/datastar/SKILL.md` — Datastar HTML attribute and action reference.
+- `internal/generator/agentdocs/data/skills/datapages/SKILL.md` — Datapages-specific rules for actions and URLs
   (never hardcode URLs, use generated `action` and `href` packages).

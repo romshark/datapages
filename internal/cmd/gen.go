@@ -15,6 +15,7 @@ import (
 
 	"github.com/romshark/datapages/internal/cmd/config"
 	"github.com/romshark/datapages/internal/generator"
+	"github.com/romshark/datapages/internal/generator/agentdocs"
 	datapagesparser "github.com/romshark/datapages/internal/parser"
 	"github.com/romshark/datapages/internal/parser/errsuggest"
 	"github.com/romshark/datapages/internal/parser/model"
@@ -105,6 +106,13 @@ func runGen(
 	tidy.Dir = moduleDir
 	if out, err := tidy.CombinedOutput(); err != nil {
 		errs = append(errs, execErr("go mod tidy", err, out))
+	}
+	stale, err := agentdocs.SkillsDiffer(moduleDir, version)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("checking agent instructions: %w", err))
+	} else if stale {
+		_, _ = fmt.Fprintln(stderr,
+			"Agent instructions differ from this CLI; run `datapages init -n` to update them (edits are backed up).")
 	}
 	return errors.Join(errs...)
 }
