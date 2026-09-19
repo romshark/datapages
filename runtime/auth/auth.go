@@ -188,7 +188,7 @@ func (m *Manager[Data]) ReadSession(w http.ResponseWriter, r *http.Request) (
 	if !ok {
 		// Cookie is stale or malformed; clear it and continue as unauthenticated.
 		m.sessionRead("stale")
-		m.SetSessionCookie(w, "")
+		m.SetSessionCookie(w, "", time.Time{})
 		return datapages.Session[Data]{}, "", true
 	}
 	sess = datapages.MakeSession(
@@ -198,7 +198,7 @@ func (m *Manager[Data]) ReadSession(w http.ResponseWriter, r *http.Request) (
 	if !sess.ExpiresAt().IsZero() && !time.Now().Before(sess.ExpiresAt()) {
 		// Session has expired; clear the cookie and continue as unauthenticated.
 		m.sessionRead("expired")
-		m.SetSessionCookie(w, "")
+		m.SetSessionCookie(w, "", time.Time{})
 		// Nothing reads this record again; leaving it would waste store space.
 		if err := m.sessions.CloseSession(r.Context(), token); err != nil {
 			m.server.Logger().Error("closing an expired session",
@@ -253,7 +253,13 @@ func (m *Manager[Data]) CheckCSRF(
 }
 
 // SetSessionCookie writes the session cookie. An empty value clears it.
-func (m *Manager[Data]) SetSessionCookie(w http.ResponseWriter, value string) {
+//
+// expiresAt becomes the Max-Age and Expires of the cookie, which keeps the
+// client signed in across browser restarts. A zero expiresAt writes a cookie
+// the browser drops when it closes.
+func (m *Manager[Data]) SetSessionCookie(
+	w http.ResponseWriter, value string, expiresAt time.Time,
+) {
 	cookie := http.Cookie{
 		Name:     m.conf.Cookie.Name,
 		Value:    value,
@@ -263,9 +269,16 @@ func (m *Manager[Data]) SetSessionCookie(w http.ResponseWriter, value string) {
 		Secure:   !m.conf.DisableSecureCookie,
 		SameSite: http.SameSiteLaxMode,
 	}
-	if value == "" {
+	switch {
+	case value == "":
 		cookie.MaxAge = -1
 		cookie.Expires = time.Unix(0, 0)
+	case !expiresAt.IsZero():
+		cookie.Expires = expiresAt
+		// Max-Age takes precedence over Expires and survives a wrong client clock.
+		// RFC 6265 section 5.2.2 reads a value below 1 as expired, hence the floor:
+		// it would delete the cookie of a session the store still holds.
+		cookie.MaxAge = max(int(time.Until(expiresAt).Seconds()), 1)
 	}
 	http.SetCookie(w, &cookie)
 }
@@ -298,7 +311,7 @@ func (m *Manager[Data]) CreateSession(
 	if m.metrics != nil {
 		m.metrics.SessionCreated("success")
 	}
-	m.SetSessionCookie(w, token)
+	m.SetSessionCookie(w, token, session.ExpiresAt)
 	return datapages.MakeSession(
 		session.UserID, token, issuedAt, session.ExpiresAt, session.Data,
 	), nil
@@ -320,6 +333,6 @@ func (m *Manager[Data]) CloseSession(
 	if m.metrics != nil {
 		m.metrics.SessionClosed("success")
 	}
-	m.SetSessionCookie(w, "")
+	m.SetSessionCookie(w, "", time.Time{})
 	return datapages.Session[Data]{}, nil
 }
