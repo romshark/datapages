@@ -239,3 +239,43 @@ func TestWriteNumbersBackups(t *testing.T) {
 	require.Equal(t, "round a\n", read(t, dir, "AGENTS.md.bak"))
 	require.Equal(t, "round b\n", read(t, dir, "AGENTS.md.bak.1"))
 }
+
+// TestWriteKeepsCustomSkills tests a run in a project that carries skills of
+// its own: they stay, and one that uses a shipped name is kept as a backup.
+func TestWriteKeepsCustomSkills(t *testing.T) {
+	dir := t.TempDir()
+	put := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+	}
+
+	const mine = "# My own skill\n"
+	custom := []string{
+		agentdocs.SkillsDir + "/my-custom/SKILL.md",
+		agentdocs.AgentsSkillsDir + "/my-custom/SKILL.md",
+		agentdocs.SkillsDir + "/datapages/reference.md",
+	}
+	for _, rel := range custom {
+		put(rel, mine)
+	}
+	shippedName := agentdocs.SkillsDir + "/datastar/SKILL.md"
+	put(shippedName, mine)
+
+	res := write(t, dir)
+
+	for _, rel := range custom {
+		require.Equal(t, mine, read(t, dir, rel))
+		require.NotContains(t, res.Written, filepath.FromSlash(rel))
+	}
+	require.Equal(t, []agentdocs.Backup{{
+		Path: filepath.FromSlash(shippedName),
+		To:   filepath.FromSlash(shippedName + ".bak"),
+	}}, res.BackedUp)
+	require.Equal(t, mine, read(t, dir, shippedName+".bak"))
+
+	stale, err := agentdocs.SkillsDiffer(dir, project.Version)
+	require.NoError(t, err)
+	require.False(t, stale)
+}
