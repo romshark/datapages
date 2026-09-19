@@ -91,6 +91,7 @@ type Server struct {
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
+//   - datapages.WithShutdownTimeout
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
@@ -176,11 +177,9 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
 		return
 	}
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
+	httpserve.WriteErrStatus(w, err)
 }
 
 type pageBackgroundHandlers struct{ *Server }

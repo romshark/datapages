@@ -12,10 +12,11 @@ import (
 	"github.com/romshark/datapages/runtime/actionexpr"
 )
 
-// The generated helpers take the options of runtime/actionexpr.
-// Aliases keep them nameable from a template that imports only this package.
+// Option names the values accepted by generated action methods.
+// [ContentType], [Retry], and [RequestCancellation] name values accepted by
+// option helpers.
 type (
-	option              = actionexpr.Option
+	Option              = actionexpr.Option
 	ContentType         = actionexpr.ContentType
 	Retry               = actionexpr.Retry
 	RequestCancellation = actionexpr.RequestCancellation
@@ -67,22 +68,22 @@ const (
 //   - WithRequestCancellationController
 //
 // See https://data-star.dev/reference/actions#options
-func WithOption(key, value string) option {
+func WithOption(key, value string) Option {
 	return actionexpr.WithOption(key, value)
 }
 
 // WithBefore prepends a JavaScript expression before the action call.
 // Multiple before expressions are joined with "; " separators.
-func WithBefore(expr string) option { return actionexpr.WithBefore(expr) }
+func WithBefore(expr string) Option { return actionexpr.WithBefore(expr) }
 
 // WithAfter appends a JavaScript expression after the action call.
 // Multiple after expressions are joined with "; " separators.
-func WithAfter(expr string) option { return actionexpr.WithAfter(expr) }
+func WithAfter(expr string) Option { return actionexpr.WithAfter(expr) }
 
 // WithContentType creates an action option that controls the content type:
 //   - ContentTypeJSON (default)
 //   - ContentTypeForm
-func WithContentType(ct ContentType) option {
+func WithContentType(ct ContentType) Option {
 	return actionexpr.WithContentType(ct)
 }
 
@@ -92,12 +93,12 @@ func WithContentType(ct ContentType) option {
 // with a _ prefix (/(^_|\._).*/).
 //
 // See https://data-star.dev/reference/actions#options
-func WithFilterSignals(include, exclude string) option {
+func WithFilterSignals(include, exclude string) Option {
 	return actionexpr.WithFilterSignals(include, exclude)
 }
 
 // WithHeaders creates an action option with HTTP headers to send with the request.
-func WithHeaders(headers map[string]string) option {
+func WithHeaders(headers map[string]string) Option {
 	return actionexpr.WithHeaders(headers)
 }
 
@@ -105,18 +106,18 @@ func WithHeaders(headers map[string]string) option {
 // the connection open when the page is hidden. Useful for dashboards but can
 // cause a drain on battery life. Defaults to false for get requests,
 // and true for all other HTTP methods.
-func WithOpenWhenHidden(open bool) option {
+func WithOpenWhenHidden(open bool) Option {
 	return actionexpr.WithOpenWhenHidden(open)
 }
 
 // WithPayload creates an action option with a JavaScript expression
 // for the request payload.
-func WithPayload(expr string) option { return actionexpr.WithPayload(expr) }
+func WithPayload(expr string) Option { return actionexpr.WithPayload(expr) }
 
 // WithSelector creates an action option that specifies a CSS selector for
 // the form to send when ContentType is ContentTypeForm.
 // If not specified, the closest form to the element is used.
-func WithSelector(selector string) option {
+func WithSelector(selector string) Option {
 	return actionexpr.WithSelector(selector)
 }
 
@@ -125,29 +126,29 @@ func WithSelector(selector string) option {
 //   - RetryError
 //   - RetryAlways
 //   - RetryNever
-func WithRetry(r Retry) option { return actionexpr.WithRetry(r) }
+func WithRetry(r Retry) Option { return actionexpr.WithRetry(r) }
 
 // WithRetryInterval creates an action option for the retry interval in milliseconds.
 // Defaults to 1000 (one second).
-func WithRetryInterval(ms int) option {
+func WithRetryInterval(ms int) Option {
 	return actionexpr.WithRetryInterval(ms)
 }
 
 // WithRetryScaler creates an action option for the numeric multiplier
 // applied to scale retry wait times. Defaults to 2.
-func WithRetryScaler(multiplier float64) option {
+func WithRetryScaler(multiplier float64) Option {
 	return actionexpr.WithRetryScaler(multiplier)
 }
 
 // WithRetryMaxWaitMs creates an action option for the maximum allowable wait time
 // in milliseconds between retries. Defaults to 30000 (30 seconds).
-func WithRetryMaxWaitMs(ms int) option {
+func WithRetryMaxWaitMs(ms int) Option {
 	return actionexpr.WithRetryMaxWaitMs(ms)
 }
 
 // WithRetryMaxCount creates an action option for the maximum number
 // of retry attempts. Defaults to 10.
-func WithRetryMaxCount(count int) option {
+func WithRetryMaxCount(count int) Option {
 	return actionexpr.WithRetryMaxCount(count)
 }
 
@@ -156,7 +157,7 @@ func WithRetryMaxCount(count int) option {
 //   - RequestCancellationAuto (default)
 //   - RequestCancellationCleanup
 //   - RequestCancellationDisabled
-func WithRequestCancellation(rc RequestCancellation) option {
+func WithRequestCancellation(rc RequestCancellation) Option {
 	return actionexpr.WithRequestCancellation(rc)
 }
 
@@ -166,7 +167,7 @@ func WithRequestCancellation(rc RequestCancellation) option {
 // for example "$controller".
 //
 // See https://data-star.dev/reference/actions#request-cancellation
-func WithRequestCancellationController(expr string) option {
+func WithRequestCancellationController(expr string) Option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
@@ -180,7 +181,7 @@ type app struct {
 type app_All struct{}
 
 // DELETE references /all/
-func (app_All) DELETE(options ...option) string {
+func (app_All) DELETE(options ...Option) string {
 	if len(options) == 0 {
 		return "@delete('/all/')"
 	}
@@ -198,7 +199,7 @@ func (app_All) DELETE(options ...option) string {
 type app_Ping struct{}
 
 // POST references /ping/
-func (app_Ping) POST(options ...option) string {
+func (app_Ping) POST(options ...Option) string {
 	if len(options) == 0 {
 		return "@post('/ping/')"
 	}
@@ -237,7 +238,7 @@ type pageForm_Bump struct{}
 func (pageForm_Bump) POST(
 	id int,
 	query pageForm_Bump_POSTQuery,
-	options ...option,
+	options ...Option,
 ) string {
 	s_id := strconv.FormatInt(int64(id), 10)
 	var (
@@ -302,7 +303,7 @@ func (pageForm_Bump) POSTQuery(vBy int) pageForm_Bump_POSTQuery {
 type pageForm_Go struct{}
 
 // POST references /form/go/
-func (pageForm_Go) POST(options ...option) string {
+func (pageForm_Go) POST(options ...Option) string {
 	if len(options) == 0 {
 		return "@post('/form/go/')"
 	}
@@ -320,7 +321,7 @@ func (pageForm_Go) POST(options ...option) string {
 type pageForm_GoStream struct{}
 
 // POST references /form/go-stream/
-func (pageForm_GoStream) POST(options ...option) string {
+func (pageForm_GoStream) POST(options ...Option) string {
 	if len(options) == 0 {
 		return "@post('/form/go-stream/')"
 	}
@@ -338,7 +339,7 @@ func (pageForm_GoStream) POST(options ...option) string {
 type pageForm_Patch struct{}
 
 // POST references /form/patch/
-func (pageForm_Patch) POST(options ...option) string {
+func (pageForm_Patch) POST(options ...Option) string {
 	if len(options) == 0 {
 		return "@post('/form/patch/')"
 	}
@@ -356,7 +357,7 @@ func (pageForm_Patch) POST(options ...option) string {
 type pageForm_PatchAt struct{}
 
 // POST references /form/patch-at/
-func (pageForm_PatchAt) POST(options ...option) string {
+func (pageForm_PatchAt) POST(options ...Option) string {
 	if len(options) == 0 {
 		return "@post('/form/patch-at/')"
 	}
@@ -374,7 +375,7 @@ func (pageForm_PatchAt) POST(options ...option) string {
 type pageForm_Remove struct{}
 
 // DELETE references /form/remove/
-func (pageForm_Remove) DELETE(options ...option) string {
+func (pageForm_Remove) DELETE(options ...Option) string {
 	if len(options) == 0 {
 		return "@delete('/form/remove/')"
 	}
@@ -390,7 +391,7 @@ func (pageForm_Remove) DELETE(options ...option) string {
 }
 
 // POST references /form/remove/
-func (pageForm_Remove) POST(options ...option) string {
+func (pageForm_Remove) POST(options ...Option) string {
 	if len(options) == 0 {
 		return "@post('/form/remove/')"
 	}
@@ -408,7 +409,7 @@ func (pageForm_Remove) POST(options ...option) string {
 type pageForm_Render struct{}
 
 // POST references /form/render/
-func (pageForm_Render) POST(options ...option) string {
+func (pageForm_Render) POST(options ...Option) string {
 	if len(options) == 0 {
 		return "@post('/form/render/')"
 	}
@@ -426,7 +427,7 @@ func (pageForm_Render) POST(options ...option) string {
 type pageForm_Replace struct{}
 
 // PUT references /form/replace/
-func (pageForm_Replace) PUT(options ...option) string {
+func (pageForm_Replace) PUT(options ...Option) string {
 	if len(options) == 0 {
 		return "@put('/form/replace/')"
 	}
@@ -444,7 +445,7 @@ func (pageForm_Replace) PUT(options ...option) string {
 type pageForm_SignalsBad struct{}
 
 // POST references /form/signals-bad/
-func (pageForm_SignalsBad) POST(options ...option) string {
+func (pageForm_SignalsBad) POST(options ...Option) string {
 	if len(options) == 0 {
 		return "@post('/form/signals-bad/')"
 	}
@@ -462,7 +463,7 @@ func (pageForm_SignalsBad) POST(options ...option) string {
 type pageForm_SignalsMissing struct{}
 
 // POST references /form/signals-missing/
-func (pageForm_SignalsMissing) POST(options ...option) string {
+func (pageForm_SignalsMissing) POST(options ...Option) string {
 	if len(options) == 0 {
 		return "@post('/form/signals-missing/')"
 	}
@@ -480,7 +481,7 @@ func (pageForm_SignalsMissing) POST(options ...option) string {
 type pageForm_SignalsRaw struct{}
 
 // POST references /form/signals-raw/
-func (pageForm_SignalsRaw) POST(options ...option) string {
+func (pageForm_SignalsRaw) POST(options ...Option) string {
 	if len(options) == 0 {
 		return "@post('/form/signals-raw/')"
 	}
@@ -498,7 +499,7 @@ func (pageForm_SignalsRaw) POST(options ...option) string {
 type pageForm_Submit struct{}
 
 // POST references /form/submit/
-func (pageForm_Submit) POST(options ...option) string {
+func (pageForm_Submit) POST(options ...Option) string {
 	if len(options) == 0 {
 		return "@post('/form/submit/')"
 	}
@@ -516,7 +517,7 @@ func (pageForm_Submit) POST(options ...option) string {
 type pageForm_Touch struct{}
 
 // PATCH references /form/touch/
-func (pageForm_Touch) PATCH(options ...option) string {
+func (pageForm_Touch) PATCH(options ...Option) string {
 	if len(options) == 0 {
 		return "@patch('/form/touch/')"
 	}

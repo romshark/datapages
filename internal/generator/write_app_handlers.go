@@ -693,16 +693,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 	// Reflect signal attrs.
 	for _, f := range reflectFields {
 		fi := structFieldInfo{Name: f.FieldName, Type: f.Type}
-		if gotypes.IsString(f.Type) {
-			w.Line(0, "")
-			w.Raw("\t\t_, _ = io.WriteString(w, ` data-signals:")
-			w.Raw(kebabSignalPath(f.SignalName))
-			w.Raw("=\"'`)\n")
-			w.Raw("\t\thtmlattr.WriteSignalString(w, ")
-			w.writeFieldToString(varQuery, fi)
-			w.Raw(")\n")
-			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
-		} else {
+		if signalIsJSLiteral(f.Type) {
 			w.Line(0, "")
 			w.Raw("\t\t_, _ = io.WriteString(w, ` data-signals:")
 			w.Raw(kebabSignalPath(f.SignalName))
@@ -711,6 +702,15 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 			w.writeFieldToString(varQuery, fi)
 			w.Raw(")\n")
 			w.Line(2, "_, _ = io.WriteString(w, `\"`)")
+		} else {
+			w.Line(0, "")
+			w.Raw("\t\t_, _ = io.WriteString(w, ` data-signals:")
+			w.Raw(kebabSignalPath(f.SignalName))
+			w.Raw("=\"'`)\n")
+			w.Raw("\t\thtmlattr.WriteSignalString(w, ")
+			w.writeFieldToString(varQuery, fi)
+			w.Raw(")\n")
+			w.Line(2, "_, _ = io.WriteString(w, `'\"`)")
 		}
 	}
 
@@ -856,22 +856,27 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 		}
 
 		w.Line(0, "")
-		w.Line(2, "_, _ = io.WriteString(w, ` data-effect=\"const params = new URLSearchParams();")
+		// replaceState writes the whole query. Starting with an empty set would
+		// drop unreflected and undeclared parameters from the current URL.
+		w.Line(2, "_, _ = io.WriteString(w, ` data-effect=\"const params = new URLSearchParams(location.search);")
 		for _, f := range reflectFields {
-			w.Raw("\t\t\tif ($")
-			w.Raw(f.SignalName)
-			w.Raw(") params.set('")
 			// A query tag is a URL parameter name and may carry anything.
 			// Here it stands inside a JavaScript string inside an attribute,
 			// which is what the escaping is of.
-			w.Raw(htmlattr.SignalString(f.QueryTag))
+			key := htmlattr.SignalString(f.QueryTag)
+			w.Raw("\t\t\tif ($")
+			w.Raw(f.SignalName)
+			w.Raw(") params.set('")
+			w.Raw(key)
 			w.Raw("', $")
 			w.Raw(f.SignalName)
-			w.Raw(");\n")
+			// The seeded query still holds the old value when a signal is empty.
+			w.Raw("); else params.delete('")
+			w.Raw(key)
+			w.Raw("');\n")
 		}
 		w.Line(3, "const query = params.toString();")
 		if h.InputPath != nil {
-			// Route has path parameters that must be interpolated with HTML escaping.
 			fields := w.structFields(h.InputPath.Type.Resolved)
 			tagToField := make(map[string]structFieldInfo, len(fields))
 			for _, f := range fields {
@@ -879,9 +884,11 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 					tagToField[tag] = f
 				}
 			}
-			// writeRoute writes the route with path params replaced by
-			// template.HTMLEscape calls. It assumes we are mid-backtick
-			// in an io.WriteString and leaves us mid-backtick.
+			// writeRoute closes and reopens the raw string around path values.
+			// The values sit in a JavaScript string inside an HTML attribute.
+			// The browser decodes HTML entities before evaluating JavaScript,
+			// so [htmlattr.WritePathValue] percent-encodes each value before
+			// escaping it for the attribute.
 			writeRoute := func(r string) {
 				literals, vars := routepattern.Segments(r)
 				for i, lit := range literals {
@@ -895,9 +902,9 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 						continue
 					}
 					w.Raw("`)\n")
-					w.Raw("\t\ttemplate.HTMLEscape(w, []byte(")
+					w.Raw("\t\thtmlattr.WritePathValue(w, ")
 					w.writeFieldToString(varPath, tagToField[vars[i]])
-					w.Raw("))\n")
+					w.Raw(")\n")
 					w.Raw("\t\t_, _ = io.WriteString(w, `")
 				}
 			}
@@ -957,6 +964,13 @@ func (w *Writer) writeDeferRecover(hasSSE bool, handler string) {
 		sse = "sse"
 	}
 	w.Linef(1, "defer s.recoverPanic(w, r, %s, %q)", sse, handler)
+}
+
+// signalIsJSLiteral reports whether t renders as a JavaScript number or boolean.
+// [gotypes.TextJSONKind] classifies text marshalers as strings and is shared
+// with parser validation of reflected signal fields.
+func signalIsJSLiteral(t types.Type) bool {
+	return gotypes.TextJSONKind(t) != gotypes.JSONString
 }
 
 // writeFieldToString emits an expression that renders a struct field as the
@@ -1821,9 +1835,6 @@ func (w *Writer) writeActionMethodCall(
 	}
 }
 
-// writeActionErrCheck emits the error-handling body for action handlers.
-// All errors are routed through httpErrIntern, which calls RecoverError
-// if available and falls back to the datapages error sentinels or 500.
 func (w *Writer) writeActionErrCheck(
 	p *model.Page, h *model.Handler, sseRef string,
 ) {

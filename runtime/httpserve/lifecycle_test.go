@@ -211,3 +211,69 @@ func (b *buffer) String() string {
 	defer b.mu.Unlock()
 	return b.buf.String()
 }
+
+// TestShutdownTimeoutDefault tests the default and configured grace periods.
+func TestShutdownTimeoutDefault(t *testing.T) {
+	t.Parallel()
+
+	c := mustCore(t, datapages.ServerConfig{}, "")
+	require.Equal(t, httpserve.DefaultShutdownTimeout, c.ShutdownTimeout())
+
+	c = mustCore(t, datapages.ServerConfig{ShutdownTimeout: 250 * time.Millisecond}, "")
+	require.Equal(t, 250*time.Millisecond, c.ShutdownTimeout())
+}
+
+// TestShutdownTimeoutCapsWait tests that [httpserve.Core.ListenAndServe]
+// returns after the configured grace period when a request remains in flight.
+func TestShutdownTimeoutCapsWait(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	entered := make(chan struct{})
+
+	var log buffer
+	c := mustCore(t, datapages.ServerConfig{
+		Logger:          slog.New(slog.NewJSONHandler(&log, nil)),
+		ShutdownTimeout: 200 * time.Millisecond,
+	}, "")
+	c.Mux().HandleFunc("/hold/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		close(entered)
+		<-release
+	})
+	c.Build()
+	defer close(release)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- c.ListenAndServe(ctx, "127.0.0.1:0") }()
+
+	addr := awaitAddr(t, c, done)
+	go func() {
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Get("http://" + addr + "/hold/")
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the handler was never reached")
+	}
+
+	start := time.Now()
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err, "ListenAndServe")
+	case <-time.After(5 * time.Second):
+		t.Fatal("ListenAndServe did not return within the grace period")
+	}
+
+	elapsed := time.Since(start)
+	require.Greater(t, elapsed, 100*time.Millisecond)
+	require.Less(t, elapsed, 3*time.Second)
+	require.Contains(t, log.String(), "shutting down")
+}

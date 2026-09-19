@@ -132,7 +132,8 @@ package app
 
 import (
 	"net/http"
-	"github.com/a-h/templ"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -391,7 +392,7 @@ return fmt.Errorf("%w: %w", datapages.ErrNotFound, errOriginal)   // 404, preser
 Wrap at most one sentinel per error. With several, the first of `ErrBadRequest`,
 `ErrForbidden`, `ErrNotFound`, `ErrConflict` decides the status.
 
-Errors without a sentinel default to 500 (or `RecoverError` if defined).
+Errors without a sentinel return 500 unless `RecoverError` handles the Datastar request.
 
 ## Step 7: Add Signals
 
@@ -410,7 +411,10 @@ func (PageForm) POSTSubmit(
 }
 ```
 
-Add `reflectsignal` to a query field to bind it to a Datastar signal. The query parameter initializes the signal value on page load, and when the signal changes, the browser URL is updated to reflect the new value:
+Tag a query field with `reflectsignal` to bind it to a Datastar signal.
+The query parameter sets the signal on page load. Signal changes update
+or remove only that parameter in the browser URL. Other parameters remain,
+including query fields without `reflectsignal`:
 
 ```go
 func (PageSearch) GET(
@@ -425,6 +429,15 @@ func (PageSearch) GET(
 	return searchPage(query.Values.Term), nil
 }
 ```
+
+`datapages gen` rejects two query fields with the same `reflectsignal` value.
+They would generate duplicate `data-signals` attributes, and the browser
+would ignore the second value.
+
+The query field and signal field must use compatible JSON kinds: number,
+boolean, or string. `datapages gen` rejects a string query field reflected
+into a `bool` signal because the browser would send `"true"` and every action
+would return 400 while decoding the signals.
 
 A `json:"..."` tag of a signals struct declares one signal and must be a
 JavaScript identifier, no period and no hyphen. A reflected one also starts
@@ -873,18 +886,30 @@ Both parameters are matched by their type, the names and order are free.
 
 ## Step 14: Add Error Recovery (Optional)
 
-When a handler returns an error during a Datastar SSE request, a plain HTTP error is invisible to the user - there is no visible feedback, only a console log that normal users never see. `RecoverError` lets you handle this gracefully by patching in an error UI (e.g. a toast notification) over SSE instead. All action handler errors (including the datapages sentinels) are routed through `RecoverError` when defined. Use `errors.Is(err, datapages.ErrBadRequest)` etc. inside `RecoverError` to distinguish error types.
+A plain HTTP error from a Datastar request gives the user no visible feedback.
+Define `RecoverError` to write error UI over SSE. It receives every handler
+error from a Datastar request, including Datapages sentinels. Use `errors.Is`
+to distinguish sentinels.
 
-A panic in a handler reaches `RecoverError` as a `datapages.PanicError`
-carrying the value and the stack. Read it with
-`errors.As(err, &datapages.PanicError{})`. The stack is logged whatever the hook does,
-and the request ends there: a panic is a bug to fix, not a control flow to build on.
+`RecoverError` writes an event stream, which a browser would render as the
+document during a page load. Define `PageError500` for a custom error page;
+otherwise the server writes a plain HTTP error if the response has not started.
+
+On a Datastar request, a panic in `GET`, an action, `StreamOpen`, or `OnXXX`
+reaches `RecoverError` as a `datapages.PanicError` carrying the value and stack.
+Extract it into a variable to read those fields. Datapages logs the stack before
+`RecoverError` runs. `StreamClose` runs after the response path; its panics are
+logged instead.
 
 ```go
 func (*App) RecoverError(
 	err error,
 	sse datapages.SSE,
 ) error {
+	var panicErr datapages.PanicError
+	if errors.As(err, &panicErr) {
+		return sse.PatchElement(panicToast(panicErr.Value))
+	}
 	return sse.PatchElement(errorToast(err))
 }
 ```
@@ -1022,6 +1047,12 @@ opts = append(opts, datapages.WithHTTPServer(&http.Server{
 // An http/https URL or a relative one, valid per RFC 3986.
 opts = append(opts, datapages.WithDatastarJS("https://cdn.example.com/datastar.js"))
 
+// Allow in-flight requests, SSE streams, and StreamClose hooks 30s to finish.
+opts = append(opts, datapages.WithShutdownTimeout(30*time.Second))
+
+// Revalidate unchanged embedded assets with an ETag.
+opts = append(opts, datapages.WithAssetsCache(datapages.AssetsCacheConfig{}))
+
 // Prometheus metrics on a dedicated HTTP server.
 // Requires the datapages.EnablePrometheus type argument at the NewServer call.
 opts = append(opts, datapages.WithPrometheus(datapages.PrometheusConfig{
@@ -1071,6 +1102,28 @@ The URL path prefix is the generated `assets.URLPrefix` constant, which comes fr
 The `browsable` argument lists a directory that has no `index.html`.
 Pass `browsable=false` in production to avoid exposing every embedded file.
 Such a request then gets a 404, in dev mode as well.
+
+Datapages adds no `Cache-Control` or `ETag` header unless
+`datapages.WithAssetsCache` is configured:
+
+```go
+opts = append(opts, datapages.WithAssetsCache(datapages.AssetsCacheConfig{}))
+```
+
+The zero value sends `Cache-Control: public, max-age=0` and an ETag. The browser
+revalidates each request, and an unchanged file receives 304 with no body. Set
+`MaxAge` only when the asset URL changes with its content, such as a file name
+containing a build hash. Otherwise the browser may use stale content until the
+age expires. `Immutable` prevents reloads from revalidating a fresh response.
+`CacheControl` sets the header value directly. `DisableETag` omits the ETag.
+`Disabled` prevents the option from adding either header.
+
+The server computes an ETag on the first request for a file and caches it for
+the process lifetime. This matches the immutable file system used by
+`WithAssets`. Set `DisableETag` for a `WithAssetsFS` file system whose files can
+change while the server runs.
+
+Dev mode ignores the option and keeps answering `Cache-Control: no-store`.
 
 Reference static files in templates through the generated `assets.Path` helper,
 never a hardcoded path, so the prefix stays in one place:
@@ -1137,27 +1190,27 @@ Generated functions return Datastar action strings (`@post('/...')`, `@put('/...
 
 ```templ
 // Simple action
-<button data-on:click={ action.POSTPageLoginSubmit() }>Submit</button>
+<button data-on:click={ action.PageLogin.Submit.POST() }>Submit</button>
 
 // Action with path variable
-<button data-on:click={ action.POSTPagePostSendMessage(slug) }>Send</button>
+<button data-on:click={ action.PagePost.SendMessage.POST(slug) }>Send</button>
 
 // Action with query parameters
-<button data-on:click={ action.POSTPageMessagesRead(
-    action.QueryPOSTPageMessagesRead{MessageID: msg.ID},
+<button data-on:click={ action.PageMessages.Read.POST(
+    action.PageMessages.Read.POSTQuery(msg.ID),
 ) }>Mark Read</button>
 
 // App-level action (not tied to a page)
-<button data-on:click={ action.POSTAppSignOut() }>Sign Out</button>
+<button data-on:click={ action.App.SignOut.POST() }>Sign Out</button>
 
-// Action with Datastar options (e.g. payload, contentType, filterSignals)
-<button data-on:click={ action.POSTPageLoginSubmit(
+// Action with Datastar options
+<button data-on:click={ action.PageLogin.Submit.POST(
     action.WithContentType(action.ContentTypeForm),
     action.WithPayload("{extra: 1}"),
 ) }>Submit</button>
 
-// Action with before/after expressions (joined with "; " separators)
-<button data-on:click={ action.POSTPageLoginSubmit(
+// Action with expressions before and after the request
+<button data-on:click={ action.PageLogin.Submit.POST(
     action.WithBefore("$foo='asd'"),
     action.WithAfter("$foo=''"),
 ) }>Submit</button>
@@ -1190,7 +1243,13 @@ Two more modifiers wrap the call itself:
 `action.WithOption(key, value string)` passes an option the helpers don't cover.
 Both arguments are raw strings, the value a JavaScript expression.
 
-Naming convention: `{METHOD}Page{PageName}{HandlerName}` for page actions, `{METHOD}App{HandlerName}` for app-level actions. Query parameter structs are generated as `action.Query<FunctionName>`.
+Every option helper returns `action.Option`. Store conditional options in an
+`[]action.Option` and pass them as `opts...`. Use this alias instead of
+importing `runtime/actionexpr`.
+
+Page actions use `action.Page{PageName}.{HandlerName}.{METHOD}(...)`. App
+actions use `action.App.{HandlerName}.{METHOD}(...)`. For query parameters,
+pass `action.Page{PageName}.{HandlerName}.{METHOD}Query(...)`.
 
 ## Step 18: Add Offline Support (Optional)
 

@@ -137,6 +137,7 @@ type Server struct {
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
+//   - datapages.WithShutdownTimeout
 //   - datapages.WithAssets
 //   - datapages.WithSessionManager (required)
 //   - datapages.WithSessions
@@ -422,7 +423,6 @@ func setupHandlers(s *Server) {
 func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 	s.LogErr(msg, err)
 	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
 		return
 	}
 	httpserve.WriteErrStatus(w, err)
@@ -443,32 +443,21 @@ func (s *Server) httpErrIntern(
 		pageError500Handlers{s}.GET(w, r)
 		return
 	}
-	// committed reports that the stream is open, hence no status is left to send.
-	committed := sse != nil
 	if sse == nil {
+		// [datastar.NewSSE] commits HTTP 200 and SSE headers before recovery runs.
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
-		committed = true
 	}
 	errRecover := s.app.RecoverError(err, dpsse.New(sse))
 	if errRecover == nil {
 		prom.InternalErrorRecovered()
-		return // Feedback delivered gracefully.
+		return
 	}
-	// RecoverError failed — fall back to HTTP error response.
 	prom.InternalErrorNotRecovered()
+	// An HTTP error here would append plain text to the open SSE stream.
 	s.Logger().Error("recovering error",
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
-	if committed {
-		// A status written now only appends its text to the stream.
-		return
-	}
-	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
-		return
-	}
-	httpserve.WriteErrStatus(w, err)
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
@@ -925,8 +914,8 @@ func (s pageMessagesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
-			if ($chatselected) params.set('chat', $chatselected);
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($chatselected) params.set('chat', $chatselected); else params.delete('chat');
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/messages?' + query : '/messages');
 		"`)
@@ -1588,12 +1577,12 @@ func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			_, _ = io.WriteString(w, ` data-init="@get('/search/_$/')"`)
 		}
 
-		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
-			if ($term) params.set('t', $term);
-			if ($category) params.set('c', $category);
-			if ($pmin) params.set('pmin', $pmin);
-			if ($pmax) params.set('pmax', $pmax);
-			if ($location) params.set('l', $location);
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($term) params.set('t', $term); else params.delete('t');
+			if ($category) params.set('c', $category); else params.delete('c');
+			if ($pmin) params.set('pmin', $pmin); else params.delete('pmin');
+			if ($pmax) params.set('pmax', $pmax); else params.delete('pmax');
+			if ($location) params.set('l', $location); else params.delete('l');
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/search?' + query : '/search');
 		"`)

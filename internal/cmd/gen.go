@@ -116,13 +116,11 @@ func appEvents(appDir string, m *model.App) []subject.AppEvent {
 	events := make([]subject.AppEvent, 0, len(m.Events))
 	for _, e := range m.Events {
 		events = append(events, subject.AppEvent{
-			App:      appDir,
-			TypeName: e.TypeName,
-			Decl:     e.PkgPath + "." + e.TypeName,
-			Claim: subject.Claim{
-				Subject:   e.Subject,
-				HasFields: len(e.SubjectFields) > 0,
-			},
+			App:       appDir,
+			TypeName:  e.TypeName,
+			Decl:      e.PkgPath + "." + e.TypeName,
+			Subject:   e.Subject,
+			HasFields: len(e.SubjectFields) > 0,
 		})
 	}
 	return events

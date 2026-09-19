@@ -348,6 +348,7 @@ type Server struct {
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
+//   - datapages.WithShutdownTimeout
 //   - datapages.WithAssets
 //   - datapages.WithSessionManager (required)
 //   - datapages.WithSessions
@@ -456,7 +457,6 @@ func setupHandlers(s *Server) {
 func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 	s.LogErr(msg, err)
 	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
 		return
 	}
 	httpserve.WriteErrStatus(w, err)
@@ -482,7 +482,6 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
 		return
 	}
 	httpserve.WriteErrStatus(w, err)
@@ -653,8 +652,8 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
-			if ($q) params.set('q', $q);
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($q) params.set('q', $q); else params.delete('q');
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/?' + query : '/');
 		"`)

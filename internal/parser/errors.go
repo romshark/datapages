@@ -127,6 +127,8 @@ var (
 
 	ErrQueryReflectSignalNotInSignals = paramvalidation.ErrQueryReflectSignalNotInSignals
 	ErrQueryReflectSignalInvalid      = paramvalidation.ErrQueryReflectSignalInvalid
+	ErrQueryReflectSignalDuplicate    = paramvalidation.ErrQueryReflectSignalDuplicate
+	ErrQueryReflectSignalTypeMismatch = paramvalidation.ErrQueryReflectSignalTypeMismatch
 
 	ErrFieldTypeUnexported = paramvalidation.ErrFieldTypeUnexported
 

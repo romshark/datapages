@@ -169,7 +169,7 @@ func checkGoModVersion(moduleDir, version string) error {
 				"go.mod requires %s %s but you are running %s\n"+
 					"  run: go install %s@%s",
 				datapagesModulePath, req.Mod.Version, running,
-				datapagesModulePath, req.Mod.Version,
+				datapagesCommandPath, req.Mod.Version,
 			)
 		}
 		return nil

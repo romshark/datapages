@@ -69,8 +69,9 @@ type Path[Values any] struct{ Values Values }
 //	}
 //
 // A field can carry a reflectsignal:"<name>" tag naming a signal of the
-// handler's [Signals] parameter. The query parameter gives that signal its
-// value on page load, and the browser URL is rewritten whenever the signal changes:
+// handler's [Signals] parameter. The query parameter sets the signal on page load.
+// Signal changes update or remove only that query key;
+// other parameters remain in the browser URL:
 //
 //	func (p PageSearch) GET(
 //		r *http.Request,
@@ -573,21 +574,21 @@ func ValidateUserID(userID string) error {
 //
 //	func (p PageChat) POSTSend(
 //		r *http.Request,
-//		signals struct {
+//		signals datapages.Signals[struct {
 //			RoomID      string   `json:"room_id"`
 //			Text        string   `json:"text"`
 //			Attachments []string `json:"attachments"`
-//		},
+//		}],
 //		attachmentAdded datapages.Dispatcher[EventAttachmentAdded],
 //		writingStopped datapages.Dispatcher[EventWritingStopped],
 //		messageSent datapages.Dispatcher[EventMessageSent],
 //	) error {
-//		room, err := p.App.Room(r.Context(), signals.RoomID)
+//		room, err := p.App.Room(r.Context(), signals.Values.RoomID)
 //		if err != nil {
 //			return err
 //		}
 //		var errs []error
-//		for _, name := range signals.Attachments {
+//		for _, name := range signals.Values.Attachments {
 //			errs = append(errs, attachmentAdded.Dispatch(EventAttachmentAdded{
 //				Recipients: room.ParticipantIDs,
 //				Name:       name,
@@ -599,7 +600,7 @@ func ValidateUserID(userID string) error {
 //			}),
 //			messageSent.Dispatch(EventMessageSent{
 //				Recipients: room.ParticipantIDs,
-//				Message:    signals.Text,
+//				Message:    signals.Values.Text,
 //			}),
 //		)...)
 //	}
@@ -621,9 +622,9 @@ type Dispatcher[Event any] interface {
 	//	// POSTInvite is /team/invite
 	//	func (p PageTeam) POSTInvite(
 	//		r *http.Request,
-	//		signals struct {
+	//		signals datapages.Signals[struct {
 	//			Email string `json:"email"`
-	//		},
+	//		}],
 	//		inviteSent datapages.Dispatcher[EventInviteSent],
 	//	) error {
 	//		// The request context ends with the response, before the mail is out.
@@ -633,11 +634,11 @@ type Dispatcher[Event any] interface {
 	//		)
 	//		go func() {
 	//			defer cancel()
-	//			if err := p.App.SendInvite(ctx, signals.Email); err != nil {
+	//			if err := p.App.SendInvite(ctx, signals.Values.Email); err != nil {
 	//				slog.Error("sending invite", slog.Any("err", err))
 	//				return
 	//			}
-	//			_ = inviteSent.DispatchCtx(ctx, EventInviteSent{Email: signals.Email})
+	//			_ = inviteSent.DispatchCtx(ctx, EventInviteSent{Email: signals.Values.Email})
 	//		}()
 	//		return nil // Return OK immediately, dispatch event asynchronously.
 	//	}

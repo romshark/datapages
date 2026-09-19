@@ -404,6 +404,21 @@ func f(query struct {
 }) {}`,
 			wantErr: ErrQueryFieldDuplicateTag,
 		},
+		"duplicate reflectsignal": {
+			src: `package test
+func f(query struct {
+	B string ` + "`" + `query:"b" reflectsignal:"term"` + "`" + `
+	C string ` + "`" + `query:"c" reflectsignal:"term"` + "`" + `
+}) {}`,
+			wantErr: ErrQueryReflectSignalDuplicate,
+		},
+		"distinct reflectsignals": {
+			src: `package test
+func f(query struct {
+	B string ` + "`" + `query:"b" reflectsignal:"one"` + "`" + `
+	C string ` + "`" + `query:"c" reflectsignal:"two"` + "`" + `
+}) {}`,
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -803,19 +818,25 @@ func f(d string) {}`,
 	}
 }
 
-// TestValidateReflectSignal tests the reflectsignal tag, which binds a query
-// field to a signal. Both structs have to be there and the named signal has to exist,
-// since a tag naming nothing would generate an expression the browser cannot evaluate.
+// TestValidateReflectSignal tests that a reflected signal exists and accepts
+// the JSON kind seeded by its query field.
 func TestValidateReflectSignal(t *testing.T) {
 	sigType := namedType(t, "package test\n"+
 		"type P struct {\n"+
 		"\tCount int `json:\"count\"`\n"+
 		"\tName  string `json:\"name\"`\n"+
+		"\tOn    bool `json:\"on\"`\n"+
 		"}")
 	queryType := func(tag string) types.Type {
 		return namedType(t, "package test\n"+
 			"type P struct {\n"+
 			"\tSearch string `"+tag+"`\n"+
+			"}")
+	}
+	queryTypeInt := func(tag string) types.Type {
+		return namedType(t, "package test\n"+
+			"type P struct {\n"+
+			"\tSearch int `"+tag+"`\n"+
 			"}")
 	}
 	input := func(t types.Type) *model.Input {
@@ -837,8 +858,12 @@ func TestValidateReflectSignal(t *testing.T) {
 			InputQuery:   input(queryType(`query:"search"`)),
 			InputSignals: input(sigType),
 		}},
-		"reflectsignal matches signal": {handler: &model.Handler{
-			InputQuery:   input(queryType(`query:"search" reflectsignal:"count"`)),
+		"string to string": {handler: &model.Handler{
+			InputQuery:   input(queryType(`query:"search" reflectsignal:"name"`)),
+			InputSignals: input(sigType),
+		}},
+		"number to number": {handler: &model.Handler{
+			InputQuery:   input(queryTypeInt(`query:"search" reflectsignal:"count"`)),
 			InputSignals: input(sigType),
 		}},
 		"reflectsignal not in signals": {
@@ -847,6 +872,27 @@ func TestValidateReflectSignal(t *testing.T) {
 				InputSignals: input(sigType),
 			},
 			wantErr: ErrQueryReflectSignalNotInSignals,
+		},
+		"string to number": {
+			handler: &model.Handler{
+				InputQuery:   input(queryType(`query:"search" reflectsignal:"count"`)),
+				InputSignals: input(sigType),
+			},
+			wantErr: ErrQueryReflectSignalTypeMismatch,
+		},
+		"string to bool": {
+			handler: &model.Handler{
+				InputQuery:   input(queryType(`query:"search" reflectsignal:"on"`)),
+				InputSignals: input(sigType),
+			},
+			wantErr: ErrQueryReflectSignalTypeMismatch,
+		},
+		"number to string": {
+			handler: &model.Handler{
+				InputQuery:   input(queryTypeInt(`query:"search" reflectsignal:"name"`)),
+				InputSignals: input(sigType),
+			},
+			wantErr: ErrQueryReflectSignalTypeMismatch,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

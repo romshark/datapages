@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strconv"
+	"time"
 
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
@@ -105,6 +106,7 @@ type Server struct {
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
+//   - datapages.WithShutdownTimeout
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
@@ -191,11 +193,17 @@ func setupHandlers(s *Server) {
 		"GET /reflect/{$}",
 		pageReflectHandlers{s}.GET)
 	s.Mux().HandleFunc(
+		"GET /shop/{cat}/{$}",
+		pageShopHandlers{s}.GET)
+	s.Mux().HandleFunc(
 		"GET /slug/{slug}/{$}",
 		pageSlugHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /titled/{name}/{$}",
 		pageTitledHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /when/{$}",
+		pageWhenHandlers{s}.GET)
 }
 
 func (s *Server) httpErrIntern(
@@ -208,11 +216,9 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
 		return
 	}
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
+	httpserve.WriteErrStatus(w, err)
 }
 
 type pageConflictHandlers struct{ *Server }
@@ -695,6 +701,7 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		Slug     dpapp.Slug `query:"s" reflectsignal:"slug"`
 		Odd      string     `query:"o'\"x" reflectsignal:"odd"`
 		NewTitle string     `query:"nt" reflectsignal:"newTitle"`
+		Lang     string     `query:"lang"`
 	}]
 	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "t")
 	{
@@ -717,6 +724,7 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	query.Values.Odd = httpread.QueryValue(r.URL.RawQuery, "o'\"x")
 	query.Values.NewTitle = httpread.QueryValue(r.URL.RawQuery, "nt")
+	query.Values.Lang = httpread.QueryValue(r.URL.RawQuery, "lang")
 
 	p := dpapp.PageReflect{
 		App: s.app,
@@ -754,12 +762,12 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
-			if ($term) params.set('t', $term);
-			if ($page) params.set('p', $page);
-			if ($slug) params.set('s', $slug);
-			if ($odd) params.set('o\&#39;&#34;x', $odd);
-			if ($newTitle) params.set('nt', $newTitle);
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($term) params.set('t', $term); else params.delete('t');
+			if ($page) params.set('p', $page); else params.delete('p');
+			if ($slug) params.set('s', $slug); else params.delete('s');
+			if ($odd) params.set('o\&#39;&#34;x', $odd); else params.delete('o\&#39;&#34;x');
+			if ($newTitle) params.set('nt', $newTitle); else params.delete('nt');
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/reflect?' + query : '/reflect');
 		"`)
@@ -769,6 +777,59 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageReflect", err)
+		return
+	}
+}
+
+type pageShopHandlers struct{ *Server }
+
+func (s pageShopHandlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		Term string `query:"q" reflectsignal:"term"`
+	}]
+	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "q")
+
+	var path datapages.Path[struct {
+		Cat string `path:"cat"`
+	}]
+	path.Values.Cat = r.PathValue("cat")
+
+	p := dpapp.PageShop{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageShop.GET")
+	body, err := p.GET(r, path, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageShop.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+
+		_, _ = io.WriteString(w, ` data-signals:term="'`)
+		htmlattr.WriteSignalString(w, query.Values.Term)
+		_, _ = io.WriteString(w, `'"`)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($term) params.set('q', $term); else params.delete('q');
+			const query = params.toString();
+			window.history.replaceState(null, '', query ? '/shop/`)
+		htmlattr.WritePathValue(w, path.Values.Cat)
+		_, _ = io.WriteString(w, `?' + query : '/shop/`)
+		htmlattr.WritePathValue(w, path.Values.Cat)
+		_, _ = io.WriteString(w, `');
+		"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageShop", err)
 		return
 	}
 }
@@ -847,6 +908,73 @@ func (s pageTitledHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		w, r, head, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageTitled", err)
+		return
+	}
+}
+
+type pageWhenHandlers struct{ *Server }
+
+func (s pageWhenHandlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		When  time.Time `query:"when" reflectsignal:"when"`
+		Count int       `query:"n" reflectsignal:"count"`
+	}]
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "when"); q != "" {
+			if err := query.Values.When.UnmarshalText([]byte(q)); err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: when", err)
+				return
+			}
+		}
+	}
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "n"); q != "" {
+			i, err := strconv.ParseInt(q, 10, 0)
+			if err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: n", err)
+				return
+			}
+			query.Values.Count = int(i)
+		}
+	}
+
+	p := dpapp.PageWhen{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageWhen.GET")
+	body, err := p.GET(r, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageWhen.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+
+		_, _ = io.WriteString(w, ` data-signals:when="'`)
+		htmlattr.WriteSignalString(w, textOf(query.Values.When))
+		_, _ = io.WriteString(w, `'"`)
+
+		_, _ = io.WriteString(w, ` data-signals:count="`)
+		htmlattr.WriteSignalValue(w, strconv.FormatInt(int64(query.Values.Count), 10))
+		_, _ = io.WriteString(w, `"`)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($when) params.set('when', $when); else params.delete('when');
+			if ($count) params.set('n', $count); else params.delete('n');
+			const query = params.toString();
+			window.history.replaceState(null, '', query ? '/when?' + query : '/when');
+		"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageWhen", err)
 		return
 	}
 }

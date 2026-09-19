@@ -683,6 +683,7 @@ func (w *Writer) writeAppInit(appPkg string) {
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
+//   - datapages.WithShutdownTimeout
 //   - datapages.WithAssets`)
 	if w.usage.stateRuntime {
 		w.Raw(`
@@ -1390,20 +1391,18 @@ func (w *Writer) writeSetupHandlers(m *model.App) {
 	w.Line(0, "}")
 }
 
-func (w *Writer) writeHTTPErrFallback() {
-	w.Raw(`	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
-		return
-	}
-`)
-	if !w.usage.errSentinels {
-		w.Raw(`	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
-`)
-		return
-	}
-	w.Raw(`	httpserve.WriteErrStatus(w, err)
-`)
+func (w *Writer) writeHTTPErrFallback() { w.writeHTTPErrFallbackAt(1) }
+
+// writeHTTPErrFallbackAt emits [httpserve.WriteErrStatus] at indent.
+// A page GET can return a sentinel even when no action returns an error.
+// A fixed 500 in that case would discard the sentinel's status.
+func (w *Writer) writeHTTPErrFallbackAt(indent int) {
+	tabs := strings.Repeat("\t", indent)
+	w.Rawf(`%[1]sif httpserve.ResponseBodyWritten(w) {
+%[1]s	return
+%[1]s}
+%[1]shttpserve.WriteErrStatus(w, err)
+`, tabs)
 }
 
 // needsCSRFOnly reports whether a handler has to run the session check for the
@@ -1433,15 +1432,10 @@ func (w *Writer) writeCSRFOnlyCheck() {
 	w.Line(1, "}")
 }
 
-// writeAppErrHelpers emits httpErrIntern,
-// which answers a request whose handler failed.
-//
-// PageError500 and RecoverError are separate features and each one applies on its own.
-// A page load is answered by the 500 page when the app supplies one.
-// A Datastar request is answered by RecoverError when the app defines it,
-// because that request expects an event stream rather than a document.
-// An app that has only one of the two gets it for the requests it covers,
-// and the plain HTTP error for the rest.
+// writeAppErrHelpers emits httpErrIntern for handler errors.
+// Non-Datastar requests use PageError500 when defined;
+// Datastar requests use RecoverError when defined. RecoverError writes SSE frames,
+// which a browser navigation would render as the document.
 func (w *Writer) writeAppErrHelpers(m *model.App) {
 	hasPage := m.PageError500 != nil
 	hasRecover := m.RecoverError != nil
@@ -1472,26 +1466,29 @@ func (s *Server) httpErrIntern(
 ) {
 	s.LogErr(msg, err)
 `, reqParam)
-	if hasPage {
+	if hasPage || hasRecover {
 		w.Raw(`	if !httpserve.IsDatastarRequest(r.Header) {
-		if httpserve.ResponseBodyWritten(w) {
+`)
+		if hasPage {
+			w.Raw(`		if httpserve.ResponseBodyWritten(w) {
 			// An error page after a half-written one sends two documents.
 			return
 		}
 		// The page serves 200 on its own route. Reached from here it carries 500.
 		w.WriteHeader(http.StatusInternalServerError)
 		`)
-		w.Rawf("%s{s}.GET(w, r)\n", handlerRecvType(m.PageError500.TypeName))
+			w.Rawf("%s{s}.GET(w, r)\n", handlerRecvType(m.PageError500.TypeName))
+		} else {
+			w.writeHTTPErrFallbackAt(2)
+		}
 		w.Raw(`		return
 	}
 `)
 	}
 	if hasRecover {
-		w.Raw(`	// committed reports that the stream is open, hence no status is left to send.
-	committed := sse != nil
-	if sse == nil {
+		w.Raw(`	if sse == nil {
+		// [datastar.NewSSE] commits HTTP 200 and SSE headers before recovery runs.
 		sse = datastar.NewSSE(w, r, datastar.WithCompression())
-		committed = true
 	}
 	errRecover := s.app.RecoverError(`)
 		for i, kind := range m.RecoverError.OrderedInputs {
@@ -1511,22 +1508,18 @@ func (s *Server) httpErrIntern(
 			w.Raw(`		prom.InternalErrorRecovered()
 `)
 		}
-		w.Raw(`		return // Feedback delivered gracefully.
+		w.Raw(`		return
 	}
-	// RecoverError failed — fall back to HTTP error response.
 `)
 		if w.prometheus {
 			w.Raw(`	prom.InternalErrorNotRecovered()
 `)
 		}
-		w.Raw(`	s.Logger().Error("recovering error",
+		w.Raw(`	// An HTTP error here would append plain text to the open SSE stream.
+	s.Logger().Error("recovering error",
 		slog.Any("orig.msg", msg),
 		slog.Any("orig.err", err),
 		slog.Any("err", errRecover))
-	if committed {
-		// A status written now only appends its text to the stream.
-		return
-	}
 `)
 	} else {
 		// datastar.NewSSE sent the 200 and the headers without a body byte,
@@ -1536,8 +1529,8 @@ func (s *Server) httpErrIntern(
 		return
 	}
 `)
+		w.writeHTTPErrFallback()
 	}
-	w.writeHTTPErrFallback()
 	w.Raw(`}
 `)
 }

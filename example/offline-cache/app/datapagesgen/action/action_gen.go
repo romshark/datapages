@@ -11,10 +11,11 @@ import (
 	"github.com/romshark/datapages/runtime/actionexpr"
 )
 
-// The generated helpers take the options of runtime/actionexpr.
-// Aliases keep them nameable from a template that imports only this package.
+// Option names the values accepted by generated action methods.
+// [ContentType], [Retry], and [RequestCancellation] name values accepted by
+// option helpers.
 type (
-	option              = actionexpr.Option
+	Option              = actionexpr.Option
 	ContentType         = actionexpr.ContentType
 	Retry               = actionexpr.Retry
 	RequestCancellation = actionexpr.RequestCancellation
@@ -66,22 +67,22 @@ const (
 //   - WithRequestCancellationController
 //
 // See https://data-star.dev/reference/actions#options
-func WithOption(key, value string) option {
+func WithOption(key, value string) Option {
 	return actionexpr.WithOption(key, value)
 }
 
 // WithBefore prepends a JavaScript expression before the action call.
 // Multiple before expressions are joined with "; " separators.
-func WithBefore(expr string) option { return actionexpr.WithBefore(expr) }
+func WithBefore(expr string) Option { return actionexpr.WithBefore(expr) }
 
 // WithAfter appends a JavaScript expression after the action call.
 // Multiple after expressions are joined with "; " separators.
-func WithAfter(expr string) option { return actionexpr.WithAfter(expr) }
+func WithAfter(expr string) Option { return actionexpr.WithAfter(expr) }
 
 // WithContentType creates an action option that controls the content type:
 //   - ContentTypeJSON (default)
 //   - ContentTypeForm
-func WithContentType(ct ContentType) option {
+func WithContentType(ct ContentType) Option {
 	return actionexpr.WithContentType(ct)
 }
 
@@ -91,12 +92,12 @@ func WithContentType(ct ContentType) option {
 // with a _ prefix (/(^_|\._).*/).
 //
 // See https://data-star.dev/reference/actions#options
-func WithFilterSignals(include, exclude string) option {
+func WithFilterSignals(include, exclude string) Option {
 	return actionexpr.WithFilterSignals(include, exclude)
 }
 
 // WithHeaders creates an action option with HTTP headers to send with the request.
-func WithHeaders(headers map[string]string) option {
+func WithHeaders(headers map[string]string) Option {
 	return actionexpr.WithHeaders(headers)
 }
 
@@ -104,18 +105,18 @@ func WithHeaders(headers map[string]string) option {
 // the connection open when the page is hidden. Useful for dashboards but can
 // cause a drain on battery life. Defaults to false for get requests,
 // and true for all other HTTP methods.
-func WithOpenWhenHidden(open bool) option {
+func WithOpenWhenHidden(open bool) Option {
 	return actionexpr.WithOpenWhenHidden(open)
 }
 
 // WithPayload creates an action option with a JavaScript expression
 // for the request payload.
-func WithPayload(expr string) option { return actionexpr.WithPayload(expr) }
+func WithPayload(expr string) Option { return actionexpr.WithPayload(expr) }
 
 // WithSelector creates an action option that specifies a CSS selector for
 // the form to send when ContentType is ContentTypeForm.
 // If not specified, the closest form to the element is used.
-func WithSelector(selector string) option {
+func WithSelector(selector string) Option {
 	return actionexpr.WithSelector(selector)
 }
 
@@ -124,29 +125,29 @@ func WithSelector(selector string) option {
 //   - RetryError
 //   - RetryAlways
 //   - RetryNever
-func WithRetry(r Retry) option { return actionexpr.WithRetry(r) }
+func WithRetry(r Retry) Option { return actionexpr.WithRetry(r) }
 
 // WithRetryInterval creates an action option for the retry interval in milliseconds.
 // Defaults to 1000 (one second).
-func WithRetryInterval(ms int) option {
+func WithRetryInterval(ms int) Option {
 	return actionexpr.WithRetryInterval(ms)
 }
 
 // WithRetryScaler creates an action option for the numeric multiplier
 // applied to scale retry wait times. Defaults to 2.
-func WithRetryScaler(multiplier float64) option {
+func WithRetryScaler(multiplier float64) Option {
 	return actionexpr.WithRetryScaler(multiplier)
 }
 
 // WithRetryMaxWaitMs creates an action option for the maximum allowable wait time
 // in milliseconds between retries. Defaults to 30000 (30 seconds).
-func WithRetryMaxWaitMs(ms int) option {
+func WithRetryMaxWaitMs(ms int) Option {
 	return actionexpr.WithRetryMaxWaitMs(ms)
 }
 
 // WithRetryMaxCount creates an action option for the maximum number
 // of retry attempts. Defaults to 10.
-func WithRetryMaxCount(count int) option {
+func WithRetryMaxCount(count int) Option {
 	return actionexpr.WithRetryMaxCount(count)
 }
 
@@ -155,7 +156,7 @@ func WithRetryMaxCount(count int) option {
 //   - RequestCancellationAuto (default)
 //   - RequestCancellationCleanup
 //   - RequestCancellationDisabled
-func WithRequestCancellation(rc RequestCancellation) option {
+func WithRequestCancellation(rc RequestCancellation) Option {
 	return actionexpr.WithRequestCancellation(rc)
 }
 
@@ -165,7 +166,7 @@ func WithRequestCancellation(rc RequestCancellation) option {
 // for example "$controller".
 //
 // See https://data-star.dev/reference/actions#request-cancellation
-func WithRequestCancellationController(expr string) option {
+func WithRequestCancellationController(expr string) Option {
 	return actionexpr.WithRequestCancellationController(expr)
 }
 
@@ -178,7 +179,7 @@ type app struct {
 type app_SignOut struct{}
 
 // POST references /sign-out/
-func (app_SignOut) POST(options ...option) string {
+func (app_SignOut) POST(options ...Option) string {
 	if len(options) == 0 {
 		return "@post('/sign-out/')"
 	}
@@ -202,7 +203,7 @@ type pageIndex struct {
 type pageIndex_Search struct{}
 
 // POST references /search/
-func (pageIndex_Search) POST(options ...option) string {
+func (pageIndex_Search) POST(options ...Option) string {
 	if len(options) == 0 {
 		return "@post('/search/')"
 	}
@@ -226,7 +227,7 @@ type pageLogin struct {
 type pageLogin_Submit struct{}
 
 // POST references /login/submit/
-func (pageLogin_Submit) POST(options ...option) string {
+func (pageLogin_Submit) POST(options ...Option) string {
 	if len(options) == 0 {
 		return "@post('/login/submit/')"
 	}
@@ -252,7 +253,7 @@ type pagePurchase_Confirm struct{}
 // POST references /shows/{nameslug}/purchase/confirm/
 func (pagePurchase_Confirm) POST(
 	nameslug string,
-	options ...option,
+	options ...Option,
 ) string {
 	s_nameslug := url.PathEscape(nameslug)
 	var b strings.Builder

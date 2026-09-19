@@ -177,6 +177,7 @@ type Server struct {
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
+//   - datapages.WithShutdownTimeout
 //   - datapages.WithAssets
 //   - datapages.WithStateConfig
 func (s *Server) Init(
@@ -478,7 +479,6 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
 		return
 	}
 	httpserve.WriteErrStatus(w, err)
@@ -637,10 +637,10 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 		_, _ = io.WriteString(w, ` data-init="@get('/_$/',{retry:'error'})"`)
 
-		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
-			if ($search) params.set('q', $search);
-			if ($filter) params.set('filter', $filter);
-			if ($sort) params.set('sort', $sort);
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($search) params.set('q', $search); else params.delete('q');
+			if ($filter) params.set('filter', $filter); else params.delete('filter');
+			if ($sort) params.set('sort', $sort); else params.delete('sort');
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/?' + query : '/');
 		"`)

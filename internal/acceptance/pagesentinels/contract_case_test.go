@@ -1,0 +1,35 @@
+package acceptance_test
+
+import (
+	"testing"
+
+	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/internal/acceptance/contract"
+	"github.com/romshark/datapages/internal/acceptance/pagesentinels/app"
+	"github.com/romshark/datapages/internal/acceptance/pagesentinels/app/datapagesgen"
+	"github.com/romshark/datapages/internal/acceptance/pagesentinels/app/datapagesgen/href"
+	"github.com/romshark/datapages/modules/messaging"
+	"github.com/romshark/datapages/modules/messaging/inmem"
+)
+
+// TestContract runs the shared server checks against this app. It runs
+// serially because [datapagesgen.Server.Init] sets the href logger read by
+// the ExternalHref case in [contract.Run].
+func TestContract(t *testing.T) {
+	contract.Run(t, contract.Case{
+		NewServer: func(t *testing.T, opts ...any) contract.Server {
+			t.Helper()
+			return mustNewServer(t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer),
+				contract.Options[datapages.ServerOption](opts)...)
+		},
+		WithMiddleware: contract.OptVariadic(datapages.WithMiddleware),
+		WithDatastarJS: contract.Opt(datapages.WithDatastarJS),
+		WithHTTPServer: contract.Opt(datapages.WithHTTPServer),
+		WithLogger:     contract.Opt(datapages.WithLogger),
+		StreamSubjects: datapagesgen.MessageBrokerStreamSubjects,
+		HrefExternal:   href.External,
+		HrefSetLogger:  href.SetLogger,
+		// [contract.Run] loads every link; only [href.PageIndex] returns a page body.
+		Links: []string{href.PageIndex()},
+	})
+}

@@ -84,7 +84,7 @@ func PageConflict(
 	return b.String()
 }
 
-// PageFiles references /files/{rest...}/{$}
+// PageFiles references /files/{rest...}
 func PageFiles(rest string) string {
 	s_rest := url.PathEscape(rest)
 	var b strings.Builder
@@ -99,7 +99,7 @@ func PageFiles(rest string) string {
 	return b.String()
 }
 
-// PageFilesEmbedded references /files-embedded/{rest...}/{$}
+// PageFilesEmbedded references /files-embedded/{rest...}
 func PageFilesEmbedded(rest string) string {
 	s_rest := url.PathEscape(rest)
 	var b strings.Builder
@@ -490,6 +490,7 @@ func PageReflect(query QueryPageReflect) string {
 		slugStr     string
 		oddStr      string
 		newTitleStr string
+		langStr     string
 	)
 
 	if query.Term != "" {
@@ -507,12 +508,16 @@ func PageReflect(query QueryPageReflect) string {
 	if query.NewTitle != "" {
 		newTitleStr = url.QueryEscape(query.NewTitle)
 	}
+	if query.Lang != "" {
+		langStr = url.QueryEscape(query.Lang)
+	}
 
 	anyQuery := query.Term != "" ||
 		query.Page != 0 ||
 		query.Slug != nil ||
 		query.Odd != "" ||
-		query.NewTitle != ""
+		query.NewTitle != "" ||
+		query.Lang != ""
 
 	var b strings.Builder
 	l := len("/reflect/")
@@ -557,6 +562,13 @@ func PageReflect(query QueryPageReflect) string {
 		}
 		n++
 		l += len("nt=") + len(newTitleStr)
+	}
+	if query.Lang != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("lang=") + len(langStr)
 	}
 	_ = n
 
@@ -605,8 +617,16 @@ func PageReflect(query QueryPageReflect) string {
 		if n > 0 {
 			b.WriteString("&")
 		}
+		n++
 		b.WriteString("nt=")
 		b.WriteString(newTitleStr)
+	}
+	if query.Lang != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("lang=")
+		b.WriteString(langStr)
 	}
 
 	return b.String()
@@ -619,6 +639,70 @@ type QueryPageReflect struct {
 	Slug     encoding.TextMarshaler `query:"s"`
 	Odd      string                 `query:"o'"x"`
 	NewTitle string                 `query:"nt"`
+	Lang     string                 `query:"lang"`
+}
+
+// PageShop references /shop/{cat}/{$}
+func PageShop(
+	cat string,
+	query QueryPageShop,
+) string {
+	s_cat := url.PathEscape(cat)
+	var (
+		termStr string
+	)
+
+	if query.Term != "" {
+		termStr = url.QueryEscape(query.Term)
+	}
+
+	anyQuery := query.Term != ""
+
+	var b strings.Builder
+	l := len("/shop/") +
+		len(s_cat) +
+		len("/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.Term != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("q=") + len(termStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/shop/")
+	b.WriteString(s_cat)
+	b.WriteString("/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.Term != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("q=")
+		b.WriteString(termStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageShop is the query parameters for PageShop
+type QueryPageShop struct {
+	Term string `query:"q"`
 }
 
 // PageSlug references /slug/{slug}/{$}
@@ -697,4 +781,80 @@ func PageTitled(name string) string {
 	b.WriteString(s_name)
 	b.WriteString("/")
 	return b.String()
+}
+
+// PageWhen references /when/{$}
+func PageWhen(query QueryPageWhen) string {
+	var (
+		whenStr  string
+		countStr string
+	)
+
+	if query.When != nil {
+		whenStr = url.QueryEscape(textOf(query.When))
+	}
+	if query.Count != 0 {
+		countStr = url.QueryEscape(strconv.FormatInt(int64(query.Count), 10))
+	}
+
+	anyQuery := query.When != nil ||
+		query.Count != 0
+
+	var b strings.Builder
+	l := len("/when/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.When != nil {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("when=") + len(whenStr)
+	}
+	if query.Count != 0 {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("n=") + len(countStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/when/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.When != nil {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		n++
+		b.WriteString("when=")
+		b.WriteString(whenStr)
+	}
+	if query.Count != 0 {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("n=")
+		b.WriteString(countStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageWhen is the query parameters for PageWhen
+type QueryPageWhen struct {
+	When  encoding.TextMarshaler `query:"when"`
+	Count int                    `query:"n"`
 }

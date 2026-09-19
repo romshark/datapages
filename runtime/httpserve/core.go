@@ -36,6 +36,10 @@ const (
 	// before the request is refused. Signals travel in that body.
 	DefaultBodySizeLimit int64 = 1 << 20 // 1 MiB
 
+	// DefaultShutdownTimeout is how long [Core.ListenAndServe] waits for
+	// in-flight requests and stream cleanup after context cancellation.
+	DefaultShutdownTimeout = 10 * time.Second
+
 	// DefaultDatastarJSSrc is the default URL for the Datastar JavaScript bundle.
 	DefaultDatastarJSSrc = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.3/bundles/datastar.js"
 )
@@ -68,12 +72,14 @@ type Core struct {
 	outermost       func(http.Handler) http.Handler
 	assetsFS        http.FileSystem
 	assetsBrowsable bool
+	assetsCache     *datapages.AssetsCacheConfig
 	crossOrigin     *http.CrossOriginProtection
 	datastarJSSrc   string
 	htmlPrefix      string
 	htmlHead        string
 	htmlDatastar    string
 	bodySizeLimit   int64
+	shutdownTimeout time.Duration
 
 	// lockListen guards the fields [Core.listenAndServe] sets once it binds.
 	lockListen sync.Mutex
@@ -106,11 +112,13 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		outermost:       cfg.OutermostMiddleware,
 		assetsFS:        cfg.AssetsFS,
 		assetsBrowsable: cfg.AssetsBrowsable,
+		assetsCache:     cfg.AssetsCache,
 		crossOrigin:     http.NewCrossOriginProtection(),
 		datastarJSSrc:   cfg.DatastarJS,
 		logger:          cfg.Logger,
 		httpServer:      cfg.HTTPServer,
 		bodySizeLimit:   cfg.BodySizeLimit,
+		shutdownTimeout: cfg.ShutdownTimeout,
 	}
 	c.maxStateInstances = datapages.DefaultMaxConcurrentInstances
 	if cfg.State != nil && cfg.State.MaxConcurrentInstances != 0 {
@@ -118,6 +126,9 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 	}
 	if c.bodySizeLimit <= 0 {
 		c.bodySizeLimit = DefaultBodySizeLimit
+	}
+	if c.shutdownTimeout <= 0 {
+		c.shutdownTimeout = DefaultShutdownTimeout
 	}
 	if c.logger == nil {
 		// Not in Build: the generated Init logs in between.
@@ -200,11 +211,16 @@ func (c *Core) Build() {
 		if !c.assetsBrowsable {
 			fsys = notBrowsableFS{fsys: fsys}
 		}
-		h := http.StripPrefix(c.assetsURLPrefix, http.FileServer(fsys))
-		if datapages.IsDevMode() {
+		h := http.FileServer(fsys)
+		switch {
+		case datapages.IsDevMode():
+			// Dev files may change while the server runs. Cache-Control:
+			// no-store prevents the browser from reusing a stale response.
 			h = DevNoCache(h)
+		case c.assetsCache != nil && !c.assetsCache.Disabled:
+			h = newAssetsCache(fsys, *c.assetsCache, h)
 		}
-		c.mux.Handle("GET "+c.assetsURLPrefix, h)
+		c.mux.Handle("GET "+c.assetsURLPrefix, http.StripPrefix(c.assetsURLPrefix, h))
 	}
 
 	c.handler = http.Handler(c.mux)
@@ -347,6 +363,10 @@ func (c *Core) MetricsEnabled() bool { return c.metricsServer != nil }
 
 // BodySizeLimit is how much of an action's request body a handler reads.
 func (c *Core) BodySizeLimit() int64 { return c.bodySizeLimit }
+
+// ShutdownTimeout returns the grace period used by [Core.ListenAndServe].
+// [Core.Shutdown] uses the deadline of its context instead.
+func (c *Core) ShutdownTimeout() time.Duration { return c.shutdownTimeout }
 
 // TLSEnabled reports whether the server listens for HTTPS connections.
 func (c *Core) TLSEnabled() bool {
@@ -598,7 +618,7 @@ func (c *Core) listenAndServe(
 		}
 
 		shutdownCtx, cancel := context.WithTimeout(
-			context.Background(), 10*time.Second,
+			context.Background(), c.shutdownTimeout,
 		)
 		defer cancel()
 

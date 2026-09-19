@@ -94,14 +94,15 @@ func New(
 // the JOIN between sessions and users returns the persisted session fields and the
 // current display fields together.
 //
-// Three returns say "no session":
+// The result has three forms:
 //
-//   - (zero, "", "", false, nil): the cookie is missing, the row is gone,
+//   - (zero, "", false, nil): the cookie is missing, the row is gone,
 //     or the row was expired and just got cleaned up.
 //     The request becomes a guest and the cookie is cleared.
-//   - (zero, "", "", false, err): the DB errored. The request fails,
+//   - (zero, "", false, err): the DB errored. The request fails,
 //     which keeps a transient DB outage from downgrading users to guests.
-//   - (populated, token, userID, true, nil): the session is valid.
+//   - (populated, token, true, nil): the session is valid. rec.UserID identifies
+//     the user.
 //
 // A row past expires_at is dropped in band through [Store.CloseSession].
 // A failing cleanup is logged and still reports ok=false, the next read retries it.

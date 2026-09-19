@@ -18,11 +18,17 @@ Templates are written in Templ. Docs: https://templ.guide/llms.md
 
 ### IMPORTANT: Datapages Rules (ALWAYS follow these)
 
-- **Never hardcode action URLs** (`@get('/path')`, `@post('/path')`, etc.). Always use the generated functions from the `action` package (`app/datapagesgen/action/`). These functions return the correct Datastar action string. Example: `action.POSTPageLoginSubmit()` returns `@post('/login/submit/')`. To pass Datastar action options, use the typed helpers (`action.WithContentType(action.ContentTypeForm)`, `action.WithPayload("{extra: 1}")`, `action.WithRetry(action.RetryNever)`, ...), never hardcode the options object.
+- **Use generated action URLs.** Call the helpers in
+  `app/datapagesgen/action/` instead of writing `@get('/path')` or
+  `@post('/path')`. For example, `action.PageLogin.Submit.POST()` returns
+  `@post('/login/submit/')`. Build options with typed helpers such as
+  `action.WithContentType`, `action.WithPayload`, and `action.WithRetry`.
 - **Never hardcode href URLs for app-internal links.** Always use the generated functions from the `href` package (`app/datapagesgen/href/`). Each function is named after the page type. Example: `href.PageMessages(href.QueryPageMessages{Chat: chatID})` returns `/messages/?chat=...`. External URLs (outside the app) can be hardcoded as usual.
 - **CSRF protection is handled automatically** by Datapages - never set CSRF headers manually.
 - **SSE streams must NOT be opened manually** — Datapages manages all SSE stream lifecycle.
-- **Use Templ expression syntax for action attributes.** In `.templ` files, use `={ expr }` (not `="..."`) for attributes that call generated action functions. Example: `data-on:click={ action.POSTPageLoginSubmit() }`, not `data-on:click="@post('/login/submit/')"`.
+- **Use Templ expressions for action attributes.** Write
+  `data-on:click={ action.PageLogin.Submit.POST() }` instead of embedding an
+  action string in `data-on:click="@post('/login/submit/')"`.
 - **No plain HTML forms for server interaction.** CSRF protection only works with Datastar `fetch` requests. Always use Datastar actions (`@get`, `@post`, `@put`, `@patch`, `@delete`) instead of plain HTML `<form>` submissions.
 - **Never install the Datastar JS file manually.** Datapages includes and serves it automatically.
 
@@ -734,7 +740,7 @@ The web should be accessible to everyone. Datastar stays out of your way and lea
 
 ### Attributes
 
-Data attributes are [evaluated in the order](#attribute-evaluation-order) they appear in the DOM, have special [casing](#attribute-casing) rules, can be [aliased](#aliasing-attributes) to avoid conflicts with other libraries, can contain [Datastar expressions](#datastar-expressions), and have [runtime error handling](#error-handling).
+Data attributes are [evaluated in the order](#attribute-evaluation-order) they appear in the DOM, have special [casing](#attribute-casing) rules, can be [aliased](https://data-star.dev/guide/datastar_expressions#aliasing-attributes) to avoid conflicts with other libraries, can contain [Datastar expressions](#datastar-expressions), and have [runtime error handling](#error-handling).
 
 > The Datastar [VSCode extension](https://marketplace.visualstudio.com/items?itemName=starfederation.datastar-vscode) and [IntelliJ plugin](https://plugins.jetbrains.com/plugin/26072-datastar-support) provide autocompletion for all available `data-*` attributes.
 
@@ -1533,11 +1539,11 @@ Sends a `GET` request to the backend using the [Fetch API](https://developer.moz
 <button data-on:click="@get('/endpoint')"></button>
 ```
 
-By default, requests are sent with a `Datastar-Request: true` header, and a `{datastar: *}` object containing all existing signals, except those beginning with an underscore. This behavior can be changed using the [`filterSignals`](#filterSignals) option, which allows you to include or exclude specific signals using regular expressions.
+By default, requests are sent with a `Datastar-Request: true` header, and a `{datastar: *}` object containing all existing signals, except those beginning with an underscore. This behavior can be changed using the [`filterSignals`](https://data-star.dev/reference/actions#filterSignals) option, which allows you to include or exclude specific signals using regular expressions.
 
 > When using a `get` request, the signals are sent as a query parameter, otherwise they are sent as a JSON body.
 
-When a page is hidden (in a background tab, for example), the default behavior for `get` requests is for the SSE connection to be closed, and reopened when the page becomes visible again. To keep the connection open when the page is hidden, set the [`openWhenHidden`](#openWhenHidden) option to `true`.
+When a page is hidden (in a background tab, for example), the default behavior for `get` requests is for the SSE connection to be closed, and reopened when the page becomes visible again. To keep the connection open when the page is hidden, set the [`openWhenHidden`](https://data-star.dev/reference/actions#openWhenHidden) option to `true`.
 
 ```
 <button data-on:click="@get('/endpoint', {openWhenHidden: true})"></button>
@@ -1637,7 +1643,7 @@ For example, if a user rapidly clicks a button that triggers a backend action, o
 
 This automatic cancellation happens at the element level, meaning requests on different elements can run concurrently without interfering with each other.
 
-You can control this behavior using the [`requestCancellation`](#requestCancellation) option:
+You can control this behavior using the [`requestCancellation`](https://data-star.dev/reference/actions#requestCancellation) option:
 
 ```
 <!-- Allow concurrent requests (no automatic cancellation) -->

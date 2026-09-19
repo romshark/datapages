@@ -31,8 +31,8 @@ func TestStartUpdateCheck(t *testing.T) {
 			responseTag:     "v2.0.0",
 			responseHTMLURL: "https://example.com/releases/v2.0.0",
 			currentVersion:  "v1.0.0",
-			wantOutput: "update available: v2.0.0 — run: go install " +
-				datapagesModulePath +
+			wantOutput: "update available: v2.0.0\n  run: go install " +
+				datapagesCommandPath +
 				"@latest\nchangelog: https://example.com/releases/v2.0.0\n",
 		},
 		"same version": {
@@ -129,8 +129,8 @@ func TestPrintUpdateNotice(t *testing.T) {
 	printUpdateNotice(&buf, "v1.2.3", "https://example.com/changelog")
 	require.Equal(
 		t,
-		"update available: v1.2.3 — run: go install "+
-			datapagesModulePath+
+		"update available: v1.2.3\n  run: go install "+
+			datapagesCommandPath+
 			"@latest\nchangelog: https://example.com/changelog\n",
 		buf.String(),
 	)

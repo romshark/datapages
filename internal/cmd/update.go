@@ -13,7 +13,10 @@ import (
 	"github.com/fatih/color"
 )
 
-const datapagesModulePath = "github.com/romshark/datapages"
+const (
+	datapagesModulePath  = "github.com/romshark/datapages"
+	datapagesCommandPath = datapagesModulePath + "/cmd/datapages"
+)
 
 // startUpdateCheck starts a background goroutine that fetches the latest
 // GitHub release and prints a notice to w if a newer version is available.
@@ -98,6 +101,7 @@ func parseSemver(v string) [3]int {
 func printUpdateNotice(w io.Writer, newVersion, changelogURL string) {
 	header := color.New(color.FgYellow, color.Bold).Sprint("update available:")
 	ver := color.New(color.FgHiMagenta, color.Bold).Sprint(newVersion)
-	cmd := color.New(color.FgCyan).Sprintf("go install %s@latest", datapagesModulePath)
-	_, _ = fmt.Fprintf(w, "%s %s — run: %s\nchangelog: %s\n", header, ver, cmd, changelogURL)
+	cmd := color.New(color.FgCyan).Sprintf("go install %s@latest", datapagesCommandPath)
+	_, _ = fmt.Fprintf(w, "%s %s\n  run: %s\nchangelog: %s\n",
+		header, ver, cmd, changelogURL)
 }

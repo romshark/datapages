@@ -294,7 +294,7 @@ func TestReflectedSignals(t *testing.T) {
 
 	resp := c.Get(t, "/reflect/?t=shoes&p=3&s=news")
 	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
-	require.Equal(t, `term="shoes" page=3 slug="news" odd="" title=""`,
+	require.Equal(t, `term="shoes" page=3 slug="news" odd="" title="" lang=""`,
 		resp.Element(t, "echo"))
 	for _, want := range []string{
 		`data-signals:term="'shoes'"`,
@@ -317,6 +317,82 @@ func TestReflectedSignals(t *testing.T) {
 	} {
 		require.Contains(t, resp.Body, want, "the page does not carry %q")
 	}
+}
+
+// TestReflectedSignalsKeepOtherQueryParams tests that URL sync preserves
+// unreflected query fields and undeclared parameters.
+func TestReflectedSignalsKeepOtherQueryParams(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	resp := c.Get(t, "/reflect/?t=shoes&lang=de&utm=spring")
+	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+	require.Equal(t, `term="shoes" page=0 slug="" odd="" title="" lang="de"`,
+		resp.Element(t, "echo"))
+
+	require.Contains(t, resp.Body, "new URLSearchParams(location.search)")
+	for _, want := range []string{
+		"if ($term) params.set('t', $term); else params.delete('t');",
+		"if ($page) params.set('p', $page); else params.delete('p');",
+		"if ($newTitle) params.set('nt', $newTitle); else params.delete('nt');",
+	} {
+		require.Contains(t, resp.Body, want)
+	}
+	require.NotContains(t, resp.Body, "'lang'")
+	require.NotContains(t, resp.Body, "'utm'")
+}
+
+// TestReflectedSignalSeedQuoting tests that time.Time seeds a quoted signal
+// and int seeds a numeric signal.
+func TestReflectedSignalSeedQuoting(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	resp := c.Get(t, "/when/?when=2020-01-02T03%3A04%3A05Z&n=7")
+	require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+	require.Equal(t, `when="2020-01-02T03:04:05Z" count=7`, resp.Element(t, "echo"))
+
+	require.Contains(t, resp.Body, `data-signals:when="'2020-01-02T03:04:05Z'"`)
+	require.Contains(t, resp.Body, `data-signals:count="7"`)
+}
+
+// TestReflectedSignalEscapesPathValue tests a path variable in a page's
+// data-effect when the page also reflects a query field. HTML escaping alone
+// lets a quote end the JavaScript string after the browser decodes the attribute.
+func TestReflectedSignalEscapesPathValue(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	tests := map[string]struct {
+		send string // the path segment, already percent-encoded
+		read string // what the handler parsed
+		want string // what the effect writes into the address bar
+	}{
+		"quote in JavaScript": {
+			send: "%27%2Balert(1)%2B%27",
+			read: `'+alert(1)+'`,
+			want: "'/shop/%27+alert%281%29+%27'",
+		},
+		"question mark in path": {send: "a%3Fb", read: "a?b", want: "'/shop/a%3Fb'"},
+		"slash in segment":      {send: "a%2Fb", read: "a/b", want: "'/shop/a%2Fb'"},
+		"plain segment":         {send: "boots", read: "boots", want: "'/shop/boots'"},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			resp := c.Get(t, "/shop/"+tt.send+"/?q=x")
+
+			require.Equal(t, http.StatusOK, resp.Status, resp.Body)
+			require.Equal(t, `cat=`+strconv.Quote(tt.read)+` term="x"`,
+				resp.Element(t, "echo"))
+			require.Contains(t, resp.Body, tt.want)
+		})
+	}
+
+	// The browser decodes &#39; back to a quote before Datastar reads the effect.
+	resp := c.Get(t, "/shop/%27%2Balert(1)%2B%27/?q=x")
+	require.NotContains(t, resp.Body, "&#39;+alert")
 }
 
 // TestReflectedSignalEscapesMarkup tests a reflected query value carrying markup.
