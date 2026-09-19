@@ -77,9 +77,11 @@ query datapages.Query[struct {
 
 Values sit in `query.Values`. A `reflectsignal:"term"` tag binds the field to a Datastar signal: the parameter seeds the signal on load, and a signal change rewrites the browser URL. Its period-separated path must have each step start with a lowercase letter or underscore; later characters may be letters, digits or underscores. A double underscore is invalid.
 
-A signal change rewrites or removes only its own parameter. Every other parameter survives, including a query field carrying no `reflectsignal`.
+A signal change rewrites or removes only its own parameter. Every other parameter remains, including a query field without `reflectsignal`.
 
-`datapages gen` rejects two query fields reflecting the same signal, which would emit duplicate `data-signals` attributes and lose the second value. It also rejects a query field whose JSON kind, number, boolean or string, differs from the signal field's: a string reflected into a `bool` signal makes the browser send `"true"`, and every action then fails with 400 while decoding the signals.
+`datapages gen` rejects two query fields with the same `reflectsignal` value. Both emit `data-signals:term`, and an HTML parser keeps only the first attribute, which drops the seed of the second field.
+
+It also rejects a mismatch of JSON kind between the query field and the signal field, across number, boolean and string. A `string` query field reflected into a `bool` signal seeds `$flag` as `"true"`. The next action sends `{"flag":"true"}`, which signal decoding rejects with 400.
 
 ## Error pages
 

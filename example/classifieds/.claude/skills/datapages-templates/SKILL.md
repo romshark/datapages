@@ -55,7 +55,7 @@ Every function takes variadic modifiers. Never hand-write the options object.
 | `action.WithBefore`, `action.WithAfter` | JavaScript prepended or appended, joined with `"; "` |
 | `action.WithOption` | raw key and value for anything the helpers miss |
 
-Every modifier returns `action.Option`. Hold conditional ones in an `[]action.Option` and pass them as `opts...`; use that alias rather than importing `runtime/actionexpr`.
+Every modifier returns `action.Option`. Collect conditional modifiers in an `[]action.Option` and pass them as `opts...`. Use the alias instead of importing `runtime/actionexpr`.
 
 Arguments go in one order: the path variables as the route names them, then the query value built by `<METHOD>Query(...)`, then the modifiers. The query type is unexported, so build it with the generated constructor.
 

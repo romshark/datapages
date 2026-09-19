@@ -57,6 +57,8 @@ func (*App) POSTSignIn(
 
 `NewSession` carries `UserID`, `Data` and an optional `ExpiresAt`; Datapages mints the token and stamps the issue time. A zero `UserID` creates nothing. Sign out by returning `closeSession datapages.CloseSession` as `true`.
 
+`ExpiresAt` also becomes the cookie's `Max-Age` and `Expires`, which keeps the client signed in across browser restarts. A zero `ExpiresAt` writes a cookie the browser drops when it closes. The record stays in the store until the application removes it.
+
 Neither works next to a `datapages.SSE` parameter: the headers the cookie travels in are already out. Sign in or out without `sse` and use `redirect`.
 
 ## CSRF
