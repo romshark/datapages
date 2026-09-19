@@ -1,0 +1,47 @@
+package app
+
+import (
+	"net/http"
+
+	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/href"
+)
+
+// PageTickets is /tickets
+type PageTickets struct {
+	App *App
+	Base
+}
+
+func (p PageTickets) GET(
+	r *http.Request,
+	session Session,
+	pageCache datapages.PageCacheWriter,
+) (
+	body datapages.Component,
+	redirect datapages.Redirect,
+	err error,
+) {
+	if session.IsGuest() {
+		return nil, datapages.Redirect{URL: href.PageLogin(href.QueryPageLogin{
+			Next: href.PageTickets(),
+		})}, nil
+	}
+
+	tickets, err := p.App.repo.TicketsByUser(r.Context(), session.UserID())
+	if err != nil {
+		return nil, datapages.Redirect{}, err
+	}
+	baseData, err := p.baseData(r.Context(), session)
+	if err != nil {
+		return nil, datapages.Redirect{}, err
+	}
+
+	view := pageTickets(session, tickets, baseData)
+	// Cache the tickets list with the tickets so it is viewable offline. Versioned
+	// by session and ticket count so a purchase or a different user refreshes it.
+	if ver := ticketsOfflineVersion(session, tickets); pageCache.Version() != ver {
+		pageCache.Set(href.PageTickets(), view, ver)
+	}
+	return view, datapages.Redirect{}, nil
+}

@@ -1940,6 +1940,7 @@ func assignSpecialPages(ctx *parseCtx, errs *Errors) {
 	ctx.app.PageIndex = ctx.pages["PageIndex"]
 	ctx.app.PageError404 = ctx.pages["PageError404"]
 	ctx.app.PageError500 = ctx.pages["PageError500"]
+	ctx.app.PageOffline = ctx.pages["PageOffline"]
 
 	if ctx.app.PageIndex == nil {
 		errs.ErrAt(ctx.basePos, ErrAppMissingPageIndex)
@@ -2296,6 +2297,8 @@ func pageSpecialization(typeName string) model.PageSpecialization {
 		return model.PageTypeError404
 	case "PageError500":
 		return model.PageTypeError500
+	case "PageOffline":
+		return model.PageTypeOffline
 	default:
 		return 0
 	}
@@ -2713,6 +2716,16 @@ func parseHandler(
 			h.InputSSE = parseInput(f, f.Type, info)
 			h.InputSSE.Kind = model.InputKindSSE
 			h.OrderedInputs = append(h.OrderedInputs, h.InputSSE)
+
+		case typecheck.IsDatapagesPageCache(f.Type, info):
+			if h.InputPageCache != nil {
+				unsupErrs = append(unsupErrs,
+					fieldErr(unsupportedInputError(f, h, info, recv, fd.Name.Name)))
+				continue
+			}
+			h.InputPageCache = parseInput(f, f.Type, info)
+			h.InputPageCache.Kind = model.InputKindPageCache
+			h.OrderedInputs = append(h.OrderedInputs, h.InputPageCache)
 
 		case paramvalidation.IsSessionParam(f, info):
 			if h.InputSession != nil {

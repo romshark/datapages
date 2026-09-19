@@ -16,7 +16,8 @@
 - Build CLI and examples: `mage build`
 - Generate templ files: `mage genTempl`
 - Generate datapages code: `mage genDatapages`
-- Generate all (templ + datapages + docs): `mage gen`
+- Minify the offline service worker: `mage genOfflineWorker`
+- Generate all (templ + datapages + docs + worker): `mage gen`
 - Check that all generated code is current: `mage checkGen`
 - Run go fix on all modules: `mage goFix`
 - Run everything: `mage all`
@@ -62,7 +63,7 @@ Public, imported by application or generated code:
   sentinels. `options.go` holds every server option: `ServerOption` values fill
   a `ServerConfig` that `httpserve.NewCore` reads. None are generated.
 - `cmd/datapages/` - the shipped binary.
-- `modules/` - pluggable modules: csrf, messaging, sessions.
+- `modules/` - pluggable modules: csrf, messaging, offline, sessions.
 - `runtime/` - what generated code imports:
   - `httpserve` - the server core a generated one embeds: listener, routes,
     middleware chain, logger, shutdown, redirect, Datastar request check,
@@ -98,6 +99,9 @@ Examples, one module each:
 - `example/webcomponents/` - vanilla and Lit Web Components bundled via esbuild.
 - `example/sqlitesessions/` - a `sessions.Manager` on SQLite via
   sqinn-go.
+- `example/fast-shim/` - instant loads: cached shims morphed by Datastar.
+- `example/offline-cache/` - service-worker offline support, handler-written
+  cache and a `PageOffline` fallback, on a ticketing app.
 
 Where code goes:
 
@@ -116,6 +120,11 @@ Where code goes:
 - What mirrors the standard library lives in `runtime/` and is imported, since
   its correctness follows the Go version rather than the application and it can
   be tested against the standard library directly.
+- The page cache is generated, not imported: `writePageCache` emits the
+  `datapages.PageCacheWriter` implementation (`newPageCache`/`pageCacheWriter`)
+  and its delivery lifecycle (`flush`, `writeBake`, `redirectScript`). It
+  renders cached bodies through the application's own `writeHTML`, so it is
+  shaped by the app model, not by the Go version.
 - `datapages.NewServer` is generic over the app type, the session data type and
   the generated `Server`. Generated code contributes the `Init` method
   satisfying `datapages.ServerInitializer`, which is where `httpserve.NewCore` is called:
@@ -156,7 +165,10 @@ Generated output is committed, and tests fail when it goes stale.
   runs `datapages gen` in every example and acceptance module.
 - `docs/index.html`: written by `internal/tools/render-pages` from
   `internal/docs-src/`. `mage genDocs`.
-- `mage gen` runs all three.
+- `modules/offline/sw.min.js`: minified from `sw.js` next to it.
+  `mage genOfflineWorker`. The module embeds the minified file,
+  which is why it is committed: `go build` cannot run the target.
+- `mage gen` runs all four.
 
 Any change to the generator requires `mage genDatapages` in the same commit.
 `TestExamplesAreUpToDate` (`internal/generator/generator_test.go:45`) and the

@@ -366,6 +366,12 @@ type appUsage struct {
 	// datapagesSSE: whether any handler takes a datapages.SSE param
 	// (needs the datapages import and the generated sseWrapper).
 	datapagesSSE bool
+	// pageCache: whether any handler takes a pageCache param (needs the
+	// datapages import and the generated pageCacheWriter).
+	pageCache bool
+	// offlinePage: whether PageOffline is declared (needs the offline module
+	// import and the generated WithOffline option).
+	offlinePage bool
 	// stateRuntime: whether any page (including via embedded abstract pages)
 	// takes datapages.State[T]; enables the per-page-instance state runtime.
 	stateRuntime bool
@@ -440,6 +446,7 @@ func computeAppUsage(m *model.App) appUsage {
 		// RecoverError always receives a datapages.SSE.
 		u.datapagesSSE = true
 	}
+	u.offlinePage = m.PageOffline != nil
 
 	checkHandler := func(h *model.Handler) {
 		if h.InputSession != nil {
@@ -460,6 +467,9 @@ func computeAppUsage(m *model.App) appUsage {
 		}
 		if h.InputSSE != nil {
 			u.datapagesSSE = true
+		}
+		if h.InputPageCache != nil {
+			u.pageCache = true
 		}
 	}
 

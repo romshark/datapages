@@ -1,0 +1,11 @@
+cmd: cmd/server
+watch:
+  exclude:
+    - ".git/**" # git internals
+    - ".*"      # hidden files/directories
+    - "*~"      # editor backup files
+  custom-watchers:
+    - name: "CSS"
+      include:
+        - "app/static/style.css"
+      requires: reload

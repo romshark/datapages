@@ -45,6 +45,8 @@ func handlerArgVar(kind string, skipSSE bool, stateExpr string) string {
 		return "signals"
 	case model.InputKindDispatch:
 		return "dispatch"
+	case model.InputKindPageCache:
+		return "pageCache"
 	case model.InputKindEvent:
 		return "e"
 	case model.InputKindState:
@@ -334,6 +336,12 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		w.writeDispatchers(h, "dispatch", "r.Context()")
 	}
 
+	// Offline cache handle for GET (queued writes are baked after writeHTML).
+	if h.InputPageCache != nil {
+		// The receiver embeds the server rather than being it.
+		w.Line(1, "pageCache := newPageCache(s.Server, r, nil)")
+	}
+
 	// Stateful page: mint the Datapages-Instance header so the client can
 	// echo it on actions and on the SSE stream connect.
 	if p.State != nil {
@@ -439,13 +447,16 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 
 	// Close and create session, before anything is written: both set a cookie,
 	// and a cookie set after the body has started is dropped.
-	// The 500 page renders from its session like any other page.
-	getSessArg, getSessRebind := w.renderSessionVar(h, m, true,
+	// The 500 page renders from its session like any other page. PageOffline
+	// does not: the worker precaches a single copy and serves it to every
+	// visitor.
+	getRendersBody := p.PageSpecialization != model.PageTypeOffline
+	getSessArg, getSessRebind := w.renderSessionVar(h, m, getRendersBody,
 		hasSessionInput(h) || globalHeadNeedsSession(m))
 	w.writeSessionOutputs(h, getSessRebind)
 
 	// Redirect.
-	w.writeRedirect(h)
+	w.writeRedirect(h, false)
 
 	// Generic head.
 	if gh := m.GlobalHeadGenerator; gh != nil {
@@ -490,6 +501,11 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	w.Raw("\", err)\n")
 	w.Line(2, "return")
 	w.Line(1, "}")
+
+	// Bake queued offline writes as a trailing script after the page HTML.
+	if h.InputPageCache != nil {
+		w.Line(1, "_ = pageCache.writeBake(w)")
+	}
 }
 
 func hasSessionInput(h *model.Handler) bool {
@@ -1592,7 +1608,7 @@ func (w *Writer) writePageActionHandler(
 	w.Line(1, "w http.ResponseWriter, r *http.Request,")
 	w.Line(0, ") {")
 
-	if h.InputSSE != nil || h.InputSignals != nil {
+	if h.InputSSE != nil || h.InputSignals != nil || h.InputPageCache != nil {
 		w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1676,13 +1692,18 @@ func (w *Writer) writePageActionHandler(
 	// Dispatch closures.
 	w.writeDispatchers(h, "dispatch", "r.Context()")
 
-	// SSE for actions that take it.
-	if h.InputSSE != nil {
+	// SSE for actions that take it, or need it to flush the page cache.
+	// An action that answers with a redirect or a body delivers its offline writes
+	// in that response instead (see pageCacheViaRedirect, pageCacheViaBake).
+	if h.InputSSE != nil || pageCacheViaStream(h) {
 		w.Line(0, "")
 		w.Line(1, "sse := datastar.NewSSE(w, r, datastar.WithCompression())")
 	}
 
 	w.writeDeferRecover(h.InputSSE != nil, p.TypeName+"."+h.Name)
+
+	// datapages runtime handles (datapages.SSE wrapper, page cache).
+	w.writeDatapagesHandles(h)
 
 	// Page constructor.
 	w.Raw("\tp := ")
@@ -1692,7 +1713,50 @@ func (w *Writer) writePageActionHandler(
 	// Build the method call.
 	w.writeActionMethodCall(p, h, m)
 
+	// Deliver queued offline writes over the SSE stream on success.
+	// The other two deliveries are written where their response is:
+	// httpRedirectOffline in writeActionMethodCall, the bake after the rendered body.
+	if pageCacheViaStream(h) {
+		w.Line(1, "_ = pageCache.flush()")
+	}
+
 	w.Line(0, "}")
+}
+
+// pageCacheViaRedirect reports whether h delivers its offline writes through a
+// redirect response (a text/javascript body) rather than an SSE stream. That is
+// the case for actions that return a redirect and do not take an SSE stream of
+// their own, e.g. sign-in and sign-out, which navigate via window.location.
+func pageCacheViaRedirect(h *model.Handler) bool {
+	return h.InputPageCache != nil && h.InputSSE == nil && h.OutputRedirect != nil
+}
+
+// pageCacheViaBake reports whether h delivers its offline writes baked into the
+// HTML response it renders, the way a GET page method does. An action whose only
+// answer is a body has neither a stream nor a redirect to carry them.
+func pageCacheViaBake(h *model.Handler) bool {
+	return h.InputPageCache != nil && h.InputSSE == nil &&
+		h.OutputRedirect == nil && h.OutputBody != nil
+}
+
+// pageCacheViaStream reports whether h delivers its offline writes over an SSE stream.
+// The generator opens one for the handlers that ask for none of their own,
+// which is the only delivery left when the response carries no HTML body and no redirect.
+func pageCacheViaStream(h *model.Handler) bool {
+	return h.InputPageCache != nil &&
+		!pageCacheViaRedirect(h) && !pageCacheViaBake(h)
+}
+
+// writeDatapagesHandles emits, for an action handler, the datapages.SSE wrapper
+// (dpSSE) and the page cache handle (pageCache) when requested.
+func (w *Writer) writeDatapagesHandles(h *model.Handler) {
+	if h.InputPageCache != nil {
+		if pageCacheViaStream(h) {
+			w.Line(1, "pageCache := newPageCache(s.Server, r, sse)")
+		} else {
+			w.Line(1, "pageCache := newPageCache(s.Server, r, nil)")
+		}
+	}
 }
 
 func (w *Writer) writeActionMethodCall(
@@ -1747,7 +1811,7 @@ func (w *Writer) writeActionMethodCall(
 	w.writeSessionOutputs(h, actSessRebind)
 
 	// Redirect.
-	w.writeRedirect(h)
+	w.writeRedirect(h, pageCacheViaRedirect(h))
 
 	// Render body (if action returns templ.Component).
 	if h.OutputBody != nil {
@@ -1785,6 +1849,12 @@ func (w *Writer) writeActionMethodCall(
 		w.Raw("\", err)\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
+
+		// Bake queued offline writes into the rendered document,
+		// the way a GET page method does.
+		if pageCacheViaBake(h) {
+			w.Line(1, "_ = pageCache.writeBake(w)")
+		}
 	}
 }
 

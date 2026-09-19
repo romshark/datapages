@@ -126,12 +126,19 @@ func IsPtrToDatastarSSE(
 }
 
 // datapagesPkgPath is the import path of the core datapages package that owns
-// the abstract handler parameter and return types (SSE, Session, Redirect).
+// the abstract handler parameter and return types
+// (SSE, Session, Redirect, PageCacheWriter).
 const datapagesPkgPath = "github.com/romshark/datapages"
 
 // IsDatapagesSSE reports whether expr resolves to datapages.SSE.
 func IsDatapagesSSE(expr ast.Expr, info *types.Info) bool {
 	return isNamedFromPkg(expr, info, datapagesPkgPath, "SSE")
+}
+
+// IsDatapagesPageCache reports whether expr resolves to
+// datapages.PageCacheWriter.
+func IsDatapagesPageCache(expr ast.Expr, info *types.Info) bool {
+	return isNamedFromPkg(expr, info, datapagesPkgPath, "PageCacheWriter")
 }
 
 // IsSSEParam reports whether expr is the SSE handler parameter type.

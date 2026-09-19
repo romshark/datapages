@@ -7,4 +7,5 @@
 // the concrete implementations and passes them in.
 //
 //   - [SSE] is the server-sent-event handle for action and event handlers.
+//   - [PageCacheWriter] is the service-worker cache handle for the current page.
 package datapages

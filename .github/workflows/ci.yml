@@ -37,6 +37,10 @@ jobs:
             name: "calculator"
           - path: "example/todolist"
             name: "todolist"
+          - path: "example/offline-cache"
+            name: "offline-cache"
+          - path: "example/fast-shim"
+            name: "fast-shim"
         deps: [locked, latest]
         exclude:
           # Only run latest-deps for the root module.
@@ -57,6 +61,12 @@ jobs:
             deps: latest
           - project:
               name: "todolist"
+            deps: latest
+          - project:
+              name: "offline-cache"
+            deps: latest
+          - project:
+              name: "fast-shim"
             deps: latest
     steps:
       - name: Install Go 1.27.1
