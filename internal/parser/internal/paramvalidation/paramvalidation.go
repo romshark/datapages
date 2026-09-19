@@ -72,6 +72,12 @@ var (
 	ErrQueryReflectSignalInvalid = errors.New(
 		"query struct field has an invalid reflectsignal tag value",
 	)
+	ErrQueryReflectSignalDuplicate = errors.New(
+		"query struct fields reflect the same signal",
+	)
+	ErrQueryReflectSignalTypeMismatch = errors.New(
+		"query struct field and reflected signal have incompatible JSON kinds",
+	)
 	ErrSignalsFieldNameDotted = errors.New(
 		"signals struct field declares one signal, which carries no period",
 	)
@@ -267,6 +273,7 @@ func ValidateQueryStruct(
 	}
 
 	seen := make(map[string]bool, st.NumFields())
+	seenReflect := make(map[string]bool, st.NumFields())
 	for i := range st.NumFields() {
 		field := st.Field(i)
 		tag := st.Tag(i)
@@ -323,6 +330,16 @@ func ValidateQueryStruct(
 					Pos: fpos,
 				}
 			}
+			// HTML parsers keep only the first attribute with a given name,
+			// which would discard the second field's signal seed.
+			if seenReflect[rs] {
+				return &QueryFieldReflectSignalDuplicateError{
+					FieldName: field.Name(), TagValue: rs,
+					Recv: recv, Method: method,
+					Pos: fpos,
+				}
+			}
+			seenReflect[rs] = true
 		}
 		seen[tagVal] = true
 	}
@@ -427,11 +444,10 @@ func validateSignalsFields(
 	return nil
 }
 
-// collectSignalPaths records the path of every signal the struct declares.
-// A nested struct contributes the paths below it, which is how a reflectsignal
-// tag reaches one: {"foo":{"bar":1}} is the signal foo.bar.
+// collectSignalPaths records each signal's path and type.
+// A nested struct contributes the paths below it: {"foo":{"bar":1}} maps to foo.bar.
 func collectSignalPaths(
-	st *types.Struct, prefix string, out map[string]bool,
+	st *types.Struct, prefix string, out map[string]types.Type,
 	visited map[types.Type]bool,
 ) {
 	for i := range st.NumFields() {
@@ -449,7 +465,7 @@ func collectSignalPaths(
 			delete(visited, nested)
 			continue
 		}
-		out[path] = true
+		out[path] = st.Field(i).Type()
 	}
 }
 
@@ -750,8 +766,12 @@ func ValidatePathAgainstRoute(
 	return errors.Join(errs...)
 }
 
-// ValidateReflectSignal checks that every reflectsignal tag
-// on a query field references a json tag value in the signals struct.
+// ValidateReflectSignal checks that each reflectsignal query tag names a signal
+// field that can decode the seeded JSON value.
+//
+// The query field determines the seed's JSON kind. The browser returns that
+// value with the next action, where encoding/json decodes it into the signal
+// field.
 func ValidateReflectSignal(
 	h *model.Handler, recv, method string,
 ) error {
@@ -768,24 +788,63 @@ func ValidateReflectSignal(
 		return nil
 	}
 
-	sigNames := map[string]bool{}
-	collectSignalPaths(sigSt, "", sigNames, map[types.Type]bool{})
+	signals := map[string]types.Type{}
+	collectSignalPaths(sigSt, "", signals, map[types.Type]bool{})
 
 	for i := range querySt.NumFields() {
 		rs := structtag.ReflectSignalTagValue(querySt.Tag(i))
 		if rs == "" {
 			continue
 		}
-		if !sigNames[rs] {
+		sigType, ok := signals[rs]
+		if !ok {
 			return fmt.Errorf(
 				"%w: %q in %s.%s",
 				ErrQueryReflectSignalNotInSignals,
 				rs, recv, method,
 			)
 		}
+		kind := gotypes.TextJSONKind(querySt.Field(i).Type())
+		if !gotypes.AcceptsJSONKind(sigType, kind) {
+			return &QueryFieldReflectSignalTypeError{
+				FieldName:  querySt.Field(i).Name(),
+				TagValue:   rs,
+				SeedKind:   kind.String(),
+				SignalType: gotypes.QualifiedTypeName(sigType),
+				Recv:       recv,
+				Method:     method,
+				Pos:        querySt.Field(i).Pos(),
+			}
+		}
 	}
 	return nil
 }
+
+// QueryFieldReflectSignalTypeError reports the field, seed kind, and signal
+// type responsible for [ErrQueryReflectSignalTypeMismatch].
+type QueryFieldReflectSignalTypeError struct {
+	FieldName  string
+	TagValue   string
+	SeedKind   string
+	SignalType string
+	Recv       string
+	Method     string
+	Pos        token.Pos
+}
+
+func (e *QueryFieldReflectSignalTypeError) Error() string {
+	return fmt.Sprintf(
+		"%v: field %s seeds signal %q as JSON %s; encoding/json cannot decode it into %s in %s.%s",
+		ErrQueryReflectSignalTypeMismatch,
+		e.FieldName, e.TagValue, e.SeedKind, e.SignalType, e.Recv, e.Method,
+	)
+}
+
+func (e *QueryFieldReflectSignalTypeError) Unwrap() error {
+	return ErrQueryReflectSignalTypeMismatch
+}
+
+func (e *QueryFieldReflectSignalTypeError) ASTPos() token.Pos { return e.Pos }
 
 // SignalsFieldNameInvalidError is [ErrSignalsFieldNameInvalid] with context.
 type SignalsFieldNameInvalidError struct {
@@ -806,6 +865,27 @@ func (e *SignalsFieldNameInvalidError) Unwrap() error {
 }
 
 func (e *SignalsFieldNameInvalidError) ASTPos() token.Pos { return e.Pos }
+
+// QueryFieldReflectSignalDuplicateError reports the field and tag value
+// responsible for [ErrQueryReflectSignalDuplicate].
+type QueryFieldReflectSignalDuplicateError struct {
+	FieldName string
+	TagValue  string
+	Recv      string
+	Method    string
+	Pos       token.Pos
+}
+
+func (e *QueryFieldReflectSignalDuplicateError) Error() string {
+	return fmt.Sprintf("%v: %q on field %s in %s.%s",
+		ErrQueryReflectSignalDuplicate, e.TagValue, e.FieldName, e.Recv, e.Method)
+}
+
+func (e *QueryFieldReflectSignalDuplicateError) Unwrap() error {
+	return ErrQueryReflectSignalDuplicate
+}
+
+func (e *QueryFieldReflectSignalDuplicateError) ASTPos() token.Pos { return e.Pos }
 
 // QueryFieldReflectSignalInvalidError is [ErrQueryReflectSignalInvalid] with context.
 type QueryFieldReflectSignalInvalidError struct {

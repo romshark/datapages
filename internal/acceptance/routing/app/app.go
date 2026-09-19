@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/a-h/templ"
 
@@ -128,11 +129,41 @@ func (PageReflect) GET(
 		// reads one back as camel case. Written as data-signals:newTitle the
 		// signal would arrive as newtitle.
 		NewTitle string `query:"nt" reflectsignal:"newTitle"`
+		Lang     string `query:"lang"`
 	}],
 ) (body datapages.Component, err error) {
-	return echo("term=%q page=%d slug=%q odd=%q title=%q",
+	return echo("term=%q page=%d slug=%q odd=%q title=%q lang=%q",
 		query.Values.Term, query.Values.Page, query.Values.Slug,
-		query.Values.Odd, query.Values.NewTitle), nil
+		query.Values.Odd, query.Values.NewTitle, query.Values.Lang), nil
+}
+
+// PageWhen is /when
+type PageWhen struct{ App *App }
+
+func (PageWhen) GET(
+	_ *http.Request,
+	query datapages.Query[struct {
+		When  time.Time `query:"when" reflectsignal:"when"`
+		Count int       `query:"n" reflectsignal:"count"`
+	}],
+) (body datapages.Component, err error) {
+	return echo("when=%q count=%d",
+		query.Values.When.Format(time.RFC3339), query.Values.Count), nil
+}
+
+// PageShop is /shop/{cat}
+type PageShop struct{ App *App }
+
+func (PageShop) GET(
+	_ *http.Request,
+	path datapages.Path[struct {
+		Cat string `path:"cat"`
+	}],
+	query datapages.Query[struct {
+		Term string `query:"q" reflectsignal:"term"`
+	}],
+) (body datapages.Component, err error) {
+	return echo("cat=%q term=%q", path.Values.Cat, query.Values.Term), nil
 }
 
 // PageMixed is /org/{org}/item/{id}

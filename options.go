@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -61,6 +62,10 @@ type ServerConfig struct {
 	// AssetsBrowsable is the browsable argument of [WithAssets] and [WithAssetsFS].
 	AssetsBrowsable bool
 
+	// AssetsCache configures production asset cache headers.
+	// A nil value adds no Cache-Control or ETag header.
+	AssetsCache *AssetsCacheConfig
+
 	// Sessions configures the session cookie and the token generator.
 	Sessions SessionsConfig
 
@@ -75,6 +80,11 @@ type ServerConfig struct {
 	// BodySizeLimit is what [WithBodySizeLimit] carries.
 	// Zero selects httpserve.DefaultBodySizeLimit.
 	BodySizeLimit int64
+
+	// ShutdownTimeout is the grace period used by
+	// [github.com/romshark/datapages/runtime/httpserve.Core.ListenAndServe].
+	// Zero selects httpserve.DefaultShutdownTimeout.
+	ShutdownTimeout time.Duration
 
 	// State sets the per-tab state limit. Nil selects the default.
 	State *StateConfig
@@ -289,6 +299,82 @@ func WithAssetsFS(fsys http.FileSystem, browsable bool) ServerOption {
 	}
 }
 
+// AssetsCacheConfig configures cache headers for static assets.
+// Its zero value sends "Cache-Control: public, max-age=0" and an ETag.
+// A conditional request for an unchanged asset then receives 304 with no body.
+type AssetsCacheConfig struct {
+	// Disabled prevents [WithAssetsCache] from adding headers.
+	// It supports configuration files and flags that cannot omit the option.
+	Disabled bool
+
+	// MaxAge is how long a browser may reuse an asset without asking again.
+	// The max-age directive has one-second precision.
+	//
+	// Zero writes max-age=0, which requires revalidation.
+	// Use a positive value only when the asset URL changes with its content.
+	// Otherwise the browser may use stale content until MaxAge expires.
+	MaxAge time.Duration
+
+	// Immutable adds the immutable directive, which prevents reloads from
+	// revalidating a fresh response. It requires a positive MaxAge.
+	Immutable bool
+
+	// CacheControl sets the header value directly.
+	// It cannot be combined with MaxAge or Immutable.
+	CacheControl string
+
+	// DisableETag prevents [WithAssetsCache] from adding an ETag.
+	// Use it when a CDN or compressing middleware writes its own ETag,
+	// or when files can change during the process lifetime.
+	DisableETag bool
+}
+
+// WithAssetsCache adds Cache-Control and an optional ETag to static files
+// served by [WithAssets] and [WithAssetsFS].
+//
+// Optional. Without it Datapages adds neither header.
+//
+// The server computes each ETag on the first request and caches it for the
+// process lifetime. This matches the embedded file system used by [WithAssets].
+// Set [AssetsCacheConfig.DisableETag] for a [WithAssetsFS] file system whose
+// files can change while the server runs.
+//
+// Dev mode ignores this option and sends Cache-Control: no-store.
+func WithAssetsCache(conf AssetsCacheConfig) ServerOption {
+	return func(c *ServerConfig) error {
+		switch {
+		case conf.MaxAge < 0:
+			return fmt.Errorf("WithAssetsCache: max age (%s) must not be negative",
+				conf.MaxAge)
+		case conf.MaxAge > 0 && conf.MaxAge < time.Second:
+			return fmt.Errorf("WithAssetsCache: max age (%s) must be at least 1s",
+				conf.MaxAge)
+		case conf.CacheControl != "" && (conf.MaxAge != 0 || conf.Immutable):
+			return fmt.Errorf(
+				"WithAssetsCache: cache control (%q) cannot be combined with "+
+					"max age (%s) or immutable (%t)",
+				conf.CacheControl, conf.MaxAge, conf.Immutable,
+			)
+		case conf.Immutable && conf.MaxAge <= 0:
+			return fmt.Errorf("WithAssetsCache: immutable (%t) requires "+
+				"a max age (%s) above zero",
+				conf.Immutable, conf.MaxAge)
+		}
+		// Reject control characters because CR or LF could inject response headers.
+		if i := strings.IndexFunc(conf.CacheControl, func(r rune) bool {
+			return r < 0x20 || r == 0x7f
+		}); i != -1 {
+			return fmt.Errorf(
+				"WithAssetsCache: cache control (%q) contains "+
+					"a control character at byte %d",
+				conf.CacheControl, i,
+			)
+		}
+		c.AssetsCache = &conf
+		return nil
+	}
+}
+
 // WithSessions sets session-based authentication configuration.
 func WithSessions(o SessionsConfig) ServerOption {
 	return func(c *ServerConfig) error {
@@ -367,6 +453,30 @@ func WithBodySizeLimit(bytes int64) ServerOption {
 			return errors.New("WithBodySizeLimit: limit must be greater than zero")
 		}
 		c.BodySizeLimit = bytes
+		return nil
+	}
+}
+
+// WithShutdownTimeout limits how long
+// [github.com/romshark/datapages/runtime/httpserve.Core.ListenAndServe] waits
+// after context cancellation for in-flight requests, open SSE streams,
+// and StreamClose hooks.
+//
+// Optional.
+// Defaults to [github.com/romshark/datapages/runtime/httpserve.DefaultShutdownTimeout].
+//
+// If the timeout expires, ListenAndServe logs the shutdown error and returns.
+// A direct call to
+// [github.com/romshark/datapages/runtime/httpserve.Core.Shutdown] uses the
+// deadline of its context instead.
+func WithShutdownTimeout(d time.Duration) ServerOption {
+	return func(c *ServerConfig) error {
+		if d <= 0 {
+			return errors.New(
+				"WithShutdownTimeout: timeout must be greater than zero",
+			)
+		}
+		c.ShutdownTimeout = d
 		return nil
 	}
 }

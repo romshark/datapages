@@ -98,6 +98,7 @@ type Server struct {
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
+//   - datapages.WithShutdownTimeout
 //   - datapages.WithAssets
 //   - datapages.WithSessionManager (required)
 //   - datapages.WithSessions
@@ -184,7 +185,6 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
 		return
 	}
 	httpserve.WriteErrStatus(w, err)
@@ -341,8 +341,8 @@ func (s pageNestedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	bodySuffix := func(w http.ResponseWriter) {
 
-		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams();
-			if ($foo.fuzz) params.set('fuzz', $foo.fuzz);
+		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
+			if ($foo.fuzz) params.set('fuzz', $foo.fuzz); else params.delete('fuzz');
 			const query = params.toString();
 			window.history.replaceState(null, '', query ? '/nested?' + query : '/nested');
 		"`)

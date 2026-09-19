@@ -829,6 +829,24 @@ func TestParse_ErrQueryReflectSignal(t *testing.T) {
 	requireParseErrors(t, err, parser.ErrQueryReflectSignalInvalid)
 }
 
+// TestParse_ErrQueryReflectSignalDuplicate tests rejection of two query fields
+// that reflect the same signal.
+func TestParse_ErrQueryReflectSignalDuplicate(t *testing.T) {
+	_, err := parse(t, "err_query_reflectsignal_duplicate")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrQueryReflectSignalDuplicate)
+}
+
+// TestParse_ErrQueryReflectSignalType tests rejection of a string query field
+// reflected into a boolean signal.
+func TestParse_ErrQueryReflectSignalType(t *testing.T) {
+	_, err := parse(t, "err_query_reflectsignal_type")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(t, err, parser.ErrQueryReflectSignalTypeMismatch)
+}
+
 // TestParse_ErrEmbedPointer tests an abstract page embedded as a pointer.
 // Generated code writes a page as a composite literal of values, which a pointer
 // field cannot take, and a nil one would panic in every handler the embed promotes.

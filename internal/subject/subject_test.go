@@ -87,7 +87,7 @@ func TestCheckAcrossApps(t *testing.T) {
 	ev := func(app, typeName, subj string) subject.AppEvent {
 		return subject.AppEvent{
 			App: app, TypeName: typeName, Decl: app + "." + typeName,
-			Claim: subject.Claim{Subject: subj},
+			Subject: subj,
 		}
 	}
 	// shared is one declaration two applications take part in.

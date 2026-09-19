@@ -226,3 +226,66 @@ func ImplementsTextUnmarshaler(t types.Type) bool {
 	}
 	return types.Implements(types.NewPointer(t), textUnmarshaler)
 }
+
+// JSONKind classifies a JSON string, number, or boolean.
+type JSONKind uint8
+
+const (
+	// JSONString represents a JSON string.
+	JSONString JSONKind = iota
+	// JSONNumber represents a JSON number.
+	JSONNumber
+	// JSONBool represents a JSON boolean.
+	JSONBool
+)
+
+// String returns the JSON kind's name.
+func (k JSONKind) String() string {
+	switch k {
+	case JSONNumber:
+		return "number"
+	case JSONBool:
+		return "boolean"
+	}
+	return "string"
+}
+
+// TextJSONKind reports the JSON kind produced after t is formatted as text.
+// Integers and floats produce [JSONNumber], bool produces [JSONBool],
+// and all other types produce [JSONString].
+// Text marshalers produce [JSONString] regardless of their underlying Go kind.
+func TextJSONKind(t types.Type) JSONKind {
+	switch {
+	case t == nil, ImplementsTextMarshaler(t):
+		return JSONString
+	case IsInt(t), IsFloat(t):
+		return JSONNumber
+	case IsBool(t):
+		return JSONBool
+	}
+	return JSONString
+}
+
+// AcceptsJSONKind reports whether encoding/json can decode a value of kind k
+// into t.
+//
+// Types that implement json.Unmarshaler and interface types accept every kind.
+// Other types must match the value's kind.
+func AcceptsJSONKind(t types.Type, k JSONKind) bool {
+	if t == nil {
+		return true
+	}
+	if ImplementsJSONUnmarshaler(t) {
+		return true
+	}
+	if _, ok := t.Underlying().(*types.Interface); ok {
+		return true
+	}
+	switch k {
+	case JSONNumber:
+		return IsInt(t) || IsFloat(t)
+	case JSONBool:
+		return IsBool(t)
+	}
+	return IsString(t)
+}

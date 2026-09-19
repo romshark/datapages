@@ -16,8 +16,8 @@ const Escape = '%'
 
 const hexDigits = "0123456789ABCDEF"
 
-// IsToken reports whether v may be filled into a subject as it is,
-// which is what [Encode] leaves untouched.
+// IsToken reports whether v is a nonempty subject token.
+// [Encode] also escapes [Escape], which IsToken permits.
 func IsToken(v string) bool {
 	return v != "" && !strings.ContainsAny(v, Reserved)
 }

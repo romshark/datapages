@@ -249,8 +249,8 @@ func collectTypePkgs(
 			*out = append(*out, p)
 		}
 		if args := t.TypeArgs(); args != nil {
-			for i := range args.Len() {
-				collectTypePkgs(args.At(i), seen, out)
+			for t := range args.Types() {
+				collectTypePkgs(t, seen, out)
 			}
 		}
 	case *types.Alias:
@@ -268,8 +268,8 @@ func collectTypePkgs(
 		collectTypePkgs(t.Elem(), seen, out)
 	case *types.Struct:
 		// The signals and query writers render field types one by one.
-		for i := range t.NumFields() {
-			collectTypePkgs(t.Field(i).Type(), seen, out)
+		for field := range t.Fields() {
+			collectTypePkgs(field.Type(), seen, out)
 		}
 	}
 }

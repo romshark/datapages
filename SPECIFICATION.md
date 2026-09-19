@@ -21,11 +21,13 @@ func (*App) Head(
 
 Parameters are identified by type; names and order are unrestricted.
 
-If defined, `RecoverError` receives handler errors, including datapages sentinels, and may write feedback over SSE. When `PageError500` is defined, non-Datastar requests render that page instead if the response has not started. Without `PageError500`, `RecoverError` also receives non-Datastar request errors. If `RecoverError` fails, its error is logged and the response remains as written.
+`RecoverError` receives errors from Datastar requests when defined, including Datapages sentinels, and may write feedback over SSE. It does not handle page loads: the browser would render its SSE frames as the document. For a failed page load whose response has not started, the server renders `PageError500` when defined or writes a plain HTTP error otherwise. If `RecoverError` fails, the server logs its error and leaves the response as written.
 
 A panic in `GET`, an action, `StreamOpen`, or `OnXXX` follows the handler error path. When `RecoverError` handles it, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
 
-A panic during page writing is logged; the response retains its status and truncated body. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged. Graceful shutdown waits for it; a slow `StreamClose` holds the connection open.
+A panic during page writing is logged. A plain page load retains its status and truncated body. On a Datastar request, a defined `RecoverError` appends any SSE frames it writes to the truncated body. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
+
+Graceful shutdown waits for in-flight requests, open SSE streams, and `StreamClose` hooks. `ListenAndServe` waits at most `httpserve.DefaultShutdownTimeout` (10s) by default. `datapages.WithShutdownTimeout` changes this limit. If the limit expires, the server logs the shutdown error and returns. A direct call to `Shutdown` uses the deadline of its context.
 
 ```go
 func (*App) RecoverError(
@@ -51,9 +53,7 @@ Pages use `type PageXXX struct { App *App }` and these methods:
 - `StreamClose`: runs when the page SSE stream closes.
 - `OnXXX`: subscribes to events in the SSE listener.
 
-An action, `OnXXX`, `StreamOpen`, or `StreamClose` may take
-`datapages.State[T]` for per-tab state; see
-[Parameter: `datapages.State[T]`](#parameter-datapagesstatet).
+An action, `OnXXX`, `StreamOpen`, or `StreamClose` may take `datapages.State[T]` for per-tab state; see [Parameter: `datapages.State[T]`](#parameter-datapagesstatet).
 
 `XXX` denotes a name suffix.
 
@@ -178,9 +178,7 @@ func (PageIndex) OnSomethingHappened(
 
 `StreamOpen` runs after the SSE stream is established and before event handlers. It may return `error` or nothing. On error, setup stops, the stream closes, and `RecoverError` handles the error if defined. Otherwise the server uses its internal-error path. `StreamClose` does not run if `StreamOpen` returns an error or panics. `StreamOpen` must release acquired resources before returning an error and defer their release if it can panic.
 
-`datapages.StreamID` identifies an SSE stream within a process. Its parameter
-name is unrestricted. It may correlate `StreamOpen` with `StreamClose` and
-must not be exposed to clients.
+`datapages.StreamID` identifies an SSE stream within a process. Its parameter name is unrestricted. It may correlate `StreamOpen` with `StreamClose` and must not be exposed to clients.
 
 A stream hook must take `datapages.StreamID`, `datapages.State[T]`, or both.
 
@@ -382,6 +380,14 @@ query datapages.Query[struct {
 ```
 
 Here, `s` and `selecteditem` are synchronized.
+
+The browser updates only the reflected query keys. It removes a key when its signal becomes empty. Other query parameters remain, including fields declared without `reflectsignal`.
+
+Reflected integer, float, and bool fields seed JavaScript numbers or booleans unless they implement `encoding.TextMarshaler`. Text marshalers and all other field types seed strings.
+
+`datapages gen` rejects two query fields with the same `reflectsignal` value. They would generate duplicate `data-signals` attributes, and the browser would ignore the second value.
+
+The query field's seed must have a JSON kind that the signal field can decode. `datapages gen` rejects incompatible pairs. For example, it rejects a string query field reflected into a `bool` signal because the browser would submit `"true"` and the action would return 400 while decoding the signals. Fields that implement `json.Unmarshaler` and interface fields accept every JSON kind.
 
 Signal `json` tags must match `[A-Za-z_][A-Za-z0-9_]*` and must not contain `__`. `json:"-"` is rejected.
 
@@ -679,7 +685,7 @@ Sentinels:
 
 Do not wrap multiple sentinels into one error. If multiple occur, precedence is `ErrBadRequest`, `ErrForbidden`, `ErrNotFound`, then `ErrConflict`.
 
-Sentinels may be returned directly or wrapped. `RecoverError` handles Datastar request errors when defined. For non-Datastar requests, `PageError500` renders with status 500 if defined and the response has not started. Without that page, `RecoverError` handles the error when defined. If `RecoverError` fails, its error is logged and the response remains as written. When neither handler applies and the response has not started, the server writes the corresponding status and standard status text.
+Sentinels may be returned directly or wrapped. `RecoverError` handles errors from Datastar requests when defined. Other requests use `PageError500` with status 500 if defined and the response has not started. When neither handler applies and the response has not started, the server writes the corresponding status and standard status text. If `RecoverError` fails, the server logs its error and leaves the response as written.
 
 #### `GET` Return Value: `enableBackgroundStreaming datapages.EnableBackgroundStreaming`
 
@@ -711,11 +717,21 @@ Refresh uses the [`visibilitychange`](https://developer.mozilla.org/en-US/docs/W
 
 ## Dev Mode
 
-Dev mode is enabled when `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` is nonempty. `datapages watch` uses templier, which sets `TEMPL_DEV_MODE`. `DATAPAGES_DEV_MODE` also sets `TEMPL_DEV_MODE` for the process.
+Datapages dev mode is enabled when `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` is nonempty.
 
-Dev mode reads static assets from the source tree and sets `Cache-Control: no-store` on asset responses. The server logs a startup warning. A production process inheriting either variable may lack the source directory.
+templ reads only `TEMPL_DEV_MODE`, during package initialization. Set it before starting the process to enable templ hot reload and Datapages dev mode. `DATAPAGES_DEV_MODE` enables only Datapages dev mode.
 
-`datapages.IsDevMode` reports the mode.
+`datapages watch` uses templier, which sets `TEMPL_DEV_MODE` before it starts the application.
+
+Dev mode reads static assets from the source tree and sets `Cache-Control: no-store` on asset responses, ignoring `datapages.WithAssetsCache`. The server logs a startup warning. A production process inheriting either variable may lack the source directory.
+
+Outside dev mode, Datapages adds no `Cache-Control` or `ETag` header unless `datapages.WithAssetsCache` is set.
+
+Files passed to `datapages.WithAssets` come from `embed.FS`, which reports a zero modification time. `http.ServeContent` therefore adds no `Last-Modified` header. The response gives the client no validator to reuse on a later request.
+
+`datapages.WithAssetsCache` adds `Cache-Control` and an `ETag` computed from the file contents. A matching `If-None-Match` request receives 304 with no body. `Disabled` suppresses both headers; `DisableETag` suppresses the `ETag`.
+
+Generated asset URLs do not contain a content hash. With a positive `MaxAge`, browsers may reuse stale content until it expires unless the file name changes with the file contents.
 
 ## Linting
 

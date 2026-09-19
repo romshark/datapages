@@ -89,6 +89,7 @@ type Server struct {
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
+//   - datapages.WithShutdownTimeout
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,
@@ -163,11 +164,9 @@ func setupHandlers(s *Server) {
 func (s *Server) httpErrFinal(w http.ResponseWriter, msg string, err error) {
 	s.LogErr(msg, err)
 	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
 		return
 	}
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
+	httpserve.WriteErrStatus(w, err)
 }
 
 func (s *Server) httpErrIntern(
@@ -190,11 +189,9 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	if httpserve.ResponseBodyWritten(w) {
-		// A status written now only appends its text to the body.
 		return
 	}
-	const code = http.StatusInternalServerError
-	http.Error(w, http.StatusText(code), code)
+	httpserve.WriteErrStatus(w, err)
 }
 
 type pageBoomHandlers struct{ *Server }

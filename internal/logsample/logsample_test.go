@@ -107,11 +107,9 @@ func TestConcurrentUse(t *testing.T) {
 
 		var wg sync.WaitGroup
 		for range 50 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				log.Warn("dropped", slog.String("value", "x"))
-			}()
+			})
 		}
 		wg.Wait()
 		require.Equal(t, 1, strings.Count(buf.String(), "dropped"))

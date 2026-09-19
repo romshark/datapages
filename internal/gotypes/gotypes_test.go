@@ -150,3 +150,77 @@ func TestImplementsTextUnmarshaler(t *testing.T) {
 	require.False(t, gotypes.ImplementsTextUnmarshaler(types.Typ[types.String]))
 	require.False(t, gotypes.ImplementsTextUnmarshaler(nil))
 }
+
+// marshalsText returns a named type that implements encoding.TextMarshaler.
+func marshalsText(name string, underlying types.Type) types.Type {
+	pkg := types.NewPackage("example.com/app", "app")
+	obj := types.NewTypeName(0, pkg, name, nil)
+	nt := types.NewNamed(obj, underlying, nil)
+	sig := types.NewSignatureType(
+		types.NewVar(0, pkg, "v", nt), nil, nil, nil,
+		types.NewTuple(
+			types.NewVar(0, nil, "", types.NewSlice(types.Typ[types.Byte])),
+			types.NewVar(0, nil, "", types.Universe.Lookup("error").Type()),
+		),
+		false,
+	)
+	nt.AddMethod(types.NewFunc(0, pkg, "MarshalText", sig))
+	return nt
+}
+
+// TestTextJSONKind tests the JSON kind produced by each signal seed type.
+func TestTextJSONKind(t *testing.T) {
+	t.Parallel()
+	for name, td := range map[string]struct {
+		typ  types.Type
+		want gotypes.JSONKind
+	}{
+		"string":            {types.Typ[types.String], gotypes.JSONString},
+		"named string":      {named("UserID", types.Typ[types.String]), gotypes.JSONString},
+		"int":               {types.Typ[types.Int], gotypes.JSONNumber},
+		"uint64":            {types.Typ[types.Uint64], gotypes.JSONNumber},
+		"float32":           {types.Typ[types.Float32], gotypes.JSONNumber},
+		"bool":              {types.Typ[types.Bool], gotypes.JSONBool},
+		"nil":               {nil, gotypes.JSONString},
+		"marshals itself":   {marshalsText("Slug", types.Typ[types.String]), gotypes.JSONString},
+		"numeric marshaler": {marshalsText("Cents", types.Typ[types.Int64]), gotypes.JSONString},
+		"struct":            {types.NewStruct(nil, nil), gotypes.JSONString},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, td.want, gotypes.TextJSONKind(td.typ))
+		})
+	}
+	require.Equal(t, "string", gotypes.JSONString.String())
+	require.Equal(t, "number", gotypes.JSONNumber.String())
+	require.Equal(t, "boolean", gotypes.JSONBool.String())
+}
+
+// TestAcceptsJSONKind tests which signal field types accept each JSON kind.
+func TestAcceptsJSONKind(t *testing.T) {
+	t.Parallel()
+	str, num, bl := gotypes.JSONString, gotypes.JSONNumber, gotypes.JSONBool
+	for name, td := range map[string]struct {
+		typ  types.Type
+		kind gotypes.JSONKind
+		want bool
+	}{
+		"string takes string": {types.Typ[types.String], str, true},
+		"string takes number": {types.Typ[types.String], num, false},
+		"string takes bool":   {types.Typ[types.String], bl, false},
+		"int takes number":    {types.Typ[types.Int], num, true},
+		"int takes string":    {types.Typ[types.Int], str, false},
+		"float takes number":  {types.Typ[types.Float64], num, true},
+		"bool takes bool":     {types.Typ[types.Bool], bl, true},
+		"bool takes string":   {types.Typ[types.Bool], str, false},
+		"named string":        {named("UserID", types.Typ[types.String]), str, true},
+		"interface takes any": {types.NewInterfaceType(nil, nil).Complete(), num, true},
+		"nil takes any":       {nil, bl, true},
+		"slice takes nothing": {types.NewSlice(types.Typ[types.String]), str, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, td.want, gotypes.AcceptsJSONKind(td.typ, td.kind))
+		})
+	}
+}
