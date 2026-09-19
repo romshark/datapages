@@ -125,6 +125,7 @@ type Server struct {
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
+//   - datapages.WithShutdownTimeout
 //   - datapages.WithAssets
 //   - datapages.WithPrometheus (required)
 func (s *Server) Init(

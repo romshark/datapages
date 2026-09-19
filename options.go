@@ -76,6 +76,11 @@ type ServerConfig struct {
 	// Zero selects httpserve.DefaultBodySizeLimit.
 	BodySizeLimit int64
 
+	// ShutdownTimeout is the grace period used by
+	// [github.com/romshark/datapages/runtime/httpserve.Core.ListenAndServe].
+	// Zero selects httpserve.DefaultShutdownTimeout.
+	ShutdownTimeout time.Duration
+
 	// State sets the per-tab state limit. Nil selects the default.
 	State *StateConfig
 
@@ -367,6 +372,30 @@ func WithBodySizeLimit(bytes int64) ServerOption {
 			return errors.New("WithBodySizeLimit: limit must be greater than zero")
 		}
 		c.BodySizeLimit = bytes
+		return nil
+	}
+}
+
+// WithShutdownTimeout limits how long
+// [github.com/romshark/datapages/runtime/httpserve.Core.ListenAndServe] waits
+// after context cancellation for in-flight requests, open SSE streams,
+// and StreamClose hooks.
+//
+// Optional.
+// Defaults to [github.com/romshark/datapages/runtime/httpserve.DefaultShutdownTimeout].
+//
+// If the timeout expires, ListenAndServe logs the shutdown error and returns.
+// A direct call to
+// [github.com/romshark/datapages/runtime/httpserve.Core.Shutdown] uses the
+// deadline of its context instead.
+func WithShutdownTimeout(d time.Duration) ServerOption {
+	return func(c *ServerConfig) error {
+		if d <= 0 {
+			return errors.New(
+				"WithShutdownTimeout: timeout must be greater than zero",
+			)
+		}
+		c.ShutdownTimeout = d
 		return nil
 	}
 }

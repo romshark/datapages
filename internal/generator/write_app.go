@@ -388,6 +388,7 @@ func (w *Writer) writeAppInit(appPkg string) {
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
+//   - datapages.WithShutdownTimeout
 //   - datapages.WithAssets`)
 	if w.usage.stateRuntime {
 		w.Raw(`

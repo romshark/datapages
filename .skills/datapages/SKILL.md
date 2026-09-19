@@ -1025,6 +1025,9 @@ opts = append(opts, datapages.WithHTTPServer(&http.Server{
 // An http/https URL or a relative one, valid per RFC 3986.
 opts = append(opts, datapages.WithDatastarJS("https://cdn.example.com/datastar.js"))
 
+// Allow in-flight requests, SSE streams, and StreamClose hooks 30s to finish.
+opts = append(opts, datapages.WithShutdownTimeout(30*time.Second))
+
 // Prometheus metrics on a dedicated HTTP server.
 // Requires the datapages.EnablePrometheus type argument at the NewServer call.
 opts = append(opts, datapages.WithPrometheus(datapages.PrometheusConfig{

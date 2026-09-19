@@ -93,6 +93,7 @@ type Server struct {
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
+//   - datapages.WithShutdownTimeout
 //   - datapages.WithAssets
 func (s *Server) Init(
 	cfg datapages.ServerConfig,

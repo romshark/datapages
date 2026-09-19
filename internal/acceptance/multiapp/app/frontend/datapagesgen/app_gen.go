@@ -120,6 +120,7 @@ type Server struct {
 //   - datapages.WithMiddleware
 //   - datapages.WithHTTPServer
 //   - datapages.WithDatastarJS
+//   - datapages.WithShutdownTimeout
 //   - datapages.WithAssets
 //   - datapages.WithSessionManager (required)
 //   - datapages.WithSessions
