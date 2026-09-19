@@ -144,6 +144,7 @@ type SessionsConfig struct {
 // Only what an application has reason to change is here. The rest is fixed:
 // the path is always "/" and SameSite is always Lax.
 // Secure is set unless [SessionsConfig.DisableSecureCookie] clears it.
+// Max-Age and Expires come from [NewSession.ExpiresAt].
 type AuthCookieConfig struct {
 	// Name is what the browser sends the token back under.
 	//

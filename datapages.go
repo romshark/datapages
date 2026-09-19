@@ -287,8 +287,13 @@ type NewSession[Data any] struct {
 	// UserID identifies the authenticated user.
 	UserID string
 
-	// ExpiresAt is the time the session becomes invalid at.
+	// ExpiresAt is the time the session becomes invalid at. It's also the
+	// Max-Age and Expires of the session cookie, which keeps the client signed
+	// in across browser restarts.
+	//
 	// Leave it zero to let the session live until it's closed explicitly.
+	// The cookie then lasts until the browser closes, while the record stays
+	// in the store until the application removes it.
 	ExpiresAt time.Time
 
 	// Data is the application-defined payload of the session.
