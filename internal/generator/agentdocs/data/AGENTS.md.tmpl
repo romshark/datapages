@@ -13,7 +13,7 @@ You write Go handlers and Templ templates. `datapages gen` writes the server.
 | `{{.GenDir}}/` | generated. Never edit. |
 {{- end}}
 {{- range .Cmds}}
-| `{{.}}/` | server entry point. Generated once, then yours. |
+| `{{.}}` | server entry point. Generated once, then yours. |
 {{- end}}
 | `datapages.yaml` | CLI and dev server settings. |
 

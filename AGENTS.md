@@ -16,7 +16,7 @@
 - Build CLI and examples: `mage build`
 - Generate templ files: `mage genTempl`
 - Generate datapages code: `mage genDatapages`
-- Generate the AI agent instructions of `example/classifieds`: `mage genAISkills`
+- Generate the AI agent instructions of every example: `mage genAISkills`
 - Generate all (templ + datapages + AI skills + docs): `mage gen`
 - Check that all generated code is current: `mage checkGen`
 - Run go fix on all modules: `mage goFix`
@@ -155,10 +155,11 @@ Generated output is committed, and tests fail when it goes stale.
 - `*/datapagesgen/**` in examples and acceptance cases: written by the CLI from
   the app package. `mage genDatapages` builds `cmd/datapages` from source and
   runs `datapages gen` in every example and acceptance module.
-- `example/{classifieds,counter}/{AGENTS.md,CLAUDE.md,.agents/skills/**,.claude/skills/**}`:
-  written by `datapages init` from `internal/generator/agentdocs/data`.
-  `mage genAISkills` runs it in both initialized examples to catch drift and
-  the multi-app command layout.
+- In every `example/*` module: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`,
+  `.github/copilot-instructions.md`, `.cursor/rules/datapages.mdc` and
+  everything under `.agents/skills/` and `.claude/skills/`. Written by
+  `datapages init` from `internal/generator/agentdocs/data`.
+  `mage genAISkills` runs it in every example to catch drift.
 - `docs/index.html`: written by `internal/tools/render-pages` from
   `internal/docs-src/`. `mage genDocs`.
 - `mage gen` runs all four.

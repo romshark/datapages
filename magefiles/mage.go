@@ -436,14 +436,11 @@ func GenDatapages() error {
 // acceptanceRoot holds the acceptance cases, one module each.
 const acceptanceRoot = "internal/acceptance"
 
-// aiSkillsExamples cover the default and multi-app entry point layouts.
-var aiSkillsExamples = []string{"example/classifieds", "example/counter"}
-
-// GenAISkills runs "datapages init" on the example that carries the AI coding
-// agent instructions, which writes AGENTS.md and the task skills.
+// GenAISkills runs "datapages init" in every example module, which writes
+// AGENTS.md and the task skills AI coding agents read.
 //
-// The run is expected to change nothing: the example is initialized already,
-// so init writes the instructions and reports the project as initialized.
+// The run is expected to change nothing: the examples are initialized already,
+// so init writes the instructions and reports each project as initialized.
 // [CheckGen] fails on any file it does change.
 func GenAISkills() error {
 	tmp, err := os.MkdirTemp("", "datapages-init-*")
@@ -458,13 +455,10 @@ func GenAISkills() error {
 	if err := run("go", "build", "-o", bin, "./cmd/datapages"); err != nil {
 		return err
 	}
-	for _, dir := range aiSkillsExamples {
+	return forEachModule("example", func(dir string) error {
 		fmt.Println("==> datapages init in", dir)
-		if err := runIn(dir, bin, "init", "-n"); err != nil {
-			return err
-		}
-	}
-	return nil
+		return runIn(dir, bin, "init", "-n")
+	})
 }
 
 // skipGeneration reports whether a module keeps no generated code.

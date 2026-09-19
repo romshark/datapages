@@ -475,8 +475,10 @@ func writeAgentDocs(projectDir string, w io.Writer, version string) error {
 	var cmds []string
 	for i, a := range scan.Apps {
 		apps[i] = agentdocs.App{Dir: a.Dir, GenDir: a.GenDir}
-		if cmd, ok := a.Cmd(); ok {
-			cmds = append(cmds, cmd)
+		for _, c := range a.Calls {
+			if c.Main {
+				cmds = append(cmds, c.Dir)
+			}
 		}
 	}
 	res, err := agentdocs.Write(projectDir, agentdocs.Project{

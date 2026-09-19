@@ -80,7 +80,7 @@ jobs:
 
       # Runs every generator and fails if a file changes: templ everywhere,
       # the datapages code of every example and acceptance case, the AI agent
-      # instructions of example/classifieds, docs/style.css.
+      # instructions of every example, docs/style.css.
       # Needs a clean tree, hence it runs before the tests write coverage.out.
       - name: Check generated code is current
         if: matrix.project.name == 'root' && matrix.deps == 'locked'

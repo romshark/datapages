@@ -191,6 +191,13 @@ func renderAGENTS(p Project) (string, error) {
 	}
 	slices.Sort(cmds)
 	cmds = slices.Compact(cmds)
+	for i, cmd := range cmds {
+		if cmd == "." {
+			cmds[i] = "./"
+			continue
+		}
+		cmds[i] = cmd + "/"
+	}
 	var buf bytes.Buffer
 	err := agentsTmpl.Execute(&buf, struct {
 		SkillsDir, SpecURL string

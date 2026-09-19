@@ -279,3 +279,15 @@ func TestWriteKeepsCustomSkills(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, stale)
 }
+
+// TestWriteRootCommand tests the path of an entry point in the module root.
+func TestWriteRootCommand(t *testing.T) {
+	dir := t.TempDir()
+	p := project
+	p.Cmds = []string{".", "cmd/server"}
+	_, err := agentdocs.Write(dir, p, 0o644)
+	require.NoError(t, err)
+	agents := read(t, dir, "AGENTS.md")
+	require.Contains(t, agents, "| `./` |")
+	require.Contains(t, agents, "| `cmd/server/` |")
+}
