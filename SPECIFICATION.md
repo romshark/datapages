@@ -25,7 +25,7 @@ Parameters are identified by type; names and order are unrestricted.
 
 A panic in `GET`, an action, `StreamOpen`, or `OnXXX` follows the handler error path. When `RecoverError` handles it, the error is a `datapages.PanicError` containing the value and stack. The stack is logged.
 
-A panic during page writing is logged; the response retains its status and truncated body. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
+A panic during page writing is logged. A plain page load retains its status and truncated body. On a Datastar request, a defined `RecoverError` appends any SSE frames it writes to the truncated body. A panicking stream is closed. `StreamClose` runs on the request goroutine after the last event handler of the stream. Its panics are recovered and logged.
 
 Graceful shutdown waits for in-flight requests, open SSE streams, and `StreamClose` hooks. `ListenAndServe` waits at most `httpserve.DefaultShutdownTimeout` (10s) by default. `datapages.WithShutdownTimeout` changes this limit. If the limit expires, the server logs the shutdown error and returns. A direct call to `Shutdown` uses the deadline of its context.
 
@@ -717,7 +717,11 @@ Refresh uses the [`visibilitychange`](https://developer.mozilla.org/en-US/docs/W
 
 ## Dev Mode
 
-Dev mode is enabled when `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` is nonempty. `datapages watch` uses templier, which sets `TEMPL_DEV_MODE`. `DATAPAGES_DEV_MODE` also sets `TEMPL_DEV_MODE` for the process.
+Datapages dev mode is enabled when `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` is nonempty.
+
+templ reads only `TEMPL_DEV_MODE`, during package initialization. Set it before starting the process to enable templ hot reload and Datapages dev mode. `DATAPAGES_DEV_MODE` enables only Datapages dev mode.
+
+`datapages watch` uses templier, which sets `TEMPL_DEV_MODE` before it starts the application.
 
 Dev mode reads static assets from the source tree and sets `Cache-Control: no-store` on asset responses, ignoring `datapages.WithAssetsCache`. The server logs a startup warning. A production process inheriting either variable may lack the source directory.
 
@@ -728,8 +732,6 @@ Files passed to `datapages.WithAssets` come from `embed.FS`, which reports a zer
 `datapages.WithAssetsCache` adds `Cache-Control` and an `ETag` computed from the file contents. A matching `If-None-Match` request receives 304 with no body. `Disabled` suppresses both headers; `DisableETag` suppresses the `ETag`.
 
 Generated asset URLs do not contain a content hash. With a positive `MaxAge`, browsers may reuse stale content until it expires unless the file name changes with the file contents.
-
-`datapages.IsDevMode` reports the mode.
 
 ## Linting
 

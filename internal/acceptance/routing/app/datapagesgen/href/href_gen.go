@@ -84,7 +84,7 @@ func PageConflict(
 	return b.String()
 }
 
-// PageFiles references /files/{rest...}/{$}
+// PageFiles references /files/{rest...}
 func PageFiles(rest string) string {
 	s_rest := url.PathEscape(rest)
 	var b strings.Builder
@@ -99,7 +99,7 @@ func PageFiles(rest string) string {
 	return b.String()
 }
 
-// PageFilesEmbedded references /files-embedded/{rest...}/{$}
+// PageFilesEmbedded references /files-embedded/{rest...}
 func PageFilesEmbedded(rest string) string {
 	s_rest := url.PathEscape(rest)
 	var b strings.Builder

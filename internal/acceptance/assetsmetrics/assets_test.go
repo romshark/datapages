@@ -203,9 +203,8 @@ func TestAssetsEscapeTheirDirectory(t *testing.T) {
 	}
 }
 
-// TestDatapagesDevModeServesFromDisk tests the variable datapages owns.
-// It turns dev mode on the same way and hands templ the mode as well,
-// which reads its own variable and nothing else.
+// TestDatapagesDevModeServesFromDisk tests that DATAPAGES_DEV_MODE makes
+// WithAssets read from disk without setting TEMPL_DEV_MODE.
 //
 // TestDatapagesDevModeServesFromDisk must not use t.Parallel() because
 // [testing.T.Setenv] forbids it.
@@ -226,8 +225,8 @@ func TestDatapagesDevModeServesFromDisk(t *testing.T) {
 	))
 	t.Cleanup(srv.Close)
 
-	require.NotEmpty(t, os.Getenv("TEMPL_DEV_MODE"),
-		"templ was left out of the dev mode datapages was told about")
+	require.Empty(t, os.Getenv("TEMPL_DEV_MODE"),
+		"NewServer changed TEMPL_DEV_MODE after templ package initialization")
 
 	resp := get(t, srv, href.Asset("style.css"))
 	defer func() { _ = resp.Body.Close() }()

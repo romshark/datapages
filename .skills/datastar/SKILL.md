@@ -740,7 +740,7 @@ The web should be accessible to everyone. Datastar stays out of your way and lea
 
 ### Attributes
 
-Data attributes are [evaluated in the order](#attribute-evaluation-order) they appear in the DOM, have special [casing](#attribute-casing) rules, can be [aliased](#aliasing-attributes) to avoid conflicts with other libraries, can contain [Datastar expressions](#datastar-expressions), and have [runtime error handling](#error-handling).
+Data attributes are [evaluated in the order](#attribute-evaluation-order) they appear in the DOM, have special [casing](#attribute-casing) rules, can be [aliased](https://data-star.dev/guide/datastar_expressions#aliasing-attributes) to avoid conflicts with other libraries, can contain [Datastar expressions](#datastar-expressions), and have [runtime error handling](#error-handling).
 
 > The Datastar [VSCode extension](https://marketplace.visualstudio.com/items?itemName=starfederation.datastar-vscode) and [IntelliJ plugin](https://plugins.jetbrains.com/plugin/26072-datastar-support) provide autocompletion for all available `data-*` attributes.
 
@@ -1539,11 +1539,11 @@ Sends a `GET` request to the backend using the [Fetch API](https://developer.moz
 <button data-on:click="@get('/endpoint')"></button>
 ```
 
-By default, requests are sent with a `Datastar-Request: true` header, and a `{datastar: *}` object containing all existing signals, except those beginning with an underscore. This behavior can be changed using the [`filterSignals`](#filterSignals) option, which allows you to include or exclude specific signals using regular expressions.
+By default, requests are sent with a `Datastar-Request: true` header, and a `{datastar: *}` object containing all existing signals, except those beginning with an underscore. This behavior can be changed using the [`filterSignals`](https://data-star.dev/reference/actions#filterSignals) option, which allows you to include or exclude specific signals using regular expressions.
 
 > When using a `get` request, the signals are sent as a query parameter, otherwise they are sent as a JSON body.
 
-When a page is hidden (in a background tab, for example), the default behavior for `get` requests is for the SSE connection to be closed, and reopened when the page becomes visible again. To keep the connection open when the page is hidden, set the [`openWhenHidden`](#openWhenHidden) option to `true`.
+When a page is hidden (in a background tab, for example), the default behavior for `get` requests is for the SSE connection to be closed, and reopened when the page becomes visible again. To keep the connection open when the page is hidden, set the [`openWhenHidden`](https://data-star.dev/reference/actions#openWhenHidden) option to `true`.
 
 ```
 <button data-on:click="@get('/endpoint', {openWhenHidden: true})"></button>
@@ -1643,7 +1643,7 @@ For example, if a user rapidly clicks a button that triggers a backend action, o
 
 This automatic cancellation happens at the element level, meaning requests on different elements can run concurrently without interfering with each other.
 
-You can control this behavior using the [`requestCancellation`](#requestCancellation) option:
+You can control this behavior using the [`requestCancellation`](https://data-star.dev/reference/actions#requestCancellation) option:
 
 ```
 <!-- Allow concurrent requests (no automatic cancellation) -->

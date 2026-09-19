@@ -30,14 +30,6 @@ func IsDevMode() bool {
 	return os.Getenv(EnvVarDevMode) != "" || os.Getenv(templEnvVarDevMode) != ""
 }
 
-// syncDevMode gives templ the dev mode datapages was told about,
-// since templ reads its own variable and nothing else.
-func syncDevMode() {
-	if os.Getenv(EnvVarDevMode) != "" && os.Getenv(templEnvVarDevMode) == "" {
-		_ = os.Setenv(templEnvVarDevMode, "true")
-	}
-}
-
 // DisableSessions disables session-based authentication code generation and
 // hence makes [NewServer] reject [WithSessionManager]. To enable it, use either
 // a custom struct type, or an empty struct{} for sessions without data payloads.
@@ -121,7 +113,6 @@ func NewServer[App, SessionData any, Metrics MetricsMode, S any, PS interface {
 	if broker == nil {
 		return nil, errors.New("nil message broker")
 	}
-	syncDevMode()
 	var cfg ServerConfig
 	for i, opt := range opts {
 		if opt == nil {

@@ -162,13 +162,12 @@ func (w *Writer) writeHrefAsset() {
 	w.Line(0, "}")
 }
 
-// writeRouteComment writes a doc comment line like "// FuncName references /route/{$}\n".
-// It ensures the route ends with {$} for exact matching display.
+// writeRouteComment writes the ServeMux pattern that the generated server uses.
 func (w *Writer) writeRouteComment(funcName, route string) {
 	w.Raw("// ")
 	w.Raw(funcName)
 	w.Raw(" references ")
-	if strings.HasSuffix(route, "{$}") {
+	if strings.HasSuffix(route, "{$}") || routepattern.EndsInWildcard(route) {
 		w.Raw(route)
 	} else if route == "/" {
 		w.Raw("/{$}")

@@ -690,7 +690,8 @@ func TestLintGoModVersion(t *testing.T) {
 			goModVersion: "v0.8.0",
 			runVersion:   "0.7.0",
 			wantCode:     1,
-			wantStderr:   "go install github.com/romshark/datapages@v0.8.0",
+			wantStderr: "go install " +
+				"github.com/romshark/datapages/cmd/datapages@v0.8.0",
 		},
 		"dev build skips check": {
 			goModVersion: "v0.8.0",
@@ -748,7 +749,8 @@ func TestGenGoModUpgrade(t *testing.T) {
 			runVersion:   "0.7.0",
 			wantVersion:  "v0.8.0",
 			wantCode:     1,
-			wantStderr:   "go install github.com/romshark/datapages@v0.8.0",
+			wantStderr: "go install " +
+				"github.com/romshark/datapages/cmd/datapages@v0.8.0",
 		},
 		"dev build skips upgrade": {
 			goModVersion: "v0.7.0",
@@ -775,7 +777,8 @@ func TestGenGoModUpgrade(t *testing.T) {
 			runVersion:   "v0.7.0",
 			wantVersion:  "v0.8.0",
 			wantCode:     1,
-			wantStderr:   "go install github.com/romshark/datapages@v0.8.0",
+			wantStderr: "go install " +
+				"github.com/romshark/datapages/cmd/datapages@v0.8.0",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

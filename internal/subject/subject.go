@@ -20,7 +20,7 @@ const (
 	Reserved = subject.Reserved
 )
 
-// IsToken reports whether v may be filled into a subject.
+// IsToken reports whether v is a nonempty subject token.
 func IsToken(v string) bool { return subject.IsToken(v) }
 
 // Prefix returns the subject prefix an event with subject fields publishes

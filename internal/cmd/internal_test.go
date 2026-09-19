@@ -339,7 +339,7 @@ require (
 			goModVersion: "v0.9.0",
 			runVersion:   "0.8.0",
 			wantVersion:  "v0.9.0",
-			wantErr:      "go install github.com/romshark/datapages@v0.9.0",
+			wantErr:      "go install " + datapagesCommandPath + "@v0.9.0",
 		},
 		"no-op for dev build": {
 			goModVersion: "v0.7.1",

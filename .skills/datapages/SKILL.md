@@ -132,7 +132,8 @@ package app
 
 import (
 	"net/http"
-	"github.com/a-h/templ"
+
+	"github.com/romshark/datapages"
 )
 
 type App struct{}
@@ -878,16 +879,21 @@ to distinguish sentinels.
 document during a page load. Define `PageError500` for a custom error page;
 otherwise the server writes a plain HTTP error if the response has not started.
 
-A panic in a handler reaches `RecoverError` as a `datapages.PanicError`
-carrying the value and the stack. Read it with
-`errors.As(err, &datapages.PanicError{})`. The stack is logged whatever the hook does,
-and the request ends there: a panic is a bug to fix, not a control flow to build on.
+On a Datastar request, a panic in `GET`, an action, `StreamOpen`, or `OnXXX`
+reaches `RecoverError` as a `datapages.PanicError` carrying the value and stack.
+Extract it into a variable to read those fields. Datapages logs the stack before
+`RecoverError` runs. `StreamClose` runs after the response path; its panics are
+logged instead.
 
 ```go
 func (*App) RecoverError(
 	err error,
 	sse datapages.SSE,
 ) error {
+	var panicErr datapages.PanicError
+	if errors.As(err, &panicErr) {
+		return sse.PatchElement(panicToast(panicErr.Value))
+	}
 	return sse.PatchElement(errorToast(err))
 }
 ```
