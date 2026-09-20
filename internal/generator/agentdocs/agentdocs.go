@@ -153,11 +153,11 @@ func stampOf(body []byte) string {
 		return ""
 	}
 	rest := body[i+len(stampPrefix):]
-	end := bytes.Index(rest, []byte(" -->"))
-	if end < 0 {
+	before, _, ok := bytes.Cut(rest, []byte(" -->"))
+	if !ok {
 		return ""
 	}
-	return string(rest[:end])
+	return string(before)
 }
 
 var agentsTmpl = template.Must(template.ParseFS(data, "data/AGENTS.md.tmpl"))

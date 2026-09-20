@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -112,7 +113,6 @@ type Repository struct {
 	lock           sync.RWMutex
 	chatsByKey     map[chatKey]*chat
 	chatsByID      map[string]*chat
-	chatsByPostID  map[string]*chat
 	postsByID      map[string]*post
 	postsBySlug    map[string]*post
 	usersByName    map[string]*user
@@ -128,7 +128,6 @@ func NewRepository(
 
 		chatsByKey:     map[chatKey]*chat{},
 		chatsByID:      map[string]*chat{},
-		chatsByPostID:  map[string]*chat{},
 		postsByID:      map[string]*post{},
 		postsBySlug:    map[string]*post{},
 		usersByName:    map[string]*user{},
@@ -254,7 +253,6 @@ func (r *Repository) NewChat(
 	}
 	r.chatsByKey[key] = c
 	r.chatsByID[c.ID] = c
-	r.chatsByPostID[post.ID] = c
 
 	return c.ID, nil
 }
@@ -300,6 +298,41 @@ func (r *Repository) NewUser(
 	r.usersByName[u.Name] = &u
 
 	return u.Name, nil
+}
+
+// RenameUser changes the name of the user named oldName.
+//
+// The name is the user's identity: it keys usersByName and it is the sender of
+// chatsByKey, both of which are rewritten here.
+// Everything else holds the user by pointer.
+func (r *Repository) RenameUser(_ context.Context, oldName, newName string) error {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	u, ok := r.usersByName[oldName]
+	if !ok {
+		return ErrUserNotFound
+	}
+	if newName == oldName {
+		return nil
+	}
+	if _, ok := r.usersByName[newName]; ok {
+		return ErrUserNameReserved
+	}
+
+	delete(r.usersByName, oldName)
+	u.Name = newName
+	r.usersByName[newName] = u
+
+	for key, c := range r.chatsByKey {
+		if key.SenderUserName != oldName {
+			continue
+		}
+		delete(r.chatsByKey, key)
+		key.SenderUserName = newName
+		r.chatsByKey[key] = c
+	}
+	return nil
 }
 
 func (r *Repository) NewMessage(
@@ -473,18 +506,12 @@ func (r *Repository) ChatByPostID(
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	c, ok := r.chatsByPostID[postID]
+	// A post carries one chat per sender. Keyed by post alone,
+	// the second buyer's chat would hide the first buyer's.
+	c, ok := r.chatsByKey[chatKey{PostID: postID, SenderUserName: userName}]
 	if !ok {
 		return Chat{}, ErrChatNotFound
 	}
-
-	if userName == c.Post.Merchant.Name {
-		return Chat{}, ErrChatNotFound
-	}
-	if userName != c.Sender.Name {
-		return Chat{}, ErrChatNotFound
-	}
-
 	return convertChat(c, userName), nil
 }
 
@@ -516,42 +543,21 @@ func (r *Repository) Chats(_ context.Context, userName string) ([]Chat, error) {
 		})
 	}
 
+	// Unread first, most recent first within each group. The comparator must
+	// order every pair: one that reports 0 for a < b leaves slices.SortFunc
+	// free to place them either way, which discards the order above.
 	slices.SortFunc(tmp, func(a, b chatWithTime) int {
-		switch {
-		case a.last.After(b.last):
-			return -1
-		case a.last.Before(b.last):
-			return 1
+		ua, ub := unreadCount(a.c, userName), unreadCount(b.c, userName)
+		if ua != ub {
+			return cmp.Compare(ub, ua)
 		}
-		return 0
+		return b.last.Compare(a.last)
 	})
 
 	chats := make([]Chat, len(tmp))
 	for i, t := range tmp {
-		unread := 0
-		msgs := make([]Message, len(t.c.Messages))
-		for i, m := range t.c.Messages {
-			msgs[i].ID = m.ID
-			msgs[i].Text = m.Text
-			msgs[i].SenderUserName = m.Sender.Name
-			msgs[i].TimeSent = m.TimeSent
-			msgs[i].TimeRead = m.TimeRead
-			if msgs[i].SenderUserName != userName && msgs[i].TimeRead.IsZero() {
-				unread++
-			}
-		}
-
 		chats[i] = convertChat(t.c, userName)
 	}
-
-	slices.SortFunc(chats, func(a, b Chat) int {
-		switch {
-		case a.UnreadMessages > b.UnreadMessages:
-			return -1
-		}
-		return 0
-	})
-
 	return chats, nil
 }
 
@@ -800,6 +806,17 @@ func convertPost(p *post) Post {
 		TimePosted:       p.TimePosted,
 		Location:         p.Location,
 	}
+}
+
+// unreadCount counts the messages of c that userName has not read.
+func unreadCount(c *chat, userName string) int {
+	n := 0
+	for _, m := range c.Messages {
+		if m.Sender.Name != userName && m.TimeRead.IsZero() {
+			n++
+		}
+	}
+	return n
 }
 
 func convertChat(c *chat, userName string) Chat {

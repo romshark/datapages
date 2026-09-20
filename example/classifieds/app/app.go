@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -73,10 +74,22 @@ func (*App) POSTCause500(r *http.Request) error {
 	return fmt.Errorf("this is an intentional 500 internal error")
 }
 
+// errForbidden marks an authorization failure. Without a sentinel every one of
+// them is a 500 and a "error on our side" toast.
+func errForbidden(err error) error {
+	return fmt.Errorf("%w: %w", datapages.ErrForbidden, err)
+}
+
 func (*App) RecoverError(
 	err error,
 	sse datapages.SSE,
 ) error {
+	if errors.Is(err, datapages.ErrForbidden) {
+		return sse.PatchElementAt(toastForbidden(), "#toaster", datapages.PatchModeAppend)
+	}
+	if errors.Is(err, domain.ErrUserNameReserved) {
+		return sse.PatchElementAt(toastNameTaken(), "#toaster", datapages.PatchModeAppend)
+	}
 	return sse.PatchElementAt(toastError500(), "#toaster", datapages.PatchModeAppend)
 	// Or use script execution:
 	//
@@ -153,13 +166,8 @@ func (b Base) OnMessagingSent(
 	if err := sse.PatchElement(fragmentMessagesLink(unreadChats)); err != nil {
 		return err
 	}
-	if err := sse.PatchSignals(struct {
-		MessageText string `json:"messagetext"`
-	}{
-		MessageText: "",
-	}); err != nil {
-		return err
-	}
+	// The draft belongs to the tab that is typing it. The sender's own action
+	// clears it there; clearing it here would wipe the recipient's.
 	if session.UserID() != event.UserID {
 		return sse.ExecuteScript(fmt.Sprintf(`
 			(() => {

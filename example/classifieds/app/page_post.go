@@ -28,7 +28,7 @@ func (p PagePost) GET(
 	err error,
 ) {
 	if strings.TrimSpace(path.Values.Slug) == "" {
-		err = domain.ErrUnauthorized
+		err = errForbidden(domain.ErrUnauthorized)
 		return
 	}
 
@@ -38,6 +38,7 @@ func (p PagePost) GET(
 			// Redirect to 404 page.
 			return nil, head, datapages.Redirect{URL: href.PageError404()}, nil
 		}
+		return nil, head, redirect, err
 	}
 
 	similarPosts, err := p.App.repo.SimilarPosts(r.Context(), post.ID, 4)
@@ -78,16 +79,23 @@ func (p PagePost) POSTSendMessage(
 		MessageText string `json:"messagetext"`
 	}],
 	messagingSent datapages.Dispatcher[EventMessagingSent],
-) error {
+) (err error) {
 	if session.IsGuest() {
-		return domain.ErrUnauthorized
+		return errForbidden(domain.ErrUnauthorized)
 	}
 
 	if strings.TrimSpace(path.Values.Slug) == "" {
-		return domain.ErrUnauthorized
+		return errForbidden(domain.ErrUnauthorized)
 	}
 
 	_ = sse.PatchElement(fragmentMessageFormSending())
+	defer func() {
+		if err != nil {
+			// RecoverError only appends a toast, which would leave the form
+			// at "Sending..." with nothing to send it again.
+			_ = sse.PatchElement(fragmentMessageForm(path.Values.Slug))
+		}
+	}()
 
 	post, err := p.App.repo.PostBySlug(sse.Context(), path.Values.Slug)
 	if err != nil {
@@ -95,7 +103,7 @@ func (p PagePost) POSTSendMessage(
 	}
 
 	if session.UserID() == post.MerchantUserName {
-		return domain.ErrUnauthorized
+		return errForbidden(domain.ErrUnauthorized)
 	}
 
 	chatID, err := p.App.repo.NewChat(
@@ -115,13 +123,10 @@ func (p PagePost) POSTSendMessage(
 		}
 	}
 
+	if err := sse.PatchSignals(struct {
+		MessageText string `json:"messagetext"`
+	}{MessageText: ""}); err != nil {
+		return err
+	}
 	return sse.PatchElement(fragmentMessageFormLinkToChat(chatID))
-}
-
-func (p PagePost) OnPostArchived(
-	event EventPostArchived,
-	sse datapages.SSE,
-	session Session,
-) error {
-	return sse.ExecuteScript("location.replace(location.href);")
 }

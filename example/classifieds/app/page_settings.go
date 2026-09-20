@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"maps"
 	"net/http"
+	"strings"
 
 	"github.com/a-h/templ"
 
@@ -54,19 +57,43 @@ func (p PageSettings) GET(
 }
 
 // POSTSave is /settings/save/{$}
+//
+// The user name is the session's user ID, hence the rename issues a new session.
+// newSession rules out an sse parameter, so the page comes back
+// through the redirect rather than a patch.
 func (p PageSettings) POSTSave(
 	r *http.Request,
-	sse datapages.SSE,
 	session Session,
 	signals datapages.Signals[struct {
 		Username string `json:"username"`
 	}],
-) (redirect datapages.Redirect, err error) {
+) (
+	newSession datapages.NewSession[struct{}],
+	redirect datapages.Redirect,
+	err error,
+) {
 	if session.IsGuest() {
-		return datapages.Redirect{URL: href.PageLogin()}, nil
+		return newSession, datapages.Redirect{URL: href.PageLogin()}, nil
 	}
-	// TODO
-	return redirect, nil
+
+	name := strings.TrimSpace(signals.Values.Username)
+	if name == session.UserID() {
+		return newSession, redirect, nil
+	}
+	if err := datapages.ValidateUserID(name); err != nil {
+		return newSession, redirect, fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
+	}
+	if err := p.App.repo.RenameUser(r.Context(), session.UserID(), name); err != nil {
+		if errors.Is(err, domain.ErrUserNameReserved) {
+			// A name someone else holds is the visitor's mistake, not a fault.
+			return newSession, redirect,
+				fmt.Errorf("%w: %w", datapages.ErrBadRequest, err)
+		}
+		return newSession, redirect, err
+	}
+
+	return datapages.NewSession[struct{}]{UserID: name},
+		datapages.Redirect{URL: href.PageSettings()}, nil
 }
 
 // POSTCloseSession is /settings/close-session/{token}/{$}
@@ -83,14 +110,14 @@ func (p PageSettings) POSTCloseSession(
 	err error,
 ) {
 	if session.IsGuest() {
-		return false, redirect, domain.ErrUnauthorized
+		return false, redirect, errForbidden(domain.ErrUnauthorized)
 	}
 	sess, err := p.App.sessions.Session(r.Context(), path.Values.Token)
 	if err != nil {
 		return false, redirect, err
 	}
 	if sess.UserID != session.UserID() {
-		return false, redirect, domain.ErrUnauthorized
+		return false, redirect, errForbidden(domain.ErrUnauthorized)
 	}
 	// Even though closeSession=true would close the sessions, let's close it
 	// explicitly before we sessionClosed the event to make sure it's closed before
@@ -117,7 +144,7 @@ func (p PageSettings) POSTCloseAllSessions(
 	sessionClosed datapages.Dispatcher[EventSessionClosed],
 ) (redirect datapages.Redirect, err error) {
 	if session.IsGuest() {
-		return redirect, domain.ErrUnauthorized
+		return redirect, errForbidden(domain.ErrUnauthorized)
 	}
 	closed, err := p.App.sessions.CloseAllUserSessions(r.Context(), nil, session.UserID())
 	if err != nil {

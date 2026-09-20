@@ -37,10 +37,9 @@ templ fragmentNavbar(session Session, searchTerm string, baseData baseData) {
 			data-on:keydown="if (evt.key === 'Enter') $searchanchor.click()"
 			placeholder="What are you looking for?"
 		/>
-		//datapages:nolint
 		<a
 			data-ref:searchanchor
-			data-attr:href="'/search?t=' + $searchinput"
+			data-attr:href={ searchHrefExpr() }
 		>
 			@iconSearch()
 			Search
@@ -82,6 +81,54 @@ templ toastError500() {
 				The error was reported,
 				<br/>
 				please try again later.
+			</section>
+			<footer>
+				<button type="button" class="btn" data-toast-action>Dismiss</button>
+			</footer>
+		</div>
+	</div>
+}
+
+// searchHrefExpr builds the address the search anchor points at from the
+// search input signal. encodeURIComponent keeps "&", "#" and "+" in the term
+// from splitting or truncating the query.
+func searchHrefExpr() string {
+	return "'" + href.PageSearch(href.QueryPageSearch{}) +
+		"?t=' + encodeURIComponent($searchinput)"
+}
+
+templ toastForbidden() {
+	<div
+		class="toast"
+		role="status"
+		aria-atomic="true"
+		aria-hidden="false"
+		data-category="error"
+	>
+		<div class="toast-content">
+			@iconError()
+			<section>
+				You are not allowed to do that.
+			</section>
+			<footer>
+				<button type="button" class="btn" data-toast-action>Dismiss</button>
+			</footer>
+		</div>
+	</div>
+}
+
+templ toastNameTaken() {
+	<div
+		class="toast"
+		role="status"
+		aria-atomic="true"
+		aria-hidden="false"
+		data-category="error"
+	>
+		<div class="toast-content">
+			@iconError()
+			<section>
+				That user name is taken.
 			</section>
 			<footer>
 				<button type="button" class="btn" data-toast-action>Dismiss</button>
