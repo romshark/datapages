@@ -32,6 +32,7 @@ func (p PageUser) GET(
 			// Redirect to 404 page.
 			return nil, head, datapages.Redirect{URL: href.PageError404()}, nil
 		}
+		return nil, head, redirect, err
 	}
 
 	postsOfUser, err := p.App.repo.SearchPosts(
@@ -51,12 +52,4 @@ func (p PageUser) GET(
 	body = pageUser(session, baseData, user, postsOfUser)
 	head = headUser(user)
 	return body, head, redirect, nil
-}
-
-func (p PageUser) OnPostArchived(
-	event EventPostArchived,
-	sse datapages.SSE,
-	session Session,
-) error {
-	return sse.ExecuteScript("location.replace(location.href);")
 }

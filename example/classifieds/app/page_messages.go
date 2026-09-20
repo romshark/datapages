@@ -16,6 +16,24 @@ type PageMessages struct {
 	Base
 }
 
+// StateMessages is the chat the tab has open. The chatselected signal seeds it
+// and only a navigation changes it, hence an event about another chat must not
+// decide what the page re-renders with.
+type StateMessages struct {
+	OpenChatID string
+}
+
+func (p PageMessages) StreamOpen(
+	r *http.Request,
+	state datapages.State[StateMessages],
+	signals datapages.Signals[struct {
+		ChatSelected string `json:"chatselected"`
+	}],
+) error {
+	state.Values.OpenChatID = signals.Values.ChatSelected
+	return nil
+}
+
 func (p PageMessages) GET(
 	r *http.Request,
 	session Session,
@@ -133,11 +151,11 @@ func (p PageMessages) POSTRead(
 
 	if session.UserID() != chat.SenderUserName &&
 		session.UserID() != post.MerchantUserName {
-		return domain.ErrUnauthorized
+		return errForbidden(domain.ErrUnauthorized)
 	}
 
 	if message.SenderUserName == session.UserID() {
-		return domain.ErrUnauthorized
+		return errForbidden(domain.ErrUnauthorized)
 	}
 
 	err = p.App.repo.MarkMessageRead(r.Context(), session.UserID(), chat.ID, message.ID)
@@ -174,7 +192,7 @@ func (p PageMessages) POSTWriting(
 
 	if session.UserID() != chat.SenderUserName &&
 		session.UserID() != post.MerchantUserName {
-		return domain.ErrUnauthorized
+		return errForbidden(domain.ErrUnauthorized)
 	}
 
 	for _, recipient := range []string{chat.SenderUserName, post.MerchantUserName} {
@@ -206,7 +224,7 @@ func (p PageMessages) POSTWritingStopped(
 
 	if session.UserID() != chat.SenderUserName &&
 		session.UserID() != post.MerchantUserName {
-		return domain.ErrUnauthorized
+		return errForbidden(domain.ErrUnauthorized)
 	}
 
 	for _, recipient := range []string{chat.SenderUserName, post.MerchantUserName} {
@@ -225,6 +243,7 @@ func (p PageMessages) POSTWritingStopped(
 // POSTSendMessage is /messages/sendmessage/{$}
 func (p PageMessages) POSTSendMessage(
 	r *http.Request,
+	sse datapages.SSE,
 	session Session,
 	signals datapages.Signals[struct {
 		ChatSelected string `json:"chatselected"`
@@ -249,7 +268,7 @@ func (p PageMessages) POSTSendMessage(
 		}
 
 		if session.UserID() != chat.SenderUserName && session.UserID() != post.MerchantUserName {
-			return domain.ErrUnauthorized
+			return errForbidden(domain.ErrUnauthorized)
 		}
 
 		targetUsers = []string{chat.SenderUserName, post.MerchantUserName}
@@ -264,6 +283,12 @@ func (p PageMessages) POSTSendMessage(
 		return nil
 	}()
 	if err != nil {
+		return err
+	}
+
+	if err := sse.PatchSignals(struct {
+		MessageText string `json:"messagetext"`
+	}{MessageText: ""}); err != nil {
 		return err
 	}
 
@@ -289,12 +314,13 @@ func (p PageMessages) OnMessagingRead(
 	event EventMessagingRead,
 	sse datapages.SSE,
 	session Session,
+	state datapages.State[StateMessages],
 ) error {
 	if err := p.Base.OnMessagingRead(event, sse, session); err != nil {
 		return err
 	}
 	base, chats, openChat, messages, err := p.getPageData(
-		sse.Context(), session, event.ChatID,
+		sse.Context(), session, state.Values.OpenChatID,
 	)
 	if err != nil {
 		return err
@@ -306,7 +332,11 @@ func (PageMessages) OnMessagingWriting(
 	event EventMessagingWriting,
 	sse datapages.SSE,
 	session Session,
+	state datapages.State[StateMessages],
 ) error {
+	if event.ChatID != state.Values.OpenChatID {
+		return nil
+	}
 	return sse.PatchSignals(struct {
 		WritingUser string `json:"writinguser"`
 	}{
@@ -318,7 +348,11 @@ func (PageMessages) OnMessagingWritingStopped(
 	event EventMessagingWritingStopped,
 	sse datapages.SSE,
 	session Session,
+	state datapages.State[StateMessages],
 ) error {
+	if event.ChatID != state.Values.OpenChatID {
+		return nil
+	}
 	return sse.PatchSignals(struct {
 		WritingUser string `json:"writinguser"`
 	}{
@@ -330,12 +364,13 @@ func (p PageMessages) OnMessagingSent(
 	event EventMessagingSent,
 	sse datapages.SSE,
 	session Session,
+	state datapages.State[StateMessages],
 ) error {
 	if err := p.Base.OnMessagingSent(event, sse, session); err != nil {
 		return err
 	}
 	base, chats, openChat, messages, err := p.getPageData(
-		sse.Context(), session, event.ChatID,
+		sse.Context(), session, state.Values.OpenChatID,
 	)
 	if err != nil {
 		return err

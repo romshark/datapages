@@ -31,11 +31,6 @@ type EventMessagingWritingStopped struct {
 	UserID    string `json:"user-id"`
 }
 
-// EventPostArchived is "posts.archived"
-type EventPostArchived struct {
-	PostID string `json:"post-id"`
-}
-
 // EventSessionClosed is "sessions.closed"
 type EventSessionClosed struct {
 	Recipient datapages.SubjectUser
