@@ -108,11 +108,6 @@ a {
     opacity: 0.55;
 }
 
-.badge-outline {
-    border-color: color-mix(in srgb, var(--brand) 45%, transparent);
-    color: var(--brand-ink);
-}
-
 .meta {
     display: flex;
     align-items: center;
@@ -155,12 +150,12 @@ a {
     flex-direction: row;
     align-items: center;
     gap: 1rem;
-    padding: 0.75rem 1rem;
+    /* The background and the bottom border span the viewport. The side padding
+       holds the links on the same 1200px band #content uses. */
+    padding: 0.75rem max(1rem, calc((100% - 1200px) / 2));
     background-color: var(--navbar-bg);
     backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--border);
-    max-width: 1200px;
-    margin: 0 auto;
 
     & .spacer {
         flex-grow: 1;
@@ -182,10 +177,6 @@ a {
 
     & .brand svg {
         color: var(--brand-2);
-    }
-
-    & #nav-tickets .badge-outline {
-        margin-left: 0.1rem;
     }
 
     & .username {
@@ -561,7 +552,6 @@ a {
 
     & .ticket-qr {
         width: 180px;
-        height: 180px;
         image-rendering: pixelated;
         background: #fff;
         padding: 8px;

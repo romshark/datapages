@@ -40,18 +40,7 @@ templ fragmentNavbar(session Session, baseData baseData) {
 			<b>Showtime</b>
 		</a>
 		<span class="spacer"></span>
-		<a id="nav-shows" href={ href.PageIndex(href.QueryPageIndex{}) }>
-			@iconSearch()
-			Browse
-		</a>
 		if !session.IsGuest() {
-			<a id="nav-tickets" href={ href.PageTickets() }>
-				@iconTicket()
-				My Tickets
-				if baseData.TicketCount > 0 {
-					<span class="badge-outline">{ baseData.TicketCount }</span>
-				}
-			</a>
 			@menuAccount("navbar-menu", baseData.UserName, baseData.UserAvatarURL)
 		} else {
 			<a class="btn-secondary" href={ href.PageLogin(href.QueryPageLogin{}) }>Sign in</a>

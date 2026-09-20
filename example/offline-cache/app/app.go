@@ -54,7 +54,6 @@ type Base struct{ App *App }
 type baseData struct {
 	UserName      string
 	UserAvatarURL string
-	TicketCount   int
 }
 
 func (b Base) baseData(ctx context.Context, session Session) (baseData, error) {
@@ -65,14 +64,9 @@ func (b Base) baseData(ctx context.Context, session Session) (baseData, error) {
 	if err != nil {
 		return baseData{}, err
 	}
-	tickets, err := b.App.repo.TicketsByUser(ctx, session.UserID())
-	if err != nil {
-		return baseData{}, err
-	}
 	return baseData{
 		UserName:      user.Name,
 		UserAvatarURL: user.AvatarImageURL,
-		TicketCount:   len(tickets),
 	}, nil
 }
 
