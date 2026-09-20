@@ -558,16 +558,13 @@ func writeEnvIfMissing(projectDir string, w io.Writer) (bool, error) {
 	if _, err := os.Stat(filepath.Join(projectDir, ".env")); err == nil {
 		return false, nil
 	}
-	csrfSecret, err := randomHex(32)
-	if err != nil {
-		return false, fmt.Errorf("generating CSRF secret: %w", err)
-	}
 	sessKey, err := randomHex(16)
 	if err != nil {
 		return false, fmt.Errorf("generating session encryption key: %w", err)
 	}
+	// No CSRF secret: [github.com/romshark/datapages/modules/csrf.Tokens]
+	// derives the token from the session token and configures nothing.
 	content := "NATS_URL=nats://localhost:4222\n" +
-		"CSRF_SECRET=" + csrfSecret + "\n" +
 		"SESSION_ENCRYPTION_KEY=" + sessKey + "\n"
 	return writeIfMissing(projectDir, ".env", []byte(content), w)
 }
