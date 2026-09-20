@@ -293,13 +293,9 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	genericHead := s.app.Head(sess, r)
-
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
 	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -353,12 +349,8 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(sess, r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -569,12 +561,8 @@ func (s pageLogHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(sess, r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageLog", err)
 		return
@@ -600,12 +588,8 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(sess, r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageLogin", err)
 		return
@@ -806,12 +790,8 @@ func (s pageSecretHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(sess, r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageSecret", err)
 		return
@@ -845,12 +825,8 @@ func (s pageSignOutLinkHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(sess, r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageSignOutLink", err)
 		return
@@ -876,12 +852,8 @@ func (s pageTokenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(sess, r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageToken", err)
 		return

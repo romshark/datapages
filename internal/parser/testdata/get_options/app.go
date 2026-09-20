@@ -18,8 +18,17 @@ func (PageIndex) GET(
 	return body, err
 }
 
+// EventPing is "ping"
+type EventPing struct {
+	N int `json:"n"`
+}
+
 // PageStream is /stream
 type PageStream struct{ App *App }
+
+func (PageStream) OnPing(event EventPing, sse datapages.SSE) error {
+	return nil
+}
 
 // GET with enableBackgroundStreaming.
 func (PageStream) GET(
@@ -34,6 +43,10 @@ func (PageStream) GET(
 
 // PageNoRefresh is /no-refresh
 type PageNoRefresh struct{ App *App }
+
+func (PageNoRefresh) OnPing(event EventPing, sse datapages.SSE) error {
+	return nil
+}
 
 // GET with disableRefreshAfterHidden.
 func (PageNoRefresh) GET(

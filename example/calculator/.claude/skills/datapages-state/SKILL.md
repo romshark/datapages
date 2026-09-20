@@ -27,7 +27,7 @@ func (PageIndex) StreamOpen(
 
 `GET` cannot take state: the server allocates it when the tab connects its SSE stream. A stateful page gets a stream even without stream hooks or event handlers. The server serializes handlers of the same tab that take state, so they can read and write `state.Values` without another mutex. Disconnect releases the instance. Reconnect starts with a zeroed value; initialize it in `StreamOpen` from the URL or signals if needed.
 
-`GET` may return `datapages.EnableBackgroundStreaming(true)` to keep the stream and state alive while the tab is hidden; this also disables the default refresh when the tab becomes visible. `datapages.DisableRefreshAfterHidden(true)` suppresses that refresh without preserving the stream or state.
+`GET` may return `datapages.EnableBackgroundStreaming(true)` to keep the stream and state alive while the tab is hidden; this also disables the default refresh when the tab becomes visible. `datapages.DisableRefreshAfterHidden(true)` suppresses that refresh without preserving the stream or state. Only a page with a stream refreshes; returning either value from a page without one is an error.
 
 Do not retain `state.Values` past the handler, including in a goroutine or a component that renders later. Copy the fields needed after the handler returns. State lives in one server process. Route a tab's stream and actions to the same server using `Datapages-Instance` as the routing key. If middleware sets `Content-Security-Policy`, it must allow `script-src 'unsafe-inline'` for the instance-ID script; no nonce hook exists.
 

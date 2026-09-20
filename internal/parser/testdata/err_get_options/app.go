@@ -37,6 +37,22 @@ func (PageIndex) POSTBadRefresh(
 	return false, nil
 }
 
+// PageNoStream is /no-stream
+type PageNoStream struct{ App *App }
+
+/* ErrEnableBgStreamNoStream, ErrDisableRefreshNoStream: the page has no stream */
+
+func (PageNoStream) GET(
+	r *http.Request,
+) (
+	body datapages.Component,
+	enableBackgroundStreaming datapages.EnableBackgroundStreaming,
+	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
+	err error,
+) {
+	return body, false, false, nil
+}
+
 // PageBadType is /bad-type
 type PageBadType struct{ App *App }
 

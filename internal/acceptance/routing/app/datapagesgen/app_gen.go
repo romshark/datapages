@@ -260,12 +260,8 @@ func (s pageConflictHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageConflict", err)
 		return
@@ -291,12 +287,8 @@ func (s pageFilesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageFiles", err)
 		return
@@ -325,12 +317,8 @@ func (s pageFilesEmbeddedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageFilesEmbedded", err)
 		return
@@ -355,12 +343,8 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -454,12 +438,8 @@ func (s pageIntsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageInts", err)
 		return
@@ -511,12 +491,8 @@ func (s pageMixedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageMixed", err)
 		return
@@ -582,12 +558,8 @@ func (s pagePathHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PagePath", err)
 		return
@@ -679,12 +651,8 @@ func (s pageQueryHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageQuery", err)
 		return
@@ -737,7 +705,6 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
 
 		_, _ = io.WriteString(w, ` data-signals:term="'`)
 		htmlattr.WriteSignalString(w, query.Values.Term)
@@ -806,7 +773,6 @@ func (s pageShopHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
 
 		_, _ = io.WriteString(w, ` data-signals:term="'`)
 		htmlattr.WriteSignalString(w, query.Values.Term)
@@ -871,12 +837,8 @@ func (s pageSlugHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageSlug", err)
 		return
@@ -900,12 +862,8 @@ func (s pageTitledHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, head, body, bodyAttrs, nil,
+		w, r, head, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageTitled", err)
 		return
@@ -950,7 +908,6 @@ func (s pageWhenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
 
 		_, _ = io.WriteString(w, ` data-signals:when="'`)
 		htmlattr.WriteSignalString(w, textOf(query.Values.When))

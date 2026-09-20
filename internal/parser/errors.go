@@ -162,6 +162,14 @@ var (
 	ErrDisableRefreshNotGET = errors.New(
 		"disableRefreshAfterHidden can only be used in GET handlers",
 	)
+	ErrEnableBgStreamNoStream = errors.New(
+		"enableBackgroundStreaming requires a page with a stream: " +
+			"add an event handler, a stream hook or state",
+	)
+	ErrDisableRefreshNoStream = errors.New(
+		"disableRefreshAfterHidden requires a page with a stream: " +
+			"only a page with a stream refreshes when its tab becomes visible",
+	)
 
 	ErrSignatureUnsupportedOutput = errors.New(
 		"unsupported output return value",

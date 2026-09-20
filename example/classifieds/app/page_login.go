@@ -15,14 +15,13 @@ type PageLogin struct{ App *App }
 func (PageLogin) GET(r *http.Request, session Session) (
 	body datapages.Component,
 	redirect datapages.Redirect,
-	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
 	err error,
 ) {
 	if !session.IsGuest() {
 		// Already logged in
-		return nil, datapages.Redirect{URL: href.PageIndex()}, false, nil
+		return nil, datapages.Redirect{URL: href.PageIndex()}, nil
 	}
-	return pageLogin(false), redirect, true, nil
+	return pageLogin(false), redirect, nil
 }
 
 // POSTSubmit is /login/submit

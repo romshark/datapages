@@ -25,12 +25,8 @@ func (*App) Head(_ *http.Request) datapages.Head { return head() }
 // PageIndex is /
 type PageIndex struct{ App *App }
 
-func (PageIndex) GET(_ *http.Request) (
-	body datapages.Component,
-	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
-	err error,
-) {
-	return pageCalculator("", false), true, nil
+func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
+	return pageCalculator("", false), nil
 }
 
 // POSTInput is /input/{$}

@@ -268,12 +268,8 @@ func (s pageFormHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, nil,
+		w, r, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageForm", err)
 		return
@@ -620,12 +616,8 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, nil,
+		w, r, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -646,12 +638,8 @@ func (s pageLogHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, nil,
+		w, r, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageLog", err)
 		return

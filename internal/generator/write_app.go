@@ -1794,12 +1794,6 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 		w.writeGenericHeadCall(m.GlobalHeadGenerator, hasSess)
 	}
 
-	// Body attrs - simple for render404/error pages.
-	w.Line(0, "")
-	w.Line(1, "bodyAttrs := func(w http.ResponseWriter) {")
-	w.Line(2, "httpserve.WriteReloadOnVisibility(w)")
-	w.Line(1, "}")
-
 	headArg := "nil"
 	if p.GET.OutputHead != nil {
 		headArg = outputVar(p.GET.OutputHead.Output)
@@ -1822,7 +1816,8 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 		w.Raw("genericHead, ")
 	}
 	w.Raw(headArg)
-	w.Raw(", body, bodyAttrs, nil,\n")
+	// No body attributes: this render serves no stream and reflects no signals.
+	w.Raw(", body, nil, nil,\n")
 	w.Line(1, "); err != nil {")
 	w.Raw("\t\ts.LogErr(\"rendering ")
 	w.Raw(p.TypeName)

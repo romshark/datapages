@@ -74,6 +74,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	validateRequiredHandlers(&ctx, &errs)
 	finalizePages(&ctx)
 	finalizeStates(&ctx, &errs)
+	validateRefreshOutputs(&ctx, &errs)
 	checkPageSubjectKinds(&ctx, &errs)
 	assignSpecialPages(&ctx, &errs)
 	validateRouteConflicts(&ctx, &errs)
@@ -1614,6 +1615,34 @@ func validateRequiredHandlers(ctx *parseCtx, errs *Errors) {
 			ts := ctx.typeSpecByName[name]
 			errs.ErrAt(ctx.pkg.Fset.Position(ts.Name.Pos()),
 				&PageMissingGETError{TypeName: name})
+		}
+	}
+}
+
+// validateRefreshOutputs rejects the two GET outputs that steer the reload of a
+// hidden tab on a page that is served no stream. The reload renders the events
+// the closed stream missed, hence neither output has anything to act on.
+//
+// It runs after finalizeStates, which is what binds the state a page may owe
+// its stream to.
+func validateRefreshOutputs(ctx *parseCtx, errs *Errors) {
+	for _, name := range slices.Sorted(maps.Keys(ctx.pages)) {
+		pg := ctx.pages[name]
+		if pg.GET == nil || pageHasStream(pg) {
+			continue
+		}
+		for _, o := range []struct {
+			out *model.Output
+			err error
+		}{
+			{pg.GET.OutputEnableBgStream, ErrEnableBgStreamNoStream},
+			{pg.GET.OutputDisableRefresh, ErrDisableRefreshNoStream},
+		} {
+			if o.out == nil {
+				continue
+			}
+			errs.ErrAt(ctx.pkg.Fset.Position(o.out.Expr.Pos()),
+				fmt.Errorf("%w in %s.GET", o.err, name))
 		}
 	}
 }

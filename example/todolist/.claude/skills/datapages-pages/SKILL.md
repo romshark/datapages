@@ -46,8 +46,8 @@ If a route comment has a description, separate it from the route with a blank `/
 | `datapages.Redirect` | `{URL, Status}`, sent instead of the body |
 | `datapages.NewSession[Data]` | opens a session |
 | `datapages.CloseSession` | ends the session |
-| `datapages.EnableBackgroundStreaming` | keep the stream open while the tab is hidden |
-| `datapages.DisableRefreshAfterHidden` | no refresh when the tab is shown again |
+| `datapages.EnableBackgroundStreaming` | keep the stream open while the tab is hidden; only a page with a stream may return it |
+| `datapages.DisableRefreshAfterHidden` | no refresh when the tab is shown again; only a page with a stream may return it |
 | `error` | reports an error |
 
 ## Path variables

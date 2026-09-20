@@ -402,12 +402,8 @@ func (s pageItemHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, datapages.Session[dpStream.SessionData]{}, nil, body, bodyAttrs, nil,
+		w, r, datapages.Session[dpStream.SessionData]{}, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageItem", err)
 		return

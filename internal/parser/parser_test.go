@@ -1782,7 +1782,7 @@ func TestParse_GETOptions(t *testing.T) {
 }
 
 // TestParse_ErrGETOptions tests a GET option declared on a handler that is no GET,
-// and an option returned as an output.
+// one declared on a page without a stream, and an option of a wrong type.
 func TestParse_ErrGETOptions(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_get_options")
@@ -1792,6 +1792,8 @@ func TestParse_ErrGETOptions(t *testing.T) {
 		t, err,
 		parser.ErrEnableBgStreamNotGET,
 		parser.ErrDisableRefreshNotGET,
+		parser.ErrEnableBgStreamNoStream,
+		parser.ErrDisableRefreshNoStream,
 		parser.ErrSignatureUnsupportedOutput,
 		parser.ErrSignatureUnsupportedOutput,
 	)
@@ -2559,10 +2561,10 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		require.Equal(model.PageTypeError500, p.PageSpecialization)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.OutputBody)
-		require.NotNil(p.GET.OutputDisableRefresh)
-		require.Equal("disableRefreshAfterHidden", p.GET.OutputDisableRefresh.Name)
 		require.Empty(p.Actions)
 		require.Empty(p.EventHandlers) // No Base embed
+		// Without a stream the page may not steer the visibility refresh.
+		require.Nil(p.GET.OutputDisableRefresh)
 	}
 
 	// PageIndex
@@ -2587,7 +2589,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.OutputBody)
 		require.NotNil(p.GET.OutputRedirect)
-		require.NotNil(p.GET.OutputDisableRefresh)
+		require.Nil(p.GET.OutputDisableRefresh)
 		require.NotNil(p.GET.InputSession)
 		require.Len(p.Actions, 1)
 		{
