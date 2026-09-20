@@ -415,7 +415,13 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
 
-	w.writeDeferRecover(false, p.TypeName+".GET")
+	if m.PageError500 != nil && p == m.PageError500 {
+		// httpErrIntern renders PageError500. A panic in that page reported
+		// through it would render the page again and never terminate.
+		w.Linef(1, "defer s.recoverPanicFinal(w, %q)", p.TypeName+".GET")
+	} else {
+		w.writeDeferRecover(false, p.TypeName+".GET")
+	}
 
 	w.Byte('\t')
 	w.writeCommaSep(outs)
