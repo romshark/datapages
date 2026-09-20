@@ -20,6 +20,7 @@ import (
 	"github.com/romshark/datapages/modules/offline"
 	"github.com/romshark/datapages/modules/sessions"
 	"github.com/romshark/datapages/runtime/actionexpr"
+	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 
@@ -177,7 +178,7 @@ func withShimHydrate(body datapages.Component) datapages.Component {
 
 const shimHydrateScript = `<script>(function(){
 var el=document.createElement("div");
-el.setAttribute("data-init","@get(window.location.pathname)");
+el.setAttribute("data-init","@get(window.location.pathname+window.location.search)");
 document.body.appendChild(el);
 })();</script>`
 
@@ -426,6 +427,9 @@ func setupHandlers(s *Server) {
 		"GET /",
 		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
+		"GET /list/{$}",
+		pageListHandlers{s}.GET)
+	s.Mux().HandleFunc(
 		"GET /offline/{$}",
 		pageOfflineHandlers{s}.GET)
 	s.Mux().HandleFunc(
@@ -648,6 +652,38 @@ func (s pageIndexHandlers) POSTStreamRedirect(
 		return
 	}
 	_ = pageCache.flush()
+}
+
+type pageListHandlers struct{ *Server }
+
+func (s pageListHandlers) GET(w http.ResponseWriter, r *http.Request) {
+
+	var query datapages.Query[struct {
+		Page string `query:"page"`
+	}]
+	query.Values.Page = httpread.QueryValue(r.URL.RawQuery, "page")
+	pageCache := newPageCache(s.Server, r, nil)
+
+	p := dpapp.PageList{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageList.GET")
+	body, err := p.GET(r, pageCache, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageList.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, pageCache.bakeInto(body), bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PageList", err)
+		return
+	}
 }
 
 type pageOfflineHandlers struct{ *Server }

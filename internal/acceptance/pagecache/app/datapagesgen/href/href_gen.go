@@ -6,6 +6,8 @@ package href
 
 import (
 	"log/slog"
+	"net/url"
+	"strings"
 	"sync/atomic"
 
 	"github.com/romshark/datapages/runtime/hrefcheck"
@@ -45,6 +47,61 @@ func PageError404() string { return "/not-found/" }
 
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
+
+// PageList references /list/{$}
+func PageList(query QueryPageList) string {
+	var (
+		pageStr string
+	)
+
+	if query.Page != "" {
+		pageStr = url.QueryEscape(query.Page)
+	}
+
+	anyQuery := query.Page != ""
+
+	var b strings.Builder
+	l := len("/list/")
+	if anyQuery {
+		l += len("?")
+	}
+
+	// n = number of query params already accounted for (for '&')
+	n := 0
+
+	if query.Page != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		n++
+		l += len("page=") + len(pageStr)
+	}
+	_ = n
+
+	b.Grow(l)
+
+	b.WriteString("/list/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+
+	n = 0
+
+	if query.Page != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("page=")
+		b.WriteString(pageStr)
+	}
+
+	return b.String()
+}
+
+// QueryPageList is the query parameters for PageList
+type QueryPageList struct {
+	Page string `query:"page"`
+}
 
 // PageOffline references /offline/{$}
 func PageOffline() string { return "/offline/" }

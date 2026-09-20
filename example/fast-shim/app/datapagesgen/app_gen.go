@@ -134,7 +134,7 @@ func withShimHydrate(body datapages.Component) datapages.Component {
 
 const shimHydrateScript = `<script>(function(){
 var el=document.createElement("div");
-el.setAttribute("data-init","@get(window.location.pathname)");
+el.setAttribute("data-init","@get(window.location.pathname+window.location.search)");
 document.body.appendChild(el);
 })();</script>`
 

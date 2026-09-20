@@ -124,6 +124,10 @@ self.addEventListener('fetch', function (e) {
 
   const url = new URL(req.url);
   const sameOrigin = url.origin === self.location.origin;
+  // Entries are keyed by the URL the handler passed to Set/SetShim,
+  // which carries its query. Keying on the path alone would miss /list?page=2
+  // and answer it with the entry for /list.
+  const key = url.pathname + url.search;
 
   // HTML navigations. A cached shim is served at once. Otherwise online serves live,
   // offline serves the cached body or the fallback page.
@@ -132,7 +136,7 @@ self.addEventListener('fetch', function (e) {
       const cache = await caches.open(CACHE);
 
       // Report held version and worker version.
-      const cached = await cache.match(url.pathname);
+      const cached = await cache.match(key);
       const headers = new Headers(req.headers);
       headers.set('X-Datapages-Worker-Version', String(CFG.workerVersion));
       if (cached) {
@@ -142,11 +146,11 @@ self.addEventListener('fetch', function (e) {
 
       if (cached && cached.headers.get(SHIM_HEADER)) {
         // Serve the shim now, fetch live in parallel. The shim requests this URL below.
-        const live = fetch(url.pathname, { headers: headers });
+        const live = fetch(key, { headers: headers });
         live.catch(function () {}); // handled below
-        pendingLive.set(url.pathname, live);
+        pendingLive.set(key, live);
         // Drop it if the page never asks.
-        setTimeout(function () { pendingLive.delete(url.pathname); }, 30000);
+        setTimeout(function () { pendingLive.delete(key); }, 30000);
         return cached;
       }
 
@@ -164,10 +168,10 @@ self.addEventListener('fetch', function (e) {
   }
 
   // Shim requesting its live contents. Answer from the in-flight response.
-  if (sameOrigin && pendingLive.has(url.pathname)) {
+  if (sameOrigin && pendingLive.has(key)) {
     e.respondWith((async function () {
-      const live = pendingLive.get(url.pathname);
-      pendingLive.delete(url.pathname);
+      const live = pendingLive.get(key);
+      pendingLive.delete(key);
       try {
         const res = await live;
         const html = await res.text();

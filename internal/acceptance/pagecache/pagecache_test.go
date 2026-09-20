@@ -217,3 +217,19 @@ func TestBakedWritesSitInsideTheBody(t *testing.T) {
 		})
 	}
 }
+
+// TestShimKeepsItsQuery tests that a shim is cached under the full URL and
+// asks for its live page with the query. Keying on the path alone would answer
+// /list?page=2 from the entry for /list.
+func TestShimKeepsItsQuery(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	resp := c.Get(t, "/list/?page=2")
+	require.Equal(t, http.StatusOK, resp.Status)
+	require.Equal(t, "2", resp.Element(t, "page"))
+	require.Contains(t, resp.Body, `"url":"/list/?page=2"`)
+	require.Contains(t, resp.Body, `"shim":true`)
+	require.Contains(t, resp.Body,
+		"window.location.pathname+window.location.search")
+}

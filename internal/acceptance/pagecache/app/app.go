@@ -113,3 +113,24 @@ func (PageIndex) POSTStreamRedirect(
 	pageCache.Set("/", echo("cached", "written before a stream redirect"), 14)
 	return datapages.Redirect{URL: "/"}, nil
 }
+
+// ListShimVersion is the version PageList stamps on its shim.
+const ListShimVersion = 21
+
+// PageList is /list
+//
+// Caches a shim under a URL carrying a query. The worker keys entries on the full URL,
+// and the shim's trigger has to request that URL with its query.
+type PageList struct{ App *App }
+
+func (PageList) GET(
+	_ *http.Request,
+	pageCache datapages.PageCacheWriter,
+	query datapages.Query[struct {
+		Page string `query:"page"`
+	}],
+) (body datapages.Component, err error) {
+	pageCache.SetShim("/list/?page="+query.Values.Page,
+		echo("shim", "list shim"), ListShimVersion)
+	return echo("page", query.Values.Page), nil
+}
