@@ -7,6 +7,9 @@ const CACHE = 'datapages-' + CFG.workerVersion;
 const OFFLINE_VERSION_HEADER = 'X-Datapages-Offline-Version';
 // Marks an entry the worker may serve while online (see SetShim).
 const SHIM_HEADER = 'X-Datapages-Shim';
+// Marks the request a shim makes for its live contents.
+// Datapages puts it on the trigger it adds to every shim.
+const HYDRATE_HEADER = 'X-Datapages-Shim-Hydrate';
 
 // Prefetched live responses, keyed by pathname. The shim requests its own URL
 // right after painting; that request is answered from here.
@@ -129,6 +132,21 @@ function sseFrame(eventName, kvs) {
   return lines.join('\n') + '\n\n';
 }
 
+// Headers for a fetch the worker makes on the page's behalf.
+// The Datastar markers are dropped: the answer has to be a whole document, not a patch.
+async function pageFetchHeaders(req, key) {
+  const h = new Headers(req.headers);
+  h.delete('Datastar-Request');
+  h.delete(HYDRATE_HEADER);
+  h.set('Accept', 'text/html');
+  h.set('X-Datapages-Worker-Version', String(CFG.workerVersion));
+  const cache = await caches.open(CACHE);
+  const cached = await cache.match(key);
+  const held = cached && cached.headers.get(OFFLINE_VERSION_HEADER);
+  if (held) h.set(OFFLINE_VERSION_HEADER, held);
+  return h;
+}
+
 // True for page navigations. Only mode and destination are trusted.
 // Datastar fetches also send Accept: text/html; matching on that would misclassify them.
 function isNavigation(req) {
@@ -198,11 +216,18 @@ self.addEventListener('fetch', function (e) {
     return;
   }
 
-  // Shim requesting its live contents. Answer from the in-flight response.
-  if (sameOrigin && pendingLive.has(key)) {
+  // Shim asking for its live contents.
+  if (sameOrigin && req.headers.get(HYDRATE_HEADER)) {
     e.respondWith((async function () {
-      const live = pendingLive.get(key);
-      pendingLive.delete(key);
+      let live = pendingLive.get(key);
+      if (live) {
+        pendingLive.delete(key);
+      } else {
+        // The prefetch is gone: the worker was terminated, or the timer above fired.
+        // Passing the request through would answer with a whole document,
+        // which Datastar cannot patch, and leave the page on its skeletons for good.
+        live = fetch(key, { headers: await pageFetchHeaders(req, key) });
+      }
       try {
         const res = await live;
         const html = await res.text();

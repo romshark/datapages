@@ -168,9 +168,11 @@ type pageCacheEntry struct {
 
 // shimHydrateScript is appended to every shim. Datastar has no imperative API,
 // so the script adds a data-init element. Datastar's MutationObserver sees it,
-// requests this URL, and morphs in the live page the worker prefetched. The
-// element stays in the DOM (removing it on a timer can beat Datastar's deferred
-// module load); the morph drops it, as the live page has no such element.
+// requests this URL, and morphs in the live page the worker prefetched.
+// The header marks the request for the worker, which answers it from the prefetch or,
+// when that is gone, from a fetch of its own. The element stays in the DOM
+// (removing it on a timer can beat Datastar's deferred module load);
+// the morph drops it, as the live page has no such element.
 func withShimHydrate(body datapages.Component) datapages.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if err := body.Render(ctx, w); err != nil {
@@ -183,7 +185,7 @@ func withShimHydrate(body datapages.Component) datapages.Component {
 
 const shimHydrateScript = `<script>(function(){
 var el=document.createElement("div");
-el.setAttribute("data-init","@get(window.location.pathname+window.location.search)");
+el.setAttribute("data-init","@get(window.location.pathname+window.location.search,{headers:{'X-Datapages-Shim-Hydrate':'1'}})");
 document.body.appendChild(el);
 })();</script>`
 

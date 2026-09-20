@@ -238,6 +238,9 @@ func TestShimKeepsItsQuery(t *testing.T) {
 	require.Contains(t, resp.Body, `"shim":true`)
 	require.Contains(t, resp.Body,
 		"window.location.pathname+window.location.search")
+	require.Contains(t, resp.Body, `X-Datapages-Shim-Hydrate`,
+		"the worker recognises the hydration request by header, which is what"+
+			" lets it answer one whose prefetch it lost")
 }
 
 // TestPageCacheVariesByHeldVersion tests that a page whose handler reads the

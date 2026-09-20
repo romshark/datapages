@@ -306,3 +306,15 @@ func TestServiceWorkerPatchesTheHead(t *testing.T) {
 		"the head frame is written first: the CSRF wrapper has to be"+
 			" installed before a binding in the new body fires an action")
 }
+
+// TestServiceWorkerHydratesWithoutThePrefetch tests that the worker recognises
+// a shim's hydration request by header and can answer it from a fetch of its own.
+// The prefetch lives in module scope, which a worker restart drops.
+func TestServiceWorkerHydratesWithoutThePrefetch(t *testing.T) {
+	t.Parallel()
+	js := string(offline.ServiceWorkerJS("/offline/", offline.Config{WorkerVersion: 1}))
+
+	require.Contains(t, js, `HYDRATE_HEADER="X-Datapages-Shim-Hydrate"`)
+	require.Contains(t, js, "pageFetchHeaders",
+		"a lost prefetch is replaced by a fetch the worker makes itself")
+}
