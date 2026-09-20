@@ -496,13 +496,9 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	genericHead := s.app.Head(r)
-
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
 	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -665,21 +661,15 @@ func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanicFinal(w, "PageError500.GET")
-	body, disableRefreshAfterHidden, err := p.GET(r)
+	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrFinal(w, "handling PageError500.GET", err)
 		return
 	}
 	genericHead := s.app.Head(r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		if !disableRefreshAfterHidden {
-			httpserve.WriteReloadOnVisibility(w)
-		}
-	}
-
 	if err := s.writeHTML(
-		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, bodyAttrs, nil,
+		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError500", err)
 		return
@@ -807,7 +797,7 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		App: s.app,
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.GET")
-	body, redirect, disableRefreshAfterHidden, err := p.GET(r, sess)
+	body, redirect, err := p.GET(r, sess)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
 		return
@@ -817,14 +807,8 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		if !disableRefreshAfterHidden {
-			httpserve.WriteReloadOnVisibility(w)
-		}
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageLogin", err)
 		return

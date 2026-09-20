@@ -1712,6 +1712,20 @@ func TestParse_SessionOutput(t *testing.T) {
 		require.NotNil(signOut.OutputRedirect)
 		require.Nil(signOut.OutputNewSession)
 	}
+
+	// PageSignOut, PageLeave and PageError404 - GET with closeSession,
+	// with and without a session parameter and on the 404 page,
+	// which renders through render404.
+	for _, name := range []string{"PageSignOut", "PageLeave", "PageError404"} {
+		p := findPage(app, name)
+		require.NotNil(p, name)
+		require.NotNil(p.GET, name)
+		require.NotNil(p.GET.OutputCloseSession, name)
+		require.Equal("closeSession", p.GET.OutputCloseSession.Name, name)
+	}
+	require.NotNil(findPage(app, "PageSignOut").GET.InputSession)
+	require.Nil(findPage(app, "PageLeave").GET.InputSession)
+	require.NotNil(findPage(app, "PageError404").GET.OutputNewSession)
 }
 
 // TestParse_ErrSessionOutput tests a session output on a handler that also takes an SSE.
@@ -1768,7 +1782,7 @@ func TestParse_GETOptions(t *testing.T) {
 }
 
 // TestParse_ErrGETOptions tests a GET option declared on a handler that is no GET,
-// and an option returned as an output.
+// one declared on a page without a stream, and an option of a wrong type.
 func TestParse_ErrGETOptions(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_get_options")
@@ -1778,6 +1792,8 @@ func TestParse_ErrGETOptions(t *testing.T) {
 		t, err,
 		parser.ErrEnableBgStreamNotGET,
 		parser.ErrDisableRefreshNotGET,
+		parser.ErrEnableBgStreamNoStream,
+		parser.ErrDisableRefreshNoStream,
 		parser.ErrSignatureUnsupportedOutput,
 		parser.ErrSignatureUnsupportedOutput,
 	)
@@ -2545,10 +2561,10 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		require.Equal(model.PageTypeError500, p.PageSpecialization)
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.OutputBody)
-		require.NotNil(p.GET.OutputDisableRefresh)
-		require.Equal("disableRefreshAfterHidden", p.GET.OutputDisableRefresh.Name)
 		require.Empty(p.Actions)
 		require.Empty(p.EventHandlers) // No Base embed
+		// Without a stream the page may not steer the visibility refresh.
+		require.Nil(p.GET.OutputDisableRefresh)
 	}
 
 	// PageIndex
@@ -2573,7 +2589,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		require.NotNil(p.GET)
 		require.NotNil(p.GET.OutputBody)
 		require.NotNil(p.GET.OutputRedirect)
-		require.NotNil(p.GET.OutputDisableRefresh)
+		require.Nil(p.GET.OutputDisableRefresh)
 		require.NotNil(p.GET.InputSession)
 		require.Len(p.Actions, 1)
 		{

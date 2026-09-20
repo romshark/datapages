@@ -95,10 +95,6 @@ func (p PageError404) GET(r *http.Request, session Session) (
 // PageError500 is /whoops
 type PageError500 struct{ App *App }
 
-func (PageError500) GET(r *http.Request) (
-	body datapages.Component,
-	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
-	err error,
-) {
-	return pageError500(), true, nil
+func (PageError500) GET(r *http.Request) (body datapages.Component, err error) {
+	return pageError500(), nil
 }

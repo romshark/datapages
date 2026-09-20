@@ -429,12 +429,8 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, genericHead, nil, pageCache.embedInto(body), bodyAttrs, nil,
+		w, r, genericHead, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -455,12 +451,8 @@ func (s pageNoShimHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, nil,
+		w, r, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageNoShim", err)
 		return
@@ -481,12 +473,8 @@ func (s pageNoShim2Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, genericHead, nil, body, bodyAttrs, nil,
+		w, r, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageNoShim2", err)
 		return
@@ -508,12 +496,8 @@ func (s pageSubpageHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, genericHead, nil, pageCache.embedInto(body), bodyAttrs, nil,
+		w, r, genericHead, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageSubpage", err)
 		return

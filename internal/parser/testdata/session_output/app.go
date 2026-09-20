@@ -59,3 +59,48 @@ func (PageLogin) POSTSignOut(
 ) {
 	return true, datapages.Redirect{URL: "/"}, nil
 }
+
+// PageSignOut is /sign-out
+type PageSignOut struct{ App *App }
+
+// GET with closeSession, reading the session it closes.
+func (PageSignOut) GET(
+	r *http.Request, session Session,
+) (
+	body datapages.Component,
+	closeSession datapages.CloseSession,
+	err error,
+) {
+	return body, datapages.CloseSession(!session.IsGuest()), err
+}
+
+// PageLeave is /leave
+type PageLeave struct{ App *App }
+
+// GET with closeSession and no session parameter.
+func (PageLeave) GET(
+	r *http.Request,
+) (
+	body datapages.Component,
+	closeSession datapages.CloseSession,
+	redirect datapages.Redirect,
+	err error,
+) {
+	return body, true, redirect, err
+}
+
+// PageError404 is /not-found
+type PageError404 struct{ App *App }
+
+// GET with both session outputs renders through render404,
+// which is generated separately from the page handlers.
+func (PageError404) GET(
+	r *http.Request,
+) (
+	body datapages.Component,
+	closeSession datapages.CloseSession,
+	newSession datapages.NewSession[struct{}],
+	err error,
+) {
+	return body, true, newSession, err
+}

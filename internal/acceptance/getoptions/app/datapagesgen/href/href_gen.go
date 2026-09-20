@@ -52,6 +52,9 @@ func PageGone() string { return "/gone/" }
 // PageIndex references /{$}
 func PageIndex() string { return "/" }
 
+// PageLive references /live/{$}
+func PageLive() string { return "/live/" }
+
 // PageMaybe references /maybe/{$}
 func PageMaybe(query QueryPageMaybe) string {
 	var (

@@ -1,17 +1,17 @@
 ---
 name: datapages
 description: >-
-  Datapages framework rules, build loop and naming conventions, plus an index
-  of the task skills. Activate for any work in a Datapages app package,
-  its templates or its server entry point. `datapages-architecture` comes
-  before this one when starting an app or designing a feature.
+  Apply the Datapages framework rules, build loop and naming conventions, and
+  select the relevant task skill. Use for work in a Datapages app package,
+  template or server entry point. Read `datapages-architecture` first when
+  starting an app or designing a feature.
 ---
 
 # Datapages
 
-You write Go handlers and Templ templates. `datapages gen` writes the server: routing, handler wiring, SSE, sessions and the type-safe `href` and `action` packages.
+Write Go handlers and Templ templates. `datapages gen` generates routing, handler registration, SSE and session code. It also generates the type-safe `href` and `action` packages.
 
-Starting a new app, or designing a feature that is not written yet: read `datapages-architecture` first. It scaffolds the project and picks the constructs the task skills below then tell you how to write.
+Read `datapages-architecture` first when starting an app or designing a new feature. It explains how to select the required Datapages constructs. Then read the task-specific skills below.
 
 ## Loop
 
@@ -24,7 +24,11 @@ datapages lint
 go build ./...
 ```
 
-`datapages gen` reports parse errors with suggested fixes on stderr. Fix the app package and re-run. It also runs `go mod tidy`, whose failure makes the command fail even if generation succeeded. `datapages lint` checks without generating. If an earlier `templ generate` produced references to helpers that do not exist yet, remove those references, regenerate Templ, run `datapages gen`, then restore the references and regenerate Templ. On an initial parse failure, the generator may write empty stub helper packages. Use Templ `v0.3.1020`, the version pinned by the scaffolded CI workflow. `datapages watch` is a dev server for humans.
+`datapages gen` reports parse errors and suggested fixes on stderr. Fix the app package and run it again. It also runs `go mod tidy`. A tidy failure makes the command fail even when code generation succeeded. `datapages lint` performs the checks without generating files.
+
+An earlier `templ generate` can produce references to helpers that do not exist yet. Remove those references, run `templ generate`, then run `datapages gen`. Restore the references and run `templ generate` again. After an initial parse failure, the generator may write empty stub helper packages.
+
+Use Templ `v0.3.1020`, which the generated CI workflow pins. Use `datapages watch` as the local development server.
 
 ## Rules
 
@@ -49,15 +53,15 @@ The parser reads names and doc comments. Both decide behaviour.
 | stream hook | `StreamOpen`, `StreamClose` | none |
 | assets | any `embed.FS` variable | `// StaticFS is /static/` |
 
-No underscores, nothing lowercase after the prefix. The word `is` is required. Event subjects are quoted, routes are not. If a route comment has more description, put a blank `//` line after the first line before the description.
+Do not use underscores or a lowercase letter after the prefix. The word `is` is required. Quote event subjects but not routes. If a route comment has more text, add a blank `//` line after its first line.
 
-`PageIndex`, the page for `/`, is required. A page struct declares `App *App` and no other named field: embedded types are the only exception. Page methods take a value receiver, app-level methods (`Head`, `RecoverError`, app actions) a `*App`.
+`PageIndex`, the page for `/`, is required. A page struct declares `App *App` and no other named field. It may also embed types. Page methods use value receivers. App methods such as `Head`, `RecoverError` and app actions use `*App`.
 
-Handler parameters and return values are matched **by type**; order does not matter. Parameter names are free except `stateID`, which must use that name. Declare only what the handler needs.
+The generator matches handler parameters and return values by type, not by position. Parameter names are unrestricted except for `stateID`. Declare only the values that the handler needs.
 
 ## Testing
 
-The generated server implements `http.Handler`. Use `httptest` to send requests through it. For a Datastar action, set `Datastar-Request: true`; for a stateful tab, carry the `Datapages-Instance` value from the page response into its action and stream requests. Assert the HTTP status and the returned HTML or SSE events, rather than only checking that `go build ./...` passes.
+The generated server implements `http.Handler`. Test it by sending requests with `httptest`. Set `Datastar-Request: true` for a Datastar action. For a stateful tab, copy the `Datapages-Instance` value from the page response to its action and stream requests. Assert the HTTP status and returned HTML or SSE events. A successful `go build ./...` alone does not test request behavior.
 
 ## Task skills
 

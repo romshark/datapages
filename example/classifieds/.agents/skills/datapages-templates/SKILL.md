@@ -9,11 +9,11 @@ description: >-
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-Handlers return `datapages.Component`, which a Templ component satisfies. `.templ` files compile to `_templ.go` through `templ generate`, which Datapages never runs for you. Templ docs: https://templ.guide/llms.md
+A Templ component implements `datapages.Component`, so handlers can return it. Run `templ generate` to compile `.templ` files to `_templ.go`. Datapages does not run this command. Templ docs: https://templ.guide/llms.md
 
 ## href: links
 
-One function per page, named after the page type. Query structs are `href.Query<PageType>` and zero-value fields are left out of the URL.
+The generated `href` package has one function for each page, named after its page type. Query structs are named `href.Query<PageType>`. Zero-value fields are omitted from the URL.
 
 ```templ
 <a href={ href.PageIndex() }>Home</a>
@@ -22,13 +22,13 @@ One function per page, named after the page type. Query structs are `href.Query<
 <a href={ href.Asset("logo.svg") }>Logo</a>
 ```
 
-A hardcoded root-relative, relative, query-only or empty `href` is a lint error, as is `javascript:`. A literal `https://`, `mailto:`, `tel:`, `#frag` or `//cdn.example.com` is fine, and `href.External(url)` covers one the app computes.
+The linter rejects a hardcoded root-relative, relative, query-only or empty `href`. It also rejects `javascript:`. Literal `https://`, `mailto:`, `tel:`, `#frag` and `//cdn.example.com` values are valid. Use `href.External(url)` for an external URL computed by the app.
 
-Inside `href={ ... }` only an `href` package call, a string literal or a constant is accepted. Any other call, `fmt.Sprintf` and `templ.SafeURL` included, and any variable, is rejected: the linter cannot resolve it.
+Inside `href={ ... }`, use an `href` package call, string literal or constant. The linter rejects variables and other calls, including `fmt.Sprintf` and `templ.SafeURL`, because it cannot resolve them.
 
 ## action: Datastar actions
 
-An action is `action.<Owner>.<Name>.<METHOD>(...)`, where `Owner` is the page type or `App`. `PageLogin.POSTSubmit` becomes `action.PageLogin.Submit.POST()`; `(*App).POSTSignOut` becomes `action.App.SignOut.POST()`. It returns the whole `@post('/...')` expression. Read the generated `datapagesgen/action` package for exact signatures after `datapages gen`.
+An action helper is `action.<Owner>.<Name>.<METHOD>(...)`. `Owner` is the page type or `App`. `PageLogin.POSTSubmit` becomes `action.PageLogin.Submit.POST()`. `(*App).POSTSignOut` becomes `action.App.SignOut.POST()`. The helper returns the complete `@post('/...')` expression. After `datapages gen`, read the generated `datapagesgen/action` package for exact signatures.
 
 ```templ
 <button data-on:click={ action.PageLogin.Submit.POST() }>Submit</button>
@@ -36,7 +36,7 @@ An action is `action.<Owner>.<Name>.<METHOD>(...)`, where `Owner` is the page ty
 <button data-on:click={ action.App.SignOut.POST() }>Sign out</button>
 ```
 
-A page's action belongs to that page: using `action.PageA.X.POST()` in the template of page B is a lint error. App-level actions work anywhere. An action expression belongs in a Datastar action attribute, never in an `href`.
+A page action can be used only in that page's template. The linter rejects `action.PageA.X.POST()` in page B. App actions can be used on any page. Put an action expression in a Datastar action attribute, not in an `href`.
 
 Every function takes variadic modifiers. Never hand-write the options object.
 
@@ -55,9 +55,9 @@ Every function takes variadic modifiers. Never hand-write the options object.
 | `action.WithBefore`, `action.WithAfter` | JavaScript prepended or appended, joined with `"; "` |
 | `action.WithOption` | raw key and value for anything the helpers miss |
 
-Every modifier returns `action.Option`. Collect conditional modifiers in an `[]action.Option` and pass them as `opts...`. Use the alias instead of importing `runtime/actionexpr`.
+Each modifier returns `action.Option`. Collect conditional modifiers in an `[]action.Option` and pass `opts...`. Use this alias instead of importing `runtime/actionexpr`.
 
-Arguments go in one order: the path variables as the route names them, then the query value built by `<METHOD>Query(...)`, then the modifiers. The query type is unexported, so build it with the generated constructor.
+Pass arguments in this order: path variables in route order, the query value from `<METHOD>Query(...)`, then modifiers. The query type is unexported. Create it with the generated constructor.
 
 ```templ
 <button data-on:click={ action.PageMessages.Read.POST(
@@ -81,18 +81,18 @@ Use a Datastar submit action to keep Enter-to-submit and browser validation:
 </form>
 ```
 
-`data-bind="email"` keeps the signal name in an attribute value. HTML lowercases attribute names, so use the value form for camelCase signals. For live validation, add `data-on:input__debounce.300ms` to an input and call a validation action on the same page.
+`data-bind="email"` puts the signal name in the attribute value. HTML lowercases attribute names, so use this form for camelCase signals. For live validation, add `data-on:input__debounce.300ms` to an input and call a validation action on the same page.
 
-The default action sends signals. To send form controls or file data instead, use `action.WithContentType(action.ContentTypeForm)`. It selects the closest form; add `action.WithSelector("#login")` only to target another form. Form content type sends no signals.
+An action sends signals by default. To send form controls or file data, use `action.WithContentType(action.ContentTypeForm)`. It selects the closest form. Add `action.WithSelector("#login")` only when the action must select another form. Form content type does not send signals.
 
 ## Syntax
 
-- Call generated helpers through the Templ expression form: `data-on:click={ action.X() }`, never `data-on:click="@post('/x/')"`.
-- Event attributes take the colon form: `data-on:click`, `data-on:submit`. The hyphen form belongs to plugins: `data-on-intersect`, `data-on-interval`, `data-on-signal-patch`.
+- Call generated helpers through the Templ expression form: `data-on:click={ action.X() }`. Do not write `data-on:click="@post('/x/')"`.
+- Event attributes use the colon form, such as `data-on:click` and `data-on:submit`. Plugin attributes use the hyphen form, such as `data-on-intersect`, `data-on-interval` and `data-on-signal-patch`.
 
 ## Pitfalls
 
-- `//datapages:nolint` on the line above an element suppresses its attribute lint errors, with an optional `// why` after it. It does not suppress the cross-page action ownership error.
+- Put `//datapages:nolint` on the line above an element to suppress its attribute lint errors. You may add a reason after `//`. It does not suppress a cross-page action ownership error.
 
-- A text line starting with `switch`, `if`, `for`, `else` or `case` is parsed as Go control flow even inside HTML. Wrap it in an element or reword it.
-- `'` in an attribute becomes `&#39;`, which decodes before the JavaScript parser sees it and breaks the expression. Reword it, use `&quot;` for inner strings, or escape it with a backslash.
+- Templ parses a text line that starts with `switch`, `if`, `for`, `else` or `case` as Go control flow, even inside HTML. Wrap the text in an element or reword it.
+- An apostrophe in an attribute becomes `&#39;`. The browser decodes it before the JavaScript parser reads the expression, which can make the expression invalid. Reword it, use `&quot;` for inner strings or escape it with a backslash.

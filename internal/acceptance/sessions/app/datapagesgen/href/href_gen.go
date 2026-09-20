@@ -55,5 +55,8 @@ func PageLogin() string { return "/login/" }
 // PageSecret references /secret/{$}
 func PageSecret() string { return "/secret/" }
 
+// PageSignOutLink references /sign-out-link/{$}
+func PageSignOutLink() string { return "/sign-out-link/" }
+
 // PageToken references /token/{$}
 func PageToken() string { return "/token/" }

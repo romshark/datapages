@@ -274,12 +274,10 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	// Auth.
 	needsSession := hasSessionInput(h) || globalHeadNeedsSession(m) ||
 		pageHasPrivateEvent(p, w.eventMap)
-	if needsSession {
+	needsToken := h.OutputCloseSession != nil
+	if needsSession || needsToken {
 		hasBody = true
-		w.Line(1, "sess, _, ok := s.ReadSession(w, r)")
-		w.Line(1, "if !ok {")
-		w.Line(2, "return")
-		w.Line(1, "}")
+		w.writeReadSession(needsSession, needsToken)
 	}
 
 	// Index page: 404 fallback for non-root paths.
@@ -406,19 +404,6 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	// Build output list in user-defined order.
 	outs := handlerGETOutputVars(h, p.GET)
 
-	// enableBackgroundStreaming is used in bodyAttrs (when there's no
-	// disableRefresh) and in bodySuffix (when the page has a stream).
-	// If neither applies, blank it to avoid an unused-variable error.
-	if h.OutputEnableBgStream != nil &&
-		h.OutputDisableRefresh != nil && !pageHasStream(p) {
-		for i, o := range outs {
-			if o == outputVar(h.OutputEnableBgStream) {
-				outs[i] = "_"
-				break
-			}
-		}
-	}
-
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
 
@@ -469,7 +454,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	}
 
 	// Body attrs and suffix.
-	hasBodySuffix := w.writeGETBodyAttrs(p, hasSess)
+	hasBodyAttrs, hasBodySuffix := w.writeGETBodyAttrs(p, hasSess)
 
 	headArg := "nil"
 	if p.GET.OutputHead != nil {
@@ -497,7 +482,11 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	w.Raw(headArg)
 	w.Raw(", ")
 	w.Raw(bodyName)
-	w.Raw(", bodyAttrs, ")
+	if hasBodyAttrs {
+		w.Raw(", bodyAttrs, ")
+	} else {
+		w.Raw(", nil, ")
+	}
 	if hasBodySuffix {
 		w.Raw("bodySuffix,\n")
 	} else {
@@ -513,6 +502,23 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 
 func hasSessionInput(h *model.Handler) bool {
 	return h.InputSession != nil
+}
+
+// writeReadSession emits the session read and the return on a rejected request.
+// Either result is blanked when the handler has no use for it: a local nobody
+// reads is a package that does not compile.
+func (w *Writer) writeReadSession(sessInScope, needsToken bool) {
+	sessVar, tokenVar := "_", "_"
+	if sessInScope {
+		sessVar = "sess"
+	}
+	if needsToken {
+		tokenVar = "sessToken"
+	}
+	w.Linef(1, "%s, %s, ok := s.ReadSession(w, r)", sessVar, tokenVar)
+	w.Line(1, "if !ok {")
+	w.Line(2, "return")
+	w.Line(1, "}")
 }
 
 // globalHeadNeedsSession reports whether the application-wide Head takes the session.
@@ -647,7 +653,9 @@ func streamInitTail(openWhenHidden, retry bool) string {
 	return ",{" + strings.Join(opts, ",") + `})"`
 }
 
-func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix bool) {
+func (w *Writer) writeGETBodyAttrs(
+	p *model.Page, hasSess bool,
+) (hasBodyAttrs, hasBodySuffix bool) {
 	h := p.GET.Handler
 
 	hasDisableRefresh := h.OutputDisableRefresh != nil
@@ -674,23 +682,34 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 
 	// bodyAttrs: visibility change + reflect signal attrs.
 	// Written as attributes on the <body> tag.
+	hasBodyAttrs = hasStream || hasReflectSignals
+	if !hasBodyAttrs {
+		return false, false
+	}
+
 	w.Line(0, "")
 	w.Line(1, "bodyAttrs := func(w http.ResponseWriter) {")
 
-	if hasDisableRefresh {
-		w.Raw("\t\tif !")
-		w.Raw(outputVar(h.OutputDisableRefresh))
-		w.Raw(" {\n")
-		w.Line(3, "httpserve.WriteReloadOnVisibility(w)")
-		w.Line(2, "}")
-	} else if hasEnableBgStream {
-		w.Raw("\t\tif !")
-		w.Raw(outputVar(h.OutputEnableBgStream))
-		w.Raw(" {\n")
-		w.Line(3, "httpserve.WriteReloadOnVisibility(w)")
-		w.Line(2, "}")
-	} else {
-		w.Line(2, "httpserve.WriteReloadOnVisibility(w)")
+	// The reload renders the events the closed stream missed. A page without
+	// a stream misses none and would lose what the visitor typed.
+	// The parser refuses the two outputs below on such a page.
+	if hasStream {
+		switch {
+		case hasDisableRefresh:
+			w.Raw("\t\tif !")
+			w.Raw(outputVar(h.OutputDisableRefresh))
+			w.Raw(" {\n")
+			w.Line(3, "httpserve.WriteReloadOnVisibility(w)")
+			w.Line(2, "}")
+		case hasEnableBgStream:
+			w.Raw("\t\tif !")
+			w.Raw(outputVar(h.OutputEnableBgStream))
+			w.Raw(" {\n")
+			w.Line(3, "httpserve.WriteReloadOnVisibility(w)")
+			w.Line(2, "}")
+		default:
+			w.Line(2, "httpserve.WriteReloadOnVisibility(w)")
+		}
 	}
 
 	// Reflect signal attrs.
@@ -725,7 +744,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 	// store when these attributes are processed.
 	needsSuffix := hasStream || hasReflectSignals
 	if !needsSuffix {
-		return false
+		return hasBodyAttrs, false
 	}
 
 	w.Line(0, "")
@@ -928,7 +947,7 @@ func (w *Writer) writeGETBodyAttrs(p *model.Page, hasSess bool) (hasBodySuffix b
 	}
 
 	w.Line(1, "}")
-	return true
+	return hasBodyAttrs, true
 }
 
 // writeStreamPathSegments writes the page route with its path values filled in.
@@ -1642,19 +1661,7 @@ func (w *Writer) writePageActionHandler(
 	needsToken := h.OutputCloseSession != nil
 	switch {
 	case actionSessionInScope(h, m) || needsToken:
-		// A local nobody reads is a package that does not compile.
-		sessVar := "_"
-		if actionSessionInScope(h, m) {
-			sessVar = "sess"
-		}
-		if needsToken {
-			w.Linef(1, "%s, sessToken, ok := s.ReadSession(w, r)", sessVar)
-		} else {
-			w.Linef(1, "%s, _, ok := s.ReadSession(w, r)", sessVar)
-		}
-		w.Line(1, "if !ok {")
-		w.Line(2, "return")
-		w.Line(1, "}")
+		w.writeReadSession(actionSessionInScope(h, m), needsToken)
 	case needsCSRFOnly(h, m):
 		w.writeCSRFOnlyCheck()
 	}

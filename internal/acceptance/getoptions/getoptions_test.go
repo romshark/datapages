@@ -17,8 +17,9 @@ import (
 	"github.com/romshark/datapages/modules/messaging/inmem"
 )
 
-// reloadAttr is what the server writes on the body so that a tab reloads the
-// page when it becomes visible again. The two streaming flags exist to suppress it.
+// reloadAttr is what the server writes on the body of a page with a stream so
+// that a tab reloads it when it becomes visible again. The two streaming flags
+// exist to suppress it.
 const reloadAttr = "data-on:visibilitychange"
 
 func newServer(t *testing.T) *httptest.Server {
@@ -84,11 +85,12 @@ func TestRedirectStatusFromPageLoad(t *testing.T) {
 	})
 }
 
-// TestVisibilityReload tests the two flags that decide whether a hidden tab
-// reloads the page when it comes back.
+// TestVisibilityReload tests what decides whether a hidden tab reloads the
+// page when it comes back.
 //
-// Both suppress the same body attribute. A page that keeps its stream running
-// in the background must not reload, and a page that asks not to reload must not either.
+// The reload renders the events the closed stream missed. A page without a
+// stream misses none. A page that keeps its stream running in the background
+// must not reload, and a page that asks not to reload must not either.
 func TestVisibilityReload(t *testing.T) {
 	t.Parallel()
 	srv := newServer(t)
@@ -97,7 +99,8 @@ func TestVisibilityReload(t *testing.T) {
 		path       string
 		wantReload bool
 	}{
-		"the plain page reloads":             {"/", true},
+		"a page with a stream reloads":       {"/live/", true},
+		"a page without a stream does not":   {"/", false},
 		"background streaming suppresses it": {"/background/", false},
 		"disabled refresh suppresses it":     {"/no-refresh/", false},
 	}

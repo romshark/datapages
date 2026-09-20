@@ -3,8 +3,10 @@
 package datapagesgen
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -16,6 +18,8 @@ import (
 	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
+	dpsse "github.com/romshark/datapages/runtime/sse"
+	"github.com/romshark/datapages/runtime/stream"
 
 	dpapp "github.com/romshark/datapages/internal/acceptance/getoptions/app"
 	"github.com/romshark/datapages/internal/acceptance/getoptions/app/datapagesgen/href"
@@ -52,6 +56,23 @@ func (s *Server) writeHTML(
 	})
 }
 
+func (s *Server) handleStreamRequest(
+	w http.ResponseWriter, r *http.Request,
+	subjects []string,
+	onOpen func(
+		streamID datapages.StreamID,
+		sse *datastar.ServerSentEventGenerator,
+	) error,
+	onClose func(streamID datapages.StreamID),
+	fn func(
+		streamID datapages.StreamID,
+		sse *datastar.ServerSentEventGenerator,
+		ch <-chan messaging.Message,
+	),
+) {
+	s.streams.Handle(w, r, "", "", subjects, onOpen, onClose, fn)
+}
+
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
 	w http.ResponseWriter, r *http.Request,
@@ -74,6 +95,7 @@ type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
 	messageBrokerMetrics messaging.NoopMetrics
+	streams              *stream.Handler
 	app                  *dpapp.App
 }
 
@@ -128,6 +150,12 @@ func (s *Server) Init(
 			return fmt.Errorf("initializing message broker streams: %w", err)
 		}
 	}
+	s.streams = stream.NewHandler(
+		s.Core, messageBroker, s.messageBrokerMetrics,
+		nil,
+		nil,
+		s.httpErrIntern,
+	)
 
 	setupHandlers(s)
 
@@ -140,12 +168,27 @@ func (s *Server) Init(
 
 const (
 
-// Public events:
+	// Public events:
 
+	EvSubjPing = "ping"
 )
 
 func MessageBrokerStreamSubjects() []string {
-	return []string{}
+	return []string{
+		EvSubjPing,
+	}
+}
+
+var evSubjPageBackground = []string{
+	EvSubjPing,
+}
+
+var evSubjPageLive = []string{
+	EvSubjPing,
+}
+
+var evSubjPageNoRefresh = []string{
+	EvSubjPing,
 }
 
 func setupHandlers(s *Server) {
@@ -154,17 +197,29 @@ func setupHandlers(s *Server) {
 		"GET /background/{$}",
 		pageBackgroundHandlers{s}.GET)
 	s.Mux().HandleFunc(
+		"GET /background/_$/{$}",
+		pageBackgroundHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
 		"GET /gone/{$}",
 		pageGoneHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
+		"GET /live/{$}",
+		pageLiveHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /live/_$/{$}",
+		pageLiveHandlers{s}.GETStream)
+	s.Mux().HandleFunc(
 		"GET /maybe/{$}",
 		pageMaybeHandlers{s}.GET)
 	s.Mux().HandleFunc(
 		"GET /no-refresh/{$}",
 		pageNoRefreshHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /no-refresh/_$/{$}",
+		pageNoRefreshHandlers{s}.GETStream)
 }
 
 func (s *Server) httpErrIntern(
@@ -201,12 +256,58 @@ func (s pageBackgroundHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('/background/_$/'`)
+		if enableBackgroundStreaming {
+			_, _ = io.WriteString(w, `,{openWhenHidden:true})"`)
+		} else {
+			_, _ = io.WriteString(w, `)"`)
+		}
+	}
+
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageBackground", err)
 		return
 	}
+}
+
+func (s pageBackgroundHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	p := dpapp.PageBackground{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPageBackground,
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageBackground stream")
+			var eventPing dpapp.EventPing
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjPing:
+					eventPing = dpapp.EventPing{}
+					if err := json.Unmarshal(msg.Data, &eventPing); err != nil {
+						s.LogErr("unmarshaling EventPing JSON", err)
+						continue
+					}
+					if err := p.OnPing(
+						eventPing,
+						dpsse.New(sse),
+					); err != nil {
+						s.LogErr("handling PageBackground.OnPing", err)
+					}
+				}
+			}
+		})
 }
 
 type pageGoneHandlers struct{ *Server }
@@ -225,12 +326,8 @@ func (s pageGoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageGone", err)
 		return
@@ -255,16 +352,78 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
 	}
+}
+
+type pageLiveHandlers struct{ *Server }
+
+func (s pageLiveHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PageLive{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageLive.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageLive.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('/live/_$/')"`)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, bodySuffix,
+	); err != nil {
+		s.LogErr("rendering PageLive", err)
+		return
+	}
+}
+
+func (s pageLiveHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	p := dpapp.PageLive{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPageLive,
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageLive stream")
+			var eventPing dpapp.EventPing
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjPing:
+					eventPing = dpapp.EventPing{}
+					if err := json.Unmarshal(msg.Data, &eventPing); err != nil {
+						s.LogErr("unmarshaling EventPing JSON", err)
+						continue
+					}
+					if err := p.OnPing(
+						eventPing,
+						dpsse.New(sse),
+					); err != nil {
+						s.LogErr("handling PageLive.OnPing", err)
+					}
+				}
+			}
+		})
 }
 
 type pageMaybeHandlers struct{ *Server }
@@ -298,12 +457,8 @@ func (s pageMaybeHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageMaybe", err)
 		return
@@ -329,10 +484,51 @@ func (s pageNoRefreshHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	bodySuffix := func(w http.ResponseWriter) {
+
+		_, _ = io.WriteString(w, ` data-init="@get('/no-refresh/_$/')"`)
+	}
+
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageNoRefresh", err)
 		return
 	}
+}
+
+func (s pageNoRefreshHandlers) GETStream(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	p := dpapp.PageNoRefresh{
+		App: s.app,
+	}
+	s.handleStreamRequest(w, r, evSubjPageNoRefresh,
+		nil,
+		nil,
+		func(
+			streamID datapages.StreamID,
+			sse *datastar.ServerSentEventGenerator, ch <-chan messaging.Message,
+		) {
+			defer s.recoverPanic(w, r, sse, "PageNoRefresh stream")
+			var eventPing dpapp.EventPing
+			for msg := range ch {
+				switch msg.Subject {
+				case EvSubjPing:
+					eventPing = dpapp.EventPing{}
+					if err := json.Unmarshal(msg.Data, &eventPing); err != nil {
+						s.LogErr("unmarshaling EventPing JSON", err)
+						continue
+					}
+					if err := p.OnPing(
+						eventPing,
+						dpsse.New(sse),
+					); err != nil {
+						s.LogErr("handling PageNoRefresh.OnPing", err)
+					}
+				}
+			}
+		})
 }

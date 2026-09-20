@@ -388,12 +388,8 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, genericHead, head, body, bodyAttrs, nil,
+		w, r, sess, genericHead, head, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageLogin", err)
 		return
@@ -507,12 +503,8 @@ func (s pageRegisterHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, genericHead, head, body, bodyAttrs, nil,
+		w, r, sess, genericHead, head, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageRegister", err)
 		return

@@ -10,7 +10,7 @@ description: >-
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-Methods on a page type (value receiver), or on `*App` for a route not tied to a page. One route doc comment each. A page action route must be under its page route: for `PageLogin` at `/login`, `/login/submit` is valid.
+Define a page action as a value-receiver method on its page type. Define an action not tied to a page as a method on `*App`. Give each action one route doc comment. A page action route must be below its page route. For example, `/login/submit` is valid for `PageLogin` at `/login`.
 
 ```go
 // POSTSubmit is /login/submit
@@ -22,7 +22,7 @@ func (*App) POSTSignOut(r *http.Request) error { return nil }
 
 ## Parameters
 
-Any order, matched by type. Names are free except `stateID`. Values sit in `.Values` where applicable.
+Parameters may appear in any order because the generator matches them by type. Names are unrestricted except for `stateID`. Read wrapped values from `.Values`.
 
 | type | what |
 | ---- | ---- |
@@ -37,11 +37,11 @@ Any order, matched by type. Names are free except `stateID`. Values sit in `.Val
 | `datapages.PageCacheWriter` | writes the offline page cache, see `datapages-offline` |
 | `datapages.Dispatcher[EventX]` | publishes `EventX`, see `datapages-events` |
 
-The name in a `Signals` field's `json` tag must match `[A-Za-z_][A-Za-z0-9_]*` and cannot contain `__`. `json:"-"` is invalid; omit the field to exclude it. Nested structs define signal paths.
+The name in a `Signals` field's `json` tag must match `[A-Za-z_][A-Za-z0-9_]*` and must not contain `__`. `json:"-"` is invalid. Omit a field to exclude it. Nested structs define signal paths.
 
 ## Return values
 
-`error` alone is valid. Otherwise pick from `datapages.Component`, `datapages.Head`, `datapages.Redirect`, `datapages.NewSession[Data]`, `datapages.CloseSession`. Return values may appear in any order.
+Returning only `error` is valid. Other supported return types are `datapages.Component`, `datapages.Head`, `datapages.Redirect`, `datapages.NewSession[Data]` and `datapages.CloseSession`. Return values may appear in any order.
 
 ```go
 ) (redirect datapages.Redirect, err error) {
@@ -49,9 +49,9 @@ The name in a `Signals` field's `json` tag must match `[A-Za-z_][A-Za-z0-9_]*` a
 }
 ```
 
-`Redirect.Status` defaults to 302 and is ignored for a Datastar request, which cannot follow an HTTP redirect and navigates by assigning `window.location`.
+`Redirect.Status` defaults to 302. Datastar requests ignore it because they cannot follow an HTTP redirect. They navigate by assigning `window.location`.
 
-**`datapages.SSE` and session mutation exclude each other.** Taking `sse` has already sent the response headers the cookie would travel in, so `newSession` and `closeSession` are rejected alongside it. `redirect` still works: it navigates through the stream.
+Do not combine `datapages.SSE` with session changes. An `sse` parameter causes the response headers to be sent before the handler runs, so the handler cannot set or delete the session cookie. The generator rejects `newSession` or `closeSession` with `sse`. A `redirect` still works because it uses the stream.
 
 ## SSE
 
@@ -67,7 +67,7 @@ The name in a `Signals` field's `json` tag must match `[A-Za-z_][A-Za-z0-9_]*` a
 | `Redirect(url)` | client-side navigation |
 | `Prefetch(urls...)` | speculation rules hint |
 
-A selector may not contain a line break. Prefer one fragment that carries its own context over several surgical patches. `...Prepend` and `...Append` cannot recover missed events; see delivery rules in `datapages-events`.
+A selector must not contain a line break. Prefer one complete fragment over several small targeted patches. `...Prepend` and `...Append` cannot recover missed events. See the delivery rules in `datapages-events`.
 
 ## Errors
 
@@ -79,11 +79,11 @@ return datapages.ErrConflict                              // 409
 return fmt.Errorf("%w: %w", datapages.ErrNotFound, err)   // 404, keeps err
 ```
 
-Any other error is 500. The response body is always the standard status text. Wrap at most one sentinel; with several, the first of `ErrBadRequest`, `ErrForbidden`, `ErrNotFound`, `ErrConflict` decides.
+Any other error returns 500. The response body is the standard status text. Wrap at most one sentinel. If an error contains several sentinels, the first of `ErrBadRequest`, `ErrForbidden`, `ErrNotFound` and `ErrConflict` sets the status.
 
 ## RecoverError
 
-An HTTP error on a Datastar request is invisible to the user: only the console shows it. Define this hook to patch an error UI instead.
+A Datastar request shows an HTTP error only in the console. Define this hook to patch an error message into the page.
 
 ```go
 func (*App) RecoverError(err error, sse datapages.SSE) error {
@@ -91,6 +91,8 @@ func (*App) RecoverError(err error, sse datapages.SSE) error {
 }
 ```
 
-Only a Datastar request reaches the hook. It receives every handler error, sentinels included. Tell them apart with `errors.Is`. A page load instead writes `PageError500` if the app defines one, otherwise a plain HTTP error if the response has not started. The hook writes an event stream, which a browser would render as the document.
+Only Datastar requests call this hook. It receives every handler error, including sentinels. Use `errors.Is` to identify sentinels. For a page load, Datapages renders `PageError500` if the app defines it. Otherwise it writes a plain HTTP error if the response has not started. The hook writes an event stream, so do not use it as a page response.
 
-A panic in a `GET`, an action, `StreamOpen` or an `On` handler arrives as `datapages.PanicError` carrying the value and the stack (`errors.As`). Datapages logs the stack before the hook runs and the request ends there. `StreamClose` runs after the response path. Its panics are only logged. An error returned from the hook itself is logged next to the original error and the response is left as written: an HTTP error would append plain text to the open SSE stream.
+A panic in a `GET`, action, `StreamOpen` or `On` handler becomes a `datapages.PanicError`. It contains the panic value and stack. Use `errors.As` to inspect it. Datapages logs the stack before it calls the hook, then ends the request.
+
+`StreamClose` runs after the response completes. Datapages logs its panics but does not call the hook. If the hook returns an error, Datapages logs that error with the original one and does not change the response. Writing an HTTP error at that point would append plain text to the open SSE stream.

@@ -212,12 +212,8 @@ func (s pageEnterHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		renderSess = created
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, renderSess, nil, body, bodyAttrs, nil,
+		w, r, renderSess, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageEnter", err)
 		return
@@ -258,12 +254,8 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, nil, body, bodyAttrs, nil,
+		w, r, sess, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -332,7 +324,6 @@ func (s pageNestedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
 
 		_, _ = io.WriteString(w, ` data-signals:foo.fuzz="'`)
 		htmlattr.WriteSignalString(w, query.Values.Fuzz)

@@ -233,6 +233,9 @@ func setupHandlers(s *Server) {
 		"GET /secret/{$}",
 		pageSecretHandlers{s}.GET)
 	s.Mux().HandleFunc(
+		"GET /sign-out-link/{$}",
+		pageSignOutLinkHandlers{s}.GET)
+	s.Mux().HandleFunc(
 		"GET /token/{$}",
 		pageTokenHandlers{s}.GET)
 	s.Mux().HandleFunc(
@@ -290,13 +293,9 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	genericHead := s.app.Head(sess, r)
-
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
 	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -350,12 +349,8 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(sess, r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
@@ -566,12 +561,8 @@ func (s pageLogHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(sess, r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageLog", err)
 		return
@@ -597,12 +588,8 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(sess, r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageLogin", err)
 		return
@@ -803,14 +790,45 @@ func (s pageSecretHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(sess, r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageSecret", err)
+		return
+	}
+}
+
+type pageSignOutLinkHandlers struct{ *Server }
+
+func (s pageSignOutLinkHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	sess, sessToken, ok := s.ReadSession(w, r)
+	if !ok {
+		return
+	}
+
+	p := dpapp.PageSignOutLink{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PageSignOutLink.GET")
+	body, closeSession, err := p.GET(r, sess)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PageSignOutLink.GET", err)
+		return
+	}
+	if closeSession {
+		closed, err := s.CloseSession(w, r, sessToken)
+		if err != nil {
+			s.httpErrIntern(w, r, nil, "removing session", err)
+			return
+		}
+		sess = closed
+	}
+	genericHead := s.app.Head(sess, r)
+
+	if err := s.writeHTML(
+		w, r, sess, genericHead, nil, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering PageSignOutLink", err)
 		return
 	}
 }
@@ -834,12 +852,8 @@ func (s pageTokenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(sess, r)
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, bodyAttrs, nil,
+		w, r, sess, genericHead, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageToken", err)
 		return

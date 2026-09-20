@@ -1,22 +1,22 @@
 ---
 name: datastar
 description: >-
-  Datastar data-* attribute and action reference for HTML and Templ templates:
-  signals, bindings, events, backend actions and their options.
-  Activate when writing template markup that uses Datastar.
+  Use Datastar data-* attributes and actions in HTML and Templ templates,
+  including signals, bindings, events, server actions and request options.
+  Use when writing template markup that uses Datastar.
 ---
 
 # Datastar
 
-Frontend reactivity through `data-*` attributes. Datapages serves v1.0.3 and manages the script tag and every SSE stream itself. Docs: https://data-star.dev/docs.md
+Datastar provides client-side reactivity through `data-*` attributes. Datapages serves Datastar v1.0.3 and manages its script tag and SSE streams. Docs: https://data-star.dev/docs.md
 
-Signals are reactive variables written `$name`. An expression is JavaScript with `$signal` substituted and `el` bound to the current element. Actions are `@name()` helpers, the only calls the sandbox allows.
+Signals are reactive variables written as `$name`. In an expression, Datastar replaces `$signal` references and binds `el` to the current element. The sandbox allows calls only to `@name()` action helpers.
 
-Use hyphens in signal keys: `data-signals:new-title` declares `$newTitle`. HTML lowercases attribute names, so `data-signals:newTitle` declares `$newtitle`. To preserve case without hyphens, put the name in an attribute value, as in `data-bind="newTitle"`.
+Use hyphens in signal keys. `data-signals:new-title` declares `$newTitle`. HTML lowercases attribute names, so `data-signals:newTitle` declares `$newtitle`. To preserve case without hyphens, put the name in an attribute value, as in `data-bind="newTitle"`.
 
-Signal keys occur in `data-bind:*`, `data-signals:*`, `data-computed:*`, `data-indicator:*` and `data-ref:*`. Other keys stay kebab-case. `__case.camel|kebab|snake|pascal` overrides the conversion: `data-on:widget-loaded__case.camel` listens for `widgetLoaded`. A signal name may not contain `__`.
+Signal keys occur in `data-bind:*`, `data-signals:*`, `data-computed:*`, `data-indicator:*` and `data-ref:*`. Other keys remain in kebab-case. Use `__case.camel|kebab|snake|pascal` to override conversion. For example, `data-on:widget-loaded__case.camel` listens for `widgetLoaded`. A signal name must not contain `__`.
 
-Attributes apply depth first in DOM order and are reapplied when a patch changes them. Morphing preserves attributes it does not touch.
+Datastar applies attributes depth first in DOM order. It applies them again when a patch changes them. Morphing preserves attributes that a patch does not change.
 
 ## Attributes
 
@@ -47,23 +47,47 @@ Attributes apply depth first in DOM order and are reapplied when a patch changes
 
 ## Actions
 
-`@get(url, opts)`, `@post`, `@put`, `@patch`, `@delete` send a fetch request. In a Datapages app they always come from the generated `action` package, see `datapages-templates`.
+`@get(url, opts)`, `@post`, `@put`, `@patch` and `@delete` send a fetch request. In a Datapages app, use them through the generated `action` package. See `datapages-templates`.
 
-`@peek(fn)` reads signals without subscribing to them. `@setAll(value, {include, exclude})` and `@toggleAll({include, exclude})` write every matching signal, the filters being regexes over signal paths.
+`@peek(fn)` reads signals without subscribing to them. `@setAll(value, {include, exclude})` and `@toggleAll({include, exclude})` write every matching signal. The filters are regular expressions over signal paths.
 
-Options: `contentType` (`json` sends the signals, `form` sends the closest form or the one named by `selector`), `filterSignals` (`{include, exclude}` regexes, `_`-prefixed signals excluded by default), `selector`, `headers`, `openWhenHidden` (false for GET, true otherwise), `payload`, `retry` (`auto` on network errors, `error` on 4xx/5xx, `always`, `never`), `retryInterval` 1000, `retryScaler` 2, `retryMaxWaitMs` 30000, `retryMaxCount` 10, `requestCancellation` (`auto` cancels an in-flight request from the same element, `cleanup` also cancels on element or attribute cleanup, `disabled`, or an `AbortController`).
+Request options:
 
-Responses dispatch on content type: `text/event-stream` (Datastar SSE events), `text/html` (patch elements), `application/json` (patch signals), `text/javascript` (execute).
+| option | values and effect |
+| --- | --- |
+| `contentType` | `json` sends signals; `form` sends the closest form or the form selected by `selector` |
+| `filterSignals` | `{include, exclude}` regular expressions; signals prefixed with `_` are excluded by default |
+| `selector` | selects the form for `contentType: form` |
+| `headers` | adds request headers |
+| `openWhenHidden` | defaults to false for GET and true for other methods |
+| `payload` | sets a request payload expression |
+| `retry` | `auto` for network errors, `error` for 4xx and 5xx, `always` or `never` |
+| `retryInterval` | defaults to 1000 ms |
+| `retryScaler` | defaults to 2 |
+| `retryMaxWaitMs` | defaults to 30000 ms |
+| `retryMaxCount` | defaults to 10 |
+| `requestCancellation` | `auto`, `cleanup`, `disabled` or an `AbortController` |
 
-Each request fires `datastar-fetch` events with `evt.detail.type` in `started`, `finished`, `error`, `retrying`, `retries-failed`.
+`auto` cancels an active request from the same element. `cleanup` also cancels the request when the element or attribute is removed.
+
+Datastar handles a response by content type:
+
+| content type | result |
+| --- | --- |
+| `text/event-stream` | applies Datastar SSE events |
+| `text/html` | patches elements |
+| `application/json` | patches signals |
+| `text/javascript` | executes the response |
+
+Each request fires `datastar-fetch` events. `evt.detail.type` is `started`, `finished`, `error`, `retrying` or `retries-failed`.
 
 ## Practice
 
-- Server state on the server, transient UI state in signals. Use signals sparingly and keep expressions to a single statement: logic belongs in Go.
-- Patch elements rather than signals, and trust the morph. One fragment that carries its context beats several surgical updates.
-- Escape anything a user typed before it reaches an attribute, or wrap it in `data-ignore`.
-- Never put a secret in a signal: signals travel to the backend and are readable in the browser.
-- `data-indicator` on the element that fetches gives a loading state without JS.
-- Navigate with an `<a href>`, not an action, and let the browser keep the history. Start from the default options and change one only for a reason.
+- Keep authoritative state on the server and transient UI state in signals. Use signals only when needed. Keep expressions to one statement and put application logic in Go.
+- Patch elements instead of signals. Prefer one complete fragment over several small targeted updates.
+- Escape user input before putting it in an attribute, or wrap it in `data-ignore`.
+- Never put a secret in a signal. The browser can read signals, and requests send them to the server.
+- Put `data-indicator` on the element that sends the request to show a loading state without JavaScript.
+- Navigate with `<a href>`, not an action, so the browser keeps its history. Use default request options unless a requirement needs a different value.
 
 A misused attribute logs `Uncaught datastar runtime error: <name>` with a link to a page explaining it.

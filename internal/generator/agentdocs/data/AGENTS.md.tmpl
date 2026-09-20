@@ -3,13 +3,9 @@
 
 # AGENTS.md
 
-This module is a [Datapages](https://github.com/romshark/datapages) application.
-You write Go handlers and Templ templates. `datapages gen` writes the server.
+This module is a [Datapages](https://github.com/romshark/datapages) application. You write Go handlers and Templ templates. `datapages gen` writes the server.
 
-Before writing code for a new app or a feature that has no constructs yet, read
-`{{.SkillsDir}}/datapages-architecture/SKILL.md`. It decides where a value
-lives, how a change reaches the browser and who owns a handler. The other
-skills say how to write what it picks.
+Before writing code for a new app or a feature that has no constructs yet, read `{{.SkillsDir}}/datapages-architecture/SKILL.md`. It decides where a value lives, how a change reaches the browser and who owns a handler. The other skills say how to write what it picks.
 
 | path | what |
 | ---- | ---- |
@@ -22,23 +18,16 @@ skills say how to write what it picks.
 {{- end}}
 | `datapages.yaml` | CLI and dev server settings. |
 
-Build loop: write the app model, run `datapages gen` to generate helpers, then
-`templ generate` after a `.templ` change, `datapages lint` and `go build ./...`.
-`datapages gen` also runs `go mod tidy`.
+Build loop: write the app model, run `datapages gen` to generate helpers, then `templ generate` after a `.templ` change, `datapages lint` and `go build ./...`. `datapages gen` also runs `go mod tidy`.
 
 Hard rules:
 
-- Never edit a `_gen.go` file, anything under `datapagesgen/`, or a file with a
-  `DO NOT EDIT` header. Change the source and regenerate.
-- Never hardcode an app-internal URL. Use the generated `href` package for
-  links and the generated `action` package for Datastar actions.
-- Never write JavaScript for application logic, open an SSE stream by hand, set
-  a CSRF header, add the Datastar script or register a service worker.
-- Submit forms through generated Datastar actions. Browser form submissions do
-  not carry the CSRF token.
+- Never edit a `_gen.go` file, anything under `datapagesgen/`, or a file with a `DO NOT EDIT` header. Change the source and regenerate.
+- Never hardcode an app-internal URL. Use the generated `href` package for links and the generated `action` package for Datastar actions.
+- Never write JavaScript for application logic, open an SSE stream by hand, set a CSRF header, add the Datastar script or register a service worker.
+- Submit forms through generated Datastar actions. Browser form submissions do not carry the CSRF token.
 
-Task instructions are in `{{.SkillsDir}}/<name>/SKILL.md`. Read the one that
-matches the task:
+Task instructions are in `{{.SkillsDir}}/<name>/SKILL.md`. Read the one that matches the task:
 
 | skill | read it when |
 | ----- | ------------ |

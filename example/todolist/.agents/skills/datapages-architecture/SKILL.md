@@ -1,22 +1,19 @@
 ---
 name: datapages-architecture
 description: >-
-  Datapages architecture decisions: where values live, how changes reach the
-  browser, who owns handlers, event subject scope and server topology. Use at
-  the start of an app and before other datapages skills when a feature's
-  constructs are not yet decided.
+  Plan a Datapages app or feature: choose where to store values, how to update
+  the browser, where to define handlers, how to scope event subjects and how
+  many server processes to run. Use before other Datapages skills when these
+  choices are not set.
 ---
 
 # Architecture
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-This skill chooses the Datapages constructs a feature needs. Ask the operator
-when a missing requirement would change that choice. Once decided, read the
-referenced skill before implementing that construct.
+Use this skill to choose the Datapages constructs a feature needs. Ask the operator when a missing requirement would change that choice. Then read the referenced skill before implementing the selected construct.
 
-Keep authoritative state on the server, separate reads from commands and send
-complete page updates instead of small DOM patches.
+Keep authoritative state on the server, separate reads from commands and send complete page updates instead of small DOM patches.
 
 ## New app
 
@@ -26,7 +23,7 @@ make up         # start the broker
 make dev        # datapages watch
 ```
 
-`init` scaffolds `PageIndex`, `PageError404`, `PageError500`, `Head` and `RecoverError`. It writes only missing files and deletes nothing, so rerunning it is safe.
+`init` creates `PageIndex`, `PageError404`, `PageError500`, `Head` and `RecoverError`. It writes only missing files and deletes nothing. You can run it again without overwriting existing files.
 
 Before the first page, decide:
 
@@ -55,13 +52,13 @@ Do not guess requirements that change the application model. Ask the operator wh
 
 Do not ask when the requirement is already explicit in the task or existing code.
 
-Use the smallest model that satisfies the requirements. Do not add sessions, events, `State[T]`, persistence or shared handlers for possible future use.
+Use the smallest model that satisfies the requirements. Add sessions, events, `State[T]`, persistence or shared handlers only when a current requirement needs them.
 
 ## Default architecture
 
 For server-backed interactive or real-time data, prefer Datastar's CQRS model:
 
-- the server is the source of truth;
+- the server stores authoritative state;
 - separate reads from commands;
 - long-lived SSE handlers provide reads;
 - short-lived actions are commands;
@@ -70,19 +67,15 @@ For server-backed interactive or real-time data, prefer Datastar's CQRS model:
 - prefer complete page updates over small DOM patches;
 - keep plain `GET` rendering correct.
 
-A command should normally mutate state and dispatch an event. The event says
-that something changed; it is not the authoritative state. Subscribers read
-the current state, render the page and send the result over SSE.
+A command should normally mutate state and dispatch an event. The event says that something changed; it is not the authoritative state. Subscribers read the current state, render the page and send the result over SSE.
 
-Render one template for each page and let Datastar update the changed DOM.
-Split templates into smaller components when useful. Do not add small DOM
-patches only to reduce transferred HTML. SSE streams use Brotli compression.
+Render one template for each page and let Datastar update the changed DOM. Split templates into smaller components when useful. Do not add small DOM patches only to reduce transferred HTML. SSE streams use Brotli compression.
 
-With CQRS, make each stream update contain enough current state to restore the correct UI after a missed event or interrupted connection. Prefer complete current state over incremental operations when missing an intermediate update would leave the client inconsistent.
+Each stream update must contain enough current state to restore the UI after a missed event or interrupted connection. Send complete current state when a missed incremental update would make the client incorrect.
 
-Avoid unnecessary server round-trips for interactions that can be made purely client-side, such as opening a menu, toggling a class or local field validation.
+Handle local interactions on the client. Examples include opening a menu, changing a class and validating a local field.
 
-## Where a value lives
+## Where to store a value
 
 Give each value one owner:
 
@@ -93,15 +86,15 @@ Give each value one owner:
 | One browser tab | `datapages.State[T]` | Reconnect starts zeroed. `StreamOpen` rebuilds it. |
 | Shareable URL state that survives reload | `Query` field with `reflectsignal` | Seeds the signal on load and rewrites the URL on change. |
 | Interaction-only state such as draft text or an open menu | Datastar signal | The server sees it when an action sends it. |
-| Derived value | Nowhere | Compute it. Two homes for one fact can diverge. |
+| Derived value | Nowhere | Compute it. Storing the same fact twice can create inconsistent values. |
 
 An `On` handler receives no request or signals. Put what it needs on the event or in `State[T]`.
 
-For example, a user-selected filter reaches `State[T]` through `StreamOpen` or the action that changes it. The event handler then renders using that state.
+For example, copy a user-selected filter into `State[T]` in `StreamOpen` or in the action that changes it. The event handler can then render from that state.
 
-`state.Values` is handler-scoped. Never retain its pointer, store it in `App` or use it from a goroutine. Copy needed values out.
+`state.Values` is valid only while the handler runs. Never retain its pointer, store it in `App` or use it from a goroutine. Copy the required values.
 
-## How a change reaches the browser
+## How to update the browser
 
 | change | use |
 | --- | --- |
@@ -110,16 +103,13 @@ For example, a user-selected filter reaches `State[T]` through `StreamOpen` or t
 | Authoritative state changed and open pages must update | Command mutates state and dispatches an event; `On` handlers read current state and render it. |
 | Navigate to another page | `href`, or `datapages.Redirect` from the action. |
 
-The acting tab subscribes like any other. A command that dispatches an event therefore rarely needs `SSE` too. Doing both usually sends the same state twice.
+The acting tab also receives subscribed events. A command that dispatches an event rarely needs `SSE`. Using both usually sends the same state twice.
 
-For server-rendered updates, render a complete DOM tree from current state.
-Avoid coordinating many small patches or client-side signal updates.
+For server-rendered updates, render a complete DOM tree from current state. Avoid coordinating many small patches or client-side signal updates.
 
-Shrink morph targets only for a measured reason. A complete HTML fragment is
-often simpler because Datastar preserves unchanged DOM while morphing the
-received tree.
+Shrink morph targets only for a measured reason. A complete HTML fragment is often simpler because Datastar preserves unchanged DOM while morphing the received tree.
 
-Events are notifications, not durable state. Delivery is at most once with no replay. A hidden tab, interrupted stream or full buffer can miss an event. Later renders must derive from authoritative state rather than depend on every previous event having arrived.
+Events are notifications, not durable state. Delivery is at most once and has no replay. A hidden tab, interrupted stream or full buffer can miss an event. Later renders must use authoritative state. They must not depend on every earlier event.
 
 Every page must also render correctly from a plain `GET`.
 
@@ -131,9 +121,9 @@ Every page must also render correctly from a plain `GET`.
 | Called from several pages | `*App`. An action has one absolute route, so embedding it twice conflicts. |
 | Shared `GET`, `On` or stream hook | A non-`Page` type with `App *App`, embedded in each page. |
 
-An app-level action stays stateless. It takes `State[T]` only if every calling page uses the same `T`; a mismatch returns 409.
+Keep an app action stateless unless every calling page uses the same `State[T]` type. A state type mismatch returns 409.
 
-If a shared action changes data that pages render differently, dispatch an event. Each page's `On` handler reads current state and renders its page.
+If pages render changed data differently, make the shared action dispatch an event. Each page's `On` handler reads current state and renders its own page.
 
 ## Event subject scope
 
@@ -144,19 +134,19 @@ If a shared action changes data that pages render differently, dispatch an event
 | One browser tab | `datapages.SubjectStateID` field populated from `stateID`. |
 | Watchers of one room or document | `datapages.Subject` field with a `signal` tag. |
 
-One dispatch targets one subject. To target several users, dispatch once per user; each dispatch can fail independently.
+One dispatch targets one subject. To target several users, dispatch once per user. Each dispatch can fail independently.
 
-An event with subject fields claims every subject below its own. Define the subject namespace before splitting an event into multiple event types.
+An event with subject fields claims every subject below its base subject. Define the subject namespace before splitting an event into several types.
 
-Prefer notification events when subscribers can read authoritative state. Put data on the event when the `On` handler needs that data to render and cannot recover it from its repository or `State[T]`.
+Use notification events when subscribers can read authoritative state. Put data on the event only when the `On` handler cannot read it from a repository or `State[T]`.
 
 An empty event is enough when every subscriber re-reads the repository.
 
 ## Multiple applications
 
-One Go module may contain multiple Datapages applications. Each has its own app package, `datapagesgen` package and entry point.
+One Go module may contain several Datapages applications. Each application has its own app package, `datapagesgen` package and entry point.
 
-Applications using the same broker share one event namespace. They must not claim the same subject. For cross-app events, declare the event type once in a shared package and use that type in both applications.
+Applications that use the same broker share one event namespace. They must not claim the same subject. For events shared across apps, declare the event type once in a shared package. Use that type in each application.
 
 Use:
 
@@ -168,7 +158,7 @@ when the module contains multiple applications.
 
 ## Server topology
 
-The app may run as one server process or multiple server processes. Determine this before choosing infrastructure or placing shared data.
+Determine whether the app will use one server process or several before you select infrastructure or store shared data.
 
 | component | single server | multiple servers |
 | --- | --- | --- |
@@ -179,7 +169,7 @@ The app may run as one server process or multiple server processes. Determine th
 
 The application model otherwise stays the same.
 
-`modules/sessions/inmem` holds sessions in memory and loses them on restart, which signs every user out. Its package documentation rules it out for production, single server included. `modules/messaging/inmem` carries events inside one process and loses only what is in flight, which the at-most-once delivery rules already cover.
+`modules/sessions/inmem` loses every session on restart and signs every user out. Do not use it in production, including on a single server. `modules/messaging/inmem` sends events only within one process. A restart loses only events in flight, which is consistent with at-most-once delivery.
 
 ## After changing the application model
 
@@ -191,20 +181,19 @@ Run:
 datapages gen
 ```
 
-`gen` validates the model exactly as `datapages lint` does, then writes the code. `lint` is the write-free variant for CI and editors.
+`gen` validates the model and writes generated code. `datapages lint` performs the same validation without writing files. Use it in CI and editors.
 
-Treat CLI errors as feedback about the application model. Fix the source declarations. Never edit `datapagesgen` directly.
+CLI errors identify invalid application declarations. Fix those declarations. Never edit `datapagesgen` directly.
 
 ## Defaults
 
 Use the construct with the fewest parts.
 
-For server-backed interactive or real-time state, the sane default is:
+For server-backed interactive or real-time state, use this default:
 
 `command -> mutate authoritative state -> dispatch event -> subscriber reads current state -> complete morph`
 
-A complete morph sends a DOM tree derived from current state, potentially the
-whole page, instead of coordinating fine-grained updates.
+A complete morph sends a DOM tree derived from current state, potentially the whole page, instead of coordinating fine-grained updates.
 
 Deviate when the requirements make a simpler or different model more suitable.
 

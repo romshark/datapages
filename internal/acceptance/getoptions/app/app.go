@@ -1,7 +1,7 @@
 // Package app exercises the values a GET handler may return besides its body.
 //
 // Each one changes the response, not the page. A redirect leaves the page unrendered.
-// The two streaming flags decide whether the document carries the
+// The two streaming flags decide whether a page with a stream carries the
 // attribute that reloads it when the tab becomes visible again.
 package app
 
@@ -19,13 +19,34 @@ func echo(s string) datapages.Component {
 	return templ.Raw("<pre id=\"echo\">" + s + "</pre>")
 }
 
+// EventPing is "ping"
+//
+// Its only purpose is to give a page a stream.
+type EventPing struct {
+	N int `json:"n"`
+}
+
 // PageIndex is /
 //
-// The plain shape. Its body carries the reload attribute the other pages switch off.
+// The plain shape. Without a stream it misses no event and does not reload.
 type PageIndex struct{ App *App }
 
 func (PageIndex) GET(_ *http.Request) (body datapages.Component, err error) {
 	return echo("index"), nil
+}
+
+// PageLive is /live
+//
+// A page whose stream closes with the tab. It reloads to render the events
+// missed while it was hidden.
+type PageLive struct{ App *App }
+
+func (PageLive) GET(_ *http.Request) (body datapages.Component, err error) {
+	return echo("live"), nil
+}
+
+func (PageLive) OnPing(event EventPing, sse datapages.SSE) error {
+	return sse.PatchElement(echo("ping"))
 }
 
 // PageGone is /gone
@@ -72,6 +93,10 @@ func (PageBackground) GET(_ *http.Request) (
 	return echo("background"), true, nil
 }
 
+func (PageBackground) OnPing(event EventPing, sse datapages.SSE) error {
+	return sse.PatchElement(echo("ping"))
+}
+
 // PageNoRefresh is /no-refresh
 //
 // A page that must not reload itself when the tab becomes visible again.
@@ -83,4 +108,8 @@ func (PageNoRefresh) GET(_ *http.Request) (
 	err error,
 ) {
 	return echo("no refresh"), true, nil
+}
+
+func (PageNoRefresh) OnPing(event EventPing, sse datapages.SSE) error {
+	return sse.PatchElement(echo("ping"))
 }

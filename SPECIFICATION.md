@@ -801,7 +801,7 @@ Valid only on `GET`.
 enableBackgroundStreaming datapages.EnableBackgroundStreaming
 ```
 
-If `true`, keeps the SSE stream open while the tab is hidden. This permits `OnXXX` updates and increases client resource use.
+If `true`, keeps the SSE stream open while the tab is hidden. This permits `OnXXX` updates and increases client resource use. Returning it from the `GET` of a page without a stream is an error.
 
 Equivalent to Datastar's [`openWhenHidden`](https://data-star.dev/reference/actions).
 
@@ -817,7 +817,7 @@ Valid only on `GET`.
 disableRefreshAfterHidden datapages.DisableRefreshAfterHidden
 ```
 
-By default, Datapages refreshes a page when its tab becomes visible again. Returning `true` disables this refresh. Events missed while the tab was hidden may leave the page stale; see [Event delivery](#event-delivery).
+Datapages refreshes a page that has a stream when its tab becomes visible again, which renders the events the closed stream missed. Returning `true` disables that refresh and may leave the page stale; see [Event delivery](#event-delivery). A page without a stream never refreshes and returning this value from its `GET` is an error.
 
 Refresh uses the [`visibilitychange`](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event) event.
 

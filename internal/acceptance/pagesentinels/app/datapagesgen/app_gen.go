@@ -196,12 +196,8 @@ func (s pageBadHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageBad", err)
 		return
@@ -221,12 +217,8 @@ func (s pageConflictHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageConflict", err)
 		return
@@ -246,12 +238,8 @@ func (s pageDeniedHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageDenied", err)
 		return
@@ -271,12 +259,8 @@ func (s pageGoneHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageGone", err)
 		return
@@ -301,12 +285,8 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -326,12 +306,8 @@ func (s pagePlainHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyAttrs := func(w http.ResponseWriter) {
-		httpserve.WriteReloadOnVisibility(w)
-	}
-
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, body, nil, nil,
 	); err != nil {
 		s.LogErr("rendering PagePlain", err)
 		return

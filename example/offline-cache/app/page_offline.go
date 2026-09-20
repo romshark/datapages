@@ -12,10 +12,6 @@ import (
 // that have no cached copy while the browser is offline.
 type PageOffline struct{ App *App }
 
-func (PageOffline) GET(r *http.Request) (
-	body datapages.Component,
-	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
-	err error,
-) {
-	return pageOffline(), true, nil
+func (PageOffline) GET(r *http.Request) (body datapages.Component, err error) {
+	return pageOffline(), nil
 }

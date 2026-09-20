@@ -203,11 +203,13 @@ type CloseSession bool
 // EnableBackgroundStreaming is returned by GET handlers to keep the page's SSE
 // stream open while its browser tab sits in the background.
 // The zero value lets the browser close the stream with the tab.
+// Only a page that has a stream may return it.
 type EnableBackgroundStreaming bool
 
 // DisableRefreshAfterHidden is returned by GET handlers to stop the page from
 // reloading when its browser tab comes back to the foreground.
-// The zero value refreshes, which brings a stale page up to date.
+// The zero value refreshes, which renders the events the closed stream missed.
+// Only a page that has a stream refreshes and may return it.
 type DisableRefreshAfterHidden bool
 
 // Session is the authenticated session of the client, passed to handlers as the

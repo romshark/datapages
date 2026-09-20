@@ -22,13 +22,12 @@ func (PageLogin) GET(
 ) (
 	body datapages.Component,
 	redirect datapages.Redirect,
-	disableRefreshAfterHidden datapages.DisableRefreshAfterHidden,
 	err error,
 ) {
 	if !session.IsGuest() {
 		return nil, datapages.Redirect{
 			URL: href.PageIndex(href.QueryPageIndex{}),
-		}, false, nil
+		}, nil
 	}
 
 	// Only guests reach this snapshot, so its session-specific version is stable.
@@ -39,7 +38,7 @@ func (PageLogin) GET(
 			ver,
 		)
 	}
-	return pageLogin(false, query.Values.Next), datapages.Redirect{}, true, nil
+	return pageLogin(false, query.Values.Next), datapages.Redirect{}, nil
 }
 
 // POSTSubmit is /login/submit
