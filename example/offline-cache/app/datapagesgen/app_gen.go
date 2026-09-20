@@ -645,13 +645,13 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
-	sess, _, ok := s.ReadSession(w, r)
-	if !ok {
+	if r.URL.Path != "/" {
+		s.render404(w, r)
 		return
 	}
 
-	if r.URL.Path != "/" {
-		s.render404(w, r)
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
 		return
 	}
 
@@ -685,7 +685,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
 			if ($q) params.set('q', $q); else params.delete('q');
 			const query = params.toString();
-			window.history.replaceState(null, '', query ? '/?' + query : '/');
+			window.history.replaceState(null, '', (query ? '/?' + query : '/') + location.hash);
 		"`)
 	}
 
