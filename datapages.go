@@ -284,7 +284,8 @@ func MakeSession[Data any](
 //		}, datapages.Redirect{URL: href.PageIndex()}, nil
 //	}
 //
-// A zero UserID is a no-op, no session is created.
+// A zero UserID is a no-op, no session is created. The session the request
+// arrived with is closed, which ends its streams.
 type NewSession[Data any] struct {
 	// UserID identifies the authenticated user.
 	UserID string

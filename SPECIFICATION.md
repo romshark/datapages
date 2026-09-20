@@ -632,7 +632,7 @@ See [datapages.go](datapages.go) for field definitions.
 newSession datapages.NewSession[Data]
 ```
 
-Signs in a client when `UserID` is nonempty; otherwise it is a no-op. Datapages generates the token and issuance time. The handler supplies `UserID`, optional `ExpiresAt`, and `Data`. See [datapages.go](datapages.go).
+Signs in a client when `UserID` is nonempty; otherwise it is a no-op. Datapages generates the token and issuance time. The handler supplies `UserID`, optional `ExpiresAt`, and `Data`. The session the request arrived with is closed first, which ends its streams. See [datapages.go](datapages.go).
 
 `ExpiresAt` becomes the `Max-Age` and `Expires` of the session cookie; a zero `ExpiresAt` writes a cookie the browser drops when it closes. The session record stays in the store either way.
 

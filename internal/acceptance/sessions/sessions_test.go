@@ -374,6 +374,37 @@ func TestSignInAndOut(t *testing.T) {
 	})
 }
 
+// TestSecondSignInClosesTheFirstSession tests signing in again on a cookie
+// that still names a live session.
+//
+// The response overwrites the cookie. A record left behind stays valid for
+// whoever holds the old token, and with a zero ExpiresAt nothing collects it.
+func TestSecondSignInClosesTheFirstSession(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+		c := srv.client(t)
+
+		c.signIn(t, "alice", "Al")
+		first := c.sessionToken(t)
+
+		// signIn sends no CSRF token, which an action of a signed-in visitor needs.
+		status, body := c.post(t, "/login/submit/", `{"user":"bob","nickname":"Bo"}`)
+		require.Equal(t, http.StatusOK, status, "%s", body)
+		require.NotEqual(t, first, c.sessionToken(t), "the token was reused")
+
+		_, _, ok, err := srv.sessions.ReadSessionFromCookie(first)
+		require.NoError(t, err)
+		require.False(t, ok, "alice's session outlived the sign-in that replaced it")
+
+		c.setSessionCookie(t, first)
+		status, body = c.get(t, "/")
+		require.Equal(t, http.StatusOK, status, "%s", body)
+		require.Equal(t, "anonymous", echoed(t, body),
+			"the replaced token still names a session")
+	})
+}
+
 // TestSignOutOnGET tests a page GET that closes the session, which is what a
 // sign-out reached by a plain navigation rather than by an action does.
 func TestSignOutOnGET(t *testing.T) {
