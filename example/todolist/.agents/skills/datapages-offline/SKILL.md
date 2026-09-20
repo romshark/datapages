@@ -172,8 +172,8 @@ The generated code picks how queued writes reach the worker from the handler sig
 | ------- | -------- |
 | `GET` | baked into the page's HTML, applied on load, no extra request |
 | action taking `sse` | sent over that stream |
-| action returning `redirect` | carried in its `text/javascript` response, applied **before** the navigation; chosen even when the action also returns a body |
+| action returning `redirect` | carried in its `text/javascript` response; the navigation waits for the worker to acknowledge the apply, at most 500ms. Chosen even when the action also returns a body |
 | action returning only a body | baked into the document it renders |
 | action returning neither | sent over an SSE stream opened for that purpose, readable only by a Datastar request |
 
-`newSession` and `closeSession` cannot be combined with `sse`. Sign-in and sign-out therefore take `pageCache` and return a `redirect`, which applies their writes before the navigation runs.
+`newSession` and `closeSession` cannot be combined with `sse`. Sign-in and sign-out therefore take `pageCache` and return a `redirect`. The navigation waits for the worker to acknowledge the apply, at most 500ms, which keeps a `ClearAll` from being raced by the destination's own cache lookup.

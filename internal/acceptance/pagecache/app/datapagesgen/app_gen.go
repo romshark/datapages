@@ -280,9 +280,12 @@ func (c *pageCacheWriter) bakeInto(body datapages.Component) datapages.Component
 
 // redirectScript returns JavaScript that delivers the queued writes to the worker
 // and then navigates to target. Used by redirect-returning actions, whose response
-// is a text/javascript body rather than an SSE stream. The navigation runs only
-// after the message is posted. A ClearAll on sign-in or sign-out is not lost to
-// the page unload.
+// is a text/javascript body rather than an SSE stream.
+//
+// The navigation waits for the worker to acknowledge that it applied the writes,
+// since the destination is served by that same worker and would otherwise race
+// the apply. A sign-out ClearAll losing that race serves the signed-in copy.
+// The 500ms timeout covers a worker too old to reply.
 func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 	tj, err := json.Marshal(target)
 	if err != nil {
@@ -305,9 +308,11 @@ func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 	b.WriteString("var done=false,once=function(){if(!done){done=true;go();}};")
 	b.WriteString("navigator.serviceWorker.ready.then(function(reg){")
 	b.WriteString("var w=reg.active||navigator.serviceWorker.controller;")
-	b.WriteString("if(w)w.postMessage(")
+	b.WriteString("if(!w){once();return;}")
+	b.WriteString("var ch=new MessageChannel();ch.port1.onmessage=once;")
+	b.WriteString("w.postMessage(")
 	b.WriteString(payload)
-	b.WriteString(");once();},once);setTimeout(once,500);})();")
+	b.WriteString(",[ch.port2]);},once);setTimeout(once,500);})();")
 	return b.String(), nil
 }
 

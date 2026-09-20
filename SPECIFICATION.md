@@ -541,9 +541,10 @@ The same rules apply to a page method and to an action declared on `App`:
   page's HTML; the service worker applies them on load, adding no extra request.
 - On an **action taking `sse`** they are delivered over that stream.
 - On an **action returning a redirect** they are carried in its `text/javascript`
-  response and handed to the worker before the navigation runs,
-  which keeps them from being lost to the page unload. This is chosen even when
-  the action can also return a body.
+  response. The navigation waits for the worker to acknowledge that it applied
+  them, which keeps them from being lost to the page unload and from racing the
+  lookup the destination performs. A worker too old to acknowledge is covered by
+  a 500ms timeout. This is chosen even when the action can also return a body.
 - On an **action returning only a body** they are baked into the document it
   renders, the way a `GET` does.
 - On an **action returning neither** they go over an SSE stream the framework
@@ -989,8 +990,9 @@ responds:
   them to the worker after load.
 - Action opening an SSE stream: they are sent over that stream.
 - Action returning a redirect: they are carried in its `text/javascript` response
-  and handed to the worker before the navigation runs, so they are not lost to the
-  page unload.
+  and the navigation waits for the worker to acknowledge the apply, at most
+  500ms. They are then neither lost to the page unload nor raced by the
+  destination's own cache lookup.
 
 The worker applies a request's `Set`, `Clear` and `ClearAll` calls together, once
 the handler returns without error. `Set` writes or overwrites one entry, `Clear`

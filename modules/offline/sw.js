@@ -65,20 +65,27 @@ self.addEventListener('activate', function (e) {
 self.addEventListener('message', function (e) {
   const d = e.data || {};
   if (d.type !== 'datapages-offline:apply') return;
+  // A sender that navigates once the writes are in place sends a port to reply on.
+  // postMessage alone only queues the message.
+  const port = e.ports && e.ports[0];
   e.waitUntil((async function () {
-    const cache = await caches.open(CACHE);
-    if (d.clearAll) {
-      const reqs = await cache.keys();
-      await Promise.all(reqs.map(function (req) { return cache.delete(req); }));
-    }
-    for (const url of (d.clears || [])) await cache.delete(url);
-    for (const s of (d.sets || [])) {
-      const headers = {
-        'Content-Type': 'text/html; charset=utf-8',
-      };
-      headers[OFFLINE_VERSION_HEADER] = String(s.version);
-      if (s.shim) headers[SHIM_HEADER] = '1';
-      await cache.put(s.url, new Response(s.html, { status: 200, headers: headers }));
+    try {
+      const cache = await caches.open(CACHE);
+      if (d.clearAll) {
+        const reqs = await cache.keys();
+        await Promise.all(reqs.map(function (req) { return cache.delete(req); }));
+      }
+      for (const url of (d.clears || [])) await cache.delete(url);
+      for (const s of (d.sets || [])) {
+        const headers = {
+          'Content-Type': 'text/html; charset=utf-8',
+        };
+        headers[OFFLINE_VERSION_HEADER] = String(s.version);
+        if (s.shim) headers[SHIM_HEADER] = '1';
+        await cache.put(s.url, new Response(s.html, { status: 200, headers: headers }));
+      }
+    } finally {
+      if (port) port.postMessage(true);
     }
   })());
 });

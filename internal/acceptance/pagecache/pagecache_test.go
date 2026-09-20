@@ -103,6 +103,10 @@ func TestRedirectCarriesWritesBeforeNavigating(t *testing.T) {
 	require.Contains(t, resp.Body, `function(){window.location="/";}`,
 		"the navigation is deferred behind a function, which is what keeps the"+
 			" writes from being lost to the unload")
+	require.Contains(t, resp.Body, "ch.port1.onmessage=once",
+		"the navigation waits for the worker to acknowledge the apply")
+	require.Contains(t, resp.Body, "setTimeout(once,500)",
+		"a worker too old to acknowledge does not strand the navigation")
 }
 
 func TestUnclaimedURLBakesQueuedWrites(t *testing.T) {
