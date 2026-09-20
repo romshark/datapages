@@ -4,7 +4,7 @@ A minimal auth demo that implements [`sessions.Manager`](../../modules/sessions/
 
 https://github.com/user-attachments/assets/d34b57f5-e24b-4274-8357-e4122b32d541
 
-The interface implementation lives in [`app/sessionstore/sessionstore.go`](./app/sessionstore/sessionstore.go). It provides the four methods the framework calls (`ReadSessionFromCookie`, `CreateSession`, `CloseSession`, `NotifyClosed`).
+The interface implementation lives in [`app/sessionstore/sessionstore.go`](./app/sessionstore/sessionstore.go). It implements the five `sessions.Manager` methods: `ReadSessionFromCookie`, `CreateSession`, `CloseSession`, `NotifyClosed` and `DeleteExpired`. The application schedules `DeleteExpired` in [`cmd/server/main.go`](./cmd/server/main.go); the framework does not call it.
 
 ## Run
 

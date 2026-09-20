@@ -1,13 +1,10 @@
 # Contributing to Datapages
 
-Thank you for your interest in contributing to Datapages!
-This guide will help you get started.
+Thank you for your interest in contributing to Datapages! This guide will help you get started.
 
 ## Reporting Bugs
 
-If you find a bug, please
-[open an issue](https://github.com/romshark/datapages/issues)
-and include:
+If you find a bug, please [open an issue](https://github.com/romshark/datapages/issues) and include:
 
 - A clear description of the problem.
 - Steps to reproduce the issue.
@@ -17,11 +14,7 @@ and include:
 
 ## Proposing Changes
 
-Before starting work on a new feature or significant change,
-please [open an issue](https://github.com/romshark/datapages/issues)
-first to discuss your idea. This helps avoid duplicate effort
-and ensures your contribution aligns with the project's direction.
-Bug fixes and small improvements can go straight to a pull request.
+Before starting work on a new feature or significant change, please [open an issue](https://github.com/romshark/datapages/issues) first to discuss your idea. This helps avoid duplicate effort and ensures your contribution aligns with the project's direction. Bug fixes and small improvements can go straight to a pull request.
 
 ## Getting Started
 
@@ -32,9 +25,7 @@ Bug fixes and small improvements can go straight to a pull request.
 5. Commit and push your branch.
 6. Open a pull request against `main`.
 
-For development setup and commands, see [Development](#development) below.
-For code style, testing conventions and commit message format,
-see [AGENTS.md](AGENTS.md).
+For development setup and commands, see [Development](#development) below. For code style, testing conventions and commit message format, see [AGENTS.md](AGENTS.md).
 
 ## Development
 
@@ -62,10 +53,9 @@ mage genAISkills   # Generate the AI agent instructions of every example
 mage genDocs       # Generate documentation pages
 mage checkGen      # Check that all generated code is current
 mage goFix         # Run go fix on all modules
-mage all           # Run everything
+mage all           # Run fmt, modTidy, genTempl, genDocs, test and vulncheck
 ```
 
 ## License
 
-By contributing, you agree that your contributions will be
-licensed under the [MIT License](LICENSE).
+By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).

@@ -16,10 +16,6 @@
 > **Alpha Software:** Datapages is still in early development.
 > APIs are subject to change and you may encounter bugs.
 
-> [!NOTE]
-> **v0.10 is coming** with API improvements, stateful pages,
-> service worker support, multi-app modules and more!
-
 A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) web framework for building dynamic, server-rendered web applications in pure Go.
 
 **Focus on your business logic, generate the boilerplate** Datapages parses your app source package and generates all the wiring. Routing, sessions and authentication, SSE streams, per-tab server-side state, CSRF protection, type-safe URL and action helpers, Prometheus metrics - so your application code stays clean and takes full advantage of Go's strong static typing and high performance.
@@ -198,7 +194,7 @@ Datapages ships pluggable modules with swappable implementations:
   - [`natscore`](https://pkg.go.dev/github.com/romshark/datapages/modules/messaging/natscore) - Core NATS backed message broker
   - [`inmem`](https://pkg.go.dev/github.com/romshark/datapages/modules/messaging/inmem) - In-memory fan-out message broker (single-instance only)
 - [`TokenWriter`, `TokenValidator`](modules/csrf/csrf.go)
-  - [`Tokens`](modules/csrf/tokens.go) - the built-in default: HKDF-SHA256 over the session token, BREACH-resistant masking, nothing to configure
+  - [`Tokens`](modules/csrf/tokens.go) - the built-in default: HMAC-SHA256 over the session token under a fixed domain-separator key, BREACH-resistant masking, nothing to configure
 - [`TokenGenerator`](modules/sessions/sessions.go)
 
 ## Motivation
