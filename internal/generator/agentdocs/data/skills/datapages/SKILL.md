@@ -40,6 +40,19 @@ Use Templ `v0.3.1020`, which the generated CI workflow pins. Use `datapages watc
 - Do not put build-constrained files in the app package. The generator reads pages, actions and events for the current platform. A platform-specific declaration can therefore be missing from code generated on another platform.
 - Prefer one complete HTML fragment over many small patches or signal updates. Keep authoritative state on the server. Use signals for transient client state.
 
+## Security
+
+Datapages routes the request, hands the handler its session and escapes what Templ and the `href`, `action` and subject helpers write. The rest is on the application code:
+
+- **Authorization.** The session says who the visitor is, never what they may see or do. Return `datapages.ErrForbidden` for authorization errors, wrapped or bare. The error message is logged.
+- **Values in Datastar attributes.** The browser decodes the HTML escaping before the expression is parsed. Encode with `json.Marshal`, never with `fmt.Sprintf("'%s'", v)`. See `datapages-templates`.
+- **`templ.Raw`.** Writes markup verbatim. Pass only markup the server built.
+- **Hand-built URLs and subjects.** `href.PageX()` and a `datapages.Subject` field escape their values. A string you concatenate does not.
+
+A value Templ interpolates into text or into an attribute is already escaped. Escaping it again shows the escape sequence to the visitor.
+
+`SECURITY.md` in the Datapages repository carries the full list, including what belongs to the deployment.
+
 ## Naming
 
 The parser reads names and doc comments. Both decide behaviour.

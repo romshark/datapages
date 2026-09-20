@@ -15,9 +15,10 @@ type App struct{}
 func NewApp() *App { return &App{} }
 
 var (
-	errInvalidNum = errors.New("invalid num parameter")
-	errInvalidBtn = errors.New("invalid btn parameter")
-	numRe         = regexp.MustCompile(`^-?\d*\.?\d+$`)
+	errInvalidNum   = errors.New("invalid num parameter")
+	errInvalidBtn   = errors.New("invalid btn parameter")
+	errInvalidInput = errors.New("invalid input signal")
+	numRe           = regexp.MustCompile(`^-?\d*\.?\d+$`)
 )
 
 func (*App) Head(_ *http.Request) datapages.Head { return head() }
@@ -42,6 +43,9 @@ func (PageIndex) POSTInput(
 		Fresh bool   `json:"fresh"`
 	}],
 ) error {
+	if !calc.ValidInput(signals.Values.Input) {
+		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, errInvalidInput)
+	}
 	if query.Values.Num != "" {
 		if !numRe.MatchString(query.Values.Num) {
 			return fmt.Errorf("%w: %w", datapages.ErrBadRequest, errInvalidNum)
