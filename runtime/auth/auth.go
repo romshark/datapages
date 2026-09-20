@@ -139,8 +139,7 @@ const (
 // state-changing Datastar fetch of the page. It writes nothing for a guest
 // (empty userID) and when CSRF protection is off.
 //
-// cspNonce is written as the nonce attribute of the script, empty for none.
-// It's escaped by the caller.
+// cspNonce must be HTML escaped. An empty value omits the nonce attribute.
 //
 // The token goes into a JavaScript string literal unescaped.
 // It must not contain ', \ or a line break.

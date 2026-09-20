@@ -128,8 +128,7 @@ func TestWithAssetsCache(t *testing.T) {
 	}
 }
 
-// TestWithCSPNonce tests that the option stores the function and rejects nil,
-// which would leave nonce mode on with nothing to write.
+// TestWithCSPNonce tests that the option stores its callback and rejects nil.
 func TestWithCSPNonce(t *testing.T) {
 	t.Parallel()
 

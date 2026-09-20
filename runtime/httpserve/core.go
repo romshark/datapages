@@ -78,7 +78,7 @@ type Core struct {
 	htmlPrefix       string
 	htmlHead         string
 	htmlDatastar     string
-	datastarJSSrcEsc string // escaped, reused by the nonce variant
+	datastarJSSrcEsc string
 	cspNonce         func(*http.Request) string
 	bodySizeLimit    int64
 	shutdownTimeout  time.Duration
@@ -310,9 +310,8 @@ func (c *Core) CheckSameOrigin(w http.ResponseWriter, r *http.Request) (ok bool)
 // ShutdownCh is closed when the shutdown begins.
 func (c *Core) ShutdownCh() <-chan struct{} { return c.shutdownCh }
 
-// HTMLPrefix is the head of a page up to the Datastar script tag.
-// The document prologue, kept in pieces so that the nonce variant can be
-// composed per request without repeating the markup.
+// htmlDoctype and htmlHeadStart keep the prologue in pieces so
+// [Core.htmlOpening] can add a nonce without duplicating the markup.
 const (
 	htmlDoctype   = "<!DOCTYPE html>"
 	htmlHeadStart = `<head><meta charset="UTF-8"/>`
@@ -340,7 +339,7 @@ func (c *Core) ScriptTagOpen(r *http.Request) string {
 
 // htmlOpening returns the prologue up to the head and the Datastar script tag.
 // Both include the CSP nonce of r when one is configured.
-// Datastar reads the nonce off the html element and compiles its expressions with it.
+// Datastar reads the nonce from the html element and compiles its expressions with it.
 func (c *Core) htmlOpening(r *http.Request) (head, datastarScript string) {
 	nonce := c.CSPNonce(r)
 	if nonce == "" {
@@ -351,6 +350,7 @@ func (c *Core) htmlOpening(r *http.Request) (head, datastarScript string) {
 			c.datastarJSSrcEsc + `"></script>`
 }
 
+// HTMLPrefix is the head of a page up to the Datastar script tag.
 func (c *Core) HTMLPrefix() string { return c.htmlPrefix }
 
 // HTMLHead is [Core.HTMLPrefix] up to, but excluding, the Datastar script tag.
