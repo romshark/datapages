@@ -7,7 +7,7 @@ replace github.com/romshark/datapages => ../../../
 // Required by Datapages
 require (
 	github.com/a-h/templ v0.3.1020
-	github.com/nats-io/nats.go v1.53.1
+	github.com/nats-io/nats.go v1.54.0
 	github.com/romshark/datapages v0.9.4
 	github.com/starfederation/datastar-go v1.2.2
 	github.com/stretchr/testify v1.12.1
@@ -15,7 +15,7 @@ require (
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
-	github.com/Azure/go-ansiterm v0.0.0-20260914234754-15785f84ba1c // indirect
+	github.com/Azure/go-ansiterm v0.0.0-20260917205352-e937bb47801a // indirect
 	github.com/CAFxX/httpcompression v0.0.9 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/andybalholm/brotli v1.2.4 // indirect

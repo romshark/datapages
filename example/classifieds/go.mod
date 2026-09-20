@@ -7,7 +7,7 @@ replace github.com/romshark/datapages => ../../
 // Required by Datapages
 require (
 	github.com/a-h/templ v0.3.1020
-	github.com/nats-io/nats.go v1.53.1
+	github.com/nats-io/nats.go v1.54.0
 	// Required by the demo application
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/prometheus/client_golang v1.24.1

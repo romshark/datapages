@@ -7,7 +7,7 @@ require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/fatih/color v1.19.0
 	github.com/mattn/go-isatty v0.0.24
-	github.com/nats-io/nats.go v1.53.1
+	github.com/nats-io/nats.go v1.54.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/romshark/templier v0.12.1
 	github.com/romshark/yamagiconf v1.1.1
@@ -22,7 +22,7 @@ require (
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
-	github.com/Azure/go-ansiterm v0.0.0-20260914234754-15785f84ba1c // indirect
+	github.com/Azure/go-ansiterm v0.0.0-20260917205352-e937bb47801a // indirect
 	github.com/CAFxX/httpcompression v0.0.9 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/a-h/parse v0.0.0-20250122154542-74294addb73e // indirect
@@ -31,7 +31,7 @@ require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymanbagabas/go-udiff v0.4.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
+	github.com/bmatcuk/doublestar/v4 v4.10.2 // indirect
 	github.com/catppuccin/go v0.3.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -54,7 +54,7 @@ require (
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-connections v0.8.1 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/ebitengine/purego v0.11.0 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
@@ -64,8 +64,8 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
-	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-playground/validator/v10 v10.30.4 // indirect
+	github.com/go-playground/universal-translator v0.18.2 // indirect
+	github.com/go-playground/validator/v10 v10.30.5 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
