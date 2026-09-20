@@ -72,3 +72,28 @@ func TestFormatDisplay(t *testing.T) {
 		})
 	}
 }
+
+// TestValidInput tests the alphabet a server accepts back from the client.
+// The input signal round-trips through the browser and lands in a
+// data-signals attribute, where an apostrophe would end the JavaScript string.
+func TestValidInput(t *testing.T) {
+	for name, tt := range map[string]struct {
+		input string
+		want  bool
+	}{
+		"empty":      {input: "", want: true},
+		"digits":     {input: "1234567890", want: true},
+		"expression": {input: "(1.5+2)×3÷4-5", want: true},
+		"apostrophe": {input: "1');alert(1);('", want: false},
+		"letter":     {input: "1e5", want: false},
+		"space":      {input: "1 + 2", want: false},
+		"asterisk":   {input: "1*2", want: false},
+		"less_than":  {input: "<script>", want: false},
+		"nul":        {input: "1\x002", want: false},
+		"combining":  {input: "1́", want: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tt.want, ValidInput(tt.input))
+		})
+	}
+}

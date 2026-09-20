@@ -85,7 +85,7 @@ Each request fires `datastar-fetch` events. `evt.detail.type` is `started`, `fin
 
 - Keep authoritative state on the server and transient UI state in signals. Use signals only when needed. Keep expressions to one statement and put application logic in Go.
 - Patch elements instead of signals. Prefer one complete fragment over several small targeted updates.
-- Escape user input before putting it in an attribute, or wrap it in `data-ignore`.
+- Encode a value with `json.Marshal` before putting it in an attribute, or wrap the element in `data-ignore`. The browser decodes Templ's escaping before the expression is parsed, hence an apostrophe in the value ends the string and what follows runs as script.
 - Never put a secret in a signal. The browser can read signals, and requests send them to the server.
 - Put `data-indicator` on the element that sends the request to show a loading state without JavaScript.
 - Navigate with `<a href>`, not an action, so the browser keeps its history. Use default request options unless a requirement needs a different value.

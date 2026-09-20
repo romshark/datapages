@@ -1,12 +1,21 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/romshark/datapages/example/calculator/app/calc"
 	"github.com/romshark/datapages/example/calculator/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/calculator/app/datapagesgen/assets"
 )
+
+// jsStr returns a JSON-encoded string, safe for use in data-signals attributes.
+// templ escapes the attribute, the browser decodes it before Datastar
+// evaluates the expression, hence an apostrophe would end the string.
+func jsStr(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
 
 type button struct {
 	Class string
@@ -77,7 +86,7 @@ templ pageCalculator(input string, fresh bool) {
 	<div
 		id="page-calculator"
 		class="card"
-		data-signals:input={ fmt.Sprintf("'%s'", input) }
+		data-signals:input={ jsStr(input) }
 		data-signals:fresh={ fmt.Sprintf("%t", fresh) }
 		data-on:keydown__window="calcKey(evt)"
 		data-on:copy__window="

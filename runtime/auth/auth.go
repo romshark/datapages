@@ -284,6 +284,8 @@ func (m *Manager[Data]) SetSessionCookie(
 }
 
 // CreateSession stores a new session and puts its token into the cookie.
+// The session the request arrived with is closed first: its record would stay valid
+// for whoever holds the old token, and a zero ExpiresAt keeps DeleteExpired off it.
 //
 // It returns the session it created. A document rendered in the same response
 // has to be written from it, or it carries no CSRF script while
@@ -294,6 +296,19 @@ func (m *Manager[Data]) CreateSession(
 	if err := datapages.ValidateUserID(session.UserID); err != nil {
 		return datapages.Session[Data]{},
 			fmt.Errorf("user ID %q: %w", session.UserID, err)
+	}
+	if old, ok := httpread.CookieValue(r, m.conf.Cookie.Name); ok && old != "" {
+		// A stale or unknown token is a no-op by the [sessions.Closer] contract.
+		if err := m.sessions.CloseSession(r.Context(), old); err != nil {
+			if m.metrics != nil {
+				m.metrics.SessionClosed("error")
+			}
+			return datapages.Session[Data]{},
+				fmt.Errorf("closing the previous session: %w", err)
+		}
+		if m.metrics != nil {
+			m.metrics.SessionClosed("success")
+		}
 	}
 	issuedAt := time.Now()
 	token, err := m.sessions.CreateSession(r.Context(), sessions.Record[Data]{

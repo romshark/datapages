@@ -33,6 +33,22 @@ func ValidButton(btn CalcButton) bool {
 
 // Press applies a button press to the current calculator state
 // and returns the new input string and fresh flag.
+// ValidInput reports whether input holds only what [Press] produces:
+// digits, a decimal point, parentheses and the four operator runes.
+//
+// The input signal round-trips through the client, which can send anything.
+func ValidInput(input string) bool {
+	for _, r := range input {
+		switch r {
+		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+			'.', '(', ')', '+', '-', '\u00d7', '\u00f7':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func Press(input string, fresh bool, btn CalcButton) (string, bool) {
 	switch btn {
 	case CalcButtonClear:
