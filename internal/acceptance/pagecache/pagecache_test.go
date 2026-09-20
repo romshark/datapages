@@ -191,3 +191,29 @@ func TestStreamRedirectFlushesBeforeNavigating(t *testing.T) {
 		strings.Index(resp.Body, "window.location.href"),
 		"the writes reach the worker ahead of the navigation")
 }
+
+// TestBakedWritesSitInsideTheBody tests that every baking handler puts its
+// script inside the body element. A shimmed page reaches the browser as a
+// patch of <body> alone: the worker cuts everything after </body>.
+func TestBakedWritesSitInsideTheBody(t *testing.T) {
+	t.Parallel()
+	for name, get := range map[string]func(*testing.T, *client.Client) string{
+		"get": func(t *testing.T, c *client.Client) string {
+			return c.Get(t, "/").Body
+		},
+		"inline 404": func(t *testing.T, c *client.Client) string {
+			return c.Get(t, "/no-page-claims-this").Body
+		},
+		"app action body": func(t *testing.T, c *client.Client) string {
+			return c.Action(t, http.MethodPost, "/app-body/", "").Body
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			body := get(t, newClient(t))
+			require.Contains(t, body, applyType)
+			require.Less(t, strings.Index(body, applyType),
+				strings.LastIndex(body, "</body>"))
+		})
+	}
+}

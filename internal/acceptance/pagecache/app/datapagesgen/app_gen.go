@@ -239,15 +239,37 @@ func (c *pageCacheWriter) flush() error {
 	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
-// writeBake writes the queued writes as a trailing <script> into a GET response
-// so the worker applies them on load.
-func (c *pageCacheWriter) writeBake(w http.ResponseWriter) error {
-	payload, err := c.payload()
-	if err != nil || payload == "" {
+// bakeInto returns body followed by the queued writes as a <script>, which the
+// worker applies on load. The script has to sit inside <body>: a shimmed page
+// reaches the browser only as a patch of that element, and the worker cuts
+// everything after </body>, dropping the write that bumps the shim.
+//
+// The queue is complete by render time: the handler has already returned.
+// A payload that fails to render is dropped rather than breaking the page.
+func (c *pageCacheWriter) bakeInto(body datapages.Component) datapages.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		if body != nil {
+			if err := body.Render(ctx, w); err != nil {
+				return err
+			}
+		}
+		payload, err := c.payload()
+		if err != nil {
+			c.s.LogErr("rendering page cache writes", err)
+			return nil
+		}
+		if payload == "" {
+			return nil
+		}
+		if _, err := io.WriteString(w, "<script>"); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, pageCachePostToWorkerJS(payload)); err != nil {
+			return err
+		}
+		_, err = io.WriteString(w, "</script>")
 		return err
-	}
-	_, err = fmt.Fprintf(w, "<script>%s</script>", pageCachePostToWorkerJS(payload))
-	return err
+	})
 }
 
 // redirectScript returns JavaScript that delivers the queued writes to the worker
@@ -456,12 +478,11 @@ func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNotFound)
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, pageCache.bakeInto(body), bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
 	}
-	_ = pageCache.writeBake(w)
 }
 
 type appHandlers struct{ *Server }
@@ -495,12 +516,11 @@ func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.writeHTML(
-		w, r, nil, body, nil, nil,
+		w, r, nil, pageCache.bakeInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of App.POSTAppBody", err)
 		return
 	}
-	_ = pageCache.writeBake(w)
 }
 
 type pageError404Handlers struct{ *Server }
@@ -522,12 +542,11 @@ func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, pageCache.bakeInto(body), bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageError404", err)
 		return
 	}
-	_ = pageCache.writeBake(w)
 }
 
 type pageIndexHandlers struct{ *Server }
@@ -554,12 +573,11 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, nil, body, bodyAttrs, nil,
+		w, r, nil, pageCache.bakeInto(body), bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
 	}
-	_ = pageCache.writeBake(w)
 }
 
 func (s pageIndexHandlers) POSTStream(

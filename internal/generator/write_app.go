@@ -387,15 +387,37 @@ func (c *pageCacheWriter) flush() error {
 	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
-// writeBake writes the queued writes as a trailing <script> into a GET response
-// so the worker applies them on load.
-func (c *pageCacheWriter) writeBake(w http.ResponseWriter) error {
-	payload, err := c.payload()
-	if err != nil || payload == "" {
+// bakeInto returns body followed by the queued writes as a <script>, which the
+// worker applies on load. The script has to sit inside <body>: a shimmed page
+// reaches the browser only as a patch of that element, and the worker cuts
+// everything after </body>, dropping the write that bumps the shim.
+//
+// The queue is complete by render time: the handler has already returned.
+// A payload that fails to render is dropped rather than breaking the page.
+func (c *pageCacheWriter) bakeInto(body datapages.Component) datapages.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		if body != nil {
+			if err := body.Render(ctx, w); err != nil {
+				return err
+			}
+		}
+		payload, err := c.payload()
+		if err != nil {
+			c.s.LogErr("rendering page cache writes", err)
+			return nil
+		}
+		if payload == "" {
+			return nil
+		}
+		if _, err := io.WriteString(w, "<script>"); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, pageCachePostToWorkerJS(payload)); err != nil {
+			return err
+		}
+		_, err = io.WriteString(w, "</script>")
 		return err
-	}
-	_, err = fmt.Fprintf(w, "<script>%s</script>", pageCachePostToWorkerJS(payload))
-	return err
+	})
 }
 
 // redirectScript returns JavaScript that delivers the queued writes to the worker
@@ -1622,12 +1644,6 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	// Call GET.
 	w.writeGETCall(p, m, "render404")
 
-	// Bake queued offline writes as a trailing script after the page HTML,
-	// the way the page's own route does.
-	if h404.InputPageCache != nil {
-		w.Line(1, "_ = pageCache.writeBake(w)")
-	}
-
 	w.Line(0, "}")
 }
 
@@ -1779,8 +1795,8 @@ func (w *Writer) writeHandlerCallAndOutputs(
 		w.writeDeferRecover(viaStream, "App."+h.Name)
 	}
 
-	// Page cache handle. The other two deliveries write to the response
-	// themselves (see httpRedirectOffline and pageCacheWriter.writeBake).
+	// Page cache handle. The other two deliveries carry the writes in the
+	// response (see httpRedirectOffline and pageCacheWriter.bakeInto).
 	if h.InputPageCache != nil && isAppLevel {
 		if viaStream {
 			w.Line(1, "pageCache := newPageCache(s.Server, r, sse)")
@@ -1898,7 +1914,7 @@ func (w *Writer) writeMethodCall(
 		} else {
 			w.Raw("nil, ")
 		}
-		w.Raw(outputVar(h.OutputBody.Output))
+		w.writePageCacheBodyArg(h)
 		w.Raw(", nil, nil,\n")
 		w.Line(1, "); err != nil {")
 		w.Raw("\t\ts.LogErr(\"rendering response of ")
@@ -1909,12 +1925,6 @@ func (w *Writer) writeMethodCall(
 		w.Raw("\", err)\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
-
-		// Bake queued offline writes into the rendered document,
-		// the way a GET page method does.
-		if pageCacheViaBake(h) {
-			w.Line(1, "_ = pageCache.writeBake(w)")
-		}
 	}
 }
 
@@ -2184,7 +2194,13 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 		w.Raw("genericHead, ")
 	}
 	w.Raw(headArg)
-	w.Raw(", body, bodyAttrs, nil,\n")
+	w.Raw(", ")
+	if h.InputPageCache != nil {
+		w.Raw("pageCache.bakeInto(body)")
+	} else {
+		w.Raw("body")
+	}
+	w.Raw(", bodyAttrs, nil,\n")
 	w.Line(1, "); err != nil {")
 	w.Raw("\t\ts.LogErr(\"rendering ")
 	w.Raw(p.TypeName)

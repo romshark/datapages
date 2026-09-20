@@ -475,6 +475,9 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	if p.GET.OutputBody != nil {
 		bodyName = outputVar(p.GET.OutputBody.Output)
 	}
+	if h.InputPageCache != nil {
+		bodyName = "pageCache.bakeInto(" + bodyName + ")"
+	}
 
 	w.Line(0, "")
 	w.Line(1, "if err := s.writeHTML(")
@@ -501,11 +504,6 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	w.Raw("\", err)\n")
 	w.Line(2, "return")
 	w.Line(1, "}")
-
-	// Bake queued offline writes as a trailing script after the page HTML.
-	if h.InputPageCache != nil {
-		w.Line(1, "_ = pageCache.writeBake(w)")
-	}
 }
 
 func hasSessionInput(h *model.Handler) bool {
@@ -1747,6 +1745,18 @@ func pageCacheViaStream(h *model.Handler) bool {
 		!pageCacheViaRedirect(h) && !pageCacheViaBake(h)
 }
 
+// writePageCacheBodyArg emits the body argument of an action's writeHTML call,
+// wrapped in pageCache.bakeInto when that document carries the queued writes.
+func (w *Writer) writePageCacheBodyArg(h *model.Handler) {
+	if !pageCacheViaBake(h) {
+		w.Raw(outputVar(h.OutputBody.Output))
+		return
+	}
+	w.Raw("pageCache.bakeInto(")
+	w.Raw(outputVar(h.OutputBody.Output))
+	w.Raw(")")
+}
+
 // writeDatapagesHandles emits, for an action handler, the datapages.SSE wrapper
 // (dpSSE) and the page cache handle (pageCache) when requested.
 func (w *Writer) writeDatapagesHandles(h *model.Handler) {
@@ -1838,7 +1848,7 @@ func (w *Writer) writeActionMethodCall(
 			w.Raw("nil")
 		}
 		w.Raw(", ")
-		w.Raw(outputVar(h.OutputBody.Output))
+		w.writePageCacheBodyArg(h)
 		w.Raw(", nil, nil,\n")
 		w.Line(1, "); err != nil {")
 		w.Raw("\t\ts.LogErr(\"rendering response of ")
@@ -1849,12 +1859,6 @@ func (w *Writer) writeActionMethodCall(
 		w.Raw("\", err)\n")
 		w.Line(2, "return")
 		w.Line(1, "}")
-
-		// Bake queued offline writes into the rendered document,
-		// the way a GET page method does.
-		if pageCacheViaBake(h) {
-			w.Line(1, "_ = pageCache.writeBake(w)")
-		}
 	}
 }
 
