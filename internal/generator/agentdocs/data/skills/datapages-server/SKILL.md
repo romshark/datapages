@@ -9,11 +9,11 @@ description: >-
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-`datapages gen` writes the `main.go` of the server command on the first run. After that the file is yours and is never regenerated.
+On its first run, `datapages gen` writes the server command's `main.go`. It does not regenerate that file on later runs.
 
 ## NewServer
 
-The type arguments are configuration: `datapages gen` reads them to find the app package and where to generate into.
+`datapages gen` reads the type arguments to find the app package and output directory.
 
 ```go
 s, err := datapages.NewServer[
@@ -24,13 +24,13 @@ s, err := datapages.NewServer[
 ](&a, broker, opts...) // the app is passed by pointer
 ```
 
-Keep the call inside the module and import `datapages` under a qualifier: the scan matches the call by its qualifier and rejects a dot import. Generated code always lands in `datapagesgen` directly under its app package, so one module can build several apps (`datapages watch --app frontend` runs one of them).
+Keep the call inside the module. Import `datapages` with a package name because the scanner rejects dot imports. Generated code is always in `datapagesgen` directly below its app package. One module can contain several apps. Run one with `datapages watch --app frontend`.
 
 `datapages.EnablePrometheus` requires `WithPrometheus`, `DisablePrometheus` rejects it.
 
 ## Broker
 
-Always required: it carries events between instances and fans out SSE. Use `modules/messaging/natscore`. `modules/messaging/inmem` is for a single instance only. The scaffolded server uses NATS; start it with `make up` before running the server.
+A broker is always required. It sends events between server instances and to SSE subscribers. Use `modules/messaging/natscore` for multiple instances. Use `modules/messaging/inmem` only for one instance. The generated server uses NATS. Start it with `make up` before starting the server.
 
 ## Options
 
@@ -52,9 +52,13 @@ opts = append(opts,
 )
 ```
 
-`WithBodySizeLimit` caps the request body of an action, which is what limits the signals a page may send. Its default is 1 MiB; an over-limit request returns 400 while reading signals. `WithLogSampling` throttles the framework's own warnings, not the application's. `WithHTTPServer` keeps every field but `Addr` and `Handler`. Keep `WriteTimeout` at zero: a nonzero value ends long-lived SSE streams. `WithPrometheus` starts a second HTTP server on the configured host for `/metrics`. `WithShutdownTimeout` limits how long `ListenAndServe` waits after context cancellation for in-flight requests, open SSE streams and `StreamClose` hooks; an expired timeout logs the shutdown error and returns. The session cookie carries `Secure`: set `DisableSecureCookie` only for a deployment that is plain HTTP end to end, where the browser would drop it. `datapages.IsDevMode()` reports the dev server; `DATAPAGES_DEV_MODE` and `TEMPL_DEV_MODE` enable dev behavior, which is a reason to log at `slog.LevelDebug`.
+`WithBodySizeLimit` limits an action request body, including its signals. The default is 1 MiB. An over-limit request returns 400 while reading signals. `WithLogSampling` limits repeated framework warnings, not application logs. `WithHTTPServer` uses every supplied field except `Addr` and `Handler`. Keep `WriteTimeout` at zero because a nonzero value ends long-lived SSE streams.
 
-If `WithMiddleware` adds a `Content-Security-Policy`, stateful pages require `script-src 'unsafe-inline'` for the generated instance-ID script.
+`WithPrometheus` starts a second HTTP server that serves `/metrics` on the configured host. `WithShutdownTimeout` limits how long `ListenAndServe` waits after context cancellation for requests, SSE streams and `StreamClose` hooks. When the timeout expires, Datapages logs the shutdown error and returns.
+
+The session cookie uses the `Secure` attribute. Set `DisableSecureCookie` only when the complete deployment uses plain HTTP, where the browser would reject the secure cookie. `datapages.IsDevMode()` reports whether the dev server is active. `DATAPAGES_DEV_MODE` and `TEMPL_DEV_MODE` enable development behavior. Log at `slog.LevelDebug` when you need to inspect that behavior.
+
+If `WithMiddleware` adds a `Content-Security-Policy`, stateful pages require `script-src 'unsafe-inline'` for the generated instance ID script.
 
 ```go
 s.ListenAndServe(ctx, "localhost:8080")
@@ -63,7 +67,7 @@ s.ListenAndServeTLS(ctx, "localhost:8443", certPath, keyPath)
 
 ## Static assets
 
-An `embed.FS` in the app package turns file serving on. Its doc comment names the URL prefix, its directive names the directory.
+An `embed.FS` in the app package enables file serving. Its doc comment defines the URL prefix. Its directive defines the source directory.
 
 ```go
 // StaticFS is /static/
@@ -71,19 +75,21 @@ An `embed.FS` in the app package turns file serving on. Its doc comment names th
 var StaticFS embed.FS
 ```
 
-One such variable per app package, no more. The URL prefix has to start and end with `/` and cannot be `/` alone. The directive has to name exactly one directory inside the app package.
+Declare at most one such variable in an app package. The URL prefix must start and end with `/` and must not be `/`. The directive must name exactly one directory inside the app package.
 
-`datapages.WithAssets(app.StaticFS, false)` carries the filesystem and whether directory browsing is allowed. The generated code supplies the prefix, the subdirectory and the dev-mode disk path. `WithAssetsFS` accepts an `http.FileSystem` instead of an `embed.FS`. In dev mode the files come from disk with caching off, so no rebuild is needed. An app package that declares no assets rejects the option.
+`datapages.WithAssets(app.StaticFS, false)` supplies the filesystem and the directory-browsing setting. Generated code supplies the URL prefix, source directory and development disk path. `WithAssetsFS` accepts an `http.FileSystem` instead of an `embed.FS`. In development mode, Datapages reads files from disk and disables caching. Asset changes then need no rebuild. The server rejects an asset option when the app declares no assets.
 
-Datapages sends neither `Cache-Control` nor `ETag` for assets unless `WithAssetsCache` is configured. The zero `AssetsCacheConfig` sends `Cache-Control: public, max-age=0` and an ETag. The browser then revalidates every request, and an unchanged file returns 304 with an empty body. Set `MaxAge` only when the asset URL changes with its content, such as a file name containing a build hash. Otherwise the browser keeps stale content until the age expires. `Immutable` prevents reloads from revalidating a fresh response and requires a positive `MaxAge`. `CacheControl` sets the header value directly and excludes `MaxAge` and `Immutable`. `DisableETag` omits the ETag. `Disabled` omits both headers.
+Without `WithAssetsCache`, Datapages sends neither `Cache-Control` nor `ETag` for assets. A zero `AssetsCacheConfig` sends `Cache-Control: public, max-age=0` and an ETag. The browser revalidates every request. An unchanged file returns 304 with an empty body.
 
-The server computes an ETag on a file's first request and keeps it for the process lifetime, which matches the immutable `embed.FS` used by `WithAssets`. Set `DisableETag` for a `WithAssetsFS` file system whose files change while the server runs. Dev mode ignores the option and keeps answering `Cache-Control: no-store`.
+Set `MaxAge` only when an asset URL changes with its content, such as when the file name contains a build hash. Otherwise a browser can use stale content until the age expires. `Immutable` prevents reloads from revalidating a fresh response and requires a positive `MaxAge`. `CacheControl` sets the header directly and cannot be combined with `MaxAge` or `Immutable`. `DisableETag` omits the ETag. `Disabled` omits both headers.
 
-Reference files with `assets.Path("style.css")` from the generated `assets` package, or `href.Asset("style.css")` inside an `<a href>`. A hardcoded path is a lint error.
+The server computes an ETag on a file's first request and keeps it until the process exits. This is correct for the immutable `embed.FS` used by `WithAssets`. Set `DisableETag` for a `WithAssetsFS` file system whose files can change while the server runs. Development mode ignores this option and always sends `Cache-Control: no-store`.
+
+Use `assets.Path("style.css")` from the generated `assets` package to reference a file. Use `href.Asset("style.css")` inside an `<a href>`. The linter rejects a hardcoded asset path.
 
 ## datapages.yaml
 
-`cmd` names the command scaffolded when there is no `NewServer` call; it defaults to `cmd/server`. `watch` configures `datapages watch`:
+`cmd` names the command to create when there is no `NewServer` call. It defaults to `cmd/server`. `watch` configures `datapages watch`:
 
 | key under `watch` | use |
 | ----------------- | --- |

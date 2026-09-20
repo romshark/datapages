@@ -1,17 +1,16 @@
 ---
 name: datapages-sessions
 description: >-
-  Datapages authentication: the Session type, reading it in handlers,
-  opening and closing sessions, CSRF protection and choosing a session manager.
-  Activate when adding sign-in, sign-out or authenticated handlers to a
-  Datapages app.
+  Add Datapages authentication: define and read the Session type, open and
+  close sessions, configure CSRF protection and choose a session manager. Use
+  when adding sign-in, sign-out or authenticated handlers to a Datapages app.
 ---
 
 # Sessions
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-Declare the payload and the alias once in the app package. Skip all of this if the app needs no authentication.
+Declare the session data and alias once in the app package. Do not declare them when the app has no authentication.
 
 ```go
 type SessionData struct{ Name string }
@@ -19,13 +18,13 @@ type SessionData struct{ Name string }
 type Session = datapages.Session[SessionData]
 ```
 
-Use `struct{}` when there is no payload. Every handler must use the same `Data` type, which is why the alias is declared once and used everywhere.
+Use `struct{}` when the session has no application data. Every handler must use the same data type. Use the shared alias in every handler.
 
 ## Read
 
-Take `session Session` in any page, action, event handler or stream hook. It is read-only: `UserID()`, `IsGuest()`, `Token()`, `IssuedAt()`, `ExpiresAt()`, `Data()`. An expired client counts as unauthenticated and loses its cookie.
+Pages, actions, event handlers and stream hooks may take `session Session`. It is read-only and provides `UserID()`, `IsGuest()`, `Token()`, `IssuedAt()`, `ExpiresAt()` and `Data()`. Datapages treats an expired session as unauthenticated and deletes its cookie.
 
-Declare it in every action that must not run for a stale session: an action without it is checked against the session cookie alone and never reads the store, so the cookie of a closed or expired session passes.
+Add `session Session` to every action that must reject a closed or expired session. Without this parameter, Datapages checks only that the request has a session cookie. It does not read the session store.
 
 ## Open and close
 
@@ -55,15 +54,15 @@ func (*App) POSTSignIn(
 }
 ```
 
-`NewSession` carries `UserID`, `Data` and an optional `ExpiresAt`; Datapages mints the token and stamps the issue time. A zero `UserID` creates nothing. Sign out by returning `closeSession datapages.CloseSession` as `true`.
+`NewSession` contains `UserID`, `Data` and an optional `ExpiresAt`. Datapages creates the token and sets the issue time. A zero `UserID` creates no session. To sign out, return `closeSession datapages.CloseSession` set to `true`.
 
-`ExpiresAt` also becomes the cookie's `Max-Age` and `Expires`, which keeps the client signed in across browser restarts. A zero `ExpiresAt` writes a cookie the browser drops when it closes. The record stays in the store until the application removes it.
+`ExpiresAt` also sets the cookie's `Max-Age` and `Expires` attributes. A nonzero value can keep the client signed in after a browser restart. A zero value creates a cookie that the browser deletes when it closes. The session record remains in the store until the application deletes it.
 
-Neither works next to a `datapages.SSE` parameter: the headers the cookie travels in are already out. Sign in or out without `sse` and use `redirect`.
+Opening or closing a session cannot be combined with a `datapages.SSE` parameter. The SSE response headers are sent before the handler runs, so the handler cannot change the cookie. Sign in or out without `sse`, then return a `redirect`.
 
 ## CSRF
 
-CSRF is enabled for every app with a session type. Datapages derives the token from the session; no option is needed. Do not set a CSRF header in a template. Browser form submissions do not carry the token. Submit forms through a Datastar action as shown in `datapages-templates`. Use `datapages.WithCSRFProtection(datapages.CSRFConfig{...})` only to replace the token source or disable protection.
+CSRF protection is enabled for every app with a session type. Datapages derives the token from the session. Do not set a CSRF header in a template. A normal browser form submission does not include the token. Submit forms through a Datastar action as shown in `datapages-templates`. Use `datapages.WithCSRFProtection(datapages.CSRFConfig{...})` only to replace the token source or disable protection.
 
 ## Manager
 
@@ -73,8 +72,8 @@ The store is a server option, see `datapages-server`:
 opts = append(opts, datapages.WithSessionManager[app.SessionData](mgr))
 ```
 
-Name the data type at the call: it is not inferred, and naming it is what makes the compiler check the manager against what the app declares.
+Specify the data type in this call. Go cannot infer it here. The type argument also makes the compiler check that the manager matches the app's session type.
 
-Use `modules/sessions/natskv`. `modules/sessions/inmem` is for development: it holds sessions in memory and loses every session on restart.
+Use `modules/sessions/natskv`. Use `modules/sessions/inmem` only for development. It stores sessions in memory and loses them on restart.
 
-The framework never collects expired records: reading a session only reclaims the ones a client returns to. Call `mgr.DeleteExpired(ctx)` on a ticker.
+Datapages does not scan the store for expired records. It deletes an expired record only when a client sends that session. Call `mgr.DeleteExpired(ctx)` on a ticker to delete all other expired records.

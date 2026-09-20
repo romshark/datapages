@@ -10,7 +10,7 @@ description: >-
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-One struct per page, one route doc comment, one `GET` method. `PageIndex` for `/` is required. `App *App` is the only named field a page may declare, so per-page dependencies go on `App`.
+Define one struct, one route doc comment and one `GET` method for each page. `PageIndex` for `/` is required. `App *App` is the only named field a page may declare. Put dependencies on `App`.
 
 ```go
 // PageIndex is /
@@ -21,7 +21,7 @@ func (PageIndex) GET(r *http.Request) (body datapages.Component, err error) {
 }
 ```
 
-Routes are `net/http.ServeMux` patterns: `/item/{id}` captures a segment, `/{path...}` the rest, `/{$}` matches that path and nothing below it. `_$` is where a page's SSE stream is served. A route that claims it conflicts with that endpoint, so do not use it.
+Routes use `net/http.ServeMux` patterns. `/item/{id}` captures one segment. `/{path...}` captures the remaining path. `/{$}` matches only that path. Datapages serves a page's SSE stream below `_$`. Do not define a route that claims that path.
 
 If a route comment has a description, separate it from the route with a blank `//` line:
 
@@ -33,7 +33,7 @@ If a route comment has a description, separate it from the route with a blank `/
 
 ## GET parameters
 
-`r *http.Request` is required. A `GET` may also take `Session`, `Path`, `Query`, `Signals` and dispatchers. It cannot take `datapages.SSE`, `datapages.State[T]` or `stateID`. See `datapages-actions` for the parameter types.
+`r *http.Request` is required. A `GET` may also take `Session`, `Path`, `Query`, `Signals` and dispatchers. It cannot take `datapages.SSE`, `datapages.State[T]` or `stateID`. See `datapages-actions` for these parameter types.
 
 ## GET return values
 
@@ -75,13 +75,13 @@ query datapages.Query[struct {
 }]
 ```
 
-Values sit in `query.Values`. A `reflectsignal:"term"` tag binds the field to a Datastar signal: the parameter seeds the signal on load, and a signal change rewrites the browser URL. Its period-separated path must have each step start with a lowercase letter or underscore; later characters may be letters, digits or underscores. A double underscore is invalid.
+Read values from `query.Values`. A `reflectsignal:"term"` tag binds a query field to a Datastar signal. The query parameter sets the initial signal value. Changing the signal rewrites the browser URL. Each segment of the period-separated path must start with a lowercase letter or underscore. Later characters may be letters, digits or underscores. A double underscore is invalid.
 
-A signal change rewrites or removes only its own parameter. Every other parameter remains, including a query field without `reflectsignal`.
+A signal change rewrites or removes only its own query parameter. All other parameters remain, including query fields without `reflectsignal`.
 
-`datapages gen` rejects two query fields with the same `reflectsignal` value. Both emit `data-signals:term`, and an HTML parser keeps only the first attribute, which drops the seed of the second field.
+`datapages gen` rejects duplicate `reflectsignal` values. Both fields would emit the same `data-signals:term` attribute, and an HTML parser keeps only the first attribute.
 
-It also rejects a mismatch of JSON kind between the query field and the signal field, across number, boolean and string. A `string` query field reflected into a `bool` signal seeds `$flag` as `"true"`. The next action sends `{"flag":"true"}`, which signal decoding rejects with 400.
+It also rejects a JSON type mismatch between a query field and its signal. The checked types are number, boolean and string. For example, reflecting a `string` query field into a `bool` signal sets `$flag` to `"true"`. The next action sends `{"flag":"true"}`, which signal decoding rejects with 400.
 
 ## Error pages
 
@@ -110,9 +110,9 @@ func (*App) Head(r *http.Request, session Session) datapages.Head {
 
 ## Sharing handlers
 
-Define a `GET`, a stream hook or an event handler once on a type without the `Page` prefix and embed it. Such a type is not a page and carries no route, but it needs the same `App *App` field. Their routes come from the page that embeds them, so any number of pages may.
+To share a `GET`, stream hook or event handler, define it on a type without the `Page` prefix and embed that type in each page. The embedded type is not a page and has no route. It needs the same `App *App` field. Its handlers use the route of each page that embeds it.
 
-An **action cannot be shared this way**: its doc comment names one absolute route, and the second page to embed it is rejected as a route conflict. Put a shared action on `*App` instead, or give each page its own.
+Do not share an action by embedding it. Its doc comment defines one absolute route, so embedding it in a second page causes a route conflict. Put a shared action on `*App`, or define a separate action for each page.
 
 ```go
 type Base struct{ App *App }
@@ -128,4 +128,4 @@ type PageChat struct {
 }
 ```
 
-A method declared on the page replaces the embedded one for that page only. Call `p.Base.OnMessageSent(event, sse)` from the override to wrap it.
+A method declared on a page replaces the embedded method only for that page. The replacement can call `p.Base.OnMessageSent(event, sse)` to wrap the embedded method.
