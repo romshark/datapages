@@ -736,7 +736,7 @@ func (s pageReflectHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			if ($odd) params.set('o\&#39;&#34;x', $odd); else params.delete('o\&#39;&#34;x');
 			if ($newTitle) params.set('nt', $newTitle); else params.delete('nt');
 			const query = params.toString();
-			window.history.replaceState(null, '', query ? '/reflect?' + query : '/reflect');
+			window.history.replaceState(null, '', (query ? '/reflect?' + query : '/reflect') + location.hash);
 		"`)
 	}
 
@@ -784,11 +784,11 @@ func (s pageShopHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
 			if ($term) params.set('q', $term); else params.delete('q');
 			const query = params.toString();
-			window.history.replaceState(null, '', query ? '/shop/`)
+			window.history.replaceState(null, '', (query ? '/shop/`)
 		htmlattr.WritePathValue(w, path.Values.Cat)
 		_, _ = io.WriteString(w, `?' + query : '/shop/`)
 		htmlattr.WritePathValue(w, path.Values.Cat)
-		_, _ = io.WriteString(w, `');
+		_, _ = io.WriteString(w, `') + location.hash);
 		"`)
 	}
 
@@ -924,7 +924,7 @@ func (s pageWhenHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			if ($when) params.set('when', $when); else params.delete('when');
 			if ($count) params.set('n', $count); else params.delete('n');
 			const query = params.toString();
-			window.history.replaceState(null, '', query ? '/when?' + query : '/when');
+			window.history.replaceState(null, '', (query ? '/when?' + query : '/when') + location.hash);
 		"`)
 	}
 

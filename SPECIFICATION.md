@@ -390,7 +390,7 @@ query datapages.Query[struct {
 
 Here, `s` and `selecteditem` are synchronized.
 
-The browser updates only the reflected query keys. It removes a key when its signal becomes empty. Other query parameters remain, including fields declared without `reflectsignal`.
+The browser updates only the reflected query keys. It removes a key when its signal becomes empty. Other query parameters remain, including fields declared without `reflectsignal`. The URL fragment remains.
 
 Reflected integer, float, and bool fields seed JavaScript numbers or booleans unless they implement `encoding.TextMarshaler`. Text marshalers and all other field types seed strings.
 

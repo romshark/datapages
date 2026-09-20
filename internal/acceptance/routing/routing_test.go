@@ -314,6 +314,9 @@ func TestReflectedSignals(t *testing.T) {
 		// the expression reads $newTitle.
 		`data-signals:new-title="''"`,
 		"params.set('nt', $newTitle)",
+		// A URL passed to replaceState without a fragment replaces
+		// the one the visitor arrived with.
+		"') + location.hash);",
 	} {
 		require.Contains(t, resp.Body, want, "the page does not carry %q")
 	}

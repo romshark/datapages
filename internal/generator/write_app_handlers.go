@@ -952,18 +952,20 @@ func (w *Writer) writeGETBodyAttrs(
 					w.Raw("\t\t_, _ = io.WriteString(w, `")
 				}
 			}
-			w.Raw("\t\t\twindow.history.replaceState(null, '', query ? '")
+			// A URL without a fragment replaces the one the visitor arrived with,
+			// hence location.hash is carried over.
+			w.Raw("\t\t\twindow.history.replaceState(null, '', (query ? '")
 			writeRoute(route)
 			w.Raw("?' + query : '")
 			writeRoute(route)
-			w.Raw("');\n")
+			w.Raw("') + location.hash);\n")
 			w.Line(2, "\"`)")
 		} else {
-			w.Raw("\t\t\twindow.history.replaceState(null, '', query ? '")
+			w.Raw("\t\t\twindow.history.replaceState(null, '', (query ? '")
 			w.Raw(route)
 			w.Raw("?' + query : '")
 			w.Raw(route)
-			w.Raw("');\n")
+			w.Raw("') + location.hash);\n")
 			w.Line(2, "\"`)")
 		}
 	}
