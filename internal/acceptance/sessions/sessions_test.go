@@ -374,6 +374,29 @@ func TestSignInAndOut(t *testing.T) {
 	})
 }
 
+// TestSignOutOnGET tests a page GET that closes the session, which is what a
+// sign-out reached by a plain navigation rather than by an action does.
+func TestSignOutOnGET(t *testing.T) {
+	t.Parallel()
+	brokers.Each(t, func(t *testing.T, broker messaging.Broker) {
+		srv := newServer(t, broker)
+		c := srv.client(t)
+		c.signIn(t, "dave", "")
+
+		status, body := c.get(t, "/sign-out-link/")
+		require.Equal(t, http.StatusOK, status, "%s", body)
+		require.Equal(t, "bye dave", echoed(t, body))
+		require.Contains(t, body, "<title>anonymous</title>", "%s", body)
+		require.Nil(t, c.cookie(t), "the session cookie outlived the session")
+
+		status, body = c.get(t, "/")
+		require.Equal(t, http.StatusOK, status, "%s", body)
+		require.Equal(t, "anonymous", echoed(t, body))
+
+		require.Equal(t, "login(dave) signoutlink(dave)", logOf(t, c))
+	})
+}
+
 // TestSessionToken tests the handler parameter that asks for the token
 // instead of the session.
 func TestSessionToken(t *testing.T) {

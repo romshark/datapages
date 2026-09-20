@@ -1318,11 +1318,10 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	w.Line(0, "func (s *Server) render404(w http.ResponseWriter, r *http.Request) {")
 
 	h404 := p.GET.Handler
-	if hasSessionInput(h404) || globalHeadNeedsSession(m) {
-		w.Line(1, "sess, _, ok := s.ReadSession(w, r)")
-		w.Line(1, "if !ok {")
-		w.Line(2, "return")
-		w.Line(1, "}")
+	needsSession := hasSessionInput(h404) || globalHeadNeedsSession(m)
+	needsToken := h404.OutputCloseSession != nil
+	if needsSession || needsToken {
+		w.writeReadSession(needsSession, needsToken)
 		w.Line(0, "")
 	}
 
@@ -1406,19 +1405,7 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 	needsToken := h.OutputCloseSession != nil
 	switch {
 	case actionSessionInScope(h, m) || needsToken:
-		// A local nobody reads is a package that does not compile.
-		sessVar := "_"
-		if actionSessionInScope(h, m) {
-			sessVar = "sess"
-		}
-		if needsToken {
-			w.Linef(1, "%s, sessToken, ok := s.ReadSession(w, r)", sessVar)
-		} else {
-			w.Linef(1, "%s, _, ok := s.ReadSession(w, r)", sessVar)
-		}
-		w.Line(1, "if !ok {")
-		w.Line(2, "return")
-		w.Line(1, "}")
+		w.writeReadSession(actionSessionInScope(h, m), needsToken)
 	case needsCSRFOnly(h, m):
 		w.writeCSRFOnlyCheck()
 	}
@@ -1766,27 +1753,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	}
 	h := p.GET.Handler
 
-	// Build output list.
-	var outsBuf [8]string
-	outs := outsBuf[:0]
-	if p.GET.OutputBody != nil {
-		outs = append(outs, outputVar(p.GET.OutputBody.Output))
-	}
-	if p.GET.OutputHead != nil {
-		outs = append(outs, outputVar(p.GET.OutputHead.Output))
-	}
-	if h.OutputRedirect != nil {
-		outs = append(outs, outputVar(h.OutputRedirect))
-	}
-	if h.OutputDisableRefresh != nil {
-		outs = append(outs, outputVar(h.OutputDisableRefresh))
-	}
-	if h.OutputEnableBgStream != nil {
-		outs = append(outs, outputVar(h.OutputEnableBgStream))
-	}
-	if h.OutputErr != nil {
-		outs = append(outs, "err")
-	}
+	outs := handlerGETOutputVars(h, p.GET)
 
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
@@ -1808,6 +1775,11 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 		w.Line(1, "}")
 	}
 
+	// Close and create session, before anything is written: both set a cookie.
+	hasSess := hasSessionInput(h) || globalHeadNeedsSession(m)
+	sessArg, sessRebind := w.renderSessionVar(h, m, true, hasSess)
+	w.writeSessionOutputs(h, sessRebind)
+
 	// Redirect.
 	if h.OutputRedirect != nil {
 		w.Raw("\tif httpserve.Redirect(w, r, ")
@@ -1819,8 +1791,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 
 	// Generic head.
 	if m.GlobalHeadGenerator != nil {
-		w.writeGenericHeadCall(m.GlobalHeadGenerator,
-			hasSessionInput(h) || globalHeadNeedsSession(m))
+		w.writeGenericHeadCall(m.GlobalHeadGenerator, hasSess)
 	}
 
 	// Body attrs - simple for render404/error pages.
@@ -1844,11 +1815,6 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	w.Line(1, "if err := s.writeHTML(")
 	w.Raw("\t\tw, r, ")
 	if m.Session != nil {
-		// The zero session only where none was read: it carries no CSRF script.
-		sessArg := w.sessionType + "{}"
-		if hasSessionInput(h) || globalHeadNeedsSession(m) {
-			sessArg = "sess"
-		}
 		w.Raw(sessArg)
 		w.Raw(", ")
 	}

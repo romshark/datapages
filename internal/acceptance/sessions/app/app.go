@@ -245,6 +245,24 @@ func (a *App) POSTSignOut(_ *http.Request, session Session) (
 	return true, datapages.Redirect{URL: "/"}, nil
 }
 
+// PageSignOutLink is /sign-out-link
+//
+// Signing out through a plain navigation: the GET closes the session rather
+// than an action. The document is rendered from the closed session.
+type PageSignOutLink struct{ App *App }
+
+func (p PageSignOutLink) GET(_ *http.Request, session Session) (
+	body datapages.Component,
+	closeSession datapages.CloseSession,
+	err error,
+) {
+	if session.IsGuest() {
+		return echo("already out"), false, nil
+	}
+	p.App.record("signoutlink(%s)", session.UserID())
+	return echo("bye " + session.UserID()), true, nil
+}
+
 // PageLog is /log
 type PageLog struct{ App *App }
 

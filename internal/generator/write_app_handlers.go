@@ -272,12 +272,10 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	// Auth.
 	needsSession := hasSessionInput(h) || globalHeadNeedsSession(m) ||
 		pageHasPrivateEvent(p, w.eventMap)
-	if needsSession {
+	needsToken := h.OutputCloseSession != nil
+	if needsSession || needsToken {
 		hasBody = true
-		w.Line(1, "sess, _, ok := s.ReadSession(w, r)")
-		w.Line(1, "if !ok {")
-		w.Line(2, "return")
-		w.Line(1, "}")
+		w.writeReadSession(needsSession, needsToken)
 	}
 
 	// Index page: 404 fallback for non-root paths.
@@ -500,6 +498,23 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 
 func hasSessionInput(h *model.Handler) bool {
 	return h.InputSession != nil
+}
+
+// writeReadSession emits the session read and the return on a rejected request.
+// Either result is blanked when the handler has no use for it: a local nobody
+// reads is a package that does not compile.
+func (w *Writer) writeReadSession(sessInScope, needsToken bool) {
+	sessVar, tokenVar := "_", "_"
+	if sessInScope {
+		sessVar = "sess"
+	}
+	if needsToken {
+		tokenVar = "sessToken"
+	}
+	w.Linef(1, "%s, %s, ok := s.ReadSession(w, r)", sessVar, tokenVar)
+	w.Line(1, "if !ok {")
+	w.Line(2, "return")
+	w.Line(1, "}")
 }
 
 // globalHeadNeedsSession reports whether the application-wide Head takes the session.
@@ -1629,19 +1644,7 @@ func (w *Writer) writePageActionHandler(
 	needsToken := h.OutputCloseSession != nil
 	switch {
 	case actionSessionInScope(h, m) || needsToken:
-		// A local nobody reads is a package that does not compile.
-		sessVar := "_"
-		if actionSessionInScope(h, m) {
-			sessVar = "sess"
-		}
-		if needsToken {
-			w.Linef(1, "%s, sessToken, ok := s.ReadSession(w, r)", sessVar)
-		} else {
-			w.Linef(1, "%s, _, ok := s.ReadSession(w, r)", sessVar)
-		}
-		w.Line(1, "if !ok {")
-		w.Line(2, "return")
-		w.Line(1, "}")
+		w.writeReadSession(actionSessionInScope(h, m), needsToken)
 	case needsCSRFOnly(h, m):
 		w.writeCSRFOnlyCheck()
 	}

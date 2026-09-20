@@ -1712,6 +1712,20 @@ func TestParse_SessionOutput(t *testing.T) {
 		require.NotNil(signOut.OutputRedirect)
 		require.Nil(signOut.OutputNewSession)
 	}
+
+	// PageSignOut, PageLeave and PageError404 - GET with closeSession,
+	// with and without a session parameter and on the 404 page,
+	// which renders through render404.
+	for _, name := range []string{"PageSignOut", "PageLeave", "PageError404"} {
+		p := findPage(app, name)
+		require.NotNil(p, name)
+		require.NotNil(p.GET, name)
+		require.NotNil(p.GET.OutputCloseSession, name)
+		require.Equal("closeSession", p.GET.OutputCloseSession.Name, name)
+	}
+	require.NotNil(findPage(app, "PageSignOut").GET.InputSession)
+	require.Nil(findPage(app, "PageLeave").GET.InputSession)
+	require.NotNil(findPage(app, "PageError404").GET.OutputNewSession)
 }
 
 // TestParse_ErrSessionOutput tests a session output on a handler that also takes an SSE.
