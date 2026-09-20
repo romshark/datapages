@@ -55,7 +55,7 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 	if w.usage.stream {
 		w.writeAppHandleStreamRequest()
 	}
-	w.writeRecoverPanic()
+	w.writeRecoverPanic(m)
 	w.writeAppServerStruct(m, appPkg)
 	w.writeAppInit(appPkg)
 	w.writeEventSubjectConsts(m.Events)
@@ -1609,7 +1609,10 @@ func (w *Writer) writeRedirect(h *model.Handler, viaPageCache bool) {
 // writeRecoverPanic writes the deferred helper every handler registers.
 // A panic reaches the same path an error takes, which is what RecoverError and
 // the error page answer. The stack is logged whatever they do with it.
-func (w *Writer) writeRecoverPanic() {
+//
+// The PageError500 GET handler registers recoverPanicFinal instead, for the
+// same reason it reports its error through httpErrFinal.
+func (w *Writer) writeRecoverPanic(m *model.App) {
 	w.Raw(`
 // recoverPanic turns a panicking handler into an error and hands it to the error path.
 func (s *Server) recoverPanic(
@@ -1626,6 +1629,26 @@ func (s *Server) recoverPanic(
 		slog.Any("panic", v),
 		slog.String("stack", string(stack)))
 	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+`)
+	if m.PageError500 == nil {
+		return
+	}
+	w.Raw(`
+// recoverPanicFinal turns a panic into an error response without rendering PageError500.
+// The PageError500 handler uses it so it can't render itself.
+func (s *Server) recoverPanicFinal(w http.ResponseWriter, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrFinal(w, "panic in "+handler,
 		datapages.PanicError{Value: v, Stack: stack})
 }
 `)

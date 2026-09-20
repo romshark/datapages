@@ -114,6 +114,22 @@ func (s *Server) recoverPanic(
 		datapages.PanicError{Value: v, Stack: stack})
 }
 
+// recoverPanicFinal turns a panic into an error response without rendering PageError500.
+// The PageError500 handler uses it so it can't render itself.
+func (s *Server) recoverPanicFinal(w http.ResponseWriter, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrFinal(w, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -648,7 +664,7 @@ func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageError500{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageError500.GET")
+	defer s.recoverPanicFinal(w, "PageError500.GET")
 	body, disableRefreshAfterHidden, err := p.GET(r)
 	if err != nil {
 		s.httpErrFinal(w, "handling PageError500.GET", err)

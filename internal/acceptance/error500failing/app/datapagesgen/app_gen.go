@@ -68,6 +68,22 @@ func (s *Server) recoverPanic(
 		datapages.PanicError{Value: v, Stack: stack})
 }
 
+// recoverPanicFinal turns a panic into an error response without rendering PageError500.
+// The PageError500 handler uses it so it can't render itself.
+func (s *Server) recoverPanicFinal(w http.ResponseWriter, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrFinal(w, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
 type Server struct {
 	*httpserve.Core
 	messageBroker        messaging.Broker
@@ -157,6 +173,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"GET /",
 		pageIndexHandlers{s}.GET)
+	s.Mux().HandleFunc(
+		"GET /panic/{$}",
+		pagePanicHandlers{s}.GET)
 }
 
 // httpErrFinal writes the error response without rendering PageError500.
@@ -225,7 +244,7 @@ func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageError500{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageError500.GET")
+	defer s.recoverPanicFinal(w, "PageError500.GET")
 	body, err := p.GET(r)
 	if err != nil {
 		s.httpErrFinal(w, "handling PageError500.GET", err)
@@ -270,6 +289,31 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		w, r, nil, body, bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
+		return
+	}
+}
+
+type pagePanicHandlers struct{ *Server }
+
+func (s pagePanicHandlers) GET(w http.ResponseWriter, r *http.Request) {
+	p := dpapp.PagePanic{
+		App: s.app,
+	}
+	defer s.recoverPanic(w, r, nil, "PagePanic.GET")
+	body, err := p.GET(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling PagePanic.GET", err)
+		return
+	}
+
+	bodyAttrs := func(w http.ResponseWriter) {
+		httpserve.WriteReloadOnVisibility(w)
+	}
+
+	if err := s.writeHTML(
+		w, r, nil, body, bodyAttrs, nil,
+	); err != nil {
+		s.LogErr("rendering PagePanic", err)
 		return
 	}
 }

@@ -22,8 +22,9 @@ import (
 // httpErrIntern answers a failed page load by rendering PageError500.
 // An error page reporting through it answers its own failure by rendering itself,
 // and that pair runs until the stack is gone, which ends the process rather than
-// the request. The handler reports through httpErrFinal,
-// which writes the status and nothing else.
+// the request. The handler reports through httpErrFinal for a returned error
+// and through recoverPanicFinal for a panic, both of which write the status
+// and nothing else.
 //
 // internal/acceptance/error500failing asserts what a visitor gets.
 // It runs in the test binary, where the recursion this guards against
@@ -47,8 +48,14 @@ func TestError500PageReportsWithoutRenderingItself(t *testing.T) {
 	handler := pageGETHandler(t, string(src), m.PageError500.TypeName)
 	require.Contains(t, handler, "s.httpErrFinal(",
 		"the error page reports through something other than httpErrFinal")
+	require.Contains(t, handler, "s.recoverPanicFinal(",
+		"a panic in the error page reports through something "+
+			"other than recoverPanicFinal")
 	require.NotContains(t, handler, "s.httpErrIntern(",
 		"the error page reports through the helper that renders it, "+
+			"which renders it again for as long as the stack lasts")
+	require.NotContains(t, handler, "s.recoverPanic(",
+		"a panic in the error page reports through the helper that renders it, "+
 			"which renders it again for as long as the stack lasts")
 }
 
