@@ -235,8 +235,8 @@ func (c *pageCacheWriter) bakeInto(body datapages.Component) datapages.Component
 }
 
 // redirectScript returns JavaScript that delivers the queued writes to the worker
-// and then navigates to target. Used by redirect-returning actions, whose response
-// is a text/javascript body rather than an SSE stream.
+// and then navigates to target. Used by redirect-returning actions,
+// whose response is a text/javascript body rather than an SSE stream.
 //
 // The navigation waits for the worker to acknowledge that it applied the writes,
 // since the destination is served by that same worker and would otherwise race

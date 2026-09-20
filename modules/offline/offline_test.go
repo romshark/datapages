@@ -290,3 +290,19 @@ func TestOfflineClassCannotEndTheScript(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `</script>`,
 		"json.Marshal writes < and > escaped")
 }
+
+// TestServiceWorkerPatchesTheHead tests that the shim hydration answer carries
+// a head frame. Without it a shim keeps the head it was cached with, which in
+// an application with sessions holds no CSRF script.
+func TestServiceWorkerPatchesTheHead(t *testing.T) {
+	t.Parallel()
+	js := string(offline.ServiceWorkerJS("/offline/", offline.Config{WorkerVersion: 1}))
+
+	head := strings.Index(js, `"selector","head"`)
+	body := strings.Index(js, `"selector","body"`)
+	require.GreaterOrEqual(t, head, 0, "no head frame")
+	require.GreaterOrEqual(t, body, 0, "no body frame")
+	require.Less(t, head, body,
+		"the head frame is written first: the CSRF wrapper has to be"+
+			" installed before a binding in the new body fires an action")
+}

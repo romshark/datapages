@@ -106,13 +106,13 @@ async function servePage(res) {
   );
 }
 
-// Extract <body>...</body> from a document.
-// Workers have no DOMParser; done on the string.
-function bodyElement(html) {
-  const start = html.indexOf('<body');
-  const end = html.lastIndexOf('</body>');
+// Extract one element of a document by its tag. Workers have no DOMParser;
+// done on the string.
+function element(html, tag) {
+  const start = html.indexOf('<' + tag);
+  const end = html.lastIndexOf('</' + tag + '>');
   if (start === -1 || end === -1) return null;
-  return html.slice(start, end + '</body>'.length);
+  return html.slice(start, end + tag.length + 3);
 }
 
 // Build one Datastar SSE event. Multi-line values repeat the key.
@@ -206,18 +206,31 @@ self.addEventListener('fetch', function (e) {
       try {
         const res = await live;
         const html = await res.text();
-        // Datastar matches by id without a selector; a whole document matches nothing.
-        // Target the body.
-        const body = bodyElement(html);
+        // Datastar matches by id without a selector; a whole document matches
+        // nothing. Target the two elements instead.
+        const body = element(html, 'body');
         if (!body) {
           return new Response(html, {
             status: res.status,
             headers: { 'Content-Type': 'text/html; charset=utf-8' },
           });
         }
-        return new Response(sseFrame('datastar-patch-elements', [
+        // The head carries the page title and, in an application with sessions,
+        // the CSRF script. A shim is cached sessionless and would
+        // otherwise keep its own head for good, leaving every action 403.
+        // It goes first: the CSRF wrapper has to be installed before a
+        // binding in the new body can fire an action.
+        const head = element(html, 'head');
+        let frames = '';
+        if (head) {
+          frames += sseFrame('datastar-patch-elements', [
+            ['selector', 'head'], ['mode', 'outer'], ['elements', head],
+          ]);
+        }
+        frames += sseFrame('datastar-patch-elements', [
           ['selector', 'body'], ['mode', 'outer'], ['elements', body],
-        ]), {
+        ]);
+        return new Response(frames, {
           status: 200,
           headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
         });

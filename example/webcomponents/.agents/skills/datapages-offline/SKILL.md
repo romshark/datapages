@@ -123,7 +123,9 @@ A snapshot need not match the live body. It is what the user sees with no networ
 
 ## Shims
 
-A shim is a placeholder rendering of a page: its chrome with the slow parts replaced by skeletons. The worker paints it from cache at once and fetches the live page in parallel. Datapages emits the trigger that morphs the live page in. The shim itself carries no Datastar attributes.
+A shim is a placeholder rendering of a page: its chrome with the slow parts replaced by skeletons. The worker paints it from cache at once and fetches the live page in parallel. Datapages emits the trigger that morphs the live head and body in. The shim itself carries no Datastar attributes.
+
+A shim is cached with no session, which means no CSRF script. An action on it works once the live head has arrived. Keep actions out of the skeleton.
 
 ```go
 // shimVersion versions the cached shims. They hold no data. Only a code change

@@ -1014,7 +1014,11 @@ Serving a navigation works as follows:
 - The URL holds a `SetShim` entry: the worker serves it at once, online or offline,
   and fetches the live page in parallel. The trigger Datapages adds to
   the shim requests the URL again, and the worker answers that request from the
-  in-flight response as a Datastar patch of `<body>`, which morphs the live page in.
+  in-flight response as two Datastar patches, `<head>` then `<body>`,
+  which morph the live page in. The head goes first because it carries the CSRF
+  script of a signed-in visitor, which has to be installed before a binding in
+  the new body can fire an action. A cached shim is rendered with no session and
+  holds no such script of its own.
   Offline the fetch fails and the shim stays as it is,
   which is why it must not state anything that is only true offline.
 - Online, no `SetShim` entry: the worker passes the request to the network and

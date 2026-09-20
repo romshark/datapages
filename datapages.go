@@ -677,10 +677,13 @@ type PageCacheWriter interface {
 
 	// SetShim caches body for url like [PageCacheWriter.Set], but marks it
 	// servable while online. The service worker serves the entry at once, then
-	// fetches the live page and morphs it in. Datapages adds the trigger for that
-	// fetch. body is a placeholder rendering, usually the page chrome with
-	// skeletons in place of slow parts. It is shown online too and must not state
-	// anything that is only true offline.
+	// fetches the live page and morphs its head and body in. Datapages adds the
+	// trigger for that fetch. body is a placeholder rendering, usually the page
+	// chrome with skeletons in place of slow parts. It is shown online too and
+	// must not state anything that is only true offline.
+	//
+	// The entry is rendered with no session, so an action on the shim only works
+	// once the live head has arrived and brought the CSRF script with it.
 	SetShim(url string, body Component, version uint64)
 
 	// Clear removes a single url from the cache.
