@@ -1,6 +1,5 @@
-// Package domain implements a simple, thread-safe, in-memory data store for the
-// ticketing demo. It holds shows, users and purchased tickets. It is not meant
-// for production use — all data lives in memory and is lost on restart.
+// Package domain implements the in-memory data store for the ticketing demo.
+// A process restart removes all users, shows and tickets.
 package domain
 
 import (
@@ -16,7 +15,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Sentinel errors returned by the repository.
 var (
 	ErrUserNotFound       = errors.New("user not found")
 	ErrUserNameReserved   = errors.New("user name is already reserved")
@@ -29,7 +27,7 @@ var (
 	ErrTicketExists       = errors.New("ticket already purchased")
 )
 
-// User is the public representation of an account.
+// User describes an account.
 type User struct {
 	Name           string
 	Email          string
@@ -37,7 +35,7 @@ type User struct {
 	AccountCreated time.Time
 }
 
-// Show is the public representation of a bookable event.
+// Show describes a bookable event.
 type Show struct {
 	ID          string
 	Slug        string
@@ -48,11 +46,11 @@ type Show struct {
 	City        string
 	ImageURL    string
 	StartsAt    time.Time
-	Price       int64 // in whole euros
-	Available   int   // remaining tickets
+	Price       int64 // Whole euros.
+	Available   int   // Tickets remaining.
 }
 
-// Ticket is a purchased admission for a show, owned by a user.
+// Ticket describes one user's admission to a show.
 type Ticket struct {
 	Code         string
 	ShowID       string
@@ -98,7 +96,7 @@ type ticket struct {
 // A user may hold at most one ticket per show.
 type ticketKey struct{ userName, showID string }
 
-// Repository is a simple in-memory data store for the ticketing demo.
+// Repository stores the demo's users, shows and tickets in memory.
 type Repository struct {
 	lock          sync.RWMutex
 	usersByName   map[string]*user
@@ -195,8 +193,8 @@ func (r *Repository) UserByName(_ context.Context, name string) (User, error) {
 	return convertUser(u), nil
 }
 
-// AddShow inserts a show into the store. Used for seeding mock data.
-// The slug is derived from the title and made unique on collision.
+// AddShow inserts a show and returns its generated ID. It derives a unique slug
+// from the title.
 func (r *Repository) AddShow(
 	_ context.Context,
 	title, description, genre, venue, city, imageURL string,
@@ -375,7 +373,8 @@ func newID() string {
 	return randString(16, idAlphabet)
 }
 
-const codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no ambiguous chars
+// codeAlphabet excludes 0, O, 1 and I to prevent transcription errors.
+const codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 // newTicketCode returns a human-readable, unambiguous ticket code such as
 // "TKT-8F3A-K9Q2".

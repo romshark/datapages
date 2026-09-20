@@ -15,9 +15,8 @@ This skill chooses the Datapages constructs a feature needs. Ask the operator
 when a missing requirement would change that choice. Once decided, read the
 referenced skill before implementing that construct.
 
-Follow the Datastar Tao by default: keep authoritative state on the server,
-separate reads from commands and prefer fat morphs over fine-grained DOM
-updates.
+Keep authoritative state on the server, separate reads from commands and send
+complete page updates instead of small DOM patches.
 
 ## New app
 
@@ -68,12 +67,16 @@ For server-backed interactive or real-time data, prefer Datastar's CQRS model:
 - short-lived actions are commands;
 - commands mutate authoritative state and notify subscribers;
 - `On` handlers react to events and render from authoritative state;
-- prefer fat morphs over fine-grained DOM updates;
+- prefer complete page updates over small DOM patches;
 - keep plain `GET` rendering correct.
 
-A command should normally mutate state and dispatch an event. The event says that something changed; it is not the authoritative state. Subscribers read the current state, re-render the page and fat-morph patch it over SSE.
+A command should normally mutate state and dispatch an event. The event says
+that something changed; it is not the authoritative state. Subscribers read
+the current state, render the page and send the result over SSE.
 
-Use fat morphs by default: have one template per each page, re-render the entire template and let Datastar's morphing update the DOM. Do try to split templates into composites of smaller components but avoid fine-grained UI updates only to minimize the HTML sent since there's Brotli compression on the SSE streams.
+Render one template for each page and let Datastar update the changed DOM.
+Split templates into smaller components when useful. Do not add small DOM
+patches only to reduce transferred HTML. SSE streams use Brotli compression.
 
 With CQRS, make each stream update contain enough current state to restore the correct UI after a missed event or interrupted connection. Prefer complete current state over incremental operations when missing an intermediate update would leave the client inconsistent.
 
@@ -109,9 +112,12 @@ For example, a user-selected filter reaches `State[T]` through `StreamOpen` or t
 
 The acting tab subscribes like any other. A command that dispatches an event therefore rarely needs `SSE` too. Doing both usually sends the same state twice.
 
-For server-rendered updates, prefer fat morphs: render a large, complete DOM tree from current state instead of coordinating many surgical patches or patching signals for the client to assemble.
+For server-rendered updates, render a complete DOM tree from current state.
+Avoid coordinating many small patches or client-side signal updates.
 
-Do not optimize by shrinking morph targets without a concrete reason. Sending more HTML is often simpler and more robust because Datastar morphs the received tree into the existing DOM rather than replacing unchanged elements blindly.
+Shrink morph targets only for a measured reason. A complete HTML fragment is
+often simpler because Datastar preserves unchanged DOM while morphing the
+received tree.
 
 Events are notifications, not durable state. Delivery is at most once with no replay. A hidden tab, interrupted stream or full buffer can miss an event. Later renders must derive from authoritative state rather than depend on every previous event having arrived.
 
@@ -195,9 +201,10 @@ Use the construct with the fewest parts.
 
 For server-backed interactive or real-time state, the sane default is:
 
-**command → mutate authoritative state → dispatch event → subscriber reads current state → fat morph**
+`command -> mutate authoritative state -> dispatch event -> subscriber reads current state -> complete morph`
 
-A fat morph means sending a large, complete DOM tree representing current state, potentially up to the entire page, rather than manually coordinating fine-grained DOM updates.
+A complete morph sends a DOM tree derived from current state, potentially the
+whole page, instead of coordinating fine-grained updates.
 
 Deviate when the requirements make a simpler or different model more suitable.
 

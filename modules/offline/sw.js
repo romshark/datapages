@@ -1,24 +1,17 @@
-// Datapages offline service worker.
 // The offline module replaces __CONFIG__ below with the JSON config at serve time.
 'use strict';
 
 const CFG = __CONFIG__;
 const CACHE = 'datapages-' + CFG.workerVersion;
 const OFFLINE_VERSION_HEADER = 'X-Datapages-Offline-Version';
-// Marks an entry the worker may serve while online (see SetShim).
 const SHIM_HEADER = 'X-Datapages-Shim';
-// Marks the request a shim makes for its live contents.
-// Datapages puts it on the trigger it adds to every shim.
 const HYDRATE_HEADER = 'X-Datapages-Shim-Hydrate';
 
-// Prefetched live responses, keyed by pathname. The shim requests its own URL
-// right after painting; that request is answered from here.
+// Live responses keyed by pathname. The shim requests its URL after loading.
 const pendingLive = new Map();
 
-// Fetch request destinations cached when the request goes to another origin.
 const CROSS_ORIGIN_DESTINATIONS = CFG.crossOriginDestinations || [];
 
-// Same-origin path prefixes the worker never caches.
 const EXCLUDED = CFG.excludePaths || [];
 
 function isExcluded(path) {
@@ -26,7 +19,6 @@ function isExcluded(path) {
   return false;
 }
 
-// Install: precache the app shell and the offline fallback page.
 self.addEventListener('install', function (e) {
   e.waitUntil((async function () {
     const cache = await caches.open(CACHE);
@@ -39,7 +31,7 @@ self.addEventListener('install', function (e) {
   })());
 });
 
-// Offline fallback page from cache. Uses a built-in default if none is set.
+// Use a built-in response when the configured offline page is unavailable.
 async function offlineResponse() {
   if (CFG.offlineURL) {
     const cache = await caches.open(CACHE);
@@ -53,7 +45,6 @@ async function offlineResponse() {
   );
 }
 
-// Activate: drop caches from older worker versions and take control.
 self.addEventListener('activate', function (e) {
   e.waitUntil((async function () {
     const keys = await caches.keys();
@@ -64,7 +55,6 @@ self.addEventListener('activate', function (e) {
   })());
 });
 
-// Apply the writes a handler queued (see PageCacheWriter).
 self.addEventListener('message', function (e) {
   const d = e.data || {};
   if (d.type !== 'datapages-offline:apply') return;
@@ -93,11 +83,8 @@ self.addEventListener('message', function (e) {
   })());
 });
 
-// Serve a cached page entry. The reflection script is added here: an entry is rendered
-// by the server outside the request the middleware wraps, so it would otherwise reach
-// the browser without one, which is the offline case it exists for.
-// Injecting on the way out rather than on the way in keeps a class change from
-// needing every entry rewritten.
+// Cached pages bypass the middleware. Add its connectivity script when serving
+// an entry so a class change does not require rewriting the cache.
 async function servePage(res) {
   if (!CFG.netStateJS) return res;
   const html = await res.text();
@@ -109,8 +96,7 @@ async function servePage(res) {
   );
 }
 
-// Extract one element of a document by its tag. Workers have no DOMParser;
-// done on the string.
+// Workers have no DOMParser, so extract the element from the response string.
 function element(html, tag) {
   const start = html.indexOf('<' + tag);
   const end = html.lastIndexOf('</' + tag + '>');
@@ -160,8 +146,7 @@ function isDatastarRequest(req) {
   return req.headers.get('Datastar-Request') !== null;
 }
 
-// True for a response that never ends. Reading one into the cache would buffer
-// it for the life of the stream and the entry would never land.
+// Reading an event stream into the cache would buffer it until the stream ends.
 function isEventStream(res) {
   const ct = res.headers.get('Content-Type');
   return ct !== null && ct.indexOf('text/event-stream') !== -1;
@@ -173,18 +158,13 @@ self.addEventListener('fetch', function (e) {
 
   const url = new URL(req.url);
   const sameOrigin = url.origin === self.location.origin;
-  // Entries are keyed by the URL the handler passed to Set/SetShim,
-  // which carries its query. Keying on the path alone would miss /list?page=2
-  // and answer it with the entry for /list.
+  // Include the query because /list and /list?page=2 can have different entries.
   const key = url.pathname + url.search;
 
-  // HTML navigations. A cached shim is served at once. Otherwise online serves live,
-  // offline serves the cached body or the fallback page.
   if (sameOrigin && isNavigation(req)) {
     e.respondWith((async function () {
       const cache = await caches.open(CACHE);
 
-      // Report held version and worker version.
       const cached = await cache.match(key);
       const headers = new Headers(req.headers);
       headers.set('X-Datapages-Worker-Version', String(CFG.workerVersion));
@@ -194,11 +174,10 @@ self.addEventListener('fetch', function (e) {
       }
 
       if (cached && cached.headers.get(SHIM_HEADER)) {
-        // Serve the shim now, fetch live in parallel. The shim requests this URL below.
         const live = fetch(key, { headers: headers });
-        live.catch(function () {}); // handled below
+        live.catch(function () {});
         pendingLive.set(key, live);
-        // Drop it if the page never asks.
+        // Bound entries when a page never sends its hydration request.
         setTimeout(function () { pendingLive.delete(key); }, 30000);
         return await servePage(cached);
       }
@@ -210,29 +189,26 @@ self.addEventListener('fetch', function (e) {
         return await offlineResponse();
       }
     })().catch(function () {
-      // Never break navigation on a worker bug. Fall back to the network.
       return fetch(req);
     }));
     return;
   }
 
-  // Shim asking for its live contents.
   if (sameOrigin && req.headers.get(HYDRATE_HEADER)) {
     e.respondWith((async function () {
       let live = pendingLive.get(key);
       if (live) {
         pendingLive.delete(key);
       } else {
-        // The prefetch is gone: the worker was terminated, or the timer above fired.
-        // Passing the request through would answer with a whole document,
-        // which Datastar cannot patch, and leave the page on its skeletons for good.
+        // A worker restart or timeout can remove the saved response. Fetch a
+        // replacement because Datastar cannot apply a complete document here.
         live = fetch(key, { headers: await pageFetchHeaders(req, key) });
       }
       try {
         const res = await live;
         const html = await res.text();
-        // Datastar matches by id without a selector; a whole document matches
-        // nothing. Target the two elements instead.
+        // A complete document has no matching target. Return explicit head and
+        // body patches.
         const body = element(html, 'body');
         if (!body) {
           return new Response(html, {
@@ -240,11 +216,8 @@ self.addEventListener('fetch', function (e) {
             headers: { 'Content-Type': 'text/html; charset=utf-8' },
           });
         }
-        // The head carries the page title and, in an application with sessions,
-        // the CSRF script. A shim is cached sessionless and would
-        // otherwise keep its own head for good, leaving every action 403.
-        // It goes first: the CSRF wrapper has to be installed before a
-        // binding in the new body can fire an action.
+        // The head contains the title and, for sessions, the CSRF script. Apply
+        // it before a binding in the new body can send an action.
         const head = element(html, 'head');
         let frames = '';
         if (head) {
@@ -266,15 +239,13 @@ self.addEventListener('fetch', function (e) {
     return;
   }
 
-  // Anything else Datastar asked for goes to the network untouched:
-  // its answer is generated per request and must never come from a cache.
+  // Datastar responses are generated per request and always use the network.
   if (isDatastarRequest(req)) return;
 
   if (sameOrigin && isExcluded(url.pathname)) return;
 
-  // Cache-first for assets. Same-origin static files, plus the cross-origin
-  // destinations opted in via Config.CrossOriginDestinations.
-  // Cross-origin responses are often opaque (status 0, res.ok false); cache them anyway.
+  // Cache same-origin assets and configured cross-origin destinations.
+  // Cross-origin responses can be opaque and remain valid cache entries.
   if (sameOrigin || CROSS_ORIGIN_DESTINATIONS.indexOf(req.destination) !== -1) {
     e.respondWith((async function () {
       const cache = await caches.open(CACHE);
@@ -286,11 +257,8 @@ self.addEventListener('fetch', function (e) {
         return fetch(req);
       }
       if (hit) {
-        // Asset URLs carry no content hash. The hit is served and refreshed
-        // behind it, otherwise a redeployed file at the same URL would never
-        // reach a returning visitor. Cross-origin hits are left alone: an
-        // opaque response cannot be compared and its URL is usually versioned
-        // by whoever serves it.
+        // Refresh same-origin assets after responding because their URLs have
+        // no content hash. Opaque cross-origin responses cannot be compared.
         if (sameOrigin) e.waitUntil(revalidate(cache, req));
         return hit;
       }
@@ -307,11 +275,10 @@ self.addEventListener('fetch', function (e) {
   }
 });
 
-// Replace a cached asset with what the network has now. Offline it fails and
-// the entry stays.
+// Refresh a cached asset without delaying the current response.
 async function revalidate(cache, req) {
   try {
     const res = await fetch(req, { cache: 'no-cache' });
     if (res && res.ok && !isEventStream(res)) await cache.put(req, res);
-  } catch (_) { /* keep the cached copy */ }
+  } catch (_) {}
 }

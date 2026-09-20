@@ -85,7 +85,8 @@ It also rejects a mismatch of JSON kind between the query field and the signal f
 
 ## Special pages
 
-`PageError404`, `PageError500` and `PageOffline` are reserved names: a page carrying one is that special page. All three are optional; without them Datapages serves its own defaults.
+`PageError404`, `PageError500` and `PageOffline` are reserved page names. All
+three are optional. Datapages serves defaults when they are absent.
 
 ```go
 // PageError404 is /not-found
@@ -96,7 +97,9 @@ func (PageError404) GET(r *http.Request) (datapages.Component, error) {
 }
 ```
 
-`PageError500` and `PageOffline` follow the same shape and each needs a `GET` method. Both render with a zero `Session`. `PageOffline` is the service-worker fallback, see `datapages-offline`.
+`PageError500` and `PageOffline` have the same form and each needs a `GET`
+method. Both render with a zero `Session`. `PageOffline` is the service worker
+fallback; see `datapages-offline`.
 
 ## Global head
 

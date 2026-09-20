@@ -65,12 +65,11 @@ URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/
 
 `PageIndex` is required for `/`.
 
-Page types `PageError500`, `PageError404` and `PageOffline` are optional special pages.
-The names are reserved: a page type carrying one of them is that special page,
-whatever the application means by it. `PageError500` and `PageError404`
-render the `500` and `404` responses; `PageOffline` is the offline fallback the
-[service worker](#service-worker) serves when the browser is offline and the
-requested URL is not cached. Otherwise datapages will use its own defaults.
+`PageError500`, `PageError404` and `PageOffline` are optional reserved page
+names. `PageError500` and `PageError404` render the 500 and 404 responses.
+`PageOffline` is the fallback that the [service worker](#service-worker) serves
+for an uncached URL while offline. Datapages supplies defaults when these pages
+are absent.
 
 Each declares its route by comment like any other page. `PageError500` and
 `PageOffline` always render with a zero `Session`: the former runs after handling
@@ -480,76 +479,53 @@ See [datapages.go](datapages.go) for method definitions.
 pageCache datapages.PageCacheWriter
 ```
 
-This parameter is allowed on `GET` page methods and on `POSTXXX`, `PUTXXX`,
-`PATCHXXX`, and `DELETEXXX` action methods (including app-level actions). It allows
-utilizing the client's
-[service-worker](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API)
-cache: for a given URL, which the browser can use to render pages for the cached URLs 
-when it's offline. The offline body is a component the handler provides (typically a
-dedicated offline-version of the page) and need not match the page's actual body.
-Datapages registers the service worker automatically.
+This parameter is allowed on `GET` page methods and on `POSTXXX`, `PUTXXX`, `PATCHXXX`, and `DELETEXXX` action methods, including app-level actions. It queues writes to the client's [service worker](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) cache. A cached body is a component supplied by the handler and need not match the live body. Datapages registers the service worker.
 
 The interface (from `github.com/romshark/datapages`):
 
 ```go
-// PageCacheWriter writes to the client's service-worker cache. It is passed
+// PageCacheWriter writes to the client's service worker cache. It is passed
 // to GET page methods and action methods as the pageCache parameter. Writes
 // are deferred and applied atomically once the handler returns without error.
 type PageCacheWriter interface {
-	// Version returns the version at which the current request's URL is cached
-	// in the service worker (0 if not cached).
+	// Version returns the cached version of the current request's URL.
+	// It returns 0 when the URL is not cached.
 	Version() uint64
 
-	// Set caches body for url and stamps the entry with version, which Version
-	// reports back on the next request. url must come from the generated href
-	// package. The entry is served only while the browser is offline, so it may
-	// differ from the live page.
+	// Set caches body for url with version. Version reports that value on the
+	// next request for url. url must come from the generated href package.
+	// The worker serves this entry only while offline.
 	Set(url string, body Component, version uint64)
 
-	// SetShim caches body for url like [Set], but marks it servable while online.
-	// The service worker answers navigations to url from the cache without waiting
-	// for the network, so the page paints immediately, then fetches the live page
-	// and morphs it in. Datapages adds what triggers that fetch, so body is just a
-	// placeholder rendering of the page, typically its chrome with the slow parts
-	// replaced by skeletons. Since it is shown online too, it must not state
-	// anything that is only true offline.
+	// SetShim caches body for url like [Set], but permits the worker to serve it
+	// while online. The worker then fetches the live page and replaces the shim's
+	// head and body through Datastar. Datapages adds the fetch trigger.
+	// body must not state anything that is only true offline.
 	SetShim(url string, body Component, version uint64)
 
-	// Clear removes a single url from the cache.
+	// Clear removes url from the cache.
 	Clear(url string)
 
-	// ClearAll wipes the entire cache.
+	// ClearAll removes every page cache entry.
 	ClearAll()
 }
 ```
 
-The writes are **deferred and atomic**: nothing is applied on the client until
-the handler returns without error, at which point all `Set`, `Clear` and
-`ClearAll` calls take effect together. `Set` merges on top of the existing cache;
-`ClearAll` wipes everything first. If the handler returns an error, no cache
-mutation happens.
+Writes are deferred until the handler returns without error. The worker then applies all `Set`, `Clear` and `ClearAll` calls from that request together, with `ClearAll` first. An error discards the queued writes.
 
-Each cached URL carries its own individual version, chosen by the framework user.
+Each cached URL stores a version chosen by the application.
 `Version()` reports the version the client holds for the current request's URL
 (0 if none); compare it against the resource's server-side version to decide whether
 to re-`Set` it.
 
-Delivery is chosen by the framework from the handler's signature, in this order.
-The same rules apply to a page method and to an action declared on `App`:
+The handler signature selects delivery in this order. The same rules apply to a
+page method and an action declared on `App`:
 
-- On a **`GET`** page method the queued writes are rendered and baked into the
-  page's HTML; the service worker applies them on load, adding no extra request.
-- On an **action taking `sse`** they are delivered over that stream.
-- On an **action returning a redirect** they are carried in its `text/javascript`
-  response. The navigation waits for the worker to acknowledge that it applied
-  them, which keeps them from being lost to the page unload and from racing the
-  lookup the destination performs. A worker too old to acknowledge is covered by
-  a 500ms timeout. This is chosen even when the action can also return a body.
-- On an **action returning only a body** they are baked into the document it
-  renders, the way a `GET` does.
-- On an **action returning neither** they go over an SSE stream the framework
-  opens for that purpose. Such an action is reachable only from a Datastar
-  request, since nothing else can read an event stream.
+- `GET`: embeds the writes in the page HTML for the worker to apply on load.
+- Action with `sse`: sends the writes over that stream.
+- Action with a redirect: sends the writes in the `text/javascript` response. Navigation waits up to 500ms for the worker to apply them. This rule also applies when the action can return a body.
+- Action with only a body: embeds the writes in the rendered document.
+- Action with neither: sends the writes over an SSE stream opened by Datapages. Only a Datastar request can read this response.
 
 A page can lazily cache itself on visit, versioned by its own data so it
 refreshes whenever that data changes:
@@ -565,24 +541,19 @@ func (p PageItem) GET(
 ) (body datapages.Component, err error) {
 	item := p.App.item(path.Values.ID)
 	if pageCache.Version() < item.Revision {
-		// Missing, or cached before the item last changed.
+		// The cached version predates the current item revision.
 		pageCache.Set(href.PageItem(path.Values.ID), itemOffline(item), item.Revision)
 	}
 	return itemView(item), nil
 }
 ```
 
-An action handler can `Set` URLs other than the one being requested, which
-precaches pages the user has not opened yet. `Version()` only refers to the
-current request's URL, so such an action has no per-URL gate and every `Set` it
-makes is written unconditionally. The version passed is stamped on the entry and
-reported back the next time that URL is requested, so a later visit can skip
-re-caching it.
+An action handler can `Set` URLs other than the one being requested. This caches pages the user has not opened. `Version()` only refers to the current request's URL, so such an action has no per-URL gate and every `Set` it makes is written unconditionally. The version passed is stored on the entry and reported back the next time that URL is requested, so a later visit can skip re-caching it.
 
 ```go
 // POSTPrecache is /precache
 //
-// Precaches every ticket page the signed-in user owns.
+// Caches every ticket page the signed-in user owns.
 func (a *App) POSTPrecache(
 	r *http.Request,
 	session datapages.Session[Data],
@@ -953,13 +924,13 @@ The app package cannot contain build-constrained files. Pages, actions, and even
 
 The service worker backs the [`pageCache`](#parameter-pagecache-datapagespagecachewriter) parameter. It runs only in a secure context (HTTPS or localhost); otherwise the offline API does nothing.
 
-The worker is registered with whole-origin scope: its script response sends a `Service-Worker-Allowed: /` header, so it controls every page on the origin regardless of the path the script itself is served from.
+The worker scope covers the whole origin. Its script response sets `Service-Worker-Allowed: /`, regardless of the script URL.
 
-Installation and updates are driven by the `X-Datapages-Worker-Version` request header, not tied to a specific page. The installed worker sets it to its own version (a `uint64`) on every request. This is the service worker's own version, which Datapages bumps whenever it ships a changed worker script. It is independent of the Datapages release version and of the per-URL cache versions passed to `Set`. The server compares the header against the worker version it currently ships:
+The `X-Datapages-Worker-Version` request header controls installation and updates. The installed worker sets its `uint64` version on every request. This version is independent of the Datapages release and the per-URL versions passed to `Set`. The server compares the header with its current worker version:
 
-- Header absent: no worker is installed yet. The server injects the registration script into the current response, whatever page was requested, so the worker installs during this request.
-- Header lower than the shipped worker version: the server serves the newer worker script and it re-registers, replacing the old one.
-- Header equal: the worker is up to date and nothing is injected.
+- Header absent: the server adds registration to the current HTML response.
+- Header lower than the server version: the server adds registration for the current worker script.
+- Header equal: the response omits registration.
 
 The worker holds one cache of offline bodies keyed by URL. Each entry stores the rendered HTML and its version.
 
@@ -967,21 +938,21 @@ Writes reach the worker in one of three ways, depending on how the handler respo
 
 - `GET`: the queued entries are embedded in the page and an inline script passes them to the worker after load.
 - Action opening an SSE stream: they are sent over that stream.
-- Action returning a redirect: they are carried in its `text/javascript` response and the navigation waits for the worker to acknowledge the apply, at most 500ms. They are then neither lost to the page unload nor raced by the destination's own cache lookup.
+- Action returning a redirect: the `text/javascript` response sends the writes. Navigation waits up to 500ms for the worker to apply them before loading the destination.
 
 The worker applies a request's `Set`, `Clear` and `ClearAll` calls together, once the handler returns without error. `Set` writes or overwrites one entry, `Clear` deletes one, `ClearAll` empties the cache.
 
 On every navigation the worker sets the `X-Datapages-Offline-Version` request header to the version it holds for the requested URL, or omits it when the URL is not cached. The server reads it back through `Version()` (which returns 0 when the header is absent).
 
-Both request headers change the response body. A response that depends on one names it in `Vary`: a page whose handler takes `pageCache` carries `Vary: X-Datapages-Offline-Version`, and every HTML response the offline module touches carries `Vary: X-Datapages-Worker-Version`. A shared cache in front of the application therefore cannot serve one client's page to another.
+Both request headers change the response body. A response that depends on one lists it in `Vary`. A page whose handler takes `pageCache` sets `Vary: X-Datapages-Offline-Version`. The offline middleware sets `Vary: X-Datapages-Worker-Version` on HTML responses. A shared cache can then separate responses for different clients.
 
 Serving a navigation works as follows:
 
-- The URL holds a `SetShim` entry: the worker serves it at once, online or offline, and fetches the live page in parallel. The trigger Datapages adds to the shim requests the URL again, marked with `X-Datapages-Shim-Hydrate`, and the worker answers that request from the in-flight response as two Datastar patches, `<head>` then `<body>`, which morph the live page in. The head goes first because it carries the CSRF script of a signed-in visitor, which has to be installed before a binding in the new body can fire an action. A cached shim is rendered with no session and holds no such script of its own. The prefetch lives in the worker's module scope, which a termination drops. The worker then fetches the page itself rather than letting the request through, which would answer with a whole document that Datastar cannot patch. Offline the fetch fails and the shim stays as it is, which is why it must not state anything that is only true offline.
+- The URL holds a `SetShim` entry: the worker returns it immediately and fetches the live page in parallel. The Datapages trigger requests the URL with `X-Datapages-Shim-Hydrate`. The worker answers with `<head>` and `<body>` Datastar patches from the live response. The head arrives first because it contains the signed-in visitor's CSRF script. If worker termination removes the prefetched response, the worker fetches the page again. A failed offline fetch leaves the shim visible, so the shim must not make an offline-only claim.
 - Online, no `SetShim` entry: the worker passes the request to the network and returns the live response. A `Set` entry is never served while online.
 - Offline and the URL is cached: the worker returns the stored offline body.
-- Offline and the URL is not cached: the worker returns the `PageOffline` fallback. `PageOffline` declares its route by comment like any other page, and the worker precaches it when it installs. Declaring the page generates a `WithOffline` server option that passes that route to the worker, so the route is never configured a second time. Datapages uses its own minimal page when `PageOffline` is not defined or precaching it failed.
+- Offline and the URL is not cached: the worker returns `PageOffline`. The worker caches this page during installation. Its route comes from the generated `WithOffline` option. Datapages uses a minimal default when the application does not define `PageOffline` or installation could not cache it.
 
-Assets that cached pages reference are cached as well, so those pages render fully offline and not just as unstyled HTML. Same-origin requests are cached on first load, except the ones Datastar issues: an action, a page hydrate and a page's event stream are generated per request and always come from the network. Cross-origin requests are cached only for the request destinations the application opts in to, by default stylesheets, scripts, fonts and images; such responses are often opaque and are stored as such. Restricting them by destination keeps API and analytics calls out of the cache, as they must not be answered from a stale copy. `Config.ExcludePaths` keeps same-origin prefixes out of the cache the same way. The application shell declared for precaching is stored when the worker installs. An asset that is neither declared nor ever loaded while online is unavailable offline.
+Cached pages also require their assets. The worker caches same-origin requests on first load except Datastar actions, page hydration and event streams, which always use the network. For cross-origin requests, it caches only destinations enabled by the application. The defaults are stylesheets, scripts, fonts and images. `Config.ExcludePaths` excludes same-origin path prefixes. Files listed in `Config.Assets` are cached during worker installation. Any other asset must load once while online before it is available offline.
 
-A cached same-origin asset is served from the cache and refreshed from the network behind it, which is how a file redeployed at an unchanged URL reaches a returning visitor: the visit that serves the stale copy stores the new one for the next. Cross-origin entries are not revalidated, since an opaque response cannot be compared.
+For a cached same-origin asset, the worker returns the cached response and then updates it from the network. A later request receives the update. The worker does not update opaque cross-origin responses because it cannot compare them.

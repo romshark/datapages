@@ -24,8 +24,8 @@ func TestServiceWorkerJS(t *testing.T) {
 }
 
 func TestMiddleware(t *testing.T) {
-	cfg := offline.Config{WorkerVersion: 1}
-	mw := offline.Middleware("/offline/", cfg)
+	conf := offline.Config{WorkerVersion: 1}
+	mw := offline.Middleware("/offline/", conf)
 
 	type want struct {
 		status      int
@@ -193,13 +193,10 @@ func TestServiceWorkerCrossOriginDestinations(t *testing.T) {
 func TestConfigDefaults(t *testing.T) {
 	t.Parallel()
 
-	// The zero value must produce a usable worker at version 1.
-	// A client reporting no version is recognised as having none installed.
 	js := string(offline.ServiceWorkerJS("", offline.Config{}))
 	require.Contains(t, js, `"workerVersion":1`)
 	require.Equal(t, uint64(1), offline.DefaultWorkerVersion)
 
-	// An empty offline path leaves the worker's own fallback in place.
 	require.Contains(t, js, `"offlineURL":""`)
 }
 
@@ -223,9 +220,9 @@ func TestMiddlewareReflectsStateOnceTheWorkerIsCurrent(t *testing.T) {
 	require.NotContains(t, rec.Body.String(), "serviceWorker.register")
 }
 
-// TestServiceWorkerCarriesTheReflectionScript tests that the worker can add the
-// reflection script to a cached page, which the middleware never sees.
-func TestServiceWorkerCarriesTheReflectionScript(t *testing.T) {
+// TestServiceWorkerIncludesTheReflectionScript tests cached pages that bypass
+// the middleware.
+func TestServiceWorkerIncludesTheReflectionScript(t *testing.T) {
 	t.Parallel()
 	js := string(offline.ServiceWorkerJS("/offline/",
 		offline.Config{WorkerVersion: 1, OfflineClass: "app-offline"}))
@@ -248,8 +245,8 @@ func TestMiddlewareVariesByWorkerVersion(t *testing.T) {
 	require.Equal(t, "X-Datapages-Worker-Version", rec.Header().Get("Vary"))
 }
 
-// TestServiceWorkerExcludePaths tests that the configured same-origin prefixes
-// reach the worker, which passes those requests to the network.
+// TestServiceWorkerExcludePaths tests that configured same-origin prefixes use
+// the network.
 func TestServiceWorkerExcludePaths(t *testing.T) {
 	t.Parallel()
 
@@ -288,12 +285,11 @@ func TestOfflineClassCannotEndTheScript(t *testing.T) {
 	require.NotContains(t, rec.Body.String(), "<script>alert(1)",
 		"the class must not end the script element it sits in")
 	require.Contains(t, rec.Body.String(), `</script>`,
-		"json.Marshal writes < and > escaped")
+		"json.Marshal escapes < and >")
 }
 
-// TestServiceWorkerPatchesTheHead tests that the shim hydration answer carries
-// a head frame. Without it a shim keeps the head it was cached with, which in
-// an application with sessions holds no CSRF script.
+// TestServiceWorkerPatchesTheHead tests that a shim update includes the live
+// head before the body. Sessionless shims contain no CSRF script.
 func TestServiceWorkerPatchesTheHead(t *testing.T) {
 	t.Parallel()
 	js := string(offline.ServiceWorkerJS("/offline/", offline.Config{WorkerVersion: 1}))
@@ -307,9 +303,8 @@ func TestServiceWorkerPatchesTheHead(t *testing.T) {
 			" installed before a binding in the new body fires an action")
 }
 
-// TestServiceWorkerHydratesWithoutThePrefetch tests that the worker recognises
-// a shim's hydration request by header and can answer it from a fetch of its own.
-// The prefetch lives in module scope, which a worker restart drops.
+// TestServiceWorkerHydratesWithoutThePrefetch tests that the worker can fetch a
+// new response after a restart removes the saved response.
 func TestServiceWorkerHydratesWithoutThePrefetch(t *testing.T) {
 	t.Parallel()
 	js := string(offline.ServiceWorkerJS("/offline/", offline.Config{WorkerVersion: 1}))

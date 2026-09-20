@@ -8,8 +8,6 @@ import (
 )
 
 // PageIndex is /
-//
-// The home page is the shows listing with live search.
 type PageIndex struct {
 	App *App
 	Base
@@ -30,9 +28,7 @@ func (p PageIndex) GET(
 		return nil, err
 	}
 
-	// Keep a search-less offline shell for "/" so it renders while offline
-	// instead of the generic fallback. Versioned by session so it re-caches with
-	// the right navbar after login/logout.
+	// Cache a version per session because the snapshot contains its navigation.
 	if ver := offlineCacheVersion(session, ""); pageCache.Version() != ver {
 		pageCache.Set(
 			href.PageIndex(href.QueryPageIndex{}),

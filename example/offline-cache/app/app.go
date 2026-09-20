@@ -9,28 +9,25 @@ import (
 	"github.com/romshark/datapages/example/offline-cache/app/domain"
 )
 
-// Session is the per-user authentication session. It carries no application
-// data of its own; session.UserID() holds the user name.
+// Session identifies the signed-in user. It has no application data.
 type Session = datapages.Session[struct{}]
 
-// App holds the application's dependencies.
+// App provides ticketing handlers backed by a repository.
 type App struct {
 	repo *domain.Repository
 }
 
-// NewApp creates the application backed by the given repository.
+// NewApp returns an application backed by repo.
 func NewApp(repo *domain.Repository) *App {
 	return &App{repo: repo}
 }
 
-// SearchParams carries the live-search term. It is used both as GET query
-// parameters (deep-linkable via ?q=) and as Datastar signals. The reflectsignal
-// tag keeps the browser URL in sync as the "q" signal changes.
+// SearchParams defines the live-search query parameter and signal.
 type SearchParams struct {
 	Term string `json:"q" query:"q" reflectsignal:"q"`
 }
 
-// Head adds shared <head> content to every page.
+// Head returns the shared head content.
 func (*App) Head(r *http.Request) datapages.Head {
 	return head()
 }
@@ -45,15 +42,13 @@ func (*App) POSTSignOut(
 	redirect datapages.Redirect,
 	err error,
 ) {
-	// Signing out drops the offline cache so this browser's signed-in pages are
-	// not served offline to the next (guest) visitor. "/" re-bakes on the
-	// redirect below; other pages re-cache as they are visited.
+	// Prevent signed-in snapshots from being served after the session closes.
+	// The destination and later visits repopulate the cache.
 	pageCache.ClearAll()
 	return true, datapages.Redirect{URL: href.PageIndex(href.QueryPageIndex{})}, nil
 }
 
-// Base is embedded into pages that render the shared navbar. It carries the
-// data needed to render the top navigation for the current session.
+// Base provides navigation data to pages that embed it.
 type Base struct{ App *App }
 
 type baseData struct {
@@ -64,7 +59,7 @@ type baseData struct {
 
 func (b Base) baseData(ctx context.Context, session Session) (baseData, error) {
 	if session.IsGuest() {
-		return baseData{}, nil // Guest
+		return baseData{}, nil
 	}
 	user, err := b.App.repo.UserByName(ctx, session.UserID())
 	if err != nil {

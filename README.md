@@ -35,8 +35,8 @@ No matter whether you're building **real-time collaborative dynamic web app** or
 - [`tailwindcss`](example/tailwindcss/): Minimal static page demonstrating Tailwind CSS integration.
 - [`webcomponents`](example/webcomponents/): Landing page with vanilla and [Lit](https://lit.dev)-based Web Components bundled via esbuild through a custom watcher.
 - [`sqlitesessions`](example/sqlitesessions/): Custom `sessions.Manager` implementation backed by SQLite via [sqinn-go](https://github.com/cvilsmeier/sqinn-go) (no cgo).
-- [`fast-shim`](example/fast-shim/): Instant page loads: the worker paints a cached shim, then Datastar morphs in the live page fetched in the background.
-- [`offline-cache`](example/offline-cache/): Service-worker offline support: pages cached from handlers, a `PageOffline` fallback, and purchased tickets that stay viewable without a connection.
+- [`fast-shim`](example/fast-shim/): A cached placeholder shown immediately and replaced with the live response.
+- [`offline-cache`](example/offline-cache/): Service worker support with handler-cached pages, a `PageOffline` fallback, and tickets available without a connection.
 
 ## Getting Started
 

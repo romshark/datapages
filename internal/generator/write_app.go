@@ -210,19 +210,16 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 }
 
 // writePageCache emits the datapages.PageCacheWriter implementation and its
-// delivery lifecycle (SSE flush, GET bake, redirect script). It is generated into
-// the application package rather than imported. It stays out of the public API.
+// SSE, HTML and redirect delivery paths into the application package.
 func (w *Writer) writePageCache(m *model.App) {
 	w.Raw(`
-// newPageCache builds the page cache handle for the request. sse is the
-// action's SSE generator, or nil for GET and redirect handlers.
 func newPageCache(
 	w http.ResponseWriter, s *Server, r *http.Request,
 	sse *datastar.ServerSentEventGenerator,
 ) *pageCacheWriter {
 	// The response body depends on the version header Version reads.
 	// Without Vary a shared cache in front of the application can hand
-	// one client's page, and the cache write baked into it, to another.
+	// one client's page and its embedded cache write to another.
 	w.Header().Add("Vary", datapages.HeaderOfflineVersion)
 	return &pageCacheWriter{s: s, r: r, sse: sse}
 }
@@ -243,8 +240,7 @@ func (p *pageCacheBuf) Header() http.Header {
 func (p *pageCacheBuf) Write(b []byte) (int, error) { return p.b.Write(b) }
 func (p *pageCacheBuf) WriteHeader(int)             {}
 `)
-	// pageCacheHead renders the global <head> for a cached document. One copy
-	// serves every visitor. Render it without a session.
+	// One cached document serves every visitor, so pageCacheHead uses no session.
 	w.Raw("\nfunc (s *Server) pageCacheHead(r *http.Request) datapages.Head {\n\treturn ")
 	if m.GlobalHeadGenerator == nil {
 		w.Raw("nil\n}\n")
@@ -272,9 +268,8 @@ type pageCachePendingSet struct {
 	shim    bool
 }
 
-// Version reports the version the client holds for this request's URL. A missing
-// or malformed header parses to 0, meaning nothing cached. The handler
-// re-caches instead of trusting a bad value.
+// Version reports the cached version for this request's URL. A missing or
+// malformed header becomes 0, which causes the handler to cache the page again.
 func (c *pageCacheWriter) Version() uint64 {
 	v, _ := strconv.ParseUint(
 		c.r.Header.Get(datapages.HeaderOfflineVersion), 10, 64,
@@ -305,13 +300,11 @@ type pageCacheEntry struct {
 	Shim    bool   ` + "`json:\"shim,omitempty\"`" + `
 }
 
-// shimHydrateScript is appended to every shim. Datastar has no imperative API,
-// so the script adds a data-init element. Datastar's MutationObserver sees it,
-// requests this URL, and morphs in the live page the worker prefetched.
-// The header marks the request for the worker, which answers it from the prefetch or,
-// when that is gone, from a fetch of its own. The element stays in the DOM
-// (removing it on a timer can beat Datastar's deferred module load);
-// the morph drops it, as the live page has no such element.
+// shimHydrateScript adds a data-init element because Datastar has no imperative
+// request API. Datastar observes the element and requests the current URL. The
+// header lets the worker answer with its prefetched response or a new fetch.
+// The live response replaces the element. Removing it earlier could precede
+// Datastar's deferred module load.
 func withShimHydrate(body datapages.Component) datapages.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if err := body.Render(ctx, w); err != nil {
@@ -334,8 +327,7 @@ func (c *pageCacheWriter) payload() (string, error) {
 	}
 	entries := make([]pageCacheEntry, 0, len(c.sets))
 	for _, s := range c.sets {
-		// Cached entries are served standalone. Render a complete document, the
-		// same <head>, stylesheets and Datastar bundle as a live page.
+		// A cached entry needs the same complete document as a live page.
 		var buf pageCacheBuf
 		body := s.body
 		if s.shim {
@@ -382,7 +374,6 @@ func pageCachePostToWorkerJS(payloadJSON string) string {
 		payloadJSON + ");});"
 }
 
-// flush delivers the queued writes over the action's SSE stream.
 func (c *pageCacheWriter) flush() error {
 	if c.sse == nil {
 		return nil
@@ -394,14 +385,13 @@ func (c *pageCacheWriter) flush() error {
 	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
-// bakeInto returns body followed by the queued writes as a <script>, which the
-// worker applies on load. The script has to sit inside <body>: a shimmed page
-// reaches the browser only as a patch of that element, and the worker cuts
-// everything after </body>, dropping the write that bumps the shim.
+// embedInto returns body followed by the queued writes as a <script>, which the
+// worker applies on load. The script must sit inside <body>: a shimmed page
+// updates only that element. Content after </body> would not reach the browser.
 //
 // The queue is complete by render time: the handler has already returned.
-// A payload that fails to render is dropped rather than breaking the page.
-func (c *pageCacheWriter) bakeInto(body datapages.Component) datapages.Component {
+// A payload that fails to render is omitted without failing the page response.
+func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if body != nil {
 			if err := body.Render(ctx, w); err != nil {
@@ -427,14 +417,13 @@ func (c *pageCacheWriter) bakeInto(body datapages.Component) datapages.Component
 	})
 }
 
-// redirectScript returns JavaScript that delivers the queued writes to the worker
-// and then navigates to target. Used by redirect-returning actions,
-// whose response is a text/javascript body rather than an SSE stream.
+// redirectScript returns JavaScript that sends queued writes to the worker and
+// then navigates to target. Redirect actions return this JavaScript instead of
+// an SSE stream.
 //
-// The navigation waits for the worker to acknowledge that it applied the writes,
-// since the destination is served by that same worker and would otherwise race
-// the apply. A sign-out ClearAll losing that race serves the signed-in copy.
-// The 500ms timeout covers a worker too old to reply.
+// Navigation waits for the worker to apply the writes because that worker also
+// serves the destination. The 500ms timeout supports older workers that do not
+// acknowledge the message.
 func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 	tj, err := json.Marshal(target)
 	if err != nil {
@@ -467,15 +456,14 @@ func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 `)
 }
 
-// writeWithOffline emits the WithOffline server option, generated only when the
-// application declares PageOffline. It supplies the page's route to the offline
-// module so the route stays declared in exactly one place, the page's doc comment.
+// writeWithOffline emits the WithOffline option when the application declares
+// PageOffline. The generated option passes that page's route to the module.
 func (w *Writer) writeWithOffline(m *model.App) {
 	if m.PageOffline == nil {
 		return
 	}
 	w.Raw(`
-// WithOffline enables service-worker offline support. The route of PageOffline is
+// WithOffline enables service worker offline support. The route of PageOffline is
 // supplied automatically; the worker precaches that page and serves it for
 // navigations to URLs with no cached copy while the browser is offline.
 func WithOffline(conf offline.Config) datapages.ServerOption {
@@ -576,8 +564,8 @@ func (s *Server) writeHTML(
 }
 
 // writeHTTPRedirectOffline emits httpRedirectOffline, the redirect helper used by
-// actions that also write the page cache (e.g. sign-in and sign-out). For
-// Datastar requests it delivers the queued offline writes and the navigation as a
+// actions that also write the page cache, such as sign-in and sign-out. For
+// Datastar requests it sends the queued offline writes and navigation as a
 // single text/javascript response; otherwise it performs an ordinary redirect.
 func (w *Writer) writeHTTPRedirectOffline() {
 	w.Raw(`
@@ -606,7 +594,6 @@ func httpRedirectOffline(
 		http.StatusSeeOther,
 		http.StatusTemporaryRedirect,
 		http.StatusPermanentRedirect:
-		// OK
 	default:
 		status = http.StatusFound
 	}
@@ -1569,12 +1556,8 @@ func (s *Server) httpErrIntern(
 `)
 }
 
-// writeRedirect emits the redirect of a handler. A handler holding an open
-// stream navigates through it, since the response head is long gone.
-// Either form carries the handler's queued page cache writes ahead of the navigation,
-// which is what reaches the worker before the page unloads.
-// viaPageCache selects the carrying form of the response-head redirect;
-// the stream redirect flushes whenever the stream is what delivers the writes.
+// writeRedirect emits an HTTP or SSE redirect. viaPageCache selects the HTTP
+// response that sends cache writes before navigation.
 func (w *Writer) writeRedirect(h *model.Handler, viaPageCache bool) {
 	if h.OutputRedirect == nil {
 		return
@@ -1595,7 +1578,7 @@ func (w *Writer) writeRedirect(h *model.Handler, viaPageCache bool) {
 		return
 	}
 	w.Linef(1, "if %s.URL != \"\" {", ref)
-	// The branch returns, which the flush after the method call never survives.
+	// Flush before returning from this redirect path.
 	if pageCacheViaStream(h) {
 		w.Line(2, "_ = pageCache.flush()")
 	}
@@ -1830,8 +1813,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 		w.writeDeferRecover(viaStream, "App."+h.Name)
 	}
 
-	// Page cache handle. The other two deliveries carry the writes in the
-	// response (see httpRedirectOffline and pageCacheWriter.bakeInto).
+	// Create an SSE-backed handle only when the response uses SSE delivery.
 	if h.InputPageCache != nil && isAppLevel {
 		if viaStream {
 			w.Line(1, "pageCache := newPageCache(w, s.Server, r, sse)")
@@ -1848,7 +1830,7 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	// Build the actual method call.
 	w.writeMethodCall(p, h, m, isAppLevel)
 
-	// Deliver queued offline writes over the SSE stream on success.
+	// Send queued writes after a successful handler call.
 	if viaStream {
 		w.Line(1, "_ = pageCache.flush()")
 	}
@@ -2225,7 +2207,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	w.Raw(headArg)
 	w.Raw(", ")
 	if h.InputPageCache != nil {
-		w.Raw("pageCache.bakeInto(body)")
+		w.Raw("pageCache.embedInto(body)")
 	} else {
 		w.Raw("body")
 	}

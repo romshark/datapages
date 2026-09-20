@@ -10,16 +10,18 @@ description: >-
 
 Read `datapages` first for the build loop, hard rules and naming conventions.
 
-`modules/offline` serves a service worker and injects its registration into pages. Handlers fill its cache through the `pageCache datapages.PageCacheWriter` parameter. One cache, two uses:
+`modules/offline` serves a service worker and adds registration to HTML
+responses. Handlers write its cache through the
+`pageCache datapages.PageCacheWriter` parameter:
 
 - **Snapshots** (`Set`): served only while the browser is offline.
 - **Shims** (`SetShim`): served online too, at once, then replaced by the live page.
 
 The worker runs only in a secure context (HTTPS or localhost). Everywhere else the API does nothing.
 
-## Wire the module
+## Configure the module
 
-Declaring `PageOffline` generates a `WithOffline` option carrying that page's route:
+Declaring `PageOffline` generates a `WithOffline` option with that page's route:
 
 ```go
 // PageOffline is /offline
@@ -39,15 +41,15 @@ opts := []datapages.ServerOption{
 ```
 
 ```go
-// OfflineWorkerVersion is the worker's own version. Bump it whenever the
-// worker script or the precached asset set changes. The browser then installs
-// the new worker and drops the caches of older versions.
+// OfflineWorkerVersion is the worker's own version. Increment it when the
+// worker script or precached asset set changes. The browser installs the new
+// worker and removes caches from older versions.
 const OfflineWorkerVersion = 1
 
 func OfflineConfig() offline.Config {
 	return offline.Config{
 		WorkerVersion: OfflineWorkerVersion,
-		// App shell precached on install so cached pages still render offline.
+		// Precache the files required to render cached pages offline.
 		Assets: []string{
 			assets.Path("style.css"), assets.Path("datastar.js"),
 		},
@@ -55,7 +57,8 @@ func OfflineConfig() offline.Config {
 }
 ```
 
-Without `PageOffline` no option is generated. Wire the middleware directly, which is enough for shims:
+Without `PageOffline`, configure the middleware directly. This is sufficient
+for shims:
 
 ```go
 datapages.WithMiddleware(offline.Middleware("", offline.Config{WorkerVersion: 1}))
@@ -63,9 +66,9 @@ datapages.WithMiddleware(offline.Middleware("", offline.Config{WorkerVersion: 1}
 
 | `offline.Config` field | default |
 | ---------------------- | ------- |
-| `WorkerVersion` | 1; bump on a worker or shell change |
+| `WorkerVersion` | 1; increment after a worker or precached file changes |
 | `ScriptURL` | `/service-worker.js`; the scope is the whole origin either way |
-| `Assets` | none; the shell precached on install |
+| `Assets` | none; files cached during installation |
 | `OfflineClass` | `is-offline`, toggled on `<html>` while offline |
 | `CrossOriginDestinations` | `image`, `style`, `script`, `font`; empty non-nil disables |
 | `ExcludePaths` | none; same-origin prefixes never cached |
@@ -78,21 +81,25 @@ Style offline state in CSS, no Go code:
 
 ## PageOffline
 
-A reserved name, like `PageError404` and `PageError500`. The worker precaches it and serves it while offline for a URL it holds no entry for. It renders with a zero `Session`. Datapages uses a minimal built-in page when the app declares none.
+`PageOffline` is reserved like `PageError404` and `PageError500`. The worker
+caches it during installation and returns it for an uncached URL while offline.
+It renders with a zero `Session`. Datapages supplies a minimal default.
 
 ## The pageCache parameter
 
-Optional on a `GET` and on any action, page-level or on `*App`, in any position.
+The parameter is optional on `GET` methods and on page or `*App` actions.
 
 | method | effect |
 | ------ | ------ |
 | `Version()` | the version the client holds for **this request's URL**, 0 if none |
 | `Set(url, body, version)` | cache `body` for `url`, served only while offline |
 | `SetShim(url, body, version)` | cache `body` for `url`, served online too |
-| `Clear(url)` | drop one entry |
-| `ClearAll()` | drop the whole cache |
+| `Clear(url)` | remove one entry |
+| `ClearAll()` | remove every page cache entry |
 
-`url` comes from the generated `href` package. Writes are **deferred and atomic**: nothing reaches the client until the handler returns without error, then every call of that request applies together, `ClearAll` first.
+`url` comes from the generated `href` package. Writes remain queued until the
+handler returns without error. The worker then applies them together, with
+`ClearAll` first.
 
 `Version()` covers this URL only. Caching any other URL is therefore unconditional.
 
@@ -119,17 +126,21 @@ func (p PagePost) GET(
 
 A snapshot need not match the live body. It is what the user sees with no network: leave out what cannot work there.
 
-**Lazy**: a handler caches the page it renders. An unvisited page costs nothing. **Eager**: a handler caches URLs other than the one it serves, such as a purchase action caching the ticket pages it just created.
+A `GET` can cache its own page when visited. An action can cache other URLs,
+such as ticket pages created by a purchase.
 
 ## Shims
 
-A shim is a placeholder rendering of a page: its chrome with the slow parts replaced by skeletons. The worker paints it from cache at once and fetches the live page in parallel. Datapages emits the trigger that morphs the live head and body in. The shim itself carries no Datastar attributes.
+A shim renders the navigation and layout with placeholders for slow content. The worker
+returns the cached shim immediately and fetches the live page in parallel.
+Datapages adds the trigger that replaces the shim's head and body through
+Datastar. The shim contains no Datastar attributes.
 
-A shim is cached with no session, which means no CSRF script. An action on it works once the live head has arrived. Keep actions out of the skeleton.
+A shim renders with no session and contains no CSRF script. Do not put actions
+in the placeholder content.
 
 ```go
-// shimVersion versions the cached shims. They hold no data. Only a code change
-// bumps it.
+// shimVersion changes when the placeholder markup changes.
 const shimVersion = 1
 
 func (p PageIndex) GET(
@@ -146,25 +157,31 @@ func (p PageIndex) GET(
 }
 ```
 
-A shim is shown online as well. It must not state anything that is only true offline. Offline the parallel fetch fails and the shim stays on screen.
+A shim is also shown online. It must not make an offline-only claim. If the live
+request fails, the shim remains visible.
 
 ## Rules
 
-- **Pass the page body, not a document.** Datapages wraps a cached entry in the same document shell as a live page (`<head>`, stylesheets, Datastar bundle). Hand-rolling `<!DOCTYPE html>` around the body nests one document inside another.
+- **Pass the page body, not a document.** Datapages adds the same `<head>`,
+  stylesheets and Datastar bundle used by a live page. Adding `<!DOCTYPE html>`
+  to the body would nest one document inside another.
 - **A cached page is only as complete as its assets.** Its stylesheets, scripts, fonts and images must be cached too. `Config.Assets` is precached on install. Everything else is cached on its first load while online: same-origin files other than what Datastar requests (actions, hydrates and event streams always come from the network) and other than `Config.ExcludePaths`, plus cross-origin requests whose destination is in `Config.CrossOriginDestinations`. An asset that is neither listed nor ever loaded online is missing offline. A cached same-origin asset is refreshed behind the copy it serves: a file redeployed at the same URL lands on the next visit, with no `WorkerVersion` bump.
 - **Version by everything the body depends on.** A constant version caches once and never refreshes. Include the content state, such as an item count or an ownership flag.
 
   ```go
-  // The body renders a different call-to-action depending on ownership, which
-  // the version accounts for. A constant would freeze the first snapshot.
-  ver := snapshotVersion(session.UserID, owned) // e.g. an FNV-1a hash of both
+  // The ownership button changes, so ownership is part of the version.
+  ver := snapshotVersion(session.UserID, owned) // For example, an FNV-1a hash.
   if pageCache.Version() != ver {
-  	pageCache.Set(href.PagePost(slug), postOffline(post), ver)
+    pageCache.Set(href.PagePost(slug), postOffline(post), ver)
   }
   ```
 - **Use `!=`, not `<`, for an unordered version key** such as a hash. `<` re-caches only on an increase and silently keeps a stale entry.
-- **`ClearAll()` when one change invalidates many pages**, such as a locale or permission change. Re-caching every affected URL from one handler is impractical or impossible. Nothing repopulates on its own: an entry returns when a handler `Set`s that URL again. A lazily cached page returns on its next online visit, since after a clear `Version()` reports 0 and the version guard fires. Signing in and out is the common case: a snapshot cached for a guest still shows the signed-out navigation after login. Call `ClearAll()` in both actions.
-- **An entry stays stale until something `Set`s it again.** A lazily cached page refreshes on its next online visit. When a change elsewhere invalidates it, re-`Set` it from the action that made the change.
+- **Use `ClearAll()` when one change invalidates many pages.** Examples include
+  locale, permission and session changes. Entries return only after a handler
+  calls `Set` again. Call `ClearAll()` during sign-in and sign-out.
+- **Update invalidated entries.** A page cached by its `GET` updates on the next
+  online visit. An action that changes another cached page should call `Set` for
+  that page.
 
 ## Delivery
 
@@ -172,10 +189,12 @@ The generated code picks how queued writes reach the worker from the handler sig
 
 | handler | delivery |
 | ------- | -------- |
-| `GET` | baked into the page's HTML, applied on load, no extra request |
+| `GET` | embedded in the page HTML and applied on load |
 | action taking `sse` | sent over that stream |
-| action returning `redirect` | carried in its `text/javascript` response; the navigation waits for the worker to acknowledge the apply, at most 500ms. Chosen even when the action also returns a body |
-| action returning only a body | baked into the document it renders |
+| action returning `redirect` | sent in its `text/javascript` response; navigation waits up to 500ms for the worker. This applies even when the action also returns a body |
+| action returning only a body | embedded in the rendered document |
 | action returning neither | sent over an SSE stream opened for that purpose, readable only by a Datastar request |
 
-`newSession` and `closeSession` cannot be combined with `sse`. Sign-in and sign-out therefore take `pageCache` and return a `redirect`. The navigation waits for the worker to acknowledge the apply, at most 500ms, which keeps a `ClearAll` from being raced by the destination's own cache lookup.
+`newSession` and `closeSession` cannot be combined with `sse`. Sign-in and
+sign-out therefore take `pageCache` and return a `redirect`. Navigation waits
+up to 500ms for the worker to apply `ClearAll` before loading the destination.

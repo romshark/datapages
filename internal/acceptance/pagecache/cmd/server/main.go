@@ -35,7 +35,6 @@ func main() {
 
 	messageBroker := connectNATS()
 
-	// TODO: Initialize your app.
 	a := &app.App{}
 
 	s, err := datapages.NewServer[

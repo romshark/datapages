@@ -36,7 +36,6 @@ func (p PageShow) GET(
 		return nil, nil, err
 	}
 
-	// Determine whether the current user already owns a ticket for this show.
 	hasTicket := false
 	if !session.IsGuest() {
 		_, ok, err := p.App.repo.TicketForShow(r.Context(), session.UserID(), show.Slug)

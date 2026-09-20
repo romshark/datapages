@@ -24,7 +24,6 @@ func (p PagePurchase) GET(
 	}],
 ) (body datapages.Component, redirect datapages.Redirect, err error) {
 	if session.IsGuest() {
-		// Guests must sign in before purchasing.
 		return nil, datapages.Redirect{URL: href.PageLogin(href.QueryPageLogin{
 			Next: href.PagePurchase(path.Values.Slug),
 		})}, nil
@@ -38,7 +37,6 @@ func (p PagePurchase) GET(
 		return nil, datapages.Redirect{}, err
 	}
 
-	// If the user already owns a ticket, jump straight to it.
 	if _, ok, err := p.App.repo.TicketForShow(
 		r.Context(), session.UserID(), show.Slug,
 	); err != nil {
@@ -56,10 +54,8 @@ func (p PagePurchase) GET(
 
 // POSTConfirm is /shows/{nameslug}/purchase/confirm
 //
-// The handler returns a redirect rather than navigating over an SSE stream:
-// the redirect response carries the queued cache writes to the service worker and
-// runs the navigation only once they are posted. A navigation written to the stream
-// would race the page unload against the writes flushed after this handler returns.
+// The redirect response applies queued cache writes before navigation. An SSE
+// redirect could unload the page before the post-handler flush.
 func (p PagePurchase) POSTConfirm(
 	r *http.Request,
 	pageCache datapages.PageCacheWriter,
@@ -92,8 +88,6 @@ func (p PagePurchase) POSTConfirm(
 	}
 }
 
-// refreshOfflineCache re-caches the tickets list and the just-purchased ticket
-// so both are available offline immediately after a purchase.
 func (p PagePurchase) refreshOfflineCache(
 	r *http.Request,
 	pageCache datapages.PageCacheWriter,

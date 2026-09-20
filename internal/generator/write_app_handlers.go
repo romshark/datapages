@@ -481,7 +481,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 		bodyName = outputVar(p.GET.OutputBody.Output)
 	}
 	if h.InputPageCache != nil {
-		bodyName = "pageCache.bakeInto(" + bodyName + ")"
+		bodyName = "pageCache.embedInto(" + bodyName + ")"
 	}
 
 	w.Line(0, "")
@@ -1696,8 +1696,7 @@ func (w *Writer) writePageActionHandler(
 	w.writeDispatchers(h, "dispatch", "r.Context()")
 
 	// SSE for actions that take it, or need it to flush the page cache.
-	// An action that answers with a redirect or a body delivers its offline writes
-	// in that response instead (see pageCacheViaRedirect, pageCacheViaBake).
+	// A redirect or HTML body sends its offline writes in that response.
 	if h.InputSSE != nil || pageCacheViaStream(h) {
 		w.Line(0, "")
 		w.Line(1, "sse := datastar.NewSSE(w, r, datastar.WithCompression())")
@@ -1705,7 +1704,6 @@ func (w *Writer) writePageActionHandler(
 
 	w.writeDeferRecover(h.InputSSE != nil, p.TypeName+"."+h.Name)
 
-	// datapages runtime handles (datapages.SSE wrapper, page cache).
 	w.writeDatapagesHandles(h)
 
 	// Page constructor.
@@ -1717,8 +1715,7 @@ func (w *Writer) writePageActionHandler(
 	w.writeActionMethodCall(p, h, m)
 
 	// Deliver queued offline writes over the SSE stream on success.
-	// The other two deliveries are written where their response is:
-	// httpRedirectOffline in writeActionMethodCall, the bake after the rendered body.
+	// Redirect and HTML delivery occur while those responses are written.
 	if pageCacheViaStream(h) {
 		w.Line(1, "_ = pageCache.flush()")
 	}
@@ -1726,46 +1723,42 @@ func (w *Writer) writePageActionHandler(
 	w.Line(0, "}")
 }
 
-// pageCacheViaRedirect reports whether h delivers its offline writes through a
-// redirect response (a text/javascript body) rather than an SSE stream. That is
-// the case for actions that return a redirect and do not take an SSE stream of
-// their own, e.g. sign-in and sign-out, which navigate via window.location.
+// pageCacheViaRedirect reports whether h sends offline writes in a JavaScript
+// redirect response.
 func pageCacheViaRedirect(h *model.Handler) bool {
 	return h.InputPageCache != nil && h.InputSSE == nil && h.OutputRedirect != nil
 }
 
-// pageCacheViaBake reports whether h delivers its offline writes baked into the
-// HTML response it renders, the way a GET page method does.
+// pageCacheViaBody reports whether h embeds its offline writes in an HTML
+// response, as a GET page method does.
 //
 // A handler returning both a body and a redirect picks between them at run
 // time, which no signature can settle. Both deliveries are generated for it and
 // exactly one branch runs.
-func pageCacheViaBake(h *model.Handler) bool {
+func pageCacheViaBody(h *model.Handler) bool {
 	return h.InputPageCache != nil && h.InputSSE == nil && h.OutputBody != nil
 }
 
-// pageCacheViaStream reports whether h delivers its offline writes over an SSE stream.
-// The generator opens one for the handlers that ask for none of their own,
-// which is the only delivery left when the response carries no HTML body and no redirect.
+// pageCacheViaStream reports whether h sends offline writes over SSE because it
+// returns no HTML body or redirect.
 func pageCacheViaStream(h *model.Handler) bool {
 	return h.InputPageCache != nil &&
-		!pageCacheViaRedirect(h) && !pageCacheViaBake(h)
+		!pageCacheViaRedirect(h) && !pageCacheViaBody(h)
 }
 
 // writePageCacheBodyArg emits the body argument of an action's writeHTML call,
-// wrapped in pageCache.bakeInto when that document carries the queued writes.
+// wrapped in pageCache.embedInto when that response includes the queued writes.
 func (w *Writer) writePageCacheBodyArg(h *model.Handler) {
-	if !pageCacheViaBake(h) {
+	if !pageCacheViaBody(h) {
 		w.Raw(outputVar(h.OutputBody.Output))
 		return
 	}
-	w.Raw("pageCache.bakeInto(")
+	w.Raw("pageCache.embedInto(")
 	w.Raw(outputVar(h.OutputBody.Output))
 	w.Raw(")")
 }
 
-// writeDatapagesHandles emits, for an action handler, the datapages.SSE wrapper
-// (dpSSE) and the page cache handle (pageCache) when requested.
+// writeDatapagesHandles emits the requested page cache handle.
 func (w *Writer) writeDatapagesHandles(h *model.Handler) {
 	if h.InputPageCache != nil {
 		if pageCacheViaStream(h) {

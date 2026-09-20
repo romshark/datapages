@@ -1,22 +1,21 @@
 # Offline Cache
 
-A ticketing app: browse shows with live search, view a show, buy a ticket and see
-your tickets, each with a scannable QR code. Authentication uses server-side sessions.
-All data lives in an in-memory store seeded with mock data and is lost on restart.
+A ticketing example with live search, purchases and QR-code tickets. It uses
+server-side sessions and an in-memory data store. A process restart removes all
+data.
 
 What it demonstrates:
 
-- Hypermedia-first with no custom JavaScript. The UI is driven by Datastar
-  attributes and server-rendered HTML fragments over SSE.
-- Live search. The shows list filters as you type, patching only the results container,
-  which keeps the focus in the input. The query is reflected into the
-  URL (`?q=`), which makes a search deep-linkable.
-- Session-based auth. A page that requires a login redirects guests to the
-  sign-in page and back again (`?next=`).
-- Type-safe URLs and actions. Every link and action uses the generated
+- Datastar attributes and server-rendered HTML fragments, with no application
+  JavaScript.
+- Live search that updates the results without moving input focus. The `?q=`
+  parameter preserves a search in the URL.
+- Session authentication. Protected pages send guests to sign-in and use
+  `?next=` to return afterward.
+- Generated URLs and actions. Every link and action uses the
   `app/datapagesgen/href` and `app/datapagesgen/action` packages.
 - Light and dark mode via `prefers-color-scheme`.
-- Offline support via the `modules/offline` service-worker module, see below.
+- Offline pages through `modules/offline`.
 
 ## Pages
 
@@ -71,39 +70,37 @@ QR codes are rendered server-side (`github.com/skip2/go-qrcode`) and embedded as
 ## Offline support
 
 Offline support comes from `github.com/romshark/datapages/modules/offline` and
-is wired in with one server option in `cmd/server/main.go`:
+is configured with one server option in `cmd/server/main.go`:
 
 ```go
 datapagesgen.WithOffline(app.OfflineConfig())
 ```
 
-`WithOffline` is generated because the app declares `PageOffline`. It supplies
-that page's route to the module: the route stays declared only on the page type.
+Declaring `PageOffline` generates `WithOffline`. The option reads the route from
+the page declaration.
 
-The middleware serves a generated service worker at `/service-worker.js` and
-injects its registration into every page. The application's `<head>` and its
-templates stay untouched, Datapages still owns the head.
+The middleware serves `/service-worker.js` and adds registration to HTML
+responses. No template registers the worker.
 
 What it does:
 
-- Precaches the app shell (CSS, JS, icons) and the offline fallback page on install.
-  Every asset is self-hosted in `app/static/`. The app needs no network at all.
+- Caches the CSS, JavaScript, icons and offline fallback during installation.
+  Every asset is in `app/static/`.
 - Serves the offline fallback for an uncached page. Opening a show that was never visited
   online shows "You're currently offline, come back when you're back online.",
   which is the `/offline` page, `PageOffline`. `/` has its own cached snapshot and
   states instead that search needs a connection.
-- Keeps bought tickets viewable offline. `PageTicket.GET` receives a
+- Keeps purchased tickets available offline. `PageTicket.GET` receives a
   `pageCache datapages.PageCacheWriter` handle and calls
   `pageCache.Set(href.PageTicket(slug), view, ver)` to store the ticket's
   offline snapshot. The version covers the session and the purchase time,
-  which rewrites the snapshot only when the ticket or the signed-in user changes.
+  which updates the snapshot only when the ticket or signed-in user changes.
 
 `OfflineConfig` lives in `app/offline.go`. Any GET or action handler can control
-its page's offline copy through the injected `pageCache
+an offline copy through the `pageCache
 datapages.PageCacheWriter` parameter: `Version()`, `Set(url, body, version)`,
 `SetShim(...)`, `Clear(url)`, `ClearAll()`.
-Actions receive `sse datapages.SSE`, which hides the Datastar runtime.
 
-Try it: load the app, buy (or open) a ticket, then stop the server and reload.
+To test it, load the app, buy or open a ticket, stop the server, and reload.
 The shows page reports that search is unavailable, a show you never opened falls
 back to `/offline`, and your ticket still opens.

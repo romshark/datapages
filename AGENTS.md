@@ -123,7 +123,7 @@ Where code goes:
   be tested against the standard library directly.
 - The page cache is generated, not imported: `writePageCache` emits the
   `datapages.PageCacheWriter` implementation (`newPageCache`/`pageCacheWriter`)
-  and its delivery lifecycle (`flush`, `bakeInto`, `redirectScript`). It
+  and its delivery lifecycle (`flush`, `embedInto`, `redirectScript`). It
   renders cached bodies through the application's own `writeHTML`, so it is
   shaped by the app model, not by the Go version.
 - `datapages.NewServer` is generic over the app type, the session data type and

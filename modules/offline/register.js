@@ -1,6 +1,4 @@
-// Datapages offline: registers the service worker.
-// Injected only while the client reports no current worker.
-// The script-url placeholder is replaced by the offline module at serve time.
+// The offline module replaces the script URL before serving this registration.
 (function () {
   'use strict';
   if (!('serviceWorker' in navigator)) return;

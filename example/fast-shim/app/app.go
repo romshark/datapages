@@ -1,10 +1,8 @@
 // Package app demonstrates instant page loads backed by the service worker.
 //
-// Two pages cache a shim of themselves: the page chrome with placeholders in
-// place of the slow part. Each later visit paints the shim from cache at once.
-// The worker then fetches the live page and Datastar morphs it in. The other
-// pages cache nothing and wait for the server on every visit. No page carries
-// Datastar attributes; Datapages emits the shim's trigger.
+// Two pages cache a layout with placeholders for slow content. A later visit
+// displays the placeholder while the worker requests the live page. Datastar
+// then replaces the head and body. The other pages wait for the server.
 package app
 
 import (
@@ -20,11 +18,10 @@ import (
 	"github.com/romshark/datapages/example/fast-shim/app/datapagesgen/href"
 )
 
-// SlowQuery is how long the "database" takes. It is what a shim hides.
+// SlowQuery is the simulated database latency hidden by a shim.
 const SlowQuery = 900 * time.Millisecond
 
-// shimVersion versions the cached shims. They hold no data. Only a code change
-// bumps it.
+// shimVersion changes when the placeholder markup changes.
 const shimVersion = 1
 
 type App struct{}
@@ -84,8 +81,7 @@ func (p PageSubpage) GET(
 
 // PageNoShim is /noshim
 //
-// Caches nothing. Every visit waits for the server. The control the shim pages
-// are compared against.
+// This page is the uncached control for the shim pages.
 type PageNoShim struct{ App *App }
 
 func (p PageNoShim) GET(r *http.Request) (body datapages.Component, err error) {
@@ -98,8 +94,7 @@ func (p PageNoShim) GET(r *http.Request) (body datapages.Component, err error) {
 
 // PageNoShim2 is /noshim2
 //
-// A second uncached page. Navigating between the two shows the wait on every
-// hop, not only on reload.
+// This second uncached page shows the delay during navigation and reload.
 type PageNoShim2 struct{ App *App }
 
 func (p PageNoShim2) GET(r *http.Request) (body datapages.Component, err error) {
@@ -117,7 +112,6 @@ const (
 	titleNoShim2 = "No Shim 2"
 )
 
-// slowRows stands in for a slow backend query.
 func slowRows(ctx context.Context, prefix string) ([]string, error) {
 	select {
 	case <-time.After(SlowQuery):
@@ -146,13 +140,12 @@ func page(title string, rows []string, shimmed bool) datapages.Component {
 	})
 }
 
-// shim is the same page with placeholder rows instead of data.
 func shim(title string, rows int) datapages.Component {
 	return doc(title, func(w io.Writer) {
 		for range rows {
 			_, _ = io.WriteString(w, `<div class="row skeleton">&nbsp;</div>`)
 		}
-		_, _ = io.WriteString(w, `<p class="muted">Served from cache, loading…</p>`)
+		_, _ = io.WriteString(w, `<p class="muted">Served from cache, loading...</p>`)
 	})
 }
 

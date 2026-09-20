@@ -1,18 +1,17 @@
 :root {
-    /* Brand + semantic tokens (namespaced to avoid clashing with Basecoat's
-       own --accent/--muted/etc. custom properties). */
-    --brand: #6d28d9;        /* brand accent for icons / links */
-    --brand-ink: #5b21b6;    /* brand text on tinted surfaces (higher contrast) */
-    --brand-2: #be185d;      /* secondary accent */
-    --btn-bg: #6d28d9;       /* primary button background */
-    --btn-bg-hover: #581c9c; /* primary button hover */
-    --btn-fg: #ffffff;       /* primary button text */
+    /* These names do not conflict with Basecoat's custom properties. */
+    --brand: #6d28d9;
+    --brand-ink: #5b21b6;
+    --brand-2: #be185d;
+    --btn-bg: #6d28d9;
+    --btn-bg-hover: #581c9c;
+    --btn-fg: #ffffff;
     --bg: #f7f6fb;
     --surface: #ffffff;
     --surface-2: #e9e6f2;
     --navbar-bg: rgba(255, 255, 255, 0.88);
     --text: #1a1725;
-    --text-muted: #56526a;   /* ~7:1 on white */
+    --text-muted: #56526a;   /* 7:1 contrast on white. */
     --border: #e4e1ee;
     --border-dashed: #cdbdf0;
     --shadow: rgba(24, 16, 48, 0.08);
@@ -26,11 +25,10 @@
 
 @media (prefers-color-scheme: dark) {
     :root {
-        /* Our own semantic tokens. */
-        --brand: #c4b5fd;        /* readable brand text/icon on dark */
+        --brand: #c4b5fd;
         --brand-ink: #ddd2ff;
         --brand-2: #f9a8d4;
-        --btn-bg: #7c3aed;       /* mid violet: white text stays legible */
+        --btn-bg: #7c3aed;
         --btn-bg-hover: #8b5cf6;
         --btn-fg: #ffffff;
         --bg: #0e0b16;
@@ -38,7 +36,7 @@
         --surface-2: #272031;
         --navbar-bg: rgba(24, 20, 31, 0.88);
         --text: #f2f1f7;
-        --text-muted: #b0adc0;   /* ~7:1 on dark surface */
+        --text-muted: #b0adc0;   /* 7:1 contrast on the dark surface. */
         --border: rgba(255, 255, 255, 0.12);
         --border-dashed: rgba(196, 181, 253, 0.40);
         --shadow: rgba(0, 0, 0, 0.5);
@@ -48,8 +46,7 @@
         --ticket-grad: linear-gradient(135deg, #1d1830 0%, #251b39 100%);
         color-scheme: dark;
 
-        /* Basecoat UI tokens (mirrors basecoat-css .dark) so its .btn, .card,
-           .input, .alert, dropdown and popover components adapt automatically. */
+        /* Match Basecoat's dark variables for its controls and popovers. */
         --background: oklch(.145 0 0);
         --foreground: oklch(.985 0 0);
         --card: oklch(.205 0 0);
@@ -95,8 +92,8 @@ a {
     color: inherit;
 }
 
-/* Cohesive, on-brand primary button with a strong white-on-violet contrast in
-   both themes. Basecoat still supplies sizing, radius and the other variants. */
+/* Basecoat supplies sizing and shape. These colors preserve contrast in both
+   themes. */
 .btn {
     background-color: var(--btn-bg);
     color: var(--btn-fg);
@@ -149,8 +146,6 @@ a {
     max-width: 1200px;
     margin: 0 auto;
 }
-
-/* ---------- Navbar ---------- */
 
 #navbar {
     position: sticky;
@@ -207,8 +202,6 @@ a {
         border-radius: 1rem;
     }
 }
-
-/* ---------- Cards grid (shows) ---------- */
 
 .show-cards {
     display: grid;
@@ -304,8 +297,6 @@ a {
     }
 }
 
-/* ---------- Shows page ---------- */
-
 #page-shows {
     & .shows-header {
         padding: 1.5rem 0 1.25rem;
@@ -356,8 +347,6 @@ a {
     color: var(--text-muted);
     font-size: 1.1rem;
 }
-
-/* ---------- Show detail ---------- */
 
 .back-link {
     display: inline-block;
@@ -442,8 +431,6 @@ a {
     }
 }
 
-/* ---------- Purchase ---------- */
-
 #page-purchase {
     max-width: 640px;
 
@@ -502,8 +489,6 @@ a {
         margin: 0.25rem 0 0;
     }
 }
-
-/* ---------- Ticket ---------- */
 
 .ticket-label {
     text-transform: uppercase;
@@ -603,8 +588,6 @@ a {
     }
 }
 
-/* ---------- Tickets list ---------- */
-
 #page-tickets {
     & h1 {
         margin: 1.5rem 0 1rem;
@@ -659,8 +642,6 @@ a {
     }
 }
 
-/* ---------- Login ---------- */
-
 #page-login {
     display: flex;
     flex-direction: column;
@@ -688,8 +669,6 @@ a {
         gap: 1rem;
     }
 }
-
-/* ---------- Offline ---------- */
 
 #datapages-offline-banner {
     position: fixed;
@@ -746,8 +725,6 @@ a {
         margin: 0 0 0.75rem;
     }
 }
-
-/* ---------- Footer ---------- */
 
 #footer {
     margin-top: 3.5rem;

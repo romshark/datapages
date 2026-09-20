@@ -1,5 +1,3 @@
-// Wires the page cache case into the shared contract suite.
-
 package acceptance_test
 
 import (

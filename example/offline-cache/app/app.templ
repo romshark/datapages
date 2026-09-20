@@ -8,26 +8,23 @@ import (
 	"github.com/romshark/datapages/example/offline-cache/app/datapagesgen/href"
 )
 
-// dateLayout is the human-readable format used to render show start times.
-const dateLayout = "Mon, Jan 2 2006 · 3:04 PM"
+const dateLayout = "Mon, Jan 2 2006 at 3:04 PM"
 
 templ head() {
-	<title>Showtime — Datapages Demo</title>
+	<title>Showtime - Datapages Demo</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1"/>
-	<meta name="description" content="Browse shows and buy tickets — a Datapages demo app."/>
-	<meta property="og:title" content="Showtime — Datapages Demo"/>
-	<meta property="og:description" content="Demo — Go + Templ + Datastar + Datapages"/>
+	<meta name="description" content="Browse shows and buy tickets in a Datapages demo app."/>
+	<meta property="og:title" content="Showtime - Datapages Demo"/>
+	<meta property="og:description" content="Demo: Go + Templ + Datastar + Datapages"/>
 	<link rel="icon" href="/static/favicon.svg"/>
-	// Basecoat UI, self-hosted so the app works fully offline. Loaded before our
-	// stylesheet so our design-token overrides win the cascade.
+	// Load Basecoat before style.css so the application overrides its variables.
 	<link rel="stylesheet" href="/static/basecoat.css"/>
 	<script src="/static/basecoat.js" defer></script>
 	<link rel="stylesheet" href="/static/style.css"/>
 }
 
-// page is the shared wrapper for all pages.
-// page wraps every page body. Reloading when connectivity drops makes the service
-// worker serve the cached copy of this URL, or the offline page when there is none.
+// page reloads when the browser goes offline so the service worker can return
+// the cached URL or PageOffline.
 templ page(id string) {
 	<div id="content" data-on:offline__window="window.location.reload()">
 		<div id={ id }>
@@ -117,8 +114,6 @@ templ fragmentFooter() {
 	</div>
 }
 
-// --- Shows listing (page 1) ---
-
 templ pageShows(
 	session Session, query SearchParams, shows []domain.Show, baseData baseData,
 ) {
@@ -126,7 +121,7 @@ templ pageShows(
 	@page("page-shows") {
 		<header class="shows-header">
 			<h1>Live shows &amp; events</h1>
-			<p class="subtitle">Find something to see tonight — search and book in seconds.</p>
+			<p class="subtitle">Find a show and book a ticket.</p>
 			<label class="search-box">
 				@iconSearch()
 				<input
@@ -136,7 +131,7 @@ templ pageShows(
 					value={ query.Term }
 					data-bind="q"
 					data-on:input__debounce.250ms={ action.PageIndex.Search.POST() }
-					placeholder="Search by title, genre, venue or city…"
+					placeholder="Search by title, genre, venue or city..."
 					autocomplete="off"
 				/>
 			</label>
@@ -149,7 +144,7 @@ templ pageShows(
 templ fragmentShowResults(shows []domain.Show) {
 	<div id="show-results">
 		if len(shows) < 1 {
-			<p class="empty">No shows match your search 🤷</p>
+			<p class="empty">No shows match your search.</p>
 		} else {
 			<ul class="show-cards">
 				for _, show := range shows {
@@ -177,7 +172,7 @@ templ fragmentShowCard(show domain.Show) {
 				{ show.Venue }, { show.City }
 			</p>
 			<div class="card-footer">
-				<span class="price">{ show.Price }€</span>
+				<span class="price">EUR { show.Price }</span>
 				if show.Available > 0 {
 					<span class="availability">{ show.Available } left</span>
 				} else {
@@ -187,8 +182,6 @@ templ fragmentShowCard(show domain.Show) {
 		</div>
 	</li>
 }
-
-// --- Show detail (page 2) ---
 
 templ headShow(show domain.Show) {
 	<meta name="description" content={ show.Description }/>
@@ -201,7 +194,7 @@ templ headShow(show domain.Show) {
 templ pageShow(session Session, show domain.Show, hasTicket bool, baseData baseData) {
 	@fragmentNavbar(session, baseData)
 	@page("page-show") {
-		<a class="back-link" href={ href.PageIndex(href.QueryPageIndex{}) }>← Back to all shows</a>
+		<a class="back-link" href={ href.PageIndex(href.QueryPageIndex{}) }>Back to all shows</a>
 		<div class="show-hero">
 			<img class="show-image" src={ show.ImageURL } alt={ show.Title }/>
 			<div class="show-info">
@@ -215,7 +208,7 @@ templ pageShow(session Session, show domain.Show, hasTicket bool, baseData baseD
 					@iconLocation()
 					{ show.Venue }, { show.City }
 				</p>
-				<p class="price-large">{ show.Price }€</p>
+				<p class="price-large">EUR { show.Price }</p>
 				<div class="show-cta">
 					if hasTicket {
 						<a class="btn" href={ href.PageTicket(show.Slug) }>
@@ -249,13 +242,11 @@ templ pageShow(session Session, show domain.Show, hasTicket bool, baseData baseD
 	@fragmentFooter()
 }
 
-// --- Purchase (page 3) ---
-
 templ pagePurchase(session Session, show domain.Show, baseData baseData) {
 	@fragmentNavbar(session, baseData)
 	@page("page-purchase") {
 		<div data-signals:_buying="false"></div>
-		<a class="back-link" href={ href.PageShow(show.Slug) }>← Back to show</a>
+		<a class="back-link" href={ href.PageShow(show.Slug) }>Back to show</a>
 		<h1>Confirm your booking</h1>
 		<div class="card purchase-card">
 			<img class="thumb" src={ show.ImageURL } alt={ show.Title }/>
@@ -272,12 +263,12 @@ templ pagePurchase(session Session, show domain.Show, baseData baseData) {
 			</div>
 			<div class="totals">
 				<div class="line">
-					<span>General admission × 1</span>
-					<span>{ show.Price }€</span>
+					<span>General admission x 1</span>
+					<span>EUR { show.Price }</span>
 				</div>
 				<div class="line total">
 					<span>Total</span>
-					<span>{ show.Price }€</span>
+					<span>EUR { show.Price }</span>
 				</div>
 				<button
 					class="btn buy"
@@ -286,19 +277,17 @@ templ pagePurchase(session Session, show domain.Show, baseData baseData) {
 						show.Slug, action.WithBefore("$_buying = true"),
 					) }
 				>
-					<span data-show="!$_buying">Pay { show.Price }€ &amp; get ticket</span>
-					<span data-show="$_buying">Processing…</span>
+					<span data-show="!$_buying">Pay EUR { show.Price } and get ticket</span>
+					<span data-show="$_buying">Processing...</span>
 				</button>
 				<p class="fine-print">
-					This is a demo — no real payment is taken.
+					This demo does not process a real payment.
 				</p>
 			</div>
 		</div>
 	}
 	@fragmentFooter()
 }
-
-// --- Ticket (page 4) ---
 
 templ pageTicket(session Session, ticket domain.Ticket, qr templ.SafeURL, baseData baseData) {
 	@fragmentNavbar(session, baseData)
@@ -340,8 +329,6 @@ templ pageTicket(session Session, ticket domain.Ticket, qr templ.SafeURL, baseDa
 	@fragmentFooter()
 }
 
-// --- All tickets (page 5) ---
-
 templ pageTickets(session Session, tickets []domain.Ticket, baseData baseData) {
 	@fragmentNavbar(session, baseData)
 	@page("page-tickets") {
@@ -380,8 +367,6 @@ templ pageTickets(session Session, tickets []domain.Ticket, baseData baseData) {
 	}
 	@fragmentFooter()
 }
-
-// --- Login ---
 
 templ pageLogin(wrongCreds bool, next string) {
 	@page("page-login") {
@@ -438,8 +423,6 @@ templ pageLogin(wrongCreds bool, next string) {
 		</div>
 	}
 }
-
-// --- Error pages ---
 
 templ pageError404(session Session, baseData baseData) {
 	@fragmentNavbar(session, baseData)

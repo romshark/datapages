@@ -26,14 +26,12 @@ func (PageLogin) GET(
 	err error,
 ) {
 	if !session.IsGuest() {
-		// Already logged in.
 		return nil, datapages.Redirect{
 			URL: href.PageIndex(href.QueryPageIndex{}),
 		}, false, nil
 	}
 
-	// Sign-in needs the server, so the offline snapshot just says so. Only guests
-	// reach this point, so the snapshot is stable.
+	// Only guests reach this snapshot, so its session-specific version is stable.
 	if ver := offlineCacheVersion(session, ""); pageCache.Version() != ver {
 		pageCache.Set(
 			href.PageLogin(href.QueryPageLogin{}),
@@ -61,7 +59,6 @@ func (p PageLogin) POSTSubmit(
 	err error,
 ) {
 	if !session.IsGuest() {
-		// Already logged in.
 		redirect = datapages.Redirect{
 			URL:    href.PageIndex(href.QueryPageIndex{}),
 			Status: http.StatusSeeOther,
@@ -73,16 +70,14 @@ func (p PageLogin) POSTSubmit(
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidCredentials) ||
 			errors.Is(err, domain.ErrUserNotFound) {
-			// Re-render the page with feedback.
 			err, body = nil, pageLogin(true, signals.Values.Next)
 		}
 		return
 	}
 
 	newSession = datapages.NewSession[struct{}]{UserID: uid}
-	// A new identity signed in: drop the previous (guest) offline cache so no
-	// stale, wrong-session page is served offline. Pages re-cache with the correct
-	// navbar as they are visited; the redirect below re-bakes the landing page.
+	// Prevent guest snapshots from being served to the signed-in user.
+	// The destination and later visits repopulate the cache.
 	pageCache.ClearAll()
 	dest := signals.Values.Next
 	if !isSafeRelativePath(dest) {
@@ -92,8 +87,7 @@ func (p PageLogin) POSTSubmit(
 	return
 }
 
-// isSafeRelativePath reports whether p is a safe in-app redirect target,
-// i.e. a rooted path that is not protocol-relative ("//host").
+// isSafeRelativePath reports whether p is rooted but not protocol-relative.
 func isSafeRelativePath(p string) bool {
 	return len(p) > 1 && p[0] == '/' && p[1] != '/'
 }

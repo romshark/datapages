@@ -1,9 +1,3 @@
-// Covers the page cache: what a handler reads through the pageCache parameter,
-// and what the generated server sends the service worker for each kind of handler.
-//
-// The delivered payload is JSON inside a script. A test asserts on what the
-// worker acts on: the message type, the URL of an entry and its version.
-
 package acceptance_test
 
 import (
@@ -22,12 +16,10 @@ import (
 	"github.com/romshark/datapages/modules/offline"
 )
 
-// applyType is the message the worker acts on.
-// Nothing else it receives writes the cache.
+// applyType identifies the only message that changes the worker cache.
 const applyType = `"type":"datapages-offline:apply"`
 
-// workerVersion is what the case installs the worker as. Any non-zero value does;
-// the tests read it back from the worker script and from what the middleware decides.
+// workerVersion is the value asserted in worker and middleware responses.
 const workerVersion = 42
 
 func newClient(t *testing.T, opts ...datapages.ServerOption) *client.Client {
@@ -36,7 +28,7 @@ func newClient(t *testing.T, opts ...datapages.ServerOption) *client.Client {
 		inmem.New(messaging.DefaultBrokerChanBuffer), opts...))
 }
 
-func TestGETBakesQueuedWrites(t *testing.T) {
+func TestGETEmbedsQueuedWrites(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
 
@@ -45,7 +37,7 @@ func TestGETBakesQueuedWrites(t *testing.T) {
 	require.Equal(t, "0", resp.Element(t, "held"),
 		"no header means nothing is cached")
 	require.Contains(t, resp.Body, applyType,
-		"a GET bakes what it queued into the page")
+		"a GET embeds queued writes in the page")
 	require.Contains(t, resp.Body, `"url":"/"`)
 	require.Contains(t, resp.Body, `"version":7`)
 	require.Contains(t, resp.Body, `index offline`,
@@ -109,7 +101,7 @@ func TestRedirectCarriesWritesBeforeNavigating(t *testing.T) {
 		"a worker too old to acknowledge does not strand the navigation")
 }
 
-func TestUnclaimedURLBakesQueuedWrites(t *testing.T) {
+func TestUnclaimedURLEmbedsQueuedWrites(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
 
@@ -171,7 +163,7 @@ func TestAppLevelActionFlushesOverAStream(t *testing.T) {
 		"the entry carries the rendered body")
 }
 
-func TestAppLevelActionBakesIntoItsBody(t *testing.T) {
+func TestAppLevelActionEmbedsWritesInItsBody(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
 
@@ -180,7 +172,7 @@ func TestAppLevelActionBakesIntoItsBody(t *testing.T) {
 	require.Contains(t, resp.Header.Get("Content-Type"), "text/html")
 	require.Equal(t, "done", resp.Element(t, "out"))
 	require.Contains(t, resp.Body, applyType,
-		"an app-level action answering with a document bakes into it")
+		"an app-level action embeds writes in its document")
 	require.Contains(t, resp.Body, `"version":12`)
 }
 
@@ -198,10 +190,9 @@ func TestStreamRedirectFlushesBeforeNavigating(t *testing.T) {
 		"the writes reach the worker ahead of the navigation")
 }
 
-// TestBakedWritesSitInsideTheBody tests that every baking handler puts its
-// script inside the body element. A shimmed page reaches the browser as a
-// patch of <body> alone: the worker cuts everything after </body>.
-func TestBakedWritesSitInsideTheBody(t *testing.T) {
+// TestEmbeddedWritesSitInsideTheBody tests that every HTML response puts its
+// cache script inside the body. Shim updates replace only the body element.
+func TestEmbeddedWritesSitInsideTheBody(t *testing.T) {
 	t.Parallel()
 	for name, get := range map[string]func(*testing.T, *client.Client) string{
 		"get": func(t *testing.T, c *client.Client) string {
@@ -245,7 +236,7 @@ func TestShimKeepsItsQuery(t *testing.T) {
 
 // TestPageCacheVariesByHeldVersion tests that a page whose handler reads the
 // held version declares it, which keeps a shared cache from serving one
-// client's copy, and the write baked into it, to another.
+// client's copy and its embedded write to another.
 func TestPageCacheVariesByHeldVersion(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
@@ -256,8 +247,7 @@ func TestPageCacheVariesByHeldVersion(t *testing.T) {
 }
 
 // TestBranchingActionDeliversOnBothPaths tests an action that picks between a
-// body and a redirect at run time. Delivery is chosen from the signature,
-// so the branch not chosen at generation time used to drop the queued writes.
+// body and a redirect at run time. Both response paths must send queued writes.
 func TestBranchingActionDeliversOnBothPaths(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {

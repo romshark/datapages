@@ -44,7 +44,7 @@ const (
 	DefaultDatastarJSSrc = httpserve.DefaultDatastarJSSrc
 )
 
-// WithOffline enables service-worker offline support. The route of PageOffline is
+// WithOffline enables service worker offline support. The route of PageOffline is
 // supplied automatically; the worker precaches that page and serves it for
 // navigations to URLs with no cached copy while the browser is offline.
 func WithOffline(conf offline.Config) datapages.ServerOption {
@@ -78,7 +78,6 @@ func httpRedirectOffline(
 		http.StatusSeeOther,
 		http.StatusTemporaryRedirect,
 		http.StatusPermanentRedirect:
-		// OK
 	default:
 		status = http.StatusFound
 	}
@@ -87,15 +86,13 @@ func httpRedirectOffline(
 	return true
 }
 
-// newPageCache builds the page cache handle for the request. sse is the
-// action's SSE generator, or nil for GET and redirect handlers.
 func newPageCache(
 	w http.ResponseWriter, s *Server, r *http.Request,
 	sse *datastar.ServerSentEventGenerator,
 ) *pageCacheWriter {
 	// The response body depends on the version header Version reads.
 	// Without Vary a shared cache in front of the application can hand
-	// one client's page, and the cache write baked into it, to another.
+	// one client's page and its embedded cache write to another.
 	w.Header().Add("Vary", datapages.HeaderOfflineVersion)
 	return &pageCacheWriter{s: s, r: r, sse: sse}
 }
@@ -136,9 +133,8 @@ type pageCachePendingSet struct {
 	shim    bool
 }
 
-// Version reports the version the client holds for this request's URL. A missing
-// or malformed header parses to 0, meaning nothing cached. The handler
-// re-caches instead of trusting a bad value.
+// Version reports the cached version for this request's URL. A missing or
+// malformed header becomes 0, which causes the handler to cache the page again.
 func (c *pageCacheWriter) Version() uint64 {
 	v, _ := strconv.ParseUint(
 		c.r.Header.Get(datapages.HeaderOfflineVersion), 10, 64,
@@ -169,13 +165,11 @@ type pageCacheEntry struct {
 	Shim    bool   `json:"shim,omitempty"`
 }
 
-// shimHydrateScript is appended to every shim. Datastar has no imperative API,
-// so the script adds a data-init element. Datastar's MutationObserver sees it,
-// requests this URL, and morphs in the live page the worker prefetched.
-// The header marks the request for the worker, which answers it from the prefetch or,
-// when that is gone, from a fetch of its own. The element stays in the DOM
-// (removing it on a timer can beat Datastar's deferred module load);
-// the morph drops it, as the live page has no such element.
+// shimHydrateScript adds a data-init element because Datastar has no imperative
+// request API. Datastar observes the element and requests the current URL. The
+// header lets the worker answer with its prefetched response or a new fetch.
+// The live response replaces the element. Removing it earlier could precede
+// Datastar's deferred module load.
 func withShimHydrate(body datapages.Component) datapages.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if err := body.Render(ctx, w); err != nil {
@@ -198,8 +192,7 @@ func (c *pageCacheWriter) payload() (string, error) {
 	}
 	entries := make([]pageCacheEntry, 0, len(c.sets))
 	for _, s := range c.sets {
-		// Cached entries are served standalone. Render a complete document, the
-		// same <head>, stylesheets and Datastar bundle as a live page.
+		// A cached entry needs the same complete document as a live page.
 		var buf pageCacheBuf
 		body := s.body
 		if s.shim {
@@ -238,7 +231,6 @@ func pageCachePostToWorkerJS(payloadJSON string) string {
 		payloadJSON + ");});"
 }
 
-// flush delivers the queued writes over the action's SSE stream.
 func (c *pageCacheWriter) flush() error {
 	if c.sse == nil {
 		return nil
@@ -250,14 +242,13 @@ func (c *pageCacheWriter) flush() error {
 	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
 }
 
-// bakeInto returns body followed by the queued writes as a <script>, which the
-// worker applies on load. The script has to sit inside <body>: a shimmed page
-// reaches the browser only as a patch of that element, and the worker cuts
-// everything after </body>, dropping the write that bumps the shim.
+// embedInto returns body followed by the queued writes as a <script>, which the
+// worker applies on load. The script must sit inside <body>: a shimmed page
+// updates only that element. Content after </body> would not reach the browser.
 //
 // The queue is complete by render time: the handler has already returned.
-// A payload that fails to render is dropped rather than breaking the page.
-func (c *pageCacheWriter) bakeInto(body datapages.Component) datapages.Component {
+// A payload that fails to render is omitted without failing the page response.
+func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if body != nil {
 			if err := body.Render(ctx, w); err != nil {
@@ -283,14 +274,13 @@ func (c *pageCacheWriter) bakeInto(body datapages.Component) datapages.Component
 	})
 }
 
-// redirectScript returns JavaScript that delivers the queued writes to the worker
-// and then navigates to target. Used by redirect-returning actions,
-// whose response is a text/javascript body rather than an SSE stream.
+// redirectScript returns JavaScript that sends queued writes to the worker and
+// then navigates to target. Redirect actions return this JavaScript instead of
+// an SSE stream.
 //
-// The navigation waits for the worker to acknowledge that it applied the writes,
-// since the destination is served by that same worker and would otherwise race
-// the apply. A sign-out ClearAll losing that race serves the signed-in copy.
-// The 500ms timeout covers a worker too old to reply.
+// Navigation waits for the worker to apply the writes because that worker also
+// serves the destination. The 500ms timeout supports older workers that do not
+// acknowledge the message.
 func (c *pageCacheWriter) redirectScript(target string) (string, error) {
 	tj, err := json.Marshal(target)
 	if err != nil {
@@ -357,6 +347,22 @@ func (s *Server) recoverPanic(
 		slog.Any("panic", v),
 		slog.String("stack", string(stack)))
 	s.httpErrIntern(w, r, sse, "panic in "+handler,
+		datapages.PanicError{Value: v, Stack: stack})
+}
+
+// recoverPanicFinal turns a panic into an error response without rendering PageError500.
+// The PageError500 handler uses it so it can't render itself.
+func (s *Server) recoverPanicFinal(w http.ResponseWriter, handler string) {
+	v := recover()
+	if v == nil {
+		return
+	}
+	stack := debug.Stack()
+	s.Logger().Error("recovered panic",
+		slog.String("handler", handler),
+		slog.Any("panic", v),
+		slog.String("stack", string(stack)))
+	s.httpErrFinal(w, "panic in "+handler,
 		datapages.PanicError{Value: v, Stack: stack})
 }
 
@@ -623,7 +629,7 @@ func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	p := dpapp.PageError500{
 		App: s.app,
 	}
-	defer s.recoverPanic(w, r, nil, "PageError500.GET")
+	defer s.recoverPanicFinal(w, "PageError500.GET")
 	body, disableRefreshAfterHidden, err := p.GET(r)
 	if err != nil {
 		s.httpErrFinal(w, "handling PageError500.GET", err)
@@ -694,7 +700,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, pageCache.bakeInto(body), bodyAttrs, bodySuffix,
+		w, r, sess, genericHead, nil, pageCache.embedInto(body), bodyAttrs, bodySuffix,
 	); err != nil {
 		s.LogErr("rendering PageIndex", err)
 		return
@@ -768,7 +774,7 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, pageCache.bakeInto(body), bodyAttrs, nil,
+		w, r, sess, genericHead, nil, pageCache.embedInto(body), bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageLogin", err)
 		return
@@ -818,7 +824,7 @@ func (s pageLoginHandlers) POSTSubmit(
 	}
 	genericHead := s.app.Head(r)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, pageCache.bakeInto(body), nil, nil,
+		w, r, sess, genericHead, nil, pageCache.embedInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageLogin.POSTSubmit", err)
 		return
@@ -961,7 +967,7 @@ func (s pageShowHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, head, pageCache.bakeInto(body), bodyAttrs, nil,
+		w, r, sess, genericHead, head, pageCache.embedInto(body), bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageShow", err)
 		return
@@ -1004,7 +1010,7 @@ func (s pageTicketHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, pageCache.bakeInto(body), bodyAttrs, nil,
+		w, r, sess, genericHead, nil, pageCache.embedInto(body), bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageTicket", err)
 		return
@@ -1042,7 +1048,7 @@ func (s pageTicketsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, pageCache.bakeInto(body), bodyAttrs, nil,
+		w, r, sess, genericHead, nil, pageCache.embedInto(body), bodyAttrs, nil,
 	); err != nil {
 		s.LogErr("rendering PageTickets", err)
 		return

@@ -1,7 +1,4 @@
-// Datapages offline: reflects the online/offline state in the DOM.
-// Injected into every HTML page, and into a cached page by the service worker,
-// which the middleware never sees. The offline-class placeholder is
-// replaced at serve time.
+// The offline module replaces the class placeholder before serving this script.
 (function () {
   'use strict';
   if (window.__datapagesNetState) return;

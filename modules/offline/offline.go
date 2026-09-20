@@ -1,16 +1,6 @@
-// Package offline adds service-worker-based offline support to a Datapages
-// application.
-//
-// It's a pluggable module wired in through a single Datapages extension point:
-// a middleware that (a) serves the generated service worker with whole-origin scope,
-// (b) injects the online/offline reflection script into every HTML page
-// and (c) injects the worker-registration script only when the client reports
-// (via the X-Datapages-Worker-Version header) that it has no current worker.
-// The application's templates and its <head> stay untouched.
-//
-// The page cache itself is written by handlers through the
-// datapages.PageCacheWriter parameter; this module only serves and registers
-// the worker that stores and serves those entries.
+// Package offline serves and registers the service worker used by
+// datapages.PageCacheWriter. Its middleware also reflects browser connectivity
+// on the document's root element.
 package offline
 
 import (
@@ -25,7 +15,7 @@ import (
 	"github.com/romshark/datapages"
 )
 
-// sw.min.js is written from sw.js by "mage genOfflineWorker". Edit sw.js.
+// "mage genOfflineWorker" writes sw.min.js from sw.js.
 //
 //go:embed sw.min.js
 var serviceWorkerTemplate string
@@ -36,11 +26,11 @@ var registerTemplate string
 //go:embed netstate.js
 var netStateTemplate string
 
-// Config configures offline behaviour.
+// Config configures offline behavior.
 type Config struct {
-	// WorkerVersion is the service worker's own version. Bump it whenever the
-	// worker script or the precached shell/offline set changes; the browser then
-	// installs the new worker and drops caches from older versions.
+	// WorkerVersion is the service worker's own version. Increment it when the
+	// worker script or precached files change. The browser installs the new
+	// worker and removes caches from older versions.
 	// Zero selects [DefaultWorkerVersion].
 	//
 	// A changed asset at an unchanged URL needs no bump: a cached asset is
@@ -52,21 +42,20 @@ type Config struct {
 	// Service-Worker-Allowed header regardless of this path.
 	ScriptURL string
 
-	// Assets is the application shell (CSS, JS, icons) precached on install so
-	// cached pages still render while offline.
+	// Assets lists the CSS, JavaScript and images cached during installation.
+	// Cached pages can use these files while offline.
 	Assets []string
 
 	// OfflineClass is the class toggled on <html> while the browser is offline,
 	// for styling offline state in CSS. Empty selects [DefaultOfflineClass].
 	OfflineClass string
 
-	// CrossOriginDestinations lists the Fetch request destinations cached when the
-	// request goes to another origin, e.g. assets loaded from a CDN.
+	// CrossOriginDestinations lists Fetch request destinations cached when a
+	// request goes to another origin, for example assets loaded from a CDN.
 	// Same-origin requests are cached regardless of destination.
-	// Nil selects [DefaultCrossOriginDestinations];
-	// an empty non-nil slice disables cross-origin
-	// caching entirely. Keep API and analytics destinations ("empty") out of it,
-	// they must not be answered from a stale cache.
+	// Nil selects [DefaultCrossOriginDestinations]. An empty non-nil slice
+	// disables cross-origin caching. Exclude API and analytics destinations
+	// because their responses must not come from a stale cache.
 	CrossOriginDestinations []string
 
 	// ExcludePaths lists same-origin URL path prefixes the worker never caches
@@ -122,11 +111,11 @@ func (c Config) scriptURL() string {
 	return c.ScriptURL
 }
 
-// ServiceWorkerJS returns the generated service-worker JavaScript for cfg.
+// ServiceWorkerJS returns the generated service worker JavaScript for conf.
 // offlinePath is the route of PageOffline, which the worker precaches and serves
 // for navigations to uncached URLs while offline.
 // Empty leaves the worker with its own minimal fallback.
-func ServiceWorkerJS(offlinePath string, cfg Config) []byte {
+func ServiceWorkerJS(offlinePath string, conf Config) []byte {
 	payload := struct {
 		WorkerVersion           uint64   `json:"workerVersion"`
 		OfflineURL              string   `json:"offlineURL"`
@@ -135,12 +124,12 @@ func ServiceWorkerJS(offlinePath string, cfg Config) []byte {
 		ExcludePaths            []string `json:"excludePaths"`
 		NetStateJS              string   `json:"netStateJS"`
 	}{
-		WorkerVersion:           cfg.workerVersion(),
+		WorkerVersion:           conf.workerVersion(),
 		OfflineURL:              offlinePath,
-		Assets:                  cfg.Assets,
-		CrossOriginDestinations: cfg.crossOriginDestinations(),
-		ExcludePaths:            cfg.ExcludePaths,
-		NetStateJS:              netStateJS(cfg),
+		Assets:                  conf.Assets,
+		CrossOriginDestinations: conf.crossOriginDestinations(),
+		ExcludePaths:            conf.ExcludePaths,
+		NetStateJS:              netStateJS(conf),
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -150,41 +139,31 @@ func ServiceWorkerJS(offlinePath string, cfg Config) []byte {
 	return []byte(js)
 }
 
-// netStateJS returns the online/offline reflection script of cfg.
+// netStateJS returns the online/offline reflection script of conf.
 //
-// The class is JSON-encoded, which is what keeps it inside the enclosing <script>:
-// [json.Marshal] escapes < > & to \u003c \u003e \u0026, leaving no value able to
-// spell </script>. A [json.Encoder] with SetEscapeHTML(false) would not.
-func netStateJS(cfg Config) string {
-	class, err := json.Marshal(cfg.offlineClass())
+// [json.Marshal] escapes <, > and &. The encoded class cannot close the script element.
+// A [json.Encoder] with SetEscapeHTML(false) would permit that.
+func netStateJS(conf Config) string {
+	class, err := json.Marshal(conf.offlineClass())
 	if err != nil {
 		panic(fmt.Errorf("offline: marshalling offline class: %w", err))
 	}
 	return strings.ReplaceAll(netStateTemplate, "__OFFLINE_CLASS__", string(class))
 }
 
-// Middleware wires offline support into a Datapages server. Prefer the generated
-// datapagesgen.WithOffline, which supplies offlinePath from the route declared on
-// PageOffline; call this directly only when there is no PageOffline to derive it from.
-// It:
+// Middleware serves the service worker and adds its connectivity script to HTML
+// responses. It adds registration when the X-Datapages-Worker-Version request
+// header is absent or lower than conf.WorkerVersion. Non-HTML responses pass
+// through unchanged.
 //
-//   - serves the generated service worker at cfg.ScriptURL,
-//   - injects the online/offline reflection script into every HTML page, and
-//   - injects the worker-registration script only when the client has no
-//     current worker, i.e. when the X-Datapages-Worker-Version request header
-//     is absent (not installed) or below cfg.WorkerVersion (outdated). Once a
-//     current worker is installed it reports its version on every request and
-//     the registration script is no longer sent, keeping steady-state
-//     responses lean.
-//
-// Non-HTML responses (SSE streams, redirects, static assets) are
-// passed through untouched.
-func Middleware(offlinePath string, cfg Config) func(http.Handler) http.Handler {
-	js := ServiceWorkerJS(offlinePath, cfg)
-	target := cfg.scriptURL()
+// Prefer datapagesgen.WithOffline when the application declares PageOffline.
+// The generated option supplies offlinePath from that page's route.
+func Middleware(offlinePath string, conf Config) func(http.Handler) http.Handler {
+	js := ServiceWorkerJS(offlinePath, conf)
+	target := conf.scriptURL()
 	targetSlash := target + "/"
-	workerVer := cfg.workerVersion()
-	netState := []byte("<script>" + netStateJS(cfg) + "</script>")
+	workerVer := conf.workerVersion()
+	netState := []byte("<script>" + netStateJS(conf) + "</script>")
 	registerJS := strings.ReplaceAll(registerTemplate, "__SCRIPT_URL__", target)
 	register := append(append([]byte(nil), netState...),
 		"<script>"+registerJS+"</script>"...)
@@ -200,10 +179,7 @@ func Middleware(offlinePath string, cfg Config) func(http.Handler) http.Handler 
 				return
 			}
 
-			// The client's installed worker reports its version.
-			// Skip injecting the registration script when it is already current.
-			// A missing or malformed header parses to 0 and injects,
-			// which is the safe way to fail.
+			// A missing or malformed value becomes 0, which causes registration.
 			clientVer, _ := strconv.ParseUint(
 				r.Header.Get(datapages.HeaderWorkerVersion), 10, 64,
 			)
@@ -236,16 +212,15 @@ func (iw *injectingWriter) WriteHeader(code int) {
 		return
 	}
 	iw.status = code
-	// If the handler already committed to a non-HTML content type (SSE stream,
-	// JS redirect, …), decide immediately and stream through.
+	// A declared non-HTML type can pass through without body sniffing.
 	if ct := iw.Header().Get("Content-Type"); ct != "" &&
 		!strings.HasPrefix(ct, "text/html") {
 		iw.decided = true
 		iw.inject = false
 		iw.ResponseWriter.WriteHeader(code)
 	}
-	// Otherwise defer the decision until the first Write, where we can sniff the
-	// body (Datapages relies on content sniffing for HTML pages).
+	// Datapages pages rely on content sniffing, so defer an undeclared type until
+	// the first Write.
 }
 
 func (iw *injectingWriter) Write(p []byte) (int, error) {
@@ -290,7 +265,7 @@ func (iw *injectingWriter) finish() {
 		return
 	}
 	if !iw.inject {
-		return // already streamed through
+		return
 	}
 	body := injectBefore(iw.buf.Bytes(), iw.script)
 	h := iw.Header()

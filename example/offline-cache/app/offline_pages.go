@@ -24,30 +24,28 @@ func offlineCacheVersion(session Session, contentKey string) uint64 {
 	if v := h.Sum64(); v != 0 {
 		return v
 	}
-	return 1 // Version() returns 0 when nothing is cached; never collide with it.
+	// Version returns 0 for a cache miss, so snapshot versions start at 1.
+	return 1
 }
 
-// ticketsOfflineVersion versions the "/tickets" snapshot by session and ticket
-// count, so buying a ticket (or switching user) invalidates the cached copy.
+// ticketsOfflineVersion changes when the user or ticket count changes.
 func ticketsOfflineVersion(session Session, tickets []domain.Ticket) uint64 {
 	return offlineCacheVersion(session, strconv.Itoa(len(tickets)))
 }
 
-// showOfflineVersion versions a "/shows/{slug}/" snapshot by session and whether
-// the user owns a ticket, so purchasing flips its cached call-to-action.
+// showOfflineVersion changes when the user or ticket ownership changes.
 func showOfflineVersion(session Session, hasTicket bool) uint64 {
 	return offlineCacheVersion(session, strconv.FormatBool(hasTicket))
 }
 
-// reconnectScript reloads the page as soon as the browser regains connectivity,
-// so a cached offline shell swaps back to the live page on its own.
+// reconnectScript reloads the cached page when the browser regains a network
+// connection.
 const reconnectScript = `<script>` +
 	`window.addEventListener('online',function(){location.reload()});` +
 	`setInterval(function(){if(navigator.onLine){location.reload()}},5000);` +
 	`</script>`
 
-// indexOffline is the offline snapshot of the shows page ("/"): the same shell
-// without the live search, which needs the server.
+// indexOffline is the shows page snapshot without server-dependent search.
 func indexOffline(session Session, base baseData) datapages.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if err := fragmentNavbar(session, base).Render(ctx, w); err != nil {
@@ -70,8 +68,7 @@ func indexOffline(session Session, base baseData) datapages.Component {
 	})
 }
 
-// loginOffline is the offline snapshot of the login page: the sign-in card says
-// that signing in needs a connection.
+// loginOffline reports that sign-in requires a network connection.
 func loginOffline() datapages.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		_, err := io.WriteString(w, `<div id="content"><div id="page-login">`+

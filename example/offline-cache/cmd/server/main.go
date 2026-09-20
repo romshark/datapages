@@ -26,8 +26,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	// The entire demo runs on in-memory infrastructure — no external services
-	// (NATS, databases) are required. All data is lost when the process exits.
+	// The demo requires no external services. A process exit removes all data.
 	repo := NewRepository()
 	a := app.NewApp(repo)
 

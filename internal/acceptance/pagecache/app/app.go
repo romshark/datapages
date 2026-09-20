@@ -1,9 +1,5 @@
-// Package app exercises the page cache: what a handler queues through the
-// pageCache parameter, and how the generated server delivers it to the service
-// worker for each kind of handler.
-//
-// Every handler echoes what it read into an element, so a test can assert over
-// HTTP what the framework handed the handler.
+// Package app defines handlers for page cache acceptance tests. Each handler
+// renders its inputs so tests can verify the HTTP response.
 package app
 
 import (
@@ -17,7 +13,7 @@ import (
 
 type App struct{}
 
-// IndexVersion is the version PageIndex stamps on its cached copy.
+// IndexVersion is the version PageIndex uses for its cached response.
 // A client reporting it holds the current copy and the handler queues nothing.
 const IndexVersion = 7
 
@@ -50,8 +46,8 @@ func (PageIndex) POSTStream(
 
 // POSTRedirect is /redirect-write
 //
-// An action that returns a redirect has no stream to write to.
-// Its writes ride in the redirect response, ahead of the navigation.
+// An action that returns a redirect has no stream. Its response sends cache
+// writes before navigation.
 func (PageIndex) POSTRedirect(
 	_ *http.Request, pageCache datapages.PageCacheWriter,
 ) (redirect datapages.Redirect, err error) {
@@ -62,8 +58,7 @@ func (PageIndex) POSTRedirect(
 
 // PageError404 is /not-found
 //
-// The page rendered inline for a URL no page claims. It writes the cache from there,
-// which is the path that has no handler function of its own.
+// This handler tests cache writes from the inline 404 response.
 type PageError404 struct{ App *App }
 
 func (PageError404) GET(
@@ -75,7 +70,7 @@ func (PageError404) GET(
 
 // PageOffline is /offline
 //
-// Declaring it generates WithOffline, which hands this route to the worker.
+// Declaring it generates WithOffline with this route.
 type PageOffline struct{ App *App }
 
 func (PageOffline) GET(_ *http.Request) (body datapages.Component, err error) {
@@ -95,7 +90,7 @@ func (*App) POSTAppPrecache(
 
 // POSTAppBody is /app-body
 //
-// An app-level action answering with a document. Its writes are baked into it.
+// An app-level action returning a document embeds its cache writes in the body.
 func (*App) POSTAppBody(
 	_ *http.Request, pageCache datapages.PageCacheWriter,
 ) (body datapages.Component, err error) {
@@ -114,7 +109,7 @@ func (PageIndex) POSTStreamRedirect(
 	return datapages.Redirect{URL: "/"}, nil
 }
 
-// ListShimVersion is the version PageList stamps on its shim.
+// ListShimVersion is the version PageList uses for its shim.
 const ListShimVersion = 21
 
 // PageList is /list

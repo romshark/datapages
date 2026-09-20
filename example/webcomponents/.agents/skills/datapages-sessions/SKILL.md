@@ -61,7 +61,9 @@ func (*App) POSTSignIn(
 
 Neither works next to a `datapages.SSE` parameter: the headers the cookie travels in are already out. Sign in or out without `sse` and use `redirect`.
 
-With an offline page cache, both also take `pageCache` and call `ClearAll()`: a snapshot cached for a guest still shows the signed-out navigation after login. See `datapages-offline`.
+With an offline page cache, sign-in and sign-out actions also take `pageCache`
+and call `ClearAll()`. A snapshot cached for a guest still shows signed-out
+navigation after login. See `datapages-offline`.
 
 ## CSRF
 

@@ -42,7 +42,6 @@ func (p PageTicket) GET(
 		return nil, datapages.Redirect{}, err
 	}
 	if !ok {
-		// No ticket yet — send the user to the purchase page.
 		return nil, datapages.Redirect{URL: href.PagePurchase(path.Values.Slug)}, nil
 	}
 

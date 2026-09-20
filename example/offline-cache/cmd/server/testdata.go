@@ -92,7 +92,7 @@ func NewRepository() *domain.Repository {
 		},
 		{
 			Title:       "Stand-Up Night: We Heckle Back",
-			Description: "Five rising comedians, one unforgettable night, and a strict no-refunds policy for the front row. Sharp, fast, and delightfully unpredictable — sit in the back if you value your dignity.",
+			Description: "Five rising comedians, one unforgettable night, and a strict no-refunds policy for the front row. Sharp, fast and delightfully unpredictable. Sit in the back if you value your dignity.",
 			Genre:       "Comedy",
 			Venue:       "Laugh Factory",
 			City:        "Amsterdam",
@@ -125,7 +125,7 @@ func NewRepository() *domain.Repository {
 		},
 		{
 			Title:       "Swan Lake: The Ducks Strike Back",
-			Description: "Tchaikovsky's masterpiece performed by a world-class ensemble with suspiciously excellent posture. Grace, precision, and one of the most beautiful scores ever written — now with 30% more feathers.",
+			Description: "Tchaikovsky's masterpiece performed by a world-class ensemble with suspiciously excellent posture. Grace, precision and one of the most beautiful scores ever written, now with 30% more feathers.",
 			Genre:       "Dance",
 			Venue:       "National Ballet Theatre",
 			City:        "Paris",
@@ -138,7 +138,7 @@ func NewRepository() *domain.Repository {
 			Title:       "The Long Road Home (We Ran Out of Budget for a Car)",
 			Description: "A festival-favourite indie drama about walking. A lot of walking. Followed by a live Q&A where the director explains that yes, it was a metaphor the whole time.",
 			Genre:       "Film",
-			Venue:       "Lumière Cinema",
+			Venue:       "Lumiere Cinema",
 			City:        "Munich",
 			ImageURL:    "https://images.pexels.com/photos/7991579/pexels-photo-7991579.jpeg?auto=compress&h=512",
 			StartsAt:    timestamp("2026-08-28T20:00:00Z"),
@@ -147,7 +147,7 @@ func NewRepository() *domain.Repository {
 		},
 		{
 			Title:       "Beethoven's 9th: He Couldn't Even Hear It",
-			Description: "Beethoven's Ninth performed in full glory by the city philharmonic and choir — a triumph the composer famously wrote while completely deaf, which frankly makes the rest of us look bad. Powerful, uplifting, loud enough to notice.",
+			Description: "Beethoven's Ninth performed by the city philharmonic and choir. The composer wrote it while deaf, which makes the rest of us look bad. Uplifting and loud enough to notice.",
 			Genre:       "Concert",
 			Venue:       "Philharmonic Hall",
 			City:        "Prague",

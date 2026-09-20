@@ -34,10 +34,10 @@ func main() {
 		datapagesgen.Server,
 	](
 		a, messageBroker,
-		// Serves the worker that paints cached shims and morphs in the live page.
+		// Serve cached shims immediately and replace them with the live page.
 		// No PageOffline here; the worker keeps its own fallback.
 		datapages.WithMiddleware(offline.Middleware("", offline.Config{
-			WorkerVersion: 3, // bump on worker changes to drop the old cache
+			WorkerVersion: 3, // Increment after worker changes.
 		})),
 	)
 	if err != nil {
