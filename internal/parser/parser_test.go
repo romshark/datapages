@@ -2506,7 +2506,7 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 	}
 
 	// Events (sorted alphabetically by type name)
-	require.Len(app.Events, 6)
+	require.Len(app.Events, 5)
 	events := map[string]*model.Event{}
 	for _, e := range app.Events {
 		events[e.TypeName] = e
@@ -2519,7 +2519,6 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		"EventMessagingSent":           {"messaging.sent", true},
 		"EventMessagingWriting":        {"messaging.writing", true},
 		"EventMessagingWritingStopped": {"messaging.writing-stopped", true},
-		"EventPostArchived":            {"posts.archived", false},
 		"EventSessionClosed":           {"sessions.closed", true},
 	} {
 		e, ok := events[name]
@@ -2702,10 +2701,8 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		require.Len(send.InputDispatches, 1)
 		require.Equal("EventMessagingSent", send.InputDispatches[0].EventTypeName)
 
-		// Own OnPostArchived + inherited
-		// OnMessagingSent, OnMessagingRead from Base
-		require.Len(p.EventHandlers, 3)
-		require.NotNil(findEventHandler(p.EventHandlers, "PostArchived"))
+		// OnMessagingSent, OnMessagingRead inherited from Base
+		require.Len(p.EventHandlers, 2)
 	}
 
 	// PageSearch
@@ -2746,8 +2743,11 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		save := findAction(p.Actions, "Save")
 		require.NotNil(save)
 		require.Equal("/settings/save/{$}", save.Route)
-		require.NotNil(save.InputSSE)
 		require.NotNil(save.InputSignals)
+		// The rename reissues the session, which rules out an sse parameter.
+		require.Nil(save.InputSSE)
+		require.NotNil(save.OutputNewSession)
+		require.NotNil(save.OutputRedirect)
 
 		closeSess := findAction(p.Actions, "CloseSession")
 		require.NotNil(closeSess)
@@ -2782,10 +2782,8 @@ func TestParse_ExampleClassifieds(t *testing.T) {
 		require.Equal("path", p.GET.InputPath.Name)
 		require.Empty(p.Actions)
 
-		// Own OnPostArchived + inherited
-		// OnMessagingSent, OnMessagingRead from Base
-		require.Len(p.EventHandlers, 3)
-		require.NotNil(findEventHandler(p.EventHandlers, "PostArchived"))
+		// OnMessagingSent, OnMessagingRead inherited from Base
+		require.Len(p.EventHandlers, 2)
 	}
 }
 

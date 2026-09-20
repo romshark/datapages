@@ -51,6 +51,10 @@ type ServerConfig struct {
 	// DatastarJS is the URL of the Datastar bundle the page shell loads.
 	DatastarJS string
 
+	// CSPNonce reports the Content-Security-Policy nonce of a request,
+	// nil when [WithCSPNonce] was not given.
+	CSPNonce func(r *http.Request) string
+
 	// AssetsFS is the file system static files are served from.
 	// It overrides AssetsEmbed.
 	AssetsFS http.FileSystem
@@ -603,6 +607,30 @@ func WithStateConfig(conf StateConfig) ServerOption {
 			conf.MaxConcurrentInstances = DefaultMaxConcurrentInstances
 		}
 		c.State = &conf
+		return nil
+	}
+}
+
+// WithCSPNonce turns on Content-Security-Policy nonce mode. nonce reports the
+// nonce of a request, which the application's own middleware minted and wrote
+// into the script-src directive of the policy header.
+// An empty return writes the page without nonces.
+//
+// Datapages then writes the nonce on every script of the page and on the html
+// element as data-nonce, which is how Datastar's CSP mode reads it. Datastar compiles
+// an attribute expression by appending a script element with that nonce instead of
+// calling Function, which removes the need for script-src 'unsafe-eval'.
+//
+// If [WithDatastarJS] is used then [WithCSPNonce] requires Datastar 1.0.3 or later.
+//
+// A nonce in the policy makes the browser ignore 'unsafe-inline' for that directive.
+// The page then runs the scripts of the application and nothing an injection adds.
+func WithCSPNonce(nonce func(r *http.Request) string) ServerOption {
+	return func(c *ServerConfig) error {
+		if nonce == nil {
+			return errors.New("WithCSPNonce: nil function")
+		}
+		c.CSPNonce = nonce
 		return nil
 	}
 }

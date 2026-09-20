@@ -116,8 +116,9 @@ func (m *Manager[Data]) WriteCSRFToken(
 // script that adds it to every state-changing Datastar fetch. Datastar issues
 // those through globalThis.fetch, which is why overriding it reaches them all.
 const (
-	csrfScriptPrefix = `
-	<script type="module">
+	csrfScriptOpen = "\n\t<script type=\"module\""
+
+	csrfScriptPrefix = `>
 		const o = globalThis.fetch.bind(globalThis)
 		globalThis.fetch=(i,init={}) => {
 			const isReq=i instanceof Request
@@ -138,13 +139,24 @@ const (
 // state-changing Datastar fetch of the page. It writes nothing for a guest
 // (empty userID) and when CSRF protection is off.
 //
+// cspNonce is written as the nonce attribute of the script, empty for none.
+// It's escaped by the caller.
+//
 // The token goes into a JavaScript string literal unescaped.
 // It must not contain ', \ or a line break.
 func (m *Manager[Data]) WriteCSRFScript(
-	w io.Writer, userID, sessionToken string,
+	w io.Writer, userID, sessionToken, cspNonce string,
 ) error {
 	if userID == "" || m.csrfDisabled {
 		return nil
+	}
+	if _, err := io.WriteString(w, csrfScriptOpen); err != nil {
+		return err
+	}
+	if cspNonce != "" {
+		if _, err := io.WriteString(w, ` nonce="`+cspNonce+`"`); err != nil {
+			return err
+		}
 	}
 	if _, err := io.WriteString(w, csrfScriptPrefix); err != nil {
 		return err

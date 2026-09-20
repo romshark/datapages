@@ -301,7 +301,7 @@ Connects exceeding the cap receive `503 Service Unavailable` with `Retry-After`.
 
 **Security.** An inline script captures the ID from the HTML response and removes itself. The ID is not stored in cookies, browser storage, or a persistent DOM node. Another tab cannot observe it. Access to another tab's state requires its 128-bit random ID.
 
-The script runs at parse time. Applications setting `Content-Security-Policy` must allow `script-src 'unsafe-inline'`; no nonce hook exists.
+The script runs at parse time. It needs `script-src 'unsafe-inline'`, or a nonce; see [Content Security Policy](#content-security-policy).
 
 #### Parameter: `datapages.Signals[struct {...}]`
 
@@ -820,6 +820,26 @@ disableRefreshAfterHidden datapages.DisableRefreshAfterHidden
 Datapages refreshes a page that has a stream when its tab becomes visible again, which renders the events the closed stream missed. Returning `true` disables that refresh and may leave the page stale; see [Event delivery](#event-delivery). A page without a stream never refreshes and returning this value from its `GET` is an error.
 
 Refresh uses the [`visibilitychange`](https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event) event.
+
+### Content Security Policy
+
+Datapages writes inline scripts. The CSRF script goes into the head of a page with a session. A stateful page gets the instance ID script. Datastar compiles every `data-*` expression at run time.
+
+Without `WithCSPNonce` a policy must allow `script-src 'unsafe-inline' 'unsafe-eval'`.
+
+`WithCSPNonce` takes a function reporting the nonce of a request:
+
+```go
+datapages.WithCSPNonce(func(r *http.Request) string { return nonceOf(r) })
+```
+
+The application mints the nonce and writes it into its own `Content-Security-Policy` header. Datapages reads it back through the function and writes it on the `html` element as `data-nonce` and on every script of the page as `nonce`. An empty return writes the page without nonces.
+
+`data-nonce` turns on Datastar's CSP mode. Datastar compiles an expression by appending a script element with that nonce instead of calling `Function`, which removes the need for `'unsafe-eval'`. It requires Datastar 1.0.3 or later. An older bundle throws `Datastar CSP requires a nonempty html data-nonce.` or compiles with `Function` regardless.
+
+A nonce in the policy makes the browser ignore `'unsafe-inline'` for that directive. The page then runs the scripts of the application and nothing an injection adds.
+
+The nonce must differ per response and must not be guessable. A response a cache can replay holds a nonce that is no longer valid.
 
 ## Dev Mode
 

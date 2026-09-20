@@ -60,7 +60,11 @@ The session cookie uses the `Secure` attribute. Set `DisableSecureCookie` only w
 
 Declaring `PageOffline` generates `datapagesgen.WithOffline(offline.Config{...})`. The option serves the service worker. See `datapages-offline`.
 
-If `WithMiddleware` adds a `Content-Security-Policy`, stateful pages require `script-src 'unsafe-inline'` for the generated instance ID script.
+If `WithMiddleware` adds a `Content-Security-Policy`, it must allow `script-src 'unsafe-inline' 'unsafe-eval'`. Datapages writes the CSRF script and the instance ID script inline. Datastar compiles every `data-*` expression at run time.
+
+`WithCSPNonce(func(r *http.Request) string)` replaces both allowances with a nonce. The application mints the nonce and puts it in its own policy header. Datapages reads it back, writes it on the `html` element as `data-nonce` and on every script it writes. `data-nonce` turns on Datastar's CSP mode, which compiles expressions through a nonced script element instead of `Function`. It needs Datastar 1.0.3 or later. The nonce must differ per response.
+
+The nonce does not reach the scripts offline support writes. An application using `WithOffline` still needs `'unsafe-inline'`. See `datapages-offline`.
 
 ```go
 s.ListenAndServe(ctx, "localhost:8080")

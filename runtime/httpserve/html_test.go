@@ -32,11 +32,11 @@ func (c renderer) Render(_ context.Context, w io.Writer) error {
 // csrfScript writes what a session manager would.
 type csrfScript struct{ err error }
 
-func (c csrfScript) WriteCSRFScript(w io.Writer, userID, token string) error {
+func (c csrfScript) WriteCSRFScript(w io.Writer, userID, token, nonce string) error {
 	if c.err != nil {
 		return c.err
 	}
-	_, err := io.WriteString(w, "<csrf "+userID+" "+token+">")
+	_, err := io.WriteString(w, "<csrf "+userID+" "+token+" "+nonce+">")
 	return err
 }
 
@@ -95,7 +95,7 @@ func TestWriteHTML(t *testing.T) {
 				Head:         renderer{s: "<meta p>"},
 			},
 			c.HTMLPrefix() +
-				"<meta p><csrf u1 tok></head><body></body></html>",
+				"<meta p><csrf u1 tok ></head><body></body></html>",
 		},
 		"body attributes and suffix": {
 			httpserve.HTMLDocument{
@@ -239,4 +239,67 @@ func TestHTTPErrBad(t *testing.T) {
 	builtCore(t).HTTPErrBad(w, "reading signals", errors.New("eof"))
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Equal(t, "reading signals", strings.TrimSpace(w.Body.String()))
+}
+
+// TestWriteHTMLCSPNonce tests that the configured nonce reaches the html element,
+// the Datastar script tag, the CSRF script and ScriptTagOpen.
+// Datastar reads it off the html element to compile its attribute expressions
+// without script-src 'unsafe-eval'.
+func TestWriteHTMLCSPNonce(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		nonce     func(*http.Request) string
+		wantHas   []string
+		wantLacks []string
+		wantTag   string
+	}{
+		"unset": {
+			nonce:     nil,
+			wantHas:   []string{"<html>", `<script type="module" src="/ds.js">`},
+			wantLacks: []string{"data-nonce", "nonce="},
+			wantTag:   "<script>",
+		},
+		"set": {
+			nonce: func(*http.Request) string { return "r4nd0m+val/ue=" },
+			wantHas: []string{
+				`<html data-nonce="r4nd0m+val/ue=">`,
+				`<script type="module" nonce="r4nd0m+val/ue=" src="/ds.js">`,
+				"<csrf u1 tok r4nd0m+val/ue=>",
+			},
+			wantTag: `<script nonce="r4nd0m+val/ue=">`,
+		},
+		"empty writes no nonce": {
+			nonce:     func(*http.Request) string { return "" },
+			wantHas:   []string{"<html>"},
+			wantLacks: []string{"data-nonce", "nonce="},
+			wantTag:   "<script>",
+		},
+		"escaped": {
+			nonce:   func(*http.Request) string { return `a"><script>x` },
+			wantHas: []string{`<html data-nonce="a&#34;&gt;&lt;script&gt;x">`},
+			wantTag: `<script nonce="a&#34;&gt;&lt;script&gt;x">`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			c := mustCore(t, datapages.ServerConfig{
+				DatastarJS: "/ds.js", CSPNonce: tc.nonce,
+			}, "")
+			c.Build()
+
+			body, err := writeHTML(t, c, httpserve.HTMLDocument{
+				CSRF: csrfScript{}, UserID: "u1", SessionToken: "tok",
+			})
+			require.NoError(t, err)
+			for _, want := range tc.wantHas {
+				require.Contains(t, body, want)
+			}
+			for _, lacks := range tc.wantLacks {
+				require.NotContains(t, body, lacks)
+			}
+			require.Equal(t, tc.wantTag,
+				c.ScriptTagOpen(httptest.NewRequest(http.MethodGet, "/", nil)))
+		})
+	}
 }
