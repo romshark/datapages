@@ -1496,9 +1496,9 @@ func (s *Server) httpErrIntern(
 			return
 		}
 		// The page serves 200 on its own route. Reached from here it carries 500.
-		w.WriteHeader(http.StatusInternalServerError)
 		`)
-			w.Rawf("%s{s}.GET(w, r)\n", handlerRecvType(m.PageError500.TypeName))
+			w.Rawf("%s{s}.render(w, r, http.StatusInternalServerError)\n",
+				handlerRecvType(m.PageError500.TypeName))
 		} else {
 			w.writeHTTPErrFallbackAt(2)
 		}

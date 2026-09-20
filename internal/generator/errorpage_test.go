@@ -59,10 +59,11 @@ func TestError500PageReportsWithoutRenderingItself(t *testing.T) {
 			"which renders it again for as long as the stack lasts")
 }
 
-// pageGETHandler returns the source of the generated GET handler of pageType,
-// found by the page value it constructs. The receiver type the generator
-// derives from the page name is not part of the model, which is why this
-// searches for the construction instead of naming the method.
+// pageGETHandler returns the source of the generated handler that renders
+// pageType on a page load, found by the page value it constructs.
+// The receiver type the generator derives from the page name is not part of the model,
+// which is why this searches for the construction instead of naming the method.
+// PageError500 renders through "render", every other page through "GET".
 func pageGETHandler(t *testing.T, src, pageType string) string {
 	t.Helper()
 
@@ -73,7 +74,8 @@ func pageGETHandler(t *testing.T, src, pageType string) string {
 	constructs := "." + pageType + "{"
 	for _, d := range f.Decls {
 		fd, ok := d.(*ast.FuncDecl)
-		if !ok || fd.Recv == nil || fd.Name.Name != "GET" {
+		if !ok || fd.Recv == nil ||
+			(fd.Name.Name != "GET" && fd.Name.Name != "render") {
 			continue
 		}
 		var b strings.Builder
@@ -82,6 +84,6 @@ func pageGETHandler(t *testing.T, src, pageType string) string {
 			return b.String()
 		}
 	}
-	t.Fatalf("no generated GET handler constructs %s", pageType)
+	t.Fatalf("no generated page-load handler constructs %s", pageType)
 	return ""
 }
