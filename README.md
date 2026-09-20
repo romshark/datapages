@@ -1,4 +1,9 @@
-# Datapages
+<p>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo_full_dark.svg">
+    <img alt="Datapages" src="docs/logo_full.svg" width="480">
+  </picture>
+</p>
 
 [![CI](https://github.com/romshark/datapages/actions/workflows/ci.yml/badge.svg)](https://github.com/romshark/datapages/actions/workflows/ci.yml)
 [![golangci-lint](https://github.com/romshark/datapages/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/romshark/datapages/actions/workflows/golangci-lint.yml)
