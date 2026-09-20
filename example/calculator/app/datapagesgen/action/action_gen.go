@@ -185,19 +185,19 @@ func (pageIndex_Input) POST(
 	options ...Option,
 ) string {
 	var (
-		btnStr string
-		numStr string
+		btnStr   string
+		pasteStr string
 	)
 
 	if query.Btn != 0 {
 		btnStr = url.QueryEscape(strconv.FormatInt(int64(query.Btn), 10))
 	}
-	if query.Num != "" {
-		numStr = url.QueryEscape(query.Num)
+	if query.Paste {
+		pasteStr = url.QueryEscape(strconv.FormatBool(query.Paste))
 	}
 
 	anyQuery := query.Btn != 0 ||
-		query.Num != ""
+		query.Paste
 
 	var b strings.Builder
 	bl, al := actionexpr.BeforeAfterLen(options)
@@ -213,11 +213,11 @@ func (pageIndex_Input) POST(
 		n++
 		l += len("btn=") + len(btnStr)
 	}
-	if query.Num != "" {
+	if query.Paste {
 		if n > 0 {
 			l += len("&")
 		}
-		l += len("num=") + len(numStr)
+		l += len("paste=") + len(pasteStr)
 	}
 
 	b.Grow(l)
@@ -236,12 +236,12 @@ func (pageIndex_Input) POST(
 		b.WriteString("btn=")
 		b.WriteString(btnStr)
 	}
-	if query.Num != "" {
+	if query.Paste {
 		if n > 0 {
 			b.WriteString("&")
 		}
-		b.WriteString("num=")
-		b.WriteString(numStr)
+		b.WriteString("paste=")
+		b.WriteString(pasteStr)
 	}
 	b.WriteString("'")
 	actionexpr.WriteOptions(&b, options)
@@ -252,16 +252,16 @@ func (pageIndex_Input) POST(
 }
 
 type pageIndex_Input_POSTQuery struct {
-	Btn int    `query:"btn"`
-	Num string `query:"num"`
+	Btn   int  `query:"btn"`
+	Paste bool `query:"paste"`
 }
 
 func (pageIndex_Input) POSTQuery(
 	vBtn int,
-	vNum string,
+	vPaste bool,
 ) pageIndex_Input_POSTQuery {
 	return pageIndex_Input_POSTQuery{
-		Btn: vBtn,
-		Num: vNum,
+		Btn:   vBtn,
+		Paste: vPaste,
 	}
 }

@@ -88,12 +88,15 @@ templ pageCalculator(input string, fresh bool) {
 		class="card"
 		data-signals:input={ jsStr(input) }
 		data-signals:fresh={ fmt.Sprintf("%t", fresh) }
+		data-signals:num="''"
 		data-on:keydown__window="calcKey(evt)"
 		data-on:copy__window="
 			evt.preventDefault();
 			evt.clipboardData.setData('text/plain',$input||'0')
 		"
-		data-on:paste__window="var v=calcPaste(evt);if(v!==null)@post('/input/?num='+encodeURIComponent(v))"
+		data-on:paste__window={ action.PageIndex.Input.POST(
+			action.PageIndex.Input.POSTQuery(0, true),
+			action.WithBefore("var v=calcPaste(evt);if(v===null)return;$num=v")) }
 	>
 		<h1>Calculator</h1>
 		<div class="display">{ calc.FormatDisplay(input) }</div>
@@ -102,7 +105,7 @@ templ pageCalculator(input string, fresh bool) {
 				<button
 					class={ b.Class }
 					data-on:click={ action.PageIndex.Input.POST(
-						action.PageIndex.Input.POSTQuery(int(b.Btn), "")) }
+						action.PageIndex.Input.POSTQuery(int(b.Btn), false)) }
 				>{ b.Label }</button>
 			}
 		</div>

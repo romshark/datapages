@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/romshark/datapages"
+	"github.com/romshark/datapages/example/todolist/app/datapagesgen/href"
 )
 
 // PageItem is /item/{id}
@@ -18,7 +19,7 @@ func (p PageItem) GET(
 ) (body datapages.Component, redirect datapages.Redirect, err error) {
 	todo, ok := p.App.list.GetItem(path.Values.ID)
 	if !ok {
-		return nil, datapages.Redirect{URL: "/"}, nil
+		return nil, datapages.Redirect{URL: href.PageIndex(href.QueryPageIndex{})}, nil
 	}
 	return pageItem(todo), redirect, nil
 }
@@ -48,7 +49,7 @@ func (p PageItem) DELETEItem(
 	if err := todoUpdated.Dispatch(EventTodoUpdated{}); err != nil {
 		return redirect, err
 	}
-	return datapages.Redirect{URL: "/"}, nil
+	return datapages.Redirect{URL: href.PageIndex(href.QueryPageIndex{})}, nil
 }
 
 func (p PageItem) OnTodoUpdated(
@@ -61,7 +62,7 @@ func (p PageItem) OnTodoUpdated(
 	}
 	todo, ok := p.App.list.GetItem(state.Values.ItemID)
 	if !ok {
-		return sse.Redirect("/")
+		return sse.Redirect(href.PageIndex(href.QueryPageIndex{}))
 	}
 	return sse.PatchElement(pageItem(todo))
 }

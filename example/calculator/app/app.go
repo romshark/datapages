@@ -15,7 +15,7 @@ type App struct{}
 func NewApp() *App { return &App{} }
 
 var (
-	errInvalidNum   = errors.New("invalid num parameter")
+	errInvalidNum   = errors.New("invalid num signal")
 	errInvalidBtn   = errors.New("invalid btn parameter")
 	errInvalidInput = errors.New("invalid input signal")
 	numRe           = regexp.MustCompile(`^-?\d*\.?\d+$`)
@@ -35,26 +35,27 @@ func (PageIndex) POSTInput(
 	r *http.Request,
 	sse datapages.SSE,
 	query datapages.Query[struct {
-		Btn int    `query:"btn"`
-		Num string `query:"num"`
+		Btn   int  `query:"btn"`
+		Paste bool `query:"paste"`
 	}],
 	signals datapages.Signals[struct {
 		Input string `json:"input"`
 		Fresh bool   `json:"fresh"`
+		Num   string `json:"num"`
 	}],
 ) error {
 	if !calc.ValidInput(signals.Values.Input) {
 		return fmt.Errorf("%w: %w", datapages.ErrBadRequest, errInvalidInput)
 	}
-	if query.Values.Num != "" {
-		if !numRe.MatchString(query.Values.Num) {
+	if query.Values.Paste {
+		if !numRe.MatchString(signals.Values.Num) {
 			return fmt.Errorf("%w: %w", datapages.ErrBadRequest, errInvalidNum)
 		}
 		input := signals.Values.Input
 		if signals.Values.Fresh {
 			input = ""
 		}
-		return sse.PatchElement(pageCalculator(input+query.Values.Num, false))
+		return sse.PatchElement(pageCalculator(input+signals.Values.Num, false))
 	}
 	btn := calc.CalcButton(query.Values.Btn)
 	if !calc.ValidButton(btn) {
