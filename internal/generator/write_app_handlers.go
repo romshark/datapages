@@ -336,7 +336,6 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		w.writeDispatchers(h, "dispatch", "r.Context()")
 	}
 
-	// Offline cache handle for GET (queued writes are baked after writeHTML).
 	if h.InputPageCache != nil {
 		// The receiver embeds the server rather than being it.
 		w.Line(1, "pageCache := newPageCache(w, s.Server, r, nil)")
