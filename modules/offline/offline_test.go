@@ -232,3 +232,18 @@ func TestServiceWorkerCarriesTheReflectionScript(t *testing.T) {
 
 	require.Contains(t, js, `classList.toggle(\"app-offline\"`)
 }
+
+// TestMiddlewareVariesByWorkerVersion tests that an HTML response declares the
+// request header its body depends on, which keeps a shared cache from serving
+// one client's copy to another.
+func TestMiddlewareVariesByWorkerVersion(t *testing.T) {
+	t.Parallel()
+	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
+
+	rec := httptest.NewRecorder()
+	mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("<!DOCTYPE html><html><head></head><body>hi</body></html>"))
+	})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/shows/", nil))
+
+	require.Equal(t, "X-Datapages-Worker-Version", rec.Header().Get("Vary"))
+}

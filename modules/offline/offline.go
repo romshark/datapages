@@ -281,6 +281,10 @@ func (iw *injectingWriter) finish() {
 	body := injectBefore(iw.buf.Bytes(), iw.script)
 	h := iw.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
+	// The registration script is injected by version header.
+	// Without Vary a shared cache can serve a page carrying it to a client that
+	// already runs the worker, and one without it to a client that has none.
+	h.Add("Vary", datapages.HeaderWorkerVersion)
 	h.Set("Content-Length", strconv.Itoa(len(body)))
 	if iw.status == 0 {
 		iw.status = http.StatusOK

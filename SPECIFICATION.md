@@ -1001,6 +1001,12 @@ header to the version it holds for the requested URL, or omits it when the URL i
 not cached. The server reads it back through `Version()` (which returns 0 when the
 header is absent).
 
+Both request headers change the response body. A response that depends on one
+names it in `Vary`: a page whose handler takes `pageCache` carries
+`Vary: X-Datapages-Offline-Version`, and every HTML response the offline module
+touches carries `Vary: X-Datapages-Worker-Version`. A shared cache in front of
+the application therefore cannot serve one client's page to another.
+
 Serving a navigation works as follows:
 
 - The URL holds a `SetShim` entry: the worker serves it at once, online or offline,

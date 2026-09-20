@@ -43,8 +43,13 @@ const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
 // newPageCache builds the page cache handle for the request. sse is the
 // action's SSE generator, or nil for GET and redirect handlers.
 func newPageCache(
-	s *Server, r *http.Request, sse *datastar.ServerSentEventGenerator,
+	w http.ResponseWriter, s *Server, r *http.Request,
+	sse *datastar.ServerSentEventGenerator,
 ) *pageCacheWriter {
+	// The response body depends on the version header Version reads.
+	// Without Vary a shared cache in front of the application can hand
+	// one client's page, and the cache write baked into it, to another.
+	w.Header().Add("Vary", datapages.HeaderOfflineVersion)
 	return &pageCacheWriter{s: s, r: r, sse: sse}
 }
 
@@ -413,7 +418,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 
 	p := dpapp.PageIndex{
 		App: s.app,
@@ -493,7 +498,7 @@ func (s pageNoShim2Handlers) GET(w http.ResponseWriter, r *http.Request) {
 type pageSubpageHandlers struct{ *Server }
 
 func (s pageSubpageHandlers) GET(w http.ResponseWriter, r *http.Request) {
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 	p := dpapp.PageSubpage{
 		App: s.app,
 	}

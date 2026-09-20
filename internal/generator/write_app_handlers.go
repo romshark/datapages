@@ -339,7 +339,7 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 	// Offline cache handle for GET (queued writes are baked after writeHTML).
 	if h.InputPageCache != nil {
 		// The receiver embeds the server rather than being it.
-		w.Line(1, "pageCache := newPageCache(s.Server, r, nil)")
+		w.Line(1, "pageCache := newPageCache(w, s.Server, r, nil)")
 	}
 
 	// Stateful page: mint the Datapages-Instance header so the client can
@@ -1762,9 +1762,9 @@ func (w *Writer) writePageCacheBodyArg(h *model.Handler) {
 func (w *Writer) writeDatapagesHandles(h *model.Handler) {
 	if h.InputPageCache != nil {
 		if pageCacheViaStream(h) {
-			w.Line(1, "pageCache := newPageCache(s.Server, r, sse)")
+			w.Line(1, "pageCache := newPageCache(w, s.Server, r, sse)")
 		} else {
-			w.Line(1, "pageCache := newPageCache(s.Server, r, nil)")
+			w.Line(1, "pageCache := newPageCache(w, s.Server, r, nil)")
 		}
 	}
 }

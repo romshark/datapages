@@ -90,8 +90,13 @@ func httpRedirectOffline(
 // newPageCache builds the page cache handle for the request. sse is the
 // action's SSE generator, or nil for GET and redirect handlers.
 func newPageCache(
-	s *Server, r *http.Request, sse *datastar.ServerSentEventGenerator,
+	w http.ResponseWriter, s *Server, r *http.Request,
+	sse *datastar.ServerSentEventGenerator,
 ) *pageCacheWriter {
+	// The response body depends on the version header Version reads.
+	// Without Vary a shared cache in front of the application can hand
+	// one client's page, and the cache write baked into it, to another.
+	w.Header().Add("Vary", datapages.HeaderOfflineVersion)
 	return &pageCacheWriter{s: s, r: r, sse: sse}
 }
 
@@ -554,7 +559,7 @@ func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "App.SignOut")
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 	closeSession, redirect, err := s.app.POSTSignOut(r, sess, pageCache)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.SignOut", err)
@@ -648,7 +653,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 
 	var query datapages.Query[dpapp.SearchParams]
 	query.Values.Term = httpread.QueryValue(r.URL.RawQuery, "q")
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 
 	p := dpapp.PageIndex{
 		App: s.app,
@@ -733,7 +738,7 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		Next string `query:"next"`
 	}]
 	query.Values.Next = httpread.QueryValue(r.URL.RawQuery, "next")
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 
 	p := dpapp.PageLogin{
 		App: s.app,
@@ -784,7 +789,7 @@ func (s pageLoginHandlers) POSTSubmit(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageLogin.Submit")
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 	p := dpapp.PageLogin{
 		App: s.app,
 	}
@@ -899,7 +904,7 @@ func (s pagePurchaseHandlers) POSTConfirm(
 	}]
 	path.Values.Slug = r.PathValue("nameslug")
 	defer s.recoverPanic(w, r, nil, "PagePurchase.Confirm")
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 	p := dpapp.PagePurchase{
 		App: s.app,
 		Base: dpapp.Base{
@@ -928,7 +933,7 @@ func (s pageShowHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		Slug string `path:"nameslug"`
 	}]
 	path.Values.Slug = r.PathValue("nameslug")
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 
 	p := dpapp.PageShow{
 		App: s.app,
@@ -968,7 +973,7 @@ func (s pageTicketHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		Slug string `path:"nameslug"`
 	}]
 	path.Values.Slug = r.PathValue("nameslug")
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 
 	p := dpapp.PageTicket{
 		App: s.app,
@@ -1006,7 +1011,7 @@ func (s pageTicketsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 
 	p := dpapp.PageTickets{
 		App: s.app,

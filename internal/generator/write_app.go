@@ -217,8 +217,13 @@ func (w *Writer) writePageCache(m *model.App) {
 // newPageCache builds the page cache handle for the request. sse is the
 // action's SSE generator, or nil for GET and redirect handlers.
 func newPageCache(
-	s *Server, r *http.Request, sse *datastar.ServerSentEventGenerator,
+	w http.ResponseWriter, s *Server, r *http.Request,
+	sse *datastar.ServerSentEventGenerator,
 ) *pageCacheWriter {
+	// The response body depends on the version header Version reads.
+	// Without Vary a shared cache in front of the application can hand
+	// one client's page, and the cache write baked into it, to another.
+	w.Header().Add("Vary", datapages.HeaderOfflineVersion)
 	return &pageCacheWriter{s: s, r: r, sse: sse}
 }
 
@@ -1635,7 +1640,7 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	}
 
 	if h404.InputPageCache != nil {
-		w.Line(1, "pageCache := newPageCache(s, r, nil)")
+		w.Line(1, "pageCache := newPageCache(w, s, r, nil)")
 	}
 
 	w.writePageConstructorStmt("p", p, appPkg)
@@ -1799,9 +1804,9 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	// response (see httpRedirectOffline and pageCacheWriter.bakeInto).
 	if h.InputPageCache != nil && isAppLevel {
 		if viaStream {
-			w.Line(1, "pageCache := newPageCache(s.Server, r, sse)")
+			w.Line(1, "pageCache := newPageCache(w, s.Server, r, sse)")
 		} else {
-			w.Line(1, "pageCache := newPageCache(s.Server, r, nil)")
+			w.Line(1, "pageCache := newPageCache(w, s.Server, r, nil)")
 		}
 	}
 

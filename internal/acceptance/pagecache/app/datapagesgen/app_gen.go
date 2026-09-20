@@ -87,8 +87,13 @@ func httpRedirectOffline(
 // newPageCache builds the page cache handle for the request. sse is the
 // action's SSE generator, or nil for GET and redirect handlers.
 func newPageCache(
-	s *Server, r *http.Request, sse *datastar.ServerSentEventGenerator,
+	w http.ResponseWriter, s *Server, r *http.Request,
+	sse *datastar.ServerSentEventGenerator,
 ) *pageCacheWriter {
+	// The response body depends on the version header Version reads.
+	// Without Vary a shared cache in front of the application can hand
+	// one client's page, and the cache write baked into it, to another.
+	w.Header().Add("Vary", datapages.HeaderOfflineVersion)
 	return &pageCacheWriter{s: s, r: r, sse: sse}
 }
 
@@ -465,7 +470,7 @@ func (s *Server) httpErrIntern(
 }
 
 func (s *Server) render404(w http.ResponseWriter, r *http.Request) {
-	pageCache := newPageCache(s, r, nil)
+	pageCache := newPageCache(w, s, r, nil)
 	p := dpapp.PageError404{
 		App: s.app,
 	}
@@ -498,7 +503,7 @@ func (s appHandlers) POSTAppPrecache(w http.ResponseWriter, r *http.Request) {
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "App.AppPrecache")
-	pageCache := newPageCache(s.Server, r, sse)
+	pageCache := newPageCache(w, s.Server, r, sse)
 	err := s.app.POSTAppPrecache(r, pageCache)
 	if err != nil {
 		s.httpErrIntern(w, r, sse, "handling action App.AppPrecache", err)
@@ -513,7 +518,7 @@ func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer s.recoverPanic(w, r, nil, "App.AppBody")
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 	body, err := s.app.POSTAppBody(r, pageCache)
 	if err != nil {
 		s.httpErrIntern(w, r, nil, "handling action App.AppBody", err)
@@ -530,7 +535,7 @@ func (s appHandlers) POSTAppBody(w http.ResponseWriter, r *http.Request) {
 type pageError404Handlers struct{ *Server }
 
 func (s pageError404Handlers) GET(w http.ResponseWriter, r *http.Request) {
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 	p := dpapp.PageError404{
 		App: s.app,
 	}
@@ -560,7 +565,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		s.render404(w, r)
 		return
 	}
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 
 	p := dpapp.PageIndex{
 		App: s.app,
@@ -593,7 +598,7 @@ func (s pageIndexHandlers) POSTStream(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageIndex.Stream")
-	pageCache := newPageCache(s.Server, r, sse)
+	pageCache := newPageCache(w, s.Server, r, sse)
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -612,7 +617,7 @@ func (s pageIndexHandlers) POSTRedirect(
 		return
 	}
 	defer s.recoverPanic(w, r, nil, "PageIndex.Redirect")
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -635,7 +640,7 @@ func (s pageIndexHandlers) POSTStreamRedirect(
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageIndex.StreamRedirect")
-	pageCache := newPageCache(s.Server, r, sse)
+	pageCache := newPageCache(w, s.Server, r, sse)
 	p := dpapp.PageIndex{
 		App: s.app,
 	}
@@ -662,7 +667,7 @@ func (s pageListHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		Page string `query:"page"`
 	}]
 	query.Values.Page = httpread.QueryValue(r.URL.RawQuery, "page")
-	pageCache := newPageCache(s.Server, r, nil)
+	pageCache := newPageCache(w, s.Server, r, nil)
 
 	p := dpapp.PageList{
 		App: s.app,

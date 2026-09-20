@@ -233,3 +233,15 @@ func TestShimKeepsItsQuery(t *testing.T) {
 	require.Contains(t, resp.Body,
 		"window.location.pathname+window.location.search")
 }
+
+// TestPageCacheVariesByHeldVersion tests that a page whose handler reads the
+// held version declares it, which keeps a shared cache from serving one
+// client's copy, and the write baked into it, to another.
+func TestPageCacheVariesByHeldVersion(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	require.Equal(t, "X-Datapages-Offline-Version", c.Get(t, "/").Header.Get("Vary"))
+	require.Empty(t, c.Get(t, "/offline/").Header.Get("Vary"),
+		"a page that never touches the cache does not vary")
+}
