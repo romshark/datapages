@@ -247,3 +247,26 @@ func TestMiddlewareVariesByWorkerVersion(t *testing.T) {
 
 	require.Equal(t, "X-Datapages-Worker-Version", rec.Header().Get("Vary"))
 }
+
+// TestServiceWorkerExcludePaths tests that the configured same-origin prefixes
+// reach the worker, which passes those requests to the network.
+func TestServiceWorkerExcludePaths(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		conf offline.Config
+		want string
+	}{
+		"none": {offline.Config{WorkerVersion: 1}, `"excludePaths":null`},
+		"configured": {
+			offline.Config{WorkerVersion: 1, ExcludePaths: []string{"/api/", "/live/"}},
+			`"excludePaths":["/api/","/live/"]`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			require.Contains(t,
+				string(offline.ServiceWorkerJS("/offline/", tc.conf)), tc.want)
+		})
+	}
+}

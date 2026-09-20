@@ -1033,6 +1033,13 @@ Cross-origin requests are cached only for the request destinations the
 application opts in to, by default stylesheets, scripts, fonts and images; such
 responses are often opaque and are stored as such. Restricting them by destination
 keeps API and analytics calls out of the cache, as they must not be answered from a
-stale copy. The application shell declared for precaching is stored when the worker
+stale copy. `Config.ExcludePaths` keeps same-origin prefixes out of the cache the
+same way. The application shell declared for precaching is stored when the worker
 installs. An asset that is neither declared nor ever loaded while online is
 unavailable offline.
+
+A cached same-origin asset is served from the cache and refreshed from the
+network behind it, which is how a file redeployed at an unchanged URL reaches a
+returning visitor: the visit that serves the stale copy stores the new one for
+the next. Cross-origin entries are not revalidated, since an opaque response
+cannot be compared.

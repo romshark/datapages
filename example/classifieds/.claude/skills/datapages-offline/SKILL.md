@@ -68,6 +68,7 @@ datapages.WithMiddleware(offline.Middleware("", offline.Config{WorkerVersion: 1}
 | `Assets` | none; the shell precached on install |
 | `OfflineClass` | `is-offline`, toggled on `<html>` while offline |
 | `CrossOriginDestinations` | `image`, `style`, `script`, `font`; empty non-nil disables |
+| `ExcludePaths` | none; same-origin prefixes never cached |
 
 Style offline state in CSS, no Go code:
 
@@ -148,7 +149,7 @@ A shim is shown online as well. It must not state anything that is only true off
 ## Rules
 
 - **Pass the page body, not a document.** Datapages wraps a cached entry in the same document shell as a live page (`<head>`, stylesheets, Datastar bundle). Hand-rolling `<!DOCTYPE html>` around the body nests one document inside another.
-- **A cached page is only as complete as its assets.** Its stylesheets, scripts, fonts and images must be cached too. `Config.Assets` is precached on install. Everything else is cached on its first load while online: same-origin files other than what Datastar requests (actions, hydrates and event streams always come from the network), and cross-origin requests whose destination is in `Config.CrossOriginDestinations`. An asset that is neither listed nor ever loaded online is missing offline.
+- **A cached page is only as complete as its assets.** Its stylesheets, scripts, fonts and images must be cached too. `Config.Assets` is precached on install. Everything else is cached on its first load while online: same-origin files other than what Datastar requests (actions, hydrates and event streams always come from the network) and other than `Config.ExcludePaths`, plus cross-origin requests whose destination is in `Config.CrossOriginDestinations`. An asset that is neither listed nor ever loaded online is missing offline. A cached same-origin asset is refreshed behind the copy it serves: a file redeployed at the same URL lands on the next visit, with no `WorkerVersion` bump.
 - **Version by everything the body depends on.** A constant version caches once and never refreshes. Include the content state, such as an item count or an ownership flag.
 
   ```go

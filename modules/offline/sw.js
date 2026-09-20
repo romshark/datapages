@@ -15,6 +15,14 @@ const pendingLive = new Map();
 // Fetch request destinations cached when the request goes to another origin.
 const CROSS_ORIGIN_DESTINATIONS = CFG.crossOriginDestinations || [];
 
+// Same-origin path prefixes the worker never caches.
+const EXCLUDED = CFG.excludePaths || [];
+
+function isExcluded(path) {
+  for (const p of EXCLUDED) if (path.indexOf(p) === 0) return true;
+  return false;
+}
+
 // Install: precache the app shell and the offline fallback page.
 self.addEventListener('install', function (e) {
   e.waitUntil((async function () {
@@ -217,6 +225,8 @@ self.addEventListener('fetch', function (e) {
   // its answer is generated per request and must never come from a cache.
   if (isDatastarRequest(req)) return;
 
+  if (sameOrigin && isExcluded(url.pathname)) return;
+
   // Cache-first for assets. Same-origin static files, plus the cross-origin
   // destinations opted in via Config.CrossOriginDestinations.
   // Cross-origin responses are often opaque (status 0, res.ok false); cache them anyway.
@@ -230,7 +240,15 @@ self.addEventListener('fetch', function (e) {
         hit.headers.get(OFFLINE_VERSION_HEADER))) {
         return fetch(req);
       }
-      if (hit) return hit;
+      if (hit) {
+        // Asset URLs carry no content hash. The hit is served and refreshed
+        // behind it, otherwise a redeployed file at the same URL would never
+        // reach a returning visitor. Cross-origin hits are left alone: an
+        // opaque response cannot be compared and its URL is usually versioned
+        // by whoever serves it.
+        if (sameOrigin) e.waitUntil(revalidate(cache, req));
+        return hit;
+      }
       try {
         const res = await fetch(req);
         if (res && (res.ok || res.type === 'opaque') && !isEventStream(res)) {
@@ -243,3 +261,12 @@ self.addEventListener('fetch', function (e) {
     })());
   }
 });
+
+// Replace a cached asset with what the network has now. Offline it fails and
+// the entry stays.
+async function revalidate(cache, req) {
+  try {
+    const res = await fetch(req, { cache: 'no-cache' });
+    if (res && res.ok && !isEventStream(res)) await cache.put(req, res);
+  } catch (_) { /* keep the cached copy */ }
+}

@@ -42,6 +42,9 @@ type Config struct {
 	// worker script or the precached shell/offline set changes; the browser then
 	// installs the new worker and drops caches from older versions.
 	// Zero selects [DefaultWorkerVersion].
+	//
+	// A changed asset at an unchanged URL needs no bump: a cached asset is
+	// refreshed from the network behind the copy it serves.
 	WorkerVersion uint64
 
 	// ScriptURL is the path the worker script is served from. Empty selects
@@ -65,6 +68,12 @@ type Config struct {
 	// caching entirely. Keep API and analytics destinations ("empty") out of it,
 	// they must not be answered from a stale cache.
 	CrossOriginDestinations []string
+
+	// ExcludePaths lists same-origin URL path prefixes the worker never caches
+	// and always passes to the network. Use it for an endpoint the application's
+	// own JavaScript calls whose answer must not come from a stale copy.
+	// Navigations and the requests Datastar issues bypass the cache already.
+	ExcludePaths []string
 }
 
 // DefaultWorkerVersion is the service worker version used when
@@ -123,12 +132,14 @@ func ServiceWorkerJS(offlinePath string, cfg Config) []byte {
 		OfflineURL              string   `json:"offlineURL"`
 		Assets                  []string `json:"assets"`
 		CrossOriginDestinations []string `json:"crossOriginDestinations"`
+		ExcludePaths            []string `json:"excludePaths"`
 		NetStateJS              string   `json:"netStateJS"`
 	}{
 		WorkerVersion:           cfg.workerVersion(),
 		OfflineURL:              offlinePath,
 		Assets:                  cfg.Assets,
 		CrossOriginDestinations: cfg.crossOriginDestinations(),
+		ExcludePaths:            cfg.ExcludePaths,
 		NetStateJS:              netStateJS(cfg),
 	}
 	encoded, err := json.Marshal(payload)
