@@ -833,7 +833,7 @@ Without `WithCSPNonce` a policy must allow `script-src 'unsafe-inline' 'unsafe-e
 datapages.WithCSPNonce(func(r *http.Request) string { return nonceOf(r) })
 ```
 
-The application mints the nonce and writes it into its own `Content-Security-Policy` header. Datapages reads it back through the function and writes it on the `html` element as `data-nonce` and on every script Datapages writes as `nonce`. An empty return writes the page without nonces.
+Datapages may call the function several times while writing one response. It must return the same value for every call with the same request. Application middleware should mint the nonce once, store it in the request context and write the same value into its `Content-Security-Policy` header. Datapages reads it back through the function and writes it on the `html` element as `data-nonce` and on every script Datapages writes as `nonce`. An empty return writes the page without nonces.
 
 `data-nonce` turns on Datastar's CSP mode. Datastar compiles an expression by appending a script element with that nonce instead of calling `Function`, which removes the need for `'unsafe-eval'`. It requires Datastar 1.0.3 or later. An older bundle throws `Datastar CSP requires a nonempty html data-nonce.` or compiles with `Function` regardless.
 
