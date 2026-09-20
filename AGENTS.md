@@ -16,8 +16,9 @@
 - Build CLI and examples: `mage build`
 - Generate templ files: `mage genTempl`
 - Generate datapages code: `mage genDatapages`
+- Generate the AI agent instructions of every example: `mage genAISkills`
 - Minify the offline service worker: `mage genOfflineWorker`
-- Generate all (templ + datapages + docs + worker): `mage gen`
+- Generate all (templ + datapages + AI skills + docs + worker): `mage gen`
 - Check that all generated code is current: `mage checkGen`
 - Run go fix on all modules: `mage goFix`
 - Run everything: `mage all`
@@ -163,12 +164,17 @@ Generated output is committed, and tests fail when it goes stale.
 - `*/datapagesgen/**` in examples and acceptance cases: written by the CLI from
   the app package. `mage genDatapages` builds `cmd/datapages` from source and
   runs `datapages gen` in every example and acceptance module.
+- In every `example/*` module: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`,
+  `.github/copilot-instructions.md`, `.cursor/rules/datapages.mdc` and
+  everything under `.agents/skills/` and `.claude/skills/`. Written by
+  `datapages init` from `internal/generator/agentdocs/data`.
+  `mage genAISkills` runs it in every example to catch drift.
 - `docs/index.html`: written by `internal/tools/render-pages` from
   `internal/docs-src/`. `mage genDocs`.
 - `modules/offline/sw.min.js`: minified from `sw.js` next to it.
   `mage genOfflineWorker`. The module embeds the minified file,
   which is why it is committed: `go build` cannot run the target.
-- `mage gen` runs all four.
+- `mage gen` runs all of them.
 
 Any change to the generator requires `mage genDatapages` in the same commit.
 `TestExamplesAreUpToDate` (`internal/generator/generator_test.go:45`) and the
@@ -179,10 +185,10 @@ acceptance tests regenerate and diff against the committed output, and report
 
 When working with Datapages application code, read and follow these files:
 
-- `.skills/datapages/SKILL.md`: step-by-step guide for writing Datapages apps and using
-  the CLI.
-- `.skills/datastar/SKILL.md`: Datastar HTML attribute and action reference for
-  templates.
+- `internal/generator/agentdocs/data/skills/datapages/SKILL.md`: guide for
+  writing Datapages apps and using the CLI.
+- `internal/generator/agentdocs/data/skills/datastar/SKILL.md`: Datastar HTML
+  attribute and action reference for templates.
 - `SPECIFICATION.md`: full parameter, return type, and configuration reference.
 
 # Writing

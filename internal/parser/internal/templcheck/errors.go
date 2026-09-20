@@ -52,7 +52,7 @@ func (e *FormActionError) Unwrap() error { return ErrFormAction }
 
 // ActionWrongPageError is ErrActionWrongPage with context.
 type ActionWrongPageError struct {
-	ActionFunc string // e.g. "POSTPageProfileSave"
+	ActionFunc string // e.g. "PageProfile.Save.POST"
 	PageType   string // e.g. "PageSettings" (the page whose template uses the action)
 	OwnerPage  string // e.g. "PageProfile" or "App" (the page/app that owns the action)
 }
@@ -67,7 +67,7 @@ func (e *ActionWrongPageError) Unwrap() error { return ErrActionWrongPage }
 // ActionContextError is ErrActionContext with context.
 type ActionContextError struct {
 	AttrName   string // e.g. "href"
-	ActionFunc string // e.g. "POSTPageLoginSubmit"
+	ActionFunc string // e.g. "PageLogin.Submit.POST"
 }
 
 func (e *ActionContextError) Error() string {
@@ -115,7 +115,7 @@ func (e *ActionUnverifiableError) Unwrap() error { return ErrActionUnverifiable 
 // ActionUnverifiableWithPrefixError is ErrActionUnverifiableWithPrefix with context.
 type ActionUnverifiableWithPrefixError struct {
 	Expr       string // the full expression value
-	ActionFunc string // e.g. "POSTPageIndexCalculate"
+	ActionFunc string // e.g. "PageIndex.Calculate.POST"
 	Prefix     string // the prefix expression source, e.g. `"$_fresh = true; "`
 }
 
@@ -130,7 +130,7 @@ func (e *ActionUnverifiableWithPrefixError) Unwrap() error {
 // ActionUnverifiableWithSuffixError is ErrActionUnverifiableWithSuffix with context.
 type ActionUnverifiableWithSuffixError struct {
 	Expr       string // the full expression value
-	ActionFunc string // e.g. "POSTPageIndexCalculate"
+	ActionFunc string // e.g. "PageIndex.Calculate.POST"
 	Suffix     string // the suffix expression source, e.g. `"; $count++"`
 }
 

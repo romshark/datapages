@@ -15,6 +15,7 @@ import (
 
 	"github.com/romshark/datapages/internal/cmd/config"
 	"github.com/romshark/datapages/internal/generator"
+	"github.com/romshark/datapages/internal/generator/agentdocs"
 	datapagesparser "github.com/romshark/datapages/internal/parser"
 	"github.com/romshark/datapages/internal/parser/errsuggest"
 	"github.com/romshark/datapages/internal/parser/model"
@@ -39,8 +40,13 @@ datapages.NewServer call. A module without one is generated with the defaults
 
 Assets and Prometheus are read from the Config variable of the app package.
 
-This command does not run "templ generate". You must run it yourself
-before "datapages gen" if you have created or modified .templ files.
+This command does not run "templ generate". Generate the app model first,
+then run "templ generate" after changing .templ files. If generated Templ
+references a helper that does not exist yet, remove the reference, regenerate
+Templ, run "datapages gen", then restore it and regenerate Templ.
+
+Everything under datapagesgen/ and every *_gen.go file is rewritten on
+each run. Do not edit them.
 
 A failed run never replaces generated code that already exists. It keeps
 what the last successful run produced. A package that was never generated is
@@ -103,6 +109,13 @@ func runGen(
 	tidy.Dir = moduleDir
 	if out, err := tidy.CombinedOutput(); err != nil {
 		errs = append(errs, execErr("go mod tidy", err, out))
+	}
+	stale, err := agentdocs.SkillsDiffer(moduleDir, version)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("checking agent instructions: %w", err))
+	} else if stale {
+		_, _ = fmt.Fprintln(stderr,
+			"Agent instructions differ from this CLI; run `datapages init -n` to update them (edits are backed up).")
 	}
 	return errors.Join(errs...)
 }

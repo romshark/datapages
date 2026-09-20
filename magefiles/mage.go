@@ -226,6 +226,7 @@ func CheckGen() error {
 	}{
 		{"mage genTempl", GenTempl},
 		{"mage genDatapages", GenDatapages},
+		{"mage genAISkills", GenAISkills},
 		{"mage genDocs", GenDocs},
 		{"mage genOfflineWorker", GenOfflineWorker},
 	}
@@ -388,12 +389,16 @@ func GoFixExamples() error {
 	return nil
 }
 
-// Gen runs all code generation (templ, datapages, docs, offline worker).
+// Gen runs all code generation
+// (templ, datapages, AI skills, docs, offline worker).
 func Gen() error {
 	if err := GenTempl(); err != nil {
 		return err
 	}
 	if err := GenDatapages(); err != nil {
+		return err
+	}
+	if err := GenAISkills(); err != nil {
 		return err
 	}
 	if err := GenDocs(); err != nil {
@@ -435,6 +440,31 @@ func GenDatapages() error {
 
 // acceptanceRoot holds the acceptance cases, one module each.
 const acceptanceRoot = "internal/acceptance"
+
+// GenAISkills runs "datapages init" in every example module, which writes
+// AGENTS.md and the task skills AI coding agents read.
+//
+// The run is expected to change nothing: the examples are initialized already,
+// so init writes the instructions and reports each project as initialized.
+// [CheckGen] fails on any file it does change.
+func GenAISkills() error {
+	tmp, err := os.MkdirTemp("", "datapages-init-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+
+	// Built from source, since the release a CLI reports is what pins the
+	// specification URL the instructions carry.
+	bin := filepath.Join(tmp, "datapages")
+	if err := run("go", "build", "-o", bin, "./cmd/datapages"); err != nil {
+		return err
+	}
+	return forEachModule("example", func(dir string) error {
+		fmt.Println("==> datapages init in", dir)
+		return runIn(dir, bin, "init", "-n")
+	})
+}
 
 // skipGeneration reports whether a module keeps no generated code.
 //

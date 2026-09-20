@@ -38,10 +38,10 @@ templ pageIndex(todos []list.Item, search, filter, sortMode string) {
 		data-signals:search={ jsStr(search) }
 		data-signals:filter={ jsStr(filter) }
 		data-signals:sort={ jsStr(sortMode) }
-		data-signals:showModal="false"
-		data-signals:newTitle="''"
-		data-signals:newDesc="''"
-		data-signals:newDue="''"
+		data-signals:show-modal="false"
+		data-signals:new-title="''"
+		data-signals:new-desc="''"
+		data-signals:new-due="''"
 	>
 		<h1>Todo List</h1>
 		<div class="toolbar">
@@ -142,7 +142,7 @@ templ pageItem(todo list.Item) {
 	<div
 		id="page-item"
 		class="container"
-		data-signals:itemId={ jsStr(todo.ID) }
+		data-signals:item-id={ jsStr(todo.ID) }
 		data-signals:title={ jsStr(todo.Title) }
 		data-signals:description={ jsStr(todo.Description) }
 		data-signals:done={ fmt.Sprintf("%t", todo.Done) }

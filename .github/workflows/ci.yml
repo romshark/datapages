@@ -89,7 +89,8 @@ jobs:
         run: mage checkMod
 
       # Runs every generator and fails if a file changes: templ everywhere,
-      # the datapages code of every example and acceptance case, docs/style.css.
+      # the datapages code of every example and acceptance case, the AI agent
+      # instructions of every example, docs/style.css.
       # Needs a clean tree, hence it runs before the tests write coverage.out.
       - name: Check generated code is current
         if: matrix.project.name == 'root' && matrix.deps == 'locked'
