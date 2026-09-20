@@ -61,6 +61,8 @@ func (*App) POSTSignIn(
 
 Neither works next to a `datapages.SSE` parameter: the headers the cookie travels in are already out. Sign in or out without `sse` and use `redirect`.
 
+With an offline page cache, both also take `pageCache` and call `ClearAll()`: a snapshot cached for a guest still shows the signed-out navigation after login. See `datapages-offline`.
+
 ## CSRF
 
 CSRF is enabled for every app with a session type. Datapages derives the token from the session; no option is needed. Do not set a CSRF header in a template. Browser form submissions do not carry the token. Submit forms through a Datastar action as shown in `datapages-templates`. Use `datapages.WithCSRFProtection(datapages.CSRFConfig{...})` only to replace the token source or disable protection.

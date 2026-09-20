@@ -54,6 +54,8 @@ opts = append(opts,
 
 `WithBodySizeLimit` caps the request body of an action, which is what limits the signals a page may send. Its default is 1 MiB; an over-limit request returns 400 while reading signals. `WithLogSampling` throttles the framework's own warnings, not the application's. `WithHTTPServer` keeps every field but `Addr` and `Handler`. Keep `WriteTimeout` at zero: a nonzero value ends long-lived SSE streams. `WithPrometheus` starts a second HTTP server on the configured host for `/metrics`. `WithShutdownTimeout` limits how long `ListenAndServe` waits after context cancellation for in-flight requests, open SSE streams and `StreamClose` hooks; an expired timeout logs the shutdown error and returns. The session cookie carries `Secure`: set `DisableSecureCookie` only for a deployment that is plain HTTP end to end, where the browser would drop it. `datapages.IsDevMode()` reports the dev server; `DATAPAGES_DEV_MODE` and `TEMPL_DEV_MODE` enable dev behavior, which is a reason to log at `slog.LevelDebug`.
 
+An app declaring `PageOffline` gets a generated `datapagesgen.WithOffline(offline.Config{...})` that serves the service worker. See `datapages-offline`.
+
 If `WithMiddleware` adds a `Content-Security-Policy`, stateful pages require `script-src 'unsafe-inline'` for the generated instance-ID script.
 
 ```go

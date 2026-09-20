@@ -25,7 +25,7 @@ Hard rules:
 - Never hardcode an app-internal URL. Use the generated `href` package for
   links and the generated `action` package for Datastar actions.
 - Never write JavaScript for application logic, open an SSE stream by hand, set
-  a CSRF header or add the Datastar script.
+  a CSRF header, add the Datastar script or register a service worker.
 - Submit forms through generated Datastar actions. Browser form submissions do
   not carry the CSRF token.
 
@@ -40,7 +40,7 @@ matches the task:
 | `datapages-events` | events, subjects, dispatchers, `On` handlers, stream hooks |
 | `datapages-state` | per-tab server state and state-scoped events |
 | `datapages-sessions` | authentication, session data, CSRF |
-| `datapages-offline` | offline support, the service worker, `pageCache` |
+| `datapages-offline` | offline pages, cached shims, the service worker |
 | `datapages-server` | server entry points, options, broker, static assets |
 | `datapages-templates` | `.templ` files, `href` and `action` helpers, Templ pitfalls |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |

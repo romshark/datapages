@@ -83,9 +83,9 @@ A signal change rewrites or removes only its own parameter. Every other paramete
 
 It also rejects a mismatch of JSON kind between the query field and the signal field, across number, boolean and string. A `string` query field reflected into a `bool` signal seeds `$flag` as `"true"`. The next action sends `{"flag":"true"}`, which signal decoding rejects with 400.
 
-## Error pages
+## Special pages
 
-Optional. Without them Datapages serves plain error responses.
+`PageError404`, `PageError500` and `PageOffline` are reserved names: a page carrying one is that special page. All three are optional; without them Datapages serves its own defaults.
 
 ```go
 // PageError404 is /not-found
@@ -96,7 +96,7 @@ func (PageError404) GET(r *http.Request) (datapages.Component, error) {
 }
 ```
 
-`PageError500` follows the same shape and needs a `GET` method too.
+`PageError500` and `PageOffline` follow the same shape and each needs a `GET` method. Both render with a zero `Session`. `PageOffline` is the service-worker fallback, see `datapages-offline`.
 
 ## Global head
 

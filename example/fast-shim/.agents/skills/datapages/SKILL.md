@@ -28,7 +28,7 @@ go build ./...
 - Never edit a `_gen.go` file, anything under `datapagesgen/`, or a file with a `DO NOT EDIT` header. Change the source and regenerate.
 - Never hardcode an app-internal URL. `href.PageX()` for links, `action.PageX.Y.POST()` for page actions and `action.App.Y.POST()` for app actions.
 - Never write JavaScript for application logic. Logic is Go on the server, the client is Datastar attributes. JS only for browser APIs Datastar cannot reach, such as the clipboard.
-- Never open an SSE stream, set a CSRF header or add the Datastar script by hand. Datapages does all three.
+- Never open an SSE stream, set a CSRF header, add the Datastar script or register a service worker by hand. Datapages does all four.
 - Submit `<form>` elements through Datastar actions. Browser form submissions do not carry the CSRF token; see `datapages-templates`.
 - Do not put build-constrained files in the app package. The generator reads its pages, actions and events for the host platform, so a platform-specific declaration can disappear from generated code elsewhere.
 - Prefer one HTML fragment that carries its own context over many small patches or over signal updates. The server is the source of truth, signals hold transient client state.
@@ -65,7 +65,7 @@ The generated server implements `http.Handler`. Use `httptest` to send requests 
 | `datapages-events` | events, subjects, dispatchers, `On` handlers, stream hooks |
 | `datapages-state` | per-tab state, state IDs and state-scoped events |
 | `datapages-sessions` | authentication, session data, CSRF |
-| `datapages-offline` | offline support, the service worker, `pageCache` |
+| `datapages-offline` | offline pages, cached shims, the service worker |
 | `datapages-server` | the server entry point, options, broker, static assets |
 | `datapages-templates` | `.templ` files, `href` and `action` helpers, Templ pitfalls |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |
