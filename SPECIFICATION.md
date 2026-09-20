@@ -833,13 +833,13 @@ Without `WithCSPNonce` a policy must allow `script-src 'unsafe-inline' 'unsafe-e
 datapages.WithCSPNonce(func(r *http.Request) string { return nonceOf(r) })
 ```
 
-The application mints the nonce and writes it into its own `Content-Security-Policy` header. Datapages reads it back through the function and writes it on the `html` element as `data-nonce` and on every script of the page as `nonce`. An empty return writes the page without nonces.
+The application mints the nonce and writes it into its own `Content-Security-Policy` header. Datapages reads it back through the function and writes it on the `html` element as `data-nonce` and on every script Datapages writes as `nonce`. An empty return writes the page without nonces.
 
 `data-nonce` turns on Datastar's CSP mode. Datastar compiles an expression by appending a script element with that nonce instead of calling `Function`, which removes the need for `'unsafe-eval'`. It requires Datastar 1.0.3 or later. An older bundle throws `Datastar CSP requires a nonempty html data-nonce.` or compiles with `Function` regardless.
 
-A nonce in the policy makes the browser ignore `'unsafe-inline'` for that directive. The page then runs the scripts of the application and nothing an injection adds.
+A nonce in the policy makes the browser ignore `'unsafe-inline'` for that directive. The browser runs inline scripts that carry the nonce and rejects injected inline scripts without it.
 
-The nonce must differ per response and must not be guessable. A response a cache can replay holds a nonce that is no longer valid.
+The nonce must differ per response and must not be guessable. Do not cache a response that contains a nonce: replay would reuse it.
 
 The nonce reaches neither the scripts offline support writes nor a page the service worker serves from its cache; see [Service Worker](#service-worker).
 

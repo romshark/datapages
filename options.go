@@ -616,7 +616,7 @@ func WithStateConfig(conf StateConfig) ServerOption {
 // into the script-src directive of the policy header.
 // An empty return writes the page without nonces.
 //
-// Datapages then writes the nonce on every script of the page and on the html
+// Datapages then writes the nonce on every script it writes and on the html
 // element as data-nonce, which is how Datastar's CSP mode reads it. Datastar compiles
 // an attribute expression by appending a script element with that nonce instead of
 // calling Function, which removes the need for script-src 'unsafe-eval'.
@@ -624,7 +624,8 @@ func WithStateConfig(conf StateConfig) ServerOption {
 // If [WithDatastarJS] is used then [WithCSPNonce] requires Datastar 1.0.3 or later.
 //
 // A nonce in the policy makes the browser ignore 'unsafe-inline' for that directive.
-// The page then runs the scripts of the application and nothing an injection adds.
+// The browser runs inline scripts that carry the nonce and rejects
+// injected inline scripts without it.
 func WithCSPNonce(nonce func(r *http.Request) string) ServerOption {
 	return func(c *ServerConfig) error {
 		if nonce == nil {
