@@ -2,6 +2,7 @@ package acceptance_test
 
 import (
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -264,6 +265,40 @@ func TestBranchingActionDeliversOnBothPaths(t *testing.T) {
 			require.Contains(t, resp.Header.Get("Content-Type"), tc.contentType)
 			require.Contains(t, resp.Body, applyType)
 			require.Contains(t, resp.Body, `"version":15`)
+		})
+	}
+}
+
+// TestCSPNonceReachesEveryScript tests that both option orders add the request
+// nonce to the page cache and offline middleware scripts.
+func TestCSPNonceReachesEveryScript(t *testing.T) {
+	t.Parallel()
+
+	const nonce = "t35tN0nce"
+	nonceOpt := datapages.WithCSPNonce(func(*http.Request) string { return nonce })
+	offlineOpt := datapagesgen.WithOffline(offline.Config{
+		WorkerVersion: workerVersion,
+	})
+
+	for name, opts := range map[string][]datapages.ServerOption{
+		"nonce first":   {nonceOpt, offlineOpt},
+		"offline first": {offlineOpt, nonceOpt},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			resp := newClient(t, opts...).Get(t, "/")
+			require.Equal(t, http.StatusOK, resp.Status)
+			require.Contains(t, resp.Body, applyType)
+			require.Contains(t, resp.Body, `<html data-nonce="`+nonce+`">`,
+				"data-nonce enables Datastar CSP mode")
+
+			tags := regexp.MustCompile(`<script[^>]*>`).FindAllString(resp.Body, -1)
+			require.Len(t, tags, 4,
+				"expected one Datastar, two offline, and one cache-write script")
+			for _, tag := range tags {
+				require.Contains(t, tag, `nonce="`+nonce+`"`,
+					"inline script requires the request nonce")
+			}
 		})
 	}
 }

@@ -47,8 +47,25 @@ const (
 // WithOffline enables service worker offline support. The route of PageOffline is
 // supplied automatically; the worker precaches that page and serves it for
 // navigations to URLs with no cached copy while the browser is offline.
+//
+// The module's scripts use conf.CSPNonce when it is set. Otherwise, they use the
+// nonce from [datapages.WithCSPNonce]. The generated nonce function reads
+// [datapages.ServerConfig] for each request, independent of option order.
 func WithOffline(conf offline.Config) datapages.ServerOption {
-	return datapages.WithMiddleware(offline.Middleware("/offline/", conf))
+	return func(c *datapages.ServerConfig) error {
+		// Copy the config for each server. A reused option must bind CSPNonce to
+		// the current ServerConfig.
+		conf := conf
+		if conf.CSPNonce == nil {
+			conf.CSPNonce = func(r *http.Request) string {
+				if c.CSPNonce == nil {
+					return ""
+				}
+				return c.CSPNonce(r)
+			}
+		}
+		return datapages.WithMiddleware(offline.Middleware("/offline/", conf))(c)
+	}
 }
 
 const DefaultBodySizeLimit = httpserve.DefaultBodySizeLimit
@@ -263,7 +280,7 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 		if payload == "" {
 			return nil
 		}
-		if _, err := io.WriteString(w, "<script>"); err != nil {
+		if _, err := io.WriteString(w, c.s.ScriptTagOpen(c.r)); err != nil {
 			return err
 		}
 		if _, err := io.WriteString(w, pageCachePostToWorkerJS(payload)); err != nil {

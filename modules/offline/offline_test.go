@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/offline"
 )
 
@@ -351,4 +352,76 @@ func TestMiddlewareContentEncoding(t *testing.T) {
 			require.Contains(t, rec.Body.String(), "<script>")
 		})
 	}
+}
+
+// TestMiddlewareCSPNonce tests that connectivity and registration scripts use
+// the request nonce when configured.
+func TestMiddlewareCSPNonce(t *testing.T) {
+	t.Parallel()
+
+	const page = "<!DOCTYPE html><html><head></head><body>x</body></html>"
+
+	for name, tc := range map[string]struct {
+		nonce      func(*http.Request) string
+		clientVer  string
+		wantTags   int
+		wantNonced int
+	}{
+		"registration and connectivity": {
+			nonce:      func(*http.Request) string { return "n0nce" },
+			wantTags:   2,
+			wantNonced: 2,
+		},
+		"connectivity after installation": {
+			nonce:      func(*http.Request) string { return "n0nce" },
+			clientVer:  "1",
+			wantTags:   1,
+			wantNonced: 1,
+		},
+		"unset": {
+			nonce:    nil,
+			wantTags: 2,
+		},
+		"empty": {
+			nonce:    func(*http.Request) string { return "" },
+			wantTags: 2,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			mw := offline.Middleware("/offline/", offline.Config{
+				WorkerVersion: 1, CSPNonce: tc.nonce,
+			})
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tc.clientVer != "" {
+				req.Header.Set(datapages.HeaderWorkerVersion, tc.clientVer)
+			}
+			mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(page))
+			})).ServeHTTP(rec, req)
+
+			body := rec.Body.String()
+			require.Equal(t, tc.wantTags, strings.Count(body, "<script"))
+			require.Equal(t, tc.wantNonced,
+				strings.Count(body, `<script nonce="n0nce">`))
+		})
+	}
+}
+
+// TestMiddlewareCSPNonceEscaped tests that a nonce cannot end the script tag.
+func TestMiddlewareCSPNonceEscaped(t *testing.T) {
+	t.Parallel()
+
+	mw := offline.Middleware("/offline/", offline.Config{
+		WorkerVersion: 1,
+		CSPNonce:      func(*http.Request) string { return `a"><img src=x>` },
+	})
+	rec := httptest.NewRecorder()
+	mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("<!DOCTYPE html><html><head></head><body></body></html>"))
+	})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	require.Contains(t, rec.Body.String(), `<script nonce="a&#34;&gt;&lt;img src=x&gt;">`)
+	require.NotContains(t, rec.Body.String(), "<img src=x>")
 }

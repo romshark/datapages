@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"strconv"
 	"strings"
@@ -57,6 +58,15 @@ type Config struct {
 	// disables cross-origin caching. Exclude API and analytics destinations
 	// because their responses must not come from a stale cache.
 	CrossOriginDestinations []string
+
+	// CSPNonce returns the Content-Security-Policy nonce for a request.
+	// [Middleware] adds it to each script it writes. If nil, the scripts have no
+	// nonce.
+	//
+	// Generated code uses
+	// [github.com/romshark/datapages.WithCSPNonce] when CSPNonce is nil,
+	// regardless of option order.
+	CSPNonce func(r *http.Request) string
 
 	// ExcludePaths lists same-origin URL path prefixes the worker never caches
 	// and always passes to the network. Use it for an endpoint the application's
@@ -167,10 +177,11 @@ func Middleware(offlinePath string, conf Config) func(http.Handler) http.Handler
 	target := conf.scriptURL()
 	targetSlash := target + "/"
 	workerVer := conf.workerVersion()
-	netState := []byte("<script>" + netStateJS(conf) + "</script>")
-	registerJS := strings.ReplaceAll(registerTemplate, "__SCRIPT_URL__", target)
+	netStateSrc := netStateJS(conf)
+	registerSrc := strings.ReplaceAll(registerTemplate, "__SCRIPT_URL__", target)
+	netState := []byte(scriptTag("") + netStateSrc + "</script>")
 	register := append(append([]byte(nil), netState...),
-		"<script>"+registerJS+"</script>"...)
+		scriptTag("")+registerSrc+"</script>"...)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -187,9 +198,20 @@ func Middleware(offlinePath string, conf Config) func(http.Handler) http.Handler
 			clientVer, _ := strconv.ParseUint(
 				r.Header.Get(datapages.HeaderWorkerVersion), 10, 64,
 			)
-			script := register
-			if clientVer >= workerVer {
-				script = netState
+			withRegister := clientVer < workerVer
+			script := netState
+			if withRegister {
+				script = register
+			}
+			if conf.CSPNonce != nil {
+				// Build the tags per request because the nonce differs per response.
+				if nonce := html.EscapeString(conf.CSPNonce(r)); nonce != "" {
+					script = []byte(scriptTag(nonce) + netStateSrc + "</script>")
+					if withRegister {
+						script = append(script,
+							scriptTag(nonce)+registerSrc+"</script>"...)
+					}
+				}
 			}
 
 			iw := &injectingWriter{ResponseWriter: w, script: script}
@@ -197,6 +219,13 @@ func Middleware(offlinePath string, conf Config) func(http.Handler) http.Handler
 			iw.finish()
 		})
 	}
+}
+
+func scriptTag(nonce string) string {
+	if nonce == "" {
+		return "<script>"
+	}
+	return `<script nonce="` + nonce + `">`
 }
 
 // injectingWriter buffers HTML responses so the registration script can be

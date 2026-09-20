@@ -64,7 +64,7 @@ If `WithMiddleware` adds a `Content-Security-Policy`, it must allow `script-src 
 
 `WithCSPNonce(func(r *http.Request) string)` replaces both allowances with a nonce. The application mints the nonce and puts it in its own policy header. Datapages reads it back, writes it on the `html` element as `data-nonce` and on every script it writes. `data-nonce` turns on Datastar's CSP mode, which compiles expressions through a nonced script element instead of `Function`. It needs Datastar 1.0.3 or later. The nonce must differ per response.
 
-The nonce does not reach the scripts offline support writes. An application using `WithOffline` still needs `'unsafe-inline'`. See `datapages-offline`.
+`WithOffline` passes the nonce to the offline module regardless of option order. The nonce cannot reach a page served from the service worker's cache; see `datapages-offline`.
 
 ```go
 s.ListenAndServe(ctx, "localhost:8080")

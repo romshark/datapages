@@ -841,7 +841,7 @@ A nonce in the policy makes the browser ignore `'unsafe-inline'` for that direct
 
 The nonce must differ per response and must not be guessable. Do not cache a response that contains a nonce: replay would reuse it.
 
-The nonce reaches neither the scripts offline support writes nor a page the service worker serves from its cache; see [Service Worker](#service-worker).
+Offline support applies the nonce to scripts written by the server. The nonce cannot reach a page served from the service worker's cache; see [Service Worker](#service-worker).
 
 ## Dev Mode
 
@@ -950,7 +950,9 @@ The worker scope covers the whole origin. Its script response sets `Service-Work
 
 The offline middleware writes the registration and connectivity scripts into every HTML response. A response that already carries a `Content-Encoding` passes through unchanged, since an encoded body cannot be edited as bytes. Register a compressing middleware before `WithOffline`: middleware runs in the order it is given, so the compressor then compresses the rewritten page.
 
-Offline support writes inline scripts. The connectivity script and the worker registration go into every HTML response. The queued cache writes go into a `GET` response or an action body. A shim gets a hydration trigger. A page served from the cache includes the connectivity script too. [`WithCSPNonce`](#content-security-policy) does not reach any of them. An application using offline support needs `script-src 'unsafe-inline'`. Without it the worker never registers and the embedded writes never run.
+Offline support writes inline scripts. The connectivity and worker registration scripts go into every HTML response. Queued cache writes go into a `GET` response or an action body. Each script uses the nonce from [`WithCSPNonce`](#content-security-policy). `WithOffline` reads the nonce when each request arrives, independent of option order. `offline.Config.CSPNonce` takes precedence.
+
+A cached page is rendered once and replayed. It cannot contain a valid per-response nonce. Its hydration trigger and connectivity script are written without one. The service worker provides no policy header, and the browser does not require a nonce. A `Content-Security-Policy` in a `meta` element would block those scripts.
 
 The `X-Datapages-Worker-Version` request header controls installation and updates. The installed worker sets its `uint64` version on every request. This version is independent of the Datapages release and the per-URL versions passed to `Set`. The server compares the header with its current worker version:
 

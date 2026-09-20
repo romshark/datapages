@@ -217,7 +217,7 @@ func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Componen
 		if payload == "" {
 			return nil
 		}
-		if _, err := io.WriteString(w, "<script>"); err != nil {
+		if _, err := io.WriteString(w, c.s.ScriptTagOpen(c.r)); err != nil {
 			return err
 		}
 		if _, err := io.WriteString(w, pageCachePostToWorkerJS(payload)); err != nil {

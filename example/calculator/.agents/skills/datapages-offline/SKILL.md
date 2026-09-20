@@ -78,7 +78,9 @@ Style offline state in CSS, no Go code:
 
 Register a compressing middleware before `WithOffline`. Middleware runs in the order it is given, and the offline middleware rewrites the HTML it receives. A response that already carries a `Content-Encoding` passes through unchanged, which leaves the page without the worker registration.
 
-Offline support writes inline scripts: the connectivity script, the worker registration, the queued cache writes and a shim's hydration trigger. `WithCSPNonce` does not reach them. A `Content-Security-Policy` must allow `script-src 'unsafe-inline'`. Without it the worker never registers and the embedded writes never run.
+Offline support writes inline scripts: the connectivity script, the worker registration and queued cache writes. Each script uses the nonce from `WithCSPNonce`. `WithOffline` reads the nonce when each request arrives, independent of option order. Set `offline.Config.CSPNonce` to use a different nonce for these scripts.
+
+A cached page is rendered once and replayed. It cannot contain a valid per-response nonce. Its shim hydration trigger and connectivity script are written without one. The service worker provides no policy header, and the browser does not require a nonce. A `Content-Security-Policy` in a `meta` element would block those scripts.
 
 ## PageOffline
 
