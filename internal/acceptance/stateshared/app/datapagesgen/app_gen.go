@@ -61,7 +61,10 @@ func (s *Server) writeHTML(
 			// including replay and error-reporting tools, from recording it.
 			// Cache-Control: no-store prevents caches from retaining the response body.
 			if id := w.Header().Get(stateInstanceIDHeader); wellFormedStateInstanceID(id) {
-				if _, err := io.WriteString(w, `<script>(() => {
+				if _, err := io.WriteString(w, s.ScriptTagOpen(r)); err != nil {
+					return err
+				}
+				if _, err := io.WriteString(w, `(() => {
 		let __dpInstance="`); err != nil {
 					return err
 				}

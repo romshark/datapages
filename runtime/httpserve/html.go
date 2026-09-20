@@ -10,7 +10,7 @@ import (
 // CSRFScriptWriter writes what makes a page send its CSRF token back.
 // It is implemented by the session manager of the generated server.
 type CSRFScriptWriter interface {
-	WriteCSRFScript(w io.Writer, userID, sessionToken string) error
+	WriteCSRFScript(w io.Writer, userID, sessionToken, cspNonce string) error
 }
 
 // HTMLDocument is the page [Core.WriteHTML] writes. Every field may be zero.
@@ -45,18 +45,19 @@ type HTMLDocument struct {
 func (c *Core) WriteHTML(
 	w http.ResponseWriter, r *http.Request, doc HTMLDocument,
 ) error {
+	head, datastarScript := c.htmlOpening(r)
 	if doc.WriteHeadPrologue == nil {
-		if _, err := io.WriteString(w, c.htmlPrefix); err != nil {
+		if _, err := io.WriteString(w, head+datastarScript); err != nil {
 			return err
 		}
 	} else {
-		if _, err := io.WriteString(w, c.htmlHead); err != nil {
+		if _, err := io.WriteString(w, head); err != nil {
 			return err
 		}
 		if err := doc.WriteHeadPrologue(w); err != nil {
 			return err
 		}
-		if _, err := io.WriteString(w, c.htmlDatastar); err != nil {
+		if _, err := io.WriteString(w, datastarScript); err != nil {
 			return err
 		}
 	}
@@ -71,7 +72,7 @@ func (c *Core) WriteHTML(
 		}
 	}
 	if doc.CSRF != nil {
-		err := doc.CSRF.WriteCSRFScript(w, doc.UserID, doc.SessionToken)
+		err := doc.CSRF.WriteCSRFScript(w, doc.UserID, doc.SessionToken, c.CSPNonce(r))
 		if err != nil {
 			return err
 		}

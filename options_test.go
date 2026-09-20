@@ -1,6 +1,8 @@
 package datapages_test
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -124,4 +126,21 @@ func TestWithAssetsCache(t *testing.T) {
 			require.Equal(t, &tc.conf, cfg.AssetsCache)
 		})
 	}
+}
+
+// TestWithCSPNonce tests that the option stores the function and rejects nil,
+// which would leave nonce mode on with nothing to write.
+func TestWithCSPNonce(t *testing.T) {
+	t.Parallel()
+
+	var cfg datapages.ServerConfig
+	require.ErrorContains(t, datapages.WithCSPNonce(nil)(&cfg), "WithCSPNonce")
+	require.Nil(t, cfg.CSPNonce)
+
+	require.NoError(t, datapages.WithCSPNonce(
+		func(*http.Request) string { return "n0nce" },
+	)(&cfg))
+	require.NotNil(t, cfg.CSPNonce)
+	require.Equal(t, "n0nce",
+		cfg.CSPNonce(httptest.NewRequest(http.MethodGet, "/", nil)))
 }

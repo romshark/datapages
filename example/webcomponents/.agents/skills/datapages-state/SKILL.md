@@ -33,7 +33,7 @@ A disconnect deletes the instance. A reconnect starts with a zero value. Initial
 
 Do not retain `state.Values` after the handler returns. Do not capture it in a goroutine or a component that renders later. Copy the required fields instead.
 
-State exists in one server process. Route a tab's stream and actions to the same server with `Datapages-Instance` as the routing key. If middleware sets `Content-Security-Policy`, it must allow `script-src 'unsafe-inline'` for the instance ID script. Datapages has no nonce hook for this script.
+State exists in one server process. Route a tab's stream and actions to the same server with `Datapages-Instance` as the routing key. The instance ID script is inline: a `Content-Security-Policy` must allow `script-src 'unsafe-inline'` or set a nonce through `WithCSPNonce`. See `datapages-server`.
 
 ## Events for one tab
 

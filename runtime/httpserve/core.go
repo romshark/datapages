@@ -62,24 +62,26 @@ type Core struct {
 	lockRun   sync.Mutex
 	runCancel context.CancelFunc
 
-	httpServer      *http.Server
-	metricsServer   *http.Server
-	mux             *http.ServeMux
-	handler         http.Handler
-	logger          *slog.Logger
-	sampledLogger   *slog.Logger
-	middleware      []func(http.Handler) http.Handler
-	outermost       func(http.Handler) http.Handler
-	assetsFS        http.FileSystem
-	assetsBrowsable bool
-	assetsCache     *datapages.AssetsCacheConfig
-	crossOrigin     *http.CrossOriginProtection
-	datastarJSSrc   string
-	htmlPrefix      string
-	htmlHead        string
-	htmlDatastar    string
-	bodySizeLimit   int64
-	shutdownTimeout time.Duration
+	httpServer       *http.Server
+	metricsServer    *http.Server
+	mux              *http.ServeMux
+	handler          http.Handler
+	logger           *slog.Logger
+	sampledLogger    *slog.Logger
+	middleware       []func(http.Handler) http.Handler
+	outermost        func(http.Handler) http.Handler
+	assetsFS         http.FileSystem
+	assetsBrowsable  bool
+	assetsCache      *datapages.AssetsCacheConfig
+	crossOrigin      *http.CrossOriginProtection
+	datastarJSSrc    string
+	htmlPrefix       string
+	htmlHead         string
+	htmlDatastar     string
+	datastarJSSrcEsc string // escaped, reused by the nonce variant
+	cspNonce         func(*http.Request) string
+	bodySizeLimit    int64
+	shutdownTimeout  time.Duration
 
 	// lockListen guards the fields [Core.listenAndServe] sets once it binds.
 	lockListen sync.Mutex
@@ -115,6 +117,7 @@ func NewCore(cfg datapages.ServerConfig, assetsURLPrefix string) (*Core, error) 
 		assetsCache:     cfg.AssetsCache,
 		crossOrigin:     http.NewCrossOriginProtection(),
 		datastarJSSrc:   cfg.DatastarJS,
+		cspNonce:        cfg.CSPNonce,
 		logger:          cfg.Logger,
 		httpServer:      cfg.HTTPServer,
 		bodySizeLimit:   cfg.BodySizeLimit,
@@ -194,9 +197,10 @@ func (c *Core) Build() {
 	}
 	// The two halves are kept apart as well: a page that must install a script
 	// of its own before Datastar loads writes them around it.
-	c.htmlHead = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>`
+	c.datastarJSSrcEsc = html.EscapeString(c.datastarJSSrc)
+	c.htmlHead = htmlDoctype + "<html>" + htmlHeadStart
 	c.htmlDatastar = "\n\t\t" + `<script type="module" src="` +
-		html.EscapeString(c.datastarJSSrc) + `"></script>`
+		c.datastarJSSrcEsc + `"></script>`
 	c.htmlPrefix = c.htmlHead + c.htmlDatastar
 
 	if c.httpServer.ErrorLog == nil {
@@ -307,6 +311,46 @@ func (c *Core) CheckSameOrigin(w http.ResponseWriter, r *http.Request) (ok bool)
 func (c *Core) ShutdownCh() <-chan struct{} { return c.shutdownCh }
 
 // HTMLPrefix is the head of a page up to the Datastar script tag.
+// The document prologue, kept in pieces so that the nonce variant can be
+// composed per request without repeating the markup.
+const (
+	htmlDoctype   = "<!DOCTYPE html>"
+	htmlHeadStart = `<head><meta charset="UTF-8"/>`
+)
+
+// CSPNonce returns the Content-Security-Policy nonce of r,
+// empty when [datapages.WithCSPNonce] was not given.
+// The value is HTML escaped, which leaves a valid base64 nonce unchanged.
+func (c *Core) CSPNonce(r *http.Request) string {
+	if c.cspNonce == nil {
+		return ""
+	}
+	return html.EscapeString(c.cspNonce(r))
+}
+
+// ScriptTagOpen returns the opening tag for an inline script on the page of r.
+// It includes the CSP nonce when one is configured.
+func (c *Core) ScriptTagOpen(r *http.Request) string {
+	nonce := c.CSPNonce(r)
+	if nonce == "" {
+		return "<script>"
+	}
+	return `<script nonce="` + nonce + `">`
+}
+
+// htmlOpening returns the prologue up to the head and the Datastar script tag.
+// Both include the CSP nonce of r when one is configured.
+// Datastar reads the nonce off the html element and compiles its expressions with it.
+func (c *Core) htmlOpening(r *http.Request) (head, datastarScript string) {
+	nonce := c.CSPNonce(r)
+	if nonce == "" {
+		return c.htmlHead, c.htmlDatastar
+	}
+	return htmlDoctype + `<html data-nonce="` + nonce + `">` + htmlHeadStart,
+		"\n\t\t" + `<script type="module" nonce="` + nonce + `" src="` +
+			c.datastarJSSrcEsc + `"></script>`
+}
+
 func (c *Core) HTMLPrefix() string { return c.htmlPrefix }
 
 // HTMLHead is [Core.HTMLPrefix] up to, but excluding, the Datastar script tag.
