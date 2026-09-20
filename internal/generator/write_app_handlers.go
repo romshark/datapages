@@ -283,20 +283,9 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 
 	hasBody := false
 
-	// Auth.
-	needsSession := hasSessionInput(h) || globalHeadNeedsSession(m) ||
-		pageHasPrivateEvent(p, w.eventMap)
-	needsToken := h.OutputCloseSession != nil
-	if needsSession || needsToken {
-		hasBody = true
-		w.writeReadSession(needsSession, needsToken)
-	}
-
-	// Index page: 404 fallback for non-root paths.
+	// Index page: 404 fallback for non-root paths. Before the session read,
+	// which render404 does again for the page it renders.
 	if p.PageSpecialization == model.PageTypeIndex {
-		if hasBody {
-			w.Line(0, "")
-		}
 		hasBody = true
 		w.Line(1, `if r.URL.Path != "/" {`)
 		if m.PageError404 != nil {
@@ -306,6 +295,18 @@ func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string)
 		}
 		w.Line(2, "return")
 		w.Line(1, "}")
+	}
+
+	// Auth.
+	needsSession := hasSessionInput(h) || globalHeadNeedsSession(m) ||
+		pageHasPrivateEvent(p, w.eventMap)
+	needsToken := h.OutputCloseSession != nil
+	if needsSession || needsToken {
+		if hasBody {
+			w.Line(0, "")
+		}
+		hasBody = true
+		w.writeReadSession(needsSession, needsToken)
 	}
 
 	// Read query params.
