@@ -452,7 +452,8 @@ func (t *tracked) Push(target string, opts *http.PushOptions) error {
 	return http.ErrNotSupported
 }
 
-// LimitRequestBody caps how much of r's body is read, answering 413 past the limit.
+// LimitRequestBody caps how much of r's body is read. A read past the limit
+// returns an [http.MaxBytesError]; generated action handlers answer it with 400.
 //
 // It hands [http.MaxBytesReader] the writer underneath w rather than w itself.
 // MaxBytesReader marks the connection for close through an unexported method

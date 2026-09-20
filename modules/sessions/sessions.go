@@ -67,7 +67,7 @@ type Reader[Data any] interface {
 // Creator creates new sessions.
 type Creator[Data any] interface {
 	// CreateSession creates a new session identified by a unique token.
-	// The returned token will be put into HTTP-only cookies.
+	// The returned token will be put into the session cookie.
 	CreateSession(
 		ctx context.Context, rec Record[Data],
 	) (token string, err error)

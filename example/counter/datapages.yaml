@@ -1,4 +1,5 @@
 watch:
+  flags: "-host localhost:8080"
   exclude:
     - ".git/**" # git internals
     - ".*"      # hidden files/directories

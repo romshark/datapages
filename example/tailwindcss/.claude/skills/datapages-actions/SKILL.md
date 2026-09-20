@@ -27,7 +27,7 @@ Parameters may appear in any order because the generator matches them by type. N
 | type | what |
 | ---- | ---- |
 | `*http.Request` | required |
-| `datapages.SSE` | patches the stream of the calling page |
+| `datapages.SSE` | patches the stream of the calling page; page actions only, not `*App` actions |
 | `Session` | the current session, see `datapages-sessions` |
 | `datapages.Path[struct{...}]` | route variables, `path:"id"` tags |
 | `datapages.Query[struct{...}]` | query parameters, `query:"p"` tags |

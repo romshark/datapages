@@ -2,12 +2,13 @@ package app
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
-	"github.com/romshark/datapages/example/classifieds/app/domain"
 	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/action"
+	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/assets"
 	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/href"
-	"slices"
+	"github.com/romshark/datapages/example/classifieds/app/domain"
 )
 
 templ head() {
@@ -16,8 +17,8 @@ templ head() {
 	<meta name="description" content="This is a datapages demo app"/>
 	<meta property="og:title" content="A datapages demo app"/>
 	<meta property="og:description" content="Demo - Go + Templ + Datastar + Datapages"/>
-	<link rel="icon" href="/static/favicon.ico"/>
-	<link rel="stylesheet" href="/static/style.css"/>
+	<link rel="icon" href={ assets.Path("favicon.ico") }/>
+	<link rel="stylesheet" href={ assets.Path("style.css") }/>
 	// Basecoat UI
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/basecoat-css@0.3.10/dist/basecoat.cdn.min.css"/>
 	<script src="https://cdn.jsdelivr.net/npm/basecoat-css@0.3.10/dist/js/all.min.js" defer></script>

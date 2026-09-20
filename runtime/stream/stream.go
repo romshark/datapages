@@ -78,7 +78,7 @@ func NewHandler(
 }
 
 // Handle serves the stream of one request, subscribed to subjects,
-// and returns once fn does. onOpen, onClose and fn may be nil.
+// and returns once fn does. onOpen and onClose may be nil; fn must not be nil.
 //
 // sessionKey names the session the stream belongs to.
 // It is watched only when userID is non-empty and the handler was given a session store.

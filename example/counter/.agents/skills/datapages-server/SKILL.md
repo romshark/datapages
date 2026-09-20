@@ -79,7 +79,9 @@ var StaticFS embed.FS
 
 Declare at most one such variable in an app package. The URL prefix must start and end with `/` and must not be `/`. The directive must name exactly one directory inside the app package.
 
-`datapages.WithAssets(app.StaticFS, false)` supplies the filesystem and the directory-browsing setting. Generated code supplies the URL prefix, source directory and development disk path. `WithAssetsFS` accepts an `http.FileSystem` instead of an `embed.FS`. In development mode, Datapages reads files from disk and disables caching. Asset changes then need no rebuild. The server rejects an asset option when the app declares no assets.
+`datapages.WithAssets(app.StaticFS, false)` supplies the filesystem and the directory-browsing setting. Generated code supplies the URL prefix, source directory and development disk path. In development mode, Datapages reads files from disk and disables caching. Asset changes then need no rebuild. The server rejects `WithAssets` when the app declares no assets.
+
+`WithAssetsFS` accepts an `http.FileSystem` and overrides `WithAssets`. Datapages uses that filesystem as-is: it does not extract the declared source directory or replace it in development mode. The app's declared URL prefix still determines where files are served. Without an asset declaration, the option is accepted but no asset route is registered.
 
 Without `WithAssetsCache`, Datapages sends neither `Cache-Control` nor `ETag` for assets. A zero `AssetsCacheConfig` sends `Cache-Control: public, max-age=0` and an ETag. The browser revalidates every request. An unchanged file returns 304 with an empty body.
 
@@ -87,7 +89,7 @@ Set `MaxAge` only when an asset URL changes with its content, such as when the f
 
 The server computes an ETag on a file's first request and keeps it until the process exits. This is correct for the immutable `embed.FS` used by `WithAssets`. Set `DisableETag` for a `WithAssetsFS` file system whose files can change while the server runs. Development mode ignores this option and always sends `Cache-Control: no-store`.
 
-Use `assets.Path("style.css")` from the generated `assets` package to reference a file. Use `href.Asset("style.css")` inside an `<a href>`. The linter rejects a hardcoded asset path.
+Use `assets.Path("style.css")` from the generated `assets` package to reference a file. Use `href.Asset("style.css")` inside an `<a href>`. The linter checks app-internal URLs in `<a href>` and Datastar action attributes. It does not check asset URLs in `<link>` or `<script>` elements.
 
 ## datapages.yaml
 

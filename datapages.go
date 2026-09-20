@@ -347,8 +347,8 @@ func (e PanicError) Unwrap() error {
 	return err
 }
 
-// SSE is the server-sent-event handle passed to action (POST/PUT/PATCH/DELETE)
-// and event (OnXXX) handlers.
+// SSE is the server-sent-event handle passed to page actions, event (OnXXX),
+// StreamOpen and App.RecoverError handlers.
 type SSE interface {
 	// Context returns the context of the SSE stream.
 	Context() context.Context
