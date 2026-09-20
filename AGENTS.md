@@ -20,7 +20,7 @@
 - Generate all (templ + datapages + AI skills + docs): `mage gen`
 - Check that all generated code is current: `mage checkGen`
 - Run go fix on all modules: `mage goFix`
-- Run everything: `mage all`
+- Run fmt, modTidy, genTempl, genDocs, test and vulncheck: `mage all`
 
 # Project Structure
 
