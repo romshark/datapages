@@ -922,7 +922,7 @@ func (s pageMessagesHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, ` data-effect="const params = new URLSearchParams(location.search);
 			if ($chatselected) params.set('chat', $chatselected); else params.delete('chat');
 			const query = params.toString();
-			window.history.replaceState(null, '', query ? '/messages?' + query : '/messages');
+			window.history.replaceState(null, '', (query ? '/messages?' + query : '/messages') + location.hash);
 		"`)
 	}
 
@@ -1589,7 +1589,7 @@ func (s pageSearchHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			if ($pmax) params.set('pmax', $pmax); else params.delete('pmax');
 			if ($location) params.set('l', $location); else params.delete('l');
 			const query = params.toString();
-			window.history.replaceState(null, '', query ? '/search?' + query : '/search');
+			window.history.replaceState(null, '', (query ? '/search?' + query : '/search') + location.hash);
 		"`)
 	}
 

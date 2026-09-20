@@ -634,7 +634,7 @@ func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
 			if ($filter) params.set('filter', $filter); else params.delete('filter');
 			if ($sort) params.set('sort', $sort); else params.delete('sort');
 			const query = params.toString();
-			window.history.replaceState(null, '', query ? '/?' + query : '/');
+			window.history.replaceState(null, '', (query ? '/?' + query : '/') + location.hash);
 		"`)
 	}
 
