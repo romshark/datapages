@@ -29,7 +29,8 @@ const DefaultLogSamplingLimit = logsample.DefaultLimit
 const DefaultLogSamplingInterval = logsample.DefaultInterval
 
 // ServerConfig is what a generated server is configured with.
-// [ServerOption] values fill it, the generated NewServer reads it.
+// [ServerOption] values fill it and [NewServer] hands it to the generated
+// [ServerInitializer.Init], which reads it.
 type ServerConfig struct {
 	// Logger receives what the server logs. Defaults to a JSON handler on stderr.
 	Logger *slog.Logger
@@ -578,8 +579,10 @@ type StateConfig struct {
 	// configures Datastar to retry the connection 10 times over about three minutes.
 	//
 	// Reaching the limit does not notify application code. Read one server's live
-	// count with `Server.StateLiveInstances`. Servers built with [EnablePrometheus]
-	// also add their counts to the `datapages_state_instances` process gauge.
+	// count with
+	// [github.com/romshark/datapages/runtime/httpserve.Core.StateLiveInstances],
+	// which the generated server embeds. Servers built with [EnablePrometheus]
+	// also add their counts to the datapages_state_instances process gauge.
 	//
 	// Zero selects [DefaultMaxConcurrentInstances].
 	// A negative value disables the limit.

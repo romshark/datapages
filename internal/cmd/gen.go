@@ -38,15 +38,17 @@ The app package and the destination are read from the type arguments of the
 datapages.NewServer call. A module without one is generated with the defaults
 (./app and ./datapagesgen) and gets a cmd/server/main.go written for it.
 
-Assets and Prometheus are read from the Config variable of the app package.
+Prometheus is read from the Metrics type argument of the same call.
+Assets are read from the embed.FS variable of the app package whose
+doc comment names the URL path they are served at.
 
 This command does not run "templ generate". Generate the app model first,
 then run "templ generate" after changing .templ files. If generated Templ
-references a helper that does not exist yet, remove the reference, regenerate
-Templ, run "datapages gen", then restore it and regenerate Templ.
+references a helper that does not exist yet, remove the reference,
+regenerate Templ, run "datapages gen", then restore it and regenerate Templ.
 
-Everything under datapagesgen/ and every *_gen.go file is rewritten on
-each run. Do not edit them.
+Everything under datapagesgen/ and every *_gen.go file is rewritten on each run.
+Do not edit them.
 
 A failed run never replaces generated code that already exists. It keeps
 what the last successful run produced. A package that was never generated is

@@ -48,16 +48,19 @@ see [AGENTS.md](AGENTS.md).
 
 ```sh
 mage test          # Lint + test with coverage
+mage coverage      # Coverage of the generator and of the code it generates
 mage lint          # Format check, module tidy check, datapages lint, golangci-lint
 mage fmt           # Format all Go files (gofumpt + gci)
 mage modTidy       # Tidy all go.mod files
 mage lintDatapages # Run datapages lint on all examples
 mage vulncheck     # Run govulncheck on all modules
 mage build         # Build CLI and all examples
-mage gen           # Generate all (templ + datapages + docs)
+mage gen           # Generate all (templ + datapages + AI skills + docs)
 mage genTempl      # Generate templ templates
 mage genDatapages  # Generate datapages code for all examples
+mage genAISkills   # Generate the AI agent instructions of every example
 mage genDocs       # Generate documentation pages
+mage checkGen      # Check that all generated code is current
 mage goFix         # Run go fix on all modules
 mage all           # Run everything
 ```
