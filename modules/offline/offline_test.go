@@ -202,8 +202,8 @@ func TestConfigDefaults(t *testing.T) {
 }
 
 // TestMiddlewareReflectsStateOnceTheWorkerIsCurrent tests that a client
-// reporting the shipped worker version still receives the online/offline
-// reflection script and no longer receives the registration script.
+// reporting the configured worker version receives the online/offline
+// reflection script but not the registration script.
 func TestMiddlewareReflectsStateOnceTheWorkerIsCurrent(t *testing.T) {
 	t.Parallel()
 	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 3})
@@ -221,8 +221,8 @@ func TestMiddlewareReflectsStateOnceTheWorkerIsCurrent(t *testing.T) {
 	require.NotContains(t, rec.Body.String(), "serviceWorker.register")
 }
 
-// TestServiceWorkerIncludesTheReflectionScript tests cached pages that bypass
-// the middleware.
+// TestServiceWorkerIncludesTheReflectionScript tests that the service worker
+// adds the connectivity script to cached pages that bypass the middleware.
 func TestServiceWorkerIncludesTheReflectionScript(t *testing.T) {
 	t.Parallel()
 	js := string(offline.ServiceWorkerJS("/offline/",
@@ -231,9 +231,9 @@ func TestServiceWorkerIncludesTheReflectionScript(t *testing.T) {
 	require.Contains(t, js, `classList.toggle(\"app-offline\"`)
 }
 
-// TestMiddlewareVariesByWorkerVersion tests that an HTML response declares the
-// request header its body depends on, which keeps a shared cache from serving
-// one client's copy to another.
+// TestMiddlewareVariesByWorkerVersion tests that an HTML response includes its
+// worker-version request header in Vary to prevent a shared cache from mixing
+// registration states.
 func TestMiddlewareVariesByWorkerVersion(t *testing.T) {
 	t.Parallel()
 	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
@@ -269,8 +269,8 @@ func TestServiceWorkerExcludePaths(t *testing.T) {
 	}
 }
 
-// TestOfflineClassCannotEndTheScript tests that a class spelling a closing
-// script tag reaches the browser as an escaped string literal.
+// TestOfflineClassCannotEndTheScript tests that
+// [offline.Config.OfflineClass] cannot close its inline script element.
 func TestOfflineClassCannotEndTheScript(t *testing.T) {
 	t.Parallel()
 	mw := offline.Middleware("/offline/", offline.Config{
@@ -284,24 +284,23 @@ func TestOfflineClassCannotEndTheScript(t *testing.T) {
 	})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/shows/", nil))
 
 	require.NotContains(t, rec.Body.String(), "<script>alert(1)",
-		"the class must not end the script element it sits in")
+		"OfflineClass must not close the script element")
 	require.Contains(t, rec.Body.String(), `</script>`,
-		"json.Marshal escapes < and >")
+		"json.Marshal must escape angle brackets")
 }
 
-// TestServiceWorkerPatchesTheHead tests that a shim update includes the live
-// head before the body. Sessionless shims contain no CSRF script.
+// TestServiceWorkerPatchesTheHead tests that a shim update sends the live head
+// before the body. Body bindings need the session CSRF script from the head.
 func TestServiceWorkerPatchesTheHead(t *testing.T) {
 	t.Parallel()
 	js := string(offline.ServiceWorkerJS("/offline/", offline.Config{WorkerVersion: 1}))
 
 	head := strings.Index(js, `"selector","head"`)
 	body := strings.Index(js, `"selector","body"`)
-	require.GreaterOrEqual(t, head, 0, "no head frame")
-	require.GreaterOrEqual(t, body, 0, "no body frame")
+	require.GreaterOrEqual(t, head, 0, "head patch missing")
+	require.GreaterOrEqual(t, body, 0, "body patch missing")
 	require.Less(t, head, body,
-		"the head frame is written first: the CSRF wrapper has to be"+
-			" installed before a binding in the new body fires an action")
+		"head must precede body; bindings need the CSRF script before sending actions")
 }
 
 // TestServiceWorkerHydratesWithoutThePrefetch tests that the worker can fetch a
@@ -312,7 +311,7 @@ func TestServiceWorkerHydratesWithoutThePrefetch(t *testing.T) {
 
 	require.Contains(t, js, `HYDRATE_HEADER="X-Datapages-Shim-Hydrate"`)
 	require.Contains(t, js, "pageFetchHeaders",
-		"a lost prefetch is replaced by a fetch the worker makes itself")
+		"worker must fetch a replacement when the prefetched response is unavailable")
 }
 
 // TestMiddlewareContentEncoding tests that a body carrying a content coding
@@ -424,4 +423,49 @@ func TestMiddlewareCSPNonceEscaped(t *testing.T) {
 
 	require.Contains(t, rec.Body.String(), `<script nonce="a&#34;&gt;&lt;img src=x&gt;">`)
 	require.NotContains(t, rec.Body.String(), "<img src=x>")
+}
+
+// TestWithServiceWorkerUsesServerNonce tests that a later
+// [datapages.WithCSPNonce] setting reaches the middleware.
+//
+// [offline.Config.CSPNonce] takes precedence over the server setting.
+func TestWithServiceWorkerUsesServerNonce(t *testing.T) {
+	t.Parallel()
+
+	const page = "<!DOCTYPE html><html><head></head><body></body></html>"
+	serverNonce := func(*http.Request) string { return "fromServer" }
+
+	for name, tc := range map[string]struct {
+		conf offline.Config
+		want string
+	}{
+		"server nonce": {
+			conf: offline.Config{WorkerVersion: 1},
+			want: `<script nonce="fromServer">`,
+		},
+		"config nonce": {
+			conf: offline.Config{
+				WorkerVersion: 1,
+				CSPNonce:      func(*http.Request) string { return "ownNonce" },
+			},
+			want: `<script nonce="ownNonce">`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var cfg datapages.ServerConfig
+			require.NoError(t, offline.WithServiceWorker("/offline/", tc.conf)(&cfg))
+			require.NoError(t, datapages.WithCSPNonce(serverNonce)(&cfg))
+			require.Len(t, cfg.Middleware, 1)
+
+			rec := httptest.NewRecorder()
+			cfg.Middleware[0](http.HandlerFunc(
+				func(w http.ResponseWriter, r *http.Request) {
+					_, _ = w.Write([]byte(page))
+				},
+			)).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+			require.Contains(t, rec.Body.String(), tc.want)
+		})
+	}
 }

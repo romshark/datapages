@@ -1,4 +1,4 @@
-// The offline module replaces the class placeholder before serving this script.
+// The offline module replaces __OFFLINE_CLASS__ before serving this script.
 (function () {
   'use strict';
   if (window.__datapagesNetState) return;

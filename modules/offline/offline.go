@@ -1,6 +1,6 @@
 // Package offline serves and registers the service worker used by
-// datapages.PageCacheWriter. Its middleware also reflects browser connectivity
-// on the document's root element.
+// [datapages.PageCacheWriter]. [Middleware] reflects browser connectivity on
+// the document's root element.
 package offline
 
 import (
@@ -16,7 +16,7 @@ import (
 	"github.com/romshark/datapages"
 )
 
-// "mage genOfflineWorker" writes sw.min.js from sw.js.
+// Run mage genOfflineWorker to write sw.min.js from sw.js.
 //
 //go:embed sw.min.js
 var serviceWorkerTemplate string
@@ -27,15 +27,20 @@ var registerTemplate string
 //go:embed netstate.js
 var netStateTemplate string
 
-// Config configures offline behavior.
+// Config configures the service worker and its HTML response middleware.
 type Config struct {
-	// WorkerVersion is the service worker's own version. Increment it when the
-	// worker script or precached files change. The browser installs the new
-	// worker and removes caches from older versions.
-	// Zero selects [DefaultWorkerVersion].
+	// WorkerVersion identifies the installed service worker and its cache.
+	// Increasing it makes the browser install the new worker and delete caches
+	// from earlier versions. Zero selects [DefaultWorkerVersion].
 	//
-	// A changed asset at an unchanged URL needs no bump: a cached asset is
-	// refreshed from the network behind the copy it serves.
+	// Increase WorkerVersion after a Datapages upgrade or a change to
+	// [Config.Assets], [Config.ExcludePaths], [Config.CrossOriginDestinations],
+	// [Config.OfflineClass], or PageOffline. [ServiceWorkerJS] embeds the config
+	// values and offlinePath in the script it serves. The worker fetches
+	// [Config.Assets] and PageOffline only during installation.
+	//
+	// A changed asset at an unchanged URL does not require a new worker version.
+	// The cache refreshes it from the network after serving the stored copy.
 	WorkerVersion uint64
 
 	// ScriptURL is the path the worker script is served from. Empty selects
@@ -60,11 +65,10 @@ type Config struct {
 	CrossOriginDestinations []string
 
 	// CSPNonce returns the Content-Security-Policy nonce for a request.
-	// [Middleware] adds it to each script it writes. If nil, the scripts have no
-	// nonce.
+	// [Middleware] adds it to each script it writes. When CSPNonce is nil,
+	// [Middleware] writes scripts without a nonce.
 	//
-	// Generated code uses
-	// [github.com/romshark/datapages.WithCSPNonce] when CSPNonce is nil,
+	// [WithServiceWorker] fills a nil CSPNonce from [datapages.WithCSPNonce],
 	// regardless of option order.
 	CSPNonce func(r *http.Request) string
 
@@ -76,8 +80,9 @@ type Config struct {
 }
 
 // DefaultWorkerVersion is the service worker version used when
-// [Config.WorkerVersion] is zero. Versions start at 1 so that a client reporting
-// no version at all is always recognised as having no worker installed.
+// [Config.WorkerVersion] is zero. Versions start at 1. [Middleware] treats a
+// request without [datapages.HeaderWorkerVersion] as version 0 and adds the
+// registration script.
 const DefaultWorkerVersion uint64 = 1
 
 // DefaultScriptURL is the path the worker script is
@@ -122,9 +127,9 @@ func (c Config) scriptURL() string {
 }
 
 // ServiceWorkerJS returns the generated service worker JavaScript for conf.
-// offlinePath is the route of PageOffline, which the worker precaches and serves
-// for navigations to uncached URLs while offline.
-// Empty leaves the worker with its own minimal fallback.
+// offlinePath is the route of PageOffline. The worker precaches it and serves it
+// for navigations to uncached URLs while offline. An empty offlinePath uses the
+// worker's minimal fallback.
 func ServiceWorkerJS(offlinePath string, conf Config) []byte {
 	payload := struct {
 		WorkerVersion           uint64   `json:"workerVersion"`
@@ -149,8 +154,6 @@ func ServiceWorkerJS(offlinePath string, conf Config) []byte {
 	return []byte(js)
 }
 
-// netStateJS returns the online/offline reflection script of conf.
-//
 // [json.Marshal] escapes <, > and &. The encoded class cannot close the script element.
 // A [json.Encoder] with SetEscapeHTML(false) would permit that.
 func netStateJS(conf Config) string {
@@ -161,17 +164,43 @@ func netStateJS(conf Config) string {
 	return strings.ReplaceAll(netStateTemplate, "__OFFLINE_CLASS__", string(class))
 }
 
+// WithServiceWorker returns the server option that installs [Middleware].
+//
+// When [Config.CSPNonce] is nil, the option reads the nonce configured by
+// [datapages.WithCSPNonce] for each request. Either option order works.
+// Installing [Middleware] through [datapages.WithMiddleware] does not read
+// [datapages.ServerConfig.CSPNonce]. Set [Config.CSPNonce] explicitly when
+// using the middleware directly; a nonce-only policy otherwise blocks its scripts.
+//
+// Applications declaring PageOffline use the generated datapagesgen.WithOffline option.
+// It supplies offlinePath from that page's route.
+func WithServiceWorker(offlinePath string, conf Config) datapages.ServerOption {
+	return func(c *datapages.ServerConfig) error {
+		// Copy the config for each server. A reused option must bind
+		// [Config.CSPNonce] to the current [datapages.ServerConfig].
+		conf := conf
+		if conf.CSPNonce == nil {
+			conf.CSPNonce = func(r *http.Request) string {
+				if c.CSPNonce == nil {
+					return ""
+				}
+				return c.CSPNonce(r)
+			}
+		}
+		return datapages.WithMiddleware(Middleware(offlinePath, conf))(c)
+	}
+}
+
 // Middleware serves the service worker and adds its connectivity script to HTML
-// responses. It adds registration when the X-Datapages-Worker-Version request
-// header is absent or lower than conf.WorkerVersion. Non-HTML responses pass
-// through unchanged.
+// responses. It adds registration when [datapages.HeaderWorkerVersion] is absent or
+// lower than the configured worker version. Non-HTML responses pass through unchanged.
 //
 // A response that already carries a Content-Encoding passes through unchanged,
 // because an encoded body cannot be edited as bytes. Register a compressing
-// middleware before this one so that it compresses what this one rewrote.
+// middleware before [Middleware]. The compressor then receives the rewritten HTML.
 //
-// Prefer datapagesgen.WithOffline when the application declares PageOffline.
-// The generated option supplies offlinePath from that page's route.
+// Applications declaring PageOffline should use the generated
+// datapagesgen.WithOffline option. It supplies offlinePath from that page's route.
 func Middleware(offlinePath string, conf Config) func(http.Handler) http.Handler {
 	js := ServiceWorkerJS(offlinePath, conf)
 	target := conf.scriptURL()
@@ -194,7 +223,8 @@ func Middleware(offlinePath string, conf Config) func(http.Handler) http.Handler
 				return
 			}
 
-			// A missing or malformed value becomes 0, which causes registration.
+			// A missing or malformed [datapages.HeaderWorkerVersion] parses as 0
+			// and triggers registration.
 			clientVer, _ := strconv.ParseUint(
 				r.Header.Get(datapages.HeaderWorkerVersion), 10, 64,
 			)
@@ -204,7 +234,7 @@ func Middleware(offlinePath string, conf Config) func(http.Handler) http.Handler
 				script = register
 			}
 			if conf.CSPNonce != nil {
-				// Build the tags per request because the nonce differs per response.
+				// Build script tags per request because the nonce differs per response.
 				if nonce := html.EscapeString(conf.CSPNonce(r)); nonce != "" {
 					script = []byte(scriptTag(nonce) + netStateSrc + "</script>")
 					if withRegister {
@@ -228,8 +258,8 @@ func scriptTag(nonce string) string {
 	return `<script nonce="` + nonce + `">`
 }
 
-// injectingWriter buffers HTML responses so the registration script can be
-// injected before </head>, and streams everything else through untouched.
+// injectingWriter buffers HTML responses for registration script injection
+// before </head>. It streams every other response unchanged.
 type injectingWriter struct {
 	http.ResponseWriter
 	script []byte
@@ -252,8 +282,8 @@ func (iw *injectingWriter) WriteHeader(code int) {
 		iw.inject = false
 		iw.ResponseWriter.WriteHeader(code)
 	}
-	// Datapages pages rely on content sniffing, so defer an undeclared type until
-	// the first Write.
+	// Datapages pages rely on content sniffing.
+	// Defer an undeclared type until the first body write.
 }
 
 func (iw *injectingWriter) Write(p []byte) (int, error) {
@@ -264,8 +294,8 @@ func (iw *injectingWriter) Write(p []byte) (int, error) {
 			iw.inject = looksHTML(p)
 		}
 		if iw.inject && encoded(iw.Header()) {
-			// Splicing a script into a compressed body corrupts it.
-			// Register the compressing middleware before this one to keep the injection.
+			// [Middleware] cannot splice a script into a compressed body. Register
+			// the compressing middleware before [Middleware] to keep script injection.
 			iw.inject = false
 		}
 		iw.decided = true
@@ -282,7 +312,8 @@ func (iw *injectingWriter) Write(p []byte) (int, error) {
 	return iw.ResponseWriter.Write(p)
 }
 
-// Flush supports streaming responses (e.g. Datastar SSE), which are never buffered.
+// Flush supports streaming responses such as Datastar SSE.
+// [Middleware] doesn't buffer them.
 func (iw *injectingWriter) Flush() {
 	if iw.inject {
 		return
@@ -292,7 +323,7 @@ func (iw *injectingWriter) Flush() {
 	}
 }
 
-// Unwrap exposes the underlying writer to http.ResponseController.
+// Unwrap exposes the underlying writer to [http.ResponseController].
 func (iw *injectingWriter) Unwrap() http.ResponseWriter { return iw.ResponseWriter }
 
 func (iw *injectingWriter) finish() {
@@ -308,9 +339,9 @@ func (iw *injectingWriter) finish() {
 	body := injectBefore(iw.buf.Bytes(), iw.script)
 	h := iw.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
-	// The registration script is injected by version header.
-	// Without Vary a shared cache can serve a page carrying it to a client that
-	// already runs the worker, and one without it to a client that has none.
+	// Registration depends on [datapages.HeaderWorkerVersion]. Vary prevents a
+	// shared cache from sending the registration script to a client with the
+	// current worker or omitting it for a client without the worker.
 	h.Add("Vary", datapages.HeaderWorkerVersion)
 	h.Set("Content-Length", strconv.Itoa(len(body)))
 	if iw.status == 0 {
@@ -320,9 +351,9 @@ func (iw *injectingWriter) finish() {
 	_, _ = iw.ResponseWriter.Write(body)
 }
 
-// encoded reports whether the body carries a content coding, which leaves it
-// unreadable as HTML. A middleware registered after this one compresses what
-// this one already rewrote, so only an inverted order reaches this case.
+// encoded reports whether the body has a non-identity content coding.
+// [Middleware] cannot edit encoded bytes. A compressing middleware registered
+// after [Middleware] passes encoded bytes to [Middleware].
 func encoded(h http.Header) bool {
 	ce := strings.TrimSpace(h.Get("Content-Encoding"))
 	return ce != "" && !strings.EqualFold(ce, "identity")
@@ -338,8 +369,8 @@ func looksHTML(p []byte) bool {
 		bytes.HasPrefix(s, []byte("<html"))
 }
 
-// injectBefore inserts script before the first </head> (or </body>) tag in body,
-// appending it if neither is present.
+// injectBefore inserts script before the first </head> tag, or before </body>
+// when no </head> exists. It appends script when neither tag exists.
 func injectBefore(body, script []byte) []byte {
 	lower := bytes.ToLower(body)
 	for _, marker := range [][]byte{[]byte("</head>"), []byte("</body>")} {

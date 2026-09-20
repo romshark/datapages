@@ -1,4 +1,4 @@
-// The offline module replaces the script URL before serving this registration.
+// The offline module replaces __SCRIPT_URL__ before serving this script.
 (function () {
   'use strict';
   if (!('serviceWorker' in navigator)) return;

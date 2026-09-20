@@ -35,10 +35,13 @@ func main() {
 	](
 		a, messageBroker,
 		// Serve cached shims immediately and replace them with the live page.
-		// No PageOffline here; the worker keeps its own fallback.
-		datapages.WithMiddleware(offline.Middleware("", offline.Config{
-			WorkerVersion: 3, // Increment after worker changes.
-		})),
+		// The worker uses its own fallback because the application has no PageOffline.
+		// Install it directly with [offline.WithServiceWorker].
+		offline.WithServiceWorker("", offline.Config{
+			// Increment after a Datapages upgrade or a change to an
+			// [offline.Config] field embedded in the worker script.
+			WorkerVersion: 3,
+		}),
 	)
 	if err != nil {
 		slog.Error("creating server", slog.Any("err", err))

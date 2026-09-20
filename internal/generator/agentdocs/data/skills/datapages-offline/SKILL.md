@@ -39,9 +39,11 @@ opts := []datapages.ServerOption{
 ```
 
 ```go
-// OfflineWorkerVersion is the worker's own version. Increment it when the
-// worker script or precached asset set changes. The browser installs the new
-// worker and removes caches from older versions.
+// OfflineWorkerVersion identifies the installed worker and its cache. Increment
+// it after a Datapages upgrade or a change to Assets, ExcludePaths,
+// CrossOriginDestinations, OfflineClass, or PageOffline. Changes to Assets or
+// PageOffline require a new installation because the worker fetches them only
+// during installation.
 const OfflineWorkerVersion = 1
 
 func OfflineConfig() offline.Config {
@@ -55,15 +57,15 @@ func OfflineConfig() offline.Config {
 }
 ```
 
-Without `PageOffline`, configure the middleware directly. This is sufficient for shims:
+For shims without `PageOffline`, install the module directly:
 
 ```go
-datapages.WithMiddleware(offline.Middleware("", offline.Config{WorkerVersion: 1}))
+offline.WithServiceWorker("", offline.Config{WorkerVersion: 1})
 ```
 
 | `offline.Config` field | default |
 | ---------------------- | ------- |
-| `WorkerVersion` | 1; increment after a worker or precached file changes |
+| `WorkerVersion` | 1; increment after a Datapages upgrade or a change to `Assets`, `ExcludePaths`, `CrossOriginDestinations`, `OfflineClass`, or `PageOffline` |
 | `ScriptURL` | `/service-worker.js`; the scope is the whole origin either way |
 | `Assets` | none; files cached during installation |
 | `OfflineClass` | `is-offline`, toggled on `<html>` while offline |
@@ -79,6 +81,8 @@ Style offline state in CSS, no Go code:
 Register a compressing middleware before `WithOffline`. Middleware runs in the order it is given, and the offline middleware rewrites the HTML it receives. A response that already carries a `Content-Encoding` passes through unchanged, which leaves the page without the worker registration.
 
 Offline support writes inline scripts: the connectivity script, the worker registration and queued cache writes. Each script uses the nonce from `WithCSPNonce`. `WithOffline` reads the nonce when each request arrives, independent of option order. Set `offline.Config.CSPNonce` to use a different nonce for these scripts.
+
+When `offline.Config.CSPNonce` is nil, `offline.WithServiceWorker` uses the nonce from `WithCSPNonce`. Calling `offline.Middleware` through `datapages.WithMiddleware` does not copy the server nonce. A nonce-only policy blocks the middleware scripts.
 
 A cached page is rendered once and replayed. It cannot contain a valid per-response nonce. Its shim hydration trigger and connectivity script are written without one. The service worker provides no policy header, and the browser does not require a nonce. A `Content-Security-Policy` in a `meta` element would block those scripts.
 

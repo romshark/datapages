@@ -1,4 +1,4 @@
-// The offline module replaces __CONFIG__ below with the JSON config at serve time.
+// The offline module replaces __CONFIG__ with JSON config before serving this script.
 'use strict';
 
 const CFG = __CONFIG__;
@@ -7,7 +7,7 @@ const OFFLINE_VERSION_HEADER = 'X-Datapages-Offline-Version';
 const SHIM_HEADER = 'X-Datapages-Shim';
 const HYDRATE_HEADER = 'X-Datapages-Shim-Hydrate';
 
-// Live responses keyed by pathname. The shim requests its URL after loading.
+// pendingLive holds live responses by pathname. A shim requests its URL after loading.
 const pendingLive = new Map();
 
 const CROSS_ORIGIN_DESTINATIONS = CFG.crossOriginDestinations || [];
@@ -58,8 +58,8 @@ self.addEventListener('activate', function (e) {
 self.addEventListener('message', function (e) {
   const d = e.data || {};
   if (d.type !== 'datapages-offline:apply') return;
-  // A sender that navigates once the writes are in place sends a port to reply on.
-  // postMessage alone only queues the message.
+  // A sender that navigates after the writes complete includes a response port.
+  // postMessage only queues the message.
   const port = e.ports && e.ports[0];
   e.waitUntil((async function () {
     try {
@@ -83,8 +83,9 @@ self.addEventListener('message', function (e) {
   })());
 });
 
-// Cached pages bypass the middleware. Add its connectivity script when serving
-// an entry so a class change does not require rewriting the cache.
+// Cached pages bypass the middleware. Add the connectivity script to the
+// response instead of the stored entry. Class changes do not require a cache
+// rewrite.
 async function servePage(res) {
   if (!CFG.netStateJS) return res;
   const html = await res.text();
@@ -96,7 +97,7 @@ async function servePage(res) {
   );
 }
 
-// Workers have no DOMParser, so extract the element from the response string.
+// Workers have no DOMParser. Extract the element from the response string.
 function element(html, tag) {
   const start = html.indexOf('<' + tag);
   const end = html.lastIndexOf('</' + tag + '>');
@@ -104,7 +105,7 @@ function element(html, tag) {
   return html.slice(start, end + tag.length + 3);
 }
 
-// Build one Datastar SSE event. Multi-line values repeat the key.
+// SSE repeats the data key for every line of a multi-line value.
 function sseFrame(eventName, kvs) {
   const lines = ['event: ' + eventName];
   for (const kv of kvs) {
@@ -118,8 +119,8 @@ function sseFrame(eventName, kvs) {
   return lines.join('\n') + '\n\n';
 }
 
-// Headers for a fetch the worker makes on the page's behalf.
-// The Datastar markers are dropped: the answer has to be a whole document, not a patch.
+// pageFetchHeaders builds headers for a fetch on the page's behalf.
+// Remove Datastar markers because the response must be a complete document.
 async function pageFetchHeaders(req, key) {
   const h = new Headers(req.headers);
   h.delete('Datastar-Request');
@@ -133,15 +134,15 @@ async function pageFetchHeaders(req, key) {
   return h;
 }
 
-// True for page navigations. Only mode and destination are trusted.
+// isNavigation accepts page navigations based only on mode and destination.
 // Datastar fetches also send Accept: text/html; matching on that would misclassify them.
 function isNavigation(req) {
   return req.mode === 'navigate' || req.destination === 'document';
 }
 
-// True for a request Datastar issued, which it marks with this header on every fetch.
-// Such a request is dynamic: an action, a page hydrate or the page's event stream.
-// The server reads the same header.
+// isDatastarRequest identifies requests by the header Datastar sets on every
+// fetch. These requests are actions, page hydration, or event streams. The
+// server reads the same header.
 function isDatastarRequest(req) {
   return req.headers.get('Datastar-Request') !== null;
 }
@@ -177,7 +178,7 @@ self.addEventListener('fetch', function (e) {
         const live = fetch(key, { headers: headers });
         live.catch(function () {});
         pendingLive.set(key, live);
-        // Bound entries when a page never sends its hydration request.
+        // Remove entries when a page never sends its hydration request.
         setTimeout(function () { pendingLive.delete(key); }, 30000);
         return await servePage(cached);
       }
@@ -200,15 +201,15 @@ self.addEventListener('fetch', function (e) {
       if (live) {
         pendingLive.delete(key);
       } else {
-        // A worker restart or timeout can remove the saved response. Fetch a
-        // replacement because Datastar cannot apply a complete document here.
+        // A worker restart or timeout can remove the saved response. Datastar
+        // hydration requires a patch. Fetch a replacement document.
         live = fetch(key, { headers: await pageFetchHeaders(req, key) });
       }
       try {
         const res = await live;
         const html = await res.text();
-        // A complete document has no matching target. Return explicit head and
-        // body patches.
+        // A complete document has no Datastar patch target. Return explicit
+        // head and body patches.
         const body = element(html, 'body');
         if (!body) {
           return new Response(html, {
@@ -216,8 +217,8 @@ self.addEventListener('fetch', function (e) {
             headers: { 'Content-Type': 'text/html; charset=utf-8' },
           });
         }
-        // The head contains the title and, for sessions, the CSRF script. Apply
-        // it before a binding in the new body can send an action.
+        // The head contains the title and session CSRF script. Apply the head
+        // before a binding in the new body can send an action.
         const head = element(html, 'head');
         let frames = '';
         if (head) {
@@ -250,8 +251,8 @@ self.addEventListener('fetch', function (e) {
     e.respondWith((async function () {
       const cache = await caches.open(CACHE);
       const hit = await cache.match(req);
-      // Page entries are HTML bodies, not subresources. Serving one here would
-      // answer a page's hydrate request with the shim it is replacing.
+      // Page entries are HTML bodies, not subresources. Serving one as a
+      // subresource returns the old shim to its hydration request.
       if (hit && (hit.headers.get(SHIM_HEADER) ||
         hit.headers.get(OFFLINE_VERSION_HEADER))) {
         return fetch(req);
