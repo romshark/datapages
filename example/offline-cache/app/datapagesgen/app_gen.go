@@ -749,7 +749,7 @@ func (s pageLoginHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageLogin.GET", err)
 		return
 	}
-	if httpserve.Redirect(w, r, redirect) {
+	if httpRedirectOffline(w, r, redirect, pageCache) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -811,7 +811,7 @@ func (s pageLoginHandlers) POSTSubmit(
 	}
 	genericHead := s.app.Head(r)
 	if err := s.writeHTML(
-		w, r, sess, genericHead, nil, body, nil, nil,
+		w, r, sess, genericHead, nil, pageCache.bakeInto(body), nil, nil,
 	); err != nil {
 		s.LogErr("rendering response of PageLogin.POSTSubmit", err)
 		return
@@ -987,7 +987,7 @@ func (s pageTicketHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageTicket.GET", err)
 		return
 	}
-	if httpserve.Redirect(w, r, redirect) {
+	if httpRedirectOffline(w, r, redirect, pageCache) {
 		return
 	}
 	genericHead := s.app.Head(r)
@@ -1025,7 +1025,7 @@ func (s pageTicketsHandlers) GET(w http.ResponseWriter, r *http.Request) {
 		s.httpErrIntern(w, r, nil, "handling PageTickets.GET", err)
 		return
 	}
-	if httpserve.Redirect(w, r, redirect) {
+	if httpRedirectOffline(w, r, redirect, pageCache) {
 		return
 	}
 	genericHead := s.app.Head(r)

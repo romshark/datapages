@@ -121,7 +121,8 @@ func TestUnclaimedURLBakesQueuedWrites(t *testing.T) {
 func TestWithOfflineServesTheWorker(t *testing.T) {
 	t.Parallel()
 	c := newClient(t, datapagesgen.WithOffline(
-		offline.Config{WorkerVersion: workerVersion}))
+		offline.Config{WorkerVersion: workerVersion},
+	))
 
 	resp := c.Get(t, offline.DefaultScriptURL)
 	require.Equal(t, http.StatusOK, resp.Status)
@@ -135,7 +136,8 @@ func TestWithOfflineServesTheWorker(t *testing.T) {
 func TestWithOfflineRegistersOnlyWhileOutdated(t *testing.T) {
 	t.Parallel()
 	c := newClient(t, datapagesgen.WithOffline(
-		offline.Config{WorkerVersion: workerVersion}))
+		offline.Config{WorkerVersion: workerVersion},
+	))
 
 	resp := c.Get(t, "/")
 	require.Contains(t, resp.Body, "serviceWorker.register(",
@@ -244,4 +246,27 @@ func TestPageCacheVariesByHeldVersion(t *testing.T) {
 	require.Equal(t, "X-Datapages-Offline-Version", c.Get(t, "/").Header.Get("Vary"))
 	require.Empty(t, c.Get(t, "/offline/").Header.Get("Vary"),
 		"a page that never touches the cache does not vary")
+}
+
+// TestBranchingActionDeliversOnBothPaths tests an action that picks between a
+// body and a redirect at run time. Delivery is chosen from the signature,
+// so the branch not chosen at generation time used to drop the queued writes.
+func TestBranchingActionDeliversOnBothPaths(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		path        string
+		contentType string
+	}{
+		"body":     {"/branch/", "text/html"},
+		"redirect": {"/branch/?redirect=1", "text/javascript"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			resp := newClient(t).Action(t, http.MethodPost, tc.path, "")
+			require.Equal(t, http.StatusOK, resp.Status)
+			require.Contains(t, resp.Header.Get("Content-Type"), tc.contentType)
+			require.Contains(t, resp.Body, applyType)
+			require.Contains(t, resp.Body, `"version":15`)
+		})
+	}
 }

@@ -5,6 +5,7 @@
 package action
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/romshark/datapages/runtime/actionexpr"
@@ -215,9 +216,74 @@ func (app_AppPrecache) POST(options ...Option) string {
 var PageIndex pageIndex
 
 type pageIndex struct {
+	Branch         pageIndex_Branch
 	Redirect       pageIndex_Redirect
 	Stream         pageIndex_Stream
 	StreamRedirect pageIndex_StreamRedirect
+}
+
+type pageIndex_Branch struct{}
+
+// POST references /branch/
+func (pageIndex_Branch) POST(
+	query pageIndex_Branch_POSTQuery,
+	options ...Option,
+) string {
+	var (
+		redirectStr string
+	)
+
+	if query.Redirect != "" {
+		redirectStr = url.QueryEscape(query.Redirect)
+	}
+
+	anyQuery := query.Redirect != ""
+
+	var b strings.Builder
+	bl, al := actionexpr.BeforeAfterLen(options)
+	l := bl + len("@post('/branch/'") + actionexpr.OptionsLen(options) + len(")") + al
+	if anyQuery {
+		l += len("?")
+	}
+	n := 0
+	if query.Redirect != "" {
+		if n > 0 {
+			l += len("&")
+		}
+		l += len("redirect=") + len(redirectStr)
+	}
+
+	b.Grow(l)
+
+	actionexpr.WriteBefore(&b, options)
+	b.WriteString("@post('/branch/")
+	if anyQuery {
+		b.WriteString("?")
+	}
+	n = 0
+	if query.Redirect != "" {
+		if n > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("redirect=")
+		b.WriteString(redirectStr)
+	}
+	b.WriteString("'")
+	actionexpr.WriteOptions(&b, options)
+	b.WriteByte(')')
+	actionexpr.WriteAfter(&b, options)
+
+	return b.String()
+}
+
+type pageIndex_Branch_POSTQuery struct {
+	Redirect string `query:"redirect"`
+}
+
+func (pageIndex_Branch) POSTQuery(vRedirect string) pageIndex_Branch_POSTQuery {
+	return pageIndex_Branch_POSTQuery{
+		Redirect: vRedirect,
+	}
 }
 
 type pageIndex_Redirect struct{}

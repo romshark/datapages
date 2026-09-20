@@ -2149,13 +2149,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	}
 
 	// Redirect.
-	if h.OutputRedirect != nil {
-		w.Raw("\tif httpserve.Redirect(w, r, ")
-		w.Raw(outputVar(h.OutputRedirect))
-		w.Raw(") {\n")
-		w.Line(2, "return")
-		w.Line(1, "}")
-	}
+	w.writeRedirect(h, h.InputPageCache != nil)
 
 	// Generic head.
 	if m.GlobalHeadGenerator != nil {

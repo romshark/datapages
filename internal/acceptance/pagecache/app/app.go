@@ -134,3 +134,21 @@ func (PageList) GET(
 		echo("shim", "list shim"), ListShimVersion)
 	return echo("page", query.Values.Page), nil
 }
+
+// POSTBranch is /branch
+//
+// Picks between a body and a redirect at run time. The signature cannot say which,
+// so both branches have to deliver what the handler queued.
+func (PageIndex) POSTBranch(
+	_ *http.Request,
+	pageCache datapages.PageCacheWriter,
+	query datapages.Query[struct {
+		Redirect string `query:"redirect"`
+	}],
+) (body datapages.Component, redirect datapages.Redirect, err error) {
+	pageCache.Set("/", echo("cached", "written by a branching action"), 15)
+	if query.Values.Redirect != "" {
+		return nil, datapages.Redirect{URL: "/"}, nil
+	}
+	return echo("out", "body"), datapages.Redirect{}, nil
+}

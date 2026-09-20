@@ -456,7 +456,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	w.writeSessionOutputs(h, getSessRebind)
 
 	// Redirect.
-	w.writeRedirect(h, false)
+	w.writeRedirect(h, h.InputPageCache != nil)
 
 	// Generic head.
 	if gh := m.GlobalHeadGenerator; gh != nil {
@@ -1730,11 +1730,13 @@ func pageCacheViaRedirect(h *model.Handler) bool {
 }
 
 // pageCacheViaBake reports whether h delivers its offline writes baked into the
-// HTML response it renders, the way a GET page method does. An action whose only
-// answer is a body has neither a stream nor a redirect to carry them.
+// HTML response it renders, the way a GET page method does.
+//
+// A handler returning both a body and a redirect picks between them at run
+// time, which no signature can settle. Both deliveries are generated for it and
+// exactly one branch runs.
 func pageCacheViaBake(h *model.Handler) bool {
-	return h.InputPageCache != nil && h.InputSSE == nil &&
-		h.OutputRedirect == nil && h.OutputBody != nil
+	return h.InputPageCache != nil && h.InputSSE == nil && h.OutputBody != nil
 }
 
 // pageCacheViaStream reports whether h delivers its offline writes over an SSE stream.

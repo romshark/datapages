@@ -452,6 +452,9 @@ func setupHandlers(s *Server) {
 	s.Mux().HandleFunc(
 		"POST /stream-redirect-write/{$}",
 		pageIndexHandlers{s}.POSTStreamRedirect)
+	s.Mux().HandleFunc(
+		"POST /branch/{$}",
+		pageIndexHandlers{s}.POSTBranch)
 }
 
 func (s *Server) httpErrIntern(
@@ -657,6 +660,38 @@ func (s pageIndexHandlers) POSTStreamRedirect(
 		return
 	}
 	_ = pageCache.flush()
+}
+
+func (s pageIndexHandlers) POSTBranch(
+	w http.ResponseWriter, r *http.Request,
+) {
+	if !s.CheckDatastarRequest(w, r) {
+		return
+	}
+
+	var query datapages.Query[struct {
+		Redirect string `query:"redirect"`
+	}]
+	query.Values.Redirect = httpread.QueryValue(r.URL.RawQuery, "redirect")
+	defer s.recoverPanic(w, r, nil, "PageIndex.Branch")
+	pageCache := newPageCache(w, s.Server, r, nil)
+	p := dpapp.PageIndex{
+		App: s.app,
+	}
+	body, redirect, err := p.POSTBranch(r, pageCache, query)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action PageIndex.Branch", err)
+		return
+	}
+	if httpRedirectOffline(w, r, redirect, pageCache) {
+		return
+	}
+	if err := s.writeHTML(
+		w, r, nil, pageCache.bakeInto(body), nil, nil,
+	); err != nil {
+		s.LogErr("rendering response of PageIndex.POSTBranch", err)
+		return
+	}
 }
 
 type pageListHandlers struct{ *Server }
