@@ -48,6 +48,7 @@ Datapages routes the request, hands the handler its session and escapes what Tem
 - **Values in Datastar attributes.** The browser decodes the HTML escaping before the expression is parsed. Encode with `json.Marshal`, never with `fmt.Sprintf("'%s'", v)`. See `datapages-templates`.
 - **`templ.Raw`.** Writes markup verbatim. Pass only markup the server built.
 - **Hand-built URLs and subjects.** `href.PageX()` and a `datapages.Subject` field escape their values. A string you concatenate does not.
+- **Offline snapshots.** `pageCache.Set` stores a page body in the browser's cache. It survives a sign-out until a handler clears it. Call `ClearAll()` on sign-in and sign-out. See `datapages-offline`.
 
 A value Templ interpolates into text or into an attribute is already escaped. Escaping it again shows the escape sequence to the visitor.
 
