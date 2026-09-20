@@ -261,9 +261,23 @@ func eventHandlerInputArgs(
 // writePageGETHandler writes the handler a page's route resolves to:
 // the one that renders the whole HTML document, as opposed to the stream handler.
 func (w *Writer) writePageGETHandler(p *model.Page, m *model.App, appPkg string) {
+	recv := handlerRecvType(p.TypeName)
+
 	w.Line(0, "")
-	w.Rawf("func (s %s) GET(w http.ResponseWriter, r *http.Request) {\n",
-		handlerRecvType(p.TypeName))
+	if isPageError500(p, m) {
+		// render writes the status after the session read: sent before it,
+		// it drops the stale-cookie clear and hides the store's 503.
+		w.Rawf("func (s %s) GET(w http.ResponseWriter, r *http.Request) {\n", recv)
+		w.Line(1, "s.render(w, r, http.StatusOK)")
+		w.Line(0, "}")
+		w.Line(0, "")
+		w.Raw("// render serves the page with status, " +
+			"500 when httpErrIntern renders it.\n")
+		w.Rawf("func (s %s) render("+
+			"w http.ResponseWriter, r *http.Request, status int) {\n", recv)
+	} else {
+		w.Rawf("func (s %s) GET(w http.ResponseWriter, r *http.Request) {\n", recv)
+	}
 
 	h := p.GET.Handler
 
@@ -400,7 +414,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	// Build input args in user-defined order.
 	args := handlerInputArgs(h, false, "dispatch", w.appPkgQual)
 
-	if m.PageError500 != nil && p == m.PageError500 {
+	if isPageError500(p, m) {
 		// httpErrIntern renders PageError500. A panic in that page reported
 		// through it would render the page again and never terminate.
 		w.Linef(1, "defer s.recoverPanicFinal(w, %q)", p.TypeName+".GET")
@@ -416,7 +430,7 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 
 	if h.OutputErr != nil {
 		w.Line(1, "if err != nil {")
-		if m.PageError500 != nil && p == m.PageError500 {
+		if isPageError500(p, m) {
 			// httpErrIntern renders PageError500. The error page can't use it.
 			w.Raw("\t\ts.httpErrFinal(w, \"handling ")
 		} else {
@@ -457,6 +471,9 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	}
 
 	w.Line(0, "")
+	if isPageError500(p, m) {
+		w.Line(1, "w.WriteHeader(status)")
+	}
 	w.Line(1, "if err := s.writeHTML(")
 	w.Raw("\t\tw, r, ")
 	if m.Session != nil {
@@ -485,6 +502,11 @@ func (w *Writer) writeGETMethodCall(p *model.Page, m *model.App, hasSess bool) {
 	w.Raw("\", err)\n")
 	w.Line(2, "return")
 	w.Line(1, "}")
+}
+
+// isPageError500 reports whether p is the page httpErrIntern renders.
+func isPageError500(p *model.Page, m *model.App) bool {
+	return m.PageError500 != nil && p == m.PageError500
 }
 
 func hasSessionInput(h *model.Handler) bool {

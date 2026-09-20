@@ -455,8 +455,7 @@ func (s *Server) httpErrIntern(
 			return
 		}
 		// The page serves 200 on its own route. Reached from here it carries 500.
-		w.WriteHeader(http.StatusInternalServerError)
-		pageError500Handlers{s}.GET(w, r)
+		pageError500Handlers{s}.render(w, r, http.StatusInternalServerError)
 		return
 	}
 	if sse == nil {
@@ -657,6 +656,11 @@ func (s pageError404Handlers) GETStream(w http.ResponseWriter, r *http.Request) 
 type pageError500Handlers struct{ *Server }
 
 func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
+	s.render(w, r, http.StatusOK)
+}
+
+// render serves the page with status, 500 when httpErrIntern renders it.
+func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, status int) {
 	p := dpapp.PageError500{
 		App: s.app,
 	}
@@ -668,6 +672,7 @@ func (s pageError500Handlers) GET(w http.ResponseWriter, r *http.Request) {
 	}
 	genericHead := s.app.Head(r)
 
+	w.WriteHeader(status)
 	if err := s.writeHTML(
 		w, r, datapages.Session[struct{}]{}, genericHead, nil, body, nil, nil,
 	); err != nil {
