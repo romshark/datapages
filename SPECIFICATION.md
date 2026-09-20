@@ -841,6 +841,8 @@ A nonce in the policy makes the browser ignore `'unsafe-inline'` for that direct
 
 The nonce must differ per response and must not be guessable. A response a cache can replay holds a nonce that is no longer valid.
 
+The nonce reaches neither the scripts offline support writes nor a page the service worker serves from its cache; see [Service Worker](#service-worker).
+
 ## Dev Mode
 
 Datapages dev mode is enabled when `DATAPAGES_DEV_MODE` or `TEMPL_DEV_MODE` is nonempty.
@@ -947,6 +949,8 @@ The service worker backs the [`pageCache`](#parameter-pagecache-datapagespagecac
 The worker scope covers the whole origin. Its script response sets `Service-Worker-Allowed: /`, regardless of the script URL.
 
 The offline middleware writes the registration and connectivity scripts into every HTML response. A response that already carries a `Content-Encoding` passes through unchanged, since an encoded body cannot be edited as bytes. Register a compressing middleware before `WithOffline`: middleware runs in the order it is given, so the compressor then compresses the rewritten page.
+
+Offline support writes inline scripts. The connectivity script and the worker registration go into every HTML response. The queued cache writes go into a `GET` response or an action body. A shim gets a hydration trigger. A page served from the cache includes the connectivity script too. [`WithCSPNonce`](#content-security-policy) does not reach any of them. An application using offline support needs `script-src 'unsafe-inline'`. Without it the worker never registers and the embedded writes never run.
 
 The `X-Datapages-Worker-Version` request header controls installation and updates. The installed worker sets its `uint64` version on every request. This version is independent of the Datapages release and the per-URL versions passed to `Set`. The server compares the header with its current worker version:
 
