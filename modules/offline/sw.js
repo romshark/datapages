@@ -75,6 +75,22 @@ self.addEventListener('message', function (e) {
   })());
 });
 
+// Serve a cached page entry. The reflection script is added here: an entry is rendered
+// by the server outside the request the middleware wraps, so it would otherwise reach
+// the browser without one, which is the offline case it exists for.
+// Injecting on the way out rather than on the way in keeps a class change from
+// needing every entry rewritten.
+async function servePage(res) {
+  if (!CFG.netStateJS) return res;
+  const html = await res.text();
+  const tag = '<script>' + CFG.netStateJS + '</script>';
+  const i = html.indexOf('</head>');
+  return new Response(
+    i === -1 ? html + tag : html.slice(0, i) + tag + html.slice(i),
+    { status: res.status, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+  );
+}
+
 // Extract <body>...</body> from a document.
 // Workers have no DOMParser; done on the string.
 function bodyElement(html) {
@@ -151,13 +167,13 @@ self.addEventListener('fetch', function (e) {
         pendingLive.set(key, live);
         // Drop it if the page never asks.
         setTimeout(function () { pendingLive.delete(key); }, 30000);
-        return cached;
+        return await servePage(cached);
       }
 
       try {
         return await fetch(new Request(req, { headers: headers }));
       } catch (_) {
-        if (cached) return cached;
+        if (cached) return await servePage(cached);
         return await offlineResponse();
       }
     })().catch(function () {

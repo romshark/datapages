@@ -193,12 +193,42 @@ func TestServiceWorkerCrossOriginDestinations(t *testing.T) {
 func TestConfigDefaults(t *testing.T) {
 	t.Parallel()
 
-	// The zero value must produce a usable worker at version 1. A client
-	// reporting no version is recognised as having none installed.
+	// The zero value must produce a usable worker at version 1.
+	// A client reporting no version is recognised as having none installed.
 	js := string(offline.ServiceWorkerJS("", offline.Config{}))
 	require.Contains(t, js, `"workerVersion":1`)
 	require.Equal(t, uint64(1), offline.DefaultWorkerVersion)
 
 	// An empty offline path leaves the worker's own fallback in place.
 	require.Contains(t, js, `"offlineURL":""`)
+}
+
+// TestMiddlewareReflectsStateOnceTheWorkerIsCurrent tests that a client
+// reporting the shipped worker version still receives the online/offline
+// reflection script and no longer receives the registration script.
+func TestMiddlewareReflectsStateOnceTheWorkerIsCurrent(t *testing.T) {
+	t.Parallel()
+	mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 3})
+
+	req := httptest.NewRequest(http.MethodGet, "/shows/", nil)
+	req.Header.Set("X-Datapages-Worker-Version", "3")
+	rec := httptest.NewRecorder()
+	mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(
+			"<!DOCTYPE html><html><head><title>x</title></head><body>hi</body></html>",
+		))
+	})).ServeHTTP(rec, req)
+
+	require.Contains(t, rec.Body.String(), `classList.toggle("is-offline"`)
+	require.NotContains(t, rec.Body.String(), "serviceWorker.register")
+}
+
+// TestServiceWorkerCarriesTheReflectionScript tests that the worker can add the
+// reflection script to a cached page, which the middleware never sees.
+func TestServiceWorkerCarriesTheReflectionScript(t *testing.T) {
+	t.Parallel()
+	js := string(offline.ServiceWorkerJS("/offline/",
+		offline.Config{WorkerVersion: 1, OfflineClass: "app-offline"}))
+
+	require.Contains(t, js, `classList.toggle(\"app-offline\"`)
 }
