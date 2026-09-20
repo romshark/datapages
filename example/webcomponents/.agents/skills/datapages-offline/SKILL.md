@@ -76,6 +76,8 @@ Style offline state in CSS, no Go code:
 .is-offline [data-needs-network] { opacity: .5; pointer-events: none }
 ```
 
+Register a compressing middleware before `WithOffline`. Middleware runs in the order it is given, and the offline middleware rewrites the HTML it receives. A response that already carries a `Content-Encoding` passes through unchanged, which leaves the page without the worker registration.
+
 ## PageOffline
 
 `PageOffline` is reserved like `PageError404` and `PageError500`. The worker caches it during installation and returns it for an uncached URL while offline. It renders with a zero `Session`. Datapages supplies a minimal default.
@@ -145,8 +147,7 @@ func (p PageIndex) GET(
 }
 ```
 
-A shim is also shown online. It must not make an offline-only claim. If the live
-request fails, the shim remains visible.
+A shim is also shown online. It must not make an offline-only claim. If the live request fails, the shim remains visible.
 
 ## Rules
 

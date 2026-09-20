@@ -156,6 +156,10 @@ func netStateJS(conf Config) string {
 // header is absent or lower than conf.WorkerVersion. Non-HTML responses pass
 // through unchanged.
 //
+// A response that already carries a Content-Encoding passes through unchanged,
+// because an encoded body cannot be edited as bytes. Register a compressing
+// middleware before this one so that it compresses what this one rewrote.
+//
 // Prefer datapagesgen.WithOffline when the application declares PageOffline.
 // The generated option supplies offlinePath from that page's route.
 func Middleware(offlinePath string, conf Config) func(http.Handler) http.Handler {
@@ -230,6 +234,11 @@ func (iw *injectingWriter) Write(p []byte) (int, error) {
 		} else {
 			iw.inject = looksHTML(p)
 		}
+		if iw.inject && encoded(iw.Header()) {
+			// Splicing a script into a compressed body corrupts it.
+			// Register the compressing middleware before this one to keep the injection.
+			iw.inject = false
+		}
 		iw.decided = true
 		if !iw.inject {
 			if iw.status == 0 {
@@ -280,6 +289,14 @@ func (iw *injectingWriter) finish() {
 	}
 	iw.ResponseWriter.WriteHeader(iw.status)
 	_, _ = iw.ResponseWriter.Write(body)
+}
+
+// encoded reports whether the body carries a content coding, which leaves it
+// unreadable as HTML. A middleware registered after this one compresses what
+// this one already rewrote, so only an inverted order reaches this case.
+func encoded(h http.Header) bool {
+	ce := strings.TrimSpace(h.Get("Content-Encoding"))
+	return ce != "" && !strings.EqualFold(ce, "identity")
 }
 
 func looksHTML(p []byte) bool {

@@ -313,3 +313,42 @@ func TestServiceWorkerHydratesWithoutThePrefetch(t *testing.T) {
 	require.Contains(t, js, "pageFetchHeaders",
 		"a lost prefetch is replaced by a fetch the worker makes itself")
 }
+
+// TestMiddlewareContentEncoding tests that a body carrying a content coding
+// passes through untouched, because splicing a script into it would corrupt it.
+func TestMiddlewareContentEncoding(t *testing.T) {
+	t.Parallel()
+
+	const page = "<!DOCTYPE html><html><head></head><body>x</body></html>"
+
+	for name, tc := range map[string]struct {
+		encoding   string
+		wantScript bool
+	}{
+		"gzip":     {encoding: "gzip"},
+		"brotli":   {encoding: "br"},
+		"chained":  {encoding: "gzip, br"},
+		"padded":   {encoding: " gzip "},
+		"identity": {encoding: "identity", wantScript: true},
+		"absent":   {encoding: "", wantScript: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			mw := offline.Middleware("/offline/", offline.Config{WorkerVersion: 1})
+			rec := httptest.NewRecorder()
+			mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				if tc.encoding != "" {
+					w.Header().Set("Content-Encoding", tc.encoding)
+				}
+				_, _ = w.Write([]byte(page))
+			})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+			if !tc.wantScript {
+				require.Equal(t, page, rec.Body.String())
+				return
+			}
+			require.Contains(t, rec.Body.String(), "<script>")
+		})
+	}
+}
