@@ -15,6 +15,13 @@ For applications that are mostly useless when offline with the server being the 
 - **No `npm` supply chain**: All you need is Go and HTML/CSS with tiny pieces of JavaScript inside, not the entire JavaScript zoo.
 - **Optimal agentic engineering**: Datapages ships with all AI skills and CLI tools necessary for coding agents to be utmost efficient. This avoids wasting tokens on huge piles of React and Go API boilerplate.
 
+If the only reason you're going for a JavaScript SPA is a larger ecosystem and from that you only really need a UI kit - consider these alternatives instead that work great with Datapages:
+
+- [Morpheus](https://romshark.github.io/morpheus/) (works best with fat-morph)
+- [Basecoat](https://basecoatui.com/components/button/)
+- [WebAwesome](https://webawesome.com/)
+- ..others? (PRs welcome!)
+
 ## Why templ instead of `html/template`?
 
 [templ](https://templ.guide/) provides:

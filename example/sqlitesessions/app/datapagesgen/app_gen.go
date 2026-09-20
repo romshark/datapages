@@ -280,13 +280,13 @@ func (s appHandlers) POSTSignOut(w http.ResponseWriter, r *http.Request) {
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
-	sess, _, ok := s.ReadSession(w, r)
-	if !ok {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
 		return
 	}
 
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
 		return
 	}
 

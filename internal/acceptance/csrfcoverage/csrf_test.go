@@ -205,6 +205,55 @@ func TestErrorPagesCarryTheCSRFScript(t *testing.T) {
 	}
 }
 
+// TestUnclaimedPathReadsTheSessionOnce tests the store reads a 404 costs.
+//
+// The index handler serves every path no page claims. It read the session
+// before the path check and render404 read it again, which is two store round
+// trips and, with a stale cookie, two clearing Set-Cookie headers.
+func TestUnclaimedPathReadsTheSessionOnce(t *testing.T) {
+	t.Parallel()
+	store := &countingSessions{Manager: sessinmem.New[struct{}](
+		sessions.DefaultTokenGenerator{Length: sessions.DefaultTokenLen},
+	)}
+
+	srv := httptest.NewServer(mustNewServer(
+		t, &app.App{}, inmem.New(messaging.DefaultBrokerChanBuffer), store,
+	))
+	t.Cleanup(srv.Close)
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err, "building cookie jar")
+	client := &http.Client{Jar: jar}
+
+	require.Equal(t, http.StatusOK,
+		newPost(t, srv, client)("/sign-in/", `{"user":"alice"}`, ""), "signing in")
+
+	get := func(path string) *http.Response {
+		t.Helper()
+		req, err := http.NewRequestWithContext(
+			context.Background(), http.MethodGet, srv.URL+path, nil,
+		)
+		require.NoError(t, err, "building GET %s", path)
+		resp, err := client.Do(req)
+		require.NoError(t, err, "GET %s", path)
+		t.Cleanup(func() { _ = resp.Body.Close() })
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return resp
+	}
+
+	before := store.reads.Load()
+	resp := get("/no-such-path/")
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	require.Equal(t, int64(1), store.reads.Load()-before,
+		"the 404 read the session store more than once")
+
+	before = store.reads.Load()
+	resp = get("/")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, int64(1), store.reads.Load()-before,
+		"the index page read the session store more than once")
+}
+
 // TestError500PageStatusFollowsItsSessionRead tests what a failed page load
 // answers when the 500 page reads the session.
 //

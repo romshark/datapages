@@ -335,13 +335,13 @@ func (s pageError500Handlers) render(w http.ResponseWriter, r *http.Request, sta
 type pageIndexHandlers struct{ *Server }
 
 func (s pageIndexHandlers) GET(w http.ResponseWriter, r *http.Request) {
-	sess, _, ok := s.ReadSession(w, r)
-	if !ok {
+	if r.URL.Path != "/" {
+		s.render404(w, r)
 		return
 	}
 
-	if r.URL.Path != "/" {
-		s.render404(w, r)
+	sess, _, ok := s.ReadSession(w, r)
+	if !ok {
 		return
 	}
 
