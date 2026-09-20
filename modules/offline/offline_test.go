@@ -270,3 +270,23 @@ func TestServiceWorkerExcludePaths(t *testing.T) {
 		})
 	}
 }
+
+// TestOfflineClassCannotEndTheScript tests that a class spelling a closing
+// script tag reaches the browser as an escaped string literal.
+func TestOfflineClassCannotEndTheScript(t *testing.T) {
+	t.Parallel()
+	mw := offline.Middleware("/offline/", offline.Config{
+		WorkerVersion: 1,
+		OfflineClass:  `x</script><script>alert(1)`,
+	})
+
+	rec := httptest.NewRecorder()
+	mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("<!DOCTYPE html><html><head></head><body>hi</body></html>"))
+	})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/shows/", nil))
+
+	require.NotContains(t, rec.Body.String(), "<script>alert(1)",
+		"the class must not end the script element it sits in")
+	require.Contains(t, rec.Body.String(), `</script>`,
+		"json.Marshal writes < and > escaped")
+}

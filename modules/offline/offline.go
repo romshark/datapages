@@ -151,7 +151,10 @@ func ServiceWorkerJS(offlinePath string, cfg Config) []byte {
 }
 
 // netStateJS returns the online/offline reflection script of cfg.
-// The class is JSON-encoded so any value is a safely escaped JS string literal.
+//
+// The class is JSON-encoded, which is what keeps it inside the enclosing <script>:
+// [json.Marshal] escapes < > & to \u003c \u003e \u0026, leaving no value able to
+// spell </script>. A [json.Encoder] with SetEscapeHTML(false) would not.
 func netStateJS(cfg Config) string {
 	class, err := json.Marshal(cfg.offlineClass())
 	if err != nil {
