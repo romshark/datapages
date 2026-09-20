@@ -199,9 +199,9 @@ func Load(moduleDir string) (c Config, found bool, _ error) {
 
 // DefaultYAML is the default datapages.yaml content.
 //
-// What the application itself configures is not in here: the app package, the
-// destination and the Prometheus option are read from the datapages.NewServer
-// call, assets from the Config variable of the app package.
+// What the application itself configures is not in here: the app package,
+// the destination and the Prometheus option are read from the datapages.NewServer call,
+// assets from the embed.FS variable of the app package.
 const DefaultYAML = `cmd: cmd/server
 watch:
   exclude:

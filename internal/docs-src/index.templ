@@ -102,10 +102,10 @@ templ Index(version string) {
 				</div>
 				<div class="feature">
 					<div class="icon">&#128225;</div>
-					<h3>Real-Time SSE &amp; CQRS</h3>
+					<h3>Real-Time SSE &amp; Events</h3>
 					<p>
 						Dispatch events and handle them with <code>OnXXX</code> methods.
-						Datapages wires up Server-Sent Events, NATS, and CQRS for you.
+						Datapages wires up Server-Sent Events and the message broker for you.
 					</p>
 				</div>
 				<div class="feature">
@@ -114,7 +114,8 @@ templ Index(version string) {
 					<p>
 						Declare <code>datapages.State[T]</code> and a handler is given the value that
 						belongs to the browser tab it is answering. Two tabs hold two
-						values, and handlers of one tab never run at the same time.
+						values, and the handlers of one tab that take it never run at the
+						same time.
 					</p>
 				</div>
 				<div class="feature">
@@ -159,8 +160,8 @@ templ Index(version string) {
 						<div class="gen-file">datapagesgen/action/action_gen.go</div>
 						<h3>Type-Safe Actions</h3>
 						<p>
-							Helpers like <code>action.POSTPageProfileFollow("user-42")</code> for
-							Datastar form actions with the right HTTP method and URL.
+							Helpers like <code>action.PageProfile.Follow.POST("user-42")</code> for
+							Datastar actions with the right HTTP method and URL.
 						</p>
 					</div>
 					<div class="gen-card">

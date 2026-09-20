@@ -77,6 +77,6 @@ opts = append(opts, datapages.WithSessionManager[app.SessionData](mgr))
 
 Name the data type at the call: it is not inferred, and naming it is what makes the compiler check the manager against what the app declares.
 
-Use `modules/sessions/natskv`. `modules/sessions/inmem` is for a single instance that may lose its sessions on restart.
+Use `modules/sessions/natskv`. `modules/sessions/inmem` is for development: it holds sessions in memory and loses every session on restart.
 
 The framework never collects expired records: reading a session only reclaims the ones a client returns to. Call `mgr.DeleteExpired(ctx)` on a ticker.

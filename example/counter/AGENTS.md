@@ -6,6 +6,11 @@
 This module is a [Datapages](https://github.com/romshark/datapages) application.
 You write Go handlers and Templ templates. `datapages gen` writes the server.
 
+Before writing code for a new app or a feature that has no constructs yet, read
+`.agents/skills/datapages-architecture/SKILL.md`. It decides where a value
+lives, how a change reaches the browser and who owns a handler. The other
+skills say how to write what it picks.
+
 | path | what |
 | ---- | ---- |
 | `app/fancy/` | app package: pages, actions, events, templates. Edit this. |
@@ -36,6 +41,7 @@ matches the task:
 
 | skill | read it when |
 | ----- | ------------ |
+| `datapages-architecture` | a new app, or a feature whose constructs are not decided |
 | `datapages` | any Datapages work: rules, workflow, naming |
 | `datapages-pages` | pages, routes, path and query parameters, error pages, `<head>` |
 | `datapages-actions` | POST/PUT/PATCH/DELETE handlers, signals, SSE, errors |

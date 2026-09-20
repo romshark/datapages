@@ -1,6 +1,7 @@
 # Generator tests
 
-Three tests cover this package. Each answers a different question.
+Three tests answer the questions below. Each of the other tests in this package
+pins one rule of the generator.
 
 | test | question |
 | ---- | -------- |
@@ -13,9 +14,12 @@ answered outside this package, by the acceptance cases under
 [../acceptance](../acceptance). Each is an application with its generated code
 committed next to it, tested over HTTP.
 
-Only `TestExamplesAreUpToDate` reads generated source. Every other assertion is
-a request, a response, a call to a generated function, or a value the
-application recorded while a generated handler ran.
+Two tests read generated source. `TestExamplesAreUpToDate` reads it because the
+committed files are the artifact. `TestError500PageReportsWithoutRenderingItself`
+reads it because running the code it checks overflows the stack and takes the
+rest of the test binary with it. Every other assertion is a request, a response,
+a call to a generated function, or a value the application recorded while a
+generated handler ran.
 
 ## TestCompileFixtures
 

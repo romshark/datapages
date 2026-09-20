@@ -37,6 +37,7 @@ func read(t *testing.T, dir, rel string) string {
 var skillNames = []string{
 	"datapages",
 	"datapages-actions",
+	"datapages-architecture",
 	"datapages-events",
 	"datapages-offline",
 	"datapages-pages",

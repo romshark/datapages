@@ -42,8 +42,9 @@ a Go module, a new one is initialized. Code generation is run, and
 finally go mod tidy resolves all dependencies. Init never deletes any files.
 
 Init writes these only when they are missing and never touches them
-again: datapages.yaml, app/app.go, cmd/server/main.go, .env, compose.yaml,
-Makefile and .github/workflows/ci.yml. It also adds .env to .gitignore.
+again: datapages.yaml, app/app.go, app/app.templ, cmd/server/main.go, .env,
+compose.yaml, Makefile, .vscode/extensions.json and
+.github/workflows/ci.yml. It also adds .env to .gitignore.
 
 Init rewrites these on every run: AGENTS.md, CLAUDE.md, GEMINI.md,
 .github/copilot-instructions.md, .cursor/rules/datapages.mdc and the
@@ -557,16 +558,13 @@ func writeEnvIfMissing(projectDir string, w io.Writer) (bool, error) {
 	if _, err := os.Stat(filepath.Join(projectDir, ".env")); err == nil {
 		return false, nil
 	}
-	csrfSecret, err := randomHex(32)
-	if err != nil {
-		return false, fmt.Errorf("generating CSRF secret: %w", err)
-	}
 	sessKey, err := randomHex(16)
 	if err != nil {
 		return false, fmt.Errorf("generating session encryption key: %w", err)
 	}
+	// No CSRF secret: [github.com/romshark/datapages/modules/csrf.Tokens]
+	// derives the token from the session token and configures nothing.
 	content := "NATS_URL=nats://localhost:4222\n" +
-		"CSRF_SECRET=" + csrfSecret + "\n" +
 		"SESSION_ENCRYPTION_KEY=" + sessKey + "\n"
 	return writeIfMissing(projectDir, ".env", []byte(content), w)
 }

@@ -42,8 +42,9 @@ var examples = []string{
 // What the generated code does is covered by the acceptance suites.
 //
 // Nothing here names what an example configures or where its code goes: the
-// configuration is the Config variable of its app package and the destination
-// follows the app package, both of which the run below reads.
+// configuration is the type arguments of its datapages.NewServer calls and the
+// embed.FS of its app package, and the destination follows the app package,
+// all of which the run below reads.
 func TestExamplesAreUpToDate(t *testing.T) {
 	for _, name := range examples {
 		t.Run(name, func(t *testing.T) {

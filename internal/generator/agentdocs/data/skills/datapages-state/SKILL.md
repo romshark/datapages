@@ -42,7 +42,7 @@ type EventFilterChanged struct {
 }
 ```
 
-Only one subject field may have this type. It cannot carry a `signal` tag. A page handling the event must use state and cannot also handle a user-addressed or signal-scoped event. `stateID` addresses events; it does not grant access to the state value.
+It must be the event's only subject field. It cannot carry a `signal` tag. A page handling the event must use state and cannot also handle a user-addressed or signal-scoped event. `stateID` addresses events; it does not grant access to the state value.
 
 ## Limit
 
