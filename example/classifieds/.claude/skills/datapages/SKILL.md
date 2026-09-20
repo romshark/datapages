@@ -3,12 +3,15 @@ name: datapages
 description: >-
   Datapages framework rules, build loop and naming conventions, plus an index
   of the task skills. Activate for any work in a Datapages app package,
-  its templates or its server entry point.
+  its templates or its server entry point. `datapages-architecture` comes
+  before this one when starting an app or designing a feature.
 ---
 
 # Datapages
 
 You write Go handlers and Templ templates. `datapages gen` writes the server: routing, handler wiring, SSE, sessions and the type-safe `href` and `action` packages.
+
+Starting a new app, or designing a feature that is not written yet: read `datapages-architecture` first. It scaffolds the project and picks the constructs the task skills below then tell you how to write.
 
 ## Loop
 
@@ -60,6 +63,7 @@ The generated server implements `http.Handler`. Use `httptest` to send requests 
 
 | skill | read it when |
 | ----- | ------------ |
+| `datapages-architecture` | a new app, or a feature whose constructs are not decided |
 | `datapages-pages` | pages, routes, path and query parameters, error pages, `<head>` |
 | `datapages-actions` | POST/PUT/PATCH/DELETE handlers, signals, SSE, errors |
 | `datapages-events` | events, subjects, dispatchers, `On` handlers, stream hooks |
