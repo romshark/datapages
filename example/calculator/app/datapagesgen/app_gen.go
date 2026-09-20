@@ -213,6 +213,7 @@ func (s pageIndexHandlers) POSTInput(
 	var signals datapages.Signals[struct {
 		Input string `json:"input"`
 		Fresh bool   `json:"fresh"`
+		Num   string `json:"num"`
 	}]
 	if err := datastar.ReadSignals(r, &signals.Values); err != nil {
 		s.HTTPErrBad(w, "reading signals", err)
@@ -220,8 +221,8 @@ func (s pageIndexHandlers) POSTInput(
 	}
 
 	var query datapages.Query[struct {
-		Btn int    `query:"btn"`
-		Num string `query:"num"`
+		Btn   int  `query:"btn"`
+		Paste bool `query:"paste"`
 	}]
 	{
 		if q := httpread.QueryValue(r.URL.RawQuery, "btn"); q != "" {
@@ -233,7 +234,16 @@ func (s pageIndexHandlers) POSTInput(
 			query.Values.Btn = int(i)
 		}
 	}
-	query.Values.Num = httpread.QueryValue(r.URL.RawQuery, "num")
+	{
+		if q := httpread.QueryValue(r.URL.RawQuery, "paste"); q != "" {
+			b, err := strconv.ParseBool(q)
+			if err != nil {
+				s.HTTPErrBad(w, "unexpected value for query parameter: paste", err)
+				return
+			}
+			query.Values.Paste = b
+		}
+	}
 
 	sse := datastar.NewSSE(w, r, datastar.WithCompression())
 	defer s.recoverPanic(w, r, sse, "PageIndex.Input")
