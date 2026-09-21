@@ -29,3 +29,37 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # The page prints the install command with this tag's version.
+  # The Pages workflow skips the tag: its paths filter drops what touches no docs source.
+  pages:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Go 1.27.1
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.1"
+          check-latest: true
+
+      - name: Render docs/index.html from templ
+        run: go run ./internal/tools/render-pages -version "${{ github.ref_name }}"
+
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs
+      - id: deployment
+        uses: actions/deploy-pages@v5

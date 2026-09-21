@@ -8,8 +8,6 @@ on:
       - "docs/**"
       - "internal/tools/render-pages/**"
       - "internal/docs-src/**"
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:
