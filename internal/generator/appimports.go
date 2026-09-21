@@ -41,7 +41,6 @@ var appFixedImports = map[string]string{
 	"github.com/romshark/datapages/modules/csrf":              "csrf",
 	"github.com/romshark/datapages/modules/messaging":         "messaging",
 	"github.com/romshark/datapages/modules/sessions":          "sessions",
-	"github.com/romshark/datapages/runtime/actionexpr":        "actionexpr",
 	"github.com/romshark/datapages/runtime/auth":              "auth",
 	"github.com/romshark/datapages/runtime/htmlattr":          "htmlattr",
 	"github.com/romshark/datapages/runtime/httpread":          "httpread",
@@ -72,7 +71,7 @@ var appFixedImports = map[string]string{
 // Their paths follow the generated package rather than being fixed, which keeps
 // them out of [appFixedImports]. A model type cannot come from either,
 // hence only the names have to be kept out of the way of.
-var appGenSubpkgIdents = []string{"assets", "href"}
+var appGenSubpkgIdents = []string{"action", "assets", "href"}
 
 // genImport is a package a generated file imports for a type the model names,
 // under the identifier that file qualifies it by.

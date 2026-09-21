@@ -15,12 +15,12 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
-	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 	"github.com/romshark/datapages/runtime/stream"
 
 	dpapp "github.com/romshark/datapages/internal/acceptance/multiapp/app/admin"
+	"github.com/romshark/datapages/internal/acceptance/multiapp/app/admin/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/multiapp/app/admin/datapagesgen/href"
 
 	"github.com/romshark/datapages/internal/acceptance/multiapp/events"
@@ -174,8 +174,8 @@ func (s *Server) Init(
 
 	s.Build()
 	href.SetLogger(s.SampledLogger())
-	actionexpr.SetLogger(s.SampledLogger())
-	actionexpr.SetMetrics(prom.ActionMetrics{})
+	action.SetLogger(s.SampledLogger())
+	action.SetMetrics(prom.ActionMetrics{})
 
 	return nil
 }

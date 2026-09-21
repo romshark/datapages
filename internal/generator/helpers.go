@@ -380,6 +380,9 @@ type appUsage struct {
 	// userSubjects: whether any event addresses a user, which makes the ID of
 	// the session owner name a subject.
 	userSubjects bool
+	// actions: whether the application defines any action, which is what makes
+	// the generated action package carry helpers and its own reporter.
+	actions bool
 }
 
 // dispatchesSubjectFields reports whether any handler dispatches an event whose
@@ -483,10 +486,14 @@ func computeAppUsage(m *model.App) appUsage {
 		}
 	}
 
+	u.actions = len(m.Actions) > 0
 	for _, h := range m.Actions {
 		checkHandler(h)
 	}
 	for _, p := range m.Pages {
+		if len(p.Actions) > 0 {
+			u.actions = true
+		}
 		if p.GET != nil {
 			checkHandler(p.GET.Handler)
 		}

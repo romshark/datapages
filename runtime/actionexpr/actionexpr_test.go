@@ -27,105 +27,143 @@ func TestInvalidOptionsAreDroppedAndLogged(t *testing.T) {
 	// The option is built inside the subtest: a value built with the table
 	// would log before the subtest installs its own logger.
 	for name, tc := range map[string]struct {
-		option func() actionexpr.Option
+		option func(r *actionexpr.Reporter) actionexpr.Option
 		want   string // rendered expression, "" when the option is dropped
 		logged string // substring of the warning, "" when nothing is logged
 	}{
 		"retry scaler positive infinity": {
-			option: func() actionexpr.Option { return actionexpr.WithRetryScaler(math.Inf(1)) },
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithRetryScaler(r, math.Inf(1))
+			},
 			logged: "value=+Inf",
 		},
 		"retry scaler negative infinity": {
-			option: func() actionexpr.Option { return actionexpr.WithRetryScaler(math.Inf(-1)) },
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithRetryScaler(r, math.Inf(-1))
+			},
 			logged: "value=-Inf",
 		},
 		"retry scaler not a number": {
-			option: func() actionexpr.Option { return actionexpr.WithRetryScaler(math.NaN()) },
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithRetryScaler(r, math.NaN())
+			},
 			logged: "value=NaN",
 		},
 		"retry scaler finite": {
-			option: func() actionexpr.Option { return actionexpr.WithRetryScaler(1.5) },
-			want:   ", {retryScaler: 1.5}",
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithRetryScaler(r, 1.5)
+			},
+			want: ", {retryScaler: 1.5}",
 		},
 		"retry unknown": {
-			option: func() actionexpr.Option { return actionexpr.WithRetry(actionexpr.Retry("bogus")) },
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithRetry(r, actionexpr.Retry("bogus"))
+			},
 			logged: "WithRetry",
 		},
 		"retry known": {
-			option: func() actionexpr.Option { return actionexpr.WithRetry(actionexpr.RetryNever) },
-			want:   ", {retry: 'never'}",
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithRetry(r, actionexpr.RetryNever)
+			},
+			want: ", {retry: 'never'}",
 		},
 		"content type unknown": {
-			option: func() actionexpr.Option { return actionexpr.WithContentType(actionexpr.ContentType("xml")) },
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithContentType(r, actionexpr.ContentType("xml"))
+			},
 			logged: "WithContentType",
 		},
 		"content type known": {
-			option: func() actionexpr.Option { return actionexpr.WithContentType(actionexpr.ContentTypeForm) },
-			want:   ", {contentType: 'form'}",
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithContentType(r, actionexpr.ContentTypeForm)
+			},
+			want: ", {contentType: 'form'}",
 		},
 		"request cancellation unknown": {
-			option: func() actionexpr.Option {
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
 				return actionexpr.WithRequestCancellation(
+					r,
 					actionexpr.RequestCancellation("later"),
 				)
 			},
 			logged: "WithRequestCancellation",
 		},
 		"request cancellation known": {
-			option: func() actionexpr.Option {
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
 				return actionexpr.WithRequestCancellation(
+					r,
 					actionexpr.RequestCancellationDisabled,
 				)
 			},
 			want: ", {requestCancellation: 'disabled'}",
 		},
 		"retry interval negative": {
-			option: func() actionexpr.Option { return actionexpr.WithRetryInterval(-5) },
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithRetryInterval(r, -5)
+			},
 			logged: "value=-5",
 		},
 		"retry interval zero": {
-			option: func() actionexpr.Option { return actionexpr.WithRetryInterval(0) },
-			want:   ", {retryInterval: 0}",
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithRetryInterval(r, 0)
+			},
+			want: ", {retryInterval: 0}",
 		},
 		"retry max wait negative": {
-			option: func() actionexpr.Option { return actionexpr.WithRetryMaxWaitMs(-1) },
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithRetryMaxWaitMs(r, -1)
+			},
 			logged: "WithRetryMaxWaitMs",
 		},
 		"retry max count negative": {
-			option: func() actionexpr.Option { return actionexpr.WithRetryMaxCount(-1) },
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithRetryMaxCount(r, -1)
+			},
 			logged: "WithRetryMaxCount",
 		},
 		"retry max count zero": {
-			option: func() actionexpr.Option { return actionexpr.WithRetryMaxCount(0) },
-			want:   ", {retryMaxCount: 0}",
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithRetryMaxCount(r, 0)
+			},
+			want: ", {retryMaxCount: 0}",
 		},
 		// A line terminator ends the regex literal the pattern goes into,
 		// and no escape puts it back.
 		"filter signals line terminator": {
-			option: func() actionexpr.Option { return actionexpr.WithFilterSignals("a\nb", "") },
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithFilterSignals(r, "a\nb", "")
+			},
 			logged: "WithFilterSignals",
 		},
 		// A "/" ends the literal too, but escaping keeps the pattern.
 		"filter signals slash": {
-			option: func() actionexpr.Option { return actionexpr.WithFilterSignals("a/b", "") },
-			want:   `, {filterSignals: {include: /a\/b/}}`,
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithFilterSignals(r, "a/b", "")
+			},
+			want: `, {filterSignals: {include: /a\/b/}}`,
 		},
 		"filter signals escaped slash stays": {
-			option: func() actionexpr.Option { return actionexpr.WithFilterSignals(`a\/b`, "") },
-			want:   `, {filterSignals: {include: /a\/b/}}`,
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithFilterSignals(r, `a\/b`, "")
+			},
+			want: `, {filterSignals: {include: /a\/b/}}`,
 		},
 		"filter signals plain": {
-			option: func() actionexpr.Option { return actionexpr.WithFilterSignals("^x", "^_") },
-			want:   ", {filterSignals: {include: /^x/, exclude: /^_/}}",
+			option: func(r *actionexpr.Reporter) actionexpr.Option {
+				return actionexpr.WithFilterSignals(r, "^x", "^_")
+			},
+			want: ", {filterSignals: {include: /^x/, exclude: /^_/}}",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
 			var buf bytes.Buffer
-			actionexpr.SetLogger(slog.New(slog.NewTextHandler(&buf, nil)))
-			t.Cleanup(func() { actionexpr.SetLogger(nil) })
+			var r actionexpr.Reporter
+			r.SetLogger(slog.New(slog.NewTextHandler(&buf, nil)))
 
 			require.Equal(t, tc.want,
-				writeOptions([]actionexpr.Option{tc.option()}))
+				writeOptions([]actionexpr.Option{tc.option(&r)}))
 			if tc.logged == "" {
 				require.Empty(t, buf.String(), "a valid value was logged")
 				return
@@ -150,20 +188,38 @@ func (c *countingMetrics) OptionDropped(option string) {
 // TestDroppedOptionIsCounted tests the counter behind a dropped option.
 // The log is throttled, so the count is what says how often it still happens.
 func TestDroppedOptionIsCounted(t *testing.T) {
+	t.Parallel()
+
 	var m countingMetrics
-	actionexpr.SetMetrics(&m)
-	t.Cleanup(func() { actionexpr.SetMetrics(nil) })
+	var r actionexpr.Reporter
+	r.SetMetrics(&m)
 
 	for range 3 {
-		actionexpr.WithRetryScaler(math.Inf(1))
+		actionexpr.WithRetryScaler(&r, math.Inf(1))
 	}
-	actionexpr.WithRetryInterval(-1)
-	actionexpr.WithRetryInterval(1000)
+	actionexpr.WithRetryInterval(&r, -1)
+	actionexpr.WithRetryInterval(&r, 1000)
 
 	require.Equal(t, []string{
 		"WithRetryScaler", "WithRetryScaler", "WithRetryScaler",
 		"WithRetryInterval",
 	}, m.dropped)
+}
+
+// TestReportersAreIndependent tests that one reporter per application keeps
+// two servers of one process from logging into each other's logger.
+func TestReportersAreIndependent(t *testing.T) {
+	t.Parallel()
+
+	var bufA, bufB bytes.Buffer
+	var repA, repB actionexpr.Reporter
+	repA.SetLogger(slog.New(slog.NewTextHandler(&bufA, nil)))
+	repB.SetLogger(slog.New(slog.NewTextHandler(&bufB, nil)))
+
+	actionexpr.WithRetryInterval(&repA, -1)
+
+	require.Contains(t, bufA.String(), "WithRetryInterval")
+	require.Empty(t, bufB.String())
 }
 
 // TestWithHeadersIsStable tests that one call renders one string.
@@ -202,7 +258,7 @@ func TestWriteOptions(t *testing.T) {
 			"",
 		},
 		"one": {
-			[]actionexpr.Option{actionexpr.WithRetry(actionexpr.RetryNever)},
+			[]actionexpr.Option{actionexpr.WithRetry(nil, actionexpr.RetryNever)},
 			", {retry: 'never'}",
 		},
 		// An empty value would write "{key: }", which disables the attribute.
@@ -221,26 +277,26 @@ func TestWriteOptions(t *testing.T) {
 		"empty value beside a real one": {
 			[]actionexpr.Option{
 				actionexpr.WithPayload(""),
-				actionexpr.WithRetryInterval(500),
+				actionexpr.WithRetryInterval(nil, 500),
 			},
 			", {retryInterval: 500}",
 		},
-		// "+Inf" is no JavaScript number literal and Inf no identifier, so the
-		// expression would throw and send no request at all.
+		// "+Inf" is no JavaScript number literal and Inf no identifier,
+		// so the expression would throw and send no request at all.
 		"positive infinite retry scaler": {
-			[]actionexpr.Option{actionexpr.WithRetryScaler(math.Inf(1))},
+			[]actionexpr.Option{actionexpr.WithRetryScaler(nil, math.Inf(1))},
 			"",
 		},
 		"negative infinite retry scaler": {
-			[]actionexpr.Option{actionexpr.WithRetryScaler(math.Inf(-1))},
+			[]actionexpr.Option{actionexpr.WithRetryScaler(nil, math.Inf(-1))},
 			"",
 		},
 		"not a number retry scaler": {
-			[]actionexpr.Option{actionexpr.WithRetryScaler(math.NaN())},
+			[]actionexpr.Option{actionexpr.WithRetryScaler(nil, math.NaN())},
 			"",
 		},
 		"finite retry scaler": {
-			[]actionexpr.Option{actionexpr.WithRetryScaler(1.5)},
+			[]actionexpr.Option{actionexpr.WithRetryScaler(nil, 1.5)},
 			", {retryScaler: 1.5}",
 		},
 		"headers are ordered": {
@@ -251,8 +307,8 @@ func TestWriteOptions(t *testing.T) {
 		},
 		"two": {
 			[]actionexpr.Option{
-				actionexpr.WithRetryInterval(500),
-				actionexpr.WithContentType(actionexpr.ContentTypeForm),
+				actionexpr.WithRetryInterval(nil, 500),
+				actionexpr.WithContentType(nil, actionexpr.ContentTypeForm),
 			},
 			", {retryInterval: 500, contentType: 'form'}",
 		},
@@ -272,11 +328,11 @@ func TestWriteOptions(t *testing.T) {
 			`, {headers: {'X-A': '1\n2'}}`,
 		},
 		"filter signals": {
-			[]actionexpr.Option{actionexpr.WithFilterSignals("foo", "bar")},
+			[]actionexpr.Option{actionexpr.WithFilterSignals(nil, "foo", "bar")},
 			", {filterSignals: {include: /foo/, exclude: /bar/}}",
 		},
 		"filter signals include all": {
-			[]actionexpr.Option{actionexpr.WithFilterSignals("", "")},
+			[]actionexpr.Option{actionexpr.WithFilterSignals(nil, "", "")},
 			", {filterSignals: {include: /.*/}}",
 		},
 		"headers": {
@@ -294,8 +350,8 @@ func TestWriteOptions(t *testing.T) {
 }
 
 // TestLenMatchesWrite pins what the generated helpers rely on: the length
-// functions size the strings.Builder the write functions then fill, and a
-// wrong size costs a reallocation on every action expression.
+// functions size the strings.Builder the write functions then fill,
+// and a wrong size costs a reallocation on every action expression.
 func TestLenMatchesWrite(t *testing.T) {
 	t.Parallel()
 
@@ -303,7 +359,7 @@ func TestLenMatchesWrite(t *testing.T) {
 		"none": nil,
 		"every kind": {
 			actionexpr.WithBefore("before1()"),
-			actionexpr.WithRetry(actionexpr.RetryAlways),
+			actionexpr.WithRetry(nil, actionexpr.RetryAlways),
 			actionexpr.WithAfter("after1()"),
 			actionexpr.WithHeaders(map[string]string{"X-A": "1"}),
 			actionexpr.WithBefore("before2()"),

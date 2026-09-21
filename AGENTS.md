@@ -43,6 +43,8 @@ Internal, used by the CLI and build tooling:
   defect the framework has not fixed yet.
 - `internal/gotypes/` - go/types predicates and renderings that know nothing
   about Datapages. Shared by the parser and the generator.
+- `internal/logsample/` - the throttling `slog.Handler` behind
+  `datapages.WithLogSampling`.
 - `internal/routepattern/` - net/http ServeMux route pattern parsing.
 - `internal/structtag/` - the `path`, `query`, `json` and `reflectsignal` tags.
 - `internal/subject/` - broker subject rules: the token rule and which subjects
