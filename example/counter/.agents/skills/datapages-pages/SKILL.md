@@ -33,7 +33,7 @@ If a route comment has a description, separate it from the route with a blank `/
 
 ## GET parameters
 
-`r *http.Request` is required. A `GET` may also take `Session`, `Path`, `Query`, `Signals` and dispatchers. It cannot take `datapages.SSE`, `datapages.State[T]` or `stateID`. See `datapages-actions` for these parameter types.
+`r *http.Request` is required. A `GET` may also take `Session`, `Path`, `Query`, `Signals`, `datapages.PageCacheWriter` and dispatchers. It cannot take `datapages.SSE`, `datapages.State[T]` or `stateID`. See `datapages-actions` for the parameter types and `datapages-offline` for `pageCache`.
 
 ## GET return values
 
@@ -85,9 +85,10 @@ A reflected field must be a basic type or implement `encoding.TextMarshaler`. A 
 
 It also rejects a JSON type mismatch between a query field and its signal. The checked types are number, boolean and string. For example, reflecting a `string` query field into a `bool` signal sets `$flag` to `"true"`. The next action sends `{"flag":"true"}`, which signal decoding rejects with 400.
 
-## Error pages
+## Special pages
 
-Optional. Without them Datapages serves plain error responses.
+`PageError404`, `PageError500` and `PageOffline` are reserved page names. All
+three are optional. Datapages serves defaults when they are absent.
 
 ```go
 // PageError404 is /not-found
@@ -98,7 +99,9 @@ func (PageError404) GET(r *http.Request) (datapages.Component, error) {
 }
 ```
 
-`PageError500` follows the same shape and needs a `GET` method too.
+`PageError500` and `PageOffline` have the same form and each needs a `GET`
+method. Both render with a zero `Session`. `PageOffline` is the service worker
+fallback; see `datapages-offline`.
 
 Neither may return `newSession` or `closeSession` because the same `GET` serves the page route and its error path. Both may accept a session parameter, which an error page can use to render the document.
 

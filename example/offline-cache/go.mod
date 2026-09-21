@@ -1,0 +1,31 @@
+module github.com/romshark/datapages/example/offline-cache
+
+go 1.27.1
+
+replace github.com/romshark/datapages => ../../
+
+// Required by Datapages
+require (
+	github.com/a-h/templ v0.3.1020
+	github.com/romshark/datapages v0.9.4
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+	github.com/starfederation/datastar-go v1.2.2
+	golang.org/x/crypto v0.57.0
+)
+
+require (
+	github.com/CAFxX/httpcompression v0.0.9 // indirect
+	github.com/andybalholm/brotli v1.2.4 // indirect
+	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/klauspost/compress v1.20.0 // indirect
+	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/prometheus/client_golang v1.24.1 // indirect
+	github.com/prometheus/client_model v0.6.3 // indirect
+	github.com/prometheus/common v0.71.0 // indirect
+	github.com/prometheus/procfs v0.22.0 // indirect
+	github.com/valyala/bytebufferpool v1.0.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
+)

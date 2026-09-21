@@ -13,7 +13,7 @@ Read `datapages` first for the build loop, hard rules and naming conventions.
 
 Use this skill to choose the Datapages constructs a feature needs. Ask the operator when a missing requirement would change that choice. Then read the referenced skill before implementing the selected construct.
 
-Keep authoritative state on the server. Separate reads from commands. Prefer fat morphs over fine-grained DOM updates.
+Keep authoritative state on the server, separate reads from commands and send complete page updates instead of small DOM patches.
 
 ## New app
 
@@ -64,12 +64,12 @@ For server-backed interactive or real-time data, prefer Datastar's CQRS model:
 - short-lived actions are commands;
 - commands mutate authoritative state and notify subscribers;
 - `On` handlers react to events and render from authoritative state;
-- prefer fat morphs over fine-grained DOM updates;
+- prefer complete page updates over small DOM patches;
 - keep plain `GET` rendering correct.
 
-A command normally changes state and dispatches an event. The event reports the change but is not the authoritative state. Subscribers read the current state, render it and send a fat morph over SSE.
+A command should normally mutate state and dispatch an event. The event says that something changed; it is not the authoritative state. Subscribers read the current state, render the page and send the result over SSE.
 
-Use one main template for each page. Render the full template and let Datastar morph the DOM. Split templates into smaller components when that makes the code clearer. Do not add fine-grained updates only to reduce response size. SSE responses use Brotli compression.
+Render one template for each page and let Datastar update the changed DOM. Split templates into smaller components when useful. Do not add small DOM patches only to reduce transferred HTML. SSE streams use Brotli compression.
 
 Each stream update must contain enough current state to restore the UI after a missed event or interrupted connection. Send complete current state when a missed incremental update would make the client incorrect.
 
@@ -105,9 +105,9 @@ For example, copy a user-selected filter into `State[T]` in `StreamOpen` or in t
 
 The acting tab also receives subscribed events. A command that dispatches an event rarely needs `SSE`. Using both usually sends the same state twice.
 
-For server-rendered updates, render one large, complete DOM tree from current state. Avoid coordinating many small patches or sending signals that the client must assemble.
+For server-rendered updates, render a complete DOM tree from current state. Avoid coordinating many small patches or client-side signal updates.
 
-Do not shrink morph targets without a measured reason. A larger HTML response often needs less coordination. Datastar morphs the received tree into the existing DOM and preserves unchanged elements.
+Shrink morph targets only for a measured reason. A complete HTML fragment is often simpler because Datastar preserves unchanged DOM while morphing the received tree.
 
 Events are notifications, not durable state. Delivery is at most once and has no replay. A hidden tab, interrupted stream or full buffer can miss an event. Later renders must use authoritative state. They must not depend on every earlier event.
 
@@ -191,10 +191,10 @@ Use the construct with the fewest parts.
 
 For server-backed interactive or real-time state, use this default:
 
-`command -> change authoritative state -> dispatch event -> subscriber reads current state -> fat morph`
+`command -> mutate authoritative state -> dispatch event -> subscriber reads current state -> complete morph`
 
-A fat morph sends a large, complete DOM tree for the current state. It may send the full page and avoids manual coordination of fine-grained updates.
+A complete morph sends a DOM tree derived from current state, potentially the whole page, instead of coordinating fine-grained updates.
 
 Deviate when the requirements make a simpler or different model more suitable.
 
-A page can re-read data on navigation without events. Add events only when changes must update open pages. Add `State[T]` only when a handler without a request needs a per-tab value.
+A page that re-reads data on navigation is correct before events exist. Add events only when changes must reach already open pages. Add `State[T]` only when a handler without a request needs a per-tab value.

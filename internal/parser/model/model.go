@@ -17,6 +17,7 @@ type App struct {
 	PageIndex    *Page
 	PageError404 *Page
 	PageError500 *Page
+	PageOffline  *Page
 
 	RecoverError        *RecoverError // Nullable.
 	GlobalHeadGenerator *GlobalHead   // Nullable.
@@ -86,6 +87,7 @@ const (
 	PageTypeIndex
 	PageTypeError404
 	PageTypeError500
+	PageTypeOffline
 )
 
 type Page struct {
@@ -158,6 +160,7 @@ type Handler struct {
 	// InputDispatches are the datapages.Dispatcher[EventXXX] parameters,
 	// in user-defined order. One dispatcher publishes one event type.
 	InputDispatches []*InputDispatch
+	InputPageCache  *Input   // datapages.PageCacheWriter handle.
 	OrderedInputs   []*Input // Inputs in user-defined order.
 
 	OutputBody           *TemplComponent // datapages.Component body (actions only)
@@ -201,18 +204,19 @@ type EventHandler struct {
 
 // InputKind constants identify handler input parameter kinds.
 const (
-	InputKindRequest  = "request"
-	InputKindStreamID = "streamID"
-	InputKindSSE      = "sse"
-	InputKindSession  = "session"
-	InputKindPath     = "path"
-	InputKindQuery    = "query"
-	InputKindSignals  = "signals"
-	InputKindDispatch = "dispatch"
-	InputKindEvent    = "event"
-	InputKindState    = "state"
-	InputKindStateID  = "stateID"
-	InputKindErr      = "err"
+	InputKindRequest   = "request"
+	InputKindStreamID  = "streamID"
+	InputKindSSE       = "sse"
+	InputKindSession   = "session"
+	InputKindPath      = "path"
+	InputKindQuery     = "query"
+	InputKindSignals   = "signals"
+	InputKindDispatch  = "dispatch"
+	InputKindPageCache = "pageCache"
+	InputKindEvent     = "event"
+	InputKindState     = "state"
+	InputKindStateID   = "stateID"
+	InputKindErr       = "err"
 )
 
 // OutputKind constants identify handler output return value kinds.

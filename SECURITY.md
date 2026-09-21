@@ -26,6 +26,7 @@ What is the responsibility of the application or of the deployment instead. A re
 - **Authorization.** The framework routes a request and hands the handler its session. What that session may see or change is the application's decision.
 - **Cross-site scripting.** `templ` escapes the values a template interpolates into text and into attributes. Two places need more than that. `templ.Raw` writes markup verbatim. A value interpolated into a Datastar attribute lands inside a JavaScript expression, where the browser decodes the HTML escaping before the expression is parsed. Both are the application's to get right.
 - **The identity of per-tab state.** An instance is not bound to a session or a user and survives a sign-out. Do not keep in it what the next session on that tab may not see.
+- **Offline page snapshots.** A snapshot is not bound to a session and survives a sign-out. Any script on the origin can read it from the browser's cache. Do not cache what the next visitor on that device must not see.
 - **Key management.** The application supplies the session encryption key. The application controls its storage and rotation.
 - **Transport.** TLS versions, ciphers, HSTS and the certificate lifecycle belong to whatever terminates TLS, including when that is `ListenAndServeTLS`.
 - **Slow readers.** The write timeout is disabled by default because SSE requires it.

@@ -652,3 +652,44 @@ type Dispatcher[Event any] interface {
 	//	}
 	DispatchCtx(ctx context.Context, event Event) error
 }
+
+const (
+	// HeaderOfflineVersion names the request header containing the version the
+	// service worker has for the requested URL. PageCacheWriter.Version reads it.
+	HeaderOfflineVersion = "X-Datapages-Offline-Version"
+
+	// HeaderWorkerVersion names the request header containing the installed
+	// service worker's own version.
+	// The server compares it against the worker version it ships to decide
+	// whether to install, update or leave the worker untouched.
+	HeaderWorkerVersion = "X-Datapages-Worker-Version"
+)
+
+// PageCacheWriter writes to the client's service worker cache. It is passed
+// to GET page methods and action methods as the pageCache parameter. Writes
+// are deferred and applied atomically once the handler returns without error.
+type PageCacheWriter interface {
+	// Version returns the cached version of the current request's URL.
+	// It returns 0 when the URL is not cached.
+	Version() uint64
+
+	// Set caches body for url with version. Version reports that value on the
+	// next request for url. url must come from the generated href package.
+	// The worker serves this entry only while offline.
+	Set(url string, body Component, version uint64)
+
+	// SetShim caches body for url like [PageCacheWriter.Set], but permits the
+	// worker to serve it while online. The worker then fetches the live page and
+	// replaces the shim's head and body through Datastar. Datapages adds the
+	// fetch trigger. body must not state anything that is only true offline.
+	//
+	// The entry is rendered with no session, so an action on the shim only works
+	// once the live head has arrived and brought the CSRF script with it.
+	SetShim(url string, body Component, version uint64)
+
+	// Clear removes url from the cache.
+	Clear(url string)
+
+	// ClearAll removes every page cache entry.
+	ClearAll()
+}

@@ -26,6 +26,8 @@ var examples = []string{
 	"calculator",
 	"classifieds",
 	"counter",
+	"fast-shim",
+	"offline-cache",
 	"sqlitesessions",
 	"tailwindcss",
 	"todolist",

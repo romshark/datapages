@@ -58,9 +58,13 @@ opts = append(opts,
 
 The session cookie uses the `Secure` attribute. Set `DisableSecureCookie` only when the complete deployment uses plain HTTP, where the browser would reject the secure cookie. `datapages.IsDevMode()` reports whether the dev server is active. `DATAPAGES_DEV_MODE` and `TEMPL_DEV_MODE` enable development behavior. Log at `slog.LevelDebug` when you need to inspect that behavior.
 
+Declaring `PageOffline` generates `datapagesgen.WithOffline(offline.Config{...})`. The option serves the service worker. See `datapages-offline`.
+
 If `WithMiddleware` adds a `Content-Security-Policy`, it must allow `script-src 'unsafe-inline' 'unsafe-eval'`. Datapages writes the CSRF script and the instance ID script inline. Datastar compiles every `data-*` expression at run time.
 
-`WithCSPNonce(func(r *http.Request) string)` replaces both allowances with a nonce. The application mints the nonce and puts it in its own policy header. Datapages reads it back, writes it on the `html` element as `data-nonce` and on every script it writes. `data-nonce` turns on Datastar's CSP mode, which compiles expressions through a nonced script element instead of `Function`. It needs Datastar 1.0.3 or later. The nonce must differ per response.
+`WithCSPNonce(func(r *http.Request) string)` replaces both allowances with a nonce. The application mints the nonce and puts it in its own policy header. Datapages reads it back, writes it on the `html` element as `data-nonce` and on every script it writes. Mint the nonce in middleware and store it in the request context: Datapages calls the function several times per response and every call with the same request must return the same value. `data-nonce` turns on Datastar's CSP mode, which compiles expressions through a nonced script element instead of `Function`. It needs Datastar 1.0.3 or later. The nonce must differ per response.
+
+`WithOffline` passes the nonce to the offline module regardless of option order. The nonce cannot reach a page served from the service worker's cache; see `datapages-offline`.
 
 ```go
 s.ListenAndServe(ctx, "localhost:8080")

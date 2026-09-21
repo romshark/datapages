@@ -32,13 +32,13 @@ Use Templ `v0.3.1020`, which the generated CI workflow pins. Use `datapages watc
 
 ## Rules
 
-- Never edit a `_gen.go` file, a file under `datapagesgen/` or a file with a `DO NOT EDIT` header. Change the source and regenerate.
-- Never hardcode an app-internal URL. Use `href.PageX()` for links, `action.PageX.Y.POST()` for page actions and `action.App.Y.POST()` for app actions.
-- Never write application logic in JavaScript. Write it in server-side Go and use Datastar attributes on the client. Use JavaScript only for browser APIs that Datastar cannot access, such as the clipboard.
-- Never open an SSE stream, set a CSRF header or add the Datastar script. Datapages does all three.
-- Submit `<form>` elements through Datastar actions. Normal browser form submissions do not include the CSRF token. See `datapages-templates`.
-- Do not put build-constrained files in the app package. The generator reads pages, actions and events for the current platform. A platform-specific declaration can therefore be missing from code generated on another platform.
-- Prefer one complete HTML fragment over many small patches or signal updates. Keep authoritative state on the server. Use signals for transient client state.
+- Never edit a `_gen.go` file, anything under `datapagesgen/`, or a file with a `DO NOT EDIT` header. Change the source and regenerate.
+- Never hardcode an app-internal URL. `href.PageX()` for links, `action.PageX.Y.POST()` for page actions and `action.App.Y.POST()` for app actions.
+- Never write JavaScript for application logic. Logic is Go on the server, the client is Datastar attributes. JS only for browser APIs Datastar cannot reach, such as the clipboard.
+- Never open an SSE stream, set a CSRF header, add the Datastar script or register a service worker by hand. Datapages does all four.
+- Submit `<form>` elements through Datastar actions. Browser form submissions do not carry the CSRF token; see `datapages-templates`.
+- Do not put build-constrained files in the app package. The generator reads its pages, actions and events for the host platform, so a platform-specific declaration can disappear from generated code elsewhere.
+- Prefer one HTML fragment that carries its own context over many small patches or over signal updates. The server is the source of truth, signals hold transient client state.
 
 ## Security
 
@@ -48,6 +48,7 @@ Datapages routes the request, hands the handler its session and escapes what Tem
 - **Values in Datastar attributes.** The browser decodes the HTML escaping before the expression is parsed. Encode with `json.Marshal`, never with `fmt.Sprintf("'%s'", v)`. See `datapages-templates`.
 - **`templ.Raw`.** Writes markup verbatim. Pass only markup the server built.
 - **Hand-built URLs and subjects.** `href.PageX()` and a `datapages.Subject` field escape their values. A string you concatenate does not.
+- **Offline snapshots.** `pageCache.Set` stores a page body in the browser's cache. It survives a sign-out until a handler clears it. Call `ClearAll()` on sign-in and sign-out. See `datapages-offline`.
 
 A value Templ interpolates into text or into an attribute is already escaped. Escaping it again shows the escape sequence to the visitor.
 
@@ -86,6 +87,7 @@ The generated server implements `http.Handler`. Test it by sending requests with
 | `datapages-events` | events, subjects, dispatchers, `On` handlers, stream hooks |
 | `datapages-state` | per-tab state, state IDs and state-scoped events |
 | `datapages-sessions` | authentication, session data, CSRF |
+| `datapages-offline` | offline pages, cached shims, the service worker |
 | `datapages-server` | the server entry point, options, broker, static assets |
 | `datapages-templates` | `.templ` files, `href` and `action` helpers, Templ pitfalls |
 | `datastar` | `data-*` attributes and `@get`/`@post` actions |

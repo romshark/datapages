@@ -51,8 +51,9 @@ type ServerConfig struct {
 	// DatastarJS is the URL of the Datastar bundle the page shell loads.
 	DatastarJS string
 
-	// CSPNonce reports the Content-Security-Policy nonce of a request,
-	// nil when [WithCSPNonce] was not given.
+	// CSPNonce reports the Content-Security-Policy nonce of a request, nil when
+	// [WithCSPNonce] was not given. Calls with the same request must return the
+	// same value.
 	CSPNonce func(r *http.Request) string
 
 	// AssetsFS is the file system static files are served from.
@@ -612,8 +613,10 @@ func WithStateConfig(conf StateConfig) ServerOption {
 }
 
 // WithCSPNonce turns on Content-Security-Policy nonce mode. nonce reports the
-// nonce of a request, which the application's own middleware minted and wrote
-// into the script-src directive of the policy header.
+// nonce of a request. Datapages may call it several times while writing one response,
+// and every call with the same request must return the same value.
+// Application middleware should mint the nonce once, store it in the request
+// context and write the same value into the script-src directive of the policy header.
 // An empty return writes the page without nonces.
 //
 // Datapages then writes the nonce on every script it writes and on the html

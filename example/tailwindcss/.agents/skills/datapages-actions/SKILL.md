@@ -34,6 +34,7 @@ Parameters may appear in any order because the generator matches them by type. N
 | `datapages.Signals[struct{...}]` | signals sent by the client, `json:"v"` tags |
 | `datapages.State[StateX]` | per-tab server state, see `datapages-state` |
 | `stateID string` | tab event address; requires `State[T]`, see `datapages-state` |
+| `datapages.PageCacheWriter` | writes the offline page cache, see `datapages-offline` |
 | `datapages.Dispatcher[EventX]` | publishes `EventX`, see `datapages-events` |
 
 The name in a `Signals` field's `json` tag must match `[A-Za-z_][A-Za-z0-9_]*` and must not contain `__`. `json:"-"` is invalid. Omit a field to exclude it. Nested structs define signal paths.

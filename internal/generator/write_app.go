@@ -34,12 +34,19 @@ func (w *Writer) WriteApp(pkgName string, m *model.App) {
 
 	w.writeAppHeader(pkgName, m.PkgPath, needsJSON(m))
 	w.Raw(appStaticContent)
+	w.writeWithOffline(m)
 	if w.prometheus {
 		w.Raw(appStaticPromContent)
 	}
 	w.Raw(appStaticContent2)
 	if w.pagesNeedText(m) {
 		w.writeTextOf()
+	}
+	if w.usage.pageCache {
+		if w.usage.httpRedirect {
+			w.writeHTTPRedirectOffline()
+		}
+		w.writePageCache(m)
 	}
 	if w.usage.auth && w.usage.hasSession {
 		w.writeAppCheckCSRF()
@@ -128,7 +135,7 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(0, "import (")
 	w.Line(1, `"bufio"`)
 	w.Line(1, `"context"`)
-	if jsonImport {
+	if jsonImport || w.usage.pageCache {
 		w.Line(1, `"encoding/json"`)
 	}
 	w.Line(1, `"errors"`)
@@ -160,6 +167,9 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	w.Line(1, `"github.com/a-h/templ"`)
 	// Always needed: writeHTML renders datapages.Component values.
 	w.Line(1, `"github.com/romshark/datapages"`)
+	if w.usage.offlinePage {
+		w.Line(1, `"github.com/romshark/datapages/modules/offline"`)
+	}
 	w.Line(1, `"github.com/romshark/datapages/modules/csrf"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/messaging"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/sessions"`)
@@ -201,6 +211,276 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	}
 	w.Line(1, `"github.com/starfederation/datastar-go/datastar"`)
 	w.Line(0, ")")
+}
+
+// writePageCache emits the datapages.PageCacheWriter implementation and its
+// SSE, HTML and redirect delivery paths into the application package.
+func (w *Writer) writePageCache(m *model.App) {
+	w.Raw(`
+func newPageCache(
+	w http.ResponseWriter, s *Server, r *http.Request,
+	sse *datastar.ServerSentEventGenerator,
+) *pageCacheWriter {
+	// The response body depends on the version header Version reads.
+	// Without Vary a shared cache in front of the application can hand
+	// one client's page and its embedded cache write to another.
+	w.Header().Add("Vary", datapages.HeaderOfflineVersion)
+	return &pageCacheWriter{s: s, r: r, sse: sse}
+}
+
+// pageCacheBuf adapts a buffer to http.ResponseWriter. Cached bodies render
+// through the same writeHTML the live pages use.
+type pageCacheBuf struct {
+	b strings.Builder
+	h http.Header
+}
+
+func (p *pageCacheBuf) Header() http.Header {
+	if p.h == nil {
+		p.h = http.Header{}
+	}
+	return p.h
+}
+func (p *pageCacheBuf) Write(b []byte) (int, error) { return p.b.Write(b) }
+func (p *pageCacheBuf) WriteHeader(int)             {}
+`)
+	// One cached document serves every visitor, so pageCacheHead uses no session.
+	w.Raw("\nfunc (s *Server) pageCacheHead(r *http.Request) datapages.Head {\n\treturn ")
+	if m.GlobalHeadGenerator == nil {
+		w.Raw("nil\n}\n")
+	} else {
+		w.Raw("s.app.Head(r")
+		if m.GlobalHeadGenerator.InputSession {
+			w.Raw(", " + w.sessionType + "{}")
+		}
+		w.Raw(")\n}\n")
+	}
+	w.Raw(`
+type pageCacheWriter struct {
+	s        *Server
+	r        *http.Request
+	sse      *datastar.ServerSentEventGenerator // nil for GET handlers
+	clearAll bool
+	sets     []pageCachePendingSet
+	clears   []string
+}
+
+type pageCachePendingSet struct {
+	url     string
+	body    datapages.Component
+	version uint64
+	shim    bool
+}
+
+// Version reports the cached version for this request's URL. A missing or
+// malformed header becomes 0, which causes the handler to cache the page again.
+func (c *pageCacheWriter) Version() uint64 {
+	v, _ := strconv.ParseUint(
+		c.r.Header.Get(datapages.HeaderOfflineVersion), 10, 64,
+	)
+	return v
+}
+
+func (c *pageCacheWriter) Set(url string, body datapages.Component, version uint64) {
+	c.sets = append(c.sets, pageCachePendingSet{url: url, body: body, version: version})
+}
+
+func (c *pageCacheWriter) SetShim(
+	url string, body datapages.Component, version uint64,
+) {
+	c.sets = append(c.sets, pageCachePendingSet{
+		url: url, body: body, version: version, shim: true,
+	})
+}
+
+func (c *pageCacheWriter) Clear(url string) { c.clears = append(c.clears, url) }
+
+func (c *pageCacheWriter) ClearAll() { c.clearAll = true }
+
+type pageCacheEntry struct {
+	URL     string ` + "`json:\"url\"`" + `
+	HTML    string ` + "`json:\"html\"`" + `
+	Version uint64 ` + "`json:\"version\"`" + `
+	Shim    bool   ` + "`json:\"shim,omitempty\"`" + `
+}
+
+// shimHydrateScript adds a data-init element because Datastar has no imperative
+// request API. Datastar observes the element and requests the current URL. The
+// header lets the worker answer with its prefetched response or a new fetch.
+// The live response replaces the element. Removing it earlier could precede
+// Datastar's deferred module load.
+func withShimHydrate(body datapages.Component) datapages.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		if err := body.Render(ctx, w); err != nil {
+			return err
+		}
+		_, err := io.WriteString(w, shimHydrateScript)
+		return err
+	})
+}
+
+const shimHydrateScript = ` + "`" + `<script>(function(){
+var el=document.createElement("div");
+el.setAttribute("data-init","@get(window.location.pathname+window.location.search,{headers:{'X-Datapages-Shim-Hydrate':'1'}})");
+document.body.appendChild(el);
+})();</script>` + "`" + `
+
+func (c *pageCacheWriter) payload() (string, error) {
+	if !c.clearAll && len(c.sets) == 0 && len(c.clears) == 0 {
+		return "", nil
+	}
+	entries := make([]pageCacheEntry, 0, len(c.sets))
+	for _, s := range c.sets {
+		// A cached entry needs the same complete document as a live page.
+		var buf pageCacheBuf
+		body := s.body
+		if s.shim {
+			body = withShimHydrate(body)
+		}
+		if err := c.s.writeHTML(
+			&buf, c.r, `)
+	if m.Session != nil {
+		// One cached copy serves every visitor. Render it sessionless.
+		w.Raw(w.sessionType + "{}, ")
+	}
+	if m.GlobalHeadGenerator != nil {
+		w.Raw("c.s.pageCacheHead(c.r), ")
+	}
+	w.Raw(`nil, body, nil, nil,
+		); err != nil {
+			return "", fmt.Errorf("rendering page cache body for %s: %w", s.url, err)
+		}
+		entries = append(entries, pageCacheEntry{
+			URL: s.url, HTML: buf.b.String(), Version: s.version, Shim: s.shim,
+		})
+	}
+	msg := struct {
+		Type     string         ` + "`json:\"type\"`" + `
+		ClearAll bool           ` + "`json:\"clearAll\"`" + `
+		Sets     []pageCacheEntry ` + "`json:\"sets\"`" + `
+		Clears   []string       ` + "`json:\"clears\"`" + `
+	}{
+		Type:     "datapages-offline:apply",
+		ClearAll: c.clearAll,
+		Sets:     entries,
+		Clears:   c.clears,
+	}
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func pageCachePostToWorkerJS(payloadJSON string) string {
+	return "navigator.serviceWorker&&navigator.serviceWorker.ready.then(function(reg){" +
+		"var w=reg.active||navigator.serviceWorker.controller;if(w)w.postMessage(" +
+		payloadJSON + ");});"
+}
+
+func (c *pageCacheWriter) flush() error {
+	if c.sse == nil {
+		return nil
+	}
+	payload, err := c.payload()
+	if err != nil || payload == "" {
+		return err
+	}
+	return c.sse.ExecuteScript(pageCachePostToWorkerJS(payload))
+}
+
+// embedInto returns body followed by the queued writes as a <script>, which the
+// worker applies on load. The script must sit inside <body>: a shimmed page
+// updates only that element. Content after </body> would not reach the browser.
+//
+// The queue is complete by render time: the handler has already returned.
+// A payload that fails to render is omitted without failing the page response.
+func (c *pageCacheWriter) embedInto(body datapages.Component) datapages.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		if body != nil {
+			if err := body.Render(ctx, w); err != nil {
+				return err
+			}
+		}
+		payload, err := c.payload()
+		if err != nil {
+			c.s.LogErr("rendering page cache writes", err)
+			return nil
+		}
+		if payload == "" {
+			return nil
+		}
+		if _, err := io.WriteString(w, c.s.ScriptTagOpen(c.r)); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, pageCachePostToWorkerJS(payload)); err != nil {
+			return err
+		}
+		_, err = io.WriteString(w, "</script>")
+		return err
+	})
+}
+
+// redirectScript returns JavaScript that sends queued writes to the worker and
+// then navigates to target. Redirect actions return this JavaScript instead of
+// an SSE stream.
+//
+// Navigation waits for the worker to apply the writes because that worker also
+// serves the destination. The 500ms timeout supports older workers that do not
+// acknowledge the message.
+func (c *pageCacheWriter) redirectScript(target string) (string, error) {
+	tj, err := json.Marshal(target)
+	if err != nil {
+		return "", err
+	}
+	nav := "window.location=" + string(tj) + ";"
+
+	payload, err := c.payload()
+	if err != nil {
+		return "", err
+	}
+	if payload == "" {
+		return nav, nil
+	}
+
+	var b strings.Builder
+	b.WriteString("(function(){var go=function(){")
+	b.WriteString(nav)
+	b.WriteString("};if(!navigator.serviceWorker){go();return;}")
+	b.WriteString("var done=false,once=function(){if(!done){done=true;go();}};")
+	b.WriteString("navigator.serviceWorker.ready.then(function(reg){")
+	b.WriteString("var w=reg.active||navigator.serviceWorker.controller;")
+	b.WriteString("if(!w){once();return;}")
+	b.WriteString("var ch=new MessageChannel();ch.port1.onmessage=once;")
+	b.WriteString("w.postMessage(")
+	b.WriteString(payload)
+	b.WriteString(",[ch.port2]);},once);setTimeout(once,500);})();")
+	return b.String(), nil
+}
+`)
+}
+
+// writeWithOffline emits the WithOffline option when the application declares
+// PageOffline. The generated option passes that page's route to
+// [offline.WithServiceWorker].
+func (w *Writer) writeWithOffline(m *model.App) {
+	if m.PageOffline == nil {
+		return
+	}
+	w.Raw(`
+// WithOffline enables service worker offline support. The route of PageOffline is
+// supplied automatically; the worker precaches that page and serves it for
+// navigations to URLs with no cached copy while the browser is offline.
+//
+// The module's scripts use conf.CSPNonce when it is set. Otherwise, they use the
+// nonce from [datapages.WithCSPNonce].
+// [WithOffline] and [datapages.WithCSPNonce] work in either order.
+func WithOffline(conf offline.Config) datapages.ServerOption {
+	return offline.WithServiceWorker(`)
+	w.writeQuoted(routepattern.WithTrailingSlash(m.PageOffline.Route))
+	w.Raw(`, conf)
+}
+`)
 }
 
 func (w *Writer) hasAssets() bool { return w.assetsURLPrefix != "" }
@@ -288,6 +568,47 @@ func (s *Server) writeHTML(
 		WriteBodyAttrs:  writeBodyAttrs,
 		WriteBodySuffix: writeBodySuffix,
 	})
+}
+`)
+}
+
+// writeHTTPRedirectOffline emits httpRedirectOffline, the redirect helper used by
+// actions that also write the page cache, such as sign-in and sign-out. For
+// Datastar requests it sends the queued offline writes and navigation as a
+// single text/javascript response; otherwise it performs an ordinary redirect.
+func (w *Writer) writeHTTPRedirectOffline() {
+	w.Raw(`
+func httpRedirectOffline(
+	w http.ResponseWriter, r *http.Request,
+	redirect datapages.Redirect, oc *pageCacheWriter,
+) (exit bool) {
+	if redirect.URL == "" {
+		return false
+	}
+
+	if httpserve.IsDatastarRequest(r.Header) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		js, err := oc.redirectScript(redirect.URL)
+		if err != nil {
+			js = fmt.Sprintf("window.location = %q;", redirect.URL)
+		}
+		_, _ = w.Write([]byte(js))
+		return true
+	}
+
+	status := redirect.Status
+	switch status {
+	case http.StatusMovedPermanently,
+		http.StatusFound,
+		http.StatusSeeOther,
+		http.StatusTemporaryRedirect,
+		http.StatusPermanentRedirect:
+	default:
+		status = http.StatusFound
+	}
+
+	http.Redirect(w, r, redirect.URL, status)
+	return true
 }
 `)
 }
@@ -1248,22 +1569,32 @@ func (s *Server) httpErrIntern(
 `)
 }
 
-// writeRedirect emits the redirect of a handler. A handler holding an open
-// stream navigates through it, since the response head is long gone.
-func (w *Writer) writeRedirect(h *model.Handler) {
+// writeRedirect emits an HTTP or SSE redirect. viaPageCache selects the HTTP
+// response that sends cache writes before navigation.
+func (w *Writer) writeRedirect(h *model.Handler, viaPageCache bool) {
 	if h.OutputRedirect == nil {
 		return
 	}
 	ref := outputVar(h.OutputRedirect)
 	if h.InputSSE == nil {
-		w.Raw("\tif httpserve.Redirect(w, r, ")
-		w.Raw(ref)
-		w.Raw(") {\n")
+		if viaPageCache {
+			w.Raw("\tif httpRedirectOffline(w, r, ")
+			w.Raw(ref)
+			w.Raw(", pageCache) {\n")
+		} else {
+			w.Raw("\tif httpserve.Redirect(w, r, ")
+			w.Raw(ref)
+			w.Raw(") {\n")
+		}
 		w.Line(2, "return")
 		w.Line(1, "}")
 		return
 	}
 	w.Linef(1, "if %s.URL != \"\" {", ref)
+	// Flush before returning from this redirect path.
+	if pageCacheViaStream(h) {
+		w.Line(2, "_ = pageCache.flush()")
+	}
 	w.Linef(2, "if err := dpsse.New(sse).Redirect(%s.URL); err != nil {", ref)
 	w.Line(3, `s.httpErrIntern(w, r, sse, "redirecting", err)`)
 	w.Line(2, "}")
@@ -1333,6 +1664,10 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 		w.Line(0, "")
 	}
 
+	if h404.InputPageCache != nil {
+		w.Line(1, "pageCache := newPageCache(w, s, r, nil)")
+	}
+
 	w.writePageConstructorStmt("p", p, appPkg)
 	w.Line(0, "")
 
@@ -1383,7 +1718,9 @@ func (w *Writer) writeAppActionHandler(h *model.Handler, m *model.App, appPkg st
 	w.Rawf("func (s %s) %s%s(w http.ResponseWriter, r *http.Request) {\n",
 		handlerRecvType("App"), strings.ToUpper(h.HTTPMethod), h.Name)
 
-	if h.InputSSE != nil || h.InputSignals != nil {
+	// An action delivering its page cache writes over a stream answers with an
+	// event stream, which only a Datastar request can read.
+	if h.InputSSE != nil || h.InputSignals != nil || pageCacheViaStream(h) {
 		w.Line(1, "if !s.CheckDatastarRequest(w, r) {")
 		w.Line(2, "return")
 		w.Line(1, "}")
@@ -1463,14 +1800,26 @@ func (w *Writer) writeHandlerCallAndOutputs(
 	// Dispatch closures.
 	w.writeDispatchers(h, "dispatch", "r.Context()")
 
-	// SSE for actions that take it.
-	if h.InputSSE != nil && !isAppLevel {
+	// An app-level action cannot take datapages.SSE
+	// ([github.com/romshark/datapages/internal/parser.ErrSSEOnAppMethod]), but it
+	// still needs a stream when that is how its page cache writes are delivered.
+	viaStream := isAppLevel && pageCacheViaStream(h)
+	if viaStream {
 		w.Line(0, "")
 		w.Line(1, "sse := datastar.NewSSE(w, r, datastar.WithCompression())")
 	}
 
 	if isAppLevel {
-		w.writeDeferRecover(false, "App."+h.Name)
+		w.writeDeferRecover(viaStream, "App."+h.Name)
+	}
+
+	// Create an SSE-backed handle only when the response uses SSE delivery.
+	if h.InputPageCache != nil && isAppLevel {
+		if viaStream {
+			w.Line(1, "pageCache := newPageCache(w, s.Server, r, sse)")
+		} else {
+			w.Line(1, "pageCache := newPageCache(w, s.Server, r, nil)")
+		}
 	}
 
 	// Page constructor (for page actions).
@@ -1480,6 +1829,11 @@ func (w *Writer) writeHandlerCallAndOutputs(
 
 	// Build the actual method call.
 	w.writeMethodCall(p, h, m, isAppLevel)
+
+	// Send queued writes after a successful handler call.
+	if viaStream {
+		w.Line(1, "_ = pageCache.flush()")
+	}
 }
 
 func (w *Writer) writeMethodCall(
@@ -1498,13 +1852,20 @@ func (w *Writer) writeMethodCall(
 	}
 	methodName := h.HTTPMethod + h.Name
 
+	// The error path patches into the stream the handler answers on, which an
+	// app-level action has only when its page cache writes are delivered there.
+	sseRef := "nil"
+	if (h.InputSSE != nil && !isAppLevel) || (isAppLevel && pageCacheViaStream(h)) {
+		sseRef = "sse"
+	}
+
 	if len(outs) == 0 {
 		// Void return or only error.
 		if h.OutputErr != nil {
 			w.Raw("\tif err := ")
 			w.writeCallExpr(receiver, methodName, args)
 			w.Raw("; err != nil {\n")
-			w.Raw("\t\ts.httpErrIntern(w, r, nil, \"handling action ")
+			w.Raw("\t\ts.httpErrIntern(w, r, " + sseRef + ", \"handling action ")
 			w.Raw(actionOwnerName(p, isAppLevel))
 			w.Byte('.')
 			w.Raw(h.Name)
@@ -1525,10 +1886,6 @@ func (w *Writer) writeMethodCall(
 	w.Byte('\n')
 
 	if h.OutputErr != nil {
-		sseRef := "nil"
-		if h.InputSSE != nil && !isAppLevel {
-			sseRef = "sse"
-		}
 		w.Line(1, "if err != nil {")
 		w.Raw("\t\ts.httpErrIntern(w, r, ")
 		w.Raw(sseRef)
@@ -1552,7 +1909,7 @@ func (w *Writer) writeMethodCall(
 	w.writeSessionOutputs(h, actSessRebind)
 
 	// Redirect.
-	w.writeRedirect(h)
+	w.writeRedirect(h, pageCacheViaRedirect(h))
 
 	// Render body (if action returns datapages.Component).
 	if h.OutputBody != nil {
@@ -1580,7 +1937,7 @@ func (w *Writer) writeMethodCall(
 			w.Raw("nil")
 		}
 		w.Raw(", ")
-		w.Raw(outputVar(h.OutputBody.Output))
+		w.writePageCacheBodyArg(h)
 		w.Raw(", nil, nil,\n")
 		w.Line(1, "); err != nil {")
 		w.Raw("\t\ts.LogErr(\"rendering response of ")
@@ -1795,13 +2152,7 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	sessArg, _ := w.renderSessionVar(h, m, true, hasSess)
 
 	// Redirect.
-	if h.OutputRedirect != nil {
-		w.Raw("\tif httpserve.Redirect(w, r, ")
-		w.Raw(outputVar(h.OutputRedirect))
-		w.Raw(") {\n")
-		w.Line(2, "return")
-		w.Line(1, "}")
-	}
+	w.writeRedirect(h, h.InputPageCache != nil)
 
 	// Generic head.
 	if m.GlobalHeadGenerator != nil {
@@ -1823,6 +2174,11 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 	w.Line(1, "if err := s.writeHTML(")
 	w.Raw("\t\tw, r, ")
 	if m.Session != nil {
+		// PageOffline keeps the zero session whatever its handler read: the
+		// worker precaches a single copy and serves it to every visitor.
+		if p.PageSpecialization == model.PageTypeOffline {
+			sessArg = w.sessionType + "{}"
+		}
 		w.Raw(sessArg)
 		w.Raw(", ")
 	}
@@ -1830,8 +2186,14 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 		w.Raw("genericHead, ")
 	}
 	w.Raw(headArg)
+	w.Raw(", ")
+	if h.InputPageCache != nil {
+		w.Raw("pageCache.embedInto(body)")
+	} else {
+		w.Raw("body")
+	}
 	// No body attributes: this render serves no stream and reflects no signals.
-	w.Raw(", body, nil, nil,\n")
+	w.Raw(", nil, nil,\n")
 	w.Line(1, "); err != nil {")
 	w.Raw("\t\ts.LogErr(\"rendering ")
 	w.Raw(p.TypeName)

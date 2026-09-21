@@ -39,6 +39,7 @@ var skillNames = []string{
 	"datapages-actions",
 	"datapages-architecture",
 	"datapages-events",
+	"datapages-offline",
 	"datapages-pages",
 	"datapages-server",
 	"datapages-sessions",
