@@ -1351,7 +1351,8 @@ func TestInitInInitializedProject(t *testing.T) {
 
 	const mine = "# My own instructions\n"
 	require.NoError(t, os.WriteFile(
-		filepath.Join(dir, "AGENTS.md"), []byte(mine), 0o644))
+		filepath.Join(dir, "AGENTS.md"), []byte(mine), 0o644,
+	))
 
 	stdout = run()
 	require.Contains(t, stdout, "Kept the previous AGENTS.md as AGENTS.md.bak")
@@ -1365,32 +1366,43 @@ func TestInitInInitializedProject(t *testing.T) {
 	require.NotContains(t, stdout, "Kept the previous")
 }
 
-// TestInitPinsTheCLIInCI tests the install line of the scaffolded workflow.
-// go install hands the CLI a v-prefixed version and the line adds its own "v".
+// TestInitPinsTheCLIInCI tests that the scaffolded workflow installs the exact
+// Datapages version required by go.mod, including a source build's pseudo-version.
+// Another generator version can change committed output.
 func TestInitPinsTheCLIInCI(t *testing.T) {
-	t.Setenv("GOFLAGS", "-e")
+	for name, version := range map[string]string{
+		"release":           "v1.2.3",
+		"built from source": "v0.9.5-0.20260920120806-f9d471eadce2",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("GOFLAGS", "-e")
 
-	dir := t.TempDir()
-	projectDir := filepath.Join(dir, "pinned")
-	writeLocalWorkspace(t, projectDir, repoRootDir(t))
-	chdirTemp(t, dir)
+			dir := t.TempDir()
+			projectDir := filepath.Join(dir, "pinned")
+			writeLocalWorkspace(t, projectDir, repoRootDir(t))
+			chdirTemp(t, dir)
 
-	var stdout, stderr bytes.Buffer
-	code := cmd.Run(
-		context.Background(),
-		[]string{
-			"datapages", "init", "-n",
-			"--name", "pinned", "--module", "example.com/pinned",
-		},
-		nil, &stdout, &stderr,
-		"v1.2.3", "xxxxxxx", "2026-2-23",
-	)
-	require.Equal(t, 0, code, "stdout: %s\nstderr: %s", stdout.String(), stderr.String())
+			var stdout, stderr bytes.Buffer
+			code := cmd.Run(
+				context.Background(),
+				[]string{
+					"datapages", "init", "-n",
+					"--name", "pinned", "--module", "example.com/pinned",
+				},
+				nil, &stdout, &stderr,
+				version, "xxxxxxx", "2026-2-23",
+			)
+			require.Equal(t, 0, code,
+				"stdout: %s\nstderr: %s", stdout.String(), stderr.String())
 
-	data, err := os.ReadFile(filepath.Join(projectDir, ".github", "workflows", "ci.yml"))
-	require.NoError(t, err, "reading the scaffolded workflow")
-	require.Contains(t, string(data),
-		"go install github.com/romshark/datapages/cmd/datapages@v1.2.3")
+			data, err := os.ReadFile(
+				filepath.Join(projectDir, ".github", "workflows", "ci.yml"),
+			)
+			require.NoError(t, err, "reading the scaffolded workflow")
+			require.Contains(t, string(data),
+				"go install github.com/romshark/datapages/cmd/datapages@"+version)
+		})
+	}
 }
 
 // TestInitPinsTheDatapagesModule tests that init requires datapages at the

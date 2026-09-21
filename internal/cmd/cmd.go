@@ -18,7 +18,7 @@ import (
 	"golang.org/x/mod/semver"
 )
 
-// Run executes the datapages CLI with the given arguments. It returns the exit code.
+// Run executes the Datapages CLI and returns its exit code.
 func Run(
 	ctx context.Context,
 	args []string,
@@ -26,24 +26,21 @@ func Run(
 	stdout, stderr io.Writer,
 	version, commit, buildDate string,
 ) int {
-	// goreleaser passes the version without the "v", debug.ReadBuildInfo with it.
-	// Every consumer below adds the prefix itself, and a doubled one is no valid semver,
-	// which turns the go.mod guard and the bump into no-ops.
+	// GoReleaser omits the "v" prefix; debug.ReadBuildInfo includes it.
+	// The go.mod checks and requirement add the prefix. An untrimmed prefix
+	// creates an invalid "vv" version and skips checks and upgrades.
 	version = strings.TrimPrefix(version, "v")
 
-	// Only a released tag names something to compare go.mod against or to
-	// pin in a workflow. A local build reports a pseudo-version instead.
-	// The version command still prints what the build carries.
+	// Compatibility checks use releases only. `datapages version` still prints
+	// the full build version.
 	release := version
 	if v := "v" + release; release != "" && (!semver.IsValid(v) ||
 		module.IsPseudoVersion(v) || semver.Build(v) != "") {
 		release = ""
 	}
 
-	// What a new go.mod requires. See [pinDatapages].
-	//
-	// A pseudo-version works: it names a commit the proxy can fetch.
-	// A "+dirty" one does not: it names a working tree, not a commit.
+	// A pseudo-version names a commit [pinDatapages] can require. A "+dirty"
+	// suffix names a working tree, which the module proxy cannot fetch.
 	modVersion := ""
 	if v := "v" + version; version != "" &&
 		semver.IsValid(v) && semver.Build(v) == "" {
@@ -88,8 +85,8 @@ and type-safe href/action helpers, and provides a live-reloading dev server.`,
 	return 0
 }
 
-// findModuleDir walks up from the current working directory
-// looking for a go.mod file. Returns the directory containing go.mod.
+// findModuleDir returns the nearest directory at or above the working directory
+// that contains go.mod.
 func findModuleDir() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -109,8 +106,8 @@ func findModuleDir() (string, error) {
 	}
 }
 
-// findGitDir walks up from dir looking for a .git directory or file.
-// Returns the directory containing .git, or empty string if not found.
+// findGitDir returns the nearest directory at or above dir that contains .git.
+// It returns an empty string when none exists.
 func findGitDir(dir string) string {
 	for {
 		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
@@ -124,7 +121,6 @@ func findGitDir(dir string) string {
 	}
 }
 
-// readModulePath reads go.mod from moduleDir and returns the module path.
 func readModulePath(moduleDir string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(moduleDir, "go.mod"))
 	if err != nil {
@@ -140,9 +136,9 @@ func readModulePath(moduleDir string) (string, error) {
 	return f.Module.Mod.Path, nil
 }
 
-// checkGoModVersion returns an error if go.mod requires a newer version of
-// datapages than the running binary. It is a no-op for dev builds (empty version) or
-// when the dependency is missing or up to date.
+// checkGoModVersion reports when go.mod requires a newer Datapages release
+// than the running CLI. It accepts development builds and modules without a
+// Datapages requirement.
 func checkGoModVersion(moduleDir, version string) error {
 	if version == "" {
 		return nil
@@ -177,10 +173,8 @@ func checkGoModVersion(moduleDir, version string) error {
 	return nil
 }
 
-// upgradeGoMod updates the datapages require in go.mod to match the running
-// version when the running version is strictly newer. Returns an error when
-// go.mod requires a newer version than the running binary (the user should upgrade).
-// It is a no-op for dev builds (empty version).
+// upgradeGoMod raises the Datapages requirement to the running CLI version
+// when the CLI is newer. It rejects an older CLI and ignores development builds.
 func upgradeGoMod(moduleDir, version string) error {
 	if err := checkGoModVersion(moduleDir, version); err != nil {
 		return err
@@ -203,7 +197,7 @@ func upgradeGoMod(moduleDir, version string) error {
 			continue
 		}
 		if semver.Compare(running, req.Mod.Version) <= 0 {
-			return nil // already up to date
+			return nil
 		}
 		if err := f.AddRequire(req.Mod.Path, running); err != nil {
 			return fmt.Errorf("updating go.mod: %w", err)
@@ -221,8 +215,8 @@ func upgradeGoMod(moduleDir, version string) error {
 	return nil
 }
 
-// checkCmdPackage checks the package at dir. Returns true if the directory exists.
-// Returns an error if it exists but contains a non-main package.
+// checkCmdPackage reports whether dir contains a Go main package.
+// It returns an error when the Go files declare another package.
 func checkCmdPackage(dir string) (exists bool, _ error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -249,6 +243,6 @@ func checkCmdPackage(dir string) (exists bool, _ error) {
 		}
 		return true, nil
 	}
-	// Directory exists but has no Go files — treat as non-existent.
+	// A cmd directory without Go files remains available for initialization.
 	return false, nil
 }
