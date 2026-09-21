@@ -5,14 +5,14 @@
 package action
 
 import (
+	"log/slog"
 	"strings"
 
 	"github.com/romshark/datapages/runtime/actionexpr"
 )
 
-// Option names the values accepted by generated action methods.
-// [ContentType], [Retry], and [RequestCancellation] name values accepted by
-// option helpers.
+// Option configures a generated action call. [ContentType], [Retry],
+// and [RequestCancellation] constrain values accepted by typed helpers.
 type (
 	Option              = actionexpr.Option
 	ContentType         = actionexpr.ContentType
@@ -21,14 +21,13 @@ type (
 )
 
 const (
-	// ContentTypeJSON sends all signals in a JSON request (default).
+	// ContentTypeJSON sends signals as JSON and is the default.
 	ContentTypeJSON = actionexpr.ContentTypeJSON
-	// ContentTypeForm looks for the closest form to the element,
-	// performs validation on form elements, and sends them as a form request.
-	// No signals are sent. Use WithSelector to target a specific form.
+	// ContentTypeForm validates and sends the closest form without signals.
+	// [WithSelector] selects another form.
 	ContentTypeForm = actionexpr.ContentTypeForm
 
-	// RetryAuto retries on network errors only (default).
+	// RetryAuto retries network errors only and is the default.
 	RetryAuto = actionexpr.RetryAuto
 	// RetryError retries on 4xx and 5xx responses.
 	RetryError = actionexpr.RetryError
@@ -37,132 +36,134 @@ const (
 	// RetryNever disables retries.
 	RetryNever = actionexpr.RetryNever
 
-	// RequestCancellationAuto cancels existing requests on the same element (default).
+	// RequestCancellationAuto cancels existing requests on
+	// the same element and is the default.
 	RequestCancellationAuto = actionexpr.RequestCancellationAuto
-	// RequestCancellationCleanup cancels existing requests on the same element
-	// and on element or attribute cleanup.
+	// RequestCancellationCleanup cancels existing requests on
+	// the same element and on element or attribute cleanup.
 	RequestCancellationCleanup = actionexpr.RequestCancellationCleanup
 	// RequestCancellationDisabled allows concurrent requests.
 	RequestCancellationDisabled = actionexpr.RequestCancellationDisabled
 )
 
-// WithOption creates an action option key-value pair.
-// The key is an option name and the value is a raw JavaScript expression.
-//
-// WARNING: Use WithOption only when no typed helper is available.
-// Typed helpers provide compile-time safety:
-//   - WithContentType
-//   - WithFilterSignals
-//   - WithHeaders
-//   - WithOpenWhenHidden
-//   - WithPayload
-//   - WithSelector
-//   - WithRetry
-//   - WithRetryInterval
-//   - WithRetryScaler
-//   - WithRetryMaxWaitMs
-//   - WithRetryMaxCount
-//   - WithRequestCancellation
-//   - WithRequestCancellationController
+// reporter keeps logging and metrics within this generated application.
+// A runtime variable would make servers in one process overwrite each other.
+var reporter actionexpr.Reporter
+
+// SetLogger sets the logger for invalid options. A nil logger uses
+// [slog.Default]. SetLogger is safe for concurrent use.
+func SetLogger(l *slog.Logger) { reporter.SetLogger(l) }
+
+// Metrics counts options omitted because their values are invalid.
+type Metrics = actionexpr.Metrics
+
+// SetMetrics sets the counter for omitted options. A Prometheus-enabled server
+// installs it during initialization. SetMetrics is safe for concurrent use.
+func SetMetrics(m Metrics) { reporter.SetMetrics(m) }
+
+// WithOption adds key with a raw JavaScript value. It performs no validation
+// or escaping. Use a typed helper when one is available.
 //
 // See https://data-star.dev/reference/actions#options
+//
+// Use WithOption only when no typed helper is available.
+// Typed helpers provide compile-time safety:
+//   - [WithContentType]
+//   - [WithFilterSignals]
+//   - [WithHeaders]
+//   - [WithOpenWhenHidden]
+//   - [WithPayload]
+//   - [WithSelector]
+//   - [WithRetry]
+//   - [WithRetryInterval]
+//   - [WithRetryScaler]
+//   - [WithRetryMaxWaitMs]
+//   - [WithRetryMaxCount]
+//   - [WithRequestCancellation]
+//   - [WithRequestCancellationController]
 func WithOption(key, value string) Option {
 	return actionexpr.WithOption(key, value)
 }
 
-// WithBefore prepends a JavaScript expression before the action call.
-// Multiple before expressions are joined with "; " separators.
+// WithBefore inserts a JavaScript expression before the action call.
+// Multiple expressions run in option order, separated by "; ".
 func WithBefore(expr string) Option { return actionexpr.WithBefore(expr) }
 
-// WithAfter appends a JavaScript expression after the action call.
-// Multiple after expressions are joined with "; " separators.
+// WithAfter inserts a JavaScript expression after the action call.
+// Multiple expressions run in option order, separated by "; ".
 func WithAfter(expr string) Option { return actionexpr.WithAfter(expr) }
 
-// WithContentType creates an action option that controls the content type:
-//   - ContentTypeJSON (default)
-//   - ContentTypeForm
+// WithContentType sets the request encoding.
+// An invalid value is omitted and reported.
 func WithContentType(ct ContentType) Option {
-	return actionexpr.WithContentType(ct)
+	return actionexpr.WithContentType(&reporter, ct)
 }
 
-// WithFilterSignals creates an action option with a regex pattern to match
-// signal paths to include. If exclude is non-empty, it specifies a regex
-// pattern to exclude. Defaults to include all (/.*/), exclude signals
-// with a _ prefix (/(^_|\._).*/).
+// WithFilterSignals includes signal paths matching include and excludes paths
+// matching exclude. Empty arguments use Datastar's defaults. A line terminator
+// makes the option invalid; an invalid option is omitted and reported.
 //
 // See https://data-star.dev/reference/actions#options
 func WithFilterSignals(include, exclude string) Option {
-	return actionexpr.WithFilterSignals(include, exclude)
+	return actionexpr.WithFilterSignals(&reporter, include, exclude)
 }
 
-// WithHeaders creates an action option with HTTP headers to send with the request.
+// WithHeaders sets request headers. An empty map emits no option.
 func WithHeaders(headers map[string]string) Option {
 	return actionexpr.WithHeaders(headers)
 }
 
-// WithOpenWhenHidden creates an action option that controls whether to keep
-// the connection open when the page is hidden. Useful for dashboards but can
-// cause a drain on battery life. Defaults to false for get requests,
-// and true for all other HTTP methods.
+// WithOpenWhenHidden controls whether the request remains open while the
+// page is hidden. Datastar defaults to false for GET and true for other methods.
 func WithOpenWhenHidden(open bool) Option {
 	return actionexpr.WithOpenWhenHidden(open)
 }
 
-// WithPayload creates an action option with a JavaScript expression
-// for the request payload.
+// WithPayload sets the request payload to the raw JavaScript expression expr.
 func WithPayload(expr string) Option { return actionexpr.WithPayload(expr) }
 
-// WithSelector creates an action option that specifies a CSS selector for
-// the form to send when ContentType is ContentTypeForm.
-// If not specified, the closest form to the element is used.
+// WithSelector selects the form sent by [ContentTypeForm].
+// Without this option, Datastar uses the closest form.
 func WithSelector(selector string) Option {
 	return actionexpr.WithSelector(selector)
 }
 
-// WithRetry creates an action option that determines when to retry requests:
-//   - RetryAuto (default)
-//   - RetryError
-//   - RetryAlways
-//   - RetryNever
-func WithRetry(r Retry) Option { return actionexpr.WithRetry(r) }
+// WithRetry sets the retry policy. An invalid value is omitted and reported.
+func WithRetry(r Retry) Option { return actionexpr.WithRetry(&reporter, r) }
 
-// WithRetryInterval creates an action option for the retry interval in milliseconds.
-// Defaults to 1000 (one second).
+// WithRetryInterval sets the initial retry interval in milliseconds.
+// The default is 1000. A negative value is omitted and reported.
 func WithRetryInterval(ms int) Option {
-	return actionexpr.WithRetryInterval(ms)
+	return actionexpr.WithRetryInterval(&reporter, ms)
 }
 
-// WithRetryScaler creates an action option for the numeric multiplier
-// applied to scale retry wait times. Defaults to 2.
+// WithRetryScaler sets the multiplier for successive retry intervals.
+// The default is 2. An infinite or NaN value is omitted and reported.
 func WithRetryScaler(multiplier float64) Option {
-	return actionexpr.WithRetryScaler(multiplier)
+	return actionexpr.WithRetryScaler(&reporter, multiplier)
 }
 
-// WithRetryMaxWaitMs creates an action option for the maximum allowable wait time
-// in milliseconds between retries. Defaults to 30000 (30 seconds).
+// WithRetryMaxWaitMs sets the maximum interval between retries in milliseconds.
+// The default is 30_000. A negative value is omitted and reported.
 func WithRetryMaxWaitMs(ms int) Option {
-	return actionexpr.WithRetryMaxWaitMs(ms)
+	return actionexpr.WithRetryMaxWaitMs(&reporter, ms)
 }
 
-// WithRetryMaxCount creates an action option for the maximum number
-// of retry attempts. Defaults to 10.
+// WithRetryMaxCount sets the maximum number of retries.
+// The default is 10. A negative value is omitted and reported.
 func WithRetryMaxCount(count int) Option {
-	return actionexpr.WithRetryMaxCount(count)
+	return actionexpr.WithRetryMaxCount(&reporter, count)
 }
 
-// WithRequestCancellation creates an action option that controls
-// request cancellation behavior:
-//   - RequestCancellationAuto (default)
-//   - RequestCancellationCleanup
-//   - RequestCancellationDisabled
+// WithRequestCancellation sets the cancellation policy.
+// An invalid value is omitted and reported.
 func WithRequestCancellation(rc RequestCancellation) Option {
-	return actionexpr.WithRequestCancellation(rc)
+	return actionexpr.WithRequestCancellation(&reporter, rc)
 }
 
-// WithRequestCancellationController creates an action option that uses
-// a JavaScript AbortController expression for custom request cancellation.
-// The expression should reference a signal holding an AbortController instance,
-// for example "$controller".
+// WithRequestCancellationController sets request cancellation to the raw
+// JavaScript AbortController expression expr. It commonly names a signal
+// such as "$controller".
 //
 // See https://data-star.dev/reference/actions#request-cancellation
 func WithRequestCancellationController(expr string) Option {

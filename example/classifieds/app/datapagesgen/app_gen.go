@@ -22,7 +22,6 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
-	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/auth"
 	"github.com/romshark/datapages/runtime/htmlattr"
 	"github.com/romshark/datapages/runtime/httpread"
@@ -32,6 +31,7 @@ import (
 	"github.com/romshark/datapages/runtime/subject"
 
 	dpapp "github.com/romshark/datapages/example/classifieds/app"
+	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/action"
 	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/assets"
 	"github.com/romshark/datapages/example/classifieds/app/datapagesgen/href"
 
@@ -266,8 +266,8 @@ func (s *Server) Init(
 
 	s.Build()
 	href.SetLogger(s.SampledLogger())
-	actionexpr.SetLogger(s.SampledLogger())
-	actionexpr.SetMetrics(prom.ActionMetrics{})
+	action.SetLogger(s.SampledLogger())
+	action.SetMetrics(prom.ActionMetrics{})
 
 	return nil
 }

@@ -35,6 +35,7 @@ func TestAppFixedImportsCoverTheHeader(t *testing.T) {
 		genImport:       genPath,
 		appPkgQual:      appPkgQual,
 	}
+	w.usage.actions = true
 	w.usage.stream = true
 	w.usage.stateRuntime = true
 	w.writeAppHeader("datapagesgen", appPath, true)
@@ -57,7 +58,7 @@ func TestAppFixedImportsCoverTheHeader(t *testing.T) {
 			require.Equal(t, appPkgQual, ident,
 				"the app package is imported under its alias")
 			continue
-		case genPath + "/assets", genPath + "/href":
+		case genPath + "/action", genPath + "/assets", genPath + "/href":
 			require.Contains(t, appGenSubpkgIdents, ident)
 			continue
 		}

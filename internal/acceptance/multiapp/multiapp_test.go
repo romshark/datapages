@@ -8,6 +8,8 @@
 package acceptance_test
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http"
 	"testing"
 
@@ -17,8 +19,10 @@ import (
 	"github.com/romshark/datapages/internal/acceptance/client"
 	adminapp "github.com/romshark/datapages/internal/acceptance/multiapp/app/admin"
 	admingen "github.com/romshark/datapages/internal/acceptance/multiapp/app/admin/datapagesgen"
+	adminaction "github.com/romshark/datapages/internal/acceptance/multiapp/app/admin/datapagesgen/action"
 	frontendapp "github.com/romshark/datapages/internal/acceptance/multiapp/app/frontend"
 	frontendgen "github.com/romshark/datapages/internal/acceptance/multiapp/app/frontend/datapagesgen"
+	frontendaction "github.com/romshark/datapages/internal/acceptance/multiapp/app/frontend/datapagesgen/action"
 	serveadmin "github.com/romshark/datapages/internal/acceptance/multiapp/serve/admin"
 	servefrontend "github.com/romshark/datapages/internal/acceptance/multiapp/serve/frontend"
 	"github.com/romshark/datapages/modules/messaging"
@@ -211,4 +215,26 @@ func TestSharedEventReachesBothApps(t *testing.T) {
 	require.True(t, fs.Saw(`<div id="out">private</div>`))
 	require.True(t, as.Never(`private`),
 		"the admin stream received an event only frontend declares")
+}
+
+// TestActionLoggerIsPerApplication tests the logger a dropped action option is
+// reported to. Each application has its own, which the Init of the other
+// server must not replace.
+//
+// It must not use t.Parallel(): both Init calls write the logger the action
+// package of their own application holds.
+func TestActionLoggerIsPerApplication(t *testing.T) {
+	var frontendLog, adminLog bytes.Buffer
+	mustNewFrontend(t, &frontendapp.App{}, broker(),
+		datapages.WithLogger(slog.New(slog.NewTextHandler(&frontendLog, nil))))
+	mustNewAdmin(t, &adminapp.App{}, broker(),
+		datapages.WithLogger(slog.New(slog.NewTextHandler(&adminLog, nil))))
+
+	frontendaction.WithRetryInterval(-1)
+	adminaction.WithRetryMaxCount(-1)
+
+	require.Contains(t, frontendLog.String(), "WithRetryInterval")
+	require.NotContains(t, frontendLog.String(), "WithRetryMaxCount")
+	require.Contains(t, adminLog.String(), "WithRetryMaxCount")
+	require.NotContains(t, adminLog.String(), "WithRetryInterval")
 }

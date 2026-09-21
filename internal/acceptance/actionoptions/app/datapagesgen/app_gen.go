@@ -12,10 +12,10 @@ import (
 	"github.com/romshark/datapages"
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/sessions"
-	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpserve"
 
 	dpapp "github.com/romshark/datapages/internal/acceptance/actionoptions/app"
+	"github.com/romshark/datapages/internal/acceptance/actionoptions/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/actionoptions/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -131,7 +131,7 @@ func (s *Server) Init(
 
 	s.Build()
 	href.SetLogger(s.SampledLogger())
-	actionexpr.SetLogger(s.SampledLogger())
+	action.SetLogger(s.SampledLogger())
 
 	return nil
 }

@@ -16,21 +16,6 @@ import (
 	"sync/atomic"
 )
 
-var logger atomic.Pointer[slog.Logger]
-
-func init() { logger.Store(slog.Default()) }
-
-// SetLogger sets the logger used to report an invalid option value.
-// Passing nil resets to the default logger. It is safe for concurrent use.
-func SetLogger(l *slog.Logger) {
-	if l == nil {
-		l = slog.Default()
-	}
-	logger.Store(l)
-}
-
-func getLogger() *slog.Logger { return logger.Load() }
-
 // Metrics counts what this package refuses. A nil Metrics counts nothing.
 type Metrics interface {
 	// OptionDropped counts an option left out of the expression.
@@ -41,15 +26,40 @@ type Metrics interface {
 // metricsHolder carries the interface, which atomic.Pointer cannot.
 type metricsHolder struct{ m Metrics }
 
-var metrics atomic.Pointer[metricsHolder]
+// Reporter is where an option value the expression cannot carry is reported.
+// The generated action package holds one per application and passes it in.
+// A variable of this package would be shared by every server of the process:
+// the last one to install a logger would own the logger of all of them.
+//
+// The zero Reporter and a nil *Reporter log to [slog.Default] and count nothing.
+// It's safe for concurrent use.
+type Reporter struct {
+	logger  atomic.Pointer[slog.Logger]
+	metrics atomic.Pointer[metricsHolder]
+}
+
+// SetLogger sets the logger used to report an invalid option value.
+// Passing nil resets to the default logger.
+func (r *Reporter) SetLogger(l *slog.Logger) { r.logger.Store(l) }
 
 // SetMetrics sets what counts a dropped option.
 // The server installs it when it is built with Prometheus.
-// It's safe for concurrent use.
-func SetMetrics(m Metrics) { metrics.Store(&metricsHolder{m: m}) }
+func (r *Reporter) SetMetrics(m Metrics) { r.metrics.Store(&metricsHolder{m: m}) }
 
-func getMetrics() Metrics {
-	if h := metrics.Load(); h != nil {
+func (r *Reporter) getLogger() *slog.Logger {
+	if r != nil {
+		if l := r.logger.Load(); l != nil {
+			return l
+		}
+	}
+	return slog.Default()
+}
+
+func (r *Reporter) getMetrics() Metrics {
+	if r == nil {
+		return nil
+	}
+	if h := r.metrics.Load(); h != nil {
 		return h.m
 	}
 	return nil
@@ -119,11 +129,11 @@ const (
 //
 // Any other value is dropped and warn-logged. The constants carry their own quotes,
 // so a value converted by hand renders as a bare identifier and throws.
-func WithContentType(ct ContentType) Option {
+func WithContentType(r *Reporter, ct ContentType) Option {
 	switch ct {
 	case ContentTypeJSON, ContentTypeForm:
 	default:
-		warnDropped("WithContentType", string(ct))
+		r.warnDropped("WithContentType", string(ct))
 		return Option{}
 	}
 	return Option{key: "contentType", value: string(ct)}
@@ -138,9 +148,9 @@ func WithContentType(ct ContentType) Option {
 // since no regex literal can hold one. An unescaped "/" is escaped.
 //
 // See https://data-star.dev/reference/actions#options
-func WithFilterSignals(include, exclude string) Option {
+func WithFilterSignals(r *Reporter, include, exclude string) Option {
 	if hasLineTerminator(include) || hasLineTerminator(exclude) {
-		warnDropped("WithFilterSignals", include+" "+exclude)
+		r.warnDropped("WithFilterSignals", include+" "+exclude)
 		return Option{}
 	}
 	if include == "" {
@@ -240,21 +250,21 @@ const (
 //   - RetryError
 //   - RetryAlways
 //   - RetryNever
-func WithRetry(r Retry) Option {
-	switch r {
+func WithRetry(r *Reporter, retry Retry) Option {
+	switch retry {
 	case RetryAuto, RetryError, RetryAlways, RetryNever:
 	default:
-		warnDropped("WithRetry", string(r))
+		r.warnDropped("WithRetry", string(retry))
 		return Option{}
 	}
-	return Option{key: "retry", value: string(r)}
+	return Option{key: "retry", value: string(retry)}
 }
 
 // WithRetryInterval creates an action option for the retry interval in milliseconds.
 // Defaults to 1000 (one second). A negative interval is dropped and warn-logged.
-func WithRetryInterval(ms int) Option {
+func WithRetryInterval(r *Reporter, ms int) Option {
 	if ms < 0 {
-		warnDropped("WithRetryInterval", strconv.Itoa(ms))
+		r.warnDropped("WithRetryInterval", strconv.Itoa(ms))
 		return Option{}
 	}
 	return Option{key: "retryInterval", value: strconv.Itoa(ms)}
@@ -265,9 +275,9 @@ func WithRetryInterval(ms int) Option {
 //
 // An infinite or NaN multiplier is dropped and warn-logged.
 // JavaScript has no Inf, and the whole expression throws.
-func WithRetryScaler(multiplier float64) Option {
+func WithRetryScaler(r *Reporter, multiplier float64) Option {
 	if math.IsInf(multiplier, 0) || math.IsNaN(multiplier) {
-		warnDropped("WithRetryScaler",
+		r.warnDropped("WithRetryScaler",
 			strconv.FormatFloat(multiplier, 'f', -1, 64))
 		return Option{}
 	}
@@ -280,9 +290,9 @@ func WithRetryScaler(multiplier float64) Option {
 // WithRetryMaxWaitMs creates an action option for the maximum allowable wait time
 // in milliseconds between retries. Defaults to 30000 (30 seconds).
 // A negative wait is dropped and warn-logged.
-func WithRetryMaxWaitMs(ms int) Option {
+func WithRetryMaxWaitMs(r *Reporter, ms int) Option {
 	if ms < 0 {
-		warnDropped("WithRetryMaxWaitMs", strconv.Itoa(ms))
+		r.warnDropped("WithRetryMaxWaitMs", strconv.Itoa(ms))
 		return Option{}
 	}
 	return Option{key: "retryMaxWaitMs", value: strconv.Itoa(ms)}
@@ -290,9 +300,9 @@ func WithRetryMaxWaitMs(ms int) Option {
 
 // WithRetryMaxCount creates an action option for the maximum number of retry attempts.
 // Defaults to 10. A negative count is dropped and warn-logged.
-func WithRetryMaxCount(count int) Option {
+func WithRetryMaxCount(r *Reporter, count int) Option {
 	if count < 0 {
-		warnDropped("WithRetryMaxCount", strconv.Itoa(count))
+		r.warnDropped("WithRetryMaxCount", strconv.Itoa(count))
 		return Option{}
 	}
 	return Option{key: "retryMaxCount", value: strconv.Itoa(count)}
@@ -318,13 +328,13 @@ const (
 //   - RequestCancellationAuto (default)
 //   - RequestCancellationCleanup
 //   - RequestCancellationDisabled
-func WithRequestCancellation(rc RequestCancellation) Option {
+func WithRequestCancellation(r *Reporter, rc RequestCancellation) Option {
 	switch rc {
 	case RequestCancellationAuto,
 		RequestCancellationCleanup,
 		RequestCancellationDisabled:
 	default:
-		warnDropped("WithRequestCancellation", string(rc))
+		r.warnDropped("WithRequestCancellation", string(rc))
 		return Option{}
 	}
 	return Option{key: "requestCancellation", value: string(rc)}
@@ -354,11 +364,11 @@ var jsStringEscaper = strings.NewReplacer(
 //
 // An option is built on every render, so the logger the server installs
 // throttles the warning to one per interval.
-func warnDropped(fn, value string) {
-	if m := getMetrics(); m != nil {
+func (r *Reporter) warnDropped(fn, value string) {
+	if m := r.getMetrics(); m != nil {
 		m.OptionDropped(fn)
 	}
-	getLogger().Warn("dropping an action option with an invalid value",
+	r.getLogger().Warn("dropping an action option with an invalid value",
 		slog.String("option", fn),
 		slog.String("value", value))
 }

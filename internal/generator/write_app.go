@@ -161,7 +161,6 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	// Always needed: writeHTML renders datapages.Component values.
 	w.Line(1, `"github.com/romshark/datapages"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/csrf"`)
-	w.Line(1, `"github.com/romshark/datapages/runtime/actionexpr"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/messaging"`)
 	w.Line(1, `"github.com/romshark/datapages/modules/sessions"`)
 	w.Line(1, `"github.com/romshark/datapages/runtime/auth"`)
@@ -186,6 +185,11 @@ func (w *Writer) writeAppHeader(pkgName string, appPkgPath string, jsonImport bo
 	if w.genImport != "" {
 		w.Byte('\t')
 		w.writeQuoted(w.genImport + "/href")
+		w.Byte('\n')
+	}
+	if w.usage.actions && w.genImport != "" {
+		w.Byte('\t')
+		w.writeQuoted(w.genImport + "/action")
 		w.Byte('\n')
 	}
 	w.writeExtraImports(w.imports.Extra())
@@ -523,10 +527,14 @@ func (s *Server) Init(
 	w.Raw(`
 	s.Build()
 	href.SetLogger(s.SampledLogger())
-	actionexpr.SetLogger(s.SampledLogger())
 `)
-	if w.prometheus {
-		w.Raw("\tactionexpr.SetMetrics(prom.ActionMetrics{})\n")
+	// The action package holds the reporter of this application alone:
+	// one in the runtime would be shared by every server of the process.
+	if w.usage.actions {
+		w.Raw("\taction.SetLogger(s.SampledLogger())\n")
+		if w.prometheus {
+			w.Raw("\taction.SetMetrics(prom.ActionMetrics{})\n")
+		}
 	}
 	w.Raw(`
 	return nil
