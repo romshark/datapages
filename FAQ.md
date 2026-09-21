@@ -20,6 +20,7 @@ If the only reason you're going for a JavaScript SPA is a larger ecosystem and f
 - [Morpheus](https://romshark.github.io/morpheus/) (works best with fat-morph)
 - [Basecoat](https://basecoatui.com/components/button/)
 - [WebAwesome](https://webawesome.com/)
+- [Datastar Rocket](https://data-star.dev/reference/rocket)
 - ..others? (PRs welcome!)
 
 ## Why templ instead of `html/template`?
