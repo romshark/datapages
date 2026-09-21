@@ -40,35 +40,37 @@ Datapages parses your app source packages, lints them, reports errors, and gener
 
 ## Getting Started
 
-### Install
+### Install the CLI
 
 ```sh
 go install github.com/romshark/datapages/cmd/datapages@latest
 ```
 
-### Initialize New Project
+### Initialize a Project
 
 ```sh
 datapages init
 ```
 
-### AI Coding Agent Instructions
+`datapages init` prompts for missing project settings, writes the scaffold, resolves dependencies, and generates the application code.
 
-`datapages init` also writes the instructions AI coding agents read:
+### Agent Instructions
 
-| path | purpose |
+By default, `datapages init` writes these agent instructions and skills:
+
+| Path | Purpose |
 | ---- | ------- |
-| `AGENTS.md` | project instructions for agents that follow the [AGENTS.md](https://agents.md) convention |
-| `CLAUDE.md` | points Claude Code to `AGENTS.md` |
-| `GEMINI.md` | points Gemini CLI to `AGENTS.md` |
-| `.github/copilot-instructions.md` | points GitHub Copilot to `AGENTS.md` |
-| `.cursor/rules/datapages.mdc` | points Cursor to `AGENTS.md` |
-| `.agents/skills/*/SKILL.md` | task guides for coding agents |
-| `.claude/skills/*/SKILL.md` | the same task guides for Claude Code |
+| `AGENTS.md` | Project instructions for agents that follow the [AGENTS.md](https://agents.md) convention |
+| `CLAUDE.md` | Directs Claude Code to `AGENTS.md` |
+| `GEMINI.md` | Directs Gemini CLI to `AGENTS.md` |
+| `.github/copilot-instructions.md` | Directs GitHub Copilot to `AGENTS.md` |
+| `.cursor/rules/datapages.mdc` | Directs Cursor to `AGENTS.md` |
+| `.agents/skills/*/SKILL.md` | Task-specific Datapages guides |
+| `.claude/skills/*/SKILL.md` | The same guides for Claude Code |
 
-The guides cover architecture decisions, Datapages rules, pages, actions, events, per-tab state, sessions, server setup, templates and Datastar. `datapages init` writes the same skills to both directories. Claude Code reads `.claude/skills`; `AGENTS.md` points other agents to `.agents/skills`. Manual edits do not sync between the directories. Edit both copies when you use both.
+The skills cover Datapages architecture, rules, pages, actions, events, per-tab state, sessions, server setup, templates, and Datastar. Claude Code reads `.claude/skills`; `AGENTS.md` directs other agents to `.agents/skills`. `.agents/skills` and `.claude/skills` do not sync after generation. Edit both copies when both are in use.
 
-Edit the files as needed. Run `datapages init -n` in an existing project to install the CLI's current instructions. If a file differs, init saves the prior copy beside it with a `.bak` suffix and adds a number if that name exists. Pass `--no-ai-skills` to skip agent instructions.
+Run `datapages init -n` in an existing project to update these files from the installed CLI. Before replacing a changed file, init copies the previous file beside it with a `.bak` suffix. It adds a number when that backup name exists. Pass `--no-ai-skills` to skip these instructions and skills.
 
 ## CLI Commands
 
