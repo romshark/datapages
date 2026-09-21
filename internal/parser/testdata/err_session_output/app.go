@@ -60,3 +60,35 @@ func (PageIndex) POSTCloseWithSSE(
 	_ = sse
 	return false, nil
 }
+
+/* ErrSessionOutputErrorPage: newSession and closeSession on the 404 page */
+
+// PageError404 is /not-found
+type PageError404 struct{ App *App }
+
+func (PageError404) GET(
+	r *http.Request,
+) (
+	body datapages.Component,
+	closeSession datapages.CloseSession,
+	newSession datapages.NewSession[struct{}],
+	err error,
+) {
+	return body, true, newSession, err
+}
+
+/* ErrSessionOutputErrorPage: newSession and closeSession on the 500 page */
+
+// PageError500 is /server-error
+type PageError500 struct{ App *App }
+
+func (PageError500) GET(
+	r *http.Request,
+) (
+	body datapages.Component,
+	closeSession datapages.CloseSession,
+	newSession datapages.NewSession[struct{}],
+	err error,
+) {
+	return body, true, newSession, err
+}

@@ -1713,10 +1713,9 @@ func TestParse_SessionOutput(t *testing.T) {
 		require.Nil(signOut.OutputNewSession)
 	}
 
-	// PageSignOut, PageLeave and PageError404 - GET with closeSession,
-	// with and without a session parameter and on the 404 page,
-	// which renders through render404.
-	for _, name := range []string{"PageSignOut", "PageLeave", "PageError404"} {
+	// PageSignOut and PageLeave - GET with closeSession,
+	// with and without a session parameter.
+	for _, name := range []string{"PageSignOut", "PageLeave"} {
 		p := findPage(app, name)
 		require.NotNil(p, name)
 		require.NotNil(p.GET, name)
@@ -1725,12 +1724,12 @@ func TestParse_SessionOutput(t *testing.T) {
 	}
 	require.NotNil(findPage(app, "PageSignOut").GET.InputSession)
 	require.Nil(findPage(app, "PageLeave").GET.InputSession)
-	require.NotNil(findPage(app, "PageError404").GET.OutputNewSession)
 }
 
-// TestParse_ErrSessionOutput tests a session output on a handler that also takes an SSE.
-// The cookie travels in the response headers, which are already sent by
-// the time the stream writes.
+// TestParse_ErrSessionOutput tests where a session output is refused: on a
+// handler that also takes an SSE, whose response headers are gone by the time
+// the stream writes, and on the GET of either error page, which answers a
+// failed request with the same method it serves its own route with.
 func TestParse_ErrSessionOutput(t *testing.T) {
 	require := require.New(t)
 	_, err := parse(t, "err_session_output")
@@ -1742,6 +1741,10 @@ func TestParse_ErrSessionOutput(t *testing.T) {
 		parser.ErrSignatureUnsupportedOutput,
 		parser.ErrNewSessionWithSSE,
 		parser.ErrCloseSessionWithSSE,
+		parser.ErrSessionOutputErrorPage,
+		parser.ErrSessionOutputErrorPage,
+		parser.ErrSessionOutputErrorPage,
+		parser.ErrSessionOutputErrorPage,
 	)
 }
 

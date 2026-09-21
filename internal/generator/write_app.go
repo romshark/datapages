@@ -1649,10 +1649,10 @@ func (w *Writer) writeRender404(m *model.App, appPkg string) {
 	w.Line(0, "func (s *Server) render404(w http.ResponseWriter, r *http.Request) {")
 
 	h404 := p.GET.Handler
-	needsSession := hasSessionInput(h404) || globalHeadNeedsSession(m)
-	needsToken := h404.OutputCloseSession != nil
-	if needsSession || needsToken {
-		w.writeReadSession(needsSession, needsToken)
+	// No session token: the parser refuses closeSession on the 404 page,
+	// which is the only output that needs one.
+	if hasSessionInput(h404) || globalHeadNeedsSession(m) {
+		w.writeReadSession(true, false)
 		w.Line(0, "")
 	}
 
@@ -2132,10 +2132,10 @@ func (w *Writer) writeGETCall(p *model.Page, m *model.App, context string) {
 		w.Line(1, "}")
 	}
 
-	// Close and create session, before anything is written: both set a cookie.
+	// The parser refuses newSession and closeSession on the 404 page,
+	// so nothing here sets a cookie and the session is the one read above.
 	hasSess := hasSessionInput(h) || globalHeadNeedsSession(m)
-	sessArg, sessRebind := w.renderSessionVar(h, m, true, hasSess)
-	w.writeSessionOutputs(h, sessRebind)
+	sessArg, _ := w.renderSessionVar(h, m, true, hasSess)
 
 	// Redirect.
 	w.writeRedirect(h, h.InputPageCache != nil)

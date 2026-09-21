@@ -71,10 +71,15 @@ names. `PageError500` and `PageError404` render the 500 and 404 responses.
 for an uncached URL while offline. Datapages supplies defaults when these pages
 are absent.
 
-Each declares its route by comment like any other page. `PageError500` and
-`PageOffline` always render with a zero `Session`: the former runs after handling
-has already failed, and the latter is precached once by the service worker and
-served to every visitor, so neither may depend on who is signed in.
+Each declares its route by comment like any other page. `PageOffline` always
+renders with a zero `Session`: the worker precaches one copy and serves it to
+every visitor, which means it cannot depend on who is signed in.
+
+The `GET` of `PageError500` and `PageError404` serves both the page's own route
+and the error path, which is why it must not return `newSession` or
+`closeSession`: the cookie would also be written on a 404 or on a failed
+request, where the handler that failed may already have set one. A `session`
+parameter is allowed and is what an error page renders its document from.
 
 A page with an SSE stream serves `_$/` under its route. A page with both public and user-addressed events also serves `_$/anon/` for signed-out visitors. Page and action routes cannot conflict with these endpoints. A page whose route ends in a `{name...}` wildcard cannot have a stream.
 

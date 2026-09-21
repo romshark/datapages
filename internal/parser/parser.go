@@ -75,6 +75,7 @@ func Parse(appPackagePath string) (app *model.App, errs Errors) {
 	finalizePages(&ctx)
 	finalizeStates(&ctx, &errs)
 	validateRefreshOutputs(&ctx, &errs)
+	validateErrorPageSessionOutputs(&ctx, &errs)
 	checkPageSubjectKinds(&ctx, &errs)
 	assignSpecialPages(&ctx, &errs)
 	validateRouteConflicts(&ctx, &errs)
@@ -1643,6 +1644,42 @@ func validateRefreshOutputs(ctx *parseCtx, errs *Errors) {
 			}
 			errs.ErrAt(ctx.pkg.Fset.Position(o.out.Expr.Pos()),
 				fmt.Errorf("%w in %s.GET", o.err, name))
+		}
+	}
+}
+
+// validateErrorPageSessionOutputs rejects newSession and closeSession on the
+// GET of PageError404 and PageError500.
+//
+// Both pages serve two entry points through one method: their own route and
+// the error path, render404 for the 404 page and httpErrIntern for the 500
+// one. Nothing in the signature separates the two, so a cookie meant for the
+// route is also written on a 404 and on a failed request, where the handler
+// that failed may already have set one. The session parameter stays allowed:
+// an error page reads the session to render its document.
+func validateErrorPageSessionOutputs(ctx *parseCtx, errs *Errors) {
+	for _, name := range []string{"PageError404", "PageError500"} {
+		pg := ctx.pages[name]
+		if pg == nil || pg.GET == nil {
+			continue
+		}
+		for _, o := range []struct {
+			out   *model.Output
+			label string
+		}{
+			{pg.GET.OutputNewSession, "newSession"},
+			{pg.GET.OutputCloseSession, "closeSession"},
+		} {
+			if o.out == nil {
+				continue
+			}
+			pos := pg.Expr.Pos()
+			if o.out.Expr != nil {
+				pos = o.out.Expr.Pos()
+			}
+			errs.ErrAt(ctx.pkg.Fset.Position(pos),
+				fmt.Errorf("%w: %s in %s.GET",
+					ErrSessionOutputErrorPage, o.label, name))
 		}
 	}
 }

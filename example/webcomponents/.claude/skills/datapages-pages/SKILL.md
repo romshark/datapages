@@ -101,6 +101,8 @@ func (PageError404) GET(r *http.Request) (datapages.Component, error) {
 method. Both render with a zero `Session`. `PageOffline` is the service worker
 fallback; see `datapages-offline`.
 
+Neither may return `newSession` or `closeSession`. The same `GET` serves the page's own route and the error path, so the cookie would also be written on a 404 or on a request that already failed. A `session` parameter is allowed: an error page reads the session to render its document.
+
 ## Global head
 
 ```go

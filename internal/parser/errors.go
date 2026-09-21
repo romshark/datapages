@@ -170,6 +170,12 @@ var (
 		"disableRefreshAfterHidden requires a page with a stream: " +
 			"only a page with a stream refreshes when its tab becomes visible",
 	)
+	ErrSessionOutputErrorPage = errors.New(
+		"session output cannot be used in the GET of PageError404 " +
+			"or PageError500: the same method answers a failed request, " +
+			"where the cookie competes with the one the handler that " +
+			"failed already set",
+	)
 
 	ErrSignatureUnsupportedOutput = errors.New(
 		"unsupported output return value",

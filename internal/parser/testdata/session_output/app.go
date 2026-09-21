@@ -88,19 +88,3 @@ func (PageLeave) GET(
 ) {
 	return body, true, redirect, err
 }
-
-// PageError404 is /not-found
-type PageError404 struct{ App *App }
-
-// GET with both session outputs renders through render404,
-// which is generated separately from the page handlers.
-func (PageError404) GET(
-	r *http.Request,
-) (
-	body datapages.Component,
-	closeSession datapages.CloseSession,
-	newSession datapages.NewSession[struct{}],
-	err error,
-) {
-	return body, true, newSession, err
-}
