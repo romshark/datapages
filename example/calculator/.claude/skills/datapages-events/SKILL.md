@@ -54,7 +54,7 @@ The event and `sse` are required. `On` handlers cannot accept signals. Put requi
 
 ## Subjects
 
-A subject field must have the exact type `datapages.Subject` or `datapages.SubjectUser`. The generator rejects a defined type such as `type Recipient datapages.SubjectUser`. Subject fields must be exported and must precede payload fields. Their values extend the base subject in field order, separated by periods. `EventDirectMessage{Recipient: "u1"}` publishes to `messaging.direct.u1`.
+A subject field must have the exact type `datapages.Subject` or `datapages.SubjectUser`. The generator rejects a defined type such as `type Recipient datapages.SubjectUser`. Subject fields must be exported and must precede payload fields. Their values extend the base subject in field order, separated by periods. `EventDirectMessage{Recipient: "u1"}` publishes to `messaging.direct.u1`. A subject field must not be tagged `json:"-"`: the payload carries its value, the subject only routes the event.
 
 ```go
 // EventDirectMessage is "messaging.direct"
