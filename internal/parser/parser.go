@@ -1879,6 +1879,7 @@ func validateRouteVarNames(ctx *parseCtx, errs *Errors) {
 // Asking the same mux keeps the answer identical to the one the server gets on startup.
 func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 	mux := http.NewServeMux()
+	var claimed []routeClaim
 	claim := func(method, route string, expr ast.Expr, owner string) {
 		// A route that is not a path is already reported where it is read.
 		if !strings.HasPrefix(route, "/") {
@@ -1886,19 +1887,29 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 		}
 		pattern := method + " " + route
 		if err := registerRoute(mux, pattern); err != nil {
+			other := conflictingClaim(claimed, pattern)
 			errs.ErrAt(ctx.pkg.Fset.Position(expr.Pos()), &RouteConflictError{
-				Pattern: pattern,
-				Owner:   owner,
-				Reason:  err.Error(),
+				Pattern:    pattern,
+				Owner:      owner,
+				Other:      other.pattern,
+				OtherOwner: other.owner,
+				Reason:     err.Error(),
 			})
+			return
 		}
+		claimed = append(claimed, routeClaim{pattern: pattern, owner: owner})
 	}
 
 	// The core registers the assets prefix on the same mux. Claiming it first
 	// makes the page that wants the same requests the one reported,
 	// which is the one the user can move.
 	if prefix := ctx.app.Assets.URLPrefix; prefix != "" {
-		_ = registerRoute(mux, http.MethodGet+" "+prefix)
+		pattern := http.MethodGet + " " + prefix
+		if registerRoute(mux, pattern) == nil {
+			claimed = append(claimed, routeClaim{
+				pattern: pattern, owner: "the assets URL prefix",
+			})
+		}
 	}
 
 	events := map[string]*model.Event{}
@@ -1919,10 +1930,10 @@ func validateRouteConflicts(ctx *parseCtx, errs *Errors) {
 				&RouteWildcardStreamError{TypeName: p.TypeName, Route: p.Route})
 		default:
 			stream := routepattern.StreamPath(p.Route)
-			claim(http.MethodGet, stream+"{$}", p.Expr, p.TypeName+" stream")
+			claim(http.MethodGet, stream+"{$}", p.Expr, "the stream of "+p.TypeName)
 			if pageHasAnonStream(p, events) {
 				claim(http.MethodGet, stream+"anon/{$}", p.Expr,
-					p.TypeName+" anonymous stream")
+					"the anonymous stream of "+p.TypeName)
 			}
 		}
 		for _, h := range p.Actions {
@@ -1984,6 +1995,34 @@ func pageHasStream(p *model.Page) bool {
 		p.StreamOpen != nil ||
 		p.StreamClose != nil ||
 		p.State != nil
+}
+
+// routeClaim is a pattern a ServeMux accepted and what it was claimed for.
+type routeClaim struct {
+	pattern string
+	owner   string
+}
+
+// conflictingClaim returns the claim that refuses pattern, or the zero value
+// when none does. ServeMux names the conflicting pattern only next to the
+// file that registered it, which is this file for every claim,
+// hence the pair goes on a fresh mux instead.
+//
+// A pattern ServeMux cannot parse is refused by every claim and conflicts with none.
+func conflictingClaim(claimed []routeClaim, pattern string) routeClaim {
+	if registerRoute(http.NewServeMux(), pattern) != nil {
+		return routeClaim{}
+	}
+	for _, c := range claimed {
+		mux := http.NewServeMux()
+		if registerRoute(mux, c.pattern) != nil {
+			continue
+		}
+		if registerRoute(mux, pattern) != nil {
+			return c
+		}
+	}
+	return routeClaim{}
 }
 
 // registerRoute reports what ServeMux says about a pattern.

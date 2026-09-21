@@ -581,6 +581,7 @@ func TestParse_ErrRouteAssetsConflict(t *testing.T) {
 
 // TestParse_ErrRouteStreamConflict tests pages at stream URLs. One stream
 // comes from an event handler; the other comes only from action state.
+// A stream route appears nowhere in the source, hence the report names its page.
 func TestParse_ErrRouteStreamConflict(t *testing.T) {
 	_, err := parse(t, "err_route_stream_conflict")
 	requireParseErrors(t, err, parser.ErrRouteConflict, parser.ErrRouteConflict)
@@ -590,6 +591,43 @@ func TestParse_ErrRouteStreamConflict(t *testing.T) {
 	require.ErrorAs(t, second, &conflict)
 	require.Equal(t, "PageFilesStream", conflict.Owner)
 	require.Equal(t, "GET /files/_$/{$}", conflict.Pattern)
+	require.Equal(t, "the stream of PageFiles", conflict.OtherOwner)
+	require.Equal(t, "GET /files/_$/{$}", conflict.Other)
+	require.Equal(t,
+		`conflicting route: PageFilesStream cannot serve "GET /files/_$/{$}", `+
+			"the stream of PageFiles already serves it",
+		conflict.Error())
+}
+
+// TestParse_ErrRouteConflictNamesTheAssetsPrefix tests the report for a page
+// under the assets URL prefix. The core registers that prefix, which belongs to no page.
+func TestParse_ErrRouteConflictNamesTheAssetsPrefix(t *testing.T) {
+	_, err := parse(t, "err_route_assets_conflict")
+	requireParseErrors(t, err, parser.ErrRouteConflict)
+
+	_, first := err.Entry(0)
+	var conflict *parser.RouteConflictError
+	require.ErrorAs(t, first, &conflict)
+	require.Equal(t, "the assets URL prefix", conflict.OtherOwner)
+	require.Equal(t, "GET /static/", conflict.Other)
+}
+
+// TestParse_ErrRouteUnparsablePatternHasNoOwner tests that a pattern the
+// router cannot parse is reported with its parse error.
+// Every claim refuses it, and naming one of them as the conflict would be wrong.
+func TestParse_ErrRouteUnparsablePatternHasNoOwner(t *testing.T) {
+	_, err := parse(t, "err_route_unterminated_brace")
+
+	var conflict *parser.RouteConflictError
+	for _, e := range err.All() {
+		if errors.As(e, &conflict) {
+			break
+		}
+	}
+	require.NotNil(t, conflict)
+	require.Empty(t, conflict.OtherOwner)
+	require.Empty(t, conflict.Other)
+	require.Contains(t, conflict.Error(), "bad wildcard segment")
 }
 
 // TestParse_ErrRouteWildcardStream tests a page whose path ends in a wildcard
