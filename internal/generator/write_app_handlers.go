@@ -1867,10 +1867,8 @@ func (w *Writer) writeActionMethodCall(
 		if m.GlobalHeadGenerator != nil {
 			w.Raw("genericHead, ")
 		}
-		// An action may return a head of its own, which the response it
-		// renders has to carry. A head without a body never reaches here:
+		// A head without a body never reaches this branch:
 		// [github.com/romshark/datapages/internal/parser.ErrSignatureActionHeadWithoutBody]
-		// refuses it.
 		if h.OutputHead != nil {
 			w.Raw(outputVar(h.OutputHead.Output))
 		} else {

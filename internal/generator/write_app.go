@@ -1919,10 +1919,16 @@ func (w *Writer) writeMethodCall(
 			w.Raw(", ")
 		}
 		if m.GlobalHeadGenerator != nil {
-			w.Raw("genericHead, nil, ")
-		} else {
-			w.Raw("nil, ")
+			w.Raw("genericHead, ")
 		}
+		// A head without a body never reaches this branch:
+		// [github.com/romshark/datapages/internal/parser.ErrSignatureActionHeadWithoutBody]
+		if h.OutputHead != nil {
+			w.Raw(outputVar(h.OutputHead.Output))
+		} else {
+			w.Raw("nil")
+		}
+		w.Raw(", ")
 		w.writePageCacheBodyArg(h)
 		w.Raw(", nil, nil,\n")
 		w.Line(1, "); err != nil {")
