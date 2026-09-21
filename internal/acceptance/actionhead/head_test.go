@@ -44,6 +44,28 @@ func TestActionHeadIsRendered(t *testing.T) {
 		"the action's head was written after the body opened")
 }
 
+// TestAppActionHeadIsRendered tests the same for an action declared on App.
+// The App-level handler is written by a different code path than the page one,
+// which wrote a literal nil where the head belongs and left the return value
+// declared and unused.
+func TestAppActionHeadIsRendered(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+
+	resp := c.Action(t, http.MethodPost, "/app-render/", "")
+	require.Equal(t, http.StatusOK, resp.Status)
+
+	require.Contains(t, resp.Body, `<meta name="from" content="app-action">`,
+		"the head the App-level action returned is not in the response")
+	require.Contains(t, resp.Body, "app body",
+		"the body the App-level action returned is missing")
+	require.Contains(t, resp.Body, "<title>global</title>",
+		"the app-wide head is missing from a response that carries its own")
+	require.Less(t, strings.Index(resp.Body, `content="app-action"`),
+		strings.Index(resp.Body, "<body"),
+		"the action's head was written after the body opened")
+}
+
 // TestPageLoadCarriesTheGlobalHeadOnly tests a plain page load of the same app,
 // which has no head of its own to add.
 func TestPageLoadCarriesTheGlobalHeadOnly(t *testing.T) {

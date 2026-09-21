@@ -153,6 +153,9 @@ func setupHandlers(s *Server) {
 		"GET /",
 		pageIndexHandlers{s}.GET)
 	s.Mux().HandleFunc(
+		"POST /app-render/{$}",
+		appHandlers{s}.POSTAppRender)
+	s.Mux().HandleFunc(
 		"POST /render/{$}",
 		pageIndexHandlers{s}.POSTRender)
 }
@@ -170,6 +173,28 @@ func (s *Server) httpErrIntern(
 		return
 	}
 	httpserve.WriteErrStatus(w, err)
+}
+
+type appHandlers struct{ *Server }
+
+func (s appHandlers) POSTAppRender(w http.ResponseWriter, r *http.Request) {
+	if !s.CheckSameOrigin(w, r) {
+		return
+	}
+
+	defer s.recoverPanic(w, r, nil, "App.AppRender")
+	body, head, err := s.app.POSTAppRender(r)
+	if err != nil {
+		s.httpErrIntern(w, r, nil, "handling action App.AppRender", err)
+		return
+	}
+	genericHead := s.app.Head(r)
+	if err := s.writeHTML(
+		w, r, genericHead, head, body, nil, nil,
+	); err != nil {
+		s.LogErr("rendering response of App.POSTAppRender", err)
+		return
+	}
 }
 
 type pageIndexHandlers struct{ *Server }
