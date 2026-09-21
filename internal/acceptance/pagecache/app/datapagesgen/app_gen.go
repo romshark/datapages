@@ -19,12 +19,12 @@ import (
 	"github.com/romshark/datapages/modules/messaging"
 	"github.com/romshark/datapages/modules/offline"
 	"github.com/romshark/datapages/modules/sessions"
-	"github.com/romshark/datapages/runtime/actionexpr"
 	"github.com/romshark/datapages/runtime/httpread"
 	"github.com/romshark/datapages/runtime/httpserve"
 	dpsse "github.com/romshark/datapages/runtime/sse"
 
 	dpapp "github.com/romshark/datapages/internal/acceptance/pagecache/app"
+	"github.com/romshark/datapages/internal/acceptance/pagecache/app/datapagesgen/action"
 	"github.com/romshark/datapages/internal/acceptance/pagecache/app/datapagesgen/href"
 
 	"github.com/starfederation/datastar-go/datastar"
@@ -409,7 +409,7 @@ func (s *Server) Init(
 
 	s.Build()
 	href.SetLogger(s.SampledLogger())
-	actionexpr.SetLogger(s.SampledLogger())
+	action.SetLogger(s.SampledLogger())
 
 	return nil
 }
