@@ -18,6 +18,8 @@
 
 A [Templ](https://templ.guide) + Go + [Datastar](https://data-star.dev) web framework and toolset for building GUI apps and web application in pure Go - no matter whether it's a **real-time collaborative dynamic web app**, a simple [HTMX](https://htmx.org/)-style website, or an installable local-first GUI app.
 
+See [FAQ.md](FAQ.md) for frequently asked questions.
+
 ### Utilize AI agents more efficiently
 
 Datapages will provide your coding agents with the skills and CLI tools they need to generate well performing, resource-efficient apps and keep the code base coherent and maintainable, lowering token-usage, reducing potential for bugs and vulnerabilities as well as slowing the accumulation of technical debt.
@@ -184,8 +186,6 @@ See [`datapages.State[T]`](SPECIFICATION.md#parameter-datapagesstatet) for the d
 ## Specification
 
 See [SPECIFICATION.md](SPECIFICATION.md) for the full source package specification, including handler signatures, parameters, return values, events, sessions, and modules.
-
-See [FAQ.md](FAQ.md) for frequently asked questions.
 
 ## Modules
 
