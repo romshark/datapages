@@ -15,6 +15,7 @@ import (
 	"github.com/romshark/datapages/internal/parser/internal/typecheck"
 	"github.com/romshark/datapages/internal/parser/model"
 	"github.com/romshark/datapages/internal/parser/validate"
+	"github.com/romshark/datapages/internal/structtag"
 )
 
 // baseIdent unwraps a type expression to the identifier naming its type:
@@ -215,6 +216,9 @@ type SubjectFieldResult struct {
 	// segment type. go/types keeps no trace of the derivation: such a field
 	// would silently become a payload field and drop the segment.
 	Derived []DerivedSubjectField
+	// JSONExcluded lists subject fields tagged json:"-". The payload carries
+	// a subject field's value, the subject only routes the event.
+	JSONExcluded []SubjectField
 }
 
 // SubjectFields inspects a type spec for fields typed as datapages subject
@@ -246,9 +250,11 @@ func SubjectFields(
 
 		// Extract optional signal:"xxx" tag for signal-scoped subject fields.
 		var signalName string
+		var jsonExcluded bool
 		if f.Tag != nil {
 			if tag, err := strconv.Unquote(f.Tag.Value); err == nil {
 				signalName = reflect.StructTag(tag).Get("signal")
+				jsonExcluded = structtag.JSONTagExcluded(tag)
 			}
 		}
 
@@ -292,6 +298,10 @@ func SubjectFields(
 			if !ident.IsExported() {
 				result.Unexported = append(result.Unexported, sf)
 				continue
+			}
+
+			if jsonExcluded {
+				result.JSONExcluded = append(result.JSONExcluded, sf)
 			}
 
 			if seenPayload && result.AfterPayload == nil {

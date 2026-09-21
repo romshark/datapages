@@ -991,6 +991,10 @@ func workspaceGoVersion(t *testing.T, repoRoot string) string {
 	return version
 }
 
+// versionUnstamped makes init use the local checkout instead of querying a
+// module version that may not exist.
+const versionUnstamped = ""
+
 // TestInit tests scaffolding a new project: what init writes, what it asks for on stdin,
 // and which directories it refuses to scaffold into.
 func TestInit(t *testing.T) {
@@ -1292,7 +1296,7 @@ func TestInit(t *testing.T) {
 			code := cmd.Run(
 				context.Background(), tc.args,
 				stdin, &stdout, &stderr,
-				"0.0.0", "xxxxxxx", "2026-2-23",
+				versionUnstamped, "xxxxxxx", "2026-2-23",
 			)
 			require.Equal(t, tc.wantCode, code,
 				"stdout: %s\nstderr: %s", stdout.String(), stderr.String())
@@ -1328,7 +1332,7 @@ func TestInitInInitializedProject(t *testing.T) {
 				"datapages", "init", "-n", "--module", "example.com/initialized",
 			}, args...),
 			nil, &stdout, &stderr,
-			"0.0.0", "xxxxxxx", "2026-2-23",
+			versionUnstamped, "xxxxxxx", "2026-2-23",
 		)
 		require.Zero(t, code,
 			"stdout: %s\nstderr: %s", stdout.String(), stderr.String())

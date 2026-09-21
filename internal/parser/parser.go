@@ -475,6 +475,15 @@ func registerEventType(
 				ErrEventFieldUnexported, sf.FieldName, name),
 		)
 	}
+	for _, sf := range sfResult.JSONExcluded {
+		errs.ErrAt(
+			ctx.pkg.Fset.Position(sf.Pos),
+			&EventSubjectJSONExcludedError{
+				FieldName: sf.FieldName,
+				TypeName:  name,
+			},
+		)
+	}
 	for _, sf := range sfResult.Prefixed {
 		errs.ErrAt(
 			ctx.pkg.Fset.Position(sf.Pos),
@@ -1652,11 +1661,8 @@ func validateRefreshOutputs(ctx *parseCtx, errs *Errors) {
 // GET of PageError404 and PageError500.
 //
 // Both pages serve two entry points through one method: their own route and
-// the error path, render404 for the 404 page and httpErrIntern for the 500
-// one. Nothing in the signature separates the two, so a cookie meant for the
-// route is also written on a 404 and on a failed request, where the handler
-// that failed may already have set one. The session parameter stays allowed:
-// an error page reads the session to render its document.
+// the error path, render404 for the 404 page and httpErrIntern for the 500 one.
+// Nothing in the signature separates the two.
 func validateErrorPageSessionOutputs(ctx *parseCtx, errs *Errors) {
 	for _, name := range []string{"PageError404", "PageError500"} {
 		pg := ctx.pages[name]

@@ -942,6 +942,18 @@ func TestParse_ErrEventSubjectUserSignal(t *testing.T) {
 	)
 }
 
+// TestParse_ErrEventSubjectJSONExcluded tests a subject field tagged json:"-",
+// which is the tag that keeps its value out of the payload that carries it.
+func TestParse_ErrEventSubjectJSONExcluded(t *testing.T) {
+	_, err := parse(t, "err_event_subj_json_excluded")
+	require.NotZero(t, err.Error())
+
+	requireParseErrors(
+		t, err,
+		parser.ErrEventSubjectJSONExcluded,
+	)
+}
+
 // TestParse_ErrEventSubjectPrefixedField tests a subject field whose value would
 // carry the subject prefix itself.
 func TestParse_ErrEventSubjectPrefixedField(t *testing.T) {

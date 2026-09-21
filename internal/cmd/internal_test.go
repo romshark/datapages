@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -454,4 +457,28 @@ func TestSelectApp(t *testing.T) {
 			require.Equal(t, tt.wantDir, a.Dir)
 		})
 	}
+}
+
+// TestModuleVersionExistsEndsWithTheContext tests that a
+// stalled module query returns when its context expires.
+func TestModuleVersionExistsEndsWithTheContext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() },
+	))
+	t.Cleanup(srv.Close)
+
+	t.Setenv("GOFLAGS", "")
+	t.Setenv("GOPROXY", srv.URL)
+	t.Setenv("GOSUMDB", "off")
+	// An empty cache leaves the proxy as the only source of an answer.
+	t.Setenv("GOMODCACHE", t.TempDir())
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"),
+		[]byte("module example.com/pending\n\ngo 1.24\n"), 0o644))
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	err := moduleVersionExists(ctx, dir, "v1.2.3")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }

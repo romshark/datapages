@@ -171,10 +171,8 @@ var (
 			"only a page with a stream refreshes when its tab becomes visible",
 	)
 	ErrSessionOutputErrorPage = errors.New(
-		"session output cannot be used in the GET of PageError404 " +
-			"or PageError500: the same method answers a failed request, " +
-			"where the cookie competes with the one the handler that " +
-			"failed already set",
+		"session output cannot be used in the GET of PageError404 or PageError500:" +
+			" one method answers both the page's own route and a failed request",
 	)
 
 	ErrSignatureUnsupportedOutput = errors.New(
@@ -214,6 +212,8 @@ var (
 	ErrEventSubjectUserSignal = errors.New(
 		"user-addressed subject field must not have a signal tag",
 	)
+
+	ErrEventSubjectJSONExcluded = errors.New(`subject field must not be tagged json:"-"`)
 
 	ErrDispatchDuplicate = errors.New(
 		"multiple dispatchers for the same event type",
@@ -749,6 +749,22 @@ func (e *EventSubjectUserSignalError) Error() string {
 
 func (e *EventSubjectUserSignalError) Unwrap() error {
 	return ErrEventSubjectUserSignal
+}
+
+// EventSubjectJSONExcludedError is [ErrEventSubjectJSONExcluded] with the field.
+// The payload carries a subject field's value, the subject only routes the event.
+type EventSubjectJSONExcludedError struct {
+	FieldName string // e.g. "Room"
+	TypeName  string // e.g. "EventChat"
+}
+
+func (e *EventSubjectJSONExcludedError) Error() string {
+	return fmt.Sprintf("%v: field %s in %s",
+		ErrEventSubjectJSONExcluded, e.FieldName, e.TypeName)
+}
+
+func (e *EventSubjectJSONExcludedError) Unwrap() error {
+	return ErrEventSubjectJSONExcluded
 }
 
 // DispatchDuplicateError is [ErrDispatchDuplicate] with the handler context.

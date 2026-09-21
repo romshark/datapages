@@ -65,21 +65,11 @@ URLs require a comment in [net/http ServeMux pattern syntax](https://pkg.go.dev/
 
 `PageIndex` is required for `/`.
 
-`PageError500`, `PageError404` and `PageOffline` are optional reserved page
-names. `PageError500` and `PageError404` render the 500 and 404 responses.
-`PageOffline` is the fallback that the [service worker](#service-worker) serves
-for an uncached URL while offline. Datapages supplies defaults when these pages
-are absent.
+`PageError500`, `PageError404` and `PageOffline` are optional reserved page names. `PageError500` and `PageError404` may override the default pages for status codes 500 and 404. `PageOffline` is the fallback that the [service worker](#service-worker) serves for an uncached URL while offline. Datapages supplies defaults when these pages are absent.
 
-Each declares its route by comment like any other page. `PageOffline` always
-renders with a zero `Session`: the worker precaches one copy and serves it to
-every visitor, which means it cannot depend on who is signed in.
+Each declares its route by comment like any other page. `PageOffline` always renders with a zero `Session`: the worker precaches one copy and serves it to every visitor, which means it cannot depend on who is signed in.
 
-The `GET` of `PageError500` and `PageError404` serves both the page's own route
-and the error path, which is why it must not return `newSession` or
-`closeSession`: the cookie would also be written on a 404 or on a failed
-request, where the handler that failed may already have set one. A `session`
-parameter is allowed and is what an error page renders its document from.
+The `GET` of `PageError500` and `PageError404` serves its page route and error responses. It must not return `newSession` or `closeSession`. Returning either writes a session cookie on an error response. It may accept a `session` parameter to render the document.
 
 A page with an SSE stream serves `_$/` under its route. A page with both public and user-addressed events also serves `_$/anon/` for signed-out visitors. Page and action routes cannot conflict with these endpoints. A page whose route ends in a `{name...}` wildcard cannot have a stream.
 
@@ -641,6 +631,8 @@ Events may declare subject fields for targeted NATS subjects:
 | `datapages.SubjectUser` | the ID of the user the event is addressed to |
 
 Subject fields must be exported and precede payload fields. Names are unrestricted; types determine their role.
+
+Subject fields must not use `json:"-"`. Their values must remain in the payload because the subject only routes the event.
 
 Each dispatch publishes to one subject. Subject field values follow the base subject in field order, separated by dots. For base `notify` and values `u1`, `r1`, and `mobile`, the subject is `notify.u1.r1.mobile`.
 

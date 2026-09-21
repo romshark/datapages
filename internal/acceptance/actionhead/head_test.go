@@ -44,10 +44,8 @@ func TestActionHeadIsRendered(t *testing.T) {
 		"the action's head was written after the body opened")
 }
 
-// TestAppActionHeadIsRendered tests the same for an action declared on App.
-// The App-level handler is written by a different code path than the page one,
-// which wrote a literal nil where the head belongs and left the return value
-// declared and unused.
+// TestAppActionHeadIsRendered tests the same for an action declared on App,
+// whose handler the generator writes through a different code path.
 func TestAppActionHeadIsRendered(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
